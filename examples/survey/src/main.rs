@@ -13,14 +13,14 @@
 //! cargo build -p survey --target wasm32-wasip2
 //! ```
 
-use wasdk::lifecycle::{self, AppExitResponse, ExitRequest};
+use wasdk::lifecycle::{self, AppExitResponse, ExitRequest, LifecycleState};
 use wasdk::screens::{self, Screen};
 use wasdk::system::{self, Locale, SystemChange};
-use wasdk::system_clock;
 use wasdk::views::{
     self, PointerChange, PointerEvent, RequestFailure, View, ViewChange, ViewEvent, ViewId,
 };
 use wasdk::windows::{MacosTitleBar, Rect, Size, TitleBarAction, Window, WindowConfig};
+use wasdk::{StreamReader, system_clock};
 
 /// The smallest size survey's windows may be resized to.
 const MIN_SIZE: Size = Size {
@@ -44,14 +44,19 @@ const DOUBLE_CLICK_TIME: u64 = 300_000_000;
 
 #[wasdk::main]
 async fn main() -> Result<(), String> {
+    // Each stream is opened here, before what it changes is read, rather than in its task, which
+    // first runs at the first await: a change between the two is not missed.
+    let system_changes = system::changes();
+    let state_changes = lifecycle::state_changes();
+    let exit_requests = lifecycle::exit_requests();
     describe_system();
     for screen in screens::screens() {
         describe_screen(&screen);
     }
     println!("program: {:?}", lifecycle::state());
-    wasdk::spawn(log_system_changes());
-    wasdk::spawn(log_state_changes());
-    wasdk::spawn(answer_exit_requests());
+    wasdk::spawn(log_system_changes(system_changes));
+    wasdk::spawn(log_state_changes(state_changes));
+    wasdk::spawn(answer_exit_requests(exit_requests));
 
     // The stream is opened before the list is read, so a change between the two is not missed.
     let mut changes = views::view_changes();
@@ -85,8 +90,7 @@ async fn main() -> Result<(), String> {
     Ok(())
 }
 
-async fn log_system_changes() {
-    let mut changes = system::changes();
+async fn log_system_changes(mut changes: StreamReader<SystemChange>) {
     while let Some(change) = changes.next().await {
         match change {
             SystemChange::TimeZone(name) => println!("system: time zone now {name:?}"),
@@ -95,16 +99,14 @@ async fn log_system_changes() {
     }
 }
 
-async fn log_state_changes() {
-    let mut states = lifecycle::state_changes();
+async fn log_state_changes(mut states: StreamReader<LifecycleState>) {
     while let Some(state) = states.next().await {
         println!("program: {state:?}");
     }
 }
 
 /// Answers each request to end with `exit`, after saying so: a program with nothing to save.
-async fn answer_exit_requests() {
-    let mut requests = lifecycle::exit_requests();
+async fn answer_exit_requests(mut requests: StreamReader<ExitRequest>) {
     while let Some(request) = requests.next().await {
         println!("program: asked whether it may end: yes");
         ExitRequest::respond(request, AppExitResponse::Exit);
