@@ -1,0 +1,35 @@
+[package]
+name = "notes"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Notes, a library of notes the app keeps itself, as an Waft app in WinUI's Fluent look over waft-embedder-wasdk: a sidebar of notes beside the note, or a pane over it at a phone's width, searched, deleted into Recently Deleted, imported and exported as text, with a reminder of a note. `cargo waos run -p notes`."
+
+[dependencies]
+waft-embedder.workspace = true
+waft-embedder-wasdk.workspace = true
+waft-foundation.workspace = true
+waft-services.workspace = true
+waft-widgets.workspace = true
+waft-winui.workspace = true
+# A note's file in the store: its text and times as JSON.
+serde.workspace = true
+serde_json.workspace = true
+# What goes wrong out of the user's sight: a note's file that cannot be read, or a note the store
+# cannot keep.
+tracing.workspace = true
+wasdk.workspace = true
+
+[dev-dependencies]
+# Folders made for the store's tests, removed after them.
+tempfile.workspace = true
+
+[lints]
+workspace = true
+
+# The id `cargo waos run` runs this program as, with that program's settings and folders.
+[package.metadata.waos]
+id = "dev.waos.notes"
+name = "Notes"
+icon = "icon.png"

@@ -1,0 +1,3 @@
+# `cargo xtask <task>`: the repository's own chores, `xtask/`.
+[alias]
+xtask = "run --package xtask --"

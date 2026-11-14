@@ -1,0 +1,20 @@
+[package]
+name = "trust"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "A program that asks the system whether it trusts a server's certificate chain, and requests a page from a server whose chain the system does not trust. `cargo build -p trust --target wasm32-wasip2`."
+
+[dependencies]
+wasdk.workspace = true
+
+[lints]
+workspace = true
+
+# What WaOS knows the program by: the id `cargo waos run` runs it as, with that program's
+# settings and folders, and the name and icon `cargo waos package` writes into its package.
+[package.metadata.waos]
+id = "dev.waos.examples.trust"
+name = "Trust"
+icon = "icon.png"

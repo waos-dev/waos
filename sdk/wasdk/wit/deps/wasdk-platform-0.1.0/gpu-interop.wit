@@ -1,0 +1,19 @@
+package wasdk:platform@0.1.0;
+
+/// Memory the system shares with the program's GPU device, as each system's GPU API imports it:
+/// Metal's `newTextureWithDescriptor:iosurface:plane:` over an `IOSurface`, Vulkan's external
+/// memory over an `AHardwareBuffer`, D3D's `OpenSharedResource` over a shared texture, WebGPU's
+/// `importExternalTexture` of a `VideoFrame`. A hardware buffer names no GPU API
+/// (`hardware-buffers`); this is where it meets WebGPU, so it is named as Vulkan, CUDA and Android
+/// name sharing with a GPU API, interop, and a fence or a semaphore shared later belongs here too.
+interface gpu-interop {
+  use wasi:webgpu/webgpu@0.3.0-rc.2.{gpu-device, gpu-texture};
+  use hardware-buffers.{hardware-buffer};
+
+  /// A texture on `device` over `buffer`'s memory, of the buffer's size and format, for what its
+  /// usage names, `gpu-sampled` as a texture's `texture-binding` and `gpu-color-output` as its
+  /// `render-attachment` and `copy-dst`, and copied from whatever its usage. It holds the buffer,
+  /// and a video frame's buffer the frame, until the GPU is done with it. Native hosts share the
+  /// buffer's memory; a web host copies it.
+  import-texture: func(device: borrow<gpu-device>, buffer: borrow<hardware-buffer>) -> gpu-texture;
+}

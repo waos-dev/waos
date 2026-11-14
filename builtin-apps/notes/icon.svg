@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!-- Notes: a sharpened pencil, and the line it has just written. The pencil is drawn lying along x, then turned. -->
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fffcf4"/><stop offset="1" stop-color="#efe5cf"/></linearGradient>
+    <linearGradient id="eraser" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#d9566a"/><stop offset="0.6" stop-color="#ff8a9a"/><stop offset="1" stop-color="#ffb3bd"/></linearGradient>
+    <linearGradient id="ferrule" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#7d7f88"/><stop offset="0.55" stop-color="#d9dbe0"/><stop offset="0.8" stop-color="#ffffff"/><stop offset="1" stop-color="#b8bac2"/></linearGradient>
+    <linearGradient id="wood" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#f3cf9c"/><stop offset="1" stop-color="#d9a868"/></linearGradient>
+    <filter id="shadow" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur in="SourceAlpha" stdDeviation="16"/><feOffset dx="0" dy="18"/><feComponentTransfer><feFuncA type="linear" slope="0.3"/></feComponentTransfer><feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+  </defs>
+  <rect width="1024" height="1024" fill="url(#tile)"/>
+  <path d="M300 724 C 340 664, 372 664, 380 708 C 388 752, 420 752, 448 704 C 476 656, 508 660, 516 704 C 524 748, 560 752, 590 708 C 620 664, 652 668, 662 712 C 668 740, 700 748, 736 724" fill="none" stroke="#4a4a52" stroke-width="22" stroke-linecap="round" stroke-linejoin="round"/>
+  <g filter="url(#shadow)"><g transform="translate(548 478) rotate(135)">
+    <path d="M-250 -48 H-300 Q-330 -48 -330 -18 V18 Q-330 48 -300 48 H-250 Z" fill="url(#eraser)"/>
+    <rect x="-252" y="-50" width="78" height="100" fill="url(#ferrule)"/>
+    <path d="M-236 -50 V50 M-220 -50 V50 M-206 -50 V50" stroke="#8d8f98" stroke-width="5"/>
+    <rect x="-176" y="-48" width="348" height="32" fill="#e8a400"/>
+    <rect x="-176" y="-16" width="348" height="32" fill="#ffc21a"/>
+    <rect x="-176" y="16" width="348" height="32" fill="#ffd95c"/>
+    <path d="M170 -48 Q186 -32 170 -16 Q186 0 170 16 Q186 32 170 48 L292 12 V-12 Z" fill="url(#wood)"/>
+    <path d="M268 -19 L318 -4 Q326 0 318 4 L268 19 Z" fill="#3b3b42"/>
+  </g></g>
+</svg>

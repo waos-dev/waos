@@ -1,0 +1,31 @@
+[package]
+name = "wasdk-wgpu"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = true
+description = "A wgpu backend over wasi:webgpu, so a program written against wgpu draws in a component unchanged."
+homepage.workspace = true
+readme = "README.md"
+
+[dependencies]
+futures.workspace = true
+wasdk.workspace = true
+# `wgsl` names WGSL as a shader source, the one the boundary carries; the engine compiles it.
+# `webgpu` is on so wgpu's web-only trait items exist whichever features a program using this
+# crate unifies in; nothing of wgpu's browser backend is called, so none of it is linked.
+wgpu = { workspace = true, features = ["custom", "wgsl", "webgpu"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+# Only to name the type in the one web-only trait item that has no wasi counterpart.
+js-sys = "0.3"
+
+# Eight methods of wgpu's dispatch traits are declared `unsafe`, so implementing them writes
+# the keyword: an implementation of a trait whose owner declares its methods `unsafe`, which
+# AGENTS.md allows. Only one body does anything unsafe, `Instance::create_surface`, which reads
+# the view its window handle points at; and a view's window handle is made with
+# raw-window-handle's `WindowHandle::borrow_raw`, the one way to make one, which wraps the handle
+# into raw-window-handle's safe API (`surface`). The crate denies the lint and allows it exactly
+# there.
+[lints.rust]
+unsafe_code = "deny"

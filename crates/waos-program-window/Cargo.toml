@@ -1,0 +1,48 @@
+[package]
+name = "waos-program-window"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "A program's windows as its user meets them, on any desktop: each view in an Waft window, its canvas, pointer, keys, text input and Edit's commands, talking to its program through ProgramLink."
+
+[dependencies]
+# The program's side of a window: the types wasmtime generates from the WIT, which cross as they
+# are, and the engine's own program and views, which are the link to a program in this process.
+waos.workspace = true
+# A program's calls on its view, as the values they are on both sides of a process.
+waos-window-messages.workspace = true
+futures.workspace = true
+tracing.workspace = true
+waft.workspace = true
+# What a program's view takes its input from, below Waft's facade: the pointer widget, the
+# pointer events it receives, and the keys and text input.
+waft-widgets.workspace = true
+waft-gestures.workspace = true
+waft-services.workspace = true
+
+# Waft's own buffer over an `IOSurface`, which a program's hardware buffers are shown as on a Waft
+# composition layer; and the retain of the surface, or of the video frame it is the memory of,
+# that a layer shows, which the engine is handed.
+[target.'cfg(target_vendor = "apple")'.dependencies]
+waft-embedder-winit.workspace = true
+objc2-core-foundation = { workspace = true, features = ["std"] }
+
+# Waft's buffer over a dmabuf on Linux, and its shared texture over a D3D12 texture's NT handle on
+# Windows, which a program's hardware buffers are shown as on a Waft composition layer, and the
+# buffer a layer shows, which the engine is handed.
+[target.'cfg(any(target_os = "linux", windows))'.dependencies]
+waft-embedder-winit.workspace = true
+
+# Waft's buffer over an `AHardwareBuffer`, which a program's hardware buffers are shown as on a
+# Waft composition layer on Android, and the system's buffer a layer shows, which the engine is
+# handed.
+[target.'cfg(target_os = "android")'.dependencies]
+waft-embedder-android.workspace = true
+
+# A platform with no window server, for the tests of how a window stands.
+[dev-dependencies]
+waft-test.workspace = true
+
+[lints]
+workspace = true

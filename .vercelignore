@@ -1,0 +1,20 @@
+# The website deploys to Vercel from the repository's root, its project's root directory being
+# packages/waos-site, so the site's build reads the WIT, examples/hello and the built-in apps'
+# icons where they are. Only those and the site are uploaded.
+/*
+!/packages
+/packages/*
+!/packages/waos-site
+/packages/waos-site/node_modules
+/packages/waos-site/.next
+/packages/waos-site/.source
+/packages/waos-site/content/docs/reference/wasdk-*/
+!/wit
+!/examples
+/examples/*
+!/examples/hello
+/examples/hello/target
+!/builtin-apps
+/builtin-apps/*/*
+!/builtin-apps/*/Cargo.toml
+!/builtin-apps/*/icon.png

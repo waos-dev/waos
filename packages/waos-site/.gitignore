@@ -1,0 +1,10 @@
+/node_modules/
+/.next/
+/.source/
+/out/
+next-env.d.ts
+*.tsbuildinfo
+# The reference's WIT pages, which scripts/write-reference.mjs writes at each build
+/content/docs/reference/wasdk-*/
+# The built-in apps' icons, which scripts/write-app-icons.mjs writes at each build
+/public/apps/

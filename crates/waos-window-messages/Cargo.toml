@@ -1,0 +1,33 @@
+[package]
+name = "waos-window-messages"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "What WaOS and a program's window process say to each other, as values, and the Mach transport that carries them on macOS."
+
+[dependencies]
+# The program's records as wasmtime generates them from the WIT, which the messages carry as they
+# are, and the engine's own values a window's calls and reports take.
+waos.workspace = true
+# Which program a window process is, by its id.
+waos-package.workspace = true
+# The values Waft's host gives a view and takes from it, which a prompt's dialog carries as they
+# are, with serde's derives: its metrics, pointers, keys, focus and cursor.
+waft-embedder = { workspace = true, features = ["serde"] }
+# The messages' shape, and their bytes, as `waos-dev-protocol` writes its own.
+serde.workspace = true
+postcard.workspace = true
+# The bootstrap name a WaOS is found by: the SHA-256 of its data folder, in hex, as Chrome names
+# the port of a user data folder.
+sha2.workspace = true
+hex.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+mach2.workspace = true
+libc.workspace = true
+
+# `os/macos` wraps Mach's ports and messages, an unsafe API; the rest of the crate has no
+# `unsafe`.
+[lints.rust]
+unsafe_code = "deny"

@@ -1,0 +1,20 @@
+[package]
+name = "wasdk-macros"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = true
+description = "#[wasdk::main], the entry of a WaOS program written with wasdk, which wasdk re-exports."
+homepage.workspace = true
+readme = "README.md"
+
+[lib]
+proc-macro = true
+
+[dependencies]
+proc-macro2.workspace = true
+quote.workspace = true
+syn.workspace = true
+
+[lints]
+workspace = true

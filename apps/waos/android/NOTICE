@@ -1,0 +1,33 @@
+apps/waos/android
+
+The two Android libraries WaOS's package carries for HTTPS (`dependencies` under
+[package.metadata.waft.android] in ../Cargo.toml), unchanged, each as it was published. Neither
+holds a licence file of its own; each is used here under the Apache License, Version 2.0, in
+LICENSE-APACHE.
+
+rustls-platform-verifier-0.2.0.aar
+
+    The Kotlin half of the rustls-platform-verifier crate: the class its Rust half asks the
+    system's certificate checker through, org.rustls.platformverifier.CertificateVerifier.
+    Maven coordinates org.rustls:rustls-platform-verifier:0.2.0, from the maven-archive branch of
+    https://github.com/rustls/rustls-platform-verifier, at
+    android-release-support/maven/org/rustls/rustls-platform-verifier/0.2.0/, published by the
+    branch's commit 69c6eb55d6 ("Prepare Maven release 0.2.0") with the crate's release v/0.7.1.
+    The version is the one Cargo.lock pins rustls-platform-verifier-android at, the crate that
+    exists to say it.
+    SHA-1   28b6b316c2749a7c94b4d19061f12c64759a0e27 (the published .sha1's)
+    SHA-256 aa021794230fbc2f0be355999e2cf67398dd563de066a2e17001ffbd0b69101b
+    Licence: MIT OR Apache-2.0, as rustls-platform-verifier-android 0.2.0, published with it,
+    declares; its POM declares none.
+
+kotlin-stdlib-2.2.10.jar
+
+    Kotlin's standard library, which the AAR's classes run on and which its POM does not name:
+    its module's build depends on kotlin-stdlib-jdk7 at the release's Kotlin, 2.2.10
+    (android/gradle/libraries.versions.toml at v/0.7.1), whose classes kotlin-stdlib holds since
+    Kotlin 1.8. Maven coordinates org.jetbrains.kotlin:kotlin-stdlib:2.2.10, from Maven Central,
+    https://repo1.maven.org/maven2/org/jetbrains/kotlin/kotlin-stdlib/2.2.10/.
+    SHA-1   30de6faa127a4a012db8e71bf1b9c0a99b1402b2 (the published .sha1's)
+    SHA-256 9c67cc79efd6b9215b49d2a4308f5f3433537376c7c88e89bdd6729bd096e61a
+    Licence: Apache-2.0, as its POM declares. Copyright JetBrains s.r.o. and Kotlin Programming
+    Language contributors.

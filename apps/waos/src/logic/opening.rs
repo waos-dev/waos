@@ -1,0 +1,92 @@
+//! Handing a program what its user does to it from outside it: files opened with it, as `waos open
+//! <file> --program <id>` asks until programs register what opens them (decision 3 of the opening
+//! proposal), and a click on one of its notifications. Each goes to the program the id names
+//! (`program_named`), the one running under it, whether `cargo waos` sent it or the library opened
+//! it, or else the installed program, opened as the library opens it; the program hears it once it
+//! listens (`RunningProgram::open_requested`, `RunningProgram::notification_activated`).
+//!
+//! The invariant: a request or a click reaches a program, or the caller hears why not; nothing is
+//! started for an id that names no installed program.
+
+use anyhow::{Context, Result};
+use waos::bindings::wasdk::platform::notifications::Activation;
+use waos::{OpenRequest, RunningProgram};
+use waos_dev_protocol::{Connection, FromWaOS, ServerStream};
+use waos_package::ProgramId;
+use waos_store::Store;
+
+use super::installed_runs::InstalledRuns;
+
+/// Hands `request` to the program `id`: the one running under it, or else the installed one,
+/// opened first; fails for an id neither installed nor running.
+pub(crate) async fn open_with(
+    installed: &InstalledRuns,
+    store: &Store,
+    id: &ProgramId,
+    request: OpenRequest,
+) -> Result<()> {
+    let program = program_named(installed, store, id)
+        .await?
+        .with_context(|| format!("{id} is neither installed nor running"))?;
+    tracing::info!(%id, ?request, "files opened with the program");
+    program.open_requested(request);
+    Ok(())
+}
+
+/// Hands the click `activation` on a notification to the program `id`, as files are handed: the
+/// one running under it, or else the installed one, opened first; fails, saying so, for an id
+/// neither installed nor running, as a removed program leaves its notifications as they are
+/// (decision 4 of the notifications proposal).
+pub(crate) async fn notification_activated(
+    installed: &InstalledRuns,
+    store: &Store,
+    id: &ProgramId,
+    activation: Activation,
+) -> Result<()> {
+    let program = program_named(installed, store, id)
+        .await?
+        .with_context(|| {
+            format!("{id} is no longer installed, so its notification has nothing to open")
+        })?;
+    tracing::info!(%id, ?activation, "a click on the program's notification");
+    program.notification_activated(activation);
+    Ok(())
+}
+
+/// The program `id` names: the installed one, opened unless it runs already, or else the one
+/// running under it, as `cargo waos` runs one; none for an id neither installed nor running.
+pub(crate) async fn program_named(
+    installed: &InstalledRuns,
+    store: &Store,
+    id: &ProgramId,
+) -> Result<Option<RunningProgram>> {
+    match store.program(id) {
+        Some(component) => {
+            let (program, _views) = installed
+                .open(id, component, Vec::new(), installed.places.usual())
+                .await?;
+            Ok(Some(program))
+        }
+        None => Ok(installed.runs.running(id).await),
+    }
+}
+
+/// Answers a connection's `Open`: the files handed to the program `id`, then `Opened`, or
+/// `Refused` with why not.
+pub(crate) async fn answer(
+    mut connection: Connection<ServerStream>,
+    installed: &InstalledRuns,
+    store: &Store,
+    id: &ProgramId,
+    request: OpenRequest,
+) {
+    let answer = match open_with(installed, store, id, request).await {
+        Ok(()) => FromWaOS::Opened,
+        Err(why) => {
+            tracing::info!("an opening refused: {why:#}");
+            FromWaOS::Refused(format!("{why:#}"))
+        }
+    };
+    // A client gone meanwhile has nobody to tell.
+    let _ = connection.send(&answer).await;
+}

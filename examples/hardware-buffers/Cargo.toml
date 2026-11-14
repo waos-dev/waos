@@ -1,0 +1,19 @@
+[package]
+name = "hardware-buffers"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "A program that allocates hardware buffers of its own, draws into them with WebGPU, reads and encodes one, and shows them on a composition layer beside its canvas. `cargo build -p hardware-buffers --target wasm32-wasip2`."
+
+[dependencies]
+wasdk.workspace = true
+wasdk-wgpu.workspace = true
+wgpu.workspace = true
+
+[lints]
+workspace = true
+
+# The id `cargo waos run` runs this program as, with that program's settings and folders.
+[package.metadata.waos]
+id = "dev.waos.examples.hardwarebuffers"

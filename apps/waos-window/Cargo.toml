@@ -1,0 +1,57 @@
+[package]
+name = "waos-window"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "A program's window process on macOS: an Waft app over waos-program-window, holding one program's windows, which WaOS's window library is and each program's app bundle loads."
+
+# The window process is this library, which each program's loader loads from beside WaOS; the
+# loader is the executable every program's app bundle carries a copy of.
+[lib]
+name = "waos_window"
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "waos-program-loader"
+path = "src/bin/waos-program-loader/main.rs"
+
+[dependencies]
+# The program's records, and the engine's values its windows report in.
+waos.workspace = true
+waos-package.workspace = true
+waos-program-window.workspace = true
+waos-window-messages.workspace = true
+waft.workspace = true
+# What the canvas of a prompt's dialog takes its input from, below Waft's facade: the pointer
+# widget, the pointer events it receives, the keys, and the cursor it leaves to the system.
+waft-widgets.workspace = true
+waft-gestures.workspace = true
+waft-services.workspace = true
+futures.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+# What the bundle says, read from its `Info.plist`; WaOS started through Launch Services, hidden;
+# the loader's `dlopen`; WaOS's layers hosted in a window, a `CALayerHost`, private, called by
+# selector as Chrome declares it, shown on the canvas's layer through Waft's macOS host; the app
+# brought forward as a window that takes the focus opens; and the user's attention asked for the
+# app in the background as it shows a prompt's dialog, by AppKit.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2.workspace = true
+objc2-quartz-core = { workspace = true, features = ["std", "objc2-core-foundation", "CALayer"] }
+objc2-core-foundation = { workspace = true, features = ["std", "CFCGTypes"] }
+waft-embedder-winit.workspace = true
+objc2-foundation = { workspace = true, features = ["std", "NSArray", "NSBundle", "NSString", "NSURL"] }
+objc2-app-kit = { workspace = true, features = ["std", "block2", "NSApplication", "NSResponder", "NSRunningApplication", "NSWorkspace"] }
+libc.workspace = true
+
+# A platform with no window server, whose menu bar, context menus and file dialogs keep what they
+# were asked, for the tests of the program's menus and file dialogs.
+[dev-dependencies]
+waft-test.workspace = true
+
+# The loader's `os` module loads the library and calls its entry, and the library's exports that
+# entry and hosts WaOS's layers; the rest of the crate has no `unsafe`.
+[lints.rust]
+unsafe_code = "deny"

@@ -1,0 +1,22 @@
+[package]
+name = "waos-capabilities"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = true
+description = "The capability traits WaOS's engine serves programs through, and their records, in the shape of the WIT interfaces they serve."
+homepage.workspace = true
+readme = "README.md"
+
+[dependencies]
+# What a machine's commands answer with: futures to await and streams of their output.
+futures.workspace = true
+# What a program's fonts are served from: valo's `FontManager`, the platform's fonts in Skia's
+# `SkFontMgr` shape (the design's decision 33), re-exported for whoever provides one.
+valo-fontmgr.workspace = true
+# What a program's sound is: Web Audio's graph, which the engine serves and a provider makes on
+# its devices, re-exported for whoever provides them (the sound proposal's decision 1).
+web-audio-api.workspace = true
+
+[lints]
+workspace = true

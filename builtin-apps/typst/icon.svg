@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!-- Documents: a typeset page, a centred title over justified text and a displayed formula, over the page set before it. -->
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3d86ff"/><stop offset="1" stop-color="#1747c9"/></linearGradient>
+    <linearGradient id="paper" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#eef0f5"/></linearGradient>
+    <linearGradient id="under" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#e3e9f7"/><stop offset="1" stop-color="#b9c6e4"/></linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="150%"><feGaussianBlur in="SourceAlpha" stdDeviation="18"/><feOffset dy="18"/><feComponentTransfer><feFuncA type="linear" slope="0.35"/></feComponentTransfer><feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+  </defs>
+  <rect width="1024" height="1024" fill="url(#tile)"/>
+  <rect x="300" y="186" width="456" height="616" rx="22" fill="url(#under)" filter="url(#shadow)" transform="rotate(7 528 494)"/>
+  <rect x="270" y="208" width="456" height="616" rx="22" fill="url(#paper)" filter="url(#shadow)"/>
+  <rect x="374" y="272" width="248" height="40" rx="12" fill="#1c1c1e"/>
+  <rect x="428" y="332" width="140" height="16" rx="8" fill="#8e8e96"/>
+  <g fill="#a9adb8">
+    <rect x="326" y="388" width="344" height="16" rx="8"/><rect x="326" y="420" width="344" height="16" rx="8"/><rect x="326" y="452" width="220" height="16" rx="8"/>
+    <rect x="326" y="656" width="344" height="16" rx="8"/><rect x="326" y="688" width="344" height="16" rx="8"/><rect x="326" y="720" width="344" height="16" rx="8"/><rect x="326" y="752" width="180" height="16" rx="8"/>
+  </g>
+  <g fill="#2160e8">
+    <rect x="380" y="548" width="72" height="22" rx="11"/>
+    <rect x="474" y="514" width="64" height="22" rx="11"/>
+    <rect x="466" y="550" width="80" height="8" rx="4"/>
+    <rect x="474" y="572" width="64" height="22" rx="11"/>
+    <rect x="568" y="548" width="48" height="22" rx="11"/>
+  </g>
+</svg>

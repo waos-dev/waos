@@ -1,0 +1,9 @@
+# sound
+
+A program that makes sound, and what a reader learns the `audio` interface from. It makes a context and prints its sample rate, `sample rate: 48000`; through the context's base, what it is as any context, connects a node of every kind from an oscillator, whose detune a constant source moves, through a highpass filter, an IIR filter, a compressor, a convolver, a wave shaper, both panners, a delay, a splitter and a merger, beside a looping buffer source, to a gain, an analyser and the destination, and prints what they say of themselves, `graph: gain 1, …`; plays its sources until each ends, `played: every source ended`; decodes a WAV file it makes itself, `decoded: 1 channel, 64 frames, first 0.25`, and refuses noise, `noise refused: encoding`, and a file of 45 kB claiming six hours at one frame a second, which would decode to more samples than a buffer holds, `hours refused: not-supported`; renders a constant source through a gain on an offline context into a buffer, `rendered: 1 channel, 128 frames, first 0.25, AudioContextState::Closed`; writes samples ahead of its graph through a stream input until an analyser hears them, `stream: heard 0.5 at 2 channels`; asks its user to pick an output, `picked: Headphones`, moves onto it, `moved: headphones`, and is refused one the user did not pick, `other output refused: not-allowed`; opens the microphone, which asks its user, and hears it, `microphone: heard`, then lets it go; and closes the context. It prints each step as `what: result`, a refusal by the error's case, `pick refused: not-supported`.
+
+It expects sound devices, a picker of outputs and a platform that shows who records; without them it says what it was refused.
+
+- **Takes:** `wasdk`.
+- **Provides:** a component, `target/wasm32-wasip2/debug/sound.wasm`, from `cargo build -p sound --target wasm32-wasip2`.
+- **Used by:** the engine's tests (`crates/waos/tests/all/audio.rs`), through `crates/waos/tests/programs`.

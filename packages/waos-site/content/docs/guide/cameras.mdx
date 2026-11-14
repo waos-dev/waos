@@ -1,0 +1,62 @@
+---
+title: Cameras
+description: Open a camera, show its preview, take a photo.
+---
+
+The system's cameras, listed with which way each faces, opened once the user allows it, and run in one of a camera's formats. A running camera feeds the outputs it was started with: a preview on a composition layer, frames in a frame reader for the program to draw, and photos the system encodes. A frame says how it is shown, as the web's `VideoFrame` does: turned by its `rotation`, 0, 90, 180 or 270 degrees clockwise, then mirrored where `flip` says, as a camera looking at its user is. The system draws the preview turned, and a photo carries its turn in its EXIF.
+
+## With wasdk
+
+```rust
+// cameras: cameras::get_cameras()
+let first = cameras.list().await.into_iter().next().ok_or("no camera")?;
+// asks the user the first time
+let camera = cameras.open(first.id).await?;
+let format = camera.formats().remove(0);
+let outputs = CameraOutputs::new();
+// a composition layer the view places
+outputs.set_preview(&layer);
+outputs.set_photos(format.photo_sizes[0]);
+let session = camera.start(format, &outputs).await?;
+// encoded by the system: photo.mime_type, photo.data
+let photo = session.take_photo().await?;
+// the turn of what is captured, which each frame's rotation says too
+let turn = session.video_rotation_angles().for_horizon_level_capture;
+```
+
+A session gives two turns, as Apple's rotation coordinator does: the preview's, which the system draws it turned by, and what is captured's, which a photo carries in its EXIF and a frame as its `rotation`; they differ only while the device turns, and `video-rotation-angle-changes` hears each change. `set_upright_frames()` on the outputs asks for frames already turned and mirrored as they show, each with `rotation` 0 and `flip` false, which costs the system a turn of every frame.
+
+## With Waft
+
+```rust
+let listing = available_cameras(app);
+app.spawn(async move |cx| {
+    let Some(camera) = listing.await.into_iter().next() else { return };
+    let Some(opening) = cx.update(|app| open_camera(app, &camera)) else { return };
+    // asks the user the first time
+    let Ok(device) = opening.await else { return };
+    let format = device.formats().remove(0);
+    let starting = cx.update(|app| {
+        let preview = app.platform().compositor().map(|compositor| compositor.make_layer(false));
+        CameraSession::start(app, &*device, &format, CameraOutputs { preview, ..CameraOutputs::new() })
+    });
+    // CameraPreview::new(session) shows it in a widget
+    let Ok(session) = starting.await else { return };
+});
+```
+`CameraOutputs::upright_frames()` asks for upright frames, and `CameraSession::video_rotation_angle_for_horizon_level_capture(session, app)` reads the turn; a frame from a reader says its own with `rotation()` and `flip()`.
+
+## On each system
+
+- **macOS:** the system's cameras. After the user allows the program, macOS asks for WaOS the first time. Upright frames are offered.
+- **Android:** the system's cameras. After the user allows the program, Android asks for WaOS the first time. A frame is turned by the sensor's orientation against the screen's, and both turns are that one. Upright frames are not: `start` answers `not-supported`. Android gives a camera one stream of photos, so a session that joins another program's takes its photos at the size the first set, or none where it set none.
+- **Windows and Linux:** no cameras yet: `get-cameras` is none.
+- **Simulated:** a program whose camera is answered simulated in its settings (`cargo waos set camera simulated`) gets WaOS's own camera in place of the system's, with no question and no device: "WaOS test pattern", at 640 by 480 and 1280 by 720, 30 frames a second, photos at the frame's size. It draws a red, green, blue and white square in its four corners, so a turned, mirrored or channel-swapped picture shows at once, a counter of the frame's number and a moving bar. It is on macOS and Android; elsewhere such a program sees no camera.
+
+## Where it's missing
+
+`get-cameras` is none where the system has none, and Waft lists no cameras. Opening a camera asks the user at its first use and answers `not-allowed` if they refuse. A camera another program runs keeps its format, and a later session joins it in that one (`session.format()`). A session is interrupted, giving no frames until it resumes by itself, with a reason where the system gives one, which macOS does not. Recording video is not offered to programs yet: Waft's `start_recording` fails.
+
+## Interface
+
+[`wasdk:media/cameras`](/docs/reference/wasdk-media/cameras), [`wasdk:media/video-frames`](/docs/reference/wasdk-media/video-frames)

@@ -1,0 +1,40 @@
+# Modified for WaOS by the waos Authors from the wasi-gfx runtime, as NOTICE says.
+[package]
+name = "waos-webgpu-host"
+version.workspace = true
+# The wasi-gfx runtime's edition, and its licence: the crate is that runtime's
+# `wasi-webgpu-wasmtime`, modified (`NOTICE`), kept close to it so its patches go upstream.
+edition = "2021"
+license = "Apache-2.0 WITH LLVM-exception"
+publish = true
+description = "The WebGPU host the engine serves wasi:webgpu with, over wgpu-core: the wasi-gfx runtime's wasi-webgpu-wasmtime, modified."
+homepage.workspace = true
+readme = "README.md"
+
+[dependencies]
+wasmtime.workspace = true
+wasmtime-wasi.workspace = true
+wgpu-core.workspace = true
+wgpu-types.workspace = true
+callback-future.workspace = true
+futures.workspace = true
+async-broadcast.workspace = true
+log.workspace = true
+pastey.workspace = true
+tracing.workspace = true
+
+[target.'cfg(any(target_os = "linux", target_os = "android"))'.dependencies.wgpu-core]
+workspace = true
+features = ["wgsl", "vulkan", "noop"]
+
+[target.'cfg(target_os = "windows")'.dependencies.wgpu-core]
+workspace = true
+features = ["wgsl", "dx12", "noop"]
+
+[target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies.wgpu-core]
+workspace = true
+features = ["wgsl", "metal", "noop"]
+
+[target.'cfg(all(not(target_os = "linux"), not(target_os = "android"), not(target_os = "windows"), not(target_os = "macos"), not(target_os = "ios")))'.dependencies.wgpu-core]
+workspace = true
+features = ["wgsl", "gles", "noop"]

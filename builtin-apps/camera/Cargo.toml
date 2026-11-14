@@ -1,0 +1,37 @@
+[package]
+name = "camera-app"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "A camera as a Waft app over waft-embedder-wasdk: the camera's live picture drawn through a look, a shader of the app's own on its own WebGPU device; photos taken by the system, drawn through the same look and kept in the app's /data; and the photos taken, viewed large, exported and deleted. `cargo waos run -p camera-app`."
+
+[dependencies]
+# Waft, the framework the app is written with, and Fluent's controls, its WinUI kit.
+waft.workspace = true
+waft-winui.workspace = true
+waft-embedder-wasdk.workspace = true
+# The keys the app's shortcuts name, which `waft` does not re-export.
+waft-services.workspace = true
+# The app's own WebGPU device, which the looks are drawn on, and the textures it imports of the
+# camera's frames and of the buffers it draws into.
+wasdk-wgpu.workspace = true
+wgpu.workspace = true
+# The entry, and the camera's permission, which Waft's platform does not carry.
+wasdk.workspace = true
+# What goes wrong out of the user's sight: a photo's thumbnail that cannot be read.
+tracing.workspace = true
+
+[dev-dependencies]
+# Folders made for the library's tests, removed after them.
+tempfile.workspace = true
+
+[lints]
+workspace = true
+
+# What WaOS knows the program by: the id `cargo waos run` runs it as, with that program's settings
+# and folders, and the name and icon a package of it carries.
+[package.metadata.waos]
+id = "dev.waos.camera"
+name = "Camera"
+icon = "icon.png"

@@ -1,0 +1,39 @@
+---
+title: Clipboard
+description: Read and write the clipboard, and serve the user's copy and paste.
+---
+
+The user's clipboard. It holds items, each offered in several forms named by MIME types, the most faithful first; a program lists them, which reads no content, and reads one item in one of its forms. It writes items whole, each form given at once or promised, made only when someone pastes it; a file goes by its path. The user's own Copy, Cut and Paste reach the focused view as its `copy`, `cut` and `paste` events, each with the request it writes or reads through.
+
+## With wasdk
+
+```rust
+// clipboard: clipboard::get_clipboard()
+if let Some(item) = clipboard.items().first() {
+    let text = item.read("text/plain".into()).await?.collect().await;
+}
+let (mut writer, text) = wit_stream::new::<u8>();
+wasdk::spawn(async move { writer.write_all(b"copied".to_vec()).await; });
+let item = vec![("text/plain".into(), Content::Data(text)), ("text/html".into(), Content::Promise)];
+let source = clipboard.write(vec![item], CopyOptions::new()).await?;
+// each paste of the promised HTML, to answer with request.provide
+let mut requests = source.requests();
+```
+
+## With Waft
+
+```rust
+// waft-services' Clipboard, Flutter's
+Clipboard::set_data(app, ClipboardData::new("copied"));
+// a task: the clipboard's text, if any
+let read = Clipboard::get_data(app, Clipboard::K_TEXT_PLAIN);
+```
+Text fields copy, cut and paste by themselves. Several forms, promised ones and files go through `app.platform().clipboard()`, as above.
+
+## Where it's missing
+
+`get-clipboard` is none where the platform has none. Reading and writing are each a switch in the program's settings, both on unless the user turns one off; a read or a write with its switch off answers `denied`, but the user's own copy, cut and paste work whatever the switches say. What is on the clipboard is seen only while one of the program's views has the focus. Windows and Linux hold one item: the first written. A program's promises end with it, so one that ends on its own calls `flush` first, as Waft does on its way out.
+
+## Interface
+
+[`wasdk:platform/clipboard`](/docs/reference/wasdk-platform/clipboard)

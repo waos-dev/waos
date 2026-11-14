@@ -1,0 +1,198 @@
+[package]
+name = "waos-app"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "The WaOS app: the desktop and phone shells in Waft, an entry per OS."
+
+# The app is the library, as Waft's CLI shapes an app, so a host that loads a library can load
+# it; the binary is the door to it.
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "waos"
+path = "src/main.rs"
+
+[dependencies]
+waos.workspace = true
+waos-local.workspace = true
+waos-store.workspace = true
+# The packages a source lists and the system opens with WaOS, as the store reads them.
+waos-package.workspace = true
+waos-dev-protocol.workspace = true
+# The programs' windows WaOS shows in its own process, and the link they reach the engine's programs
+# through.
+waos-program-window.workspace = true
+# A program's calls on a view as values: what a phone's tab queues for its view, and on macOS what
+# WaOS and a program's window process say to each other.
+waos-window-messages.workspace = true
+anyhow.workspace = true
+futures.workspace = true
+# The user's time zone, by its IANA name, as each system keeps it.
+jiff.workspace = true
+waft.workspace = true
+# What a program's view takes its input from, below Waft's facade: the pointer widget, the
+# pointer events it receives, and the keys and text input.
+waft-widgets.workspace = true
+waft-gestures.workspace = true
+waft-services.workspace = true
+# What the deck's motions are made of, below Waft's facade: the springs and scroll simulations
+# its values settle with, the future a motion's end is heard by, and how its gesture detectors
+# are hit.
+waft-physics.workspace = true
+waft-scheduler.workspace = true
+waft-rendering.workspace = true
+# The library's two layouts: Fluent's controls at a desktop's or a tablet's size, Cupertino's at a
+# phone's.
+waft-winui.workspace = true
+waft-cupertino.workspace = true
+# The choices of the Cupertino layout's segmented controls, as the control takes them.
+indexmap.workspace = true
+# One instance of WaOS: a later launch on Windows or Linux hands its files to the first.
+waft-single-instance.workspace = true
+# The dev server's thread: the socket and its frames, a task per connection, and a load off
+# the thread; and the library's runtime, which reads sources, downloads and loads programs.
+tokio = { workspace = true, features = ["net", "io-util", "rt-multi-thread"] }
+tracing.workspace = true
+tracing-subscriber.workspace = true
+# A program's app written beside its place before it is moved in, and its icon's sizes made in a
+# folder of their own; and the record of the apps WaOS wrote, with each one's code hash.
+tempfile.workspace = true
+serde.workspace = true
+toml.workspace = true
+hex.workspace = true
+# The pictures of a program's windows `cargo waos screenshot` asks for, as PNGs.
+png.workspace = true
+
+# Waft's desktop host, for what only macOS offers beyond Waft's `Platform`: hearing WaOS's Dock
+# icon clicked, and hiding the app. Where Waft's default host is
+# winit's, as `waft-embedder-default` picks it.
+[target.'cfg(not(any(target_arch = "wasm32", target_os = "android")))'.dependencies]
+waft-embedder-winit.workspace = true
+# A program's icon scaled to each size of the `.ico` its Start menu shortcut and its windows' pins
+# show on Windows, as Waft's CLI scales an executable's; tested on every desktop.
+image = { version = "0.25", default-features = false, features = ["png"] }
+
+# Each program's app of its own: what WaOS and its window process say over Mach, the code hash of its
+# bundle and its process, Launch Services opening it, the end of its process, and WaOS's activation
+# yielded to it on the main thread; and each change of the user's time zone, as Foundation
+# announces it.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2-core-foundation = { workspace = true, features = ["std", "CFBase", "CFCGTypes", "CFData", "CFDictionary", "CFNumber", "CFString", "CFURL"] }
+objc2-security = { workspace = true, features = ["std", "CSCommon", "SecCode", "SecStaticCode"] }
+objc2-foundation = { workspace = true, features = ["std", "block2", "NSArray", "NSDictionary", "NSError", "NSNotification", "NSOperation", "NSProcessInfo", "NSString", "NSTimeZone", "NSURL"] }
+objc2-app-kit = { workspace = true, features = ["std", "block2", "NSApplication", "NSResponder", "NSRunningApplication", "NSWorkspace"] }
+block2.workspace = true
+dispatch2 = { workspace = true, features = ["std"] }
+libc.workspace = true
+# The key the record of the programs' apps is vouched for with, kept in the Keychain and made on
+# first use, and the HMAC of each app's code hash under it.
+security-framework.workspace = true
+hmac.workspace = true
+sha2.workspace = true
+# The key's random bytes, and the number each pointing device of a prompt's sheet goes by in
+# WaOS's framework.
+getrandom.workspace = true
+# The layer context each program view's layers are hosted from, private, called by selector as
+# Chrome declares it, with its root layer laid out in a transaction of Core Animation's.
+objc2.workspace = true
+objc2-quartz-core = { workspace = true, features = ["std", "objc2-core-foundation", "CALayer", "CATransaction"] }
+# A program's hardware buffer, an `IOSurface`: the size of the picture drawn into it, which a
+# window's resize waits for, at the version the engine allocates it with.
+objc2-io-surface = "0.3"
+# The frames of WaOS's simulated camera: pixel buffers over the IOSurfaces it draws, as a camera's
+# frames are, at the version the engine reads frames with.
+objc2-core-video = { version = "0.3", default-features = false, features = ["std", "objc2-io-surface", "CVBase", "CVBuffer", "CVImageBuffer", "CVPixelBuffer", "CVPixelBufferIOSurface", "CVReturn"] }
+
+# The user's application data folders, as Windows' shell names them, where the app's folders are,
+# and the Start menu's folder of programs; and the shell's shortcut, a COM object windows-sys does
+# not carry, with its property store, where a program's shortcut carries its AppUserModelID, at
+# the version Waft's host builds.
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Com", "Win32_UI_Shell"] }
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Storage_EnhancedStorage", "Win32_System_Com", "Win32_System_Com_StructuredStorage", "Win32_System_Variant", "Win32_UI_Shell", "Win32_UI_Shell_PropertiesSystem"] }
+
+# The app's folders, which only the activity's Java context names on Android, and the system's log,
+# where WaOS's traces go there; Waft's buffer over an `AHardwareBuffer`, which a program's
+# hardware buffer goes to Waft's codecs as, and Waft's camera frames, which go to the engine as
+# theirs; the `AHardwareBuffer`s the simulated camera draws into; and the system's certificate
+# checker, which is handed the VM and the application before any connection is made.
+[target.'cfg(target_os = "android")'.dependencies]
+jni = "0.22.4"
+ndk = { version = "0.9", features = ["api-level-26"] }
+ndk-sys = "0.6"
+rustls-platform-verifier.workspace = true
+waft-embedder-android.workspace = true
+
+# The example programs the tests run, built as components by that crate's build script, and a
+# platform with no window server for the tests of the programs' windows.
+[dev-dependencies]
+waos-test-programs = { path = "../../crates/waos/tests/programs" }
+waft-test.workspace = true
+# Folders under fresh names for the library's stores and packages, removed with the test.
+tempfile.workspace = true
+# The digest a source's listing gives of each package.
+sha2.workspace = true
+# Web Audio's context and stream, as the tests' own sound devices name them.
+waos-capabilities.workspace = true
+
+# Image I/O's codecs without the event loop, which a program's real photo is decoded through.
+[target.'cfg(target_os = "macos")'.dev-dependencies]
+waft-embedder-winit = { workspace = true, features = ["test-support"] }
+
+# What `cargo waft build macos -p waos-app` makes WaOS.app from.
+[package.metadata.waft]
+identifier = "dev.waos.app"
+name = "WaOS"
+icon = "assets/icon.png"
+
+# What WaOS asks Android for besides what Waft's own classes need: the network, which its sources
+# are read over and its programs' sockets open on. Android refuses a socket to an app whose manifest
+# does not name it.
+[package.metadata.waft.android]
+permissions = ["android.permission.INTERNET"]
+# The waves edge to edge on white, which the launcher cuts to its own shape, where the tile of
+# `icon` would show as a tile within it.
+adaptive_icon = { foreground = "assets/android-foreground.png", background = "#ffffff" }
+# The Kotlin half of rustls-platform-verifier, which the system's certificate checker is asked
+# through, at the version Cargo.lock pins rustls-platform-verifier-android at, and the Kotlin
+# standard library it runs on; where each came from is in `android/NOTICE`.
+dependencies = ["android/rustls-platform-verifier-0.2.0.aar", "android/kotlin-stdlib-2.2.10.jar"]
+
+# WaOS's packages: its own type, which the bundle declares and opens first, so a `.wapk`
+# double-clicked or opened with WaOS from the Finder or a Linux file manager reaches the library,
+# which asks whether to install it. Linux knows a type by its MIME type, which no registry names
+# for a `.wapk`: the package declares it to the system as WaOS's own.
+[[package.metadata.waft.file_associations]]
+extensions = ["wapk"]
+name = "WaOS program"
+identifier = "dev.waos.wapk"
+mime_type = "application/x-wapk"
+owner = true
+role = "viewer"
+
+# Why WaOS records sound and uses the camera, the sentences macOS shows when a program it runs
+# first opens the microphone or a camera: Waft's CLI writes them as the bundle's
+# NSMicrophoneUsageDescription and NSCameraUsageDescription, and signs the hardened runtime's leave
+# to use each in with the entitlements below.
+[package.metadata.waft.usage_descriptions]
+microphone = "Programs you allow can record sound."
+camera = "Programs you allow can use the camera."
+
+# Signed into the bundle: what the hardened runtime otherwise denies wasmtime's compiled code. And
+# what WaOS.app carries for its programs' apps, built with it (decision 6 of
+# `docs/proposals/2026-10-29-macos-apps.md`): the loader each program's bundle copies, in
+# `Contents/Helpers`, and the window library each loads, in `Contents/Frameworks`.
+[package.metadata.waft.macos]
+entitlements = "macos/waos.entitlements"
+helpers = [{ package = "waos-window", bin = "waos-program-loader" }]
+libraries = [{ package = "waos-window", lib = "waos_window" }]
+
+# `os/macos` wraps Security's code signing, Launch Services' answers, a process's end and an
+# `IOSurface` handed between threads, `os/android` the activity's entry, JNI and liblog, and
+# `os/windows` the shell's known folders and its shortcut's COM object, unsafe APIs; the rest of
+# the app has no `unsafe`.
+[lints.rust]
+unsafe_code = "deny"

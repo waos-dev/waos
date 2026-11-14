@@ -1,0 +1,17 @@
+[package]
+name = "tone"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "A program that plays a tone while it is out of sight, stops it once it is back, and starts it again, which the spec forbids, so it traps. `cargo build -p tone --target wasm32-wasip2`."
+
+[dependencies]
+wasdk.workspace = true
+
+[lints]
+workspace = true
+
+# The id `cargo waos run` runs this program as, with that program's settings and folders.
+[package.metadata.waos]
+id = "dev.waos.examples.tone"

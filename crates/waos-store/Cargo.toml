@@ -1,0 +1,36 @@
+[package]
+name = "waos-store"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Installed programs, their updates, and the package sources they come from, in a directory the app gives it."
+
+[dependencies]
+waos-package.workspace = true
+# Reading a source's index and downloading its packages, and the URL a source is.
+reqwest.workspace = true
+url.workspace = true
+# A download's SHA-256, checked against its listing, and said in hex when it differs.
+sha2.workspace = true
+hex.workspace = true
+# The list of sources, kept as TOML.
+serde.workspace = true
+toml.workspace = true
+# What an install unpacks into, a file written whole, and a download.
+tempfile.workspace = true
+# Opening and installing a download off the async task that downloaded it, and what tells the
+# engine that the user changed a program's settings.
+tokio.workspace = true
+futures.workspace = true
+# What the user lets a program use, which the store's settings answer as `ProgramGrants`.
+waos-capabilities.workspace = true
+# What could not be read, for whoever subscribes.
+tracing.workspace = true
+
+[dev-dependencies]
+# A local HTTP server, which the tests read sources from.
+tokio = { workspace = true, features = ["net", "io-util"] }
+
+[lints]
+workspace = true

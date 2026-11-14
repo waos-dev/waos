@@ -1,0 +1,16 @@
+---
+title: Concepts
+description: The six ideas the rest of the docs use.
+---
+
+**Program.** An app for WaOS: one WebAssembly component, written in Rust with wasdk, usually with Waft for its UI. The same file runs wherever WaOS runs. It starts with nothing, and reaches only what WaOS gives it.
+
+**WaOS.** What runs programs: the WaOS app on macOS, Windows, Linux and Android, with iPhone next, or any app that embeds the `waos` engine. Each program runs on a thread of its own, compiled to the machine's code.
+
+**View.** A rectangle of physical pixels a program draws in with WebGPU. On a desktop, and on Android, a program asks for a window for each view it wants; in WaOS's tabs on a phone it is given its tab's screen. A view's events (pointer, keys, text input, frames) arrive on one stream.
+
+**Window.** What holds a view: on a desktop a real window of the system's, with its title bar, size limits and menus, and on Android a task of its own, a card in Recents. An installed program is an app of its own: on macOS with its own Dock icon, and on Windows and Linux with its own taskbar or dock button, which can be pinned and starts it with WaOS closed, and its own entry in the Start menu or the app grid.
+
+**Capabilities.** What a program uses beyond its views: files, network, fonts, processes, media players, cameras, audio, menus, file dialogs, notifications, clipboard. Each is an interface; one a platform lacks is absent, and the program goes on without it.
+
+**Permissions.** A program gets no more than the user gives it. Its own `/data` and `/cache`, a file the user picks, sound, menus and dialogs are free. Notifications, the camera and the microphone ask at first use. The network (on by default), the local network (off) and folders (none) are switches in the program's settings, and a machine to run commands on is one the user picks when the program asks. Every question WaOS asks has a row in the program's settings, which can hold an answer set ahead: allow or don't allow, a simulated camera or microphone, a path for a file dialog, a machine for the picker. A development run is the program its id names, so it has the program's own settings.

@@ -1,0 +1,31 @@
+[package]
+name = "waos-dev-protocol"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = true
+description = "What cargo waos and a running WaOS say to each other: the messages of one run, their frames, and the Unix socket or Windows named pipe that carries them."
+homepage.workspace = true
+readme = "README.md"
+
+[dependencies]
+# A program's id, which a run names its program by.
+waos-package.workspace = true
+postcard.workspace = true
+serde.workspace = true
+serde_bytes.workspace = true
+# `io-util` for reading and writing frames on any stream; `net` for the Unix socket and the named
+# pipe.
+tokio = { workspace = true, features = ["io-util", "net"] }
+tracing.workspace = true
+
+# The named pipe's security: the user's SID from the process's token, the descriptor that gives
+# that user alone the pipe, and the owner of a pipe opened; at the version tokio reaches Windows
+# with.
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Authorization", "Win32_System_Threading"] }
+
+# `os::windows` wraps Windows' security calls, which the named pipe needs; the rest of the crate has
+# no `unsafe`.
+[lints.rust]
+unsafe_code = "deny"

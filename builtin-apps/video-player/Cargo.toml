@@ -1,0 +1,33 @@
+[package]
+name = "video-player"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "A video player as an Waft app over waft-embedder-wasdk: a library of the videos in the folders its user adds, with thumbnails, lengths and how far each was watched; plays one, a file or a link under the familiar controls, shows the player's state, its subtitles and audio tracks, and resumes what was opened where it was left. `cargo waos run -p video-player`."
+
+[dependencies]
+waft-embedder.workspace = true
+waft-embedder-wasdk.workspace = true
+waft-foundation.workspace = true
+# How the seek bar, the picture and the tiles are hit, all over, not only where they paint.
+waft-rendering.workspace = true
+# The ticker the time and the seek bar follow the position with while the player plays.
+waft-scheduler.workspace = true
+# The keys the app's shortcuts and its menu items name.
+waft-services.workspace = true
+waft-widgets.workspace = true
+# Fluent's controls, Waft's WinUI kit, which the app is drawn with.
+waft-winui.workspace = true
+# A source's URL, read for the name it goes by and checked to be a link or a file.
+url.workspace = true
+wasdk.workspace = true
+
+[lints]
+workspace = true
+
+# The id `cargo waos run` runs this program as, with that program's settings and folders.
+[package.metadata.waos]
+id = "dev.waos.videoplayer"
+name = "Video Player"
+icon = "icon.png"

@@ -1,0 +1,35 @@
+[package]
+name = "synth"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Synth, an instrument to play at once, as a Waft app in WinUI's Fluent look over waft-embedder-wasdk: a keyboard for the mouse, several fingers and the computer's keys, presets made with fundsp, a few controls and a scope of what plays, its sound written ahead of the platform's graph through a stream input. `cargo waos run -p synth`."
+
+[dependencies]
+waft-embedder-wasdk.workspace = true
+waft.workspace = true
+# The sound: oscillators, filters, envelopes and effects, as graphs a voice and the effects are
+# made of. Without its file decoding and its convolution, which the app does not use.
+fundsp = { version = "0.23.0", default-features = false, features = ["std"] }
+# The channel the instrument asks its sound through, and waiting on it and the clock at once.
+futures.workspace = true
+# The pointers' buttons, which tell the mouse's main button from its others.
+waft-gestures.workspace = true
+# The painter the scope draws its wave with, and how the keyboard is hit, all over.
+waft-rendering.workspace = true
+# The computer's keys by where they are, which the piano row is made of.
+waft-services.workspace = true
+# The pointer widget, `Listener`, which Waft's facade hides behind its callback of that name.
+waft-widgets.workspace = true
+waft-winui.workspace = true
+wasdk.workspace = true
+
+[lints]
+workspace = true
+
+# What WaOS knows the program by. The id names it for good: every update is published under it.
+[package.metadata.waos]
+id = "dev.waos.synth"
+name = "Synth"
+icon = "icon.png"

@@ -1,0 +1,17 @@
+[package]
+name = "permissions"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "A program that asks for what it may use: where each permission stands, its changes, a question put to the user, and a switch's page opened. `cargo build -p permissions --target wasm32-wasip2`."
+
+[dependencies]
+wasdk.workspace = true
+
+[lints]
+workspace = true
+
+# The id `cargo waos run` runs this program as, with that program's settings and folders.
+[package.metadata.waos]
+id = "dev.waos.examples.permissions"

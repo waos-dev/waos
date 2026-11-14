@@ -1,0 +1,22 @@
+[package]
+name = "waft-menus"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "An Waft app with a menu bar, a text field and a tray icon, over waft-embedder-wasdk: what a reader learns Waft's menus in a program from. `cargo build -p waft-menus --target wasm32-wasip2`."
+
+[dependencies]
+waft-cupertino.workspace = true
+waft-embedder.workspace = true
+waft-embedder-wasdk.workspace = true
+waft-foundation.workspace = true
+waft-widgets.workspace = true
+wasdk.workspace = true
+
+[lints]
+workspace = true
+
+# The id `cargo waos run` runs this program as, with that program's settings and folders.
+[package.metadata.waos]
+id = "dev.waos.examples.waftmenus"

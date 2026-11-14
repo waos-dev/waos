@@ -1,0 +1,35 @@
+---
+title: Processes
+description: Run commands on a machine the user picks.
+---
+
+A program runs commands on a machine its user picked for it: this computer for now, SSH machines once WaOS reaches them. A machine runs commands with pipes or in a terminal (`exec-in-terminal`), and gives its files from its root, as one SSH login does. What it runs runs outside the program's sandbox, as the machine's user, in their login environment.
+
+## With wasdk
+
+```rust
+// machines: machines::get_machines()
+let machine = match machines.granted().into_iter().next() {
+    Some(machine) => machine,
+    // WaOS asks the user to pick one
+    None => machines.pick().await.ok_or("none picked")?,
+};
+let command = Command::new("git");
+command.add_argument("status");
+let (child, pipes) = machine.exec(&command).await?;
+let output = pipes.output().ok_or("taken")?.collect().await;
+// exited(code), signaled(name) or unknown
+let status = child.exit_status().await;
+```
+
+## With Waft
+
+Waft has no API for processes; use `wasdk::machines` directly, as above.
+
+## Where it's missing
+
+`get-machines` is none where the program may be given no machine, and `pick` none when the user cancels, or WaOS has nobody to ask. The picker offers this computer alone for now. A machine set in the program's settings (`cargo waos set machine this-computer`) is `pick`'s answer without asking, and none once it is no longer offered. A machine is all or nothing, as a login is: everything its user can reach. The user takes it back in the program's settings in WaOS; one the program holds stays its own for the rest of its run.
+
+## Interface
+
+[`wasdk:platform/machines`](/docs/reference/wasdk-platform/machines)

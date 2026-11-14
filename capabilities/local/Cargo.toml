@@ -1,0 +1,19 @@
+[package]
+name = "waos-local"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "This computer's default capabilities for WaOS's engine, assembled from the waos-local-* crates."
+
+[dependencies]
+waos-capabilities.workspace = true
+waos-local-fs.workspace = true
+waos-local-network.workspace = true
+waos-local-processes.workspace = true
+waos-local-audio.workspace = true
+waos-local-cameras.workspace = true
+waos-local-media.workspace = true
+
+[lints]
+workspace = true

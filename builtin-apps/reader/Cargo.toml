@@ -1,0 +1,45 @@
+[package]
+name = "reader"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Reader, a feed reader as a Waft app in WinUI's Fluent look over waft-embedder-wasdk: RSS and Atom feeds added by address, their newest items listed with pictures, an item's text laid out to read, read marks, and a notification when a refresh finds something new. `cargo waos run -p reader`."
+
+[dependencies]
+waft.workspace = true
+waft-embedder-wasdk.workspace = true
+# The tap a link in an item's text is opened by, which `waft` does not re-export.
+waft-gestures.workspace = true
+# The pointer's hand over a link in an item's text, which `waft` does not re-export either.
+waft-services.workspace = true
+# Fluent's controls, Waft's WinUI kit, which the app is drawn with.
+waft-winui.workspace = true
+wasdk.workspace = true
+# The race between a request and its deadline, which drops the request when the deadline wins.
+futures.workspace = true
+# A feed's document, RSS or Atom, parsed.
+feed-rs = "3"
+# An item's HTML, parsed as a browser parses it, to be read into the blocks the app lays out.
+scraper = { version = "0.29", default-features = false }
+# The dates `feed-rs` gives, at its version.
+chrono = { version = "0.4", default-features = false }
+# A feed's address, a link's and a picture's, checked and read against the address it was found at.
+url.workspace = true
+# The library's files in `/data`, as JSON.
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+# Folders made for the store's tests, removed after them.
+tempfile.workspace = true
+
+[lints]
+workspace = true
+
+# What WaOS knows the program by: the id `cargo waos run` runs it as, with that program's settings
+# and folders, and the name and icon it is packaged with.
+[package.metadata.waos]
+id = "dev.waos.reader"
+name = "Reader"
+icon = "icon.png"

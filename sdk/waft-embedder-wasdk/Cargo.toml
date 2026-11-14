@@ -1,0 +1,28 @@
+[package]
+name = "waft-embedder-wasdk"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = true
+description = "Waft over wasdk: Waft's embedder for a program, the platform it sees over the SDK's views, screens, system, windows, lifecycle, fonts, clipboard, menus, file dialogs, opener, notifications, media players and cameras, drawn with valo over wasdk-wgpu."
+homepage.workspace = true
+readme = "README.md"
+
+[dependencies]
+futures.workspace = true
+waft-embedder.workspace = true
+waft-foundation.workspace = true
+waft-shell.workspace = true
+valo.workspace = true
+# `assemble`, which rebuilds a font file from the tables the engine serves for a face.
+valo-fontmgr.workspace = true
+wasdk.workspace = true
+wasdk-wgpu.workspace = true
+wgpu.workspace = true
+# What the embedder does, as events a subscriber reads: each frame of a video it draws.
+tracing.workspace = true
+# A picked file's `file:` URL, read back as its path inside the program for a player's source.
+url.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,7 @@
+# menus
+
+A program, written against the WIT itself, that answers its user's keys, Edit's commands and its menus: it asks for a window, sets its menu bar, an app menu, File and Edit, and adds a tray icon, a dot, saying which menus the icon offers, or why the platform did not show it, and sets its attached menu where it has one; it says which item the user chooses in either, and what the user does to the icon, opening a menu at the icon when the user asks for one there, and says a click again from a second stream of the icon's events. It answers each key that goes down in its window, handling `A`, leaving `B` by dropping its reply, opening a context menu at `M`, and answering that it did not handle any other. A copy writes a line through the user's request and tries a second write, which is refused; a cut writes another; a paste reads each item pasted, its text or each file it names, which it reads and tries to write to; and an undo, a redo, a select-all or a delete is said. Asking to close its window ends it, its tray icon going with it. It prints each step as `what: result`. What a reader learns the key's reply, Edit's events and the menus interface from.
+
+- **Takes:** `wasdk`, the generated bindings.
+- **Provides:** a component, `target/wasm32-wasip2/debug/menus.wasm`, from `cargo build -p menus --target wasm32-wasip2`.
+- **Used by:** the engine's tests (`crates/waos/tests/all/menus.rs`), through `crates/waos/tests/programs`; whoever runs it in WaOS.

@@ -1,0 +1,74 @@
+package wasdk:platform@0.1.0;
+
+/// The platform's file dialogs: a function per kind, as Flutter's `file_selector` has them, the
+/// systems' own panels behind them.
+///
+/// **A pick is mounted at its own path** the moment the user confirms it, and the path answered
+/// is where the program reads it: read-only unless the program asks to write (`writable`), as
+/// Android's open document and the web's pickers grant; a save grants write to the one file
+/// chosen, which may not exist yet. A pick is kept among the program's mounts until the user
+/// removes it.
+///
+/// **A safe save** writes in the program's own folders and renames onto the picked file: a file
+/// in `/data` or `/cache` may be renamed onto a writable file the user picked, as one replace, the
+/// file copied beside the target first when the two are on different volumes. The program's
+/// temporary folder (`TMPDIR`) is in `/cache`. A temporary file made beside the target is not
+/// supported: nothing else of the target's folder is the program's.
+///
+/// **Options are resources with setters**, so that a new option breaks no program, as the
+/// clipboard's `copy-options` is; `parent` makes the dialog a sheet on that view's window.
+interface file-dialogs {
+  use views.{view};
+
+  /// What an open dialog offers.
+  resource open-options {
+    constructor();
+    /// Offers files of a type, by its extensions and MIME types, under `label`; with none added,
+    /// any file.
+    add-type: func(label: string, extensions: list<string>, mime-types: list<string>);
+    /// The folder the dialog opens in, a path inside the program.
+    initial-folder: func(path: string);
+    /// The confirm button's label.
+    confirm-label: func(label: string);
+    /// The pick may be written, not only read.
+    writable: func();
+  }
+
+  /// What a folder dialog offers.
+  resource folder-options {
+    constructor();
+    initial-folder: func(path: string);
+    confirm-label: func(label: string);
+    /// What the folder holds may be written, not only read.
+    writable: func();
+  }
+
+  /// What a save dialog offers.
+  resource save-options {
+    constructor();
+    add-type: func(label: string, extensions: list<string>, mime-types: list<string>);
+    initial-folder: func(path: string);
+    /// The file's name the dialog starts with.
+    suggested-name: func(name: string);
+    confirm-label: func(label: string);
+  }
+
+  /// Why a dialog answered nothing the user chose.
+  variant dialog-error {
+    /// The platform did not show it, or failed to answer it; why.
+    failed(string),
+  }
+
+  /// The platform's file dialogs. Each answers once the user has chosen or cancelled: none, or no
+  /// path, when the user cancelled.
+  resource file-dialogs {
+    open-file: async func(parent: option<borrow<view>>, options: open-options) -> result<option<string>, dialog-error>;
+    open-files: async func(parent: option<borrow<view>>, options: open-options) -> result<list<string>, dialog-error>;
+    open-folder: async func(parent: option<borrow<view>>, options: folder-options) -> result<option<string>, dialog-error>;
+    /// The file chosen is mounted writable, whether or not it exists yet.
+    save-file: async func(parent: option<borrow<view>>, options: save-options) -> result<option<string>, dialog-error>;
+  }
+
+  /// The platform's file dialogs, where it has them.
+  get-file-dialogs: func() -> option<file-dialogs>;
+}

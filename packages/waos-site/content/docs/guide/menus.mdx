@@ -1,0 +1,49 @@
+---
+title: Menus
+description: Set the menu bar, context menus and tray icons.
+---
+
+A program's menus in the platform's places for them: its menu bar, context menus opened at a point of a view, and tray icons. A menu is a value, rebuilt from the program's state and given whole: a flat list of entries, each naming the submenu it is in. A choice comes back as the chosen item's id. Items the platform provides, such as About, Quit and Edit's Copy, are carried out by the platform.
+
+## With wasdk
+
+```rust
+let file = Submenu { label: "File".into(), enabled: true };
+let greet = MenuItem {
+    label: "Greet".into(),
+    enabled: true,
+    check: ItemCheck::Plain,
+    shortcut: None,
+    icon: None,
+};
+let quit = Provided { item: ProvidedItem::Quit, enabled: true };
+// bar: menus::get_menu_bar()
+bar.set(&[
+    MenuEntry { id: 1, parent: None, kind: MenuEntryKind::Submenu(file) },
+    MenuEntry { id: 2, parent: Some(1), kind: MenuEntryKind::Item(greet) },
+    MenuEntry { id: 3, parent: Some(1), kind: MenuEntryKind::Provided(quit) },
+]);
+// 2, each time the user chooses Greet
+let mut chosen = bar.chosen();
+// a context menu: menus::get_context_menus()?.show(&view, x, y, entries).await, the id chosen or none
+```
+
+## With Waft
+
+```rust
+let greet = PlainPlatformMenuItem::new("Greet")
+    .on_selected(Rc::new(|_app: &mut App| println!("greet")));
+let quit = PlatformProvidedMenuItem::new(PlatformProvidedMenuItemType::Quit);
+let file: Vec<PlatformMenuItemRef> = vec![Rc::new(greet), Rc::new(quit)];
+let content = PlatformMenuBar::new(vec![Rc::new(PlatformMenu::new("File", file))]).child(home);
+run_app_with(app, content.into_widget(), WindowConfig::default());
+```
+A `PlatformTrayIcon` is a tray icon while it is in the tree, and `app.platform().popup_menus()` opens context menus.
+
+## Where it's missing
+
+Each place answers none where the platform has none, and the program, or its framework, draws its own: the menu bar is macOS's, context menus are macOS's and Windows', and tray icons macOS's, Windows' and Linux's. A tray icon's menu the platform opens by itself (`attached-menu`) is none on Windows, and a menu the program opens at the icon (`menu-at-icon`) none on Linux. Waft's `PlatformMenuBar` shows nowhere without a menu bar. A program that sets no menu bar gets the platform's standard one; on macOS the menu bar is the program's own app's.
+
+## Interface
+
+[`wasdk:platform/menus`](/docs/reference/wasdk-platform/menus)

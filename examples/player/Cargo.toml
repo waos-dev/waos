@@ -1,0 +1,24 @@
+[package]
+name = "player"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "An Waft app that plays Apple's HLS example stream on a layer or from its frames, with its subtitles, over waft-embedder-wasdk. `cargo build -p player --target wasm32-wasip2`."
+
+[dependencies]
+waft-cupertino.workspace = true
+waft-embedder.workspace = true
+waft-embedder-wasdk.workspace = true
+waft-foundation.workspace = true
+waft-widgets.workspace = true
+# Counting the frames the embedder draws of a video, from its events.
+tracing.workspace = true
+wasdk.workspace = true
+
+[lints]
+workspace = true
+
+# The id `cargo waos run` runs this program as, with that program's settings and folders.
+[package.metadata.waos]
+id = "dev.waos.examples.player"

@@ -1,0 +1,312 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/*",
+    "capabilities/*",
+    "sdk/*",
+    "apps/*",
+    "builtin-apps/*",
+    "examples/*",
+    "xtask",
+]
+# `cargo build` builds what runs on this machine: the engine, the capabilities, the SDK, the
+# app and `cargo waos`. A program is a component, built by name for its own target:
+# `cargo build -p <program> --target wasm32-wasip2`.
+default-members = ["crates/*", "capabilities/*", "sdk/*", "apps/*"]
+
+[workspace.package]
+version = "0.2.0"
+edition = "2024"
+license = "MIT"
+# A crate is published only where its manifest says so: the SDK, `cargo waos` and the engine with
+# what it needs (the design's decision 57).
+publish = false
+homepage = "https://waos.app"
+
+# Our crates another of ours depends on, each at its path, so a manifest says only
+# `waos-capabilities.workspace = true`. A crate nothing of ours depends on yet is not listed. A
+# published crate is named by its version too, which crates.io takes in place of the path; an
+# unpublished one by its path alone, so cargo refuses to publish a crate that depends on it, and
+# leaves a dev-dependency on it out of what it publishes, as the engine's on this computer's
+# capabilities, which its tests use.
+[workspace.dependencies]
+waos = { version = "0.2.0", path = "crates/waos" }
+waos-capabilities = { version = "0.2.0", path = "crates/waos-capabilities" }
+waos-package = { version = "0.2.0", path = "crates/waos-package" }
+waos-dev-protocol = { version = "0.2.0", path = "crates/waos-dev-protocol" }
+waos-store = { path = "crates/waos-store" }
+waos-program-window = { path = "crates/waos-program-window" }
+waos-window-messages = { path = "crates/waos-window-messages" }
+waos-local = { path = "capabilities/local" }
+waos-local-fs = { path = "capabilities/local-fs" }
+waos-local-network = { path = "capabilities/local-network" }
+waos-local-processes = { path = "capabilities/local-processes" }
+waos-local-audio = { path = "capabilities/local-audio" }
+waos-local-cameras = { path = "capabilities/local-cameras" }
+waos-local-media = { path = "capabilities/local-media" }
+waos-webgpu-host = { version = "0.2.0", path = "crates/waos-webgpu-host" }
+wasdk = { version = "0.2.0", path = "sdk/wasdk" }
+wasdk-macros = { version = "0.2.0", path = "sdk/wasdk-macros" }
+wasdk-wgpu = { version = "0.2.0", path = "sdk/wasdk-wgpu" }
+waft-embedder-wasdk = { version = "0.2.0", path = "sdk/waft-embedder-wasdk" }
+
+# What we take from crates.io, one version for the workspace.
+# The bindings generator a program's API comes from, pinned: the SDK pins one wit-bindgen per
+# release (the design's decision 7). `futures-stream` makes a WIT stream a `futures::Stream`
+# too; `async-spawn` is the executor's `spawn_local`.
+wit-bindgen = { version = "=0.62.0", features = ["futures-stream", "async-spawn"] }
+# Where each `#[wasdk::worker]` of a program registers its entry, for the one `worker-entry.run`
+# the program exports to find: a static constructor per entry, which `wasm-ld` runs from
+# `__wasm_call_ctors` and wit-bindgen's exports call before anything else.
+inventory = "0.3.25"
+# The engine that runs a component, and the WASI it serves; `p3` for the 0.3 clocks, sockets and
+# entry a program uses. 50, the first release whose macOS exception thread lives through a caught
+# signal, as the `SIGCHLD` of a child tokio runs is
+# (`../experiments/2026-11-08-wasmtime-abort-on-child-exit`); it runs what wit-bindgen 0.62 makes.
+wasmtime = "50.0.1"
+wasmtime-wasi = { version = "50.0.1", features = ["p3"] }
+# The `wasi:io` streams and pollables every other interface of Preview 2 hands out, linked one
+# interface at a time beside them.
+wasmtime-wasi-io = "50.0.1"
+# `wasi:http`'s client of Preview 3, which a program's HTTP goes through: its types and client
+# from wasmtime, its sending ours, through the hook it leaves to the embedder.
+wasmtime-wasi-http = { version = "50.0.1", default-features = false, features = ["p3"] }
+# The types a request and a response are, as `wasmtime-wasi-http` hands them over and reqwest
+# takes them.
+http = "1"
+http-body = "1"
+http-body-util = "0.1"
+# The system's proxy settings as reqwest reads them, at reqwest's version: which proxy a request
+# goes through, whose host is resolved apart from the hosts a program names.
+hyper-util = { version = "0.1", features = ["client-proxy-system"] }
+# The TLS reqwest speaks, at reqwest's version, with its cryptography: what tells a certificate
+# refused from another failure of a request, and what a chain is checked with.
+rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs", "std"] }
+# The system's own check of a server's certificate, at reqwest's version.
+rustls-platform-verifier = "0.7"
+# Certificates made for a test, signed by an authority of its own.
+rcgen = { version = "0.14", default-features = false, features = ["aws_lc_rs"] }
+# The system calls a program's files make (`files`): each call on a path beneath a mount's folder,
+# kept there by the system's flag where it has one, `openat2` on Linux among them, and a time to
+# set; a file's flags and advice.
+rustix = { version = "1", features = ["fs", "time"] }
+# Linux's `/proc/self/fd`, through which a file's times are set where the system has no call that
+# keeps the path beneath its folder, as `wasmtime-wasi`'s copy of cap-std's code sets them.
+rustix-linux-procfs = "0.1.1"
+# What the WebGPU host (`crates/waos-webgpu-host`), the wasi-gfx runtime's, is made of, at the
+# versions it names: wgpu-core and its types, which it serves `wasi:webgpu` over; the futures
+# wgpu-core's callbacks are awaited through, a buffer's mapping and a queue's work done; the
+# channel a device's uncaptured errors are broadcast on; its logging; and the macro that pastes a
+# flag's name together.
+wgpu-core = "30"
+wgpu-types = "30"
+callback-future = "0.1"
+async-broadcast = "0.7"
+log = "0.4"
+pastey = "0.2"
+# What a program draws with, over `wasdk-wgpu`'s backend; no backend of wgpu's own, so a program
+# links only what it uses. The engine works at wgpu-core's level, through the WebGPU host's
+# re-exports, so the two versions move together.
+wgpu = { version = "30", default-features = false }
+# What a program's thread runs on: a single-threaded runtime, `select!` for its stop, the
+# time driver WASI's sleeps need, and `watch` for whether its thread is in its code.
+tokio = { version = "1", features = ["rt", "macros", "time", "sync"] }
+# This computer's terminals: a pseudo-terminal on every system, ConPTY on Windows, with the started
+# command made the leader of a session whose controlling terminal it is, as the experiment proved.
+portable-pty = "0.9"
+anyhow = "1"
+# The user's time zone: its name as each system keeps it, and its offset from UTC at an instant
+# from the system's time zone database (Android's own, and one bundled on Windows, which has none).
+jiff = "0.2.43"
+futures = "0.3"
+# What a program does, as events a subscriber reads: its frames' steps.
+tracing = "0.1"
+# What `cargo waos` and a WaOS say to each other, as `waos-dev-protocol` frames it: serde for the
+# messages' shape, postcard for their bytes, with `std` so a message may hold a `Vec`.
+serde = { version = "1", features = ["derive"] }
+postcard = { version = "1", default-features = false, features = ["use-std"] }
+# A message's bytes, a component or a program's output, encoded as one string of bytes rather
+# than a sequence of numbers: postcard writes the two alike, and reads the first at once.
+serde_bytes = "0.11"
+# The `.wapk` format, as the experiment proved it: a zip whose entries are deflated and nothing
+# else, a TOML manifest, a semver version; and the JSON of a source's `index.json`.
+zip = { version = "8.6", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+toml = "1"
+semver = { version = "1", features = ["serde"] }
+serde_json = "1"
+# A package's signature: Ed25519 from dalek, the RustCrypto implementation in pure Rust, with
+# PKCS#8's PEM for the publisher's private key; the SHA-256 the signature covers, at the version
+# dalek hashes with; the system's random source a new key is made from; and hex, which the signed
+# message and an index's `sha256` are written in.
+ed25519-dalek = { version = "3", features = ["pem"] }
+sha2 = "0.11"
+getrandom = "0.4"
+hex = { version = "0.4", features = ["serde"] }
+# Files and folders under fresh names, removed unless kept: what an install unpacks into before it
+# is put in place, a file written whole beside the one it replaces, and a download.
+tempfile = "3"
+# Package sources read over HTTP: reqwest, on the tokio the workspace runs on, with rustls, which
+# checks a server's certificate with the platform's own verifier; and the URL a source is.
+reqwest = { version = "0.13", default-features = false, features = ["rustls"] }
+url = "2"
+# `cargo waos`'s command line, derived from its arguments' types.
+clap = { version = "4", features = ["derive"] }
+# What cargo knows of a workspace: its packages, its target directory, and what a build made.
+cargo_metadata = "0.23"
+# The workspace `cargo waos new` makes a program in, edited as `cargo new` edits it: TOML edited in
+# place, keeping its comments and layout, at the version `toml` parses with; and the patterns of
+# its members, matched with the glob cargo matches them with.
+toml_edit = "0.25"
+glob = "0.3"
+# The icon `cargo waos new` gives a new program, encoded as a PNG, at the version the workspace
+# builds already, which `image` encodes with.
+png = "0.18"
+# Waft, the framework the WaOS app is built on, from its checkout beside this one while the two
+# move together; and the layers its facade does not name, which a program's view takes its input
+# from: the pointer widget, the pointer events a widget receives, and the keys and text input.
+waft = { version = "0.5.0", path = "../waft/crates/waft" }
+waft-widgets = { version = "0.5.0", path = "../waft/crates/waft-widgets" }
+waft-gestures = { version = "0.5.0", path = "../waft/crates/waft-gestures" }
+waft-services = { version = "0.5.0", path = "../waft/crates/waft-services" }
+# The ticker a widget reads a player's position with at each frame, which `waft-widgets` does
+# not re-export.
+waft-scheduler = { version = "0.5.0", path = "../waft/crates/waft-scheduler" }
+# How a gesture detector is hit, which `waft-widgets`' `GestureDetector::behavior` takes but does
+# not re-export.
+waft-rendering = { version = "0.5.0", path = "../waft/crates/waft-rendering" }
+# The springs and the scroll simulations the WaOS app's deck settles its motions with, which
+# `waft-widgets` does not re-export.
+waft-physics = { version = "0.5.0", path = "../waft/crates/waft-physics" }
+# A platform with no window server, for the app's tests of its windows.
+waft-test = { version = "0.5.0", path = "../waft/crates/waft-test" }
+# What `waft-embedder-wasdk` is made of: Waft's host traits and value types, its app, and the
+# client a host drives.
+waft-embedder = { version = "0.5.0", path = "../waft/crates/waft-embedder" }
+waft-foundation = { version = "0.5.0", path = "../waft/crates/waft-foundation" }
+waft-shell = { version = "0.5.0", path = "../waft/crates/waft-shell" }
+# Waft's Cupertino widgets, which `examples/two-windows` spins an activity indicator of, and
+# the library is drawn with at a phone's size.
+waft-cupertino = { version = "0.5.0", path = "../waft/crates/waft-cupertino" }
+# Fluent's controls over Waft, which the library is drawn with at a desktop's or a tablet's
+# size, and the Video Player throughout.
+waft-winui = { version = "0.5.0", path = "../waft/crates/waft-winui" }
+# Waft's desktop host, for what only macOS offers beyond its `Platform`: hearing WaOS's Dock
+# icon clicked, a window that slides in, and hiding the app.
+waft-embedder-winit = { version = "0.5.0", path = "../waft/crates/waft-embedder-winit" }
+# Waft's Android host, for its `AndroidHardwareBuffer`, which a program's hardware buffers are
+# shown as on a Waft composition layer on Android.
+waft-embedder-android = { version = "0.5.0", path = "../waft/crates/waft-embedder-android" }
+# One instance of WaOS: a later launch on Windows or Linux hands the files it was started with to
+# the WaOS running, as macOS does itself.
+waft-single-instance = { version = "0.5.0", path = "../waft/crates/waft-single-instance" }
+# Waft's Cupertino gallery, a library as well as its own binary, which `examples/gallery` runs.
+cupertino-gallery = { path = "../waft/examples/cupertino_gallery" }
+# valo, Waft's renderer, which a program's views are drawn with: its context, its fonts and
+# their glyph raster, at the version Waft draws with.
+valo = "0.22.0"
+# The platform's fonts in the shape of Skia's `SkFontMgr`, from valo, Waft's renderer: a
+# program's fonts are a capability whose provider is its `FontManager` (the design's decision 33).
+valo-fontmgr = "0.22.0"
+# valo's text stack, which the engine draws a program's glyphs with: its fonts and `Rasterizer`,
+# and the geometry its strokes and outlines are in.
+valo-text = "0.22.0"
+valo-geometry = "0.22.0"
+# Mach's ports, messages and bootstrap server, which carry what WaOS and a program's window process
+# say to each other on macOS, at the version the experiment measured; and the C library's
+# `clock_gettime_nsec_np`, the clock both processes stamp a program's input on.
+mach2 = "0.6"
+libc = "0.2"
+# macOS's Foundation and AppKit, through their bindings: a program's app reads its bundle's
+# `Info.plist`, and Launch Services opens a program's app, and WaOS, without bringing them forward;
+# WaOS yields its activation to a program's app, which takes it as what the user must see shows.
+objc2 = "0.6"
+objc2-foundation = { version = "0.3.2", default-features = false }
+objc2-app-kit = { version = "0.3.2", default-features = false }
+# The blocks Launch Services answers through.
+block2 = "0.6"
+# The main dispatch queue, where WaOS yields its activation to a program's app from off the main
+# thread, without waiting.
+dispatch2 = { version = "0.3.1", default-features = false }
+# Security's code signing: the code hash of a program's bundle and of the process a message came
+# from.
+objc2-security = { version = "0.3.2", default-features = false }
+# Core Animation's layers and transactions: the root of the context a program's view's layers are
+# hosted from, and the layer its window shows them in.
+objc2-quartz-core = { version = "0.3.2", default-features = false }
+# The Keychain, through Security's safe bindings, at the version rustls's platform verifier reads
+# certificates with: where WaOS keeps the key the record of its programs' apps is vouched for with.
+security-framework = { version = "3.7", default-features = false }
+# The HMAC that vouches for each program's app in that record, over the workspace's SHA-256.
+hmac = "0.13"
+# macOS's Core Foundation, through its safe bindings: what the app hands Security, IOSurface and
+# Core Animation for the programs' apps.
+objc2-core-foundation = { version = "0.3.2", default-features = false }
+# The choices of a Cupertino segmented control, in the order shown: the map type it takes, at
+# the version Waft's widgets name.
+indexmap = "2"
+# What the app writes of its `tracing` events to standard error, picked by `RUST_LOG`.
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+# Sound: Web Audio's graph, rendered on a thread of its own, its nodes, its decoding of the common
+# formats with symphonia, and the system's audio devices through cpal, which only the local
+# provider turns on (sound decision 1).
+web-audio-api = { version = "1.7.0", default-features = false }
+# What a sound file decodes to, measured before web-audio-api decodes it: the symphonia it decodes
+# with, every format and codec of it.
+symphonia = { version = "0.6", default-features = false, features = ["all"] }
+# A font's tables as a program reads them, for `examples/fonts`: the version valo's skrifa reads
+# with.
+read-fonts = "0.33"
+# WASI 0.2's own bindings, the ones `std` calls through on `wasm32-wasip2`, for the calls on a
+# folder's path `std::fs` has no form of, which `examples/file-escapes` makes: the version in
+# `std`'s WASI 0.2.12.
+wasip2 = "1.0.4"
+proc-macro2 = "1"
+quote = "1"
+syn = { version = "2", features = ["full"] }
+
+# `unsafe` only where an unsafe API is wrapped: a crate that needs it denies it instead of
+# taking this, and its lint comment says where (AGENTS.md).
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+# Every crate outside the workspace, Waft's from its checkout among them, with line tables as its
+# only debug information in debug builds, their build scripts and proc macros too: a backtrace
+# names their files and lines, though a frame of theirs by its function's name alone, while the
+# workspace's own crates keep all of it. The rest was 2.6 GB of the 22.2 GB a fresh
+# `cargo build --workspace` and `cargo test --workspace --no-run` wrote. The overrides below set
+# only `opt-level`, so their crates take this too.
+[profile.dev.package."*"]
+debug = "line-tables-only"
+
+# Cranelift, and wasmtime's crates that drive it, optimized in debug builds as in release: what
+# compiles a program, which every test that runs one and every debug run of WaOS does at a
+# program's first load. Unoptimized, it took 23.5 s of CPU to compile forever, survey and
+# triangle; optimized, 2.4 s. The rest of a debug build stays unoptimized, for debugging.
+[profile.dev.package.cranelift-codegen]
+opt-level = 3
+[profile.dev.package.cranelift-frontend]
+opt-level = 3
+[profile.dev.package.cranelift-entity]
+opt-level = 3
+[profile.dev.package.cranelift-bforest]
+opt-level = 3
+[profile.dev.package.cranelift-bitset]
+opt-level = 3
+[profile.dev.package.cranelift-control]
+opt-level = 3
+[profile.dev.package.regalloc2]
+opt-level = 3
+[profile.dev.package.wasmtime-internal-cranelift]
+opt-level = 3
+[profile.dev.package.wasmtime-environ]
+opt-level = 3
+# wasmtime itself as well, with gimli and addr2line, which it reads a program's DWARF with: a
+# program stopped or trapped ends with a backtrace whose files and lines come from parsing its
+# DWARF, which made ending's tests of a stop and a trap take 0.45 s and 0.57 s unoptimized, and
+# 0.14 s and 0.05 s optimized.
+[profile.dev.package.wasmtime]
+opt-level = 3
+[profile.dev.package.gimli]
+opt-level = 3
+[profile.dev.package.addr2line]
+opt-level = 3

@@ -1,0 +1,20 @@
+[package]
+name = "wasdk"
+version.workspace = true
+edition.workspace = true
+# Ours, MIT, with the WIT of WASI and of `wasi:webgpu` the crate carries in `wit/deps`, which is
+# Apache-2.0 with the LLVM exception (`wit/deps/LICENSE`), and Flutter's names of keys in
+# `src/keys.rs`, BSD-3-Clause (`keys/LICENSE`).
+license = "MIT AND Apache-2.0 WITH LLVM-exception AND BSD-3-Clause"
+publish = true
+description = "What WaOS programs are written with: the bindings of the WIT packages wasdk:platform and wasdk:media, as wit-bindgen generates them, passed through, and the program's entry."
+homepage.workspace = true
+readme = "README.md"
+
+[dependencies]
+wasdk-macros.workspace = true
+wit-bindgen.workspace = true
+inventory.workspace = true
+
+[lints]
+workspace = true

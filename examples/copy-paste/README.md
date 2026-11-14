@@ -1,0 +1,7 @@
+# copy-paste
+
+An Waft app whose text goes through the platform's clipboard: a window with a text field, whose ⌘C, ⌘X and ⌘V copy and paste as a native app's do, and a line copied as it starts through Waft's clipboard, given as text, promised as HTML, and promised as a file, `line.txt`, each made when someone pastes it. It prints the text on the clipboard at each change it hears, read with Flutter's `Clipboard.getData`: `clipboard changed: copied by copy-paste` first, its own copy, once its window has the focus. Asking to close its window quits it, and its embedder flushes the clipboard first, so the HTML outlives it while the file ends with it. What the engine's tests run to see an Waft app's copy and paste reach the platform through `waft-embedder-wasdk`, and what a user tries a text field's keys in.
+
+- **Takes:** `waft-embedder-wasdk`; Waft's `waft-widgets` (the app and its window), `waft-cupertino` (the page and the text field), `waft-services` (Flutter's clipboard and its changes), `waft-embedder` (the platform's clipboard, which it copies through) and `waft-foundation`, from Waft's checkout beside this one; `wasdk`, for the entry.
+- **Provides:** a component, `target/wasm32-wasip2/debug/copy-paste.wasm`, from `cargo build -p copy-paste --target wasm32-wasip2`.
+- **Used by:** the engine's tests (`crates/waos/tests/all/clipboard.rs`), through `crates/waos/tests/programs`; whoever runs it in WaOS.

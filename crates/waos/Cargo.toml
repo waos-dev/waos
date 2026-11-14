@@ -1,0 +1,140 @@
+[package]
+name = "waos"
+version.workspace = true
+edition.workspace = true
+# Ours, MIT, with the WIT of WASI and of `wasi:webgpu` the crate carries in `wit/deps`, which is
+# Apache-2.0 with the LLVM exception (`wit/deps/LICENSE`).
+license = "MIT AND Apache-2.0 WITH LLVM-exception"
+publish = true
+description = "WaOS's engine, for any app to embed: runs programs, WASI components written with wasdk, and serves them wasdk:platform and wasdk:media through its capabilities and the embedding app's shell."
+homepage.workspace = true
+readme = "README.md"
+# The tests run the example programs, which `waos-test-programs` builds from the workspace and
+# which is not published, so they run from the repository alone.
+exclude = ["/tests/"]
+
+[dependencies]
+waos-capabilities.workspace = true
+anyhow.workspace = true
+futures.workspace = true
+# The offset of the user's time zone from UTC at an instant, from the system's time zone database.
+jiff.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+wasmtime.workspace = true
+wasmtime-wasi.workspace = true
+wasmtime-wasi-io.workspace = true
+# A program's files (`files`): the system calls the engine makes itself.
+rustix.workspace = true
+# A host name as a lookup reads it: an address, or a domain in ASCII and lower case.
+url.workspace = true
+# A program's HTTP: `wasi:http`'s client of Preview 3, and reqwest, which sends a request through the
+# system's proxy, an HTTP proxy or a SOCKS one, and checks the server's certificate as the system
+# does.
+wasmtime-wasi-http.workspace = true
+http.workspace = true
+http-body.workspace = true
+http-body-util.workspace = true
+reqwest = { workspace = true, features = ["system-proxy", "socks"] }
+hyper-util.workspace = true
+rustls.workspace = true
+# `wasdk:platform/trust`: the system's own check of a server's certificate.
+rustls-platform-verifier.workspace = true
+# `wasi:webgpu`, served over wgpu-core; `gpu` re-exports the wgpu crates it works at the level
+# of, so the versions move together.
+waos-webgpu-host.workspace = true
+# `wasdk:platform/fonts`: the manager a program's fonts come from, and valo's text stack, which
+# draws their glyphs.
+valo-fontmgr.workspace = true
+valo-text.workspace = true
+valo-geometry.workspace = true
+# `wasdk:platform/audio`: Web Audio's graph, which a program's sound is, served node for node over
+# the contexts its devices make.
+web-audio-api.workspace = true
+symphonia.workspace = true
+
+# The example programs the tests run, built as components by that crate's build script.
+[dev-dependencies]
+waos-test-programs = { path = "tests/programs" }
+# This computer's fonts, which `examples/fonts` is given as an app gives them.
+waos-local.workspace = true
+# This computer as a machine, which `examples/machines` acts on, in a login environment the tests
+# give it.
+waos-local-processes.workspace = true
+# The folders `examples/files` is given, made for each test and removed after it.
+tempfile.workspace = true
+# Certificates `trust`'s tests check, made for each test.
+rcgen.workspace = true
+# The notes `builtin-apps/notes` keeps, which its tests read from its `/data`.
+serde_json.workspace = true
+
+# What a hardware buffer is on Apple's systems: an `IOSurface`, the type Waft's `Buffer` is, which
+# `shell` names as the type the shell shows and `os` allocates; and what a texture over one is
+# made of: Metal, and wgpu-hal's Metal backend, which wraps the Metal texture as one of
+# wgpu-core's. `os` is the only place they are named.
+[target.'cfg(target_vendor = "apple")'.dependencies]
+objc2 = "0.6"
+objc2-core-foundation = { version = "0.3", features = ["CFBase", "CFDictionary", "CFNumber", "CFString"] }
+objc2-io-surface = "0.3"
+objc2-metal = { version = "0.3", features = ["MTLAllocation", "MTLDevice", "MTLPixelFormat", "MTLResource", "MTLTexture", "MTLTypes", "objc2-io-surface"] }
+wgpu-hal = { version = "30", features = ["metal"] }
+# A video's frame as the system hands it out, the type Waft's `VideoFrame` is on Apple's systems:
+# a `CVPixelBuffer`, whose `IOSurface` a texture on a program's device samples, and whose pixels
+# are read back while it is locked, at the version Waft names.
+objc2-core-video = { version = "0.3", default-features = false, features = ["std", "objc2-io-surface", "CVBase", "CVBuffer", "CVImageBuffer", "CVPixelBuffer", "CVPixelBufferIOSurface", "CVReturn"] }
+
+# What a hardware buffer is on Android: an `AHardwareBuffer`, at the `ndk` version Waft's Android
+# host holds it with, which `shell` names as the type the shell shows and `os` allocates; and what
+# a texture over one is made of: Vulkan's import of its memory, through `ash` at the version
+# wgpu-hal uses, so its device's handles are this crate's types, and wgpu-hal's Vulkan backend,
+# which wraps the image as one of wgpu-core's and opens a device with the import's extensions.
+[target.'cfg(target_os = "android")'.dependencies]
+ndk = { version = "0.9", features = ["api-level-26"] }
+
+# Vulkan, where a program's device imports the system's hardware buffers: Android's
+# `AHardwareBuffer`s and Linux's dmabufs.
+[target.'cfg(any(target_os = "android", target_os = "linux"))'.dependencies]
+ash = { version = "0.38", default-features = false, features = ["std"] }
+wgpu-hal = { version = "30", features = ["vulkan"] }
+
+# Linux's dmabufs: GBM, loaded at run time, and the DRM and dma-buf ioctls.
+[target.'cfg(target_os = "linux")'.dependencies]
+libloading = "0.8"
+libc = "0.2"
+
+# The frames the tests' readers hand out: pixel buffers on IOSurfaces, made and filled by the test
+# shell.
+[target.'cfg(target_vendor = "apple")'.dev-dependencies]
+objc2-core-video = { version = "0.3", default-features = false, features = ["std", "CVBase", "CVBuffer", "CVImageBuffer", "CVPixelBuffer", "CVReturn"] }
+
+# Linux's `/proc/self/fd`, through which `files` sets a file's times where no call keeps the path
+# beneath its folder.
+[target.'cfg(any(target_os = "linux", target_os = "android"))'.dependencies]
+rustix-linux-procfs.workspace = true
+
+# Windows' file calls, which `files`' Windows half makes: `NtCreateFile` beneath a folder's handle,
+# a reparse point's contents, a handle's information and a handle reopened; the features
+# `wasmtime-wasi`, whose copy it is, asks for, and those the copy names besides.
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Wdk_Foundation", "Wdk_Storage_FileSystem", "Win32_Foundation", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_IO", "Win32_System_Ioctl", "Win32_System_Kernel", "Win32_System_SystemServices", "Win32_System_WindowsProgramming"] }
+# What a hardware buffer is on Windows: a D3D12 texture shared by NT handle, which `os` makes on a
+# device of the engine's own and opens on a program's, through D3D12's COM interfaces at the
+# `windows` version wgpu-hal uses, so a resource is wgpu-hal's type, and wgpu-hal's D3D12 backend,
+# which wraps it as one of wgpu-core's; windows-core for the COM object that holds a buffer while
+# a texture over it lives, which `implement` writes in its name.
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Graphics_Direct3D12", "Win32_Graphics_Dxgi_Common", "Win32_System_Com"] }
+windows-core = "0.62"
+wgpu-hal = { version = "30", features = ["dx12"] }
+
+# The proxy settings macOS's own apps follow, from SystemConfiguration's dynamic store, which `os`
+# reads for a program's HTTP: the version reqwest's proxy matcher reads them with.
+[target.'cfg(target_os = "macos")'.dependencies]
+system-configuration = "0.7"
+
+# `code_cache` maps code wasmtime compiled earlier, an unsafe API of wasmtime's, and `os` wraps
+# the system's allocation of a hardware buffer into a texture on the program's device, hands its
+# image to the compositor on Android and Linux, and reads its proxy settings; `files` makes
+# Windows' file calls, in its copy of `wasmtime-wasi`'s Windows half (`files/beneath/windows`, and
+# its tests' junctions) and in `files/windows.rs`; the rest of the crate has no `unsafe`.
+[lints.rust]
+unsafe_code = "deny"

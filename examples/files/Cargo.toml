@@ -1,0 +1,17 @@
+[package]
+name = "files"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "A program that uses its files through `std::fs`: its own `/data`, the folders above its mounts, a read-only mount, escapes refused, paths outside every mount, and a mount added while it runs. `cargo build -p files --target wasm32-wasip2`."
+
+[dependencies]
+wasdk.workspace = true
+
+[lints]
+workspace = true
+
+# The id `cargo waos run` runs this program as, with that program's settings and folders.
+[package.metadata.waos]
+id = "dev.waos.examples.files"

@@ -1,0 +1,395 @@
+//! A view's canvas: what the WebGPU host's canvas context draws into, over the view's hardware
+//! buffers, and how a drawn frame is presented. The canvas is the one owner of the view's hardware
+//! buffers and of their handle on the program's device: it lives as long as the program's contexts
+//! on it, and the shell keeps a presented hardware buffer on its own.
+//!
+//! The canvas is the size the program set (`view.set-canvas-size`), never the view's: its
+//! hardware buffers are allocated at that size when a context is configured, and again when the
+//! program sets another, at the next texture taken; a change of the view's size changes nothing
+//! here. A canvas with no size set has nothing to allocate, and configuring it traps the program.
+//!
+//! Every context a program takes on one view draws into the same canvas: a program's canvases
+//! are kept by view, weakly, so a canvas goes when the program drops its last context on it.
+
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex, Weak};
+
+use waos_webgpu_host::{CanvasSurface, Device, GpuObject};
+use wasmtime::bail;
+
+use super::finisher::{FrameFinisher, Wait};
+use super::view_hardware_buffers::{Allocation, DrawnFrame, FrameTexture, ViewHardwareBuffers};
+use crate::bindings::wasdk::platform::views::ViewId;
+use crate::engine_time::{EngineClock, Timer};
+use crate::gpu::{GpuInstance, InFlight, submit_once_thawed, wgpu_core, wgpu_types};
+use crate::lifecycle::Lifecycle;
+use crate::os::{self, FORMAT};
+use crate::stats::Stats;
+use crate::sync::locked;
+use crate::targets;
+use crate::views::{PlacedShellLayer, ProgramView};
+
+/// What a program may configure its canvas to use its textures for: drawing into them, sampling
+/// them, and copying to and from them. What each system makes over a hardware buffer serves each of
+/// these; writing from a shader would need more of it.
+const USAGES: wgpu_types::TextureUsages = wgpu_types::TextureUsages::RENDER_ATTACHMENT
+    .union(wgpu_types::TextureUsages::TEXTURE_BINDING)
+    .union(wgpu_types::TextureUsages::COPY_SRC)
+    .union(wgpu_types::TextureUsages::COPY_DST);
+
+const NOT_CONFIGURED: &str = "the view's canvas context is not configured";
+
+const NO_SIZE: &str =
+    "the view's canvas has no size: the program sets it with `view.set-canvas-size` first";
+
+/// A view's hardware buffers, and the thread that hands each drawn frame to the shell.
+pub(crate) struct ViewCanvas {
+    gpu: GpuInstance,
+    buffers: Arc<ViewHardwareBuffers>,
+    finisher: FrameFinisher,
+    /// The program's GPU work in flight, which every wait of the thread counts in.
+    in_flight: Arc<InFlight>,
+    /// The engine's clock, which a present is timed by.
+    clock: EngineClock,
+    /// What lets the spares go at a tick of the engine's time once the view has drawn nothing
+    /// for a while; the clock holds it only while the canvas does.
+    _spares_timer: Arc<Timer>,
+}
+
+impl ViewCanvas {
+    /// A canvas for `view`, drawn on `gpu`, its hardware buffers' bytes and its frames counted in
+    /// `stats`, its hardware buffers following the freeze of `lifecycle` and the time of `clock`,
+    /// and its waits counted in `in_flight`.
+    pub(crate) fn new(
+        view: ProgramView,
+        gpu: GpuInstance,
+        stats: Arc<Stats>,
+        lifecycle: Lifecycle,
+        clock: EngineClock,
+        in_flight: Arc<InFlight>,
+    ) -> Arc<ViewCanvas> {
+        let id = view.id();
+        let buffers = ViewHardwareBuffers::new(view, stats, lifecycle, clock.now());
+        let quiet = Arc::downgrade(&buffers);
+        let spares_timer: Arc<Timer> = Arc::new(move |now| {
+            if let Some(buffers) = quiet.upgrade() {
+                buffers.let_spares_go_if_quiet(now);
+            }
+        });
+        clock.at_each_tick(&spares_timer);
+        Arc::new(ViewCanvas {
+            gpu: Arc::clone(&gpu),
+            buffers,
+            finisher: FrameFinisher::start(gpu, id),
+            in_flight,
+            clock,
+            _spares_timer: spares_timer,
+        })
+    }
+
+    /// Hands the frame just drawn to the shell once the GPU has finished it, with `layers`, the
+    /// view's, beneath it, without waiting for the GPU here: what the program wrote on its
+    /// device's queue and no submission carried is submitted first, once the program may submit,
+    /// with what the system needs to hand the frame's memory to its compositor
+    /// (`os::hand_to_compositor`), and the view's thread waits for that submission, after every
+    /// one that drew the frame, and hands the frame over. Answers whether there was one, which a frame skipped on a lost
+    /// device is not, nor a present with nothing drawn since the last; the layers of a present
+    /// that hands nothing over are not shown, and the shell keeps those of the frame on screen.
+    pub(crate) async fn present(&self, layers: Vec<PlacedShellLayer>) -> wasmtime::Result<bool> {
+        let Some(DrawnFrame {
+            memory,
+            released,
+            texture,
+            usage,
+            device,
+        }) = self.drawn_frame()
+        else {
+            return Ok(false);
+        };
+        let submission = submit_once_thawed(&self.buffers.lifecycle, || {
+            os::hand_to_compositor(&self.gpu, &device, texture.id(), usage)
+        })
+        .await;
+        drop(texture);
+        self.buffers.presented(self.clock.now());
+        let view = self.buffers.view.clone();
+        let frame = view.frame_in_flight();
+        // Read on the program's thread as it presents: the events the picture was drawn after.
+        let events_read = view.events_read();
+        let stats = Arc::clone(&self.buffers.stats);
+        let hand_over = move || {
+            view.present(memory.buffer(), layers, released, events_read);
+            stats.frame_presented(view.clock().now());
+        };
+        self.finisher.finish(Wait {
+            submission,
+            device,
+            hand_over: Box::new(hand_over),
+            in_flight: self.in_flight.begin(),
+            frame,
+        });
+        Ok(true)
+    }
+
+    /// The frame to hand over, its hardware buffer marked as the shell's until the shell releases
+    /// it; `None` when nothing was drawn since the last present, or the canvas was never
+    /// configured.
+    fn drawn_frame(&self) -> Option<DrawnFrame> {
+        let mut guard = self.buffers.allocation();
+        let allocation = guard.as_mut()?;
+        let buffers = Arc::downgrade(&self.buffers);
+        allocation.present_drawn(move || {
+            if let Some(buffers) = buffers.upgrade() {
+                buffers.hardware_buffer_freed();
+            }
+        })
+    }
+
+    /// A free hardware buffer, or one added when the shell holds every one: a frame never waits for
+    /// the shell to release one.
+    fn hardware_buffer_for_next_frame(
+        &self,
+        allocation: &mut Allocation,
+    ) -> wasmtime::Result<usize> {
+        if let Some(index) = allocation.pool.first_free() {
+            return Ok(index);
+        }
+        let index = allocation
+            .add_hardware_buffer()
+            .map_err(wasmtime::Error::from_anyhow)?;
+        tracing::trace!(
+            target: targets::FRAMES,
+            view = self.buffers.view.id(),
+            "every hardware buffer is held: the pool adds one, {} now",
+            allocation.pool.count()
+        );
+        Ok(index)
+    }
+}
+
+impl CanvasSurface for ViewCanvas {
+    /// The size the next frame is drawn at, as the program set it; nothing, zero by zero, before
+    /// it set one, which `configure` refuses.
+    fn size(&self) -> (u32, u32) {
+        let [width, height] = self.buffers.view.canvas_size().unwrap_or_default();
+        (width, height)
+    }
+
+    /// Allocates the hardware buffers at the size `configuration` gives, to be drawn on `device`
+    /// and finished on its queue, each frame's texture made for the usage it asks and viewable in
+    /// the formats it names. Called again whenever the size the program set no longer fits. A
+    /// format, a view format or a usage the hardware buffers cannot serve is refused rather than
+    /// left out, since a frame that relied on it would be rejected by the GPU; and so are no size
+    /// and a size past the device's largest 2D texture.
+    fn configure(
+        &self,
+        instance: &wgpu_core::global::Global,
+        device: &Device,
+        configuration: &wgpu_types::SurfaceConfiguration<Vec<wgpu_types::TextureFormat>>,
+    ) -> wasmtime::Result<()> {
+        if self.buffers.view.canvas_size().is_none() {
+            bail!(NO_SIZE)
+        }
+        let largest = instance
+            .device_limits(device.device_id())
+            .max_texture_dimension_2d;
+        check_size(configuration, largest)?;
+        check_served(configuration)?;
+        let allocation = Allocation::new(configuration, device, &self.buffers.stats)
+            .map_err(wasmtime::Error::from_anyhow)?;
+        // The hardware buffers that were here belong to the old size. A frame the shell is still
+        // showing keeps its own alive through the hardware buffer it holds.
+        *self.buffers.allocation() = Some(allocation);
+        Ok(())
+    }
+
+    /// The texture for the frame being drawn, over a free hardware buffer, or one added when the
+    /// shell holds every hardware buffer, taken back from the compositor for the program's device
+    /// where the system needs it (`os::take_from_compositor`), once the program may submit. A
+    /// program that takes it while frozen draws into it without that: the texture arrives with its
+    /// pixels undefined, which a frame drawn whole never reads, and the system then needs nothing
+    /// taken back.
+    ///
+    /// On a lost device the texture is invalid, as WebGPU's `getCurrentTexture` answers there,
+    /// and the hardware buffer is not handed out: the frame draws nothing and is skipped.
+    fn current_texture(&self, instance: &GpuInstance) -> wasmtime::Result<FrameTexture> {
+        let mut guard = self.buffers.allocation();
+        let Some(allocation) = guard.as_mut() else {
+            bail!(NOT_CONFIGURED)
+        };
+        let index = self.hardware_buffer_for_next_frame(allocation)?;
+        let texture = allocation
+            .pool
+            .memory(index)
+            .texture_over(
+                &self.gpu,
+                allocation.device.device_id(),
+                allocation.usage,
+                &allocation.view_formats,
+            )
+            .map_err(wasmtime::Error::from_anyhow)?;
+        let texture: FrameTexture = Arc::new(GpuObject::new(texture, instance));
+        if allocation.device.is_lost() {
+            return Ok(texture);
+        }
+        allocation.hand_out(index, Arc::clone(&texture));
+        let (device, usage) = (allocation.device.clone(), allocation.usage);
+        let memory = allocation.pool.memory(index).clone();
+        drop(guard);
+        let taken = self.buffers.lifecycle.while_thawed(&mut || {
+            os::take_from_compositor(&self.gpu, &device, &memory, texture.id(), usage);
+        });
+        if !taken {
+            tracing::debug!(
+                target: targets::FRAMES,
+                view = self.buffers.view.id(),
+                "a frame's texture is taken while the program is frozen: drawn into as it arrives"
+            );
+        }
+        Ok(texture)
+    }
+}
+
+/// Refuses a size past `largest`, the device's largest 2D texture on a side.
+fn check_size(
+    configuration: &wgpu_types::SurfaceConfiguration<Vec<wgpu_types::TextureFormat>>,
+    largest: u32,
+) -> wasmtime::Result<()> {
+    let (width, height) = (configuration.width, configuration.height);
+    if width > largest || height > largest {
+        bail!(
+            "a view's canvas of {width}×{height} is past the device's largest texture, {largest} on a side"
+        )
+    }
+    Ok(())
+}
+
+/// Refuses a configuration asking for a format, a view format or a usage the hardware buffers
+/// cannot serve. A texture over one is viewed in its own format or its sRGB counterpart, as
+/// WebGPU's canvas allows.
+fn check_served(
+    configuration: &wgpu_types::SurfaceConfiguration<Vec<wgpu_types::TextureFormat>>,
+) -> wasmtime::Result<()> {
+    let format = configuration.format;
+    if format != FORMAT {
+        bail!("a view's hardware buffers are drawn in {FORMAT:?}, not {format:?}")
+    }
+    let unviewable: Vec<_> = configuration
+        .view_formats
+        .iter()
+        .filter(|view_format| view_format.remove_srgb_suffix() != FORMAT)
+        .collect();
+    if !unviewable.is_empty() {
+        bail!("a view's hardware buffers in {FORMAT:?} cannot be viewed as {unviewable:?}")
+    }
+    let unserved = configuration.usage - USAGES;
+    if !unserved.is_empty() {
+        bail!("a view's hardware buffers cannot be used for {unserved:?}")
+    }
+    Ok(())
+}
+
+/// One program's canvases, by view: a context taken on a view draws into the canvas the view
+/// has, and a view gets a new one once the program has dropped every context on the last.
+#[derive(Default)]
+pub(crate) struct Canvases(Mutex<HashMap<ViewId, Weak<ViewCanvas>>>);
+
+impl Canvases {
+    /// The canvas of `view`, or the one `make` makes when it has none.
+    pub(crate) fn for_view(
+        &self,
+        view: ViewId,
+        make: impl FnOnce() -> Arc<ViewCanvas>,
+    ) -> Arc<ViewCanvas> {
+        let mut canvases = locked(&self.0);
+        if let Some(canvas) = canvases.get(&view).and_then(Weak::upgrade) {
+            return canvas;
+        }
+        let canvas = make();
+        canvases.insert(view, Arc::downgrade(&canvas));
+        canvas
+    }
+
+    /// The canvas of `view`, while the program holds a context on it.
+    pub(crate) fn of_view(&self, view: ViewId) -> Option<Arc<ViewCanvas>> {
+        locked(&self.0).get(&view).and_then(Weak::upgrade)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn canvas_configuration(
+        format: wgpu_types::TextureFormat,
+        usage: wgpu_types::TextureUsages,
+    ) -> wgpu_types::SurfaceConfiguration<Vec<wgpu_types::TextureFormat>> {
+        wgpu_types::SurfaceConfiguration {
+            usage,
+            format,
+            width: 4,
+            height: 4,
+            present_mode: wgpu_types::PresentMode::Fifo,
+            desired_maximum_frame_latency: 2,
+            alpha_mode: wgpu_types::CompositeAlphaMode::Auto,
+            view_formats: Vec::new(),
+            color_space: wgpu_types::SurfaceColorSpace::default(),
+        }
+    }
+
+    fn viewed_as(
+        view_formats: Vec<wgpu_types::TextureFormat>,
+    ) -> wgpu_types::SurfaceConfiguration<Vec<wgpu_types::TextureFormat>> {
+        wgpu_types::SurfaceConfiguration {
+            view_formats,
+            ..canvas_configuration(FORMAT, wgpu_types::TextureUsages::RENDER_ATTACHMENT)
+        }
+    }
+
+    /// A renderer that draws in linear colour and lets the GPU encode sRGB, as Bevy does, views
+    /// the canvas in its sRGB counterpart.
+    #[test]
+    fn a_canvas_may_be_viewed_in_its_own_format_or_its_srgb_counterpart() {
+        let view_formats = vec![FORMAT, FORMAT.add_srgb_suffix()];
+        assert!(check_served(&viewed_as(view_formats)).is_ok());
+    }
+
+    #[test]
+    fn a_view_format_other_than_the_canvas_format_or_its_srgb_counterpart_is_refused() {
+        let other = wgpu_types::TextureFormat::Rgba8UnormSrgb;
+        let refusal = check_served(&viewed_as(vec![other])).unwrap_err();
+        assert!(refusal.to_string().contains("Rgba8UnormSrgb"), "{refusal}");
+    }
+
+    #[test]
+    fn a_canvas_past_the_devices_largest_texture_is_refused() {
+        let configuration =
+            canvas_configuration(FORMAT, wgpu_types::TextureUsages::RENDER_ATTACHMENT);
+        assert!(check_size(&configuration, 4).is_ok());
+        let refusal = check_size(&configuration, 3).unwrap_err();
+        assert!(refusal.to_string().contains("4×4"), "{refusal}");
+    }
+
+    /// A renderer that snapshots its target for a backdrop blur copies from the canvas.
+    #[test]
+    fn a_canvas_may_be_drawn_into_and_copied_from() {
+        let usage =
+            wgpu_types::TextureUsages::RENDER_ATTACHMENT | wgpu_types::TextureUsages::COPY_SRC;
+        assert!(check_served(&canvas_configuration(FORMAT, usage)).is_ok());
+    }
+
+    #[test]
+    fn a_usage_the_hardware_buffers_cannot_serve_is_refused() {
+        let usage = wgpu_types::TextureUsages::RENDER_ATTACHMENT
+            | wgpu_types::TextureUsages::STORAGE_BINDING;
+        let refusal = check_served(&canvas_configuration(FORMAT, usage)).unwrap_err();
+        assert!(refusal.to_string().contains("STORAGE_BINDING"));
+    }
+
+    #[test]
+    fn a_format_other_than_the_hardware_buffers_is_refused() {
+        let format = wgpu_types::TextureFormat::Rgba16Float;
+        let usage = wgpu_types::TextureUsages::RENDER_ATTACHMENT;
+        assert!(check_served(&canvas_configuration(format, usage)).is_err());
+    }
+}

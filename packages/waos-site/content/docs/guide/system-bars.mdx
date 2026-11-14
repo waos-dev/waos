@@ -1,0 +1,40 @@
+---
+title: System bars
+description: Keep clear of a phone's bars and keyboard, and say how the bars look over your page.
+---
+
+A phone draws its status bar and its navigation bar over a program's view, and its keyboard over the bottom of it. A view's metrics say where, in physical pixels: `padding`, what the bars or the hardware cover now, such as a status bar or a notch, `view-padding`, what they may cover at any time, and `view-insets`, what they cover completely, such as the keyboard. A page's background runs under the bars; what must be seen keeps clear of them. The program also says how the bars look over its page: their icons dark over a light page and light over a dark one, and whether the system may put a scrim behind each for contrast. A view starts with the platform's style, which on Android follows the system's light or dark mode, and a field the program leaves out keeps what was said before.
+
+## With wasdk
+
+```rust
+// at each ViewEvent::Metrics
+let metrics = view.metrics();
+let below_the_status_bar = metrics.padding.top;
+let above_the_keyboard = metrics.view_insets.bottom;
+// over a light page
+view.set_overlay_style(OverlayStyle {
+    status_bar_icons: Some(Brightness::Dark),
+    navigation_bar_icons: Some(Brightness::Dark),
+    status_bar_contrast_enforced: None,
+    navigation_bar_contrast_enforced: None,
+});
+```
+
+## With Waft
+
+Nothing to write for the style: Waft works it out after each frame from what its widgets put under each bar, an `AnnotatedRegion<SystemUiOverlayStyle>`, as Cupertino's navigation bar puts one, and says it on the view. The bars and the keyboard are `MediaQuery`'s `padding` and `view_insets`, as in Flutter, which `SafeArea` keeps clear of. In WinUI's kit a window's content goes on a `Page`, which paints its background under the bars and keeps its content clear of them and of the keyboard; with `extends_content_into_system_bars(true)` its content runs under the bars too and keeps its own controls clear, as a `NavigationView` does.
+
+```rust
+Page::new()
+    .background(Brush::Solid(resources.solid_background_fill_color_base))
+    .content(home)
+```
+
+## Where it's missing
+
+A desktop draws no bars over a view, and ignores the style. The bars' colours are not offered: Android ignores them for an app drawn under its bars.
+
+## Interface
+
+[`wasdk:platform/views`](/docs/reference/wasdk-platform/views)

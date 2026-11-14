@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!-- Video Player: a film reel, its film running off the bottom of it with two frames lit. -->
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f2424f"/><stop offset="1" stop-color="#a8102a"/></linearGradient>
+    <linearGradient id="metal" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffffff"/><stop offset="0.5" stop-color="#d4d6dc"/><stop offset="1" stop-color="#9a9ca6"/></linearGradient>
+    <linearGradient id="rim" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#a9abb4"/><stop offset="1" stop-color="#f4f5f8"/></linearGradient>
+    <linearGradient id="film" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3b2c28"/><stop offset="1" stop-color="#140d0b"/></linearGradient>
+    <linearGradient id="frame" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffe08a"/><stop offset="1" stop-color="#ff9447"/></linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="150%"><feGaussianBlur in="SourceAlpha" stdDeviation="18"/><feOffset dy="18"/><feComponentTransfer><feFuncA type="linear" slope="0.4"/></feComponentTransfer><feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+    <mask id="holes">
+      <circle cx="456" cy="452" r="262" fill="#fff"/>
+      <g fill="#000">
+        <circle cx="456" cy="310" r="70"/><circle cx="579" cy="381" r="70"/><circle cx="579" cy="523" r="70"/><circle cx="456" cy="594" r="70"/><circle cx="333" cy="523" r="70"/><circle cx="333" cy="381" r="70"/>
+        <circle cx="456" cy="452" r="14"/>
+      </g>
+    </mask>
+    <mask id="sprockets">
+      <rect x="0" y="0" width="1024" height="1024" fill="#fff"/>
+      <g fill="#000"><rect x="520" y="702" width="26" height="18" rx="5"/><rect x="580" y="702" width="26" height="18" rx="5"/><rect x="640" y="702" width="26" height="18" rx="5"/><rect x="700" y="702" width="26" height="18" rx="5"/><rect x="760" y="702" width="26" height="18" rx="5"/><rect x="820" y="702" width="26" height="18" rx="5"/>
+      <rect x="520" y="810" width="26" height="18" rx="5"/><rect x="580" y="810" width="26" height="18" rx="5"/><rect x="640" y="810" width="26" height="18" rx="5"/><rect x="700" y="810" width="26" height="18" rx="5"/><rect x="760" y="810" width="26" height="18" rx="5"/><rect x="820" y="810" width="26" height="18" rx="5"/></g>
+    </mask>
+  </defs>
+  <rect width="1024" height="1024" fill="url(#tile)"/>
+  <g filter="url(#shadow)">
+    <path d="M456 686 H858 Q884 686 884 712 V816 Q884 842 858 842 H456 Z" fill="url(#film)" mask="url(#sprockets)"/>
+    <g mask="url(#holes)">
+      <circle cx="456" cy="452" r="262" fill="url(#metal)"/>
+      <circle cx="456" cy="452" r="249" fill="none" stroke="url(#rim)" stroke-width="16"/>
+      <circle cx="456" cy="452" r="58" fill="#bfc1c9"/>
+      <circle cx="456" cy="452" r="46" fill="url(#metal)"/>
+    </g>
+  </g>
+  <rect x="590" y="732" width="120" height="64" rx="8" fill="url(#frame)"/>
+  <rect x="730" y="732" width="120" height="64" rx="8" fill="url(#frame)" fill-opacity="0.85"/>
+</svg>

@@ -1,0 +1,45 @@
+---
+title: File dialogs
+description: Let the user pick files to open or a place to save.
+---
+
+The system's own dialogs for opening a file, several files or a folder, and for saving one. What the user picks is mounted for the program at its own path the moment they confirm: read-only unless the program asked to write (`writable`), and a file to save writable whether or not it exists yet. A pick stays among the program's mounts until the user removes it. Given a view, the dialog is a sheet on its window.
+
+## With wasdk
+
+```rust
+let options = OpenOptions::new();
+options.add_type("Text", &["txt".into()], &["text/plain".into()]);
+// dialogs: file_dialogs::get_file_dialogs()
+if let Some(path) = dialogs.open_file(Some(&view), options).await? {
+    // mounted read-only at that path
+    let text = std::fs::read_to_string(path)?;
+}
+```
+
+## With Waft
+
+```rust
+let text = FileType {
+    label: "Text".into(),
+    extensions: vec!["txt".into()],
+    mime_types: vec!["text/plain".into()],
+};
+let options = OpenOptions { types: vec![text], ..OpenOptions::default() };
+let platform = app.platform();
+// a sheet on its window
+let parent = platform.views().first().map(|view| view.id());
+let Some(dialogs) = platform.file_dialogs() else { return };
+let picked = dialogs.open_file(parent, options);
+app.spawn(async move |_cx| {
+    if let Ok(Some(PickedFile::Path(path))) = picked.await { /* read it at path */ }
+});
+```
+
+## Where it's missing
+
+`get-file-dialogs` is none where the platform has none, and Waft's `file_dialogs()` with it. Nothing of a picked file's folder is the program's but the file, so it cannot make a temporary file beside it: to save safely, it writes in `/data` or `/cache`, where its temporary folder (`TMPDIR`) is, and renames that onto the file picked, which replaces it whole. A dialog whose answer is set in the program's settings (`cargo waos set save-file /tmp/out.pdf`) is not shown, and answers that path; a set path that no longer holds, a file to open that is gone, fails the dialog with why.
+
+## Interface
+
+[`wasdk:platform/file-dialogs`](/docs/reference/wasdk-platform/file-dialogs)

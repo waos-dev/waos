@@ -1,0 +1,10 @@
+[package]
+name = "waos-test-programs"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "The example programs the engine's tests run, built as components by this crate's build script, and the path of each."
+
+[lints]
+workspace = true

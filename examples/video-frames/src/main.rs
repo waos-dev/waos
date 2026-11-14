@@ -1,0 +1,163 @@
+//! A program that draws a player's frames itself: it makes a frame reader on the system's readers,
+//! gives it to a player of `/data/clip.mp4` as its picture's destination and plays it, saying
+//! `frames to the reader`; then, in a view of its own, asks the reader at each frame for the frame
+//! of that frame's display time, until one comes, and says the frame's size and its first pixel,
+//! read back through a texture it imports of its hardware buffer on its own device, as
+//! `frame 64x48, first pixel [0, 0, 255, 255]`, the bytes as they are in memory. Where the system
+//! hands out no frames it says `video frame readers: none`, and where it has no players
+//! `media players: none`.
+//!
+//! ```text
+//! cargo build -p video-frames --target wasm32-wasip2
+//! ```
+
+use futures::channel::oneshot;
+use wasdk::media_players::{self, MediaPlayer};
+use wasdk::video_frames::{self, VideoFrame, VideoFrameReader, VideoOutput};
+use wasdk::views::{self, View, ViewChange, ViewEvent};
+use wasdk::windows::WindowConfig;
+
+/// What the player plays.
+const CLIP: &str = "/data/clip.mp4";
+
+/// Bytes a row of a texture copy takes: WebGPU's alignment, enough for the one pixel read.
+const COPY_ROW: u32 = 256;
+
+#[wasdk::main]
+async fn main() -> Result<(), String> {
+    let Some(readers) = video_frames::get_video_frame_readers() else {
+        println!("video frame readers: none");
+        return Ok(());
+    };
+    let reader = readers.make_reader();
+    let Some(_player) = play_into(&reader) else {
+        println!("media players: none");
+        return Ok(());
+    };
+    println!("frames to the reader");
+    let (device, queue) = gpu().await?;
+    let view = first_view().await?;
+    let frame = first_frame(&view, &reader).await?;
+    let buffer = frame.hardware_buffer();
+    let texture = wasdk_wgpu::import_texture(&device, &buffer);
+    let pixel = first_pixel(&device, &queue, &texture).await?;
+    println!(
+        "frame {}x{}, first pixel {pixel:?}",
+        buffer.width(),
+        buffer.height()
+    );
+    Ok(())
+}
+
+/// A player of [`CLIP`], playing into `reader`; none where the system has no players.
+fn play_into(reader: &VideoFrameReader) -> Option<MediaPlayer> {
+    let players = media_players::get_media_players()?;
+    let player = players.open(CLIP);
+    player.set_video_output(Some(&VideoOutput::Frames(reader)));
+    player.play();
+    Some(player)
+}
+
+/// The engine's WebGPU device and its queue.
+async fn gpu() -> Result<(wgpu::Device, wgpu::Queue), String> {
+    let instance = wasdk_wgpu::instance();
+    let adapter = instance
+        .request_adapter(&wgpu::RequestAdapterOptions::default())
+        .await
+        .map_err(|error| format!("no WebGPU adapter: {error}"))?;
+    adapter
+        .request_device(&wgpu::DeviceDescriptor::default())
+        .await
+        .map_err(|error| format!("no WebGPU device: {error}"))
+}
+
+/// The first frame `reader` answers, asked at each of `view`'s frames for that frame's display
+/// time.
+async fn first_frame(view: &View, reader: &VideoFrameReader) -> Result<VideoFrame, String> {
+    let mut events = view
+        .events()
+        .ok_or("the view's events were taken already")?;
+    view.request_frame();
+    while let Some(event) = events.next().await {
+        if let ViewEvent::Frame(frame) = event {
+            if let Some(video_frame) = reader.frame_for(frame.display_time) {
+                return Ok(video_frame);
+            }
+            view.request_frame();
+        }
+    }
+    Err("the view's events ended before a frame came".into())
+}
+
+/// The bytes of `texture`'s first pixel, copied out on the GPU.
+async fn first_pixel(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    texture: &wgpu::Texture,
+) -> Result<[u8; 4], String> {
+    let buffer = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("first pixel"),
+        size: u64::from(COPY_ROW),
+        usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    });
+    let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+    encoder.copy_texture_to_buffer(
+        texture.as_image_copy(),
+        wgpu::TexelCopyBufferInfo {
+            buffer: &buffer,
+            layout: wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(COPY_ROW),
+                rows_per_image: Some(1),
+            },
+        },
+        wgpu::Extent3d {
+            width: 1,
+            height: 1,
+            depth_or_array_layers: 1,
+        },
+    );
+    queue.submit([encoder.finish()]);
+    let (mapped, answered) = oneshot::channel();
+    buffer
+        .slice(..)
+        .map_async(wgpu::MapMode::Read, move |result| {
+            let _ = mapped.send(result);
+        });
+    answered
+        .await
+        .map_err(|_| "the mapping was never answered")?
+        .map_err(|error| format!("the buffer did not map: {error}"))?;
+    let bytes = buffer
+        .slice(..4)
+        .get_mapped_range()
+        .map_err(|error| format!("the mapping cannot be read: {error}"))?;
+    Ok([bytes[0], bytes[1], bytes[2], bytes[3]])
+}
+
+/// The view the shell gave, or the one that arrives for a request when it gave none.
+async fn first_view() -> Result<View, String> {
+    // The stream is opened before the list is read, so a view between the two is not missed.
+    let mut changes = views::view_changes();
+    if let Some(view) = views::views().into_iter().next() {
+        return Ok(view);
+    }
+    let config = WindowConfig::new();
+    config.set_title("Video frames");
+    views::request_view(&config, None)
+        .map_err(|error| format!("no view for this program: {error}"))?;
+    while let Some(change) = changes.next().await {
+        match change {
+            ViewChange::Added(view) => return Ok(view),
+            ViewChange::RequestFailed(failure) => {
+                return Err(format!(
+                    "request {} failed: {}",
+                    failure.request, failure.error
+                ));
+            }
+            ViewChange::Removed(_) => {}
+        }
+    }
+    Err("the views ended before one arrived".into())
+}

@@ -1,0 +1,52 @@
+[package]
+name = "waos-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = true
+description = "cargo waos: writes a new program, builds a program as a component, runs it in the WaOS on this machine, packages it as a signed .wapk, and takes screenshots of its windows and gives them input while it runs."
+homepage.workspace = true
+readme = "README.md"
+# `tests/new.rs` builds each new program against the workspace's own crates, so it runs from the
+# repository alone.
+exclude = ["/tests/new.rs"]
+
+[[bin]]
+name = "cargo-waos"
+path = "src/main.rs"
+
+[dependencies]
+waos-dev-protocol.workspace = true
+waos-package.workspace = true
+anyhow.workspace = true
+# The command line, as `cargo waos <command>`.
+clap.workspace = true
+# Which package a program is, where cargo put its component, and its `[package.metadata.waos]`.
+cargo_metadata.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+# The SHA-256 of a package, which the index lists.
+sha2.workspace = true
+# The workspace a new program is made in, edited as `cargo new` edits it: its root manifest in
+# place, keeping its layout, and its members' patterns matched as cargo matches them.
+toml_edit.workspace = true
+glob.workspace = true
+# The icon a new program starts with.
+png.workspace = true
+# A run's connection: the socket, its frames, Ctrl-C, and the wait for a WaOS just started.
+tokio = { workspace = true, features = ["net", "io-util", "signal"] }
+
+# The signing key's folder and file made for the user alone, and where WaOS's installer recorded
+# it; at the version tokio reaches Windows with.
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Authorization", "Win32_Storage_FileSystem", "Win32_System_Registry", "Win32_System_Threading"] }
+
+[dev-dependencies]
+hex.workspace = true
+tempfile.workspace = true
+# A new program's manifest and toolchain file as the tests read them, and the workspace's own.
+toml.workspace = true
+
+# `os::windows` wraps Windows' security and registry calls; the rest of the crate has no `unsafe`.
+[lints.rust]
+unsafe_code = "deny"
