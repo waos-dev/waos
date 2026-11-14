@@ -1,6 +1,6 @@
 # Rust UI frameworks on WaOS: research
 
-**No decisions taken yet.** Research for the project lead, 2026-11-05, on WaOS at `042352f` and on shallow clones of each framework's main branch: Zed `c7bea34` (GPUI, sparse), egui `fc9d66d` (0.37), iced `8ff48c4` (0.15-dev), Slint `b6b1b86` (1.19), Blitz `3f85506` with anyrender's main, Dioxus `7dfd07e`, Makepad `506ec05` (sparse), Xilem `dc49687` (0.4), and winit `7ed7c20` (0.31 beta). Nothing was built or run from them. It builds on the Zed research of 2026-10-16 (`../wasdk/docs/proposals/2026-10-16-zed-on-waos.md`, reports in `../experiments/2026-10-16-zed-wasip2-build/research/`). A claim is read in source unless marked *(inferred)* or *(unverified)*.
+**No decisions taken yet.** Research for the project lead, 2026-11-05, on WaOS's `main` of that day and on shallow clones of each framework's main branch: Zed `c7bea34` (GPUI, sparse), egui `fc9d66d` (0.37), iced `8ff48c4` (0.15-dev), Slint `b6b1b86` (1.19), Blitz `3f85506` with anyrender's main, Dioxus `7dfd07e`, Makepad `506ec05` (sparse), Xilem `dc49687` (0.4), and winit `7ed7c20` (0.31 beta). Nothing was built or run from them. It builds on the Zed research of 2026-10-16 (`../wasdk/docs/proposals/2026-10-16-zed-on-waos.md`, reports in `../experiments/2026-10-16-zed-wasip2-build/research/`). A claim is read in source unless marked *(inferred)* or *(unverified)*.
 
 ## In short
 

@@ -15,7 +15,7 @@
 
 The host waits on a buffer's release fence itself: on the Pixel, Android's `OnComplete` arrives 5 to 6 ms before the fence signals.
 
-For the project lead, 2026-11-11. A design only: nothing in `waos` or `waft` was changed. It grounds each statement in the code at `waos` 46336d0 and `waft` ee95c56 (whose working tree holds an uncommitted Android vsync waiter, `crates/waft-embedder-android/src/vsync_waiter.rs`, which this design builds on), and in the NDK headers as AOSP's `main` has them (`include/android/surface_control.h`, `libs/nativewindow/include/android/hardware_buffer.h`, `include/android/choreographer.h`, which the developer.android.com NDK reference is generated from; the API level of each call is the header's `__INTRODUCED_IN`).
+For the project lead, 2026-11-11. A design only: nothing in `waos` or `waft` was changed. It grounds each statement in the code of `waos` as it was that day and of `waft` at ee95c56 (whose working tree holds an uncommitted Android vsync waiter, `crates/waft-embedder-android/src/vsync_waiter.rs`, which this design builds on), and in the NDK headers as AOSP's `main` has them (`include/android/surface_control.h`, `libs/nativewindow/include/android/hardware_buffer.h`, `include/android/choreographer.h`, which the developer.android.com NDK reference is generated from; the API level of each call is the header's `__INTRODUCED_IN`).
 
 ## 1. The mental model: triangle in a tab
 

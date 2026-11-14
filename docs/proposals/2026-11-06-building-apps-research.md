@@ -1,6 +1,6 @@
 # Building apps on WaOS: what two agents hit
 
-Research for the lead, 2026-11-06: two agents each built a real app as a WaOS program, Notes (`examples/notes`) and a video player (`examples/video-player`), on `main` at `5131ab9`, to find what is missing or awkward for a program on macOS and what makes building one slow. No decisions taken. Each line is from the agents' reports, checked against their code where it names it.
+Research for the lead, 2026-11-06: two agents each built a real app as a WaOS program, Notes (`examples/notes`) and a video player (`examples/video-player`), on that day's `main`, to find what is missing or awkward for a program on macOS and what makes building one slow. No decisions taken. Each line is from the agents' reports, checked against their code where it names it.
 
 ## How the building went
 
