@@ -19,6 +19,16 @@ And once WaOS is released, programs built today must keep running on the WaOS of
 7. **The interface's compatibility policy.** `wasdk:platform@0.1.0` is frozen at the first release. Later 0.1.x versions only add, each addition marked `@since(version = …)`. A new API starts behind `@unstable(feature = …)`, which only development builds or programs that opted in import. A break is a new major version of the package, served beside the old one for a deprecation period, as WaOS served WASI 0.2 beside 0.3. CI enforces it: at each release a set of real programs built against that release's WIT is kept, and run against the current engine.
 8. **The inspector's semantics tree comes later**, after accessibility: Waft's semantics tree and AccessKit first.
 
+### The lead's decisions for the inspector app, 2026-11-16
+
+Taken after the audit summary, the live trace and `cargo waos inspect` were built. They change parts of the design below, noted where.
+
+9. **A program's roles are what its component imports**, for an installed `.wapk` and a development run alike: a component that imports `wasdk:inspect` asks for the inspector role. The package declares no `roles` and `cargo waos run` sends none; one rule, read by the engine from the component before it links. This replaces "a program declares the role in its package" in decision 6 and the manifest field under Roles.
+10. **Icons load lazily**: `device` gains `icon: async func(id: string) -> option<list<u8>>`, a PNG, asked for as a row is shown, so the list stays small as the number of programs grows.
+11. **What a program has now is a stream**, a snapshot and then each change, not a query read again. Open files become entries of the same registry as the uses that last (a recording, a run, a request, a watch), each with a guard that ends its entry when it drops, so one mechanism adds and ends both. A listener that falls behind is sent a fresh snapshot instead of the changes it missed, so it never shows a file open that was closed; the program never waits for it. It must stay cheap for a program that opens thousands of files, such as an editor indexing a project; if it does not, that is raised.
+12. **An inspector sees every program**: installed ones, development runs, and itself.
+13. **The record of what programs do follows the permission model**: a global default, on, with an override on each program's page. Off for a program stops its record and clears what was kept of it; the live trace and what it has now still work, since they keep nothing.
+
 ## The design
 
 ### What a user and a developer get
