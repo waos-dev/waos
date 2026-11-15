@@ -2,7 +2,7 @@
 
 This computer's defaults, assembled: one provider per capability from the `local-*` crates, as a `ProgramEnvironment`, for an embedder that wants what the machine in front of the user has. It assembles and implements nothing itself: a provider lives in its own `local-*` crate, so an embedder can pick one without the rest, or in valo, as the fonts' does.
 
-- **Takes:** the `local-*` crates; `ProgramEnvironment` from `waos-capabilities`, and valo's font managers through its re-export of `valo_fontmgr`.
+- **Takes:** the `local-*` crates built so far, `local-audio` and `local-processes`; `ProgramEnvironment` from `waos-capabilities`, and valo's font managers through its re-export of `valo_fontmgr`.
 - **Provides:** `LocalCapabilities`, this computer's providers, made once and shared by every program, its sound with the microphone (`new`) or without it (`without_microphone`); its `environment()`, a `ProgramEnvironment` of them for one program, with the output left to whoever runs it.
 - **Used by:** the WaOS app; any app that embeds the engine on a computer.
 

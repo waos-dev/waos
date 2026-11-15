@@ -8,12 +8,8 @@ description = "This computer's default capabilities for WaOS's engine, assembled
 
 [dependencies]
 waos-capabilities.workspace = true
-waos-local-fs.workspace = true
-waos-local-network.workspace = true
 waos-local-processes.workspace = true
 waos-local-audio.workspace = true
-waos-local-cameras.workspace = true
-waos-local-media.workspace = true
 
 [lints]
 workspace = true

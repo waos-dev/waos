@@ -6,8 +6,5 @@ license.workspace = true
 publish.workspace = true
 description = "This computer's cameras as a capability of WaOS's engine."
 
-[dependencies]
-waos-capabilities.workspace = true
-
 [lints]
 workspace = true

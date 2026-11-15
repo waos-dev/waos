@@ -38,12 +38,8 @@ waos-store = { path = "crates/waos-store" }
 waos-program-window = { path = "crates/waos-program-window" }
 waos-window-messages = { path = "crates/waos-window-messages" }
 waos-local = { path = "capabilities/local" }
-waos-local-fs = { path = "capabilities/local-fs" }
-waos-local-network = { path = "capabilities/local-network" }
 waos-local-processes = { path = "capabilities/local-processes" }
 waos-local-audio = { path = "capabilities/local-audio" }
-waos-local-cameras = { path = "capabilities/local-cameras" }
-waos-local-media = { path = "capabilities/local-media" }
 waos-webgpu-host = { version = "0.2.0", path = "crates/waos-webgpu-host" }
 wasdk = { version = "0.2.0", path = "sdk/wasdk" }
 wasdk-macros = { version = "0.2.0", path = "sdk/wasdk-macros" }

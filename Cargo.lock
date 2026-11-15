@@ -10432,10 +10432,6 @@ version = "0.2.0"
 dependencies = [
  "waos-capabilities",
  "waos-local-audio",
- "waos-local-cameras",
- "waos-local-fs",
- "waos-local-media",
- "waos-local-network",
  "waos-local-processes",
 ]
 
@@ -10450,30 +10446,18 @@ dependencies = [
 [[package]]
 name = "waos-local-cameras"
 version = "0.2.0"
-dependencies = [
- "waos-capabilities",
-]
 
 [[package]]
 name = "waos-local-fs"
 version = "0.2.0"
-dependencies = [
- "waos-capabilities",
-]
 
 [[package]]
 name = "waos-local-media"
 version = "0.2.0"
-dependencies = [
- "waos-capabilities",
-]
 
 [[package]]
 name = "waos-local-network"
 version = "0.2.0"
-dependencies = [
- "waos-capabilities",
-]
 
 [[package]]
 name = "waos-local-processes"

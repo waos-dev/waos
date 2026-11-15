@@ -39,6 +39,7 @@ pub mod video_frames;
 use std::fmt;
 use std::future::Future;
 use std::path::{Path, PathBuf};
+use std::pin::pin;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Condvar, Mutex, OnceLock, Weak};
@@ -1030,7 +1031,7 @@ pub fn wait_for_presents(
     printed: impl Fn() -> Vec<String>,
 ) {
     let deadline = Instant::now() + WITHIN;
-    let mut ended = Box::pin(program.ended());
+    let mut ended = pin!(program.ended());
     while shell_view.presents() < count {
         if let Some(end) = ended.as_mut().now_or_never() {
             panic!(
@@ -1136,7 +1137,7 @@ pub fn resolved<T: Send + 'static>(future: impl Future<Output = T> + Send + 'sta
 /// How `program` ended, once it has.
 pub fn wait_for_end(program: &RunningProgram) -> ProgramEnd {
     let deadline = Instant::now() + WITHIN;
-    let mut ended = Box::pin(program.ended());
+    let mut ended = pin!(program.ended());
     loop {
         if let Some(end) = ended.as_mut().now_or_never() {
             return end;

@@ -28,7 +28,7 @@ cargo waos set <row> <value>... [-p <package>]                            # one 
 ```text
 hello/
   Cargo.toml            wasdk, wasdk-adapter-waft, waft and the kit by their crates.io versions, or the workspace's; [package.metadata.waos]
-  rust-toolchain.toml   WaOS's toolchain, nightly-2026-09-02 with wasm32-wasip2, which rustup installs by itself; none in a workspace that names its own
+  rust-toolchain.toml   WaOS's toolchain, nightly-2026-11-15 with wasm32-wasip2, which rustup installs by itself; none in a workspace that names its own
   icon.png              a white disc on a blue square that fills it to its edges, as every icon does, 1024 pixels on a side
   src/main.rs           the app: templates/winui.rs or templates/cupertino.rs
   .gitignore            /target

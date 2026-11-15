@@ -42,7 +42,7 @@ pub use self::template::Template;
 const TOOLCHAIN: &str = r#"# Nightly because Waft needs `arbitrary_self_types`, pinned to the date WaOS is built with.
 # `wasm32-wasip2` is what a program is built for.
 [toolchain]
-channel = "nightly-2026-09-02"
+channel = "nightly-2026-11-15"
 components = ["rustfmt", "clippy"]
 targets = ["wasm32-wasip2"]
 "#;

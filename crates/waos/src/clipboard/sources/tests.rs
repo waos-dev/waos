@@ -123,7 +123,7 @@ fn a_promised_file_is_written_into_the_sink_as_it_comes_and_fails_unless_done_sa
     block_on(pasted).expect("the file is whole");
     assert_eq!(*file.0.lock().unwrap(), b"\x89PNG");
 
-    let mut pasted = produce(Box::new(KeptFile::default()));
+    let mut pasted = produce(Box::<KeptFile>::default());
     assert!(now(pasted.as_mut()).is_none());
     answer_ending(
         &next_request(&mut requests),
