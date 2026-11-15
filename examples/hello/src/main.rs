@@ -12,7 +12,7 @@ use waft_cupertino::{CupertinoApp, CupertinoPageScaffold};
 
 #[wasdk::main]
 async fn main() {
-    waft_embedder_wasdk::run(|app| run_app(app, CupertinoApp::new().home(Home).into_widget()))
+    wasdk_adapter_waft::run(|app| run_app(app, CupertinoApp::new().home(Home).into_widget()))
         .await;
 }
 

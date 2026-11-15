@@ -1,5 +1,5 @@
 [package]
-name = "waft-embedder-wasdk"
+name = "wasdk-adapter-waft"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

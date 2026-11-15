@@ -1,4 +1,4 @@
-//! `examples/gallery`, Waft's Cupertino gallery over `waft-embedder-wasdk`, under the test shell,
+//! `examples/gallery`, Waft's Cupertino gallery over `wasdk-adapter-waft`, under the test shell,
 //! given this computer's fonts as an app gives them: given no view, it asks for its window, which
 //! the shell answers with a view at once; it presents frames to the view, its text drawn with
 //! glyphs the engine draws, each glyph call recorded under `waos::targets::GLYPHS`; it presents

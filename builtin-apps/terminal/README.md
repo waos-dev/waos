@@ -1,6 +1,6 @@
 # terminal
 
-Terminal: a terminal emulator as a Waft app over `waft-embedder-wasdk`. Each window runs the user's login shell in a pseudo-terminal on a machine the user picked for the program, through WaOS's machines interface, and draws its screen as a grid of cells in the platform's monospace font. It is what a person uses to try what WaOS gives a program that runs commands: a machine picked once and kept, a command in a terminal with its output, input, size and end, the keyboard in full, the fonts, the clipboard, and a window for each session.
+Terminal: a terminal emulator as a Waft app over `wasdk-adapter-waft`. Each window runs the user's login shell in a pseudo-terminal on a machine the user picked for the program, through WaOS's machines interface, and draws its screen as a grid of cells in the platform's monospace font. It is what a person uses to try what WaOS gives a program that runs commands: a machine picked once and kept, a command in a terminal with its output, input, size and end, the keyboard in full, the fonts, the clipboard, and a window for each session.
 
 - **A machine.** The first run shows a page that says what a machine is and a button that asks WaOS's picker for one; from then on a window starts its shell at once on the machine the program holds. The shell is `/bin/sh -c 'exec "${SHELL:-/bin/sh}" -l'`, so the user's own shell as a login shell, with `TERM=xterm-256color`.
 - **The screen** is kept by the `vt100` crate (the grid, the escape sequences, 10 000 lines of scrollback); the app answers the questions it leaves to its host (where the cursor is, what terminal this is), follows the title the shell sets, and resizes the terminal with the window.
@@ -11,7 +11,7 @@ Terminal: a terminal emulator as a Waft app over `waft-embedder-wasdk`. Each win
 
 It follows the system's light or dark look, with a palette for each.
 
-- **Takes:** `wasdk` (`machines`, `fonts`); `waft-embedder-wasdk` and Waft's crates (`waft-widgets`, `waft-rendering` for `CustomPainter`, `waft-services`, `waft-gestures`, `waft-foundation`, `waft-embedder`), `waft-winui` for the page that asks for a machine; `vt100` (MIT) for the screen.
+- **Takes:** `wasdk` (`machines`, `fonts`); `wasdk-adapter-waft` and Waft's crates (`waft-widgets`, `waft-rendering` for `CustomPainter`, `waft-services`, `waft-gestures`, `waft-foundation`, `waft-embedder`), `waft-winui` for the page that asks for a machine; `vt100` (MIT) for the screen.
 - **Provides:** a component, the program `dev.waos.terminal`.
 - **Used by:** whoever runs it in WaOS.
 

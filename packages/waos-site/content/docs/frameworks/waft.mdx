@@ -5,7 +5,7 @@ description: "The UI framework WaOS apps are written with: Flutter's, in Rust."
 Waft is the UI framework WaOS apps are written with: Flutter's framework ported to Rust, with two kits of controls, WinUI's and Cupertino's. This page is Waft's own model. What the platform gives a program has a guide page each, with Waft's example: [windows](/docs/guide/windows), [Back](/docs/guide/back), [the system's bars](/docs/guide/system-bars), [keys](/docs/guide/keys), [the system's settings](/docs/guide/system), [WebGPU](/docs/guide/webgpu), [compositing](/docs/guide/compositing), [fonts](/docs/guide/fonts), [media players](/docs/guide/media-players), [cameras](/docs/guide/cameras), [audio](/docs/guide/audio), [menus](/docs/guide/menus), [file dialogs](/docs/guide/file-dialogs), [notifications](/docs/guide/notifications), [the clipboard](/docs/guide/clipboard), [processes](/docs/guide/processes), [the network](/docs/guide/network) and [workers](/docs/guide/workers).
 
 ## A WaOS app
-`cargo waos new` writes this. A WaOS app is a Waft app run by `waft_embedder_wasdk`, Waft's embedder over WaOS:
+`cargo waos new` writes this. A WaOS app is a Waft app run by `wasdk_adapter_waft`, Waft's embedder over WaOS:
 
 ```rust
 // Waft's `State` methods take `self: Handle<Self>`, which needs nightly's arbitrary_self_types.
@@ -13,7 +13,7 @@ Waft is the UI framework WaOS apps are written with: Flutter's framework ported 
 
 #[wasdk::main]
 async fn main() {
-    waft_embedder_wasdk::run(start).await;
+    wasdk_adapter_waft::run(start).await;
 }
 
 fn start(app: &mut App) {

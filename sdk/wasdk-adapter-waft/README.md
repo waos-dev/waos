@@ -1,4 +1,4 @@
-# waft-embedder-wasdk
+# wasdk-adapter-waft
 
 Waft over wasdk: Waft's embedder for a program, the platform an Waft app sees over the SDK's `views` (with its composition layers), `screens`, `system`, `windows`, `lifecycle`, `fonts`, `clipboard`, `menus`, `file_dialogs`, `opener`, `notifications`, `media_players`, `media_assets`, `image_codecs`, `video_frames`, `hardware_buffers`, `gpu_interop`, `cameras` and `permissions`, drawn with valo over `wasdk-wgpu`. `run(setup)` is the body of a program's `main`. It lives in `sdk/` until its API settles.
 
@@ -12,7 +12,7 @@ use waft_cupertino::CupertinoApp;
 
 #[wasdk::main]
 async fn main() {
-    waft_embedder_wasdk::run(|app| run_app(app, CupertinoApp::new().home(Home).into_widget())).await;
+    wasdk_adapter_waft::run(|app| run_app(app, CupertinoApp::new().home(Home).into_widget())).await;
 }
 ```
 

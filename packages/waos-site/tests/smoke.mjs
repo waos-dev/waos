@@ -64,7 +64,7 @@ const BUILTIN_APP_NAMES = readdirSync(BUILTIN_APPS, { withFileTypes: true })
 const ICON_SIZE = 512;
 
 /** The crates the reference links on docs.rs. */
-const DOCS_RS_CRATES = ['wasdk', 'waft-embedder-wasdk', 'waos', 'waos-capabilities'];
+const DOCS_RS_CRATES = ['wasdk', 'wasdk-adapter-waft', 'waos', 'waos-capabilities'];
 
 /** A line of `windows`, which its page shows as the WIT has it. */
 const SET_MIN_SIZE = 'set-min-size: func(size: option<size>);';

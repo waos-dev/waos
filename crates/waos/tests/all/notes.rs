@@ -1,4 +1,4 @@
-//! `builtin-apps/notes`, a library of notes over `waft-embedder-wasdk`, under the test shell. At
+//! `builtin-apps/notes`, a library of notes over `wasdk-adapter-waft`, under the test shell. At
 //! its first launch it asks for one window, titled `Notes`, which it keeps at least 320 by 400
 //! points, under a menu bar of its own app menu, File, the platform's Edit with Search, View and
 //! the platform's Window; closing the window quits it. New Note opens a note, titled `New Note`

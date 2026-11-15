@@ -48,7 +48,7 @@ waos-webgpu-host = { version = "0.2.0", path = "crates/waos-webgpu-host" }
 wasdk = { version = "0.2.0", path = "sdk/wasdk" }
 wasdk-macros = { version = "0.2.0", path = "sdk/wasdk-macros" }
 wasdk-wgpu = { version = "0.2.0", path = "sdk/wasdk-wgpu" }
-waft-embedder-wasdk = { version = "0.2.0", path = "sdk/waft-embedder-wasdk" }
+wasdk-adapter-waft = { version = "0.2.0", path = "sdk/wasdk-adapter-waft" }
 
 # What we take from crates.io, one version for the workspace.
 # The bindings generator a program's API comes from, pinned: the SDK pins one wit-bindgen per
@@ -179,7 +179,7 @@ waft-rendering = { version = "0.5.0", path = "../waft/crates/waft-rendering" }
 waft-physics = { version = "0.5.0", path = "../waft/crates/waft-physics" }
 # A platform with no window server, for the app's tests of its windows.
 waft-test = { version = "0.5.0", path = "../waft/crates/waft-test" }
-# What `waft-embedder-wasdk` is made of: Waft's host traits and value types, its app, and the
+# What `wasdk-adapter-waft` is made of: Waft's host traits and value types, its app, and the
 # client a host drives.
 waft-embedder = { version = "0.5.0", path = "../waft/crates/waft-embedder" }
 waft-foundation = { version = "0.5.0", path = "../waft/crates/waft-foundation" }

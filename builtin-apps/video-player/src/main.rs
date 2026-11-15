@@ -5,7 +5,7 @@
 //! or the controls' Library goes back. It also opens a video file, or a link; it says plainly what
 //! the player is doing; it lists the media's subtitles and audio to choose among; and it remembers
 //! what it opened, resuming each where it was left. An Waft app in Fluent's look, Waft's WinUI
-//! controls, over `waft-embedder-wasdk`, so it meets, in one app a person uses, the media players and media
+//! controls, over `wasdk-adapter-waft`, so it meets, in one app a person uses, the media players and media
 //! assets, image codecs, file dialogs, menus, keys, caption style and window that WaOS gives a
 //! program.
 //!
@@ -62,7 +62,7 @@ use window::APP_NAME;
 
 #[wasdk::main]
 async fn main() {
-    waft_embedder_wasdk::run(start).await;
+    wasdk_adapter_waft::run(start).await;
 }
 
 /// Starts the app: nothing playing, the library of the folders added before; the window, its

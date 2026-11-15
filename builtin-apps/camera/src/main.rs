@@ -6,7 +6,7 @@
 //! It says plainly why there is no picture while there is none: WaOS is asking the user for the
 //! camera, the user refused it, or there is no camera; and starts by itself once there can be
 //! one. The camera stops while the app is out of sight. A Waft app in Fluent's look, Waft's
-//! WinUI controls, over `waft-embedder-wasdk`.
+//! WinUI controls, over `wasdk-adapter-waft`.
 //!
 //! ```text
 //! cargo waos run -p camera-app
@@ -60,7 +60,7 @@ const APP_NAME: &str = "Camera";
 
 #[wasdk::main]
 async fn main() {
-    waft_embedder_wasdk::run(start).await;
+    wasdk_adapter_waft::run(start).await;
 }
 
 /// Starts the app: the camera starting, the photos kept listed, and the window, in the dark, as

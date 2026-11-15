@@ -4,10 +4,10 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
-description = "Synth, an instrument to play at once, as a Waft app in WinUI's Fluent look over waft-embedder-wasdk: a keyboard for the mouse, several fingers and the computer's keys, presets made with fundsp, a few controls and a scope of what plays, its sound written ahead of the platform's graph through a stream input. `cargo waos run -p synth`."
+description = "Synth, an instrument to play at once, as a Waft app in WinUI's Fluent look over wasdk-adapter-waft: a keyboard for the mouse, several fingers and the computer's keys, presets made with fundsp, a few controls and a scope of what plays, its sound written ahead of the platform's graph through a stream input. `cargo waos run -p synth`."
 
 [dependencies]
-waft-embedder-wasdk.workspace = true
+wasdk-adapter-waft.workspace = true
 waft.workspace = true
 # The sound: oscillators, filters, envelopes and effects, as graphs a voice and the effects are
 # made of. Without its file decoding and its convolution, which the app does not use.

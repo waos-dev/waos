@@ -7,7 +7,7 @@
 //! asked for every promised form first, never the file, and what it gives is kept for later
 //! pastes. With its switches off, it reads and writes nothing.
 //!
-//! `examples/copy-paste`, an Waft app over `waft-embedder-wasdk`, copies a line as it starts,
+//! `examples/copy-paste`, an Waft app over `wasdk-adapter-waft`, copies a line as it starts,
 //! given as text and promised as HTML and as a file, each made on paste; it hears its copy as a
 //! change once its window has the focus and reads it back, as it reads another application's
 //! copy; and as its window is asked to close it flushes the clipboard, so the HTML outlives it

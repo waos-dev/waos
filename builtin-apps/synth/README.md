@@ -2,7 +2,7 @@
 
 An instrument to play at once. A keyboard along the bottom of the window plays under the mouse, under several fingers at once on a touch screen, and from the computer's keys laid out as a piano's (`A` to `'` the white keys from a C, `W E T Y U O P` the black ones, `Z` and `X` an octave down and up); a pointer held and slid plays each key it crosses. Six presets (Warm Pad, Electric Piano, Pluck, Bass, Lead, Organ), each a small graph of [fundsp](https://github.com/SamiPerttu/fundsp)'s oscillators, a lowpass filter under an envelope, an amplitude envelope, and a chorus, an echo or a reverb; five sliders (cutoff, resonance, attack, release, volume), which a preset sets where it sounds best; Sustain, which keeps notes sounding after their keys are let go, for a chord built a key at a time with the mouse and a hand free for the sliders; and a scope that draws the wave being played. Twelve notes sound at once, a thirteenth cutting the oldest; no note starts or stops with a click, and a preset changed lets the old one ring out.
 
-- **Takes:** `wasdk`'s `audio`, for the platform's output: a context on the default output and a stream input the program writes its samples to; `waft-embedder-wasdk` and Waft with its WinUI kit, for the window, the controls, the pointers and the keys; `fundsp`, for the sound.
+- **Takes:** `wasdk`'s `audio`, for the platform's output: a context on the default output and a stream input the program writes its samples to; `wasdk-adapter-waft` and Waft with its WinUI kit, for the window, the controls, the pointers and the keys; `fundsp`, for the sound.
 - **Provides:** the program `dev.waos.synth`.
 - **Used by:** people; nothing depends on it.
 

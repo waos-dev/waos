@@ -1,6 +1,6 @@
 //! Notes: a library of notes the app keeps itself, as Apple's Notes does, and a text editor of
 //! files from anywhere beside it, as an Waft app in WinUI's Fluent look (`waft-winui`) over
-//! `waft-embedder-wasdk`. What a person uses to try what WaOS gives a program: its own `/data`, a
+//! `wasdk-adapter-waft`. What a person uses to try what WaOS gives a program: its own `/data`, a
 //! window with size limits and a title, a menu bar with the platform's Edit and Window items, the
 //! system's file dialogs and the files WaOS mounts for them, what the system opens it with, its
 //! input methods, a notification set for later, and the lifecycle's request to end and its resume.
@@ -83,7 +83,7 @@ use crate::window::{APP_NAME, NotesWindow};
 
 #[wasdk::main]
 async fn main() {
-    waft_embedder_wasdk::run(start).await;
+    wasdk_adapter_waft::run(start).await;
 }
 
 /// Starts the app: the library the program's `/data` keeps and the files open at its last run, its

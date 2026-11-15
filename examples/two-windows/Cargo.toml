@@ -4,12 +4,12 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
-description = "An Waft app with two windows, each spinning an activity indicator, over waft-embedder-wasdk. `cargo build -p two-windows --target wasm32-wasip2`."
+description = "An Waft app with two windows, each spinning an activity indicator, over wasdk-adapter-waft. `cargo build -p two-windows --target wasm32-wasip2`."
 
 [dependencies]
 waft-cupertino.workspace = true
 waft-embedder.workspace = true
-waft-embedder-wasdk.workspace = true
+wasdk-adapter-waft.workspace = true
 waft-foundation.workspace = true
 waft-services.workspace = true
 waft-widgets.workspace = true

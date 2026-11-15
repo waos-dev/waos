@@ -11,7 +11,7 @@ use waft_winui::{AccentPalette, Button, ThemeResources, install_icon_font};
 
 #[wasdk::main]
 async fn main() {
-    waft_embedder_wasdk::run(start).await;
+    wasdk_adapter_waft::run(start).await;
 }
 
 /// Asks for the app's window, and gives WinUI's controls their icons.

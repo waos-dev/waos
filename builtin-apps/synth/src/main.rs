@@ -1,7 +1,7 @@
 //! Synth, an instrument to play at once: a keyboard for the mouse, for several fingers and for
 //! the computer's keys, a handful of presets made with fundsp, the few controls that shape them,
 //! and a scope of what plays. A Waft app in Fluent's look, Waft's WinUI controls, over
-//! `waft-embedder-wasdk`; its sound is made in the program and written ahead of the platform's
+//! `wasdk-adapter-waft`; its sound is made in the program and written ahead of the platform's
 //! audio graph through a stream input (`output`).
 //!
 //! The layers, as Waft's README asks: the sound and the rules as plain Rust (`pitch`, `tone`,
@@ -53,7 +53,7 @@ use window::{APP_NAME, FIRST_SIZE, SynthWindow};
 
 #[wasdk::main]
 async fn main() {
-    waft_embedder_wasdk::run(start).await;
+    wasdk_adapter_waft::run(start).await;
 }
 
 /// Starts the app: the instrument, played by the computer's keys, its window with its one page,

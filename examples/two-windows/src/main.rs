@@ -24,7 +24,7 @@ const TITLES: [&str; 2] = ["first", "second"];
 
 #[wasdk::main]
 async fn main() {
-    waft_embedder_wasdk::run(|app| {
+    wasdk_adapter_waft::run(|app| {
         for title in TITLES {
             ask_for_window(app, title);
         }

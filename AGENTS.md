@@ -53,7 +53,7 @@ git clone https://github.com/tauri-apps/plugins-workspace.git .reference/tauri-p
 
 Neighbouring repositories:
 - `../wasdk`: the experiment this project grew from, frozen. Its code is ported where it is proven, piece by piece with a review, never copied whole; its decisions are precedent, not rules, and where this project's design differs, this project wins. Its `docs/proposals/` and `../experiments/` hold what it learned.
-- `../waft`: Waft, the framework the WaOS app and `waft-embedder-wasdk` are built on. Never commit there: the lead reviews it first.
+- `../waft`: Waft, the framework the WaOS app and `wasdk-adapter-waft` are built on. Never commit there: the lead reviews it first.
 - `../valo`: Waft's renderer. Never commit there.
 
 ## Workflow

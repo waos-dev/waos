@@ -4,11 +4,11 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
-description = "Waft's Cupertino gallery as a program: the crate Waft's own binary runs, over waft-embedder-wasdk. `cargo build -p gallery --target wasm32-wasip2`."
+description = "Waft's Cupertino gallery as a program: the crate Waft's own binary runs, over wasdk-adapter-waft. `cargo build -p gallery --target wasm32-wasip2`."
 
 [dependencies]
 cupertino-gallery.workspace = true
-waft-embedder-wasdk.workspace = true
+wasdk-adapter-waft.workspace = true
 wasdk.workspace = true
 
 [lints]

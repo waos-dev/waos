@@ -4,13 +4,13 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
-description = "A camera as a Waft app over waft-embedder-wasdk: the camera's live picture drawn through a look, a shader of the app's own on its own WebGPU device; photos taken by the system, drawn through the same look and kept in the app's /data; and the photos taken, viewed large, exported and deleted. `cargo waos run -p camera-app`."
+description = "A camera as a Waft app over wasdk-adapter-waft: the camera's live picture drawn through a look, a shader of the app's own on its own WebGPU device; photos taken by the system, drawn through the same look and kept in the app's /data; and the photos taken, viewed large, exported and deleted. `cargo waos run -p camera-app`."
 
 [dependencies]
 # Waft, the framework the app is written with, and Fluent's controls, its WinUI kit.
 waft.workspace = true
 waft-winui.workspace = true
-waft-embedder-wasdk.workspace = true
+wasdk-adapter-waft.workspace = true
 # The keys the app's shortcuts name, which `waft` does not re-export.
 waft-services.workspace = true
 # The app's own WebGPU device, which the looks are drawn on, and the textures it imports of the

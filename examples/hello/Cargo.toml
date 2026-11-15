@@ -4,12 +4,12 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
-description = "The smallest Waft app, in Cupertino, over waft-embedder-wasdk: the program the website shows. `cargo waos build -p hello`."
+description = "The smallest Waft app, in Cupertino, over wasdk-adapter-waft: the program the website shows. `cargo waos build -p hello`."
 
 [dependencies]
 waft.workspace = true
 waft-cupertino.workspace = true
-waft-embedder-wasdk.workspace = true
+wasdk-adapter-waft.workspace = true
 wasdk.workspace = true
 
 [lints]

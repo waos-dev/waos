@@ -4,11 +4,11 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
-description = "Reader, a feed reader as a Waft app in WinUI's Fluent look over waft-embedder-wasdk: RSS and Atom feeds added by address, their newest items listed with pictures, an item's text laid out to read, read marks, and a notification when a refresh finds something new. `cargo waos run -p reader`."
+description = "Reader, a feed reader as a Waft app in WinUI's Fluent look over wasdk-adapter-waft: RSS and Atom feeds added by address, their newest items listed with pictures, an item's text laid out to read, read marks, and a notification when a refresh finds something new. `cargo waos run -p reader`."
 
 [dependencies]
 waft.workspace = true
-waft-embedder-wasdk.workspace = true
+wasdk-adapter-waft.workspace = true
 # The tap a link in an item's text is opened by, which `waft` does not re-export.
 waft-gestures.workspace = true
 # The pointer's hand over a link in an item's text, which `waft` does not re-export either.

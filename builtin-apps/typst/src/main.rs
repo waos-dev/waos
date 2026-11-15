@@ -1,5 +1,5 @@
 //! Documents: a live document editor built on Typst, the typesetting system, as a Waft app in
-//! WinUI's Fluent look (`waft-winui`) over `waft-embedder-wasdk`. A document is written in
+//! WinUI's Fluent look (`waft-winui`) over `wasdk-adapter-waft`. A document is written in
 //! Typst's markup on one side and shown as typeset pages on the other, set again as it is typed
 //! by Typst's own compiler, which runs inside the program.
 //!
@@ -90,7 +90,7 @@ use crate::window::{APP_NAME, DocumentWindow};
 
 #[wasdk::main]
 async fn main() {
-    waft_embedder_wasdk::run(start).await;
+    wasdk_adapter_waft::run(start).await;
 }
 
 /// Starts the app: the typesetting worker, the editor followed, the document of the last run or

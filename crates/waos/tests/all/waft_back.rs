@@ -1,4 +1,4 @@
-//! `examples/waft-back`, a Waft app over `waft-embedder-wasdk` with pages to go back through, under
+//! `examples/waft-back`, a Waft app over `wasdk-adapter-waft` with pages to go back through, under
 //! the test shell: it says nothing of Back on its first page; a tap pushes a page onto its
 //! navigator, and its view, and the shell with it, hear that it handles Back, with no code of the
 //! app's own; the user's Back sent to it pops the page, and back on its first page it no longer

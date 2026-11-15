@@ -3,4 +3,4 @@
 
 /// Each frame of a video the embedder takes from a reader to draw, at `trace`, one event each,
 /// with the display time it was asked for in its `display_time` field.
-pub const VIDEO_FRAMES: &str = "waft_embedder_wasdk::video_frames";
+pub const VIDEO_FRAMES: &str = "wasdk_adapter_waft::video_frames";

@@ -4,12 +4,12 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
-description = "An Waft app that plays Apple's HLS example stream on a layer or from its frames, with its subtitles, over waft-embedder-wasdk. `cargo build -p player --target wasm32-wasip2`."
+description = "An Waft app that plays Apple's HLS example stream on a layer or from its frames, with its subtitles, over wasdk-adapter-waft. `cargo build -p player --target wasm32-wasip2`."
 
 [dependencies]
 waft-cupertino.workspace = true
 waft-embedder.workspace = true
-waft-embedder-wasdk.workspace = true
+wasdk-adapter-waft.workspace = true
 waft-foundation.workspace = true
 waft-widgets.workspace = true
 # Counting the frames the embedder draws of a video, from its events.

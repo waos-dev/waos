@@ -1,4 +1,4 @@
-//! `examples/two-windows`, an Waft app with two windows over `waft-embedder-wasdk`, under the
+//! `examples/two-windows`, an Waft app with two windows over `wasdk-adapter-waft`, under the
 //! test shell, both on its one screen: a refresh serves both windows, each frame naming both.
 //! While the shell has the second window hidden, reporting its view off screen, the first keeps
 //! presenting frames, each refresh serving it alone, and the second presents none; shown again,

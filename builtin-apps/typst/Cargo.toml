@@ -4,11 +4,11 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
-description = "Documents, a live document editor built on Typst, as a Waft app in WinUI's Fluent look over waft-embedder-wasdk: Typst's markup on one side, its typeset pages on the other, compiled in the program as it is typed. `cargo waos run -p documents`."
+description = "Documents, a live document editor built on Typst, as a Waft app in WinUI's Fluent look over wasdk-adapter-waft: Typst's markup on one side, its typeset pages on the other, compiled in the program as it is typed. `cargo waos run -p documents`."
 
 [dependencies]
 waft.workspace = true
-waft-embedder-wasdk.workspace = true
+wasdk-adapter-waft.workspace = true
 # How a gesture detector is hit, which `GestureDetector::behavior` takes and `waft` does not
 # re-export.
 waft-rendering.workspace = true

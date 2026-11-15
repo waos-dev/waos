@@ -835,10 +835,10 @@ version = "0.2.0"
 dependencies = [
  "waft-cupertino",
  "waft-embedder",
- "waft-embedder-wasdk",
  "waft-foundation",
  "waft-widgets",
  "wasdk",
+ "wasdk-adapter-waft",
 ]
 
 [[package]]
@@ -848,10 +848,10 @@ dependencies = [
  "tempfile",
  "tracing",
  "waft",
- "waft-embedder-wasdk",
  "waft-services",
  "waft-winui",
  "wasdk",
+ "wasdk-adapter-waft",
  "wasdk-wgpu",
  "wgpu",
 ]
@@ -1202,11 +1202,11 @@ version = "0.2.0"
 dependencies = [
  "waft-cupertino",
  "waft-embedder",
- "waft-embedder-wasdk",
  "waft-foundation",
  "waft-services",
  "waft-widgets",
  "wasdk",
+ "wasdk-adapter-waft",
 ]
 
 [[package]]
@@ -1894,11 +1894,11 @@ dependencies = [
  "typst-pdf",
  "typst-render",
  "waft",
- "waft-embedder-wasdk",
  "waft-rendering",
  "waft-services",
  "waft-winui",
  "wasdk",
+ "wasdk-adapter-waft",
 ]
 
 [[package]]
@@ -2642,8 +2642,8 @@ name = "gallery"
 version = "0.2.0"
 dependencies = [
  "cupertino-gallery",
- "waft-embedder-wasdk",
  "wasdk",
+ "wasdk-adapter-waft",
 ]
 
 [[package]]
@@ -3159,8 +3159,8 @@ version = "0.2.0"
 dependencies = [
  "waft",
  "waft-cupertino",
- "waft-embedder-wasdk",
  "wasdk",
+ "wasdk-adapter-waft",
 ]
 
 [[package]]
@@ -4390,12 +4390,12 @@ dependencies = [
  "tempfile",
  "tracing",
  "waft-embedder",
- "waft-embedder-wasdk",
  "waft-foundation",
  "waft-services",
  "waft-widgets",
  "waft-winui",
  "wasdk",
+ "wasdk-adapter-waft",
 ]
 
 [[package]]
@@ -5302,10 +5302,10 @@ dependencies = [
  "tracing",
  "waft-cupertino",
  "waft-embedder",
- "waft-embedder-wasdk",
  "waft-foundation",
  "waft-widgets",
  "wasdk",
+ "wasdk-adapter-waft",
 ]
 
 [[package]]
@@ -5815,11 +5815,11 @@ dependencies = [
  "tempfile",
  "url",
  "waft",
- "waft-embedder-wasdk",
  "waft-gestures",
  "waft-services",
  "waft-winui",
  "wasdk",
+ "wasdk-adapter-waft",
 ]
 
 [[package]]
@@ -7362,13 +7362,13 @@ dependencies = [
  "fundsp",
  "futures",
  "waft",
- "waft-embedder-wasdk",
  "waft-gestures",
  "waft-rendering",
  "waft-services",
  "waft-widgets",
  "waft-winui",
  "wasdk",
+ "wasdk-adapter-waft",
 ]
 
 [[package]]
@@ -7445,7 +7445,6 @@ dependencies = [
  "tracing",
  "vt100",
  "waft-embedder",
- "waft-embedder-wasdk",
  "waft-foundation",
  "waft-gestures",
  "waft-rendering",
@@ -7453,6 +7452,7 @@ dependencies = [
  "waft-widgets",
  "waft-winui",
  "wasdk",
+ "wasdk-adapter-waft",
 ]
 
 [[package]]
@@ -7978,11 +7978,11 @@ version = "0.2.0"
 dependencies = [
  "waft-cupertino",
  "waft-embedder",
- "waft-embedder-wasdk",
  "waft-foundation",
  "waft-services",
  "waft-widgets",
  "wasdk",
+ "wasdk-adapter-waft",
 ]
 
 [[package]]
@@ -8874,7 +8874,6 @@ version = "0.2.0"
 dependencies = [
  "url",
  "waft-embedder",
- "waft-embedder-wasdk",
  "waft-foundation",
  "waft-rendering",
  "waft-scheduler",
@@ -8882,6 +8881,7 @@ dependencies = [
  "waft-widgets",
  "waft-winui",
  "wasdk",
+ "wasdk-adapter-waft",
 ]
 
 [[package]]
@@ -8946,11 +8946,11 @@ version = "0.2.0"
 dependencies = [
  "waft-cupertino",
  "waft-embedder",
- "waft-embedder-wasdk",
  "waft-foundation",
  "waft-rendering",
  "waft-widgets",
  "wasdk",
+ "wasdk-adapter-waft",
 ]
 
 [[package]]
@@ -9011,23 +9011,6 @@ dependencies = [
  "waft-embedder-android",
  "waft-embedder-web",
  "waft-embedder-winit",
-]
-
-[[package]]
-name = "waft-embedder-wasdk"
-version = "0.2.0"
-dependencies = [
- "futures",
- "tracing",
- "url",
- "valo",
- "valo-fontmgr",
- "waft-embedder",
- "waft-foundation",
- "waft-shell",
- "wasdk",
- "wasdk-wgpu",
- "wgpu",
 ]
 
 [[package]]
@@ -9131,10 +9114,10 @@ version = "0.2.0"
 dependencies = [
  "waft-cupertino",
  "waft-embedder",
- "waft-embedder-wasdk",
  "waft-foundation",
  "waft-widgets",
  "wasdk",
+ "wasdk-adapter-waft",
 ]
 
 [[package]]
@@ -9612,6 +9595,23 @@ dependencies = [
  "inventory",
  "wasdk-macros",
  "wit-bindgen 0.62.0",
+]
+
+[[package]]
+name = "wasdk-adapter-waft"
+version = "0.2.0"
+dependencies = [
+ "futures",
+ "tracing",
+ "url",
+ "valo",
+ "valo-fontmgr",
+ "waft-embedder",
+ "waft-foundation",
+ "waft-shell",
+ "wasdk",
+ "wasdk-wgpu",
+ "wgpu",
 ]
 
 [[package]]

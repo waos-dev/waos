@@ -1,5 +1,5 @@
 //! `cargo waos new`: a new program in a folder of its name, a Waft app over
-//! `waft-embedder-wasdk` in one widget kit's look, as `cargo waft new` writes a Waft app:
+//! `wasdk-adapter-waft` in one widget kit's look, as `cargo waft new` writes a Waft app:
 //!
 //! ```text
 //! hello/
@@ -173,7 +173,7 @@ mod tests {
         ] {
             let main_rs = template.main_rs();
             assert!(main_rs.contains("#[wasdk::main]\nasync fn main()"));
-            assert!(main_rs.contains("waft_embedder_wasdk::run("));
+            assert!(main_rs.contains("wasdk_adapter_waft::run("));
             assert!(main_rs.contains(app), "{template:?}");
             assert!(main_rs.contains(&template.kit().replace('-', "_")));
         }

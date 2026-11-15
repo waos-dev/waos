@@ -7,7 +7,7 @@
 //! crates.io version.
 //!
 //! The invariant: the versions are this release's. The SDK's is this crate's own, since the
-//! workspace versions its crates together; Waft's is the one `waft-embedder-wasdk` is built on,
+//! workspace versions its crates together; Waft's is the one `wasdk-adapter-waft` is built on,
 //! which `tests/new.rs` holds it to by building each template against the workspace.
 
 use super::enclosing_workspace::Inherited;
@@ -15,7 +15,7 @@ use super::icon;
 use super::program_name::ProgramName;
 use super::template::Template;
 
-/// The SDK's version, `wasdk`'s and `waft-embedder-wasdk`'s, as a requirement: this release's
+/// The SDK's version, `wasdk`'s and `wasdk-adapter-waft`'s, as a requirement: this release's
 /// major and minor.
 const SDK_VERSION: &str = concat!(
     env!("CARGO_PKG_VERSION_MAJOR"),
@@ -74,7 +74,7 @@ fn package_fields(inherited: &Inherited) -> String {
 fn dependencies(template: Template, inherited: &Inherited) -> String {
     let named = [
         ("wasdk", SDK_VERSION),
-        ("waft-embedder-wasdk", SDK_VERSION),
+        ("wasdk-adapter-waft", SDK_VERSION),
         ("waft", WAFT_VERSION),
         (template.kit(), WAFT_VERSION),
     ];
@@ -114,9 +114,9 @@ mod tests {
             named,
             [
                 ("waft", "0.5"),
-                ("waft-embedder-wasdk", SDK_VERSION),
                 ("waft-winui", "0.5"),
                 ("wasdk", SDK_VERSION),
+                ("wasdk-adapter-waft", SDK_VERSION),
             ]
         );
         let cupertino = written("my-app", Template::Cupertino);
@@ -160,7 +160,7 @@ mod tests {
         let manifest = cargo_toml(&name, Template::Winui, &inherited);
         assert!(
             manifest.starts_with(
-                "[package]\nname = \"my-app\"\nversion = \"0.1.0\"\nedition.workspace = true\nlicense.workspace = true\n\n[dependencies]\nwasdk.workspace = true\nwaft-embedder-wasdk = \""
+                "[package]\nname = \"my-app\"\nversion = \"0.1.0\"\nedition.workspace = true\nlicense.workspace = true\n\n[dependencies]\nwasdk.workspace = true\nwasdk-adapter-waft = \""
             ),
             "{manifest}"
         );

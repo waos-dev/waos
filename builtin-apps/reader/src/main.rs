@@ -1,5 +1,5 @@
 //! Reader: a feed reader, as a Waft app in WinUI's Fluent look (`waft-winui`) over
-//! `waft-embedder-wasdk`. What a person uses to try what WaOS gives a program of the network, of
+//! `wasdk-adapter-waft`. What a person uses to try what WaOS gives a program of the network, of
 //! pictures and of text: HTTP from a program that keeps drawing while it waits, the system's image
 //! codecs, long lists and long text, links opened outside, notifications, work done while the
 //! window is out of sight, and its own `/data` and `/cache`.
@@ -87,7 +87,7 @@ use crate::window::{APP_NAME, ReaderWindow};
 
 #[wasdk::main]
 async fn main() {
-    waft_embedder_wasdk::run(start).await;
+    wasdk_adapter_waft::run(start).await;
 }
 
 /// Starts the app: the library the program's `/data` keeps, refreshed now and every half hour;

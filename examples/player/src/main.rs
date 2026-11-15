@@ -59,7 +59,7 @@ enum Way {
 async fn main() {
     let frames_drawn = FrameCount::install();
     wasdk::spawn(frames_drawn.say_after_ten_seconds());
-    waft_embedder_wasdk::run(|app| {
+    wasdk_adapter_waft::run(|app| {
         let window = WindowConfig {
             title: "Player".to_owned(),
             size: [800.0, 560.0],

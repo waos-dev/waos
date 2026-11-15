@@ -34,7 +34,7 @@ const LARGEST: (f64, f64) = (1920.0, 1080.0);
 
 #[wasdk::main]
 async fn main() {
-    waft_embedder_wasdk::run(|app| {
+    wasdk_adapter_waft::run(|app| {
         print_cameras(app);
         let pane = app.new_entity(|_cx| CameraPane::Opening);
         open_first_camera(app, &pane);

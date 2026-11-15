@@ -1,4 +1,4 @@
-//! `examples/waft-menus`, an Waft app over `waft-embedder-wasdk`, under the test shell, with its
+//! `examples/waft-menus`, an Waft app over `wasdk-adapter-waft`, under the test shell, with its
 //! clipboard switches off: its `PlatformMenuBar` reaches the shell as the WIT's flat list, and a
 //! choice in it reaches the item's callback, Open… asking for a file through WaOS, which it reads,
 //! Open Link opening a link through WaOS's opener, and Notify asking its user and posting a

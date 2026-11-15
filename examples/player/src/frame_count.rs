@@ -7,7 +7,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use tracing::span::{Attributes, Id, Record};
 use tracing::{Event, Metadata, Subscriber};
-use waft_embedder_wasdk::targets;
+use wasdk_adapter_waft::targets;
 
 /// The time counted, in nanoseconds: ten seconds.
 const COUNTED: u64 = 10_000_000_000;

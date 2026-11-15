@@ -1,6 +1,6 @@
 # reader
 
-A feed reader, as a Waft app in WinUI's Fluent look over `waft-embedder-wasdk`: the app a person keeps open to follow a few sites, and what the project learns WaOS's network, pictures and long text from.
+A feed reader, as a Waft app in WinUI's Fluent look over `wasdk-adapter-waft`: the app a person keeps open to follow a few sites, and what the project learns WaOS's network, pictures and long text from.
 
 - **Feeds** are followed by address, RSS or Atom (and JSON Feed, which `feed-rs` reads too): Add Feed takes a feed's own address or that of a site whose page names one, fetches it while its dialog waits, and says why where it cannot be added. The first launch follows three public feeds, so the lists show something: NASA's news, the Rust blog and Wikipedia's featured articles. A feed is unfollowed in Settings, after a question.
 - **The items** of every feed, or of one, are listed newest first: the title, in strong type with a dot until it is read, the first lines of its text, the feed and how long ago it was published, and its picture. Mark All as Read marks what is listed.
@@ -13,7 +13,7 @@ What it does not do: folders of feeds, search, starring, OPML import or export, 
 
 What was not tried: a notification posted and clicked (the permission's question cannot be answered from `cargo waos`), a phone's Back on a phone (the window was checked at a phone's width on a desktop), and the system's dark look.
 
-- **Takes:** `waft` and `waft-winui`, with `waft-gestures` and `waft-services` for a link's tap and cursor; `waft-embedder-wasdk` and `wasdk`, whose `wasdk::http` every request goes through; `feed-rs` for a feed's document, `scraper` for an item's HTML, `url`, `chrono`, `serde` and `serde_json`.
+- **Takes:** `waft` and `waft-winui`, with `waft-gestures` and `waft-services` for a link's tap and cursor; `wasdk-adapter-waft` and `wasdk`, whose `wasdk::http` every request goes through; `feed-rs` for a feed's document, `scraper` for an item's HTML, `url`, `chrono`, `serde` and `serde_json`.
 - **Provides:** a component, from `cargo waos build -p reader`, and a package, from `cargo waos package -p reader`.
 - **Used by:** people, from WaOS's library.
 

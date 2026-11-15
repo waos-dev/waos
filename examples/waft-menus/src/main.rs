@@ -1,4 +1,4 @@
-//! An Waft app with menus, over `waft-embedder-wasdk`: a window with a text field holding a line,
+//! An Waft app with menus, over `wasdk-adapter-waft`: a window with a text field holding a line,
 //! under a `PlatformMenuBar` of an app menu, File with Greet, and Edit's Copy and Paste, the
 //! platform's, and File's Open…, which asks for a text file in the platform's dialog and prints
 //! it, Open Link, which opens a web page in the app the system picks, and Notify, which asks its
@@ -45,7 +45,7 @@ const LINK: &str = "https://example.com/";
 
 #[wasdk::main]
 async fn main() {
-    waft_embedder_wasdk::run(|app| {
+    wasdk_adapter_waft::run(|app| {
         let text = TextEditingController::new(app)
             .text(app, LINE)
             .as_controller();

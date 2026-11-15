@@ -1,5 +1,5 @@
 //! Terminal: a shell on a machine its user picks, in a pseudo-terminal of WaOS's machines
-//! interface, as a Waft app over `waft-embedder-wasdk`. What a person uses to try what WaOS gives
+//! interface, as a Waft app over `wasdk-adapter-waft`. What a person uses to try what WaOS gives
 //! a program that runs commands: a machine picked and kept, a command in a terminal with its
 //! output, its input, its size and its end, the keyboard in full, the platform's monospace font,
 //! the clipboard, and a window for each session.
@@ -68,7 +68,7 @@ use crate::window::{APP_NAME, SessionWindow, open_window};
 
 #[wasdk::main]
 async fn main() {
-    waft_embedder_wasdk::run(start).await;
+    wasdk_adapter_waft::run(start).await;
 }
 
 /// Starts the app: the text every window shares, a first window where the platform gives the

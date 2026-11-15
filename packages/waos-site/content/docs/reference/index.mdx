@@ -11,6 +11,6 @@ The WIT is the contract between a program and the platform: every interface a pr
 The Rust crates are documented on docs.rs:
 
 - [`wasdk`](https://docs.rs/wasdk/latest/wasdk/): what a program is written with, for whoever writes one in Rust. Each module is the interface of its name, `wasdk::file_dialogs` for `file-dialogs`, and its items carry the WIT's doc comments, through wit-bindgen.
-- [`waft-embedder-wasdk`](https://docs.rs/waft-embedder-wasdk/latest/waft_embedder_wasdk/): Waft over wasdk, whose `run` starts a Waft app, for whoever writes an app with Waft.
+- [`wasdk-adapter-waft`](https://docs.rs/wasdk-adapter-waft/latest/wasdk_adapter_waft/): Waft over wasdk, whose `run` starts a Waft app, for whoever writes an app with Waft.
 - [`waos`](https://docs.rs/waos/latest/waos/): the engine, which runs programs, for an app that embeds it.
 - [`waos-capabilities`](https://docs.rs/waos-capabilities/latest/waos_capabilities/): what an app that embeds the engine implements to give programs their files, network, machines, sound, cameras, media and fonts.

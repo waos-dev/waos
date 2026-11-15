@@ -4,7 +4,7 @@ A `wgpu` backend over the engine's `wasi:webgpu`, through wgpu's own extension p
 
 - **Takes:** `wasi:webgpu`, as `wasdk::webgpu` generates it, and `wasdk:platform`'s views and `gpu-interop`; `wgpu`.
 - **Provides:** `instance()`, a `wgpu::Instance` on wgpu's custom backend; `SharedView`, a program's view shared with the surfaces made on it, the window `Instance::create_surface` takes, its handle a `WebCanvasWindowHandle` pointing at it, whose surface hands out the view's canvas texture each frame and whose frame `Queue::present` presents on the view, with the layers the view holds, the one way the crate draws on a view; `import_texture`, a hardware buffer the program holds, one it allocated, a decoded image's or a video frame's, imported as a `wgpu::Texture` over its memory through `wasdk:platform/gpu-interop`, for what the buffer's usage names; and `convert`, the conversions between wgpu's vocabulary and WebGPU's.
-- **Used by:** programs that draw with wgpu, such as `examples/triangle`; `waft-embedder-wasdk`, which draws an Waft app's views with valo over it.
+- **Used by:** programs that draw with wgpu, such as `examples/triangle`; `wasdk-adapter-waft`, which draws an Waft app's views with valo over it.
 
 ```rust
 let instance = wasdk_wgpu::instance();

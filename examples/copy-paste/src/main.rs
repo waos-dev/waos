@@ -28,7 +28,7 @@ const COPIED: &str = "copied by copy-paste";
 
 #[wasdk::main]
 async fn main() {
-    waft_embedder_wasdk::run(|app| {
+    wasdk_adapter_waft::run(|app| {
         print_clipboard_changes(app);
         copy_line(app);
         let window = WindowConfig {

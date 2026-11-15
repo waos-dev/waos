@@ -1,4 +1,4 @@
-//! A Waft app with pages to go back through, over `waft-embedder-wasdk`: a tap anywhere on a page
+//! A Waft app with pages to go back through, over `wasdk-adapter-waft`: a tap anywhere on a page
 //! pushes the next onto its navigator, and the user's Back pops it. It writes no code for Back:
 //! Waft's app tells the platform whether its navigator can pop, which the platform says on its
 //! view as `set-handles-back`, and the platform's `pop-route` reaches the navigator.
@@ -26,7 +26,7 @@ const BACKGROUND: Color = Color::new(0xFFFFFFFF);
 
 #[wasdk::main]
 async fn main() {
-    waft_embedder_wasdk::run(|app| {
+    wasdk_adapter_waft::run(|app| {
         let window = WindowConfig {
             title: "Waft back".to_owned(),
             size: [320.0, 240.0],

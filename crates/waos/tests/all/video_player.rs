@@ -1,4 +1,4 @@
-//! `builtin-apps/video-player`, an Waft app over `waft-embedder-wasdk`, under the test shell, given
+//! `builtin-apps/video-player`, an Waft app over `wasdk-adapter-waft`, under the test shell, given
 //! this computer's fonts and folders of each test's own: it asks for its window, titled for the
 //! app, keeps it no smaller than 480 by 270, sets its menu bar, draws, and quits as its window
 //! closes. A video picked through File's Open… plays on a layer the app made, the window titled
