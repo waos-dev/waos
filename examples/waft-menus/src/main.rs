@@ -14,7 +14,7 @@
 //! each click on its notifications as `notification: id action reply`.
 //!
 //! ```text
-//! cargo build -p waft-menus --target wasm32-wasip2
+//! cargo build -p waft-menus --target wasm32-wasip3
 //! cargo waos run -p waft-menus
 //! ```
 

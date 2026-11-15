@@ -11,7 +11,7 @@
 //! Asking to close its window quits it.
 //!
 //! ```text
-//! cargo build -p camera --target wasm32-wasip2
+//! cargo build -p camera --target wasm32-wasip3
 //! cargo waos run -p camera
 //! ```
 

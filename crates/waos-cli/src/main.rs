@@ -77,7 +77,7 @@ enum Command {
     /// inherits the workspace's package keys, lints and the dependencies the workspace lists, and
     /// is added to the workspace's members unless a pattern there takes it in already.
     New(NewArgs),
-    /// Builds the program as a component, for wasm32-wasip2, and puts it at
+    /// Builds the program as a component, for wasm32-wasip3, and puts it at
     /// target/waos/<profile>/<package>.wasm.
     Build(BuildArgs),
     /// Builds the program and runs it in the WaOS on this machine, starting WaOS.app when none

@@ -3,7 +3,7 @@
 //! having returned.
 //!
 //! ```text
-//! cargo build -p trap --target wasm32-wasip2
+//! cargo build -p trap --target wasm32-wasip3
 //! ```
 
 #[wasdk::main]

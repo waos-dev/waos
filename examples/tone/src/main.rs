@@ -7,7 +7,7 @@
 //! It prints each step as it takes it.
 //!
 //! ```text
-//! cargo build -p tone --target wasm32-wasip2
+//! cargo build -p tone --target wasm32-wasip3
 //! ```
 
 use wasdk::StreamReader;

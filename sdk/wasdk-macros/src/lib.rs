@@ -1,13 +1,12 @@
 //! `#[wasdk::main]` and `#[wasdk::worker]`: a program's entry and its workers' entries, which
 //! generation cannot produce.
 //!
-//! `#[wasdk::main]` keeps the function as the program and adds the entries beside it: the export
-//! of `wasi:cli/run@0.3.0`, the async entry the engine calls, and of `wasdk:platform/worker-entry`,
-//! which WaOS calls in each worker and which runs the `#[wasdk::worker]` of the entry asked, an
-//! entry the program does not have answered as unknown. So a program without workers writes
-//! nothing for them. A `fn main` is still emitted, because the `wasm32-wasip2` target links a
-//! Preview 2 command entry into every `bin` whether or not one is written, and it only says where
-//! the real entry is (`../experiments/2026-09-20-dual-target-entry`).
+//! `#[wasdk::main]` keeps the function as the program and adds the entries beside it: a `fn main`,
+//! which Rust's standard library calls from the `wasi:cli/run@0.3.0` it exports on
+//! `wasm32-wasip3`, the entry the engine calls, and which runs the program on wasdk's executor until
+//! it ends; and the export of `wasdk:platform/worker-entry`, which WaOS calls in each worker and
+//! which runs the `#[wasdk::worker]` of the entry asked, an entry the program does not have
+//! answered as unknown. So a program without workers writes nothing for them.
 //!
 //! `#[wasdk::worker]` keeps the function as it is and registers it under its name, which a
 //! constant beside it holds (`COMPILE_ENTRY` for `compile`), so the name a program starts a worker
@@ -76,15 +75,6 @@ pub fn main(attr: TokenStream, item: TokenStream) -> TokenStream {
 
         ::wasdk::__entry::export!(__WasdkProgram with_types_in ::wasdk::bindings);
 
-        impl ::wasdk::__entry::Guest for __WasdkProgram {
-            async fn run() -> ::core::result::Result<(), ()> {
-                ::wasdk::__entry::Outcome::into_result(
-                    #program_function().await,
-                    ::core::env!("CARGO_PKG_NAME"),
-                )
-            }
-        }
-
         impl ::wasdk::__entry::WorkerGuest for __WasdkProgram {
             async fn run(
                 entry: ::std::string::String,
@@ -97,10 +87,8 @@ pub fn main(attr: TokenStream, item: TokenStream) -> TokenStream {
             }
         }
 
-        // The Preview 2 command entry the target links in regardless; an engine that calls it
-        // is not wasdk's.
         fn main() {
-            ::wasdk::__entry::not_the_entry();
+            ::wasdk::__entry::run_program(#program_function, ::core::env!("CARGO_PKG_NAME"))
         }
     }
     .into()

@@ -7,7 +7,7 @@
 //! family, no face, and no glyph from a font it names anyway.
 //!
 //! ```text
-//! cargo build -p fonts --target wasm32-wasip2
+//! cargo build -p fonts --target wasm32-wasip3
 //! ```
 
 use read_fonts::tables::cmap::Cmap;

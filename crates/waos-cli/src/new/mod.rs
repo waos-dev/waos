@@ -4,7 +4,7 @@
 //! ```text
 //! hello/
 //!   Cargo.toml            the SDK, Waft and the kit, and [package.metadata.waos]
-//!   rust-toolchain.toml   WaOS's toolchain, with wasm32-wasip2
+//!   rust-toolchain.toml   WaOS's toolchain, with wasm32-wasip3
 //!   icon.png              1024 pixels on a side, which a package carries
 //!   src/main.rs           the app
 //!   .gitignore
@@ -38,13 +38,13 @@ use self::program_name::ProgramName;
 pub use self::template::Template;
 
 /// The toolchain a program is built with: WaOS's own, the nightly Waft needs at its pinned date,
-/// with `wasm32-wasip2`, so rustup installs both by itself.
+/// with `wasm32-wasip3`, so rustup installs both by itself.
 const TOOLCHAIN: &str = r#"# Nightly because Waft needs `arbitrary_self_types`, pinned to the date WaOS is built with.
-# `wasm32-wasip2` is what a program is built for.
+# `wasm32-wasip3` is what a program is built for.
 [toolchain]
 channel = "nightly-2026-11-15"
 components = ["rustfmt", "clippy"]
-targets = ["wasm32-wasip2"]
+targets = ["wasm32-wasip3"]
 "#;
 
 /// What git leaves out: cargo's build.

@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
-description = "A Waft app with pages to go back through, over wasdk-adapter-waft, which hears the user's Back while its navigator can pop with no code of its own. `cargo build -p waft-back --target wasm32-wasip2`."
+description = "A Waft app with pages to go back through, over wasdk-adapter-waft, which hears the user's Back while its navigator can pop with no code of its own. `cargo build -p waft-back --target wasm32-wasip3`."
 
 [dependencies]
 waft-cupertino.workspace = true

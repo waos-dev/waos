@@ -6,7 +6,7 @@
 //! It prints each step as `what: result`.
 //!
 //! ```text
-//! cargo build -p file-dialogs --target wasm32-wasip2
+//! cargo build -p file-dialogs --target wasm32-wasip3
 //! ```
 
 use std::fs;
@@ -105,7 +105,7 @@ fn picked(what: &str, answer: Result<Option<String>, file_dialogs::DialogError>)
 }
 
 /// The program's temporary folder, as `TMPDIR` names it: Rust's `std::env::temp_dir` has none on
-/// `wasm32-wasip2`, where it panics.
+/// `wasm32-wasip3`, where it panics.
 fn temporary_folder() -> PathBuf {
     std::env::var_os("TMPDIR").map_or_else(|| PathBuf::from("/tmp"), PathBuf::from)
 }

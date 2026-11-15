@@ -19,9 +19,9 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
+use bytes::Bytes;
 use http_body_util::{BodyExt, Empty};
 use wasmtime_wasi_http::{Error, RequestOptions, WasiHttpHooks};
-use wasmtime_wasi_io::bytes::Bytes;
 
 use super::{HttpProxy, ProgramHttp};
 use crate::network::test_grants::{TestGrants, any, off, only};

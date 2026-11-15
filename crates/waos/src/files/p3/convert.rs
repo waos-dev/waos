@@ -1,8 +1,8 @@
-//! WASI 0.2's types for the files' own, each way a call needs.
+//! WASI 0.3's types for the files' own, each way a call needs.
 
 use std::time::{Duration, SystemTime};
 
-use wasmtime_wasi::p2::bindings::clocks::wall_clock::Datetime;
+use wasmtime_wasi::p3::bindings::clocks::system_clock::Instant;
 
 use super::bindings::wasi::filesystem::types;
 use crate::files::descriptor::{Advice, DescriptorFlags, DirectoryEntry};
@@ -46,15 +46,17 @@ pub(super) fn time_to_set(timestamp: types::NewTimestamp) -> Result<Option<Syste
     }
 }
 
-/// `time` as the system takes it; `overflow` past what it holds.
-fn system_time(time: Datetime) -> Result<SystemTime, ErrorCode> {
-    let seconds = time
-        .seconds
-        .checked_add(u64::from(time.nanoseconds / 1_000_000_000))
-        .ok_or(ErrorCode::Overflow)?;
-    let since_epoch = Duration::new(seconds, time.nanoseconds % 1_000_000_000);
-    SystemTime::UNIX_EPOCH
-        .checked_add(since_epoch)
+/// `time` as the system takes it, before the epoch where its seconds are negative; `overflow`
+/// past what the system holds.
+fn system_time(time: Instant) -> Result<SystemTime, ErrorCode> {
+    let whole_seconds = Duration::from_secs(time.seconds.unsigned_abs());
+    let at_seconds = if time.seconds >= 0 {
+        SystemTime::UNIX_EPOCH.checked_add(whole_seconds)
+    } else {
+        SystemTime::UNIX_EPOCH.checked_sub(whole_seconds)
+    };
+    at_seconds
+        .and_then(|at| at.checked_add(Duration::from_nanos(u64::from(time.nanoseconds))))
         .ok_or(ErrorCode::Overflow)
 }
 
@@ -93,9 +95,10 @@ impl From<ErrorCode> for types::ErrorCode {
 }
 
 impl From<DescriptorType> for types::DescriptorType {
+    /// A type the system does not name is WASI 0.3's `other`, with nothing to say.
     fn from(type_: DescriptorType) -> types::DescriptorType {
         match type_ {
-            DescriptorType::Unknown => types::DescriptorType::Unknown,
+            DescriptorType::Unknown => types::DescriptorType::Other(None),
             DescriptorType::BlockDevice => types::DescriptorType::BlockDevice,
             DescriptorType::CharacterDevice => types::DescriptorType::CharacterDevice,
             DescriptorType::Directory => types::DescriptorType::Directory,
@@ -126,25 +129,24 @@ impl From<DescriptorFlags> for types::DescriptorFlags {
 }
 
 impl From<DescriptorStat> for types::DescriptorStat {
-    /// A time before the epoch, which WASI 0.2's clock cannot say, is said to be unkept.
     fn from(status: DescriptorStat) -> types::DescriptorStat {
         types::DescriptorStat {
             type_: status.type_.into(),
             link_count: status.link_count,
             size: status.size,
-            data_access_timestamp: status.data_access_timestamp.and_then(datetime),
-            data_modification_timestamp: status.data_modification_timestamp.and_then(datetime),
-            status_change_timestamp: status.status_change_timestamp.and_then(datetime),
+            data_access_timestamp: status.data_access_timestamp.map(instant),
+            data_modification_timestamp: status.data_modification_timestamp.map(instant),
+            status_change_timestamp: status.status_change_timestamp.map(instant),
         }
     }
 }
 
-/// `time` on WASI 0.2's wall clock, which starts at the epoch.
-fn datetime(time: Timestamp) -> Option<Datetime> {
-    Some(Datetime {
-        seconds: u64::try_from(time.seconds).ok()?,
+/// `time` on WASI 0.3's system clock, which, as the files, counts from the epoch either way.
+fn instant(time: Timestamp) -> Instant {
+    Instant {
+        seconds: time.seconds,
         nanoseconds: time.nanoseconds,
-    })
+    }
 }
 
 impl From<MetadataHashValue> for types::MetadataHashValue {

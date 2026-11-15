@@ -9,7 +9,7 @@
 //! It prints each step as `what: result`, the result `ok`, `denied`, `no app` or `failed (why)`.
 //!
 //! ```text
-//! cargo build -p opener --target wasm32-wasip2
+//! cargo build -p opener --target wasm32-wasip3
 //! ```
 
 use std::fs;

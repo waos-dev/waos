@@ -6,7 +6,7 @@
 //! It prints each page as it is built, `page N`, the first being 0.
 //!
 //! ```text
-//! cargo build -p waft-back --target wasm32-wasip2
+//! cargo build -p waft-back --target wasm32-wasip3
 //! cargo waos run -p waft-back
 //! ```
 

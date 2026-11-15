@@ -7,7 +7,7 @@
 //! so the HTML outlives it.
 //!
 //! ```text
-//! cargo build -p copy-paste --target wasm32-wasip2
+//! cargo build -p copy-paste --target wasm32-wasip3
 //! cargo waos run -p copy-paste
 //! ```
 

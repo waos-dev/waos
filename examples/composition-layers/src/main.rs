@@ -9,7 +9,7 @@
 //! after the second, closes its window when asked, and ends when its view is gone.
 //!
 //! ```text
-//! cargo build -p composition-layers --target wasm32-wasip2
+//! cargo build -p composition-layers --target wasm32-wasip3
 //! ```
 
 use wasdk::views::{

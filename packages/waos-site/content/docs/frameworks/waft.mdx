@@ -22,7 +22,7 @@ fn start(app: &mut App) {
     install_icon_font(app); // WinUI's icons; after run_app_with
 }
 ```
-`run_app_with` asks for a window configured so, on Android a task of its own; in WaOS's tabs on a phone, which give the app its tab's view, the configuration goes unused. `run_app(app, widget)` is the same with the default window. The program's `rust-toolchain.toml` picks the nightly with `wasm32-wasip2`; rustup fetches it on the first build.
+`run_app_with` asks for a window configured so, on Android a task of its own; in WaOS's tabs on a phone, which give the app its tab's view, the configuration goes unused. `run_app(app, widget)` is the same with the default window. The program's `rust-toolchain.toml` picks the nightly with `wasm32-wasip3`; rustup fetches it on the first build.
 
 ## Widgets
 Waft's core widgets are Flutter's: the same names, built, laid out and painted as Flutter's are, so Flutter's documentation tells what a widget does. A widget describes part of the UI, and `build` returns the widgets it is made of. What differs is Rust's:

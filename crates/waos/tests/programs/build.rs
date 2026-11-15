@@ -52,16 +52,18 @@ const PROGRAMS: [&str; 36] = [
 ];
 
 /// What a program is built for.
-const TARGET: &str = "wasm32-wasip2";
+const TARGET: &str = "wasm32-wasip3";
 
 /// What the programs are built from, from the workspace's root: its programs, the SDK and the
-/// WIT, and the crates of Waft's checkout beside it, which the gallery, two-windows, copy-paste,
-/// waft-menus, waft-back, notes and video-player are built from.
-const WATCHED: [&str; 6] = [
+/// WIT, the versions of what they depend on, and the crates of Waft's checkout beside it, which
+/// the gallery, two-windows, copy-paste, waft-menus, waft-back, notes and video-player are built
+/// from.
+const WATCHED: [&str; 7] = [
     "builtin-apps",
     "examples",
     "sdk",
     "wit",
+    "Cargo.lock",
     "../waft/crates",
     "../waft/examples",
 ];

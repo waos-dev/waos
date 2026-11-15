@@ -617,8 +617,18 @@ impl OpenRequest {
 
 #[cfg(test)]
 mod tests {
+    use super::super::descriptor::read_into;
     use super::super::folder_of_machine;
     use super::*;
+
+    /// The first bytes of what `file` holds, as a read from its start answers them.
+    #[cfg(unix)]
+    fn contents(file: &Opened) -> Vec<u8> {
+        let mut buffer = vec![0; 100];
+        let read = read_into(file.handle(), &mut buffer, 0).unwrap();
+        buffer.truncate(read);
+        buffer
+    }
 
     #[cfg(unix)]
     #[test]
@@ -644,7 +654,7 @@ mod tests {
             let Descriptor::File(file) = root.beneath(path).open(&read).unwrap() else {
                 panic!("{path} is a file");
             };
-            assert_eq!(file.read(100, 0).unwrap().0, b"on the machine", "{path}");
+            assert_eq!(contents(&file), b"on the machine", "{path}");
         }
 
         let mount = Opened::new(fs::File::open(&folder).unwrap(), true, read.open_mode());
@@ -700,7 +710,7 @@ mod tests {
             let Descriptor::File(file) = Target::in_drives(&path).open(&read).unwrap() else {
                 panic!("{path} is a file");
             };
-            assert_eq!(file.read(100, 0).unwrap().0, b"on the machine", "{path}");
+            assert_eq!(contents(&file), b"on the machine", "{path}");
         }
 
         let at = |name: &str| Target::in_drives(&format!("{from_root}/{name}"));

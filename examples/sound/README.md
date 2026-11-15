@@ -5,5 +5,5 @@ A program that makes sound, and what a reader learns the `audio` interface from.
 It expects sound devices, a picker of outputs and a platform that shows who records; without them it says what it was refused.
 
 - **Takes:** `wasdk`.
-- **Provides:** a component, `target/wasm32-wasip2/debug/sound.wasm`, from `cargo build -p sound --target wasm32-wasip2`.
+- **Provides:** a component, `target/wasm32-wasip3/debug/sound.wasm`, from `cargo build -p sound --target wasm32-wasip3`.
 - **Used by:** the engine's tests (`crates/waos/tests/all/audio.rs`), through `crates/waos/tests/programs`.

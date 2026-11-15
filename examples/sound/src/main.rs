@@ -9,7 +9,7 @@
 //! It prints each step as `what: result`, a refusal by the error's case.
 //!
 //! ```text
-//! cargo build -p sound --target wasm32-wasip2
+//! cargo build -p sound --target wasm32-wasip3
 //! ```
 
 use wasdk::audio::{

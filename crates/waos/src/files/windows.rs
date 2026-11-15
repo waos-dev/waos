@@ -8,7 +8,7 @@
 //! Ported from `wasmtime-wasi` 50.0.1's `src/filesystem/windows.rs` (`by_handle_info`,
 //! `open_metadata_handle`, `append_cursor_unspecified`, `symlink`, `remove_file_or_symlink`), by the
 //! Wasmtime Project Developers, under the Apache License 2.0 with the LLVM exception, which
-//! `wasi-p2/LICENSE` holds; the rest of that file serves what the engine does not.
+//! `files/LICENSE` holds; the rest of that file serves what the engine does not.
 //!
 //! The invariant: wrapping these system calls is what this module is for, and its `unsafe` stays
 //! here, each block over one call.

@@ -5,5 +5,5 @@ A program that plays a tone while it is out of sight: what the platform keeps fr
 It expects sound devices and a view whose presence changes.
 
 - **Takes:** `wasdk`.
-- **Provides:** a component, `target/wasm32-wasip2/debug/tone.wasm`, from `cargo build -p tone --target wasm32-wasip2`.
+- **Provides:** a component, `target/wasm32-wasip3/debug/tone.wasm`, from `cargo build -p tone --target wasm32-wasip3`.
 - **Used by:** the engine's tests (`crates/waos/tests/all/audio.rs`), through `crates/waos/tests/programs`.

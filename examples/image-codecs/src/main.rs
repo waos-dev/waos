@@ -16,7 +16,7 @@
 //! image codecs it says `image codecs: none`.
 //!
 //! ```text
-//! cargo build -p image-codecs --target wasm32-wasip2
+//! cargo build -p image-codecs --target wasm32-wasip3
 //! ```
 
 use std::fs;

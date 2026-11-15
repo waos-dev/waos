@@ -282,21 +282,6 @@ impl Opened {
         Ok(advise(&self.handle, offset, len, advice)?)
     }
 
-    /// Up to `len` bytes from `offset`, and whether the file ends there.
-    pub(crate) fn read(&self, len: u64, offset: u64) -> Result<(Vec<u8>, bool), ErrorCode> {
-        let size = usize::try_from(len).unwrap_or(usize::MAX);
-        let bytes = read_at(&self.handle, size, offset)?;
-        let at_end = bytes.is_empty();
-        Ok((bytes, at_end))
-    }
-
-    /// Writes `bytes` at `offset`, and answers how many were written.
-    pub(crate) fn write(&self, bytes: &[u8], offset: u64) -> Result<u64, ErrorCode> {
-        self.check_writable()?;
-        let written = write_at(&self.handle, bytes, offset)?;
-        Ok(u64::try_from(written).expect("a write's count fits in a file's size"))
-    }
-
     /// The entries of this folder, each read as the system lists it; an entry that fails to read
     /// is its error, told when the program reaches it.
     pub(crate) fn read_directory(
@@ -316,18 +301,13 @@ impl Opened {
     }
 }
 
-/// Up to `size` bytes of `file` from `offset`, at most [`READ_LIMIT`], read again when a signal
-/// interrupts the read; none at the file's end.
-pub(crate) fn read_at(file: &fs::File, size: usize, offset: u64) -> io::Result<Vec<u8>> {
-    let mut buffer = vec![0; size.min(READ_LIMIT)];
+/// Reads into `buffer` from `offset` in `file`, again when a signal interrupts the read, and
+/// answers how many bytes it read: none at the file's end.
+pub(crate) fn read_into(file: &fs::File, buffer: &mut [u8], offset: u64) -> io::Result<usize> {
     loop {
-        match read_into_at(file, &mut buffer, offset) {
-            Ok(read) => {
-                buffer.truncate(read);
-                return Ok(buffer);
-            }
+        match read_into_at(file, buffer, offset) {
             Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
-            Err(error) => return Err(error),
+            result => return result,
         }
     }
 }

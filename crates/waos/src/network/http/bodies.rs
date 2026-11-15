@@ -7,10 +7,10 @@ use std::sync::{Mutex, PoisonError};
 use std::task::{Context, Poll, ready};
 use std::time::Duration;
 
+use bytes::Bytes;
 use http_body::{Body, Frame, SizeHint};
 use tokio::time::Interval;
 use wasmtime_wasi_http::{Error, WasiBody};
-use wasmtime_wasi_io::bytes::Bytes;
 
 use super::error_of;
 

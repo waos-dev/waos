@@ -11,7 +11,7 @@ members = [
 ]
 # `cargo build` builds what runs on this machine: the engine, the capabilities, the SDK, the
 # app and `cargo waos`. A program is a component, built by name for its own target:
-# `cargo build -p <program> --target wasm32-wasip2`.
+# `cargo build -p <program> --target wasm32-wasip3`.
 default-members = ["crates/*", "capabilities/*", "sdk/*", "apps/*"]
 
 [workspace.package]
@@ -49,22 +49,24 @@ wasdk-adapter-gpui = { path = "sdk/wasdk-adapter-gpui" }
 
 # What we take from crates.io, one version for the workspace.
 # The bindings generator a program's API comes from, pinned: the SDK pins one wit-bindgen per
-# release (the design's decision 7). `futures-stream` makes a WIT stream a `futures::Stream`
-# too; `async-spawn` is the executor's `spawn_local`.
-wit-bindgen = { version = "=0.62.0", features = ["futures-stream", "async-spawn"] }
+# release (the design's decision 7). 0.63, whose `block_on`, which runs a program from its `main`,
+# goes on through a yield made before the program waits on anything; 0.62's aborts there.
+# `futures-stream` makes a WIT stream a `futures::Stream` too; `async-spawn` is the executor's
+# `spawn_local`.
+wit-bindgen = { version = "=0.63.0", features = ["futures-stream", "async-spawn"] }
 # Where each `#[wasdk::worker]` of a program registers its entry, for the one `worker-entry.run`
 # the program exports to find: a static constructor per entry, which `wasm-ld` runs from
 # `__wasm_call_ctors` and wit-bindgen's exports call before anything else.
 inventory = "0.3.25"
-# The engine that runs a component, and the WASI it serves; `p3` for the 0.3 clocks, sockets and
-# entry a program uses. 50, the first release whose macOS exception thread lives through a caught
+# The engine that runs a component, and the WASI it serves; `p3` for the 0.3 a program's `std`
+# imports on `wasm32-wasip3`, its sockets and its entry. 50, the first release whose macOS exception thread lives through a caught
 # signal, as the `SIGCHLD` of a child tokio runs is
-# (`../experiments/2026-11-08-wasmtime-abort-on-child-exit`); it runs what wit-bindgen 0.62 makes.
+# (`../experiments/2026-11-08-wasmtime-abort-on-child-exit`); it runs what wit-bindgen 0.63 makes.
 wasmtime = "50.0.1"
 wasmtime-wasi = { version = "50.0.1", features = ["p3"] }
-# The `wasi:io` streams and pollables every other interface of Preview 2 hands out, linked one
-# interface at a time beside them.
-wasmtime-wasi-io = "50.0.1"
+# The bytes a stream of the component model carries, as wasmtime's streams and HTTP bodies hold
+# them: the version wasmtime takes.
+bytes = "1.12"
 # `wasi:http`'s client of Preview 3, which a program's HTTP goes through: its types and client
 # from wasmtime, its sending ours, through the hook it leaves to the embedder.
 wasmtime-wasi-http = { version = "50.0.1", default-features = false, features = ["p3"] }
@@ -106,10 +108,11 @@ pastey = "0.2"
 # re-exports, so the two versions move together.
 wgpu = { version = "30", default-features = false }
 # GPUI, Zed's UI framework, and its wgpu renderer, which `wasdk-adapter-gpui` puts over wasdk:
-# from the branch `waos-gpui` of a fork of Zed, Zed's main of 2026-11-14 (703b5ac3f4) with three
-# commits, for GPUI's renderer on a WASI component and on crates.io's wgpu 30, the wgpu above.
-gpui = { git = "https://github.com/xtyxtyx/zed", rev = "0f2320b9c3d558156b8aeccb1508a30e9889a785" }
-gpui_wgpu = { git = "https://github.com/xtyxtyx/zed", rev = "0f2320b9c3d558156b8aeccb1508a30e9889a785" }
+# from the branch `waos-gpui-getrandom04` of a fork of Zed, Zed's main of 2026-11-14 (703b5ac3f4)
+# with four commits, for GPUI's renderer on a WASI component, on crates.io's wgpu 30, the wgpu
+# above, and on rand 0.10, whose getrandom builds for `wasm32-wasip3`.
+gpui = { git = "https://github.com/xtyxtyx/zed", rev = "ab35bace16f23ddc65bbc8968d69d1d48e0369ad" }
+gpui_wgpu = { git = "https://github.com/xtyxtyx/zed", rev = "ab35bace16f23ddc65bbc8968d69d1d48e0369ad" }
 # The window handles GPUI's windows answer, which a program's have none of.
 raw-window-handle = "0.6"
 # A stable id for each of the system's screens, as GPUI keeps a display by.
@@ -264,10 +267,6 @@ symphonia = { version = "0.6", default-features = false, features = ["all"] }
 # A font's tables as a program reads them, for `examples/fonts`: the version valo's skrifa reads
 # with.
 read-fonts = "0.33"
-# WASI 0.2's own bindings, the ones `std` calls through on `wasm32-wasip2`, for the calls on a
-# folder's path `std::fs` has no form of, which `examples/file-escapes` makes: the version in
-# `std`'s WASI 0.2.12.
-wasip2 = "1.0.4"
 proc-macro2 = "1"
 quote = "1"
 syn = { version = "2", features = ["full"] }

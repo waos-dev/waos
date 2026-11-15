@@ -5,7 +5,7 @@
 //! whether it handles Back at each change; and ends when the user asks to close its view.
 //!
 //! ```text
-//! cargo build -p back --target wasm32-wasip2
+//! cargo build -p back --target wasm32-wasip3
 //! ```
 
 use wasdk::views::{self, PointerChange, View, ViewChange, ViewEvent};

@@ -9,7 +9,7 @@
 //! media it says `media assets: none`.
 //!
 //! ```text
-//! cargo build -p media-assets --target wasm32-wasip2
+//! cargo build -p media-assets --target wasm32-wasip3
 //! ```
 
 use std::fs;

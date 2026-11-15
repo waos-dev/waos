@@ -1,4 +1,4 @@
-//! Building a program as a component: cargo for `wasm32-wasip2`, then the component put where
+//! Building a program as a component: cargo for `wasm32-wasip3`, then the component put where
 //! every command of ours finds it, `target/waos/<profile>/<package>.wasm`. A development build
 //! carries function names and line tables only, which is what WaOS reads of debug info.
 //!
@@ -16,7 +16,7 @@ use cargo_metadata::{Artifact, Message, Metadata, Package, TargetKind};
 use crate::workspace;
 
 /// What a program is built for.
-const TARGET: &str = "wasm32-wasip2";
+const TARGET: &str = "wasm32-wasip3";
 
 /// Which of cargo's profiles a program is built with.
 #[derive(Clone, Copy, PartialEq, Eq)]

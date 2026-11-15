@@ -1246,7 +1246,7 @@ dependencies = [
 [[package]]
 name = "collections"
 version = "0.1.0"
-source = "git+https://github.com/xtyxtyx/zed?rev=0f2320b9c3d558156b8aeccb1508a30e9889a785#0f2320b9c3d558156b8aeccb1508a30e9889a785"
+source = "git+https://github.com/xtyxtyx/zed?rev=ab35bace16f23ddc65bbc8968d69d1d48e0369ad#ab35bace16f23ddc65bbc8968d69d1d48e0369ad"
 dependencies = [
  "gpui_util",
  "indexmap",
@@ -1978,7 +1978,7 @@ dependencies = [
 [[package]]
 name = "derive_refineable"
 version = "0.1.0"
-source = "git+https://github.com/xtyxtyx/zed?rev=0f2320b9c3d558156b8aeccb1508a30e9889a785#0f2320b9c3d558156b8aeccb1508a30e9889a785"
+source = "git+https://github.com/xtyxtyx/zed?rev=ab35bace16f23ddc65bbc8968d69d1d48e0369ad#ab35bace16f23ddc65bbc8968d69d1d48e0369ad"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -2563,7 +2563,7 @@ name = "file-escapes"
 version = "0.2.0"
 dependencies = [
  "wasdk",
- "wasip2",
+ "wit-bindgen 0.63.0",
 ]
 
 [[package]]
@@ -3164,7 +3164,7 @@ dependencies = [
 [[package]]
 name = "gpui"
 version = "0.2.2"
-source = "git+https://github.com/xtyxtyx/zed?rev=0f2320b9c3d558156b8aeccb1508a30e9889a785#0f2320b9c3d558156b8aeccb1508a30e9889a785"
+source = "git+https://github.com/xtyxtyx/zed?rev=ab35bace16f23ddc65bbc8968d69d1d48e0369ad#ab35bace16f23ddc65bbc8968d69d1d48e0369ad"
 dependencies = [
  "accesskit 0.24.1",
  "anyhow",
@@ -3178,7 +3178,7 @@ dependencies = [
  "embed-resource",
  "etagere",
  "futures",
- "getrandom 0.3.4",
+ "getrandom 0.4.3",
  "gpui_macros",
  "gpui_shared_string",
  "gpui_util",
@@ -3199,7 +3199,7 @@ dependencies = [
  "pin-project",
  "pollster",
  "profiling",
- "rand 0.9.5",
+ "rand 0.10.3",
  "raw-window-handle",
  "refineable",
  "regex",
@@ -3240,7 +3240,7 @@ dependencies = [
 [[package]]
 name = "gpui_macros"
 version = "0.1.0"
-source = "git+https://github.com/xtyxtyx/zed?rev=0f2320b9c3d558156b8aeccb1508a30e9889a785#0f2320b9c3d558156b8aeccb1508a30e9889a785"
+source = "git+https://github.com/xtyxtyx/zed?rev=ab35bace16f23ddc65bbc8968d69d1d48e0369ad#ab35bace16f23ddc65bbc8968d69d1d48e0369ad"
 dependencies = [
  "heck 0.5.0",
  "proc-macro2",
@@ -3251,7 +3251,7 @@ dependencies = [
 [[package]]
 name = "gpui_shared_string"
 version = "0.1.0"
-source = "git+https://github.com/xtyxtyx/zed?rev=0f2320b9c3d558156b8aeccb1508a30e9889a785#0f2320b9c3d558156b8aeccb1508a30e9889a785"
+source = "git+https://github.com/xtyxtyx/zed?rev=ab35bace16f23ddc65bbc8968d69d1d48e0369ad#ab35bace16f23ddc65bbc8968d69d1d48e0369ad"
 dependencies = [
  "schemars",
  "serde",
@@ -3261,7 +3261,7 @@ dependencies = [
 [[package]]
 name = "gpui_util"
 version = "0.1.0"
-source = "git+https://github.com/xtyxtyx/zed?rev=0f2320b9c3d558156b8aeccb1508a30e9889a785#0f2320b9c3d558156b8aeccb1508a30e9889a785"
+source = "git+https://github.com/xtyxtyx/zed?rev=ab35bace16f23ddc65bbc8968d69d1d48e0369ad#ab35bace16f23ddc65bbc8968d69d1d48e0369ad"
 dependencies = [
  "anyhow",
  "log",
@@ -3271,7 +3271,7 @@ dependencies = [
 [[package]]
 name = "gpui_wgpu"
 version = "0.1.0"
-source = "git+https://github.com/xtyxtyx/zed?rev=0f2320b9c3d558156b8aeccb1508a30e9889a785#0f2320b9c3d558156b8aeccb1508a30e9889a785"
+source = "git+https://github.com/xtyxtyx/zed?rev=ab35bace16f23ddc65bbc8968d69d1d48e0369ad#ab35bace16f23ddc65bbc8968d69d1d48e0369ad"
 dependencies = [
  "anyhow",
  "bytemuck",
@@ -3684,7 +3684,7 @@ dependencies = [
 [[package]]
 name = "http_client"
 version = "0.1.0"
-source = "git+https://github.com/xtyxtyx/zed?rev=0f2320b9c3d558156b8aeccb1508a30e9889a785#0f2320b9c3d558156b8aeccb1508a30e9889a785"
+source = "git+https://github.com/xtyxtyx/zed?rev=ab35bace16f23ddc65bbc8968d69d1d48e0369ad#ab35bace16f23ddc65bbc8968d69d1d48e0369ad"
 dependencies = [
  "anyhow",
  "bytes",
@@ -6631,7 +6631,7 @@ dependencies = [
 [[package]]
 name = "refineable"
 version = "0.1.0"
-source = "git+https://github.com/xtyxtyx/zed?rev=0f2320b9c3d558156b8aeccb1508a30e9889a785#0f2320b9c3d558156b8aeccb1508a30e9889a785"
+source = "git+https://github.com/xtyxtyx/zed?rev=ab35bace16f23ddc65bbc8968d69d1d48e0369ad#ab35bace16f23ddc65bbc8968d69d1d48e0369ad"
 dependencies = [
  "derive_refineable",
 ]
@@ -7096,7 +7096,7 @@ dependencies = [
 [[package]]
 name = "scheduler"
 version = "0.1.0"
-source = "git+https://github.com/xtyxtyx/zed?rev=0f2320b9c3d558156b8aeccb1508a30e9889a785#0f2320b9c3d558156b8aeccb1508a30e9889a785"
+source = "git+https://github.com/xtyxtyx/zed?rev=ab35bace16f23ddc65bbc8968d69d1d48e0369ad#ab35bace16f23ddc65bbc8968d69d1d48e0369ad"
 dependencies = [
  "async-task",
  "backtrace",
@@ -7104,7 +7104,7 @@ dependencies = [
  "flume",
  "futures",
  "parking_lot",
- "rand 0.9.5",
+ "rand 0.10.3",
  "web-time",
 ]
 
@@ -7776,7 +7776,7 @@ checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 [[package]]
 name = "sum_tree"
 version = "0.1.0"
-source = "git+https://github.com/xtyxtyx/zed?rev=0f2320b9c3d558156b8aeccb1508a30e9889a785#0f2320b9c3d558156b8aeccb1508a30e9889a785"
+source = "git+https://github.com/xtyxtyx/zed?rev=ab35bace16f23ddc65bbc8968d69d1d48e0369ad#ab35bace16f23ddc65bbc8968d69d1d48e0369ad"
 dependencies = [
  "heapless",
  "rayon",
@@ -10274,6 +10274,7 @@ version = "0.2.0"
 dependencies = [
  "anyhow",
  "ash",
+ "bytes",
  "futures",
  "http",
  "http-body",
@@ -10312,7 +10313,6 @@ dependencies = [
  "wasmtime",
  "wasmtime-wasi",
  "wasmtime-wasi-http",
- "wasmtime-wasi-io",
  "web-audio-api",
  "wgpu-hal",
  "windows 0.62.2",
@@ -10592,7 +10592,7 @@ version = "0.2.0"
 dependencies = [
  "inventory",
  "wasdk-macros",
- "wit-bindgen 0.62.0",
+ "wit-bindgen 0.63.0",
 ]
 
 [[package]]
@@ -10735,16 +10735,6 @@ dependencies = [
 
 [[package]]
 name = "wasm-encoder"
-version = "0.259.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b1d0246511d901aacf25d2dc9111f0054947de5e093fe662099e709ff7530dc3"
-dependencies = [
- "leb128fmt",
- "wasmparser 0.259.0",
-]
-
-[[package]]
-name = "wasm-encoder"
 version = "0.261.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2608e8bb6d67fd68f5a8d0eb1363d6e7bcbc1f8ded5a0bd3a1e382462b876b22"
@@ -10765,18 +10755,6 @@ dependencies = [
 
 [[package]]
 name = "wasm-metadata"
-version = "0.259.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4e7bf119eb01f4a246864c10bd87c8f26c566350abb25aa4d5273c415bbab338"
-dependencies = [
- "anyhow",
- "indexmap",
- "wasm-encoder 0.259.0",
- "wasmparser 0.259.0",
-]
-
-[[package]]
-name = "wasm-metadata"
 version = "0.261.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b88de21560ecd49deb8d8f1616b9b695f66fc312c5eca503f43accdc5795339e"
@@ -10785,6 +10763,18 @@ dependencies = [
  "indexmap",
  "wasm-encoder 0.261.0",
  "wasmparser 0.261.0",
+]
+
+[[package]]
+name = "wasm-metadata"
+version = "0.262.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c86ff6668190d9fb70372b306b4f9fe8930f0e2f57ce72e4922bf2f117900949"
+dependencies = [
+ "anyhow",
+ "indexmap",
+ "wasm-encoder 0.262.0",
+ "wasmparser 0.262.0",
 ]
 
 [[package]]
@@ -10835,18 +10825,6 @@ dependencies = [
 
 [[package]]
 name = "wasmparser"
-version = "0.259.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0f7c12eac7bb587801590f6a67ff0bc84d0748513864b71108e4b311cc3df694"
-dependencies = [
- "bitflags 2.13.2",
- "hashbrown 0.17.1",
- "indexmap",
- "semver",
-]
-
-[[package]]
-name = "wasmparser"
 version = "0.261.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4f20f20e44f7e8aeb6744823ea9d869ede51e51be4fdaedede2852282e54d2d8"
@@ -10865,6 +10843,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "974d643b125b272607e2fff8012ea14a8328acd7621e4bafa7afb32500052b1b"
 dependencies = [
  "bitflags 2.13.2",
+ "hashbrown 0.17.1",
  "indexmap",
  "semver",
 ]
@@ -12399,7 +12378,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7d6f32a0ff4a9f6f01231eb2059cc85479330739333e0e58cadf03b6af2cca10"
 dependencies = [
  "cfg-if",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -12407,15 +12386,12 @@ name = "wit-bindgen"
 version = "0.57.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1ebf944e87a7c253233ad6766e082e3cd714b5d03812acc24c318f549614536e"
-dependencies = [
- "bitflags 2.13.2",
-]
 
 [[package]]
 name = "wit-bindgen"
-version = "0.62.0"
+version = "0.63.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "53cb4b5556c3a791e86838ea287782bdafa704d55b0e68b5b81a3a16b9ea5f4b"
+checksum = "b85a987ab61d365382d25c7d47e26edd48941b3bf6e3fbf76eff918bc71dab06"
 dependencies = [
  "bitflags 2.13.2",
  "futures",
@@ -12424,36 +12400,36 @@ dependencies = [
 
 [[package]]
 name = "wit-bindgen-core"
-version = "0.62.0"
+version = "0.63.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "72ad22a37ecbc0e1fdca34d2b670ba41368cb0920735643e00fdf39a16ee5431"
+checksum = "775e122e390603abfacd548027016cd0113a6e2bf2f8ce6bdd3658b013456ea8"
 dependencies = [
  "anyhow",
  "heck 0.5.0",
- "wit-parser 0.259.0",
+ "wit-parser 0.262.0",
 ]
 
 [[package]]
 name = "wit-bindgen-rust"
-version = "0.62.0"
+version = "0.63.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "84ba5213d4332c260a0d4e69e34b0f7e4b85ddae10b6ebfbac00d9c185ba628a"
+checksum = "84e26e13b9d972026778d2ffb7985736de116026fdc8d9464f966e12df2eb240"
 dependencies = [
  "anyhow",
  "heck 0.5.0",
  "indexmap",
  "prettyplease",
  "syn 3.0.9",
- "wasm-metadata 0.259.0",
+ "wasm-metadata 0.262.0",
  "wit-bindgen-core",
- "wit-component 0.259.0",
+ "wit-component 0.262.0",
 ]
 
 [[package]]
 name = "wit-bindgen-rust-macro"
-version = "0.62.0"
+version = "0.63.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8f19d63da8e478a370ef8192d90ccb517965b7747d6b46cd2d831dd0ef4d2541"
+checksum = "16a008a0d6b4840677326beb4edbeb210a2f1b7d0183fb7cc33f466b90fd7fb6"
 dependencies = [
  "anyhow",
  "macro-string",
@@ -12463,25 +12439,6 @@ dependencies = [
  "syn 3.0.9",
  "wit-bindgen-core",
  "wit-bindgen-rust",
-]
-
-[[package]]
-name = "wit-component"
-version = "0.259.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "092f783dee3253265fcde131475055f8c275ac0176a9c0396db1dc7b5544bfb4"
-dependencies = [
- "anyhow",
- "bitflags 2.13.2",
- "indexmap",
- "log",
- "serde",
- "serde_derive",
- "serde_json",
- "wasm-encoder 0.259.0",
- "wasm-metadata 0.259.0",
- "wasmparser 0.259.0",
- "wit-parser 0.259.0",
 ]
 
 [[package]]
@@ -12504,22 +12461,22 @@ dependencies = [
 ]
 
 [[package]]
-name = "wit-parser"
-version = "0.259.0"
+name = "wit-component"
+version = "0.262.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6390f4f02493ce678d509c859cf1698e38929fb75c8012a6ee2f7d6b6cb66cd7"
+checksum = "078def49fdb49cab405c3006e05793b3fdaf7069126ba6b9c97d01ec8c98fe4c"
 dependencies = [
  "anyhow",
- "hashbrown 0.17.1",
- "id-arena",
+ "bitflags 2.13.2",
  "indexmap",
  "log",
- "semver",
  "serde",
  "serde_derive",
  "serde_json",
- "unicode-ident",
- "wasmparser 0.259.0",
+ "wasm-encoder 0.262.0",
+ "wasm-metadata 0.262.0",
+ "wasmparser 0.262.0",
+ "wit-parser 0.262.0",
 ]
 
 [[package]]
@@ -12539,6 +12496,25 @@ dependencies = [
  "serde_json",
  "unicode-ident",
  "wasmparser 0.261.0",
+]
+
+[[package]]
+name = "wit-parser"
+version = "0.262.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "00f0dc051466ffe46787721fca3d088536f158ae400be044f1b1c386ba9397ad"
+dependencies = [
+ "anyhow",
+ "hashbrown 0.17.1",
+ "id-arena",
+ "indexmap",
+ "log",
+ "semver",
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "unicode-ident",
+ "wasmparser 0.262.0",
 ]
 
 [[package]]
@@ -13016,7 +12992,7 @@ dependencies = [
 [[package]]
 name = "ztracing"
 version = "0.1.0"
-source = "git+https://github.com/xtyxtyx/zed?rev=0f2320b9c3d558156b8aeccb1508a30e9889a785#0f2320b9c3d558156b8aeccb1508a30e9889a785"
+source = "git+https://github.com/xtyxtyx/zed?rev=ab35bace16f23ddc65bbc8968d69d1d48e0369ad#ab35bace16f23ddc65bbc8968d69d1d48e0369ad"
 dependencies = [
  "tracing",
  "ztracing_macro",
@@ -13025,7 +13001,7 @@ dependencies = [
 [[package]]
 name = "ztracing_macro"
 version = "0.1.0"
-source = "git+https://github.com/xtyxtyx/zed?rev=0f2320b9c3d558156b8aeccb1508a30e9889a785#0f2320b9c3d558156b8aeccb1508a30e9889a785"
+source = "git+https://github.com/xtyxtyx/zed?rev=ab35bace16f23ddc65bbc8968d69d1d48e0369ad#ab35bace16f23ddc65bbc8968d69d1d48e0369ad"
 
 [[package]]
 name = "zune-core"

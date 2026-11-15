@@ -8,7 +8,7 @@
 //! until it is stopped. Where the system has no players it says `media players: none`.
 //!
 //! ```text
-//! cargo build -p media-players --target wasm32-wasip2
+//! cargo build -p media-players --target wasm32-wasip3
 //! ```
 
 use std::fs;

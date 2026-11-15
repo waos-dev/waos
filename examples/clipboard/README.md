@@ -5,5 +5,5 @@ A program that uses the clipboard, and what a reader learns the `clipboard` inte
 It expects its own `/data`, and a window that gains the focus and is asked to close.
 
 - **Takes:** `wasdk`.
-- **Provides:** a component, `target/wasm32-wasip2/debug/clipboard.wasm`, from `cargo build -p clipboard --target wasm32-wasip2`.
+- **Provides:** a component, `target/wasm32-wasip3/debug/clipboard.wasm`, from `cargo build -p clipboard --target wasm32-wasip3`.
 - **Used by:** the engine's tests (`crates/waos/tests/all/clipboard.rs`) and the app's windows' tests, through `crates/waos/tests/programs`.

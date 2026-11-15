@@ -24,18 +24,13 @@
 //! system's hardware buffers and any buffer the program holds the hardware buffers', and the
 //! cameras, a camera,
 //! its outputs and a capture session the cameras', and the workers and a worker the workers'.
-//! The interfaces another crate serves are that crate's generated types: WASI's clocks, `io` and
-//! sockets are `wasmtime-wasi`'s, but for the name lookup's stream of 0.2, which the network's
-//! code serves, its HTTP client `wasmtime-wasi-http`'s, and `wasi:webgpu` is
+//! The interfaces another crate serves are that crate's generated types: WASI's clocks and
+//! sockets are `wasmtime-wasi`'s, its HTTP client `wasmtime-wasi-http`'s, and `wasi:webgpu` is
 //! the WebGPU host's, `waos-webgpu-host`, so a view's canvas context is the host's own resource; a
 //! notification's time is Preview 3's system clock's `instant`, which `wasmtime-wasi` serves; and
-//! a machine's root is `wasi:filesystem@0.2`'s own `descriptor`, the files' bindings', which the
-//! files serve.
-//! Where the world holds two versions of a WASI package, Preview 2's for what Rust's `std`
-//! imports and Preview 3's for the clocks, the sockets a program awaits and the entry, the
-//! generated modules carry the version in their names (`cli0_3_0`), and a key of `with` names
-//! the version it maps. A stream-returning function is given store access, which
-//! a stream needs and an `async func` gets on its own.
+//! a machine's root is `wasi:filesystem@0.3`'s own `descriptor`, the files' bindings', which the
+//! files serve. A stream-returning function is given store access, which a stream needs and an
+//! `async func` gets on its own.
 //!
 //! No derive is added to the generated types: `additional_derives` applies to every type of the
 //! world, and a variant holding a resource cannot be `PartialEq`. A type the state compares whole
@@ -81,9 +76,6 @@ wasmtime::component::bindgen!({
         "wasdk:media/cameras.[method]capture-session.video-rotation-angle-changes": store | tracing | trappable,
         "wasdk:platform/workers.[method]worker.messages": store | tracing | trappable,
         default: tracing | trappable,
-    },
-    trappable_error_type: {
-        "wasi:sockets/network@0.2.12.error-code" => wasmtime_wasi::p2::SocketError,
     },
     with: {
         "wasdk:platform/views.view": crate::views::ProgramView,
@@ -174,21 +166,11 @@ wasmtime::component::bindgen!({
         "wasdk:media/cameras.capture-session": crate::cameras::CaptureSession,
         "wasdk:platform/workers.workers": crate::workers::Workers,
         "wasdk:platform/workers.worker": crate::workers::Worker,
-        "wasi:filesystem/types@0.2.12": crate::files::p2::bindings::wasi::filesystem::types,
-        "wasi:clocks/wall-clock@0.2.12": wasmtime_wasi::p2::bindings::clocks::wall_clock,
         "wasi:webgpu/webgpu": waos_webgpu_host::wasi::webgpu::webgpu,
+        "wasi:filesystem/types@0.3.0": crate::files::p3::bindings::wasi::filesystem::types,
         "wasi:clocks/types@0.3.0": wasmtime_wasi::p3::bindings::clocks::types,
         "wasi:clocks/monotonic-clock@0.3.0": wasmtime_wasi::p3::bindings::clocks::monotonic_clock,
         "wasi:clocks/system-clock@0.3.0": wasmtime_wasi::p3::bindings::clocks::system_clock,
-        "wasi:clocks/monotonic-clock@0.2.12": wasmtime_wasi::p2::bindings::clocks::monotonic_clock,
-        "wasi:io": wasmtime_wasi_io::bindings::wasi::io,
-        "wasi:sockets/network@0.2.12": wasmtime_wasi::p2::bindings::sockets::network,
-        "wasi:sockets/instance-network@0.2.12": wasmtime_wasi::p2::bindings::sockets::instance_network,
-        "wasi:sockets/tcp@0.2.12": wasmtime_wasi::p2::bindings::sockets::tcp,
-        "wasi:sockets/tcp-create-socket@0.2.12": wasmtime_wasi::p2::bindings::sockets::tcp_create_socket,
-        "wasi:sockets/udp@0.2.12": wasmtime_wasi::p2::bindings::sockets::udp,
-        "wasi:sockets/udp-create-socket@0.2.12": wasmtime_wasi::p2::bindings::sockets::udp_create_socket,
-        "wasi:sockets/ip-name-lookup@0.2.12.resolve-address-stream": crate::network::host::ResolveAddressStream,
         "wasi:sockets/types@0.3.0": wasmtime_wasi::p3::bindings::sockets::types,
         "wasi:http/types@0.3.0": wasmtime_wasi_http::p3::bindings::http::types,
         "wasi:http/client@0.3.0": wasmtime_wasi_http::p3::bindings::http::client,

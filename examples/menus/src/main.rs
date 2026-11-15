@@ -14,7 +14,7 @@
 //! It prints each step as `what: result`.
 //!
 //! ```text
-//! cargo build -p menus --target wasm32-wasip2
+//! cargo build -p menus --target wasm32-wasip3
 //! ```
 
 use wasdk::clipboard::{ClipboardError, Content, CopyOptions, CopyRequest, Paste};

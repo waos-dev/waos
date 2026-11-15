@@ -17,7 +17,7 @@
 //!
 //! Ported from `wasmtime-wasi` 50.0.1's `src/filesystem/primitives`, its copy of cap-std's path
 //! code (`cap-primitives`), by the Wasmtime Project Developers, under the Apache License 2.0 with
-//! the LLVM exception, which `wasi-p2/LICENSE` holds: `mod.rs`, `errors.rs`, `file_type.rs`,
+//! the LLVM exception, which `files/LICENSE` holds: `mod.rs`, `errors.rs`, `file_type.rs`,
 //! `maybe_owned_file.rs`, `metadata.rs`, `open_options.rs`, `open_parent.rs`,
 //! `open_unchecked_error.rs`, `manually/`, `unix/`, `windows/` and `tests/`; `windows/` is
 //! cap-primitives 4.0.3's `src/windows/fs/` as wasmtime copied it, reformatted, its imports from

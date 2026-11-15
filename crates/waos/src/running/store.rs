@@ -14,7 +14,6 @@ use wasmtime::component::{HasData, Linker, ResourceTable};
 use wasmtime::{AsContext, Engine, Store, StoreLimitsBuilder, UpdateDeadline};
 use wasmtime_wasi::{I32Exit, WasiCtx, WasiCtxView, WasiView};
 use wasmtime_wasi_http::{WasiHttpCtx, WasiHttpCtxView, WasiHttpView};
-use wasmtime_wasi_io::IoView;
 
 use super::instances::{ProgramInstances, UserSide};
 use super::limits::Limits;
@@ -32,7 +31,7 @@ use crate::clipboard::ProgramClipboard;
 use crate::clipboard::host::{ClipboardCtx, ClipboardCtxView};
 use crate::clock::Clock;
 use crate::file_dialogs::host::{FileDialogsCtx, FileDialogsCtxView};
-use crate::files::p2::{FilesCtx, FilesCtxView};
+use crate::files::{FilesCtx, FilesCtxView};
 use crate::files::{Picks, ProgramFiles};
 use crate::fonts::ProgramFonts;
 use crate::fonts::host::{FontsCtx, FontsCtxView};
@@ -190,7 +189,7 @@ fn end_of_error(error: wasmtime::Error) -> ProgramEnd {
 fn linker(engine: &Engine) -> wasmtime::Result<Linker<StoreData>> {
     let mut linker = Linker::<StoreData>::new(engine);
     wasi::add_to_linker(&mut linker)?;
-    crate::files::p2::add_to_linker(&mut linker)?;
+    crate::files::p3::add_to_linker(&mut linker)?;
     crate::network::host::add_to_linker(&mut linker)?;
     wasmtime_wasi_http::p3::add_to_linker(&mut linker)?;
     waos_webgpu_host::add_to_linker(&mut linker)?;
@@ -465,12 +464,6 @@ impl HasData for StoreData {
     type Data<'a> = &'a mut StoreData;
 }
 
-impl IoView for StoreData {
-    fn table(&mut self) -> &mut ResourceTable {
-        &mut self.table
-    }
-}
-
 impl WasiView for StoreData {
     fn ctx(&mut self) -> WasiCtxView<'_> {
         WasiCtxView {
@@ -572,7 +565,6 @@ impl WasiHttpView for StoreData {
 impl NetworkCtxView for StoreData {
     fn network_ctx(&mut self) -> NetworkCtx<'_> {
         NetworkCtx {
-            table: &mut self.table,
             network: &self.network,
         }
     }

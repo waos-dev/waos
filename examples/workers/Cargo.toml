@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
-description = "A program that runs parts of its work on workers, other instances of its own code that share nothing with it: messages both ways, a computation while the main instance goes on, a worker that traps, one that starts a worker, what a worker has of the user's side, and workers dropped and left running. What a reader learns the workers interface from. `cargo build -p workers --target wasm32-wasip2`."
+description = "A program that runs parts of its work on workers, other instances of its own code that share nothing with it: messages both ways, a computation while the main instance goes on, a worker that traps, one that starts a worker, what a worker has of the user's side, and workers dropped and left running. What a reader learns the workers interface from. `cargo build -p workers --target wasm32-wasip3`."
 
 [dependencies]
 wasdk.workspace = true

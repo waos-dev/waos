@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
-description = "A program that says what input its window hears: each pointer event, key and change of its text, drawing its window in another colour at each press, scroll and change of text. `cargo build -p input --target wasm32-wasip2`."
+description = "A program that says what input its window hears: each pointer event, key and change of its text, drawing its window in another colour at each press, scroll and change of text. `cargo build -p input --target wasm32-wasip3`."
 
 [dependencies]
 wasdk.workspace = true

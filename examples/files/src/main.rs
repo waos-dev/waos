@@ -11,7 +11,7 @@
 //! writable, and `/later`, holding `hello.txt`, added and removed while it runs.
 //!
 //! ```text
-//! cargo build -p files --target wasm32-wasip2
+//! cargo build -p files --target wasm32-wasip3
 //! ```
 
 use std::fmt::Display;

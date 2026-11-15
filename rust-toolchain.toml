@@ -1,6 +1,6 @@
 # Nightly because Waft, which the app is built on, needs `arbitrary_self_types`; pinned to
-# Waft's own date, so builds are reproducible. `wasm32-wasip2` is what a program is built for.
+# Waft's own date, so builds are reproducible. `wasm32-wasip3` is what a program is built for.
 [toolchain]
 channel = "nightly-2026-11-15"
 components = ["rustfmt", "clippy"]
-targets = ["wasm32-wasip2"]
+targets = ["wasm32-wasip3"]

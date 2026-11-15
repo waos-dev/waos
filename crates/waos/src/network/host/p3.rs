@@ -5,7 +5,7 @@ use wasmtime_wasi::p3::bindings::sockets::types::IpAddress;
 use wasmtime_wasi::runtime::spawn_blocking;
 
 use super::{HasNetwork, NetworkCtx, NetworkCtxView};
-use crate::bindings::wasi::sockets0_3_0::ip_name_lookup::{self, ErrorCode, HostWithStore};
+use crate::bindings::wasi::sockets::ip_name_lookup::{self, ErrorCode, HostWithStore};
 use crate::network::{Lookup, LookupError};
 
 pub(super) fn add_to_linker<T: NetworkCtxView + 'static>(

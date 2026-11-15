@@ -5,7 +5,7 @@ edition.workspace = true
 # Its text field is GPUI's own example's, under the Apache License 2.0 (`src/text_field.rs`).
 license = "Apache-2.0"
 publish.workspace = true
-description = "A GPUI app over wasdk-adapter-gpui: text, a button that counts its clicks, and a text field. `cargo build -p gpui-hello --target wasm32-wasip2`."
+description = "A GPUI app over wasdk-adapter-gpui: text, a button that counts its clicks, and a text field. `cargo build -p gpui-hello --target wasm32-wasip3`."
 
 # GPUI is a component's only: natively the program is empty, as `wasdk-adapter-gpui` is.
 [target.'cfg(target_os = "wasi")'.dependencies]

@@ -9,7 +9,7 @@
 //! It prints each step as `what: result`, and `done` at the end.
 //!
 //! ```text
-//! cargo build -p machines --target wasm32-wasip2
+//! cargo build -p machines --target wasm32-wasip3
 //! ```
 
 use wasdk::StreamReader;
@@ -78,12 +78,15 @@ async fn read_from_the_root(machine: &Machine) {
         let file = root
             .open_at(
                 PathFlags::SYMLINK_FOLLOW,
-                &path,
+                path,
                 OpenFlags::empty(),
                 DescriptorFlags::READ,
             )
+            .await
             .expect("the file opens from the root");
-        let (bytes, _end) = file.read(100, 0).expect("the file reads");
+        let (contents, ended) = file.read_via_stream(0);
+        let bytes = contents.collect().await;
+        ended.await.expect("the file reads");
         println!("{how}: {}", String::from_utf8_lossy(&bytes));
     }
     output_of(machine, command("/bin/rm", &["-r", &folder])).await;

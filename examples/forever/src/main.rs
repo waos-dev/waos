@@ -4,7 +4,7 @@
 //! after the thaw.
 //!
 //! ```text
-//! cargo build -p forever --target wasm32-wasip2
+//! cargo build -p forever --target wasm32-wasip3
 //! ```
 
 /// How many steps between two reports: often enough that a test sees one within a fraction of a

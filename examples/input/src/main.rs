@@ -6,7 +6,7 @@
 //! close its window closes it, and the program ends with its view.
 //!
 //! ```text
-//! cargo build -p input --target wasm32-wasip2
+//! cargo build -p input --target wasm32-wasip3
 //! ```
 
 use wasdk::views::{

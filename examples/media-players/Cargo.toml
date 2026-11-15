@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
-description = "A program that plays the sources listed in its /data/sources through the system's players, each on a composition layer of its own, and says each player's state. `cargo build -p media-players --target wasm32-wasip2`."
+description = "A program that plays the sources listed in its /data/sources through the system's players, each on a composition layer of its own, and says each player's state. `cargo build -p media-players --target wasm32-wasip3`."
 
 [dependencies]
 wasdk.workspace = true

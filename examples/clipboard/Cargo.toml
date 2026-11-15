@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
-description = "A program that uses the clipboard: what another program copied, read; a copy of its own with forms given, promised and a file, the pastes of its promised forms and file answered until another copy replaces it, and a flush before it ends. `cargo build -p clipboard --target wasm32-wasip2`."
+description = "A program that uses the clipboard: what another program copied, read; a copy of its own with forms given, promised and a file, the pastes of its promised forms and file answered until another copy replaces it, and a flush before it ends. `cargo build -p clipboard --target wasm32-wasip3`."
 
 [dependencies]
 wasdk.workspace = true

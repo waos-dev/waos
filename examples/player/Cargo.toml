@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
-description = "An Waft app that plays Apple's HLS example stream on a layer or from its frames, with its subtitles, over wasdk-adapter-waft. `cargo build -p player --target wasm32-wasip2`."
+description = "An Waft app that plays Apple's HLS example stream on a layer or from its frames, with its subtitles, over wasdk-adapter-waft. `cargo build -p player --target wasm32-wasip3`."
 
 [dependencies]
 waft-cupertino.workspace = true

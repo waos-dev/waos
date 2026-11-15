@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
-description = "A program that makes sound: a graph of every kind of node, a sound file decoded, samples streamed and heard back, an output picked and moved onto, and the microphone heard once allowed. `cargo build -p sound --target wasm32-wasip2`."
+description = "A program that makes sound: a graph of every kind of node, a sound file decoded, samples streamed and heard back, an output picked and moved onto, and the microphone heard once allowed. `cargo build -p sound --target wasm32-wasip3`."
 
 [dependencies]
 wasdk.workspace = true

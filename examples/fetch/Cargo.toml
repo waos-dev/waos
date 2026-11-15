@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
-description = "A program that makes HTTP requests through WASI 0.3's HTTP client: to a name its rule allows, one it refuses, an address, a redirect it is told of rather than led through, a body streamed both ways, and a request dropped unanswered. `cargo build -p fetch --target wasm32-wasip2`."
+description = "A program that makes HTTP requests through WASI 0.3's HTTP client: to a name its rule allows, one it refuses, an address, a redirect it is told of rather than led through, a body streamed both ways, and a request dropped unanswered. `cargo build -p fetch --target wasm32-wasip3`."
 
 [dependencies]
 wasdk.workspace = true

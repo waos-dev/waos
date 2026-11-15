@@ -3,8 +3,7 @@
 //! internet; the local-network switch guards this computer and the local network
 //! ([`addresses`]), which no name a domain rule could refuse stands in front of.
 //!
-//! A name is looked up by the engine itself ([`host`], `wasi:sockets/ip-name-lookup`, 0.2's and
-//! 0.3's). `localhost` and the names under it are this computer on every system ([`localhost`]):
+//! A name is looked up by the engine itself ([`host`], `wasi:sockets/ip-name-lookup`). `localhost` and the names under it are this computer on every system ([`localhost`]):
 //! answered by the engine, never by the system's resolver, under the local-network switch as
 //! `127.0.0.1` is, whatever the network switch and its domain rule say. Any other name the domain
 //! rule refuses answers `access-denied`; one it allows is resolved by the system's resolver, and

@@ -8,7 +8,7 @@
 //! `media players: none`.
 //!
 //! ```text
-//! cargo build -p video-frames --target wasm32-wasip2
+//! cargo build -p video-frames --target wasm32-wasip3
 //! ```
 
 use futures::channel::oneshot;

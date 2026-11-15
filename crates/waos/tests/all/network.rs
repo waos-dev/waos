@@ -1,5 +1,5 @@
 //! `examples/network` under grants of each test's own, against an echo server on this computer,
-//! through `std::net`'s sockets, WASI 0.2's, and through WASI 0.3's, which answer alike: a name the
+//! through `std::net`'s sockets and through those it awaits, both WASI 0.3's, which answer alike: a name the
 //! domain rule refuses is not looked up, a bare address of the internet is refused under a rule of
 //! only some domains, the network switch does not reach this computer, by name or by address, and
 //! the local-network switch does with the network switch off, until it is turned off, when a new

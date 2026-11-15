@@ -21,7 +21,7 @@
 //! 5.2). Such a name answers IPv6's loopback address, then IPv4's, in that order, as Chromium's
 //! resolver does (`net/dns/host_resolver_manager.cc`, `ResolveLocalHostname`). Chromium then
 //! keeps only the address families a lookup asked for; no lookup of a program's asks for one
-//! (`wasi:sockets` 0.2's and 0.3's, reqwest's), so both are answered.
+//! (`wasi:sockets`', reqwest's), so both are answered.
 //!
 //! "This computer" is the machine the program's network runs on, which is always this one: no
 //! program's network is served from another machine yet.

@@ -8,7 +8,7 @@
 //! serve it over TLS on this computer, at the port written in `/data/port`.
 //!
 //! ```text
-//! cargo build -p trust --target wasm32-wasip2
+//! cargo build -p trust --target wasm32-wasip3
 //! ```
 
 use std::fs;

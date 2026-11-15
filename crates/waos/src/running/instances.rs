@@ -16,7 +16,7 @@ use wasmtime::component::{Component, InstancePre};
 
 use super::{IncompatibleProgram, ProgramStart, RunningProgram};
 use crate::bindings::exports::wasdk::platform::worker_entry;
-use crate::bindings::exports::wasi::cli0_3_0::run;
+use crate::bindings::exports::wasi::cli::run;
 use crate::caption_settings::CaptionSettings;
 use crate::clipboard::PlatformClipboard;
 use crate::clock::Clock;

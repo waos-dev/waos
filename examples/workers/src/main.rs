@@ -11,7 +11,7 @@
 //! counts.
 //!
 //! ```text
-//! cargo build -p workers --target wasm32-wasip2
+//! cargo build -p workers --target wasm32-wasip3
 //! ```
 
 use std::cell::Cell;

@@ -13,7 +13,7 @@
 //! `/data/port`.
 //!
 //! ```text
-//! cargo build -p network --target wasm32-wasip2
+//! cargo build -p network --target wasm32-wasip3
 //! ```
 
 use std::fs;

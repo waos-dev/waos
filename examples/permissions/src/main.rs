@@ -7,7 +7,7 @@
 //! switch change.
 //!
 //! ```text
-//! cargo build -p permissions --target wasm32-wasip2
+//! cargo build -p permissions --target wasm32-wasip3
 //! ```
 
 use wasdk::permissions::{self, Permission, State};

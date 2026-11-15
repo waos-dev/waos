@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
-description = "A program that reaches the network through `std::net`: names looked up, connections to this computer, a datagram to the internet, and a connection held while its switch is turned off. `cargo build -p network --target wasm32-wasip2`."
+description = "A program that reaches the network through `std::net`: names looked up, connections to this computer, a datagram to the internet, and a connection held while its switch is turned off. `cargo build -p network --target wasm32-wasip3`."
 
 [dependencies]
 wasdk.workspace = true

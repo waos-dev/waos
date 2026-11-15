@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
-description = "A program that looks around: the screens, what the user set, its views and what changes among them. `cargo build -p survey --target wasm32-wasip2`."
+description = "A program that looks around: the screens, what the user set, its views and what changes among them. `cargo build -p survey --target wasm32-wasip3`."
 
 [dependencies]
 wasdk.workspace = true

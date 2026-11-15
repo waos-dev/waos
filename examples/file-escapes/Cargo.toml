@@ -4,11 +4,13 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
-description = "A program that tries to leave its mounts through `wasi:filesystem`'s calls on a folder it opened: through a symlink named with a `/` after it, and from a writable mount into a read-only one beside it. `cargo build -p file-escapes --target wasm32-wasip2`."
+description = "A program that tries to leave its mounts through `wasi:filesystem`'s calls on a folder it opened: through a symlink named with a `/` after it, and from a writable mount into a read-only one beside it. `cargo build -p file-escapes --target wasm32-wasip3`."
 
 [dependencies]
 wasdk.workspace = true
-wasip2.workspace = true
+# The root its `preopens` gives, which `wasdk` does not bind: with wasdk's wit-bindgen, whose
+# executor runs the calls.
+wit-bindgen.workspace = true
 
 [lints]
 workspace = true

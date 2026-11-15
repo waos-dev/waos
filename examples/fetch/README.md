@@ -5,5 +5,5 @@ A program that makes HTTP requests through WASI 0.3's HTTP client, `wasdk::http`
 It expects its test (`crates/waos/tests/all/fetch.rs`) to serve `/hello`, `/moved`, `/echo`, `/never` and `/closed` on this computer, at the port written in `/data/port`.
 
 - **Takes:** `wasdk`; `futures`, whose `select` races a request against the clock.
-- **Provides:** a component, `target/wasm32-wasip2/debug/fetch.wasm`, from `cargo build -p fetch --target wasm32-wasip2`.
+- **Provides:** a component, `target/wasm32-wasip3/debug/fetch.wasm`, from `cargo build -p fetch --target wasm32-wasip3`.
 - **Used by:** the engine's tests, through `crates/waos/tests/programs`.

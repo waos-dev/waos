@@ -23,7 +23,7 @@ tokio.workspace = true
 tracing.workspace = true
 wasmtime.workspace = true
 wasmtime-wasi.workspace = true
-wasmtime-wasi-io.workspace = true
+bytes.workspace = true
 # A program's files (`files`): the system calls the engine makes itself.
 rustix.workspace = true
 # A host name as a lookup reads it: an address, or a domain in ASCII and lower case.

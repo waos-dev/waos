@@ -12,11 +12,11 @@
 //! value, one the program gives made with [`wit_future::new`] and written through its
 //! [`FutureWriter`]. [`webgpu`] is `wasi:webgpu`'s own interface, [`monotonic_clock`] the clock a
 //! view's `Instant` is on, [`system_clock`] the one whose `instant` a notification is scheduled
-//! at, [`filesystem`] `wasi:filesystem/types` 0.2, whose `descriptor` a machine's root is,
+//! at, [`filesystem`] `wasi:filesystem/types` 0.3, whose `descriptor` a machine's root is,
 //! [`http`] WASI 0.3's HTTP client, `wasi:http/client` with its `types`, whose `send` a program
 //! awaits and which the system's proxy and certificate check serve, and [`sockets`] WASI 0.3's
 //! sockets, `wasi:sockets/types` and `ip-name-lookup`, whose connections, streams and lookups a
-//! program awaits. `std::net`'s sockets are WASI 0.2's, beside them, under the same rules.
+//! program awaits. `std::net`'s sockets are the same, called by `std`, under the same rules.
 //!
 //! The invariant: programs write against the generated bindings, and this crate adds only what
 //! generation cannot produce: [`main`], the entry; [`worker`], a worker's entry, which the
@@ -49,7 +49,8 @@ pub mod bindings {
     wit_bindgen::generate!({
         // The crate's copy of the repository's `wit/`, made by `cargo xtask sync-wit`.
         path: "wit",
-        world: "wasdk:program/program",
+        // The program's world without its `wasi:cli/run`, which Rust's `std` exports.
+        world: "wasdk:program/program-base",
         generate_all,
         pub_export_macro: true,
     });
@@ -68,10 +69,10 @@ pub use bindings::wasdk::platform::{
     audio, clipboard, file_dialogs, fonts, gpu_interop, hardware_buffers, lifecycle, machines,
     menus, notifications, opener, permissions, screens, system, trust, views, windows, workers,
 };
-pub use bindings::wasi::clocks0_3_0::{monotonic_clock, system_clock};
-pub use bindings::wasi::filesystem0_2_12::types as filesystem;
+pub use bindings::wasi::clocks::{monotonic_clock, system_clock};
+pub use bindings::wasi::filesystem::types as filesystem;
 pub use bindings::wasi::http;
-pub use bindings::wasi::sockets0_3_0 as sockets;
+pub use bindings::wasi::sockets;
 pub use bindings::wasi::webgpu::webgpu;
 pub use bindings::{wit_future, wit_stream};
 pub use wasdk_macros::{main, worker};

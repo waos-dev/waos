@@ -10,7 +10,7 @@
 //! gone.
 //!
 //! ```text
-//! cargo build -p survey --target wasm32-wasip2
+//! cargo build -p survey --target wasm32-wasip3
 //! ```
 
 use wasdk::lifecycle::{self, AppExitResponse, ExitRequest, LifecycleState};

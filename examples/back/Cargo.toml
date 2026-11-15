@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
-description = "A program with pages to go back through: each press goes a page on, the user's Back a page back, and it says it handles Back only while it is past its first page. `cargo build -p back --target wasm32-wasip2`."
+description = "A program with pages to go back through: each press goes a page on, the user's Back a page back, and it says it handles Back only while it is past its first page. `cargo build -p back --target wasm32-wasip3`."
 
 [dependencies]
 wasdk.workspace = true

@@ -10,7 +10,7 @@
 //! It prints each step as `what: result`.
 //!
 //! ```text
-//! cargo build -p notifications --target wasm32-wasip2
+//! cargo build -p notifications --target wasm32-wasip3
 //! ```
 
 use wasdk::notifications::{self, Notification, NotificationError, Notifications};

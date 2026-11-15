@@ -13,7 +13,7 @@ A platform for programs that draw with WebGPU. waos is an engine any app can emb
 cargo build                                        # what runs on this machine; no program
 cargo test --workspace
 cargo clippy --workspace --all-targets
-cargo build -p <program> --target wasm32-wasip2    # a program, as a component
+cargo build -p <program> --target wasm32-wasip3    # a program, as a component
 wasm-tools component wit wit/                      # checks the WIT package
 cargo xtask sync-wit                               # copy wit/ into the crates that generate bindings, after changing it
 ```

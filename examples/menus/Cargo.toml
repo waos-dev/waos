@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
-description = "A program that answers the user's keys, Edit's commands and menus: what a reader learns the key's reply, the copy, cut, paste and edit events and the menus interface from. `cargo build -p menus --target wasm32-wasip2`."
+description = "A program that answers the user's keys, Edit's commands and menus: what a reader learns the key's reply, the copy, cut, paste and edit events and the menus interface from. `cargo build -p menus --target wasm32-wasip3`."
 
 [dependencies]
 wasdk.workspace = true

@@ -23,7 +23,7 @@
 //! `hardware image codecs: none`, and no compositor `no compositor`.
 //!
 //! ```text
-//! cargo build -p hardware-buffers --target wasm32-wasip2
+//! cargo build -p hardware-buffers --target wasm32-wasip3
 //! ```
 
 use std::cell::Cell;

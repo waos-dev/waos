@@ -4,7 +4,7 @@
 //! either window quits it.
 //!
 //! ```text
-//! cargo build -p two-windows --target wasm32-wasip2
+//! cargo build -p two-windows --target wasm32-wasip3
 //! cargo waos run -p two-windows
 //! ```
 

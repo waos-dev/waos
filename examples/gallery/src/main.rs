@@ -5,7 +5,7 @@
 //! shell gives a program none, and quits when the user closes it.
 //!
 //! ```text
-//! cargo build -p gallery --target wasm32-wasip2
+//! cargo build -p gallery --target wasm32-wasip3
 //! cargo waos run -p gallery
 //! ```
 //!

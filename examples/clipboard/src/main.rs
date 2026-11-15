@@ -9,7 +9,7 @@
 //! It prints each step as `what: result`, a refusal by the error's case.
 //!
 //! ```text
-//! cargo build -p clipboard --target wasm32-wasip2
+//! cargo build -p clipboard --target wasm32-wasip3
 //! ```
 
 use wasdk::clipboard::{self, Clipboard, ClipboardError, Content, CopyOptions, Request, Source};

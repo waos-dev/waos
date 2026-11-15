@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
-description = "The smallest program that draws: one view, one wgpu pipeline, a triangle every frame. `cargo build -p triangle --target wasm32-wasip2`."
+description = "The smallest program that draws: one view, one wgpu pipeline, a triangle every frame. `cargo build -p triangle --target wasm32-wasip3`."
 
 [dependencies]
 wasdk.workspace = true

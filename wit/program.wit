@@ -5,7 +5,13 @@ package wasdk:program@0.1.0;
 ///
 /// Its entry is WASI's own: `wasi:cli/run`, which the engine calls and which is alive until it
 /// returns. A program that draws does so on views through WebGPU; one that does not is an ordinary
-/// WASI command, and runs here too. Its views are given by the shell that embeds the engine or
+/// WASI command, and runs here too.
+///
+/// The worlds are two, as `wasi:cli`'s `imports` and `command` are: `program-base`, what a program
+/// imports and its `worker-entry`, which wasdk generates its bindings from, and `program`, that and
+/// `wasi:cli/run`, which the engine runs. A program's `run` is not wasdk's but Rust's standard
+/// library's, its `main` on `wasm32-wasip3`, inside which `#[wasdk::main]` runs the program; WaOS
+/// refuses to start a component without it. Its views are given by the shell that embeds the engine or
 /// asked for through `views`; the screens they are on and what the user set up are `screens` and
 /// `system`; a desktop's frame around a view is `windows`; and how much of the program its user can
 /// see, and the platform asking whether it may end, is `lifecycle`.
@@ -13,8 +19,8 @@ package wasdk:program@0.1.0;
 /// Everything else a program reaches (files, with `/data` and `/cache` of its own; the network;
 /// fonts; machines; sound) is a capability the engine serves through an interface of its own,
 /// chosen per program when it starts. So far `fonts`, the installed fonts and their glyphs; the
-/// network, as WASI 0.2's sockets, which Rust's `std::net` imports, WASI 0.3's beside them, which a
-/// program awaits, and WASI 0.3's HTTP client, with `trust`, the system's check of a server's
+/// network, as WASI 0.3's sockets, which Rust's `std::net` imports and a program awaits, and WASI
+/// 0.3's HTTP client, with `trust`, the system's check of a server's
 /// certificate; `audio`, sound, a Web Audio graph
 /// the platform renders and plays, with the microphone among its inputs; and `machines`, the
 /// machines its user picked for it, their files and their commands. The others arrive in later
@@ -40,10 +46,9 @@ package wasdk:program@0.1.0;
 /// started at an entry its `worker-entry` export runs, with the IO side and none of the user's.
 /// A program written with wasdk exports it whether or not it has workers, and answers an entry it
 /// does not have as unknown.
-world program {
+world program-base {
   include wasi:webgpu/imports@0.3.0-rc.2;
   import wasi:clocks/monotonic-clock@0.3.0;
-  include wasi:sockets/imports@0.2.12;
   include wasi:sockets/imports@0.3.0;
   import wasi:http/client@0.3.0;
   import wasdk:platform/views@0.1.0;
@@ -70,6 +75,11 @@ world program {
   import wasdk:media/cameras@0.1.0;
   import wasdk:media/caption-settings@0.1.0;
   import wasdk:platform/workers@0.1.0;
-  export wasi:cli/run@0.3.0;
   export wasdk:platform/worker-entry@0.1.0;
+}
+
+/// A program as the engine runs it: `program-base` and its entry.
+world program {
+  include program-base;
+  export wasi:cli/run@0.3.0;
 }

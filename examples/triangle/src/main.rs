@@ -5,7 +5,7 @@
 //! asked; and ends when its view is gone. The pipeline is made once.
 //!
 //! ```text
-//! cargo build -p triangle --target wasm32-wasip2
+//! cargo build -p triangle --target wasm32-wasip3
 //! ```
 
 use wasdk::views::{self, View, ViewChange, ViewEvent};

@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
-description = "An Waft app with a menu bar, a text field and a tray icon, over wasdk-adapter-waft: what a reader learns Waft's menus in a program from. `cargo build -p waft-menus --target wasm32-wasip2`."
+description = "An Waft app with a menu bar, a text field and a tray icon, over wasdk-adapter-waft: what a reader learns Waft's menus in a program from. `cargo build -p waft-menus --target wasm32-wasip3`."
 
 [dependencies]
 waft-cupertino.workspace = true

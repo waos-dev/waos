@@ -10,7 +10,7 @@
 //! players it says so in the window. Asking to close its window quits it.
 //!
 //! ```text
-//! cargo build -p player --target wasm32-wasip2
+//! cargo build -p player --target wasm32-wasip3
 //! cargo waos run -p player
 //! ```
 

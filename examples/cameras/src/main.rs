@@ -15,7 +15,7 @@
 //! system has no cameras it says `cameras: none`.
 //!
 //! ```text
-//! cargo build -p cameras --target wasm32-wasip2
+//! cargo build -p cameras --target wasm32-wasip3
 //! ```
 
 use std::path::Path;

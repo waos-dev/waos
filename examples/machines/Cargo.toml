@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
-description = "A program that acts on a machine its user picked for it: runs commands with pipes and in a terminal, resizes and signals them, and reads a file from the machine's root. What a reader learns the machines interface from. `cargo build -p machines --target wasm32-wasip2`."
+description = "A program that acts on a machine its user picked for it: runs commands with pipes and in a terminal, resizes and signals them, and reads a file from the machine's root. What a reader learns the machines interface from. `cargo build -p machines --target wasm32-wasip3`."
 
 [dependencies]
 wasdk.workspace = true

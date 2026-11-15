@@ -16,7 +16,7 @@ package wasdk:platform@0.1.0;
 /// A machine held stays the program's for the rest of its run, as an open file does, even once
 /// the user takes it back; `granted` and the next run follow the user.
 interface machines {
-  use wasi:filesystem/types@0.2.12.{descriptor};
+  use wasi:filesystem/types@0.3.0.{descriptor};
 
   /// What to run: a program, by its name on the machine's `PATH` or by its path, and its
   /// arguments, each passed as it is. A terminal's type is its `TERM` variable.

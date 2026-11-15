@@ -94,7 +94,7 @@ fn copy_whole(from: &Path, place: &Path) -> io::Result<()> {
 }
 
 /// The program's temporary folder, in its `/cache`, as `TMPDIR` names it: Rust's
-/// `std::env::temp_dir` panics on `wasm32-wasip2`.
+/// `std::env::temp_dir` panics on `wasm32-wasip3`.
 fn temporary_folder() -> PathBuf {
     std::env::var_os("TMPDIR").map_or_else(|| PathBuf::from("/tmp"), PathBuf::from)
 }

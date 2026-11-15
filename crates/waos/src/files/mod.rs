@@ -13,13 +13,13 @@
 //! otherwise than WASI is refused before it reaches the system ([`names`]).
 //!
 //! The calls are WASI's, whichever its version: the handles ([`Descriptor`]) and where a path
-//! leads ([`Target`]). [`p2`] serves them as `wasi:filesystem@0.2`, which Rust's `std` calls on
-//! `wasm32-wasip2`; 0.3 is served over the same calls once `std` moves to it.
+//! leads ([`Target`]). [`p3`] serves them as `wasi:filesystem@0.3`, which Rust's `std` calls on
+//! `wasm32-wasip3`, whose descriptor a machine's root is too (`machines`).
 //!
 //! Ported from `wasmtime-wasi` 49.0.3 (`src/filesystem.rs`, `src/filesystem/unix.rs`,
 //! `src/p2/filesystem.rs` and `src/p2/host/filesystem.rs`) and 50.0.1 (`src/filesystem/primitives`,
 //! [`beneath`], whose module doc names its files), by the Wasmtime Project Developers, under the
-//! Apache License 2.0 with the LLVM exception, which `wasi-p2/LICENSE` holds. What differs: a
+//! Apache License 2.0 with the LLVM exception, which `files/LICENSE` holds. What differs: a
 //! mount table in place of preopened folders, each call made in place rather than on a pool of
 //! blocking threads, a path kept beneath its folder by Apple's flags as well, and a read-only mount
 //! refusing a change with WASI's `read-only`.
@@ -42,7 +42,7 @@ mod errors;
 pub mod machine_paths;
 mod mounts;
 mod names;
-pub(crate) mod p2;
+pub(crate) mod p3;
 mod picks;
 mod status;
 mod target;
@@ -54,6 +54,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use waos_capabilities::{ProgramFolders, ProgramGrants};
+use wasmtime::component::{HasData, ResourceTable};
 
 pub(crate) use descriptor::Descriptor;
 use descriptor::{DirectoryEntry, OpenMode, Opened};
@@ -81,6 +82,22 @@ pub(crate) fn folder_of_machine(folder: &Path) -> io::Result<Descriptor> {
         },
     );
     Ok(Descriptor::Dir(opened))
+}
+
+/// What the files read and write in a program's store, whichever WASI version calls them.
+pub(crate) struct FilesCtx<'a> {
+    pub(crate) table: &'a mut ResourceTable,
+    pub(crate) files: &'a mut ProgramFiles,
+}
+
+pub(crate) trait FilesCtxView: Send {
+    fn files_ctx(&mut self) -> FilesCtx<'_>;
+}
+
+struct HasFiles;
+
+impl HasData for HasFiles {
+    type Data<'a> = FilesCtx<'a>;
 }
 
 /// One program's files: its mounts, as its grants hold them now.

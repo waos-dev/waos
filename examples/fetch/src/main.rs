@@ -11,7 +11,7 @@
 //! `/closed` on this computer, at the port written in `/data/port`.
 //!
 //! ```text
-//! cargo build -p fetch --target wasm32-wasip2
+//! cargo build -p fetch --target wasm32-wasip3
 //! ```
 
 use std::fs;

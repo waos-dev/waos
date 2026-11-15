@@ -16,7 +16,7 @@ async fn main() {
 }
 ```
 
-Only a component has GPUI here: the crate is empty natively, so the workspace's native build does not build GPUI, and its checks run for `wasm32-wasip2` (`cargo clippy -p wasdk-adapter-gpui --target wasm32-wasip2`).
+Only a component has GPUI here: the crate is empty natively, so the workspace's native build does not build GPUI, and its checks run for `wasm32-wasip3` (`cargo clippy -p wasdk-adapter-gpui --target wasm32-wasip3`).
 
 GPUI's model and the WIT's, as the adapter carries one into the other:
 
