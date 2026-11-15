@@ -9,6 +9,8 @@ homepage.workspace = true
 readme = "README.md"
 
 [dependencies]
+# What a program's audit summary is kept as: its days, serialized by whoever keeps them.
+serde.workspace = true
 # What a machine's commands answer with: futures to await and streams of their output.
 futures.workspace = true
 # What a program's fonts are served from: valo's `FontManager`, the platform's fonts in Skia's

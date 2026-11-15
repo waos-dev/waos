@@ -49,7 +49,7 @@ use wasmtime_wasi::sockets::SocketAddrUse;
 
 use crate::access::{Asked, Cause, Noted, ProgramAccess, Refusal, Refused};
 
-use addresses::is_local;
+pub(crate) use addresses::is_local;
 pub use http::HttpProxy;
 pub(crate) use http::ProgramHttp;
 use localhost::localhost_addresses;
@@ -232,6 +232,9 @@ impl ProgramNetwork {
     /// is checked one by one, noted.
     pub(crate) fn allows_socket(&self, address: SocketAddr, use_: SocketAddrUse) -> bool {
         let reached = || self.reach(address.ip());
+        // What a connection resolved to: the names its address was looked up by.
+        let named =
+            |reached: Result<(), Refusal>| reached.map(|()| self.record.names_of(address.ip()));
         let listened = || match self.access.grants().local_network() {
             true => Ok(()),
             false => Err(LOCAL_NETWORK),
@@ -244,11 +247,11 @@ impl ProgramNetwork {
                 .is_ok(),
             SocketAddrUse::TcpConnect => self
                 .access
-                .decide(Asked::Connect { address }, |_| reached())
+                .decide(Asked::Connect { address }, |_| named(reached()))
                 .is_ok(),
             SocketAddrUse::TcpAccept => self
                 .access
-                .decide(Asked::Accept { address }, |_| reached())
+                .decide(Asked::Accept { address }, |_| named(reached()))
                 .is_ok(),
             SocketAddrUse::UdpSend | SocketAddrUse::UdpReceive => {
                 let refusal = reached().err();

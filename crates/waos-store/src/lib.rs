@@ -10,6 +10,9 @@
 //!       settings.toml     the program's own settings: what the user lets it use
 //!       data/             the program's own folders, which it sees at /data and /cache
 //!       cache/
+//!   audit/
+//!     dev.example.triangle/
+//!       2026-11-15.postcard  what the program did that day, its last seven days kept
 //!   removing/             a program being removed, moved here whole first
 //!   sources.toml          the sources the user added, in the order added
 //!   settings.toml         the global settings, which every program follows until it has its own
@@ -20,7 +23,8 @@
 //! (decisions 7 and 8 of the permissions proposal). A program run in development is the one its
 //! id names (decision 11): its folder is made at its first run, installed or not, with its own
 //! folders and settings, and an install of its id keeps them. A program's folder goes with it,
-//! whole, when it is removed.
+//! whole, when it is removed, and its audit summary too: what it did with what it was allowed,
+//! one file a day, kept seven days, on this device only (`audit`, the engine's `AuditLog`).
 //!
 //! An installed program is its manifest and its publisher's key, with no record of where it came
 //! from (the design's decision 46): a package installs as a new id, or as an update of an
@@ -33,6 +37,7 @@
 //! and moving its folder into `removing/` the one that removes it, so a crash leaves the earlier
 //! install or the new one, the program or none of it, never part of either.
 
+mod audit;
 mod error;
 mod fetch;
 mod files;

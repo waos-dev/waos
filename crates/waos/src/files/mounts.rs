@@ -27,6 +27,7 @@ use std::sync::{Arc, Mutex};
 
 use futures::FutureExt;
 use tracing::warn;
+pub(crate) use waos_capabilities::MountKind;
 use waos_capabilities::{ChangedFuture, FileSystemGrant, ProgramFolders};
 
 use super::FilesRefusal;
@@ -45,17 +46,34 @@ const DATA: &str = "/data";
 const CACHE: &str = "/cache";
 const TMP: &str = "/tmp";
 
-/// What a mount is to the program, as what it does in each is told: its own folders, a folder its
-/// user granted it, what its user picked or pasted, or a machine its user gave it whole.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum MountKind {
-    OwnData,
-    OwnCache,
-    OwnTemporary,
-    Granted,
-    Picked,
-    Pasted,
-    Machine,
+/// What a path beneath a mount keeps of the mount: whether the program may change what is in it,
+/// what it is to the program, and where it is on the machine.
+#[derive(Clone, Debug)]
+pub(crate) struct MountOf {
+    pub(crate) writable: bool,
+    pub(crate) kind: MountKind,
+    pub(crate) place: Arc<Path>,
+}
+
+impl MountOf {
+    /// A folder granted at `/`, writable as `writable` says, for a test of what is beneath it.
+    #[cfg(test)]
+    pub(crate) fn granted(writable: bool) -> MountOf {
+        MountOf {
+            writable,
+            kind: MountKind::Granted,
+            place: Arc::from(Path::new("/")),
+        }
+    }
+
+    /// A machine the user gave the program whole, from its root.
+    pub(crate) fn machine() -> MountOf {
+        MountOf {
+            writable: true,
+            kind: MountKind::Machine,
+            place: Arc::from(Path::new("/")),
+        }
+    }
 }
 
 /// A folder of the machine, or one file of it, opened, at a path inside the program.
@@ -64,7 +82,7 @@ pub(crate) struct Mounted {
     /// Where the program sees it: an absolute path of names.
     at: PathBuf,
     /// Where it is on the machine.
-    host: PathBuf,
+    host: Arc<Path>,
     /// The folder mounted, or the one the file mounted is in.
     pub(crate) folder: Arc<fs::File>,
     /// For a file mounted, its name in `folder`; none for a folder.
@@ -127,7 +145,7 @@ impl Mounted {
         match opened {
             Ok((folder, file)) => Some(Mounted {
                 at: at.to_owned(),
-                host: host.to_owned(),
+                host: Arc::from(host),
                 folder: Arc::new(folder),
                 file,
                 writable,
@@ -137,6 +155,20 @@ impl Mounted {
                 warn!(host = %host.display(), %error, "a mount does not open; it is left out");
                 None
             }
+        }
+    }
+
+    /// Where the mount is on the machine.
+    pub(crate) fn place(&self) -> &Path {
+        &self.host
+    }
+
+    /// What a path beneath the mount keeps of it.
+    pub(crate) fn of(&self) -> MountOf {
+        MountOf {
+            writable: self.writable,
+            kind: self.kind,
+            place: Arc::clone(&self.host),
         }
     }
 
@@ -169,16 +201,14 @@ impl Mounted {
                     },
                     ending,
                 ),
-                writable: self.writable,
-                kind: self.kind,
+                mount: self.of(),
                 mounted_file: names_the_mount,
             }),
             None if names_the_mount => Target::MountPoint(self.clone()),
             None => Target::Beneath(Beneath {
                 folder: Arc::clone(&self.folder),
                 path: ending_in(path, ending),
-                writable: self.writable,
-                kind: self.kind,
+                mount: self.of(),
                 mounted_file: false,
             }),
         }
@@ -289,7 +319,7 @@ impl MountTable {
             .ok_or(FilesRefusal::by_the_mounts(ErrorCode::NoEntry))?;
         // Joining an empty path would add a `/`, which asks for a folder.
         let named = if within.as_os_str().is_empty() {
-            mount.host.clone()
+            mount.host.to_path_buf()
         } else {
             mount.host.join(within)
         };
@@ -498,7 +528,7 @@ impl HandedFiles {
     /// path; nothing for one mounted already, or that does not open.
     pub(crate) fn hand(&self, host: &Path) {
         let mut handed = locked(&self.0);
-        if handed.mounts.iter().any(|mounted| mounted.host == host) {
+        if handed.mounts.iter().any(|mounted| *mounted.host == *host) {
             return;
         }
         handed.mounts.extend(Mounted::open_read_only(host));
@@ -510,7 +540,7 @@ impl HandedFiles {
     /// does not open.
     pub(crate) fn hand_pick(&self, host: &Path, writable: bool) {
         let mut handed = locked(&self.0);
-        handed.mounts.retain(|mounted| mounted.host != host);
+        handed.mounts.retain(|mounted| *mounted.host != *host);
         handed.mounts.extend(Mounted::open_picked(host, writable));
         handed.handings += 1;
     }

@@ -98,6 +98,7 @@ fn a_programs_tmp_goes_when_it_traps_and_when_it_is_stopped() {
 fn engine_with_temporary_folders(folders: &Path) -> (Arc<WaOS>, Arc<TestShell>) {
     let (engine, shell, _arrivals) = shell::engine_with(WaOSConfig {
         temporary_folders: folders.to_owned(),
+        audit: None,
         ..shell::config()
     });
     (engine, shell)

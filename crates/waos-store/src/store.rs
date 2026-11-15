@@ -157,13 +157,14 @@ impl Store {
             .unwrap_or_else(|error| std::panic::resume_unwind(error.into_panic()))
     }
 
-    /// Removes the installed program `id` names, with all the store keeps of it: its settings
-    /// and its own folders. A run of it would go on with its folders gone, so the caller ends its
+    /// Removes the installed program `id` names, with all the store keeps of it: its settings,
+    /// its own folders and its audit summary. A run of it would go on with its folders gone, so the caller ends its
     /// runs first.
     pub fn remove(&self, id: &ProgramId) -> Result<(), StoreError> {
         let _changing = self.lock_changes();
         programs::take_out(&self.program_folder(id), id, &self.removing_folder())?;
         self.settings.forget(id);
+        self.forget_days(id.as_str());
         Ok(())
     }
 
@@ -313,13 +314,24 @@ impl Store {
         }
     }
 
-    fn lock_changes(&self) -> MutexGuard<'_, ()> {
+    pub(crate) fn lock_changes(&self) -> MutexGuard<'_, ()> {
         // The lock guards no value, so a change that panicked leaves nothing half-changed in it.
         self.changes.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
     fn programs_folder(&self) -> PathBuf {
         self.directory.join(PROGRAMS)
+    }
+
+    /// The store's directory.
+    pub(crate) fn directory(&self) -> &Path {
+        &self.directory
+    }
+
+    /// Whether the store has a folder of the program named `program`: installed, or run in
+    /// development.
+    pub(crate) fn has_folder_of(&self, program: &str) -> bool {
+        self.programs_folder().join(program).is_dir()
     }
 
     fn program_folder(&self, id: &ProgramId) -> PathBuf {

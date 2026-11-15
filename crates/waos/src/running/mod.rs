@@ -30,7 +30,7 @@ use anyhow::{Context as _, Result};
 use futures::FutureExt;
 use futures::channel::oneshot::{self, Canceled};
 use futures::future::{Map, Shared};
-use waos_capabilities::ProgramEnvironment;
+use waos_capabilities::{AuditLog, ProgramEnvironment};
 use wasmtime::Engine;
 use wasmtime::component::Component;
 
@@ -182,6 +182,8 @@ pub(crate) struct ProgramStart {
     pub(crate) environment: ProgramEnvironment,
     /// Where its `/tmp` is on the machine, where it has one.
     pub(crate) temporary_folder: Option<PathBuf>,
+    /// Where its audit summary is kept, where the engine keeps one.
+    pub(crate) audit: Option<Arc<dyn AuditLog>>,
     pub(crate) freeze: FreezePolicy,
     /// The engine's time, which its freeze and its hardware buffers read.
     pub(crate) clock: EngineClock,

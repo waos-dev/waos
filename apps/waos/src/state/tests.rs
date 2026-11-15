@@ -106,6 +106,7 @@ impl Desktop {
             http_proxy: HttpProxy::None,
             time: EngineTime::Real,
             temporary_folders: folder.join("tmp"),
+            audit: None,
         };
         let clipboard = MockClipboard::new().with_promised_files_folder(folder.join("pasted"));
         let platform = Rc::new(DesktopPlatform::new(&clipboard, tray));

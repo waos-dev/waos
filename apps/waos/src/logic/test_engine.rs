@@ -95,6 +95,7 @@ pub(crate) fn engine_over(shell: Shell, time: EngineTime, code_cache: &Path) -> 
         http_proxy: HttpProxy::None,
         time,
         temporary_folders: std::env::temp_dir().join("waos-tests"),
+        audit: None,
     };
     let platform = PlatformState {
         screens: Vec::new(),
@@ -163,6 +164,7 @@ pub(crate) mod drawing {
             http_proxy: HttpProxy::None,
             time: EngineTime::Real,
             temporary_folders: std::env::temp_dir().join("waos-tests"),
+            audit: None,
         };
         let platform = PlatformState {
             screens: vec![screen()],

@@ -180,7 +180,7 @@ fn a_file_handed_is_mounted_read_only_at_its_own_path_and_nothing_else_of_its_fo
     };
     assert_eq!(machine.name_of(&beneath.folder), "pasted");
     assert_eq!(beneath.path, Path::new("note.txt"));
-    assert!(!beneath.writable);
+    assert!(!beneath.mount.writable);
     let other = note.with_file_name("other.txt");
     assert_eq!(
         machine.leads(table, from_root(&other).to_str().unwrap()),
@@ -199,7 +199,7 @@ fn a_file_handed_that_a_mount_reaches_at_its_path_keeps_that_mounts_access() {
         panic!("the file is beneath the folder granted");
     };
     assert_eq!(beneath.path, Path::new("note.txt"));
-    assert!(beneath.writable, "as the folder granted is");
+    assert!(beneath.mount.writable, "as the folder granted is");
 }
 
 #[test]

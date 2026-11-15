@@ -172,6 +172,7 @@ pub fn config() -> WaOSConfig {
         http_proxy: HttpProxy::None,
         time: EngineTime::Real,
         temporary_folders: std::env::temp_dir().join("waos-tests"),
+        audit: None,
     }
 }
 

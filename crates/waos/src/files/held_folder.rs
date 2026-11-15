@@ -69,7 +69,7 @@ impl Resolved for HeldFolder {
 #[cfg(test)]
 mod tests {
     use super::super::descriptor::{OpenMode, Opened};
-    use super::super::mounts::MountKind;
+    use super::super::mounts::MountOf;
     use super::*;
 
     fn held(folder: &Path) -> Descriptor {
@@ -79,7 +79,7 @@ mod tests {
         };
         Descriptor::Dir(Opened::new(
             open_folder(folder).unwrap(),
-            (false, MountKind::Granted),
+            MountOf::granted(false),
             mode,
         ))
     }
@@ -116,7 +116,7 @@ mod tests {
         };
         let file = Descriptor::File(Opened::new(
             fs::File::open(&file).unwrap(),
-            (false, MountKind::Granted),
+            MountOf::granted(false),
             mode,
         ));
         assert!(matches!(

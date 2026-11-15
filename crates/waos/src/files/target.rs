@@ -37,7 +37,7 @@ use rustix::fs::{Mode, OFlags};
 use super::beneath::{self, FollowSymlinks, OpenOptions};
 use super::descriptor::{Descriptor, OpenMode, Opened};
 use super::errors::ErrorCode;
-use super::mounts::{MountKind, Mounted, open_folder};
+use super::mounts::{MountOf, Mounted, open_folder};
 use super::status::{DescriptorStat, FileStat, MetadataHashValue};
 use crate::access::{Resolution, Resolved};
 
@@ -64,9 +64,8 @@ pub(crate) enum Target {
 pub(crate) struct Beneath {
     pub(crate) folder: Arc<fs::File>,
     pub(crate) path: PathBuf,
-    pub(crate) writable: bool,
-    /// The kind of the mount the folder is in.
-    pub(crate) kind: MountKind,
+    /// The mount the folder is in.
+    pub(crate) mount: MountOf,
     /// Whether the path names a file mounted itself, which a rename may replace from another
     /// volume.
     pub(crate) mounted_file: bool,
@@ -129,18 +128,12 @@ impl Target {
     pub(crate) fn open(&self, request: &OpenRequest) -> Result<Descriptor, ErrorCode> {
         request.check()?;
         match self {
-            Target::Beneath(beneath) => open_beneath(
-                &beneath.folder,
-                &beneath.path,
-                (beneath.writable, beneath.kind),
-                request,
-            ),
-            Target::MountPoint(mount) => open_beneath(
-                &mount.folder,
-                Path::new("."),
-                (mount.writable, mount.kind),
-                request,
-            ),
+            Target::Beneath(beneath) => {
+                open_beneath(&beneath.folder, &beneath.path, &beneath.mount, request)
+            }
+            Target::MountPoint(mount) => {
+                open_beneath(&mount.folder, Path::new("."), &mount.of(), request)
+            }
             Target::OnMachine(path) => open_on_machine(path, request),
             Target::Above(path) => {
                 request.check_folder_above()?;
@@ -164,7 +157,10 @@ impl Target {
     /// change it. None where the mounts let it be made.
     pub(crate) fn open_refusal(&self, request: &OpenRequest) -> Option<ErrorCode> {
         match self {
-            Target::Beneath(Beneath { writable, .. })
+            Target::Beneath(Beneath {
+                mount: MountOf { writable, .. },
+                ..
+            })
             | Target::MountPoint(Mounted { writable, .. })
                 if !writable && request.changes_the_file() =>
             {
@@ -185,7 +181,7 @@ impl Target {
     /// the table lets it be made.
     pub(super) fn refusal_for(&self, change: Change) -> Option<ErrorCode> {
         match (self, change) {
-            (Target::Beneath(beneath), _) if beneath.writable => None,
+            (Target::Beneath(beneath), _) if beneath.mount.writable => None,
             (Target::MountPoint(mount), Change::Modify) if mount.writable => None,
             (Target::OnMachine(_), _) => None,
             (Target::Beneath(_), _)
@@ -399,12 +395,14 @@ impl Resolved for Target {
     fn resolution(&self) -> Resolution<'_> {
         match self {
             Target::Beneath(beneath) => Resolution::File {
-                kind: beneath.kind,
+                kind: beneath.mount.kind,
+                mount: &beneath.mount.place,
                 folder: &beneath.folder,
                 beneath: &beneath.path,
             },
             Target::MountPoint(mount) => Resolution::File {
                 kind: mount.kind,
+                mount: mount.place(),
                 folder: &mount.folder,
                 beneath: Path::new("."),
             },
@@ -514,20 +512,20 @@ fn open_on_machine(path: &Path, request: &OpenRequest) -> Result<Descriptor, Err
     }
 }
 
-/// Opens `path` beneath `folder`, a writable mount's or not and of the kind given, as `request`
-/// asks: a folder, or a file unless a folder is asked for.
+/// Opens `path` beneath `folder`, in `mount`, as `request` asks: a folder, or a file unless a
+/// folder is asked for.
 fn open_beneath(
     folder: &fs::File,
     path: &Path,
-    (writable, kind): (bool, MountKind),
+    mount: &MountOf,
     request: &OpenRequest,
 ) -> Result<Descriptor, ErrorCode> {
-    if !writable && request.changes_the_file() {
+    if !mount.writable && request.changes_the_file() {
         return Err(ErrorCode::ReadOnly);
     }
     let handle = beneath::open(folder, path, &request.options())?;
     let is_folder = handle.metadata()?.is_dir();
-    let opened = Opened::new(handle, (writable, kind), request.open_mode());
+    let opened = Opened::new(handle, mount.clone(), request.open_mode());
     match (is_folder, request.directory) {
         (true, _) => Ok(Descriptor::Dir(opened)),
         (false, true) => Err(ErrorCode::NotDirectory),
@@ -737,7 +735,7 @@ mod tests {
 
         let mount = Opened::new(
             fs::File::open(&folder).unwrap(),
-            (true, MountKind::Granted),
+            MountOf::granted(true),
             read.open_mode(),
         );
         let refused = mount.beneath("link").open(&read);
@@ -825,7 +823,7 @@ mod tests {
         let folder = OpenRequest::folder();
         let mount = Opened::new(
             open_folder(scratch.path()).unwrap(),
-            (true, MountKind::Granted),
+            MountOf::granted(true),
             folder.open_mode(),
         );
 

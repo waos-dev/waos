@@ -16,7 +16,7 @@ use std::time::SystemTime;
 
 use super::beneath;
 use super::errors::ErrorCode;
-use super::mounts::{MountKind, Mounted};
+use super::mounts::{MountOf, Mounted};
 use super::status::{DescriptorType, FileStat};
 use super::target::{Beneath, Target};
 
@@ -41,10 +41,9 @@ pub enum Descriptor {
 #[derive(Clone)]
 pub struct Opened {
     handle: Arc<fs::File>,
-    /// Whether its mount let the program change it when it was opened.
-    writable: bool,
-    /// The kind of the mount it was opened in.
-    kind: MountKind,
+    /// The mount it was opened in, as it was then: whether it let the program change it, among
+    /// what it keeps.
+    mount: MountOf,
     open_mode: OpenMode,
     /// Whether it has been written through, shared by every copy of the handle.
     written: Arc<AtomicBool>,
@@ -201,16 +200,11 @@ impl Descriptor {
 }
 
 impl Opened {
-    /// `handle`, opened as `open_mode` says in a mount of the kind given, writable or not.
-    pub(crate) fn new(
-        handle: fs::File,
-        (writable, kind): (bool, MountKind),
-        open_mode: OpenMode,
-    ) -> Opened {
+    /// `handle`, opened as `open_mode` says in `mount`.
+    pub(crate) fn new(handle: fs::File, mount: MountOf, open_mode: OpenMode) -> Opened {
         Opened {
             handle: Arc::new(handle),
-            writable,
-            kind,
+            mount,
             open_mode,
             written: Arc::default(),
             on_machine: None,
@@ -222,7 +216,7 @@ impl Opened {
     pub(crate) fn on_machine(handle: fs::File, at: PathBuf, open_mode: OpenMode) -> Opened {
         Opened {
             on_machine: Some(at),
-            ..Opened::new(handle, (true, MountKind::Machine), open_mode)
+            ..Opened::new(handle, MountOf::machine(), open_mode)
         }
     }
 
@@ -230,8 +224,7 @@ impl Opened {
     pub(crate) fn of_mount(mount: &Mounted) -> Opened {
         Opened {
             handle: Arc::clone(&mount.folder),
-            writable: mount.writable,
-            kind: mount.kind,
+            mount: mount.of(),
             open_mode: OpenMode {
                 read: true,
                 write: false,
@@ -250,8 +243,7 @@ impl Opened {
         Target::Beneath(Beneath {
             folder: Arc::clone(&self.handle),
             path: PathBuf::from(path),
-            writable: self.writable,
-            kind: self.kind,
+            mount: self.mount.clone(),
             mounted_file: false,
         })
     }
@@ -266,9 +258,9 @@ impl Opened {
         &self.handle
     }
 
-    /// The kind of the mount it was opened in.
-    pub(crate) fn kind(&self) -> MountKind {
-        self.kind
+    /// The mount it was opened in.
+    pub(crate) fn mount(&self) -> &MountOf {
+        &self.mount
     }
 
     pub(crate) fn open_mode(&self) -> OpenMode {
@@ -282,7 +274,7 @@ impl Opened {
 
     /// Refuses a write where the file's mount is read-only.
     pub(crate) fn check_writable(&self) -> Result<(), ErrorCode> {
-        if self.writable {
+        if self.mount.writable {
             Ok(())
         } else {
             Err(ErrorCode::ReadOnly)

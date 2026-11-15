@@ -14,7 +14,7 @@
 use std::fs;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, Weak};
-use std::time::Instant;
+use std::time::{Instant, SystemTime};
 
 use super::AccessParts;
 use crate::files::{MountKind, OpenMode};
@@ -75,6 +75,8 @@ struct Entry {
     id: u64,
     holding: Holding,
     since: Instant,
+    /// The time of day it started, which its session is kept by.
+    started: SystemTime,
 }
 
 /// A file the program has open, while anything holds its handle.
@@ -149,6 +151,7 @@ impl Registry {
             id,
             holding,
             since: Instant::now(),
+            started: SystemTime::now(),
         });
         Held {
             parts: Arc::clone(parts),
@@ -157,18 +160,17 @@ impl Registry {
     }
 
     /// Takes away the entry `id`, telling the indicator where it was the last recording of its
-    /// kind.
-    fn end(&self, id: u64) {
+    /// kind, and answers it.
+    fn end(&self, id: u64) -> Option<Entry> {
         let mut held = locked(&self.held);
-        let Some(at) = held.entries.iter().position(|entry| entry.id == id) else {
-            return;
-        };
+        let at = held.entries.iter().position(|entry| entry.id == id)?;
         let ended = held.entries.remove(at);
         if let Holding::Recording(device) = ended.holding
             && !held.records_with(device)
         {
             self.show(device, false);
         }
+        Some(ended)
     }
 
     /// Tells the indicator, where there is one, whether the program records with `device`.
@@ -235,8 +237,10 @@ impl HeldUses {
 
 impl Drop for Held {
     fn drop(&mut self) {
-        self.parts.holdings.end(self.id);
-        self.parts.tell_ended();
+        if let Some(ended) = self.parts.holdings.end(self.id) {
+            self.parts
+                .tell_ended(&ended.holding, (ended.started, ended.since));
+        }
     }
 }
 

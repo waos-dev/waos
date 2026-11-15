@@ -17,7 +17,7 @@ use wasmtime::Engine;
 use wasmtime::component::{Component, InstancePre};
 
 use super::{IncompatibleProgram, ProgramStart, RunningProgram};
-use crate::access::{ProgramAccess, ShownRecordings};
+use crate::access::{KeptBy, ProgramAccess, ShownRecordings};
 use crate::bindings::exports::wasdk::platform::worker_entry;
 use crate::bindings::exports::wasi::cli::run;
 use crate::caption_settings::CaptionSettings;
@@ -133,23 +133,26 @@ impl ProgramInstances {
 }
 
 /// The access of the program `start` names: its grants, or nothing granted where its environment
-/// gives none, and its recordings shown by the shell's indicator, where the shell has one.
+/// gives none, its recordings shown by the shell's indicator, where the shell has one, and its
+/// days kept by the engine's audit log under its name, where the engine has one.
 fn access_of(start: &ProgramStart, program: &RunningProgram) -> ProgramAccess {
     let grants = start
         .environment
         .grants
         .clone()
         .unwrap_or_else(|| Arc::new(NothingGranted));
-    match &start.recording_indicator {
-        Some(indicator) => ProgramAccess::showing_recordings(
-            grants,
-            ShownRecordings {
-                indicator: Arc::clone(indicator),
-                program: program.clone(),
-            },
-        ),
-        None => ProgramAccess::new(grants),
-    }
+    let shown = start
+        .recording_indicator
+        .as_ref()
+        .map(|indicator| ShownRecordings {
+            indicator: Arc::clone(indicator),
+            program: program.clone(),
+        });
+    let kept = start.audit.as_ref().map(|log| KeptBy {
+        log: Arc::clone(log),
+        program: program.name().to_owned(),
+    });
+    ProgramAccess::of(grants, shown, kept)
 }
 
 /// `component` linked to what `linker` serves, before anything of it runs: an

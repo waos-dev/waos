@@ -34,11 +34,15 @@
 //! another thread: Android's runtime aborts the process when a thread first enters Java
 //! anywhere else, and refuses each later call into Java made there.
 //!
+//! What a program did with what it was allowed is counted by the engine one day at a time, an
+//! [`AuditDay`], and kept by whoever implements [`AuditLog`], the store for the WaOS app.
+//!
 //! The invariant: this crate depends on nothing of ours, so a capability crate can depend on it
 //! alone. A trait here is a service's shape, never a provider: no OS, no shell, no program's
 //! internals.
 
 mod audio;
+mod audit;
 mod grants;
 mod machines;
 
@@ -47,6 +51,10 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 pub use audio::{AudioDeviceError, AudioDevices, AudioOutput};
+pub use audit::{
+    AskedQuestion, AuditDay, AuditLog, CAPS, Caps, Counted, DAYS_KEPT, FolderUses, MountKind,
+    Overflow, RunCommand, Session, Uses,
+};
 pub use grants::{
     Answer, ChangedFuture, Domain, DomainError, DomainRule, FileDialog, FileSystemGrant, Mount,
     NetworkGrant, ProgramGrants, Question, Setting, SimulatedSound, Switch,

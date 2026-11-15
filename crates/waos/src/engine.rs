@@ -18,7 +18,7 @@ use std::time::Instant;
 use anyhow::{Context as _, Result, ensure};
 use futures::FutureExt;
 use futures::future::join_all;
-use waos_capabilities::ProgramEnvironment;
+use waos_capabilities::{AuditLog, ProgramEnvironment};
 use wasmtime::{Config, Engine, WasmBacktraceDetails};
 
 use crate::bindings::wasdk::media::caption_settings::CaptionStyle;
@@ -42,7 +42,7 @@ use crate::temporary_folders::TemporaryFolders;
 use crate::views::{ProgramView, Refresh, ScreenRefreshes};
 
 /// How the engine is set up.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct WaOSConfig {
     /// Where compiled programs are kept, so the next start maps the code instead of compiling
     /// it. A directory of the app's own: wasmtime trusts the code it maps.
@@ -68,6 +68,9 @@ pub struct WaOSConfig {
     /// renamed from one into the other is one rename. One the engine starts on is cleared of what
     /// a crash left there.
     pub temporary_folders: PathBuf,
+    /// Where each program's audit summary is kept, day by day: the store, for the WaOS app;
+    /// nowhere for an engine given none, as the tests' are.
+    pub audit: Option<Arc<dyn AuditLog>>,
 }
 
 /// What the platform reports about the machine when the engine starts; the setters keep it
@@ -101,6 +104,8 @@ pub struct WaOS {
     code_cache: PathBuf,
     /// Where each program's `/tmp` is made.
     temporary_folders: Arc<TemporaryFolders>,
+    /// Where each program's audit summary is kept.
+    audit: Option<Arc<dyn AuditLog>>,
     freeze: FreezePolicy,
     http_proxy: HttpProxy,
     /// The engine's time, which every program's freeze and hardware buffers read.
@@ -136,6 +141,7 @@ impl WaOS {
             caption_settings: platform.caption_style.map(CaptionSettings::new),
             code_cache: config.code_cache,
             temporary_folders,
+            audit: config.audit,
             freeze: config.freeze,
             http_proxy: config.http_proxy,
             clock,
@@ -264,6 +270,7 @@ impl WaOS {
             machine_picker: self.shell.machine_picker.clone(),
             environment,
             temporary_folder: temporary.as_ref().map(|folder| folder.path().to_owned()),
+            audit: self.audit.clone(),
             freeze: self.freeze,
             http_proxy: self.http_proxy,
             clock: self.clock.clone(),
@@ -461,6 +468,7 @@ mod tests {
             http_proxy: HttpProxy::None,
             time: EngineTime::Real,
             temporary_folders: std::env::temp_dir().join("waos-tests"),
+            audit: None,
         };
         let platform = PlatformState {
             screens: Vec::new(),

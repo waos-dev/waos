@@ -8,9 +8,11 @@
 //! [`ProgramAccess::note`]d, and a use that lasts is [`ProgramAccess::hold`]en by whatever owns
 //! the real thing, from its start until it really ends.
 //!
-//! What is told goes nowhere yet: the audit summary and the live trace that hear it are later
-//! steps of `docs/proposals/2026-11-15-inspector-roles-and-compatibility.md` and
-//! `docs/proposals/2026-11-15-access-layer-design.md`. A test reads it from the access it made.
+//! What is told is counted in the program's audit summary ([`summary`]), what it did today,
+//! kept day by day through the engine's `AuditLog`. The live trace is a later step of
+//! `docs/proposals/2026-11-15-inspector-roles-and-compatibility.md` and
+//! `docs/proposals/2026-11-15-access-layer-design.md`. A test reads what was told from the access
+//! it made.
 //!
 //! The invariant: an answer that lets or refuses a use comes out of `decide`, its record made from
 //! what the rule resolved, never from what the caller supposed before it ran, so a use is never
@@ -18,6 +20,7 @@
 //! permission's state, what a picker answers, an answer kept.
 
 mod holdings;
+mod summary;
 #[cfg(test)]
 mod test_answers;
 
@@ -25,13 +28,15 @@ use std::fs;
 use std::net::{IpAddr, SocketAddr};
 use std::path::Path;
 use std::sync::Arc;
+use std::time::{Instant, SystemTime};
 
 use futures::FutureExt;
 use waos_capabilities::{Answer, Command, ProgramGrants, Question, Switch};
 
-use crate::files::{MountKind, OpenMode};
+use crate::files::{MountKind, MountOf, OpenMode};
 use crate::shell::AnswerFuture;
 pub(crate) use holdings::{Held, Holding, Holdings, ShownRecordings};
+pub(crate) use summary::KeptBy;
 #[cfg(test)]
 pub(crate) use test_answers::Answers;
 
@@ -46,6 +51,8 @@ struct AccessParts {
     grants: Arc<dyn ProgramGrants>,
     /// What the program holds now.
     holdings: holdings::Registry,
+    /// What it did today, kept day by day.
+    summary: summary::Summary,
     /// What was told, for the test that made the access to read.
     #[cfg(test)]
     told: std::sync::Mutex<Vec<Told>>,
@@ -184,9 +191,11 @@ pub(crate) trait Resolved {
 )]
 pub(crate) enum Resolution<'a> {
     Nothing,
-    /// A path beneath a folder of a mount, the folder named by the system on demand.
+    /// A path beneath a folder of a mount, the folder named by the system on demand: the mount's
+    /// kind, and where it is on the machine.
     File {
         kind: MountKind,
+        mount: &'a Path,
         folder: &'a fs::File,
         beneath: &'a Path,
     },
@@ -194,6 +203,8 @@ pub(crate) enum Resolution<'a> {
     OnMachine(&'a Path),
     /// A lookup's answer.
     Addresses(&'a [IpAddr]),
+    /// The names an address was looked up by.
+    Names(&'a [String]),
     /// Two places, as a rename or a link names them: what is moved or linked, and where it goes.
     Both(Box<(Resolution<'a>, Resolution<'a>)>),
 }
@@ -216,6 +227,12 @@ impl Resolved for std::path::PathBuf {
     }
 }
 
+impl Resolved for Vec<String> {
+    fn resolution(&self) -> Resolution<'_> {
+        Resolution::Names(self)
+    }
+}
+
 impl Resolved for Vec<IpAddr> {
     fn resolution(&self) -> Resolution<'_> {
         Resolution::Addresses(self)
@@ -227,13 +244,6 @@ impl Resolved for Vec<IpAddr> {
 pub(crate) trait Refused {
     /// The setting that refused, by the key `cargo waos settings` names its row with; none for a
     /// failure.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the setting is read by the audit summary and the live trace, later steps"
-        )
-    )]
     fn setting(&self) -> Option<&'static str>;
 }
 
@@ -269,8 +279,11 @@ pub(crate) enum Noted<'a> {
         path: &'a str,
         resolution: Resolution<'a>,
     },
-    /// The first write through a handle opened to write, in a mount of `kind`.
-    FirstWrite { kind: MountKind },
+    /// The first write through a handle opened to write: the file, and the mount it is in.
+    FirstWrite {
+        mount: &'a MountOf,
+        file: &'a fs::File,
+    },
     /// A datagram sent to `address`, or received from it, refused by `refusal` where it is none.
     Datagram {
         address: SocketAddr,
@@ -300,38 +313,31 @@ pub(crate) enum Happened<'a> {
 
 /// A question put to the user: a permission's, or whether the program may open links of a scheme.
 #[derive(Clone, Debug)]
-#[expect(
-    dead_code,
-    reason = "what was asked is read by the audit summary and the live trace, later steps"
-)]
 pub(crate) enum Prompt {
     Question(Question),
     LinkScheme(String),
 }
 
 impl ProgramAccess {
-    /// The access of a program with `grants`, whose recordings nothing shows.
+    /// The access of a program with `grants`, whose recordings nothing shows, and whose days are
+    /// kept nowhere.
+    #[cfg(test)]
     pub(crate) fn new(grants: Arc<dyn ProgramGrants>) -> ProgramAccess {
-        ProgramAccess::with_holdings(grants, holdings::Registry::new(None))
+        ProgramAccess::of(grants, None, None)
     }
 
     /// The access of a program with `grants`, whose recordings `shown` shows as they start and
-    /// end.
-    pub(crate) fn showing_recordings(
+    /// end, where something shows them, and whose days `kept` keeps, where something does.
+    pub(crate) fn of(
         grants: Arc<dyn ProgramGrants>,
-        shown: ShownRecordings,
-    ) -> ProgramAccess {
-        ProgramAccess::with_holdings(grants, holdings::Registry::new(Some(shown)))
-    }
-
-    fn with_holdings(
-        grants: Arc<dyn ProgramGrants>,
-        holdings: holdings::Registry,
+        shown: Option<ShownRecordings>,
+        kept: Option<KeptBy>,
     ) -> ProgramAccess {
         ProgramAccess {
             parts: Arc::new(AccessParts {
                 grants,
-                holdings,
+                holdings: holdings::Registry::new(shown),
+                summary: summary::Summary::new(kept),
                 #[cfg(test)]
                 told: std::sync::Mutex::default(),
             }),
@@ -401,50 +407,48 @@ impl ProgramAccess {
     }
 }
 
-/// Where what is told goes: nowhere yet, the summary and the trace being later steps.
-#[cfg(not(test))]
-impl AccessParts {
-    fn tell_decided<R: Resolved, E: Refused>(&self, _asked: &Asked<'_>, _decided: &Result<R, E>) {}
-
-    fn tell_noted(&self, _noted: &Noted<'_>) {}
-
-    fn tell_held(&self, _holding: &Holding) {}
-
-    fn tell_happened(&self, _happened: &Happened<'_>) {}
-
-    fn tell_ended(&self) {}
-}
-
-/// Where what is told goes in a test: into the access's record.
-#[cfg(test)]
+/// Where what is told goes: into the program's summary, and, in a test, into the access's record.
 impl AccessParts {
     fn tell_decided<R: Resolved, E: Refused>(&self, asked: &Asked<'_>, decided: &Result<R, E>) {
-        let asked = format!("{asked:?}");
-        self.record(match decided {
-            Ok(resolved) => Told::Allowed(asked, format!("{:?}", resolved.resolution())),
-            Err(refused) => match refused.setting() {
-                Some(setting) => Told::Refused(asked, setting),
-                None => Told::Failed(asked),
-            },
+        let resolution = decided.as_ref().ok().map(Resolved::resolution);
+        let refused = decided.as_ref().err().and_then(Refused::setting);
+        self.summary.decided(asked, resolution.as_ref(), refused);
+        #[cfg(test)]
+        self.record(match (resolution, refused) {
+            (Some(resolution), _) => Told::Allowed(format!("{asked:?}"), format!("{resolution:?}")),
+            (None, Some(setting)) => Told::Refused(format!("{asked:?}"), setting),
+            (None, None) => Told::Failed(format!("{asked:?}")),
         });
     }
 
     fn tell_noted(&self, noted: &Noted<'_>) {
+        self.summary.noted(noted);
+        #[cfg(test)]
         self.record(Told::Noted(format!("{noted:?}")));
     }
 
-    fn tell_held(&self, holding: &Holding) {
-        self.record(Told::Held(format!("{holding:?}")));
+    fn tell_held(&self, _holding: &Holding) {
+        #[cfg(test)]
+        self.record(Told::Held(format!("{_holding:?}")));
     }
 
     fn tell_happened(&self, happened: &Happened<'_>) {
+        self.summary.happened(happened);
+        #[cfg(test)]
         self.record(Told::Happened(format!("{happened:?}")));
     }
 
-    fn tell_ended(&self) {
+    /// Tells a held use's end; a recording's counts as a session, from `since`.
+    fn tell_ended(&self, holding: &Holding, since: (SystemTime, Instant)) {
+        if let Holding::Recording(device) = holding {
+            self.summary
+                .session_ended(*device, since.0, since.1.elapsed());
+        }
+        #[cfg(test)]
         self.record(Told::Ended);
     }
 
+    #[cfg(test)]
     fn record(&self, told: Told) {
         crate::sync::locked(&self.told).push(told);
     }

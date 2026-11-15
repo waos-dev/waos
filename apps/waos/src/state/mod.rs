@@ -267,6 +267,7 @@ pub(crate) fn start(
         http_proxy: HttpProxy::System,
         time: EngineTime::Real,
         temporary_folders: folders.temporary_folders,
+        audit: Some(Arc::new(store.clone())),
     };
     if config.native_unwind_info {
         tracing::info!("programs are compiled with native unwind information");

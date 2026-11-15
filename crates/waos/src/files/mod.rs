@@ -71,7 +71,7 @@ use descriptor::{DirectoryEntry, Opened};
 pub(crate) use errors::ErrorCode;
 pub(crate) use handle_path::path_of;
 pub(crate) use held_folder::HeldFolder;
-pub(crate) use mounts::{HandedFiles, MountKind};
+pub(crate) use mounts::{HandedFiles, MountKind, MountOf};
 use mounts::{LiveMounts, ROOT};
 pub(crate) use picks::Picks;
 use status::{DescriptorStat, MetadataHashValue};
@@ -94,7 +94,7 @@ pub(crate) fn folder_of_machine(folder: &Path, access: &ProgramAccess) -> io::Re
             write: true,
         },
     );
-    access.opened(opened.handle(), opened.kind(), opened.open_mode());
+    access.opened(opened.handle(), opened.mount().kind, opened.open_mode());
     Ok(Descriptor::Dir(opened))
 }
 
@@ -125,13 +125,6 @@ pub(crate) struct ProgramFiles {
 /// mounts refused it, as a path outside them or a change a mount does not allow, or it failed.
 pub(crate) struct FilesRefusal {
     code: ErrorCode,
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the setting is read by the audit summary and the live trace, later steps"
-        )
-    )]
     by_the_mounts: bool,
 }
 
@@ -167,7 +160,7 @@ impl ProgramFiles {
         let target = access.decide(asked, |_| self.permitted_open(from, path, request))?;
         let opened = target.open(request)?;
         if let Descriptor::Dir(opened) | Descriptor::File(opened) = &opened {
-            access.opened(opened.handle(), opened.kind(), opened.open_mode());
+            access.opened(opened.handle(), opened.mount().kind, opened.open_mode());
         }
         Ok(opened)
     }
@@ -257,7 +250,8 @@ impl ProgramFiles {
     pub(crate) fn writing(&self, opened: &Opened) {
         if opened.first_write() {
             self.access.note(Noted::FirstWrite {
-                kind: opened.kind(),
+                mount: opened.mount(),
+                file: opened.handle(),
             });
         }
     }

@@ -14,8 +14,9 @@ url.workspace = true
 # A download's SHA-256, checked against its listing, and said in hex when it differs.
 sha2.workspace = true
 hex.workspace = true
-# The list of sources, kept as TOML.
+# The list of sources, kept as TOML; the programs' audit summaries, kept as postcard.
 serde.workspace = true
+postcard.workspace = true
 toml.workspace = true
 # What an install unpacks into, a file written whole, and a download.
 tempfile.workspace = true
