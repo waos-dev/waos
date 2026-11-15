@@ -70,9 +70,9 @@ pub(crate) mod image_codec_calls;
 pub(crate) mod image_values;
 pub(crate) mod installed_code;
 pub(crate) mod installed_runs;
-#[cfg(not(target_os = "android"))]
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(crate) mod launcher_placement;
-#[cfg(not(target_os = "android"))]
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(crate) mod launcher_rules;
 pub(crate) mod library_layout;
 pub(crate) mod machine_facts;
@@ -127,6 +127,6 @@ pub(crate) mod test_engine;
 pub(crate) mod test_outputs;
 #[cfg(any(target_os = "macos", target_os = "android"))]
 pub(crate) mod test_pattern;
-#[cfg(not(target_os = "android"))]
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(crate) mod tray_image;
 pub(crate) mod vsync_waiter;

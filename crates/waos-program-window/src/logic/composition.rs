@@ -76,7 +76,9 @@ pub fn waft_layer(layer: Arc<dyn ShellCompositionLayer>) -> Option<Arc<dyn Compo
 /// any surface is.
 #[cfg(target_vendor = "apple")]
 pub(crate) fn waft_buffer(buffer: HardwareBuffer) -> Arc<dyn ui::HardwareBuffer> {
-    Arc::new(waft_embedder_winit::SurfaceBuffer::new(buffer))
+    Arc::new(waft_embedder_apple::hardware_buffers::SurfaceBuffer::new(
+        buffer,
+    ))
 }
 
 /// The engine's hardware `buffer`, the platform's own, as Waft's buffer over it, which a Waft
@@ -148,7 +150,9 @@ fn picture_of(picture: ui::LayerPicture) -> Option<LayerPicture> {
     match picture {
         ui::LayerPicture::Buffer(buffer) => {
             let buffer: &dyn Any = &*buffer;
-            let Some(buffer) = buffer.downcast_ref::<waft_embedder_winit::SurfaceBuffer>() else {
+            let Some(buffer) =
+                buffer.downcast_ref::<waft_embedder_apple::hardware_buffers::SurfaceBuffer>()
+            else {
                 tracing::warn!("a layer showed a buffer Waft's host did not hand out; left out");
                 return None;
             };
@@ -156,7 +160,8 @@ fn picture_of(picture: ui::LayerPicture) -> Option<LayerPicture> {
         }
         ui::LayerPicture::Frame(frame) => {
             let frame: &dyn Any = &*frame;
-            let Some(frame) = frame.downcast_ref::<waft_embedder_winit::CoreVideoFrame>() else {
+            let Some(frame) = frame.downcast_ref::<waft_embedder_apple::media::CoreVideoFrame>()
+            else {
                 tracing::warn!("a layer showed a frame Waft's host did not hand out; left out");
                 return None;
             };

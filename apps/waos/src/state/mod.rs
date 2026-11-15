@@ -22,12 +22,12 @@
 pub(crate) mod cameras;
 pub(crate) mod clipboard;
 pub(crate) mod deck;
-#[cfg(not(target_os = "android"))]
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(crate) mod desktop_host;
 pub(crate) mod file_dialogs;
 pub(crate) mod given_views;
 pub(crate) mod image_codecs;
-#[cfg(not(target_os = "android"))]
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(crate) mod launcher;
 pub(crate) mod library;
 pub(crate) mod machine_facts;
@@ -48,7 +48,7 @@ pub(crate) mod recordings;
 pub(crate) mod test_system;
 #[cfg(test)]
 mod tests;
-#[cfg(not(target_os = "android"))]
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(crate) mod waos_tray;
 
 use std::path::PathBuf;
@@ -93,7 +93,7 @@ use crate::logic::runs::Runs;
 use crate::logic::vsync_waiter::WaftVsync;
 use crate::ui::deck::Deck;
 use crate::ui::every_window::{LibraryWindow, every_window, program_windows};
-#[cfg(not(target_os = "android"))]
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 use crate::ui::launcher::launcher_window;
 use cameras::Cameras;
 use clipboard::Clipboard;
@@ -102,7 +102,7 @@ use deck::tabs::Tabs;
 use file_dialogs::FileDialogs;
 use given_views::follow_given_views;
 use image_codecs::ImageCodecs;
-#[cfg(not(target_os = "android"))]
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 use launcher::Launcher;
 use library::{
     Library, ProgramOpened, ProgramsOpen, open_library, open_settings_when_asked,
@@ -116,7 +116,7 @@ use opener::Opener;
 use phone_window::in_phone_window;
 use questions::Questions;
 use recordings::Recordings;
-#[cfg(not(target_os = "android"))]
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 use waos_tray::WaosTray;
 
 /// The windows WaOS shows in its own process for the programs running in it.
@@ -524,7 +524,7 @@ fn library_window(
     view_windows: &Entity<ViewWindows>,
 ) -> LibraryWindow {
     match place {
-        #[cfg(not(target_os = "android"))]
+        #[cfg(not(any(target_os = "android", target_os = "ios")))]
         LibraryPlace::Launcher | LibraryPlace::ClosedLauncher => {
             let launcher = Launcher::new(app, &library, view_windows.clone());
             launcher.update(app, |launcher, cx| {
@@ -537,8 +537,8 @@ fn library_window(
             WaosTray::follow(app, &library, &launcher);
             launcher_window(&launcher, &library, &recordings)
         }
-        // Android has no desktop, whose launcher WaOS is there: the library is a phone's.
-        #[cfg(target_os = "android")]
+        // Android and iOS have no desktop, whose launcher WaOS is there: the library is a phone's.
+        #[cfg(any(target_os = "android", target_os = "ios"))]
         LibraryPlace::Launcher | LibraryPlace::ClosedLauncher => {
             let tabs = Tabs::listen(app, runs);
             phone_deck(app, library, recordings, tabs, view_windows)

@@ -73,10 +73,15 @@ png.workspace = true
 image = { version = "0.25", default-features = false, features = ["png"] }
 
 # Waft's desktop host, for what only macOS offers beyond Waft's `Platform`: hearing WaOS's Dock
-# icon clicked, and hiding the app. Where Waft's default host is
-# winit's, as `waft-embedder-default` picks it.
-[target.'cfg(not(any(target_arch = "wasm32", target_os = "android")))'.dependencies]
+# icon clicked, and hiding the app. Where Waft's default host is winit's, as
+# `waft-embedder-default` picks it: every system but the web, Android and iOS.
+[target.'cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))'.dependencies]
 waft-embedder-winit.workspace = true
+
+# Waft's buffer over an `IOSurface` and its Core Video frame, which a program's hardware buffers
+# and its readers' frames go between Waft and the engine as on macOS and iOS.
+[target.'cfg(target_vendor = "apple")'.dependencies]
+waft-embedder-apple.workspace = true
 
 # Each program's app of its own: what WaOS and its window process say over Mach, the code hash of its
 # bundle and its process, Launch Services opening it, the end of its process, and WaOS's activation

@@ -210,6 +210,9 @@ waft-winui = { version = "0.5.0", path = "../waft/crates/waft-winui" }
 # Waft's desktop host, for what only macOS offers beyond its `Platform`: hearing WaOS's Dock
 # icon clicked, a window that slides in, and hiding the app.
 waft-embedder-winit = { version = "0.5.0", path = "../waft/crates/waft-embedder-winit" }
+# What Waft's hosts on macOS and iOS share, for its `SurfaceBuffer` and `CoreVideoFrame`, which a
+# program's hardware buffers and video frames are shown and read as on Apple's systems.
+waft-embedder-apple = { version = "0.5.0", path = "../waft/crates/waft-embedder-apple", default-features = false }
 # Waft's Android host, for its `AndroidHardwareBuffer`, which a program's hardware buffers are
 # shown as on a Waft composition layer on Android.
 waft-embedder-android = { version = "0.5.0", path = "../waft/crates/waft-embedder-android" }

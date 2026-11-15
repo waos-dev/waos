@@ -111,7 +111,7 @@ impl ShellVideoFrameReader for ReaderOnRequest {
 #[cfg(target_vendor = "apple")]
 pub(crate) fn engine_frame(frame: &dyn ui::VideoFrame) -> Option<VideoFrame> {
     let frame: &dyn std::any::Any = frame;
-    let Some(frame) = frame.downcast_ref::<waft_embedder_winit::CoreVideoFrame>() else {
+    let Some(frame) = frame.downcast_ref::<waft_embedder_apple::media::CoreVideoFrame>() else {
         tracing::warn!("a reader answered a frame that is not Core Video's; it is dropped");
         return None;
     };

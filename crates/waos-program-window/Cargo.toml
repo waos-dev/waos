@@ -25,7 +25,7 @@ waft-services.workspace = true
 # composition layer; and the retain of the surface, or of the video frame it is the memory of,
 # that a layer shows, which the engine is handed.
 [target.'cfg(target_vendor = "apple")'.dependencies]
-waft-embedder-winit.workspace = true
+waft-embedder-apple.workspace = true
 objc2-core-foundation = { workspace = true, features = ["std"] }
 
 # Waft's buffer over a dmabuf on Linux, and its shared texture over a D3D12 texture's NT handle on

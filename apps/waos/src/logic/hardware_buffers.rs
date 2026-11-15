@@ -13,7 +13,9 @@ use waos::HardwareBuffer;
 #[cfg(target_vendor = "apple")]
 pub(crate) fn engine_buffer(buffer: &dyn ui::HardwareBuffer) -> Option<HardwareBuffer> {
     let buffer: &dyn std::any::Any = buffer;
-    let Some(buffer) = buffer.downcast_ref::<waft_embedder_winit::SurfaceBuffer>() else {
+    let Some(buffer) =
+        buffer.downcast_ref::<waft_embedder_apple::hardware_buffers::SurfaceBuffer>()
+    else {
         tracing::warn!("Waft answered a hardware buffer that is not an IOSurface; it is dropped");
         return None;
     };
@@ -91,7 +93,9 @@ pub(crate) fn engine_buffer(_buffer: &dyn ui::HardwareBuffer) -> Option<Hardware
 /// every use, as any surface is, and which Waft only reads.
 #[cfg(target_vendor = "apple")]
 pub(crate) fn waft_buffer(buffer: &HardwareBuffer) -> Arc<dyn ui::HardwareBuffer> {
-    Arc::new(waft_embedder_winit::SurfaceBuffer::new(buffer.clone()))
+    Arc::new(waft_embedder_apple::hardware_buffers::SurfaceBuffer::new(
+        buffer.clone(),
+    ))
 }
 
 /// The engine's `buffer` as Waft's: Waft's Android buffer over the `AHardwareBuffer`, a reference
