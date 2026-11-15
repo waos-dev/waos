@@ -37,6 +37,20 @@ pub struct InstalledProgram {
     pub publisher: PublisherKey,
 }
 
+/// A listed program's package, downloaded and checked against the SHA-256 its source lists, waiting
+/// to be installed ([`Store::install_download`]); its temporary file goes when this is dropped.
+pub struct Download {
+    file: tempfile::NamedTempFile,
+    listed: ListedProgram,
+}
+
+impl Download {
+    /// The program it was downloaded as.
+    pub fn listed(&self) -> &ListedProgram {
+        &self.listed
+    }
+}
+
 /// The programs installed in WaOS, and the sources the user added. One store opens a directory;
 /// clones share it.
 #[derive(Clone)]
@@ -101,26 +115,51 @@ impl Store {
 
     /// Downloads `program` as `source` lists it, refuses it unless its SHA-256 is the one listed,
     /// and installs it as [`install`](Self::install) does, if it is the program and version
-    /// listed. The download is opened and installed on tokio's threads for blocking work, and
-    /// removed after.
+    /// listed: [`download`](Self::download), then [`install_download`](Self::install_download).
     pub async fn install_from(
         &self,
         source: &Source,
         program: &ListedProgram,
     ) -> Result<InstalledProgram, InstallError> {
+        let download = self.download(source, program).await?;
+        self.install_download(download).await
+    }
+
+    /// Downloads `program` as `source` lists it to a temporary file, and refuses it unless its
+    /// SHA-256 is the one listed, before anything opens it. Nothing installed changes: a caller
+    /// may end what runs of the program between this and its install.
+    pub async fn download(
+        &self,
+        source: &Source,
+        program: &ListedProgram,
+    ) -> Result<Download, InstallError> {
         let url = source.package_url(&program.package)?;
-        let download = fetch::download(&self.http, &url, &program.sha256).await?;
+        let file = fetch::download(&self.http, &url, &program.sha256).await?;
+        Ok(Download {
+            file,
+            listed: program.clone(),
+        })
+    }
+
+    /// Installs `download` as [`install`](Self::install) does, if it is the program and version
+    /// listed; it is opened and installed on tokio's threads for blocking work, and its file
+    /// removed after.
+    pub async fn install_download(
+        &self,
+        download: Download,
+    ) -> Result<InstalledProgram, InstallError> {
         let store = self.clone();
-        let listed = program.clone();
-        let installing =
-            tokio::task::spawn_blocking(move || store.install_listed(download.path(), &listed));
+        let installing = tokio::task::spawn_blocking(move || {
+            store.install_listed(download.file.path(), &download.listed)
+        });
         installing
             .await
             .unwrap_or_else(|error| std::panic::resume_unwind(error.into_panic()))
     }
 
     /// Removes the installed program `id` names, with all the store keeps of it: its settings
-    /// and its own folders. A run of it goes on until it ends.
+    /// and its own folders. A run of it would go on with its folders gone, so the caller ends its
+    /// runs first.
     pub fn remove(&self, id: &ProgramId) -> Result<(), StoreError> {
         let _changing = self.lock_changes();
         programs::take_out(&self.program_folder(id), id, &self.removing_folder())?;

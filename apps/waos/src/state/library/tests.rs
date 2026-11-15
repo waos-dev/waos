@@ -571,7 +571,7 @@ fn a_removed_program_leaves_no_code() {
 }
 
 #[test]
-fn an_update_leaves_code_for_the_new_version_only_and_a_run_of_the_old_one_running() {
+fn an_update_of_a_running_program_ends_the_old_run_first_and_leaves_the_new_versions_code_only() {
     let library = TestLibrary::new();
     library.installs_forever();
     let triangle: ProgramId = TRIANGLE.parse().unwrap();
@@ -580,9 +580,12 @@ fn an_update_leaves_code_for_the_new_version_only_and_a_run_of_the_old_one_runni
     wait_for_runs(&library, &[TRIANGLE]);
     let forever = std::fs::read(waos_test_programs::FOREVER).unwrap();
     library.installs_after_yes(library.package(TRIANGLE, "1.1.0", &forever));
-    assert_eq!(
-        library.installed(),
-        [(TRIANGLE.to_owned(), "1.1.0".to_owned())]
+    library.wait_until("the update", |library| {
+        library.installed()[0].manifest.version().to_string() == "1.1.0"
+    });
+    assert!(
+        futures::executor::block_on(library.runs.names()).is_empty(),
+        "the old version's run ended before the update"
     );
     library.wait_until("the new version's code", |library| {
         !library.is_compiling(&triangle)
@@ -593,12 +596,76 @@ fn an_update_leaves_code_for_the_new_version_only_and_a_run_of_the_old_one_runni
         library.read(|library| library.runs.engine.is_compiled(&updated).unwrap()),
         "the new version's"
     );
-    thread::sleep(Duration::from_millis(50));
-    library.cell.checkpoint();
+}
+
+#[test]
+fn an_update_from_a_source_ends_the_old_run_once_the_package_is_downloaded() {
+    let library = TestLibrary::new();
+    let server = Server::start();
+    let forever = std::fs::read(waos_test_programs::FOREVER).unwrap();
+    server.publish(
+        TRIANGLE,
+        &library.package(TRIANGLE, "1.0.0", &forever),
+        "1.0.0",
+    );
+    let index = server.url("waos/index.json");
+    library.update(|library, cx| library.add_source(&index, cx));
+    library.wait_until("the source's listing", |library| {
+        matches!(library.sources()[0].listing, Listing::Read(_))
+    });
+    install_what_the_source_lists(&library);
+    let triangle: ProgramId = TRIANGLE.parse().unwrap();
+    library.update(|library, cx| library.open(&triangle, cx));
+    wait_for_runs(&library, &[TRIANGLE]);
+    server.publish(
+        TRIANGLE,
+        &library.package(TRIANGLE, "1.1.0", &forever),
+        "1.1.0",
+    );
+    library.update(|library, cx| library.read_sources(cx));
+    library.wait_until("the newer listing", |library| {
+        matches!(&library.sources()[0].listing, Listing::Read(offers) if offers[0].0.version.to_string() == "1.1.0")
+    });
+    install_what_the_source_lists(&library);
     assert_eq!(
-        futures::executor::block_on(library.runs.names()),
-        [TRIANGLE],
-        "the old version runs on"
+        library.installed(),
+        [(TRIANGLE.to_owned(), "1.1.0".to_owned())]
+    );
+    assert!(
+        futures::executor::block_on(library.runs.names()).is_empty(),
+        "the old version's run ended before the update"
+    );
+}
+
+#[test]
+fn removing_a_running_program_ends_it_first_and_a_reinstall_starts_it_afresh() {
+    let library = TestLibrary::new();
+    library.installs_forever();
+    let triangle: ProgramId = TRIANGLE.parse().unwrap();
+    library.update(|library, cx| library.open(&triangle, cx));
+    wait_for_runs(&library, &[TRIANGLE]);
+    let first_run = futures::executor::block_on(library.runs.programs());
+    library.update(|library, cx| library.ask_to_remove(&triangle, cx));
+    library.update(|library, cx| library.answer(true, cx));
+    library.wait_until("the removal", |library| library.installed().is_empty());
+    assert!(
+        futures::executor::block_on(library.runs.names()).is_empty(),
+        "its run ended before its files went"
+    );
+    assert!(
+        matches!(
+            futures::executor::block_on(first_run[0].ended()),
+            waos::ProgramEnd::Stopped
+        ),
+        "stopped, not failed over files gone"
+    );
+    library.installs_forever();
+    library.update(|library, cx| library.open(&triangle, cx));
+    wait_for_runs(&library, &[TRIANGLE]);
+    let second_run = futures::executor::block_on(library.runs.programs());
+    assert!(
+        second_run[0] != first_run[0],
+        "a run of its own, not the old one"
     );
     futures::executor::block_on(library.runs.stop_all());
     wait_for_runs(&library, &[]);

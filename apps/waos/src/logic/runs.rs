@@ -2,19 +2,23 @@
 //! the library opened it (decision 11 of the permissions proposal). One per id: a later run
 //! `cargo waos` sends takes the place of the one before, which is stopped first and ends
 //! `Replaced` (the design's decision 29), while a program the library opens again is left
-//! running as it is. A run `cargo waos` sent is its own to read and drive, with a mouse of its own
+//! running as it is. Every run of an id is ended before its program is removed or updated
+//! ([`Runs::stop`]), as a system ends an app it uninstalls or updates, so no run outlives the
+//! package it came from or the folders it was given. A run `cargo waos` sent is its own to read and drive, with a mouse of its own
 //! over the program's windows; one the library opened is no tool's (the design's decision 60).
 //!
 //! The invariants: one run starts at a time. The lock is held from the moment the run before is
 //! stopped, or found running, to the moment the new one is in the list, so two runs of one id
 //! arriving together cannot both start, and an id never names two programs; and the ids running,
-//! which [`Runs::running_ids`] tells, change with the list under the same lock. And nothing
+//! which [`Runs::running_ids`] tells, change with the list under the same lock; an id being
+//! started is among those starting from before the lock is taken until the start is done, so
+//! [`Runs::runs_or_starts`] misses no run about to be listed. And nothing
 //! compiles under the lock, which every screenshot, input, open and quit waits for: a caller
 //! has the program's code compiled before it starts a run.
 
 use std::collections::{BTreeSet, HashMap};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, PoisonError};
 
 use anyhow::Result;
 use futures::future::join_all;
@@ -33,6 +37,8 @@ pub(crate) struct Runs {
     serials: AtomicU64,
     /// The ids in the list, for whoever shows which programs run.
     ids: watch::Sender<BTreeSet<ProgramId>>,
+    /// The ids the library is starting a run of now, each as many times as it is.
+    starting: std::sync::Mutex<Vec<ProgramId>>,
 }
 
 /// One program in the list.
@@ -114,12 +120,37 @@ impl Runs {
         id: &ProgramId,
         start: impl AsyncFnOnce() -> Result<RunningProgram>,
     ) -> Result<Started> {
+        let _starting = Starting::of(self, id);
         let mut running = self.running.lock().await;
         if let Some(current) = running.get(id) {
             return Ok(Started::Running(current.program.clone()));
         }
         let program = start().await?;
         Ok(Started::New(self.list(&mut running, id, program, None)))
+    }
+
+    /// Whether a run of the program `id` is in the list, or being started: what an end of its
+    /// runs has to wait for.
+    pub(crate) fn runs_or_starts(&self, id: &ProgramId) -> bool {
+        self.ids.borrow().contains(id)
+            || self
+                .starting
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .contains(id)
+    }
+
+    /// Ends the run of the program `id`, if any, once a start under way is done, and waits until
+    /// it has ended: it is out of the list first, so nothing finds it running meanwhile.
+    pub(crate) async fn stop(&self, id: &ProgramId) {
+        let mut running = self.running.lock().await;
+        let Some(current) = running.remove(id) else {
+            return;
+        };
+        self.ids.send_replace(running.keys().cloned().collect());
+        tracing::info!(%id, "the program is removed or updated: its run ends");
+        current.program.stop();
+        current.program.ended().await;
     }
 
     /// The ids running now, and each change of them from now on.
@@ -228,6 +259,38 @@ impl Run {
             ProgramEnd::Failed(error) => RunEnd::Failed(format!("{error:#}")),
             ProgramEnd::Stopped if self.replaced.load(Ordering::SeqCst) => RunEnd::Replaced,
             ProgramEnd::Stopped => RunEnd::Stopped,
+        }
+    }
+}
+
+/// An id among those being started, for as long as this is held.
+struct Starting<'a> {
+    runs: &'a Runs,
+    id: ProgramId,
+}
+
+impl<'a> Starting<'a> {
+    fn of(runs: &'a Runs, id: &ProgramId) -> Starting<'a> {
+        runs.starting
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push(id.clone());
+        Starting {
+            runs,
+            id: id.clone(),
+        }
+    }
+}
+
+impl Drop for Starting<'_> {
+    fn drop(&mut self) {
+        let mut starting = self
+            .runs
+            .starting
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        if let Some(index) = starting.iter().position(|id| *id == self.id) {
+            starting.remove(index);
         }
     }
 }

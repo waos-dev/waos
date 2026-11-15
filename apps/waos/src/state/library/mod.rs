@@ -16,7 +16,11 @@
 //! runs on the library's own tokio runtime, and its answer comes back to the main thread, where
 //! the library changes and notifies. A program installed or updated has its code compiled, on a
 //! thread of its own (`logic::installed_code`), and is compiling until its code is ready; a
-//! program removed, or the version an update replaces, has its code removed first. What was asked last and failed is the library's
+//! program removed, or the version an update replaces, has its code removed first. A program
+//! removed or updated while it runs ends first, its tab closing and its windows with it, as a
+//! system ends an app it uninstalls or updates: the removal waits for the end before it takes the
+//! program's folders, and an update from a source ends it once the package is downloaded; so no
+//! run outlives the package it came from. What was asked last and failed is the library's
 //! problem, until the next thing asked succeeds or the user dismisses it.
 //!
 //! The invariant: the library changes the store only through the store's own rules, and reads
@@ -578,7 +582,8 @@ impl Library {
         cx.notify();
     }
 
-    /// Installs `program` as `source` lists it, a new program or an update of an installed one.
+    /// Installs `program` as `source` lists it, a new program or an update of an installed one; a
+    /// run of it ends once the package is downloaded, before the update replaces it.
     pub(crate) fn install_from(
         &mut self,
         source: &Source,
@@ -592,12 +597,21 @@ impl Library {
         let first_install = self.installed_program(&program.id).is_none();
         self.remove_code(&program.id);
         let (store, source, listed) = (self.store.clone(), source.clone(), program.clone());
-        let id = program.id.clone();
+        let (runs, id) = (Arc::clone(&self.runs.runs), program.id.clone());
         self.work_then(
-            async move { store.install_from(&source, &listed).await },
+            async move {
+                let download = store.download(&source, &listed).await?;
+                // Once the package is here, so a failed download leaves the program running.
+                runs.stop(&listed.id).await;
+                store.install_download(download).await
+            },
             move |library, installed, cx| {
                 library.installing.retain(|installing| installing != &id);
                 let succeeded = installed.is_ok();
+                if succeeded {
+                    // The tab of the run the update ended, where it had one.
+                    library.close(&id, cx);
+                }
                 match installed {
                     Ok(_) => {
                         library.compile(&id);
@@ -678,61 +692,102 @@ impl Library {
     }
 
     /// The user's answer to the question asked now: yes installs the package, or removes the
-    /// program; no leaves it. A package copied for the question is removed either way. The next
-    /// question, if any, is asked then.
+    /// program; no leaves it. A package copied for the question is removed either way, once it is
+    /// installed where yes. The next question, if any, is asked then.
     pub(crate) fn answer(&mut self, yes: bool, cx: &mut Context<Library>) {
         if self.questions.is_empty() {
             return;
         }
-        let question = self.questions.remove(0);
-        let copy = match &question {
-            Question::Install(package) => Some(package.file().to_path_buf()),
-            Question::Remove { .. } => None,
-        };
-        if yes {
-            self.carry_out(question, cx);
-        }
-        if let Some(copy) = copy {
-            self.package_copies.remove(&copy);
+        match (self.questions.remove(0), yes) {
+            (Question::Install(package), true) => self.install_opened(package, cx),
+            (Question::Install(package), false) => self.package_copies.remove(package.file()),
+            (Question::Remove { id, .. }, true) => self.remove(&id, cx),
+            (Question::Remove { .. }, false) => {}
         }
         cx.notify();
     }
 
-    /// Does what `question` asked.
-    fn carry_out(&mut self, question: Question, cx: &mut Context<Library>) {
-        let mut installed_first = None;
-        let outcome = match question {
-            Question::Install(package) => {
-                tracing::info!(file = %package.file().display(), "the user said to install");
-                let id = package.manifest().id().clone();
-                let first_install = self.installed_program(&id).is_none();
-                self.remove_code(&id);
-                let installed = self
-                    .store
-                    .install(package.into_package())
-                    .map(|installed| self.compile(installed.manifest.id()))
-                    .map_err(|error| format!("{error}"));
-                if installed.is_ok() && first_install {
-                    installed_first = Some(id);
-                }
-                installed
-            }
-            Question::Remove { id, .. } => {
-                self.remove_code(&id);
-                let removed = self.store.remove(&id).map_err(|error| format!("{error}"));
-                // Its app goes with it, and what the system kept for the app.
-                self.notifications_refused.remove(&id);
-                removed
-            }
-        };
-        match outcome {
+    /// Installs `package`, opened with WaOS, once no run of its program is left: a program that
+    /// runs, updated so, ends first, its tab closing, as a system ends an app it updates.
+    fn install_opened(&mut self, package: Box<OpenedPackage>, cx: &mut Context<Library>) {
+        tracing::info!(file = %package.file().display(), "the user said to install");
+        let id = package.manifest().id().clone();
+        self.close(&id, cx);
+        self.once_ended(
+            &id,
+            move |library, cx| library.put_in_place(package, cx),
+            cx,
+        );
+    }
+
+    /// Installs `package`, its copy removed after, and offers its program a place on the home
+    /// screen where it is new.
+    fn put_in_place(&mut self, package: Box<OpenedPackage>, cx: &mut Context<Library>) {
+        let (id, copy) = (
+            package.manifest().id().clone(),
+            package.file().to_path_buf(),
+        );
+        let first_install = self.installed_program(&id).is_none();
+        self.remove_code(&id);
+        let installed = self
+            .store
+            .install(package.into_package())
+            .map(|installed| self.compile(installed.manifest.id()));
+        self.package_copies.remove(&copy);
+        let succeeded = installed.is_ok();
+        match installed {
             Ok(()) => self.succeeded(cx),
-            Err(why) => self.failed(why, cx),
+            Err(error) => self.failed(format!("{error}"), cx),
         }
         self.installed_changed(cx);
-        if let Some(id) = installed_first {
+        if succeeded && first_install {
             self.offer_home_screen(&id, cx);
         }
+    }
+
+    /// Removes the installed program `id` once no run of it is left: one that runs ends first,
+    /// its tab closing and its windows with it, as a system ends an app it uninstalls, so no run
+    /// goes on over the folders the removal takes.
+    fn remove(&mut self, id: &ProgramId, cx: &mut Context<Library>) {
+        self.close(id, cx);
+        let id = id.clone();
+        self.once_ended(
+            &id.clone(),
+            move |library, cx| library.take_out(&id, cx),
+            cx,
+        );
+    }
+
+    /// Takes the program `id` out of the store, with its code and what the system kept for its
+    /// app.
+    fn take_out(&mut self, id: &ProgramId, cx: &mut Context<Library>) {
+        self.remove_code(id);
+        let removed = self.store.remove(id);
+        self.notifications_refused.remove(id);
+        match removed {
+            Ok(()) => self.succeeded(cx),
+            Err(error) => self.failed(format!("{error}"), cx),
+        }
+        self.installed_changed(cx);
+    }
+
+    /// Does `then` once no run of the program `id` is left: at once where none runs or is being
+    /// started, and otherwise once its run is ended, on the library's runtime.
+    fn once_ended(
+        &mut self,
+        id: &ProgramId,
+        then: impl FnOnce(&mut Library, &mut Context<Library>) + 'static,
+        cx: &mut Context<Library>,
+    ) {
+        if !self.runs.runs.runs_or_starts(id) {
+            return then(self, cx);
+        }
+        let (runs, id) = (Arc::clone(&self.runs.runs), id.clone());
+        self.work_then(
+            async move { runs.stop(&id).await },
+            move |library, (), cx| then(library, cx),
+            cx,
+        );
     }
 
     /// Starts compiling the code of the program `id`, installed or updated just now, off the main

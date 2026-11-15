@@ -48,7 +48,7 @@ pub use error::{InstallError, SourceError, StoreError};
 pub use fetch::SourceProxy;
 pub use settings::{AnswerWith, GlobalSettings, PerQuestion, ProgramSettings};
 pub use source::Source;
-pub use store::{InstalledProgram, Store};
+pub use store::{Download, InstalledProgram, Store};
 /// What the settings are made of, as `waos-capabilities` names them.
 pub use waos_capabilities::{
     Answer, Domain, DomainError, DomainRule, FileDialog, FileSystemGrant, Mount, NetworkGrant,
