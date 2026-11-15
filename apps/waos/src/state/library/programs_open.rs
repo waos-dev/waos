@@ -17,7 +17,7 @@ use waos::RunningProgram;
 use waos_package::ProgramId;
 use waos_program_window::placed_view;
 
-use super::Library;
+use super::{Library, WantsToBeSeen};
 use crate::logic::program_faces::program_face;
 use crate::logic::program_places::ProgramPlace;
 use crate::state::ViewWindows;
@@ -72,6 +72,7 @@ impl Library {
     pub(crate) fn show_programs_inside_waos(&mut self, inside: bool, cx: &mut Context<Library>) {
         if self.programs_open == ProgramsOpen::AsChosen {
             self.choose_preferences(|chosen| chosen.programs_inside_waos = inside, cx);
+            self.match_shortcuts(cx);
         }
     }
 
@@ -79,7 +80,9 @@ impl Library {
     /// restored to a WaOS started afresh, as its first: opened in `windows` for it, and shown
     /// there once the program runs. Where it cannot start, or runs already with windows of its
     /// own, the window closes, the running program's coming forward; one that cannot start is the
-    /// library's problem.
+    /// library's problem. One no longer installed, as a tap on a removed program's home-screen
+    /// icon asks for before WaOS disabled it, also brings WaOS's own window forward to say so, and
+    /// disables the icon. A program that starts goes first among WaOS's recent programs.
     pub(crate) fn open_restored(
         &mut self,
         id: &ProgramId,
@@ -94,12 +97,16 @@ impl Library {
             Err(why) => return self.failed(format!("{id} could not be opened: {why}"), cx),
         };
         let Some(component) = self.store.program(id) else {
+            // Brought forward while the window is in sight, which Android requires of an app.
+            cx.emit(WantsToBeSeen);
             windows.update(cx, |windows, _| windows.given_not_started(view_id));
+            self.match_shortcuts(cx);
             return self.failed(
                 format!("{id} is not installed, or its files cannot be read"),
                 cx,
             );
         };
+        self.add_recent(id, cx);
         let (runs, opening) = (self.runs.clone(), id.clone());
         let placed = placed_view(opened, None);
         let windows = windows.clone();

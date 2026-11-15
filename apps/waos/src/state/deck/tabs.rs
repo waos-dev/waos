@@ -25,7 +25,7 @@ use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::Arc;
 
-use waft::ui::{ViewFocusEvent, ViewFocusState, ViewRef};
+use waft::ui::{ViewFocusDirection, ViewFocusEvent, ViewFocusState, ViewRef};
 use waft::{
     App, Context, Entity, FrameCallback, SchedulerBinding, WeakEntity, WidgetsBinding,
     WidgetsBindingObserver,
@@ -97,6 +97,15 @@ impl Tabs {
         });
         WidgetsBinding::instance(app).add_observer(app, reports);
         tabs
+    }
+
+    /// Brings the deck's window forward, as Android brings WaOS's own task forward while a
+    /// window of WaOS's is in sight; nothing before the platform gives the deck its view.
+    pub(crate) fn bring_forward(&self) {
+        if let Some(view) = &self.view {
+            view.host()
+                .request_focus_change(ViewFocusState::Focused, ViewFocusDirection::Undefined);
+        }
     }
 
     /// The deck is shown in `view`, which its tabs' pages are measured in.

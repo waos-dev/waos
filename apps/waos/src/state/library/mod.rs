@@ -9,7 +9,8 @@
 //! for, on a desktop and on Android each a task of its own, or in a tab of the deck
 //! (`state::deck`), the home's tab where the home is open, which gives it its view as it starts;
 //! a program running opens where it runs, its windows coming forward. On Android the user chooses
-//! between tasks and tabs, which holds for programs opened after.
+//! between tasks and tabs, which holds for programs opened after, and the installed programs have
+//! shortcuts on the home screen and on WaOS's icon's menu (`shortcuts`).
 //!
 //! What reads the network or the disk at length, a source's index, a download, a program's load,
 //! runs on the library's own tokio runtime, and its answer comes back to the main thread, where
@@ -26,6 +27,7 @@
 
 mod programs_open;
 mod settings;
+mod shortcuts;
 #[cfg(test)]
 pub(crate) mod test_desktop;
 #[cfg(test)]
@@ -60,11 +62,13 @@ use crate::logic::opening;
 use crate::logic::package_copies::{PackageCopies, document_name, read_document};
 use crate::logic::preferences::{KeptPreferences, Preferences, PreferencesFile};
 use crate::logic::program_places::ProgramPlace;
+use crate::logic::program_shortcuts::SystemShortcuts;
 use crate::logic::setting_changes::Offered;
 use crate::logic::system_notifications::program_activation;
 use crate::state::deck::tabs::Tabs;
 pub(crate) use programs_open::ProgramsOpen;
 pub(crate) use settings::{LeftSettings, LibraryPage, SwitchAsked, open_settings_when_asked};
+use shortcuts::ShortcutsMatching;
 
 pub(crate) struct Library {
     store: Store,
@@ -108,6 +112,10 @@ pub(crate) struct Library {
     notifications_refused: HashSet<ProgramId>,
     /// What the user searches the installed programs for, as typed; empty for nothing.
     search: String,
+    /// Where the installed programs' shortcuts are kept, on Android; none elsewhere.
+    shortcuts: Option<Rc<dyn SystemShortcuts>>,
+    /// Whether they are being made to match what is installed.
+    shortcuts_matching: ShortcutsMatching,
 }
 
 /// A source the user added, and what it lists.
@@ -226,6 +234,8 @@ impl Library {
             waiting_to_leave: Vec::new(),
             notifications_refused: HashSet::new(),
             search: String::new(),
+            shortcuts: None,
+            shortcuts_matching: ShortcutsMatching::Idle,
         };
         library.read_sources(cx);
         library.follow_running(cx);
@@ -386,10 +396,7 @@ impl Library {
             );
             return;
         };
-        cx.emit(ProgramOpened {
-            id: id.clone(),
-            activation_token,
-        });
+        self.opened(id, activation_token, cx);
         if let Some(tabs) = self.tabs.clone()
             && self.place_to_open(id) == ProgramPlace::Tab
         {
@@ -450,10 +457,7 @@ impl Library {
         request: OpenRequest,
         cx: &mut Context<Library>,
     ) {
-        cx.emit(ProgramOpened {
-            id: id.clone(),
-            activation_token: None,
-        });
+        self.opened(id, None, cx);
         let (runs, store, id) = (self.runs.clone(), self.store.clone(), id.clone());
         self.work_then(
             async move { opening::open_with(&runs, &store, &id, request).await },
@@ -472,16 +476,28 @@ impl Library {
         activation: Activation,
         cx: &mut Context<Library>,
     ) {
-        cx.emit(ProgramOpened {
-            id: id.clone(),
-            activation_token: None,
-        });
+        self.opened(id, None, cx);
         let (runs, store, id) = (self.runs.clone(), self.store.clone(), id.clone());
         self.work_then(
             async move { opening::notification_activated(&runs, &store, &id, activation).await },
             Library::program_opened,
             cx,
         );
+    }
+
+    /// The program `id` is opened by the user: its windows come forward, with `activation_token`
+    /// where the launch brought one, and it goes first among the recent programs on WaOS's icon.
+    fn opened(
+        &mut self,
+        id: &ProgramId,
+        activation_token: Option<String>,
+        cx: &mut Context<Library>,
+    ) {
+        cx.emit(ProgramOpened {
+            id: id.clone(),
+            activation_token,
+        });
+        self.add_recent(id, cx);
     }
 
     /// What opening a program came to: one that could not be opened is the library's problem,
@@ -573,6 +589,7 @@ impl Library {
             return;
         }
         self.installing.push(program.id.clone());
+        let first_install = self.installed_program(&program.id).is_none();
         self.remove_code(&program.id);
         let (store, source, listed) = (self.store.clone(), source.clone(), program.clone());
         let id = program.id.clone();
@@ -580,6 +597,7 @@ impl Library {
             async move { store.install_from(&source, &listed).await },
             move |library, installed, cx| {
                 library.installing.retain(|installing| installing != &id);
+                let succeeded = installed.is_ok();
                 match installed {
                     Ok(_) => {
                         library.compile(&id);
@@ -588,6 +606,9 @@ impl Library {
                     Err(error) => library.failed(format!("{error}"), cx),
                 }
                 library.installed_changed(cx);
+                if succeeded && first_install {
+                    library.offer_home_screen(&id, cx);
+                }
             },
             cx,
         );
@@ -679,14 +700,22 @@ impl Library {
 
     /// Does what `question` asked.
     fn carry_out(&mut self, question: Question, cx: &mut Context<Library>) {
+        let mut installed_first = None;
         let outcome = match question {
             Question::Install(package) => {
                 tracing::info!(file = %package.file().display(), "the user said to install");
-                self.remove_code(package.manifest().id());
-                self.store
+                let id = package.manifest().id().clone();
+                let first_install = self.installed_program(&id).is_none();
+                self.remove_code(&id);
+                let installed = self
+                    .store
                     .install(package.into_package())
                     .map(|installed| self.compile(installed.manifest.id()))
-                    .map_err(|error| format!("{error}"))
+                    .map_err(|error| format!("{error}"));
+                if installed.is_ok() && first_install {
+                    installed_first = Some(id);
+                }
+                installed
             }
             Question::Remove { id, .. } => {
                 self.remove_code(&id);
@@ -701,6 +730,9 @@ impl Library {
             Err(why) => self.failed(why, cx),
         }
         self.installed_changed(cx);
+        if let Some(id) = installed_first {
+            self.offer_home_screen(&id, cx);
+        }
     }
 
     /// Starts compiling the code of the program `id`, installed or updated just now, off the main
@@ -746,6 +778,7 @@ impl Library {
         self.installed = self.store.installed();
         self.icons = icons_of(&self.store, &self.installed);
         cx.emit(InstalledChanged);
+        self.match_shortcuts(cx);
         for read in &mut self.sources {
             if let Listing::Read(offers) = &mut read.listing {
                 let listed = offers.drain(..).map(|(program, _)| program).collect();

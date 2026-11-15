@@ -65,15 +65,16 @@ toml.workspace = true
 hex.workspace = true
 # The pictures of a program's windows `cargo waos screenshot` asks for, as PNGs.
 png.workspace = true
+# A program's icon scaled to each size of the `.ico` its Start menu shortcut and its windows' pins
+# show on Windows, as Waft's CLI scales an executable's, and to its home-screen shortcut's on
+# Android; tested on every system.
+image = { version = "0.25", default-features = false, features = ["png"] }
 
 # Waft's desktop host, for what only macOS offers beyond Waft's `Platform`: hearing WaOS's Dock
 # icon clicked, and hiding the app. Where Waft's default host is
 # winit's, as `waft-embedder-default` picks it.
 [target.'cfg(not(any(target_arch = "wasm32", target_os = "android")))'.dependencies]
 waft-embedder-winit.workspace = true
-# A program's icon scaled to each size of the `.ico` its Start menu shortcut and its windows' pins
-# show on Windows, as Waft's CLI scales an executable's; tested on every desktop.
-image = { version = "0.25", default-features = false, features = ["png"] }
 
 # Each program's app of its own: what WaOS and its window process say over Mach, the code hash of its
 # bundle and its process, Launch Services opening it, the end of its process, and WaOS's activation

@@ -4,7 +4,8 @@
 //! the Keychain its record is vouched for with, Launch Services, WaOS's activation yielded to it,
 //! the layer context its views' layers are hosted from, a program's hardware buffer handed to
 //! the main thread, and the link to its notifications in System Settings; on Android, the entry its
-//! activity calls, the app's folders, the system's log and the simulated camera's frames; on
+//! activity calls, the app's folders, the system's log, the simulated camera's frames and the
+//! programs' shortcuts, through Waft's Android host; on
 //! Windows, the user's local application data folder and the Start menu's folder of programs, as
 //! the shell names them, and a program's Start menu shortcut. Each system has a module with the same
 //! names for what every system answers, and the target picks the module; a system other than macOS

@@ -1,8 +1,9 @@
 //! The library as the deck's home. The library is one state with a page of its own, the grid of
 //! programs, getting programs or a settings page; on a phone it is what the home's tab shows, so
-//! it is in sight only while the home's page is. This keeps the two together: a program that asks
-//! its user to change one of its switches opens its settings page in the library, and the deck
-//! goes home to show it; and once the home's page is out of sight, a program waiting for its user
+//! it is in sight only while the home's page is. This keeps the two together: whatever the library
+//! asks to be seen for brings the deck's window forward, as on Android, where a program may be in
+//! a task of its own in front; a program that asks its user to change one of its switches opens
+//! its settings page in the library, and the deck goes home to show it; and once the home's page is out of sight, a program waiting for its user
 //! to leave a settings page hears so, and a home opened later starts on the grid of programs.
 //!
 //! The invariant: the library is on a page other than its grid of programs only while a home is
@@ -20,22 +21,20 @@ pub(crate) fn keep_library_with_the_home(
     library: &Entity<Library>,
     tabs: &Entity<Tabs>,
 ) {
-    go_home_when_a_program_asks_for_a_switch(app, library, tabs);
+    show_what_the_library_wants_seen(app, library, tabs);
     tell_library_when_the_home_is_out_of_sight(app, library, tabs);
 }
 
-/// What else the library asks to be seen for, a question or a problem, shows as an alert over
-/// whatever page the deck is on, and moves nothing.
-fn go_home_when_a_program_asks_for_a_switch(
-    app: &mut App,
-    library: &Entity<Library>,
-    tabs: &Entity<Tabs>,
-) {
+/// The deck's window comes forward whenever the library asks to be seen, and goes home where a
+/// program asked for one of its switches. What else the library asks to be seen for, a question or
+/// a problem, shows as an alert over whatever page the deck is on, and moves no page.
+fn show_what_the_library_wants_seen(app: &mut App, library: &Entity<Library>, tabs: &Entity<Tabs>) {
     let (asked, tabs) = (library.downgrade(), tabs.downgrade());
     app.subscribe(library, move |app, _: &WantsToBeSeen| {
         let (Some(library), Some(tabs)) = (asked.upgrade(), tabs.upgrade()) else {
             return;
         };
+        tabs.read(app).bring_forward();
         if library.read(app).switch_asked().is_some() {
             tabs.update(app, |tabs, cx| {
                 tabs.go_home(cx);

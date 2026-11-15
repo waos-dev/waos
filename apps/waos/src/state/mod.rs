@@ -3,7 +3,7 @@
 //! desktop, and on a phone each program in a tab of the deck, which refuses every request, Waft's
 //! clipboard as the programs' one, Waft's menus as theirs, a program's menu bar, context menus,
 //! file dialogs and notifications its app's on macOS, WaOS's own menu bar, Waft's opener,
-//! notifications elsewhere, players, reading of media and cameras as theirs, the dev server listening for `cargo waos`, the library over the
+//! notifications elsewhere, players, reading of media and cameras as theirs, the dev server listening for `cargo waos`, the installed programs' shortcuts on Android, the library over the
 //! store in the desktop's launcher or in a window of a phone's size, the questions
 //! programs put to their user, the picker of their sound's output among them, shown on macOS in
 //! dialogs of the programs' apps (`prompt_dialogs`), the programs recording, and the quit that
@@ -84,9 +84,9 @@ use crate::logic::package_copies::PackageCopies;
 use crate::logic::placement::WindowsOnRequest;
 use crate::logic::preferences::PreferencesFile;
 use crate::logic::program_faces::ProgramFaces;
-#[cfg(not(target_os = "android"))]
 use crate::logic::program_identities::Identities;
 use crate::logic::program_places::{PlacedWhereOpened, ProgramPlace, ProgramPlaces};
+use crate::logic::program_shortcuts::SystemShortcuts;
 use crate::logic::prompts::PromptsOnRequest;
 use crate::logic::recording_indicator::RecordingIndicatorOnRequest;
 use crate::logic::runs::Runs;
@@ -345,6 +345,8 @@ pub(crate) fn start(
     // closes the panel it opened at launch, as opening a program does, and a package opens it.
     take_files_opened_with_waos(app, &library, later_launches);
     take_notification_clicks(app, &library, posted_as_programs);
+    // Once the library opens programs in the deck's tabs, where a shortcut's tap may open one.
+    keep_program_shortcuts(app, &library);
     let program_windows = program_windows(&view_windows, &prompt_windows);
     let windows = every_window(
         Some(library_window),
@@ -471,6 +473,37 @@ pub(crate) fn bring_opened_programs_forward(
         }
     })
     .detach();
+}
+
+/// The installed programs' shortcuts kept where the system keeps them, through `library`, on
+/// Android, and each tap on one that opens inside WaOS opening its program there, or bringing it
+/// forward where it runs.
+fn keep_program_shortcuts(app: &mut App, library: &Entity<Library>) {
+    let Some(system) = system_shortcuts(app) else {
+        return;
+    };
+    let (taps_to, cx) = (library.downgrade(), app.to_async());
+    system.hear_taps(Box::new(move |id| {
+        let library = taps_to.clone();
+        cx.post(move |app| {
+            if let Some(library) = library.upgrade() {
+                library.update(app, |library, cx| library.show_program(&id, None, cx));
+            }
+        });
+    }));
+    library.update(app, |library, cx| library.keep_shortcuts(system, cx));
+}
+
+/// Android's shortcuts, through Waft's Android host.
+#[cfg(target_os = "android")]
+fn system_shortcuts(app: &App) -> Option<Rc<dyn SystemShortcuts>> {
+    crate::os::system_shortcuts(app.platform().as_ref())
+}
+
+/// None: only Android keeps an app's shortcuts of WaOS's programs.
+#[cfg(not(target_os = "android"))]
+fn system_shortcuts(_app: &App) -> Option<Rc<dyn SystemShortcuts>> {
+    None
 }
 
 /// WaOS's own window, the library shown in it with the programs recording, in `place`: the

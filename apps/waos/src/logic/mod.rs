@@ -9,7 +9,8 @@
 //! runs with (`environments`): this computer's capabilities and the grants of the store's settings;
 //! the library's side of the store: a package opened with WaOS, what a source's listing offers
 //! against what is installed, an installed program run as `cargo waos run` runs one, its code
-//! compiled at its install and removed with it (`installed_code`), and a settings
+//! compiled at its install and removed with it (`installed_code`), each installed program's shortcut on Android's home screen and WaOS's
+//! icon's menu, made to match what is installed (`program_shortcuts`), and a settings
 //! page and what the user changes on it (`setting_changes`); when the desktop's launcher shows and
 //! goes (`launcher_rules`), and where it shows (`launcher_placement`); where the programs' prompts go (`prompts`), their questions
 //! and the picker of their sound's output among them, with a program's name as its user knows it
@@ -103,6 +104,7 @@ pub(crate) mod program_faces;
 pub(crate) mod program_identities;
 pub(crate) mod program_name;
 pub(crate) mod program_places;
+pub(crate) mod program_shortcuts;
 pub(crate) mod prompts;
 #[cfg(not(target_os = "android"))]
 pub(crate) mod quit_question;

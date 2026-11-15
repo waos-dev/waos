@@ -29,6 +29,9 @@ use crate::logic::installed_code::HeldCompiles;
 use crate::logic::opened_package::tests::write_package;
 use crate::logic::package_copies::PackageCopies;
 use crate::logic::program_places::{ProgramPlace, ProgramPlaces};
+use crate::logic::program_shortcuts::{
+    KeptShortcut, ProgramShortcut, ShortcutOpens, SystemShortcuts,
+};
 use crate::logic::runs::Runs;
 use crate::logic::test_engine::{self, NoWindows};
 
@@ -53,7 +56,17 @@ struct TestLibrary {
 
 impl TestLibrary {
     fn new() -> TestLibrary {
+        TestLibrary::opening(ProgramsOpen::InWindows, |_| None)
+    }
+
+    /// The library, opening programs as `programs_open` says, with the preferences file
+    /// `preferences` names in the test's folder, if any.
+    fn opening(
+        programs_open: ProgramsOpen,
+        preferences: impl FnOnce(&std::path::Path) -> Option<PreferencesFile>,
+    ) -> TestLibrary {
         let folder = tempfile::tempdir().unwrap();
+        let preferences = preferences(folder.path());
         let copies = PackageCopies::clear(folder.path().join("package-copies")).unwrap();
         let runs = Arc::new(Runs::default());
         let store = Store::open(&folder.path().join("store"), SourceProxy::None).unwrap();
@@ -72,8 +85,8 @@ impl TestLibrary {
             store,
             installed_runs,
             copies,
-            ProgramsOpen::InWindows,
-            None,
+            programs_open,
+            preferences,
         )
         .unwrap();
         let asked_to_be_seen = Rc::new(Mutex::new(0));
@@ -837,4 +850,213 @@ fn a_request_to_open_files_is_told_apart_into_paths_and_documents() {
     let opened = OpenedFiles::of(request);
     assert_eq!(opened.paths, [PathBuf::from("/tmp/a.wapk")]);
     assert_eq!(opened.documents.len(), 1);
+}
+
+/// What the library asked of a system's shortcuts, as a phone's launcher would keep them: each
+/// shortcut by its id, pinned or recent, enabled or not.
+#[derive(Default)]
+struct TestShortcuts {
+    pins: bool,
+    kept: std::cell::RefCell<Vec<KeptShortcut>>,
+    /// The ids the launcher was asked to pin, in order.
+    pin_requests: std::cell::RefCell<Vec<String>>,
+    /// The ids put first among the recent programs, in order, which the launcher keeps unpinned.
+    recent: std::cell::RefCell<Vec<String>>,
+    /// Each shortcut updated, in order.
+    updates: std::cell::RefCell<Vec<ProgramShortcut>>,
+}
+
+impl TestShortcuts {
+    /// Keeps the shortcut `id`, pinned where `pinned`, which a pin makes so for one kept already.
+    fn keep(&self, id: &str, pinned: bool) {
+        let mut kept = self.kept.borrow_mut();
+        match kept.iter_mut().find(|shortcut| shortcut.id == id) {
+            Some(shortcut) => shortcut.pinned |= pinned,
+            None => kept.push(KeptShortcut {
+                id: id.to_owned(),
+                pinned,
+                enabled: true,
+                disabled_by_waos: false,
+            }),
+        }
+    }
+
+    /// Whether the shortcut `id` is kept, and enabled.
+    fn state_of(&self, id: &str) -> Option<bool> {
+        let kept = self.kept.borrow();
+        kept.iter()
+            .find(|shortcut| shortcut.id == id)
+            .map(|shortcut| shortcut.enabled)
+    }
+}
+
+impl SystemShortcuts for TestShortcuts {
+    fn pins(&self) -> bool {
+        self.pins
+    }
+
+    fn icon_size(&self) -> u32 {
+        8
+    }
+
+    fn request_pin(
+        &self,
+        shortcut: &ProgramShortcut,
+    ) -> futures::future::LocalBoxFuture<'static, Result<(), String>> {
+        self.pin_requests.borrow_mut().push(shortcut.id.to_string());
+        self.keep(shortcut.id.as_str(), true);
+        Box::pin(std::future::ready(Ok(())))
+    }
+
+    fn add_recent(&self, shortcut: &ProgramShortcut) {
+        self.recent.borrow_mut().push(shortcut.id.to_string());
+        self.keep(shortcut.id.as_str(), false);
+    }
+
+    fn kept(&self) -> futures::future::LocalBoxFuture<'static, Result<Vec<KeptShortcut>, String>> {
+        Box::pin(std::future::ready(Ok(self.kept.borrow().clone())))
+    }
+
+    fn update(
+        &self,
+        shortcuts: &[ProgramShortcut],
+    ) -> futures::future::LocalBoxFuture<'static, Result<(), String>> {
+        self.updates.borrow_mut().extend_from_slice(shortcuts);
+        Box::pin(std::future::ready(Ok(())))
+    }
+
+    fn enable(&self, ids: &[ProgramId]) {
+        for shortcut in self.kept.borrow_mut().iter_mut() {
+            if ids.iter().any(|id| id.as_str() == shortcut.id) {
+                shortcut.enabled = true;
+                shortcut.disabled_by_waos = false;
+            }
+        }
+    }
+
+    fn disable(&self, ids: &[String]) {
+        for shortcut in self.kept.borrow_mut().iter_mut() {
+            if ids.contains(&shortcut.id) {
+                shortcut.enabled = false;
+                shortcut.disabled_by_waos = true;
+            }
+        }
+    }
+
+    fn hear_taps(&self, _tapped: Box<dyn Fn(ProgramId)>) {}
+}
+
+impl TestLibrary {
+    /// Keeps the programs' shortcuts in a system of the test's own, whose launcher pins as `pins`
+    /// says, already keeping shortcuts of `kept`.
+    fn keeping_shortcuts(&self, pins: bool, kept: &[&str]) -> Rc<TestShortcuts> {
+        let system = Rc::new(TestShortcuts {
+            pins,
+            ..TestShortcuts::default()
+        });
+        for id in kept {
+            system.keep(id, true);
+        }
+        let kept_in = Rc::clone(&system) as Rc<dyn SystemShortcuts>;
+        self.update(|library, cx| library.keep_shortcuts(kept_in, cx));
+        system
+    }
+}
+
+#[test]
+fn a_program_installed_for_the_first_time_is_offered_the_home_screen_and_an_update_is_not() {
+    let library = TestLibrary::new();
+    let shortcuts = library.keeping_shortcuts(true, &[]);
+    library.installs_after_yes(library.package(TRIANGLE, "1.0.0", b"\0asm"));
+    library.wait_until("the pin's request", |_| {
+        !shortcuts.pin_requests.borrow().is_empty()
+    });
+    library.installs_after_yes(library.package(TRIANGLE, "2.0.0", b"\0asm"));
+    library.wait_until("the update's shortcut updated", |_| {
+        !shortcuts.updates.borrow().is_empty()
+    });
+    assert_eq!(*shortcuts.pin_requests.borrow(), [TRIANGLE]);
+    let updated = shortcuts.updates.borrow().last().cloned().unwrap();
+    assert_eq!(updated.name, "Triangle");
+    assert_eq!(updated.opens, ShortcutOpens::OwnTask);
+}
+
+#[test]
+fn the_home_screen_is_offered_only_where_the_launcher_pins() {
+    let library = TestLibrary::new();
+    let shortcuts = library.keeping_shortcuts(false, &[]);
+    library.installs_after_yes(library.package(TRIANGLE, "1.0.0", b"\0asm"));
+    let triangle: ProgramId = TRIANGLE.parse().unwrap();
+    assert!(!library.read(|library| library.adds_to_home_screen(&triangle)));
+    thread::sleep(Duration::from_millis(50));
+    library.cell.checkpoint();
+    assert!(shortcuts.pin_requests.borrow().is_empty());
+}
+
+#[test]
+fn a_program_opened_goes_first_among_the_recent_programs() {
+    let library = TestLibrary::new();
+    library.installs_after_yes(library.package(TRIANGLE, "1.0.0", b"\0asm"));
+    let shortcuts = library.keeping_shortcuts(true, &[]);
+    let triangle: ProgramId = TRIANGLE.parse().unwrap();
+    library.update(|library, cx| library.open(&triangle, cx));
+    library.wait_until("the recent program", |_| {
+        !shortcuts.recent.borrow().is_empty()
+    });
+    assert_eq!(*shortcuts.recent.borrow(), [TRIANGLE]);
+}
+
+#[test]
+fn a_removed_programs_shortcut_is_disabled_and_enabled_once_it_is_installed_again() {
+    let library = TestLibrary::new();
+    library.installs_after_yes(library.package(TRIANGLE, "1.0.0", b"\0asm"));
+    let shortcuts = library.keeping_shortcuts(true, &[TRIANGLE, SURVEY]);
+    library.wait_until("the shortcut of a program not installed disabled", |_| {
+        shortcuts.state_of(SURVEY) == Some(false)
+    });
+    assert_eq!(shortcuts.state_of(TRIANGLE), Some(true));
+    let triangle: ProgramId = TRIANGLE.parse().unwrap();
+    library.update(|library, cx| library.ask_to_remove(&triangle, cx));
+    library.update(|library, cx| library.answer(true, cx));
+    library.wait_until("the removed program's shortcut disabled", |_| {
+        shortcuts.state_of(TRIANGLE) == Some(false)
+    });
+    library.installs_after_yes(library.package(TRIANGLE, "1.0.0", b"\0asm"));
+    library.wait_until("the shortcut enabled again", |_| {
+        shortcuts.state_of(TRIANGLE) == Some(true)
+    });
+    thread::sleep(Duration::from_millis(50));
+    library.cell.checkpoint();
+    assert!(
+        shortcuts.pin_requests.borrow().is_empty(),
+        "an icon on the home screen already is not asked for again"
+    );
+}
+
+#[test]
+fn a_program_only_among_the_recent_ones_is_offered_the_home_screen_when_installed_again() {
+    let library = TestLibrary::new();
+    let shortcuts = library.keeping_shortcuts(true, &[]);
+    shortcuts.keep(TRIANGLE, false);
+    library.installs_after_yes(library.package(TRIANGLE, "1.0.0", b"\0asm"));
+    library.wait_until("the pin's request", |_| {
+        !shortcuts.pin_requests.borrow().is_empty()
+    });
+}
+
+#[test]
+fn choosing_programs_inside_waos_points_the_shortcuts_at_waos() {
+    let library = TestLibrary::opening(ProgramsOpen::AsChosen, |folder| {
+        Some(PreferencesFile::at(folder.join("preferences.toml")))
+    });
+    library.installs_after_yes(library.package(TRIANGLE, "1.0.0", b"\0asm"));
+    let shortcuts = library.keeping_shortcuts(true, &[TRIANGLE]);
+    library.update(|library, cx| library.show_programs_inside_waos(true, cx));
+    library.wait_until("the shortcut pointed at WaOS", |_| {
+        shortcuts
+            .updates
+            .borrow()
+            .last()
+            .is_some_and(|updated| updated.opens == ShortcutOpens::InsideWaos)
+    });
 }

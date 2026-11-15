@@ -11,6 +11,8 @@ pub(crate) const HOME_TITLE: &str = "WaOS";
 pub(crate) const GET_PROGRAMS: &str = "Get programs";
 pub(crate) const ADD_SOURCE: &str = "Add a source";
 pub(crate) const REMOVE: &str = "Remove";
+/// On a program's icon, which asks the launcher to put the program on the home screen.
+pub(crate) const ADD_TO_HOME_SCREEN: &str = "Add to Home Screen";
 /// On a running program's icon, which stops it.
 pub(crate) const CLOSE: &str = "Close";
 pub(crate) const CANCEL: &str = "Cancel";
