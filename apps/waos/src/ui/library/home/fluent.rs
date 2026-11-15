@@ -10,9 +10,9 @@
 //! What it shows is the library's, read as it builds; it keeps nothing of its own.
 
 use waft::{
-    App, BoxConstraints, BuildContext, Center, Column, CrossAxisAlignment, EdgeInsetsGeometry,
-    Entity, Expanded, IntoWidget, LayoutBuilder, ListView, Listener, MainAxisSize, Padding, Row,
-    StatelessWidget, Text, TextAlign, WidgetRef,
+    App, BuildContext, Center, Column, CrossAxisAlignment, EdgeInsetsGeometry, Entity, Expanded,
+    IntoWidget, LayoutBuilder, ListView, Listener, MainAxisSize, Padding, Row, StatelessWidget,
+    Text, TextAlign, WidgetRef,
 };
 use waft_winui::{
     Button, ButtonStyle, FluentSymbol, FontIcon, InfoBadgeStyle, TextBlockStyle, ThemeResources,
@@ -146,7 +146,7 @@ impl FluentHomeBody {
             .into_iter()
             .map(|entry| self.tile(entry, &look, badge_color))
             .collect();
-        LayoutBuilder::new(move |_app, _context, constraints: BoxConstraints| {
+        LayoutBuilder::new(move |_app, _context, constraints| {
             let columns = columns_for(constraints.max_width - 2.0 * (MARGIN - TILE_PADDING[0]));
             ListView::new()
                 .padding(EdgeInsetsGeometry::from_ltrb(

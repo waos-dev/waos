@@ -168,7 +168,7 @@ impl State for LiveViewState {
         match (layer, self.aspect_ratio(app)) {
             (Some(layer), Some(aspect_ratio)) => {
                 LayoutBuilder::new(move |_app, _context, constraints| {
-                    let box_size = largest_at(aspect_ratio, constraints);
+                    let box_size = largest_at(aspect_ratio, constraints.constraints());
                     layer_pixels.set(Some(
                         box_size.map(|side| (side * pixel_ratio).round() as u32),
                     ));
