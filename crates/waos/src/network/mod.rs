@@ -22,6 +22,13 @@
 //! local network is connected to directly, and only an internet one goes through the proxy,
 //! which looks the name up again.
 //!
+//! Each check is told through the program's access as the use it is, the check's own function
+//! being the rule, whole: a lookup ([`ProgramNetwork::look_up`], [`ProgramNetwork::reachable`]),
+//! with what it was for ([`Cause`]); a connection, an accepted one and a listening socket decided;
+//! a datagram noted. A refusal names the setting that refused: `local-network` for this computer
+//! and the local network, `network` for the internet while the switch is off, and `domains` for a
+//! name or an address the domain rule refuses.
+//!
 //! The invariant: nothing here holds a verdict. Every check reads the grants as they are, so a
 //! switch turned off refuses the next lookup, connection or datagram, while a connection open
 //! already carries on.
@@ -37,8 +44,10 @@ use std::net::{IpAddr, SocketAddr, ToSocketAddrs};
 use std::str::FromStr;
 use std::sync::Arc;
 
-use waos_capabilities::{DomainRule, ProgramGrants};
+use waos_capabilities::DomainRule;
 use wasmtime_wasi::sockets::SocketAddrUse;
+
+use crate::access::{Asked, Cause, Noted, ProgramAccess, Refusal, Refused};
 
 use addresses::is_local;
 pub use http::HttpProxy;
@@ -46,11 +55,12 @@ pub(crate) use http::ProgramHttp;
 use localhost::localhost_addresses;
 use record::AddressRecord;
 
-/// One program's network: its grants, read at each check, the resolver its names are resolved
-/// with, and the addresses its lookups answered. Clones share the record.
+/// One program's network: its access, where each check is decided and its grants read, the
+/// resolver its names are resolved with, and the addresses its lookups answered. Clones share the
+/// record.
 #[derive(Clone)]
 pub(crate) struct ProgramNetwork {
-    grants: Arc<dyn ProgramGrants>,
+    access: ProgramAccess,
     resolver: Resolver,
     record: Arc<AddressRecord>,
 }
@@ -74,37 +84,54 @@ pub(crate) enum Lookup {
 /// Why a lookup answers no address.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum LookupError {
-    /// The program may not reach the name.
-    Refused,
+    /// The program may not reach the name, as the setting refused it.
+    Refused(Refusal),
     /// The text is no host name.
     Invalid,
     /// The system's resolver found no address for it.
     Unresolvable,
 }
 
+/// What refuses this computer and the local network.
+const LOCAL_NETWORK: Refusal = Refusal::by("local-network");
+
 impl ProgramNetwork {
-    /// The network of a program with `grants`, its names resolved by the system's resolver.
-    pub(crate) fn new(grants: Arc<dyn ProgramGrants>) -> ProgramNetwork {
-        ProgramNetwork::resolving_with(grants, Arc::new(system_resolve))
+    /// The network of the program `access` is of, its names resolved by the system's resolver.
+    pub(crate) fn new(access: ProgramAccess) -> ProgramNetwork {
+        ProgramNetwork::resolving_with(access, Arc::new(system_resolve))
     }
 
-    /// The network of a program with `grants`, its names resolved by `resolver`.
-    pub(crate) fn resolving_with(
-        grants: Arc<dyn ProgramGrants>,
-        resolver: Resolver,
-    ) -> ProgramNetwork {
+    /// The network of the program `access` is of, its names resolved by `resolver`.
+    pub(crate) fn resolving_with(access: ProgramAccess, resolver: Resolver) -> ProgramNetwork {
         ProgramNetwork {
-            grants,
+            access,
             resolver,
             record: Arc::default(),
         }
+    }
+
+    /// The addresses of `name` the program's own lookup answers, as [`plan_lookup`] and
+    /// [`resolve`] answer them: decided and told as one use. Blocks while the system resolves.
+    ///
+    /// [`plan_lookup`]: Self::plan_lookup
+    /// [`resolve`]: Self::resolve
+    pub(crate) fn look_up(&self, name: &str) -> Result<Vec<IpAddr>, LookupError> {
+        let asked = Asked::Lookup {
+            name,
+            cause: Cause::Program,
+        };
+        self.access
+            .decide(asked, |_| match self.plan_lookup(name)? {
+                Lookup::Known(addresses) => Ok(addresses),
+                Lookup::Resolve { name, by_rule } => self.resolve(&name, by_rule),
+            })
     }
 
     /// How a lookup of `name` goes, or why it is refused: an address answers itself; a localhost
     /// name answers this computer's loopback addresses when the local network is allowed; any
     /// other name is resolved when the domain rule allows it, or when the local network is
     /// allowed, for its local addresses alone.
-    pub(crate) fn plan_lookup(&self, name: &str) -> Result<Lookup, LookupError> {
+    fn plan_lookup(&self, name: &str) -> Result<Lookup, LookupError> {
         let name = match host_of(name)? {
             url::Host::Domain(name) => name,
             url::Host::Ipv4(address) => return Ok(Lookup::Known(vec![address.into()])),
@@ -118,29 +145,39 @@ impl ProgramNetwork {
 
     /// A localhost name's lookup: its loopback addresses, under the local-network switch alone.
     fn plan_localhost_lookup(&self, loopback: Vec<IpAddr>) -> Result<Lookup, LookupError> {
-        if self.grants.local_network() {
+        if self.access.grants().local_network() {
             Ok(Lookup::Known(loopback))
         } else {
-            Err(LookupError::Refused)
+            Err(LookupError::Refused(LOCAL_NETWORK))
         }
     }
 
     /// The lookup of `name`, which the system resolves: in full when the domain rule allows it,
     /// for its local addresses alone when only the local network is allowed.
     fn plan_system_lookup(&self, name: String) -> Result<Lookup, LookupError> {
-        let network = self.grants.network();
+        let network = self.access.grants().network();
         let by_rule = network.on && network.domains.allows(&name);
-        if by_rule || self.grants.local_network() {
+        if by_rule || self.access.grants().local_network() {
             Ok(Lookup::Resolve { name, by_rule })
         } else {
-            Err(LookupError::Refused)
+            Err(LookupError::Refused(self.internet_refusal()))
+        }
+    }
+
+    /// What refuses the internet now: the network switch while it is off, the domain rule
+    /// otherwise.
+    fn internet_refusal(&self) -> Refusal {
+        if self.access.grants().network().on {
+            Refusal::by("domains")
+        } else {
+            Refusal::by("network")
         }
     }
 
     /// The addresses the system resolves `name` to, as [`Lookup::Resolve`] says: all of them,
     /// recorded with the name, or the local ones alone, a name that has none being refused as
     /// the rule refuses it, whether it resolves or not. Blocks while the system resolves.
-    pub(crate) fn resolve(&self, name: &str, by_rule: bool) -> Result<Vec<IpAddr>, LookupError> {
+    fn resolve(&self, name: &str, by_rule: bool) -> Result<Vec<IpAddr>, LookupError> {
         if by_rule {
             let addresses = (self.resolver)(name)?;
             self.record.keep(name, &addresses);
@@ -152,54 +189,97 @@ impl ProgramNetwork {
             .filter(|address| is_local(*address))
             .collect();
         if local.is_empty() {
-            Err(LookupError::Refused)
+            Err(LookupError::Refused(self.internet_refusal()))
         } else {
             Ok(local)
         }
     }
 
-    /// The addresses of `host` a connection of the program may go to: an address, if the
-    /// program may reach it; a name, looked up as [`plan_lookup`](Self::plan_lookup) and
-    /// [`resolve`](Self::resolve) look it up, and only the addresses it answered that the
-    /// program may reach. None of them is refused. Blocks while the system resolves.
-    pub(crate) fn reachable(&self, host: &str) -> Result<Vec<IpAddr>, LookupError> {
+    /// The addresses of `host` a connection of the program may go to, made for `cause`: an
+    /// address, if the program may reach it; a name, looked up as
+    /// [`plan_lookup`](Self::plan_lookup) and [`resolve`](Self::resolve) look it up, and only the
+    /// addresses it answered that the program may reach. None of them is refused. Decided and told
+    /// as one use. Blocks while the system resolves.
+    pub(crate) fn reachable(&self, host: &str, cause: Cause) -> Result<Vec<IpAddr>, LookupError> {
+        let asked = Asked::Lookup { name: host, cause };
+        self.access.decide(asked, |_| self.reachable_by_rules(host))
+    }
+
+    fn reachable_by_rules(&self, host: &str) -> Result<Vec<IpAddr>, LookupError> {
         let addresses = match self.plan_lookup(host)? {
             Lookup::Known(addresses) => addresses,
             Lookup::Resolve { name, by_rule } => self.resolve(&name, by_rule)?,
         };
-        let reachable: Vec<IpAddr> = addresses
-            .into_iter()
-            .filter(|address| self.may_reach(*address))
-            .collect();
-        if reachable.is_empty() {
-            Err(LookupError::Refused)
-        } else {
-            Ok(reachable)
+        let mut refused = None;
+        let mut reachable = Vec::with_capacity(addresses.len());
+        for address in addresses {
+            match self.reach(address) {
+                Ok(()) => reachable.push(address),
+                Err(refusal) => refused = refused.or(Some(refusal)),
+            }
+        }
+        match refused {
+            Some(refusal) if reachable.is_empty() => Err(LookupError::Refused(refusal)),
+            _ if reachable.is_empty() => Err(LookupError::Refused(self.internet_refusal())),
+            _ => Ok(reachable),
         }
     }
 
     /// Whether the program may use `address` as `use_` says, `wasmtime-wasi`'s check of every
     /// socket address: binding a port reaches nothing; listening is reached from this computer
-    /// and the local network; connecting, accepting, sending and receiving reach the address.
+    /// and the local network; connecting, accepting, sending and receiving reach the address. A
+    /// connection, an accepted one and a listening socket are decided and told; a datagram, which
+    /// is checked one by one, noted.
     pub(crate) fn allows_socket(&self, address: SocketAddr, use_: SocketAddrUse) -> bool {
+        let reached = || self.reach(address.ip());
+        let listened = || match self.access.grants().local_network() {
+            true => Ok(()),
+            false => Err(LOCAL_NETWORK),
+        };
         match use_ {
             SocketAddrUse::TcpBind | SocketAddrUse::UdpBind => true,
-            SocketAddrUse::TcpListen => self.grants.local_network(),
-            SocketAddrUse::TcpConnect
-            | SocketAddrUse::TcpAccept
-            | SocketAddrUse::UdpSend
-            | SocketAddrUse::UdpReceive => self.may_reach(address.ip()),
+            SocketAddrUse::TcpListen => self
+                .access
+                .decide(Asked::Listen { address }, |_| listened())
+                .is_ok(),
+            SocketAddrUse::TcpConnect => self
+                .access
+                .decide(Asked::Connect { address }, |_| reached())
+                .is_ok(),
+            SocketAddrUse::TcpAccept => self
+                .access
+                .decide(Asked::Accept { address }, |_| reached())
+                .is_ok(),
+            SocketAddrUse::UdpSend | SocketAddrUse::UdpReceive => {
+                let refusal = reached().err();
+                self.access.note(Noted::Datagram {
+                    address,
+                    sent: matches!(use_, SocketAddrUse::UdpSend),
+                    refusal,
+                });
+                refusal.is_none()
+            }
         }
     }
 
-    /// Whether the program may reach `address`: a local one under the local-network switch, any
-    /// other under the network switch and its rule, by the names the address was looked up by.
-    pub(crate) fn may_reach(&self, address: IpAddr) -> bool {
+    /// Whether the program may reach `address`, or what refuses it: a local one under the
+    /// local-network switch, any other under the network switch and its rule, by the names the
+    /// address was looked up by.
+    fn reach(&self, address: IpAddr) -> Result<(), Refusal> {
         if is_local(address) {
-            return self.grants.local_network();
+            return match self.access.grants().local_network() {
+                true => Ok(()),
+                false => Err(LOCAL_NETWORK),
+            };
         }
-        let network = self.grants.network();
-        network.on && self.rule_allows(&network.domains, address)
+        let network = self.access.grants().network();
+        if !network.on {
+            Err(Refusal::by("network"))
+        } else if self.rule_allows(&network.domains, address) {
+            Ok(())
+        } else {
+            Err(Refusal::by("domains"))
+        }
     }
 
     /// Whether `rule` allows `address`, which it judges by the names the address was looked up by.
@@ -227,7 +307,7 @@ fn host_of(name: &str) -> Result<url::Host, LookupError> {
 impl fmt::Display for LookupError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
-            LookupError::Refused => "the program may not reach this host",
+            LookupError::Refused(_) => "the program may not reach this host",
             LookupError::Invalid => "this is no host name",
             LookupError::Unresolvable => "no address was found for this name",
         })
@@ -235,6 +315,16 @@ impl fmt::Display for LookupError {
 }
 
 impl std::error::Error for LookupError {}
+
+impl Refused for LookupError {
+    /// The setting of a refusal; none for a name that is no host, or one that has no address.
+    fn setting(&self) -> Option<&'static str> {
+        match self {
+            LookupError::Refused(refusal) => Some(refusal.setting),
+            LookupError::Invalid | LookupError::Unresolvable => None,
+        }
+    }
+}
 
 /// The addresses of `name`, resolved for WaOS's own way out rather than for a host the program
 /// named, so unchecked: a localhost name's loopback addresses, or what the system's resolver

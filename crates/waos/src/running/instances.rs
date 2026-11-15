@@ -17,7 +17,7 @@ use wasmtime::Engine;
 use wasmtime::component::{Component, InstancePre};
 
 use super::{IncompatibleProgram, ProgramStart, RunningProgram};
-use crate::access::ProgramAccess;
+use crate::access::{ProgramAccess, ShownRecordings};
 use crate::bindings::exports::wasdk::platform::worker_entry;
 use crate::bindings::exports::wasi::cli::run;
 use crate::caption_settings::CaptionSettings;
@@ -32,7 +32,7 @@ use crate::screens::Screens;
 use crate::shell::{
     Prompts, ShellAudioOutputPicker, ShellCameras, ShellCompositor, ShellFileDialogs,
     ShellImageCodecs, ShellMachinePicker, ShellMediaAssets, ShellMediaPlayers, ShellNotifications,
-    ShellOpener, ShellRecordingIndicator, ShellVideoFrameReaders, ViewPlacement,
+    ShellOpener, ShellVideoFrameReaders, ViewPlacement,
 };
 use crate::system::SystemSettings;
 use crate::views::ViewLayers;
@@ -79,6 +79,7 @@ impl ProgramInstances {
         let linked = link(linker, &start.component)?;
         let entry = run::GuestIndices::new(&linked)?;
         let worker_entry = worker_entry::GuestIndices::new(&linked).ok();
+        let access = access_of(&start, &program);
         let user_side = UserSide {
             placement: Some(start.placement),
             compositor: start.compositor,
@@ -86,7 +87,7 @@ impl ProgramInstances {
             menus: start.menus,
             audio: start.environment.audio.clone(),
             audio_output_picker: start.audio_output_picker,
-            recording_indicator: start.recording_indicator,
+            recordings_shown: start.recording_indicator.is_some(),
             file_dialogs: start.file_dialogs,
             opener: start.opener,
             notifications: start.notifications,
@@ -97,8 +98,6 @@ impl ProgramInstances {
             machine_picker: start.machine_picker,
             view_layers: start.view_layers,
         };
-        let grants = start.environment.grants.clone();
-        let access = ProgramAccess::new(grants.unwrap_or_else(|| Arc::new(NothingGranted)));
         let instances = ProgramInstances {
             engine: start.engine,
             linked,
@@ -129,6 +128,26 @@ impl ProgramInstances {
     }
 }
 
+/// The access of the program `start` names: its grants, or nothing granted where its environment
+/// gives none, and its recordings shown by the shell's indicator, where the shell has one.
+fn access_of(start: &ProgramStart, program: &RunningProgram) -> ProgramAccess {
+    let grants = start
+        .environment
+        .grants
+        .clone()
+        .unwrap_or_else(|| Arc::new(NothingGranted));
+    match &start.recording_indicator {
+        Some(indicator) => ProgramAccess::showing_recordings(
+            grants,
+            ShownRecordings {
+                indicator: Arc::clone(indicator),
+                program: program.clone(),
+            },
+        ),
+        None => ProgramAccess::new(grants),
+    }
+}
+
 /// `component` linked to what `linker` serves, before anything of it runs: an
 /// [`IncompatibleProgram`] when one of its imports is not there in that shape.
 fn link(
@@ -151,7 +170,8 @@ pub(crate) struct UserSide {
     /// The sound devices its graph plays on and records from.
     pub(super) audio: Option<Arc<dyn AudioDevices>>,
     pub(super) audio_output_picker: Option<Arc<dyn ShellAudioOutputPicker>>,
-    pub(super) recording_indicator: Option<Arc<dyn ShellRecordingIndicator>>,
+    /// Whether the shell can show that the program records, without which it records nothing.
+    pub(super) recordings_shown: bool,
     pub(super) file_dialogs: Option<Arc<dyn ShellFileDialogs>>,
     pub(super) opener: Option<Arc<dyn ShellOpener>>,
     pub(super) notifications: Option<Arc<dyn ShellNotifications>>,
@@ -174,7 +194,7 @@ impl UserSide {
             menus: MenuPlaces::none(),
             audio: None,
             audio_output_picker: None,
-            recording_indicator: None,
+            recordings_shown: false,
             file_dialogs: None,
             opener: None,
             notifications: None,

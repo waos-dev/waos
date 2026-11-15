@@ -1,6 +1,6 @@
 //! A request's and a response's bodies between `wasmtime-wasi-http` and reqwest: the program's
 //! request body as reqwest takes one, and the response's body read part by part within the time
-//! the program allows between two.
+//! the program allows between two, holding the request in flight until it ends.
 
 use std::pin::Pin;
 use std::sync::{Mutex, PoisonError};
@@ -13,6 +13,7 @@ use tokio::time::Interval;
 use wasmtime_wasi_http::{Error, WasiBody};
 
 use super::error_of;
+use crate::access::Held;
 
 /// The program's request body, which reqwest takes only as `Sync`, which a body wrapped in a
 /// lock is: reading it is through `&mut`, and never locks.
@@ -55,19 +56,25 @@ impl Body for SyncBody {
     }
 }
 
-/// A response's body, each part of which must come within a time of the one before.
+/// A response's body, each part of which must come within a time of the one before, and its
+/// request in flight until the body ends, fails or is let go.
 pub(super) struct BetweenBytes {
     body: reqwest::Body,
     deadline: Interval,
+    in_flight: Option<Held>,
 }
 
 impl BetweenBytes {
-    pub(super) fn new(body: reqwest::Body, within: Duration) -> BetweenBytes {
+    pub(super) fn new(body: reqwest::Body, within: Duration, in_flight: Held) -> BetweenBytes {
         // An interval of zero is refused; the least there is waits next to nothing.
         let within = within.max(Duration::from_nanos(1));
         let mut deadline = tokio::time::interval(within);
         deadline.reset();
-        BetweenBytes { body, deadline }
+        BetweenBytes {
+            body,
+            deadline,
+            in_flight: Some(in_flight),
+        }
     }
 }
 
@@ -85,10 +92,17 @@ impl Body for BetweenBytes {
                 this.deadline.reset();
                 Poll::Ready(Some(Ok(frame)))
             }
-            Poll::Ready(Some(Err(error))) => Poll::Ready(Some(Err(error_of(&error)))),
-            Poll::Ready(None) => Poll::Ready(None),
+            Poll::Ready(Some(Err(error))) => {
+                this.in_flight = None;
+                Poll::Ready(Some(Err(error_of(&error))))
+            }
+            Poll::Ready(None) => {
+                this.in_flight = None;
+                Poll::Ready(None)
+            }
             Poll::Pending => {
                 ready!(this.deadline.poll_tick(cx));
+                this.in_flight = None;
                 Poll::Ready(Some(Err(Error::ConnectionReadTimeout)))
             }
         }

@@ -5,13 +5,16 @@
 //! which the files give only while it leads to the folder the program holds ([`HeldFolder`]),
 //! checked again once the system watches it. Its events become the program's changes
 //! ([`translation`]), gathered into batches ([`batch`]), each of which the program's stream takes
-//! `latency` after the first change in it. The interface is served to a program by `host`.
+//! `latency` after the first change in it. A watch is a use of the program's files, decided and
+//! told through its access, and held there while it lasts. The interface is served to a program
+//! by `host`.
 //!
 //! A machine's root is a folder of this computer (`MachineFiles::Local`), watched as any other;
 //! an SSH machine's files, once WaOS reaches one, come with a watch of their own.
 //!
-//! The invariant: a watch lives exactly as long as its stream, which holds the system's watcher:
-//! the program dropping the stream ends the watch, and nothing else holds it.
+//! The invariant: a watch lives exactly as long as its stream, which holds the system's watcher
+//! and the watch's use: the program dropping the stream ends the watch, and nothing else holds
+//! it.
 
 mod batch;
 pub(crate) mod host;
@@ -23,6 +26,7 @@ use std::time::Duration;
 use futures::stream::{self, BoxStream, StreamExt};
 use notify::{Config, EventKindMask, RecommendedWatcher, RecursiveMode, Watcher};
 
+use crate::access::Held;
 use crate::bindings::wasdk::platform::file_watching::Change;
 use crate::files::{ErrorCode, HeldFolder};
 use batch::Arrivals;
@@ -31,11 +35,13 @@ use batch::Arrivals;
 pub(crate) type Batches = BoxStream<'static, Vec<Change>>;
 
 /// Watches `folder`, its own entries, and everything under it where `recursive`, a symlink's
-/// target never; each batch is taken `latency` after its first change arrived.
+/// target never; each batch is taken `latency` after its first change arrived. The stream holds
+/// `watching`, the watch's use, until it is dropped.
 pub(crate) fn watch(
     folder: &HeldFolder,
     recursive: bool,
     latency: Duration,
+    watching: Held,
 ) -> Result<Batches, ErrorCode> {
     let arrivals = Arc::new(Arrivals::new(folder.path().to_path_buf()));
     let heard = Arc::clone(&arrivals);
@@ -54,12 +60,16 @@ pub(crate) fn watch(
     if !folder.is_at_its_path() {
         return Err(ErrorCode::NoEntry);
     }
-    Ok(batches(watcher, arrivals, latency))
+    Ok(batches((watcher, watching), arrivals, latency))
 }
 
 /// The batches `watcher` gathers in `arrivals`, each taken `latency` after its first change; the
-/// stream holds the watcher.
-fn batches(watcher: RecommendedWatcher, arrivals: Arc<Arrivals>, latency: Duration) -> Batches {
+/// stream holds the watcher, and the watch's use.
+fn batches(
+    watcher: (RecommendedWatcher, Held),
+    arrivals: Arc<Arrivals>,
+    latency: Duration,
+) -> Batches {
     stream::unfold((watcher, arrivals), move |(watcher, arrivals)| async move {
         loop {
             arrivals.something_arrived().await;

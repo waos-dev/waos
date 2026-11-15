@@ -78,7 +78,6 @@ mod opener;
 mod os;
 mod permissions;
 mod program;
-mod recordings;
 mod running;
 mod screens;
 mod screenshots;

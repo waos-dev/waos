@@ -300,7 +300,7 @@ fn a_read_and_a_write_the_switches_refuse_are_told_refused_by_them() {
     let pasted = platform.pasted().items();
     assert!(block_on(clipboard.read(&pasted[0], "text/plain")).is_ok());
     assert!(
-        matches!(clipboard.access.told().last(), Some(Told::Allowed(_))),
+        matches!(clipboard.access.told().last(), Some(Told::Allowed(..))),
         "a paste is read past the switch, and told allowed"
     );
 }

@@ -12,6 +12,7 @@ use std::path::{Path, PathBuf};
 
 use url::Url;
 
+use crate::access::Cause;
 use crate::files::ProgramFiles;
 use crate::network::{LookupError, ProgramNetwork};
 
@@ -54,17 +55,17 @@ pub(crate) fn file_url(files: &mut ProgramFiles, path: &Path) -> Result<String, 
         .map_err(|()| format!("{} has no file URL", machine_path.display()))
 }
 
-/// Whether the program may reach `link`'s host, looked up as the host of a request of its own is;
-/// why not otherwise. Blocks while the system resolves.
+/// Whether the program may reach `link`'s host, looked up as the host of a request of its own is,
+/// told as a lookup the player caused; why not otherwise. Blocks while the system resolves.
 pub(crate) fn check_link(network: &ProgramNetwork, link: &Url) -> Result<(), String> {
     let host = link
         .host_str()
         .unwrap_or_default()
         .trim_start_matches('[')
         .trim_end_matches(']');
-    match network.reachable(host) {
+    match network.reachable(host, Cause::Player) {
         Ok(_addresses) => Ok(()),
-        Err(LookupError::Refused) => Err(format!("the program may not reach {host}")),
+        Err(LookupError::Refused(_)) => Err(format!("the program may not reach {host}")),
         Err(LookupError::Unresolvable) => Err(format!("no address found for {host}")),
         Err(LookupError::Invalid) => Err(format!("{host} is no host name")),
     }
@@ -75,6 +76,7 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
+    use crate::access::ProgramAccess;
     use crate::network::test_grants::{TestGrants, off};
 
     #[test]
@@ -104,7 +106,7 @@ mod tests {
     /// computer.
     fn network(local: bool) -> ProgramNetwork {
         ProgramNetwork::resolving_with(
-            TestGrants::new(off(), local),
+            ProgramAccess::new(TestGrants::new(off(), local)),
             Arc::new(|_name| Ok(vec!["127.0.0.1".parse().unwrap()])),
         )
     }

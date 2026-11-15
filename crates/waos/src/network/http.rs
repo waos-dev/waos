@@ -16,6 +16,10 @@
 //! 14): this computer and the local network directly, at the addresses that lookup answered, the
 //! internet through the proxy, which looks the name up again.
 //!
+//! Each request is decided and told through the program's access by its host's check
+//! ([`check_host`]), the lookups it causes told apart as its own, and held from then until its
+//! response's body ends or is let go, or the request fails.
+//!
 //! The invariant: a request reaches reqwest only after its host passed the program's network,
 //! read as the grants are when it is sent, and reqwest connects only to addresses the same
 //! network answered, or to the proxy for a host it answered only internet addresses for.
@@ -29,11 +33,12 @@ use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
 
-use http::Uri;
+use http::{Method, Uri};
 use http_body_util::BodyExt;
 use wasmtime_wasi_http::{Error, RequestOptions, WasiBody, WasiHttpHooks};
 
 use super::{Lookup, LookupError, ProgramNetwork};
+use crate::access::{Asked, Held, Holding, Refusal};
 use bodies::{BetweenBytes, SyncBody};
 use proxies::Proxies;
 use resolver::ProgramResolver;
@@ -177,34 +182,56 @@ impl WasiHttpHooks for ProgramHttp {
         options: Option<RequestOptions>,
         _response_errors: Box<dyn Future<Output = Result<(), Error>> + Send>,
     ) -> Box<dyn Future<Output = Result<Sent, Error>> + Send> {
-        let checked = check_host(&self.network, request.uri());
+        let checked = check_host(&self.network, request.method(), request.uri());
         let sender = self.sender();
         Box::new(async move {
-            checked?;
-            send(sender?, request, options).await
+            let in_flight = checked?;
+            send(sender?, request, options, in_flight).await
         })
     }
 }
 
-/// Refuses `uri` before anything is sent unless its host may be reached: addresses known
-/// without the system, such as an address, by the address rules, a name the system resolves
-/// unless the domain rule and the local network both refuse it. The addresses the system
-/// resolves a name to are judged when reqwest resolves it.
-fn check_host(network: &ProgramNetwork, uri: &Uri) -> Result<(), Error> {
-    let host = uri.host().ok_or(Error::HttpRequestUriInvalid)?;
+/// Refuses the request `method` sends to `uri` before anything is sent unless its host may be
+/// reached, decided and told as the request; and the request in flight from then on otherwise.
+fn check_host(network: &ProgramNetwork, method: &Method, uri: &Uri) -> Result<Held, Error> {
+    let asked = Asked::Request { method, uri };
+    network
+        .access
+        .decide(asked, |_| host_reachable(network, uri))
+        .map_err(refusal)?;
+    let request = Holding::Request {
+        method: method.clone(),
+        uri: uri.clone(),
+    };
+    Ok(network.access.hold(request))
+}
+
+/// Whether `uri`'s host may be reached: addresses known without the system, such as an address,
+/// by the address rules, a name the system resolves unless the domain rule and the local network
+/// both refuse it. The addresses the system resolves a name to are judged when reqwest resolves
+/// it.
+fn host_reachable(network: &ProgramNetwork, uri: &Uri) -> Result<(), LookupError> {
+    let host = uri.host().ok_or(LookupError::Invalid)?;
     let host = host.trim_start_matches('[').trim_end_matches(']');
-    match network.plan_lookup(host).map_err(refusal)? {
-        Lookup::Known(addresses) if !addresses.iter().any(|known| network.may_reach(*known)) => {
-            Err(Error::HttpRequestDenied)
+    match network.plan_lookup(host)? {
+        Lookup::Known(addresses) => {
+            let mut refused = Refusal::by("network");
+            for address in addresses {
+                match network.reach(address) {
+                    Ok(()) => return Ok(()),
+                    Err(refusal) => refused = refusal,
+                }
+            }
+            Err(LookupError::Refused(refused))
         }
-        Lookup::Known(_) | Lookup::Resolve { .. } => Ok(()),
+        Lookup::Resolve { .. } => Ok(()),
     }
 }
 
 /// What a lookup's refusal is to a request.
 fn refusal(error: LookupError) -> Error {
     match error {
-        LookupError::Refused => Error::HttpRequestDenied,
+        LookupError::Refused(_) => Error::HttpRequestDenied,
         LookupError::Invalid => Error::HttpRequestUriInvalid,
         LookupError::Unresolvable => Error::DnsError {
             rcode: None,
@@ -220,6 +247,7 @@ async fn send(
     sender: Sender,
     request: http::Request<WasiBody>,
     options: Option<RequestOptions>,
+    in_flight: Held,
 ) -> Result<Sent, Error> {
     let options = options.unwrap_or_default();
     let until_head = options.connect_timeout.unwrap_or(DEFAULT_TIMEOUT)
@@ -229,7 +257,7 @@ async fn send(
         .await
         .map_err(|_| Error::ConnectionTimeout)??;
     let response = http::Response::from(response)
-        .map(|body| BetweenBytes::new(body, between_bytes).boxed_unsync());
+        .map(|body| BetweenBytes::new(body, between_bytes, in_flight).boxed_unsync());
     Ok((response, Box::new(async { Ok(()) })))
 }
 

@@ -11,6 +11,7 @@ use wasmtime::component::{
 };
 
 use super::{Camera, CameraOutputs, Cameras, CaptureSession, ProgramCameras};
+use crate::access::Holding;
 use crate::bindings::wasdk::media::cameras::{
     self, CameraError, CameraFormat, CameraInfo, CaptureState, HostCamera, HostCameraOutputs,
     HostCameraWithStore, HostCameras, HostCamerasWithStore, HostCaptureSession,
@@ -126,7 +127,7 @@ impl<T: CamerasCtxView + 'static> HostCameraWithStore<T> for HasCameras {
         format: CameraFormat,
         outputs: Resource<CameraOutputs>,
     ) -> wasmtime::Result<Result<Resource<CaptureSession>, CameraError>> {
-        let (state, started, sessions, lifecycle) = accessor.with(|mut access| {
+        let (state, started, device, cameras) = accessor.with(|mut access| {
             let context = access.get();
             let outputs = context.table.get(&outputs)?;
             let camera = context.table.get(&camera)?;
@@ -135,14 +136,15 @@ impl<T: CamerasCtxView + 'static> HostCameraWithStore<T> for HasCameras {
             wasmtime::Result::<_>::Ok((
                 state,
                 started,
-                camera.recordings(&cameras.sessions).clone(),
-                cameras.lifecycle.clone(),
+                camera.device(),
+                (cameras.access.clone(), cameras.lifecycle.clone()),
             ))
         })?;
         match started.await {
             Ok(started) => {
-                let capturing = lifecycle.capturing();
-                let session = CaptureSession::new(started, state, sessions.record(), capturing);
+                let (access, lifecycle) = cameras;
+                let recording = access.hold(Holding::Recording(device));
+                let session = CaptureSession::new(started, state, recording, lifecycle.capturing());
                 accessor.with(|mut access| Ok(Ok(access.get().table.push(session)?)))
             }
             Err(error) => Ok(Err(error)),

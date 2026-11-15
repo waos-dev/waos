@@ -3,18 +3,20 @@
 //! beneath a mount, with what that mount allowed, or from a machine's root, with where it is.
 //!
 //! The invariant: a handle keeps what its mount allowed when it was opened, so it stays valid,
-//! with the same rights, after its mount is removed or changed.
+//! with the same rights, after its mount is removed or changed; and it is told written once, at
+//! its first write, whichever copy of it writes.
 
 use std::ffi::OsString;
 use std::fs;
 use std::io;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::SystemTime;
 
 use super::beneath;
 use super::errors::ErrorCode;
-use super::mounts::Mounted;
+use super::mounts::{MountKind, Mounted};
 use super::status::{DescriptorType, FileStat};
 use super::target::{Beneath, Target};
 
@@ -41,7 +43,11 @@ pub struct Opened {
     handle: Arc<fs::File>,
     /// Whether its mount let the program change it when it was opened.
     writable: bool,
+    /// The kind of the mount it was opened in.
+    kind: MountKind,
     open_mode: OpenMode,
+    /// Whether it has been written through, shared by every copy of the handle.
+    written: Arc<AtomicBool>,
     /// Where it is on the machine, opened from a machine's root, whose paths resolve as the
     /// system resolves any path; none beneath a mount, whose paths resolve beneath it.
     on_machine: Option<PathBuf>,
@@ -195,11 +201,18 @@ impl Descriptor {
 }
 
 impl Opened {
-    pub(crate) fn new(handle: fs::File, writable: bool, open_mode: OpenMode) -> Opened {
+    /// `handle`, opened as `open_mode` says in a mount of the kind given, writable or not.
+    pub(crate) fn new(
+        handle: fs::File,
+        (writable, kind): (bool, MountKind),
+        open_mode: OpenMode,
+    ) -> Opened {
         Opened {
             handle: Arc::new(handle),
             writable,
+            kind,
             open_mode,
+            written: Arc::default(),
             on_machine: None,
         }
     }
@@ -209,7 +222,7 @@ impl Opened {
     pub(crate) fn on_machine(handle: fs::File, at: PathBuf, open_mode: OpenMode) -> Opened {
         Opened {
             on_machine: Some(at),
-            ..Opened::new(handle, true, open_mode)
+            ..Opened::new(handle, (true, MountKind::Machine), open_mode)
         }
     }
 
@@ -218,10 +231,12 @@ impl Opened {
         Opened {
             handle: Arc::clone(&mount.folder),
             writable: mount.writable,
+            kind: mount.kind,
             open_mode: OpenMode {
                 read: true,
                 write: false,
             },
+            written: Arc::default(),
             on_machine: None,
         }
     }
@@ -236,6 +251,7 @@ impl Opened {
             folder: Arc::clone(&self.handle),
             path: PathBuf::from(path),
             writable: self.writable,
+            kind: self.kind,
             mounted_file: false,
         })
     }
@@ -248,6 +264,20 @@ impl Opened {
     /// The system's handle, which a stream reads or writes through.
     pub(crate) fn handle(&self) -> &Arc<fs::File> {
         &self.handle
+    }
+
+    /// The kind of the mount it was opened in.
+    pub(crate) fn kind(&self) -> MountKind {
+        self.kind
+    }
+
+    pub(crate) fn open_mode(&self) -> OpenMode {
+        self.open_mode
+    }
+
+    /// Whether this is the first write through the handle, and from now on it is written.
+    pub(crate) fn first_write(&self) -> bool {
+        !self.written.swap(true, Ordering::Relaxed)
     }
 
     /// Refuses a write where the file's mount is read-only.

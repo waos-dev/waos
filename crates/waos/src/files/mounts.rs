@@ -27,12 +27,13 @@ use std::sync::{Arc, Mutex};
 
 use futures::FutureExt;
 use tracing::warn;
-use waos_capabilities::{ChangedFuture, FileSystemGrant, ProgramFolders, ProgramGrants};
+use waos_capabilities::{ChangedFuture, FileSystemGrant, ProgramFolders};
 
 use super::descriptor::DirectoryEntry;
 use super::errors::ErrorCode;
 use super::machine_paths;
 use super::target::{Beneath, Target};
+use crate::access::ProgramAccess;
 use crate::sync::locked;
 
 /// The program's root: the one folder it is given, through which every path of its leads.
@@ -42,6 +43,19 @@ pub(crate) const ROOT: &str = "/";
 const DATA: &str = "/data";
 const CACHE: &str = "/cache";
 const TMP: &str = "/tmp";
+
+/// What a mount is to the program, as what it does in each is told: its own folders, a folder its
+/// user granted it, what its user picked or pasted, or a machine its user gave it whole.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum MountKind {
+    OwnData,
+    OwnCache,
+    OwnTemporary,
+    Granted,
+    Picked,
+    Pasted,
+    Machine,
+}
 
 /// A folder of the machine, or one file of it, opened, at a path inside the program.
 #[derive(Clone)]
@@ -55,18 +69,19 @@ pub(crate) struct Mounted {
     /// For a file mounted, its name in `folder`; none for a folder.
     file: Option<OsString>,
     pub(crate) writable: bool,
+    pub(crate) kind: MountKind,
 }
 
 impl Mounted {
-    /// `host`, a folder or a file, opened at `at`; none, with a warning, when `at` is no absolute
-    /// path of names or `host` does not open.
-    fn open(host: &Path, at: &Path, writable: bool) -> Option<Mounted> {
+    /// `host`, a folder or a file, opened at `at` as a mount of `kind`; none, with a warning,
+    /// when `at` is no absolute path of names or `host` does not open.
+    fn open(host: &Path, at: &Path, writable: bool, kind: MountKind) -> Option<Mounted> {
         let opened = match fs::metadata(host) {
             Ok(metadata) if metadata.is_dir() => open_folder(host).map(|folder| (folder, None)),
             Ok(_) => open_folder_of(host),
             Err(error) => Err(error),
         };
-        Mounted::opened(host, at, writable, opened)
+        Mounted::opened(host, at, (writable, kind), opened)
     }
 
     /// `host`, a folder the user picked, or a file, which may not exist yet, opened at its own
@@ -77,7 +92,12 @@ impl Mounted {
         } else {
             open_folder_of(host)
         };
-        Mounted::opened(host, &own_path(host)?, writable, opened)
+        Mounted::opened(
+            host,
+            &own_path(host)?,
+            (writable, MountKind::Picked),
+            opened,
+        )
     }
 
     /// `host`, a folder or a file of the machine, opened read-only at its own path; none, with a
@@ -88,14 +108,15 @@ impl Mounted {
             Ok(_) => open_folder_of(host),
             Err(error) => Err(error),
         };
-        Mounted::opened(host, &own_path(host)?, false, opened)
+        Mounted::opened(host, &own_path(host)?, (false, MountKind::Pasted), opened)
     }
 
-    /// `opened`, the folder for `host` and the file's name where it is a file, at `at`.
+    /// `opened`, the folder for `host` and the file's name where it is a file, at `at`, writable
+    /// and of the kind `access` says.
     fn opened(
         host: &Path,
         at: &Path,
-        writable: bool,
+        (writable, kind): (bool, MountKind),
         opened: io::Result<(fs::File, Option<OsString>)>,
     ) -> Option<Mounted> {
         if !is_path_of_names(at) {
@@ -109,6 +130,7 @@ impl Mounted {
                 folder: Arc::new(folder),
                 file,
                 writable,
+                kind,
             }),
             Err(error) => {
                 warn!(host = %host.display(), %error, "a mount does not open; it is left out");
@@ -147,6 +169,7 @@ impl Mounted {
                     ending,
                 ),
                 writable: self.writable,
+                kind: self.kind,
                 mounted_file: names_the_mount,
             }),
             None if names_the_mount => Target::MountPoint(self.clone()),
@@ -154,6 +177,7 @@ impl Mounted {
                 folder: Arc::clone(&self.folder),
                 path: ending_in(path, ending),
                 writable: self.writable,
+                kind: self.kind,
                 mounted_file: false,
             }),
         }
@@ -229,10 +253,9 @@ impl MountTable {
     /// a pick kept among the grants is the grants' from then on.
     fn new(own: &[Mounted], granted: &FileSystemGrant, handed: &[Mounted]) -> MountTable {
         let mut mounts = own.to_vec();
-        let opened = granted
-            .mounts
-            .iter()
-            .filter_map(|mount| Mounted::open(&mount.host, &mount.at, mount.writable));
+        let opened = granted.mounts.iter().filter_map(|mount| {
+            Mounted::open(&mount.host, &mount.at, mount.writable, MountKind::Granted)
+        });
         for mount in opened {
             if mounts.iter().any(|mounted| mounted.at == mount.at) {
                 warn!(at = %mount.at.display(), "a mount is at a path another is at; it is left out");
@@ -392,7 +415,8 @@ impl MountTable {
 /// when the grants change and mount other folders, or the user hands it a file, so a mount added
 /// or removed applies at the next call.
 pub(crate) struct LiveMounts {
-    grants: Arc<dyn ProgramGrants>,
+    /// Where the grants are read, which the table is compiled from.
+    access: ProgramAccess,
     /// The program's own folders, opened once for its run.
     own: Vec<Mounted>,
     handed: HandedFiles,
@@ -406,20 +430,20 @@ pub(crate) struct LiveMounts {
 
 impl LiveMounts {
     /// The mounts of a program with its own `folders` and its `temporary` folder, where it has
-    /// them, `grants`, and the files the user hands it, `handed`.
+    /// them, the grants `access` reads, and the files the user hands it, `handed`.
     pub(crate) fn new(
         folders: Option<&ProgramFolders>,
         temporary: Option<&Path>,
-        grants: Arc<dyn ProgramGrants>,
+        access: ProgramAccess,
         handed: HandedFiles,
     ) -> LiveMounts {
         let own = own_mounts(folders, temporary);
-        let changed = grants.changed();
-        let granted = grants.file_system();
+        let changed = access.grants().changed();
+        let granted = access.grants().file_system();
         let (handed_now, handings) = handed.mounts();
         let table = MountTable::new(&own, &granted, &handed_now);
         LiveMounts {
-            grants,
+            access,
             own,
             handed,
             granted,
@@ -434,8 +458,8 @@ impl LiveMounts {
     pub(crate) fn now(&mut self) -> &MountTable {
         let mut granted = None;
         if (&mut self.changed).now_or_never().is_some() {
-            self.changed = self.grants.changed();
-            granted = Some(self.grants.file_system()).filter(|now| *now != self.granted);
+            self.changed = self.access.grants().changed();
+            granted = Some(self.access.grants().file_system()).filter(|now| *now != self.granted);
         }
         let (handed, handings) = self.handed.mounts();
         if granted.is_some() || handings != self.handings {
@@ -496,13 +520,13 @@ impl HandedFiles {
 fn own_mounts(folders: Option<&ProgramFolders>, temporary: Option<&Path>) -> Vec<Mounted> {
     let own_folders = folders.into_iter().flat_map(|folders| {
         [
-            (folders.data.as_path(), DATA),
-            (folders.cache.as_path(), CACHE),
+            (folders.data.as_path(), DATA, MountKind::OwnData),
+            (folders.cache.as_path(), CACHE, MountKind::OwnCache),
         ]
     });
     own_folders
-        .chain(temporary.map(|temporary| (temporary, TMP)))
-        .filter_map(|(host, at)| Mounted::open(host, Path::new(at), true))
+        .chain(temporary.map(|temporary| (temporary, TMP, MountKind::OwnTemporary)))
+        .filter_map(|(host, at, kind)| Mounted::open(host, Path::new(at), true, kind))
         .collect()
 }
 

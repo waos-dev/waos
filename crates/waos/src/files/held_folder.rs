@@ -1,21 +1,21 @@
 //! Where on the machine a folder the program holds is now, for what reaches it by its path rather
 //! than through its handle, as the system's watches of a folder do (`file_watching`): the path the
-//! system gives of the folder's handle, `F_GETPATH` on Apple's systems, `/proc/self/fd` on Linux
-//! and Android, `GetFinalPathNameByHandleW` on Windows.
+//! system gives of the folder's handle ([`path_of`]).
 //!
 //! The invariant: a path is given only while it leads to the folder the handle is on, checked by
 //! the folder's identity, so a folder beneath a mount is never named by a path that a rename or a
 //! symlink has since made lead elsewhere, outside the mount among them.
 
 use std::fs;
-use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use super::descriptor::Descriptor;
 use super::errors::ErrorCode;
+use super::handle_path::path_of;
 use super::mounts::open_folder;
 use super::status::FileStat;
+use crate::access::{Resolution, Resolved};
 
 /// A folder the program holds, and the path that leads to it now.
 pub(crate) struct HeldFolder {
@@ -60,33 +60,16 @@ impl HeldFolder {
     }
 }
 
-/// The path the system gives of the folder `handle` is open on.
-#[cfg(target_vendor = "apple")]
-fn path_of(handle: &fs::File) -> io::Result<PathBuf> {
-    use std::os::unix::ffi::OsStrExt as _;
-
-    let path = rustix::fs::getpath(handle)?;
-    Ok(PathBuf::from(std::ffi::OsStr::from_bytes(path.to_bytes())))
-}
-
-/// The path the system gives of the folder `handle` is open on: where its descriptor's link in
-/// `/proc/self/fd` leads.
-#[cfg(any(target_os = "linux", target_os = "android"))]
-fn path_of(handle: &fs::File) -> io::Result<PathBuf> {
-    use std::os::fd::AsRawFd as _;
-
-    fs::read_link(format!("/proc/self/fd/{}", handle.as_raw_fd()))
-}
-
-/// The path the system gives of the folder `handle` is open on.
-#[cfg(windows)]
-fn path_of(handle: &fs::File) -> io::Result<PathBuf> {
-    super::beneath::file_path(handle).ok_or_else(|| io::ErrorKind::NotFound.into())
+impl Resolved for HeldFolder {
+    fn resolution(&self) -> Resolution<'_> {
+        Resolution::OnMachine(&self.path)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::super::descriptor::{OpenMode, Opened};
+    use super::super::mounts::MountKind;
     use super::*;
 
     fn held(folder: &Path) -> Descriptor {
@@ -94,7 +77,11 @@ mod tests {
             read: true,
             write: false,
         };
-        Descriptor::Dir(Opened::new(open_folder(folder).unwrap(), false, mode))
+        Descriptor::Dir(Opened::new(
+            open_folder(folder).unwrap(),
+            (false, MountKind::Granted),
+            mode,
+        ))
     }
 
     #[test]
@@ -127,7 +114,11 @@ mod tests {
             read: true,
             write: false,
         };
-        let file = Descriptor::File(Opened::new(fs::File::open(&file).unwrap(), false, mode));
+        let file = Descriptor::File(Opened::new(
+            fs::File::open(&file).unwrap(),
+            (false, MountKind::Granted),
+            mode,
+        ));
         assert!(matches!(
             HeldFolder::of(&file),
             Err(ErrorCode::NotDirectory)

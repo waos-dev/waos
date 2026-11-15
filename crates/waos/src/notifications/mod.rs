@@ -26,7 +26,7 @@ use std::sync::Arc;
 use futures::channel::mpsc;
 use waos_capabilities::{Answer, ProgramGrants, Question};
 
-use crate::access::{ProgramAccess, Refusal, Use};
+use crate::access::{Asked, ProgramAccess, Refusal};
 use crate::bindings::wasdk::platform::menus::Image;
 use crate::bindings::wasdk::platform::notifications::Activation;
 use crate::lifecycle::Lifecycle;
@@ -44,7 +44,7 @@ pub(crate) fn may_post(access: &ProgramAccess) -> bool {
             Err(Refusal::by("notifications"))
         }
     };
-    access.decide(Use::Post, user_allowed).is_ok()
+    access.decide(Asked::Post, user_allowed).is_ok()
 }
 
 /// `notifications.notification`: one notification, as the program builds it and the shell posts

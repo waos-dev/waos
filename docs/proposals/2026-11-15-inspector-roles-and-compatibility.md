@@ -651,6 +651,8 @@ Each step is built, checked and committed on its own; the WIT and Rust types of 
 6. **The inspector program**, with Waft and the Fluent kit: Activity first, then Console and Network, then Files, Access and Resources; on desktop and phone.
 7. **A phone from the desktop**: the Android abstract socket, the forward, the phone as a device in the inspector and in `cargo waos inspect --device`.
 
+**Decided on 2026-11-15**, after step 2's first part was built: the access layer's model is revised as `2026-11-15-access-layer-design.md` advises, and the lead approved it whole. A use is split into what the program asked and what the rule resolved it to, the record made from the rule's answer; an operation nothing decides anew (a stat, a datagram, a handle's first write) is noted, not decided; a lasting use is held by what owns the real thing until it really ends, in one record of what the program holds, which the recording indicator reads too, so `recordings.rs` goes, unlike "Where it sits today" above says; the network's checks are wrapped whole and reshaped later, with the fake-address redesign; and step 1's measurements are those the note lists.
+
 The compatibility work is a track of its own, needed before the first release, whichever of the above is done:
 
 - **C1.** `cargo xtask check-wit`, with `wit/released/` empty until the release.

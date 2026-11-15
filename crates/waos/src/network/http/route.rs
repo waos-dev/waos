@@ -25,6 +25,7 @@ use http::Uri;
 use wasmtime_wasi::runtime::spawn_blocking;
 
 use super::proxies::Proxies;
+use crate::access::Cause;
 use crate::network::addresses::is_local;
 use crate::network::{LookupError, ProgramNetwork};
 
@@ -63,7 +64,7 @@ pub(super) async fn route(
         .trim_end_matches(']')
         .to_owned();
     let network = network.clone();
-    let reachable = spawn_blocking(move || network.reachable(&looked_up)).await?;
+    let reachable = spawn_blocking(move || network.reachable(&looked_up, Cause::Request)).await?;
     let local: Vec<IpAddr> = reachable
         .into_iter()
         .filter(|address| is_local(*address))

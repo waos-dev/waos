@@ -15,10 +15,10 @@ use futures::stream::BoxStream;
 use tokio::sync::watch;
 use wasmtime::bail;
 
+use crate::access::Held;
 use crate::bindings::wasdk::media::cameras::{CameraFormat, CaptureState, VideoRotationAngles};
 use crate::lifecycle::Capturing;
 use crate::newest::changes_of;
-use crate::recordings::Recording;
 use crate::shell::{PhotoFuture, ShellCaptureSession, StartedSession};
 
 /// `cameras.capture-session`: a camera running for the program, with the format it runs in.
@@ -26,7 +26,8 @@ pub struct CaptureSession {
     shell: Box<dyn ShellCaptureSession>,
     format: CameraFormat,
     state: SessionState,
-    _recording: Recording,
+    /// The camera's use, held while the session runs, which the shell's indicator shows.
+    _recording: Held,
     _capturing: Capturing,
 }
 
@@ -74,7 +75,7 @@ impl CaptureSession {
     pub(super) fn new(
         started: StartedSession,
         state: SessionState,
-        recording: Recording,
+        recording: Held,
         capturing: Capturing,
     ) -> CaptureSession {
         CaptureSession {

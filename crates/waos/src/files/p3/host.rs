@@ -1,5 +1,6 @@
 //! The `wasi:filesystem@0.3` calls, each the files' own call on the handles the program holds,
-//! made in place: a call the program awaits has its answer when it returns.
+//! made in place: a call the program awaits has its answer when it returns. A call that names a
+//! path asks the files for it as the use it is: an open, a change, or a name a metadata call reads.
 
 use std::iter;
 
@@ -15,6 +16,7 @@ use super::bindings::wasi::filesystem::types::{
 use super::convert::{follows, open_request, time_to_set};
 use super::streams::{FileReader, FileWriter, WriteAt};
 use super::{FsError, FsResult};
+use crate::access::FileChange;
 use crate::files::errors::ErrorCode;
 use crate::files::target::Target;
 use crate::files::{Descriptor, FilesCtx, HasFiles, ProgramFiles};
@@ -23,19 +25,32 @@ use crate::files::{Descriptor, FilesCtx, HasFiles, ProgramFiles};
 type StreamEnding = FutureReader<Result<(), types::ErrorCode>>;
 
 impl FilesCtx<'_> {
-    /// Where `path`, given with the handle `descriptor`, leads.
-    fn target_of(&mut self, descriptor: &Resource<Descriptor>, path: &str) -> FsResult<Target> {
+    /// Where `path`, given with the handle `descriptor`, leads, for a call that reads what is
+    /// there without opening it.
+    fn named(&mut self, descriptor: &Resource<Descriptor>, path: &str) -> FsResult<Target> {
         let descriptor = self.table.get(descriptor)?;
-        Ok(self.files.target(descriptor, path)?)
+        Ok(self.files.named(descriptor, path)?)
     }
 
-    /// The writable file the handle `descriptor` is on.
+    /// Where `change` at `path`, given with the handle `descriptor`, is made.
+    fn change(
+        &mut self,
+        descriptor: &Resource<Descriptor>,
+        path: &str,
+        change: FileChange<'_>,
+    ) -> FsResult<Target> {
+        let descriptor = self.table.get(descriptor)?;
+        Ok(self.files.change(descriptor, path, change)?)
+    }
+
+    /// The writable file the handle `descriptor` is on, about to be written.
     fn writable_file(
         &mut self,
         descriptor: &Resource<Descriptor>,
     ) -> FsResult<std::sync::Arc<std::fs::File>> {
         let file = self.table.get(descriptor)?.file()?;
         file.check_writable()?;
+        self.files.writing(file);
         Ok(file.handle().clone())
     }
 }
@@ -208,7 +223,13 @@ impl<U: 'static> types::HostDescriptorWithStore<U> for HasFiles {
         descriptor: Resource<Descriptor>,
         size: Filesize,
     ) -> FsResult<()> {
-        store.with(|mut store| Ok(store.get().table.get(&descriptor)?.file()?.set_size(size)?))
+        store.with(|mut store| {
+            let ctx = store.get();
+            let file = ctx.table.get(&descriptor)?.file()?;
+            file.set_size(size)?;
+            ctx.files.writing(file);
+            Ok(())
+        })
     }
 
     async fn set_times(
@@ -239,7 +260,7 @@ impl<U: 'static> types::HostDescriptorWithStore<U> for HasFiles {
         store.with(|mut store| {
             Ok(store
                 .get()
-                .target_of(&descriptor, &path)?
+                .change(&descriptor, &path, FileChange::CreateDirectory)?
                 .create_directory()?)
         })
     }
@@ -262,7 +283,7 @@ impl<U: 'static> types::HostDescriptorWithStore<U> for HasFiles {
         path: String,
     ) -> FsResult<DescriptorStat> {
         store.with(|mut store| {
-            let target = store.get().target_of(&descriptor, &path)?;
+            let target = store.get().named(&descriptor, &path)?;
             Ok(target.status(follows(path_flags))?.into())
         })
     }
@@ -277,7 +298,9 @@ impl<U: 'static> types::HostDescriptorWithStore<U> for HasFiles {
     ) -> FsResult<()> {
         let (accessed, modified) = (time_to_set(accessed)?, time_to_set(modified)?);
         store.with(|mut store| {
-            let target = store.get().target_of(&descriptor, &path)?;
+            let target = store
+                .get()
+                .change(&descriptor, &path, FileChange::SetTimes)?;
             Ok(target.set_times(follows(path_flags), accessed, modified)?)
         })
     }
@@ -296,9 +319,10 @@ impl<U: 'static> types::HostDescriptorWithStore<U> for HasFiles {
             return Err(ErrorCode::Invalid.into());
         }
         store.with(|mut store| {
-            let mut ctx = store.get();
-            let from = ctx.target_of(&descriptor, &old_path)?;
-            let to = ctx.target_of(&new_descriptor, &new_path)?;
+            let ctx = store.get();
+            let (from, to_from) = (ctx.table.get(&descriptor)?, ctx.table.get(&new_descriptor)?);
+            let link = FileChange::Link { to: &new_path };
+            let (from, to) = ctx.files.change_between(from, &old_path, to_from, link)?;
             Ok(from.link_to(&to)?)
         })
     }
@@ -313,8 +337,9 @@ impl<U: 'static> types::HostDescriptorWithStore<U> for HasFiles {
     ) -> FsResult<Resource<Descriptor>> {
         let request = open_request(path_flags, open_flags, flags);
         store.with(|mut store| {
-            let mut ctx = store.get();
-            let opened = ctx.target_of(&descriptor, &path)?.open(&request)?;
+            let ctx = store.get();
+            let from = ctx.table.get(&descriptor)?;
+            let opened = ctx.files.open(from, &path, &request)?;
             Ok(ctx.table.push(opened)?)
         })
     }
@@ -324,7 +349,7 @@ impl<U: 'static> types::HostDescriptorWithStore<U> for HasFiles {
         descriptor: Resource<Descriptor>,
         path: String,
     ) -> FsResult<String> {
-        store.with(|mut store| Ok(store.get().target_of(&descriptor, &path)?.read_link()?))
+        store.with(|mut store| Ok(store.get().named(&descriptor, &path)?.read_link()?))
     }
 
     async fn remove_directory_at(
@@ -335,7 +360,7 @@ impl<U: 'static> types::HostDescriptorWithStore<U> for HasFiles {
         store.with(|mut store| {
             Ok(store
                 .get()
-                .target_of(&descriptor, &path)?
+                .change(&descriptor, &path, FileChange::RemoveDirectory)?
                 .remove_directory()?)
         })
     }
@@ -348,9 +373,10 @@ impl<U: 'static> types::HostDescriptorWithStore<U> for HasFiles {
         new_path: String,
     ) -> FsResult<()> {
         store.with(|mut store| {
-            let mut ctx = store.get();
-            let from = ctx.target_of(&descriptor, &old_path)?;
-            let to = ctx.target_of(&new_descriptor, &new_path)?;
+            let ctx = store.get();
+            let (from, to_from) = (ctx.table.get(&descriptor)?, ctx.table.get(&new_descriptor)?);
+            let rename = FileChange::Rename { to: &new_path };
+            let (from, to) = ctx.files.change_between(from, &old_path, to_from, rename)?;
             Ok(from.rename_to(&to)?)
         })
     }
@@ -363,9 +389,12 @@ impl<U: 'static> types::HostDescriptorWithStore<U> for HasFiles {
         new_path: String,
     ) -> FsResult<()> {
         store.with(|mut store| {
+            let symlink = FileChange::Symlink {
+                contents: &old_path,
+            };
             Ok(store
                 .get()
-                .target_of(&descriptor, &new_path)?
+                .change(&descriptor, &new_path, symlink)?
                 .symlink(&old_path)?)
         })
     }
@@ -375,7 +404,12 @@ impl<U: 'static> types::HostDescriptorWithStore<U> for HasFiles {
         descriptor: Resource<Descriptor>,
         path: String,
     ) -> FsResult<()> {
-        store.with(|mut store| Ok(store.get().target_of(&descriptor, &path)?.unlink_file()?))
+        store.with(|mut store| {
+            Ok(store
+                .get()
+                .change(&descriptor, &path, FileChange::Remove)?
+                .unlink_file()?)
+        })
     }
 
     /// Whether the two handles are on one file or folder; a handle whose status the system does
@@ -412,7 +446,7 @@ impl<U: 'static> types::HostDescriptorWithStore<U> for HasFiles {
         path: String,
     ) -> FsResult<MetadataHashValue> {
         store.with(|mut store| {
-            let target = store.get().target_of(&descriptor, &path)?;
+            let target = store.get().named(&descriptor, &path)?;
             Ok(target.metadata_hash(follows(path_flags))?.into())
         })
     }

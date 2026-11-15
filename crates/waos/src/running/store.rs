@@ -19,12 +19,11 @@ use super::instances::{ProgramInstances, UserSide};
 use super::limits::Limits;
 use super::worker::WorkerRun;
 use super::{ProgramEnd, ProgramStart, RunningProgram};
-use crate::audio::MicrophoneRecordings;
 use crate::audio::ProgramAudio;
 use crate::audio::host::{AudioCtx, AudioCtxView};
 use crate::bindings::wasdk::platform::workers::WorkerError;
 use crate::cameras::host::{CamerasCtx, CamerasCtxView};
-use crate::cameras::{CameraShells, ProgramCameras, SessionRecordings};
+use crate::cameras::{CameraShells, ProgramCameras};
 use crate::caption_settings::CaptionSettings;
 use crate::caption_settings::host::{CaptionSettingsCtx, CaptionSettingsCtxView};
 use crate::clipboard::ProgramClipboard;
@@ -53,14 +52,13 @@ use crate::network::{ProgramHttp, ProgramNetwork};
 use crate::notifications::host::{NotificationsCtx, NotificationsCtxView};
 use crate::opener::LinkSchemes;
 use crate::opener::host::{OpenerCtx, OpenerCtxView};
+use crate::permissions::ProgramPermissions;
 use crate::permissions::host::{PermissionsCtx, PermissionsCtxView};
-use crate::permissions::{NothingGranted, ProgramPermissions};
-use crate::recordings::Recordings;
 use crate::screens::Screens;
 use crate::screens::host::{ScreensCtx, ScreensCtxView};
 use crate::shell::{
-    RecordingDevice, ShellCompositor, ShellFileDialogs, ShellImageCodecs, ShellMediaAssets,
-    ShellMediaPlayers, ShellNotifications, ShellOpener, ShellVideoFrameReaders, ViewPlacement,
+    ShellCompositor, ShellFileDialogs, ShellImageCodecs, ShellMediaAssets, ShellMediaPlayers,
+    ShellNotifications, ShellOpener, ShellVideoFrameReaders, ViewPlacement,
 };
 use crate::stream::{Forwarded, stream_of};
 use crate::system::SystemSettings;
@@ -256,21 +254,15 @@ fn store_data(
         .memories(MEMORY_COUNT_LIMIT)
         .build();
     let access = &instances.access;
-    // TODO: the files and the network read the grants themselves until their checks move onto
-    // the access (step 2 of the inspector proposal); `grants` goes with them.
-    let grants = environment
-        .grants
-        .clone()
-        .unwrap_or_else(|| Arc::new(NothingGranted));
     let handed = instances.handed.clone();
     let picks = Picks::new(handed.clone(), access.clone());
     let files = ProgramFiles::new(
         environment.folders.as_ref(),
         instances.temporary_folder.as_deref(),
-        grants.clone(),
+        access.clone(),
         handed.clone(),
     );
-    let network = ProgramNetwork::new(grants);
+    let network = ProgramNetwork::new(access.clone());
     let clipboard = ProgramClipboard::new(
         user_side.clipboard,
         access.clone(),
@@ -295,21 +287,12 @@ fn store_data(
         user_side.notifications.clone(),
         program.clone(),
     );
-    let recordings = |device| {
-        Recordings::new(
-            user_side.recording_indicator.clone(),
-            program.clone(),
-            device,
-        )
-    };
+    let recordings_shown = user_side.recordings_shown;
     let audio = ProgramAudio::new(
         user_side.audio,
         user_side.audio_output_picker,
         access.clone(),
-        MicrophoneRecordings {
-            machine: recordings(RecordingDevice::Microphone),
-            simulated: recordings(RecordingDevice::SimulatedMicrophone),
-        },
+        recordings_shown,
         program,
     );
     let cameras = ProgramCameras::new(
@@ -318,10 +301,7 @@ fn store_data(
             simulated: user_side.simulated_cameras,
         },
         access.clone(),
-        SessionRecordings {
-            machine: recordings(RecordingDevice::Camera),
-            simulated: recordings(RecordingDevice::SimulatedCamera),
-        },
+        recordings_shown,
         program.lifecycle().clone(),
     );
     StoreData {
@@ -671,6 +651,7 @@ impl FileWatchingCtxView for StoreData {
     fn file_watching_ctx(&mut self) -> FileWatchingCtx<'_> {
         FileWatchingCtx {
             table: &mut self.table,
+            access: &self.instances.access,
         }
     }
 }

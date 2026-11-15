@@ -9,7 +9,8 @@ use waos_capabilities::{
     ProgramGrants, Question,
 };
 
-use super::{HandedFiles, LiveMounts, MountTable, Mounted, open_folder};
+use super::{HandedFiles, LiveMounts, MountKind, MountTable, Mounted, open_folder};
+use crate::access::ProgramAccess;
 use crate::files::errors::ErrorCode;
 use crate::files::machine_paths;
 use crate::files::status::FileStat;
@@ -131,7 +132,15 @@ fn a_folder_above_the_mounts_lists_only_what_is_mounted_under_it() {
 #[test]
 fn the_programs_own_folder_is_kept_over_a_grant_at_its_path() {
     let machine = Machine::new(&["own", "granted"]);
-    let own = vec![Mounted::open(&machine.folder("own"), Path::new("/data"), true).unwrap()];
+    let own = vec![
+        Mounted::open(
+            &machine.folder("own"),
+            Path::new("/data"),
+            true,
+            MountKind::OwnData,
+        )
+        .unwrap(),
+    ];
     let granted = machine.grant(&[("granted", "/data")]);
     let table = MountTable::new(&own, &granted, &[]);
     assert_eq!(machine.leads(&table, "data/x"), "beneath own: x");
@@ -159,7 +168,12 @@ fn a_file_handed_is_mounted_read_only_at_its_own_path_and_nothing_else_of_its_fo
     let handed = HandedFiles::default();
     handed.hand(&note);
     handed.hand(&note);
-    let mut mounts = LiveMounts::new(None, None, Arc::new(TestGrants::default()), handed);
+    let mut mounts = LiveMounts::new(
+        None,
+        None,
+        ProgramAccess::new(Arc::new(TestGrants::default())),
+        handed,
+    );
     let table = mounts.now();
     let Target::Beneath(beneath) = table.resolve(Path::new("/"), &from_root(&note)).unwrap() else {
         panic!("the file is beneath its folder");
@@ -196,7 +210,12 @@ fn a_mount_added_or_removed_applies_at_the_next_call() {
         data: machine.folder("data"),
         cache: machine.root.path().join("no cache"),
     };
-    let mut mounts = LiveMounts::new(Some(&folders), None, grants.clone(), HandedFiles::default());
+    let mut mounts = LiveMounts::new(
+        Some(&folders),
+        None,
+        ProgramAccess::new(grants.clone()),
+        HandedFiles::default(),
+    );
     assert_eq!(
         machine.leads(mounts.now(), "later"),
         "outside, in a folder above"

@@ -19,7 +19,7 @@ use futures::FutureExt;
 use futures::future::BoxFuture;
 use waos_capabilities::{Answer, ProgramGrants};
 
-use crate::access::{ProgramAccess, Prompt, Refusal, Use};
+use crate::access::{Asked, ProgramAccess, Prompt, Refusal};
 use crate::asking::Asking;
 use crate::running::RunningProgram;
 use crate::shell::{Prompts, ShellOpener};
@@ -101,7 +101,7 @@ fn decide_link(access: &ProgramAccess, link: &str, scheme: &str, asked: Option<A
         }
     };
     access
-        .decide(Use::OpenLink { link }, free_or_allowed)
+        .decide(Asked::OpenLink { link }, free_or_allowed)
         .is_ok()
 }
 

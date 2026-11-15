@@ -13,7 +13,12 @@
 //! otherwise than WASI is refused before it reaches the system ([`names`]).
 //!
 //! The calls are WASI's, whichever its version: the handles ([`Descriptor`]) and where a path
-//! leads ([`Target`]). What reaches a folder the program holds by its path, as a watch of it does,
+//! leads ([`Target`]). Every path the program names is led through the mounts by one function,
+//! [`ProgramFiles::target`], and each call is told through the program's access as the use it is:
+//! an open and a change decided, the table's refusal being the verdict and the place it found the
+//! record ([`ProgramFiles::open`], [`ProgramFiles::change`]); a status, a symlink read or a hash
+//! only noted ([`ProgramFiles::named`]); a handle's first write noted once; and each file opened
+//! kept among the program's open files while it is held. What reaches a folder the program holds by its path, as a watch of it does,
 //! takes the path the system gives of its handle ([`HeldFolder`]). [`p3`] serves them as `wasi:filesystem@0.3`, which Rust's `std` calls on
 //! `wasm32-wasip3`, whose descriptor a machine's root is too (`machines`).
 //!
@@ -40,6 +45,7 @@
 mod beneath;
 mod descriptor;
 mod errors;
+mod handle_path;
 mod held_folder;
 pub mod machine_paths;
 mod mounts;
@@ -53,20 +59,21 @@ mod windows;
 
 use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 
-use waos_capabilities::{ProgramFolders, ProgramGrants};
+use waos_capabilities::ProgramFolders;
 use wasmtime::component::{HasData, ResourceTable};
 
-pub(crate) use descriptor::Descriptor;
-use descriptor::{DirectoryEntry, OpenMode, Opened};
+use crate::access::{Asked, FileChange, Noted, ProgramAccess, Refused, Resolution, Resolved};
+pub(crate) use descriptor::{Descriptor, OpenMode};
+use descriptor::{DirectoryEntry, Opened};
 pub(crate) use errors::ErrorCode;
+pub(crate) use handle_path::path_of;
 pub(crate) use held_folder::HeldFolder;
-pub(crate) use mounts::HandedFiles;
+pub(crate) use mounts::{HandedFiles, MountKind};
 use mounts::{LiveMounts, ROOT};
 pub(crate) use picks::Picks;
 use status::{DescriptorStat, MetadataHashValue};
-use target::Target;
+use target::{Change, OpenRequest, Target};
 
 /// The files of a machine the user gave a program, from `folder`: the folder, open, which the
 /// program may change, every path from it resolving as the machine resolves any path. On Windows
@@ -103,22 +110,150 @@ impl HasData for HasFiles {
     type Data<'a> = FilesCtx<'a>;
 }
 
-/// One program's files: its mounts, as its grants hold them now.
+/// One program's files: its mounts, as its grants hold them now, and where each use of them is
+/// decided and told.
 pub(crate) struct ProgramFiles {
     mounts: LiveMounts,
+    access: ProgramAccess,
+}
+
+/// Why the mounts did not let a path call go on: what the program is answered, and whether the
+/// mounts refused it, as a path outside them or a change a mount does not allow, or it failed.
+pub(crate) struct FilesRefusal {
+    code: ErrorCode,
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the setting is read by the audit summary and the live trace, later steps"
+        )
+    )]
+    by_the_mounts: bool,
 }
 
 impl ProgramFiles {
     /// The files of a program with its own `folders` and its `temporary` folder, where it has
-    /// them, `grants`, and the files the user hands it, `handed`.
+    /// them, the grants `access` reads, and the files the user hands it, `handed`.
     pub(crate) fn new(
         folders: Option<&ProgramFolders>,
         temporary: Option<&Path>,
-        grants: Arc<dyn ProgramGrants>,
+        access: ProgramAccess,
         handed: HandedFiles,
     ) -> ProgramFiles {
         ProgramFiles {
-            mounts: LiveMounts::new(folders, temporary, grants, handed),
+            mounts: LiveMounts::new(folders, temporary, access.clone(), handed),
+            access,
+        }
+    }
+
+    /// Opens what `path`, given with `from`, names, as `request` asks: decided by the mounts and
+    /// told as one use, and kept among the program's open files while it is held.
+    pub(crate) fn open(
+        &mut self,
+        from: &Descriptor,
+        path: &str,
+        request: &OpenRequest,
+    ) -> Result<Descriptor, ErrorCode> {
+        let access = self.access.clone();
+        let asked = Asked::Open {
+            path,
+            mode: request.open_mode(),
+        };
+        let target = access.decide(asked, |_| self.permitted_open(from, path, request))?;
+        let opened = target.open(request)?;
+        if let Descriptor::Dir(opened) | Descriptor::File(opened) = &opened {
+            access.opened(opened.handle(), opened.kind(), opened.open_mode());
+        }
+        Ok(opened)
+    }
+
+    /// Where `path` leads from `from`, if the mounts let it be opened as `request` asks.
+    fn permitted_open(
+        &mut self,
+        from: &Descriptor,
+        path: &str,
+        request: &OpenRequest,
+    ) -> Result<Target, FilesRefusal> {
+        request.check().map_err(FilesRefusal::failed)?;
+        let target = self.target(from, path).map_err(FilesRefusal::failed)?;
+        match target.open_refusal(request) {
+            Some(code) => Err(FilesRefusal::by_the_mounts(code)),
+            None => Ok(target),
+        }
+    }
+
+    /// Where `change` at `path`, given with `from`, is made: decided by the mounts and told as one
+    /// use. A rename and a link name a second path, from `to_from`; use
+    /// [`change_between`](Self::change_between) for them.
+    pub(crate) fn change(
+        &mut self,
+        from: &Descriptor,
+        path: &str,
+        change: FileChange<'_>,
+    ) -> Result<Target, ErrorCode> {
+        let access = self.access.clone();
+        let kind = change_of(&change);
+        let asked = Asked::Change { path, change };
+        Ok(access.decide(asked, |_| self.permitted_change(from, path, kind))?)
+    }
+
+    /// Where a rename or a link moves or links what `path`, given with `from`, names, and where it
+    /// puts it, at the path `change` names, given with `to_from`: decided by the mounts, both
+    /// places, and told as one use.
+    pub(crate) fn change_between(
+        &mut self,
+        from: &Descriptor,
+        path: &str,
+        to_from: &Descriptor,
+        change: FileChange<'_>,
+    ) -> Result<(Target, Target), ErrorCode> {
+        let access = self.access.clone();
+        let (kinds, to) = match change {
+            FileChange::Rename { to } => ((Change::Remove, Change::Replace), to),
+            FileChange::Link { to } => ((Change::Modify, Change::Create), to),
+            _ => return Err(ErrorCode::Invalid),
+        };
+        let asked = Asked::Change { path, change };
+        let places = access.decide(asked, |_| {
+            let from = self.permitted_change(from, path, kinds.0)?;
+            let to = self.permitted_change(to_from, to, kinds.1)?;
+            Ok::<_, FilesRefusal>(Places(from, to))
+        })?;
+        Ok((places.0, places.1))
+    }
+
+    /// Where `path` leads from `from`, if the mounts let `change` be made there.
+    fn permitted_change(
+        &mut self,
+        from: &Descriptor,
+        path: &str,
+        change: Change,
+    ) -> Result<Target, FilesRefusal> {
+        let target = self.target(from, path).map_err(FilesRefusal::failed)?;
+        match target.refusal_for(change) {
+            Some(code) => Err(FilesRefusal::by_the_mounts(code)),
+            None => Ok(target),
+        }
+    }
+
+    /// Where `path`, given with `from`, leads, for a status, a symlink read or a hash: the same
+    /// resolution, noted, not decided.
+    pub(crate) fn named(&mut self, from: &Descriptor, path: &str) -> Result<Target, ErrorCode> {
+        let target = self.target(from, path);
+        let resolution = match &target {
+            Ok(target) => target.resolution(),
+            Err(_) => Resolution::Nothing,
+        };
+        self.access.note(Noted::Named { path, resolution });
+        target
+    }
+
+    /// Notes the first write through `opened`, once per handle.
+    pub(crate) fn writing(&self, opened: &Opened) {
+        if opened.first_write() {
+            self.access.note(Noted::FirstWrite {
+                kind: opened.kind(),
+            });
         }
     }
 
@@ -135,12 +270,9 @@ impl ProgramFiles {
 
     /// Where `path`, given with `descriptor`, leads: through the mounts from a folder above
     /// them, or beneath a folder opened beneath one, a name the system would read otherwise
-    /// refused ([`names`]); or, from a machine's root, as the machine resolves it.
-    pub(crate) fn target(
-        &mut self,
-        descriptor: &Descriptor,
-        path: &str,
-    ) -> Result<Target, ErrorCode> {
+    /// refused ([`names`]); or, from a machine's root, as the machine resolves it. The one place a
+    /// path the program names is led through the mounts.
+    fn target(&mut self, descriptor: &Descriptor, path: &str) -> Result<Target, ErrorCode> {
         match descriptor {
             Descriptor::Above(folder) => {
                 names::check(path)?;
@@ -213,3 +345,61 @@ impl ProgramFiles {
         }
     }
 }
+
+/// What a change is to the module's table of refusals.
+fn change_of(change: &FileChange<'_>) -> Change {
+    match change {
+        FileChange::CreateDirectory | FileChange::Symlink { .. } => Change::Create,
+        FileChange::RemoveDirectory | FileChange::Remove => Change::Remove,
+        FileChange::SetTimes => Change::Modify,
+        FileChange::Rename { .. } => Change::Remove,
+        FileChange::Link { .. } => Change::Modify,
+    }
+}
+
+/// The two places a rename or a link names: what is moved or linked, and where it goes.
+struct Places(Target, Target);
+
+impl Resolved for Places {
+    fn resolution(&self) -> Resolution<'_> {
+        Resolution::Both(Box::new((self.0.resolution(), self.1.resolution())))
+    }
+}
+
+impl FilesRefusal {
+    fn by_the_mounts(code: ErrorCode) -> FilesRefusal {
+        FilesRefusal {
+            code,
+            by_the_mounts: true,
+        }
+    }
+
+    fn failed(code: ErrorCode) -> FilesRefusal {
+        FilesRefusal {
+            code,
+            by_the_mounts: false,
+        }
+    }
+}
+
+impl Refused for FilesRefusal {
+    fn setting(&self) -> Option<&'static str> {
+        self.by_the_mounts.then_some("folders")
+    }
+}
+
+impl From<FilesRefusal> for ErrorCode {
+    fn from(refusal: FilesRefusal) -> ErrorCode {
+        refusal.code
+    }
+}
+
+impl Refused for ErrorCode {
+    /// A system's error, which no setting decides.
+    fn setting(&self) -> Option<&'static str> {
+        None
+    }
+}
+
+#[cfg(test)]
+mod tests;

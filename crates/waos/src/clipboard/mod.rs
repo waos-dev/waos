@@ -31,7 +31,7 @@ use futures::stream::{self, BoxStream, StreamExt};
 use tokio::sync::watch;
 use waos_capabilities::ProgramGrants;
 
-use crate::access::{ProgramAccess, Refusal, Use};
+use crate::access::{Asked, ProgramAccess, Refusal};
 use crate::bindings::wasdk::platform::clipboard::ClipboardError;
 use crate::files::{HandedFiles, machine_paths};
 use crate::shell::{CopiedItem, ShellClipboard, ShellClipboardItem};
@@ -248,7 +248,7 @@ impl ProgramClipboard {
         item: &ListedItem,
         mime: &str,
     ) -> BoxFuture<'static, Result<Vec<u8>, ClipboardError>> {
-        let used = Use::ClipboardRead {
+        let used = Asked::ClipboardRead {
             form: mime,
             pasted: item.pasted,
         };
@@ -283,7 +283,7 @@ impl ProgramClipboard {
             }
         };
         self.access
-            .decide(Use::ClipboardWrite { forms }, switched_on)
+            .decide(Asked::ClipboardWrite { forms }, switched_on)
             .is_ok()
     }
 

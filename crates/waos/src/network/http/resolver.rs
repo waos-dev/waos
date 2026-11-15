@@ -20,6 +20,7 @@ use reqwest::dns::{Addrs, Name, Resolve, Resolving};
 use wasmtime_wasi::runtime::spawn_blocking;
 
 use super::route::Answered;
+use crate::access::Cause;
 use crate::network::{ProgramNetwork, resolve_unchecked};
 use crate::sync::locked;
 
@@ -114,7 +115,7 @@ impl Resolve for ProgramResolver {
             spawn_blocking(move || resolve_unchecked(&name))
         } else {
             let network = self.network.clone();
-            spawn_blocking(move || network.reachable(&name))
+            spawn_blocking(move || network.reachable(&name, Cause::Request))
         };
         Box::pin(async move {
             let addresses = resolving.await?;
@@ -138,6 +139,7 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     use super::*;
+    use crate::access::ProgramAccess;
     use crate::network::test_grants::{TestGrants, any};
 
     const HOST: &str = "pinned.test";
@@ -146,7 +148,7 @@ mod tests {
     fn resolver(lookups: &Arc<AtomicUsize>) -> Arc<ProgramResolver> {
         let counted = Arc::clone(lookups);
         let network = ProgramNetwork::resolving_with(
-            TestGrants::new(any(), true),
+            ProgramAccess::new(TestGrants::new(any(), true)),
             Arc::new(move |_: &str| {
                 counted.fetch_add(1, Ordering::SeqCst);
                 Ok(vec![address("192.0.2.1")])

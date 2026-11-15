@@ -17,6 +17,10 @@
 //! system's ordinary calls, which follow every symlink and `..` as they lead, and a change is made
 //! in the folder that holds what it names, opened as the system resolves it.
 //!
+//! The table, and what an open is refused with, are callable apart from making the change or the
+//! open ([`Target::refusal_for`], [`Target::open_refusal`]), so the program's access decides a use
+//! by them before it is made (`files`).
+//!
 //! The invariant: from a mount, the machine is changed only beneath a writable mount's folder; a
 //! folder above a mount and a mount's own folder are the table's, which only the user changes.
 
@@ -33,8 +37,9 @@ use rustix::fs::{Mode, OFlags};
 use super::beneath::{self, FollowSymlinks, OpenOptions};
 use super::descriptor::{Descriptor, OpenMode, Opened};
 use super::errors::ErrorCode;
-use super::mounts::{Mounted, open_folder};
+use super::mounts::{MountKind, Mounted, open_folder};
 use super::status::{DescriptorStat, FileStat, MetadataHashValue};
+use crate::access::{Resolution, Resolved};
 
 /// Where a path given with a descriptor leads.
 pub(crate) enum Target {
@@ -60,6 +65,8 @@ pub(crate) struct Beneath {
     pub(crate) folder: Arc<fs::File>,
     pub(crate) path: PathBuf,
     pub(crate) writable: bool,
+    /// The kind of the mount the folder is in.
+    pub(crate) kind: MountKind,
     /// Whether the path names a file mounted itself, which a rename may replace from another
     /// volume.
     pub(crate) mounted_file: bool,
@@ -84,7 +91,7 @@ pub(crate) struct OpenRequest {
 
 /// What a call does to the path it names, by which a refusal is chosen.
 #[derive(Clone, Copy)]
-enum Change {
+pub(super) enum Change {
     /// Makes something new at the path.
     Create,
     /// Puts something at the path, in place of what may be there.
@@ -122,12 +129,18 @@ impl Target {
     pub(crate) fn open(&self, request: &OpenRequest) -> Result<Descriptor, ErrorCode> {
         request.check()?;
         match self {
-            Target::Beneath(beneath) => {
-                open_beneath(&beneath.folder, &beneath.path, beneath.writable, request)
-            }
-            Target::MountPoint(mount) => {
-                open_beneath(&mount.folder, Path::new("."), mount.writable, request)
-            }
+            Target::Beneath(beneath) => open_beneath(
+                &beneath.folder,
+                &beneath.path,
+                (beneath.writable, beneath.kind),
+                request,
+            ),
+            Target::MountPoint(mount) => open_beneath(
+                &mount.folder,
+                Path::new("."),
+                (mount.writable, mount.kind),
+                request,
+            ),
             Target::OnMachine(path) => open_on_machine(path, request),
             Target::Above(path) => {
                 request.check_folder_above()?;
@@ -142,6 +155,59 @@ impl Target {
                 Err(ErrorCode::ReadOnly)
             }
             Target::Outside { .. } => Err(ErrorCode::NoEntry),
+        }
+    }
+
+    /// What an open of the path, as `request` asks, is refused with by the mounts, made or not:
+    /// outside every mount, as [`open`](Self::open) answers it; one that would change what a
+    /// read-only mount holds; and, of a folder above the mounts, one that would make it new or
+    /// change it. None where the mounts let it be made.
+    pub(crate) fn open_refusal(&self, request: &OpenRequest) -> Option<ErrorCode> {
+        match self {
+            Target::Beneath(Beneath { writable, .. })
+            | Target::MountPoint(Mounted { writable, .. })
+                if !writable && request.changes_the_file() =>
+            {
+                Some(ErrorCode::ReadOnly)
+            }
+            Target::Above(_) => request.check_folder_above().err(),
+            #[cfg(windows)]
+            Target::Drives => request.check_folder_above().err(),
+            Target::Outside { in_folder_above } if request.create && *in_folder_above => {
+                Some(ErrorCode::ReadOnly)
+            }
+            Target::Outside { .. } => Some(ErrorCode::NoEntry),
+            Target::Beneath(_) | Target::MountPoint(_) | Target::OnMachine(_) => None,
+        }
+    }
+
+    /// What `change` at the path is refused with by the module's table, made or not; none where
+    /// the table lets it be made.
+    pub(super) fn refusal_for(&self, change: Change) -> Option<ErrorCode> {
+        match (self, change) {
+            (Target::Beneath(beneath), _) if beneath.writable => None,
+            (Target::MountPoint(mount), Change::Modify) if mount.writable => None,
+            (Target::OnMachine(_), _) => None,
+            (Target::Beneath(_), _)
+            | (Target::MountPoint(_) | Target::Above(_), Change::Modify)
+            | (
+                Target::Outside {
+                    in_folder_above: true,
+                },
+                Change::Create | Change::Replace,
+            ) => Some(ErrorCode::ReadOnly),
+            (Target::MountPoint(_) | Target::Above(_), Change::Create) => Some(ErrorCode::Exist),
+            (Target::MountPoint(_) | Target::Above(_), Change::Replace | Change::Remove) => {
+                Some(ErrorCode::Busy)
+            }
+            // Nothing changes the drives, as nothing changes a folder above the mounts.
+            #[cfg(windows)]
+            (Target::Drives, Change::Modify) => Some(ErrorCode::ReadOnly),
+            #[cfg(windows)]
+            (Target::Drives, Change::Create) => Some(ErrorCode::Exist),
+            #[cfg(windows)]
+            (Target::Drives, Change::Replace | Change::Remove) => Some(ErrorCode::Busy),
+            (Target::Outside { .. }, _) => Some(ErrorCode::NoEntry),
         }
     }
 
@@ -312,34 +378,40 @@ impl Target {
     /// The folder and the path beneath it where `change` is made, or why it is refused (the
     /// module's table): on a machine, the folder holding what the path names, and its name.
     fn place_for(&self, change: Change) -> Result<(Arc<fs::File>, PathBuf), ErrorCode> {
-        match (self, change) {
-            (Target::Beneath(beneath), _) if beneath.writable => {
-                Ok((Arc::clone(&beneath.folder), beneath.path.clone()))
-            }
-            (Target::MountPoint(mount), Change::Modify) if mount.writable => {
-                Ok((Arc::clone(&mount.folder), PathBuf::from(".")))
-            }
-            (Target::OnMachine(path), _) => pinned(path),
-            (Target::Beneath(_), _)
-            | (Target::MountPoint(_) | Target::Above(_), Change::Modify)
-            | (
-                Target::Outside {
-                    in_folder_above: true,
-                },
-                Change::Create | Change::Replace,
-            ) => Err(ErrorCode::ReadOnly),
-            (Target::MountPoint(_) | Target::Above(_), Change::Create) => Err(ErrorCode::Exist),
-            (Target::MountPoint(_) | Target::Above(_), Change::Replace | Change::Remove) => {
-                Err(ErrorCode::Busy)
-            }
-            // Nothing changes the drives, as nothing changes a folder above the mounts.
+        if let Some(refused) = self.refusal_for(change) {
+            return Err(refused);
+        }
+        match self {
+            Target::Beneath(beneath) => Ok((Arc::clone(&beneath.folder), beneath.path.clone())),
+            Target::MountPoint(mount) => Ok((Arc::clone(&mount.folder), PathBuf::from("."))),
+            Target::OnMachine(path) => pinned(path),
+            // The table refuses every change of these.
+            Target::Above(_) | Target::Outside { .. } => Err(ErrorCode::NoEntry),
             #[cfg(windows)]
-            (Target::Drives, Change::Modify) => Err(ErrorCode::ReadOnly),
+            Target::Drives => Err(ErrorCode::NoEntry),
+        }
+    }
+}
+
+impl Resolved for Target {
+    /// Beneath a mount's folder, or a mount's own folder, the place in it; a machine's path; and
+    /// nothing for a folder above the mounts and a path outside them.
+    fn resolution(&self) -> Resolution<'_> {
+        match self {
+            Target::Beneath(beneath) => Resolution::File {
+                kind: beneath.kind,
+                folder: &beneath.folder,
+                beneath: &beneath.path,
+            },
+            Target::MountPoint(mount) => Resolution::File {
+                kind: mount.kind,
+                folder: &mount.folder,
+                beneath: Path::new("."),
+            },
+            Target::OnMachine(path) => Resolution::OnMachine(path),
+            Target::Above(_) | Target::Outside { .. } => Resolution::Nothing,
             #[cfg(windows)]
-            (Target::Drives, Change::Create) => Err(ErrorCode::Exist),
-            #[cfg(windows)]
-            (Target::Drives, Change::Replace | Change::Remove) => Err(ErrorCode::Busy),
-            (Target::Outside { .. }, _) => Err(ErrorCode::NoEntry),
+            Target::Drives => Resolution::Nothing,
         }
     }
 }
@@ -442,12 +514,12 @@ fn open_on_machine(path: &Path, request: &OpenRequest) -> Result<Descriptor, Err
     }
 }
 
-/// Opens `path` beneath `folder`, a writable mount's or not, as `request` asks: a folder, or a
-/// file unless a folder is asked for.
+/// Opens `path` beneath `folder`, a writable mount's or not and of the kind given, as `request`
+/// asks: a folder, or a file unless a folder is asked for.
 fn open_beneath(
     folder: &fs::File,
     path: &Path,
-    writable: bool,
+    (writable, kind): (bool, MountKind),
     request: &OpenRequest,
 ) -> Result<Descriptor, ErrorCode> {
     if !writable && request.changes_the_file() {
@@ -455,7 +527,7 @@ fn open_beneath(
     }
     let handle = beneath::open(folder, path, &request.options())?;
     let is_folder = handle.metadata()?.is_dir();
-    let opened = Opened::new(handle, writable, request.open_mode());
+    let opened = Opened::new(handle, (writable, kind), request.open_mode());
     match (is_folder, request.directory) {
         (true, _) => Ok(Descriptor::Dir(opened)),
         (false, true) => Err(ErrorCode::NotDirectory),
@@ -587,7 +659,7 @@ impl OpenRequest {
 
     /// Refuses what no open serves: synchronized I/O, and a folder made, emptied or required
     /// to be new.
-    fn check(&self) -> Result<(), ErrorCode> {
+    pub(super) fn check(&self) -> Result<(), ErrorCode> {
         if self.synchronized {
             return Err(ErrorCode::Unsupported);
         }
@@ -657,7 +729,11 @@ mod tests {
             assert_eq!(contents(&file), b"on the machine", "{path}");
         }
 
-        let mount = Opened::new(fs::File::open(&folder).unwrap(), true, read.open_mode());
+        let mount = Opened::new(
+            fs::File::open(&folder).unwrap(),
+            (true, MountKind::Granted),
+            read.open_mode(),
+        );
         let refused = mount.beneath("link").open(&read);
         assert!(refused.is_err(), "a mount keeps its path beneath it");
     }
@@ -742,7 +818,7 @@ mod tests {
         let folder = OpenRequest::folder();
         let mount = Opened::new(
             open_folder(scratch.path()).unwrap(),
-            true,
+            (true, MountKind::Granted),
             folder.open_mode(),
         );
 

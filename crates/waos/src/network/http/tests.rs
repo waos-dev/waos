@@ -24,6 +24,7 @@ use http_body_util::{BodyExt, Empty};
 use wasmtime_wasi_http::{Error, RequestOptions, WasiHttpHooks};
 
 use super::{HttpProxy, ProgramHttp};
+use crate::access::ProgramAccess;
 use crate::network::test_grants::{TestGrants, any, off, only};
 use crate::network::{LookupError, ProgramNetwork};
 
@@ -43,7 +44,10 @@ const FROM_THE_PROXY: u16 = 203;
 fn a_request_connects_to_the_address_its_lookup_answered() {
     let server = Server::start();
     let answers = Answers::first_then(LOOPBACK, DOCUMENTATION);
-    let network = ProgramNetwork::resolving_with(TestGrants::new(any(), true), answers.resolver());
+    let network = ProgramNetwork::resolving_with(
+        ProgramAccess::new(TestGrants::new(any(), true)),
+        answers.resolver(),
+    );
     let sent = send(network, HttpProxy::None, &format!("{NAME}:{}", server.port));
     assert!(matches!(sent, Ok(200)), "{sent:?}");
     assert_eq!(answers.calls(), 1, "resolved once");
@@ -54,7 +58,10 @@ fn a_request_connects_to_the_address_its_lookup_answered() {
 fn a_name_answering_this_computer_after_its_lookup_does_not_reach_it() {
     let server = Server::start();
     let answers = Answers::first_then(DOCUMENTATION, LOOPBACK);
-    let network = ProgramNetwork::resolving_with(TestGrants::new(any(), false), answers.resolver());
+    let network = ProgramNetwork::resolving_with(
+        ProgramAccess::new(TestGrants::new(any(), false)),
+        answers.resolver(),
+    );
     let sent = send(network, HttpProxy::None, &format!("{NAME}:{}", server.port));
     assert!(
         sent.is_err(),
@@ -68,7 +75,10 @@ fn a_name_answering_this_computer_after_its_lookup_does_not_reach_it() {
 fn through_a_proxy_a_refused_name_answering_the_internet_never_reaches_it() {
     let proxy = Server::start_answering(FROM_THE_PROXY);
     let answers = Answers::first_then(DOCUMENTATION, DOCUMENTATION);
-    let network = ProgramNetwork::resolving_with(TestGrants::new(off(), true), answers.resolver());
+    let network = ProgramNetwork::resolving_with(
+        ProgramAccess::new(TestGrants::new(off(), true)),
+        answers.resolver(),
+    );
     let sent = send(
         network,
         HttpProxy::Test {
@@ -89,7 +99,10 @@ fn through_a_proxy_a_name_answering_this_computer_is_reached_directly() {
     let proxy = Server::start_answering(FROM_THE_PROXY);
     let server = Server::start();
     let answers = Answers::first_then(LOOPBACK, DOCUMENTATION);
-    let network = ProgramNetwork::resolving_with(TestGrants::new(any(), true), answers.resolver());
+    let network = ProgramNetwork::resolving_with(
+        ProgramAccess::new(TestGrants::new(any(), true)),
+        answers.resolver(),
+    );
     let sent = send(
         network,
         HttpProxy::Test {
@@ -109,7 +122,10 @@ fn through_a_proxy_an_address_of_this_computer_is_reached_directly() {
     let proxy = Server::start_answering(FROM_THE_PROXY);
     let server = Server::start();
     let answers = Answers::first_then(DOCUMENTATION, DOCUMENTATION);
-    let network = ProgramNetwork::resolving_with(TestGrants::new(off(), true), answers.resolver());
+    let network = ProgramNetwork::resolving_with(
+        ProgramAccess::new(TestGrants::new(off(), true)),
+        answers.resolver(),
+    );
     let sent = send(
         network,
         HttpProxy::Test {
@@ -128,7 +144,10 @@ fn through_a_proxy_an_address_of_this_computer_is_reached_directly() {
 fn through_a_proxy_a_name_the_rule_allows_on_the_internet_goes_through_it() {
     let proxy = Server::start_answering(FROM_THE_PROXY);
     let answers = Answers::first_then(DOCUMENTATION, LOOPBACK);
-    let network = ProgramNetwork::resolving_with(TestGrants::new(any(), false), answers.resolver());
+    let network = ProgramNetwork::resolving_with(
+        ProgramAccess::new(TestGrants::new(any(), false)),
+        answers.resolver(),
+    );
     let sent = send(
         network,
         HttpProxy::Test {
@@ -151,7 +170,10 @@ fn through_a_proxy_a_name_the_rule_allows_on_the_internet_goes_through_it() {
 fn through_a_socks_proxy_a_name_the_rule_allows_on_the_internet_is_asked_for_by_name() {
     let proxy = SocksProxy::start();
     let answers = Answers::first_then(DOCUMENTATION, LOOPBACK);
-    let network = ProgramNetwork::resolving_with(TestGrants::new(any(), false), answers.resolver());
+    let network = ProgramNetwork::resolving_with(
+        ProgramAccess::new(TestGrants::new(any(), false)),
+        answers.resolver(),
+    );
     let sent = send(
         network,
         HttpProxy::Test {
@@ -174,7 +196,7 @@ fn a_localhost_name_reaches_this_computer_under_the_local_network_whatever_the_r
     let server = Server::start();
     let answers = Answers::first_then(DOCUMENTATION, DOCUMENTATION);
     let network = ProgramNetwork::resolving_with(
-        TestGrants::new(only(&["example.com"]), true),
+        ProgramAccess::new(TestGrants::new(only(&["example.com"]), true)),
         answers.resolver(),
     );
     let sent = send(
@@ -196,7 +218,7 @@ fn a_localhost_name_is_refused_with_the_local_network_switch_off() {
     let server = Server::start();
     let answers = Answers::first_then(LOOPBACK, LOOPBACK);
     let network = ProgramNetwork::resolving_with(
-        TestGrants::new(only(&["app.localhost"]), false),
+        ProgramAccess::new(TestGrants::new(only(&["app.localhost"]), false)),
         answers.resolver(),
     );
     let sent = send(
@@ -213,7 +235,10 @@ fn through_a_proxy_a_localhost_name_is_reached_directly() {
     let proxy = Server::start_answering(FROM_THE_PROXY);
     let server = Server::start();
     let answers = Answers::first_then(DOCUMENTATION, DOCUMENTATION);
-    let network = ProgramNetwork::resolving_with(TestGrants::new(any(), true), answers.resolver());
+    let network = ProgramNetwork::resolving_with(
+        ProgramAccess::new(TestGrants::new(any(), true)),
+        answers.resolver(),
+    );
     let sent = send(
         network,
         HttpProxy::Test {
@@ -421,4 +446,32 @@ fn read_vec(mut stream: &TcpStream, length: usize) -> std::io::Result<Vec<u8>> {
     let mut bytes = vec![0; length];
     stream.read_exact(&mut bytes)?;
     Ok(bytes)
+}
+
+#[test]
+fn a_request_is_told_refused_by_its_setting_or_held_in_flight() {
+    let grants = TestGrants::new(only(&["example.com"]), false);
+    let access = ProgramAccess::new(grants);
+    let network = ProgramNetwork::new(access.clone());
+    let method = http::Method::GET;
+    let refused = |uri: &str| super::check_host(&network, &method, &uri.parse().unwrap()).err();
+    assert!(matches!(
+        refused("http://127.0.0.1/"),
+        Some(Error::HttpRequestDenied)
+    ));
+    assert!(matches!(
+        refused("https://tracker.org/"),
+        Some(Error::HttpRequestDenied)
+    ));
+    assert_eq!(access.refusals(), ["local-network", "domains"]);
+    assert!(
+        access.holdings().held.is_empty(),
+        "nothing refused is in flight"
+    );
+
+    let uri = "https://api.example.com/".parse().unwrap();
+    let in_flight = super::check_host(&network, &method, &uri).unwrap();
+    assert_eq!(access.holdings().held.len(), 1);
+    drop(in_flight);
+    assert!(access.holdings().held.is_empty());
 }

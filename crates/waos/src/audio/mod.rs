@@ -42,15 +42,14 @@ use waos_capabilities::web_audio_api::context::{
 use waos_capabilities::web_audio_api::media_streams::MediaStream;
 use waos_capabilities::{Answer, AudioDeviceError, AudioDevices, ProgramGrants, Question};
 
-use crate::access::{Held, ProgramAccess, Refusal, Use};
+use crate::access::{Asked, Holding, ProgramAccess, Refusal};
 use crate::bindings::wasdk::platform::audio::{AudioError, MediaDeviceInfo};
 use crate::bindings::wasdk::platform::permissions::State;
 use crate::engine_time::EngineClock;
 use crate::lifecycle::Lifecycle;
 use crate::permissions::{Permission, ProgramPermissions, state_of};
-use crate::recordings::Recordings;
 use crate::running::RunningProgram;
-use crate::shell::ShellAudioOutputPicker;
+use crate::shell::{RecordingDevice, ShellAudioOutputPicker};
 pub use base_context::BaseContext;
 pub use context::Context;
 pub use microphone::Microphone;
@@ -75,30 +74,24 @@ pub(crate) struct ProgramAudio {
     /// The engine's clock, at whose ticks each context's sound is read.
     engine_clock: EngineClock,
     outputs: ProgramOutputs,
-    /// The microphones it has open, as the shell shows them.
-    microphones: MicrophoneRecordings,
+    /// Whether the shell can show that the program records, without which it opens no
+    /// microphone.
+    recordings_shown: bool,
     /// Where its microphone answer is read, which allows the microphone and picks the machine's
-    /// or one of WaOS's own, and what that one records.
+    /// or one of WaOS's own, and what that one records; and each microphone open held, which the
+    /// shell's indicator shows.
     access: ProgramAccess,
-}
-
-/// The microphones a program has open, as the shell's indicator shows them: the machine's, and
-/// WaOS's own, shown apart.
-#[derive(Clone)]
-pub(crate) struct MicrophoneRecordings {
-    pub(crate) machine: Recordings,
-    pub(crate) simulated: Recordings,
 }
 
 impl ProgramAudio {
     /// `program`'s sound, on `devices`, its outputs picked in `output_picker`, where the shell has
-    /// one, unless the grants `access` reads hold the picker's answer, and its microphones shown
-    /// as `microphones` shows them; with no devices it has none.
+    /// one, unless the grants `access` reads hold the picker's answer, and its microphones opened
+    /// where the shell can show that it records (`recordings_shown`); with no devices it has none.
     pub(crate) fn new(
         devices: Option<Arc<dyn AudioDevices>>,
         output_picker: Option<Arc<dyn ShellAudioOutputPicker>>,
         access: ProgramAccess,
-        microphones: MicrophoneRecordings,
+        recordings_shown: bool,
         program: &RunningProgram,
     ) -> ProgramAudio {
         ProgramAudio {
@@ -106,7 +99,7 @@ impl ProgramAudio {
             lifecycle: program.lifecycle().clone(),
             engine_clock: program.engine_clock().clone(),
             outputs: ProgramOutputs::new(output_picker, access.clone(), program.clone()),
-            microphones,
+            recordings_shown,
             access,
         }
     }
@@ -186,7 +179,7 @@ impl ProgramAudio {
                 "this platform gives the program no microphone".to_owned(),
             )));
         }
-        if !self.microphones.machine.can_show() {
+        if !self.recordings_shown {
             return Ok(Err(AudioError::NotSupported(
                 "this platform cannot show that a program records".to_owned(),
             )));
@@ -202,8 +195,8 @@ impl ProgramAudio {
         asked: impl Future<Output = ()>,
     ) -> wasmtime::Result<Result<Microphone, AudioError>> {
         asked.await;
-        let (simulated, open) = match decide_microphone(&self.access) {
-            Ok(decided) => decided,
+        let simulated = match decide_microphone(&self.access) {
+            Ok(simulated) => simulated,
             Err(error) => return Ok(Err(error)),
         };
         let stream = if simulated {
@@ -218,13 +211,13 @@ impl ProgramAudio {
         let source = failing(|| context.context().create_media_stream_source(&stream));
         Ok(source
             .map(|source| {
-                let recordings = if simulated {
-                    &self.microphones.simulated
+                let device = if simulated {
+                    RecordingDevice::SimulatedMicrophone
                 } else {
-                    &self.microphones.machine
+                    RecordingDevice::Microphone
                 };
-                let recording = recordings.record();
-                Microphone::new(source, stream, recording, self.lifecycle.sounding(), open)
+                let recording = self.access.hold(Holding::Recording(device));
+                Microphone::new(source, stream, recording, self.lifecycle.sounding())
             })
             .map_err(AudioError::InvalidState))
     }
@@ -241,9 +234,8 @@ impl ProgramAudio {
 }
 
 /// Whether the program `access` is of records WaOS's own microphone rather than the machine's,
-/// and the microphone's use, held, if its microphone answer allows it the microphone now;
-/// `not-allowed` otherwise.
-fn decide_microphone(access: &ProgramAccess) -> Result<(bool, Held), AudioError> {
+/// if its microphone answer allows it the microphone now; `not-allowed` otherwise.
+fn decide_microphone(access: &ProgramAccess) -> Result<bool, AudioError> {
     let simulated = access.grants().answer(Question::Microphone) == Some(Answer::Simulated);
     let allowed = |grants: &dyn ProgramGrants| {
         if state_of(grants, Permission::Question(Question::Microphone)) == State::Granted {
@@ -253,7 +245,7 @@ fn decide_microphone(access: &ProgramAccess) -> Result<(bool, Held), AudioError>
         }
     };
     access
-        .hold(Use::OpenMicrophone { simulated }, allowed)
+        .decide(Asked::OpenMicrophone { simulated }, allowed)
         .map_err(|_refusal| AudioError::NotAllowed)
 }
 
@@ -307,13 +299,7 @@ mod tests {
         assert_eq!(access.refusals(), ["microphone", "microphone"]);
 
         answers.set_answer(Question::Microphone, Answer::Simulated);
-        let (simulated, open) = decide_microphone(&access).unwrap();
-        assert!(simulated);
-        drop(open);
-        assert_eq!(
-            access.told().last(),
-            Some(&Told::Ended),
-            "closed as it is let go"
-        );
+        assert!(matches!(decide_microphone(&access), Ok(true)));
+        assert!(matches!(access.told().last(), Some(Told::Allowed(..))));
     }
 }

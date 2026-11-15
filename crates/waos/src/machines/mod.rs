@@ -5,7 +5,8 @@
 //! The engine keeps which machines the program holds: those its user picked for it, kept among
 //! its grants by their ids and read at each `granted`; a machine handed to the program, granted or
 //! picked, stays its until it ends, as an open file does, so a command run on it is told through
-//! the program's access (`access`) and held while the program holds it, but never refused. A pick
+//! the program's access (`access`), never refused, and held from its start until it ends, watched
+//! on the program's runtime whatever the program does with its handle ([`Run`]). A pick
 //! is asked of the user through the shell's [`ShellMachinePicker`], which shows what the providers
 //! offer, unless the user set the machine
 //! the picker answers among the program's settings: then that machine is the pick, and nothing is
@@ -27,7 +28,7 @@ use waos_capabilities::{
     ChildInput, Command, ExecError, Machine as ProvidedMachine, MachineChoice, Machines as Provider,
 };
 
-use crate::access::{Happened, Held, ProgramAccess, Use};
+use crate::access::{Asked, Happened, Holding, ProgramAccess, Refusal};
 use crate::running::RunningProgram;
 use crate::shell::ShellMachinePicker;
 
@@ -37,11 +38,13 @@ pub struct Machines;
 /// `machines.machine`: one machine the program holds.
 pub type Machine = Arc<dyn ProvidedMachine>;
 
-/// `machines.child`: a command the program started on a machine, and its run, held while the
-/// program holds it.
-pub struct Child {
-    started: Box<dyn waos_capabilities::Child>,
-    _run: Held,
+/// `machines.child`: a command the program started on a machine.
+pub type Child = Box<dyn waos_capabilities::Child>;
+
+/// A run decided and not started yet: what holds it once its command starts.
+pub(crate) struct Run {
+    access: ProgramAccess,
+    holding: Holding,
 }
 
 /// `machines.pipes`: a command's input, and its output and errors until the program takes them.
@@ -129,15 +132,17 @@ impl ProgramMachines {
         }
     }
 
-    /// The run of `command` on `machine`, in a terminal where `in_terminal`, told and held from
-    /// now on, for the [`Child`] it starts to hold.
-    pub(crate) fn hold_run(
+    /// The run of `command` on `machine`, in a terminal where `in_terminal`, decided and told,
+    /// to be held once it starts.
+    pub(crate) fn decide_run(
         &self,
         machine: &Machine,
         command: &Command,
         in_terminal: bool,
-    ) -> Result<Held, ExecError> {
-        hold_run(&self.access, &machine.name(), command, in_terminal)
+    ) -> Result<Run, ExecError> {
+        let machine = machine.name();
+        decide_run(&self.access, &machine, command, in_terminal)?;
+        Ok(Run::of(&self.access, machine, command, in_terminal))
     }
 
     /// What every provider offers, in the providers' order.
@@ -149,35 +154,51 @@ impl ProgramMachines {
     }
 }
 
-/// The run of `command` on the machine named `machine`, held: a machine handed to the program is
-/// its whole, so no grant refuses what it runs.
-fn hold_run(
+/// The run of `command` on the machine named `machine`, decided and told: a machine handed to the
+/// program is its whole, so no grant refuses what it runs.
+fn decide_run(
     access: &ProgramAccess,
     machine: &str,
     command: &Command,
     in_terminal: bool,
-) -> Result<Held, ExecError> {
-    let used = Use::Run {
+) -> Result<(), ExecError> {
+    let asked = Asked::Run {
         machine,
         command,
         in_terminal,
     };
-    match access.hold(used, |_grants| Ok(())) {
-        Ok(((), run)) => Ok(run),
-        Err(refusal) => Err(ExecError::Refused(format!(
-            "refused by the program's setting {}",
-            refusal.setting
-        ))),
-    }
+    access
+        .decide(asked, |_grants| Ok::<_, Refusal>(()))
+        .map_err(|refusal| {
+            ExecError::Refused(format!(
+                "refused by the program's setting {}",
+                refusal.setting
+            ))
+        })
 }
 
-impl Child {
-    pub(crate) fn new(started: Box<dyn waos_capabilities::Child>, run: Held) -> Child {
-        Child { started, _run: run }
+impl Run {
+    /// The run of `command` on the machine named `machine` for the program `access` is of.
+    fn of(access: &ProgramAccess, machine: String, command: &Command, in_terminal: bool) -> Run {
+        Run {
+            access: access.clone(),
+            holding: Holding::Run {
+                machine,
+                program: command.program.clone(),
+                in_terminal,
+            },
+        }
     }
 
-    pub(crate) fn started(&self) -> &dyn waos_capabilities::Child {
-        self.started.as_ref()
+    /// Holds the run from now until the command `child` is on ends, watched on the program's
+    /// runtime: until the program ends, at the latest, as the runtime goes with it.
+    pub(crate) fn started(self, child: &dyn waos_capabilities::Child) {
+        let held = self.access.hold(self.holding);
+        let ended = child.exit_status();
+        tokio::spawn(async move {
+            ended.await;
+            drop(held);
+        });
     }
 }
 
@@ -214,20 +235,53 @@ impl Terminal {
 
 #[cfg(test)]
 mod tests {
+    use waos_capabilities::ExitStatus;
+
     use super::*;
     use crate::access::Told;
     use crate::permissions::NothingGranted;
 
     #[test]
-    fn a_run_is_told_allowed_whatever_is_granted_and_ends_as_its_hold_is_let_go() {
+    fn a_run_is_told_allowed_whatever_is_granted() {
         let access = ProgramAccess::new(Arc::new(NothingGranted));
-        let run = hold_run(&access, "This Mac", &Command::new("git"), false).unwrap();
+        assert!(decide_run(&access, "This Mac", &Command::new("git"), false).is_ok());
         assert!(
             access.refusals().is_empty(),
             "a machine given is given whole"
         );
-        assert!(matches!(access.told()[..], [Told::Allowed(_)]));
-        drop(run);
-        assert_eq!(access.told().last(), Some(&Told::Ended));
+        assert!(matches!(access.told()[..], [Told::Allowed(..)]));
+    }
+
+    /// A child whose command ends when the test says.
+    struct Ending(futures::future::Shared<BoxFuture<'static, ExitStatus>>);
+
+    impl waos_capabilities::Child for Ending {
+        fn signal(&self, _signal: waos_capabilities::Signal) {}
+
+        fn exit_status(&self) -> BoxFuture<'static, ExitStatus> {
+            self.0.clone().boxed()
+        }
+    }
+
+    #[tokio::test]
+    async fn a_run_is_held_until_its_command_ends_whatever_becomes_of_its_child() {
+        let access = ProgramAccess::new(Arc::new(NothingGranted));
+        let (end, ended) = futures::channel::oneshot::channel();
+        let ended = ended
+            .map(|status| status.unwrap_or(ExitStatus::Unknown))
+            .boxed();
+        let child = Ending(ended.shared());
+        let run = Run::of(&access, "This Mac".to_owned(), &Command::new("git"), false);
+        run.started(&child);
+        drop(child);
+        tokio::task::yield_now().await;
+        assert_eq!(
+            access.holdings().held.len(),
+            1,
+            "running after its child was let go"
+        );
+        end.send(ExitStatus::Exited(0)).unwrap();
+        tokio::task::yield_now().await;
+        assert!(access.holdings().held.is_empty(), "ended with its command");
     }
 }

@@ -12,6 +12,7 @@ use tempfile::TempDir;
 
 use super::batch::LIMIT;
 use super::{Batches, watch};
+use crate::access::{Holding, ProgramAccess};
 use crate::bindings::wasdk::platform::file_watching::Change;
 use crate::files::{ErrorCode, HeldFolder, folder_of_machine};
 
@@ -28,7 +29,19 @@ fn scratch() -> (TempDir, std::path::PathBuf) {
 
 fn watching(folder: &Path, recursive: bool, latency: Duration) -> Batches {
     let held = HeldFolder::of(&folder_of_machine(folder).unwrap()).unwrap();
-    watch(&held, recursive, latency).unwrap()
+    watch(&held, recursive, latency, held_watch(&access(), folder)).unwrap()
+}
+
+fn access() -> ProgramAccess {
+    ProgramAccess::new(std::sync::Arc::new(crate::permissions::NothingGranted))
+}
+
+/// The use of a watch of `folder`, held through `access`.
+fn held_watch(access: &ProgramAccess, folder: &Path) -> crate::access::Held {
+    access.hold(Holding::Watch {
+        folder: folder.to_path_buf(),
+        recursive: false,
+    })
 }
 
 /// The changes the watch reports until they hold each of `expected`, or the test's patience runs
@@ -148,8 +161,21 @@ fn a_folder_no_path_leads_to_is_not_watched() {
     let held = HeldFolder::of(&descriptor).unwrap();
     fs::rename(&folder, scratch.path().join("moved")).unwrap();
     fs::create_dir(&folder).unwrap();
+    let access = access();
     assert!(matches!(
-        watch(&held, false, Duration::ZERO),
+        watch(&held, false, Duration::ZERO, held_watch(&access, &folder)),
         Err(ErrorCode::NoEntry)
     ));
+    assert!(access.holdings().held.is_empty(), "no watch is held");
+}
+
+#[test]
+fn a_watch_is_held_while_its_stream_is() {
+    let (_scratch, folder) = scratch();
+    let access = access();
+    let held = HeldFolder::of(&folder_of_machine(&folder).unwrap()).unwrap();
+    let batches = watch(&held, false, Duration::ZERO, held_watch(&access, &folder)).unwrap();
+    assert_eq!(access.holdings().held.len(), 1);
+    drop(batches);
+    assert!(access.holdings().held.is_empty());
 }

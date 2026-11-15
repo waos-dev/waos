@@ -3,7 +3,7 @@
 //! session a `ShellCaptureSession`); the engine keeps the rules, and reads the list again at each
 //! change for each stream of its changes a program opens. A camera opens once the user allows it, the camera question put at the
 //! first use through the program's permissions, and its opening is decided and held through the
-//! program's access (`access`) until the program lets go of it; a session starts in a format its
+//! program's access (`access`); a session starts in a format its
 //! camera lists, its photos at a size that format lists, with its outputs as the program set them on a
 //! [`CameraOutputs`], the shell's own layer and reader; and a photo is asked of a session started
 //! with photos. A program whose camera answer is simulated lists and opens the shell's cameras of
@@ -29,30 +29,28 @@ use futures::stream::{self, BoxStream};
 use waos_capabilities::{Answer, ProgramGrants, Question};
 use wasmtime::bail;
 
-use crate::access::{Held, ProgramAccess, Refusal, Use};
+use crate::access::{Asked, ProgramAccess, Refusal, Resolution, Resolved};
 use crate::bindings::wasdk::media::cameras::{CameraError, CameraFormat, CameraInfo};
 use crate::bindings::wasdk::platform::permissions::State;
 use crate::bindings::wasdk::platform::windows::Size;
 use crate::lifecycle::Lifecycle;
 use crate::permissions::{Permission, state_of};
-use crate::recordings::Recordings;
 use crate::running::RunningProgram;
 use crate::shell::{
-    CaptureStartFuture, OpenedCamera, ShellCamera, ShellCameras, ShellCompositionLayer,
-    ShellVideoFrameReader,
+    CaptureStartFuture, OpenedCamera, RecordingDevice, ShellCamera, ShellCameras,
+    ShellCompositionLayer, ShellVideoFrameReader,
 };
 use session::SessionState;
 pub use session::{CaptureSession, CaptureSessionReports};
 
-/// A program's cameras: the shell's, where they may be used, and the sessions it holds, as the
-/// shell's indicator shows them and as they keep it from freezing.
+/// A program's cameras: the shell's, where they may be used, and what its sessions keep from
+/// freezing.
 pub(crate) struct ProgramCameras {
     /// The shell's cameras; none where the shell has none, or cannot show a program using one.
     shells: Option<CameraShells>,
     /// Where the program's camera answer is read, which allows a camera and picks the system's or
-    /// WaOS's own.
+    /// WaOS's own, and each session held, which the shell's indicator shows.
     access: ProgramAccess,
-    sessions: SessionRecordings,
     lifecycle: Lifecycle,
 }
 
@@ -63,29 +61,20 @@ pub(crate) struct CameraShells {
     pub(crate) simulated: Option<Arc<dyn ShellCameras>>,
 }
 
-/// The sessions a program holds, as the shell's indicator shows them: of the system's cameras,
-/// and of WaOS's own, shown apart.
-#[derive(Clone)]
-pub(crate) struct SessionRecordings {
-    pub(crate) machine: Recordings,
-    pub(crate) simulated: Recordings,
-}
-
 impl ProgramCameras {
-    /// The cameras `shells` gives, for a program whose camera answer `access` reads, whose
-    /// sessions `sessions` shows and whose `lifecycle` they keep from freezing; none where the
-    /// shell has neither kind or cannot show them.
+    /// The cameras `shells` gives, for a program whose camera answer `access` reads and whose
+    /// `lifecycle` its sessions keep from freezing; none where the shell has neither kind, or
+    /// cannot show that the program records (`recordings_shown`).
     pub(crate) fn new(
         shells: CameraShells,
         access: ProgramAccess,
-        sessions: SessionRecordings,
+        recordings_shown: bool,
         lifecycle: Lifecycle,
     ) -> ProgramCameras {
         let any = shells.system.is_some() || shells.simulated.is_some();
         ProgramCameras {
-            shells: (any && sessions.machine.can_show()).then_some(shells),
+            shells: (any && recordings_shown).then_some(shells),
             access,
-            sessions,
             lifecycle,
         }
     }
@@ -132,10 +121,10 @@ impl Cameras {
         let (shells, access, program) = (self.shells.clone(), self.access.clone(), program.clone());
         async move {
             asked.await;
-            let (InUse { simulated, shell }, open) = decide_open(&access, &shells, &id)?;
+            let InUse { simulated, shell } = decide_open(&access, &shells, &id)?;
             let shell = shell.ok_or(CameraError::Unplugged)?;
             let opened = shell.open(&program, &id).await?;
-            Ok(Camera::of(opened, simulated, open))
+            Ok(Camera::of(opened, simulated))
         }
     }
 
@@ -162,14 +151,14 @@ impl Cameras {
     }
 }
 
-/// The kind of camera the program `access` is of opens `id` among, and the camera's use, held,
-/// if its camera answer allows it a camera now; `not-allowed` otherwise.
+/// The kind of camera the program `access` is of opens `id` among, if its camera answer allows
+/// it a camera now; `not-allowed` otherwise.
 fn decide_open(
     access: &ProgramAccess,
     shells: &CameraShells,
     id: &str,
-) -> Result<(InUse, Held), CameraError> {
-    let used = Use::OpenCamera {
+) -> Result<InUse, CameraError> {
+    let used = Asked::OpenCamera {
         id,
         simulated: in_use(shells, access.grants()).simulated,
     };
@@ -181,8 +170,14 @@ fn decide_open(
         }
     };
     access
-        .hold(used, allowed)
+        .decide(used, allowed)
         .map_err(|_refusal| CameraError::NotAllowed)
+}
+
+impl Resolved for InUse {
+    fn resolution(&self) -> Resolution<'_> {
+        Resolution::Nothing
+    }
 }
 
 /// The kind of camera `grants`' camera answer picks among `shells`.
@@ -214,17 +209,14 @@ pub struct Camera {
     shell: Box<dyn ShellCamera>,
     formats: Vec<CameraFormat>,
     simulated: bool,
-    /// The camera's use, held until the program lets go of it.
-    _open: Held,
 }
 
 impl Camera {
-    fn of(opened: OpenedCamera, simulated: bool, open: Held) -> Camera {
+    fn of(opened: OpenedCamera, simulated: bool) -> Camera {
         Camera {
             shell: opened.camera,
             formats: opened.formats,
             simulated,
-            _open: open,
         }
     }
 
@@ -264,12 +256,12 @@ impl Camera {
         self.formats.clone()
     }
 
-    /// The sessions of this camera's kind, as the shell's indicator shows them.
-    fn recordings<'a>(&self, sessions: &'a SessionRecordings) -> &'a Recordings {
+    /// What a session of this camera records with, as the shell's indicator shows it.
+    fn device(&self) -> RecordingDevice {
         if self.simulated {
-            &sessions.simulated
+            RecordingDevice::SimulatedCamera
         } else {
-            &sessions.machine
+            RecordingDevice::Camera
         }
     }
 }
@@ -354,13 +346,10 @@ mod tests {
     #[test]
     fn a_listed_format_with_a_listed_photo_size_reaches_the_shell_and_nothing_else_does() {
         let started = Arc::default();
-        let access = Arc::new(Answers::default()).access();
-        let (_, open) = access.hold(Use::Post, |_| Ok(())).unwrap();
         let camera = Camera {
             shell: Box::new(Starting(Arc::clone(&started))),
             formats: vec![vga()],
             simulated: false,
-            _open: open,
         };
         assert!(camera.start(vga(), &photos_at(size(640.0, 480.0))).is_ok());
 
@@ -395,13 +384,8 @@ mod tests {
         assert_eq!(access.refusals(), ["camera", "camera"]);
 
         answers.set_answer(Question::Camera, Answer::Simulated);
-        let (in_use, open) = decide_open(&access, &shells, "front").unwrap();
+        let in_use = decide_open(&access, &shells, "front").unwrap();
         assert!(in_use.simulated);
-        drop(open);
-        assert_eq!(
-            access.told().last(),
-            Some(&Told::Ended),
-            "closed as it is let go"
-        );
+        assert!(matches!(access.told().last(), Some(Told::Allowed(..))));
     }
 }
