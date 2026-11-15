@@ -13,7 +13,7 @@
 //! no system error number ([`errors::escape_attempt`]), and reads a path's end alike, a `/` or `/.`
 //! asking for a folder: a call that drops a path's end and lets the system read it is a way out, as
 //! cap-std's rename of `link/` was (GHSA-m9f7-9w4p-gv38). `tests/routes.rs` holds every route to
-//! the walk's verdicts.
+//! the walk's verdicts, and a test runs the walk on any system by `walking`.
 //!
 //! Ported from `wasmtime-wasi` 50.0.1's `src/filesystem/primitives`, its copy of cap-std's path
 //! code (`cap-primitives`), by the Wasmtime Project Developers, under the Apache License 2.0 with
@@ -172,10 +172,38 @@ pub(crate) fn open(start: &fs::File, path: &Path, options: &OpenOptions) -> io::
         target_os = "android",
         target_os = "linux",
     ))]
-    if let Some(file) = sys::open_fast(start, path, options)? {
+    if !walks_every_path()
+        && let Some(file) = sys::open_fast(start, path, options)?
+    {
         return Ok(file);
     }
     walk::open(start, path, options)
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Whether this thread's opens and statuses walk every path, whatever one call the system
+    /// has: how a test runs the walk on every system, as Android and Windows run it.
+    static WALKING: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// `test`, its opens and statuses on this thread walking every path, whatever one call the
+/// system has.
+#[cfg(test)]
+pub(crate) fn walking<R>(test: impl FnOnce() -> R) -> R {
+    WALKING.set(true);
+    let tested = test();
+    WALKING.set(false);
+    tested
+}
+
+/// Whether every path is to be walked: in a test that asked for it ([`walking`]), never
+/// elsewhere.
+fn walks_every_path() -> bool {
+    #[cfg(test)]
+    return WALKING.get();
+    #[cfg(not(test))]
+    false
 }
 
 /// Should symlinks be followed in the last component of a path?
@@ -436,7 +464,9 @@ pub(crate) fn stat(start: &fs::File, path: &Path, follow: FollowSymlinks) -> io:
         target_os = "android",
         target_os = "linux",
     ))]
-    if let Some(stat) = sys::stat_fast(start, path, follow)? {
+    if !walks_every_path()
+        && let Some(stat) = sys::stat_fast(start, path, follow)?
+    {
         return Ok(stat);
     }
 

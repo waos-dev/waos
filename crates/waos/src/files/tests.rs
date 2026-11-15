@@ -185,3 +185,55 @@ fn a_machines_root_is_among_the_open_files_while_the_program_holds_it() {
     drop(root);
     assert!(access.holdings().open_files.is_empty());
 }
+
+/// Notes' save, as `builtin-apps/notes/src/safe_write.rs` makes it through `std`: its folder made
+/// where it is not, a draft written beside the note, then renamed onto it.
+fn save_as_notes_saves(files: &mut ProgramFiles, contents: &str) {
+    let root = ProgramFiles::root();
+    let made = files.change(&root, "data/notes", FileChange::CreateDirectory);
+    match made.and_then(|target| target.create_directory()) {
+        Ok(()) | Err(ErrorCode::Exist) => {}
+        Err(code) => panic!("the folder is made: {code:?}"),
+    }
+    let folder = files
+        .named(&root, "data/notes")
+        .unwrap()
+        .status(true)
+        .unwrap();
+    assert_eq!(folder.type_, status::DescriptorType::Directory);
+    let Descriptor::File(draft) = files
+        .open(&root, "data/notes/5.json.saving", &writing())
+        .expect("the draft opens")
+    else {
+        panic!("the draft is a file");
+    };
+    std::io::Write::write_all(&mut &**draft.handle(), contents.as_bytes()).unwrap();
+    let rename = FileChange::Rename {
+        to: "data/notes/5.json",
+    };
+    let (from, to) = files
+        .change_between(&root, "data/notes/5.json.saving", &root, rename)
+        .expect("the rename is allowed");
+    from.rename_to(&to)
+        .expect("the draft is renamed onto the note");
+}
+
+#[test]
+fn a_note_is_saved_as_notes_saves_it_by_every_route() {
+    let Files {
+        _scratch,
+        mut files,
+        ..
+    } = files();
+    save_as_notes_saves(&mut files, "by the system's one call");
+    beneath::walking(|| save_as_notes_saves(&mut files, "by the walk"));
+    let Descriptor::File(note) = files
+        .open(&ProgramFiles::root(), "data/notes/5.json", &reading())
+        .unwrap()
+    else {
+        panic!("the note is a file");
+    };
+    let mut read = String::new();
+    std::io::Read::read_to_string(&mut &**note.handle(), &mut read).unwrap();
+    assert_eq!(read, "by the walk");
+}
