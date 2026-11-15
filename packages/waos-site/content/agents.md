@@ -9,7 +9,7 @@ Do each step yourself; ask the user only where a step says so.
    - what the platform offers: https://waos.app/docs/guide, one page per capability; everything at once: https://waos.app/llms-full.txt;
    - the APIs on docs.rs: `wasdk`, `wasdk-adapter-waft`, `waft-winui`, `waft-cupertino`.
 4. **Icon:** replace `icon.png` with one thing that says what the app does, drawn with care: few colours and one accent, light from above, soft shading, on a quiet background. Aim for the finish of Apple's own icons, and draw it to sit beside WaOS's own apps in its library (they are at https://waos.app/docs/icons); not a line symbol, a letter or a photo. It is 1024 × 1024 and fills the whole square, with no rounded corners, margin, transparency or shadow of its own; WaOS cuts each system's shape, so nothing depends on the edge and what matters stays in the middle two thirds.
-5. **Build:** `cargo waos build` until it compiles.
+5. **Build:** `cargo waos build` until it compiles. A dependency with C code (SQLite, tree-sitter) needs a wasi-sdk on LLVM 23, wasi-sdk 34 or later: https://waos.app/docs/start says how to point the build at it; ask the user before downloading one.
 6. **Ship:** `cargo waos package`, which writes a signed `.wapk` under `target/waos/`.
 
 ## Trying it, when you want to see it work
