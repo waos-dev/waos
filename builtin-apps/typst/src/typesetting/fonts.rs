@@ -6,7 +6,8 @@
 //! Typst picks a face itself, from a book of every face it may use given before it sets anything.
 //! So the book is made at once, a system face's entry from its tables as the platform serves them
 //! (`system_faces`), and a face's file is opened only when Typst first asks for that face, as
-//! `typst-kit`'s `FontStore` loads each face on its first use.
+//! `typst-kit`'s `FontStore` loads each face on its first use; a file is read once for all the
+//! faces in it.
 //!
 //! The invariant a later editor will break: a face's index in the book is its index among the
 //! slots, the carried faces first, so where a carried face and a system face are alike, Typst
@@ -18,7 +19,7 @@ use typst::foundations::Bytes;
 use typst::text::{Font, FontBook, FontInfo};
 use typst::utils::LazyHash;
 
-use super::system_faces::SystemFace;
+use super::system_faces::{SystemFace, SystemFiles};
 use crate::bundled_fonts::{
     DEJAVU_SANS_MONO, DEJAVU_SANS_MONO_OBLIQUE, LIBERTINUS_SERIF, NEW_COMPUTER_MODERN_MATH,
 };
@@ -28,6 +29,7 @@ use crate::bundled_fonts::{
 pub(crate) struct DocumentFonts {
     book: LazyHash<FontBook>,
     slots: Vec<FontSlot>,
+    system_files: SystemFiles,
 }
 
 /// One face, and the font made of it once Typst has asked for it.
@@ -49,6 +51,7 @@ impl DocumentFonts {
         let mut fonts = DocumentFonts {
             book: LazyHash::new(FontBook::new()),
             slots: Vec::new(),
+            system_files: SystemFiles::default(),
         };
         for font in carried_fonts() {
             fonts.push(font.info().clone(), FontSource::Carried(font));
@@ -72,7 +75,9 @@ impl DocumentFonts {
     /// The face at `index`, read the first time it is asked for.
     pub(crate) fn font(&self, index: usize) -> Option<Font> {
         let slot = self.slots.get(index)?;
-        slot.font.get_or_init(|| slot.source.load()).clone()
+        slot.font
+            .get_or_init(|| slot.source.load(&self.system_files))
+            .clone()
     }
 
     fn push(&mut self, info: FontInfo, source: FontSource) {
@@ -85,10 +90,10 @@ impl DocumentFonts {
 }
 
 impl FontSource {
-    fn load(&self) -> Option<Font> {
+    fn load(&self, system_files: &SystemFiles) -> Option<Font> {
         match self {
             FontSource::Carried(font) => Some(font.clone()),
-            FontSource::System(face) => face.load(),
+            FontSource::System(face) => face.load(system_files),
         }
     }
 }

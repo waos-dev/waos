@@ -55,6 +55,11 @@ impl Typeface {
         self.file_id
     }
 
+    /// The face's index in its file: 0 unless the file is a collection.
+    pub(crate) fn index(&self) -> u32 {
+        self.face.index()
+    }
+
     /// The name the platform files the face under.
     pub(crate) fn family(&self) -> String {
         self.face.family().to_owned()
@@ -76,7 +81,7 @@ impl Typeface {
 
     /// The font file the face is in, as the manager shares it, and the face's index in it.
     pub(crate) fn file(&self) -> (valo_fontmgr::FontData, u32) {
-        (self.face.shared_data(), self.face.index())
+        (self.face.shared_data(), self.index())
     }
 
     /// One of [`tables`](Typeface::tables)' bytes; none for a tag the face lacks or the engine
@@ -430,6 +435,35 @@ mod tests {
         assert_eq!(face_ids.len(), menlo.len(), "a face's id is its own");
         assert!(!file_ids.contains(&system.file_id()));
         assert_eq!(fonts.family("Menlo")[0].file_id(), menlo[0].file_id());
+        let indices: HashSet<u32> = menlo.iter().map(Typeface::index).collect();
+        assert_eq!(
+            indices.len(),
+            menlo.len(),
+            "each face at an index of its own"
+        );
+    }
+
+    #[test]
+    fn a_face_says_its_index_in_its_file_as_its_stream_does() {
+        let collection: valo_fontmgr::FontData = Arc::new(vec![1u8, 2, 3]);
+        let face_at = |index| {
+            valo_fontmgr::Typeface::new(
+                Arc::clone(&collection),
+                index,
+                "Collected",
+                valo_fontmgr::Style::default(),
+            )
+        };
+        let mut fonts = fonts_over(Faces {
+            faces: vec![face_at(0), face_at(2)],
+            ..Faces::default()
+        });
+        let faces = fonts.family("Collected");
+        let indices: Vec<u32> = faces.iter().map(Typeface::index).collect();
+        assert_eq!(indices, [0, 2]);
+        for face in &faces {
+            assert_eq!(face.index(), face.file().1);
+        }
     }
 
     #[test]

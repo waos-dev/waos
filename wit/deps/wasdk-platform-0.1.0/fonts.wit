@@ -53,6 +53,9 @@ interface fonts {
     /// whether it holds the file already. An opaque number, meaningful only to this program and
     /// only for equality: not a path, and not a typeface's `id`.
     file-id: func() -> u64;
+    /// The face's index in its file, the same as `font-file`'s `index`: 0 unless the file is a
+    /// collection.
+    index: func() -> u32;
     /// The font file this face is in, whole: Skia's `SkTypeface::openStream`.
     open-stream: func() -> font-file;
   }

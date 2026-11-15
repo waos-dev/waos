@@ -1,13 +1,18 @@
 //! The faces installed on the system, as Typst sees them: each face's entry in Typst's book made
 //! from the tables the platform serves, without its file, and its file read through
 //! `typeface.open-stream`, into a buffer of the length the platform gives, once Typst asks for the
-//! face.
+//! face. A file is read once however many of its faces Typst asks for ([`SystemFiles`], by
+//! `typeface.file-id`), and each face is taken from the one copy at its `typeface.index`, as
+//! Typst's `Font` shares a file's bytes among the faces made from them.
 //!
 //! Typst describes a face (`FontInfo`) from a font file's bytes. The platform serves a face's
 //! tables but its outlines, and Typst's description reads none of those: so the tables it reads
 //! are put together as a font file of their own, which holds no glyph, and described as any file
 //! is. The invariant: [`DESCRIBED`] holds every table `FontInfo` reads, and those its parser needs
 //! to read a file at all.
+
+use std::collections::HashMap;
+use std::sync::Mutex;
 
 use typst::foundations::Bytes;
 use typst::text::{Font, FontInfo};
@@ -40,18 +45,41 @@ impl SystemFace {
             .collect()
     }
 
-    /// The face's font, its whole file read through the platform's stream; none when the file
-    /// cannot be read whole, which is said on the standard error.
-    pub(crate) fn load(&self) -> Option<Font> {
-        let file = self.typeface.open_stream();
-        let index = file.index;
-        match wasdk::block_on(read_whole(file)) {
-            Ok(bytes) => Font::new(Bytes::new(bytes), index),
+    /// The face's font, from its whole file as `files` has it; none when the file cannot be
+    /// read whole, which is said on the standard error.
+    pub(crate) fn load(&self, files: &SystemFiles) -> Option<Font> {
+        match files.file_of(&self.typeface) {
+            Ok(bytes) => Font::new(bytes, self.typeface.index()),
             Err(error) => {
                 eprintln!("{} is not read: {error}", self.typeface.family());
                 None
             }
         }
+    }
+}
+
+/// The system's font files read so far, each by its `typeface.file-id`: the faces of a collection
+/// share one copy of their file.
+#[derive(Default)]
+pub(crate) struct SystemFiles {
+    read: Mutex<HashMap<u64, Bytes>>,
+}
+
+impl SystemFiles {
+    /// The file `typeface` is in, read through the platform's stream the first time one of its
+    /// faces is asked for. One file is read at a time, so two faces of one file asked for at once
+    /// still read it once.
+    fn file_of(&self, typeface: &Typeface) -> Result<Bytes, String> {
+        let mut read = self
+            .read
+            .lock()
+            .expect("nothing panics while the files read are locked");
+        if let Some(bytes) = read.get(&typeface.file_id()) {
+            return Ok(bytes.clone());
+        }
+        let bytes = Bytes::new(wasdk::block_on(read_whole(typeface.open_stream()))?);
+        read.insert(typeface.file_id(), bytes.clone());
+        Ok(bytes)
     }
 }
 

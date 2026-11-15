@@ -207,6 +207,10 @@ impl HostTypeface for FontsCtx<'_> {
         Ok(self.typeface(&typeface)?.file_id())
     }
 
+    fn index(&mut self, typeface: Resource<Typeface>) -> wasmtime::Result<u32> {
+        Ok(self.typeface(&typeface)?.index())
+    }
+
     fn tables(&mut self, typeface: Resource<Typeface>) -> wasmtime::Result<Vec<Tag>> {
         Ok(self.typeface(&typeface)?.tables())
     }
