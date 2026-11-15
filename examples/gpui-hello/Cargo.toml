@@ -1,0 +1,24 @@
+[package]
+name = "gpui-hello"
+version.workspace = true
+edition.workspace = true
+# Its text field is GPUI's own example's, under the Apache License 2.0 (`src/text_field.rs`).
+license = "Apache-2.0"
+publish.workspace = true
+description = "A GPUI app over wasdk-adapter-gpui: text, a button that counts its clicks, and a text field. `cargo build -p gpui-hello --target wasm32-wasip2`."
+
+# GPUI is a component's only: natively the program is empty, as `wasdk-adapter-gpui` is.
+[target.'cfg(target_os = "wasi")'.dependencies]
+gpui.workspace = true
+unicode-segmentation.workspace = true
+wasdk-adapter-gpui.workspace = true
+
+[dependencies]
+wasdk.workspace = true
+
+[lints]
+workspace = true
+
+# The id `cargo waos run` runs this program as, with that program's settings and folders.
+[package.metadata.waos]
+id = "dev.waos.examples.gpuihello"

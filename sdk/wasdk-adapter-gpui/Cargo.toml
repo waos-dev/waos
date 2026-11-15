@@ -1,0 +1,24 @@
+[package]
+name = "wasdk-adapter-gpui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "GPUI over wasdk: GPUI's platform for a program, its windows, input, frames, text, clipboard and file dialogs over the SDK, drawn by gpui_wgpu over wasdk-wgpu."
+homepage.workspace = true
+readme = "README.md"
+
+# Only a component has GPUI here, so the workspace's native build does not build GPUI.
+[target.'cfg(target_os = "wasi")'.dependencies]
+anyhow.workspace = true
+futures.workspace = true
+gpui.workspace = true
+gpui_wgpu.workspace = true
+log.workspace = true
+raw-window-handle.workspace = true
+uuid.workspace = true
+wasdk.workspace = true
+wasdk-wgpu.workspace = true
+
+[lints]
+workspace = true
