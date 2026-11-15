@@ -276,12 +276,15 @@ syn = { version = "2", features = ["full"] }
 [workspace.lints.rust]
 unsafe_code = "forbid"
 
-# Every crate outside the workspace, Waft's from its checkout among them, with line tables as its
-# only debug information in debug builds, their build scripts and proc macros too: a backtrace
-# names their files and lines, though a frame of theirs by its function's name alone, while the
-# workspace's own crates keep all of it. The rest was 2.6 GB of the 22.2 GB a fresh
-# `cargo build --workspace` and `cargo test --workspace --no-run` wrote. The overrides below set
-# only `opt-level`, so their crates take this too.
+# Line tables as the only debug information in debug builds, the workspace's own crates and every
+# other, their build scripts and proc macros too: a backtrace names files and lines, and a debugger
+# shows no variables. Measured on Waft's workspace, it shrank the target folder by 29% and changed
+# no rebuild's time (`../experiments/2026-11-15-build-time-and-disk`). For a session in a
+# debugger, `CARGO_PROFILE_DEV_DEBUG=full` builds with all of it. The overrides below set only
+# `opt-level`, so their crates take this too.
+[profile.dev]
+debug = "line-tables-only"
+
 [profile.dev.package."*"]
 debug = "line-tables-only"
 
