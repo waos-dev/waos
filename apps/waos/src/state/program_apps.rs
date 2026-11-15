@@ -443,7 +443,9 @@ mod other {
     use crate::logic::program_entries::ProgramEntries;
     #[cfg(any(windows, target_os = "linux"))]
     use crate::logic::program_identities::Identities;
-    use crate::state::library::{InstalledChanged, Library};
+    #[cfg(any(windows, target_os = "linux"))]
+    use crate::state::library::InstalledChanged;
+    use crate::state::library::Library;
 
     /// No program has an app of its own here, beyond its windows' identity; each installed one's
     /// entry where the system lists its apps, on Windows and Linux, over the store.
@@ -455,6 +457,7 @@ mod other {
     struct KeptEntries {
         #[cfg(any(windows, target_os = "linux"))]
         entries: ProgramEntries,
+        #[cfg(any(windows, target_os = "linux"))]
         store: Store,
     }
 

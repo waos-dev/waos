@@ -11,6 +11,7 @@
 use anyhow::{Context, Result};
 use waos::bindings::wasdk::platform::notifications::Activation;
 use waos::{OpenRequest, RunningProgram};
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 use waos_dev_protocol::{Connection, FromWaOS, ServerStream};
 use waos_package::ProgramId;
 use waos_store::Store;
@@ -73,6 +74,7 @@ pub(crate) async fn program_named(
 
 /// Answers a connection's `Open`: the files handed to the program `id`, then `Opened`, or
 /// `Refused` with why not.
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(crate) async fn answer(
     mut connection: Connection<ServerStream>,
     installed: &InstalledRuns,

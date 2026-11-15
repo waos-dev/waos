@@ -6,7 +6,8 @@
 //! The app is this library, in the shape Waft's CLI builds an app from. On a desktop `main` is its
 //! entry (`desktop_entry`): the `waos` binary calls it, and so does WaOS.app, which `cargo waft
 //! build macos -p waos-app` makes. On Android Waft's host calls `android_main` once for the process,
-//! which runs `android_entry`, with the library on the screen. Built so far, the third and fourth parts of step 5a of the design's work order and the
+//! which runs `android_entry`, with the library on the screen; on iOS the binary calls `main` from
+//! `ios_entry`, which shows the library on the screen too. Built so far, the third and fourth parts of step 5a of the design's work order and the
 //! library of step 6: the app starts the engine with what Waft reports of the machine and keeps it
 //! current, shows each view a program asks for in an Waft window of its own, and listens for
 //! `cargo waos run` on the socket `waos-dev-protocol` names, running each program sent on a thread of its
@@ -31,8 +32,10 @@
 
 #[cfg(target_os = "android")]
 mod android_entry;
-#[cfg(not(target_os = "android"))]
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 mod desktop_entry;
+#[cfg(target_os = "ios")]
+mod ios_entry;
 mod logic;
 mod os;
 mod state;
@@ -41,8 +44,10 @@ mod ui;
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::fmt::MakeWriter;
 
-#[cfg(not(target_os = "android"))]
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub use desktop_entry::main;
+#[cfg(target_os = "ios")]
+pub use ios_entry::main;
 
 /// Writes what `RUST_LOG` picks of the app's and the engine's events to `writer`, coloured where
 /// `ansi`; without it, the app's own and what programs print at `info`, and warnings elsewhere.

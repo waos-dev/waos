@@ -296,13 +296,15 @@ impl WaOS {
 
 /// Components with their async ABI, fuel and an epoch tick for what a program costs and for
 /// freezing it, and native unwind information where `native_unwind_info` asks for it. Cranelift
-/// compiles programs to this machine's own code. A program's trap is caught on macOS by a signal
-/// handler on its own thread, as on every other Unix (the project proposal's decision 58).
+/// compiles programs for this system's engine ([`compile_for_this_system`]). A program's trap is
+/// caught on macOS by a signal handler on its own thread, as on every other Unix (the project
+/// proposal's decision 58).
 ///
 /// The invariant: every engine in the process is made from this config, since wasmtime installs
 /// its trap handler once, at the first engine, and refuses an engine that asks for another.
 pub(crate) fn engine_config(native_unwind_info: bool) -> Config {
     let mut config = Config::new();
+    compile_for_this_system(&mut config);
     // wasmtime's Mach exception thread lets a trap end the whole process when a caught signal,
     // such as a child's `SIGCHLD`, interrupts its read of the trapping thread's registers.
     config.macos_use_mach_ports(false);
@@ -319,6 +321,21 @@ pub(crate) fn engine_config(native_unwind_info: bool) -> Config {
     config.native_unwind_info(native_unwind_info || cfg!(windows));
     config
 }
+
+/// iOS gives an app no executable memory, so programs are compiled to Pulley's bytecode, which
+/// wasmtime's interpreter runs, and which the code cache keeps as it keeps native code. The
+/// simulator is held to the same rule, though it would map Cranelift's code, so that it fails
+/// where an iPhone would (`../wasdk/docs/proposals/2026-09-26-ios-jit.md`).
+#[cfg(target_os = "ios")]
+fn compile_for_this_system(config: &mut Config) {
+    config
+        .target("pulley64")
+        .expect("`pulley64` is a target wasmtime names");
+}
+
+/// Elsewhere programs are compiled to this machine's own code, Cranelift's default.
+#[cfg(not(target_os = "ios"))]
+fn compile_for_this_system(_config: &mut Config) {}
 
 /// What names the component at `path`: its file's name without the extension.
 fn name_of(path: &Path) -> String {

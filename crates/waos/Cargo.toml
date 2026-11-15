@@ -110,6 +110,11 @@ libc = "0.2"
 [target.'cfg(target_vendor = "apple")'.dev-dependencies]
 objc2-core-video = { version = "0.3", default-features = false, features = ["std", "CVBase", "CVBuffer", "CVImageBuffer", "CVPixelBuffer", "CVReturn"] }
 
+# Pulley, wasmtime's interpreter, which programs run on where the system gives an app no
+# executable memory (`engine`'s `compile_for_this_system`).
+[target.'cfg(target_os = "ios")'.dependencies]
+wasmtime = { workspace = true, features = ["pulley"] }
+
 # Linux's `/proc/self/fd`, through which `files` sets a file's times where no call keeps the path
 # beneath its folder.
 [target.'cfg(any(target_os = "linux", target_os = "android"))'.dependencies]

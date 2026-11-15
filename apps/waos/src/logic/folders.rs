@@ -18,9 +18,9 @@ pub(crate) struct AppFolders {
     /// caches: on the volume of the user's home, where the store and the programs' `/data` are,
     /// so a program's file renamed from `/tmp` into `/data` is one rename.
     pub(crate) temporary_folders: PathBuf,
-    /// The components `cargo waos` sends, one file per program's name; none on Android, which
+    /// The components `cargo waos` sends, one file per program's name; none on a phone, which
     /// `cargo waos` reaches not yet.
-    #[cfg(not(target_os = "android"))]
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
     pub(crate) dev_components: PathBuf,
     /// The copies of the packages handed without a path while they are asked about
     /// (`logic::package_copies`), under the caches.
@@ -43,8 +43,9 @@ pub(crate) struct AppFolders {
     #[cfg(windows)]
     pub(crate) start_menu: PathBuf,
     /// WaOS's data folder, which names the port its programs' apps find it by on macOS, and keeps
-    /// the record of what WaOS wrote for its programs' apps or entries.
-    #[cfg(not(target_os = "android"))]
+    /// the record of what WaOS wrote for its programs' apps or entries; none on a phone, where
+    /// WaOS writes neither.
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
     pub(crate) data: PathBuf,
     /// The apps of the programs run in development, under the caches.
     #[cfg(target_os = "macos")]
@@ -67,6 +68,7 @@ pub(crate) fn app_folders() -> AppFolders {
     AppFolders {
         code_cache: caches.join("code"),
         temporary_folders: caches.join("tmp"),
+        #[cfg(not(target_os = "ios"))]
         dev_components: caches.join("dev"),
         package_copies: caches.join("packages"),
         store: data_folder().join("store"),
@@ -76,6 +78,7 @@ pub(crate) fn app_folders() -> AppFolders {
         applications: user_data_folder().join("applications"),
         #[cfg(windows)]
         start_menu: start_menu_programs().join("WaOS Programs"),
+        #[cfg(not(target_os = "ios"))]
         data: data_folder(),
         #[cfg(target_os = "macos")]
         development_apps: caches.join("apps"),

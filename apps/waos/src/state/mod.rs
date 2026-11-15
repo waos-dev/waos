@@ -41,7 +41,7 @@ pub(crate) mod program_apps;
 #[cfg(target_os = "macos")]
 pub(crate) mod prompt_dialogs;
 pub(crate) mod questions;
-#[cfg(not(target_os = "android"))]
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(crate) mod quitting;
 pub(crate) mod recordings;
 #[cfg(test)]
@@ -72,7 +72,7 @@ use waos_store::{SourceProxy, Store};
 
 use crate::logic::asking_now::AskingNow;
 use crate::logic::command_line::LibraryPlace;
-#[cfg(not(target_os = "android"))]
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 use crate::logic::dev_server::DevServer;
 use crate::logic::environments::ProgramEnvironments;
 use crate::logic::folders::AppFolders;
@@ -138,6 +138,10 @@ const MICROPHONE_USAGE_DECLARED: bool = true;
 const CAMERA_USAGE_DECLARED: bool = true;
 
 /// What WaOS's command line opened as it started WaOS.
+#[cfg_attr(
+    any(target_os = "android", target_os = "ios"),
+    allow(dead_code, reason = "a phone gives WaOS no command line")
+)]
 pub(crate) enum OpenedAtStart {
     /// Files opened with WaOS itself, by their paths on the machine, as Windows and Linux start
     /// an app with the files it opens.
@@ -286,7 +290,7 @@ pub(crate) fn start(
     // What a tab closed on a phone stops its program among.
     let tabs_runs = Arc::clone(&runs);
     let installed_runs = InstalledRuns::new(Arc::clone(&engine), environments, runs, places);
-    #[cfg(not(target_os = "android"))]
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
     listen_for_cargo_waos(
         app,
         installed_runs.clone(),
@@ -384,8 +388,8 @@ pub(crate) fn start(
 /// `installed`'s engine with its environments, counted in its runs, the components kept in
 /// `dev_components`, and opening files with an installed program as `installed` opens it; and
 /// makes a quit ask every program in its runs first, stopping the server once they agree. Not on
-/// Android: `cargo waos` reaches no phone yet, and the system ends an app there without asking it.
-#[cfg(not(target_os = "android"))]
+/// a phone: `cargo waos` reaches none yet, and the system ends an app there without asking it.
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn listen_for_cargo_waos(
     app: &mut App,
     installed: InstalledRuns,

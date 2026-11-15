@@ -67,6 +67,18 @@ HTTPS is checked by the system's certificate checker, as on every system (`waos`
 
 A program in a tab draws: the engine allocates its canvas's hardware buffers as `AHardwareBuffer`s (`waos`'s `os::android`), and the shell shows them on Waft's composition layers as Waft's `AndroidHardwareBuffer` over the same buffer, and takes back what a layer shows as the engine's (`waos-program-window`'s composition, `logic::hardware_buffers`), as on macOS it does over Apple's `IOSurface`. Waft's Android host has no hardware image codecs, so a program's buffer reaches no encoder there.
 
+## On iOS
+
+```sh
+cargo waft run -d "iPhone 16 Pro" -p waos-app   # built, installed and started in that simulator
+```
+
+The binary calls `main` from `ios_entry`, which shows the library on the screen laid out as a phone's, programs opening in the deck's tabs, since iPhone gives a program no app of its own (decision 2 of `docs/proposals/2026-11-12-phone-programs-and-library.md`); iOS gives an app no command line and keeps one instance of it, so nothing reads one. WaOS's folders are the container's, under its `Library` as on macOS, and its traces go to standard error, which `cargo waft run` shows. `cargo waos` reaches no phone yet, so the dev server is left out, as on Android: the socket's path inside a simulator's container is also longer than a Unix socket allows. Programs run on Pulley, the engine's interpreter on iOS (`waos`'s `engine`). Their frames take macOS's path: `IOSurface`s the engine allocates (`waos`'s `os::apple`) on Waft's composition layers.
+
+The simulator's Metal adapter offers 15 inter-stage shader variables where WebGPU's default is 16, and a program's device there has the adapter's 15 (`waos-webgpu-host`'s `device_request`).
+
+Not yet on iOS: Waft's iOS host does not adopt the scene lifecycle, which iOS 27 requires of an app, so WaOS runs in a simulator of iOS 18; and text typed into the library's fields does not reach them.
+
 ## The deck
 
 On a phone, WaOS's one screen is the deck: tabs, as Safari's pages are on an iPhone (decision 3 of `docs/proposals/2026-11-12-phone-programs-and-library.md`), and `waos phone` shows the deck on a desktop too, in its window of a phone's size (decision 9 of `docs/proposals/2026-11-11-android-pictures.md`): the form factor is chosen at the entry, so the deck and its tests build and run on every system. On Android the deck holds programs only where the user chose to show them inside WaOS (see On Android); otherwise it is the home alone, and each program a task. The engine's placement places each program by where it was opened (`logic::program_places`): a program in a tab is refused every request for a view, as the views WIT says of a tab, and has the view its tab gave it as it started, as `PlacedView` with no window and no request (`state::deck::tab_view`), which `InstalledRuns::open` hands the run, setting where the program's views go before it starts; a program in windows hands none and asks for its windows.

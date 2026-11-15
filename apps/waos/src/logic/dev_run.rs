@@ -21,7 +21,7 @@ use std::time::Instant;
 
 use super::asking_now::AskingNow;
 use super::environments::ProgramEnvironments;
-use super::runs::{Run, Runs};
+use super::runs::{Runs, SentRun};
 use super::sent_components::{SentComponent, SentComponents};
 use anyhow::{Context, Result};
 use tokio::io::{ReadHalf, WriteHalf};
@@ -84,7 +84,7 @@ async fn run(
     frames: &UnboundedSender<FromWaOS>,
 ) {
     let told = context.asking.told();
-    let (run, watching) = match start(id, component, context, frames).await {
+    let (sent, watching) = match start(id, component, context, frames).await {
         Ok(started) => started,
         Err(why) => {
             tracing::info!("refused: {why:#}");
@@ -95,17 +95,17 @@ async fn run(
     tracing::info!("started");
     let started_at = Instant::now();
     let end = tokio::select! {
-        end = run.program.ended() => Some(end),
+        end = sent.run.program.ended() => Some(end),
         () = tell_asking(told, id, frames) => None,
         () = closed(reading) => {
             tracing::info!("the connection closed: stopping the program");
             drop(watching);
-            run.program.stop();
-            run.program.ended().await;
+            sent.run.program.stop();
+            sent.run.program.ended().await;
             None
         }
     };
-    let stats = run.program.stats();
+    let stats = sent.run.program.stats();
     tracing::info!(
         ?end,
         seconds = started_at.elapsed().as_secs_f64(),
@@ -113,9 +113,9 @@ async fn run(
         "ended"
     );
     if let Some(end) = end {
-        queue(frames, FromWaOS::Ended(run.end(&end)));
+        queue(frames, FromWaOS::Ended(sent.end(&end)));
     }
-    context.runs.ended(&run).await;
+    context.runs.ended(&sent.run).await;
 }
 
 /// Starts the component sent as the program `id`, watched: loaded first, which compiles it,
@@ -127,11 +127,11 @@ async fn start(
     component: Vec<u8>,
     context: &RunContext,
     frames: &UnboundedSender<FromWaOS>,
-) -> Result<(Run, Watching)> {
+) -> Result<(SentRun, Watching)> {
     let file = context.components.hold(id).await;
     let (program, _file) = load(id, component, file, context, frames).await?;
     let mut watching = None;
-    let run = context
+    let sent = context
         .runs
         .start(id, || {
             let environment = context.environments.of(id)?;
@@ -150,7 +150,7 @@ async fn start(
         })
         .await?;
     let watching = watching.context("a run that started is watched")?;
-    Ok((run, watching))
+    Ok((sent, watching))
 }
 
 /// The program `id`, named by it: `component` written to `file`, the id's, and loaded from

@@ -325,3 +325,8 @@ opt-level = 3
 opt-level = 3
 [profile.dev.package.addr2line]
 opt-level = 3
+# And Pulley's interpreter, which runs every program on iOS: unoptimized, a recursive
+# `fib(30)` took 9.5 s on it with WaOS's engine settings, against 0.16 s optimized and 0.13 s in
+# a release build, so a debug WaOS took minutes to show `examples/hello` in the simulator.
+[profile.dev.package.pulley-interpreter]
+opt-level = 3

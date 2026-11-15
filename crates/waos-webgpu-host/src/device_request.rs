@@ -7,6 +7,14 @@
 //! a device that is already lost, and wgpu-core makes no device to lose, so the host answers an
 //! `OperationError` with wgpu-core's reason.
 //!
+//! And one adapter is not WebGPU's: one that falls below WebGPU's default limits, as the iOS
+//! simulator's Metal does with 15 inter-stage shader variables against 16, which WebGPU would not
+//! offer. A device there starts from the adapter's own value for each limit it falls short on, so
+//! a program that asks for no more than WebGPU's defaults still draws, wgpu's programs among them,
+//! which ask for every default by value; and one whose shader needs more fails at its pipeline
+//! with wgpu's validation error; as Waft asks valo for a device on a compliant adapter, or
+//! else on any adapter valo draws with (`valo::request_device`).
+//!
 //! What was asked is checked here; the device itself is made by wgpu-core's
 //! `adapter_request_device`, or by the embedder's [`DeviceOpener`] when it gives one.
 
@@ -57,6 +65,7 @@ pub(crate) fn device_descriptor(
 ) -> Result<wgpu_types::DeviceDescriptor<wgpu_core::Label<'static>>, webgpu::RequestDeviceError> {
     let Some(descriptor) = descriptor else {
         return Ok(wgpu_types::DeviceDescriptor {
+            required_limits: baseline_limits(adapter_limits),
             memory_hints: MEMORY_HINTS,
             ..Default::default()
         });
@@ -68,7 +77,7 @@ pub(crate) fn device_descriptor(
                 .map_err(|error| operation_error(error.to_string()))?;
             required_limits(record, adapter_limits)?
         }
-        None => wgpu_types::Limits::defaults(),
+        None => baseline_limits(adapter_limits),
     };
     Ok(wgpu_types::DeviceDescriptor {
         label: descriptor.label.map(|label| label.into()),
@@ -161,13 +170,14 @@ fn webgpu_feature(name: webgpu::GpuFeatureName) -> Option<wgpu_types::FeaturesWe
     })
 }
 
-/// The device's limits: WebGPU's defaults, with each better value `record` asks for, or the
-/// `OperationError` for a key that is not a limit or a value the adapter does not allow.
+/// The device's limits: the baseline ([`baseline_limits`]), with each better value `record` asks
+/// for, or the `OperationError` for a key that is not a limit or a value the adapter does not
+/// allow.
 fn required_limits(
     record: &webgpu::RecordOptionGpuSize64,
     adapter_limits: &wgpu_types::Limits,
 ) -> Result<wgpu_types::Limits, webgpu::RequestDeviceError> {
-    let mut limits = wgpu_types::Limits::defaults();
+    let mut limits = baseline_limits(adapter_limits);
     for (key, value) in record {
         let slot =
             limit_slot(key).ok_or_else(|| operation_error(format!("{key} is not a limit")))?;
@@ -177,6 +187,23 @@ fn required_limits(
         }
     }
     Ok(limits)
+}
+
+/// What a device has before a program asks for more: WebGPU's defaults, and where the adapter falls
+/// below them, the adapter's own value for each limit it falls short on, which one line names.
+fn baseline_limits(adapter_limits: &wgpu_types::Limits) -> wgpu_types::Limits {
+    let defaults = wgpu_types::Limits::defaults();
+    let mut short = Vec::new();
+    defaults.check_limits_with_fail_fn(adapter_limits, false, |name, default, adapter| {
+        short.push(format!("{name} {adapter} (WebGPU's default {default})"));
+    });
+    if !short.is_empty() {
+        tracing::warn!(
+            "the adapter falls below WebGPU's default limits; a device has its own: {}",
+            short.join(", ")
+        );
+    }
+    defaults.or_worse_values_from(adapter_limits)
 }
 
 /// Where a WebGPU limit is in wgpu's limits, and which way a value of it is better.
@@ -193,7 +220,8 @@ enum LimitSlot {
 
 impl LimitSlot {
     /// Sets `value` in `limits` where it is better than what is there, or refuses it when it is
-    /// better than the adapter's.
+    /// better than the adapter's. A value no better than WebGPU's default is what the baseline
+    /// gives already ([`baseline_limits`]), and is never refused.
     fn ask(
         &self,
         limits: &mut wgpu_types::Limits,
@@ -202,9 +230,13 @@ impl LimitSlot {
     ) -> Result<(), String> {
         let beyond_adapter = || format!("{value} is better than the adapter's limit");
         let mut adapter = adapter_limits.clone();
+        let mut defaults = wgpu_types::Limits::defaults();
         match self {
             LimitSlot::Maximum32(slot) => {
                 let value = u32::try_from(value).map_err(|_| beyond_adapter())?;
+                if value <= *slot(&mut defaults) {
+                    return Ok(());
+                }
                 if value > *slot(&mut adapter) {
                     return Err(beyond_adapter());
                 }
@@ -212,6 +244,9 @@ impl LimitSlot {
                 *current = (*current).max(value);
             }
             LimitSlot::Maximum64(slot) => {
+                if value <= *slot(&mut defaults) {
+                    return Ok(());
+                }
                 if value > *slot(&mut adapter) {
                     return Err(beyond_adapter());
                 }
@@ -223,6 +258,9 @@ impl LimitSlot {
                     .ok()
                     .filter(|value| value.is_power_of_two())
                     .ok_or_else(|| format!("{value} is not a power of two below 2^32"))?;
+                if value >= *slot(&mut defaults) {
+                    return Ok(());
+                }
                 if value < *slot(&mut adapter) {
                     return Err(beyond_adapter());
                 }
@@ -230,7 +268,8 @@ impl LimitSlot {
                 *current = (*current).min(value);
             }
             LimitSlot::AnsweredBy(answer) => {
-                if value > u64::from(answer(adapter_limits)) {
+                if value > u64::from(answer(&defaults)) && value > u64::from(answer(adapter_limits))
+                {
                     return Err(beyond_adapter());
                 }
             }
@@ -315,6 +354,51 @@ fn limit_slot(key: &str) -> Option<LimitSlot> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The iOS simulator's Metal adapter: WebGPU's defaults but for 15 inter-stage shader
+    /// variables.
+    fn simulator_limits() -> wgpu_types::Limits {
+        wgpu_types::Limits {
+            max_inter_stage_shader_variables: 15,
+            ..wgpu_types::Limits::defaults()
+        }
+    }
+
+    #[test]
+    fn a_device_on_an_adapter_below_webgpus_defaults_has_the_adapters_value_for_what_falls_short() {
+        let table = ResourceTable::new();
+        let undescribed =
+            device_descriptor(None, &table, &simulator_limits()).expect("nothing asked is refused");
+        assert_eq!(undescribed.required_limits, simulator_limits());
+        let generous = wgpu_types::Limits {
+            max_inter_stage_shader_variables: 31,
+            ..wgpu_types::Limits::defaults()
+        };
+        let compliant =
+            device_descriptor(None, &table, &generous).expect("nothing asked is refused");
+        assert_eq!(
+            compliant.required_limits,
+            wgpu_types::Limits::defaults(),
+            "WebGPU's defaults where the adapter meets them, never more"
+        );
+    }
+
+    /// As a wgpu program asks, every limit at WebGPU's default by value.
+    #[test]
+    fn webgpus_default_asked_of_an_adapter_below_it_gives_the_adapters_value() {
+        let mut asked = webgpu::RecordOptionGpuSize64::new();
+        asked.insert("maxInterStageShaderVariables".to_owned(), Some(16));
+        asked.insert("maxTextureDimension2D".to_owned(), Some(8192));
+        let limits = required_limits(&asked, &simulator_limits()).expect("the defaults are given");
+        assert_eq!(limits, simulator_limits());
+    }
+
+    #[test]
+    fn a_limit_asked_beyond_webgpus_default_and_the_adapters_is_refused() {
+        let mut asked = webgpu::RecordOptionGpuSize64::new();
+        asked.insert("maxInterStageShaderVariables".to_owned(), Some(17));
+        assert!(required_limits(&asked, &simulator_limits()).is_err());
+    }
 
     fn takes_memory_in_small_blocks(
         descriptor: &wgpu_types::DeviceDescriptor<wgpu_core::Label<'static>>,

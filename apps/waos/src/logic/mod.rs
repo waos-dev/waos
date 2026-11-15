@@ -45,16 +45,17 @@ pub(crate) mod clipboard_calls;
 pub(crate) mod command_line;
 pub(crate) mod cues;
 pub(crate) mod deck_geometry;
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(crate) mod dev_input;
-#[cfg(not(target_os = "android"))]
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(crate) mod dev_resize;
-#[cfg(not(target_os = "android"))]
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(crate) mod dev_run;
-#[cfg(not(target_os = "android"))]
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(crate) mod dev_screenshot;
-#[cfg(not(target_os = "android"))]
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(crate) mod dev_server;
-#[cfg(not(target_os = "android"))]
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(crate) mod dev_settings;
 pub(crate) mod environments;
 pub(crate) mod file_dialog_calls;
@@ -80,7 +81,7 @@ pub(crate) mod menu_calls;
 pub(crate) mod noted_file_dialogs;
 pub(crate) mod notification_calls;
 pub(crate) mod offers;
-#[cfg(not(target_os = "android"))]
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(crate) mod open_command;
 pub(crate) mod opened_package;
 pub(crate) mod opener_calls;
@@ -106,11 +107,11 @@ pub(crate) mod program_name;
 pub(crate) mod program_places;
 pub(crate) mod program_shortcuts;
 pub(crate) mod prompts;
-#[cfg(not(target_os = "android"))]
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(crate) mod quit_question;
 pub(crate) mod recording_indicator;
 pub(crate) mod runs;
-#[cfg(not(target_os = "android"))]
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(crate) mod sent_components;
 pub(crate) mod setting_changes;
 #[cfg(any(target_os = "macos", target_os = "android"))]
