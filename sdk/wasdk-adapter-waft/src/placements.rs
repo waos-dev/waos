@@ -25,7 +25,7 @@ fn mutator_of(mutator: &Mutator) -> views::Mutator {
         Mutator::Transform(matrix) => views::Mutator::Transform(matrix.to_flutter_array().to_vec()),
         Mutator::ClipRect(rect) => views::Mutator::ClipRect(rect_of(*rect)),
         Mutator::ClipRRect(rrect) => views::Mutator::ClipRoundedRect(rounded_rect_of(*rrect)),
-        Mutator::ClipPath(path) => views::Mutator::ClipRect(rect_of_valo(path.bounds())),
+        Mutator::ClipPath(path) => views::Mutator::ClipRect(rect_of(path.get_bounds())),
         Mutator::Opacity(alpha) => views::Mutator::Opacity(*alpha),
     }
 }
@@ -39,19 +39,6 @@ fn rect_of(rect: Rect) -> windows::Rect {
         size: windows::Size {
             width: rect.right - rect.left,
             height: rect.bottom - rect.top,
-        },
-    }
-}
-
-fn rect_of_valo(rect: valo::Rect) -> windows::Rect {
-    windows::Rect {
-        origin: windows::Point {
-            x: f64::from(rect.x),
-            y: f64::from(rect.y),
-        },
-        size: windows::Size {
-            width: f64::from(rect.width),
-            height: f64::from(rect.height),
         },
     }
 }
@@ -167,7 +154,7 @@ mod tests {
     fn a_path_clip_crosses_as_its_bounds() {
         let mut path = PathBuilder::new();
         path.rrect(Rect::from_ltwh(10.0, 20.0, 200.0, 40.0).into(), 4.0);
-        let views::Mutator::ClipRect(bounds) = mutator_of(&Mutator::ClipPath(path.build())) else {
+        let views::Mutator::ClipRect(bounds) = mutator_of(&Mutator::ClipPath(path.build().into())) else {
             panic!("a path clip crosses as a rectangle clip");
         };
         assert_eq!(format!("{bounds:?}"), wit_rect(10.0, 20.0, 200.0, 40.0));

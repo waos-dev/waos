@@ -139,11 +139,11 @@ fn flown_and_clipped(page: WidgetRef, placement: &TabPlacement, layout: &DeckLay
 struct ShownPart(RRect);
 
 impl CustomClipper<RRect> for ShownPart {
-    fn get_clip(&self, _size: Size) -> RRect {
+    fn get_clip(&self, _app: &App, _size: Size) -> RRect {
         self.0
     }
 
-    fn should_reclip(&self, old_clipper: &dyn CustomClipper<RRect>) -> bool {
+    fn should_reclip(&self, _app: &App, old_clipper: &dyn CustomClipper<RRect>) -> bool {
         old_clipper
             .as_any()
             .downcast_ref::<ShownPart>()
