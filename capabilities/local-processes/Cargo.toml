@@ -18,17 +18,21 @@ tracing.workspace = true
 portable-pty.workspace = true
 # What portable-pty fails with.
 anyhow.workspace = true
-# Signals to a started command's process group, and the end of one started in a terminal.
-rustix = { workspace = true, features = ["process"] }
+# Signals to a started command's process group, and the end of one started in a terminal; the
+# user's id, and what `uname` names this computer.
+rustix = { workspace = true, features = ["process", "system"] }
+# The user database's entry for the user, its login shell.
+libc.workspace = true
 
-# A command's job, its pseudoconsole and its start on it, and the user's logon environment, at the
-# version tokio reaches Windows with.
+# A command's job, its pseudoconsole and its start on it, the user's logon environment, and the
+# processor Windows runs on, at the version tokio reaches Windows with.
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_System_Console", "Win32_System_Environment", "Win32_System_JobObjects", "Win32_System_Pipes", "Win32_System_Threading"] }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_System_Console", "Win32_System_Environment", "Win32_System_JobObjects", "Win32_System_Pipes", "Win32_System_SystemInformation", "Win32_System_Threading"] }
 
 [dev-dependencies]
 tempfile.workspace = true
 
-# `windows` wraps Windows' process, console and job calls; the rest of the crate has no `unsafe`.
+# `windows` wraps Windows' process, console, job and system calls, and `user_database` the C
+# library's lookup of the user; the rest of the crate has no `unsafe`.
 [lints.rust]
 unsafe_code = "deny"

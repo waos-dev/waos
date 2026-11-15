@@ -1,7 +1,7 @@
 //! The WASI a program's `std` imports on `wasm32-wasip3`, Preview 3, served by `wasmtime-wasi`
 //! with nothing of this machine in it: its standard output goes to the output chosen for it, or to
-//! `tracing` ([`output`]), its monotonic clock is the program's own ([`clock`]), its environment is
-//! empty, and its randomness is the system's. Its filesystem is not `wasmtime-wasi`'s: the engine
+//! `tracing` ([`output`]), its monotonic clock is the program's own ([`clock`]), its environment
+//! holds `TMPDIR` alone, and its randomness is the system's. Its filesystem is not `wasmtime-wasi`'s: the engine
 //! serves it from the program's mounts (`files`). Its TCP and UDP, which `std::net` and a program's
 //! own awaits both use, are `wasmtime-wasi`'s sockets, each address they use checked by the
 //! program's network (`network`), which also serves the name lookup itself. Preview 2 is not
@@ -41,19 +41,19 @@ pub(crate) fn add_to_linker<T: WasiView + 'static>(linker: &mut Linker<T>) -> wa
 
 /// The WASI context the program `name` starts with: its standard streams to `output`, or to the
 /// log under its name, the time on `clock`, TCP and UDP of both versions to what `network`
-/// allows, and, where it has its own folders, its temporary folder in `/cache`.
+/// allows, and, where it has a temporary folder, `TMPDIR` naming it, `/tmp`.
 pub(crate) fn context(
     name: &str,
     clock: Clock,
     output: Option<Arc<dyn ProgramOutput>>,
     network: &ProgramNetwork,
-    has_own_folders: bool,
+    has_temporary_folder: bool,
 ) -> WasiCtx {
     let mut wasi = WasiCtxBuilder::new();
-    if has_own_folders {
-        // Where `std::env::temp_dir` leads, so a temporary file can be renamed onto a pick (the
-        // file dialogs proposal's decision 3).
-        wasi.env("TMPDIR", "/cache");
+    if has_temporary_folder {
+        // What a program that names its temporary folder reads: `std::env::temp_dir` reads
+        // nothing on WASI, and tempfile takes it through `override_temp_dir`.
+        wasi.env("TMPDIR", "/tmp");
     }
     wasi.stdout(StandardStream::new(
         name,

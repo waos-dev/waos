@@ -1,10 +1,9 @@
 //! The app's own folders on this machine: where compiled programs are kept for the engine's code
 //! cache, where the components `cargo waos` sends are kept while they run, and, on macOS, the apps
 //! of the programs run in development, all caches the system may clear and the next run makes
-//! again, and the copies of the packages handed without a path while they are asked about;
-//! WaOS's data folder, with the store in it, the programs installed and the sources added,
-//! which the user keeps; and, on macOS, where the installed programs' apps go, among the user's
-//! applications.
+//! again, the copies of the packages handed without a path while they are asked about, and the
+//! running programs' `/tmp`, each emptied when its program ends; WaOS's data folder, with the store in it, the programs installed and the sources added, which the user
+//! keeps; and, on macOS, where the installed programs' apps go, among the user's applications.
 //!
 //! The invariant: the caches are under the user's caches, beside each other, so clearing WaOS's
 //! caches is one folder; the store is under the user's application data, which nothing clears.
@@ -15,6 +14,10 @@ use std::path::PathBuf;
 pub(crate) struct AppFolders {
     /// The engine's code cache: `WaOSConfig::code_cache`.
     pub(crate) code_cache: PathBuf,
+    /// Where the running programs' `/tmp` are made, `WaOSConfig::temporary_folders`, under the
+    /// caches: on the volume of the user's home, where the store and the programs' `/data` are,
+    /// so a program's file renamed from `/tmp` into `/data` is one rename.
+    pub(crate) temporary_folders: PathBuf,
     /// The components `cargo waos` sends, one file per program's name; none on Android, which
     /// `cargo waos` reaches not yet.
     #[cfg(not(target_os = "android"))]
@@ -63,6 +66,7 @@ pub(crate) fn app_folders() -> AppFolders {
     let caches = caches_folder();
     AppFolders {
         code_cache: caches.join("code"),
+        temporary_folders: caches.join("tmp"),
         dev_components: caches.join("dev"),
         package_copies: caches.join("packages"),
         store: data_folder().join("store"),

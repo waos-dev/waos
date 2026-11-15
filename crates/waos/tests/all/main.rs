@@ -32,6 +32,7 @@ mod drawing;
 mod ending;
 mod fetch;
 mod file_dialogs;
+mod file_watching;
 // The program makes symlinks, which Windows makes only with Developer Mode on or the privilege to,
 // and expects Unix's answers through them.
 #[cfg(unix)]

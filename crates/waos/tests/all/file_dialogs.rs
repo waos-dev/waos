@@ -2,7 +2,7 @@
 //! a folder the test makes: a file picked to read is mounted read-only at its own path, where the
 //! program reads it and cannot write to it; one picked writable is written; a save's target,
 //! which does not exist yet, is written, then replaced whole by a file renamed onto it from the
-//! program's temporary folder, which is in `/cache`; and a folder picked is read. A dialog whose
+//! program's temporary folder, `/tmp`; and a folder picked is read. A dialog whose
 //! answer its user set is answered with it, mounted as a pick, and shows nothing; and a set answer
 //! that does not hold now fails the dialog, saying why, with nothing shown in its place.
 
@@ -56,7 +56,7 @@ fn picks_are_mounted_as_asked_and_a_save_is_replaced_safely_from_the_programs_ca
     );
 
     for line in [
-        "temporary folder: /cache",
+        "temporary folder: /tmp",
         "read: a line to read",
         "read file written to: no",
         "changed: yes",

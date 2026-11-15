@@ -23,8 +23,9 @@
 //! reason as [`valo_fontmgr`].
 //!
 //! A machine's traits, [`Machines`] and [`Machine`], are a provider of one kind of machine and a
-//! machine it offers: its files from its root, and its commands, with pipes or in a terminal
-//! (the processes proposal's decisions 2 and 5). Which machines a program holds is among its
+//! machine it offers: its files from its root, its commands, with pipes or in a terminal (the
+//! processes proposal's decisions 2 and 5), what it runs ([`Platform`]) and its user's login
+//! shell. Which machines a program holds is among its
 //! grants, by their ids.
 //!
 //! A provider called from the program's thread is called on a stack of the engine's, not the
@@ -51,8 +52,9 @@ pub use grants::{
     NetworkGrant, ProgramGrants, Question, Setting, SimulatedSound, Switch,
 };
 pub use machines::{
-    Child, ChildInput, Command, ExecError, ExitStatus, InTerminal, Machine, MachineChoice,
-    MachineFiles, Machines, Signal, Terminal, TerminalSize, WithPipes,
+    Architecture, Child, ChildInput, Command, ExecError, ExitStatus, InTerminal, Machine,
+    MachineChoice, MachineFiles, Machines, OperatingSystem, Platform, Signal, Terminal,
+    TerminalSize, WithPipes,
 };
 pub use valo_fontmgr;
 use valo_fontmgr::FontManager;

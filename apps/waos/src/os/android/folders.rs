@@ -1,5 +1,5 @@
 //! The app's own folders on Android: its cache folder, `Context.getCacheDir`, which the system
-//! clears when it needs room, for the engine's code cache; and its files folder,
+//! clears when it needs room, for the engine's code cache and the running programs' `/tmp`; and its files folder,
 //! `Context.getFilesDir`, which nothing clears, for the store and WaOS's preferences. Both are the
 //! app's alone.
 
@@ -25,6 +25,7 @@ pub(crate) fn app_folders(app: &AndroidApp) -> Result<AppFolders> {
     let caches = cache_folder(app).context("reading WaOS's cache folder from Android")?;
     Ok(AppFolders {
         code_cache: caches.join("code"),
+        temporary_folders: caches.join("tmp"),
         package_copies: caches.join("packages"),
         store: files.join("store"),
         preferences: files.join("preferences.toml"),

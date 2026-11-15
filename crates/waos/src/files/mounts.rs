@@ -2,8 +2,8 @@
 //! it, read-only or writable, and each file or folder the user handed it at its own path, what it
 //! pasted read-only and what it picked as the dialog asked; where a path of the program leads
 //! through them, and where on the machine a path inside a mount is; and the table kept as the
-//! program's grants and the files the user handed it hold it now, with its own `/data` and
-//! `/cache` beside them. A file mounted need not exist: a save's target is mounted before it is
+//! program's grants and the files the user handed it hold it now, with its own `/data`, `/cache`
+//! and `/tmp` beside them. A file mounted need not exist: a save's target is mounted before it is
 //! written.
 //!
 //! A path is taken by its names, `.` and `..` included, only while it is above the mounts, where
@@ -41,6 +41,7 @@ pub(crate) const ROOT: &str = "/";
 /// Where a program sees its own folders.
 const DATA: &str = "/data";
 const CACHE: &str = "/cache";
+const TMP: &str = "/tmp";
 
 /// A folder of the machine, or one file of it, opened, at a path inside the program.
 #[derive(Clone)]
@@ -404,14 +405,15 @@ pub(crate) struct LiveMounts {
 }
 
 impl LiveMounts {
-    /// The mounts of a program with its own `folders`, where it has them, `grants`, and the
-    /// files the user hands it, `handed`.
+    /// The mounts of a program with its own `folders` and its `temporary` folder, where it has
+    /// them, `grants`, and the files the user hands it, `handed`.
     pub(crate) fn new(
         folders: Option<&ProgramFolders>,
+        temporary: Option<&Path>,
         grants: Arc<dyn ProgramGrants>,
         handed: HandedFiles,
     ) -> LiveMounts {
-        let own = folders.map(own_mounts).unwrap_or_default();
+        let own = own_mounts(folders, temporary);
         let changed = grants.changed();
         let granted = grants.file_system();
         let (handed_now, handings) = handed.mounts();
@@ -489,10 +491,17 @@ impl HandedFiles {
     }
 }
 
-/// The program's own folders, writable, at `/data` and `/cache`.
-fn own_mounts(folders: &ProgramFolders) -> Vec<Mounted> {
-    [(&folders.data, DATA), (&folders.cache, CACHE)]
-        .into_iter()
+/// The program's own folders, writable, at `/data` and `/cache`, and its temporary folder at
+/// `/tmp`, each where it has it.
+fn own_mounts(folders: Option<&ProgramFolders>, temporary: Option<&Path>) -> Vec<Mounted> {
+    let own_folders = folders.into_iter().flat_map(|folders| {
+        [
+            (folders.data.as_path(), DATA),
+            (folders.cache.as_path(), CACHE),
+        ]
+    });
+    own_folders
+        .chain(temporary.map(|temporary| (temporary, TMP)))
         .filter_map(|(host, at)| Mounted::open(host, Path::new(at), true))
         .collect()
 }

@@ -1,4 +1,4 @@
 {
   "title": "Guide",
-  "pages": ["windows", "back", "system-bars", "keys", "system", "webgpu", "compositing", "fonts", "media-players", "cameras", "audio", "menus", "file-dialogs", "notifications", "clipboard", "processes", "network", "workers"]
+  "pages": ["windows", "back", "system-bars", "keys", "system", "webgpu", "compositing", "fonts", "media-players", "cameras", "audio", "menus", "file-dialogs", "file-watching", "notifications", "clipboard", "processes", "network", "workers"]
 }

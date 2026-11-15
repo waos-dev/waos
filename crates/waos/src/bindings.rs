@@ -28,8 +28,8 @@
 //! sockets are `wasmtime-wasi`'s, its HTTP client `wasmtime-wasi-http`'s, and `wasi:webgpu` is
 //! the WebGPU host's, `waos-webgpu-host`, so a view's canvas context is the host's own resource; a
 //! notification's time is Preview 3's system clock's `instant`, which `wasmtime-wasi` serves; and
-//! a machine's root is `wasi:filesystem@0.3`'s own `descriptor`, the files' bindings', which the
-//! files serve. A stream-returning function is given store access, which a stream needs and an
+//! a machine's root, and the folder a watch is of, is `wasi:filesystem@0.3`'s own `descriptor`,
+//! the files' bindings', which the files serve. A stream-returning function is given store access, which a stream needs and an
 //! `async func` gets on its own.
 //!
 //! No derive is added to the generated types: `additional_derives` applies to every type of the

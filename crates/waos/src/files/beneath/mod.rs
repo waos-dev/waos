@@ -136,6 +136,8 @@ use sys::*;
 pub(crate) use file_type::FileType;
 pub(crate) use metadata::Metadata;
 pub(crate) use open_options::*;
+#[cfg(windows)]
+pub(crate) use sys::file_path;
 pub(crate) use sys::open_ambient_dir;
 pub(crate) use sys::read_dir;
 pub(crate) use sys::set_times;

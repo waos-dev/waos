@@ -262,6 +262,7 @@ pub(crate) fn start(
         native_unwind_info: native_unwind_info_asked(),
         http_proxy: HttpProxy::System,
         time: EngineTime::Real,
+        temporary_folders: folders.temporary_folders,
     };
     if config.native_unwind_info {
         tracing::info!("programs are compiled with native unwind information");

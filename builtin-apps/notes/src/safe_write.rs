@@ -21,8 +21,8 @@ pub(crate) fn write_safely(path: &Path, contents: &str, drafts: &Path) -> io::Re
     })
 }
 
-/// The program's temporary folder, in its `/cache`, as `TMPDIR` names it: Rust's
-/// `std::env::temp_dir` panics on `wasm32-wasip3`.
+/// The program's temporary folder, `/tmp`, as `TMPDIR` names it: Rust's `std::env::temp_dir`
+/// panics on `wasm32-wasip3`.
 pub(crate) fn temporary_folder() -> PathBuf {
     std::env::var_os("TMPDIR").map_or_else(|| PathBuf::from("/tmp"), PathBuf::from)
 }

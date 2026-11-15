@@ -6,7 +6,8 @@
 //! (`starting`). A started command is in a group of its own, which takes its signals, under the
 //! names `system` gives each system's: a process group on Unix's (`process_group`), its terminal a
 //! pseudo-terminal (`pseudo_terminal`); on Windows a job, its terminal a pseudoconsole
-//! (`windows`).
+//! (`windows`). What it runs (`platform`) and its user's login shell, the user database's on
+//! Unix's systems (`user_database`) and none on Windows, are read once, as it is made.
 //!
 //! The invariant: this crate depends on `waos-capabilities` only of ours. It names no shell, no
 //! engine and no program's internals; a program gets it when its environment is chosen, at start,
@@ -20,6 +21,7 @@ mod login_environment;
 #[cfg(unix)]
 mod login_shell;
 mod pipes;
+mod platform;
 #[cfg(unix)]
 mod process_group;
 #[cfg(unix)]
@@ -27,6 +29,8 @@ mod pseudo_terminal;
 mod starting;
 mod system;
 mod terminal;
+#[cfg(unix)]
+mod user_database;
 #[cfg(windows)]
 mod windows;
 
@@ -36,8 +40,8 @@ use std::sync::Arc;
 use futures::FutureExt;
 use futures::future::BoxFuture;
 use waos_capabilities::{
-    Command, ExecError, InTerminal, Machine, MachineChoice, MachineFiles, Machines, TerminalSize,
-    WithPipes,
+    Command, ExecError, InTerminal, Machine, MachineChoice, MachineFiles, Machines, Platform,
+    TerminalSize, WithPipes,
 };
 
 pub use login_environment::{LoginEnvironment, Timer, Variables};
@@ -59,6 +63,8 @@ impl LocalMachines {
         LocalMachines {
             this_computer: Arc::new(ThisComputer {
                 login: Arc::new(login),
+                platform: platform::this_computer(),
+                login_shell: login_shell(),
             }),
         }
     }
@@ -80,11 +86,29 @@ impl Machines for LocalMachines {
 /// This computer, as the user running WaOS.
 struct ThisComputer {
     login: Arc<LoginEnvironment>,
+    platform: Platform,
+    login_shell: Option<String>,
+}
+
+/// The user's login shell: the user database's on Unix's systems; none on Windows, which has none.
+fn login_shell() -> Option<String> {
+    #[cfg(unix)]
+    return user_database::login_shell();
+    #[cfg(windows)]
+    return None;
 }
 
 impl Machine for ThisComputer {
     fn name(&self) -> String {
         NAME.to_owned()
+    }
+
+    fn platform(&self) -> Platform {
+        self.platform.clone()
+    }
+
+    fn login_shell(&self) -> Option<String> {
+        self.login_shell.clone()
     }
 
     fn files(&self) -> MachineFiles {

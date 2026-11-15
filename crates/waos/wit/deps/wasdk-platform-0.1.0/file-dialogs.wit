@@ -10,10 +10,10 @@ package wasdk:platform@0.1.0;
 /// removes it.
 ///
 /// **A safe save** writes in the program's own folders and renames onto the picked file: a file
-/// in `/data` or `/cache` may be renamed onto a writable file the user picked, as one replace, the
-/// file copied beside the target first when the two are on different volumes. The program's
-/// temporary folder (`TMPDIR`) is in `/cache`. A temporary file made beside the target is not
-/// supported: nothing else of the target's folder is the program's.
+/// in `/data`, `/cache` or `/tmp` may be renamed onto a writable file the user picked, as one
+/// replace, the file copied beside the target first when the two are on different volumes. The
+/// program's temporary folder (`TMPDIR`) is `/tmp`. A temporary file made beside the target is
+/// not supported: nothing else of the target's folder is the program's.
 ///
 /// **Options are resources with setters**, so that a new option breaks no program, as the
 /// clipboard's `copy-options` is; `parent` makes the dialog a sheet on that view's window.

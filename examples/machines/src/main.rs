@@ -1,6 +1,6 @@
 //! A program that acts on a machine its user picked for it, in order: it says which machines it
-//! holds, asks its user to pick one when it holds none, and says which it holds after; then, on
-//! the machine, it runs `/bin/echo` with pipes and says what it printed and how it ended; makes a
+//! holds, asks its user to pick one when it holds none, and says which it holds after; says what
+//! the machine runs and its user's login shell; then, on the machine, it runs `/bin/echo` with pipes and says what it printed and how it ended; makes a
 //! file in a new folder with a command, with a symlink to it holding its absolute path, and reads it
 //! back from the machine's root by its absolute path, through the symlink, and from above `/`; runs `/bin/sh` in a terminal, types a sum and reads the answer, resizes the terminal and
 //! reads its new size with `stty`, and types `exit 4`; and starts `/bin/sleep` twice, ends one
@@ -14,7 +14,9 @@
 
 use wasdk::StreamReader;
 use wasdk::filesystem::{DescriptorFlags, OpenFlags, PathFlags};
-use wasdk::machines::{self, Command, ExitStatus, Machine, Signal, TerminalSize};
+use wasdk::machines::{
+    self, Architecture, Command, ExitStatus, Machine, OperatingSystem, Signal, TerminalSize,
+};
 
 /// What makes the file the program reads back, with a symlink to it holding its absolute path,
 /// and prints the folder they are in.
@@ -41,11 +43,31 @@ async fn main() {
         },
     };
     println!("granted after: {}", names(&machines.granted()));
+    say_what_it_runs(&machine);
     echo(&machine).await;
     read_from_the_root(&machine).await;
     type_in_a_terminal(&machine).await;
     end_with_a_signal(&machine).await;
     println!("done");
+}
+
+/// Says what the machine runs, as `uname -sm` names it, and its user's login shell.
+fn say_what_it_runs(machine: &Machine) {
+    let platform = machine.platform();
+    let os = match platform.os {
+        OperatingSystem::Macos => "macos".to_owned(),
+        OperatingSystem::Linux => "linux".to_owned(),
+        OperatingSystem::Windows => "windows".to_owned(),
+        OperatingSystem::Other(name) => name,
+    };
+    let arch = match platform.arch {
+        Architecture::Aarch64 => "aarch64".to_owned(),
+        Architecture::X8664 => "x86-64".to_owned(),
+        Architecture::Other(name) => name,
+    };
+    println!("platform: {os} {arch}");
+    let shell = machine.login_shell();
+    println!("login shell: {}", shell.as_deref().unwrap_or("none"));
 }
 
 /// Runs `/bin/echo hello` with pipes, and says what it printed and how it ended.

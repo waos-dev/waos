@@ -3,7 +3,7 @@
 //! longest mount containing it, then beneath that mount's folder on the machine. A folder above
 //! a mount lists only what is mounted under it, and a path outside every mount is not found, so a
 //! program cannot probe what the machine holds. The mounts are its own `/data` and `/cache`, its
-//! grants' folders, read live, and the files the user handed it, each at its own path, what it
+//! `/tmp`, emptied when it ends (`temporary_folders`), its grants' folders, read live, and the files the user handed it, each at its own path, what it
 //! picked kept among its grants as well ([`Picks`]): a mount added or removed applies at the
 //! program's next call, and a handle already open stays valid. A path stays beneath its mount's
 //! folder by the system's one call where it has one, and by a walk of its folders elsewhere
@@ -13,7 +13,8 @@
 //! otherwise than WASI is refused before it reaches the system ([`names`]).
 //!
 //! The calls are WASI's, whichever its version: the handles ([`Descriptor`]) and where a path
-//! leads ([`Target`]). [`p3`] serves them as `wasi:filesystem@0.3`, which Rust's `std` calls on
+//! leads ([`Target`]). What reaches a folder the program holds by its path, as a watch of it does,
+//! takes the path the system gives of its handle ([`HeldFolder`]). [`p3`] serves them as `wasi:filesystem@0.3`, which Rust's `std` calls on
 //! `wasm32-wasip3`, whose descriptor a machine's root is too (`machines`).
 //!
 //! Ported from `wasmtime-wasi` 49.0.3 (`src/filesystem.rs`, `src/filesystem/unix.rs`,
@@ -39,6 +40,7 @@
 mod beneath;
 mod descriptor;
 mod errors;
+mod held_folder;
 pub mod machine_paths;
 mod mounts;
 mod names;
@@ -58,7 +60,8 @@ use wasmtime::component::{HasData, ResourceTable};
 
 pub(crate) use descriptor::Descriptor;
 use descriptor::{DirectoryEntry, OpenMode, Opened};
-use errors::ErrorCode;
+pub(crate) use errors::ErrorCode;
+pub(crate) use held_folder::HeldFolder;
 pub(crate) use mounts::HandedFiles;
 use mounts::{LiveMounts, ROOT};
 pub(crate) use picks::Picks;
@@ -106,15 +109,16 @@ pub(crate) struct ProgramFiles {
 }
 
 impl ProgramFiles {
-    /// The files of a program with its own `folders`, where it has them, `grants`, and the files
-    /// the user hands it, `handed`.
+    /// The files of a program with its own `folders` and its `temporary` folder, where it has
+    /// them, `grants`, and the files the user hands it, `handed`.
     pub(crate) fn new(
         folders: Option<&ProgramFolders>,
+        temporary: Option<&Path>,
         grants: Arc<dyn ProgramGrants>,
         handed: HandedFiles,
     ) -> ProgramFiles {
         ProgramFiles {
-            mounts: LiveMounts::new(folders, grants, handed),
+            mounts: LiveMounts::new(folders, temporary, grants, handed),
         }
     }
 

@@ -162,7 +162,8 @@ pub fn wait_until_stopped_at_freeze(program: &RunningProgram) {
 
 /// How the tests' engines are set up unless a test says otherwise: the code cache every test
 /// shares, freezing by the default policy, no native unwind information, as an app has it, HTTP
-/// through no proxy, whatever the machine's settings, and real time.
+/// through no proxy, whatever the machine's settings, real time, and the programs' `/tmp` in a
+/// folder of the tests' own in the system's temporary folder.
 pub fn config() -> WaOSConfig {
     WaOSConfig {
         code_cache: PathBuf::from(waos_test_programs::CODE_CACHE),
@@ -170,6 +171,7 @@ pub fn config() -> WaOSConfig {
         native_unwind_info: false,
         http_proxy: HttpProxy::None,
         time: EngineTime::Real,
+        temporary_folders: std::env::temp_dir().join("waos-tests"),
     }
 }
 

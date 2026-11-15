@@ -12,7 +12,9 @@
 //! value, one the program gives made with [`wit_future::new`] and written through its
 //! [`FutureWriter`]. [`webgpu`] is `wasi:webgpu`'s own interface, [`monotonic_clock`] the clock a
 //! view's `Instant` is on, [`system_clock`] the one whose `instant` a notification is scheduled
-//! at, [`filesystem`] `wasi:filesystem/types` 0.3, whose `descriptor` a machine's root is,
+//! at, [`filesystem`] `wasi:filesystem/types` 0.3, whose `descriptor` a machine's root and a
+//! watched folder are, [`preopens`] `wasi:filesystem/preopens` 0.3, the root `/` a program opens
+//! its own folders and its mounts from as `std::fs` does,
 //! [`http`] WASI 0.3's HTTP client, `wasi:http/client` with its `types`, whose `send` a program
 //! awaits and which the system's proxy and certificate check serve, and [`sockets`] WASI 0.3's
 //! sockets, `wasi:sockets/types` and `ip-name-lookup`, whose connections, streams and lookups a
@@ -66,10 +68,12 @@ pub use bindings::wasdk::media::{
     cameras, caption_settings, image_codecs, media_assets, media_players, video_frames,
 };
 pub use bindings::wasdk::platform::{
-    audio, clipboard, file_dialogs, fonts, gpu_interop, hardware_buffers, lifecycle, machines,
-    menus, notifications, opener, permissions, screens, system, trust, views, windows, workers,
+    audio, clipboard, file_dialogs, file_watching, fonts, gpu_interop, hardware_buffers, lifecycle,
+    machines, menus, notifications, opener, permissions, screens, system, trust, views, windows,
+    workers,
 };
 pub use bindings::wasi::clocks::{monotonic_clock, system_clock};
+pub use bindings::wasi::filesystem::preopens;
 pub use bindings::wasi::filesystem::types as filesystem;
 pub use bindings::wasi::http;
 pub use bindings::wasi::sockets;

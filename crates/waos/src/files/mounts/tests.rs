@@ -159,7 +159,7 @@ fn a_file_handed_is_mounted_read_only_at_its_own_path_and_nothing_else_of_its_fo
     let handed = HandedFiles::default();
     handed.hand(&note);
     handed.hand(&note);
-    let mut mounts = LiveMounts::new(None, Arc::new(TestGrants::default()), handed);
+    let mut mounts = LiveMounts::new(None, None, Arc::new(TestGrants::default()), handed);
     let table = mounts.now();
     let Target::Beneath(beneath) = table.resolve(Path::new("/"), &from_root(&note)).unwrap() else {
         panic!("the file is beneath its folder");
@@ -196,7 +196,7 @@ fn a_mount_added_or_removed_applies_at_the_next_call() {
         data: machine.folder("data"),
         cache: machine.root.path().join("no cache"),
     };
-    let mut mounts = LiveMounts::new(Some(&folders), grants.clone(), HandedFiles::default());
+    let mut mounts = LiveMounts::new(Some(&folders), None, grants.clone(), HandedFiles::default());
     assert_eq!(
         machine.leads(mounts.now(), "later"),
         "outside, in a folder above"

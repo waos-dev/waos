@@ -21,6 +21,7 @@ mod store;
 mod worker;
 
 use std::future::{self, Future};
+use std::path::PathBuf;
 use std::pin::pin;
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -59,6 +60,7 @@ use crate::stats::Stats;
 use crate::sync::locked;
 use crate::system::SystemSettings;
 use crate::targets;
+use crate::temporary_folders::TemporaryFolder;
 use crate::views::{ProgramView, ProgramViews, ScreenRefreshes, ViewLayers, Watching};
 use crate::workers::ProgramWorkers;
 use activity::Activity;
@@ -178,6 +180,8 @@ pub(crate) struct ProgramStart {
     /// The picker of a machine, where the shell has one.
     pub(crate) machine_picker: Option<Arc<dyn ShellMachinePicker>>,
     pub(crate) environment: ProgramEnvironment,
+    /// Where its `/tmp` is on the machine, where it has one.
+    pub(crate) temporary_folder: Option<PathBuf>,
     pub(crate) freeze: FreezePolicy,
     /// The engine's time, which its freeze and its hardware buffers read.
     pub(crate) clock: EngineClock,
@@ -190,10 +194,12 @@ pub(crate) struct ProgramStart {
 }
 
 impl RunningProgram {
-    /// Starts the program on a thread of its own, with `views` given before its code runs.
+    /// Starts the program on a thread of its own, with `views` given before its code runs;
+    /// `temporary`, its `/tmp`, goes once it and its workers have ended, before its end is told.
     pub(crate) fn start(
         start: ProgramStart,
         views: Vec<PlacedView>,
+        temporary: Option<TemporaryFolder>,
     ) -> Result<(RunningProgram, Vec<ProgramView>)> {
         let clock = Clock::start();
         let lifecycle = Lifecycle::new(start.freeze, start.clock.clone());
@@ -237,8 +243,10 @@ impl RunningProgram {
         thread::Builder::new()
             .name(thread_name.clone())
             .spawn(move || {
+                let ending = run_on_this_thread(start, on_thread, clock, stopped);
+                drop(temporary);
                 // Nobody waiting for the end is not an error.
-                let _ = end.send(run_on_this_thread(start, on_thread, clock, stopped));
+                let _ = end.send(ending);
             })
             .with_context(|| format!("a thread for {thread_name}"))?;
         Ok((program, given))

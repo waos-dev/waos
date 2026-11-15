@@ -1,9 +1,10 @@
 //! The environment a command runs in on this computer: the user's login environment, as an SSH
 //! login gives one and as VS Code reads it on this computer (the processes proposal's decision 4),
 //! so that a WaOS started from the Dock still finds Homebrew's and rustup's tools. On Unix's
-//! systems the user's login shell runs once and prints it (`login_shell`); on Windows, which has
-//! no login shell, it is the environment Windows builds for the user's new logon
-//! (`windows::user_environment`). What is read is read once and kept; a shell that fails, or takes
+//! systems the user's login shell, the one the user database names (`user_database`), as SSH
+//! starts it, whatever `SHELL` WaOS was started with, runs once and prints it (`login_shell`); on
+//! Windows, which has no login shell, it is the environment Windows builds for the user's new
+//! logon (`windows::user_environment`). What is read is read once and kept; a shell that fails, or takes
 //! longer than the timeout, or a Windows that builds none, leaves this process's own environment in
 //! its place.
 //!
@@ -54,11 +55,12 @@ enum Reading {
 }
 
 impl LoginEnvironment {
-    /// The user's login shell's, `$SHELL` or `/bin/sh`, given ten seconds by tokio's clock.
+    /// The user's login shell's, the one the user database names, as SSH starts it, or `/bin/sh`
+    /// where it has no entry for the user; given ten seconds by tokio's clock.
     #[cfg(unix)]
     pub fn of_login_shell() -> LoginEnvironment {
-        let shell =
-            std::env::var_os("SHELL").map_or_else(|| PathBuf::from("/bin/sh"), PathBuf::from);
+        let shell = crate::user_database::login_shell()
+            .map_or_else(|| PathBuf::from("/bin/sh"), PathBuf::from);
         let timer: Timer = Arc::new(|wait| tokio::time::sleep(wait).boxed());
         LoginEnvironment::of_shell(shell, TIMEOUT, timer)
     }

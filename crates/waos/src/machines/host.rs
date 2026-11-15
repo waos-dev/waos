@@ -1,14 +1,15 @@
 //! The code serving `wasdk:platform/machines` to a program: the machines it holds, a pick asked of
-//! its user, a machine's root as `wasi:filesystem`'s own descriptor, which the files serve, and a
-//! command built with setters and run through the machine's provider, with pipes or in a terminal,
+//! its user, what a machine runs and its user's login shell, a machine's root as
+//! `wasi:filesystem`'s own descriptor, which the files serve, and a command built with setters and run through the machine's provider, with pipes or in a terminal,
 //! each output taken once as a stream of its own.
 
 use std::path::Path;
 use std::sync::Arc;
 
 use waos_capabilities::{
-    Command, ExecError as ProvidedExecError, ExitStatus as ProvidedExitStatus, MachineFiles,
-    Signal as ProvidedSignal, TerminalSize as ProvidedTerminalSize,
+    Architecture as ProvidedArchitecture, Command, ExecError as ProvidedExecError,
+    ExitStatus as ProvidedExitStatus, MachineFiles, OperatingSystem as ProvidedOperatingSystem,
+    Platform as ProvidedPlatform, Signal as ProvidedSignal, TerminalSize as ProvidedTerminalSize,
 };
 use wasmtime::component::{
     Access, Accessor, HasData, Linker, Resource, ResourceTable, StreamReader,
@@ -16,9 +17,10 @@ use wasmtime::component::{
 
 use super::{Child, Machine, Machines, Pipes, ProgramMachines, Terminal};
 use crate::bindings::wasdk::platform::machines::{
-    self, ExecError, ExitStatus, HostChild, HostChildWithStore, HostCommand, HostMachine,
-    HostMachineWithStore, HostMachines, HostMachinesWithStore, HostPipes, HostPipesWithStore,
-    HostTerminal, HostTerminalWithStore, Signal, TerminalSize,
+    self, Architecture, ExecError, ExitStatus, HostChild, HostChildWithStore, HostCommand,
+    HostMachine, HostMachineWithStore, HostMachines, HostMachinesWithStore, HostPipes,
+    HostPipesWithStore, HostTerminal, HostTerminalWithStore, OperatingSystem, Platform, Signal,
+    TerminalSize,
 };
 use crate::files::{Descriptor, folder_of_machine, machine_paths};
 use crate::stream::stream_of_chunks;
@@ -103,6 +105,14 @@ impl<T: MachinesCtxView + 'static> HostMachinesWithStore<T> for HasMachines {
 impl HostMachine for MachinesCtx<'_> {
     fn name(&mut self, machine: Resource<Machine>) -> wasmtime::Result<String> {
         Ok(self.table.get(&machine)?.name())
+    }
+
+    fn platform(&mut self, machine: Resource<Machine>) -> wasmtime::Result<Platform> {
+        Ok(platform_of(self.table.get(&machine)?.platform()))
+    }
+
+    fn login_shell(&mut self, machine: Resource<Machine>) -> wasmtime::Result<Option<String>> {
+        Ok(self.table.get(&machine)?.login_shell())
     }
 
     /// A root that cannot be opened traps: the machine's own root is always there.
@@ -320,6 +330,22 @@ impl<T: MachinesCtxView + 'static> HostTerminalWithStore<T> for HasMachines {
         output
             .map(|chunks| stream_of_chunks(access, chunks))
             .transpose()
+    }
+}
+
+fn platform_of(platform: ProvidedPlatform) -> Platform {
+    Platform {
+        os: match platform.os {
+            ProvidedOperatingSystem::Macos => OperatingSystem::Macos,
+            ProvidedOperatingSystem::Linux => OperatingSystem::Linux,
+            ProvidedOperatingSystem::Windows => OperatingSystem::Windows,
+            ProvidedOperatingSystem::Other(name) => OperatingSystem::Other(name),
+        },
+        arch: match platform.arch {
+            ProvidedArchitecture::Aarch64 => Architecture::Aarch64,
+            ProvidedArchitecture::X86_64 => Architecture::X8664,
+            ProvidedArchitecture::Other(name) => Architecture::Other(name),
+        },
     }
 }
 

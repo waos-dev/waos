@@ -20,8 +20,8 @@ package wasdk:platform@0.1.0;
 /// program reads its state rather than assuming one. The user's own paste reads the clipboard
 /// whatever its switch says: a paste is the user's act.
 ///
-/// What is free is not here: the program's own `/data` and `/cache`, a file the user picks,
-/// opening links and files, sound, menus and dialogs. Nor are the machines the program acts on:
+/// What is free is not here: the program's own `/data`, `/cache` and `/tmp`, a file the user
+/// picks, watching a folder it holds, opening links and files, sound, menus and dialogs. Nor are the machines the program acts on:
 /// the user gives each by picking it, in `machines`.
 interface permissions {
   /// Where a permission stands.

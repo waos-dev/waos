@@ -31,6 +31,7 @@ use crate::clipboard::ProgramClipboard;
 use crate::clipboard::host::{ClipboardCtx, ClipboardCtxView};
 use crate::clock::Clock;
 use crate::file_dialogs::host::{FileDialogsCtx, FileDialogsCtxView};
+use crate::file_watching::host::{FileWatchingCtx, FileWatchingCtxView};
 use crate::files::{FilesCtx, FilesCtxView};
 use crate::files::{Picks, ProgramFiles};
 use crate::fonts::ProgramFonts;
@@ -209,6 +210,7 @@ fn linker(engine: &Engine) -> wasmtime::Result<Linker<StoreData>> {
     crate::opener::host::add_to_linker(&mut linker)?;
     crate::notifications::host::add_to_linker(&mut linker)?;
     crate::machines::host::add_to_linker(&mut linker)?;
+    crate::file_watching::host::add_to_linker(&mut linker)?;
     crate::hardware_buffers::host::add_to_linker(&mut linker)?;
     crate::gpu_interop::host::add_to_linker(&mut linker)?;
     crate::video_frames::host::add_to_linker(&mut linker)?;
@@ -262,7 +264,12 @@ fn store_data(
         .unwrap_or_else(|| Arc::new(NothingGranted));
     let handed = instances.handed.clone();
     let picks = Picks::new(handed.clone(), access.clone());
-    let files = ProgramFiles::new(environment.folders.as_ref(), grants.clone(), handed.clone());
+    let files = ProgramFiles::new(
+        environment.folders.as_ref(),
+        instances.temporary_folder.as_deref(),
+        grants.clone(),
+        handed.clone(),
+    );
     let network = ProgramNetwork::new(grants);
     let clipboard = ProgramClipboard::new(
         user_side.clipboard,
@@ -324,7 +331,7 @@ fn store_data(
             instances.clock,
             environment.output.clone(),
             &network,
-            environment.folders.is_some(),
+            instances.temporary_folder.is_some(),
         ),
         gpu: Arc::clone(&instances.gpu),
         canvases: Canvases::default(),
@@ -656,6 +663,14 @@ impl MachinesCtxView for StoreData {
         MachinesCtx {
             table: &mut self.table,
             machines: &self.machines,
+        }
+    }
+}
+
+impl FileWatchingCtxView for StoreData {
+    fn file_watching_ctx(&mut self) -> FileWatchingCtx<'_> {
+        FileWatchingCtx {
+            table: &mut self.table,
         }
     }
 }

@@ -38,6 +38,7 @@ use crate::screens::{Screen, Screens};
 use crate::screenshots::Screenshots;
 use crate::shell::{PlacedView, Shell, ShellClipboardItem};
 use crate::system::SystemSettings;
+use crate::temporary_folders::TemporaryFolders;
 use crate::views::{ProgramView, Refresh, ScreenRefreshes};
 
 /// How the engine is set up.
@@ -62,6 +63,11 @@ pub struct WaOSConfig {
     /// What moves the engine's time, which freezes, a view's hide and show and its spare
     /// hardware buffers are timed by: its own thread every 100 ms, as an app has it, or a test.
     pub time: EngineTime,
+    /// Where each running program's `/tmp` is made, a folder of its own, removed once it ends: a
+    /// folder of the app's own among its caches, on the volume of the programs' `/data`, so a file
+    /// renamed from one into the other is one rename. One the engine starts on is cleared of what
+    /// a crash left there.
+    pub temporary_folders: PathBuf,
 }
 
 /// What the platform reports about the machine when the engine starts; the setters keep it
@@ -93,6 +99,8 @@ pub struct WaOS {
     caption_settings: Option<CaptionSettings>,
     clipboard: PlatformClipboard,
     code_cache: PathBuf,
+    /// Where each program's `/tmp` is made.
+    temporary_folders: Arc<TemporaryFolders>,
     freeze: FreezePolicy,
     http_proxy: HttpProxy,
     /// The engine's time, which every program's freeze and hardware buffers read.
@@ -106,6 +114,7 @@ impl WaOS {
     pub fn new(config: WaOSConfig, shell: Shell, platform: PlatformState) -> Result<WaOS> {
         std::fs::create_dir_all(&config.code_cache)
             .with_context(|| format!("making {}", config.code_cache.display()))?;
+        let temporary_folders = Arc::new(TemporaryFolders::new(config.temporary_folders)?);
         let engine = Arc::new(Engine::new(&engine_config(config.native_unwind_info))?);
         let programs = Programs::default();
         let clock = config.time.start(&engine, &programs)?;
@@ -126,6 +135,7 @@ impl WaOS {
             ),
             caption_settings: platform.caption_style.map(CaptionSettings::new),
             code_cache: config.code_cache,
+            temporary_folders,
             freeze: config.freeze,
             http_proxy: config.http_proxy,
             clock,
@@ -210,9 +220,9 @@ impl WaOS {
         code_cache::remove(&self.engine, component, &self.code_cache)
     }
 
-    /// Starts `program` on a thread of its own, with `environment` as its capabilities and
-    /// `views` as the views it has before its code runs; answers the handle on it and each view
-    /// as the shell reports into it, in the order given.
+    /// Starts `program` on a thread of its own, with `environment` as its capabilities, a `/tmp`
+    /// of its own, and `views` as the views it has before its code runs; answers the handle on it
+    /// and each view as the shell reports into it, in the order given.
     pub fn run(
         &self,
         program: &Program,
@@ -224,6 +234,7 @@ impl WaOS {
             "{} was loaded by another engine",
             program.name()
         );
+        let temporary = self.temporary_folders.make(program.name());
         let start = ProgramStart {
             engine: Engine::clone(&self.engine),
             gpu: Arc::clone(&self.gpu),
@@ -252,13 +263,14 @@ impl WaOS {
             simulated_cameras: self.shell.simulated_cameras.clone(),
             machine_picker: self.shell.machine_picker.clone(),
             environment,
+            temporary_folder: temporary.as_ref().map(|folder| folder.path().to_owned()),
             freeze: self.freeze,
             http_proxy: self.http_proxy,
             clock: self.clock.clone(),
             programs: self.programs.clone(),
             view_layers: Arc::default(),
         };
-        RunningProgram::start(start, views)
+        RunningProgram::start(start, views, temporary)
     }
 
     /// The platform sent the whole app to the background (iOS's `didEnterBackground`, Android's
@@ -431,6 +443,7 @@ mod tests {
             native_unwind_info: false,
             http_proxy: HttpProxy::None,
             time: EngineTime::Real,
+            temporary_folders: std::env::temp_dir().join("waos-tests"),
         };
         let platform = PlatformState {
             screens: Vec::new(),

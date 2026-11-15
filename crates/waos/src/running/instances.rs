@@ -9,6 +9,7 @@
 //! reaches; and a store made without the user's side answers each interface of it as a platform
 //! without it does.
 
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use waos_capabilities::{AudioDevices, ProgramEnvironment};
@@ -60,6 +61,8 @@ pub(crate) struct ProgramInstances {
     pub(super) http_proxy: HttpProxy,
     /// The files the user pastes, picks and opens with the program, mounted for every instance.
     pub(super) handed: HandedFiles,
+    /// Where its `/tmp` is on the machine, where it has one.
+    pub(super) temporary_folder: Option<PathBuf>,
     pub(super) clock: Clock,
     pub(super) program: RunningProgram,
 }
@@ -113,6 +116,7 @@ impl ProgramInstances {
             access,
             http_proxy: start.http_proxy,
             handed: HandedFiles::default(),
+            temporary_folder: start.temporary_folder,
             clock,
             program,
         };

@@ -16,14 +16,16 @@ package wasdk:program@0.1.0;
 /// `system`; a desktop's frame around a view is `windows`; and how much of the program its user can
 /// see, and the platform asking whether it may end, is `lifecycle`.
 ///
-/// Everything else a program reaches (files, with `/data` and `/cache` of its own; the network;
-/// fonts; machines; sound) is a capability the engine serves through an interface of its own,
-/// chosen per program when it starts. So far `fonts`, the installed fonts and their glyphs; the
+/// Everything else a program reaches (files, with `/data` and `/cache` of its own and a `/tmp`
+/// emptied when it ends; the network; fonts; machines; sound) is a capability the engine serves
+/// through an interface of its own, chosen per program when it starts. So far `fonts`, the installed fonts and their glyphs; the
 /// network, as WASI 0.3's sockets, which Rust's `std::net` imports and a program awaits, and WASI
 /// 0.3's HTTP client, with `trust`, the system's check of a server's
 /// certificate; `audio`, sound, a Web Audio graph
 /// the platform renders and plays, with the microphone among its inputs; and `machines`, the
-/// machines its user picked for it, their files and their commands. The others arrive in later
+/// machines its user picked for it, their files and their commands. What changes in a folder it
+/// holds, its own or a mount or a machine's, the system tells it through `file-watching`, beside
+/// `wasi:filesystem`, whose preopened root it opens its folders from. The others arrive in later
 /// steps of the design. The clipboard is the user's, wherever the program runs, and reached through
 /// the platform: `clipboard`. Its menus are shown in the platform's places for them, its menu bar,
 /// context menus and tray icons, where it has them: `menus`; files the user picks in the platform's
@@ -51,6 +53,7 @@ world program-base {
   import wasi:clocks/monotonic-clock@0.3.0;
   include wasi:sockets/imports@0.3.0;
   import wasi:http/client@0.3.0;
+  import wasi:filesystem/preopens@0.3.0;
   import wasdk:platform/views@0.1.0;
   import wasdk:platform/screens@0.1.0;
   import wasdk:platform/windows@0.1.0;
@@ -66,6 +69,7 @@ world program-base {
   import wasdk:platform/opener@0.1.0;
   import wasdk:platform/notifications@0.1.0;
   import wasdk:platform/machines@0.1.0;
+  import wasdk:platform/file-watching@0.1.0;
   import wasdk:platform/hardware-buffers@0.1.0;
   import wasdk:platform/gpu-interop@0.1.0;
   import wasdk:media/video-frames@0.1.0;

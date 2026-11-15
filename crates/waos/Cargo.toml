@@ -26,6 +26,9 @@ wasmtime-wasi.workspace = true
 bytes.workspace = true
 # A program's files (`files`): the system calls the engine makes itself.
 rustix.workspace = true
+# `wasdk:platform/file-watching`: the system's watch of a folder, FSEvents, inotify or
+# `ReadDirectoryChangesW`.
+notify.workspace = true
 # A host name as a lookup reads it: an address, or a domain in ASCII and lower case.
 url.workspace = true
 # A program's HTTP: `wasi:http`'s client of Preview 3, and reqwest, which sends a request through the

@@ -1,0 +1,49 @@
+package wasdk:platform@0.1.0;
+
+/// What changes in a folder the program holds, as the system tells it: FSEvents on macOS, inotify
+/// on Linux and Android, `ReadDirectoryChangesW` on Windows. A folder the program holds is one it
+/// has a descriptor of: its own folders and its mounts, opened from `wasi:filesystem`'s preopened
+/// root, the folders the user picked for it, a machine's root and the folders opened from it.
+/// Watching is reading, and asks nothing; nothing outside the folder is told.
+///
+/// **A change names a path relative to the watched folder**, its names joined by `/`, the folder
+/// itself being `.`. A watch reports what the system reports, coalesced as the system coalesces
+/// it: a file written and closed may be one change or several, and an editor's save may be a file
+/// made and renamed onto the one it replaces. A program that needs to know what is there now
+/// reads it.
+///
+/// **Changes come in batches**, each at most `latency-ms` after the first change in it, so a
+/// burst of changes is one batch. A batch the program has not read grows until the system's
+/// queue, or WaOS's, would hold too much; then the changes are dropped and a `rescan` takes their
+/// place. A rescan of the whole folder is its batch alone: what it reads again holds the rest. A
+/// watch ends when the program drops its stream.
+interface file-watching {
+  use wasi:filesystem/types@0.3.0.{descriptor, error-code};
+
+  /// One change in a watched folder, by its path relative to the folder.
+  variant change {
+    /// Something was made at the path: a file, a folder or a symlink, or moved there from
+    /// outside the folder.
+    created(string),
+    /// What is at the path was written, or its metadata changed.
+    modified(string),
+    /// What was at the path is gone, or moved outside the folder.
+    removed(string),
+    /// What was at the first path is at the second, where the system pairs the two ends of a
+    /// rename: inotify and Windows do; FSEvents does not, and tells each end as `other`.
+    renamed(tuple<string, string>),
+    /// Something changed at the path; the system did not say what.
+    other(string),
+    /// Changes were lost: what is under the path must be read again, or the whole folder with
+    /// none.
+    rescan(option<string>),
+  }
+
+  /// Watches `folder` until the stream is dropped: its own entries, and with `recursive`
+  /// everything under it, a symlink's target never. Resolves once the system watches it, which
+  /// for a large folder watched recursively on Linux, where each folder beneath is watched apart,
+  /// takes a while. `not-directory` for a file; `unsupported` for a folder above the program's
+  /// mounts, the root among them, and on Windows for the root of this computer, the folder of its
+  /// drives.
+  watch: async func(folder: borrow<descriptor>, recursive: bool, latency-ms: u32) -> result<stream<list<change>>, error-code>;
+}

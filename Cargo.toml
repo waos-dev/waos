@@ -153,6 +153,11 @@ ed25519-dalek = { version = "3", features = ["pem"] }
 sha2 = "0.11"
 getrandom = "0.4"
 hex = { version = "0.4", features = ["serde"] }
+# What changes in a folder a program watches, as each system tells it: FSEvents, inotify, and
+# `ReadDirectoryChangesW`, through notify, which is CC0. Its 9.0 release candidate, pinned: 8.2.2,
+# the last release, gives no rescan for Windows' overflow and panics at an FSEvents flag it does
+# not know.
+notify = "=9.0.0-rc.8"
 # Files and folders under fresh names, removed unless kept: what an install unpacks into before it
 # is put in place, a file written whole beside the one it replaces, and a download.
 tempfile = "3"

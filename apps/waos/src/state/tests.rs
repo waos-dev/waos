@@ -105,6 +105,7 @@ impl Desktop {
             native_unwind_info: false,
             http_proxy: HttpProxy::None,
             time: EngineTime::Real,
+            temporary_folders: folder.join("tmp"),
         };
         let clipboard = MockClipboard::new().with_promised_files_folder(folder.join("pasted"));
         let platform = Rc::new(DesktopPlatform::new(&clipboard, tray));

@@ -28,7 +28,7 @@ const BEFORE_LATER: [&str; 26] = [
     "rename across mounts: done",
     "work append: done",
     "work read: hello world",
-    "root list: cache, data, mnt",
+    "root list: cache, data, mnt, tmp",
     "mnt list: docs, work",
     "mnt is a folder: true",
     "docs read: read me",

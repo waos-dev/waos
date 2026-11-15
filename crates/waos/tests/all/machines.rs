@@ -1,7 +1,8 @@
 //! `examples/machines` under the test shell, given this computer as a machine whose commands run
 //! in a login environment the test gives, never the user's own shell, with grants of the test's own
 //! that keep the machines picked as an app keeps them: a machine its user picks is the program's
-//! and kept among its grants, and the program runs `/bin/echo` with pipes and reads what it
+//! and kept among its grants, and the program reads what it runs and its user's login shell, as
+//! the provider says them, runs `/bin/echo` with pipes and reads what it
 //! printed, reads a file in a new folder from the machine's root by its absolute path, through a
 //! symlink holding its absolute path and from above `/`, as any program on the machine does, runs
 //! `/bin/sh` in a terminal that echoes what is typed and takes a new size, and ends a command with
@@ -17,7 +18,10 @@ use std::sync::{Arc, Mutex};
 use waos::{
     Answer, ProgramEnvironment, ProgramGrants, ProgramOutput, Question, RunningProgram, WaOS,
 };
-use waos_capabilities::{ChangedFuture, DomainRule, FileSystemGrant, Machines, NetworkGrant};
+use waos_capabilities::{
+    Architecture, ChangedFuture, DomainRule, FileSystemGrant, Machines, NetworkGrant,
+    OperatingSystem,
+};
 use waos_local_processes::{LocalMachines, LoginEnvironment, THIS_COMPUTER};
 
 use crate::shell;
@@ -52,6 +56,8 @@ fn a_machine_picked_is_kept_and_acted_on_with_pipes_a_terminal_signals_and_its_r
     let running = run(&engine, Some(&grants), vec![this_computer()], &lines);
     lines.wait_for("granted: []");
     lines.wait_for("picked: This computer");
+    lines.wait_for(&what_this_computer_runs());
+    lines.wait_for(&this_computers_login_shell());
     for line in ACTED_ON {
         lines.wait_for(line);
     }
@@ -125,6 +131,35 @@ fn a_machine_set_as_the_pickers_answer_is_picked_and_kept_unasked_and_one_not_of
         );
         assert_eq!(grants.machines(), kept, "{set}");
     }
+}
+
+/// What the program says this computer runs, as the provider says it.
+fn what_this_computer_runs() -> String {
+    let platform = this_computer()
+        .machine(THIS_COMPUTER)
+        .expect("this computer")
+        .platform();
+    let os = match platform.os {
+        OperatingSystem::Macos => "macos".to_owned(),
+        OperatingSystem::Linux => "linux".to_owned(),
+        OperatingSystem::Windows => "windows".to_owned(),
+        OperatingSystem::Other(name) => name,
+    };
+    let arch = match platform.arch {
+        Architecture::Aarch64 => "aarch64".to_owned(),
+        Architecture::X86_64 => "x86-64".to_owned(),
+        Architecture::Other(name) => name,
+    };
+    format!("platform: {os} {arch}")
+}
+
+/// What the program says this computer's login shell is, as the provider says it.
+fn this_computers_login_shell() -> String {
+    let shell = this_computer()
+        .machine(THIS_COMPUTER)
+        .expect("this computer")
+        .login_shell();
+    format!("login shell: {}", shell.as_deref().unwrap_or("none"))
 }
 
 #[test]

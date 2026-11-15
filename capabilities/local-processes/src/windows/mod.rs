@@ -2,7 +2,8 @@
 //! of its own (`job`), given to the command as it is created, so every process it starts is in it
 //! too; its terminal a pseudoconsole WaOS starts the command on itself (`pseudoconsole`), since the
 //! job must be given at creation; and the user's environment as Windows builds it for a new logon
-//! (`user_environment`), Windows having no login shell. A signal is what Windows has in its place:
+//! (`user_environment`), Windows having no login shell; and the processor Windows runs on
+//! (`native_architecture`). A signal is what Windows has in its place:
 //! an interrupt is `^C` typed into the command's pseudoconsole, which the console turns into the
 //! console's Ctrl-C, and ends the job of a command run with pipes, which has no console; a hang-up
 //! closes the pseudoconsole, which closes the command's console; anything else ends the job. A
@@ -12,17 +13,19 @@
 //! starts WaOS in none.
 //!
 //! The invariant: wrapping Windows' calls is what this module is for, and the one place in the
-//! crate where `unsafe` is written; every handle it opens is owned, and closed once.
+//! crate where `unsafe` is written for them; every handle it opens is owned, and closed once.
 
-// Windows' process, console and job calls are reached through `unsafe`; this module and its
-// children are the one place in the crate that writes it.
+// Windows' process, console, job and system calls are reached through `unsafe`; this module and
+// its children write it, as `user_database` does for Unix's user database.
 #![allow(unsafe_code)]
 
 mod command_line;
 mod job;
+mod native_architecture;
 mod pseudoconsole;
 mod user_environment;
 
 pub(crate) use job::{Collector, CommandJob, start_with_pipes};
+pub(crate) use native_architecture::native_architecture;
 pub(crate) use pseudoconsole::{TerminalSession, start_in_terminal};
 pub(crate) use user_environment::user_environment;
