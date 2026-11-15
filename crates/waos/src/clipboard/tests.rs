@@ -9,6 +9,7 @@ use futures::executor::block_on;
 use waos_capabilities::{Answer, ChangedFuture, FileSystemGrant, NetworkGrant, Question};
 
 use super::*;
+use crate::access::Told;
 use crate::bindings::wasdk::platform::views::{Insets, Metrics};
 use crate::clock::Clock;
 use crate::lifecycle::{Lifecycle, Presence};
@@ -124,7 +125,7 @@ fn program(
     let view = views.add(placed_view());
     let clipboard = ProgramClipboard::new(
         platform.clone(),
-        switches,
+        ProgramAccess::new(switches),
         views,
         ProgramSources::default(),
         HandedFiles::default(),
@@ -277,9 +278,31 @@ fn the_write_switch_is_read_at_each_write() {
     let switches = Arc::new(Switches::default());
     let platform = PlatformClipboard::new(Some(Arc::new(ListingShell)));
     let (clipboard, _view) = program(&platform, Arc::clone(&switches));
-    assert!(!clipboard.may_write());
+    assert!(!clipboard.may_write(&["text/plain"]));
     switches.write.store(true, Ordering::SeqCst);
-    assert!(clipboard.may_write());
+    assert!(clipboard.may_write(&["text/plain"]));
+}
+
+#[test]
+fn a_read_and_a_write_the_switches_refuse_are_told_refused_by_them() {
+    let platform = PlatformClipboard::new(Some(Arc::new(ListingShell)));
+    platform.set(vec![TestItem::offering(&["text/plain"])]);
+    let (clipboard, view) = program(&platform, Arc::default());
+    view.presence_changed(FOCUSED);
+    let listed = clipboard.items();
+
+    assert!(block_on(clipboard.read(&listed[0], "text/plain")).is_err());
+    assert!(!clipboard.may_write(&["text/plain"]));
+    assert_eq!(
+        clipboard.access.refusals(),
+        ["clipboard-read", "clipboard-write"]
+    );
+    let pasted = platform.pasted().items();
+    assert!(block_on(clipboard.read(&pasted[0], "text/plain")).is_ok());
+    assert!(
+        matches!(clipboard.access.told().last(), Some(Told::Allowed(_))),
+        "a paste is read past the switch, and told allowed"
+    );
 }
 
 #[test]

@@ -43,6 +43,7 @@
 // default limit allows.
 #![recursion_limit = "256"]
 
+mod access;
 mod asking;
 mod audio;
 pub mod bindings;

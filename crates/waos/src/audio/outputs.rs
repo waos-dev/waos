@@ -10,8 +10,9 @@
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 
-use waos_capabilities::{AudioOutput, ProgramGrants};
+use waos_capabilities::AudioOutput;
 
+use crate::access::ProgramAccess;
 use crate::bindings::wasdk::platform::audio::{AudioError, MediaDeviceInfo};
 use crate::running::RunningProgram;
 use crate::shell::ShellAudioOutputPicker;
@@ -24,23 +25,23 @@ pub(super) struct ProgramOutputs(Arc<OutputsParts>);
 struct OutputsParts {
     picker: Option<Arc<dyn ShellAudioOutputPicker>>,
     /// Where the output the user set as the picker's answer is read.
-    grants: Arc<dyn ProgramGrants>,
+    access: ProgramAccess,
     program: RunningProgram,
     /// The ids of the outputs the user picked for the program.
     picked: Mutex<HashSet<String>>,
 }
 
 impl ProgramOutputs {
-    /// `program`'s, picked through `picker` unless `grants` hold an answer set for it; with
-    /// neither, only the default.
+    /// `program`'s, picked through `picker` unless the grants `access` reads hold an answer set
+    /// for it; with neither, only the default.
     pub(super) fn new(
         picker: Option<Arc<dyn ShellAudioOutputPicker>>,
-        grants: Arc<dyn ProgramGrants>,
+        access: ProgramAccess,
         program: RunningProgram,
     ) -> ProgramOutputs {
         ProgramOutputs(Arc::new(OutputsParts {
             picker,
-            grants,
+            access,
             program,
             picked: Mutex::default(),
         }))
@@ -59,7 +60,7 @@ impl ProgramOutputs {
         &self,
         outputs: Vec<AudioOutput>,
     ) -> Result<MediaDeviceInfo, AudioError> {
-        let output = match self.0.grants.audio_output_answer() {
+        let output = match self.0.access.grants().audio_output_answer() {
             Some(set) => self.set_answer(set, outputs)?,
             None => self.picked(outputs).await?,
         };

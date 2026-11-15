@@ -4,7 +4,8 @@
 //! The shell posts, removes and schedules ([`ShellNotifications`]), told the program each is of,
 //! so it keeps two programs' same id apart. The engine keeps the rest: the notification as the
 //! program builds it ([`Notification`]), whether the program may post at all (the `permissions`
-//! interface's `notifications` question, read from its grants at each post), and what the user
+//! interface's `notifications` question, read from its grants at each post, decided and told
+//! through its access: [`may_post`]), and what the user
 //! does to its notifications ([`ProgramNotifications`]), news kept until heard, so the activation
 //! that started a program waits for it to listen. Where the system keeps a permission of its own
 //! for each program, as macOS does for each program's app, the permission reads `denied` too while
@@ -23,12 +24,28 @@ pub(crate) mod host;
 use std::sync::Arc;
 
 use futures::channel::mpsc;
+use waos_capabilities::{Answer, ProgramGrants, Question};
 
+use crate::access::{ProgramAccess, Refusal, Use};
 use crate::bindings::wasdk::platform::menus::Image;
 use crate::bindings::wasdk::platform::notifications::Activation;
 use crate::lifecycle::Lifecycle;
 use crate::news::{KeptNews, Thawing};
 use crate::shell::ShellNotifications;
+
+/// Whether the program `access` is of may post a notification now: whether its user allowed it
+/// notifications, whatever the system says, since a post the system refuses is the system's to
+/// answer.
+pub(crate) fn may_post(access: &ProgramAccess) -> bool {
+    let user_allowed = |grants: &dyn ProgramGrants| {
+        if grants.answer(Question::Notifications) == Some(Answer::Granted) {
+            Ok(())
+        } else {
+            Err(Refusal::by("notifications"))
+        }
+    };
+    access.decide(Use::Post, user_allowed).is_ok()
+}
 
 /// `notifications.notification`: one notification, as the program builds it and the shell posts
 /// it.
@@ -105,5 +122,18 @@ impl ProgramNotifications {
     /// The activations from now on, on a stream of their own, after those that waited for one.
     fn activations(&self) -> mpsc::UnboundedReceiver<Thawing<Activation>> {
         self.activations.subscribe(&self.lifecycle)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::permissions::NothingGranted;
+
+    #[test]
+    fn a_post_the_user_did_not_allow_is_told_refused_by_the_notifications_question() {
+        let access = ProgramAccess::new(Arc::new(NothingGranted));
+        assert!(!may_post(&access));
+        assert_eq!(access.refusals(), ["notifications"]);
     }
 }

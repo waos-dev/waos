@@ -2,8 +2,9 @@
 //! them, and says when the list changes ([`ShellCameras`], each camera a `ShellCamera`, each
 //! session a `ShellCaptureSession`); the engine keeps the rules, and reads the list again at each
 //! change for each stream of its changes a program opens. A camera opens once the user allows it, the camera question put at the
-//! first use through the program's permissions; a session starts in a format its camera lists, its
-//! photos at a size that format lists, with its outputs as the program set them on a
+//! first use through the program's permissions, and its opening is decided and held through the
+//! program's access (`access`) until the program lets go of it; a session starts in a format its
+//! camera lists, its photos at a size that format lists, with its outputs as the program set them on a
 //! [`CameraOutputs`], the shell's own layer and reader; and a photo is asked of a session started
 //! with photos. A program whose camera answer is simulated lists and opens the shell's cameras of
 //! WaOS's own, a test pattern, in place of the system's, read from its grant at each call, so the
@@ -28,10 +29,12 @@ use futures::stream::{self, BoxStream};
 use waos_capabilities::{Answer, ProgramGrants, Question};
 use wasmtime::bail;
 
+use crate::access::{Held, ProgramAccess, Refusal, Use};
 use crate::bindings::wasdk::media::cameras::{CameraError, CameraFormat, CameraInfo};
 use crate::bindings::wasdk::platform::permissions::State;
 use crate::bindings::wasdk::platform::windows::Size;
 use crate::lifecycle::Lifecycle;
+use crate::permissions::{Permission, state_of};
 use crate::recordings::Recordings;
 use crate::running::RunningProgram;
 use crate::shell::{
@@ -46,8 +49,9 @@ pub use session::{CaptureSession, CaptureSessionReports};
 pub(crate) struct ProgramCameras {
     /// The shell's cameras; none where the shell has none, or cannot show a program using one.
     shells: Option<CameraShells>,
-    /// Where the program's camera answer is read, which picks the system's or WaOS's own.
-    grants: Arc<dyn ProgramGrants>,
+    /// Where the program's camera answer is read, which allows a camera and picks the system's or
+    /// WaOS's own.
+    access: ProgramAccess,
     sessions: SessionRecordings,
     lifecycle: Lifecycle,
 }
@@ -68,19 +72,19 @@ pub(crate) struct SessionRecordings {
 }
 
 impl ProgramCameras {
-    /// The cameras `shells` gives, for a program whose camera answer `grants` keep, whose sessions
-    /// `sessions` shows and whose `lifecycle` they keep from freezing; none where the shell has
-    /// neither kind or cannot show them.
+    /// The cameras `shells` gives, for a program whose camera answer `access` reads, whose
+    /// sessions `sessions` shows and whose `lifecycle` they keep from freezing; none where the
+    /// shell has neither kind or cannot show them.
     pub(crate) fn new(
         shells: CameraShells,
-        grants: Arc<dyn ProgramGrants>,
+        access: ProgramAccess,
         sessions: SessionRecordings,
         lifecycle: Lifecycle,
     ) -> ProgramCameras {
         let any = shells.system.is_some() || shells.simulated.is_some();
         ProgramCameras {
             shells: (any && sessions.machine.can_show()).then_some(shells),
-            grants,
+            access,
             sessions,
             lifecycle,
         }
@@ -91,7 +95,7 @@ impl ProgramCameras {
 /// own while the program's camera answer is simulated.
 pub struct Cameras {
     shells: CameraShells,
-    grants: Arc<dyn ProgramGrants>,
+    access: ProgramAccess,
 }
 
 /// Which of the shell's kinds of camera a program uses now, and that kind's cameras, if the shell
@@ -104,7 +108,7 @@ struct InUse {
 impl Cameras {
     /// The kind the program's camera answer picks now.
     fn in_use(&self) -> InUse {
-        in_use(&self.shells, self.grants.as_ref())
+        in_use(&self.shells, self.access.grants())
     }
 
     /// The cameras of the kind in use; none where the shell has none of it.
@@ -115,28 +119,23 @@ impl Cameras {
         }
     }
 
-    /// The camera `id`, opened by the shell for `program` once `asked`, the camera question, says
-    /// the user allows it, of the kind the answer picks then; `not-allowed`, the shell asked
-    /// nothing, otherwise, and `unplugged` for a simulated camera the shell has none of.
-    fn open<Asked: Future<Output = State> + Send + 'static>(
+    /// The camera `id`, opened by the shell for `program` once `asked`, the camera question, is
+    /// answered, if the answer allows it, of the kind the answer picks then; `not-allowed`, the
+    /// shell asked nothing, otherwise, and `unplugged` for a simulated camera the shell has none
+    /// of.
+    fn open<Asked: Future<Output = ()> + Send + 'static>(
         &self,
         program: &RunningProgram,
         asked: Asked,
         id: String,
     ) -> impl Future<Output = Result<Camera, CameraError>> + Send + 'static + use<Asked> {
-        let (shells, grants, program) = (
-            self.shells.clone(),
-            Arc::clone(&self.grants),
-            program.clone(),
-        );
+        let (shells, access, program) = (self.shells.clone(), self.access.clone(), program.clone());
         async move {
-            if asked.await != State::Granted {
-                return Err(CameraError::NotAllowed);
-            }
-            let InUse { simulated, shell } = in_use(&shells, grants.as_ref());
+            asked.await;
+            let (InUse { simulated, shell }, open) = decide_open(&access, &shells, &id)?;
             let shell = shell.ok_or(CameraError::Unplugged)?;
             let opened = shell.open(&program, &id).await?;
-            Ok(Camera::of(opened, simulated))
+            Ok(Camera::of(opened, simulated, open))
         }
     }
 
@@ -145,22 +144,45 @@ impl Cameras {
     /// list is read, so none goes unheard, and one read late hears the list as it is then, passing
     /// over those between.
     fn changes(&self) -> BoxStream<'static, Vec<CameraInfo>> {
-        let (shells, grants) = (self.shells.clone(), Arc::clone(&self.grants));
-        let changed = next_change(&shells, grants.as_ref());
+        let (shells, access) = (self.shells.clone(), self.access.clone());
+        let changed = next_change(&shells, access.grants());
         stream::unfold(
-            (shells, grants, changed),
-            |(shells, grants, changed)| async move {
+            (shells, access, changed),
+            |(shells, access, changed)| async move {
                 changed.await;
-                let next = next_change(&shells, grants.as_ref());
-                let listed = match in_use(&shells, grants.as_ref()).shell {
+                let next = next_change(&shells, access.grants());
+                let listed = match in_use(&shells, access.grants()).shell {
                     Some(shell) => shell.list().await,
                     None => Vec::new(),
                 };
-                Some((listed, (shells, grants, next)))
+                Some((listed, (shells, access, next)))
             },
         )
         .boxed()
     }
+}
+
+/// The kind of camera the program `access` is of opens `id` among, and the camera's use, held,
+/// if its camera answer allows it a camera now; `not-allowed` otherwise.
+fn decide_open(
+    access: &ProgramAccess,
+    shells: &CameraShells,
+    id: &str,
+) -> Result<(InUse, Held), CameraError> {
+    let used = Use::OpenCamera {
+        id,
+        simulated: in_use(shells, access.grants()).simulated,
+    };
+    let allowed = |grants: &dyn ProgramGrants| {
+        if state_of(grants, Permission::Question(Question::Camera)) == State::Granted {
+            Ok(in_use(shells, grants))
+        } else {
+            Err(Refusal::by("camera"))
+        }
+    };
+    access
+        .hold(used, allowed)
+        .map_err(|_refusal| CameraError::NotAllowed)
 }
 
 /// The kind of camera `grants`' camera answer picks among `shells`.
@@ -192,14 +214,17 @@ pub struct Camera {
     shell: Box<dyn ShellCamera>,
     formats: Vec<CameraFormat>,
     simulated: bool,
+    /// The camera's use, held until the program lets go of it.
+    _open: Held,
 }
 
 impl Camera {
-    fn of(opened: OpenedCamera, simulated: bool) -> Camera {
+    fn of(opened: OpenedCamera, simulated: bool, open: Held) -> Camera {
         Camera {
             shell: opened.camera,
             formats: opened.formats,
             simulated,
+            _open: open,
         }
     }
 
@@ -288,6 +313,7 @@ mod tests {
     use std::sync::Mutex;
 
     use super::*;
+    use crate::access::{Answers, Told};
 
     /// A camera which keeps each format it is started in and starts nothing.
     #[derive(Default)]
@@ -328,10 +354,13 @@ mod tests {
     #[test]
     fn a_listed_format_with_a_listed_photo_size_reaches_the_shell_and_nothing_else_does() {
         let started = Arc::default();
+        let access = Arc::new(Answers::default()).access();
+        let (_, open) = access.hold(Use::Post, |_| Ok(())).unwrap();
         let camera = Camera {
             shell: Box::new(Starting(Arc::clone(&started))),
             formats: vec![vga()],
             simulated: false,
+            _open: open,
         };
         assert!(camera.start(vga(), &photos_at(size(640.0, 480.0))).is_ok());
 
@@ -347,6 +376,32 @@ mod tests {
             started.lock().unwrap().len(),
             1,
             "the mistakes reach no shell"
+        );
+    }
+
+    #[test]
+    fn a_camera_its_answer_does_not_allow_is_told_refused_by_the_camera_question() {
+        let answers = Arc::new(Answers::default());
+        let access = answers.access();
+        let shells = CameraShells {
+            system: None,
+            simulated: None,
+        };
+        let not_asked = decide_open(&access, &shells, "front");
+        assert!(matches!(not_asked, Err(CameraError::NotAllowed)));
+        answers.set_answer(Question::Camera, Answer::Denied);
+        let denied = decide_open(&access, &shells, "front");
+        assert!(matches!(denied, Err(CameraError::NotAllowed)));
+        assert_eq!(access.refusals(), ["camera", "camera"]);
+
+        answers.set_answer(Question::Camera, Answer::Simulated);
+        let (in_use, open) = decide_open(&access, &shells, "front").unwrap();
+        assert!(in_use.simulated);
+        drop(open);
+        assert_eq!(
+            access.told().last(),
+            Some(&Told::Ended),
+            "closed as it is let go"
         );
     }
 }

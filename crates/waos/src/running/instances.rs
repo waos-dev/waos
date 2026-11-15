@@ -4,9 +4,10 @@
 //! main instance alone reaches ([`UserSide`]).
 //!
 //! The invariant: what one instance's store holds of the program's state is the program's own,
-//! shared by every instance (its grants, the files handed to it, its clock, its lifecycle and
-//! stats through `program`), so a worker reaches what its program reaches; and a store made
-//! without the user's side answers each interface of it as a platform without it does.
+//! shared by every instance (its access, through which its grants are read, the files handed to
+//! it, its clock, its lifecycle and stats through `program`), so a worker reaches what its program
+//! reaches; and a store made without the user's side answers each interface of it as a platform
+//! without it does.
 
 use std::sync::Arc;
 
@@ -15,6 +16,7 @@ use wasmtime::Engine;
 use wasmtime::component::{Component, InstancePre};
 
 use super::{IncompatibleProgram, ProgramStart, RunningProgram};
+use crate::access::ProgramAccess;
 use crate::bindings::exports::wasdk::platform::worker_entry;
 use crate::bindings::exports::wasi::cli::run;
 use crate::caption_settings::CaptionSettings;
@@ -24,6 +26,7 @@ use crate::files::HandedFiles;
 use crate::gpu::GpuInstance;
 use crate::menus::MenuPlaces;
 use crate::network::HttpProxy;
+use crate::permissions::NothingGranted;
 use crate::screens::Screens;
 use crate::shell::{
     Prompts, ShellAudioOutputPicker, ShellCameras, ShellCompositor, ShellFileDialogs,
@@ -51,6 +54,9 @@ pub(crate) struct ProgramInstances {
     pub(super) media_assets: Option<Arc<dyn ShellMediaAssets>>,
     pub(super) image_codecs: Option<Arc<dyn ShellImageCodecs>>,
     pub(super) environment: ProgramEnvironment,
+    /// Every guarded use of the program, whichever instance makes it: its grants, or nothing
+    /// granted where its environment gives none.
+    pub(super) access: ProgramAccess,
     pub(super) http_proxy: HttpProxy,
     /// The files the user pastes, picks and opens with the program, mounted for every instance.
     pub(super) handed: HandedFiles,
@@ -88,6 +94,8 @@ impl ProgramInstances {
             machine_picker: start.machine_picker,
             view_layers: start.view_layers,
         };
+        let grants = start.environment.grants.clone();
+        let access = ProgramAccess::new(grants.unwrap_or_else(|| Arc::new(NothingGranted)));
         let instances = ProgramInstances {
             engine: start.engine,
             linked,
@@ -102,6 +110,7 @@ impl ProgramInstances {
             media_assets: start.media_assets,
             image_codecs: start.image_codecs,
             environment: start.environment,
+            access,
             http_proxy: start.http_proxy,
             handed: HandedFiles::default(),
             clock,

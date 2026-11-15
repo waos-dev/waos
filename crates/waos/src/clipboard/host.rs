@@ -179,7 +179,7 @@ fn take_written<T: ClipboardCtxView + 'static>(
     let context = access.get();
     let options = context.table.delete(options)?;
     let may_write = match writer {
-        Writer::Program => context.clipboard.may_write(),
+        Writer::Program => context.clipboard.may_write(&forms_of(&items)),
         Writer::User => true,
     };
     let machine_paths = if may_write {
@@ -216,6 +216,15 @@ fn take_written<T: ClipboardCtxView + 'static>(
         source,
         sources: context.clipboard.sources().clone(),
     }))
+}
+
+/// The forms of `items`, item after item, each in its order.
+fn forms_of(items: &[Vec<(String, Content)>]) -> Vec<&str> {
+    items
+        .iter()
+        .flatten()
+        .map(|(mime, _content)| mime.as_str())
+        .collect()
 }
 
 /// Where on the machine each file of `items` is, in their order; none when one is outside the

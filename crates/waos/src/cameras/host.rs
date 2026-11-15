@@ -17,7 +17,7 @@ use crate::bindings::wasdk::media::cameras::{
     HostCaptureSessionWithStore, Photo, VideoRotationAngles,
 };
 use crate::bindings::wasdk::platform::windows::Size;
-use crate::permissions::{Permission, ProgramPermissions};
+use crate::permissions::ProgramPermissions;
 use crate::running::RunningProgram;
 use crate::stream::stream_of;
 use crate::video_frames::VideoFrameReader;
@@ -52,7 +52,7 @@ impl cameras::Host for CamerasCtx<'_> {
     fn get_cameras(&mut self) -> wasmtime::Result<Option<Resource<Cameras>>> {
         let cameras = self.cameras.shells.clone().map(|shells| Cameras {
             shells,
-            grants: Arc::clone(&self.cameras.grants),
+            access: self.cameras.access.clone(),
         });
         Ok(cameras
             .map(|cameras| self.table.push(cameras))
@@ -95,9 +95,7 @@ impl<T: CamerasCtxView + 'static> HostCamerasWithStore<T> for HasCameras {
     ) -> wasmtime::Result<Result<Resource<Camera>, CameraError>> {
         let opening = accessor.with(|mut access| {
             let context = access.get();
-            let asked = context
-                .permissions
-                .request(Permission::Question(Question::Camera));
+            let asked = context.permissions.answered(Question::Camera);
             let cameras = context.table.get(&cameras)?;
             wasmtime::Result::<_>::Ok(cameras.open(context.program, asked, id))
         })?;

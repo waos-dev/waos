@@ -10,7 +10,6 @@ use std::future::ready;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use waos_capabilities::{Answer, Question};
 use wasmtime::component::{
     Access, Accessor, HasData, Linker, Resource, ResourceTable, StreamReader,
 };
@@ -18,14 +17,15 @@ use wasmtime_wasi::p3::bindings::clocks::system_clock::Instant;
 
 use super::{
     Notification, NotificationAction, NotificationReplies, NotificationScheduling, Notifications,
+    may_post,
 };
+use crate::access::ProgramAccess;
 use crate::bindings::wasdk::platform::menus::Image;
 use crate::bindings::wasdk::platform::notifications::{
     self, Activation, HostNotification, HostNotificationReplies, HostNotificationScheduling,
     HostNotificationSchedulingWithStore, HostNotifications, HostNotificationsWithStore,
     NotificationError,
 };
-use crate::permissions::ProgramPermissions;
 use crate::running::RunningProgram;
 use crate::shell::{NotificationFuture, ShellNotifications};
 use crate::stream::stream_holding;
@@ -36,8 +36,8 @@ pub(crate) struct NotificationsCtx<'a> {
     pub(crate) program: &'a RunningProgram,
     /// The shell's notifications; none where the shell has none.
     pub(crate) notifications: Option<&'a Arc<dyn ShellNotifications>>,
-    /// Whether the program may post, read at each post.
-    pub(crate) permissions: &'a ProgramPermissions,
+    /// Where each post is decided, by the program's notifications question.
+    pub(crate) access: &'a ProgramAccess,
 }
 
 pub(crate) trait NotificationsCtxView: Send {
@@ -57,13 +57,6 @@ pub(crate) fn add_to_linker<T: NotificationsCtxView + 'static>(
 }
 
 impl NotificationsCtx<'_> {
-    /// Whether the program's user allowed it notifications. The system's refusal, which the
-    /// permission reads too, keeps no post from the shell, which answers what the system says of
-    /// it.
-    fn may_post(&self) -> bool {
-        self.permissions.user_answer(Question::Notifications) == Some(Answer::Granted)
-    }
-
     /// What `send` asks of the shell for the program's `notification`, taken out of the table;
     /// `denied`, asking nothing, while the program may not post.
     fn send_unless_denied(
@@ -72,7 +65,7 @@ impl NotificationsCtx<'_> {
         send: impl FnOnce(&RunningProgram, &Notification) -> NotificationFuture,
     ) -> wasmtime::Result<NotificationFuture> {
         let notification = self.table.delete(notification)?;
-        if !self.may_post() {
+        if !may_post(self.access) {
             return Ok(Box::pin(ready(Err(NotificationError::Denied))));
         }
         Ok(send(self.program, &notification))

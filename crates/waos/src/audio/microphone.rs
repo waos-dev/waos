@@ -9,6 +9,7 @@ use waos_capabilities::web_audio_api::media_streams::MediaStream;
 use waos_capabilities::web_audio_api::node::MediaStreamAudioSourceNode;
 
 use super::nodes::{AnyNode, Node};
+use crate::access::Held;
 use crate::lifecycle::Sounding;
 use crate::recordings::Recording;
 
@@ -18,22 +19,26 @@ pub struct Microphone {
     stream: MediaStream,
     _recording: Recording,
     _sounding: Sounding,
+    /// The microphone's use, held until the program lets go of it.
+    _open: Held,
 }
 
 impl Microphone {
     /// `stream`, the microphone open, as `source`, its source on a context, recording as
-    /// `recording` holds, thawed as `sounding` holds.
+    /// `recording` holds, thawed as `sounding` holds, its use held by `open`.
     pub(super) fn new(
         source: MediaStreamAudioSourceNode,
         stream: MediaStream,
         recording: Recording,
         sounding: Sounding,
+        open: Held,
     ) -> Microphone {
         Microphone {
             node: Node::new(source),
             stream,
             _recording: recording,
             _sounding: sounding,
+            _open: open,
         }
     }
 

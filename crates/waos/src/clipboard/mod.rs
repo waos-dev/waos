@@ -2,20 +2,20 @@
 //! ([`PlatformClipboard`]: what is on it, as the shell last listed it, and the shell that writes
 //! it), and as one program reaches it ([`ProgramClipboard`]): what is on it and its changes,
 //! seen only while one of the program's views has the focus, and its reads and writes, as its
-//! switches say at each one. The user's own commands are free of the switches (the clipboard
-//! proposal's decisions 4 to 6): a [`CopyRequest`], the user's copy or cut, writes once whatever
-//! the write switch says, and a [`Paste`], the clipboard as the user pasted it, reads whatever the
-//! read switch says, each file pasted mounted read-only at its own path as its `text/uri-list` is
-//! read. What a program writes is made into what the shell writes in `written`, and what it put on
-//! the clipboard, its `source`, answering the pastes of its promised forms and files while it is
-//! there, is `sources`, each paste's answer `answers`. The interface is served to a program by
-//! [`host`].
+//! switches say at each one, each decided and told through the program's access (`access`). The
+//! user's own commands are free of the switches (the clipboard proposal's decisions 4 to 6): a
+//! [`CopyRequest`], the user's copy or cut, writes once whatever the write switch says, and a
+//! [`Paste`], the clipboard as the user pasted it, reads whatever the read switch says, each file
+//! pasted mounted read-only at its own path as its `text/uri-list` is read. What a program writes
+//! is made into what the shell writes in `written`, and what it put on the clipboard, its
+//! `source`, answering the pastes of its promised forms and files while it is there, is
+//! `sources`, each paste's answer `answers`. The interface is served to a program by [`host`].
 //!
 //! The invariant: the listing changes only by the shell's word, `WaOS::set_clipboard` for another
 //! writer's copy and a write's answer for a program's own, so a change counted after a program's
-//! write is a copy that replaced it; a switch is read at each read and each write, never
-//! copied; and only a paste's items read past the read switch, and only as long as the clipboard
-//! is what the user pasted, since a read of an item listed before a change fails.
+//! write is a copy that replaced it; a switch is read at each read and each write, inside its
+//! decision, never copied; and only a paste's items read past the read switch, and only as long
+//! as the clipboard is what the user pasted, since a read of an item listed before a change fails.
 
 mod answers;
 pub(crate) mod host;
@@ -31,6 +31,7 @@ use futures::stream::{self, BoxStream, StreamExt};
 use tokio::sync::watch;
 use waos_capabilities::ProgramGrants;
 
+use crate::access::{ProgramAccess, Refusal, Use};
 use crate::bindings::wasdk::platform::clipboard::ClipboardError;
 use crate::files::{HandedFiles, machine_paths};
 use crate::shell::{CopiedItem, ShellClipboard, ShellClipboardItem};
@@ -186,7 +187,8 @@ impl PlatformClipboard {
 /// The clipboard as one program reaches it.
 pub(crate) struct ProgramClipboard {
     platform: PlatformClipboard,
-    grants: Arc<dyn ProgramGrants>,
+    /// Where each read and write is decided, by the program's switches.
+    access: ProgramAccess,
     views: ProgramViews,
     sources: ProgramSources,
     /// What the files the user pastes are mounted through.
@@ -194,18 +196,19 @@ pub(crate) struct ProgramClipboard {
 }
 
 impl ProgramClipboard {
-    /// The clipboard of the program whose views are `views`, as `grants` let it read and write,
-    /// its copies kept in `sources`, the files the user pastes into it mounted through `handed`.
+    /// The clipboard of the program whose views are `views`, as its switches in `access` let it
+    /// read and write, its copies kept in `sources`, the files the user pastes into it mounted
+    /// through `handed`.
     pub(crate) fn new(
         platform: PlatformClipboard,
-        grants: Arc<dyn ProgramGrants>,
+        access: ProgramAccess,
         views: ProgramViews,
         sources: ProgramSources,
         handed: HandedFiles,
     ) -> ProgramClipboard {
         ProgramClipboard {
             platform,
-            grants,
+            access,
             views,
             sources,
             handed,
@@ -245,7 +248,18 @@ impl ProgramClipboard {
         item: &ListedItem,
         mime: &str,
     ) -> BoxFuture<'static, Result<Vec<u8>, ClipboardError>> {
-        if !item.pasted && !self.grants.clipboard_read() {
+        let used = Use::ClipboardRead {
+            form: mime,
+            pasted: item.pasted,
+        };
+        let pasted_or_switched_on = |grants: &dyn ProgramGrants| {
+            if item.pasted || grants.clipboard_read() {
+                Ok(())
+            } else {
+                Err(Refusal::by("clipboard-read"))
+            }
+        };
+        if self.access.decide(used, pasted_or_switched_on).is_err() {
             return Box::pin(std::future::ready(Err(ClipboardError::Denied)));
         }
         if item.change != self.platform.change() {
@@ -259,9 +273,18 @@ impl ProgramClipboard {
         Box::pin(async move { Ok(program_uri_list(&read.await?, &handed)) })
     }
 
-    /// Whether the write switch is on.
-    pub(crate) fn may_write(&self) -> bool {
-        self.grants.clipboard_write()
+    /// Whether the program may write `forms` to the clipboard: whether the write switch is on.
+    pub(crate) fn may_write(&self, forms: &[&str]) -> bool {
+        let switched_on = |grants: &dyn ProgramGrants| {
+            if grants.clipboard_write() {
+                Ok(())
+            } else {
+                Err(Refusal::by("clipboard-write"))
+            }
+        };
+        self.access
+            .decide(Use::ClipboardWrite { forms }, switched_on)
+            .is_ok()
     }
 
     pub(crate) fn sources(&self) -> &ProgramSources {

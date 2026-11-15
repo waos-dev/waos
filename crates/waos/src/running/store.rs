@@ -253,38 +253,37 @@ fn store_data(
         .instances(INSTANCE_LIMIT)
         .memories(MEMORY_COUNT_LIMIT)
         .build();
+    let access = &instances.access;
+    // TODO: the files and the network read the grants themselves until their checks move onto
+    // the access (step 2 of the inspector proposal); `grants` goes with them.
     let grants = environment
         .grants
         .clone()
         .unwrap_or_else(|| Arc::new(NothingGranted));
     let handed = instances.handed.clone();
-    let picks = Picks::new(handed.clone(), Arc::clone(&grants));
-    let files = ProgramFiles::new(
-        environment.folders.as_ref(),
-        Arc::clone(&grants),
-        handed.clone(),
-    );
-    let network = ProgramNetwork::new(Arc::clone(&grants));
+    let picks = Picks::new(handed.clone(), access.clone());
+    let files = ProgramFiles::new(environment.folders.as_ref(), grants.clone(), handed.clone());
+    let network = ProgramNetwork::new(grants);
     let clipboard = ProgramClipboard::new(
         user_side.clipboard,
-        Arc::clone(&grants),
+        access.clone(),
         program.program_views().clone(),
         program.sources().clone(),
         handed,
     );
     let links = LinkSchemes::new(
-        Arc::clone(&grants),
+        access.clone(),
         Arc::clone(&instances.prompts),
         program.clone(),
     );
     let machines = ProgramMachines::new(
         environment.machines.clone(),
-        Arc::clone(&grants),
+        access.clone(),
         user_side.machine_picker,
         program.clone(),
     );
     let permissions = ProgramPermissions::new(
-        Arc::clone(&grants),
+        access.clone(),
         Arc::clone(&instances.prompts),
         user_side.notifications.clone(),
         program.clone(),
@@ -299,7 +298,7 @@ fn store_data(
     let audio = ProgramAudio::new(
         user_side.audio,
         user_side.audio_output_picker,
-        Arc::clone(&grants),
+        access.clone(),
         MicrophoneRecordings {
             machine: recordings(RecordingDevice::Microphone),
             simulated: recordings(RecordingDevice::SimulatedMicrophone),
@@ -311,7 +310,7 @@ fn store_data(
             system: user_side.cameras,
             simulated: user_side.simulated_cameras,
         },
-        grants,
+        access.clone(),
         SessionRecordings {
             machine: recordings(RecordingDevice::Camera),
             simulated: recordings(RecordingDevice::SimulatedCamera),
@@ -453,10 +452,9 @@ pub(crate) struct StoreData {
     machines: ProgramMachines,
     /// What every instance of the program is made from, which holds its capabilities for the
     /// run: each is already where it is served from, its output in `wasi`, its fonts in `fonts`,
-    /// its folders in `files`, its grants in `files`, `network`, `permissions`, `clipboard`,
-    /// `links` and `machines`, its sound devices in `audio`, its machines' providers in
-    /// `machines`.
-    /// A new worker is made from it too.
+    /// its folders in `files`, its grants in `files` and `network` and, for every other
+    /// capability, its access, here, its sound devices in `audio`, its machines' providers in
+    /// `machines`. A new worker is made from it too.
     instances: Arc<ProgramInstances>,
 }
 
@@ -648,7 +646,7 @@ impl NotificationsCtxView for StoreData {
             table: &mut self.table,
             program: &self.program,
             notifications: self.notifications.as_ref(),
-            permissions: &self.permissions,
+            access: &self.instances.access,
         }
     }
 }

@@ -3,9 +3,9 @@
 //!
 //! The shell opens ([`ShellOpener`]); the engine keeps the rules: which links a program may open
 //! ([`LinkSchemes`]: `http`, `https` and `mailto` freely, any other scheme as its user answered,
-//! asked once per scheme through the shell's prompts and kept among its grants), and where on the
-//! machine a file the program names is, through its mounts. The interface is served to a program
-//! by `host`.
+//! asked once per scheme through the shell's prompts and kept among its grants, each link decided
+//! and told through the program's access, `access`), and where on the machine a file the program
+//! names is, through its mounts. The interface is served to a program by `host`.
 //!
 //! The invariant: nothing the rules refuse reaches the shell, neither a link of a scheme the user
 //! did not allow nor a path outside the program's files.
@@ -19,6 +19,7 @@ use futures::FutureExt;
 use futures::future::BoxFuture;
 use waos_capabilities::{Answer, ProgramGrants};
 
+use crate::access::{ProgramAccess, Prompt, Refusal, Use};
 use crate::asking::Asking;
 use crate::running::RunningProgram;
 use crate::shell::{Prompts, ShellOpener};
@@ -33,7 +34,8 @@ pub struct Opener(Arc<dyn ShellOpener>);
 /// Which schemes of links a program may open: the free ones, and any other its user allowed,
 /// asked once per scheme.
 pub(crate) struct LinkSchemes {
-    grants: Arc<dyn ProgramGrants>,
+    /// Where each link is decided, by the answers kept among the program's grants.
+    access: ProgramAccess,
     prompts: Arc<dyn Prompts>,
     program: RunningProgram,
     /// The schemes being asked about now, each once however often the program opens one.
@@ -41,44 +43,66 @@ pub(crate) struct LinkSchemes {
 }
 
 impl LinkSchemes {
-    /// `program`'s link schemes, as `grants` keep the user's answers and `prompts` ask the user.
+    /// `program`'s link schemes, as the grants `access` reads keep the user's answers and
+    /// `prompts` ask the user.
     pub(crate) fn new(
-        grants: Arc<dyn ProgramGrants>,
+        access: ProgramAccess,
         prompts: Arc<dyn Prompts>,
         program: RunningProgram,
     ) -> LinkSchemes {
         LinkSchemes {
-            grants,
+            access,
             prompts,
             program,
             asking: Asking::default(),
         }
     }
 
-    /// Resolves to whether the program may open links of `scheme`, in lower case: at once for a
+    /// Resolves to whether the program may open `link`, of `scheme`, in lower case: at once for a
     /// free scheme or one its user answered; for any other once the user answers, the answer
     /// kept. Nobody answering refuses it, and leaves it to be asked again.
-    pub(crate) fn allow(&self, scheme: &str) -> BoxFuture<'static, bool> {
-        if FREE_SCHEMES.contains(&scheme) {
-            return ready(true).boxed();
-        }
-        match self.grants.link_scheme_answer(scheme) {
-            Some(answer) => ready(answer == Answer::Granted).boxed(),
-            None => self.ask(scheme).boxed(),
-        }
+    pub(crate) fn allow(&self, link: &str, scheme: &str) -> BoxFuture<'static, bool> {
+        let answered = FREE_SCHEMES.contains(&scheme)
+            || self.access.grants().link_scheme_answer(scheme).is_some();
+        let asked: BoxFuture<'static, Option<Answer>> = if answered {
+            ready(None).boxed()
+        } else {
+            self.ask(scheme).boxed()
+        };
+        let (access, link, scheme) = (self.access.clone(), link.to_owned(), scheme.to_owned());
+        async move { decide_link(&access, &link, &scheme, asked.await) }.boxed()
     }
 
-    /// Asks the user about `scheme`, unless it is being asked already, and resolves to whether
-    /// the answer allows it, kept through the grants once it comes.
-    fn ask(&self, scheme: &str) -> impl Future<Output = bool> + Send + 'static {
-        let (grants, kept) = (Arc::clone(&self.grants), scheme.to_owned());
-        let asked = self.asking.ask(
-            scheme.to_owned(),
-            || self.prompts.ask_to_open_links(&self.program, scheme),
-            move |answer| grants.set_link_scheme_answer(&kept, answer),
-        );
-        asked.map(|answer| answer == Some(Answer::Granted))
+    /// Asks the user about `scheme`, unless it is being asked already, and resolves to the answer,
+    /// kept through the grants once it comes.
+    fn ask(&self, scheme: &str) -> impl Future<Output = Option<Answer>> + Send + 'static {
+        let (access, kept) = (self.access.clone(), scheme.to_owned());
+        let prompt = || {
+            let asked = self.prompts.ask_to_open_links(&self.program, scheme);
+            self.access
+                .put(Prompt::LinkScheme(scheme.to_owned()), asked)
+        };
+        self.asking.ask(scheme.to_owned(), prompt, move |answer| {
+            access.grants().set_link_scheme_answer(&kept, answer)
+        })
     }
+}
+
+/// Whether the program `access` is of may open `link`, of `scheme`: a free scheme freely, any
+/// other as its user answered, the answer kept or else `asked`, the one just given.
+fn decide_link(access: &ProgramAccess, link: &str, scheme: &str, asked: Option<Answer>) -> bool {
+    let free_or_allowed = |grants: &dyn ProgramGrants| {
+        let allowed = FREE_SCHEMES.contains(&scheme)
+            || grants.link_scheme_answer(scheme).or(asked) == Some(Answer::Granted);
+        if allowed {
+            Ok(())
+        } else {
+            Err(Refusal::by("link-scheme"))
+        }
+    };
+    access
+        .decide(Use::OpenLink { link }, free_or_allowed)
+        .is_ok()
 }
 
 /// The scheme of `link`, in lower case, as RFC 3986 spells one before the first `:`: a letter,
@@ -110,5 +134,22 @@ mod tests {
         for text in ["no scheme", "", ":empty", "2fa:code", "a b:c", "/a/path"] {
             assert_eq!(scheme_of(text), None, "{text:?}");
         }
+    }
+
+    #[test]
+    fn a_link_of_a_scheme_nobody_allowed_is_told_refused_by_its_row() {
+        let answers = Arc::new(crate::access::Answers::default());
+        let access = answers.access();
+        assert!(decide_link(&access, "https://example.com/", "https", None));
+        assert!(!decide_link(&access, "zoommtg://join", "zoommtg", None));
+        assert!(decide_link(
+            &access,
+            "zoommtg://join",
+            "zoommtg",
+            Some(Answer::Granted)
+        ));
+        answers.set_link_scheme_answer("zoommtg", Answer::Denied);
+        assert!(!decide_link(&access, "zoommtg://join", "zoommtg", None));
+        assert_eq!(access.refusals(), ["link-scheme", "link-scheme"]);
     }
 }

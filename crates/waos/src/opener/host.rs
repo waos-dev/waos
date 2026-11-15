@@ -63,7 +63,7 @@ impl<T: OpenerCtxView + 'static> HostOpenerWithStore<T> for HasOpener {
         let Some(scheme) = scheme_of(&link) else {
             return Ok(Err(OpenError::Failed(format!("{link:?} is not a link"))));
         };
-        let allowed = accessor.with(|mut access| access.get().links.allow(&scheme));
+        let allowed = accessor.with(|mut access| access.get().links.allow(&link, &scheme));
         if !allowed.await {
             return Ok(Err(OpenError::Denied));
         }

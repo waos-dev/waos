@@ -1,8 +1,9 @@
 //! `wasdk:platform/permissions`: what the user lets a program use of what is guarded, read live
 //! from the program's grants at each call, and asked of the user through the shell's
 //! [`Prompts`]: a question is put once, its answer kept through the grants, and a switch's page
-//! opened in the user's settings. Where the system keeps a permission of its own for each program,
-//! as macOS does for each program's app, it may refuse the program its notifications too
+//! opened in the user's settings, each told through the program's access (`access`). Where the
+//! system keeps a permission of its own for each program, as macOS does for each program's app, it
+//! may refuse the program its notifications too
 //! (`SystemRefusal`): a request for notifications the user allowed puts the system's question after
 //! WaOS's, through the shell's [`ShellSystemPermission`](crate::shell::ShellSystemPermission),
 //! and the shell reports what else it learns of it; the permission then reads denied where the
@@ -25,6 +26,7 @@ use waos_capabilities::{
     Answer, ChangedFuture, FileSystemGrant, NetworkGrant, ProgramGrants, Question, Switch,
 };
 
+use crate::access::{Happened, ProgramAccess, Prompt};
 use crate::asking::{Asked, Asking};
 use crate::bindings::wasdk::platform::permissions::State;
 use crate::running::RunningProgram;
@@ -52,17 +54,18 @@ pub(crate) struct ProgramPermissions {
 }
 
 impl ProgramPermissions {
-    /// `program`'s permissions, from `grants` and what the system says of its notifications,
-    /// asked of its user through `prompts` and of the system through `notifications`.
+    /// `program`'s permissions, from the grants `access` reads and what the system says of its
+    /// notifications, asked of its user through `prompts` and of the system through
+    /// `notifications`.
     pub(crate) fn new(
-        grants: Arc<dyn ProgramGrants>,
+        access: ProgramAccess,
         prompts: Arc<dyn Prompts>,
         notifications: Option<Arc<dyn ShellNotifications>>,
         program: RunningProgram,
     ) -> ProgramPermissions {
         ProgramPermissions {
             decisions: Decisions {
-                grants,
+                access,
                 notifications_refused: program.notifications_refused().clone(),
             },
             prompts,
@@ -78,8 +81,8 @@ impl ProgramPermissions {
     }
 
     /// What the program's user answered `question`, whatever the system says; none to ask.
-    pub(crate) fn user_answer(&self, question: Question) -> Option<Answer> {
-        self.decisions.grants.answer(question)
+    fn user_answer(&self, question: Question) -> Option<Answer> {
+        self.decisions.access.grants().answer(question)
     }
 
     /// Asks the user for `permission`, and resolves to where it stands once the user is done:
@@ -93,8 +96,8 @@ impl ProgramPermissions {
     ) -> impl Future<Output = State> + Send + 'static + use<> {
         let decisions = self.decisions.clone();
         let asked: BoxFuture<'static, ()> = match permission {
-            Permission::Switch(switch) => self.prompts.open_settings(&self.program, switch).boxed(),
-            Permission::Question(question) => self.answer(question),
+            Permission::Switch(switch) => self.open_settings(switch),
+            Permission::Question(question) => self.answered(question),
         };
         async move {
             asked.await;
@@ -112,10 +115,17 @@ impl ProgramPermissions {
         stream::unfold(watch, Watch::next_change).boxed()
     }
 
+    /// Opens `switch`'s page in the user's settings, and resolves once the user leaves it.
+    fn open_settings(&self, switch: Switch) -> BoxFuture<'static, ()> {
+        self.decisions.access.tell(Happened::SettingsOpened(switch));
+        self.prompts.open_settings(&self.program, switch).boxed()
+    }
+
     /// Resolves once `question` is answered: by the user, put to them unless they answered it
     /// before, and for notifications they allowed, by the system too, where it keeps a permission
     /// of its own for the program; the system is not asked where the user did not allow them.
-    fn answer(&self, question: Question) -> BoxFuture<'static, ()> {
+    /// Where the question stands then is read from the grants, by [`state_of`].
+    pub(crate) fn answered(&self, question: Question) -> BoxFuture<'static, ()> {
         let answered = self.user_answered(question);
         let system = match question {
             Question::Notifications => self.system_question(),
@@ -155,11 +165,17 @@ impl ProgramPermissions {
     /// Puts `question` to the user, unless it is being put already, and resolves to the answer,
     /// kept through the grants once it comes.
     fn ask(&self, question: Question) -> Asked {
-        let grants = Arc::clone(&self.decisions.grants);
+        let access = &self.decisions.access;
+        let kept = access.clone();
         self.asking.ask(
             question,
-            || self.prompts.ask(&self.program, question),
-            move |answer| grants.set_answer(question, answer),
+            || {
+                access.put(
+                    Prompt::Question(question),
+                    self.prompts.ask(&self.program, question),
+                )
+            },
+            move |answer| kept.grants().set_answer(question, answer),
         )
     }
 }
@@ -191,7 +207,8 @@ impl SystemQuestion {
 /// for its notifications the system too, which may refuse them whatever the user granted.
 #[derive(Clone)]
 struct Decisions {
-    grants: Arc<dyn ProgramGrants>,
+    /// Where the grants are read: a permission's state is no use of what it guards.
+    access: ProgramAccess,
     notifications_refused: SystemRefusal,
 }
 
@@ -199,7 +216,7 @@ impl Decisions {
     /// Where `permission` stands now: as the user set it, but denied where the user granted it and
     /// the system refuses it.
     fn state(&self, permission: Permission) -> State {
-        let state = state_of(self.grants.as_ref(), permission);
+        let state = state_of(self.access.grants(), permission);
         if state == State::Granted && self.refused_by_system(permission) {
             State::Denied
         } else {
@@ -214,14 +231,14 @@ impl Decisions {
 
     /// Resolves at the next change the user or the system makes from now on.
     fn changed(&self) -> impl Future<Output = ()> + Send + 'static + use<> {
-        let granted = self.grants.changed();
+        let granted = self.access.grants().changed();
         let refused = Box::pin(self.notifications_refused.changed());
         future::select(granted, refused).map(drop)
     }
 }
 
 /// Where `permission` stands by `grants`: a switch on or off, a question answered or not.
-fn state_of(grants: &dyn ProgramGrants, permission: Permission) -> State {
+pub(crate) fn state_of(grants: &dyn ProgramGrants, permission: Permission) -> State {
     let granted = match permission {
         Permission::Switch(Switch::Network) => grants.network().on,
         Permission::Switch(Switch::LocalNetwork) => grants.local_network(),
@@ -359,7 +376,7 @@ mod tests {
 
     fn decisions() -> Decisions {
         Decisions {
-            grants: Arc::new(NotificationsAllowed),
+            access: ProgramAccess::new(Arc::new(NotificationsAllowed)),
             notifications_refused: SystemRefusal::default(),
         }
     }
@@ -378,7 +395,7 @@ mod tests {
             "the system refuses the program nothing else"
         );
         assert_eq!(
-            decisions.grants.answer(Question::Notifications),
+            decisions.access.grants().answer(Question::Notifications),
             Some(Answer::Granted),
             "the user's answer is kept"
         );

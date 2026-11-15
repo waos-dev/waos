@@ -129,15 +129,20 @@ impl<T: MachinesCtxView + 'static> HostMachineWithStore<T> for HasMachines {
             let context = access.get();
             let machine = Arc::clone(context.table.get(&machine)?);
             let command = as_the_machine_takes(&machine, context.table.get(&command)?.clone());
-            Ok(machine.exec(command))
+            let run = context.machines.hold_run(&machine, &command, false);
+            Ok(run.map(|run| (machine.exec(command), run)))
         })?;
+        let (starting, run) = match starting {
+            Ok(held) => held,
+            Err(refused) => return Ok(Err(error_of(refused))),
+        };
         let started = match starting.await {
             Ok(started) => started,
             Err(error) => return Ok(Err(error_of(error))),
         };
         accessor.with(|mut access| {
             let table = &mut *access.get().table;
-            let child = table.push(started.child)?;
+            let child = table.push(Child::new(started.child, run))?;
             let pipes = table.push(Pipes::new(started.input, started.output, started.errors))?;
             Ok(Ok((child, pipes)))
         })
@@ -153,15 +158,20 @@ impl<T: MachinesCtxView + 'static> HostMachineWithStore<T> for HasMachines {
             let context = access.get();
             let machine = Arc::clone(context.table.get(&machine)?);
             let command = as_the_machine_takes(&machine, context.table.get(&command)?.clone());
-            Ok(machine.exec_in_terminal(command, size_of(size)))
+            let run = context.machines.hold_run(&machine, &command, true);
+            Ok(run.map(|run| (machine.exec_in_terminal(command, size_of(size)), run)))
         })?;
+        let (starting, run) = match starting {
+            Ok(held) => held,
+            Err(refused) => return Ok(Err(error_of(refused))),
+        };
         let started = match starting.await {
             Ok(started) => started,
             Err(error) => return Ok(Err(error_of(error))),
         };
         accessor.with(|mut access| {
             let table = &mut *access.get().table;
-            let child = table.push(started.child)?;
+            let child = table.push(Child::new(started.child, run))?;
             let terminal = table.push(Terminal::new(started.terminal, started.output))?;
             Ok(Ok((child, terminal)))
         })
@@ -211,7 +221,7 @@ impl HostCommand for MachinesCtx<'_> {
 
 impl HostChild for MachinesCtx<'_> {
     fn signal(&mut self, child: Resource<Child>, signal: Signal) -> wasmtime::Result<()> {
-        self.table.get(&child)?.signal(signal_of(signal));
+        self.table.get(&child)?.started().signal(signal_of(signal));
         Ok(())
     }
 
@@ -227,7 +237,7 @@ impl<T: MachinesCtxView + 'static> HostChildWithStore<T> for HasMachines {
         child: Resource<Child>,
     ) -> wasmtime::Result<ExitStatus> {
         let ending = accessor.with(|mut access| -> wasmtime::Result<_> {
-            Ok(access.get().table.get(&child)?.exit_status())
+            Ok(access.get().table.get(&child)?.started().exit_status())
         })?;
         Ok(exit_status_of(ending.await))
     }

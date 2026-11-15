@@ -4,8 +4,10 @@
 //!
 //! The engine keeps which machines the program holds: those its user picked for it, kept among
 //! its grants by their ids and read at each `granted`; a machine handed to the program, granted or
-//! picked, stays its until it ends, as an open file does. A pick is asked of the user through the shell's
-//! [`ShellMachinePicker`], which shows what the providers offer, unless the user set the machine
+//! picked, stays its until it ends, as an open file does, so a command run on it is told through
+//! the program's access (`access`) and held while the program holds it, but never refused. A pick
+//! is asked of the user through the shell's [`ShellMachinePicker`], which shows what the providers
+//! offer, unless the user set the machine
 //! the picker answers among the program's settings: then that machine is the pick, and nothing is
 //! shown; one no provider offers now is no pick, as a cancel is, never another. The program never
 //! sees the machines it was not given. The interface is served to a program by `host`.
@@ -22,9 +24,10 @@ use futures::FutureExt;
 use futures::future::BoxFuture;
 use futures::stream::BoxStream;
 use waos_capabilities::{
-    ChildInput, Machine as ProvidedMachine, MachineChoice, Machines as Provider, ProgramGrants,
+    ChildInput, Command, ExecError, Machine as ProvidedMachine, MachineChoice, Machines as Provider,
 };
 
+use crate::access::{Happened, Held, ProgramAccess, Use};
 use crate::running::RunningProgram;
 use crate::shell::ShellMachinePicker;
 
@@ -34,8 +37,12 @@ pub struct Machines;
 /// `machines.machine`: one machine the program holds.
 pub type Machine = Arc<dyn ProvidedMachine>;
 
-/// `machines.child`: a command the program started on a machine.
-pub type Child = Box<dyn waos_capabilities::Child>;
+/// `machines.child`: a command the program started on a machine, and its run, held while the
+/// program holds it.
+pub struct Child {
+    started: Box<dyn waos_capabilities::Child>,
+    _run: Held,
+}
 
 /// `machines.pipes`: a command's input, and its output and errors until the program takes them.
 pub struct Pipes {
@@ -54,22 +61,24 @@ pub struct Terminal {
 /// picked for it, and the shell's picker.
 pub(crate) struct ProgramMachines {
     providers: Vec<Arc<dyn Provider>>,
-    grants: Arc<dyn ProgramGrants>,
+    /// Where the machines the user picked are kept, and each run told.
+    access: ProgramAccess,
     picker: Option<Arc<dyn ShellMachinePicker>>,
     program: RunningProgram,
 }
 
 impl ProgramMachines {
-    /// `program`'s machines, from `providers`, as `grants` keep them and `picker` asks the user.
+    /// `program`'s machines, from `providers`, as the grants `access` reads keep them and `picker`
+    /// asks the user.
     pub(crate) fn new(
         providers: Vec<Arc<dyn Provider>>,
-        grants: Arc<dyn ProgramGrants>,
+        access: ProgramAccess,
         picker: Option<Arc<dyn ShellMachinePicker>>,
         program: RunningProgram,
     ) -> ProgramMachines {
         ProgramMachines {
             providers,
-            grants,
+            access,
             picker,
             program,
         }
@@ -84,7 +93,8 @@ impl ProgramMachines {
     /// provider still offers.
     pub(crate) fn granted(&self) -> Vec<Machine> {
         let providers = self.providers.clone();
-        self.grants
+        self.access
+            .grants()
             .machines()
             .iter()
             .filter_map(|id| machine_of(&providers, id))
@@ -96,12 +106,12 @@ impl ProgramMachines {
     /// user cancels, nobody can ask, or no provider offers the one set.
     pub(crate) fn pick(&self) -> impl Future<Output = Option<Machine>> + Send + 'static + use<> {
         let picked: BoxFuture<'static, Option<String>> =
-            match (self.grants.machine_answer(), &self.picker) {
+            match (self.access.grants().machine_answer(), &self.picker) {
                 (Some(set), _) => ready(Some(set)).boxed(),
                 (None, Some(picker)) => picker.pick(&self.program, self.offered()),
                 (None, None) => ready(None).boxed(),
             };
-        let (providers, grants) = (self.providers.clone(), Arc::clone(&self.grants));
+        let (providers, access) = (self.providers.clone(), self.access.clone());
         let program = self.program.name().to_owned();
         async move {
             let id = picked.await?;
@@ -113,9 +123,21 @@ impl ProgramMachines {
                 );
                 return None;
             };
-            grants.keep_machine(&id);
+            access.tell(Happened::MachinePicked { machine: &id });
+            access.grants().keep_machine(&id);
             Some(machine)
         }
+    }
+
+    /// The run of `command` on `machine`, in a terminal where `in_terminal`, told and held from
+    /// now on, for the [`Child`] it starts to hold.
+    pub(crate) fn hold_run(
+        &self,
+        machine: &Machine,
+        command: &Command,
+        in_terminal: bool,
+    ) -> Result<Held, ExecError> {
+        hold_run(&self.access, &machine.name(), command, in_terminal)
     }
 
     /// What every provider offers, in the providers' order.
@@ -124,6 +146,38 @@ impl ProgramMachines {
             .iter()
             .flat_map(|provider| provider.offered())
             .collect()
+    }
+}
+
+/// The run of `command` on the machine named `machine`, held: a machine handed to the program is
+/// its whole, so no grant refuses what it runs.
+fn hold_run(
+    access: &ProgramAccess,
+    machine: &str,
+    command: &Command,
+    in_terminal: bool,
+) -> Result<Held, ExecError> {
+    let used = Use::Run {
+        machine,
+        command,
+        in_terminal,
+    };
+    match access.hold(used, |_grants| Ok(())) {
+        Ok(((), run)) => Ok(run),
+        Err(refusal) => Err(ExecError::Refused(format!(
+            "refused by the program's setting {}",
+            refusal.setting
+        ))),
+    }
+}
+
+impl Child {
+    pub(crate) fn new(started: Box<dyn waos_capabilities::Child>, run: Held) -> Child {
+        Child { started, _run: run }
+    }
+
+    pub(crate) fn started(&self) -> &dyn waos_capabilities::Child {
+        self.started.as_ref()
     }
 }
 
@@ -155,5 +209,25 @@ impl Terminal {
             terminal,
             output: Some(output),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::access::Told;
+    use crate::permissions::NothingGranted;
+
+    #[test]
+    fn a_run_is_told_allowed_whatever_is_granted_and_ends_as_its_hold_is_let_go() {
+        let access = ProgramAccess::new(Arc::new(NothingGranted));
+        let run = hold_run(&access, "This Mac", &Command::new("git"), false).unwrap();
+        assert!(
+            access.refusals().is_empty(),
+            "a machine given is given whole"
+        );
+        assert!(matches!(access.told()[..], [Told::Allowed(_)]));
+        drop(run);
+        assert_eq!(access.told().last(), Some(&Told::Ended));
     }
 }
