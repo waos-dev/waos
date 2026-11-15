@@ -115,7 +115,14 @@ impl TextInputBridge {
         let start = old.start;
         let old_text = utf16(&old.value.text);
         let new_text = utf16(&value.text);
-        let (prefix, old_end, new_end) = changed_span(&old_text, &new_text);
+        let caret = old
+            .value
+            .selection
+            .as_ref()
+            .map_or(old_text.len(), |selection| {
+                selection.base_offset.min(selection.extent_offset) as usize
+            });
+        let (prefix, old_end, new_end) = changed_span(&old_text, &new_text, caret);
         let replaced = start + prefix..start + old_end;
         let inserted = String::from_utf16_lossy(&new_text[prefix..new_end]);
         match (&old.value.composing, &value.composing) {
@@ -228,13 +235,16 @@ fn utf16(text: &str) -> Vec<u16> {
 }
 
 /// Where `new` differs from `old`: the length of their common start, and where the changed span
-/// ends in each.
-fn changed_span(old: &[u16], new: &[u16]) -> (usize, usize, usize) {
+/// ends in each. The common start goes no further than `caret`, the start of the selection the
+/// input method edited at: typing "//" before "//!" is an insertion at the caret, not after the
+/// two slashes the texts happen to share, and GPUI's editors insert an empty range at the caret.
+fn changed_span(old: &[u16], new: &[u16], caret: usize) -> (usize, usize, usize) {
     let prefix = old
         .iter()
         .zip(new)
         .take_while(|(old, new)| old == new)
-        .count();
+        .count()
+        .min(caret);
     let suffix = old[prefix..]
         .iter()
         .rev()
