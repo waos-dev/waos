@@ -45,6 +45,12 @@ pub(crate) fn open_fast(
 /// unavailable, mark it so for future calls. If `openat2` is unavailable
 /// either permanently or temporarily, return `ENOSYS`.
 fn open_beneath(start: &fs::File, path: &Path, options: &OpenOptions) -> io::Result<fs::File> {
+    // Android's seccomp policy ends an app that calls `openat2` instead of answering `ENOSYS`, so
+    // there it is never called: every caller then walks the path, as cap-primitives does, which
+    // compiles `openat2` for Linux alone.
+    if cfg!(target_os = "android") {
+        return Err(rustix::io::Errno::NOSYS.into());
+    }
     static INVALID: AtomicBool = AtomicBool::new(false);
     if INVALID.load(Relaxed) {
         // `openat2` is permanently unavailable.
