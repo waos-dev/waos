@@ -3,8 +3,9 @@
 //! the machine runs and its user's login shell; then, on the machine, it runs `/bin/echo` with pipes and says what it printed and how it ended; makes a
 //! file in a new folder with a command, with a symlink to it holding its absolute path, and reads it
 //! back from the machine's root by its absolute path, through the symlink, and from above `/`; runs `/bin/sh` in a terminal, types a sum and reads the answer, resizes the terminal and
-//! reads its new size with `stty`, and types `exit 4`; and starts `/bin/sleep` twice, ends one
-//! with `terminate` and the other with `interrupt`, and says how each ended.
+//! reads its new size with `stty`, and types `exit 4`; starts `/bin/sleep` twice, ends one
+//! with `terminate` and the other with `interrupt`, and says how each ended; and starts it once
+//! more with pipes and once in a terminal, and ends while both run, which ends them.
 //!
 //! It prints each step as `what: result`, and `done` at the end.
 //!
@@ -48,6 +49,7 @@ async fn main() {
     read_from_the_root(&machine).await;
     type_in_a_terminal(&machine).await;
     end_with_a_signal(&machine).await;
+    let _running = leave_running(&machine).await;
     println!("done");
 }
 
@@ -164,6 +166,29 @@ async fn end_with_a_signal(machine: &Machine) {
         child.signal(signal);
         println!("{how}: {}", ended(child.exit_status().await));
     }
+}
+
+/// Starts `/bin/sleep 6011` with pipes and `/bin/sleep 6012` in a terminal, and answers them,
+/// running, with the terminal, for the program to hold as it ends.
+async fn leave_running(
+    machine: &Machine,
+) -> (machines::Child, machines::Child, machines::Terminal) {
+    let (piped, _pipes) = machine
+        .exec(&command("/bin/sleep", &["6011"]))
+        .await
+        .expect("sleep runs");
+    let size = TerminalSize {
+        columns: 80,
+        rows: 24,
+        width_in_pixels: 0,
+        height_in_pixels: 0,
+    };
+    let (in_terminal, terminal) = machine
+        .exec_in_terminal(&command("/bin/sleep", &["6012"]), size)
+        .await
+        .expect("sleep runs in a terminal");
+    println!("left running: sleep 6011, sleep 6012");
+    (piped, in_terminal, terminal)
 }
 
 /// What `command` prints, once it has ended.

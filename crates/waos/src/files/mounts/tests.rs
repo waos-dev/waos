@@ -427,14 +427,25 @@ fn a_path_inside_a_mount_is_found_on_the_machine_and_one_leading_out_is_not() {
     let table = machine.table(&[("docs", "/mnt/docs")]);
     let note = fs::canonicalize(machine.folder("docs").join("note.txt")).unwrap();
     assert_eq!(
-        table.machine_path(Path::new("/mnt/docs/note.txt")),
+        table.machine_path(Path::new("/mnt/docs/note.txt")).ok(),
         Some(note)
     );
-    assert_eq!(table.machine_path(Path::new("/mnt/docs/missing.txt")), None);
-    assert_eq!(table.machine_path(Path::new("/mnt/docs/link-out")), None);
     assert_eq!(
-        table.machine_path(Path::new("/mnt/docs/../docs/note.txt")),
+        table.machine_path(Path::new("/mnt/docs/missing.txt")).ok(),
         None
     );
-    assert_eq!(table.machine_path(Path::new("/elsewhere/secret.txt")), None);
+    assert_eq!(
+        table.machine_path(Path::new("/mnt/docs/link-out")).ok(),
+        None
+    );
+    assert_eq!(
+        table
+            .machine_path(Path::new("/mnt/docs/../docs/note.txt"))
+            .ok(),
+        None
+    );
+    assert_eq!(
+        table.machine_path(Path::new("/elsewhere/secret.txt")).ok(),
+        None
+    );
 }

@@ -22,6 +22,7 @@ use std::sync::Arc;
 
 use wasmtime::bail;
 
+use crate::access::Cause;
 use crate::bindings::wasdk::media::image_codecs::{ImageFrame, ImageMetadata, ImageOrientation};
 use crate::bindings::wasdk::platform::hardware_buffers::{ImageError, ImageErrorKind, PixelBuffer};
 use crate::bindings::wasdk::platform::windows::Size;
@@ -76,7 +77,7 @@ impl ImageCodecs {
         files: &mut ProgramFiles,
         path: &str,
     ) -> ImageFuture<ImageSource> {
-        match files.machine_path(Path::new(path)) {
+        match files.machine_path(Path::new(path), Cause::ImageCodecs) {
             Some(machine_path) => opened(self.0.open_file(program, &machine_path)),
             None => Box::pin(std::future::ready(Err(ImageError {
                 kind: ImageErrorKind::NotFound,

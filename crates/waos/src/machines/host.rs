@@ -118,7 +118,7 @@ impl HostMachine for MachinesCtx<'_> {
     /// A root that cannot be opened traps: the machine's own root is always there.
     fn root(&mut self, machine: Resource<Machine>) -> wasmtime::Result<Resource<Descriptor>> {
         let MachineFiles::Local(folder) = self.table.get(&machine)?.files();
-        let root = folder_of_machine(&folder)
+        let root = folder_of_machine(&folder, self.machines.access())
             .map_err(|error| wasmtime::format_err!("the machine's root {folder:?}: {error}"))?;
         Ok(self.table.push(root)?)
     }
@@ -152,8 +152,9 @@ impl<T: MachinesCtxView + 'static> HostMachineWithStore<T> for HasMachines {
         };
         accessor.with(|mut access| {
             let table = &mut *access.get().table;
-            run.started(started.child.as_ref());
-            let child = table.push(started.child)?;
+            let child: Child = Arc::from(started.child);
+            run.started(&child);
+            let child = table.push(child)?;
             let pipes = table.push(Pipes::new(started.input, started.output, started.errors))?;
             Ok(Ok((child, pipes)))
         })
@@ -182,8 +183,9 @@ impl<T: MachinesCtxView + 'static> HostMachineWithStore<T> for HasMachines {
         };
         accessor.with(|mut access| {
             let table = &mut *access.get().table;
-            run.started(started.child.as_ref());
-            let child = table.push(started.child)?;
+            let child: Child = Arc::from(started.child);
+            run.started(&child);
+            let child = table.push(child)?;
             let terminal = table.push(Terminal::new(started.terminal, started.output))?;
             Ok(Ok((child, terminal)))
         })

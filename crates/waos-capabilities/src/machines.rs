@@ -178,10 +178,17 @@ pub struct InTerminal {
     pub output: BoxStream<'static, Vec<u8>>,
 }
 
-/// A started command. Dropping it leaves the command running.
+/// A started command. Dropping it leaves the command running, until [`end`](Child::end) is
+/// called, as the end of the program that started it calls it.
 pub trait Child: Send + Sync {
     /// Sends `signal` to the command's process group, where the machine takes signals.
     fn signal(&self, signal: Signal);
+
+    /// Ends the command, everything it started with it, as the end of the program that started it
+    /// does: asked to end as a closed terminal or a stop asks (a hangup for one in a terminal, a
+    /// termination for one with pipes), then forced after a short grace where it has not ended;
+    /// nothing once it has ended. Returns at once.
+    fn end(&self);
 
     /// How the command ended, once it has. Every call answers the same.
     fn exit_status(&self) -> BoxFuture<'static, ExitStatus>;

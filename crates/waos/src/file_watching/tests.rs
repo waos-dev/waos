@@ -28,7 +28,7 @@ fn scratch() -> (TempDir, std::path::PathBuf) {
 }
 
 fn watching(folder: &Path, recursive: bool, latency: Duration) -> Batches {
-    let held = HeldFolder::of(&folder_of_machine(folder).unwrap()).unwrap();
+    let held = HeldFolder::of(&folder_of_machine(folder, &access()).unwrap()).unwrap();
     watch(&held, recursive, latency, held_watch(&access(), folder)).unwrap()
 }
 
@@ -157,7 +157,7 @@ async fn a_burst_past_what_a_batch_holds_is_a_rescan_of_everything() {
 #[test]
 fn a_folder_no_path_leads_to_is_not_watched() {
     let (scratch, folder) = scratch();
-    let descriptor = folder_of_machine(&folder).unwrap();
+    let descriptor = folder_of_machine(&folder, &access()).unwrap();
     let held = HeldFolder::of(&descriptor).unwrap();
     fs::rename(&folder, scratch.path().join("moved")).unwrap();
     fs::create_dir(&folder).unwrap();
@@ -173,7 +173,7 @@ fn a_folder_no_path_leads_to_is_not_watched() {
 fn a_watch_is_held_while_its_stream_is() {
     let (_scratch, folder) = scratch();
     let access = access();
-    let held = HeldFolder::of(&folder_of_machine(&folder).unwrap()).unwrap();
+    let held = HeldFolder::of(&folder_of_machine(&folder, &access).unwrap()).unwrap();
     let batches = watch(&held, false, Duration::ZERO, held_watch(&access, &folder)).unwrap();
     assert_eq!(access.holdings().held.len(), 1);
     drop(batches);

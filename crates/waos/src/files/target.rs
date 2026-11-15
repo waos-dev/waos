@@ -691,6 +691,11 @@ impl OpenRequest {
 mod tests {
     use super::super::descriptor::read_into;
     use super::super::folder_of_machine;
+    use crate::access::ProgramAccess;
+
+    fn any_access() -> ProgramAccess {
+        ProgramAccess::new(Arc::new(crate::permissions::NothingGranted))
+    }
     use super::*;
 
     /// The first bytes of what `file` holds, as a read from its start answers them.
@@ -709,7 +714,8 @@ mod tests {
         let folder = fs::canonicalize(scratch.path()).unwrap();
         fs::write(folder.join("note.txt"), "on the machine").unwrap();
         std::os::unix::fs::symlink(folder.join("note.txt"), folder.join("link")).unwrap();
-        let Descriptor::Dir(root) = folder_of_machine(Path::new("/")).unwrap() else {
+        let Descriptor::Dir(root) = folder_of_machine(Path::new("/"), &any_access()).unwrap()
+        else {
             panic!("a machine's root is a folder");
         };
         let from_root = folder.strip_prefix("/").unwrap();
@@ -743,7 +749,8 @@ mod tests {
     fn a_machines_root_changes_what_its_paths_name_wherever_they_lead() {
         let scratch = tempfile::tempdir().unwrap();
         let folder = fs::canonicalize(scratch.path()).unwrap();
-        let Descriptor::Dir(root) = folder_of_machine(Path::new("/")).unwrap() else {
+        let Descriptor::Dir(root) = folder_of_machine(Path::new("/"), &any_access()).unwrap()
+        else {
             panic!("a machine's root is a folder");
         };
         let at = |name: &str| {
@@ -767,7 +774,7 @@ mod tests {
     #[test]
     fn a_machines_root_holds_the_drives_and_a_drives_paths_by_its_letter() {
         assert!(matches!(
-            folder_of_machine(Path::new("/")).unwrap(),
+            folder_of_machine(Path::new("/"), &any_access()).unwrap(),
             Descriptor::Drives
         ));
         let scratch = tempfile::tempdir().unwrap();

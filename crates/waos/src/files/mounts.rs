@@ -29,6 +29,7 @@ use futures::FutureExt;
 use tracing::warn;
 use waos_capabilities::{ChangedFuture, FileSystemGrant, ProgramFolders};
 
+use super::FilesRefusal;
 use super::descriptor::DirectoryEntry;
 use super::errors::ErrorCode;
 use super::machine_paths;
@@ -276,24 +277,30 @@ impl MountTable {
     }
 
     /// Where on the machine `path`, an absolute path of names inside a mount, is, each symlink on
-    /// the way followed, as the system's apps name it ([`machine_paths::plain`]); none for a path
-    /// outside every mount, where nothing is, or where a symlink leads out of the mount.
-    pub(crate) fn machine_path(&self, path: &Path) -> Option<PathBuf> {
+    /// the way followed, as the system's apps name it ([`machine_paths::plain`]); refused by the
+    /// mounts for a path outside every mount or where a symlink leads out of the mount, failed
+    /// for one that is no path of names or where nothing is.
+    pub(crate) fn machine_path(&self, path: &Path) -> Result<PathBuf, FilesRefusal> {
         if !is_path_of_names(path) {
-            return None;
+            return Err(FilesRefusal::failed(ErrorCode::Invalid));
         }
-        let (mount, within) = self.containing(path)?;
+        let (mount, within) = self
+            .containing(path)
+            .ok_or(FilesRefusal::by_the_mounts(ErrorCode::NoEntry))?;
         // Joining an empty path would add a `/`, which asks for a folder.
         let named = if within.as_os_str().is_empty() {
             mount.host.clone()
         } else {
             mount.host.join(within)
         };
-        let machine_path = fs::canonicalize(named).ok()?;
-        let mount_path = fs::canonicalize(&mount.host).ok()?;
-        machine_path
-            .starts_with(mount_path)
-            .then(|| machine_paths::plain(machine_path))
+        let nothing_there = |_| FilesRefusal::failed(ErrorCode::NoEntry);
+        let machine_path = fs::canonicalize(named).map_err(nothing_there)?;
+        let mount_path = fs::canonicalize(&mount.host).map_err(nothing_there)?;
+        if machine_path.starts_with(mount_path) {
+            Ok(machine_paths::plain(machine_path))
+        } else {
+            Err(FilesRefusal::by_the_mounts(ErrorCode::NoEntry))
+        }
     }
 
     /// Where `path` leads from `from`, a folder of the program: by its names while above the

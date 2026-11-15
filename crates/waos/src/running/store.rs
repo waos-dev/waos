@@ -279,7 +279,7 @@ fn store_data(
         environment.machines.clone(),
         access.clone(),
         user_side.machine_picker,
-        program.clone(),
+        (program.clone(), instances.commands.clone()),
     );
     let permissions = ProgramPermissions::new(
         access.clone(),

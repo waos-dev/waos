@@ -21,6 +21,7 @@ use super::{
     CopyOptions, CopyRequest, ListedItem, Paste, PlatformClipboard, ProgramClipboard,
     ProgramSources, Request, Source,
 };
+use crate::access::Cause;
 use crate::bindings::wasdk::platform::clipboard::{
     self, ClipboardError, Content, HostClipboard, HostClipboardItem, HostClipboardItemWithStore,
     HostClipboardWithStore, HostCopyOptions, HostCopyRequest, HostCopyRequestWithStore, HostPaste,
@@ -237,7 +238,7 @@ fn machine_paths(
         .iter()
         .flatten()
         .filter_map(|(_, content)| match content {
-            Content::File(path) => Some(files.machine_path(Path::new(path))),
+            Content::File(path) => Some(files.machine_path(Path::new(path), Cause::Clipboard)),
             Content::Data(_) | Content::Promise | Content::FilePromise(_) => None,
         })
         .collect()

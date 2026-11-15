@@ -165,6 +165,58 @@ async fn a_dropped_terminal_hangs_its_command_up() {
     .await;
 }
 
+#[tokio::test]
+async fn an_ended_command_is_asked_to_end_its_own_way_and_killed_where_it_does_not() {
+    within(async {
+        let piped = exec(command(
+            "/bin/sh",
+            &["-c", "trap 'exit 3' TERM; while :; do sleep 0.1; done"],
+        ))
+        .await
+        .unwrap();
+        let script = "trap 'exit 5' HUP; echo ready; while :; do sleep 0.1; done";
+        let mut in_terminal = machine()
+            .exec_in_terminal(command("/bin/sh", &["-c", script]), TerminalSize::default())
+            .await
+            .unwrap();
+        read_until(&mut in_terminal.output, "ready").await;
+        let stubborn = exec(command(
+            "/bin/sh",
+            &["-c", "trap '' TERM; while :; do sleep 0.1; done"],
+        ))
+        .await
+        .unwrap();
+        // The traps are set before the first sleep; give the shells the moment to get there.
+        tokio::time::sleep(Duration::from_millis(200)).await;
+
+        piped.child.end();
+        in_terminal.child.end();
+        stubborn.child.end();
+        assert_eq!(piped.child.exit_status().await, ExitStatus::Exited(3));
+        assert_eq!(in_terminal.child.exit_status().await, ExitStatus::Exited(5));
+        assert_eq!(
+            stubborn.child.exit_status().await,
+            ExitStatus::Signaled("KILL".to_owned()),
+            "killed once its grace is over"
+        );
+    })
+    .await;
+}
+
+/// A command started with pipes on a runtime that then goes, as a program's goes as it ends: its
+/// exit status still answers how it really ended, so the end WaOS gives it is heard.
+#[test]
+fn a_command_s_end_is_heard_after_the_runtime_that_started_it_has_gone() {
+    let program = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let started = program.block_on(exec(command("/bin/sh", &["-c", "sleep 1; exit 7"])));
+    let exit = started.unwrap().child.exit_status();
+    drop(program);
+    assert_eq!(futures::executor::block_on(exit), ExitStatus::Exited(7));
+}
+
 /// This computer's provider, its commands run with `PATH` and `HOME` alone.
 fn machines() -> LocalMachines {
     LocalMachines::new(LoginEnvironment::given(vec![

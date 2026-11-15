@@ -6,7 +6,8 @@
 //! printed, reads a file in a new folder from the machine's root by its absolute path, through a
 //! symlink holding its absolute path and from above `/`, as any program on the machine does, runs
 //! `/bin/sh` in a terminal that echoes what is typed and takes a new size, and ends a command with
-//! `terminate` and another with `interrupt`; a machine granted before needs no pick; a pick cancelled, or of a machine no provider
+//! `terminate` and another with `interrupt`, and ends while a command it started with pipes and
+//! another in a terminal run, which leaves neither behind; a machine granted before needs no pick; a pick cancelled, or of a machine no provider
 //! offers, gives nothing and keeps nothing; a machine its user set as the picker's answer is the
 //! pick, kept, with nothing shown, and one set that no provider offers is none, with nothing shown
 //! in its place; and a program given no grants and a shell with no
@@ -29,7 +30,7 @@ use crate::shell::Lines;
 
 /// What the program says of a machine picked and acted on, in order.
 #[cfg(unix)]
-const ACTED_ON: [&str; 12] = [
+const ACTED_ON: [&str; 13] = [
     "granted after: [This computer]",
     "echo: hello",
     "echo ended: exited 0",
@@ -41,6 +42,7 @@ const ACTED_ON: [&str; 12] = [
     "terminal ended: exited 4",
     "signaled: signaled TERM",
     "interrupted: signaled INT",
+    "left running: sleep 6011, sleep 6012",
     "done",
 ];
 
@@ -74,6 +76,30 @@ fn a_machine_picked_is_kept_and_acted_on_with_pipes_a_terminal_signals_and_its_r
     );
     assert_eq!(grants.machines(), [THIS_COMPUTER], "kept among its grants");
     shell::wait_for_end(&running);
+    for left_running in ["sleep 6011", "sleep 6012"] {
+        until_gone(left_running);
+    }
+}
+
+/// Waits until no process of this computer runs `command_line`, as its program's end ends it,
+/// within the grace a command has to end its own way and some; fails the test otherwise.
+#[cfg(unix)]
+fn until_gone(command_line: &str) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    loop {
+        let found = std::process::Command::new("pgrep")
+            .args(["-f", command_line])
+            .output()
+            .expect("pgrep runs");
+        if found.stdout.is_empty() {
+            return;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "{command_line} outlived the program that started it"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
 }
 
 // `examples/machines` runs Unix's commands, `/bin/echo` and `/bin/sh`; Windows' are tested in

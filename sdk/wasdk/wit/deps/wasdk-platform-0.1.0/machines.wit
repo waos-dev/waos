@@ -101,7 +101,8 @@ interface machines {
     arch: architecture,
   }
 
-  /// A started command. Dropping it leaves the command running.
+  /// A started command. Dropping it leaves the command running, until the program ends: a
+  /// program's commands end with it.
   resource child {
     /// Sends `signal` to the command's process group. A machine may not deliver it.
     signal: func(signal: signal);

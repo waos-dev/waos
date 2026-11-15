@@ -48,7 +48,7 @@ pub(crate) fn named(source: &str) -> Result<Named, String> {
 /// the program's files.
 pub(crate) fn file_url(files: &mut ProgramFiles, path: &Path) -> Result<String, String> {
     let machine_path = files
-        .machine_path(path)
+        .machine_path(path, Cause::Player)
         .ok_or_else(|| format!("no file at {} among the program's", path.display()))?;
     Url::from_file_path(&machine_path)
         .map(String::from)

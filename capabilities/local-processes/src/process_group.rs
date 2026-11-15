@@ -1,6 +1,10 @@
 //! A started command as this computer knows it: the leader of a process group of its own, which
 //! takes the signals sent to the command, and how it ended, by the names SSH gives signals.
 //!
+//! A command ends with the program that started it ([`Child::end`]): its group is asked to end the
+//! way a closed terminal or a stop asks, a hangup for a command in a terminal and a termination for
+//! one with pipes, then killed after `GRACE` where its leader has not ended by then.
+//!
 //! The invariant: a signal goes to the command's group only until its end has been collected, since
 //! from then on its id may name another's.
 
@@ -9,14 +13,23 @@ use std::os::unix::process::{CommandExt as _, ExitStatusExt as _};
 use std::process::Command as Process;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::thread;
+use std::time::{Duration, Instant};
 
 use futures::FutureExt;
 use futures::channel::oneshot;
 use futures::future::{BoxFuture, Shared};
 use rustix::process::{Pid, Signal as OsSignal};
+use tokio::process::{ChildStderr, ChildStdin, ChildStdout};
 use waos_capabilities::{Child, ExitStatus, Signal};
 
 use crate::pipes::StartedWithPipes;
+
+/// How long a command ended with its program has to end its own way before it is killed.
+const GRACE: Duration = Duration::from_secs(2);
+
+/// How often a command being ended is looked at, to know whether it has.
+const ENDING_CHECK: Duration = Duration::from_millis(20);
 
 /// The signals SSH names (RFC 4254, §6.10) and the few others a command commonly ends by, with
 /// the names an exit status answers them by.
@@ -39,32 +52,43 @@ const SIGNAL_NAMES: [(OsSignal, &str); 16] = [
     (OsSignal::TRAP, "TRAP"),
 ];
 
-/// Starts `process`, its three pipes piped, leading a process group of its own, on tokio's
-/// runtime.
+/// Starts `process`, its three pipes piped, leading a process group of its own: its pipes read and
+/// written on tokio's runtime, and its end waited for and collected on a thread of its own, as
+/// `std` starts it, not tokio, so the end is heard after the runtime of the program that ran it
+/// has gone.
 pub(crate) fn start_with_pipes(mut process: Process) -> io::Result<StartedWithPipes> {
     process.process_group(0);
-    let mut child = tokio::process::Command::from(process).spawn()?;
-    let leader = child
-        .id()
-        .and_then(|id| i32::try_from(id).ok())
+    let mut child = process.spawn()?;
+    let leader = i32::try_from(child.id())
+        .ok()
         .and_then(Pid::from_raw)
         .ok_or_else(|| io::Error::other("the command has no process id"))?;
-    let (group, collector) = ProcessGroup::led_by(leader);
+    let (group, collector) = ProcessGroup::led_by(leader, OsSignal::TERM);
     let (input, output, errors) = (child.stdin.take(), child.stdout.take(), child.stderr.take());
-    let end = async move {
-        match child.wait().await {
-            Ok(status) => exit_status_of(status.code(), status.signal()),
-            Err(_) => ExitStatus::Unknown,
-        }
-    };
+    collect_on_a_thread(child, collector);
     Ok(StartedWithPipes {
-        input: input.expect("a piped input"),
-        output: output.expect("a piped output"),
-        errors: errors.expect("piped errors"),
+        input: ChildStdin::from_std(input.expect("a piped input"))?,
+        output: ChildStdout::from_std(output.expect("a piped output"))?,
+        errors: ChildStderr::from_std(errors.expect("piped errors"))?,
         group,
-        collector,
-        end: end.boxed(),
     })
+}
+
+/// Waits for `child` to end on a thread of its own, and collects how it did; where no thread
+/// starts, its end is told as unknown.
+fn collect_on_a_thread(mut child: std::process::Child, collector: Collector) {
+    let waiting = std::thread::Builder::new()
+        .name("command exit".to_owned())
+        .spawn(move || {
+            let status = match child.wait() {
+                Ok(status) => exit_status_of(status.code(), status.signal()),
+                Err(_) => ExitStatus::Unknown,
+            };
+            collector.collected(status);
+        });
+    if let Err(error) = waiting {
+        tracing::warn!(%error, "no thread waits for a command's end");
+    }
 }
 
 /// A started command leading its own process group, and how it ended once that is collected:
@@ -72,6 +96,8 @@ pub(crate) fn start_with_pipes(mut process: Process) -> io::Result<StartedWithPi
 #[derive(Clone)]
 pub(crate) struct ProcessGroup {
     leader: Pid,
+    /// What asks the command to end its own way, as its program ends.
+    ending: OsSignal,
     /// Whether the command's end has been collected, after which its id is no longer its own.
     collected: Arc<AtomicBool>,
     exit: Shared<oneshot::Receiver<ExitStatus>>,
@@ -84,12 +110,14 @@ pub(crate) struct Collector {
 }
 
 impl ProcessGroup {
-    /// The group `leader` leads, and what the one that collects its end tells it through.
-    pub(crate) fn led_by(leader: Pid) -> (ProcessGroup, Collector) {
+    /// The group `leader` leads, asked to end by `ending`, and what the one that collects its end
+    /// tells it through.
+    pub(crate) fn led_by(leader: Pid, ending: OsSignal) -> (ProcessGroup, Collector) {
         let collected = Arc::new(AtomicBool::new(false));
         let (ended, exit) = oneshot::channel();
         let group = ProcessGroup {
             leader,
+            ending,
             collected: Arc::clone(&collected),
             exit: exit.shared(),
         };
@@ -98,17 +126,47 @@ impl ProcessGroup {
 
     /// Sends `signal` to the group while its leader's id is still its own.
     pub(crate) fn send(&self, signal: OsSignal) {
-        if self.collected.load(Ordering::Acquire) {
+        if self.is_collected() {
             return;
         }
         // A group that has gone, or refuses the signal, is a signal the machine did not deliver.
         let _ = rustix::process::kill_process_group(self.leader, signal);
+    }
+
+    fn is_collected(&self) -> bool {
+        self.collected.load(Ordering::Acquire)
+    }
+
+    /// Kills the group once `GRACE` has passed, unless its leader ended before, looked at on a
+    /// thread of its own.
+    fn kill_after_grace(&self) {
+        let group = self.clone();
+        let killing = thread::Builder::new()
+            .name("command ending".to_owned())
+            .spawn(move || {
+                let deadline = Instant::now() + GRACE;
+                while !group.is_collected() && Instant::now() < deadline {
+                    thread::sleep(ENDING_CHECK);
+                }
+                group.send(OsSignal::KILL);
+            });
+        if killing.is_err() {
+            self.send(OsSignal::KILL);
+        }
     }
 }
 
 impl Child for ProcessGroup {
     fn signal(&self, signal: Signal) {
         self.send(os_signal_of(signal));
+    }
+
+    fn end(&self) {
+        if self.is_collected() {
+            return;
+        }
+        self.send(self.ending);
+        self.kill_after_grace();
     }
 
     fn exit_status(&self) -> BoxFuture<'static, ExitStatus> {

@@ -47,7 +47,7 @@ pub(crate) fn start_in_terminal(
     let reader = terminal.master.try_clone_reader().map_err(failure_of)?;
     let writer = terminal.master.take_writer().map_err(failure_of)?;
     let leader = start_on(terminal.slave, starting)?;
-    let (group, collector) = ProcessGroup::led_by(leader);
+    let (group, collector) = ProcessGroup::led_by(leader, OsSignal::HUP);
     wait_on_a_thread(leader, collector);
     Ok(StartedTerminal {
         child: Box::new(group.clone()),

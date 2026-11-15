@@ -126,6 +126,12 @@ impl Child for CommandJob {
         }
     }
 
+    /// Ends every process in the command's job at once: Windows has no request to end a process
+    /// group its own way that every command hears.
+    fn end(&self) {
+        self.job.end();
+    }
+
     fn exit_status(&self) -> BoxFuture<'static, ExitStatus> {
         self.exit
             .clone()
@@ -146,7 +152,8 @@ impl Collector {
 /// Starts `process`, its three pipes piped, in a job of its own, given at its creation through
 /// `std`'s attribute list, with a hidden console of its own: none of WaOS's, which may be the
 /// terminal WaOS was run from. Its pipes are read and written on tokio's runtime, and its end waited
-/// for on a thread, as `std` starts it, not tokio.
+/// for and collected on a thread, as `std` starts it, not tokio, so the end is heard after the
+/// runtime of the program that ran it has gone.
 pub(crate) fn start_with_pipes(mut process: Process) -> io::Result<StartedWithPipes> {
     let job = Job::new()?;
     let jobs = [job.raw()];
@@ -158,31 +165,28 @@ pub(crate) fn start_with_pipes(mut process: Process) -> io::Result<StartedWithPi
         .spawn_with_attributes(&attributes)?;
     let (input, output, errors) = (child.stdin.take(), child.stdout.take(), child.stderr.take());
     let (group, collector) = CommandJob::of(job, None);
+    collect_on_a_thread(child, collector);
     Ok(StartedWithPipes {
         input: ChildStdin::from_std(input.expect("a piped input"))?,
         output: ChildStdout::from_std(output.expect("a piped output"))?,
         errors: ChildStderr::from_std(errors.expect("piped errors"))?,
         group,
-        collector,
-        end: end_of(child),
     })
 }
 
-/// How `child` ends, waited for on a thread of its own.
-fn end_of(mut child: std::process::Child) -> BoxFuture<'static, ExitStatus> {
-    let (ended, end) = oneshot::channel();
+/// Waits for `child` to end on a thread of its own, and collects how it did; where no thread
+/// starts, its end is told as unknown.
+fn collect_on_a_thread(mut child: std::process::Child, collector: Collector) {
     let waiting = std::thread::Builder::new()
         .name("command exit".to_owned())
         .spawn(move || {
-            let status = child.wait().ok().and_then(|status| status.code());
-            let _ = ended
-                .send(status.map_or(ExitStatus::Unknown, |code| exit_status_of_code(code as u32)));
+            let code = child.wait().ok().and_then(|status| status.code());
+            collector.collected(
+                code.map_or(ExitStatus::Unknown, |code| exit_status_of_code(code as u32)),
+            );
         });
-    match waiting {
-        Ok(_) => end
-            .map(|ended| ended.unwrap_or(ExitStatus::Unknown))
-            .boxed(),
-        Err(_) => async { ExitStatus::Unknown }.boxed(),
+    if let Err(error) = waiting {
+        tracing::warn!(%error, "no thread waits for a command's end");
     }
 }
 

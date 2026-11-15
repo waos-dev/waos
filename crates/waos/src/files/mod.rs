@@ -63,7 +63,9 @@ use std::path::{Path, PathBuf};
 use waos_capabilities::ProgramFolders;
 use wasmtime::component::{HasData, ResourceTable};
 
-use crate::access::{Asked, FileChange, Noted, ProgramAccess, Refused, Resolution, Resolved};
+use crate::access::{
+    Asked, Cause, FileChange, Noted, ProgramAccess, Refused, Resolution, Resolved,
+};
 pub(crate) use descriptor::{Descriptor, OpenMode};
 use descriptor::{DirectoryEntry, Opened};
 pub(crate) use errors::ErrorCode;
@@ -76,9 +78,10 @@ use status::{DescriptorStat, MetadataHashValue};
 use target::{Change, OpenRequest, Target};
 
 /// The files of a machine the user gave a program, from `folder`: the folder, open, which the
-/// program may change, every path from it resolving as the machine resolves any path. On Windows
-/// this computer's root, `/`, is the folder of its drives ([`machine_paths`]).
-pub(crate) fn folder_of_machine(folder: &Path) -> io::Result<Descriptor> {
+/// program may change, every path from it resolving as the machine resolves any path, kept among
+/// the open files of the program `access` is of. On Windows this computer's root, `/`, is the
+/// folder of its drives ([`machine_paths`]), which no handle holds.
+pub(crate) fn folder_of_machine(folder: &Path, access: &ProgramAccess) -> io::Result<Descriptor> {
     #[cfg(windows)]
     if folder == Path::new(machine_paths::ROOT) {
         return Ok(Descriptor::Drives);
@@ -91,6 +94,7 @@ pub(crate) fn folder_of_machine(folder: &Path) -> io::Result<Descriptor> {
             write: true,
         },
     );
+    access.opened(opened.handle(), opened.kind(), opened.open_mode());
     Ok(Descriptor::Dir(opened))
 }
 
@@ -158,6 +162,7 @@ impl ProgramFiles {
         let asked = Asked::Open {
             path,
             mode: request.open_mode(),
+            cause: Cause::Program,
         };
         let target = access.decide(asked, |_| self.permitted_open(from, path, request))?;
         let opened = target.open(request)?;
@@ -257,10 +262,22 @@ impl ProgramFiles {
         }
     }
 
-    /// Where on the machine `path`, an absolute path inside one of the program's mounts, is; none
-    /// for a path outside every mount, where nothing is, or one a symlink leads out of its mount.
-    pub(crate) fn machine_path(&mut self, path: &Path) -> Option<PathBuf> {
-        self.mounts.now().machine_path(path)
+    /// Where on the machine `path`, an absolute path inside one of the program's mounts, is, for
+    /// what `cause` names to open on the program's behalf: decided and told as an open; none for a
+    /// path outside every mount, where nothing is, or one a symlink leads out of its mount.
+    pub(crate) fn machine_path(&mut self, path: &Path, cause: Cause) -> Option<PathBuf> {
+        let access = self.access.clone();
+        let asked = Asked::Open {
+            path: &path.to_string_lossy(),
+            mode: OpenMode {
+                read: true,
+                write: false,
+            },
+            cause,
+        };
+        access
+            .decide(asked, |_| self.mounts.now().machine_path(path))
+            .ok()
     }
 
     /// The one folder the program is given: its root, `/`.

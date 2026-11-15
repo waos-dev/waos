@@ -87,10 +87,12 @@ pub(crate) enum Asked<'a> {
     },
     /// A notification posted.
     Post,
-    /// A file or folder opened, by the path the program named from one of its folders.
+    /// A file or folder opened, by the path the program named from one of its folders: by the
+    /// program, or on its behalf by what `cause` names, read for all the program can say.
     Open {
         path: &'a str,
         mode: OpenMode,
+        cause: Cause,
     },
     /// A change at the path the program named.
     Change {
@@ -151,14 +153,22 @@ pub(crate) enum FileChange<'a> {
     SetTimes,
 }
 
-/// Who a lookup is for: the program's own, or one made for what it asked another to do.
+/// Who a use is for: the program itself, or what it asked to act for it.
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum Cause {
     Program,
     /// A request of the program's, whose host is looked up to send it.
     Request,
-    /// A link a player or the reading of media is opened on, which the system fetches.
+    /// A player or the reading of media, which the system opens a link or a file for.
     Player,
+    /// The system's app a file is opened in, or its file manager, which shows it.
+    Opener,
+    /// The system's codecs, which read an image's file.
+    ImageCodecs,
+    /// A file dialog, which opens at a folder.
+    FileDialog,
+    /// Whatever the user pastes a file the program copied into.
+    Clipboard,
 }
 
 /// What a rule's answer says of itself for the record, made only when the record is.
@@ -197,6 +207,12 @@ impl Resolved for () {
 impl Resolved for bool {
     fn resolution(&self) -> Resolution<'_> {
         Resolution::Nothing
+    }
+}
+
+impl Resolved for std::path::PathBuf {
+    fn resolution(&self) -> Resolution<'_> {
+        Resolution::OnMachine(self)
     }
 }
 

@@ -1,10 +1,12 @@
 //! A command run on this computer with pipes: its input, output and errors each a pipe of its own,
 //! on the runtime of the program that ran it. It starts in a group of its own, the system's
-//! (`system`), which takes the signals sent to it.
+//! (`system`), which takes the signals sent to it, and its end is waited for on a thread of the
+//! system's, which outlives the program.
 //!
 //! The invariant: the input is written in the order given, and closed once closed or dropped,
-//! after what was given before; the command's end is collected by one task, which every caller
-//! of its exit status hears.
+//! after what was given before; the command's end is collected once, by the thread that waits for
+//! it, whether or not the program that ran it is still there, and every caller of its exit status
+//! hears it.
 
 use std::process::{Command as Process, Stdio};
 
@@ -14,24 +16,22 @@ use futures::stream::BoxStream;
 use futures::{FutureExt, StreamExt};
 use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncWriteExt as _};
 use tokio::process::{ChildStderr, ChildStdin, ChildStdout};
-use waos_capabilities::{ChildInput, Command, ExecError, ExitStatus, WithPipes};
+use waos_capabilities::{ChildInput, Command, ExecError, WithPipes};
 
 use crate::login_environment::Variables;
 use crate::starting::{Starting, starting};
-use crate::system::{self, Collector, CommandGroup};
+use crate::system::{self, CommandGroup};
 
 /// The most one read of a pipe takes.
 const CHUNK: usize = 16 * 1024;
 
-/// A command just started with pipes: its three pipes, its group, what collects its end, and its
-/// end, once it comes.
+/// A command just started with pipes, its end waited for already: its three pipes, and its group,
+/// which tells its end.
 pub(crate) struct StartedWithPipes {
     pub(crate) input: ChildStdin,
     pub(crate) output: ChildStdout,
     pub(crate) errors: ChildStderr,
     pub(crate) group: CommandGroup,
-    pub(crate) collector: Collector,
-    pub(crate) end: BoxFuture<'static, ExitStatus>,
 }
 
 /// Runs `command` with pipes, in `login`, the login environment, with its variables on top.
@@ -56,11 +56,8 @@ pub(crate) fn exec(command: &Command, login: &Variables) -> Result<WithPipes, Ex
         output,
         errors,
         group,
-        collector,
-        end,
     } = system::start_with_pipes(process)
         .map_err(|error| ExecError::Refused(format!("{}: {error}", command.program)))?;
-    tokio::spawn(async move { collector.collected(end.await) });
     Ok(WithPipes {
         child: Box::new(group),
         input: Box::new(PipeInput::writing(input)),

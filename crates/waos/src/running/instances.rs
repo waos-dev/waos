@@ -25,6 +25,7 @@ use crate::clipboard::PlatformClipboard;
 use crate::clock::Clock;
 use crate::files::HandedFiles;
 use crate::gpu::GpuInstance;
+use crate::machines::StartedCommands;
 use crate::menus::MenuPlaces;
 use crate::network::HttpProxy;
 use crate::permissions::NothingGranted;
@@ -61,6 +62,8 @@ pub(crate) struct ProgramInstances {
     pub(super) http_proxy: HttpProxy,
     /// The files the user pastes, picks and opens with the program, mounted for every instance.
     pub(super) handed: HandedFiles,
+    /// The commands every instance started, which end as the program does.
+    pub(super) commands: StartedCommands,
     /// Where its `/tmp` is on the machine, where it has one.
     pub(super) temporary_folder: Option<PathBuf>,
     pub(super) clock: Clock,
@@ -115,6 +118,7 @@ impl ProgramInstances {
             access,
             http_proxy: start.http_proxy,
             handed: HandedFiles::default(),
+            commands: StartedCommands::default(),
             temporary_folder: start.temporary_folder,
             clock,
             program,

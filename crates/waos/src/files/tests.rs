@@ -3,6 +3,7 @@
 //! handle's first write noted once; and a file opened kept among the open files while it is held.
 
 use std::fs;
+use std::path::Path;
 use std::sync::Arc;
 
 use tempfile::TempDir;
@@ -148,4 +149,39 @@ fn a_status_is_noted_not_decided_and_a_handle_is_written_once() {
         .filter(|told| matches!(told, Told::Noted(noted) if noted.starts_with("FirstWrite")))
         .count();
     assert_eq!(first_writes, 1, "once per handle, whichever copy writes");
+}
+
+#[test]
+fn a_path_handed_to_the_system_is_decided_as_an_open_on_the_programs_behalf() {
+    let Files {
+        _scratch,
+        mut files,
+        access,
+        pasted,
+    } = files();
+    assert!(
+        files
+            .machine_path(Path::new("/elsewhere/secret.txt"), Cause::Opener)
+            .is_none()
+    );
+    assert_eq!(access.refusals(), ["folders"]);
+    let pasted = files.machine_path(Path::new(&format!("/{pasted}")), Cause::Clipboard);
+    assert!(pasted.is_some_and(|path| path.ends_with("pasted.txt")));
+    let Some(Told::Allowed(asked, _)) = access.told().last().cloned() else {
+        panic!("the open on the program's behalf is told allowed");
+    };
+    assert!(asked.contains("Clipboard"), "{asked}");
+}
+
+// Windows' root of this computer is the folder of its drives, which no handle holds.
+#[cfg(unix)]
+#[test]
+fn a_machines_root_is_among_the_open_files_while_the_program_holds_it() {
+    let access = ProgramAccess::new(Arc::new(NothingGranted));
+    let root = folder_of_machine(Path::new("/"), &access).unwrap();
+    let open_files = access.holdings().open_files;
+    assert_eq!(open_files.len(), 1);
+    assert_eq!(open_files[0].kind, MountKind::Machine);
+    drop(root);
+    assert!(access.holdings().open_files.is_empty());
 }

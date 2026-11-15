@@ -10,6 +10,7 @@ use waos_capabilities::FileDialog;
 use wasmtime::component::{Accessor, HasData, Linker, Resource, ResourceTable};
 
 use super::{FileDialogs, FileType, FolderOptions, OpenOptions, SaveOptions, set_answers};
+use crate::access::Cause;
 use crate::bindings::wasdk::platform::file_dialogs::{
     self, DialogError, HostFileDialogs, HostFileDialogsWithStore, HostFolderOptions,
     HostOpenOptions, HostSaveOptions,
@@ -56,7 +57,7 @@ impl file_dialogs::Host for FileDialogsCtx<'_> {
 impl FileDialogsCtx<'_> {
     /// Where on the machine the program's `path` is; none outside its mounts.
     fn machine_folder(&mut self, path: Option<PathBuf>) -> Option<PathBuf> {
-        self.files.machine_path(&path?)
+        self.files.machine_path(&path?, Cause::FileDialog)
     }
 
     /// The view `parent` names, by its id.

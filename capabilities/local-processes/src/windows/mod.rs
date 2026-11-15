@@ -25,7 +25,7 @@ mod native_architecture;
 mod pseudoconsole;
 mod user_environment;
 
-pub(crate) use job::{Collector, CommandJob, start_with_pipes};
+pub(crate) use job::{CommandJob, start_with_pipes};
 pub(crate) use native_architecture::native_architecture;
 pub(crate) use pseudoconsole::{TerminalSession, start_in_terminal};
 pub(crate) use user_environment::user_environment;

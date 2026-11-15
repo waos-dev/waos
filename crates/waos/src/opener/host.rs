@@ -1,12 +1,13 @@
 //! The code serving `wasdk:platform/opener` to a program: the shell's opener, where it has one, a
 //! link opened once its scheme is allowed, and a file opened or shown where it is on the machine.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 
 use wasmtime::component::{Accessor, HasData, Linker, Resource, ResourceTable};
 
 use super::{LinkSchemes, Opener, scheme_of};
+use crate::access::Cause;
 use crate::bindings::wasdk::platform::opener::{self, HostOpener, HostOpenerWithStore, OpenError};
 use crate::files::ProgramFiles;
 use crate::running::RunningProgram;
@@ -110,7 +111,7 @@ fn with_machine_path(
     path: &str,
     call: impl FnOnce(&dyn ShellOpener, &RunningProgram, &Path) -> OpenFuture,
 ) -> wasmtime::Result<OpenFuture> {
-    let Some(machine_path) = context.files.machine_path(&PathBuf::from(path)) else {
+    let Some(machine_path) = context.files.machine_path(Path::new(path), Cause::Opener) else {
         let failed = OpenError::Failed(format!("no file at {path} among the program's"));
         return Ok(Box::pin(std::future::ready(Err(failed))));
     };
