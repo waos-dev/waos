@@ -1,11 +1,14 @@
 //! The components `cargo waos` sent, each kept in a file of the app's own named by its program's
 //! id, where the engine compiles it and loads it from.
 //!
-//! The invariant: one run of an id holds the id's file at a time, from before it writes the file
-//! until it lets go, which a run does once it is among the runs. So a later run of the id never
-//! writes over a file an earlier one's compile is reading, and the runs of an id start in the
-//! order they came. Runs of different ids hold nothing of each other's: one's compile holds back
-//! no other's.
+//! The invariants a later editor will break:
+//! - One run of an id holds the id's file at a time, from before it writes the file until it lets
+//!   go, which a run does once it is among the runs. So a later run of the id never writes over a
+//!   file an earlier one's compile is reading, and the runs of an id start in the order they
+//!   came. Runs of different ids hold nothing of each other's: one's compile holds back no other's.
+//! - A component sent again unchanged leaves its file as it is, unwritten: the engine's code cache
+//!   takes a file's modification time for the component as it is, so writing the same bytes again
+//!   would date it anew and have every run compile it again, minutes for a large one.
 
 use std::collections::HashMap;
 use std::fs;
@@ -83,15 +86,25 @@ impl SentComponent {
         &self.path
     }
 
-    /// Writes `component` as the file, in place of what was sent as the id before. Blocks, so
-    /// call it off the runtime's thread.
+    /// Writes `component` as the file, in place of what was sent as the id before, unless the
+    /// file holds it already. Blocks, so call it off the runtime's thread.
     pub(crate) fn write(&self, component: &[u8]) -> Result<()> {
         #[cfg(test)]
         self.write_hold.wait_while_held();
+        if self.holds(component) {
+            return Ok(());
+        }
         if let Some(folder) = self.path.parent() {
             fs::create_dir_all(folder).with_context(|| format!("making {}", folder.display()))?;
         }
         fs::write(&self.path, component).with_context(|| format!("writing {}", self.path.display()))
+    }
+
+    /// Whether the file holds `component`, byte for byte: what was sent before, unchanged.
+    fn holds(&self, component: &[u8]) -> bool {
+        let same_length = fs::metadata(&self.path)
+            .is_ok_and(|metadata| metadata.len() == component.len() as u64);
+        same_length && fs::read(&self.path).is_ok_and(|kept| kept == component)
     }
 }
 
@@ -144,7 +157,8 @@ impl Drop for HeldWrites {
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
+    use std::fs::File;
+    use std::time::{Duration, SystemTime};
 
     use super::*;
 
@@ -158,6 +172,28 @@ mod tests {
             component_path(Path::new("/caches/dev"), &survey()),
             Path::new("/caches/dev/dev.waos.examples.survey.wasm")
         );
+    }
+
+    #[tokio::test]
+    async fn a_component_sent_again_unchanged_leaves_its_file_and_a_changed_one_writes_it() {
+        let folder = tempfile::tempdir().unwrap();
+        let components = SentComponents::new(folder.path().to_owned());
+        let file = components.hold(&survey()).await;
+        file.write(b"\0asm one").unwrap();
+        let earlier = SystemTime::UNIX_EPOCH + Duration::from_secs(1_700_000_000);
+        File::options()
+            .write(true)
+            .open(file.path())
+            .unwrap()
+            .set_modified(earlier)
+            .unwrap();
+        let modified = || fs::metadata(file.path()).unwrap().modified().unwrap();
+
+        file.write(b"\0asm one").unwrap();
+        assert_eq!(modified(), earlier, "unwritten");
+        file.write(b"\0asm two").unwrap();
+        assert_ne!(modified(), earlier, "written");
+        assert_eq!(fs::read(file.path()).unwrap(), b"\0asm two");
     }
 
     #[tokio::test]

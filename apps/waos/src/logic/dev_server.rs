@@ -427,6 +427,11 @@ pub(crate) mod tests {
         assert_eq!(next(client).await, FromWaOS::Started);
     }
 
+    /// The first frame of a run whose component's code is compiled already: it runs.
+    async fn started_from_compiled_code(client: &mut Connection<ClientStream>) {
+        assert_eq!(next(client).await, FromWaOS::Started);
+    }
+
     /// Every frame up to and including the first `wanted` accepts.
     async fn frames_until(
         client: &mut Connection<ClientStream>,
@@ -509,8 +514,35 @@ pub(crate) mod tests {
             .await;
         let frames = frames_until(&mut first, |frame| matches!(frame, FromWaOS::Ended(_))).await;
         assert_eq!(frames.last(), Some(&FromWaOS::Ended(RunEnd::Replaced)));
-        started(&mut second).await;
+        started_from_compiled_code(&mut second).await;
         server.wait_for_runs(&[FOREVER]).await;
+    }
+
+    #[tokio::test]
+    async fn a_component_sent_again_unchanged_runs_from_the_code_compiled_before() {
+        let server = TestServer::start("unchanged");
+        let component = Path::new(waos_test_programs::FOREVER);
+        let mut first = server.run(FOREVER, component).await;
+        started(&mut first).await;
+        drop(first);
+        server.wait_for_runs(&[]).await;
+        let mut again = server.run(FOREVER, component).await;
+        started_from_compiled_code(&mut again).await;
+    }
+
+    #[tokio::test]
+    async fn a_component_sent_changed_is_compiled_again() {
+        let server = TestServer::start("changed");
+        let mut first = server
+            .run(FOREVER, Path::new(waos_test_programs::FOREVER))
+            .await;
+        started(&mut first).await;
+        drop(first);
+        server.wait_for_runs(&[]).await;
+        let mut changed = server
+            .run(FOREVER, Path::new(waos_test_programs::OPENER))
+            .await;
+        started(&mut changed).await;
     }
 
     #[tokio::test]
