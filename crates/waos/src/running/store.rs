@@ -19,6 +19,7 @@ use super::instances::{ProgramInstances, UserSide};
 use super::limits::Limits;
 use super::worker::WorkerRun;
 use super::{ProgramEnd, ProgramStart, RunningProgram};
+use crate::access::ProgramAccess;
 use crate::audio::ProgramAudio;
 use crate::audio::host::{AudioCtx, AudioCtxView};
 use crate::bindings::wasdk::platform::workers::WorkerError;
@@ -253,7 +254,7 @@ fn store_data(
         .instances(INSTANCE_LIMIT)
         .memories(MEMORY_COUNT_LIMIT)
         .build();
-    let access = &instances.access;
+    let access = &instances.access_of(role);
     let handed = instances.handed.clone();
     let picks = Picks::new(handed.clone(), access.clone());
     let files = ProgramFiles::new(
@@ -345,6 +346,7 @@ fn store_data(
         video_frame_readers: user_side.video_frame_readers,
         cameras,
         machines,
+        access: access.clone(),
         instances: Arc::clone(instances),
     }
 }
@@ -442,6 +444,8 @@ pub(crate) struct StoreData {
     /// its folders in `files`, its grants in `files` and `network` and, for every other
     /// capability, its access, here, its sound devices in `audio`, its machines' providers in
     /// `machines`. A new worker is made from it too.
+    /// Where every guarded use this instance makes is decided and told, as its program's.
+    access: ProgramAccess,
     instances: Arc<ProgramInstances>,
 }
 
@@ -633,7 +637,7 @@ impl NotificationsCtxView for StoreData {
             table: &mut self.table,
             program: &self.program,
             notifications: self.notifications.as_ref(),
-            access: &self.instances.access,
+            access: &self.access,
         }
     }
 }
@@ -651,7 +655,7 @@ impl FileWatchingCtxView for StoreData {
     fn file_watching_ctx(&mut self) -> FileWatchingCtx<'_> {
         FileWatchingCtx {
             table: &mut self.table,
-            access: &self.instances.access,
+            access: &self.access,
         }
     }
 }

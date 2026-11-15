@@ -1,0 +1,50 @@
+package wasdk:inspect@0.1.0;
+
+/// The devices whose WaOS can be inspected, and the programs on each: this device, and each phone
+/// or computer WaOS reaches now.
+interface devices {
+  /// A program on a device, installed or run in development.
+  record program {
+    id: string,
+    name: string,
+    /// Its package's version; none for a development run.
+    version: option<string>,
+    running: bool,
+  }
+
+  variant program-change {
+    added(program),
+    removed(string),
+    started(string),
+    ended(string),
+  }
+
+  resource device {
+    /// Its name, as its user knows it.
+    name: func() -> string;
+    /// Whether it is the device this program runs on.
+    is-this-device: func() -> bool;
+    programs: async func() -> list<program>;
+    /// Each change from now on, on a stream of its own.
+    program-changes: func() -> stream<program-change>;
+  }
+
+  /// A device reached or lost, by its name: `devices` answers it once reached.
+  variant device-change {
+    reached(string),
+    lost(string),
+  }
+
+  /// This device first, then each device reached now.
+  devices: func() -> list<device>;
+  device-changes: func() -> stream<device-change>;
+}
+
+/// What an inspector imports: every interface of this package, which a program has only once its
+/// user granted it the inspector role.
+world inspection {
+  import devices;
+  import audit;
+  import holdings;
+  import trace;
+}

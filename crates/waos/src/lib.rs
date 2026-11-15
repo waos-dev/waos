@@ -64,6 +64,7 @@ mod gpu;
 mod gpu_interop;
 mod hardware_buffers;
 mod image_codecs;
+pub mod inspection;
 mod lifecycle;
 mod machines;
 mod media_assets;
@@ -95,6 +96,8 @@ mod wasi;
 mod windows;
 mod workers;
 
+/// A machine as the shell's picker shows it.
+pub use access::{TraceEvent, TraceKind, TraceStream};
 pub use cameras::{CameraOutputs, CaptureSessionReports};
 pub use clipboard::CopyOptions;
 pub use engine::{PlatformState, WaOS, WaOSConfig};
@@ -129,7 +132,6 @@ pub use shell::{
 };
 pub use stats::Stats;
 pub use views::{HeldModifiers, KeyHandledFuture, ProgramView, Watching};
-/// A machine as the shell's picker shows it.
 pub use waos_capabilities::MachineChoice;
 /// What the user lets a program use, as its environment's grants give it and the shell's
 /// prompts ask for it.

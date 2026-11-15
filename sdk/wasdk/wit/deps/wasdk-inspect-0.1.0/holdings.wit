@@ -1,0 +1,46 @@
+/// What a program holds now, read when it is asked: each use that lasts, from its start until it
+/// really ends, and each file it has open, where the system says it is.
+interface holdings {
+  use wasi:clocks/system-clock@0.3.0.{instant};
+  use devices.{device};
+  use audit.{mount-kind};
+
+  /// What a program records with.
+  enum recording-device { camera, microphone, simulated-camera, simulated-microphone }
+
+  variant holding {
+    /// A capture session or the microphone recording.
+    recording(recording-device),
+    /// A command running on a machine.
+    run(run),
+    /// An HTTP request in flight, until its response's body ends.
+    request(request),
+    /// A folder watched, where it was on the machine when the watch began.
+    watch(watch),
+  }
+
+  record run { machine: string, program: string, in-terminal: bool }
+  record request { method: string, url: string }
+  record watch { folder: string, recursive: bool }
+
+  record held {
+    holding: holding,
+    since: instant,
+  }
+
+  record open-file {
+    /// Where the system says the file is now; none where it does not say.
+    path: option<string>,
+    mount: mount-kind,
+    read: bool,
+    write: bool,
+  }
+
+  record now {
+    held: list<held>,
+    open-files: list<open-file>,
+  }
+
+  /// What the program `id` names holds now; none while it does not run.
+  holdings: async func(device: borrow<device>, id: string) -> option<now>;
+}

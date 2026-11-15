@@ -56,6 +56,8 @@ pub(crate) struct ShownRecordings {
 pub(crate) struct Held {
     parts: Arc<AccessParts>,
     id: u64,
+    /// The program's instance that holds it, which its end is told in.
+    instance: u32,
 }
 
 /// One program's record of what it holds.
@@ -137,7 +139,7 @@ impl Registry {
     }
 
     /// Adds `holding`, telling the indicator where it is the first recording of its kind.
-    pub(super) fn hold(parts: &Arc<AccessParts>, holding: Holding) -> Held {
+    pub(super) fn hold(parts: &Arc<AccessParts>, holding: Holding, instance: u32) -> Held {
         let registry = &parts.holdings;
         let mut held = locked(&registry.held);
         if let Holding::Recording(device) = holding
@@ -156,6 +158,7 @@ impl Registry {
         Held {
             parts: Arc::clone(parts),
             id,
+            instance,
         }
     }
 
@@ -239,7 +242,7 @@ impl Drop for Held {
     fn drop(&mut self) {
         if let Some(ended) = self.parts.holdings.end(self.id) {
             self.parts
-                .tell_ended(&ended.holding, (ended.started, ended.since));
+                .tell_ended(&ended.holding, (ended.started, ended.since), self.instance);
         }
     }
 }

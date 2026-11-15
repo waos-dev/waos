@@ -23,7 +23,7 @@ mod worker;
 use std::future::{self, Future};
 use std::path::PathBuf;
 use std::pin::pin;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::thread;
 
 use anyhow::{Context as _, Result};
@@ -34,6 +34,7 @@ use waos_capabilities::{AuditLog, ProgramEnvironment};
 use wasmtime::Engine;
 use wasmtime::component::Component;
 
+use crate::access::{ProgramAccess, TraceKind, TraceStream, WeakAccess};
 use crate::bindings::wasdk::platform::lifecycle::AppExitResponse;
 use crate::bindings::wasdk::platform::menus::MenuEntry;
 use crate::bindings::wasdk::platform::notifications::Activation;
@@ -125,6 +126,9 @@ struct Running {
     /// Taken by the first `stop`.
     stop: Mutex<Option<oneshot::Sender<()>>>,
     ended: Ended,
+    /// Its access, once its code is linked, held without keeping it: the access holds the
+    /// program in turn.
+    access: OnceLock<WeakAccess>,
 }
 
 /// The program's end, as every `ended` resolves with it.
@@ -238,6 +242,7 @@ impl RunningProgram {
             unasked_read: UnaskedRead::default(),
             stop: Mutex::new(Some(stop)),
             ended: ended.map(end_of_thread as fn(_) -> _).shared(),
+            access: OnceLock::new(),
         }));
         start.programs.add(&program);
         let on_thread = program.clone();
@@ -349,6 +354,19 @@ impl RunningProgram {
 
     pub fn name(&self) -> &str {
         &self.0.name
+    }
+
+    /// What the program does with `kind` from now on, live, for as long as the stream is held:
+    /// none before its code is linked and once it and every use it held have ended.
+    pub fn trace(&self, kind: TraceKind) -> Option<TraceStream> {
+        let access = self.0.access.get()?.upgrade()?;
+        Some(access.subscribe(kind))
+    }
+
+    /// Its access, from its instances' link on.
+    pub(crate) fn attach_access(&self, access: &ProgramAccess) {
+        // Linked once; a second link would be the same program's.
+        let _ = self.0.access.set(access.downgrade());
     }
 
     /// Now on the program's clock, in nanoseconds: what the program's `wasi:clocks` read, and what

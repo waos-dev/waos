@@ -470,7 +470,7 @@ fn a_request_is_told_refused_by_its_setting_or_held_in_flight() {
     );
 
     let uri = "https://api.example.com/".parse().unwrap();
-    let in_flight = super::check_host(&network, &method, &uri).unwrap();
+    let in_flight = super::check_host(&network, &method, &uri).unwrap().held;
     assert_eq!(access.holdings().held.len(), 1);
     drop(in_flight);
     assert!(access.holdings().held.is_empty());

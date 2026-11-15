@@ -40,7 +40,7 @@ pub(crate) fn add_to_linker<T: WasiView + 'static>(linker: &mut Linker<T>) -> wa
 }
 
 /// The WASI context the program `name` starts with: its standard streams to `output`, or to the
-/// log under its name, the time on `clock`, TCP and UDP of both versions to what `network`
+/// log under its name, each write told through the access of `network`'s program, the time on `clock`, TCP and UDP of both versions to what `network`
 /// allows, and, where it has a temporary folder, `TMPDIR` naming it, `/tmp`.
 pub(crate) fn context(
     name: &str,
@@ -55,12 +55,19 @@ pub(crate) fn context(
         // nothing on WASI, and tempfile takes it through `override_temp_dir`.
         wasi.env("TMPDIR", "/tmp");
     }
+    let access = network.access();
     wasi.stdout(StandardStream::new(
         name,
         OutputStream::Stdout,
         output.clone(),
+        access.clone(),
     ));
-    wasi.stderr(StandardStream::new(name, OutputStream::Stderr, output));
+    wasi.stderr(StandardStream::new(
+        name,
+        OutputStream::Stderr,
+        output,
+        access.clone(),
+    ));
     wasi.monotonic_clock(MonotonicClock::new(clock));
     let network = network.clone();
     wasi.allow_tcp(true)

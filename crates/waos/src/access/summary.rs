@@ -164,7 +164,8 @@ impl Summary {
             }),
             Happened::SettingsOpened(_)
             | Happened::Mounted { .. }
-            | Happened::MachinePicked { .. } => {}
+            | Happened::MachinePicked { .. }
+            | Happened::Responded { .. } => {}
         }
     }
 
@@ -510,8 +511,19 @@ fn folder_of<'a>(
     day.folders.get_mut(at)
 }
 
+/// A switch's key, as its row is named: `network`, `clipboard-read`.
+pub(super) fn switch_key(switch: waos_capabilities::Switch) -> &'static str {
+    use waos_capabilities::Switch;
+    match switch {
+        Switch::Network => "network",
+        Switch::LocalNetwork => "local-network",
+        Switch::ClipboardRead => "clipboard-read",
+        Switch::ClipboardWrite => "clipboard-write",
+    }
+}
+
 /// A question's key, as the row a user answers it on is named: `camera`, `link-scheme zoommtg`.
-fn prompt_key(prompt: &Prompt) -> String {
+pub(super) fn prompt_key(prompt: &Prompt) -> String {
     match prompt {
         Prompt::Question(Question::Notifications) => "notifications".to_owned(),
         Prompt::Question(Question::Camera) => "camera".to_owned(),
@@ -521,7 +533,7 @@ fn prompt_key(prompt: &Prompt) -> String {
 }
 
 /// An answer's key, as a row's value names it.
-fn answer_key(answer: Answer) -> &'static str {
+pub(super) fn answer_key(answer: Answer) -> &'static str {
     match answer {
         Answer::Granted => "allow",
         Answer::Denied => "deny",
@@ -569,6 +581,7 @@ mod tests {
         let summary = summary();
         let uri: http::Uri = "https://api.example.com/v1".parse().unwrap();
         let request = Asked::Request {
+            id: 0,
             method: &http::Method::GET,
             uri: &uri,
         };

@@ -1,0 +1,92 @@
+/// What each program did with what it was allowed, over the last seven days, as the device keeps
+/// it: counts, refusals, first and last use, and short lists, each capped, what fell beyond a cap
+/// counted. Never what a use read or wrote.
+interface audit {
+  use wasi:clocks/system-clock@0.3.0.{instant};
+  use devices.{device};
+
+  /// How often a use happened, how often it was refused, and when it first and last happened;
+  /// none while it has not.
+  record uses {
+    allowed: u32,
+    refused: u32,
+    first: option<instant>,
+    last: option<instant>,
+  }
+
+  record counted {
+    /// What was used: a domain, an address, a scheme and host, a machine and program.
+    name: string,
+    uses: uses,
+  }
+
+  /// What a mount is to the program.
+  enum mount-kind { own-data, own-cache, own-temporary, granted, picked, pasted, machine }
+
+  /// What a program did in one mount.
+  record folder {
+    /// Where the mount is on the machine.
+    path: string,
+    kind: mount-kind,
+    opened-to-read: u32,
+    opened-to-write: u32,
+    created: u32,
+    removed: u32,
+    renamed: u32,
+    /// The files changed in it, in the user's mounts only, a hundred a day at most.
+    changed: list<string>,
+  }
+
+  record session {
+    start: instant,
+    seconds: u32,
+    simulated: bool,
+  }
+
+  record asked {
+    /// The question, by its row's key: `camera`, `microphone`, `notifications`,
+    /// `link-scheme zoommtg`.
+    question: string,
+    at: instant,
+    /// The answer, by its key; none when nobody answered.
+    answer: option<string>,
+  }
+
+  /// What fell beyond each list's cap.
+  record overflow {
+    domains: u32,
+    local-addresses: u32,
+    folders: u32,
+    changed: u32,
+    commands: u32,
+    links: u32,
+    sessions: u32,
+    questions: u32,
+  }
+
+  /// One day, from midnight UTC.
+  record day {
+    start: instant,
+    domains: list<counted>,
+    local-addresses: list<counted>,
+    datagrams: u64,
+    folders: list<folder>,
+    /// The opens and changes the mounts refused: outside every folder, or a change a read-only
+    /// one does not allow.
+    folder-refusals: u32,
+    clipboard-reads: uses,
+    pastes: u32,
+    clipboard-writes: uses,
+    camera: list<session>,
+    microphone: list<session>,
+    commands: list<counted>,
+    links: list<counted>,
+    notifications: uses,
+    questions: list<asked>,
+    beyond-caps: overflow,
+  }
+
+  /// The days kept of the program `id` names, newest first, seven at most; empty for one the
+  /// device does not know.
+  days: async func(device: borrow<device>, id: string) -> list<day>;
+}

@@ -14,6 +14,9 @@ readme = "README.md"
 exclude = ["/tests/"]
 
 [dependencies]
+# What an inspector reads of a program, `wasdk:inspect`'s values, serializable as the development
+# connection sends them.
+serde.workspace = true
 waos-capabilities.workspace = true
 anyhow.workspace = true
 futures.workspace = true

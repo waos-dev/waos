@@ -11,6 +11,7 @@
 
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU32, Ordering};
 
 use waos_capabilities::{AudioDevices, ProgramEnvironment};
 use wasmtime::Engine;
@@ -64,6 +65,8 @@ pub(crate) struct ProgramInstances {
     pub(super) handed: HandedFiles,
     /// The commands every instance started, which end as the program does.
     pub(super) commands: StartedCommands,
+    /// How many workers have started, which numbers each as its instance.
+    workers_started: AtomicU32,
     /// Where its `/tmp` is on the machine, where it has one.
     pub(super) temporary_folder: Option<PathBuf>,
     pub(super) clock: Clock,
@@ -83,6 +86,7 @@ impl ProgramInstances {
         let entry = run::GuestIndices::new(&linked)?;
         let worker_entry = worker_entry::GuestIndices::new(&linked).ok();
         let access = access_of(&start, &program);
+        program.attach_access(&access);
         let user_side = UserSide {
             placement: Some(start.placement),
             compositor: start.compositor,
@@ -119,11 +123,24 @@ impl ProgramInstances {
             http_proxy: start.http_proxy,
             handed: HandedFiles::default(),
             commands: StartedCommands::default(),
+            workers_started: AtomicU32::new(0),
             temporary_folder: start.temporary_folder,
             clock,
             program,
         };
         Ok((instances, user_side))
+    }
+
+    /// The program's access for an instance of `role`: the main one's, 0, or the next worker's,
+    /// numbered from 1 as they start.
+    pub(super) fn access_of(&self, role: super::store::InstanceRole) -> ProgramAccess {
+        match role {
+            super::store::InstanceRole::Main => self.access.for_instance(0),
+            super::store::InstanceRole::Worker => {
+                let worker = self.workers_started.fetch_add(1, Ordering::Relaxed) + 1;
+                self.access.for_instance(worker)
+            }
+        }
     }
 
     /// Whether the program's code has workers: whether it exports `worker-entry`.

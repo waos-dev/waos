@@ -10390,6 +10390,7 @@ dependencies = [
  "rustix-linux-procfs",
  "rustls",
  "rustls-platform-verifier",
+ "serde",
  "serde_json",
  "symphonia 0.6.1",
  "system-configuration",

@@ -110,6 +110,11 @@ impl ProgramNetwork {
         }
     }
 
+    /// The access of the program whose network this is.
+    pub(crate) fn access(&self) -> &ProgramAccess {
+        &self.access
+    }
+
     /// The addresses of `name` the program's own lookup answers, as [`plan_lookup`] and
     /// [`resolve`] answer them: decided and told as one use. Blocks while the system resolves.
     ///

@@ -31,14 +31,14 @@ mod route;
 
 use std::future::Future;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use http::{Method, Uri};
 use http_body_util::BodyExt;
 use wasmtime_wasi_http::{Error, RequestOptions, WasiBody, WasiHttpHooks};
 
 use super::{Lookup, LookupError, ProgramNetwork};
-use crate::access::{Asked, Held, Holding, Refusal};
+use crate::access::{Asked, Happened, Held, Holding, Refusal};
 use bodies::{BetweenBytes, SyncBody};
 use proxies::Proxies;
 use resolver::ProgramResolver;
@@ -191,10 +191,18 @@ impl WasiHttpHooks for ProgramHttp {
     }
 }
 
+/// A request allowed: held in flight from now on, and what its response is told by.
+struct InFlight {
+    held: Held,
+    id: u64,
+    sent: Instant,
+}
+
 /// Refuses the request `method` sends to `uri` before anything is sent unless its host may be
 /// reached, decided and told as the request; and the request in flight from then on otherwise.
-fn check_host(network: &ProgramNetwork, method: &Method, uri: &Uri) -> Result<Held, Error> {
-    let asked = Asked::Request { method, uri };
+fn check_host(network: &ProgramNetwork, method: &Method, uri: &Uri) -> Result<InFlight, Error> {
+    let id = network.access.next_request();
+    let asked = Asked::Request { id, method, uri };
     network
         .access
         .decide(asked, |_| host_reachable(network, uri))
@@ -203,7 +211,11 @@ fn check_host(network: &ProgramNetwork, method: &Method, uri: &Uri) -> Result<He
         method: method.clone(),
         uri: uri.clone(),
     };
-    Ok(network.access.hold(request))
+    Ok(InFlight {
+        held: network.access.hold(request),
+        id,
+        sent: Instant::now(),
+    })
 }
 
 /// Whether `uri`'s host may be reached: addresses known without the system, such as an address,
@@ -247,7 +259,7 @@ async fn send(
     sender: Sender,
     request: http::Request<WasiBody>,
     options: Option<RequestOptions>,
-    in_flight: Held,
+    in_flight: InFlight,
 ) -> Result<Sent, Error> {
     let options = options.unwrap_or_default();
     let until_head = options.connect_timeout.unwrap_or(DEFAULT_TIMEOUT)
@@ -256,8 +268,14 @@ async fn send(
     let response = tokio::time::timeout(until_head, sender.execute(request))
         .await
         .map_err(|_| Error::ConnectionTimeout)??;
+    sender.network.access.tell(Happened::Responded {
+        request: in_flight.id,
+        status: response.status().as_u16(),
+        took: in_flight.sent.elapsed(),
+    });
+    let held = in_flight.held;
     let response = http::Response::from(response)
-        .map(|body| BetweenBytes::new(body, between_bytes, in_flight).boxed_unsync());
+        .map(|body| BetweenBytes::new(body, between_bytes, held).boxed_unsync());
     Ok((response, Box::new(async { Ok(()) })))
 }
 

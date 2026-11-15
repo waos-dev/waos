@@ -2,7 +2,9 @@
 //! in order, or, with none, to the engine's log. The program is `examples/forever`, which says
 //! its count every so often and asks nothing else.
 //!
-//! Both tests read what forever logged, and two forevers at once would log alike, so each takes
+//! A listener of the program's output, through its trace, hears each write from when it listens.
+//!
+//! The tests read what forever logged, and two forevers at once would log alike, so each takes
 //! forever's turn (`shell::turns`).
 
 use std::sync::{Arc, Mutex};
@@ -10,7 +12,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use futures::executor::block_on;
-use waos::{OutputStream, ProgramEnd, ProgramEnvironment, ProgramOutput};
+use waos::{OutputStream, ProgramEnd, ProgramEnvironment, ProgramOutput, TraceKind};
 
 use crate::shell;
 use crate::shell::WITHIN;
@@ -101,4 +103,31 @@ fn with_no_output_chosen_the_program_writes_to_the_log() {
     assert!(matches!(block_on(running.ended()), ProgramEnd::Stopped));
     let lines = log.lines_of(mark, "forever");
     assert_eq!(&lines[..2], ["count 1048576", "count 2097152"]);
+}
+
+#[test]
+fn a_listener_of_the_programs_output_hears_what_it_writes_from_then_on() {
+    let _forever = shell::turns::take("forever");
+    let (engine, _shell, _arrivals) = shell::engine();
+    let forever = shell::load(&engine, waos_test_programs::FOREVER);
+    let recording = Arc::new(Recording::default());
+    let environment = ProgramEnvironment {
+        output: Some(Arc::clone(&recording) as Arc<dyn ProgramOutput>),
+        ..ProgramEnvironment::default()
+    };
+    let (running, _given) = engine.run(&forever, environment, Vec::new()).unwrap();
+    let mut output = loop {
+        if let Some(output) = running.trace(TraceKind::Output) {
+            break output;
+        }
+        thread::sleep(Duration::from_millis(1));
+    };
+    let chunk = block_on(futures::StreamExt::next(&mut output)).expect("a write is heard");
+    let json = serde_json::to_value(&chunk).unwrap();
+    assert_eq!(json["channel"], "Stdout");
+    assert_eq!(json["instance"], 0);
+    let bytes: Vec<u8> = serde_json::from_value(json["bytes"].clone()).unwrap();
+    assert!(String::from_utf8_lossy(&bytes).starts_with("count "), "{bytes:?}");
+    running.stop();
+    assert!(matches!(block_on(running.ended()), ProgramEnd::Stopped));
 }

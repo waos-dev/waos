@@ -9,20 +9,21 @@
 //! the real thing, from its start until it really ends.
 //!
 //! What is told is counted in the program's audit summary ([`summary`]), what it did today,
-//! kept day by day through the engine's `AuditLog`. The live trace is a later step of
-//! `docs/proposals/2026-11-15-inspector-roles-and-compatibility.md` and
-//! `docs/proposals/2026-11-15-access-layer-design.md`. A test reads what was told from the access
-//! it made.
+//! kept day by day through the engine's `AuditLog`, and sent as an event of `wasdk:inspect` to
+//! whoever listens to its capability ([`trace`], [`events`]), one relaxed load while nobody does.
+//! A test reads what was told from the access it made.
 //!
 //! The invariant: an answer that lets or refuses a use comes out of `decide`, its record made from
 //! what the rule resolved, never from what the caller supposed before it ran, so a use is never
 //! decided one way and told another. [`ProgramAccess::grants`] is for what is no use: a
 //! permission's state, what a picker answers, an answer kept.
 
+mod events;
 mod holdings;
 mod summary;
 #[cfg(test)]
 mod test_answers;
+mod trace;
 
 use std::fs;
 use std::net::{IpAddr, SocketAddr};
@@ -39,13 +40,21 @@ pub(crate) use holdings::{Held, Holding, Holdings, ShownRecordings};
 pub(crate) use summary::KeptBy;
 #[cfg(test)]
 pub(crate) use test_answers::Answers;
+pub use trace::{TraceEvent, TraceKind, TraceStream};
 
 /// One program's access, shared by its main instance and its workers, and by the uses it holds
 /// that outlive them. Every clone is the same.
 #[derive(Clone)]
 pub(crate) struct ProgramAccess {
     parts: Arc<AccessParts>,
+    /// The instance this copy is in: the main one, 0, or a worker, from 1 as they started.
+    instance: u32,
 }
+
+/// A program's access, held without keeping it: what the running program reaches it through, the
+/// access holding the program in turn.
+#[derive(Clone)]
+pub(crate) struct WeakAccess(std::sync::Weak<AccessParts>);
 
 struct AccessParts {
     grants: Arc<dyn ProgramGrants>,
@@ -53,6 +62,8 @@ struct AccessParts {
     holdings: holdings::Registry,
     /// What it did today, kept day by day.
     summary: summary::Summary,
+    /// Who listens to what it does now.
+    taps: Arc<trace::Taps>,
     /// What was told, for the test that made the access to read.
     #[cfg(test)]
     told: std::sync::Mutex<Vec<Told>>,
@@ -61,10 +72,6 @@ struct AccessParts {
 /// What the program asked for, in its own words, known before the rule runs. Borrowed from what
 /// the capability holds.
 #[derive(Debug)]
-#[expect(
-    dead_code,
-    reason = "what a use names is read by the audit summary and the live trace, later steps"
-)]
 pub(crate) enum Asked<'a> {
     /// The clipboard read in `form`, by the user's paste or not.
     ClipboardRead {
@@ -127,8 +134,9 @@ pub(crate) enum Asked<'a> {
     Listen {
         address: SocketAddr,
     },
-    /// An HTTP request the program sends.
+    /// An HTTP request the program sends, by an id of the program's requests.
     Request {
+        id: u64,
         method: &'a http::Method,
         uri: &'a http::Uri,
     },
@@ -136,10 +144,6 @@ pub(crate) enum Asked<'a> {
 
 /// A change the program asks for at a path.
 #[derive(Debug)]
-#[expect(
-    dead_code,
-    reason = "what a change names is read by the audit summary and the live trace, later steps"
-)]
 pub(crate) enum FileChange<'a> {
     CreateDirectory,
     RemoveDirectory,
@@ -185,10 +189,6 @@ pub(crate) trait Resolved {
 
 /// What a use resolved to.
 #[derive(Debug)]
-#[expect(
-    dead_code,
-    reason = "what a use resolved to is read by the audit summary and the live trace, later steps"
-)]
 pub(crate) enum Resolution<'a> {
     Nothing,
     /// A path beneath a folder of a mount, the folder named by the system on demand: the mount's
@@ -269,10 +269,6 @@ impl Refused for Refusal {
 
 /// An operation nothing decides anew, told so the trace can show it.
 #[derive(Debug)]
-#[expect(
-    dead_code,
-    reason = "what is noted is read by the live trace, a later step"
-)]
 pub(crate) enum Noted<'a> {
     /// A path a metadata call named, a stat, a symlink read or a hash, and where it led.
     Named {
@@ -294,10 +290,6 @@ pub(crate) enum Noted<'a> {
 
 /// What happened that decides nothing.
 #[derive(Debug)]
-#[expect(
-    dead_code,
-    reason = "what happened is read by the audit summary and the live trace, later steps"
-)]
 pub(crate) enum Happened<'a> {
     /// A question put to the user.
     Asked(Prompt),
@@ -309,6 +301,12 @@ pub(crate) enum Happened<'a> {
     Mounted { on_machine: &'a Path },
     /// A machine the user picked, by its id.
     MachinePicked { machine: &'a str },
+    /// The response to the request `request` came, with `status`, after `took`.
+    Responded {
+        request: u64,
+        status: u16,
+        took: std::time::Duration,
+    },
 }
 
 /// A question put to the user: a permission's, or whether the program may open links of a scheme.
@@ -334,10 +332,12 @@ impl ProgramAccess {
         kept: Option<KeptBy>,
     ) -> ProgramAccess {
         ProgramAccess {
+            instance: 0,
             parts: Arc::new(AccessParts {
                 grants,
                 holdings: holdings::Registry::new(shown),
                 summary: summary::Summary::new(kept),
+                taps: Arc::default(),
                 #[cfg(test)]
                 told: std::sync::Mutex::default(),
             }),
@@ -352,21 +352,21 @@ impl ProgramAccess {
         rule: impl FnOnce(&dyn ProgramGrants) -> Result<R, E>,
     ) -> Result<R, E> {
         let decided = rule(self.parts.grants.as_ref());
-        self.parts.tell_decided(&asked, &decided);
+        self.parts.tell_decided(&asked, &decided, self.instance);
         decided
     }
 
     /// Tells an operation nothing decides anew: a stat, a datagram on a checked address, the
     /// first write through an open file.
     pub(crate) fn note(&self, noted: Noted<'_>) {
-        self.parts.tell_noted(&noted);
+        self.parts.tell_noted(&noted, self.instance);
     }
 
     /// Registers `holding`, which the program holds from now until the [`Held`] answered is
     /// dropped by whatever owns the real thing, as it ends.
     pub(crate) fn hold(&self, holding: Holding) -> Held {
-        self.parts.tell_held(&holding);
-        holdings::Registry::hold(&self.parts, holding)
+        self.parts.tell_held(&holding, self.instance);
+        holdings::Registry::hold(&self.parts, holding, self.instance)
     }
 
     /// Registers `file`, open in a mount of `kind` as `mode` says, among the program's open files
@@ -377,7 +377,7 @@ impl ProgramAccess {
 
     /// Tells what happened that decides nothing: a question asked or answered, a pick kept.
     pub(crate) fn tell(&self, happened: Happened<'_>) {
-        self.parts.tell_happened(&happened);
+        self.parts.tell_happened(&happened, self.instance);
     }
 
     /// `answer`, the user's to `prompt`, put now: told asked now, and answered as it comes.
@@ -386,6 +386,38 @@ impl ProgramAccess {
         let access = self.clone();
         let told = move |answer: &Option<Answer>| access.tell(Happened::Answered(prompt, *answer));
         Box::pin(answer.inspect(told))
+    }
+
+    /// The same access, for the program's instance `instance`: the main one, 0, or a worker,
+    /// from 1 as they started.
+    pub(crate) fn for_instance(&self, instance: u32) -> ProgramAccess {
+        ProgramAccess {
+            parts: Arc::clone(&self.parts),
+            instance,
+        }
+    }
+
+    /// Tells what the program wrote to its standard output, or its errors where `errors`.
+    pub(crate) fn wrote(&self, errors: bool, bytes: &[u8]) {
+        let instance = self.instance;
+        self.parts.taps.send(TraceKind::Output, || {
+            events::output(errors, bytes, instance)
+        });
+    }
+
+    /// The id of the program's next request.
+    pub(crate) fn next_request(&self) -> u64 {
+        self.parts.taps.next_request()
+    }
+
+    /// A new listener of the program's uses of `kind`, from now on.
+    pub(crate) fn subscribe(&self, kind: TraceKind) -> TraceStream {
+        trace::Taps::subscribe(&self.parts.taps, kind)
+    }
+
+    /// The access, held without keeping it.
+    pub(crate) fn downgrade(&self) -> WeakAccess {
+        WeakAccess(Arc::downgrade(&self.parts))
     }
 
     /// The grants, for what is no use: a permission's state, what a picker answers, an answer
@@ -407,12 +439,31 @@ impl ProgramAccess {
     }
 }
 
-/// Where what is told goes: into the program's summary, and, in a test, into the access's record.
+impl WeakAccess {
+    /// The access, while the program's is there.
+    pub(crate) fn upgrade(&self) -> Option<ProgramAccess> {
+        Some(ProgramAccess {
+            parts: self.0.upgrade()?,
+            instance: 0,
+        })
+    }
+}
+
+/// Where what is told goes: into the program's summary, to the listeners of its capability, and,
+/// in a test, into the access's record.
 impl AccessParts {
-    fn tell_decided<R: Resolved, E: Refused>(&self, asked: &Asked<'_>, decided: &Result<R, E>) {
+    fn tell_decided<R: Resolved, E: Refused>(
+        &self,
+        asked: &Asked<'_>,
+        decided: &Result<R, E>,
+        instance: u32,
+    ) {
         let resolution = decided.as_ref().ok().map(Resolved::resolution);
         let refused = decided.as_ref().err().and_then(Refused::setting);
         self.summary.decided(asked, resolution.as_ref(), refused);
+        self.taps.send(events::kind_of(asked), || {
+            events::decided(asked, resolution.as_ref(), refused, instance)
+        });
         #[cfg(test)]
         self.record(match (resolution, refused) {
             (Some(resolution), _) => Told::Allowed(format!("{asked:?}"), format!("{resolution:?}")),
@@ -421,28 +472,40 @@ impl AccessParts {
         });
     }
 
-    fn tell_noted(&self, noted: &Noted<'_>) {
+    fn tell_noted(&self, noted: &Noted<'_>, instance: u32) {
         self.summary.noted(noted);
+        self.taps
+            .send(events::noted_kind(noted), || events::noted(noted, instance));
         #[cfg(test)]
         self.record(Told::Noted(format!("{noted:?}")));
     }
 
-    fn tell_held(&self, _holding: &Holding) {
+    fn tell_held(&self, holding: &Holding, instance: u32) {
+        if let Some(kind) = events::held_kind(holding) {
+            self.taps.send(kind, || events::held(kind, instance));
+        }
         #[cfg(test)]
-        self.record(Told::Held(format!("{_holding:?}")));
+        self.record(Told::Held(format!("{holding:?}")));
     }
 
-    fn tell_happened(&self, happened: &Happened<'_>) {
+    fn tell_happened(&self, happened: &Happened<'_>, instance: u32) {
         self.summary.happened(happened);
+        self.taps.send(events::happened_kind(happened), || {
+            events::happened(happened, instance)
+        });
         #[cfg(test)]
         self.record(Told::Happened(format!("{happened:?}")));
     }
 
     /// Tells a held use's end; a recording's counts as a session, from `since`.
-    fn tell_ended(&self, holding: &Holding, since: (SystemTime, Instant)) {
+    fn tell_ended(&self, holding: &Holding, since: (SystemTime, Instant), instance: u32) {
+        let length = since.1.elapsed();
         if let Holding::Recording(device) = holding {
-            self.summary
-                .session_ended(*device, since.0, since.1.elapsed());
+            self.summary.session_ended(*device, since.0, length);
+        }
+        if let Some(kind) = events::ended_kind(holding) {
+            self.taps
+                .send(kind, || events::ended(kind, length, instance));
         }
         #[cfg(test)]
         self.record(Told::Ended);
@@ -562,5 +625,23 @@ mod tests {
             Ok::<_, Refusal>(grants.clipboard_read())
         });
         assert_eq!(read, Ok(false));
+    }
+
+    #[test]
+    fn a_use_is_sent_to_a_listener_of_its_capability_from_the_instance_that_made_it() {
+        let access = access();
+        let mut clipboard = access.subscribe(TraceKind::Clipboard);
+        let worker = access.for_instance(3);
+        let read = Asked::ClipboardRead {
+            form: "text/plain",
+            pasted: false,
+        };
+        let refused = worker.decide(read, |_| Err::<(), _>(Refusal::by("clipboard-read")));
+        assert!(refused.is_err());
+        let event = futures::StreamExt::next(&mut clipboard).now_or_never().flatten();
+        let json = serde_json::to_value(event.expect("the read is sent")).unwrap();
+        assert_eq!(json["instance"], 3);
+        assert_eq!(json["verdict"]["Refused"], "clipboard-read");
+        assert_eq!(json["kind"]["Read"][0], "text/plain");
     }
 }

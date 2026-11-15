@@ -2,6 +2,9 @@
 //! environment, as it writes it; with none, as `tracing` events naming the program, one per
 //! line, `info` for stdout and `warn` for stderr, under [`targets::PROGRAM`].
 //!
+//! Every write is told through the program's access too, which sends it to whoever listens to the
+//! program's output (`access`'s trace), and to nobody while nobody does.
+//!
 //! The invariants: a chosen output gets every write whole and in order, bytes as the program
 //! wrote them, never cut into lines; the log gets a line as one event, whole, however the
 //! program's writes split it, and what is left without a newline when the stream ends as an
@@ -16,6 +19,7 @@ use tokio::io::AsyncWrite;
 use waos_capabilities::{OutputStream, ProgramOutput};
 use wasmtime_wasi::cli::{IsTerminal, StdoutStream};
 
+use crate::access::ProgramAccess;
 use crate::targets;
 
 /// One of the program's standard streams, as WASI opens it: to `output` when one was chosen,
@@ -24,6 +28,8 @@ pub(super) struct StandardStream {
     program: Arc<str>,
     stream: OutputStream,
     output: Option<Arc<dyn ProgramOutput>>,
+    /// Where each write is told.
+    access: ProgramAccess,
 }
 
 impl StandardStream {
@@ -31,11 +37,13 @@ impl StandardStream {
         program: &str,
         stream: OutputStream,
         output: Option<Arc<dyn ProgramOutput>>,
+        access: ProgramAccess,
     ) -> StandardStream {
         StandardStream {
             program: Arc::from(program),
             stream,
             output,
+            access,
         }
     }
 }
@@ -48,7 +56,7 @@ impl IsTerminal for StandardStream {
 
 impl StdoutStream for StandardStream {
     fn async_stream(&self) -> Box<dyn AsyncWrite + Send + Sync> {
-        match &self.output {
+        let written: Box<dyn AsyncWrite + Send + Sync + Unpin> = match &self.output {
             Some(output) => Box::new(Forwarded {
                 stream: self.stream,
                 output: Arc::clone(output),
@@ -58,7 +66,41 @@ impl StdoutStream for StandardStream {
                 stream: self.stream,
                 partial: Vec::new(),
             }),
+        };
+        Box::new(Told {
+            written,
+            errors: matches!(self.stream, OutputStream::Stderr),
+            access: self.access.clone(),
+        })
+    }
+}
+
+/// What a stream writes, told through the program's access as it is written.
+struct Told {
+    written: Box<dyn AsyncWrite + Send + Sync + Unpin>,
+    errors: bool,
+    access: ProgramAccess,
+}
+
+impl AsyncWrite for Told {
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        bytes: &[u8],
+    ) -> Poll<io::Result<usize>> {
+        let polled = Pin::new(&mut self.written).poll_write(cx, bytes);
+        if let Poll::Ready(Ok(written)) = &polled {
+            self.access.wrote(self.errors, &bytes[..*written]);
         }
+        polled
+    }
+
+    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.written).poll_flush(cx)
+    }
+
+    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.written).poll_shutdown(cx)
     }
 }
 
@@ -175,8 +217,14 @@ mod tests {
     async fn a_chosen_output_gets_each_write_as_it_came() {
         let recording = Arc::new(Recording::default());
         let output: Arc<dyn ProgramOutput> = Arc::clone(&recording) as Arc<dyn ProgramOutput>;
-        let stdout = StandardStream::new("test", OutputStream::Stdout, Some(Arc::clone(&output)));
-        let stderr = StandardStream::new("test", OutputStream::Stderr, Some(output));
+        let access = ProgramAccess::new(Arc::new(crate::permissions::NothingGranted));
+        let stdout = StandardStream::new(
+            "test",
+            OutputStream::Stdout,
+            Some(Arc::clone(&output)),
+            access.clone(),
+        );
+        let stderr = StandardStream::new("test", OutputStream::Stderr, Some(output), access);
         let mut out = Box::into_pin(stdout.async_stream());
         let mut err = Box::into_pin(stderr.async_stream());
         out.write_all(b"a prompt without its newline: ")

@@ -1,0 +1,146 @@
+/// What a program does, live, one stream per capability. Holding a stream is being attached: events
+/// flow from when it is asked for, and stop when it is dropped; nothing is made for a capability
+/// nobody listens to. A listener that falls behind loses events, and the next one it reads says how
+/// many.
+interface trace {
+  use wasi:clocks/system-clock@0.3.0.{instant};
+  use wasi:clocks/monotonic-clock@0.3.0.{duration};
+  use devices.{device};
+  use audit.{mount-kind};
+
+  /// What WaOS decided: allowed, refused by the setting the key names (`network`,
+  /// `local-network`, `domains`, `folders`, `clipboard-read`, `camera`…), or failed, no setting
+  /// deciding it.
+  variant verdict {
+    allowed,
+    refused(string),
+    failed,
+  }
+
+  /// Which instance of the program: its main one, 0, or a worker, from 1 as they started.
+  type instance = u32;
+
+  /// Who a use was for: the program itself, or what it asked to act for it.
+  enum cause { program, request, player, opener, image-codecs, file-dialog, clipboard }
+
+  record lookup { name: string, cause: cause, addresses: list<string> }
+  record connection { address: string, port: u16, names: list<string> }
+  record datagram { address: string, port: u16, sent: bool }
+  record request { id: u64, method: string, url: string }
+  record response { request: u64, status: u16, took: duration }
+
+  variant network-use {
+    lookup(lookup),
+    connect(connection),
+    accept(connection),
+    listen(u16),
+    datagram(datagram),
+    request(request),
+    response(response),
+  }
+
+  record network-event {
+    at: instant,
+    instance: instance,
+    /// Events dropped before this one because the reader fell behind.
+    dropped-before: u32,
+    kind: network-use,
+    verdict: verdict,
+  }
+
+  variant file-use {
+    open-to-read,
+    open-to-write,
+    create-directory,
+    remove,
+    remove-directory,
+    /// Renamed to this path, as the program named it.
+    rename(string),
+    link(string),
+    symlink(string),
+    set-times,
+    /// A status, a symlink read or a hash, noted, not decided.
+    named,
+    /// The first write through a handle.
+    first-write,
+    /// A folder watched, and everything under it where recursive.
+    watch(bool),
+  }
+
+  record file-event {
+    at: instant,
+    instance: instance,
+    dropped-before: u32,
+    /// The path as the program named it; none for a write through a handle.
+    path: option<string>,
+    /// Where it is on the machine; none where it led nowhere.
+    on-machine: option<string>,
+    mount: option<mount-kind>,
+    cause: cause,
+    kind: file-use,
+    verdict: verdict,
+  }
+
+  variant clipboard-use {
+    /// The form read, and whether by the user's paste.
+    read(tuple<string, bool>),
+    write(list<string>),
+  }
+
+  record clipboard-event { at: instant, instance: instance, dropped-before: u32, kind: clipboard-use, verdict: verdict }
+
+  variant device-use {
+    /// The camera by the id the program opened it by, or the microphone; whether it is WaOS's own.
+    opened(tuple<option<string>, bool>),
+    /// A session started, or the microphone recording.
+    started,
+    /// It ended, after so long.
+    ended(duration),
+  }
+
+  record device-event { at: instant, instance: instance, dropped-before: u32, kind: device-use, verdict: verdict }
+
+  record run { machine: string, program: string, arguments: list<string>, in-terminal: bool }
+
+  variant machine-use {
+    picked(string),
+    run(run),
+    /// A run ended, after so long.
+    ended(duration),
+  }
+
+  record machine-event { at: instant, instance: instance, dropped-before: u32, kind: machine-use, verdict: verdict }
+
+  variant permission-use {
+    /// A question put to the user, by its row's key.
+    asked(string),
+    /// Its answer, by key; none when nobody answered.
+    answered(tuple<string, option<string>>),
+    /// A switch's page opened for the user.
+    settings-opened(string),
+    /// A file or folder mounted by a pick, where it is on the machine.
+    mounted(string),
+  }
+
+  record permission-event { at: instant, instance: instance, dropped-before: u32, kind: permission-use }
+
+  record link-event { at: instant, instance: instance, dropped-before: u32, link: string, verdict: verdict }
+
+  record notification-event { at: instant, instance: instance, dropped-before: u32, verdict: verdict }
+
+  enum output-stream { stdout, stderr }
+  record output-chunk { at: instant, instance: instance, dropped-before: u32, channel: output-stream, bytes: list<u8> }
+
+  /// Each capability's events of the program `id` names, from now on; none for a program that
+  /// does not run.
+  network: func(device: borrow<device>, id: string) -> option<stream<network-event>>;
+  files: func(device: borrow<device>, id: string) -> option<stream<file-event>>;
+  clipboard: func(device: borrow<device>, id: string) -> option<stream<clipboard-event>>;
+  camera: func(device: borrow<device>, id: string) -> option<stream<device-event>>;
+  microphone: func(device: borrow<device>, id: string) -> option<stream<device-event>>;
+  machines: func(device: borrow<device>, id: string) -> option<stream<machine-event>>;
+  permissions: func(device: borrow<device>, id: string) -> option<stream<permission-event>>;
+  links: func(device: borrow<device>, id: string) -> option<stream<link-event>>;
+  notifications: func(device: borrow<device>, id: string) -> option<stream<notification-event>>;
+  output: func(device: borrow<device>, id: string) -> option<stream<output-chunk>>;
+}
