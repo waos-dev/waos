@@ -2,9 +2,10 @@
 //! names, on a thread of the app's own with a runtime of its own, and a task per connection,
 //! each, once the protocol is agreed, one run (`dev_run`), one opening of files with a program
 //! (`opening`), one screenshot of the windows of a program a run runs (`dev_screenshot`), one
-//! input to one of them (`dev_input`), a size for one of them (`dev_resize`), or a program's
-//! settings read or one of them set (`dev_settings`). Stopping the server stops every run, waits for each
-//! connection to say so, and removes the socket file.
+//! input to one of them (`dev_input`), a size for one of them (`dev_resize`), a program's
+//! settings read or one of them set (`dev_settings`), or an inspection of a program
+//! (`dev_inspect`). Stopping the server stops every run, waits for each connection to say so, and
+//! removes the socket file.
 //!
 //! The invariant: the server's thread owns the listener, so the socket file goes with the
 //! thread, and dropping the server returns only once the thread has: a WaOS that quit leaves no
@@ -18,6 +19,7 @@ use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
 use super::asking_now::AskingNow;
+use super::dev_inspect::{self, InspectionContext};
 use super::dev_run::{self, RunContext};
 use super::dev_settings::{self, SettingsContext};
 use super::installed_runs::InstalledRuns;
@@ -230,6 +232,14 @@ async fn serve_connection(mut connection: Connection<ServerStream>, context: Con
         }
         Ok(Some(ToWaOS::Set { id, row })) => {
             dev_settings::answer(connection, &context.settings, &id, Some(row)).await;
+        }
+        Ok(Some(ToWaOS::Inspect { id, asked })) => {
+            let inspection = InspectionContext {
+                runs: &context.run.runs,
+                components: &context.run.components,
+                store: &context.store,
+            };
+            dev_inspect::answer(connection, inspection, &id, asked).await;
         }
         Ok(Some(ToWaOS::Resize {
             id,

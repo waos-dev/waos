@@ -24,10 +24,6 @@ use crate::sync::locked;
 
 /// A use the program holds.
 #[derive(Clone, Debug)]
-#[expect(
-    dead_code,
-    reason = "what is held is read by the inspector's live state, a later step"
-)]
 pub(crate) enum Holding {
     /// A capture session or the microphone recording, as the indicator shows it.
     Recording(RecordingDevice),
@@ -89,26 +85,12 @@ struct OpenFile {
 }
 
 /// What a program holds, read at one moment.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the live state is read by the inspection protocol, a later step"
-    )
-)]
 pub(crate) struct Holdings {
     pub(crate) held: Vec<HeldNow>,
     pub(crate) open_files: Vec<OpenFileNow>,
 }
 
 /// A use held, and since when.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the live state is read by the inspection protocol, a later step"
-    )
-)]
 pub(crate) struct HeldNow {
     pub(crate) holding: Holding,
     pub(crate) since: Instant,
@@ -116,13 +98,6 @@ pub(crate) struct HeldNow {
 
 /// A file open: where the system says it is now, the kind of mount it was opened in, and what
 /// for.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the live state is read by the inspection protocol, a later step"
-    )
-)]
 pub(crate) struct OpenFileNow {
     pub(crate) path: Option<PathBuf>,
     pub(crate) kind: MountKind,
@@ -199,13 +174,6 @@ impl Registry {
     }
 
     /// What the program holds now, each open file where the system says it is.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the live state is read by the inspection protocol, a later step"
-        )
-    )]
     pub(super) fn now(&self) -> Holdings {
         let held = locked(&self.held)
             .entries

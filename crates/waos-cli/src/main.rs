@@ -22,6 +22,7 @@ mod icon_rule;
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 mod desktop_entries;
 mod input;
+mod inspect;
 mod metadata;
 mod new;
 mod os;
@@ -174,6 +175,29 @@ enum Command {
     /// chosen: a file to open that exists, a folder that exists, a file to save in a folder that
     /// exists. A machine or an output is named by its id, as `cargo waos settings` lists them.
     Set(SetArgs),
+    /// Prints what WaOS knows of what the program does with what it was allowed, as JSON lines of
+    /// wasdk:inspect's values, one value a line: `summary`, its audit summary, a day a line,
+    /// newest first; `holdings`, what it holds now, each use that lasts and each file it has
+    /// open; or its live trace of the capabilities named, each event as it comes, until Ctrl-C or
+    /// the program's end: network, files, clipboard, camera, microphone, machines, permissions,
+    /// links, notifications, output, or `all` of them.
+    ///
+    /// A summary has a day only where the program used something WaOS guards that day; its output
+    /// is not one. The summary is read for a program `cargo waos run` on this machine runs or has
+    /// run, the rest for one it runs; WaOS is never started.
+    Inspect(InspectArgs),
+}
+
+#[derive(Args)]
+struct InspectArgs {
+    #[command(flatten)]
+    program: Program,
+    /// What to inspect: summary, holdings, all, or the capabilities to trace.
+    #[arg(required = true, num_args = 1..)]
+    what: Vec<String>,
+    /// How many of the summary's days, newest first.
+    #[arg(long, default_value_t = 7)]
+    days: u32,
 }
 
 #[derive(Args)]
@@ -368,6 +392,9 @@ fn main() -> ExitCode {
         Command::Set(set) => {
             program_id(&set.program).and_then(|id| on_this_thread(settings::set(id, &set.row)))
         }
+        Command::Inspect(inspect) => inspect::inspection_of(&inspect.what, inspect.days)
+            .and_then(|asked| Ok((program_id(&inspect.program)?, asked)))
+            .and_then(|(id, asked)| on_this_thread(inspect::inspect(id, asked))),
     };
     done.unwrap_or_else(|error| {
         eprintln!("cargo waos: {error:#}");

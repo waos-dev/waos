@@ -21,7 +21,22 @@ interface audit {
   }
 
   /// What a mount is to the program.
-  enum mount-kind { own-data, own-cache, own-temporary, granted, picked, pasted, machine }
+  enum mount-kind {
+    /// Its own `/data`.
+    own-data,
+    /// Its own `/cache`.
+    own-cache,
+    /// Its own `/tmp`, emptied when it ends.
+    own-temporary,
+    /// A folder its user granted it.
+    granted,
+    /// A file or folder its user picked for it.
+    picked,
+    /// A file or folder its user pasted into it.
+    pasted,
+    /// A machine its user gave it whole.
+    machine,
+  }
 
   /// What a program did in one mount.
   record folder {

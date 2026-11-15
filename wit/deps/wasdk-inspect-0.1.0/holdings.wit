@@ -6,7 +6,14 @@ interface holdings {
   use audit.{mount-kind};
 
   /// What a program records with.
-  enum recording-device { camera, microphone, simulated-camera, simulated-microphone }
+  enum recording-device {
+    camera,
+    microphone,
+    /// A camera of WaOS's own, for a program whose camera answer is simulated.
+    simulated-camera,
+    /// A microphone of WaOS's own, for a program whose microphone answer is simulated.
+    simulated-microphone,
+  }
 
   variant holding {
     /// A capture session or the microphone recording.
@@ -19,9 +26,28 @@ interface holdings {
     watch(watch),
   }
 
-  record run { machine: string, program: string, in-terminal: bool }
-  record request { method: string, url: string }
-  record watch { folder: string, recursive: bool }
+  /// A command running on a machine.
+  record run {
+    /// The machine, by its name.
+    machine: string,
+    program: string,
+    /// Whether it runs in a terminal; with pipes otherwise.
+    in-terminal: bool,
+  }
+
+  /// An HTTP request in flight.
+  record request {
+    method: string,
+    url: string,
+  }
+
+  /// A folder watched.
+  record watch {
+    /// Where it was on the machine when the watch began.
+    folder: string,
+    /// Whether everything under it is watched too.
+    recursive: bool,
+  }
 
   record held {
     holding: holding,

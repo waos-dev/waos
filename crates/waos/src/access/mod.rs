@@ -18,12 +18,12 @@
 //! decided one way and told another. [`ProgramAccess::grants`] is for what is no use: a
 //! permission's state, what a picker answers, an answer kept.
 
-mod events;
+pub(crate) mod events;
 mod holdings;
 mod summary;
 #[cfg(test)]
 mod test_answers;
-mod trace;
+pub(crate) mod trace;
 
 use std::fs;
 use std::net::{IpAddr, SocketAddr};
@@ -415,6 +415,11 @@ impl ProgramAccess {
         trace::Taps::subscribe(&self.parts.taps, kind)
     }
 
+    /// Keeps the program's day of its audit summary as it is now.
+    pub(crate) fn keep_summary(&self) {
+        self.parts.summary.keep();
+    }
+
     /// The access, held without keeping it.
     pub(crate) fn downgrade(&self) -> WeakAccess {
         WeakAccess(Arc::downgrade(&self.parts))
@@ -427,13 +432,6 @@ impl ProgramAccess {
     }
     /// What the program holds now: each use held, since when, and each file open, where the
     /// system says it is. Read on demand; nothing is made for it while nobody reads it.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the live state is read by the inspection protocol, a later step"
-        )
-    )]
     pub(crate) fn holdings(&self) -> Holdings {
         self.parts.holdings.now()
     }
@@ -641,7 +639,7 @@ mod tests {
         let event = futures::StreamExt::next(&mut clipboard).now_or_never().flatten();
         let json = serde_json::to_value(event.expect("the read is sent")).unwrap();
         assert_eq!(json["instance"], 3);
-        assert_eq!(json["verdict"]["Refused"], "clipboard-read");
-        assert_eq!(json["kind"]["Read"][0], "text/plain");
+        assert_eq!(json["verdict"]["refused"], "clipboard-read");
+        assert_eq!(json["kind"]["read"]["form"], "text/plain");
     }
 }

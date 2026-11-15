@@ -13,9 +13,14 @@ use crate::connecting::nobody_answers;
 
 /// What the WaOS running answers `question`.
 pub async fn ask(question: &ToWaOS) -> Result<FromWaOS> {
+    ask_on(connect().await?, question).await
+}
+
+/// A connection to the WaOS running, never started.
+pub async fn connect() -> Result<Connection<ClientStream>> {
     let socket = waos_dev_protocol::listener_path();
-    let connection = match Connection::connect(&socket).await {
-        Ok(connection) => connection,
+    match Connection::connect(&socket).await {
+        Ok(connection) => Ok(connection),
         Err(error) if nobody_answers(&error) => {
             bail!(
                 "no WaOS answers at {}: run the program with `cargo waos run` first",
@@ -23,11 +28,9 @@ pub async fn ask(question: &ToWaOS) -> Result<FromWaOS> {
             )
         }
         Err(error) => {
-            return Err(error)
-                .with_context(|| format!("connecting to WaOS at {}", socket.display()));
+            Err(error).with_context(|| format!("connecting to WaOS at {}", socket.display()))
         }
-    };
-    ask_on(connection, question).await
+    }
 }
 
 /// What the WaOS at the other end of `connection` answers `question`.

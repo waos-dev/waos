@@ -10106,13 +10106,65 @@ dependencies = [
 ]
 
 [[package]]
+name = "waft-embedder-apple"
+version = "0.5.0"
+dependencies = [
+ "block2",
+ "dispatch2",
+ "objc2",
+ "objc2-av-foundation",
+ "objc2-core-foundation",
+ "objc2-core-graphics",
+ "objc2-core-media",
+ "objc2-core-text",
+ "objc2-core-video",
+ "objc2-foundation",
+ "objc2-image-io",
+ "objc2-io-surface",
+ "objc2-media-accessibility",
+ "objc2-metal",
+ "objc2-quartz-core",
+ "objc2-uniform-type-identifiers",
+ "objc2-user-notifications",
+ "png 0.18.1",
+ "valo",
+ "valo-codec",
+ "valo-codec-apple",
+ "valo-geometry",
+ "waft-embedder",
+ "wgpu",
+]
+
+[[package]]
 name = "waft-embedder-default"
 version = "0.5.0"
 dependencies = [
  "waft-embedder",
  "waft-embedder-android",
+ "waft-embedder-ios",
  "waft-embedder-web",
  "waft-embedder-winit",
+]
+
+[[package]]
+name = "waft-embedder-ios"
+version = "0.5.0"
+dependencies = [
+ "block2",
+ "dispatch2",
+ "objc2",
+ "objc2-core-foundation",
+ "objc2-foundation",
+ "objc2-quartz-core",
+ "objc2-ui-kit",
+ "objc2-uniform-type-identifiers",
+ "pollster",
+ "valo",
+ "valo-codec",
+ "valo-codec-software",
+ "waft-embedder",
+ "waft-embedder-apple",
+ "wgpu",
 ]
 
 [[package]]
@@ -10142,30 +10194,18 @@ dependencies = [
  "libloading",
  "objc2",
  "objc2-app-kit",
- "objc2-av-foundation",
- "objc2-core-foundation",
- "objc2-core-graphics",
- "objc2-core-media",
- "objc2-core-text",
- "objc2-core-video",
  "objc2-foundation",
- "objc2-image-io",
- "objc2-io-surface",
- "objc2-media-accessibility",
- "objc2-metal",
  "objc2-quartz-core",
- "objc2-ui-kit",
  "objc2-uniform-type-identifiers",
- "objc2-user-notifications",
  "png 0.18.1",
  "pollster",
  "sys-locale",
  "valo",
  "valo-codec",
- "valo-codec-apple",
  "valo-codec-software",
  "valo-geometry",
  "waft-embedder",
+ "waft-embedder-apple",
  "wayland-backend",
  "wayland-client",
  "wayland-protocols",
@@ -10406,6 +10446,7 @@ dependencies = [
  "waos-local-processes",
  "waos-test-programs",
  "waos-webgpu-host",
+ "waos-wit-serialize",
  "wasmtime",
  "wasmtime-wasi",
  "wasmtime-wasi-http",
@@ -10446,6 +10487,7 @@ dependencies = [
  "rustls-platform-verifier",
  "security-framework",
  "serde",
+ "serde_json",
  "sha2 0.11.1",
  "tempfile",
  "tokio",
@@ -10683,6 +10725,17 @@ dependencies = [
  "waft-embedder",
  "waos",
  "waos-package",
+]
+
+[[package]]
+name = "waos-wit-serialize"
+version = "0.2.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "serde",
+ "serde_json",
+ "syn 2.0.119",
 ]
 
 [[package]]

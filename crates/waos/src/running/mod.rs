@@ -363,6 +363,21 @@ impl RunningProgram {
         Some(access.subscribe(kind))
     }
 
+    /// What the program holds now, as `wasdk:inspect` says it: each use held and each file open;
+    /// none before its code is linked and once it and every use it held have ended.
+    pub fn holdings(&self) -> Option<crate::inspection::bindings::wasdk::inspect::holdings::Now> {
+        let access = self.0.access.get()?.upgrade()?;
+        Some(crate::inspection::now_of(access.holdings()))
+    }
+
+    /// Keeps the program's day of its audit summary as it is now, so what is kept says all it
+    /// did until now.
+    pub fn keep_summary(&self) {
+        if let Some(access) = self.0.access.get().and_then(WeakAccess::upgrade) {
+            access.keep_summary();
+        }
+    }
+
     /// Its access, from its instances' link on.
     pub(crate) fn attach_access(&self, access: &ProgramAccess) {
         // Linked once; a second link would be the same program's.

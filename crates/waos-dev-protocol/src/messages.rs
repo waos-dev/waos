@@ -2,7 +2,9 @@
 //! says, files to open with a program, and the answer; and what `cargo waos` asks of the windows of
 //! a program a run of its own runs, a screenshot or an input, and the answer (the design's decision
 //! 60); and a program's rows of settings, read or set, for a program a run has run, and the
-//! answer; and a size for one of a program's windows, and the size it took.
+//! answer; a size for one of a program's windows, and the size it took; and an inspection of a
+//! program, its audit summary, what it holds or its live trace, answered as JSON of
+//! `wasdk:inspect`'s values, so a reader needs no types of its own.
 //!
 //! The invariant: a variant's place and a field's place is its encoding (the crate's doc). A
 //! program's output is bytes, not lines, so a terminal shows what the program wrote as it wrote it,
@@ -66,6 +68,69 @@ pub enum ToWaOS {
         width: f64,
         height: f64,
     },
+    /// What `asked` asks of the program `id` names (the inspector proposal's protocol): its audit
+    /// summary, for a program a run of `cargo waos run` on this machine runs or has run; or what it
+    /// holds now, or its live trace, while a run runs it. Answered `Inspected`, once for a summary
+    /// or what is held, after which the connection ends, and for a trace with each event as it
+    /// comes, until the connection closes or the program ends; or `Unreached`.
+    Inspect { id: ProgramId, asked: Inspection },
+}
+
+/// What an inspection asks of a program.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Inspection {
+    /// Its audit summary's days, newest first, `days` at most.
+    Summary { days: u32 },
+    /// What it holds now: each use that lasts, and each file it has open.
+    Holdings,
+    /// Its uses of each of `traced` from now on, live.
+    Trace(Vec<Traced>),
+}
+
+/// A capability whose uses a trace hears: one of `wasdk:inspect`'s streams.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Traced {
+    Network,
+    Files,
+    Clipboard,
+    Camera,
+    Microphone,
+    Machines,
+    Permissions,
+    Links,
+    Notifications,
+    Output,
+}
+
+impl Traced {
+    pub const ALL: [Traced; 10] = [
+        Traced::Network,
+        Traced::Files,
+        Traced::Clipboard,
+        Traced::Camera,
+        Traced::Microphone,
+        Traced::Machines,
+        Traced::Permissions,
+        Traced::Links,
+        Traced::Notifications,
+        Traced::Output,
+    ];
+
+    /// Its name, as `cargo waos inspect` takes it.
+    pub fn key(self) -> &'static str {
+        match self {
+            Traced::Network => "network",
+            Traced::Files => "files",
+            Traced::Clipboard => "clipboard",
+            Traced::Camera => "camera",
+            Traced::Microphone => "microphone",
+            Traced::Machines => "machines",
+            Traced::Permissions => "permissions",
+            Traced::Links => "links",
+            Traced::Notifications => "notifications",
+            Traced::Output => "output",
+        }
+    }
 }
 
 /// Input to a program's window, as its user would give it, which WaOS simulates: it makes the
@@ -142,6 +207,9 @@ pub enum FromWaOS {
         scale: f64,
         new_picture: bool,
     },
+    /// What an inspection asked for, as JSON of `wasdk:inspect`'s values, one value a line: the
+    /// summary's days, newest first, what the program holds, or one event of its trace.
+    Inspected(Vec<String>),
 }
 
 /// One of a program's windows, as its user sees it: what `cargo waos screenshot` writes.
@@ -261,6 +329,11 @@ impl fmt::Debug for ToWaOS {
                 .field("window", window)
                 .field("width", width)
                 .field("height", height)
+                .finish(),
+            ToWaOS::Inspect { id, asked } => f
+                .debug_struct("Inspect")
+                .field("id", &format_args!("{id}"))
+                .field("asked", asked)
                 .finish(),
         }
     }
@@ -537,5 +610,26 @@ mod tests {
         let printed = format!("{:?}", FromWaOS::Screenshots(vec![picture]));
         assert!(printed.contains("png_bytes: Some(2048)"), "{printed}");
         assert!(!printed.contains("0, 0"), "{printed}");
+    }
+
+    #[test]
+    fn an_inspection_and_its_answers_read_back_as_written() {
+        let id: ProgramId = "dev.waos.notes".parse().unwrap();
+        let asked = [
+            Inspection::Summary { days: 7 },
+            Inspection::Holdings,
+            Inspection::Trace(Traced::ALL.to_vec()),
+        ];
+        for asked in asked {
+            let inspect = ToWaOS::Inspect {
+                id: id.clone(),
+                asked,
+            };
+            let bytes = postcard::to_stdvec(&inspect).unwrap();
+            assert_eq!(postcard::from_bytes::<ToWaOS>(&bytes).unwrap(), inspect);
+        }
+        let inspected = FromWaOS::Inspected(vec![r#"{"verdict":"Allowed"}"#.to_owned()]);
+        let bytes = postcard::to_stdvec(&inspected).unwrap();
+        assert_eq!(postcard::from_bytes::<FromWaOS>(&bytes).unwrap(), inspected);
     }
 }

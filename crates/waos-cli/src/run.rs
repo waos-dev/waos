@@ -54,7 +54,8 @@ pub async fn run(id: ProgramId, program: &BuiltProgram) -> Result<ExitCode> {
                 | FromWaOS::InputDone { .. }
                 | FromWaOS::Unreached(_)
                 | FromWaOS::Settings(_)
-                | FromWaOS::Resized { .. })) => {
+                | FromWaOS::Resized { .. }
+                | FromWaOS::Inspected(_))) => {
                     bail!("WaOS answered {other:?}, which a run never asks for")
                 }
                 None => bail!("WaOS closed the connection before {name} ended"),

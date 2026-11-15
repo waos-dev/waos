@@ -48,6 +48,8 @@ pub(crate) mod deck_geometry;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(crate) mod dev_input;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
+pub(crate) mod dev_inspect;
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(crate) mod dev_resize;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(crate) mod dev_run;

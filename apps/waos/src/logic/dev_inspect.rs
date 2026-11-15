@@ -1,0 +1,130 @@
+//! An inspection `cargo waos inspect` asks for (the inspector proposal's protocol): a program's
+//! audit summary, its days as the store keeps them, today's kept first where it runs; what it holds
+//! now; or its live trace, each event as it comes until the connection closes or the program ends.
+//! Each value goes as JSON of `wasdk:inspect`'s, one a line, so the command prints what it reads.
+//!
+//! The invariant: only a program a run of `cargo waos run` on this machine runs is inspected live,
+//! and only one it runs or has run has its summary read, as its settings are (`dev_settings`);
+//! never a program the library opened, whose record is its user's to read.
+
+use futures::StreamExt;
+use futures::stream::{self, BoxStream};
+use waos::{AuditLog, RunningProgram, TraceKind};
+use waos_dev_protocol::{Connection, FromWaOS, Inspection, ServerStream, Traced, Unreached};
+use waos_package::ProgramId;
+use waos_store::Store;
+
+use super::runs::Runs;
+use super::sent_components::SentComponents;
+
+/// What an inspection reads of the app.
+pub(crate) struct InspectionContext<'a> {
+    pub(crate) runs: &'a Runs,
+    pub(crate) components: &'a SentComponents,
+    pub(crate) store: &'a Store,
+}
+
+/// Answers a connection's `Inspect`: what `asked` asks of the program `id`.
+pub(crate) async fn answer(
+    mut connection: Connection<ServerStream>,
+    context: InspectionContext<'_>,
+    id: &ProgramId,
+    asked: Inspection,
+) {
+    let running = context.runs.dev_run(id).await.map(|run| run.program);
+    let answered = match asked {
+        Inspection::Summary { days } => {
+            let was_run = running.is_some() || context.components.was_sent(id);
+            if was_run {
+                Ok(summary(context.store, running.as_ref(), id, days))
+            } else {
+                Err(Unreached::NeverRunByCargoWaos)
+            }
+        }
+        Inspection::Holdings => running
+            .as_ref()
+            .and_then(RunningProgram::holdings)
+            .map(|now| vec![json(&now)])
+            .ok_or(Unreached::NotRunByCargoWaos),
+        Inspection::Trace(traced) => match running {
+            Some(program) => {
+                trace(connection, &program, &traced).await;
+                return;
+            }
+            None => Err(Unreached::NotRunByCargoWaos),
+        },
+    };
+    let answer = match answered {
+        Ok(lines) => FromWaOS::Inspected(lines),
+        Err(why) => FromWaOS::Unreached(why),
+    };
+    // A client gone meanwhile has nobody to tell.
+    let _ = connection.send(&answer).await;
+}
+
+/// The program's last `days` days, newest first, today's kept as it is now where it runs.
+fn summary(
+    store: &Store,
+    running: Option<&RunningProgram>,
+    id: &ProgramId,
+    days: u32,
+) -> Vec<String> {
+    if let Some(program) = running {
+        program.keep_summary();
+    }
+    store
+        .days(id.as_str())
+        .iter()
+        .take(usize::try_from(days).unwrap_or(usize::MAX))
+        .map(|day| json(&waos::inspection::day_of(day)))
+        .collect()
+}
+
+/// Sends each event of `program`'s uses of `traced` as it comes, until the connection closes or
+/// the program ends.
+async fn trace(connection: Connection<ServerStream>, program: &RunningProgram, traced: &[Traced]) {
+    let streams: Vec<BoxStream<'static, waos::TraceEvent>> = traced
+        .iter()
+        .filter_map(|traced| program.trace(kind_of(*traced)))
+        .map(StreamExt::boxed)
+        .collect();
+    let mut events = stream::select_all(streams);
+    let (mut reading, mut writing) = connection.into_split();
+    // The client says nothing more: anything it sends, or its closing, ends the trace.
+    let closed = reading.receive::<waos_dev_protocol::ToWaOS>();
+    tokio::pin!(closed);
+    loop {
+        tokio::select! {
+            event = events.next() => {
+                let Some(event) = event else { return };
+                if writing.send(&FromWaOS::Inspected(vec![json(&event)])).await.is_err() {
+                    return;
+                }
+            }
+            _ = &mut closed => return,
+        }
+    }
+}
+
+fn kind_of(traced: Traced) -> TraceKind {
+    match traced {
+        Traced::Network => TraceKind::Network,
+        Traced::Files => TraceKind::Files,
+        Traced::Clipboard => TraceKind::Clipboard,
+        Traced::Camera => TraceKind::Camera,
+        Traced::Microphone => TraceKind::Microphone,
+        Traced::Machines => TraceKind::Machines,
+        Traced::Permissions => TraceKind::Permissions,
+        Traced::Links => TraceKind::Links,
+        Traced::Notifications => TraceKind::Notifications,
+        Traced::Output => TraceKind::Output,
+    }
+}
+
+/// `value` as one line of JSON.
+fn json(value: &impl serde::Serialize) -> String {
+    serde_json::to_string(value).unwrap_or_else(|error| {
+        tracing::warn!(%error, "a value of wasdk:inspect does not serialize");
+        "null".to_owned()
+    })
+}

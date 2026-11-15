@@ -138,5 +138,6 @@ pub use waos_capabilities::MachineChoice;
 pub use waos_capabilities::{Answer, FileDialog, ProgramGrants, Question, SimulatedSound, Switch};
 /// A program's sound devices, and an output among them as the shell's picker shows it.
 pub use waos_capabilities::{AudioDeviceError, AudioDevices, AudioOutput};
+pub use waos_capabilities::{AuditDay, AuditLog};
 pub use waos_capabilities::{OutputStream, ProgramEnvironment, ProgramOutput};
 pub use windows::WindowConfig;

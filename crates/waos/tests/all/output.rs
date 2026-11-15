@@ -124,7 +124,7 @@ fn a_listener_of_the_programs_output_hears_what_it_writes_from_then_on() {
     };
     let chunk = block_on(futures::StreamExt::next(&mut output)).expect("a write is heard");
     let json = serde_json::to_value(&chunk).unwrap();
-    assert_eq!(json["channel"], "Stdout");
+    assert_eq!(json["channel"], "stdout");
     assert_eq!(json["instance"], 0);
     let bytes: Vec<u8> = serde_json::from_value(json["bytes"].clone()).unwrap();
     assert!(String::from_utf8_lossy(&bytes).starts_with("count "), "{bytes:?}");

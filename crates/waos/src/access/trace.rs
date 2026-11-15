@@ -12,7 +12,7 @@
 
 use std::pin::Pin;
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, Weak};
 use std::task::{Context, Poll};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -86,11 +86,13 @@ struct Listener {
     dropped: u32,
 }
 
-/// One listener's events of one capability of a program, from when it subscribed; dropped, it no
-/// longer listens.
+/// One listener's events of one capability of a program, from when it subscribed, until the
+/// program and every use it held have ended; dropped, it no longer listens.
 pub struct TraceStream {
     events: mpsc::Receiver<TraceEvent>,
-    taps: Arc<Taps>,
+    /// The taps it listens at, held without keeping them: they go with the program's access,
+    /// and the stream ends then.
+    taps: Weak<Taps>,
     id: u64,
 }
 
@@ -150,7 +152,7 @@ impl Taps {
         taps.listen_to(&listeners);
         TraceStream {
             events: received,
-            taps: Arc::clone(taps),
+            taps: Arc::downgrade(taps),
             id,
         }
     }
@@ -181,9 +183,12 @@ impl Stream for TraceStream {
 impl Drop for TraceStream {
     /// No longer listens: the last listener of its capability clears the capability's bit.
     fn drop(&mut self) {
-        let mut listeners = locked(&self.taps.listeners);
+        let Some(taps) = self.taps.upgrade() else {
+            return;
+        };
+        let mut listeners = locked(&taps.listeners);
         listeners.each.retain(|listener| listener.id != self.id);
-        self.taps.listen_to(&listeners);
+        taps.listen_to(&listeners);
     }
 }
 
@@ -295,5 +300,13 @@ mod tests {
         taps.send(TraceKind::Notifications, || posted(0));
         let next = stream.next().now_or_never().flatten().unwrap();
         assert_eq!(dropped_before(&next) as usize, WAITING + 10 - read);
+    }
+
+    #[test]
+    fn a_stream_ends_as_the_programs_taps_go() {
+        let taps = Arc::new(Taps::default());
+        let mut stream = Taps::subscribe(&taps, TraceKind::Notifications);
+        drop(taps);
+        assert!(futures::executor::block_on(stream.next()).is_none());
     }
 }

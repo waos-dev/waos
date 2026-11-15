@@ -21,18 +21,70 @@ interface trace {
   type instance = u32;
 
   /// Who a use was for: the program itself, or what it asked to act for it.
-  enum cause { program, request, player, opener, image-codecs, file-dialog, clipboard }
+  enum cause {
+    program,
+    /// A request of the program's, whose host is looked up to send it.
+    request,
+    /// A player or the reading of media, which the system opens a link or a file for.
+    player,
+    /// The system's app a file or link is opened in, or its file manager.
+    opener,
+    /// The system's codecs, which read an image's file.
+    image-codecs,
+    /// A file dialog, which opens at a folder.
+    file-dialog,
+    /// Whatever the user pastes a file the program copied into.
+    clipboard,
+  }
 
-  record lookup { name: string, cause: cause, addresses: list<string> }
-  record connection { address: string, port: u16, names: list<string> }
-  record datagram { address: string, port: u16, sent: bool }
-  record request { id: u64, method: string, url: string }
-  record response { request: u64, status: u16, took: duration }
+  /// A name looked up.
+  record lookup {
+    name: string,
+    cause: cause,
+    /// The addresses answered; none for a lookup refused or failed.
+    addresses: list<string>,
+  }
+
+  /// A TCP connection made or accepted.
+  record connection {
+    /// The address at the other end.
+    address: string,
+    port: u16,
+    /// The names the address was looked up by, which the domain rule judged it by.
+    names: list<string>,
+  }
+
+  /// A UDP datagram.
+  record datagram {
+    /// The address it was sent to or came from.
+    address: string,
+    port: u16,
+    /// Whether it was sent; received otherwise.
+    sent: bool,
+  }
+
+  /// An HTTP request the program sent.
+  record request {
+    /// The request's id among the program's, which its response names.
+    id: u64,
+    method: string,
+    url: string,
+  }
+
+  /// The head of a request's response.
+  record response {
+    /// The id of the request it answers.
+    request: u64,
+    status: u16,
+    /// How long after the request was sent its head came.
+    took: duration,
+  }
 
   variant network-use {
     lookup(lookup),
     connect(connection),
     accept(connection),
+    /// A socket listening, at its port.
     listen(u16),
     datagram(datagram),
     request(request),
@@ -56,7 +108,9 @@ interface trace {
     remove-directory,
     /// Renamed to this path, as the program named it.
     rename(string),
+    /// A hard link made at this path, as the program named it.
     link(string),
+    /// A symlink holding this made.
     symlink(string),
     set-times,
     /// A status, a symlink read or a hash, noted, not decided.
@@ -70,66 +124,153 @@ interface trace {
   record file-event {
     at: instant,
     instance: instance,
+    /// Events dropped before this one because the reader fell behind.
     dropped-before: u32,
     /// The path as the program named it; none for a write through a handle.
     path: option<string>,
     /// Where it is on the machine; none where it led nowhere.
     on-machine: option<string>,
+    /// The mount it is in; none where it led nowhere.
     mount: option<mount-kind>,
     cause: cause,
     kind: file-use,
     verdict: verdict,
   }
 
+  /// The clipboard read.
+  record clipboard-read {
+    /// The form read, as its MIME type names it.
+    form: string,
+    /// Whether the user pasted what was read, which reads past the read switch.
+    pasted: bool,
+  }
+
   variant clipboard-use {
-    /// The form read, and whether by the user's paste.
-    read(tuple<string, bool>),
+    read(clipboard-read),
+    /// The forms written, as their MIME types name them.
     write(list<string>),
   }
 
-  record clipboard-event { at: instant, instance: instance, dropped-before: u32, kind: clipboard-use, verdict: verdict }
+  record clipboard-event {
+    at: instant,
+    instance: instance,
+    /// Events dropped before this one because the reader fell behind.
+    dropped-before: u32,
+    kind: clipboard-use,
+    verdict: verdict,
+  }
+
+  /// A camera or the microphone opened.
+  record device-opened {
+    /// The camera, by the id the program opened it by; none for the microphone.
+    camera: option<string>,
+    /// Whether it is one of WaOS's own, simulated, rather than the machine's.
+    simulated: bool,
+  }
 
   variant device-use {
-    /// The camera by the id the program opened it by, or the microphone; whether it is WaOS's own.
-    opened(tuple<option<string>, bool>),
+    opened(device-opened),
     /// A session started, or the microphone recording.
     started,
     /// It ended, after so long.
     ended(duration),
   }
 
-  record device-event { at: instant, instance: instance, dropped-before: u32, kind: device-use, verdict: verdict }
+  record device-event {
+    at: instant,
+    instance: instance,
+    /// Events dropped before this one because the reader fell behind.
+    dropped-before: u32,
+    kind: device-use,
+    verdict: verdict,
+  }
 
-  record run { machine: string, program: string, arguments: list<string>, in-terminal: bool }
+  /// A command run on a machine.
+  record run {
+    /// The machine, by its name.
+    machine: string,
+    program: string,
+    arguments: list<string>,
+    /// Whether it runs in a terminal; with pipes otherwise.
+    in-terminal: bool,
+  }
 
   variant machine-use {
+    /// A machine the user picked, by its id.
     picked(string),
     run(run),
     /// A run ended, after so long.
     ended(duration),
   }
 
-  record machine-event { at: instant, instance: instance, dropped-before: u32, kind: machine-use, verdict: verdict }
+  record machine-event {
+    at: instant,
+    instance: instance,
+    /// Events dropped before this one because the reader fell behind.
+    dropped-before: u32,
+    kind: machine-use,
+    verdict: verdict,
+  }
+
+  /// A question's answer.
+  record answered {
+    /// The question, by its row's key.
+    question: string,
+    /// The answer, by its key; none when nobody answered.
+    answer: option<string>,
+  }
 
   variant permission-use {
     /// A question put to the user, by its row's key.
     asked(string),
-    /// Its answer, by key; none when nobody answered.
-    answered(tuple<string, option<string>>),
-    /// A switch's page opened for the user.
+    answered(answered),
+    /// A switch's page opened for the user, by the switch's key.
     settings-opened(string),
     /// A file or folder mounted by a pick, where it is on the machine.
     mounted(string),
   }
 
-  record permission-event { at: instant, instance: instance, dropped-before: u32, kind: permission-use }
+  record permission-event {
+    at: instant,
+    instance: instance,
+    /// Events dropped before this one because the reader fell behind.
+    dropped-before: u32,
+    kind: permission-use,
+  }
 
-  record link-event { at: instant, instance: instance, dropped-before: u32, link: string, verdict: verdict }
+  record link-event {
+    at: instant,
+    instance: instance,
+    /// Events dropped before this one because the reader fell behind.
+    dropped-before: u32,
+    /// The link, as the program named it.
+    link: string,
+    verdict: verdict,
+  }
 
-  record notification-event { at: instant, instance: instance, dropped-before: u32, verdict: verdict }
+  /// A notification posted.
+  record notification-event {
+    at: instant,
+    instance: instance,
+    /// Events dropped before this one because the reader fell behind.
+    dropped-before: u32,
+    verdict: verdict,
+  }
 
-  enum output-stream { stdout, stderr }
-  record output-chunk { at: instant, instance: instance, dropped-before: u32, channel: output-stream, bytes: list<u8> }
+  enum output-stream {
+    stdout,
+    stderr,
+  }
+
+  /// What the program wrote to its standard output or errors, as it wrote it.
+  record output-chunk {
+    at: instant,
+    instance: instance,
+    /// Events dropped before this one because the reader fell behind.
+    dropped-before: u32,
+    channel: output-stream,
+    bytes: list<u8>,
+  }
 
   /// Each capability's events of the program `id` names, from now on; none for a program that
   /// does not run.

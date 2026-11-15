@@ -16,10 +16,13 @@
 //! connect the same way and send one [`ToWaOS::Settings`] or [`ToWaOS::Set`], a program's rows of
 //! settings to read or one to set, which a WaOS answers once, for a program a run of `cargo waos
 //! run` on this machine runs or has run; and while WaOS asks a program's user something, the run's
-//! connection hears [`FromWaOS::Asking`]. There is no stop message. On this
-//! machine the socket is in the user's own folder, so the system's file permissions decide who may
-//! connect (decision 30), and on Windows the pipe's security descriptor gives the user alone
-//! access; the network transport for phones carries the same messages.
+//! connection hears [`FromWaOS::Asking`]. `cargo waos inspect` connects the same way and sends
+//! one [`ToWaOS::Inspect`], for a program's audit summary, what it holds or its live trace, which a
+//! WaOS answers as JSON lines of `wasdk:inspect`'s values, for a program a run of `cargo waos run`
+//! on this machine runs, or, for the summary, has run. There is no stop message. On this machine
+//! the socket is in the user's own folder, so the system's file permissions decide who may connect
+//! (decision 30), and on Windows the pipe's security descriptor gives the user alone access; the
+//! network transport for phones carries the same messages.
 //!
 //! The invariants a later editor will break:
 //! - A variant's place among its enum's, and a field's place in its record, is its encoding:
@@ -39,7 +42,9 @@ mod settings_rows;
 mod socket;
 
 pub use connection::{Connection, MAX_FRAME_BYTES, PROTOCOL};
-pub use messages::{FromWaOS, Input, OutputStream, RunEnd, ToWaOS, Unreached, WindowPicture};
+pub use messages::{
+    FromWaOS, Input, Inspection, OutputStream, RunEnd, ToWaOS, Traced, Unreached, WindowPicture,
+};
 #[cfg(windows)]
 pub use pipe::{ClientStream, Listener, ServerStream, listener_path};
 pub use settings_rows::{

@@ -2,9 +2,9 @@
 
 `cargo waos`: what someone writing a program runs. It writes a new program, builds a program as a component, runs it in the WaOS on this machine, and packages it as a signed `.wapk` listed in a package source's `index.json`; and while a run of its own runs the program, it takes a screenshot of the program's windows, gives them input and sizes them, so an agent building the program sees it and uses it (the design's decision 60). It gains a command when a step needs one, and has no `doctor` and no device commands: a phone is reached through the WaOS app already on it, found on the network, never by installing anything on the phone (the design's decision 21).
 
-- **Takes:** a name and a widget kit, for `new`; a program's crate, in a cargo project, with its `[package.metadata.waos]`, whole for `package` and its id for `run`, `screenshot`, `tap`, `press`, `drag`, `type`, `key`, `scroll`, `resize`, `settings` and `set`; the WaOS app, installed on this machine, for `run`, `settings` and `set`, and running the program, for the rest; the user's signing key, for `package`.
-- **Provides:** the `cargo-waos` binary: `cargo waos new`, `cargo waos build`, `cargo waos run`, `cargo waos package`, `cargo waos screenshot`, `cargo waos tap`, `cargo waos press`, `cargo waos drag`, `cargo waos type`, `cargo waos key`, `cargo waos scroll`, `cargo waos resize`, `cargo waos settings` and `cargo waos set`.
-- **Used by:** whoever writes a program, and an agent writing one, which sees and uses it through `screenshot`, the input commands and `resize`. The WaOS app itself is an Waft app, built with `cargo waft`.
+- **Takes:** a name and a widget kit, for `new`; a program's crate, in a cargo project, with its `[package.metadata.waos]`, whole for `package` and its id for `run`, `screenshot`, `tap`, `press`, `drag`, `type`, `key`, `scroll`, `resize`, `settings`, `set` and `inspect`; the WaOS app, installed on this machine, for `run`, `settings` and `set`, running, for an `inspect` of the summary, and running the program, for the rest; the user's signing key, for `package`.
+- **Provides:** the `cargo-waos` binary: `cargo waos new`, `cargo waos build`, `cargo waos run`, `cargo waos package`, `cargo waos screenshot`, `cargo waos tap`, `cargo waos press`, `cargo waos drag`, `cargo waos type`, `cargo waos key`, `cargo waos scroll`, `cargo waos resize`, `cargo waos settings`, `cargo waos set` and `cargo waos inspect`.
+- **Used by:** whoever writes a program, and an agent writing one, which sees and uses it through `screenshot`, the input commands and `resize`, and reads what it does with what it was allowed through `inspect`. The WaOS app itself is an Waft app, built with `cargo waft`.
 
 ```sh
 cargo waos new <name> [--template winui|cupertino]   # a new program at ./<name>, which run runs and package packages as it is
@@ -21,7 +21,12 @@ cargo waos scroll --at <x>,<y> --by <dx>,<dy> [--window <n>] [-p <package>]   # 
 cargo waos resize --to <width>x<height> [--window <n>] [-p <package>]     # the window sized so what it shows is that many points: 390x844, a phone's
 cargo waos settings [-p <package>]                                        # its settings, a row each, as its settings page in WaOS shows them
 cargo waos set <row> <value>... [-p <package>]                            # one row set: camera allow, save-file /tmp/out.pdf, machine this-computer, open-file ask
+cargo waos inspect summary [--days <n>] [-p <package>]                    # its audit summary, a day a line as JSON, newest first, 7 days by default
+cargo waos inspect holdings [-p <package>]                                # what it holds now, as one line of JSON
+cargo waos inspect <capability>...|all [-p <package>]                     # its live trace of network, files, clipboard..., an event a line of JSON, until Ctrl-C or its end
 ```
+
+`inspect` prints JSON of `wasdk:inspect`'s values, one value a line, by the WIT's own names, so a field is `dropped-before` and a case `stdout` or `{"read": {"form": "text/plain", "pasted": false}}`: a record is an object of its fields, a case its name or an object of its name holding its payload, an option `null` or its value, a list an array. A summary has a day only where the program used something WaOS guards that day, the network, files, the clipboard, a device, a machine, a link, a notification or a question; what it writes to its output is not one, so a program that only runs and writes has no days, and the command says so on stderr, printing nothing. WaOS keeps seven days, so `--days` beyond seven prints seven.
 
 `new` writes a new program in a folder of its name in this directory, a Waft app over `wasdk-adapter-waft` in one widget kit's look, as `cargo waft new` writes a Waft app: by default WinUI's, a `WidgetsApp` in Fluent's look whose page has a button, in a window sized for a desktop, which works on a phone too; and with `--template cupertino`, for an app meant for phones alone, a `CupertinoApp` whose page says hello. `cargo waos run` runs it and `cargo waos package` packages it as it is written. It prints the command that runs it, `cd <name> && cargo waos run`.
 

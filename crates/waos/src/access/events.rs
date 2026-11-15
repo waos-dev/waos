@@ -13,10 +13,10 @@ use super::trace::{TraceEvent, TraceKind, duration_of, instant_of};
 use super::{Asked, Cause, FileChange, Happened, Holding, Noted, Resolution};
 use crate::inspection::bindings::wasdk::inspect::audit::MountKind as WitMountKind;
 use crate::inspection::bindings::wasdk::inspect::trace::{
-    Cause as WitCause, ClipboardEvent, ClipboardUse, Connection, Datagram, DeviceEvent, DeviceUse,
-    FileEvent, FileUse, LinkEvent, Lookup, MachineEvent, MachineUse, NetworkEvent, NetworkUse,
-    NotificationEvent, OutputChunk, OutputStream, PermissionEvent, PermissionUse, Request,
-    Response, Run, Verdict,
+    Answered, Cause as WitCause, ClipboardEvent, ClipboardRead, ClipboardUse, Connection, Datagram,
+    DeviceEvent, DeviceOpened, DeviceUse, FileEvent, FileUse, LinkEvent, Lookup, MachineEvent,
+    MachineUse, NetworkEvent, NetworkUse, NotificationEvent, OutputChunk, OutputStream,
+    PermissionEvent, PermissionUse, Request, Response, Run, Verdict,
 };
 use crate::shell::RecordingDevice;
 use waos_capabilities::MountKind;
@@ -74,7 +74,10 @@ pub(super) fn decided(
             at,
             instance,
             dropped_before: 0,
-            kind: ClipboardUse::Read(((*form).to_owned(), *pasted)),
+            kind: ClipboardUse::Read(ClipboardRead {
+                form: (*form).to_owned(),
+                pasted: *pasted,
+            }),
             verdict,
         }),
         Asked::ClipboardWrite { forms } => TraceEvent::Clipboard(ClipboardEvent {
@@ -84,12 +87,17 @@ pub(super) fn decided(
             kind: ClipboardUse::Write(forms.iter().map(|form| (*form).to_owned()).collect()),
             verdict,
         }),
-        Asked::OpenCamera { id, simulated } => TraceEvent::Camera(device(DeviceUse::Opened((
-            Some((*id).to_owned()),
-            *simulated,
-        )))),
+        Asked::OpenCamera { id, simulated } => {
+            TraceEvent::Camera(device(DeviceUse::Opened(DeviceOpened {
+                camera: Some((*id).to_owned()),
+                simulated: *simulated,
+            })))
+        }
         Asked::OpenMicrophone { simulated } => {
-            TraceEvent::Microphone(device(DeviceUse::Opened((None, *simulated))))
+            TraceEvent::Microphone(device(DeviceUse::Opened(DeviceOpened {
+                camera: None,
+                simulated: *simulated,
+            })))
         }
         Asked::Run {
             machine,
@@ -302,7 +310,10 @@ pub(super) fn happened(happened: &Happened<'_>, instance: u32) -> TraceEvent {
         Happened::Asked(prompt) => permission(PermissionUse::Asked(prompt_key(prompt))),
         Happened::Answered(prompt, answer) => {
             let answer = answer.map(|answer| answer_key(answer).to_owned());
-            permission(PermissionUse::Answered((prompt_key(prompt), answer)))
+            permission(PermissionUse::Answered(Answered {
+                question: prompt_key(prompt),
+                answer,
+            }))
         }
         Happened::SettingsOpened(switch) => permission(PermissionUse::SettingsOpened(
             switch_key(*switch).to_owned(),
