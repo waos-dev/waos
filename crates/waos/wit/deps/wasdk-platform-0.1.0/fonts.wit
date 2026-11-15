@@ -10,7 +10,8 @@ package wasdk:platform@0.1.0;
 /// engine's id for it, which a glyph call names in its `font`. Outlines and colour glyphs are
 /// drawn in the engine, so `tables` leaves them out; a program that reads a font itself, as a
 /// typesetter or an immediate-mode interface does, opens the face's whole file with
-/// `open-stream`, a copy of it in the program's memory.
+/// `open-stream`, a copy of it in the program's memory, and knows a file it has read already by
+/// its `file-id`.
 ///
 /// Fonts are a capability: a program given none gets empty answers, as on a machine with none
 /// installed.
@@ -46,6 +47,12 @@ interface fonts {
     tables: func() -> list<tag>;
     /// One table's bytes; none for a tag the face lacks or the engine keeps.
     table: func(tag: tag) -> option<list<u8>>;
+    /// The engine's id for the font file this face is in: the same for every face in one file,
+    /// as the faces of a collection are, and for as long as the program runs, and different for
+    /// different files, so a program that reads whole files knows before it opens a stream
+    /// whether it holds the file already. An opaque number, meaningful only to this program and
+    /// only for equality: not a path, and not a typeface's `id`.
+    file-id: func() -> u64;
     /// The font file this face is in, whole: Skia's `SkTypeface::openStream`.
     open-stream: func() -> font-file;
   }

@@ -1,12 +1,12 @@
 //! `wasdk:platform/fonts`: the fonts a program is given, answered by the font manager in its
 //! environment, and the glyphs of the faces it was handed, drawn here.
 //!
-//! [`ProgramFonts`] is one program's: its manager's answers, each face given an id of this
-//! program's ([`typefaces`]), the fonts made of those faces and the rasterizer that draws them
-//! ([`glyphs`]), and the installed fonts' changes ([`changes`]). The WIT's `typeface` is a
-//! resource; [`Typeface`] is the value its methods answer from, and the code serving the
-//! interface, [`host`], makes the handles. With no manager every answer is empty, as on a
-//! machine with no fonts installed.
+//! [`ProgramFonts`] is one program's: its manager's answers, each face, and each file the faces
+//! are in, given an id of this program's ([`typefaces`]), the fonts made of those faces and the
+//! rasterizer that draws them ([`glyphs`]), and the installed fonts' changes ([`changes`]). The
+//! WIT's `typeface` is a resource; [`Typeface`] is the value its methods answer from, and the
+//! code serving the interface, [`host`], makes the handles. With no manager every answer is
+//! empty, as on a machine with no fonts installed.
 //!
 //! The invariant: a glyph call draws only a face this program was handed, named by the id it was
 //! handed with. Ids are the program's own, never the engine's: an engine-wide id would let a
@@ -40,6 +40,7 @@ use typefaces::Typefaces;
 /// One face as the engine handed it to a program: what the WIT's `typeface` answers.
 pub struct Typeface {
     id: u64,
+    file_id: u64,
     face: valo_fontmgr::Typeface,
 }
 
@@ -47,6 +48,11 @@ impl Typeface {
     /// The engine's id for this face, which a `font` names it by.
     pub(crate) fn id(&self) -> u64 {
         self.id
+    }
+
+    /// The engine's id for the file the face is in, the same for every face in it.
+    pub(crate) fn file_id(&self) -> u64 {
+        self.file_id
     }
 
     /// The name the platform files the face under.
@@ -206,11 +212,15 @@ impl ProgramFonts {
         Some(question(&mut *lock(manager)))
     }
 
-    /// `face`, about to reach the program, with its id: every answer carrying a face comes
-    /// through here, so a glyph call can name any face the program holds.
+    /// `face`, about to reach the program, with its id and its file's: every answer carrying a
+    /// face comes through here, so a glyph call can name any face the program holds.
     fn handed_out(&mut self, face: valo_fontmgr::Typeface) -> Typeface {
-        let id = self.typefaces.id(&face);
-        Typeface { id, face }
+        let ids = self.typefaces.ids(&face);
+        Typeface {
+            id: ids.face,
+            file_id: ids.file,
+            face,
+        }
     }
 }
 
@@ -252,6 +262,8 @@ fn style_to(style: valo_fontmgr::Style) -> Style {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use std::collections::HashSet;
 
     use valo_fontmgr::Watch;
 
@@ -396,6 +408,28 @@ mod tests {
         let by_size = fonts.system_font(13.0, REGULAR).unwrap();
         assert_eq!(by_family.id(), by_character.id());
         assert_eq!(by_family.id(), by_size.id());
+    }
+
+    /// macOS's Menlo, its four faces in one file, `Menlo.ttc`, and the system font, in a file of
+    /// its own, through the platform's manager as a program is given it; elsewhere, where neither
+    /// is, the test passes without looking.
+    #[test]
+    fn the_faces_of_one_collection_share_a_file_id_and_two_files_do_not() {
+        let manager: Box<dyn FontManager> = valo_fontmgr::platform();
+        let mut fonts = ProgramFonts::new(Some(Arc::new(Mutex::new(manager))));
+        let menlo = fonts.family("Menlo");
+        let Some(system) = fonts.system_font(13.0, REGULAR) else {
+            return;
+        };
+        if menlo.len() < 2 {
+            return;
+        }
+        let file_ids: HashSet<u64> = menlo.iter().map(Typeface::file_id).collect();
+        let face_ids: HashSet<u64> = menlo.iter().map(Typeface::id).collect();
+        assert_eq!(file_ids.len(), 1, "one file");
+        assert_eq!(face_ids.len(), menlo.len(), "a face's id is its own");
+        assert!(!file_ids.contains(&system.file_id()));
+        assert_eq!(fonts.family("Menlo")[0].file_id(), menlo[0].file_id());
     }
 
     #[test]

@@ -8,15 +8,16 @@
 //! `fonts.match-character` names the face that has it, with the user's languages, which is read
 //! and added, and the line is laid out again, cosmic-text's fallback finding it there.
 //!
-//! A face does not say which file it is in, so each face is read on its own, and the faces of a
-//! collection each read its whole file: `Menlo.ttc`'s four faces read its 2.1 MB four times.
+//! A file is read once, known by the id the system gives it (`typeface.file-id`): cosmic-text
+//! takes every face of a collection from its file, so `Menlo.ttc`'s four faces are one read of its
+//! 2.1 MB.
 //!
-//! What it costs: each face read is copied whole into the program's memory (78 MB for PingFang
+//! What it costs: each file read is copied whole into the program's memory (78 MB for PingFang
 //! SC, the face macOS has for Chinese, read in 145 ms). WaOS can draw a face's glyphs itself
 //! (`fonts.glyph-alpha`) from tables the program never holds, but `gpui_wgpu`'s text system
 //! rasterizes with swash from the file and has no seam for another rasterizer.
 //!
-//! The invariant: a face is read once, a family asked of the system once, and a character no face
+//! The invariant: a file is read once, a family asked of the system once, and a character no face
 //! of the system has asked once.
 
 use std::borrow::Cow;
@@ -56,7 +57,8 @@ pub(crate) struct WasdkTextSystem {
 /// What has been asked of the system so far.
 #[derive(Default)]
 struct Read {
-    faces: HashSet<u64>,
+    /// The files read, by the system's id for each.
+    files: HashSet<u64>,
     families: HashSet<String>,
     characters: HashSet<char>,
 }
@@ -148,9 +150,10 @@ impl WasdkTextSystem {
         added
     }
 
-    /// Reads `face`'s file into cosmic-text, unless it was read before; whether it was added.
+    /// Reads `face`'s file into cosmic-text, with every face in it, unless the file was read
+    /// before; whether it was added.
     fn add_face(&self, read: &mut Read, face: &Typeface) -> bool {
-        if !read.faces.insert(face.id()) {
+        if !read.files.insert(face.file_id()) {
             return false;
         }
         let file = face.open_stream();
