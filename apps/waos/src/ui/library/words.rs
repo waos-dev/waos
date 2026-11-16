@@ -10,6 +10,11 @@ pub(crate) const HOME_TITLE: &str = "WaOS";
 /// The page of sources and what they list, and the buttons that open it.
 pub(crate) const GET_PROGRAMS: &str = "Get programs";
 pub(crate) const ADD_SOURCE: &str = "Add a source";
+/// Beside adding a source in Fluent's layout, which opens the system's file picker for a package:
+/// the ellipsis Windows ends a command with that asks for more before it acts.
+pub(crate) const INSTALL_FROM_FILE: &str = "Install from file…";
+/// The same in Cupertino's, without the ellipsis, as iOS's list rows have none.
+pub(crate) const INSTALL_FROM_FILE_ROW: &str = "Install from file";
 pub(crate) const REMOVE: &str = "Remove";
 /// On a program's icon, which asks the launcher to put the program on the home screen.
 pub(crate) const ADD_TO_HOME_SCREEN: &str = "Add to Home Screen";

@@ -1,7 +1,8 @@
 //! A desktop of the tests' own for WaOS's windows: Waft's test platform making a window for each
 //! request at once, on one screen whose Dock keeps 70 points along its bottom, with the pointer
 //! where the test puts it, the system's fonts, an opener that keeps what it is asked to open, a
-//! tray that keeps its icons, and composition layers that show nothing; and the
+//! tray that keeps its icons, file dialogs that answer what the test gives, and composition layers
+//! that show nothing; and the
 //! app as it starts, over a store in a folder of the test's own: the library, the programs'
 //! windows, the questions they put to their user and the programs recording, on an engine whose
 //! screens never refresh. The test plays the host: it reports each window made, draws the frames
@@ -31,7 +32,10 @@ use waft_cupertino::install_cupertino_icon_font;
 use waft_services::{LogicalKeyboardKey, PhysicalKeyboardKey};
 #[cfg(target_os = "macos")]
 use waft_test::Opened;
-use waft_test::{MockOpener, MockTrayIcons, ShownTrayIcon, TestPlatform, TestWindow, TestWindows};
+use waft_test::{
+    MockFileDialogs, MockOpener, MockTrayIcons, ShownTrayIcon, TestPlatform, TestWindow,
+    TestWindows,
+};
 use waft_winui::install_icon_font;
 use waos_package::SigningKey;
 use waos_store::{SourceProxy, Store};
@@ -299,6 +303,11 @@ impl LibraryDesktop {
     #[cfg(target_os = "macos")]
     pub(crate) fn opened(&self) -> Vec<Opened> {
         self.platform.opener.asked()
+    }
+
+    /// The system's file dialogs, which cancel each dialog until the test gives an answer.
+    pub(crate) fn file_dialogs(&self) -> MockFileDialogs {
+        self.platform.file_dialogs.clone()
     }
 
     /// The pointer is at `pointer` from now on.
@@ -716,7 +725,7 @@ pub(crate) fn label_of(app: &App, element: AnyElement) -> Option<String> {
 }
 
 /// Waft's test platform, with windows made on request on its one screen, the screen's Dock and
-/// the pointer, the system's fonts and an opener.
+/// the pointer, the system's fonts, an opener and file dialogs.
 struct LibraryPlatform {
     inner: TestPlatform,
     windows: Rc<TestWindows>,
@@ -726,6 +735,7 @@ struct LibraryPlatform {
     #[cfg(target_os = "macos")]
     opener: MockOpener,
     tray: MockTrayIcons,
+    file_dialogs: MockFileDialogs,
 }
 
 impl LibraryPlatform {
@@ -733,18 +743,21 @@ impl LibraryPlatform {
         let windows = Rc::new(TestWindows::new().on_screen(SCREEN));
         let opener = MockOpener::new();
         let tray = MockTrayIcons::new();
+        let file_dialogs = MockFileDialogs::new();
         LibraryPlatform {
             inner: TestPlatform::new()
                 .on(system)
                 .with_windows(Rc::clone(&windows))
                 .with_font_source(|| Box::new(SystemFontSource::platform()))
                 .with_opener(Rc::new(opener.clone()))
-                .with_tray_icons(Rc::new(tray.clone())),
+                .with_tray_icons(Rc::new(tray.clone()))
+                .with_file_dialogs(Rc::new(file_dialogs.clone())),
             windows,
             pointer: Cell::new(None),
             #[cfg(target_os = "macos")]
             opener,
             tray,
+            file_dialogs,
         }
     }
 }
@@ -796,6 +809,10 @@ impl Platform for LibraryPlatform {
 
     fn opener(&self) -> Option<&dyn waft::ui::Opener> {
         self.inner.opener()
+    }
+
+    fn file_dialogs(&self) -> Option<&dyn waft::ui::FileDialogs> {
+        self.inner.file_dialogs()
     }
 
     fn screens(&self) -> Option<&dyn Screens> {

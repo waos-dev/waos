@@ -1,8 +1,8 @@
 //! Getting programs in the desktop's panel, in Fluent's controls: Back and the page's title, the
-//! field that adds a source, then each source as a header with Remove at its end, over a row for
-//! each program it lists, its icon, name and version, and Get or Update as a button, or
-//! Installing… or Installed as a caption; or what the source says while it is read or could not
-//! be.
+//! field that adds a source with Add and, where the system has a file picker, Install from file…
+//! beside it, then each source as a header with Remove at its end, over a row for each program it
+//! lists, its icon, name and version, and Get or Update as a button, or Installing… or Installed
+//! as a caption; or what the source says while it is read or could not be.
 //!
 //! What the page keeps of its own is the text of a source being added; what it shows is the
 //! library's.
@@ -17,7 +17,7 @@ use waft_winui::{
 };
 use waos_store::Source;
 
-use super::{ListedRow, RowAction, listed_rows};
+use super::{ListedRow, PackagePicker, RowAction, listed_rows};
 use crate::state::library::{Library, LibraryPage};
 use crate::ui::library::home::fluent::MARGIN;
 use crate::ui::library::program_icon::ProgramIcon;
@@ -68,8 +68,10 @@ impl State for FluentGetProgramsState {
     }
 
     fn build(self: Handle<Self>, app: &mut App, context: BuildContext) -> WidgetRef {
+        let library = self.widget(app).library.clone();
         let page = Page {
-            library: self.widget(app).library.clone(),
+            package_picker: PackagePicker::of(&library, app, context),
+            library,
             source_text: app.get(self).source_text.expect("an initialized page"),
             resources: ThemeResources::of(app, context),
         };
@@ -102,6 +104,8 @@ impl State for FluentGetProgramsState {
 struct Page {
     library: Entity<Library>,
     source_text: Handle<TextEditingController>,
+    /// What Install from file… shows; none where the system has no file picker.
+    package_picker: Option<PackagePicker>,
     resources: std::rc::Rc<ThemeResources>,
 }
 
@@ -134,7 +138,8 @@ impl Page {
         .into_widget()
     }
 
-    /// The field a source is typed in, and Add.
+    /// The field a source is typed in, Add, and Install from file… where the system has a file
+    /// picker.
     fn add_row(&self) -> WidgetRef {
         let (library, text) = (self.library.clone(), self.source_text);
         let add = Listener::new(move |app| {
@@ -146,12 +151,22 @@ impl Page {
         });
         let field = TextBox::new(self.source_text.as_controller())
             .placeholder_text(words::SOURCE_PLACEHOLDER);
+        let mut controls = vec![
+            Expanded::new(field).into_widget(),
+            Button::text(words::ADD, add).into_widget(),
+        ];
+        controls.extend(self.install_from_file());
         Padding::new(EdgeInsetsGeometry::from_ltrb(MARGIN, 0.0, MARGIN, 8.0))
-            .child(Row::new().spacing(GAP).children([
-                Expanded::new(field).into_widget(),
-                Button::text(words::ADD, add).into_widget(),
-            ]))
+            .child(Row::new().spacing(GAP).children(controls))
             .into_widget()
+    }
+
+    /// Install from file…, which shows the system's file picker for a package; none where the
+    /// system has no file picker.
+    fn install_from_file(&self) -> Option<WidgetRef> {
+        let picker = self.package_picker.clone()?;
+        let pick = Listener::new(move |app| picker.show(app));
+        Some(Button::text(words::INSTALL_FROM_FILE, pick).into_widget())
     }
 
     /// The source, and Remove.

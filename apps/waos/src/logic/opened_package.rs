@@ -9,10 +9,25 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::{Context, Result, bail};
+use waft::ui::FileType;
 use waos_package::{Manifest, Package, PublisherKey};
 
 /// The extension of WaOS's packages.
 const PACKAGE_EXTENSION: &str = "wapk";
+
+/// WaOS's packages as a file picker offers them, named as the bundle declares their type: by
+/// their extension alone. Their MIME type, `application/x-wapk`, is known only where WaOS's own
+/// package declares it, on Linux, whose picker filters by the extension as well; Android's picker
+/// filters by MIME type alone, and its providers report a `.wapk` as `application/octet-stream`,
+/// so a picker asked for `application/x-wapk` would offer no package there, where one asked for
+/// an extension Android maps to no MIME type offers every file.
+pub(crate) fn package_file_type() -> FileType {
+    FileType {
+        label: "WaOS program".to_owned(),
+        extensions: vec![PACKAGE_EXTENSION.to_owned()],
+        mime_types: Vec::new(),
+    }
+}
 
 /// A package opened with WaOS, verified, waiting for the user to say whether to install it.
 pub(crate) struct OpenedPackage {

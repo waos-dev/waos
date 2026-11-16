@@ -6,23 +6,28 @@
 //! running dot; an icon whose program installs is dimmed, with Installing… in place of its name,
 //! in either layout, and a tap meanwhile opens the program once its code is ready; a source's
 //! program installs from the page behind the plus, which says Installing… until its code is ready, and an icon whose program a source lists newer
-//! has a badge. A window made as wide as a tablet's takes Fluent's.
+//! has a badge; a package picked from a file on that page, a path or a document without one, is
+//! asked about as one opened with WaOS, in either layout, and a cancelled pick shows nothing. A
+//! window made as wide as a tablet's takes Fluent's.
 
 use std::rc::Rc;
 use std::sync::Arc;
 
-use waft::ui::{EmbedderClient as _, View as _, ViewId};
+use waft::ui::{EmbedderClient as _, OpenOptions, View as _, ViewId};
 use waft::{Icon, IntoWidget};
 use waft_cupertino::{
     CupertinoActionSheet, CupertinoAlertDialog, CupertinoIcons, CupertinoNavigationBar,
 };
-use waft_test::TestWindow;
+use waft_test::{AskedDialog, MemoryFile, TestWindow};
 
+use super::get_programs::fluent::FluentGetPrograms;
 use super::home::cupertino::CupertinoHome;
 use super::home::fluent::FluentHome;
 use super::home::{IconTile, RunningDot};
 use super::program_icon::ProgramIcon;
 use super::{LaidOutLibrary, words};
+use crate::logic::opened_package::package_file_type;
+use crate::state::library::LibraryPage;
 use crate::state::library::test_desktop::LibraryDesktop;
 use crate::state::library::test_server::Server;
 use crate::state::phone_window::{PHONE_SCREEN, in_phone_window};
@@ -336,4 +341,88 @@ fn a_long_name_is_laid_out_across_its_tile() {
         label.width() > icon.width(),
         "the name spans its tile, cut with an ellipsis, not measured to nothing: {label:?}"
     );
+}
+
+/// The page that gets programs, shown.
+fn on_the_get_page(desktop: &mut LibraryDesktop) {
+    desktop.update(|library, cx| library.show_page(LibraryPage::GetPrograms, cx));
+}
+
+/// The dialog Install from file asks for, on the window of `view`: one file, of WaOS's packages.
+fn package_dialog(view: ViewId) -> AskedDialog {
+    AskedDialog::OpenFile(
+        Some(view),
+        OpenOptions {
+            types: vec![package_file_type()],
+            ..OpenOptions::default()
+        },
+    )
+}
+
+#[test]
+fn a_package_picked_from_a_file_is_asked_about_and_installed_once_the_user_says_so() {
+    let mut desktop = desktop();
+    let package = desktop.package(TRIANGLE, "Triangle", "1.0.0", b"\0asm");
+    let dialogs = desktop.file_dialogs().answering_paths(vec![package]);
+    on_the_get_page(&mut desktop);
+    let view = phone_view(&desktop);
+    desktop.tap(view, words::INSTALL_FROM_FILE_ROW);
+    assert_eq!(dialogs.asked(), [package_dialog(view)]);
+    assert!(
+        desktop.has::<CupertinoAlertDialog>() && desktop.shows("Install Triangle?"),
+        "{:?}",
+        desktop.labels()
+    );
+    desktop.tap(view, words::INSTALL);
+    assert_eq!(desktop.read(|library| library.installed().len()), 1);
+    assert!(!desktop.has::<CupertinoAlertDialog>(), "the alert goes");
+}
+
+#[test]
+fn a_cancelled_pick_shows_nothing() {
+    let mut desktop = desktop();
+    let dialogs = desktop.file_dialogs();
+    on_the_get_page(&mut desktop);
+    let view = phone_view(&desktop);
+    desktop.tap(view, words::INSTALL_FROM_FILE_ROW);
+    assert_eq!(dialogs.asked().len(), 1, "the picker was shown");
+    assert!(
+        !desktop.has::<CupertinoAlertDialog>(),
+        "{:?}",
+        desktop.labels()
+    );
+    assert!(desktop.read(|library| library.question().is_none() && library.problem().is_none()));
+    assert!(desktop.shows(words::ADD_SOURCE), "still on the page");
+}
+
+#[test]
+fn a_package_picked_without_a_path_is_copied_and_asked_about() {
+    let mut desktop = desktop();
+    let package = desktop.package(TRIANGLE, "Triangle", "1.0.0", b"\0asm");
+    let document = MemoryFile::new("triangle.wapk", std::fs::read(&package).unwrap());
+    desktop
+        .file_dialogs()
+        .answering(move || vec![document.picked()]);
+    on_the_get_page(&mut desktop);
+    let view = phone_view(&desktop);
+    desktop.tap(view, words::INSTALL_FROM_FILE_ROW);
+    desktop.settle_until("the question", |desktop| desktop.shows("Install Triangle?"));
+    desktop.tap(view, words::INSTALL);
+    assert_eq!(desktop.read(|library| library.installed().len()), 1);
+}
+
+#[test]
+fn a_package_picked_from_a_file_in_fluents_layout_is_asked_about() {
+    let mut desktop = desktop();
+    phone_window(&desktop).test_view().resize(768.0, 1024.0);
+    let view = phone_view(&desktop);
+    desktop.shell.view_metrics_changed(view);
+    let package = desktop.package(TRIANGLE, "Triangle", "1.0.0", b"\0asm");
+    let dialogs = desktop.file_dialogs().answering_paths(vec![package]);
+    on_the_get_page(&mut desktop);
+    assert!(desktop.has::<FluentGetPrograms>(), "{:?}", desktop.labels());
+    desktop.tap(view, words::INSTALL_FROM_FILE);
+    assert_eq!(dialogs.asked(), [package_dialog(view)]);
+    assert!(desktop.shows("Install Triangle?"), "{:?}", desktop.labels());
+    assert!(!desktop.has::<CupertinoAlertDialog>(), "Fluent's dialog");
 }

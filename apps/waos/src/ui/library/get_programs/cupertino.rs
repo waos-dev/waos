@@ -1,9 +1,10 @@
 //! Getting programs at a phone's size, in Cupertino's widgets: a page of its own behind the home's
 //! plus, with Back to the home, as grouped lists in iOS's Settings are: first the field that adds
-//! a source, then each source, its header the source, with each program it lists, its icon, name
-//! and version, and Get, Update, Installing… or Installed at the end of its row, or what the
-//! source says while it is read or could not be; and at each source's foot the row that removes
-//! it.
+//! a source, then, where the system has a file picker, a row of its own that installs from a file,
+//! in the tint colour as iOS's rows that act are, then each source, its header the source, with
+//! each program it lists, its icon, name and version, and Get, Update, Installing… or Installed
+//! at the end of its row, or what the source says while it is read or could not be; and at each
+//! source's foot the row that removes it.
 //!
 //! What the page keeps of its own is the text of a source being added; what it shows is the
 //! library's.
@@ -22,7 +23,7 @@ use waft_cupertino::{
 };
 use waos_store::Source;
 
-use super::{ListedRow, RowAction, listed_rows};
+use super::{ListedRow, PackagePicker, RowAction, listed_rows};
 use crate::state::library::Library;
 use crate::ui::library::cupertino::{back_to_home, under_bar};
 use crate::ui::library::home::cupertino::resolved;
@@ -72,11 +73,14 @@ impl State for CupertinoGetProgramsState {
     }
 
     fn build(self: Handle<Self>, app: &mut App, context: BuildContext) -> WidgetRef {
+        let library = self.widget(app).library.clone();
         let page = Page {
-            library: self.widget(app).library.clone(),
+            package_picker: PackagePicker::of(&library, app, context),
+            library,
             source_text: app.get(self).source_text.expect("an initialized page"),
         };
         let mut sections = vec![page.add_source()];
+        sections.extend(page.install_from_file(app, context));
         let sources = page.library.read(app).sources();
         if sources.is_empty() {
             sections.push(section(None, vec![note(words::NO_SOURCES)]));
@@ -112,6 +116,8 @@ impl State for CupertinoGetProgramsState {
 struct Page {
     library: Entity<Library>,
     source_text: Handle<TextEditingController>,
+    /// What Install from file shows; none where the system has no file picker.
+    package_picker: Option<PackagePicker>,
 }
 
 impl Page {
@@ -135,6 +141,21 @@ impl Page {
             ))
             .into_widget();
         section(Some(words::ADD_SOURCE), vec![tile])
+    }
+
+    /// The row that shows the system's file picker for a package, in the tint colour, in a section
+    /// of its own; none where the system has no file picker.
+    fn install_from_file(&self, app: &mut App, context: BuildContext) -> Option<WidgetRef> {
+        let picker = self.package_picker.clone()?;
+        let pick = Rc::new(move |app: &mut App| {
+            picker.show(app);
+            Task::ready(())
+        });
+        let style = TextStyle::new().color(resolved(CupertinoColors::ACTIVE_BLUE, app, context));
+        let tile = CupertinoListTile::new(Text::new(words::INSTALL_FROM_FILE_ROW).style(style))
+            .on_tap(pick)
+            .into_widget();
+        Some(section(None, vec![tile]))
     }
 
     /// A source, with what it lists, and the row that removes it.

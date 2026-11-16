@@ -1,7 +1,8 @@
 //! Getting programs, a page of its own behind the home's plus, with a way back: the field that adds
-//! a source, and each source with each program it lists, its icon, name and version, and Get,
-//! Update, Installing… or Installed; what a source says while it is read or could not be read; and
-//! a way to remove each source. What is shared between the layouts is here: each listed program's
+//! a source, beside it what installs a package from a file the user picks, where the system has a
+//! file picker (`state::library`'s `pick_package`), and each source with each program it lists,
+//! its icon, name and version, and Get, Update, Installing… or Installed; what a source says while
+//! it is read or could not be read; and a way to remove each source. What is shared between the layouts is here: each listed program's
 //! row as the page shows it, read from the library; the controls are each layout's.
 //!
 //! The invariant: a program's row offers exactly what the library offers for it (`logic::offers`),
@@ -13,11 +14,44 @@ pub(crate) mod fluent;
 
 use std::sync::Arc;
 
+use waft::ui::ViewId;
+use waft::{App, BuildContext, Entity, View};
 use waos_package::ListedProgram;
 
 use super::words;
 use crate::logic::offers::Offer;
-use crate::state::library::{Library, Listing, SourceListing};
+use crate::state::library::{Library, Listing, SourceListing, picks_packages};
+
+/// What the page's Install from file shows the system's file picker for a package with: the
+/// library, which takes what is picked, and the view the page is in, whose window the picker
+/// shows on.
+#[derive(Clone)]
+pub(crate) struct PackagePicker {
+    library: Entity<Library>,
+    parent: Option<ViewId>,
+}
+
+impl PackagePicker {
+    /// The picker for the page `context` builds, over `library`; none where the system has no
+    /// file picker, and the page offers no Install from file.
+    pub(crate) fn of(
+        library: &Entity<Library>,
+        app: &App,
+        context: BuildContext,
+    ) -> Option<PackagePicker> {
+        picks_packages(app).then(|| PackagePicker {
+            library: library.clone(),
+            parent: View::maybe_id_of(app, context),
+        })
+    }
+
+    /// Shows the picker; the package picked is asked about as one opened with WaOS.
+    pub(crate) fn show(&self, app: &mut App) {
+        let parent = self.parent;
+        self.library
+            .update(app, |library, cx| library.pick_package(parent, cx));
+    }
+}
 
 /// A program a source lists, as its row shows it.
 pub(crate) struct ListedRow {

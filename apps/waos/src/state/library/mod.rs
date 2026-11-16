@@ -1,16 +1,17 @@
 //! The library: the programs installed, each with its icon, to open and remove, and which of them
 //! run; the sources added, each with what it lists, to install or update; the packages opened with
-//! WaOS, each waiting for the user to say whether to install it, a package handed without a path
-//! first copied into a file of WaOS's own (`logic::package_copies`); and the settings, global and each program's, with the page
-//! the library is on (`settings`), and what the user searches the installed programs for. Every
-//! layout of the library shows this one state. A click on a
-//! program's notification reaches the program through it, as a program opened from it does. A
-//! program opened from it opens where WaOS's programs open (`programs_open`): in windows it asks
-//! for, on a desktop and on Android each a task of its own, or in a tab of the deck
-//! (`state::deck`), the home's tab where the home is open, which gives it its view as it starts;
-//! a program running opens where it runs, its windows coming forward. On Android the user chooses
-//! between tasks and tabs, which holds for programs opened after, and the installed programs have
-//! shortcuts on the home screen and on WaOS's icon's menu (`shortcuts`).
+//! WaOS or picked in the system's file picker (`package_picker`), each waiting for the user to say
+//! whether to install it, a package handed without a path first copied into a file of WaOS's own
+//! (`logic::package_copies`); and the settings, global and each program's, with the page the
+//! library is on (`settings`), and what the user searches the installed programs for. Every layout
+//! of the library shows this one state. A click on a program's notification reaches the program
+//! through it, as a program opened from it does. A program opened from it opens where WaOS's
+//! programs open (`programs_open`): in windows it asks for, on a desktop and on Android each a task
+//! of its own, or in a tab of the deck (`state::deck`), the home's tab where the home is open,
+//! which gives it its view as it starts; a program running opens where it runs, its windows coming
+//! forward. On Android the user chooses between tasks and tabs, which holds for programs opened
+//! after, and the installed programs have shortcuts on the home screen and on WaOS's icon's menu
+//! (`shortcuts`).
 //!
 //! What reads the network or the disk at length, a source's index, a download, a program's load,
 //! runs on the library's own tokio runtime, and its answer comes back to the main thread, where
@@ -29,6 +30,7 @@
 //! changes; which programs run is the runs' own list, as it last changed; and which programs'
 //! code is compiled is the compiles' own list, read as the library is shown.
 
+mod package_picker;
 mod programs_open;
 mod settings;
 mod shortcuts;
@@ -70,6 +72,7 @@ use crate::logic::program_shortcuts::SystemShortcuts;
 use crate::logic::setting_changes::Offered;
 use crate::logic::system_notifications::program_activation;
 use crate::state::deck::tabs::Tabs;
+pub(crate) use package_picker::picks_packages;
 pub(crate) use programs_open::ProgramsOpen;
 pub(crate) use settings::{LeftSettings, LibraryPage, SwitchAsked, open_settings_when_asked};
 use shortcuts::ShortcutsMatching;
@@ -948,7 +951,10 @@ fn opened_with_waos(library: &Entity<Library>) -> OpenRequestedCallback {
         let Some(library) = library.upgrade() else {
             return;
         };
-        let opened = OpenedFiles::of(request);
+        if !request.links.is_empty() {
+            tracing::info!(links = ?request.links, "links opened with WaOS, which opens none");
+        }
+        let opened = OpenedFiles::of(request.files);
         library.update(app, |library, cx| {
             // A launch with nothing to open still shows the library, as open_files asks.
             if !opened.paths.is_empty() || opened.documents.is_empty() {
@@ -1014,21 +1020,19 @@ pub(crate) fn request_to_open_with_waos(files: Vec<PathBuf>) -> ui::OpenRequest 
     }
 }
 
-/// What a request to open files with WaOS hands it: files by their paths on the machine, as the
-/// desktop systems give them, and documents without one, as Android gives a `content:` document.
+/// The files the system hands WaOS, opened with it or picked: files by their paths on the
+/// machine, as the desktop systems and iOS give them, and documents without one, as Android gives
+/// a `content:` document.
 struct OpenedFiles {
     paths: Vec<PathBuf>,
     documents: Vec<PickedFile>,
 }
 
 impl OpenedFiles {
-    /// The files `request` opens with WaOS; its links, which WaOS opens none of, are left out.
-    fn of(request: ui::OpenRequest) -> OpenedFiles {
-        if !request.links.is_empty() {
-            tracing::info!(links = ?request.links, "links opened with WaOS, which opens none");
-        }
+    /// `files`, by whether the system gave each a path.
+    fn of(files: Vec<PickedFile>) -> OpenedFiles {
         let (mut paths, mut documents) = (Vec::new(), Vec::new());
-        for file in request.files {
+        for file in files {
             match file {
                 PickedFile::Path(path) => paths.push(path),
                 document @ (PickedFile::Handle(_) | PickedFile::Stream(_)) => {

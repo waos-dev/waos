@@ -903,18 +903,15 @@ fn a_document_that_is_no_package_is_the_problem_and_its_copy_goes() {
 }
 
 #[test]
-fn a_request_to_open_files_is_told_apart_into_paths_and_documents() {
-    let request = ui::OpenRequest {
-        files: vec![
-            PickedFile::Path(PathBuf::from("/tmp/a.wapk")),
-            PickedFile::Stream(Box::new(TestStream {
-                name: "b.wapk".to_owned(),
-                bytes: std::io::Cursor::new(Vec::new()),
-            })),
-        ],
-        links: Vec::new(),
-    };
-    let opened = OpenedFiles::of(request);
+fn files_handed_to_waos_are_told_apart_into_paths_and_documents() {
+    let files = vec![
+        PickedFile::Path(PathBuf::from("/tmp/a.wapk")),
+        PickedFile::Stream(Box::new(TestStream {
+            name: "b.wapk".to_owned(),
+            bytes: std::io::Cursor::new(Vec::new()),
+        })),
+    ];
+    let opened = OpenedFiles::of(files);
     assert_eq!(opened.paths, [PathBuf::from("/tmp/a.wapk")]);
     assert_eq!(opened.documents.len(), 1);
 }
