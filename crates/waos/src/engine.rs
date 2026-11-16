@@ -341,11 +341,20 @@ pub(crate) fn engine_config(native_unwind_info: bool) -> Config {
 /// wasmtime's interpreter runs, and which the code cache keeps as it keeps native code. The
 /// simulator is held to the same rule, though it would map Cranelift's code, so that it fails
 /// where an iPhone would (`../wasdk/docs/proposals/2026-09-26-ios-jit.md`).
+///
+/// A program's memory reserves only what it holds and room to grow, not wasmtime's 64-bit 4 GiB:
+/// iOS gives an app a few gigabytes of address space in all, so the second program's 4 GiB failed
+/// to map. Pulley checks every access itself, without guard pages or signals (wasmtime's
+/// `Tunables::default_for_target`), so the large reservation buys it nothing.
 #[cfg(target_os = "ios")]
 fn compile_for_this_system(config: &mut Config) {
     config
         .target("pulley64")
         .expect("`pulley64` is a target wasmtime names");
+    config.memory_reservation(0);
+    // Room for a memory to grow before it is moved and copied; a move per 256 MiB grown keeps
+    // copies rare, and a dozen programs still fit in iOS's address space.
+    config.memory_reservation_for_growth(256 << 20);
 }
 
 /// Elsewhere programs are compiled to this machine's own code, Cranelift's default.
