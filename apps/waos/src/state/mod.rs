@@ -78,6 +78,7 @@ use crate::logic::dev_server::DevServer;
 use crate::logic::environments::ProgramEnvironments;
 use crate::logic::folders::AppFolders;
 use crate::logic::frame_readers::ReadersOnRequest;
+use crate::logic::held_starts::HeldStarts;
 use crate::logic::inspected_programs::ProgramsOnThisComputer;
 use crate::logic::installed_runs::InstalledRuns;
 use crate::logic::machine_facts::platform_state;
@@ -92,6 +93,8 @@ use crate::logic::program_shortcuts::SystemShortcuts;
 use crate::logic::prompts::PromptsOnRequest;
 use crate::logic::recording_indicator::RecordingIndicatorOnRequest;
 use crate::logic::runs::Runs;
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+use crate::logic::sent_components::SentComponents;
 use crate::logic::vsync_waiter::WaftVsync;
 use crate::ui::deck::Deck;
 use crate::ui::every_window::{LibraryWindow, every_window, program_windows};
@@ -299,13 +302,21 @@ pub(crate) fn start(
     let tabs_runs = Arc::clone(&runs);
     let installed_runs = InstalledRuns::new(Arc::clone(&engine), environments, runs, places);
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    let sent = Arc::new(SentComponents::new(folders.dev_components));
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
     listen_for_cargo_waos(
         app,
         installed_runs.clone(),
         &store,
         asking,
-        folders.dev_components,
+        Arc::clone(&sent),
     )?;
+    let starts = HeldStarts {
+        installed: installed_runs.clone(),
+        store: store.clone(),
+        #[cfg(not(any(target_os = "android", target_os = "ios")))]
+        sent,
+    };
     let prompt_windows = questions::prompt_windows(app, view_windows.clone(), faces);
     let questions_store = store.clone();
     let recordings = Recordings::listen(app, recording_changes, store.clone());
@@ -318,6 +329,7 @@ pub(crate) fn start(
         preferences,
     )?;
     bring_opened_programs_forward(app, &library, &view_windows);
+    inspected.serve_starts(starts, library.read(app).runtime());
     tell_installs_to_inspectors(app, &library, inspected);
     let prompts = program_apps::follow(
         app,
@@ -395,7 +407,7 @@ pub(crate) fn start(
 
 /// Listens for `cargo waos` on the socket `waos-dev-protocol` names, running what it sends on
 /// `installed`'s engine with its environments, counted in its runs, the components kept in
-/// `dev_components`, and opening files with an installed program as `installed` opens it; and
+/// `sent`, and opening files with an installed program as `installed` opens it; and
 /// makes a quit ask every program in its runs first, stopping the server once they agree. Not on
 /// a phone: `cargo waos` reaches none yet, and the system ends an app there without asking it.
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
@@ -404,11 +416,11 @@ fn listen_for_cargo_waos(
     installed: InstalledRuns,
     store: &Store,
     asking: Arc<AskingNow>,
-    dev_components: PathBuf,
+    sent: Arc<SentComponents>,
 ) -> Result<()> {
     let socket = waos_dev_protocol::listener_path();
     let runs = Arc::clone(&installed.runs);
-    let server = DevServer::start(installed, store.clone(), asking, &socket, dev_components)
+    let server = DevServer::start(installed, store.clone(), asking, &socket, sent)
         .with_context(|| format!("listening for cargo waos at {}", socket.display()))?;
     tracing::info!(socket = %socket.display(), "WaOS listens for cargo waos");
     quitting::ask_programs_before_quitting(app, runs, server);

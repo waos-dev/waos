@@ -25,6 +25,13 @@ pub(super) struct Sent {
     mouse: Arc<DevMouse>,
 }
 
+impl Sent {
+    /// A later run of its id takes its place: it ends `Replaced`.
+    pub(super) fn replaced(&self) {
+        self.replaced.store(true, Ordering::SeqCst);
+    }
+}
+
 /// One run `cargo waos` sent, as its connection holds it.
 pub(crate) struct SentRun {
     pub(crate) run: Run,
@@ -80,15 +87,7 @@ impl Runs {
         start: impl FnOnce() -> Result<RunningProgram>,
     ) -> Result<SentRun> {
         let mut running = self.running.lock().await;
-        if let Some(before) = running.remove(id) {
-            self.ids.send_replace(running.keys().cloned().collect());
-            tracing::info!(%id, "a later run of the program: stopping the one before");
-            if let Some(sent) = &before.sent {
-                sent.replaced.store(true, Ordering::SeqCst);
-            }
-            before.program.stop();
-            before.program.ended().await;
-        }
+        self.end_the_one_before(&mut running, id).await;
         let program = start()?;
         let run = self.list(&mut running, id, program);
         let replaced = Arc::new(AtomicBool::new(false));

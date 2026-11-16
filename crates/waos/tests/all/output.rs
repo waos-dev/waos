@@ -2,7 +2,8 @@
 //! in order, or, with none, to the engine's log. The program is `examples/forever`, which says
 //! its count every so often and asks nothing else.
 //!
-//! A listener of the program's output, through its trace, hears each write from when it listens.
+//! A listener of the program's output, through its trace, hears each write from when it listens;
+//! one that listens to a program started held hears its first write.
 //!
 //! The tests read what forever logged, and two forevers at once would log alike, so each takes
 //! forever's turn (`shell::turns`).
@@ -128,6 +129,36 @@ fn a_listener_of_the_programs_output_hears_what_it_writes_from_then_on() {
     assert_eq!(json["instance"], 0);
     let bytes: Vec<u8> = serde_json::from_value(json["bytes"].clone()).unwrap();
     assert!(String::from_utf8_lossy(&bytes).starts_with("count "), "{bytes:?}");
+    running.stop();
+    assert!(matches!(block_on(running.ended()), ProgramEnd::Stopped));
+}
+
+#[test]
+fn a_program_started_held_writes_nothing_until_let_go_and_a_listener_hears_its_first_write() {
+    let _forever = shell::turns::take("forever");
+    let (engine, _shell, _arrivals) = shell::engine();
+    let forever = shell::load(&engine, waos_test_programs::FOREVER);
+    let recording = Arc::new(Recording::default());
+    let environment = ProgramEnvironment {
+        output: Some(Arc::clone(&recording) as Arc<dyn ProgramOutput>),
+        ..ProgramEnvironment::default()
+    };
+    let (running, mut held) = engine.run_held(&forever, environment).unwrap();
+    block_on(held.linked());
+    let mut output = running
+        .trace(TraceKind::Output)
+        .expect("linked, so it can be listened to");
+    thread::sleep(Duration::from_millis(200));
+    assert!(recording.stdout().is_empty(), "held, it ran nothing");
+    drop(held);
+    let chunk = block_on(futures::StreamExt::next(&mut output)).expect("a write is heard");
+    let json = serde_json::to_value(&chunk).unwrap();
+    let bytes: Vec<u8> = serde_json::from_value(json["bytes"].clone()).unwrap();
+    assert_eq!(
+        String::from_utf8_lossy(&bytes),
+        "count 1048576\n",
+        "its first write"
+    );
     running.stop();
     assert!(matches!(block_on(running.ended()), ProgramEnd::Stopped));
 }

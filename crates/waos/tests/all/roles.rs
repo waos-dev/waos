@@ -11,10 +11,10 @@ use futures::future::{self, BoxFuture};
 use futures::stream::{self, BoxStream};
 use futures::{FutureExt, StreamExt};
 use waos::inspection::InspectedPrograms;
-use waos::inspection::bindings::wasdk::inspect::devices::{Program, ProgramChange};
+use waos::inspection::bindings::wasdk::inspect::devices::{Program, ProgramChange, StartError};
 use waos::{
-    Answer, OutputStream, ProgramEnd, ProgramEnvironment, ProgramGrants, ProgramOutput, Question,
-    Role, RoleNotGranted, TraceKind, WaOSConfig,
+    Answer, HeldProgram, OutputStream, ProgramEnd, ProgramEnvironment, ProgramGrants,
+    ProgramOutput, Question, Role, RoleNotGranted, TraceKind, WaOSConfig,
 };
 use waos_capabilities::{ChangedFuture, DomainRule, FileSystemGrant, NetworkGrant};
 
@@ -225,6 +225,10 @@ impl InspectedPrograms for TwoPrograms {
 
     fn icon(&self, id: &str) -> BoxFuture<'static, Option<Vec<u8>>> {
         future::ready((id == "forever").then(|| vec![0x89, b'P', b'N', b'G'])).boxed()
+    }
+
+    fn start_held(&self, _id: &str) -> BoxFuture<'static, Result<HeldProgram, StartError>> {
+        future::ready(Err(StartError::Unknown)).boxed()
     }
 }
 

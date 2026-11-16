@@ -9,8 +9,9 @@
 //! to a program holding the inspector role in [`host`], over the programs the embedder gives
 //! ([`InspectedPrograms`]).
 //!
-//! The invariant: nothing here holds a resource, so every record and variant serializes; the one
-//! resource of the package, a device, is the engine's own value.
+//! The invariant: nothing here holds a resource, so every record and variant serializes; the
+//! package's resources, a device and a program held before its start, are the engine's own
+//! values.
 
 pub(crate) mod host;
 mod programs;
@@ -29,11 +30,13 @@ pub mod bindings {
             default: store | trappable,
             "wasdk:inspect/devices.[method]device.programs": async | store | trappable,
             "wasdk:inspect/devices.[method]device.icon": async | store | trappable,
+            "wasdk:inspect/devices.[method]device.start-held": async | store | trappable,
             "wasdk:inspect/audit.days": async | store | trappable,
         },
         additional_derives: [waos_wit_serialize::WitSerialize, PartialEq],
         with: {
             "wasdk:inspect/devices.device": crate::inspection::Device,
+            "wasdk:inspect/devices.held-program": crate::running::HeldProgram,
         },
     });
 }

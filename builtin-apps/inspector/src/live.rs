@@ -25,6 +25,8 @@ pub(crate) struct Live {
     listening: u64,
     /// Whether the program runs, so there is anything to hear.
     pub(crate) heard: bool,
+    /// Why WaOS did not start the program as asked, where it did not.
+    pub(crate) refused: Option<String>,
     network: NetworkLog,
     files: FileLog,
     devices: DeviceLog,
@@ -42,6 +44,13 @@ impl Live {
             Tab::Devices => Some(&self.devices),
             Tab::Output => Some(&self.output),
             Tab::InUse => Some(&self.in_use),
+        }
+    }
+
+    /// WaOS did not start the program for the listening `listening`, for `why`.
+    pub(crate) fn start_refused(&mut self, listening: u64, why: String) {
+        if self.listening == listening {
+            self.refused = Some(why);
         }
     }
 

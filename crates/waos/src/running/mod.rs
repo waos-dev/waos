@@ -13,6 +13,7 @@
 //! all of them at once.
 
 mod activity;
+mod held;
 mod incompatible;
 mod instances;
 mod limits;
@@ -65,6 +66,8 @@ use crate::temporary_folders::TemporaryFolder;
 use crate::views::{ProgramView, ProgramViews, ScreenRefreshes, ViewLayers, Watching};
 use crate::workers::ProgramWorkers;
 use activity::Activity;
+pub use held::HeldProgram;
+pub(crate) use held::{Hold, hold};
 pub use incompatible::IncompatibleProgram;
 pub(crate) use instances::ProgramInstances;
 pub(crate) use programs::Programs;
@@ -201,6 +204,8 @@ pub(crate) struct ProgramStart {
     pub(crate) programs: Programs,
     /// The layers its views will hold, which its store keeps and its views let go of as they go.
     pub(crate) view_layers: Arc<ViewLayers>,
+    /// What holds it before its first instruction, for a program started held.
+    pub(crate) hold: Option<Hold>,
 }
 
 impl RunningProgram {

@@ -58,11 +58,10 @@ impl DevServer {
         store: Store,
         asking: Arc<AskingNow>,
         socket: &Path,
-        components: PathBuf,
+        components: Arc<SentComponents>,
     ) -> io::Result<DevServer> {
         let (stop, stopped) = oneshot::channel();
         let (bound, binding) = mpsc::channel();
-        let components = Arc::new(SentComponents::new(components));
         let context = ServerContext {
             installed,
             store,
@@ -338,7 +337,7 @@ pub(crate) mod tests {
                 store.clone(),
                 Arc::clone(&asking),
                 &socket,
-                folder.join("dev"),
+                Arc::new(SentComponents::new(folder.join("dev"))),
             )
             .expect("the server binds");
             TestServer {

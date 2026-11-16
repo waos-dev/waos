@@ -115,7 +115,7 @@ pub use program::Program;
 /// What the user lets a program use, as its environment's grants give it and the shell's
 /// prompts ask for it.
 pub use roles::RoleNotGranted;
-pub use running::{IncompatibleProgram, ProgramEnd, RunningProgram};
+pub use running::{HeldProgram, IncompatibleProgram, ProgramEnd, RunningProgram};
 pub use screens::Screen;
 pub use shell::{
     AnswerFuture, AudioOutputPickedFuture, CameraChangeFuture, CameraListFuture, CameraOpenFuture,

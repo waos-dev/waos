@@ -3,23 +3,26 @@
 //! by the store's manifests; every one running, by the runs; and every one run in development the
 //! store keeps days of, though it has ended; a program not installed by its id alone. Each change
 //! to them as it happens, an install or a removal as the library makes it, a start or an end as
-//! the runs list it; and each one's icon, read as it is asked for.
+//! the runs list it; each one's icon, read as it is asked for; and a program started held
+//! (`held_starts`), on WaOS's own runtime, so it outlives the inspector that asked.
 //!
 //! The invariant: a program is named by its id, as the runs name the program they run, so what an
 //! inspector reads of a running one the engine finds under that name.
 
 use std::collections::BTreeSet;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError};
 
 use futures::channel::mpsc::{self, UnboundedSender};
 use futures::future::BoxFuture;
 use futures::stream::{self, BoxStream};
 use futures::{FutureExt, StreamExt};
+use waos::HeldProgram;
 use waos::inspection::InspectedPrograms;
-use waos::inspection::bindings::wasdk::inspect::devices::{Program, ProgramChange};
+use waos::inspection::bindings::wasdk::inspect::devices::{Program, ProgramChange, StartError};
 use waos_package::ProgramId;
 use waos_store::{InstalledProgram, Store};
 
+use super::held_starts::HeldStarts;
 use super::runs::Runs;
 
 /// What this computer is called to an inspector, as its machine is to a program.
@@ -33,6 +36,9 @@ pub(crate) struct ProgramsOnThisComputer {
     installed: Mutex<BTreeSet<ProgramId>>,
     /// Who hears each install and removal.
     listeners: Mutex<Vec<UnboundedSender<ProgramChange>>>,
+    /// What starts a program held, and the runtime it starts on, which outlives the inspector
+    /// that asked; served once WaOS can start programs, after the engine is made.
+    starts: OnceLock<(Arc<HeldStarts>, tokio::runtime::Handle)>,
 }
 
 impl ProgramsOnThisComputer {
@@ -43,7 +49,14 @@ impl ProgramsOnThisComputer {
             runs,
             installed: Mutex::new(installed),
             listeners: Mutex::default(),
+            starts: OnceLock::new(),
         }
+    }
+
+    /// Starts the programs an inspector starts held with `starts`, on `runtime`.
+    pub(crate) fn serve_starts(&self, starts: HeldStarts, runtime: tokio::runtime::Handle) {
+        // Served once; a second serving would be the same app's.
+        let _ = self.starts.set((Arc::new(starts), runtime));
     }
 
     /// The library installed or removed a program: each listener hears what is new and what is
@@ -92,6 +105,21 @@ impl InspectedPrograms for ProgramsOnThisComputer {
         let (sender, installs) = mpsc::unbounded();
         locked(&self.listeners).push(sender);
         stream::select(installs, runs_changes(&self.runs)).boxed()
+    }
+
+    fn start_held(&self, id: &str) -> BoxFuture<'static, Result<HeldProgram, StartError>> {
+        let Some((starts, runtime)) = self.starts.get() else {
+            let refused = StartError::Failed("WaOS starts no program yet".to_owned());
+            return futures::future::ready(Err(refused)).boxed();
+        };
+        let (starts, id) = (Arc::clone(starts), id.to_owned());
+        let starting = runtime.spawn(async move { starts.start(&id).await });
+        async move {
+            starting
+                .await
+                .unwrap_or_else(|_| Err(StartError::Failed("the start was cut short".to_owned())))
+        }
+        .boxed()
     }
 
     fn icon(&self, id: &str) -> BoxFuture<'static, Option<Vec<u8>>> {

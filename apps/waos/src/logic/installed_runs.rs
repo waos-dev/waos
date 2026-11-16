@@ -13,10 +13,8 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::Instant;
 
 use anyhow::{Context, Result};
-use tracing::Instrument;
 use waos::{PlacedView, ProgramView, RunningProgram, WaOS};
 use waos_package::ProgramId;
 
@@ -97,21 +95,7 @@ impl InstalledRuns {
         };
         tracing::info!(%id, "opened from the library");
         let program = run.program.clone();
-        let runs = Arc::clone(&self.runs);
-        let started_at = Instant::now();
-        tokio::spawn(
-            async move {
-                let end = run.program.ended().await;
-                tracing::info!(
-                    ?end,
-                    seconds = started_at.elapsed().as_secs_f64(),
-                    frames_presented = run.program.stats().frames_presented(),
-                    "ended"
-                );
-                runs.ended(&run).await;
-            }
-            .instrument(tracing::info_span!("run", name)),
-        );
+        self.runs.take_out_once_ended(run);
         Ok((program, started_views))
     }
 

@@ -905,6 +905,12 @@ impl Library {
         cx.notify();
     }
 
+    /// The library's runtime, which reads, downloads and loads, for work of WaOS's that outlives
+    /// whoever asked for it.
+    pub(crate) fn runtime(&self) -> tokio::runtime::Handle {
+        self.work.handle().clone()
+    }
+
     /// Runs `work` on the library's runtime, and hands what it answers to `then` on the main
     /// thread once it is done; a library gone by then hears nothing.
     fn work_then<T: Send + 'static>(

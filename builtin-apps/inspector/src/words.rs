@@ -1,6 +1,7 @@
 //! What the app says, in both layouts.
 
 use waos_activity::Folder;
+use wasdk::inspect::devices::StartError;
 
 use crate::clock::now;
 use crate::inspector::Seen;
@@ -36,7 +37,14 @@ pub(crate) const SEE_FILES: &str = "The files it opens and changes";
 pub(crate) const SEE_DEVICES: &str = "Its camera, microphone and machines";
 pub(crate) const SEE_OUTPUT: &str = "What it writes to its output and errors";
 pub(crate) const SEE_IN_USE: &str = "What it uses now: files open, connections, captures";
-pub(crate) const NOT_RUNNING: &str = "It is not running. What it does shows here while it runs.";
+pub(crate) const NOT_RUNNING: &str =
+    "It is not running. Start it inspected to see what it does from its first instruction.";
+pub(crate) const START_INSPECTED: &str = "Start inspected";
+pub(crate) const RESTART_INSPECTED: &str = "Restart inspected";
+pub(crate) const START_DETAIL: &str =
+    "WaOS holds it before its first instruction until this panel listens.";
+pub(crate) const START: &str = "Start";
+pub(crate) const RESTART: &str = "Restart";
 pub(crate) const NO_NETWORK_YET: &str =
     "Nothing yet. Its connections and requests show here as it makes them.";
 pub(crate) const NO_FILES_YET: &str =
@@ -168,6 +176,14 @@ pub(crate) fn stream(instance: u32, errors: bool) -> String {
         (0, true) => "Errors".to_owned(),
         (worker, false) => format!("Worker {worker}, output"),
         (worker, true) => format!("Worker {worker}, errors"),
+    }
+}
+
+/// Why WaOS did not start a program as the inspector asked.
+pub(crate) fn start_refused(error: &StartError) -> String {
+    match error {
+        StartError::Unknown => "WaOS knows no program by this id to start.".to_owned(),
+        StartError::Failed(why) => format!("WaOS could not start it: {why}"),
     }
 }
 

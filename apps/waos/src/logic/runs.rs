@@ -1,8 +1,8 @@
 //! The programs running in WaOS, by the id of the program each is, whether `cargo waos` sent it or
 //! the library opened it (decision 11 of the permissions proposal). One per id: a later run
 //! `cargo waos` sends takes the place of the one before, which is stopped first and ends
-//! `Replaced` (the design's decision 29), while a program the library opens again is left
-//! running as it is. Every run of an id is ended before its program is removed or updated
+//! `Replaced` (the design's decision 29), as does a start an inspector asks for, while a program
+//! the library opens again is left running as it is. Every run of an id is ended before its program is removed or updated
 //! ([`Runs::stop`]), as a system ends an app it uninstalls or updates, so no run outlives the
 //! package it came from or the folders it was given. A run `cargo waos` sent is its own to read and drive, with a mouse of its own
 //! over the program's windows; one the library opened is no tool's (the design's decision 60).
@@ -22,13 +22,15 @@
 mod sent;
 
 use std::collections::{BTreeSet, HashMap};
-use std::sync::PoisonError;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, PoisonError};
+use std::time::Instant;
 
 use anyhow::Result;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 use futures::future::join_all;
 use tokio::sync::{Mutex, watch};
+use tracing::Instrument;
 use waos::RunningProgram;
 use waos_package::ProgramId;
 
@@ -86,6 +88,60 @@ impl Runs {
         }
         let program = start().await?;
         Ok(Started::New(self.list(&mut running, id, program)))
+    }
+
+    /// Starts a run of the program `id` in place of the one running, if any, which is stopped
+    /// first, as a later run `cargo waos` sends takes the place of the one before (decision 18 of
+    /// `docs/proposals/2026-11-15-inspector-roles-and-compatibility.md`); then `start` starts the
+    /// program, and the run is in the list as one the library opened. An error from `start`
+    /// leaves the id free. `start` waits for nothing: the program it starts is loaded already.
+    pub(crate) async fn start_in_place(
+        &self,
+        id: &ProgramId,
+        start: impl FnOnce() -> Result<RunningProgram>,
+    ) -> Result<Run> {
+        let _starting = Starting::of(self, id);
+        let mut running = self.running.lock().await;
+        self.end_the_one_before(&mut running, id).await;
+        let program = start()?;
+        Ok(self.list(&mut running, id, program))
+    }
+
+    /// Stops the program running as `id`, if any, and waits until it has ended, out of the list
+    /// first; one `cargo waos` sent ends `Replaced`.
+    async fn end_the_one_before(&self, running: &mut HashMap<ProgramId, Running>, id: &ProgramId) {
+        let Some(before) = running.remove(id) else {
+            return;
+        };
+        self.ids.send_replace(running.keys().cloned().collect());
+        tracing::info!(%id, "a later run of the program: stopping the one before");
+        #[cfg(not(any(target_os = "android", target_os = "ios")))]
+        if let Some(sent) = &before.sent {
+            sent.replaced();
+        }
+        before.program.stop();
+        before.program.ended().await;
+    }
+
+    /// Takes `run` out of the list once its program ends, on a task of the runtime this runs on,
+    /// telling WaOS's log how long it ran.
+    pub(crate) fn take_out_once_ended(self: &Arc<Self>, run: Run) {
+        let runs = Arc::clone(self);
+        let started_at = Instant::now();
+        let span = tracing::info_span!("run", name = %run.id);
+        tokio::spawn(
+            async move {
+                let end = run.program.ended().await;
+                tracing::info!(
+                    ?end,
+                    seconds = started_at.elapsed().as_secs_f64(),
+                    frames_presented = run.program.stats().frames_presented(),
+                    "ended"
+                );
+                runs.ended(&run).await;
+            }
+            .instrument(span),
+        );
     }
 
     /// Whether a run of the program `id` is in the list, or being started: what an end of its

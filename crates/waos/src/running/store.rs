@@ -98,12 +98,15 @@ pub(super) async fn run(start: ProgramStart, program: RunningProgram, clock: Clo
 }
 
 async fn run_in_store(
-    start: ProgramStart,
+    mut start: ProgramStart,
     program: RunningProgram,
     clock: Clock,
 ) -> wasmtime::Result<wasmtime::Result<Result<(), ()>>> {
     let access = instances::access_of(&start, &program);
     program.attach_access(&access);
+    if let Some(hold) = start.hold.take() {
+        hold.wait().await;
+    }
     let roles = roles::asked_for(&start.component, &start.engine);
     roles::check(&roles, &access, start.prompts.as_ref(), &program).await?;
     let linker = linker(&start.engine, &roles)?;

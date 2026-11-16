@@ -34,7 +34,7 @@ use crate::lifecycle::FreezePolicy;
 use crate::menus::MenuPlaces;
 use crate::network::HttpProxy;
 use crate::program::Program;
-use crate::running::{ProgramStart, Programs, RunningProgram};
+use crate::running::{HeldProgram, Hold, ProgramStart, Programs, RunningProgram};
 use crate::screens::{Screen, Screens};
 use crate::screenshots::Screenshots;
 use crate::shell::{PlacedView, Shell, ShellClipboardItem};
@@ -242,6 +242,29 @@ impl WaOS {
         environment: ProgramEnvironment,
         views: Vec<PlacedView>,
     ) -> Result<(RunningProgram, Vec<ProgramView>)> {
+        self.start(program, environment, views, None)
+    }
+
+    /// Starts `program` as [`WaOS::run`] does, with no views, but held before its first
+    /// instruction until the [`HeldProgram`] answered is dropped, so whoever listens to it once
+    /// [`HeldProgram::linked`] resolves hears it from its start.
+    pub fn run_held(
+        &self,
+        program: &Program,
+        environment: ProgramEnvironment,
+    ) -> Result<(RunningProgram, HeldProgram)> {
+        let (held, hold) = crate::running::hold();
+        let (running, _views) = self.start(program, environment, Vec::new(), Some(hold))?;
+        Ok((running, held))
+    }
+
+    fn start(
+        &self,
+        program: &Program,
+        environment: ProgramEnvironment,
+        views: Vec<PlacedView>,
+        hold: Option<Hold>,
+    ) -> Result<(RunningProgram, Vec<ProgramView>)> {
         ensure!(
             Engine::same(&self.engine, program.component().engine()),
             "{} was loaded by another engine",
@@ -284,6 +307,7 @@ impl WaOS {
             clock: self.clock.clone(),
             programs: self.programs.clone(),
             view_layers: Arc::default(),
+            hold,
         };
         RunningProgram::start(start, views, temporary)
     }

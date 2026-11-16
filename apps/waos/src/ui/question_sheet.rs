@@ -171,7 +171,7 @@ const ALLOW: &str = "Allow";
 const DONT_ALLOW: &str = "Don't allow";
 const CANCEL: &str = "Cancel";
 const PICKED_DETAIL: &str = "It may play there until it quits.";
-const INSPECTOR_DETAIL: &str = "It sees the sites they reach, the files they open and change, when they use the camera and the microphone, and what they run. You can change this in its settings in WaOS's library.";
+const INSPECTOR_DETAIL: &str = "It sees the sites they reach, the files they open and change, when they use the camera and the microphone, and what they run, and it can start and end them. You can change this in its settings in WaOS's library.";
 const MACHINE_DETAIL: &str = "It acts on the machine you pick as you: it can run any command there and read and change any file you can, until you remove the machine in its settings in WaOS's library.";
 
 /// What the user is asked, `name` being the program's.

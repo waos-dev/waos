@@ -22,6 +22,9 @@ use crate::activity::activity_of;
 use crate::live::{self, Live};
 use crate::words;
 
+/// The inspector's own id, as its package names it: it never starts itself.
+pub(crate) const OWN_ID: &str = "dev.waos.inspector";
+
 /// The icon a program with no picture of its own shows, WaOS's default.
 const DEFAULT_PNG: &[u8] = include_bytes!("../assets/program-default.png");
 
@@ -192,6 +195,40 @@ pub(crate) fn show_tab(app: &mut App, inspector: &Entity<Inspector>, tab: Tab) {
     if let Some((device, id, listening)) = wanted {
         live::listen(app, inspector, (&device, &id), tab, listening);
     }
+}
+
+/// Starts the program chosen again, or starts it where it ended, held until the panel shown
+/// listens to it, so the panel hears it from its first instruction (decision 18 of
+/// `docs/proposals/2026-11-15-inspector-roles-and-compatibility.md`); one WaOS could not start says
+/// why.
+pub(crate) fn start_inspected(app: &mut App, inspector: &Entity<Inspector>) {
+    let wanted = inspector.update(app, |inspector, cx| {
+        let listening = inspector.live.stop();
+        cx.notify();
+        Some((
+            inspector.device.clone()?,
+            inspector.chosen.clone()?,
+            inspector.tab,
+            listening,
+        ))
+    });
+    let Some((device, id, tab, listening)) = wanted else {
+        return;
+    };
+    let inspector = inspector.clone();
+    app.spawn(async move |cx| {
+        let started = device.start_held(id.clone()).await;
+        cx.update(|app| match started {
+            // Listened to before it is let go, as the held program is dropped.
+            Ok(_held) => live::listen(app, &inspector, (&device, &id), tab, listening),
+            Err(error) => inspector.update(app, |inspector, cx| {
+                inspector
+                    .live
+                    .start_refused(listening, words::start_refused(&error));
+                cx.notify();
+            }),
+        });
+    });
 }
 
 /// Starts hearing what the panel shown shows where nothing was heard, as when the program did not

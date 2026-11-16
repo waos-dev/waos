@@ -1,6 +1,6 @@
 //! The code serving `wasdk:inspect` to a program holding the inspector role: this device, the
 //! programs on it as the embedder gives them (`InspectedPrograms`), each one's icon as it is asked
-//! for, a program's audit summary as the engine's audit log keeps it, today's kept first where it
+//! for, a program started held as the embedder starts it, kept until the inspector drops it, a program's audit summary as the engine's audit log keeps it, today's kept first where it
 //! runs, what it uses now and each change to it, and its live trace, a stream per capability. A running program is the one the engine
 //! runs under the id asked for, its name, as the embedder names it (`Program::named`). Linked only
 //! for a program its user granted the role (`roles`).
@@ -24,7 +24,8 @@ use wasmtime_wasi::runtime::spawn_blocking;
 use super::bindings::wasdk::inspect::active_uses::{self, ActiveUse, ActiveUseChange};
 use super::bindings::wasdk::inspect::audit::{self, Day};
 use super::bindings::wasdk::inspect::devices::{
-    self, DeviceChange, HostDevice, HostDeviceWithStore, Program, ProgramChange,
+    self, DeviceChange, HostDevice, HostDeviceWithStore, HostHeldProgram, HostHeldProgramWithStore,
+    Program, ProgramChange, StartError,
 };
 use super::bindings::wasdk::inspect::trace::{
     self, ClipboardEvent, DeviceEvent, FileEvent, LinkEvent, MachineEvent, NetworkEvent,
@@ -32,7 +33,7 @@ use super::bindings::wasdk::inspect::trace::{
 };
 use super::{Device, InspectedPrograms, day_of};
 use crate::access::{ProgramAccess, TraceEvent, TraceKind};
-use crate::running::{Programs, RunningProgram};
+use crate::running::{HeldProgram, Programs, RunningProgram};
 use crate::stream::stream_of;
 
 /// What an inspector reaches: the programs the embedder gives, those the engine runs, the days
@@ -127,6 +128,7 @@ where
 
 impl devices::Host for InspectCtx<'_> {}
 impl HostDevice for InspectCtx<'_> {}
+impl HostHeldProgram for InspectCtx<'_> {}
 impl audit::Host for InspectCtx<'_> {}
 impl active_uses::Host for InspectCtx<'_> {}
 impl trace::Host for InspectCtx<'_> {}
@@ -207,8 +209,34 @@ impl<T: InspectCtxView + 'static> HostDeviceWithStore<T> for HasInspect {
         })
     }
 
+    /// The program started held, while the role is held; a program the embedder knows not, for
+    /// an inspector without it.
+    async fn start_held(
+        accessor: &Accessor<T, Self>,
+        _device: Resource<Device>,
+        id: String,
+    ) -> wasmtime::Result<Result<Resource<HeldProgram>, StartError>> {
+        let Some(programs) = reach_of(accessor).programs() else {
+            return Ok(Err(StartError::Unknown));
+        };
+        let held = match programs.start_held(&id).await {
+            Ok(held) => held,
+            Err(error) => return Ok(Err(error)),
+        };
+        let pushed = accessor.with(|mut access| access.get().table.push(held))?;
+        Ok(Ok(pushed))
+    }
+
     fn drop(mut access: Access<'_, T, Self>, device: Resource<Device>) -> wasmtime::Result<()> {
         access.get().table.delete(device)?;
+        Ok(())
+    }
+}
+
+impl<T: InspectCtxView + 'static> HostHeldProgramWithStore<T> for HasInspect {
+    /// The program goes on from its first instruction.
+    fn drop(mut access: Access<'_, T, Self>, held: Resource<HeldProgram>) -> wasmtime::Result<()> {
+        access.get().table.delete(held)?;
         Ok(())
     }
 }
@@ -413,6 +441,10 @@ mod tests {
 
         fn icon(&self, _id: &str) -> BoxFuture<'static, Option<Vec<u8>>> {
             future::ready(None).boxed()
+        }
+
+        fn start_held(&self, _id: &str) -> BoxFuture<'static, Result<HeldProgram, StartError>> {
+            future::ready(Err(StartError::Unknown)).boxed()
         }
     }
 

@@ -1,25 +1,96 @@
 //! A live panel, as a table: the columns' titles, then a row an event or a use, the oldest first,
-//! each with what is said beneath it; or why there is none. Drawn with what Waft has until WinUI's
+//! each with what is said beneath it; or why there is none; and above it, the way to start the
+//! program inspected, so the panel hears it from its first instruction. Drawn with what Waft has until WinUI's
 //! table is ported, in its shape: columns by title and width, rows of cells.
 //!
 //! The invariant: a panel is drawn from its `Panel` alone, so every panel looks the same.
 
 use waft::{
     Border, BorderSide, BorderStyle, BoxDecoration, Column as Stacked, CrossAxisAlignment,
-    DecoratedBox, EdgeInsetsGeometry, Expanded, IntoWidget, ListView, MainAxisSize, Padding, Row,
-    SizedBox, Text, WidgetRef,
+    DecoratedBox, EdgeInsetsGeometry, Entity, Expanded, IntoWidget, ListView, Listener,
+    MainAxisSize, Padding, Row, SizedBox, Text, WidgetRef,
 };
-use waft_winui::{TextBlockStyle, ThemeResources};
+use waft_winui::{Button, TextBlockStyle, ThemeResources};
 
 use super::{GAP, MARGIN, ROW_PADDING, one_line, paragraph, said};
+use crate::inspector::{Inspector, start_inspected};
 use crate::panels::{Column, Panel};
 use crate::words;
 
-/// `panel` as a table, or why it has nothing: its program does not run, where nothing was `heard`.
-pub(super) fn panel(panel: &dyn Panel, heard: bool, resources: &ThemeResources) -> WidgetRef {
-    if !heard {
-        return said(words::NOT_RUNNING, resources);
+/// What a panel shows besides its rows: whether its program was heard, why WaOS refused to start
+/// it where it did, and whether it can be started inspected, and again where it runs.
+pub(super) struct Listening {
+    pub(super) heard: bool,
+    pub(super) refused: Option<String>,
+    /// Whether it runs, for a program the inspector may start; none for the inspector itself.
+    pub(super) startable: Option<bool>,
+}
+
+/// The way to start the program inspected, above `panel` as a table, or why it has nothing: its
+/// program does not run, where nothing was heard.
+pub(super) fn panel(
+    inspector: &Entity<Inspector>,
+    panel: &dyn Panel,
+    listening: Listening,
+    resources: &ThemeResources,
+) -> WidgetRef {
+    let table = if listening.heard {
+        table(panel, resources)
+    } else {
+        said(words::NOT_RUNNING, resources)
+    };
+    let mut parts = Vec::new();
+    if let Some(running) = listening.startable {
+        parts.push(start_row(inspector, running, resources));
     }
+    if let Some(refused) = &listening.refused {
+        parts.push(
+            Padding::new(EdgeInsetsGeometry::from_ltrb(MARGIN, 0.0, MARGIN, 0.0))
+                .child(paragraph(refused, resources))
+                .into_widget(),
+        );
+    }
+    parts.push(Expanded::new(table).into_widget());
+    Stacked::new()
+        .cross_axis_alignment(CrossAxisAlignment::Stretch)
+        .children(parts)
+        .into_widget()
+}
+
+/// Start inspected, or Restart inspected while it runs, with what that does beside it.
+fn start_row(
+    inspector: &Entity<Inspector>,
+    running: bool,
+    resources: &ThemeResources,
+) -> WidgetRef {
+    let inspector = inspector.clone();
+    let start = Listener::new(move |app| start_inspected(app, &inspector));
+    let label = if running {
+        words::RESTART_INSPECTED
+    } else {
+        words::START_INSPECTED
+    };
+    Padding::new(EdgeInsetsGeometry::from_ltrb(MARGIN, GAP, MARGIN, 0.0))
+        .child(
+            Row::new()
+                .spacing(GAP)
+                .cross_axis_alignment(CrossAxisAlignment::Center)
+                .children([
+                    Button::text(label, start).into_widget(),
+                    Expanded::new(one_line(
+                        words::START_DETAIL,
+                        TextBlockStyle::Caption,
+                        resources,
+                        false,
+                    ))
+                    .into_widget(),
+                ]),
+        )
+        .into_widget()
+}
+
+/// The columns' titles, then a row an event or a use, the oldest first.
+fn table(panel: &dyn Panel, resources: &ThemeResources) -> WidgetRef {
     let shape = (panel.columns(), panel.wraps());
     let titles: Vec<String> = panel
         .columns()

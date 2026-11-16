@@ -20,7 +20,7 @@ use waft_winui::{
     AccentPalette, ProgressRing, SelectorBar, SelectorBarItem, TextBlockStyle, ThemeResources,
 };
 
-use crate::inspector::{Found, Inspector, Seen, Tab, show_tab};
+use crate::inspector::{Found, Inspector, OWN_ID, Seen, Tab, show_tab};
 use crate::program_icon::ProgramIcon;
 use crate::words;
 use program_list::ProgramList;
@@ -111,8 +111,13 @@ impl StatelessWidget for ProgramPane {
         let content = match self.inspector.read(app).live.panel(tab) {
             None => report::report(&self.inspector, &seen, &resources),
             Some(panel) => {
-                let heard = self.inspector.read(app).live.heard;
-                panel::panel(panel, heard, &resources)
+                let live = &self.inspector.read(app).live;
+                let listening = panel::Listening {
+                    heard: live.heard,
+                    refused: live.refused.clone(),
+                    startable: (seen.program.id != OWN_ID).then_some(seen.program.running),
+                };
+                panel::panel(&self.inspector, panel, listening, &resources)
             }
         };
         Column::new()
