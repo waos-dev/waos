@@ -99,6 +99,7 @@ fn engine_with_temporary_folders(folders: &Path) -> (Arc<WaOS>, Arc<TestShell>) 
     let (engine, shell, _arrivals) = shell::engine_with(WaOSConfig {
         temporary_folders: folders.to_owned(),
         audit: None,
+        inspected_programs: None,
         ..shell::config()
     });
     (engine, shell)

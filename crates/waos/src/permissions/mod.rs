@@ -279,8 +279,8 @@ impl Watch {
     }
 }
 
-/// The grants of a program given none: nothing granted, nothing mounted, every question and link
-/// scheme denied, and nothing that changes.
+/// The grants of a program given none: nothing granted, nothing mounted, every question, link
+/// scheme and role denied, and nothing that changes.
 pub(crate) struct NothingGranted;
 
 impl ProgramGrants for NothingGranted {
@@ -318,6 +318,10 @@ impl ProgramGrants for NothingGranted {
     }
 
     fn set_link_scheme_answer(&self, _scheme: &str, _answer: Answer) {}
+
+    fn role(&self, _role: waos_capabilities::Role) -> Option<Answer> {
+        Some(Answer::Denied)
+    }
 
     fn changed(&self) -> ChangedFuture {
         Box::pin(pending())

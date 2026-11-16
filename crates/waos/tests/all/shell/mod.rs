@@ -173,6 +173,7 @@ pub fn config() -> WaOSConfig {
         time: EngineTime::Real,
         temporary_folders: std::env::temp_dir().join("waos-tests"),
         audit: None,
+        inspected_programs: None,
     }
 }
 

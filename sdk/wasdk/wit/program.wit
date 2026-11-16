@@ -87,3 +87,12 @@ world program {
   include program-base;
   export wasi:cli/run@0.3.0;
 }
+
+/// A program with the inspector role: everything a program has, and `wasdk:inspect`, which WaOS
+/// links only for a program its user granted the role.
+world inspector-base {
+  include program-base;
+  import wasdk:inspect/devices@0.1.0;
+  import wasdk:inspect/audit@0.1.0;
+  import wasdk:inspect/trace@0.1.0;
+}

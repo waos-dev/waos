@@ -189,6 +189,9 @@ pub(crate) struct ProgramStart {
     pub(crate) temporary_folder: Option<PathBuf>,
     /// Where its audit summary is kept, where the engine keeps one.
     pub(crate) audit: Option<Arc<dyn AuditLog>>,
+    /// What it sees of the programs while it holds the inspector role, where the embedder gives
+    /// it.
+    pub(crate) inspected_programs: Option<Arc<dyn crate::inspection::InspectedPrograms>>,
     pub(crate) freeze: FreezePolicy,
     /// The engine's time, which its freeze and its hardware buffers read.
     pub(crate) clock: EngineClock,
@@ -301,6 +304,11 @@ impl RunningProgram {
             // A program that ended already has nobody to stop.
             let _ = stop.send(());
         }
+    }
+
+    /// Whether the program has ended.
+    pub(crate) fn has_ended(&self) -> bool {
+        self.0.ended.peek().is_some()
     }
 
     /// How the program ended, once it has. Any number of times; each resolves with the same end.

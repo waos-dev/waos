@@ -107,6 +107,7 @@ impl Desktop {
             time: EngineTime::Real,
             temporary_folders: folder.join("tmp"),
             audit: None,
+            inspected_programs: None,
         };
         let clipboard = MockClipboard::new().with_promised_files_folder(folder.join("pasted"));
         let platform = Rc::new(DesktopPlatform::new(&clipboard, tray));

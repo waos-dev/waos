@@ -9,13 +9,14 @@
 use std::future;
 use std::sync::Arc;
 
+use waos_capabilities::Role;
 use waos_webgpu_host::{WasiWebGpuCtx, WasiWebGpuCtxView};
 use wasmtime::component::{HasData, Linker, ResourceTable};
 use wasmtime::{AsContext, Engine, Store, StoreLimitsBuilder, UpdateDeadline};
 use wasmtime_wasi::{I32Exit, WasiCtx, WasiCtxView, WasiView};
 use wasmtime_wasi_http::{WasiHttpCtx, WasiHttpCtxView, WasiHttpView};
 
-use super::instances::{ProgramInstances, UserSide};
+use super::instances::{self, ProgramInstances, UserSide};
 use super::limits::Limits;
 use super::worker::WorkerRun;
 use super::{ProgramEnd, ProgramStart, RunningProgram};
@@ -41,6 +42,7 @@ use crate::gpu_interop::host::{GpuInteropCtx, GpuInteropCtxView};
 use crate::hardware_buffers::Canvases;
 use crate::hardware_buffers::host::{HardwareBuffersCtx, HardwareBuffersCtxView};
 use crate::image_codecs::host::{ImageCodecsCtx, ImageCodecsCtxView};
+use crate::inspection::host::{InspectCtx, InspectCtxView};
 use crate::lifecycle::host::{LifecycleCtx, LifecycleCtxView};
 use crate::machines::ProgramMachines;
 use crate::machines::host::{MachinesCtx, MachinesCtxView};
@@ -100,11 +102,12 @@ async fn run_in_store(
     program: RunningProgram,
     clock: Clock,
 ) -> wasmtime::Result<wasmtime::Result<Result<(), ()>>> {
+    let access = instances::access_of(&start, &program);
+    program.attach_access(&access);
     let roles = roles::asked_for(&start.component, &start.engine);
-    let grants = start.environment.grants.clone();
-    roles::check(&roles, grants.as_deref(), start.prompts.as_ref(), &program).await?;
-    let linker = linker(&start.engine)?;
-    let (instances, user_side) = ProgramInstances::link(start, &linker, program, clock)?;
+    roles::check(&roles, &access, start.prompts.as_ref(), &program).await?;
+    let linker = linker(&start.engine, &roles)?;
+    let (instances, user_side) = ProgramInstances::link(start, &linker, program, access, clock)?;
     let instances = Arc::new(instances);
     let mut store = store(&instances, user_side, InstanceRole::Main);
     arm(&mut store)?;
@@ -189,8 +192,9 @@ fn end_of_error(error: wasmtime::Error) -> ProgramEnd {
     }
 }
 
-/// Every interface a program may import, each served by its module.
-fn linker(engine: &Engine) -> wasmtime::Result<Linker<StoreData>> {
+/// Every interface a program may import, each served by its module, and the interfaces of each
+/// role it holds, `held`.
+fn linker(engine: &Engine, held: &[Role]) -> wasmtime::Result<Linker<StoreData>> {
     let mut linker = Linker::<StoreData>::new(engine);
     wasi::add_to_linker(&mut linker)?;
     crate::files::p3::add_to_linker(&mut linker)?;
@@ -222,6 +226,9 @@ fn linker(engine: &Engine) -> wasmtime::Result<Linker<StoreData>> {
     crate::image_codecs::host::add_to_linker(&mut linker)?;
     crate::cameras::host::add_to_linker(&mut linker)?;
     crate::workers::host::add_to_linker(&mut linker)?;
+    if held.contains(&Role::Inspector) {
+        crate::inspection::host::add_to_linker(&mut linker)?;
+    }
     Ok(linker)
 }
 
@@ -643,6 +650,15 @@ impl NotificationsCtxView for StoreData {
             program: &self.program,
             notifications: self.notifications.as_ref(),
             access: &self.access,
+        }
+    }
+}
+
+impl InspectCtxView for StoreData {
+    fn inspect_ctx(&mut self) -> InspectCtx<'_> {
+        InspectCtx {
+            table: &mut self.table,
+            reach: &self.instances.inspector_reach,
         }
     }
 }

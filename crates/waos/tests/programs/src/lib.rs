@@ -2,7 +2,7 @@
 //! script: the path of each, as a constant named after it; and `CODE_CACHE`, the folder beside
 //! them where every test's engine keeps the code compiled from them, so a program is compiled
 //! once for each build of it rather than once for each test that runs it. Beside them,
-//! `INCOMPATIBLE` and `INSPECTOR`, components written by hand, which no build makes.
+//! `INCOMPATIBLE` and `IMPORTS_INSPECT`, components written by hand, which no build makes.
 //!
 //! The invariants: a program is built by the build script alone, into this crate's own target
 //! directory, so a test never builds one and never waits on the workspace's build; and only the
@@ -19,4 +19,4 @@ pub const INCOMPATIBLE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/incompatibl
 
 /// A component that asks for the inspector role: it imports an interface of `wasdk:inspect`, and
 /// nothing else. Text, which the engine compiles as it does a component's binary.
-pub const INSPECTOR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/inspector.wat");
+pub const IMPORTS_INSPECT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/imports-inspect.wat");

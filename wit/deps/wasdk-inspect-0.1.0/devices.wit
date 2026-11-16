@@ -6,16 +6,24 @@ interface devices {
   /// A program on a device, installed or run in development.
   record program {
     id: string,
+    /// As its user knows it: its package's name, or its id for a development run of a program
+    /// not installed.
     name: string,
-    /// Its package's version; none for a development run.
+    /// Its package's version; none for a development run of a program not installed.
     version: option<string>,
+    /// Whether it runs now.
     running: bool,
   }
 
+  /// A change to the programs on a device, each by its id but one installed.
   variant program-change {
+    /// A program installed.
     added(program),
+    /// A program removed.
     removed(string),
+    /// A program that started running.
     started(string),
+    /// A program that ended.
     ended(string),
   }
 
@@ -27,6 +35,10 @@ interface devices {
     programs: async func() -> list<program>;
     /// Each change from now on, on a stream of its own.
     program-changes: func() -> stream<program-change>;
+    /// The icon of the program `id` names, as its package's PNG; none for one without an icon,
+    /// as a development run of a program not installed. Asked for as a program is shown, so a
+    /// list of many stays small.
+    icon: async func(id: string) -> option<list<u8>>;
   }
 
   /// A device reached or lost, by its name: `devices` answers it once reached.

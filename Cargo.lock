@@ -4149,6 +4149,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "inspect"
+version = "0.2.0"
+dependencies = [
+ "wasdk",
+]
+
+[[package]]
 name = "interpolate_name"
 version = "0.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"

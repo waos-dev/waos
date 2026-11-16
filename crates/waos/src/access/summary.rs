@@ -529,6 +529,7 @@ pub(super) fn prompt_key(prompt: &Prompt) -> String {
         Prompt::Question(Question::Camera) => "camera".to_owned(),
         Prompt::Question(Question::Microphone) => "microphone".to_owned(),
         Prompt::LinkScheme(scheme) => format!("link-scheme {scheme}"),
+        Prompt::Role(waos_capabilities::Role::Inspector) => "role.inspector".to_owned(),
     }
 }
 

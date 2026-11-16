@@ -11,6 +11,10 @@ description = "What WaOS programs are written with: the bindings of the WIT pack
 homepage.workspace = true
 readme = "README.md"
 
+[features]
+# `wasdk::inspect`, the inspector role's interfaces, shown only to a program that asks for it.
+inspector = []
+
 [dependencies]
 wasdk-macros.workspace = true
 wit-bindgen.workspace = true

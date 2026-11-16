@@ -60,6 +60,7 @@ use waft::{App, Entity, IntoWidget, run_widget};
 use waft_cupertino::install_cupertino_icon_font;
 use waft_single_instance::LaterLaunches;
 use waft_winui::install_icon_font;
+use waos::inspection::InspectedPrograms;
 use waos::{
     EngineTime, FreezePolicy, HttpProxy, OpenRequest, RunningProgram, Shell, ShellCompositor,
     ShellFileDialogs, ShellRecordingIndicator, ShellVideoFrameReaders, VsyncWaiter, WaOS,
@@ -77,6 +78,7 @@ use crate::logic::dev_server::DevServer;
 use crate::logic::environments::ProgramEnvironments;
 use crate::logic::folders::AppFolders;
 use crate::logic::frame_readers::ReadersOnRequest;
+use crate::logic::inspected_programs::ProgramsOnThisComputer;
 use crate::logic::installed_runs::InstalledRuns;
 use crate::logic::machine_facts::platform_state;
 use crate::logic::noted_file_dialogs::NotedFileDialogs;
@@ -105,7 +107,7 @@ use image_codecs::ImageCodecs;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 use launcher::Launcher;
 use library::{
-    Library, ProgramOpened, ProgramsOpen, open_library, open_settings_when_asked,
+    InstalledChanged, Library, ProgramOpened, ProgramsOpen, open_library, open_settings_when_asked,
     request_to_open_with_waos, take_files_opened_with_waos, take_notification_clicks,
 };
 use media_assets::MediaAssets;
@@ -260,6 +262,11 @@ pub(crate) fn start(
         // A machine is picked on a sheet put as a program's questions are.
         machine_picker: Some(Arc::new(machine_picker)),
     };
+    let runs = Arc::new(Runs::default());
+    let inspected = Arc::new(ProgramsOnThisComputer::new(
+        store.clone(),
+        Arc::clone(&runs),
+    ));
     let config = WaOSConfig {
         code_cache: folders.code_cache,
         freeze: FreezePolicy::default(),
@@ -268,6 +275,7 @@ pub(crate) fn start(
         time: EngineTime::Real,
         temporary_folders: folders.temporary_folders,
         audit: Some(Arc::new(store.clone())),
+        inspected_programs: Some(Arc::clone(&inspected) as Arc<dyn InspectedPrograms>),
     };
     if config.native_unwind_info {
         tracing::info!("programs are compiled with native unwind information");
@@ -287,7 +295,6 @@ pub(crate) fn start(
         LocalCapabilities::without_microphone()
     };
     let environments = ProgramEnvironments::new(capabilities, store.clone());
-    let runs = Arc::new(Runs::default());
     // What a tab closed on a phone stops its program among.
     let tabs_runs = Arc::clone(&runs);
     let installed_runs = InstalledRuns::new(Arc::clone(&engine), environments, runs, places);
@@ -311,6 +318,7 @@ pub(crate) fn start(
         preferences,
     )?;
     bring_opened_programs_forward(app, &library, &view_windows);
+    tell_installs_to_inspectors(app, &library, inspected);
     let prompts = program_apps::follow(
         app,
         program_apps,
@@ -476,6 +484,19 @@ pub(crate) fn bring_opened_programs_forward(
                 windows.bring_forward_for_launch(id, token, cx);
             });
         }
+    })
+    .detach();
+}
+
+/// Each install and removal `library` makes told to the inspectors, through what they see of the
+/// programs, `inspected`.
+fn tell_installs_to_inspectors(
+    app: &mut App,
+    library: &Entity<Library>,
+    inspected: Arc<ProgramsOnThisComputer>,
+) {
+    app.subscribe(library, move |_app, _changed: &InstalledChanged| {
+        inspected.installed_changed();
     })
     .detach();
 }

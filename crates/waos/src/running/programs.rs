@@ -38,6 +38,16 @@ impl Programs {
         }
     }
 
+    /// The program running under `name`, the one that started last where an earlier one is still
+    /// ending; none once it ended.
+    pub(crate) fn named(&self, name: &str) -> Option<RunningProgram> {
+        let programs = locked(&self.0).live();
+        programs
+            .into_iter()
+            .rev()
+            .find(|program| program.name() == name && !program.has_ended())
+    }
+
     /// The app is suspending: every program is paused and frozen at once. Answers, for each,
     /// when it has stopped.
     pub(crate) fn suspend(&self) -> Vec<impl Future<Output = ()> + Send + 'static + use<>> {

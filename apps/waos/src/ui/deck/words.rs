@@ -126,7 +126,7 @@ mod tests {
 
     #[test]
     fn a_program_not_granted_its_role_is_said_with_where_to_change_it() {
-        let ending = ended("Inspector", &end_of(waos_test_programs::INSPECTOR));
+        let ending = ended("Inspector", &end_of(waos_test_programs::IMPORTS_INSPECT));
         assert_eq!(
             ending,
             said_alone(

@@ -68,6 +68,7 @@ pub(crate) mod frame_readers;
 pub(crate) mod hardware_buffers;
 pub(crate) mod image_codec_calls;
 pub(crate) mod image_values;
+pub(crate) mod inspected_programs;
 pub(crate) mod installed_code;
 pub(crate) mod installed_runs;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]

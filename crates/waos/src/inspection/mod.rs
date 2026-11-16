@@ -5,13 +5,18 @@
 //! without types of its own.
 //!
 //! The engine's own values are made `wasdk:inspect`'s in [`values`]: a day of a program's audit
-//! summary ([`day_of`]), and what it holds now (`RunningProgram::holdings`).
+//! summary ([`day_of`]), and what it holds now (`RunningProgram::holdings`). The package is served
+//! to a program holding the inspector role in [`host`], over the programs the embedder gives
+//! ([`InspectedPrograms`]).
 //!
 //! The invariant: nothing here holds a resource, so every record and variant serializes; the one
 //! resource of the package, a device, is the engine's own value.
 
+pub(crate) mod host;
+mod programs;
 mod values;
 
+pub use programs::InspectedPrograms;
 pub use values::day_of;
 pub(crate) use values::now_of;
 
@@ -21,7 +26,11 @@ pub mod bindings {
         world: "wasdk:inspect/inspection",
         require_store_data_send: true,
         imports: {
-            default: async | store | trappable,
+            default: store | trappable,
+            "wasdk:inspect/devices.[method]device.programs": async | store | trappable,
+            "wasdk:inspect/devices.[method]device.icon": async | store | trappable,
+            "wasdk:inspect/audit.days": async | store | trappable,
+            "wasdk:inspect/holdings.holdings": async | store | trappable,
         },
         additional_derives: [waos_wit_serialize::WitSerialize, PartialEq],
         with: {

@@ -15,9 +15,10 @@ use std::fmt;
 use wasmtime::Engine;
 use wasmtime::component::Component;
 
+use crate::access::{ProgramAccess, Prompt};
 use crate::running::RunningProgram;
 use crate::shell::Prompts;
-use waos_capabilities::{Answer, ProgramGrants, Role};
+use waos_capabilities::{Answer, Role};
 
 /// The WIT package whose interfaces a program imports to ask for `role`.
 fn package_of(role: Role) -> &'static str {
@@ -49,26 +50,27 @@ fn imports_from(name: &str, package: &str) -> bool {
         .is_some_and(|rest| rest.starts_with('/'))
 }
 
-/// Checks that `program`'s user grants it each of `asked`, asking at once for a role it has no
-/// answer to and keeping the answer in `grants`; the first role not granted refuses the start.
-/// Without grants, nothing is granted.
+/// Checks that `program`'s user grants it each of `asked`, by the grants of its `access`, asking
+/// at once for a role it has no answer to, told as a question put through the access, and keeping
+/// the answer; the first role not granted refuses the start. A program given no grants has
+/// nothing granted.
 pub(crate) async fn check(
     asked: &[Role],
-    grants: Option<&dyn ProgramGrants>,
+    access: &ProgramAccess,
     prompts: &dyn Prompts,
     program: &RunningProgram,
 ) -> Result<(), RoleNotGranted> {
     for role in asked.iter().copied() {
         let not_granted = RoleNotGranted { role };
-        let grants = grants.ok_or(not_granted)?;
-        let answer = match grants.role(role) {
+        let answer = match access.grants().role(role) {
             Some(answer) => answer,
             None => {
-                let answer = prompts
-                    .ask_for_role(program, role)
+                let asked = prompts.ask_for_role(program, role);
+                let answer = access
+                    .put_question(Prompt::Role(role), asked)
                     .await
                     .ok_or(not_granted)?;
-                grants.set_role(role, answer);
+                access.grants().set_role(role, answer);
                 answer
             }
         };

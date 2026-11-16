@@ -316,6 +316,8 @@ pub(crate) enum Happened<'a> {
 pub(crate) enum Prompt {
     Question(Question),
     LinkScheme(String),
+    /// Whether the program may hold a role it asks for, at its start.
+    Role(waos_capabilities::Role),
 }
 
 impl ProgramAccess {

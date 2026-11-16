@@ -29,6 +29,7 @@ use crate::clipboard::PlatformClipboard;
 use crate::code_cache;
 use crate::engine_time::{EngineClock, EngineTime};
 use crate::gpu::{self, GpuInstance};
+use crate::inspection::InspectedPrograms;
 use crate::lifecycle::FreezePolicy;
 use crate::menus::MenuPlaces;
 use crate::network::HttpProxy;
@@ -71,6 +72,9 @@ pub struct WaOSConfig {
     /// Where each program's audit summary is kept, day by day: the store, for the WaOS app;
     /// nowhere for an engine given none, as the tests' are.
     pub audit: Option<Arc<dyn AuditLog>>,
+    /// The programs a program holding the inspector role sees: the store's and the runs', for
+    /// the WaOS app; none for an engine given none, whose inspectors see no device.
+    pub inspected_programs: Option<Arc<dyn InspectedPrograms>>,
 }
 
 /// What the platform reports about the machine when the engine starts; the setters keep it
@@ -106,6 +110,8 @@ pub struct WaOS {
     temporary_folders: Arc<TemporaryFolders>,
     /// Where each program's audit summary is kept.
     audit: Option<Arc<dyn AuditLog>>,
+    /// What an inspector sees of the programs.
+    inspected_programs: Option<Arc<dyn InspectedPrograms>>,
     freeze: FreezePolicy,
     http_proxy: HttpProxy,
     /// The engine's time, which every program's freeze and hardware buffers read.
@@ -142,6 +148,7 @@ impl WaOS {
             code_cache: config.code_cache,
             temporary_folders,
             audit: config.audit,
+            inspected_programs: config.inspected_programs,
             freeze: config.freeze,
             http_proxy: config.http_proxy,
             clock,
@@ -271,6 +278,7 @@ impl WaOS {
             environment,
             temporary_folder: temporary.as_ref().map(|folder| folder.path().to_owned()),
             audit: self.audit.clone(),
+            inspected_programs: self.inspected_programs.clone(),
             freeze: self.freeze,
             http_proxy: self.http_proxy,
             clock: self.clock.clone(),
@@ -469,6 +477,7 @@ mod tests {
             time: EngineTime::Real,
             temporary_folders: std::env::temp_dir().join("waos-tests"),
             audit: None,
+            inspected_programs: None,
         };
         let platform = PlatformState {
             screens: Vec::new(),

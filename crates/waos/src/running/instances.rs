@@ -26,6 +26,7 @@ use crate::clipboard::PlatformClipboard;
 use crate::clock::Clock;
 use crate::files::HandedFiles;
 use crate::gpu::GpuInstance;
+use crate::inspection::host::InspectorReach;
 use crate::machines::StartedCommands;
 use crate::menus::MenuPlaces;
 use crate::network::HttpProxy;
@@ -60,6 +61,8 @@ pub(crate) struct ProgramInstances {
     /// Every guarded use of the program, whichever instance makes it: its grants, or nothing
     /// granted where its environment gives none.
     pub(super) access: ProgramAccess,
+    /// What it sees of the programs while it holds the inspector role.
+    pub(super) inspector_reach: InspectorReach,
     pub(super) http_proxy: HttpProxy,
     /// The files the user pastes, picks and opens with the program, mounted for every instance.
     pub(super) handed: HandedFiles,
@@ -74,19 +77,25 @@ pub(crate) struct ProgramInstances {
 }
 
 impl ProgramInstances {
-    /// The program `start` names, its code linked by `linker`, and its user's side apart: an
-    /// [`IncompatibleProgram`] when one of its imports is not there in that shape.
+    /// The program `start` names, its code linked by `linker`, its uses decided through
+    /// `access`, and its user's side apart: an [`IncompatibleProgram`] when one of its imports is
+    /// not there in that shape.
     pub(super) fn link(
         start: ProgramStart,
         linker: &wasmtime::component::Linker<super::store::StoreData>,
         program: RunningProgram,
+        access: ProgramAccess,
         clock: Clock,
     ) -> wasmtime::Result<(ProgramInstances, UserSide)> {
         let linked = link(linker, &start.component)?;
         let entry = run::GuestIndices::new(&linked)?;
         let worker_entry = worker_entry::GuestIndices::new(&linked).ok();
-        let access = access_of(&start, &program);
-        program.attach_access(&access);
+        let inspector_reach = InspectorReach {
+            programs: start.inspected_programs.clone(),
+            running: start.programs.clone(),
+            audit: start.audit.clone(),
+            access: access.clone(),
+        };
         let user_side = UserSide {
             placement: Some(start.placement),
             compositor: start.compositor,
@@ -120,6 +129,7 @@ impl ProgramInstances {
             image_codecs: start.image_codecs,
             environment: start.environment,
             access,
+            inspector_reach,
             http_proxy: start.http_proxy,
             handed: HandedFiles::default(),
             commands: StartedCommands::default(),
@@ -151,8 +161,9 @@ impl ProgramInstances {
 
 /// The access of the program `start` names: its grants, or nothing granted where its environment
 /// gives none, its recordings shown by the shell's indicator, where the shell has one, and its
-/// days kept by the engine's audit log under its name, where the engine has one.
-fn access_of(start: &ProgramStart, program: &RunningProgram) -> ProgramAccess {
+/// days kept by the engine's audit log under its name, where the engine has one. Made before the
+/// program is linked, so what its start asks is told.
+pub(super) fn access_of(start: &ProgramStart, program: &RunningProgram) -> ProgramAccess {
     let grants = start
         .environment
         .grants

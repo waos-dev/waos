@@ -51,8 +51,10 @@ pub mod bindings {
     wit_bindgen::generate!({
         // The crate's copy of the repository's `wit/`, made by `cargo xtask sync-wit`.
         path: "wit",
-        // The program's world without its `wasi:cli/run`, which Rust's `std` exports.
-        world: "wasdk:program/program-base",
+        // The program's world without its `wasi:cli/run`, which Rust's `std` exports, with every
+        // role's interfaces: a component imports only what it calls, so a program that never
+        // calls a role's functions imports nothing of it, and asks for no role.
+        world: "wasdk:program/inspector-base",
         generate_all,
         pub_export_macro: true,
     });
@@ -64,6 +66,12 @@ pub mod __entry;
 
 pub mod keys;
 
+/// `wasdk:inspect`, what a program with the inspector role sees of the others: the devices and
+/// the programs on each, their audit summaries and their live traces. Calling any of it asks for
+/// the role, which WaOS asks the user to grant at the program's start; a program not granted it
+/// does not start.
+#[cfg(feature = "inspector")]
+pub use bindings::wasdk::inspect;
 pub use bindings::wasdk::media::{
     cameras, caption_settings, image_codecs, media_assets, media_players, video_frames,
 };

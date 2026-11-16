@@ -96,6 +96,7 @@ pub(crate) fn engine_over(shell: Shell, time: EngineTime, code_cache: &Path) -> 
         time,
         temporary_folders: std::env::temp_dir().join("waos-tests"),
         audit: None,
+        inspected_programs: None,
     };
     let platform = PlatformState {
         screens: Vec::new(),
@@ -165,6 +166,7 @@ pub(crate) mod drawing {
             time: EngineTime::Real,
             temporary_folders: std::env::temp_dir().join("waos-tests"),
             audit: None,
+            inspected_programs: None,
         };
         let platform = PlatformState {
             screens: vec![screen()],
