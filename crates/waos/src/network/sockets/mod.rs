@@ -2,7 +2,8 @@
 //! each socket the system's own, made non-blocking on tokio, and each address it uses checked by
 //! the program's network at that use before the call that reaches it: a connection
 //! ([`super::ProgramNetwork::allows_connect`]), a listener, an accepted connection, a datagram
-//! sent or received. A bind reaches nothing, and asks nothing.
+//! sent or received. A bind reaches nothing, and asks nothing. Each socket counts the bytes it
+//! moves ([`connection`]).
 //!
 //! Ported from `wasmtime-wasi` 50.0.1 (`src/sockets/mod.rs`, `src/sockets/tcp.rs` and
 //! `src/sockets/udp.rs`), by the Wasmtime Project Developers, under the Apache License 2.0 with
@@ -16,6 +17,7 @@
 //! `access-denied`, and a refused accepted connection or datagram is dropped before the program
 //! sees it.
 
+mod connection;
 mod errors;
 mod family;
 mod options;

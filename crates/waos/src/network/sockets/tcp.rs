@@ -16,6 +16,7 @@ use rustix::io::Errno;
 use rustix::net::sockopt;
 use wasmtime_wasi::runtime::with_ambient_tokio_runtime;
 
+use super::connection::Connection;
 use super::family::{is_of_family, is_remote, is_unicast, unspecified};
 use super::options::{self, ListenerOptions, clamp_keep_alive_count, clamp_keep_alive_time};
 use super::refused_unless;
@@ -50,10 +51,7 @@ enum TcpState {
     Connecting(Pending<Result<tokio::net::TcpStream, ErrorCode>>),
     /// Connected, by a connect or an accept, which it stays.
     Connected {
-        // TODO(connection table): the connection's entry in what the program holds
-        // (`access::holdings`), held beside the system's socket inside this `Arc`, so the entry
-        // ends as the last of the socket's handle and its two streams drops and the socket closes.
-        stream: Arc<tokio::net::TcpStream>,
+        connection: Arc<Connection>,
         /// The peer, as an accept answered it or the first query that found it: a reset
         /// connection no longer tells it.
         peer: Option<SocketAddr>,
@@ -74,7 +72,7 @@ enum Pending<T> {
 impl TcpState {
     fn connected(stream: tokio::net::TcpStream, peer: Option<SocketAddr>) -> TcpState {
         TcpState::Connected {
-            stream: Arc::new(stream),
+            connection: Arc::new(Connection::new(stream)),
             peer,
             receive_taken: false,
             send_taken: false,
@@ -106,7 +104,7 @@ impl TcpSocket {
     fn as_fd(&self) -> Result<BorrowedFd<'_>, ErrorCode> {
         match &self.state {
             TcpState::Default(socket) => Ok(socket.as_fd()),
-            TcpState::Connected { stream, .. } => Ok(stream.as_fd()),
+            TcpState::Connected { connection, .. } => Ok(connection.stream().as_fd()),
             TcpState::Listening(listener) => Ok(listener.as_fd()),
             TcpState::Connecting(_) => Err(ErrorCode::InvalidState),
             TcpState::Closed(error) => Err(error.clone()),
@@ -225,11 +223,13 @@ impl TcpSocket {
     pub(crate) fn take_send_stream(&mut self) -> Result<TcpSendStream, ErrorCode> {
         match &mut self.state {
             TcpState::Connected {
-                stream, send_taken, ..
+                connection,
+                send_taken,
+                ..
             } if !*send_taken => {
                 *send_taken = true;
                 Ok(TcpSendStream {
-                    stream: Arc::clone(stream),
+                    connection: Arc::clone(connection),
                 })
             }
             TcpState::Closed(error) => Err(error.clone()),
@@ -240,13 +240,13 @@ impl TcpSocket {
     pub(crate) fn take_receive_stream(&mut self) -> Result<TcpReceiveStream, ErrorCode> {
         match &mut self.state {
             TcpState::Connected {
-                stream,
+                connection,
                 receive_taken,
                 ..
             } if !*receive_taken => {
                 *receive_taken = true;
                 Ok(TcpReceiveStream {
-                    stream: Arc::clone(stream),
+                    connection: Arc::clone(connection),
                 })
             }
             TcpState::Closed(error) => Err(error.clone()),
@@ -261,7 +261,7 @@ impl TcpSocket {
         match &self.state {
             TcpState::Default(socket) => Ok(socket.local_addr()?),
             TcpState::Connecting(_) => Err(ErrorCode::InvalidState),
-            TcpState::Connected { stream, .. } => Ok(stream.local_addr()?),
+            TcpState::Connected { connection, .. } => Ok(connection.stream().local_addr()?),
             TcpState::Listening(listener) => Ok(listener.local_addr()?),
             TcpState::Closed(error) => Err(error.clone()),
         }
@@ -272,8 +272,10 @@ impl TcpSocket {
             TcpState::Connected {
                 peer: Some(peer), ..
             } => Ok(*peer),
-            TcpState::Connected { stream, peer, .. } => {
-                let address = stream.peer_addr()?;
+            TcpState::Connected {
+                connection, peer, ..
+            } => {
+                let address = connection.stream().peer_addr()?;
                 *peer = Some(address);
                 Ok(address)
             }
@@ -460,12 +462,12 @@ impl TcpListenStream {
 
 /// The sending half of a connection, which shuts the connection down for writing as it drops.
 pub(crate) struct TcpSendStream {
-    stream: Arc<tokio::net::TcpStream>,
+    connection: Arc<Connection>,
 }
 
 impl TcpSendStream {
     pub(crate) fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<()> {
-        self.stream.poll_write_ready(cx).map(|_| ())
+        self.connection.stream().poll_write_ready(cx).map(|_| ())
     }
 
     pub(crate) fn poll_write(
@@ -473,36 +475,26 @@ impl TcpSendStream {
         cx: &mut Context<'_>,
         buffer: &[u8],
     ) -> Poll<Result<usize, ErrorCode>> {
-        loop {
-            return match self.stream.try_write(buffer) {
-                Ok(written) => Poll::Ready(Ok(written)),
-                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                    match self.stream.poll_write_ready(cx) {
-                        Poll::Ready(Ok(())) => continue,
-                        Poll::Ready(Err(error)) => Poll::Ready(Err(error.into())),
-                        Poll::Pending => Poll::Pending,
-                    }
-                }
-                Err(error) => Poll::Ready(Err(write_error(&error))),
-            };
-        }
+        self.connection
+            .poll_write(cx, buffer)
+            .map_err(|error| write_error(&error))
     }
 }
 
 impl Drop for TcpSendStream {
     fn drop(&mut self) {
-        _ = rustix::net::shutdown(&*self.stream, rustix::net::Shutdown::Write);
+        _ = rustix::net::shutdown(self.connection.stream(), rustix::net::Shutdown::Write);
     }
 }
 
 /// The receiving half of a connection, which shuts the connection down for reading as it drops.
 pub(crate) struct TcpReceiveStream {
-    stream: Arc<tokio::net::TcpStream>,
+    connection: Arc<Connection>,
 }
 
 impl TcpReceiveStream {
     pub(crate) fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<()> {
-        self.stream.poll_read_ready(cx).map(|_| ())
+        self.connection.stream().poll_read_ready(cx).map(|_| ())
     }
 
     /// Reads into `buffer`, answering how much was read, 0 once the peer is done sending.
@@ -514,25 +506,15 @@ impl TcpReceiveStream {
         if buffer.is_empty() {
             return Poll::Ready(Ok(0));
         }
-        loop {
-            return match self.stream.try_read(buffer) {
-                Ok(read) => Poll::Ready(Ok(read)),
-                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                    match self.stream.poll_read_ready(cx) {
-                        Poll::Ready(Ok(())) => continue,
-                        Poll::Ready(Err(error)) => Poll::Ready(Err(error.into())),
-                        Poll::Pending => Poll::Pending,
-                    }
-                }
-                Err(error) => Poll::Ready(Err(error.into())),
-            };
-        }
+        self.connection
+            .poll_read(cx, buffer)
+            .map_err(ErrorCode::from)
     }
 }
 
 impl Drop for TcpReceiveStream {
     fn drop(&mut self) {
-        _ = rustix::net::shutdown(&*self.stream, rustix::net::Shutdown::Read);
+        _ = rustix::net::shutdown(self.connection.stream(), rustix::net::Shutdown::Read);
     }
 }
 
@@ -683,10 +665,13 @@ mod tests {
         .await
         .unwrap();
         assert!(matches!(read, Err(ErrorCode::ConnectionReset)));
-        let TcpState::Connected { stream, .. } = &accepted.state else {
+        let TcpState::Connected { connection, .. } = &accepted.state else {
             panic!("an accepted connection");
         };
-        assert!(stream.peer_addr().is_err(), "the system no longer tells it");
+        assert!(
+            connection.stream().peer_addr().is_err(),
+            "the system no longer tells it"
+        );
         assert_eq!(accepted.remote_address().unwrap(), peer);
     }
 
@@ -715,10 +700,13 @@ mod tests {
         .await
         .unwrap();
         assert!(matches!(read, Err(ErrorCode::ConnectionReset)));
-        let TcpState::Connected { stream, .. } = &client.state else {
+        let TcpState::Connected { connection, .. } = &client.state else {
             panic!("a connection made");
         };
-        assert!(stream.peer_addr().is_err(), "the system no longer tells it");
+        assert!(
+            connection.stream().peer_addr().is_err(),
+            "the system no longer tells it"
+        );
         assert_eq!(client.remote_address().unwrap(), peer);
     }
 
@@ -736,5 +724,41 @@ mod tests {
             client.state,
             TcpState::Closed(ErrorCode::AccessDenied)
         ));
+    }
+
+    #[tokio::test]
+    async fn a_connection_counts_each_byte_it_sends_and_receives() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let mut client = TcpSocket::new(local_network(), IpAddressFamily::Ipv4).unwrap();
+        client
+            .start_connect(listener.local_addr().unwrap())
+            .unwrap();
+        poll_fn(|cx| client.poll_finish_connect(cx)).await.unwrap();
+        let (mut server, _) = listener.accept().await.unwrap();
+        let mut output = client.take_send_stream().unwrap();
+        let mut input = client.take_receive_stream().unwrap();
+
+        let written = poll_fn(|cx| output.poll_write(cx, b"ping")).await.unwrap();
+        let mut heard = [0; 4];
+        tokio::io::AsyncReadExt::read_exact(&mut server, &mut heard)
+            .await
+            .unwrap();
+        tokio::io::AsyncWriteExt::write_all(&mut server, b"pong!")
+            .await
+            .unwrap();
+        let mut answer = [0; 8];
+        let mut read = 0;
+        while read < 5 {
+            read += poll_fn(|cx| input.poll_read(cx, &mut answer[read..]))
+                .await
+                .unwrap();
+        }
+
+        let TcpState::Connected { connection, .. } = &client.state else {
+            panic!("a connection made");
+        };
+        assert_eq!(written, 4);
+        assert_eq!(connection.counts().sent(), 4);
+        assert_eq!(connection.counts().received(), 5);
     }
 }

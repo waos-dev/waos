@@ -10,6 +10,7 @@ use rustix::io::Errno;
 use tracing::debug;
 use wasmtime_wasi::runtime::with_ambient_tokio_runtime;
 
+use super::connection::Datagrams;
 use super::family::{is_of_family, is_remote, unspecified};
 use super::options;
 use super::refused_unless;
@@ -22,9 +23,7 @@ const MAX_DATAGRAM_SIZE: usize = u16::MAX as usize;
 
 /// A program's UDP socket, shared with the sends and receives it has started.
 pub struct UdpSocket {
-    // TODO(connection table): the socket's entry in what the program holds (`access::holdings`),
-    // held beside the system's socket inside this `Arc`, so it ends as the socket closes.
-    socket: Arc<tokio::net::UdpSocket>,
+    datagrams: Arc<Datagrams>,
     family: IpAddressFamily,
     /// What checks each address the socket uses.
     network: ProgramNetwork,
@@ -46,7 +45,7 @@ impl UdpSocket {
         // later (wasmtime issue 12612), so its first send waits for that here.
         socket.writable().await?;
         Ok(UdpSocket {
-            socket: Arc::new(socket),
+            datagrams: Arc::new(Datagrams::new(socket)),
             family,
             network,
             is_bound: false,
@@ -57,7 +56,8 @@ impl UdpSocket {
     pub(crate) fn is_bound(&mut self) -> bool {
         if !self.is_bound {
             self.is_bound = self
-                .socket
+                .datagrams
+                .socket()
                 .local_addr()
                 .is_ok_and(|address| address != unspecified(self.family));
         }
@@ -68,7 +68,7 @@ impl UdpSocket {
         if !self.is_bound() {
             return Err(ErrorCode::InvalidState);
         }
-        Ok(self.socket.local_addr()?)
+        Ok(self.datagrams.socket().local_addr()?)
     }
 
     pub(crate) fn remote_address(&self) -> Result<SocketAddr, ErrorCode> {
@@ -82,7 +82,7 @@ impl UdpSocket {
         if !is_of_family(address.ip(), self.family) {
             return Err(ErrorCode::InvalidArgument);
         }
-        Ok(bind(&*self.socket, address)?)
+        Ok(bind(self.datagrams.socket(), address)?)
     }
 
     pub(crate) fn connect(&mut self, address: SocketAddr) -> Result<(), ErrorCode> {
@@ -91,7 +91,7 @@ impl UdpSocket {
         }
         refused_unless(self.network.allows_send_to(address))?;
         refused_unless(self.network.allows_receive_from(address))?;
-        let connected = connect(&*self.socket, address);
+        let connected = connect(self.datagrams.socket(), address);
         self.update_remote_address();
         Ok(connected?)
     }
@@ -103,7 +103,7 @@ impl UdpSocket {
         // Linux may give up the port of a socket bound to the wildcard address as it
         // disconnects, which would read as unbound; it was bound, and stays so.
         self.is_bound = true;
-        let disconnected = disconnect(&*self.socket);
+        let disconnected = disconnect(self.datagrams.socket());
         self.update_remote_address();
         Ok(disconnected?)
     }
@@ -111,7 +111,8 @@ impl UdpSocket {
     /// Keeps where the socket is connected as the system says, after a call that may change it.
     fn update_remote_address(&mut self) {
         self.remote_address = self
-            .socket
+            .datagrams
+            .socket()
             .peer_addr()
             .ok()
             .filter(|address| *address != unspecified(self.family));
@@ -124,7 +125,7 @@ impl UdpSocket {
         address: Option<SocketAddr>,
     ) -> impl Future<Output = Result<(), ErrorCode>> + Send + use<> {
         let family = self.family;
-        let socket = Arc::clone(&self.socket);
+        let datagrams = Arc::clone(&self.datagrams);
         let network = self.network.clone();
         let connected = self.remote_address;
         async move {
@@ -146,9 +147,9 @@ impl UdpSocket {
             };
             refused_unless(network.allows_send_to(to))?;
             if connected == Some(to) {
-                socket.send(&data).await?;
+                datagrams.send(&data).await?;
             } else {
-                socket.send_to(&data, to).await?;
+                datagrams.send_to(&data, to).await?;
             }
             Ok(())
         }
@@ -158,7 +159,7 @@ impl UdpSocket {
     pub(crate) fn receive(
         &mut self,
     ) -> impl Future<Output = Result<(Vec<u8>, SocketAddr), ErrorCode>> + Send + use<> {
-        let socket = Arc::clone(&self.socket);
+        let datagrams = Arc::clone(&self.datagrams);
         let network = self.network.clone();
         let is_bound = self.is_bound();
         async move {
@@ -167,9 +168,10 @@ impl UdpSocket {
             }
             loop {
                 let mut data = vec![0; MAX_DATAGRAM_SIZE];
-                let (length, from) = socket.recv_from(&mut data).await?;
+                let (length, from) = datagrams.socket().recv_from(&mut data).await?;
                 data.truncate(length);
                 if network.allows_receive_from(from) {
+                    datagrams.handed_over(length);
                     return Ok((data, from));
                 }
             }
@@ -181,27 +183,27 @@ impl UdpSocket {
     }
 
     pub(crate) fn unicast_hop_limit(&self) -> Result<u8, ErrorCode> {
-        options::unicast_hop_limit(&*self.socket, self.family)
+        options::unicast_hop_limit(self.datagrams.socket(), self.family)
     }
 
     pub(crate) fn set_unicast_hop_limit(&self, value: u8) -> Result<(), ErrorCode> {
-        options::set_unicast_hop_limit(&*self.socket, self.family, value)
+        options::set_unicast_hop_limit(self.datagrams.socket(), self.family, value)
     }
 
     pub(crate) fn receive_buffer_size(&self) -> Result<u64, ErrorCode> {
-        options::receive_buffer_size(&*self.socket)
+        options::receive_buffer_size(self.datagrams.socket())
     }
 
     pub(crate) fn set_receive_buffer_size(&self, value: u64) -> Result<(), ErrorCode> {
-        options::set_receive_buffer_size(&*self.socket, value).map(|_| ())
+        options::set_receive_buffer_size(self.datagrams.socket(), value).map(|_| ())
     }
 
     pub(crate) fn send_buffer_size(&self) -> Result<u64, ErrorCode> {
-        options::send_buffer_size(&*self.socket)
+        options::send_buffer_size(self.datagrams.socket())
     }
 
     pub(crate) fn set_send_buffer_size(&self, value: u64) -> Result<(), ErrorCode> {
-        options::set_send_buffer_size(&*self.socket, value).map(|_| ())
+        options::set_send_buffer_size(self.datagrams.socket(), value).map(|_| ())
     }
 }
 
