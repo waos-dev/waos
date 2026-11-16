@@ -1,7 +1,9 @@
 //! What a request is sent over, as hyper takes it: a connection of the program's (`sockets`),
 //! straight to its host or through a proxy, in TLS or not, and whether it goes to an HTTP proxy,
 //! to which hyper sends the request's whole URL. One type for every way, so one client sends
-//! them all; hyper reads and writes it as the stream it carries.
+//! them all; hyper reads and writes it as the stream it carries. It is the adapter hyper's API
+//! asks for, not a layer of WaOS's choosing: the orphan rule forbids implementing hyper-util's
+//! `Connection` on `TlsStream` itself, which is why reqwest has its `Conn` too.
 
 use std::io::IoSlice;
 use std::pin::Pin;

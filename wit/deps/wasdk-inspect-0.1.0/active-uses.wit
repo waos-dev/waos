@@ -8,8 +8,7 @@ interface active-uses {
   use devices.{device};
   use audit.{mount-kind};
 
-  /// What a program uses now. The program's TCP connections and listeners and its UDP sockets
-  /// join as cases of their own once WaOS owns its sockets.
+  /// What a program uses now.
   variant active-use-kind {
     /// A camera's capture session.
     camera(capture),
@@ -23,6 +22,12 @@ interface active-uses {
     folder-watch(folder-watch),
     /// A file or folder open.
     open-file(open-file),
+    /// A TCP connection, until its socket closes.
+    tcp-connection(tcp-connection),
+    /// A TCP socket listening, at this address, until it closes.
+    tcp-listener(socket-address),
+    /// A UDP socket, until it closes.
+    udp-socket(udp-socket),
   }
 
   /// A camera or the microphone capturing.
@@ -65,6 +70,50 @@ interface active-uses {
     read: bool,
     /// Whether it was opened to write.
     write: bool,
+  }
+
+  /// An address, and a port at it.
+  record socket-address {
+    address: string,
+    port: u16,
+  }
+
+  /// How a TCP connection came to be.
+  enum tcp-connection-origin {
+    /// The program connected.
+    connected,
+    /// The program's listener accepted it.
+    accepted,
+    /// WaOS connected, to send the program's HTTP requests.
+    http-request,
+  }
+
+  /// A TCP connection, and what it moved as this is sent.
+  record tcp-connection {
+    origin: tcp-connection-origin,
+    /// This end; none where the system could not say.
+    local: option<socket-address>,
+    /// The other end: the server, the program's peer, or the proxy a request went through.
+    remote: socket-address,
+    /// The names the other end's address was looked up by as the connection was made, which the
+    /// domain rule judged it by.
+    names: list<string>,
+    /// The bytes sent, as this is sent.
+    bytes-sent: u64,
+    /// The bytes received, as this is sent.
+    bytes-received: u64,
+  }
+
+  /// A UDP socket, and what it moved as this is sent.
+  record udp-socket {
+    /// Where it is bound, as this is sent; none until it is.
+    local: option<socket-address>,
+    /// Where it is connected, as this is sent; none while it sends anywhere.
+    remote: option<socket-address>,
+    /// The bytes of the datagrams sent, as this is sent.
+    bytes-sent: u64,
+    /// The bytes of the datagrams handed to the program, as this is sent.
+    bytes-received: u64,
   }
 
   /// A use active now.

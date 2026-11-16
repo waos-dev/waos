@@ -41,9 +41,11 @@ type BoxError = Box<dyn StdError + Send + Sync>;
 /// A connection being made, as hyper takes one.
 type Connecting<T> = Pin<Box<dyn Future<Output = Result<T, BoxError>> + Send>>;
 
-/// What connects a client's requests: the way they go, and the TLS they speak.
+/// What connects a client's requests: the program's network, whose connections they are; the
+/// way they go; and the TLS they speak.
 #[derive(Clone)]
 pub(super) struct Connector {
+    network: ProgramNetwork,
     way: Way,
     tls: Arc<ClientConfig>,
 }
@@ -52,10 +54,7 @@ pub(super) struct Connector {
 #[derive(Clone)]
 enum Way {
     /// Straight to each request's host, at the addresses the program's network answers.
-    Direct {
-        network: ProgramNetwork,
-        pins: Arc<Pins>,
-    },
+    Direct { pins: Arc<Pins> },
     /// Through the proxy in effect for each request.
     Proxied { proxies: Arc<Proxies> },
 }
@@ -63,6 +62,7 @@ enum Way {
 /// What connects to a proxy, which hyper-util's tunnels are given.
 #[derive(Clone)]
 struct ProxyDialer {
+    network: ProgramNetwork,
     tls: Arc<ClientConfig>,
 }
 
@@ -74,14 +74,20 @@ impl Connector {
         tls: Arc<ClientConfig>,
     ) -> Connector {
         Connector {
-            way: Way::Direct { network, pins },
+            network,
+            way: Way::Direct { pins },
             tls,
         }
     }
 
     /// Through the proxies of `proxies`.
-    pub(super) fn proxied(proxies: Arc<Proxies>, tls: Arc<ClientConfig>) -> Connector {
+    pub(super) fn proxied(
+        network: ProgramNetwork,
+        proxies: Arc<Proxies>,
+        tls: Arc<ClientConfig>,
+    ) -> Connector {
         Connector {
+            network,
             way: Way::Proxied { proxies },
             tls,
         }
@@ -89,10 +95,10 @@ impl Connector {
 
     async fn connect(self, uri: Uri) -> Result<Wire, BoxError> {
         match &self.way {
-            Way::Direct { network, pins } => {
+            Way::Direct { pins } => {
                 let host = host_of(&uri)?;
-                let addresses = addresses_of(network, pins, host).await?;
-                let connection = dial(&addresses, port_of(&uri)).await?;
+                let addresses = addresses_of(&self.network, pins, host).await?;
+                let connection = dial(&addresses, port_of(&uri), &self.network).await?;
                 let stream = secured(&self.tls, Box::new(connection), &uri).await?;
                 Ok(Wire::new(stream, false))
             }
@@ -107,6 +113,7 @@ impl Connector {
             .ok_or("no proxy is in effect for the request")?;
         let proxy = intercept.uri().clone();
         let dialer = ProxyDialer {
+            network: self.network.clone(),
             tls: Arc::clone(&self.tls),
         };
         match proxy.scheme_str() {
@@ -155,7 +162,7 @@ impl ProxyDialer {
     async fn dial(self, proxy: Uri) -> Result<Box<dyn Stream>, BoxError> {
         let host = host_of(&proxy)?.to_owned();
         let addresses = spawn_blocking(move || resolve_unchecked(&host)).await?;
-        let connection = dial(&addresses, port_of(&proxy)).await?;
+        let connection = dial(&addresses, port_of(&proxy), &self.network).await?;
         secured(&self.tls, Box::new(connection), &proxy).await
     }
 }
@@ -193,12 +200,16 @@ async fn addresses_of(
     spawn_blocking(move || network.reachable(&name, Cause::HttpRequest)).await
 }
 
-/// A connection to the first of `addresses` that answers at `port`; the last one's failure where
-/// none does.
-async fn dial(addresses: &[IpAddr], port: u16) -> std::io::Result<Connection> {
+/// A connection of the program whose network is `network` to the first of `addresses` that
+/// answers at `port`; the last one's failure where none does.
+async fn dial(
+    addresses: &[IpAddr],
+    port: u16,
+    network: &ProgramNetwork,
+) -> std::io::Result<Connection> {
     let mut failed = std::io::Error::from(std::io::ErrorKind::AddrNotAvailable);
     for address in addresses {
-        match Connection::dial(SocketAddr::new(*address, port)).await {
+        match Connection::dial(SocketAddr::new(*address, port), network).await {
             Ok(connection) => return Ok(connection),
             Err(error) => failed = error,
         }

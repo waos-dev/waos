@@ -1,26 +1,33 @@
-//! A connection of a program's, made or accepted: the system's socket, and the bytes it moved,
-//! counted as the system answers each read and write. The program's TCP streams read and write
-//! it ([`super::tcp`]), and its HTTP sends its requests over it (`network::http`), through tokio's
-//! traits; a datagram socket counts its datagrams the same way ([`Datagrams`]).
+//! The sockets a program has open, as the system holds them: its TCP connections ([`Connection`]),
+//! made, accepted, or made by the engine for its HTTP (`network::http`), which reads and writes
+//! them through tokio's traits; its listeners ([`Listener`]); and its UDP sockets
+//! ([`Datagrams`]). Each is a use the program makes now (`access::active_uses`), from when the
+//! system's socket is made until it closes, its record what the inspector reads: its addresses,
+//! the names they were looked up by, and the bytes it moved, counted as the system answers each
+//! read and write, and read only as the record is.
 //!
 //! A count costs one relaxed atomic add beside the system call it counts, on counters only that
-//! connection's own reads and writes touch, so a program streaming at full speed pays nothing it
+//! socket's own reads and writes touch, so a program streaming at full speed pays nothing it
 //! could see (`../experiments/2026-11-16-waos-socket-counting`).
 //!
-//! The invariant: every byte the system took from or handed to the program through the socket is
-//! counted once, and nothing else is.
+//! The invariant: a socket's use ends exactly as the system's socket closes, when the last of
+//! what shares it drops, and every byte the system took from or handed to the program through it
+//! is counted once, and nothing else is.
 
 use std::io;
 use std::net::SocketAddr;
 use std::pin::Pin;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::task::{Context, Poll};
 
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
-use tracing::debug;
+
+use crate::access::{ActiveUse, ActiveUseKind, TcpOrigin};
+use crate::network::ProgramNetwork;
 
 /// The bytes a socket moved for the program.
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub(crate) struct Counts {
     /// Taken by the system from the program, to send.
     sent: AtomicU64,
@@ -48,29 +55,52 @@ impl Counts {
     }
 }
 
-/// A TCP connection: the system's socket and what it moved, shared by the program's socket and
-/// its two streams, and closed as the last of them drops.
+/// A TCP connection: the system's socket, what it moved, and its use, shared by the program's
+/// socket and its two streams, and closed as the last of them drops.
 pub(crate) struct Connection {
-    // TODO(connection table): the connection's entry in what the program uses now
-    // (`access::active_uses`), held here, so the entry ends as the system's socket closes.
     stream: tokio::net::TcpStream,
-    counts: Counts,
+    counts: Arc<Counts>,
+    _active: ActiveUse,
 }
 
 impl Connection {
-    pub(crate) fn new(stream: tokio::net::TcpStream) -> Connection {
+    /// `stream`, connected to `remote` as `origin` says, a use of the program whose network is
+    /// `network`, with the names its lookups answered `remote` for.
+    pub(crate) fn new(
+        stream: tokio::net::TcpStream,
+        network: &ProgramNetwork,
+        origin: TcpOrigin,
+        remote: SocketAddr,
+    ) -> Connection {
+        let counts = Arc::new(Counts::default());
+        let active = network.access().hold(ActiveUseKind::TcpConnection {
+            origin,
+            local: stream.local_addr().ok(),
+            remote,
+            names: network.names_of(remote.ip()),
+            counts: Arc::clone(&counts),
+        });
         Connection {
             stream,
-            counts: Counts::default(),
+            counts,
+            _active: active,
         }
     }
 
-    /// A connection to `address`, which the engine makes for the program, as its HTTP does: its
-    /// writes sent at once, as a request's are.
-    pub(crate) async fn dial(address: SocketAddr) -> io::Result<Connection> {
+    /// A connection to `address`, which the engine makes for the program's HTTP: its writes sent
+    /// at once, as a request's are.
+    pub(crate) async fn dial(
+        address: SocketAddr,
+        network: &ProgramNetwork,
+    ) -> io::Result<Connection> {
         let stream = tokio::net::TcpStream::connect(address).await?;
         stream.set_nodelay(true)?;
-        Ok(Connection::new(stream))
+        Ok(Connection::new(
+            stream,
+            network,
+            TcpOrigin::HttpRequest,
+            address,
+        ))
     }
 
     /// The system's socket, for its addresses and options.
@@ -160,37 +190,63 @@ impl AsyncWrite for Connection {
     }
 }
 
-impl Drop for Connection {
-    fn drop(&mut self) {
-        debug!(
-            peer = ?self.stream.peer_addr().ok(),
-            sent = self.counts.sent(),
-            received = self.counts.received(),
-            "a program's connection closed"
-        );
+/// A TCP socket listening: the system's listener and its use, shared by the program's socket and
+/// its stream of accepted connections, and closed as the last of them drops.
+pub(crate) struct Listener {
+    listener: tokio::net::TcpListener,
+    _active: ActiveUse,
+}
+
+impl Listener {
+    /// `listener`, a use of the program whose network is `network`, at the address it listens at.
+    pub(crate) fn new(
+        listener: tokio::net::TcpListener,
+        network: &ProgramNetwork,
+    ) -> io::Result<Listener> {
+        let address = listener.local_addr()?;
+        let active = network
+            .access()
+            .hold(ActiveUseKind::TcpListener { address });
+        Ok(Listener {
+            listener,
+            _active: active,
+        })
+    }
+
+    /// The system's listener.
+    pub(crate) fn listener(&self) -> &tokio::net::TcpListener {
+        &self.listener
     }
 }
 
-/// A UDP socket: the system's socket and what it moved, shared by the program's socket and the
-/// sends and receives it started.
+/// A UDP socket: the system's socket, what it moved, and its use, shared by the program's socket
+/// and the sends and receives it started, and closed as the last of them drops.
 pub(crate) struct Datagrams {
-    // TODO(connection table): the socket's entry in what the program uses now
-    // (`access::active_uses`), held here, so it ends as the system's socket closes.
     socket: tokio::net::UdpSocket,
     counts: Counts,
+    _active: ActiveUse,
 }
 
 impl Datagrams {
-    pub(crate) fn new(socket: tokio::net::UdpSocket) -> Datagrams {
-        Datagrams {
+    /// `socket`, a use of the program whose network is `network`, whose record reads it as it is
+    /// read.
+    pub(crate) fn new(socket: tokio::net::UdpSocket, network: &ProgramNetwork) -> Arc<Datagrams> {
+        Arc::new_cyclic(|datagrams| Datagrams {
             socket,
             counts: Counts::default(),
-        }
+            _active: network.access().hold(ActiveUseKind::UdpSocket {
+                socket: datagrams.clone(),
+            }),
+        })
     }
 
     /// The system's socket, for its addresses and options.
     pub(crate) fn socket(&self) -> &tokio::net::UdpSocket {
         &self.socket
+    }
+
+    pub(crate) fn counts(&self) -> &Counts {
+        &self.counts
     }
 
     /// Sends `data` where the socket is connected, counted.
@@ -201,7 +257,7 @@ impl Datagrams {
     }
 
     /// Sends `data` to `to`, counted.
-    pub(crate) async fn send_to(&self, data: &[u8], to: std::net::SocketAddr) -> io::Result<()> {
+    pub(crate) async fn send_to(&self, data: &[u8], to: SocketAddr) -> io::Result<()> {
         let sent = self.socket.send_to(data, to).await?;
         self.counts.add_sent(sent);
         Ok(())
@@ -210,16 +266,5 @@ impl Datagrams {
     /// Counts a datagram of `length` bytes handed to the program.
     pub(crate) fn handed_over(&self, length: usize) {
         self.counts.add_received(length);
-    }
-}
-
-impl Drop for Datagrams {
-    fn drop(&mut self) {
-        debug!(
-            local = ?self.socket.local_addr().ok(),
-            sent = self.counts.sent(),
-            received = self.counts.received(),
-            "a program's UDP socket closed"
-        );
     }
 }

@@ -1,6 +1,8 @@
 //! The engine's own values made `wasdk:inspect`'s: a day of a program's audit summary, and what it
-//! uses now and each change to it.
+//! uses now and each change to it, a socket's addresses and bytes read as it is made one.
 
+use std::net::SocketAddr;
+use std::sync::Weak;
 use std::time::SystemTime;
 
 use waos_capabilities::{AskedQuestion, AuditDay, DeviceSession, FolderUses, NamedUses, Uses};
@@ -9,7 +11,8 @@ use super::bindings::wasdk::inspect::active_uses;
 use super::bindings::wasdk::inspect::audit;
 use crate::access::events::mount_kind_of;
 use crate::access::trace::instant_of;
-use crate::access::{ActiveUseChange, ActiveUseKind, ActiveUseNow};
+use crate::access::{ActiveUseChange, ActiveUseKind, ActiveUseNow, TcpOrigin};
+use crate::network::Datagrams;
 use crate::shell::RecordingDevice;
 
 /// `day`, one day of a program's audit summary, as `wasdk:inspect` says it.
@@ -125,6 +128,55 @@ fn active_use_kind_of(kind: ActiveUseKind) -> active_uses::ActiveUseKind {
             read: mode.read,
             write: mode.write,
         }),
+        ActiveUseKind::TcpConnection {
+            origin,
+            local,
+            remote,
+            names,
+            counts,
+        } => Kind::TcpConnection(active_uses::TcpConnection {
+            origin: tcp_origin_of(origin),
+            local: local.map(socket_address_of),
+            remote: socket_address_of(remote),
+            names,
+            bytes_sent: counts.sent(),
+            bytes_received: counts.received(),
+        }),
+        ActiveUseKind::TcpListener { address } => Kind::TcpListener(socket_address_of(address)),
+        ActiveUseKind::UdpSocket { socket } => Kind::UdpSocket(udp_socket_of(&socket)),
+    }
+}
+
+fn tcp_origin_of(origin: TcpOrigin) -> active_uses::TcpConnectionOrigin {
+    match origin {
+        TcpOrigin::Connected => active_uses::TcpConnectionOrigin::Connected,
+        TcpOrigin::Accepted => active_uses::TcpConnectionOrigin::Accepted,
+        TcpOrigin::HttpRequest => active_uses::TcpConnectionOrigin::HttpRequest,
+    }
+}
+
+fn socket_address_of(address: SocketAddr) -> active_uses::SocketAddress {
+    active_uses::SocketAddress {
+        address: address.ip().to_string(),
+        port: address.port(),
+    }
+}
+
+/// A UDP socket as it is now: where it is bound, a port of 0 being none yet, where it is
+/// connected, and what it moved; nothing once it is closing.
+fn udp_socket_of(socket: &Weak<Datagrams>) -> active_uses::UdpSocket {
+    let socket = socket.upgrade();
+    let system = socket.as_deref().map(Datagrams::socket);
+    let local = system
+        .and_then(|system| system.local_addr().ok())
+        .filter(|address| address.port() != 0);
+    let remote = system.and_then(|system| system.peer_addr().ok());
+    let counts = socket.as_deref().map(Datagrams::counts);
+    active_uses::UdpSocket {
+        local: local.map(socket_address_of),
+        remote: remote.map(socket_address_of),
+        bytes_sent: counts.map_or(0, |counts| counts.sent()),
+        bytes_received: counts.map_or(0, |counts| counts.received()),
     }
 }
 

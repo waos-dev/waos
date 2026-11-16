@@ -54,6 +54,7 @@ pub use http::HttpProxy;
 pub(crate) use http::ProgramHttp;
 use localhost::localhost_addresses;
 use record::AddressRecord;
+pub(crate) use sockets::{Counts, Datagrams};
 
 /// One program's network: its access, where each check is decided and its grants read, the
 /// resolver its names are resolved with, and the addresses its lookups answered. Clones share the
@@ -113,6 +114,11 @@ impl ProgramNetwork {
     /// The access of the program whose network this is.
     pub(crate) fn access(&self) -> &ProgramAccess {
         &self.access
+    }
+
+    /// The names the program's lookups answered `address` for, of entries still kept.
+    pub(crate) fn names_of(&self, address: IpAddr) -> Vec<String> {
+        self.record.names_of(address)
     }
 
     /// The addresses of `name` the program's own lookup answers, as [`plan_lookup`] and

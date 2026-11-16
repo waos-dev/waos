@@ -264,7 +264,10 @@ pub(super) fn held_kind(kind: &ActiveUseKind) -> Option<TraceKind> {
         ActiveUseKind::Command { .. }
         | ActiveUseKind::HttpRequest { .. }
         | ActiveUseKind::FolderWatch { .. }
-        | ActiveUseKind::OpenFile { .. } => None,
+        | ActiveUseKind::OpenFile { .. }
+        | ActiveUseKind::TcpConnection { .. }
+        | ActiveUseKind::TcpListener { .. }
+        | ActiveUseKind::UdpSocket { .. } => None,
     }
 }
 

@@ -38,6 +38,7 @@ use crate::files::{MountKind, MountOf, OpenMode};
 use crate::shell::AnswerFuture;
 pub(crate) use active_uses::{
     ActiveUse, ActiveUseChange, ActiveUseChanges, ActiveUseKind, ActiveUseNow, ShownRecordings,
+    TcpOrigin,
 };
 pub(crate) use summary::KeptIn;
 #[cfg(test)]

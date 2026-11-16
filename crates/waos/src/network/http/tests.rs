@@ -24,7 +24,7 @@ use http_body_util::{BodyExt, Empty};
 use wasmtime_wasi_http::{Error, RequestOptions, WasiHttpHooks};
 
 use super::{HttpProxy, ProgramHttp};
-use crate::access::ProgramAccess;
+use crate::access::{ActiveUseKind, ProgramAccess, TcpOrigin};
 use crate::network::test_grants::{TestGrants, any, off, only};
 use crate::network::{LookupError, ProgramNetwork};
 
@@ -476,4 +476,61 @@ fn a_request_is_told_refused_by_its_setting_or_held_in_flight() {
     assert_eq!(access.uses_but_open_files().len(), 1);
     drop(in_flight);
     assert!(access.uses_but_open_files().is_empty());
+}
+
+#[test]
+fn a_request_goes_over_a_connection_the_program_uses_until_it_closes() {
+    let port = serve_keeping_connections();
+    let access = ProgramAccess::new(TestGrants::new(any(), true));
+    let network = ProgramNetwork::new(access.clone());
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let mut http = ProgramHttp::new(network, HttpProxy::None);
+    let body = Empty::<Bytes>::new()
+        .map_err(|never| match never {})
+        .boxed_unsync();
+    let request = http::Request::get(format!("http://{LOOPBACK}:{port}/"))
+        .body(body)
+        .unwrap();
+    let sending = http.send_request(request, None, Box::new(async { Ok(()) }));
+    let (response, _errors) = runtime.block_on(Pin::from(sending)).unwrap();
+    let connections: Vec<_> = access
+        .uses_but_open_files()
+        .into_iter()
+        .filter_map(|kind| match kind {
+            ActiveUseKind::TcpConnection { origin, remote, .. } => Some((origin, remote.port())),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(connections, [(TcpOrigin::HttpRequest, port)]);
+    drop((response, http, runtime));
+    assert!(
+        access.uses_but_open_files().is_empty(),
+        "the connection closed with the client"
+    );
+}
+
+/// A server on this computer answering each request with `200` and keeping its connection open
+/// for the next, until the client closes it.
+fn serve_keeping_connections() -> u16 {
+    let listener = TcpListener::bind((LOOPBACK, 0)).unwrap();
+    let port = listener.local_addr().unwrap().port();
+    thread::spawn(move || {
+        for stream in listener.incoming().flatten() {
+            thread::spawn(move || {
+                let mut reader = BufReader::new(&stream);
+                let mut line = String::new();
+                while reader.read_line(&mut line).is_ok_and(|read| read > 0) {
+                    if line == "\r\n" {
+                        let answer = b"HTTP/1.1 200 Answered\r\ncontent-length: 0\r\n\r\n";
+                        let _ = (&stream).write_all(answer);
+                    }
+                    line.clear();
+                }
+            });
+        }
+    });
+    port
 }

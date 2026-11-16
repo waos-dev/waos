@@ -137,7 +137,11 @@ impl ProgramHttp {
                 Arc::clone(&pins),
                 Arc::clone(&tls),
             )),
-            proxied: client(Connector::proxied(Arc::clone(&proxies), tls)),
+            proxied: client(Connector::proxied(
+                self.network.clone(),
+                Arc::clone(&proxies),
+                tls,
+            )),
             proxies,
             pins,
         };

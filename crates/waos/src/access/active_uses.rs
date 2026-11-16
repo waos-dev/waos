@@ -1,7 +1,8 @@
 //! What a program uses now: each use that lasts, from the moment what owns the real thing starts
 //! it until that thing really ends (a capture session, the microphone recording, a command until
-//! it exits, an HTTP request until its response's body ends, a folder watched), and each file it
-//! has open, until its last handle goes. One registry holds them all, each entry added as its
+//! it exits, an HTTP request until its response's body ends, a folder watched, a TCP connection,
+//! listener or UDP socket until the system's socket closes), and each file it has open, until its
+//! last handle goes. One registry holds them all, each entry added as its
 //! [`ActiveUse`] is made and taken away as it is dropped, wherever that is, the program ending
 //! among the ways. The shell's indicator of who records reads the same registry: it hears a
 //! program records with a kind of device as its first one starts, and that it stopped as its last
@@ -11,7 +12,7 @@
 //! place of what it missed, so it never shows a use that ended, and the program never waits for it.
 //!
 //! An entry is a lock, a map insertion and two clocks read, beside work far slower; an open
-//! file's path is asked of the system only when someone reads it (`../experiments/2026-11-15-audit-cost`
+//! file's path, and the bytes a socket moved, are read only when someone reads the entry (`../experiments/2026-11-15-audit-cost`
 //! and `../experiments/2026-11-16-active-uses-burst`).
 //!
 //! The invariant: an entry goes exactly when its [`ActiveUse`] is dropped, and every change to the
@@ -20,6 +21,7 @@
 
 use std::collections::BTreeMap;
 use std::fs;
+use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex, Weak};
@@ -31,6 +33,7 @@ use futures::channel::mpsc;
 
 use super::AccessParts;
 use crate::files::{MountKind, OpenMode};
+use crate::network::{Counts, Datagrams};
 use crate::running::RunningProgram;
 use crate::shell::{RecordingDevice, ShellRecordingIndicator};
 use crate::sync::locked;
@@ -63,6 +66,33 @@ pub(crate) enum ActiveUseKind {
         mount: MountKind,
         mode: OpenMode,
     },
+    /// A TCP connection, until its socket closes.
+    TcpConnection {
+        origin: TcpOrigin,
+        /// This end, where the system said it as the connection was made.
+        local: Option<SocketAddr>,
+        /// The other end.
+        remote: SocketAddr,
+        /// The names `remote` was looked up by as the connection was made.
+        names: Vec<String>,
+        /// What it moved, read as the entry is.
+        counts: Arc<Counts>,
+    },
+    /// A TCP socket listening at `address`, until it closes.
+    TcpListener { address: SocketAddr },
+    /// A UDP socket, until it closes: its addresses and what it moved, read as the entry is.
+    UdpSocket { socket: Weak<Datagrams> },
+}
+
+/// How a TCP connection came to be.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum TcpOrigin {
+    /// The program connected.
+    Connected,
+    /// The program's listener accepted it.
+    Accepted,
+    /// The engine connected, to send the program's HTTP requests.
+    HttpRequest,
 }
 
 /// Who shows a program's recordings: the shell's indicator, which names the program.

@@ -2,8 +2,8 @@
 //! each socket the system's own, made non-blocking on tokio, and each address it uses checked by
 //! the program's network at that use before the call that reaches it: a connection
 //! ([`super::ProgramNetwork::allows_connect`]), a listener, an accepted connection, a datagram
-//! sent or received. A bind reaches nothing, and asks nothing. Each socket counts the bytes it
-//! moves ([`connection`]).
+//! sent or received. A bind reaches nothing, and asks nothing. Each socket open is a use the
+//! program makes now, which counts the bytes it moves ([`open_sockets`]).
 //!
 //! Ported from `wasmtime-wasi` 50.0.1 (`src/sockets/mod.rs`, `src/sockets/tcp.rs` and
 //! `src/sockets/udp.rs`), by the Wasmtime Project Developers, under the Apache License 2.0 with
@@ -17,15 +17,15 @@
 //! `access-denied`, and a refused accepted connection or datagram is dropped before the program
 //! sees it.
 
-mod connection;
 mod errors;
 mod family;
+mod open_sockets;
 mod options;
 mod tcp;
 mod udp;
 
 use super::host::bindings::wasi::sockets::types::ErrorCode;
-pub(crate) use connection::Connection;
+pub(crate) use open_sockets::{Connection, Counts, Datagrams};
 pub use tcp::TcpSocket;
 pub(crate) use tcp::{TcpListenStream, TcpReceiveStream, TcpSendStream};
 pub use udp::UdpSocket;

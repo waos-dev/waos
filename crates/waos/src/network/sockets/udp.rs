@@ -10,8 +10,8 @@ use rustix::io::Errno;
 use tracing::debug;
 use wasmtime_wasi::runtime::with_ambient_tokio_runtime;
 
-use super::connection::Datagrams;
 use super::family::{is_of_family, is_remote, unspecified};
+use super::open_sockets::Datagrams;
 use super::options;
 use super::refused_unless;
 use crate::network::ProgramNetwork;
@@ -45,7 +45,7 @@ impl UdpSocket {
         // later (wasmtime issue 12612), so its first send waits for that here.
         socket.writable().await?;
         Ok(UdpSocket {
-            datagrams: Arc::new(Datagrams::new(socket)),
+            datagrams: Datagrams::new(socket, &network),
             family,
             network,
             is_bound: false,
@@ -282,5 +282,36 @@ fn disconnect(socket: impl AsFd) -> Result<(), Errno> {
         #[cfg(target_os = "macos")]
         Err(Errno::INVAL | Errno::AFNOSUPPORT) => Ok(()),
         disconnected => disconnected,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::access::{ActiveUseKind, ProgramAccess};
+    use crate::network::test_grants::{TestGrants, any};
+
+    #[tokio::test]
+    async fn a_socket_is_a_use_until_it_closes_read_as_it_is_now() {
+        let network = ProgramNetwork::new(ProgramAccess::new(TestGrants::new(any(), true)));
+        let mut socket = UdpSocket::new(network.clone(), IpAddressFamily::Ipv4)
+            .await
+            .unwrap();
+        let peer = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        socket.connect(peer.local_addr().unwrap()).unwrap();
+        socket.send(b"ping".to_vec(), None).await.unwrap();
+        let uses = network.access().uses_but_open_files();
+        let [ActiveUseKind::UdpSocket { socket: open }] = &uses[..] else {
+            panic!("one UDP socket: {uses:?}");
+        };
+        let open = open.upgrade().unwrap();
+        assert_eq!(
+            open.socket().peer_addr().unwrap(),
+            peer.local_addr().unwrap()
+        );
+        assert_eq!(open.counts().sent(), 4, "read as it is now");
+        drop(open);
+        drop(socket);
+        assert!(network.access().uses_but_open_files().is_empty());
     }
 }

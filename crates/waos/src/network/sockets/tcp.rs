@@ -16,10 +16,11 @@ use rustix::io::Errno;
 use rustix::net::sockopt;
 use wasmtime_wasi::runtime::with_ambient_tokio_runtime;
 
-use super::connection::Connection;
 use super::family::{is_of_family, is_remote, is_unicast, unspecified};
+use super::open_sockets::{Connection, Listener};
 use super::options::{self, ListenerOptions, clamp_keep_alive_count, clamp_keep_alive_time};
 use super::refused_unless;
+use crate::access::TcpOrigin;
 use crate::network::ProgramNetwork;
 use crate::network::host::bindings::wasi::sockets::types::{ErrorCode, IpAddressFamily};
 
@@ -46,9 +47,9 @@ enum TcpState {
     /// Made, and perhaps bound; next listening or connecting.
     Default(tokio::net::TcpSocket),
     /// Listening, which it does until it is closed.
-    Listening(Arc<tokio::net::TcpListener>),
+    Listening(Arc<Listener>),
     /// Connecting, until the connect's future answers.
-    Connecting(Pending<Result<tokio::net::TcpStream, ErrorCode>>),
+    Connecting(Pending<Result<Connection, ErrorCode>>),
     /// Connected, by a connect or an accept, which it stays.
     Connected {
         connection: Arc<Connection>,
@@ -70,9 +71,9 @@ enum Pending<T> {
 }
 
 impl TcpState {
-    fn connected(stream: tokio::net::TcpStream, peer: Option<SocketAddr>) -> TcpState {
+    fn connected(connection: Connection, peer: Option<SocketAddr>) -> TcpState {
         TcpState::Connected {
-            connection: Arc::new(Connection::new(stream)),
+            connection: Arc::new(connection),
             peer,
             receive_taken: false,
             send_taken: false,
@@ -105,7 +106,7 @@ impl TcpSocket {
         match &self.state {
             TcpState::Default(socket) => Ok(socket.as_fd()),
             TcpState::Connected { connection, .. } => Ok(connection.stream().as_fd()),
-            TcpState::Listening(listener) => Ok(listener.as_fd()),
+            TcpState::Listening(listener) => Ok(listener.listener().as_fd()),
             TcpState::Connecting(_) => Err(ErrorCode::InvalidState),
             TcpState::Closed(error) => Err(error.clone()),
         }
@@ -155,7 +156,13 @@ impl TcpSocket {
         };
         self.state = TcpState::Connecting(Pending::new(async move {
             refused_unless(network.allows_connect(address))?;
-            Ok(socket.connect(address).await?)
+            let stream = socket.connect(address).await?;
+            Ok(Connection::new(
+                stream,
+                &network,
+                TcpOrigin::Connected,
+                address,
+            ))
         }));
         Ok(())
     }
@@ -176,8 +183,8 @@ impl TcpSocket {
             unreachable!("matched above");
         };
         match connect.into_ready() {
-            Ok(stream) => {
-                self.state = TcpState::connected(stream, None);
+            Ok(connection) => {
+                self.state = TcpState::connected(connection, None);
                 Poll::Ready(Ok(()))
             }
             Err(error) => {
@@ -209,7 +216,7 @@ impl TcpSocket {
         let listener = socket
             .listen(self.listen_backlog_size)
             .map_err(listen_error)?;
-        let listener = Arc::new(listener);
+        let listener = Arc::new(Listener::new(listener, &self.network)?);
         self.state = TcpState::Listening(Arc::clone(&listener));
         Ok(TcpListenStream {
             listener,
@@ -262,7 +269,7 @@ impl TcpSocket {
             TcpState::Default(socket) => Ok(socket.local_addr()?),
             TcpState::Connecting(_) => Err(ErrorCode::InvalidState),
             TcpState::Connected { connection, .. } => Ok(connection.stream().local_addr()?),
-            TcpState::Listening(listener) => Ok(listener.local_addr()?),
+            TcpState::Listening(listener) => Ok(listener.listener().local_addr()?),
             TcpState::Closed(error) => Err(error.clone()),
         }
     }
@@ -308,7 +315,8 @@ impl TcpSocket {
                 Ok(())
             }
             TcpState::Listening(listener) => {
-                if rustix::net::listen(listener, value.try_into().unwrap_or(i32::MAX)).is_err() {
+                let backlog = value.try_into().unwrap_or(i32::MAX);
+                if rustix::net::listen(listener.listener(), backlog).is_err() {
                     return Err(ErrorCode::NotSupported);
                 }
                 self.listen_backlog_size = value;
@@ -406,7 +414,7 @@ impl TcpSocket {
 /// A listener's connections, each accepted as the program asks for the next, those the program's
 /// network refuses reset unseen.
 pub(crate) struct TcpListenStream {
-    listener: Arc<tokio::net::TcpListener>,
+    listener: Arc<Listener>,
     family: IpAddressFamily,
     listener_options: ListenerOptions,
     network: ProgramNetwork,
@@ -426,7 +434,8 @@ impl TcpListenStream {
         let state = match accepted {
             Ok((client, peer)) => {
                 self.listener_options.apply(self.family, &client);
-                TcpState::connected(client, Some(peer))
+                let connection = Connection::new(client, &self.network, TcpOrigin::Accepted, peer);
+                TcpState::connected(connection, Some(peer))
             }
             Err(error) => TcpState::Closed(error),
         };
@@ -447,7 +456,7 @@ impl TcpListenStream {
             let network = self.network.clone();
             self.pending_accept = Some(Pending::new(async move {
                 loop {
-                    let (client, peer) = accept(&listener).await?;
+                    let (client, peer) = accept(listener.listener()).await?;
                     if network.allows_accept(peer) {
                         return Ok((client, peer));
                     }
@@ -633,7 +642,7 @@ mod tests {
     use std::future::poll_fn;
 
     use super::*;
-    use crate::access::ProgramAccess;
+    use crate::access::{ActiveUseKind, ProgramAccess};
     use crate::network::test_grants::{TestGrants, any};
 
     /// A network that reaches this computer.
@@ -760,5 +769,63 @@ mod tests {
         assert_eq!(written, 4);
         assert_eq!(connection.counts().sent(), 4);
         assert_eq!(connection.counts().received(), 5);
+    }
+
+    /// The program's sockets, as what it uses now names them.
+    fn sockets(network: &ProgramNetwork) -> Vec<String> {
+        network
+            .access()
+            .uses_but_open_files()
+            .iter()
+            .map(|kind| match kind {
+                ActiveUseKind::TcpConnection { origin, remote, .. } => {
+                    format!("{origin:?} to {}", remote.port())
+                }
+                ActiveUseKind::TcpListener { address } => {
+                    format!("listening at {}", address.port())
+                }
+                other => format!("{other:?}"),
+            })
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn each_listener_and_connection_is_a_use_until_its_socket_closes() {
+        let network = local_network();
+        let mut socket = TcpSocket::new(network.clone(), IpAddressFamily::Ipv4).unwrap();
+        socket.bind("127.0.0.1:0".parse().unwrap()).unwrap();
+        let mut listener = socket.listen().unwrap();
+        let port = socket.local_address().unwrap().port();
+        let mut client = TcpSocket::new(network.clone(), IpAddressFamily::Ipv4).unwrap();
+        client
+            .start_connect(socket.local_address().unwrap())
+            .unwrap();
+        poll_fn(|cx| client.poll_finish_connect(cx)).await.unwrap();
+        let mut accepted = poll_fn(|cx| listener.poll_accept(cx)).await;
+        let client_port = client.local_address().unwrap().port();
+        assert_eq!(
+            sockets(&network),
+            [
+                format!("listening at {port}"),
+                format!("Connected to {port}"),
+                format!("Accepted to {client_port}"),
+            ]
+        );
+
+        let input = client.take_receive_stream().unwrap();
+        drop(client);
+        assert_eq!(sockets(&network).len(), 3, "its stream still holds it");
+        drop(input);
+        drop(accepted.take_send_stream().unwrap());
+        drop(accepted);
+        assert_eq!(sockets(&network), [format!("listening at {port}")]);
+        drop(socket);
+        assert_eq!(
+            sockets(&network).len(),
+            1,
+            "its stream of connections still holds it"
+        );
+        drop(listener);
+        assert!(sockets(&network).is_empty());
     }
 }
