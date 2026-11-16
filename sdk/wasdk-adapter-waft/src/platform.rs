@@ -26,7 +26,7 @@ use waft_embedder::image_codecs::ImageCodecs;
 use waft_embedder::{
     AppExit, AppLifecycleState, Brightness, Cameras, CaptionSettings, Clipboard, Compositor,
     Dispatcher, FileDialogFuture, FileDialogs, FolderOptions, FontSource, HardwareBuffer,
-    HardwareBufferAllocator, Instant, Locale, MediaAssets, MenuBar, MenuEntry, Notifications,
+    HardwareBufferAllocator, ImageCodecFuture, ImageDecodeError, Instant, Locale, MediaAssets, MenuBar, MenuEntry, Notifications,
     Offset, OpenOptions, Opener, PickedFile, PickedFolder, Platform, Players, PopupMenuFuture,
     PopupMenus, RequestId, SaveOptions, Screens, TargetPlatform, TrayIcons, VideoFrame,
     VideoFrameReaders, ViewError, ViewId, ViewRef, WindowBackground, WindowConfig,
@@ -45,6 +45,7 @@ use crate::fonts::ProgramFonts;
 use crate::gpu_interop;
 use crate::hardware_buffers::WasdkHardwareBufferAllocator;
 use crate::image_codecs::WasdkImageCodecs;
+use crate::image_decoding::ImageDecoding;
 use crate::lifecycle_states::framework_lifecycle_state;
 use crate::media_assets::WasdkMediaAssets;
 use crate::menus::{WasdkContextMenus, WasdkMenuBar, WasdkTrayIcons};
@@ -87,6 +88,8 @@ pub(crate) struct WasdkPlatform {
     players: Option<WasdkPlayers>,
     media_assets: Option<WasdkMediaAssets>,
     image_codecs: Option<WasdkImageCodecs>,
+    /// What Waft's own images decode with, over the image codecs, where the system has them.
+    image_decoding: Option<ImageDecoding>,
     video_frame_readers: Option<WasdkVideoFrameReaders>,
     cameras: Option<WasdkCameras>,
     /// The user's caption settings, where the system keeps them.
@@ -116,6 +119,7 @@ impl WasdkPlatform {
         notices: mpsc::UnboundedSender<Notice>,
         opener: StreamOpener,
     ) -> WasdkPlatform {
+        let image_codecs = WasdkImageCodecs::get();
         WasdkPlatform {
             target_platform: target_platform_of(system::os()),
             brightness: Cell::new(brightness_of(system::platform_brightness())),
@@ -132,7 +136,10 @@ impl WasdkPlatform {
             notifications: WasdkNotifications::get(),
             players: WasdkPlayers::get(),
             media_assets: WasdkMediaAssets::get(),
-            image_codecs: WasdkImageCodecs::get(),
+            image_decoding: image_codecs
+                .as_ref()
+                .map(|codecs| ImageDecoding::new(codecs, Rc::clone(&renderer))),
+            image_codecs,
             video_frame_readers: WasdkVideoFrameReaders::get(),
             cameras: WasdkCameras::get(),
             caption_settings: WasdkCaptionSettings::get(),
@@ -312,8 +319,16 @@ impl Platform for WasdkPlatform {
         waft_embedder::default_font_families(self.target_platform)
     }
 
+    /// Through the system's image codecs (`image_decoding`); `NoDecoder` where it has none.
+    fn open_image_codec(&self, bytes: Arc<[u8]>) -> ImageCodecFuture {
+        match &self.image_decoding {
+            Some(decoding) => decoding.open_codec(bytes),
+            None => Box::pin(std::future::ready(Err(ImageDecodeError::NoDecoder))),
+        }
+    }
+
     fn import_pixels(&self, pixels: valo::PixelBuffer) -> Option<waft_embedder::Image> {
-        self.renderer.import_pixels(pixels)
+        self.renderer.import_pixels(pixels, false)
     }
 
     fn import_video_frame(&self, frame: &dyn VideoFrame) -> Option<waft_embedder::Image> {
@@ -321,7 +336,7 @@ impl Platform for WasdkPlatform {
     }
 
     fn import_hardware_buffer(&self, buffer: &dyn HardwareBuffer) -> Option<waft_embedder::Image> {
-        self.renderer.import_buffer(buffer)
+        self.renderer.import_buffer(buffer, false)
     }
 
     /// The WIT's `import-texture` on `device`, for a buffer the WIT handed out

@@ -70,6 +70,8 @@ mod video_player;
 #[cfg(target_vendor = "apple")]
 mod waft_back;
 #[cfg(target_vendor = "apple")]
+mod waft_image;
+#[cfg(target_vendor = "apple")]
 mod waft_menus;
 mod workers;
 

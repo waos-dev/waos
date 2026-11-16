@@ -47,6 +47,16 @@ impl WasdkImageCodecs {
             hardware,
         })
     }
+
+    /// The WIT's codecs, which Waft's own images decode with too (`image_decoding`).
+    pub(crate) fn wit_codecs(&self) -> Rc<platform::ImageCodecs> {
+        Rc::clone(&self.codecs)
+    }
+
+    /// The WIT's hardware codecs, where the system has them.
+    pub(crate) fn wit_hardware_codecs(&self) -> Option<Rc<platform::HardwareImageCodecs>> {
+        self.hardware.as_ref().map(|hardware| Rc::clone(&hardware.0))
+    }
 }
 
 impl ImageCodecs for WasdkImageCodecs {

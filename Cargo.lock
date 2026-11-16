@@ -10260,6 +10260,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "waft-image"
+version = "0.2.0"
+dependencies = [
+ "waft-embedder",
+ "waft-widgets",
+ "wasdk",
+ "wasdk-adapter-waft",
+]
+
+[[package]]
 name = "waft-macros"
 version = "0.5.0"
 dependencies = [

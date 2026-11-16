@@ -17,7 +17,8 @@
 //! user opens with the program ([`open_requests`]); the system's notifications and the clicks on
 //! them ([`notifications`]); the system's players, their pictures on the program's composition
 //! layers ([`players`]); the system's reading of media without playing it ([`media_assets`]); the
-//! system's image codecs ([`image_codecs`]); and the system's cameras, their previews on those
+//! system's image codecs ([`image_codecs`]), which Waft's own images decode with too
+//! ([`image_decoding`]); and the system's cameras, their previews on those
 //! layers too
 //! ([`cameras`]). The program's fonts are the engine's, as decisions 36 and 37 set
 //! them ([`fonts`]).
@@ -31,8 +32,8 @@
 //! [`fonts`] the program's fonts and their glyphs, [`clipboard`] the clipboard, [`menus`] the
 //! menus, [`file_dialogs`] the file dialogs, [`opener`] the opener, [`open_requests`] what the user
 //! opens with the program, [`notifications`] the notifications, [`players`] the players,
-//! [`media_assets`] the reading of media, [`image_codecs`] the image codecs, [`cameras`] the
-//! cameras,
+//! [`media_assets`] the reading of media, [`image_codecs`] the image codecs, [`image_decoding`]
+//! the decoding of Waft's own images, [`cameras`] the cameras,
 //! [`dispatcher`] where the framework asks to be woken, [`text_input`] where the app's text is
 //! edited and [`typing`] what a key the framework did not handle types there, [`lifecycle_states`]
 //! how much of the program its user sees, [`app_exit`] how the program ends; and [`pointer`],
@@ -58,6 +59,7 @@ mod frame_drawing;
 mod gpu_interop;
 mod hardware_buffers;
 mod image_codecs;
+mod image_decoding;
 mod keys;
 mod lifecycle_states;
 mod media_assets;

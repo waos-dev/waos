@@ -161,27 +161,37 @@ impl Renderer {
 
     /// A video's `frame` as an image on the renderer's device, as its hardware buffer is.
     pub(crate) fn import_frame(&self, frame: &dyn VideoFrame) -> Option<valo::Image> {
-        self.import_buffer(&*frame.hardware_buffer())
+        self.import_buffer(&*frame.hardware_buffer(), false)
     }
 
     /// A hardware `buffer` as an image on the renderer's device: the texture imported of it there,
-    /// which holds the buffer, and a frame's buffer its frame, until it is dropped; none for a
-    /// buffer the WIT did not hand out, or one valo cannot sample.
-    pub(crate) fn import_buffer(&self, buffer: &dyn HardwareBuffer) -> Option<valo::Image> {
+    /// which holds the buffer, and a frame's buffer its frame, until it is dropped, or, with
+    /// `mipmaps`, a copy of it with its mip levels made on the GPU; none for a buffer the WIT did
+    /// not hand out, or one valo cannot sample.
+    pub(crate) fn import_buffer(
+        &self,
+        buffer: &dyn HardwareBuffer,
+        mipmaps: bool,
+    ) -> Option<valo::Image> {
         let texture = gpu_interop::import_texture(buffer, &self.device)?;
         self.context
             .borrow()
             .image_context()
-            .import_texture(texture, false)
+            .import_texture(texture, mipmaps)
             .ok()
     }
 
-    /// Pixels the program already holds, uploaded as an image on the renderer's device.
-    pub(crate) fn import_pixels(&self, pixels: valo::PixelBuffer) -> Option<valo::Image> {
+    /// Pixels the program already holds, uploaded as an image on the renderer's device, with its
+    /// mip levels where `mipmaps`.
+    pub(crate) fn import_pixels(
+        &self,
+        pixels: valo::PixelBuffer,
+        mipmaps: bool,
+    ) -> Option<valo::Image> {
         self.context
             .borrow()
             .image_context()
-            .upload_pixels(pixels, false)
+            .upload_pixels(pixels, mipmaps)
             .ok()
     }
 }
