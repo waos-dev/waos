@@ -44,7 +44,7 @@ pub(crate) fn may_post(access: &ProgramAccess) -> bool {
             Err(Refusal::by("notifications"))
         }
     };
-    access.decide(Asked::Post, user_allowed).is_ok()
+    access.decide(Asked::PostNotification, user_allowed).is_ok()
 }
 
 /// `notifications.notification`: one notification, as the program builds it and the shell posts

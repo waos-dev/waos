@@ -37,7 +37,7 @@ use waos_capabilities::{Answer, Command, ProgramGrants, Question, Switch};
 use crate::files::{MountKind, MountOf, OpenMode};
 use crate::shell::AnswerFuture;
 pub(crate) use holdings::{Held, Holding, Holdings, ShownRecordings};
-pub(crate) use summary::KeptBy;
+pub(crate) use summary::KeptIn;
 #[cfg(test)]
 pub(crate) use test_answers::Answers;
 pub use trace::{TraceEvent, TraceKind, TraceStream};
@@ -63,7 +63,7 @@ struct AccessParts {
     /// What it did today, kept day by day.
     summary: summary::Summary,
     /// Who listens to what it does now.
-    taps: Arc<trace::Taps>,
+    taps: Arc<trace::TraceTaps>,
     /// What was told, for the test that made the access to read.
     #[cfg(test)]
     told: std::sync::Mutex<Vec<Told>>,
@@ -91,7 +91,7 @@ pub(crate) enum Asked<'a> {
         simulated: bool,
     },
     /// A command run on the machine named `machine`.
-    Run {
+    RunCommand {
         machine: &'a str,
         command: &'a Command,
         in_terminal: bool,
@@ -100,42 +100,42 @@ pub(crate) enum Asked<'a> {
         link: &'a str,
     },
     /// A notification posted.
-    Post,
+    PostNotification,
     /// A file or folder opened, by the path the program named from one of its folders: by the
     /// program, or on its behalf by what `cause` names, read for all the program can say.
-    Open {
+    OpenFile {
         path: &'a str,
         mode: OpenMode,
         cause: Cause,
     },
     /// A change at the path the program named.
-    Change {
+    ChangeFile {
         path: &'a str,
         change: FileChange<'a>,
     },
     /// A folder the program holds, watched, and everything under it where `recursive`.
-    Watch {
+    WatchFolder {
         recursive: bool,
     },
     /// A name looked up, for the program itself or for what it caused.
-    Lookup {
+    LookUpName {
         name: &'a str,
         cause: Cause,
     },
     /// A TCP connection made to `address`.
-    Connect {
+    ConnectTcp {
         address: SocketAddr,
     },
     /// A TCP connection from `address` accepted.
-    Accept {
+    AcceptTcp {
         address: SocketAddr,
     },
     /// A TCP socket listening at `address`.
-    Listen {
+    ListenTcp {
         address: SocketAddr,
     },
     /// An HTTP request the program sends, by an id of the program's requests.
-    Request {
+    SendHttpRequest {
         id: u64,
         method: &'a http::Method,
         uri: &'a http::Uri,
@@ -154,7 +154,7 @@ pub(crate) enum FileChange<'a> {
         to: &'a str,
     },
     /// A hard link to what the path names made at `to`.
-    Link {
+    HardLink {
         to: &'a str,
     },
     /// A symlink holding `contents` made at the path.
@@ -168,10 +168,10 @@ pub(crate) enum FileChange<'a> {
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum Cause {
     Program,
-    /// A request of the program's, whose host is looked up to send it.
-    Request,
-    /// A player or the reading of media, which the system opens a link or a file for.
-    Player,
+    /// An HTTP request of the program's, whose host is looked up to send it.
+    HttpRequest,
+    /// A media player or the reading of media, which the system opens a link or a file for.
+    MediaPlayer,
     /// The system's app a file is opened in, or its file manager, which shows it.
     Opener,
     /// The system's codecs, which read an image's file.
@@ -271,7 +271,7 @@ impl Refused for Refusal {
 #[derive(Debug)]
 pub(crate) enum Noted<'a> {
     /// A path a metadata call named, a stat, a symlink read or a hash, and where it led.
-    Named {
+    MetadataRead {
         path: &'a str,
         resolution: Resolution<'a>,
     },
@@ -280,8 +280,9 @@ pub(crate) enum Noted<'a> {
         mount: &'a MountOf,
         file: &'a fs::File,
     },
-    /// A datagram sent to `address`, or received from it, refused by `refusal` where it is none.
-    Datagram {
+    /// A UDP datagram sent to `address`, or received from it, refused by `refusal` where it is
+    /// none.
+    UdpDatagram {
         address: SocketAddr,
         sent: bool,
         refusal: Option<Refusal>,
@@ -292,20 +293,21 @@ pub(crate) enum Noted<'a> {
 #[derive(Debug)]
 pub(crate) enum Happened<'a> {
     /// A question put to the user.
-    Asked(Prompt),
+    QuestionAsked(Prompt),
     /// The user's answer to it; none when nobody answered.
-    Answered(Prompt, Option<Answer>),
+    QuestionAnswered(Prompt, Option<Answer>),
     /// A switch's page opened in the user's settings.
     SettingsOpened(Switch),
     /// A file or folder the user picked, mounted for the program, as the machine names it.
-    Mounted { on_machine: &'a Path },
+    PickMounted { on_machine: &'a Path },
     /// A machine the user picked, by its id.
     MachinePicked { machine: &'a str },
-    /// The response to the request `request` came, with `status`, after `took`.
-    Responded {
-        request: u64,
+    /// The head of the response to the HTTP request `request_id` came, with `status`, after
+    /// `time_to_head`.
+    HttpResponded {
+        request_id: u64,
         status: u16,
-        took: std::time::Duration,
+        time_to_head: std::time::Duration,
     },
 }
 
@@ -329,7 +331,7 @@ impl ProgramAccess {
     pub(crate) fn of(
         grants: Arc<dyn ProgramGrants>,
         shown: Option<ShownRecordings>,
-        kept: Option<KeptBy>,
+        kept: Option<KeptIn>,
     ) -> ProgramAccess {
         ProgramAccess {
             instance: 0,
@@ -381,10 +383,10 @@ impl ProgramAccess {
     }
 
     /// `answer`, the user's to `prompt`, put now: told asked now, and answered as it comes.
-    pub(crate) fn put(&self, prompt: Prompt, answer: AnswerFuture) -> AnswerFuture {
-        self.tell(Happened::Asked(prompt.clone()));
+    pub(crate) fn put_question(&self, prompt: Prompt, answer: AnswerFuture) -> AnswerFuture {
+        self.tell(Happened::QuestionAsked(prompt.clone()));
         let access = self.clone();
-        let told = move |answer: &Option<Answer>| access.tell(Happened::Answered(prompt, *answer));
+        let told = move |answer: &Option<Answer>| access.tell(Happened::QuestionAnswered(prompt, *answer));
         Box::pin(answer.inspect(told))
     }
 
@@ -398,7 +400,7 @@ impl ProgramAccess {
     }
 
     /// Tells what the program wrote to its standard output, or its errors where `errors`.
-    pub(crate) fn wrote(&self, errors: bool, bytes: &[u8]) {
+    pub(crate) fn wrote_output(&self, errors: bool, bytes: &[u8]) {
         let instance = self.instance;
         self.parts.taps.send(TraceKind::Output, || {
             events::output(errors, bytes, instance)
@@ -406,13 +408,13 @@ impl ProgramAccess {
     }
 
     /// The id of the program's next request.
-    pub(crate) fn next_request(&self) -> u64 {
-        self.parts.taps.next_request()
+    pub(crate) fn next_http_request_id(&self) -> u64 {
+        self.parts.taps.next_http_request_id()
     }
 
     /// A new listener of the program's uses of `kind`, from now on.
     pub(crate) fn subscribe(&self, kind: TraceKind) -> TraceStream {
-        trace::Taps::subscribe(&self.parts.taps, kind)
+        trace::TraceTaps::subscribe(&self.parts.taps, kind)
     }
 
     /// Keeps the program's day of its audit summary as it is now.
@@ -565,15 +567,15 @@ mod tests {
     #[test]
     fn a_use_is_told_with_its_verdict() {
         let access = access();
-        let allowed = access.decide(Asked::Post, |_| Ok::<_, Refusal>(()));
-        let refused = access.decide(Asked::Post, |_| Err::<(), _>(Refusal::by("notifications")));
+        let allowed = access.decide(Asked::PostNotification, |_| Ok::<_, Refusal>(()));
+        let refused = access.decide(Asked::PostNotification, |_| Err::<(), _>(Refusal::by("notifications")));
         assert_eq!(allowed, Ok(()));
         assert_eq!(refused, Err(Refusal::by("notifications")));
         assert_eq!(
             access.told(),
             [
-                Told::Allowed("Post".to_owned(), "Nothing".to_owned()),
-                Told::Refused("Post".to_owned(), "notifications"),
+                Told::Allowed("PostNotification".to_owned(), "Nothing".to_owned()),
+                Told::Refused("PostNotification".to_owned(), "notifications"),
             ]
         );
     }
@@ -582,7 +584,7 @@ mod tests {
     fn a_use_is_told_with_what_its_rule_resolved_it_to() {
         let access = access();
         let looked_up = access.decide(
-            Asked::Lookup {
+            Asked::LookUpName {
                 name: "example.com",
                 cause: Cause::Program,
             },
@@ -592,7 +594,7 @@ mod tests {
         assert_eq!(
             access.told(),
             [Told::Allowed(
-                "Lookup { name: \"example.com\", cause: Program }".to_owned(),
+                "LookUpName { name: \"example.com\", cause: Program }".to_owned(),
                 "Addresses([93.184.215.14])".to_owned()
             )]
         );
@@ -602,16 +604,16 @@ mod tests {
     fn a_question_put_is_told_asked_then_answered() {
         let access = access();
         let prompt = Prompt::LinkScheme("zoommtg".to_owned());
-        let answer = access.put(prompt, Box::pin(std::future::ready(Some(Answer::Granted))));
+        let answer = access.put_question(prompt, Box::pin(std::future::ready(Some(Answer::Granted))));
         assert_eq!(
             access.told(),
-            [Told::Happened("Asked(LinkScheme(\"zoommtg\"))".to_owned())]
+            [Told::Happened("QuestionAsked(LinkScheme(\"zoommtg\"))".to_owned())]
         );
         assert_eq!(answer.now_or_never(), Some(Some(Answer::Granted)));
         assert_eq!(
             access.told().last(),
             Some(&Told::Happened(
-                "Answered(LinkScheme(\"zoommtg\"), Some(Granted))".to_owned()
+                "QuestionAnswered(LinkScheme(\"zoommtg\"), Some(Granted))".to_owned()
             ))
         );
     }
@@ -619,7 +621,7 @@ mod tests {
     #[test]
     fn the_rule_reads_the_programs_grants() {
         let access = access();
-        let read = access.decide(Asked::Post, |grants| {
+        let read = access.decide(Asked::PostNotification, |grants| {
             Ok::<_, Refusal>(grants.clipboard_read())
         });
         assert_eq!(read, Ok(false));

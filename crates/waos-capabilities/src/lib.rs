@@ -52,8 +52,8 @@ use std::sync::{Arc, Mutex};
 
 pub use audio::{AudioDeviceError, AudioDevices, AudioOutput};
 pub use audit::{
-    AskedQuestion, AuditDay, AuditLog, CAPS, Caps, Counted, DAYS_KEPT, FolderUses, MountKind,
-    Overflow, RunCommand, Session, Uses,
+    AskedQuestion, AuditDay, AuditLog, DAYS_KEPT, DeviceSession, FolderUses, LIST_CAPS, ListCaps,
+    MachineCommand, MountKind, NamedUses, Overflow, Uses,
 };
 pub use grants::{
     Answer, ChangedFuture, Domain, DomainError, DomainRule, FileDialog, FileSystemGrant, Mount,

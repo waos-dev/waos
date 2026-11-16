@@ -170,7 +170,7 @@ impl ProgramPermissions {
         self.asking.ask(
             question,
             || {
-                access.put(
+                access.put_question(
                     Prompt::Question(question),
                     self.prompts.ask(&self.program, question),
                 )

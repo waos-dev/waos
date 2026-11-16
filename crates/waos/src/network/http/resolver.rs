@@ -115,7 +115,7 @@ impl Resolve for ProgramResolver {
             spawn_blocking(move || resolve_unchecked(&name))
         } else {
             let network = self.network.clone();
-            spawn_blocking(move || network.reachable(&name, Cause::Request))
+            spawn_blocking(move || network.reachable(&name, Cause::HttpRequest))
         };
         Box::pin(async move {
             let addresses = resolving.await?;

@@ -84,12 +84,12 @@ pub enum Inspection {
     /// What it holds now: each use that lasts, and each file it has open.
     Holdings,
     /// Its uses of each of `traced` from now on, live.
-    Trace(Vec<Traced>),
+    Trace(Vec<TracedCapability>),
 }
 
 /// A capability whose uses a trace hears: one of `wasdk:inspect`'s streams.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum Traced {
+pub enum TracedCapability {
     Network,
     Files,
     Clipboard,
@@ -102,33 +102,33 @@ pub enum Traced {
     Output,
 }
 
-impl Traced {
-    pub const ALL: [Traced; 10] = [
-        Traced::Network,
-        Traced::Files,
-        Traced::Clipboard,
-        Traced::Camera,
-        Traced::Microphone,
-        Traced::Machines,
-        Traced::Permissions,
-        Traced::Links,
-        Traced::Notifications,
-        Traced::Output,
+impl TracedCapability {
+    pub const ALL: [TracedCapability; 10] = [
+        TracedCapability::Network,
+        TracedCapability::Files,
+        TracedCapability::Clipboard,
+        TracedCapability::Camera,
+        TracedCapability::Microphone,
+        TracedCapability::Machines,
+        TracedCapability::Permissions,
+        TracedCapability::Links,
+        TracedCapability::Notifications,
+        TracedCapability::Output,
     ];
 
     /// Its name, as `cargo waos inspect` takes it.
     pub fn key(self) -> &'static str {
         match self {
-            Traced::Network => "network",
-            Traced::Files => "files",
-            Traced::Clipboard => "clipboard",
-            Traced::Camera => "camera",
-            Traced::Microphone => "microphone",
-            Traced::Machines => "machines",
-            Traced::Permissions => "permissions",
-            Traced::Links => "links",
-            Traced::Notifications => "notifications",
-            Traced::Output => "output",
+            TracedCapability::Network => "network",
+            TracedCapability::Files => "files",
+            TracedCapability::Clipboard => "clipboard",
+            TracedCapability::Camera => "camera",
+            TracedCapability::Microphone => "microphone",
+            TracedCapability::Machines => "machines",
+            TracedCapability::Permissions => "permissions",
+            TracedCapability::Links => "links",
+            TracedCapability::Notifications => "notifications",
+            TracedCapability::Output => "output",
         }
     }
 }
@@ -618,7 +618,7 @@ mod tests {
         let asked = [
             Inspection::Summary { days: 7 },
             Inspection::Holdings,
-            Inspection::Trace(Traced::ALL.to_vec()),
+            Inspection::Trace(TracedCapability::ALL.to_vec()),
         ];
         for asked in asked {
             let inspect = ToWaOS::Inspect {

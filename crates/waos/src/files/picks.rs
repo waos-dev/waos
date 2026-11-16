@@ -36,7 +36,7 @@ impl Picks {
             return None;
         };
         self.handed.hand_pick(host, writable);
-        self.access.tell(Happened::Mounted { on_machine: host });
+        self.access.tell(Happened::PickMounted { on_machine: host });
         self.access.grants().keep_picked(Mount {
             host: host.to_owned(),
             at: own.clone(),
@@ -69,7 +69,7 @@ mod tests {
         assert_eq!(
             access.told(),
             [Told::Happened(format!(
-                "Mounted {{ on_machine: {host:?} }}"
+                "PickMounted {{ on_machine: {host:?} }}"
             ))]
         );
     }

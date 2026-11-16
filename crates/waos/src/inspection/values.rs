@@ -3,7 +3,7 @@
 
 use std::time::{Instant, SystemTime};
 
-use waos_capabilities::{AskedQuestion, AuditDay, Counted, FolderUses, Session, Uses};
+use waos_capabilities::{AskedQuestion, AuditDay, DeviceSession, FolderUses, NamedUses, Uses};
 
 use super::bindings::wasdk::inspect::audit;
 use super::bindings::wasdk::inspect::holdings;
@@ -19,33 +19,37 @@ pub fn day_of(day: &AuditDay) -> audit::Day {
         domains: day
             .domains
             .iter()
-            .map(|counted| counted_of(counted, String::clone))
+            .map(|uses| named_uses_of(uses, String::clone))
             .collect(),
         local_addresses: day
             .local_addresses
             .iter()
-            .map(|counted| counted_of(counted, ToString::to_string))
+            .map(|uses| named_uses_of(uses, ToString::to_string))
             .collect(),
-        datagrams: day.datagrams,
+        udp_datagrams: day.udp_datagrams,
         folders: day.folders.iter().map(folder_of).collect(),
         folder_refusals: day.folder_refusals,
         clipboard_reads: uses_of(&day.clipboard_reads),
         pastes: day.pastes,
         clipboard_writes: uses_of(&day.clipboard_writes),
-        camera: day.camera.iter().map(session_of).collect(),
-        microphone: day.microphone.iter().map(session_of).collect(),
+        camera: day.camera.iter().map(device_session_of).collect(),
+        microphone: day.microphone.iter().map(device_session_of).collect(),
         commands: day
             .commands
             .iter()
-            .map(|counted| counted_of(counted, |run| format!("{} {}", run.machine, run.program)))
+            .map(|uses| {
+                named_uses_of(uses, |command| {
+                    format!("{} {}", command.machine, command.command)
+                })
+            })
             .collect(),
         links: day
             .links
             .iter()
-            .map(|counted| counted_of(counted, String::clone))
+            .map(|uses| named_uses_of(uses, String::clone))
             .collect(),
         notifications: uses_of(&day.notifications),
-        questions: day.questions.iter().map(asked_of).collect(),
+        questions: day.questions.iter().map(question_asked_of).collect(),
         beyond_caps: audit::Overflow {
             domains: day.beyond_caps.domains,
             local_addresses: day.beyond_caps.local_addresses,
@@ -53,7 +57,7 @@ pub fn day_of(day: &AuditDay) -> audit::Day {
             changed: day.beyond_caps.changed,
             commands: day.beyond_caps.commands,
             links: day.beyond_caps.links,
-            sessions: day.beyond_caps.sessions,
+            device_sessions: day.beyond_caps.device_sessions,
             questions: day.beyond_caps.questions,
         },
     }
@@ -122,15 +126,15 @@ fn uses_of(uses: &Uses) -> audit::Uses {
     }
 }
 
-fn counted_of<T>(counted: &Counted<T>, name: impl Fn(&T) -> String) -> audit::Counted {
-    audit::Counted {
-        name: name(&counted.name),
-        uses: uses_of(&counted.uses),
+fn named_uses_of<T>(uses: &NamedUses<T>, name: impl Fn(&T) -> String) -> audit::NamedUses {
+    audit::NamedUses {
+        name: name(&uses.name),
+        uses: uses_of(&uses.uses),
     }
 }
 
-fn folder_of(folder: &FolderUses) -> audit::Folder {
-    audit::Folder {
+fn folder_of(folder: &FolderUses) -> audit::FolderUses {
+    audit::FolderUses {
         path: folder.path.display().to_string(),
         kind: mount_kind_of(folder.kind),
         opened_to_read: folder.opened_to_read,
@@ -146,16 +150,16 @@ fn folder_of(folder: &FolderUses) -> audit::Folder {
     }
 }
 
-fn session_of(session: &Session) -> audit::Session {
-    audit::Session {
+fn device_session_of(session: &DeviceSession) -> audit::DeviceSession {
+    audit::DeviceSession {
         start: instant_of(session.start),
         seconds: session.seconds,
         simulated: session.simulated,
     }
 }
 
-fn asked_of(asked: &AskedQuestion) -> audit::Asked {
-    audit::Asked {
+fn question_asked_of(asked: &AskedQuestion) -> audit::QuestionAsked {
+    audit::QuestionAsked {
         question: asked.question.clone(),
         at: instant_of(asked.at),
         answer: asked.answer.clone(),
@@ -176,7 +180,7 @@ mod tests {
         let mut uses = Uses::default();
         uses.count(true, at);
         uses.count(false, at);
-        day.domains.push(Counted {
+        day.domains.push(NamedUses {
             name: "example.com".to_owned(),
             uses,
         });

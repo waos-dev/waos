@@ -296,7 +296,7 @@ fn each_refusal_of_a_lookup_a_connection_a_listener_and_a_datagram_is_told_by_it
     );
 
     grants.set_network(only(&["example.org"]));
-    assert!(network.reachable(PUBLIC, Cause::Player).is_err());
+    assert!(network.reachable(PUBLIC, Cause::MediaPlayer).is_err());
     assert_eq!(access.refusals().last(), Some(&"domains"));
 
     assert!(!network.allows_socket(public, SocketAddrUse::UdpSend));

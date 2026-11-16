@@ -12,7 +12,7 @@ use std::io::Write as _;
 use std::process::ExitCode;
 
 use anyhow::{Context, Result, bail};
-use waos_dev_protocol::{FromWaOS, Inspection, ToWaOS, Traced};
+use waos_dev_protocol::{FromWaOS, Inspection, ToWaOS, TracedCapability};
 use waos_package::ProgramId;
 
 use crate::asking::connect;
@@ -24,21 +24,21 @@ pub fn inspection_of(what: &[String], days: u32) -> Result<Inspection> {
     match what {
         [one] if one == "summary" => return Ok(Inspection::Summary { days }),
         [one] if one == "holdings" => return Ok(Inspection::Holdings),
-        [one] if one == "all" => return Ok(Inspection::Trace(Traced::ALL.to_vec())),
+        [one] if one == "all" => return Ok(Inspection::Trace(TracedCapability::ALL.to_vec())),
         _ => {}
     }
     let traced = what
         .iter()
         .map(|name| {
-            Traced::ALL.into_iter().find(|traced| traced.key() == name).with_context(|| {
-                let names: Vec<&str> = Traced::ALL.iter().map(|traced| traced.key()).collect();
+            TracedCapability::ALL.into_iter().find(|traced| traced.key() == name).with_context(|| {
+                let names: Vec<&str> = TracedCapability::ALL.iter().map(|traced| traced.key()).collect();
                 format!(
                     "nothing to inspect is named {name:?}: summary, holdings, all, or any of {}",
                     names.join(", ")
                 )
             })
         })
-        .collect::<Result<Vec<Traced>>>()?;
+        .collect::<Result<Vec<TracedCapability>>>()?;
     Ok(Inspection::Trace(traced))
 }
 
@@ -104,11 +104,11 @@ mod tests {
         );
         assert_eq!(
             inspection_of(&words(&["network", "files"]), 7).unwrap(),
-            Inspection::Trace(vec![Traced::Network, Traced::Files])
+            Inspection::Trace(vec![TracedCapability::Network, TracedCapability::Files])
         );
         assert_eq!(
             inspection_of(&words(&["all"]), 7).unwrap(),
-            Inspection::Trace(Traced::ALL.to_vec())
+            Inspection::Trace(TracedCapability::ALL.to_vec())
         );
         let error = inspection_of(&words(&["network", "summary"]), 7).unwrap_err();
         assert!(

@@ -196,7 +196,7 @@ fn decide_run(
     command: &Command,
     in_terminal: bool,
 ) -> Result<(), ExecError> {
-    let asked = Asked::Run {
+    let asked = Asked::RunCommand {
         machine,
         command,
         in_terminal,

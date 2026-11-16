@@ -14,8 +14,9 @@ interface audit {
     last: option<instant>,
   }
 
-  record counted {
-    /// What was used: a domain, an address, a scheme and host, a machine and program.
+  /// The uses of one thing, by its name.
+  record named-uses {
+    /// What was used: a domain, an address, a scheme and host, a machine and command.
     name: string,
     uses: uses,
   }
@@ -39,7 +40,7 @@ interface audit {
   }
 
   /// What a program did in one mount.
-  record folder {
+  record folder-uses {
     /// Where the mount is on the machine.
     path: string,
     kind: mount-kind,
@@ -52,13 +53,17 @@ interface audit {
     changed: list<string>,
   }
 
-  record session {
+  /// A camera's session, or the microphone recording.
+  record device-session {
     start: instant,
+    /// How long it lasted, in whole seconds.
     seconds: u32,
+    /// Whether it captured from one of WaOS's own devices, simulated, rather than the machine's.
     simulated: bool,
   }
 
-  record asked {
+  /// A question put to the user, and its answer.
+  record question-asked {
     /// The question, by its row's key: `camera`, `microphone`, `notifications`,
     /// `link-scheme zoommtg`.
     question: string,
@@ -67,37 +72,39 @@ interface audit {
     answer: option<string>,
   }
 
-  /// What fell beyond each list's cap.
+  /// How many fell beyond each list's cap.
   record overflow {
     domains: u32,
     local-addresses: u32,
     folders: u32,
+    /// The files changed, all folders together.
     changed: u32,
     commands: u32,
     links: u32,
-    sessions: u32,
+    /// The camera's and the microphone's sessions together.
+    device-sessions: u32,
     questions: u32,
   }
 
   /// One day, from midnight UTC.
   record day {
     start: instant,
-    domains: list<counted>,
-    local-addresses: list<counted>,
-    datagrams: u64,
-    folders: list<folder>,
+    domains: list<named-uses>,
+    local-addresses: list<named-uses>,
+    udp-datagrams: u64,
+    folders: list<folder-uses>,
     /// The opens and changes the mounts refused: outside every folder, or a change a read-only
     /// one does not allow.
     folder-refusals: u32,
     clipboard-reads: uses,
     pastes: u32,
     clipboard-writes: uses,
-    camera: list<session>,
-    microphone: list<session>,
-    commands: list<counted>,
-    links: list<counted>,
+    camera: list<device-session>,
+    microphone: list<device-session>,
+    commands: list<named-uses>,
+    links: list<named-uses>,
     notifications: uses,
-    questions: list<asked>,
+    questions: list<question-asked>,
     beyond-caps: overflow,
   }
 

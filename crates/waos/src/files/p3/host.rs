@@ -321,7 +321,7 @@ impl<U: 'static> types::HostDescriptorWithStore<U> for HasFiles {
         store.with(|mut store| {
             let ctx = store.get();
             let (from, to_from) = (ctx.table.get(&descriptor)?, ctx.table.get(&new_descriptor)?);
-            let link = FileChange::Link { to: &new_path };
+            let link = FileChange::HardLink { to: &new_path };
             let (from, to) = ctx.files.change_between(from, &old_path, to_from, link)?;
             Ok(from.link_to(&to)?)
         })

@@ -13,10 +13,11 @@ use super::trace::{TraceEvent, TraceKind, duration_of, instant_of};
 use super::{Asked, Cause, FileChange, Happened, Holding, Noted, Resolution};
 use crate::inspection::bindings::wasdk::inspect::audit::MountKind as WitMountKind;
 use crate::inspection::bindings::wasdk::inspect::trace::{
-    Answered, Cause as WitCause, ClipboardEvent, ClipboardRead, ClipboardUse, Connection, Datagram,
-    DeviceEvent, DeviceOpened, DeviceUse, FileEvent, FileUse, LinkEvent, Lookup, MachineEvent,
-    MachineUse, NetworkEvent, NetworkUse, NotificationEvent, OutputChunk, OutputStream,
-    PermissionEvent, PermissionUse, Request, Response, Run, Verdict,
+    Cause as WitCause, ClipboardEvent, ClipboardRead, ClipboardUse, DeviceEvent, DeviceOpened,
+    DeviceUse, FileEvent, FileUse, HttpRequest, HttpResponse, LinkEvent, MachineEvent, MachineUse,
+    NameLookup, NetworkEvent, NetworkUse, NotificationEvent, OutputChunk, OutputStream,
+    PermissionEvent, PermissionUse, QuestionAnswer, StartedCommand, TcpConnection, UdpDatagram,
+    Verdict, WatchOptions,
 };
 use crate::shell::RecordingDevice;
 use waos_capabilities::MountKind;
@@ -27,15 +28,17 @@ pub(super) fn kind_of(asked: &Asked<'_>) -> TraceKind {
         Asked::ClipboardRead { .. } | Asked::ClipboardWrite { .. } => TraceKind::Clipboard,
         Asked::OpenCamera { .. } => TraceKind::Camera,
         Asked::OpenMicrophone { .. } => TraceKind::Microphone,
-        Asked::Run { .. } => TraceKind::Machines,
+        Asked::RunCommand { .. } => TraceKind::Machines,
         Asked::OpenLink { .. } => TraceKind::Links,
-        Asked::Post => TraceKind::Notifications,
-        Asked::Open { .. } | Asked::Change { .. } | Asked::Watch { .. } => TraceKind::Files,
-        Asked::Lookup { .. }
-        | Asked::Connect { .. }
-        | Asked::Accept { .. }
-        | Asked::Listen { .. }
-        | Asked::Request { .. } => TraceKind::Network,
+        Asked::PostNotification => TraceKind::Notifications,
+        Asked::OpenFile { .. } | Asked::ChangeFile { .. } | Asked::WatchFolder { .. } => {
+            TraceKind::Files
+        }
+        Asked::LookUpName { .. }
+        | Asked::ConnectTcp { .. }
+        | Asked::AcceptTcp { .. }
+        | Asked::ListenTcp { .. }
+        | Asked::SendHttpRequest { .. } => TraceKind::Network,
     }
 }
 
@@ -89,17 +92,17 @@ pub(super) fn decided(
         }),
         Asked::OpenCamera { id, simulated } => {
             TraceEvent::Camera(device(DeviceUse::Opened(DeviceOpened {
-                camera: Some((*id).to_owned()),
+                camera_id: Some((*id).to_owned()),
                 simulated: *simulated,
             })))
         }
         Asked::OpenMicrophone { simulated } => {
             TraceEvent::Microphone(device(DeviceUse::Opened(DeviceOpened {
-                camera: None,
+                camera_id: None,
                 simulated: *simulated,
             })))
         }
-        Asked::Run {
+        Asked::RunCommand {
             machine,
             command,
             in_terminal,
@@ -107,9 +110,9 @@ pub(super) fn decided(
             at,
             instance,
             dropped_before: 0,
-            kind: MachineUse::Run(Run {
+            kind: MachineUse::CommandStarted(StartedCommand {
                 machine: (*machine).to_owned(),
-                program: command.program.clone(),
+                command: command.program.clone(),
                 arguments: command.arguments.clone(),
                 in_terminal: *in_terminal,
             }),
@@ -122,19 +125,19 @@ pub(super) fn decided(
             link: (*link).to_owned(),
             verdict,
         }),
-        Asked::Post => TraceEvent::Notifications(NotificationEvent {
+        Asked::PostNotification => TraceEvent::Notifications(NotificationEvent {
             at,
             instance,
             dropped_before: 0,
             verdict,
         }),
-        Asked::Open { path, mode, cause } => {
+        Asked::OpenFile { path, mode, cause } => {
             let kind = if mode.write {
                 FileUse::OpenToWrite
             } else {
                 FileUse::OpenToRead
             };
-            files(
+            file_event(
                 Some(path),
                 resolution,
                 *cause,
@@ -142,17 +145,17 @@ pub(super) fn decided(
                 (at, instance, verdict),
             )
         }
-        Asked::Change { path, change } => {
+        Asked::ChangeFile { path, change } => {
             let kind = match change {
                 FileChange::CreateDirectory => FileUse::CreateDirectory,
                 FileChange::RemoveDirectory => FileUse::RemoveDirectory,
                 FileChange::Remove => FileUse::Remove,
                 FileChange::Rename { to } => FileUse::Rename((*to).to_owned()),
-                FileChange::Link { to } => FileUse::Link((*to).to_owned()),
+                FileChange::HardLink { to } => FileUse::HardLink((*to).to_owned()),
                 FileChange::Symlink { contents } => FileUse::Symlink((*contents).to_owned()),
                 FileChange::SetTimes => FileUse::SetTimes,
             };
-            files(
+            file_event(
                 Some(path),
                 resolution,
                 Cause::Program,
@@ -160,14 +163,16 @@ pub(super) fn decided(
                 (at, instance, verdict),
             )
         }
-        Asked::Watch { recursive } => files(
+        Asked::WatchFolder { recursive } => file_event(
             None,
             resolution,
             Cause::Program,
-            FileUse::Watch(*recursive),
+            FileUse::FolderWatch(WatchOptions {
+                recursive: *recursive,
+            }),
             (at, instance, verdict),
         ),
-        Asked::Lookup { name, cause } => network(NetworkUse::Lookup(Lookup {
+        Asked::LookUpName { name, cause } => network(NetworkUse::NameLookup(NameLookup {
             name: (*name).to_owned(),
             cause: cause_of(*cause),
             addresses: match resolution {
@@ -177,24 +182,28 @@ pub(super) fn decided(
                 _ => Vec::new(),
             },
         })),
-        Asked::Connect { address } => {
-            network(NetworkUse::Connect(connection(*address, resolution)))
+        Asked::ConnectTcp { address } => {
+            network(NetworkUse::TcpConnect(tcp_connection(*address, resolution)))
         }
-        Asked::Accept { address } => network(NetworkUse::Accept(connection(*address, resolution))),
-        Asked::Listen { address } => network(NetworkUse::Listen(address.port())),
-        Asked::Request { id, method, uri } => network(NetworkUse::Request(Request {
-            id: *id,
-            method: method.to_string(),
-            url: uri.to_string(),
-        })),
+        Asked::AcceptTcp { address } => {
+            network(NetworkUse::TcpAccept(tcp_connection(*address, resolution)))
+        }
+        Asked::ListenTcp { address } => network(NetworkUse::TcpListen(address.port())),
+        Asked::SendHttpRequest { id, method, uri } => {
+            network(NetworkUse::HttpRequest(HttpRequest {
+                id: *id,
+                method: method.to_string(),
+                url: uri.to_string(),
+            }))
+        }
     }
 }
 
 /// The capability `noted` is told on.
 pub(super) fn noted_kind(noted: &Noted<'_>) -> TraceKind {
     match noted {
-        Noted::Named { .. } | Noted::FirstWrite { .. } => TraceKind::Files,
-        Noted::Datagram { .. } => TraceKind::Network,
+        Noted::MetadataRead { .. } | Noted::FirstWrite { .. } => TraceKind::Files,
+        Noted::UdpDatagram { .. } => TraceKind::Network,
     }
 }
 
@@ -202,11 +211,11 @@ pub(super) fn noted_kind(noted: &Noted<'_>) -> TraceKind {
 pub(super) fn noted(noted: &Noted<'_>, instance: u32) -> TraceEvent {
     let at = instant_of(SystemTime::now());
     match noted {
-        Noted::Named { path, resolution } => files(
+        Noted::MetadataRead { path, resolution } => file_event(
             Some(path),
             Some(resolution),
             Cause::Program,
-            FileUse::Named,
+            FileUse::MetadataRead,
             (at, instance, Verdict::Allowed),
         ),
         Noted::FirstWrite { mount, file } => TraceEvent::Files(FileEvent {
@@ -222,7 +231,7 @@ pub(super) fn noted(noted: &Noted<'_>, instance: u32) -> TraceEvent {
             kind: FileUse::FirstWrite,
             verdict: Verdict::Allowed,
         }),
-        Noted::Datagram {
+        Noted::UdpDatagram {
             address,
             sent,
             refusal,
@@ -230,7 +239,7 @@ pub(super) fn noted(noted: &Noted<'_>, instance: u32) -> TraceEvent {
             at,
             instance,
             dropped_before: 0,
-            kind: NetworkUse::Datagram(Datagram {
+            kind: NetworkUse::UdpDatagram(UdpDatagram {
                 address: address.ip().to_string(),
                 port: address.port(),
                 sent: *sent,
@@ -266,7 +275,7 @@ pub(super) fn ended_kind(holding: &Holding) -> Option<TraceKind> {
 
 /// The event of a recording's start, told on `kind`.
 pub(super) fn held(kind: TraceKind, instance: u32) -> TraceEvent {
-    device_event(kind, DeviceUse::Started, instance)
+    device_event(kind, DeviceUse::CaptureStarted, instance)
 }
 
 /// The event of a held use's end, after `length`, told on `kind`.
@@ -276,22 +285,22 @@ pub(super) fn ended(kind: TraceKind, length: Duration, instance: u32) -> TraceEv
             at: instant_of(SystemTime::now()),
             instance,
             dropped_before: 0,
-            kind: MachineUse::Ended(duration_of(length)),
+            kind: MachineUse::CommandEnded(duration_of(length)),
             verdict: Verdict::Allowed,
         });
     }
-    device_event(kind, DeviceUse::Ended(duration_of(length)), instance)
+    device_event(kind, DeviceUse::CaptureEnded(duration_of(length)), instance)
 }
 
 /// The capability what `happened` is told on.
 pub(super) fn happened_kind(happened: &Happened<'_>) -> TraceKind {
     match happened {
-        Happened::Asked(_)
-        | Happened::Answered(..)
+        Happened::QuestionAsked(_)
+        | Happened::QuestionAnswered(..)
         | Happened::SettingsOpened(_)
-        | Happened::Mounted { .. } => TraceKind::Permissions,
+        | Happened::PickMounted { .. } => TraceKind::Permissions,
         Happened::MachinePicked { .. } => TraceKind::Machines,
-        Happened::Responded { .. } => TraceKind::Network,
+        Happened::HttpResponded { .. } => TraceKind::Network,
     }
 }
 
@@ -307,10 +316,12 @@ pub(super) fn happened(happened: &Happened<'_>, instance: u32) -> TraceEvent {
         })
     };
     match happened {
-        Happened::Asked(prompt) => permission(PermissionUse::Asked(prompt_key(prompt))),
-        Happened::Answered(prompt, answer) => {
+        Happened::QuestionAsked(prompt) => {
+            permission(PermissionUse::QuestionAsked(prompt_key(prompt)))
+        }
+        Happened::QuestionAnswered(prompt, answer) => {
             let answer = answer.map(|answer| answer_key(answer).to_owned());
-            permission(PermissionUse::Answered(Answered {
+            permission(PermissionUse::QuestionAnswered(QuestionAnswer {
                 question: prompt_key(prompt),
                 answer,
             }))
@@ -318,28 +329,28 @@ pub(super) fn happened(happened: &Happened<'_>, instance: u32) -> TraceEvent {
         Happened::SettingsOpened(switch) => permission(PermissionUse::SettingsOpened(
             switch_key(*switch).to_owned(),
         )),
-        Happened::Mounted { on_machine } => {
-            permission(PermissionUse::Mounted(on_machine.display().to_string()))
+        Happened::PickMounted { on_machine } => {
+            permission(PermissionUse::PickMounted(on_machine.display().to_string()))
         }
         Happened::MachinePicked { machine } => TraceEvent::Machines(MachineEvent {
             at,
             instance,
             dropped_before: 0,
-            kind: MachineUse::Picked((*machine).to_owned()),
+            kind: MachineUse::MachinePicked((*machine).to_owned()),
             verdict: Verdict::Allowed,
         }),
-        Happened::Responded {
-            request,
+        Happened::HttpResponded {
+            request_id,
             status,
-            took,
+            time_to_head,
         } => TraceEvent::Network(NetworkEvent {
             at,
             instance,
             dropped_before: 0,
-            kind: NetworkUse::Response(Response {
-                request: *request,
+            kind: NetworkUse::HttpResponse(HttpResponse {
+                request_id: *request_id,
                 status: *status,
-                took: duration_of(*took),
+                time_to_head: duration_of(*time_to_head),
             }),
             verdict: Verdict::Allowed,
         }),
@@ -362,7 +373,7 @@ pub(super) fn output(errors: bool, bytes: &[u8], instance: u32) -> TraceEvent {
 }
 
 /// A file's event: the path the program named, where the use landed, what it was for and what.
-fn files(
+fn file_event(
     path: Option<&str>,
     resolution: Option<&Resolution<'_>>,
     cause: Cause,
@@ -390,7 +401,7 @@ fn files(
             Some(WitMountKind::Machine),
         ),
         Some(Resolution::Both(both)) => {
-            return files(path, Some(&both.0), cause, kind, (at, instance, verdict));
+            return file_event(path, Some(&both.0), cause, kind, (at, instance, verdict));
         }
         _ => (None, None),
     };
@@ -407,8 +418,11 @@ fn files(
     })
 }
 
-fn connection(address: std::net::SocketAddr, resolution: Option<&Resolution<'_>>) -> Connection {
-    Connection {
+fn tcp_connection(
+    address: std::net::SocketAddr,
+    resolution: Option<&Resolution<'_>>,
+) -> TcpConnection {
+    TcpConnection {
         address: address.ip().to_string(),
         port: address.port(),
         names: match resolution {
@@ -436,8 +450,8 @@ fn device_event(kind: TraceKind, use_: DeviceUse, instance: u32) -> TraceEvent {
 fn cause_of(cause: Cause) -> WitCause {
     match cause {
         Cause::Program => WitCause::Program,
-        Cause::Request => WitCause::Request,
-        Cause::Player => WitCause::Player,
+        Cause::HttpRequest => WitCause::HttpRequest,
+        Cause::MediaPlayer => WitCause::MediaPlayer,
         Cause::Opener => WitCause::Opener,
         Cause::ImageCodecs => WitCause::ImageCodecs,
         Cause::FileDialog => WitCause::FileDialog,

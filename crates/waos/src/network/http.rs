@@ -201,8 +201,8 @@ struct InFlight {
 /// Refuses the request `method` sends to `uri` before anything is sent unless its host may be
 /// reached, decided and told as the request; and the request in flight from then on otherwise.
 fn check_host(network: &ProgramNetwork, method: &Method, uri: &Uri) -> Result<InFlight, Error> {
-    let id = network.access.next_request();
-    let asked = Asked::Request { id, method, uri };
+    let id = network.access.next_http_request_id();
+    let asked = Asked::SendHttpRequest { id, method, uri };
     network
         .access
         .decide(asked, |_| host_reachable(network, uri))
@@ -268,10 +268,10 @@ async fn send(
     let response = tokio::time::timeout(until_head, sender.execute(request))
         .await
         .map_err(|_| Error::ConnectionTimeout)??;
-    sender.network.access.tell(Happened::Responded {
-        request: in_flight.id,
+    sender.network.access.tell(Happened::HttpResponded {
+        request_id: in_flight.id,
         status: response.status().as_u16(),
-        took: in_flight.sent.elapsed(),
+        time_to_head: in_flight.sent.elapsed(),
     });
     let held = in_flight.held;
     let response = http::Response::from(response)

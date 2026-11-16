@@ -80,7 +80,7 @@ impl LinkSchemes {
         let prompt = || {
             let asked = self.prompts.ask_to_open_links(&self.program, scheme);
             self.access
-                .put(Prompt::LinkScheme(scheme.to_owned()), asked)
+                .put_question(Prompt::LinkScheme(scheme.to_owned()), asked)
         };
         self.asking.ask(scheme.to_owned(), prompt, move |answer| {
             access.grants().set_link_scheme_answer(&kept, answer)

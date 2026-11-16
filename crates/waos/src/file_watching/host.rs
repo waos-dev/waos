@@ -53,9 +53,9 @@ impl<T: FileWatchingCtxView + 'static> HostWithStore<T> for HasFileWatching {
         let decided = accessor.with(|mut access| -> wasmtime::Result<_> {
             let ctx = access.get();
             let descriptor = ctx.table.get(&folder)?;
-            let held = ctx
-                .access
-                .decide(Asked::Watch { recursive }, |_| HeldFolder::of(descriptor));
+            let held = ctx.access.decide(Asked::WatchFolder { recursive }, |_| {
+                HeldFolder::of(descriptor)
+            });
             Ok(held.map(|held| (held, ctx.access.clone())))
         })?;
         let (held, access) = match decided {

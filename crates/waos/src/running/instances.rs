@@ -18,7 +18,7 @@ use wasmtime::Engine;
 use wasmtime::component::{Component, InstancePre};
 
 use super::{IncompatibleProgram, ProgramStart, RunningProgram};
-use crate::access::{KeptBy, ProgramAccess, ShownRecordings};
+use crate::access::{KeptIn, ProgramAccess, ShownRecordings};
 use crate::bindings::exports::wasdk::platform::worker_entry;
 use crate::bindings::exports::wasi::cli::run;
 use crate::caption_settings::CaptionSettings;
@@ -165,7 +165,7 @@ fn access_of(start: &ProgramStart, program: &RunningProgram) -> ProgramAccess {
             indicator: Arc::clone(indicator),
             program: program.clone(),
         });
-    let kept = start.audit.as_ref().map(|log| KeptBy {
+    let kept = start.audit.as_ref().map(|log| KeptIn {
         log: Arc::clone(log),
         program: program.name().to_owned(),
     });

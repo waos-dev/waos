@@ -121,7 +121,7 @@ impl ProgramNetwork {
     /// [`plan_lookup`]: Self::plan_lookup
     /// [`resolve`]: Self::resolve
     pub(crate) fn look_up(&self, name: &str) -> Result<Vec<IpAddr>, LookupError> {
-        let asked = Asked::Lookup {
+        let asked = Asked::LookUpName {
             name,
             cause: Cause::Program,
         };
@@ -206,7 +206,7 @@ impl ProgramNetwork {
     /// addresses it answered that the program may reach. None of them is refused. Decided and told
     /// as one use. Blocks while the system resolves.
     pub(crate) fn reachable(&self, host: &str, cause: Cause) -> Result<Vec<IpAddr>, LookupError> {
-        let asked = Asked::Lookup { name: host, cause };
+        let asked = Asked::LookUpName { name: host, cause };
         self.access.decide(asked, |_| self.reachable_by_rules(host))
     }
 
@@ -248,19 +248,19 @@ impl ProgramNetwork {
             SocketAddrUse::TcpBind | SocketAddrUse::UdpBind => true,
             SocketAddrUse::TcpListen => self
                 .access
-                .decide(Asked::Listen { address }, |_| listened())
+                .decide(Asked::ListenTcp { address }, |_| listened())
                 .is_ok(),
             SocketAddrUse::TcpConnect => self
                 .access
-                .decide(Asked::Connect { address }, |_| named(reached()))
+                .decide(Asked::ConnectTcp { address }, |_| named(reached()))
                 .is_ok(),
             SocketAddrUse::TcpAccept => self
                 .access
-                .decide(Asked::Accept { address }, |_| named(reached()))
+                .decide(Asked::AcceptTcp { address }, |_| named(reached()))
                 .is_ok(),
             SocketAddrUse::UdpSend | SocketAddrUse::UdpReceive => {
                 let refusal = reached().err();
-                self.access.note(Noted::Datagram {
+                self.access.note(Noted::UdpDatagram {
                     address,
                     sent: matches!(use_, SocketAddrUse::UdpSend),
                     refusal,

@@ -90,7 +90,7 @@ impl AsyncWrite for Told {
     ) -> Poll<io::Result<usize>> {
         let polled = Pin::new(&mut self.written).poll_write(cx, bytes);
         if let Poll::Ready(Ok(written)) = &polled {
-            self.access.wrote(self.errors, &bytes[..*written]);
+            self.access.wrote_output(self.errors, &bytes[..*written]);
         }
         polled
     }

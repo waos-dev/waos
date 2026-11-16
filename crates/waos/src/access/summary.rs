@@ -8,7 +8,7 @@
 //! on an atomic, and a stat not at all (`../experiments/2026-11-15-audit-cost`).
 //!
 //! The invariant: a day holds only that uses happened, never what they read or wrote, and grows
-//! no list past its cap ([`CAPS`]): what falls beyond is counted in its overflow.
+//! no list past its cap ([`LIST_CAPS`]): what falls beyond is counted in its overflow.
 
 use std::net::IpAddr;
 use std::path::Path;
@@ -18,8 +18,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use waos_capabilities::{
-    Answer, AskedQuestion, AuditDay, AuditLog, CAPS, Counted, FolderUses, MountKind, Question,
-    RunCommand, Session, Uses,
+    Answer, AskedQuestion, AuditDay, AuditLog, DeviceSession, FolderUses, LIST_CAPS,
+    MachineCommand, MountKind, NamedUses, Question, Uses,
 };
 
 use super::{Asked, Cause, FileChange, Happened, Noted, Prompt, Resolution};
@@ -34,17 +34,17 @@ const KEEP_EVERY: Duration = Duration::from_secs(60);
 const DAY: u64 = 24 * 60 * 60;
 
 /// Where a program's days are kept, and under which name.
-pub(crate) struct KeptBy {
+pub(crate) struct KeptIn {
     pub(crate) log: Arc<dyn AuditLog>,
     pub(crate) program: String,
 }
 
 /// One program's summary of today.
 pub(super) struct Summary {
-    kept: Option<KeptBy>,
+    kept: Option<KeptIn>,
     today: Mutex<Today>,
-    /// The datagrams since the day was last kept, counted apart from the lock.
-    datagrams: AtomicU64,
+    /// The UDP datagrams since the day was last kept, counted apart from the lock.
+    udp_datagrams: AtomicU64,
 }
 
 struct Today {
@@ -55,7 +55,7 @@ struct Today {
 }
 
 impl Summary {
-    pub(super) fn new(kept: Option<KeptBy>) -> Summary {
+    pub(super) fn new(kept: Option<KeptIn>) -> Summary {
         Summary {
             kept,
             today: Mutex::new(Today {
@@ -63,7 +63,7 @@ impl Summary {
                 kept_at: Instant::now(),
                 changed: false,
             }),
-            datagrams: AtomicU64::new(0),
+            udp_datagrams: AtomicU64::new(0),
         }
     }
 
@@ -87,8 +87,8 @@ impl Summary {
     /// the user's mounts, by where it is.
     pub(super) fn noted(&self, noted: &Noted<'_>) {
         match noted {
-            Noted::Datagram { .. } => {
-                self.datagrams.fetch_add(1, Ordering::Relaxed);
+            Noted::UdpDatagram { .. } => {
+                self.udp_datagrams.fetch_add(1, Ordering::Relaxed);
             }
             Noted::FirstWrite { mount, file } if mount.kind.is_the_users() => {
                 let Ok(changed) = crate::files::path_of(file) else {
@@ -103,7 +103,7 @@ impl Summary {
                     None => day.beyond_caps.folders += 1,
                 });
             }
-            Noted::FirstWrite { .. } | Noted::Named { .. } => {}
+            Noted::FirstWrite { .. } | Noted::MetadataRead { .. } => {}
         }
     }
 
@@ -114,7 +114,7 @@ impl Summary {
         start: SystemTime,
         length: Duration,
     ) {
-        let session = Session {
+        let session = DeviceSession {
             start,
             seconds: u32::try_from(length.as_secs()).unwrap_or(u32::MAX),
             simulated: matches!(
@@ -129,10 +129,10 @@ impl Summary {
                     &mut day.microphone
                 }
             };
-            if sessions.len() < CAPS.sessions {
+            if sessions.len() < LIST_CAPS.device_sessions {
                 sessions.push(session);
             } else {
-                day.beyond_caps.sessions += 1;
+                day.beyond_caps.device_sessions += 1;
             }
         });
     }
@@ -140,8 +140,8 @@ impl Summary {
     /// Counts a question put to the user, and its answer.
     pub(super) fn happened(&self, happened: &Happened<'_>) {
         match happened {
-            Happened::Asked(prompt) => self.change(|day, at| {
-                if day.questions.len() < CAPS.questions {
+            Happened::QuestionAsked(prompt) => self.change(|day, at| {
+                if day.questions.len() < LIST_CAPS.questions {
                     day.questions.push(AskedQuestion {
                         question: prompt_key(prompt),
                         at,
@@ -151,7 +151,7 @@ impl Summary {
                     day.beyond_caps.questions += 1;
                 }
             }),
-            Happened::Answered(prompt, answer) => self.change(|day, _at| {
+            Happened::QuestionAnswered(prompt, answer) => self.change(|day, _at| {
                 let question = prompt_key(prompt);
                 let asked = day
                     .questions
@@ -163,9 +163,9 @@ impl Summary {
                 }
             }),
             Happened::SettingsOpened(_)
-            | Happened::Mounted { .. }
+            | Happened::PickMounted { .. }
             | Happened::MachinePicked { .. }
-            | Happened::Responded { .. } => {}
+            | Happened::HttpResponded { .. } => {}
         }
     }
 
@@ -210,9 +210,9 @@ impl Summary {
     }
 
     fn fold_datagrams(&self, today: &mut Today) {
-        let datagrams = self.datagrams.swap(0, Ordering::Relaxed);
-        if datagrams > 0 {
-            today.day.datagrams += datagrams;
+        let udp_datagrams = self.udp_datagrams.swap(0, Ordering::Relaxed);
+        if udp_datagrams > 0 {
+            today.day.udp_datagrams += udp_datagrams;
             today.changed = true;
         }
     }
@@ -264,57 +264,57 @@ fn count_decided(
         }
         Asked::ClipboardRead { pasted: false, .. } => day.clipboard_reads.count(allowed, at),
         Asked::ClipboardWrite { .. } => day.clipboard_writes.count(allowed, at),
-        Asked::Post => day.notifications.count(allowed, at),
-        Asked::Run {
+        Asked::PostNotification => day.notifications.count(allowed, at),
+        Asked::RunCommand {
             machine, command, ..
-        } => Counter { day, allowed, at }.command(RunCommand {
+        } => DayCounter { day, allowed, at }.command(MachineCommand {
             machine: (*machine).to_owned(),
-            program: command.program.clone(),
+            command: command.program.clone(),
         }),
-        Asked::OpenLink { link } => Counter { day, allowed, at }.link(link),
-        Asked::Lookup { name, cause } => {
+        Asked::OpenLink { link } => DayCounter { day, allowed, at }.link(link),
+        Asked::LookUpName { name, cause } => {
             // A request's own lookups are counted as the request.
-            if !matches!(cause, Cause::Request) {
-                Counter { day, allowed, at }.host(name);
+            if !matches!(cause, Cause::HttpRequest) {
+                DayCounter { day, allowed, at }.host(name);
             }
         }
-        Asked::Request { uri, .. } => {
-            Counter { day, allowed, at }.host(uri.host().unwrap_or_default())
+        Asked::SendHttpRequest { uri, .. } => {
+            DayCounter { day, allowed, at }.host(uri.host().unwrap_or_default())
         }
-        Asked::Connect { address } | Asked::Accept { address } => {
+        Asked::ConnectTcp { address } | Asked::AcceptTcp { address } => {
             let names = match resolution {
                 Some(Resolution::Names(names)) => names,
                 _ => &[][..],
             };
-            Counter { day, allowed, at }.address(address.ip(), names);
+            DayCounter { day, allowed, at }.address(address.ip(), names);
         }
-        Asked::Listen { address } => Counter { day, allowed, at }.address(address.ip(), &[]),
-        Asked::Open { mode, .. } => match resolution {
+        Asked::ListenTcp { address } => DayCounter { day, allowed, at }.address(address.ip(), &[]),
+        Asked::OpenFile { mode, .. } => match resolution {
             None => day.folder_refusals += 1,
             Some(resolution) => count_open(day, resolution, mode.write),
         },
-        Asked::Change { change, .. } => match resolution {
+        Asked::ChangeFile { change, .. } => match resolution {
             None => day.folder_refusals += 1,
             Some(resolution) => count_change(day, resolution, change),
         },
-        Asked::OpenCamera { .. } | Asked::OpenMicrophone { .. } | Asked::Watch { .. } => {}
+        Asked::OpenCamera { .. } | Asked::OpenMicrophone { .. } | Asked::WatchFolder { .. } => {}
     }
 }
 
 /// A use being counted in a day's lists.
-struct Counter<'a> {
+struct DayCounter<'a> {
     day: &'a mut AuditDay,
     allowed: bool,
     at: SystemTime,
 }
 
-impl Counter<'_> {
-    fn command(self, command: RunCommand) {
+impl DayCounter<'_> {
+    fn command(self, command: MachineCommand) {
         let beyond = &mut self.day.beyond_caps.commands;
         count_in(
             &mut self.day.commands,
             command,
-            CAPS.commands,
+            LIST_CAPS.commands,
             (self.allowed, self.at),
             beyond,
         );
@@ -333,7 +333,7 @@ impl Counter<'_> {
         count_in(
             &mut self.day.links,
             name,
-            CAPS.links,
+            LIST_CAPS.links,
             (self.allowed, self.at),
             beyond,
         );
@@ -357,7 +357,7 @@ impl Counter<'_> {
             count_in(
                 list,
                 address,
-                CAPS.local_addresses,
+                LIST_CAPS.local_addresses,
                 (self.allowed, self.at),
                 beyond,
             );
@@ -373,7 +373,7 @@ impl Counter<'_> {
         count_in(
             &mut self.day.domains,
             name,
-            CAPS.domains,
+            LIST_CAPS.domains,
             (self.allowed, self.at),
             beyond,
         );
@@ -383,7 +383,7 @@ impl Counter<'_> {
 /// Counts one use of `name` in `list`, allowed or refused at a time: a name not in the list
 /// joins it while it holds fewer than `cap`, and counts in `beyond` otherwise.
 fn count_in<T: PartialEq>(
-    list: &mut Vec<Counted<T>>,
+    list: &mut Vec<NamedUses<T>>,
     name: T,
     cap: usize,
     (allowed, at): (bool, SystemTime),
@@ -394,7 +394,7 @@ fn count_in<T: PartialEq>(
     } else if list.len() < cap {
         let mut uses = Uses::default();
         uses.count(allowed, at);
-        list.push(Counted { name, uses });
+        list.push(NamedUses { name, uses });
     } else {
         *beyond += 1;
     }
@@ -435,7 +435,7 @@ fn count_change(day: &mut AuditDay, resolution: &Resolution<'_>, change: &FileCh
         return;
     };
     match change {
-        FileChange::CreateDirectory | FileChange::Symlink { .. } | FileChange::Link { .. } => {
+        FileChange::CreateDirectory | FileChange::Symlink { .. } | FileChange::HardLink { .. } => {
             folder.created += 1;
         }
         FileChange::RemoveDirectory | FileChange::Remove => folder.removed += 1,
@@ -453,7 +453,7 @@ fn list_changed(folder: &mut FolderUses, path: std::path::PathBuf, beyond: &mut 
     if folder.changed.contains(&path) {
         return;
     }
-    if folder.changed.len() < CAPS.changed {
+    if folder.changed.len() < LIST_CAPS.changed {
         folder.changed.push(path);
     } else {
         *beyond += 1;
@@ -493,7 +493,7 @@ fn folder_of<'a>(
         .position(|folder| folder.kind == kind && folder.path == place);
     let at = match at {
         Some(at) => at,
-        None if day.folders.len() < CAPS.folders => {
+        None if day.folders.len() < LIST_CAPS.folders => {
             day.folders.push(FolderUses {
                 path: place.to_path_buf(),
                 kind,
@@ -580,33 +580,37 @@ mod tests {
     fn the_network_is_counted_per_domain_and_the_local_network_per_address() {
         let summary = summary();
         let uri: http::Uri = "https://api.example.com/v1".parse().unwrap();
-        let request = Asked::Request {
+        let request = Asked::SendHttpRequest {
             id: 0,
             method: &http::Method::GET,
             uri: &uri,
         };
         summary.decided(&request, Some(&Resolution::Nothing), None);
-        let lookup = |cause| Asked::Lookup {
+        let lookup = |cause| Asked::LookUpName {
             name: "API.example.com",
             cause,
         };
-        summary.decided(&lookup(Cause::Request), Some(&Resolution::Nothing), None);
+        summary.decided(
+            &lookup(Cause::HttpRequest),
+            Some(&Resolution::Nothing),
+            None,
+        );
         summary.decided(&lookup(Cause::Program), None, Some("domains"));
         let printer: SocketAddr = "192.168.1.4:631".parse().unwrap();
         summary.decided(
-            &Asked::Connect { address: printer },
+            &Asked::ConnectTcp { address: printer },
             None,
             Some("local-network"),
         );
         let public: SocketAddr = "93.184.215.14:443".parse().unwrap();
         let names = vec!["example.org".to_owned()];
         summary.decided(
-            &Asked::Connect { address: public },
+            &Asked::ConnectTcp { address: public },
             Some(&Resolution::Names(&names)),
             None,
         );
         for _ in 0..3 {
-            summary.noted(&Noted::Datagram {
+            summary.noted(&Noted::UdpDatagram {
                 address: public,
                 sent: true,
                 refusal: None,
@@ -632,7 +636,7 @@ mod tests {
         );
         assert_eq!(day.local_addresses[0].name, printer.ip());
         assert_eq!(day.local_addresses[0].uses.refused, 1);
-        assert_eq!(day.datagrams, 3);
+        assert_eq!(day.udp_datagrams, 3);
     }
 
     #[test]
@@ -654,7 +658,7 @@ mod tests {
             }
         }
         let summary = summary();
-        let open = |mode| Asked::Open {
+        let open = |mode| Asked::OpenFile {
             path: "docs/a.txt",
             mode,
             cause: Cause::Program,
@@ -662,7 +666,7 @@ mod tests {
         summary.decided(&open(READ), Some(&at(&granted, &folder, "a.txt")), None);
         summary.decided(&open(WRITE), Some(&at(&data, &folder, "a.txt")), None);
         summary.decided(&open(READ), None, Some("folders"));
-        let remove = Asked::Change {
+        let remove = Asked::ChangeFile {
             path: "docs/a.txt",
             change: FileChange::Remove,
         };
@@ -697,7 +701,7 @@ mod tests {
     #[test]
     fn a_list_grows_to_its_cap_and_what_falls_beyond_is_counted() {
         let summary = summary();
-        for n in 0..CAPS.links + 5 {
+        for n in 0..LIST_CAPS.links + 5 {
             let link = format!("zoommtg://meeting-{n}.example.com/join");
             summary.decided(
                 &Asked::OpenLink { link: &link },
@@ -706,7 +710,7 @@ mod tests {
             );
         }
         let day = summary.today();
-        assert_eq!(day.links.len(), CAPS.links);
+        assert_eq!(day.links.len(), LIST_CAPS.links);
         assert_eq!(day.links[0].name, "zoommtg://meeting-0.example.com");
         assert_eq!(day.beyond_caps.links, 5);
     }
@@ -721,8 +725,8 @@ mod tests {
             Duration::from_secs(90),
         );
         let camera = Prompt::Question(Question::Camera);
-        summary.happened(&Happened::Asked(camera.clone()));
-        summary.happened(&Happened::Answered(camera, Some(Answer::Simulated)));
+        summary.happened(&Happened::QuestionAsked(camera.clone()));
+        summary.happened(&Happened::QuestionAnswered(camera, Some(Answer::Simulated)));
         let read = |pasted| Asked::ClipboardRead {
             form: "text/plain",
             pasted,
@@ -733,7 +737,7 @@ mod tests {
         let day = summary.today();
         assert_eq!(
             day.camera,
-            [Session {
+            [DeviceSession {
                 start,
                 seconds: 90,
                 simulated: true
@@ -747,18 +751,18 @@ mod tests {
     #[test]
     fn a_failure_no_setting_decided_is_no_use() {
         let summary = summary();
-        summary.decided(&Asked::Post, None, None);
+        summary.decided(&Asked::PostNotification, None, None);
         assert_eq!(summary.today(), AuditDay::starting(summary.today().start));
     }
 
     #[test]
     fn the_day_is_kept_under_the_programs_name_as_its_access_goes() {
         let log = Arc::new(Kept::default());
-        let summary = Summary::new(Some(KeptBy {
+        let summary = Summary::new(Some(KeptIn {
             log: Arc::clone(&log) as Arc<dyn AuditLog>,
             program: "dev.waos.notes".to_owned(),
         }));
-        summary.decided(&Asked::Post, Some(&Resolution::Nothing), None);
+        summary.decided(&Asked::PostNotification, Some(&Resolution::Nothing), None);
         assert!(
             locked(&log.0).is_empty(),
             "kept once a minute, not at each use"

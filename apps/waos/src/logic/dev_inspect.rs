@@ -10,7 +10,9 @@
 use futures::StreamExt;
 use futures::stream::{self, BoxStream};
 use waos::{AuditLog, RunningProgram, TraceKind};
-use waos_dev_protocol::{Connection, FromWaOS, Inspection, ServerStream, Traced, Unreached};
+use waos_dev_protocol::{
+    Connection, FromWaOS, Inspection, ServerStream, TracedCapability, Unreached,
+};
 use waos_package::ProgramId;
 use waos_store::Store;
 
@@ -82,7 +84,11 @@ fn summary(
 
 /// Sends each event of `program`'s uses of `traced` as it comes, until the connection closes or
 /// the program ends.
-async fn trace(connection: Connection<ServerStream>, program: &RunningProgram, traced: &[Traced]) {
+async fn trace(
+    connection: Connection<ServerStream>,
+    program: &RunningProgram,
+    traced: &[TracedCapability],
+) {
     let streams: Vec<BoxStream<'static, waos::TraceEvent>> = traced
         .iter()
         .filter_map(|traced| program.trace(kind_of(*traced)))
@@ -106,18 +112,18 @@ async fn trace(connection: Connection<ServerStream>, program: &RunningProgram, t
     }
 }
 
-fn kind_of(traced: Traced) -> TraceKind {
+fn kind_of(traced: TracedCapability) -> TraceKind {
     match traced {
-        Traced::Network => TraceKind::Network,
-        Traced::Files => TraceKind::Files,
-        Traced::Clipboard => TraceKind::Clipboard,
-        Traced::Camera => TraceKind::Camera,
-        Traced::Microphone => TraceKind::Microphone,
-        Traced::Machines => TraceKind::Machines,
-        Traced::Permissions => TraceKind::Permissions,
-        Traced::Links => TraceKind::Links,
-        Traced::Notifications => TraceKind::Notifications,
-        Traced::Output => TraceKind::Output,
+        TracedCapability::Network => TraceKind::Network,
+        TracedCapability::Files => TraceKind::Files,
+        TracedCapability::Clipboard => TraceKind::Clipboard,
+        TracedCapability::Camera => TraceKind::Camera,
+        TracedCapability::Microphone => TraceKind::Microphone,
+        TracedCapability::Machines => TraceKind::Machines,
+        TracedCapability::Permissions => TraceKind::Permissions,
+        TracedCapability::Links => TraceKind::Links,
+        TracedCapability::Notifications => TraceKind::Notifications,
+        TracedCapability::Output => TraceKind::Output,
     }
 }
 

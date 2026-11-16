@@ -1,5 +1,5 @@
 //! A program's live trace: each use told, sent as an event of `wasdk:inspect`'s `trace` to each
-//! listener of its capability ([`TraceKind`]), and to nobody otherwise ([`Taps`]).
+//! listener of its capability ([`TraceKind`]), and to nobody otherwise ([`TraceTaps`]).
 //!
 //! While nobody listens to a capability a use of it costs one relaxed load of the taps' word, a bit
 //! per capability, and no event is made. A listener's events go into a bounded channel without
@@ -7,7 +7,7 @@
 //! program is never slowed by a slow listener, only seen less fully. Events flow from when a
 //! listener subscribes; the last listener of a capability clears its bit as it drops its stream.
 //!
-//! The invariant: an event is made only inside [`Taps::send`]'s closure, after the bit is read set,
+//! The invariant: an event is made only inside [`TraceTaps::send`]'s closure, after the bit is read set,
 //! so nothing of the trace is paid for while nobody listens.
 
 use std::pin::Pin;
@@ -28,7 +28,7 @@ use crate::inspection::bindings::wasi::clocks::system_clock::Instant;
 use crate::sync::locked;
 
 /// How many events wait for a listener before the next is dropped.
-const WAITING: usize = 4096;
+const LISTENER_CAPACITY: usize = 4096;
 
 /// One capability's stream of events, as a listener subscribes to it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize)]
@@ -64,7 +64,7 @@ pub enum TraceEvent {
 
 /// Who listens to a program's trace, and to which capabilities.
 #[derive(Default)]
-pub(super) struct Taps {
+pub(super) struct TraceTaps {
     /// A bit per capability listened to.
     listening: AtomicU32,
     listeners: Mutex<Listeners>,
@@ -92,7 +92,7 @@ pub struct TraceStream {
     events: mpsc::Receiver<TraceEvent>,
     /// The taps it listens at, held without keeping them: they go with the program's access,
     /// and the stream ends then.
-    taps: Weak<Taps>,
+    taps: Weak<TraceTaps>,
     id: u64,
 }
 
@@ -102,7 +102,7 @@ impl TraceKind {
     }
 }
 
-impl Taps {
+impl TraceTaps {
     /// Whether anyone listens to `kind`.
     pub(super) fn listens(&self, kind: TraceKind) -> bool {
         self.listening.load(Ordering::Relaxed) & kind.bit() != 0
@@ -138,8 +138,8 @@ impl Taps {
     }
 
     /// A new listener of `kind`, its events flowing from now on.
-    pub(super) fn subscribe(taps: &Arc<Taps>, kind: TraceKind) -> TraceStream {
-        let (events, received) = mpsc::channel(WAITING);
+    pub(super) fn subscribe(taps: &Arc<TraceTaps>, kind: TraceKind) -> TraceStream {
+        let (events, received) = mpsc::channel(LISTENER_CAPACITY);
         let mut listeners = locked(&taps.listeners);
         let id = listeners.next;
         listeners.next += 1;
@@ -158,7 +158,7 @@ impl Taps {
     }
 
     /// The next of the program's requests' ids.
-    pub(super) fn next_request(&self) -> u64 {
+    pub(super) fn next_http_request_id(&self) -> u64 {
         self.requests.fetch_add(1, Ordering::Relaxed)
     }
 
@@ -249,11 +249,11 @@ mod tests {
 
     #[test]
     fn nothing_is_made_while_nobody_listens() {
-        let taps = Arc::new(Taps::default());
+        let taps = Arc::new(TraceTaps::default());
         taps.send(TraceKind::Notifications, || {
             panic!("made with nobody listening")
         });
-        let stream = Taps::subscribe(&taps, TraceKind::Files);
+        let stream = TraceTaps::subscribe(&taps, TraceKind::Files);
         taps.send(TraceKind::Notifications, || {
             panic!("made for another capability's listener")
         });
@@ -266,9 +266,9 @@ mod tests {
 
     #[test]
     fn a_listener_hears_from_when_it_subscribed_until_it_drops_its_stream() {
-        let taps = Arc::new(Taps::default());
+        let taps = Arc::new(TraceTaps::default());
         taps.send(TraceKind::Notifications, || posted(0));
-        let mut stream = Taps::subscribe(&taps, TraceKind::Notifications);
+        let mut stream = TraceTaps::subscribe(&taps, TraceKind::Notifications);
         taps.send(TraceKind::Notifications, || posted(2));
         let heard = futures::executor::block_on(stream.next()).unwrap();
         assert!(matches!(
@@ -283,9 +283,9 @@ mod tests {
 
     #[test]
     fn a_listener_that_falls_behind_loses_events_and_the_next_says_how_many() {
-        let taps = Arc::new(Taps::default());
-        let mut stream = Taps::subscribe(&taps, TraceKind::Notifications);
-        for _ in 0..WAITING + 10 {
+        let taps = Arc::new(TraceTaps::default());
+        let mut stream = TraceTaps::subscribe(&taps, TraceKind::Notifications);
+        for _ in 0..LISTENER_CAPACITY + 10 {
             taps.send(TraceKind::Notifications, || posted(0));
         }
         let mut read = 0;
@@ -294,18 +294,21 @@ mod tests {
             read += 1;
         }
         assert!(
-            read <= WAITING + 1,
+            read <= LISTENER_CAPACITY + 1,
             "the channel holds what waits, and no more: {read}"
         );
         taps.send(TraceKind::Notifications, || posted(0));
         let next = stream.next().now_or_never().flatten().unwrap();
-        assert_eq!(dropped_before(&next) as usize, WAITING + 10 - read);
+        assert_eq!(
+            dropped_before(&next) as usize,
+            LISTENER_CAPACITY + 10 - read
+        );
     }
 
     #[test]
     fn a_stream_ends_as_the_programs_taps_go() {
-        let taps = Arc::new(Taps::default());
-        let mut stream = Taps::subscribe(&taps, TraceKind::Notifications);
+        let taps = Arc::new(TraceTaps::default());
+        let mut stream = TraceTaps::subscribe(&taps, TraceKind::Notifications);
         drop(taps);
         assert!(futures::executor::block_on(stream.next()).is_none());
     }

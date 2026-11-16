@@ -152,7 +152,7 @@ impl ProgramFiles {
         request: &OpenRequest,
     ) -> Result<Descriptor, ErrorCode> {
         let access = self.access.clone();
-        let asked = Asked::Open {
+        let asked = Asked::OpenFile {
             path,
             mode: request.open_mode(),
             cause: Cause::Program,
@@ -191,7 +191,7 @@ impl ProgramFiles {
     ) -> Result<Target, ErrorCode> {
         let access = self.access.clone();
         let kind = change_of(&change);
-        let asked = Asked::Change { path, change };
+        let asked = Asked::ChangeFile { path, change };
         Ok(access.decide(asked, |_| self.permitted_change(from, path, kind))?)
     }
 
@@ -208,10 +208,10 @@ impl ProgramFiles {
         let access = self.access.clone();
         let (kinds, to) = match change {
             FileChange::Rename { to } => ((Change::Remove, Change::Replace), to),
-            FileChange::Link { to } => ((Change::Modify, Change::Create), to),
+            FileChange::HardLink { to } => ((Change::Modify, Change::Create), to),
             _ => return Err(ErrorCode::Invalid),
         };
-        let asked = Asked::Change { path, change };
+        let asked = Asked::ChangeFile { path, change };
         let places = access.decide(asked, |_| {
             let from = self.permitted_change(from, path, kinds.0)?;
             let to = self.permitted_change(to_from, to, kinds.1)?;
@@ -242,7 +242,7 @@ impl ProgramFiles {
             Ok(target) => target.resolution(),
             Err(_) => Resolution::Nothing,
         };
-        self.access.note(Noted::Named { path, resolution });
+        self.access.note(Noted::MetadataRead { path, resolution });
         target
     }
 
@@ -261,7 +261,7 @@ impl ProgramFiles {
     /// path outside every mount, where nothing is, or one a symlink leads out of its mount.
     pub(crate) fn machine_path(&mut self, path: &Path, cause: Cause) -> Option<PathBuf> {
         let access = self.access.clone();
-        let asked = Asked::Open {
+        let asked = Asked::OpenFile {
             path: &path.to_string_lossy(),
             mode: OpenMode {
                 read: true,
@@ -364,7 +364,7 @@ fn change_of(change: &FileChange<'_>) -> Change {
         FileChange::RemoveDirectory | FileChange::Remove => Change::Remove,
         FileChange::SetTimes => Change::Modify,
         FileChange::Rename { .. } => Change::Remove,
-        FileChange::Link { .. } => Change::Modify,
+        FileChange::HardLink { .. } => Change::Modify,
     }
 }
 

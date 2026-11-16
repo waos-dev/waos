@@ -43,7 +43,8 @@ mod socket;
 
 pub use connection::{Connection, MAX_FRAME_BYTES, PROTOCOL};
 pub use messages::{
-    FromWaOS, Input, Inspection, OutputStream, RunEnd, ToWaOS, Traced, Unreached, WindowPicture,
+    FromWaOS, Input, Inspection, OutputStream, RunEnd, ToWaOS, TracedCapability, Unreached,
+    WindowPicture,
 };
 #[cfg(windows)]
 pub use pipe::{ClientStream, Listener, ServerStream, listener_path};

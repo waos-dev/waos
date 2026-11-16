@@ -23,10 +23,10 @@ interface trace {
   /// Who a use was for: the program itself, or what it asked to act for it.
   enum cause {
     program,
-    /// A request of the program's, whose host is looked up to send it.
-    request,
-    /// A player or the reading of media, which the system opens a link or a file for.
-    player,
+    /// An HTTP request of the program's, whose host is looked up to send it.
+    http-request,
+    /// A media player or the reading of media, which the system opens a link or a file for.
+    media-player,
     /// The system's app a file or link is opened in, or its file manager.
     opener,
     /// The system's codecs, which read an image's file.
@@ -38,7 +38,7 @@ interface trace {
   }
 
   /// A name looked up.
-  record lookup {
+  record name-lookup {
     name: string,
     cause: cause,
     /// The addresses answered; none for a lookup refused or failed.
@@ -46,7 +46,7 @@ interface trace {
   }
 
   /// A TCP connection made or accepted.
-  record connection {
+  record tcp-connection {
     /// The address at the other end.
     address: string,
     port: u16,
@@ -55,7 +55,7 @@ interface trace {
   }
 
   /// A UDP datagram.
-  record datagram {
+  record udp-datagram {
     /// The address it was sent to or came from.
     address: string,
     port: u16,
@@ -64,31 +64,31 @@ interface trace {
   }
 
   /// An HTTP request the program sent.
-  record request {
+  record http-request {
     /// The request's id among the program's, which its response names.
     id: u64,
     method: string,
     url: string,
   }
 
-  /// The head of a request's response.
-  record response {
+  /// The head of an HTTP request's response.
+  record http-response {
     /// The id of the request it answers.
-    request: u64,
+    request-id: u64,
     status: u16,
     /// How long after the request was sent its head came.
-    took: duration,
+    time-to-head: duration,
   }
 
   variant network-use {
-    lookup(lookup),
-    connect(connection),
-    accept(connection),
-    /// A socket listening, at its port.
-    listen(u16),
-    datagram(datagram),
-    request(request),
-    response(response),
+    name-lookup(name-lookup),
+    tcp-connect(tcp-connection),
+    tcp-accept(tcp-connection),
+    /// A TCP socket listening, at its port.
+    tcp-listen(u16),
+    udp-datagram(udp-datagram),
+    http-request(http-request),
+    http-response(http-response),
   }
 
   record network-event {
@@ -100,6 +100,12 @@ interface trace {
     verdict: verdict,
   }
 
+  /// A folder watched.
+  record watch-options {
+    /// Whether everything under it is watched too.
+    recursive: bool,
+  }
+
   variant file-use {
     open-to-read,
     open-to-write,
@@ -109,16 +115,15 @@ interface trace {
     /// Renamed to this path, as the program named it.
     rename(string),
     /// A hard link made at this path, as the program named it.
-    link(string),
+    hard-link(string),
     /// A symlink holding this made.
     symlink(string),
     set-times,
-    /// A status, a symlink read or a hash, noted, not decided.
-    named,
+    /// Its metadata read: a status, a symlink read or a hash, noted, not decided.
+    metadata-read,
     /// The first write through a handle.
     first-write,
-    /// A folder watched, and everything under it where recursive.
-    watch(bool),
+    folder-watch(watch-options),
   }
 
   record file-event {
@@ -163,17 +168,17 @@ interface trace {
   /// A camera or the microphone opened.
   record device-opened {
     /// The camera, by the id the program opened it by; none for the microphone.
-    camera: option<string>,
+    camera-id: option<string>,
     /// Whether it is one of WaOS's own, simulated, rather than the machine's.
     simulated: bool,
   }
 
   variant device-use {
     opened(device-opened),
-    /// A session started, or the microphone recording.
-    started,
-    /// It ended, after so long.
-    ended(duration),
+    /// A camera's session started, or the microphone recording.
+    capture-started,
+    /// The capture ended, after so long.
+    capture-ended(duration),
   }
 
   record device-event {
@@ -185,11 +190,12 @@ interface trace {
     verdict: verdict,
   }
 
-  /// A command run on a machine.
-  record run {
+  /// A command started on a machine.
+  record started-command {
     /// The machine, by its name.
     machine: string,
-    program: string,
+    /// The program the command runs, as the program named it.
+    command: string,
     arguments: list<string>,
     /// Whether it runs in a terminal; with pipes otherwise.
     in-terminal: bool,
@@ -197,10 +203,10 @@ interface trace {
 
   variant machine-use {
     /// A machine the user picked, by its id.
-    picked(string),
-    run(run),
-    /// A run ended, after so long.
-    ended(duration),
+    machine-picked(string),
+    command-started(started-command),
+    /// A command ended, after so long.
+    command-ended(duration),
   }
 
   record machine-event {
@@ -213,7 +219,7 @@ interface trace {
   }
 
   /// A question's answer.
-  record answered {
+  record question-answer {
     /// The question, by its row's key.
     question: string,
     /// The answer, by its key; none when nobody answered.
@@ -222,12 +228,12 @@ interface trace {
 
   variant permission-use {
     /// A question put to the user, by its row's key.
-    asked(string),
-    answered(answered),
+    question-asked(string),
+    question-answered(question-answer),
     /// A switch's page opened for the user, by the switch's key.
     settings-opened(string),
     /// A file or folder mounted by a pick, where it is on the machine.
-    mounted(string),
+    pick-mounted(string),
   }
 
   record permission-event {

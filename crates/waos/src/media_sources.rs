@@ -48,7 +48,7 @@ pub(crate) fn named(source: &str) -> Result<Named, String> {
 /// the program's files.
 pub(crate) fn file_url(files: &mut ProgramFiles, path: &Path) -> Result<String, String> {
     let machine_path = files
-        .machine_path(path, Cause::Player)
+        .machine_path(path, Cause::MediaPlayer)
         .ok_or_else(|| format!("no file at {} among the program's", path.display()))?;
     Url::from_file_path(&machine_path)
         .map(String::from)
@@ -63,7 +63,7 @@ pub(crate) fn check_link(network: &ProgramNetwork, link: &Url) -> Result<(), Str
         .unwrap_or_default()
         .trim_start_matches('[')
         .trim_end_matches(']');
-    match network.reachable(host, Cause::Player) {
+    match network.reachable(host, Cause::MediaPlayer) {
         Ok(_addresses) => Ok(()),
         Err(LookupError::Refused(_)) => Err(format!("the program may not reach {host}")),
         Err(LookupError::Unresolvable) => Err(format!("no address found for {host}")),

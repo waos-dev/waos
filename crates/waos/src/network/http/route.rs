@@ -64,7 +64,8 @@ pub(super) async fn route(
         .trim_end_matches(']')
         .to_owned();
     let network = network.clone();
-    let reachable = spawn_blocking(move || network.reachable(&looked_up, Cause::Request)).await?;
+    let reachable =
+        spawn_blocking(move || network.reachable(&looked_up, Cause::HttpRequest)).await?;
     let local: Vec<IpAddr> = reachable
         .into_iter()
         .filter(|address| is_local(*address))
