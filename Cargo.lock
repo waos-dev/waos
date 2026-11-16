@@ -10729,7 +10729,6 @@ name = "waos-window-messages"
 version = "0.2.0"
 dependencies = [
  "hex",
- "libc",
  "mach2",
  "postcard",
  "serde",

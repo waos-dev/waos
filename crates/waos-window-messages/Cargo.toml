@@ -25,7 +25,6 @@ hex.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
 mach2.workspace = true
-libc.workspace = true
 
 # `os/macos` wraps Mach's ports and messages, an unsafe API; the rest of the crate has no
 # `unsafe`.

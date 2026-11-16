@@ -217,15 +217,9 @@ fn pointer_listener(this: Handle<ProgramCanvasState>) -> PointerListener {
 /// `event` as the program's, with the modifier keys the keyboard holds as it happens.
 fn deliver_pointer(this: Handle<ProgramCanvasState>, app: &mut App, event: HostPointerEvent) {
     let view = this.widget(app).view.clone();
-    let (ratio, now) = {
-        let shown = view.read(app);
-        (shown.device_pixel_ratio(), shown.view().now())
-    };
+    let ratio = view.read(app).device_pixel_ratio();
     let modifiers = held_modifiers(app);
-    let events = app
-        .get_mut(this)
-        .known_pointers
-        .translate(&event, ratio, now);
+    let events = app.get_mut(this).known_pointers.translate(&event, ratio);
     let link = view.read(app).view();
     for event in events {
         link.pointer(event, &modifiers);
@@ -256,7 +250,7 @@ fn deliver_key(
 ) -> KeyEventResult {
     let view = this.widget(app).view.clone();
     let link = view.read(app).view();
-    let reply = link.key(keys::translated(event, link.now()));
+    let reply = link.key(keys::translated(event));
     offer_to_menu_bar_if_left(app, event.to_key_data(), reply);
     KeyEventResult::Handled
 }

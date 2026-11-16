@@ -517,7 +517,11 @@ interface views {
   /// What one pointer did, in the vocabulary of Flutter's `PointerData`, so that a
   /// framework built on that model maps it one to one.
   record pointer-event {
-    time: instant,
+    /// When the event happened, in nanoseconds on the input events' own clock, the system's
+    /// stamp passed through: comparable with the time of any other pointer or key event, to tell
+    /// how far apart they came, as a velocity tracker does, and not with the program's other
+    /// clocks, a frame's `time` and `wasi:clocks` among them.
+    time: u64,
     change: pointer-change,
     kind: pointer-device-kind,
     signal: pointer-signal-kind,
@@ -631,7 +635,11 @@ interface views {
 
   /// A key went down, repeated or came up, in the vocabulary of Flutter's `KeyData`.
   record key-event {
-    time: instant,
+    /// When the event happened, in nanoseconds on the input events' own clock, the system's
+    /// stamp passed through: comparable with the time of any other pointer or key event, to tell
+    /// how far apart they came, as a velocity tracker does, and not with the program's other
+    /// clocks, a frame's `time` and `wasi:clocks` among them.
+    time: u64,
     kind: key-kind,
     device: key-device,
     /// Where the key is: its USB HID usage, with the usage page in the high 16 bits

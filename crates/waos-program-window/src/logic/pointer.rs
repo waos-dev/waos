@@ -15,20 +15,17 @@ use waos::bindings::wasdk::platform::views::{
     PointerButtons, PointerChange, PointerDeviceKind, PointerEvent, PointerSignalKind,
 };
 
+use super::event_time::event_time;
+
 /// The pointers the program has been told about.
 #[derive(Default)]
 pub(crate) struct KnownPointers(HashSet<i64>);
 
 impl KnownPointers {
-    /// `event` as the program's, `ratio` physical pixels to a logical one, stamped `now` on the
-    /// program's clock: a pointer the program has not heard of is added first, and one it has is
-    /// added or removed only once.
-    pub(crate) fn translate(
-        &mut self,
-        event: &HostEvent,
-        ratio: f64,
-        now: u64,
-    ) -> Vec<PointerEvent> {
+    /// `event` as the program's, `ratio` physical pixels to a logical one, at the time the system
+    /// stamped it: a pointer the program has not heard of is added first, and one it has is added
+    /// or removed only once.
+    pub(crate) fn translate(&mut self, event: &HostEvent, ratio: f64) -> Vec<PointerEvent> {
         let change = change_of(event);
         let device = event.device();
         let known = self.0.contains(&device);
@@ -44,9 +41,9 @@ impl KnownPointers {
         }
         let mut events = Vec::new();
         if !known && change != PointerChange::Add {
-            events.push(translated(event, PointerChange::Add, ratio, now));
+            events.push(translated(event, PointerChange::Add, ratio));
         }
-        events.push(translated(event, change, ratio, now));
+        events.push(translated(event, change, ratio));
         events
     }
 }
@@ -193,13 +190,13 @@ fn gesture_of(event: &HostEvent) -> ([f64; 2], f64, f64) {
 }
 
 /// One event, as the program reads it.
-fn translated(event: &HostEvent, change: PointerChange, ratio: f64, now: u64) -> PointerEvent {
+fn translated(event: &HostEvent, change: PointerChange, ratio: f64) -> PointerEvent {
     let position = event.local_position();
     let contact = contact(event);
     let scroll = scroll_of(event);
     let (pan, scale, rotation) = gesture_of(event);
     PointerEvent {
-        time: now,
+        time: event_time(event.time_stamp()),
         change,
         kind: kind_of(event.kind()),
         signal: signal_of(event),
@@ -230,13 +227,67 @@ fn translated(event: &HostEvent, change: PointerChange, ratio: f64, now: u64) ->
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use waft::Offset;
     use waft_gestures::{
-        PointerDownEvent, PointerEnterEvent, PointerExitEvent, PointerHoverEvent,
-        PointerPanZoomUpdateEvent, PointerScrollEvent, PointerUpEvent,
+        PointerDownEvent, PointerEnterEvent, PointerExitEvent, PointerHoverEvent, PointerMoveEvent,
+        PointerPanZoomUpdateEvent, PointerScrollEvent, PointerUpEvent, VelocityTracker,
     };
 
     use super::*;
+
+    /// How far apart a phone's touch reports come: 120 a second.
+    const TOUCH_SPACING: Duration = Duration::from_micros(8_333);
+
+    /// A finger's move to `y`, stamped `at` by the system.
+    fn finger_move(y: f64, at: Duration) -> HostEvent {
+        HostEvent::Move(PointerMoveEvent {
+            device: 1,
+            kind: HostKind::Touch,
+            buttons: 1,
+            position: Offset::new(100.0, y),
+            time_stamp: at,
+            ..PointerMoveEvent::default()
+        })
+    }
+
+    #[test]
+    fn moves_delivered_together_keep_the_spacing_they_happened_at() {
+        let mut known = KnownPointers::default();
+        let stamps = [0, 1, 2].map(|nth| Duration::from_millis(500) + TOUCH_SPACING * nth);
+        let times: Vec<u64> = stamps
+            .iter()
+            .flat_map(|at| known.translate(&finger_move(300.0, *at), 1.0))
+            .filter(|event| event.change == PointerChange::Move)
+            .map(|event| event.time)
+            .collect();
+        let expected: Vec<u64> = stamps.iter().map(|at| at.as_nanos() as u64).collect();
+        assert_eq!(times, expected, "each move at its own stamp");
+    }
+
+    /// A finger that goes up 200 points, turns and comes down 48, every move reported in one batch,
+    /// as the program reads it: what the program's velocity tracker, Flutter's, makes of the
+    /// fling as the finger lifts.
+    #[test]
+    fn a_turned_back_drag_delivered_at_once_flings_the_way_the_finger_went_last() {
+        let mut known = KnownPointers::default();
+        let mut tracker = VelocityTracker::with_kind(HostKind::Touch);
+        let up = (0..20).map(|nth| 600.0 - 10.0 * f64::from(nth));
+        let down = (1..=8).map(|nth| 410.0 + 6.0 * f64::from(nth));
+        for (nth, y) in up.chain(down).enumerate() {
+            let at = Duration::from_secs(3) + TOUCH_SPACING * nth as u32;
+            for event in known.translate(&finger_move(y, at), 1.0) {
+                let position = Offset::new(event.x, event.y);
+                tracker.add_position(Duration::from_nanos(event.time), position);
+            }
+        }
+        let fling = tracker.get_velocity().pixels_per_second;
+        assert!(
+            fling.dy() > 500.0,
+            "the fling goes down, as the finger went last: {fling:?}"
+        );
+    }
 
     fn hover(device: i64, x: f64, y: f64) -> HostEvent {
         HostEvent::Hover(PointerHoverEvent {
@@ -250,27 +301,26 @@ mod tests {
     #[test]
     fn a_new_pointer_is_added_before_its_first_event() {
         let mut known = KnownPointers::default();
-        let events = known.translate(&hover(1, 10.0, 20.0), 2.0, 7);
+        let events = known.translate(&hover(1, 10.0, 20.0), 2.0);
         assert_eq!(events.len(), 2);
         assert_eq!(events[0].change, PointerChange::Add);
         assert_eq!(events[1].change, PointerChange::Hover);
         assert_eq!((events[1].x, events[1].y), (20.0, 40.0), "physical pixels");
-        assert_eq!(events[1].time, 7);
         assert_eq!(events[1].kind, PointerDeviceKind::Mouse);
     }
 
     #[test]
     fn a_known_pointer_is_not_added_again() {
         let mut known = KnownPointers::default();
-        known.translate(&hover(1, 0.0, 0.0), 1.0, 0);
-        let events = known.translate(&hover(1, 5.0, 5.0), 1.0, 1);
+        known.translate(&hover(1, 0.0, 0.0), 1.0);
+        let events = known.translate(&hover(1, 5.0, 5.0), 1.0);
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].change, PointerChange::Hover);
         let enter = HostEvent::Enter(PointerEnterEvent {
             device: 1,
             ..PointerEnterEvent::default()
         });
-        assert!(known.translate(&enter, 1.0, 2).is_empty());
+        assert!(known.translate(&enter, 1.0).is_empty());
     }
 
     #[test]
@@ -280,12 +330,12 @@ mod tests {
             device: 4,
             ..PointerExitEvent::default()
         });
-        assert!(known.translate(&exit, 1.0, 0).is_empty());
-        known.translate(&hover(4, 0.0, 0.0), 1.0, 0);
-        let events = known.translate(&exit, 1.0, 1);
+        assert!(known.translate(&exit, 1.0).is_empty());
+        known.translate(&hover(4, 0.0, 0.0), 1.0);
+        let events = known.translate(&exit, 1.0);
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].change, PointerChange::Remove);
-        assert!(known.translate(&exit, 1.0, 2).is_empty());
+        assert!(known.translate(&exit, 1.0).is_empty());
     }
 
     #[test]
@@ -309,7 +359,7 @@ mod tests {
             tilt: 0.25,
             ..PointerDownEvent::default()
         });
-        let events = known.translate(&down, 2.0, 0);
+        let events = known.translate(&down, 2.0);
         let event = events.last().unwrap();
         assert_eq!(event.change, PointerChange::Down);
         assert_eq!(event.buttons, PointerButtons::PRIMARY);
@@ -320,7 +370,7 @@ mod tests {
             device: 2,
             ..PointerUpEvent::default()
         });
-        let events = known.translate(&up, 2.0, 1);
+        let events = known.translate(&up, 2.0);
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].change, PointerChange::Up);
     }
@@ -333,7 +383,7 @@ mod tests {
             scroll_delta: Offset::new(3.0, -4.0),
             ..PointerScrollEvent::default()
         });
-        let events = known.translate(&scroll, 2.0, 0);
+        let events = known.translate(&scroll, 2.0);
         let event = events.last().unwrap();
         assert_eq!(event.change, PointerChange::Hover);
         assert_eq!(event.signal, PointerSignalKind::Scroll);
@@ -350,7 +400,7 @@ mod tests {
             rotation: 0.1,
             ..PointerPanZoomUpdateEvent::default()
         });
-        let events = known.translate(&update, 2.0, 0);
+        let events = known.translate(&update, 2.0);
         let event = events.last().unwrap();
         assert_eq!(event.change, PointerChange::PanZoomUpdate);
         assert_eq!(event.kind, PointerDeviceKind::Trackpad);

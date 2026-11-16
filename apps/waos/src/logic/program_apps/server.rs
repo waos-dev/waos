@@ -13,7 +13,7 @@ use std::sync::Arc;
 use std::thread;
 
 use waos::{OpenRequest, RunningProgram};
-use waos_window_messages::os::macos::{Arrival, ReceiveRight, Received, SendRight, uptime_now};
+use waos_window_messages::os::macos::{Arrival, ReceiveRight, Received, SendRight};
 use waos_window_messages::{
     FromWindow, Hello, LaunchReason, PROTOCOL, ToWindow, Welcome, decode, encode,
 };
@@ -103,7 +103,6 @@ fn serve(
     let connection = ReceiveRight::new()?;
     let welcome = Welcome {
         name: program_name(&apps.store, &program),
-        clock_start: uptime_now().saturating_sub(program.now()),
     };
     let give = connection.make_send()?;
     connection.notify_when_no_senders()?;

@@ -72,10 +72,6 @@ pub fn placed_view(opened: OpenedView, request: Option<RequestId>) -> PlacedView
 }
 
 impl ViewLink for ProgramView {
-    fn now(&self) -> u64 {
-        ProgramView::now(self)
-    }
-
     fn pointer(&self, event: PointerEvent, modifiers: &HeldModifiers) {
         ProgramView::pointer(self, event, modifiers);
     }

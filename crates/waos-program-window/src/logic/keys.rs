@@ -6,10 +6,12 @@ use waft::ui::KeyEventDeviceType;
 use waft_services::KeyEvent as HostEvent;
 use waos::bindings::wasdk::platform::views::{KeyDevice, KeyEvent, KeyKind};
 
-/// `event` as the program reads it, stamped `now` on the program's clock.
-pub(crate) fn translated(event: &HostEvent, now: u64) -> KeyEvent {
+use super::event_time::event_time;
+
+/// `event` as the program reads it, at the time the system stamped it.
+pub(crate) fn translated(event: &HostEvent) -> KeyEvent {
     KeyEvent {
-        time: now,
+        time: event_time(event.time_stamp()),
         kind: match event {
             HostEvent::Down(_) => KeyKind::Down,
             HostEvent::Up(_) => KeyKind::Up,
@@ -42,15 +44,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_press_keeps_its_keys_and_character() {
+    fn a_press_keeps_its_keys_its_character_and_its_time() {
         let down = KeyDownEvent::new(
             PhysicalKeyboardKey::KEY_A,
             LogicalKeyboardKey::KEY_A,
             Duration::from_millis(5),
         )
         .character("a");
-        let event = translated(&HostEvent::Down(down), 9);
-        assert_eq!(event.time, 9);
+        let event = translated(&HostEvent::Down(down));
+        assert_eq!(event.time, 5_000_000, "the system's stamp, in nanoseconds");
         assert_eq!(event.kind, KeyKind::Down);
         assert_eq!(event.device, KeyDevice::Keyboard);
         assert_eq!(event.physical, 0x0007_0004);
@@ -68,7 +70,7 @@ mod tests {
         )
         .synthesized(true)
         .device_type(KeyEventDeviceType::Gamepad);
-        let event = translated(&HostEvent::Up(up), 0);
+        let event = translated(&HostEvent::Up(up));
         assert_eq!(event.kind, KeyKind::Up);
         assert_eq!(event.device, KeyDevice::Gamepad);
         assert_eq!(event.character, None);

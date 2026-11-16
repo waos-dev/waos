@@ -12,6 +12,7 @@ pub(crate) mod canvas_layer;
 pub(crate) mod canvas_view;
 pub(crate) mod composition;
 pub(crate) mod cursor;
+pub(crate) mod event_time;
 pub(crate) mod file_dialogs;
 pub(crate) mod geometry;
 pub(crate) mod keys;

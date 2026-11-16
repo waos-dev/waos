@@ -14,7 +14,6 @@ pub(crate) fn connection() -> (Connection, ReceiveRight) {
     let waos = ReceiveRight::new().unwrap();
     let welcome = Welcome {
         name: "Notes".to_owned(),
-        clock_start: uptime_now(),
     };
     let waits = Arc::new(ResizeWaits::default());
     (
@@ -115,16 +114,6 @@ fn a_window_asked_for_is_the_request_it_answers_its_layers_kept_until_it_opens()
         connection.take_layers(5),
         None,
         "taken once, as its window opens"
-    );
-}
-
-#[test]
-fn input_is_stamped_on_the_programs_clock() {
-    let (connection, _waos) = connection();
-    let now = connection.now();
-    assert!(
-        now < 60_000_000_000,
-        "the clock started with the welcome: {now}"
     );
 }
 

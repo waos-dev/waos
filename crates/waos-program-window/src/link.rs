@@ -50,9 +50,6 @@ pub trait ProgramLink: Clone + PartialEq + 'static {
 /// One view of a program, as its window reports what happens to it: the methods of the engine's
 /// `ProgramView` the shell reports through, under the same names.
 pub trait ViewLink {
-    /// Now on the program's clock, in nanoseconds, which pointer and key events are stamped with.
-    fn now(&self) -> u64;
-
     /// A pointer event over the view, with the modifier keys the keyboard holds as it happens.
     fn pointer(&self, event: PointerEvent, modifiers: &HeldModifiers);
 

@@ -204,10 +204,6 @@ pub struct HostedLayers {
 pub struct Welcome {
     /// The program's name as its user knows it, which a window it left untitled carries.
     pub name: String,
-    /// When the program's clock started, in nanoseconds of the system's uptime clock, which both
-    /// processes read alike: the window process stamps the program's input on the program's
-    /// clock from it, as WaOS's own windows stamp it.
-    pub clock_start: u64,
 }
 
 /// A program's window process → WaOS.

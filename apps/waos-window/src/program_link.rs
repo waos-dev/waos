@@ -176,10 +176,6 @@ impl WaosView {
 }
 
 impl ViewLink for WaosView {
-    fn now(&self) -> u64 {
-        self.connection.now()
-    }
-
     fn pointer(&self, event: PointerEvent, modifiers: &HeldModifiers) {
         let held_keys = modifiers.keys().collect();
         self.report(ViewReport::Pointer { event, held_keys });

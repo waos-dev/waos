@@ -23,7 +23,7 @@ use waos::bindings::wasdk::platform::lifecycle::AppExitResponse;
 use waos::bindings::wasdk::platform::menus::MenuEntry;
 use waos::bindings::wasdk::platform::views::{KeyEvent, RequestId};
 use waos::{KeyHandledFuture, ViewRequest};
-use waos_window_messages::os::macos::{SendRight, uptime_now};
+use waos_window_messages::os::macos::SendRight;
 use waos_window_messages::{
     FromWindow, HostedLayers, KeyId, PROTOCOL, PermissionRequestId, PromptCall, PromptId, ToWindow,
     ViewCall, Welcome, encode,
@@ -80,8 +80,6 @@ pub(crate) struct Connection {
     to_waos: SendRight,
     /// The program's name as its user knows it.
     name: String,
-    /// When the program's clock started, on the system's uptime clock.
-    clock_start: u64,
     /// Where each window's calls go: the queue of the view shown in it.
     windows: RefCell<HashMap<RequestId, UnboundedSender<ViewCall>>>,
     /// Where WaOS keeps the layers of each window asked for and not yet open.
@@ -108,7 +106,6 @@ impl Connection {
         Connection {
             to_waos,
             name: welcome.name,
-            clock_start: welcome.clock_start,
             windows: RefCell::default(),
             layers: RefCell::default(),
             keys: RefCell::default(),
@@ -126,11 +123,6 @@ impl Connection {
     /// What a window's wait in its resize hangs on.
     pub(crate) fn waits(&self) -> &ResizeWaits {
         &self.waits
-    }
-
-    /// Now on the program's clock, in nanoseconds.
-    pub(crate) fn now(&self) -> u64 {
-        uptime_now().saturating_sub(self.clock_start)
     }
 
     /// Sends `message` to WaOS. One WaOS can no longer take is dropped: the connection is
