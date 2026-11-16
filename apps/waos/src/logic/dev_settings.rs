@@ -12,7 +12,7 @@ use std::sync::Arc;
 
 use waos_dev_protocol::{
     ASK, AUDIO_OUTPUT, Answer, Connection, FileDialog, FromWaOS, LINK_SCHEME, MACHINE, Offered,
-    Question, Row, SIMULATED_MICROPHONE, ServerStream, SettingRow, SimulatedSound, Switch,
+    Question, Role, Row, SIMULATED_MICROPHONE, ServerStream, SettingRow, SimulatedSound, Switch,
     Unreached,
 };
 use waos_package::ProgramId;
@@ -111,6 +111,7 @@ fn change_of(row: Row, offered: &setting_changes::Offered) -> Result<SettingChan
         Row::LinkScheme(scheme, answer) => {
             SettingChange::LinkScheme(scheme, answer.map(store_answer))
         }
+        Row::Role(role, answer) => SettingChange::Role(store_role(role), answer.map(store_answer)),
         Row::Machine(id) => {
             let ids = offered.machines.iter().map(|machine| machine.id.as_str());
             SettingChange::MachineAnswer(one_offered(id, ids, "machine")?)
@@ -188,6 +189,10 @@ fn rows(page: &ShownSettings) -> Vec<SettingRow> {
     for (scheme, answer) in &page.link_schemes {
         let key = format!("{LINK_SCHEME} {scheme}");
         rows.push(row(&key, vec![answer_key(*answer).to_owned()]));
+    }
+    for (role, answer) in &page.roles {
+        let key = protocol_role(*role).key();
+        rows.push(row(key, vec![answer_key(*answer).to_owned()]));
     }
     for dialog in FileDialog::ALL {
         let paths = page.answer_with.paths.file_dialog(store_dialog(dialog));
@@ -282,6 +287,18 @@ fn store_question(question: Question) -> waos_store::Question {
         Question::Notifications => waos_store::Question::Notifications,
         Question::Camera => waos_store::Question::Camera,
         Question::Microphone => waos_store::Question::Microphone,
+    }
+}
+
+fn store_role(role: Role) -> waos_store::Role {
+    match role {
+        Role::Inspector => waos_store::Role::Inspector,
+    }
+}
+
+fn protocol_role(role: waos_store::Role) -> Role {
+    match role {
+        waos_store::Role::Inspector => Role::Inspector,
     }
 }
 

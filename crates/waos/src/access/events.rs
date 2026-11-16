@@ -342,7 +342,7 @@ pub(super) fn happened(happened: &Happened<'_>, instance: u32) -> TraceEvent {
         Happened::HttpResponded {
             request_id,
             status,
-            time_to_head,
+            time_to_first_byte,
         } => TraceEvent::Network(NetworkEvent {
             at,
             instance,
@@ -350,7 +350,7 @@ pub(super) fn happened(happened: &Happened<'_>, instance: u32) -> TraceEvent {
             kind: NetworkUse::HttpResponse(HttpResponse {
                 request_id: *request_id,
                 status: *status,
-                time_to_head: duration_of(*time_to_head),
+                time_to_first_byte: duration_of(*time_to_first_byte),
             }),
             verdict: Verdict::Allowed,
         }),

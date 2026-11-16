@@ -152,8 +152,8 @@ enum Command {
     /// deck is in no window, and is refused.
     Resize(ResizeArgs),
     /// Prints the program's settings, one row each, as its settings page in WaOS shows them: its
-    /// questions' answers, its switches, its answers to link schemes, and the answers set for its
-    /// pickers and file dialogs, with the machines and outputs they can be set to now.
+    /// questions' answers, its switches, its answers to link schemes and roles, and the answers
+    /// set for its pickers and file dialogs, with the machines and outputs they can be set to now.
     ///
     /// The settings are the program's own, kept by WaOS, for a program a `cargo waos run` on this
     /// machine runs or has run; WaOS is started when none answers.
@@ -167,6 +167,7 @@ enum Command {
     ///   simulated-microphone                         tone | silence | global
     ///   network | local-network | clipboard-read | clipboard-write   on | off | global
     ///   link-scheme <scheme>                         allow | deny | ask
+    ///   role.inspector                               allow | deny | ask
     ///   machine | audio-output                       <id> | ask
     ///   open-file | open-folder | save-file          <path> | ask
     ///   open-files                                   <path>... | ask

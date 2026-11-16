@@ -55,6 +55,7 @@ use crate::opener::LinkSchemes;
 use crate::opener::host::{OpenerCtx, OpenerCtxView};
 use crate::permissions::ProgramPermissions;
 use crate::permissions::host::{PermissionsCtx, PermissionsCtxView};
+use crate::roles;
 use crate::screens::Screens;
 use crate::screens::host::{ScreensCtx, ScreensCtxView};
 use crate::shell::{
@@ -99,6 +100,9 @@ async fn run_in_store(
     program: RunningProgram,
     clock: Clock,
 ) -> wasmtime::Result<wasmtime::Result<Result<(), ()>>> {
+    let roles = roles::asked_for(&start.component, &start.engine);
+    let grants = start.environment.grants.clone();
+    roles::check(&roles, grants.as_deref(), start.prompts.as_ref(), &program).await?;
     let linker = linker(&start.engine)?;
     let (instances, user_side) = ProgramInstances::link(start, &linker, program, clock)?;
     let instances = Arc::new(instances);

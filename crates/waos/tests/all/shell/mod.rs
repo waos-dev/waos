@@ -63,13 +63,13 @@ use waos::bindings::wasdk::platform::windows::{Point, Rect, Size, TitleBarAction
 use waos::{
     Answer, AnswerFuture, EngineTime, FreezePolicy, HardwareBuffer, HttpProxy, ManualTime,
     OutputStream, PlacedView, PlacedWindow, PlatformState, Presence, Program, ProgramEnd,
-    ProgramOutput, ProgramView, Prompts, Question, RunningProgram, Screen, SettingsClosedFuture,
-    Shell, ShellAudioOutputPicker, ShellCameras, ShellClipboard, ShellCompositionLayer,
-    ShellCompositor, ShellContextMenus, ShellFileDialogs, ShellImageCodecs, ShellMachinePicker,
-    ShellMediaAssets, ShellMediaPlayers, ShellMenuBar, ShellNotifications, ShellOpener,
-    ShellRecordingIndicator, ShellTextInput, ShellTrayIcons, ShellVideoFrameReaders, ShellView,
-    ShellWindow, ShellWindowSizeLimits, Switch, ViewPlacement, ViewRequest, VsyncWaiter, WaOS,
-    WaOSConfig, WindowConfig,
+    ProgramOutput, ProgramView, Prompts, Question, Role, RunningProgram, Screen,
+    SettingsClosedFuture, Shell, ShellAudioOutputPicker, ShellCameras, ShellClipboard,
+    ShellCompositionLayer, ShellCompositor, ShellContextMenus, ShellFileDialogs, ShellImageCodecs,
+    ShellMachinePicker, ShellMediaAssets, ShellMediaPlayers, ShellMenuBar, ShellNotifications,
+    ShellOpener, ShellRecordingIndicator, ShellTextInput, ShellTrayIcons, ShellVideoFrameReaders,
+    ShellView, ShellWindow, ShellWindowSizeLimits, Switch, ViewPlacement, ViewRequest, VsyncWaiter,
+    WaOS, WaOSConfig, WindowConfig,
 };
 
 use cameras::TestCameras;
@@ -352,6 +352,8 @@ pub struct TestShell {
     questions: Mutex<Vec<PutQuestion>>,
     /// Each link scheme a program asked its user to open, which waits for the test's answer.
     link_schemes_asked: Mutex<Vec<PutLinkScheme>>,
+    /// Each role a program asked its user for, which waits for the test's answer.
+    roles_asked: Mutex<Vec<PutRole>>,
     /// Each settings page a program opened, which stays open until the test leaves it.
     settings_opened: Mutex<Vec<OpenedSettings>>,
     compositor: Arc<TestCompositor>,
@@ -385,6 +387,13 @@ struct PutLinkScheme {
     answer: Option<oneshot::Sender<Option<Answer>>>,
 }
 
+/// A role a program asked its user for, and where the answer goes until it is given.
+struct PutRole {
+    program: String,
+    role: Role,
+    answer: Option<oneshot::Sender<Option<Answer>>>,
+}
+
 /// A settings page a program opened, and what tells it the user left, until the user does.
 struct OpenedSettings {
     program: String,
@@ -408,6 +417,7 @@ impl TestShell {
             windows: Mutex::default(),
             questions: Mutex::default(),
             link_schemes_asked: Mutex::default(),
+            roles_asked: Mutex::default(),
             settings_opened: Mutex::default(),
             compositor: Arc::default(),
             clipboard: Arc::default(),
@@ -562,6 +572,24 @@ impl TestShell {
         }
     }
 
+    /// Each role a program asked its user for so far, with the program, in order.
+    pub fn roles_asked(&self) -> Vec<(String, Role)> {
+        let asked = self.roles_asked.lock().unwrap();
+        asked
+            .iter()
+            .map(|put| (put.program.clone(), put.role))
+            .collect()
+    }
+
+    /// The user answers every role waiting with `answer`.
+    pub fn answer_roles(&self, answer: Option<Answer>) {
+        for put in self.roles_asked.lock().unwrap().iter_mut() {
+            if let Some(waiting) = put.answer.take() {
+                let _ = waiting.send(answer);
+            }
+        }
+    }
+
     /// Each settings page opened so far, with the program that opened it, in order.
     pub fn settings_opened(&self) -> Vec<(String, Switch)> {
         let opened = self.settings_opened.lock().unwrap();
@@ -646,6 +674,16 @@ impl Prompts for TestShell {
         self.link_schemes_asked.lock().unwrap().push(PutLinkScheme {
             program: program.name().to_owned(),
             scheme: scheme.to_owned(),
+            answer: Some(answer),
+        });
+        Box::pin(answered.map(|answer| answer.unwrap_or(None)))
+    }
+
+    fn ask_for_role(&self, program: &RunningProgram, role: Role) -> AnswerFuture {
+        let (answer, answered) = oneshot::channel();
+        self.roles_asked.lock().unwrap().push(PutRole {
+            program: program.name().to_owned(),
+            role,
             answer: Some(answer),
         });
         Box::pin(answered.map(|answer| answer.unwrap_or(None)))

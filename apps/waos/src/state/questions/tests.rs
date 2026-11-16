@@ -164,6 +164,28 @@ fn a_programs_question_about_a_link_scheme_is_put_as_the_others_are() {
     futures::executor::block_on(desktop.runs.stop_all());
 }
 
+#[test]
+fn a_programs_question_about_a_role_says_what_the_role_sees() {
+    let mut desktop = desktop();
+    open_program(
+        &mut desktop,
+        FOREVER,
+        "Forever",
+        waos_test_programs::FOREVER,
+    );
+    let mut answered = desktop
+        .prompts
+        .ask_for_role(&the_program(&desktop), waos::Role::Inspector);
+    desktop.settle_until("the question's window", |desktop| {
+        desktop.shows("Allow Forever to see what your other programs do?")
+    });
+    let window = window_titled(&desktop, "Forever").expect("the question's window");
+    desktop.tap(view_of(&window), "Don't allow");
+    desktop.settle_until("the answer", |_| true);
+    assert_eq!(answered.as_mut().now_or_never(), Some(Some(Answer::Denied)));
+    futures::executor::block_on(desktop.runs.stop_all());
+}
+
 /// The one program running asks its user `question`, as the engine asks for it.
 fn ask(desktop: &LibraryDesktop, question: Question) -> AnswerFuture {
     desktop.prompts.ask(&the_program(desktop), question)

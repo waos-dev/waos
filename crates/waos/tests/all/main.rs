@@ -61,6 +61,7 @@ mod notifications;
 mod opener;
 mod output;
 mod permissions;
+mod roles;
 mod survey;
 mod trust;
 mod video_frames;

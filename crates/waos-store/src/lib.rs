@@ -57,5 +57,5 @@ pub use store::{Download, InstalledProgram, Store};
 /// What the settings are made of, as `waos-capabilities` names them.
 pub use waos_capabilities::{
     Answer, Domain, DomainError, DomainRule, FileDialog, FileSystemGrant, Mount, NetworkGrant,
-    Question, Setting,
+    Question, Role, Setting,
 };

@@ -271,7 +271,7 @@ async fn send(
     sender.network.access.tell(Happened::HttpResponded {
         request_id: in_flight.id,
         status: response.status().as_u16(),
-        time_to_head: in_flight.sent.elapsed(),
+        time_to_first_byte: in_flight.sent.elapsed(),
     });
     let held = in_flight.held;
     let response = http::Response::from(response)

@@ -1,6 +1,7 @@
 //! A program's settings as `cargo waos set` and `cargo waos settings` name them, one row each, as
 //! its settings page shows them: a question's answer, a switch, the answer to opening links of a
-//! scheme, and the answers set for its pickers and file dialogs, given in place of asking; and
+//! scheme, the answer to it holding a role, and the answers set for its pickers and file dialogs,
+//! given in place of asking; and
 //! what WaOS asks the program's user, which a run's terminal says while it waits.
 //!
 //! The invariant: a row's key is its name on the command line and in what `settings` prints, and
@@ -36,6 +37,14 @@ pub enum Answer {
     Deny,
     /// For the camera and the microphone alone: allowed, with a device of WaOS's own.
     Simulate,
+}
+
+/// What a program may be besides a program, which it asks for by importing the role's
+/// interfaces.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Role {
+    /// Sees what other programs do.
+    Inspector,
 }
 
 /// What a simulated microphone records.
@@ -83,6 +92,8 @@ pub enum Row {
     FileDialog(FileDialog, Vec<PathBuf>),
     /// What a simulated microphone records; none to follow the setting for every program.
     SimulatedMicrophone(Option<SimulatedSound>),
+    /// Allow or Don't allow the program to hold the role; none to ask again at its next start.
+    Role(Role, Option<Answer>),
 }
 
 /// One row of a program's settings as they are, as `cargo waos settings` prints it.
@@ -119,6 +130,8 @@ pub enum Asked {
     /// Which sound output it plays on.
     AudioOutput,
     FileDialog(FileDialog),
+    /// Whether it may hold a role, at its start.
+    Role(Role),
 }
 
 impl Question {
@@ -151,6 +164,17 @@ impl Switch {
             Switch::LocalNetwork => "local-network",
             Switch::ClipboardRead => "clipboard-read",
             Switch::ClipboardWrite => "clipboard-write",
+        }
+    }
+}
+
+impl Role {
+    pub const ALL: [Role; 1] = [Role::Inspector];
+
+    /// Its row's key: `role.inspector`.
+    pub fn key(self) -> &'static str {
+        match self {
+            Role::Inspector => "role.inspector",
         }
     }
 }
@@ -229,6 +253,9 @@ impl Row {
         if let Some(dialog) = FileDialog::ALL.into_iter().find(|each| each.key() == key) {
             return Ok(Row::FileDialog(dialog, paths(dialog, values)?));
         }
+        if let Some(role) = Role::ALL.into_iter().find(|each| each.key() == key) {
+            return Ok(Row::Role(role, one_answer(key, values)?));
+        }
         match key.as_str() {
             LINK_SCHEME => {
                 let (scheme, answer) = values.split_first().ok_or_else(|| {
@@ -256,6 +283,7 @@ fn every_key() -> String {
     keys.extend(Switch::ALL.iter().map(|each| each.key()));
     keys.extend([LINK_SCHEME, MACHINE, AUDIO_OUTPUT, SIMULATED_MICROPHONE]);
     keys.extend(FileDialog::ALL.iter().map(|each| each.key()));
+    keys.extend(Role::ALL.iter().map(|each| each.key()));
     keys.join(", ")
 }
 
@@ -388,6 +416,11 @@ mod tests {
                 "open-file ask",
                 Row::FileDialog(FileDialog::OpenFile, Vec::new()),
             ),
+            (
+                "role.inspector allow",
+                Row::Role(Role::Inspector, Some(Answer::Allow)),
+            ),
+            ("role.inspector ask", Row::Role(Role::Inspector, None)),
         ] {
             assert_eq!(Row::parse(&words(text)).unwrap(), row, "{text}");
         }
@@ -410,6 +443,10 @@ mod tests {
             ("open-file", "open-file takes a path"),
             ("webcam allow", "no row is named \"webcam\""),
             ("link-scheme", "name the scheme"),
+            (
+                "role.inspector simulated",
+                "role.inspector is allow, deny or ask",
+            ),
         ] {
             let error = Row::parse(&words(text)).unwrap_err().to_string();
             assert!(error.starts_with(said), "{text}: {error}");

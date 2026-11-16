@@ -40,7 +40,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
 
-use waos_capabilities::{Answer, AudioOutput, MachineChoice, Question, Switch};
+use waos_capabilities::{Answer, AudioOutput, MachineChoice, Question, Role, Switch};
 
 use crate::bindings::wasdk::media::cameras::{CameraError, CameraFormat, CameraInfo, Photo};
 use crate::bindings::wasdk::media::image_codecs::{ImageFrame, ImageMetadata, ImageOrientation};
@@ -150,6 +150,12 @@ pub trait Prompts: Send + Sync {
     /// often the program opens its links. Called from the program's thread.
     fn ask_to_open_links(&self, program: &RunningProgram, scheme: &str) -> AnswerFuture;
 
+    /// Asks the user whether `program` may hold `role`, which it asks for by importing the
+    /// role's interfaces, saying what the role sees, and resolves to the answer, Allow or Don't
+    /// allow; to none when nobody answered. Asked at the program's start, before any of it runs,
+    /// while the user has not answered. Called from the program's thread.
+    fn ask_for_role(&self, program: &RunningProgram, role: Role) -> AnswerFuture;
+
     /// Opens `switch`'s page in `program`'s settings for the user, and resolves once the user
     /// leaves it. Called from the program's thread.
     fn open_settings(&self, program: &RunningProgram, switch: Switch) -> SettingsClosedFuture;
@@ -162,7 +168,7 @@ pub type AnswerFuture = Pin<Box<dyn Future<Output = Option<Answer>> + Send>>;
 pub type SettingsClosedFuture = Pin<Box<dyn Future<Output = ()> + Send>>;
 
 /// Prompts for a shell with nobody to ask, as a headless runner has: every question is refused,
-/// links of every scheme asked about with it, and no settings open, so asking for a switch
+/// links of every scheme and every role asked about with it, and no settings open, so asking for a switch
 /// answers at once.
 pub struct NoPrompts;
 
@@ -172,6 +178,10 @@ impl Prompts for NoPrompts {
     }
 
     fn ask_to_open_links(&self, _program: &RunningProgram, _scheme: &str) -> AnswerFuture {
+        Box::pin(ready(Some(Answer::Denied)))
+    }
+
+    fn ask_for_role(&self, _program: &RunningProgram, _role: Role) -> AnswerFuture {
         Box::pin(ready(Some(Answer::Denied)))
     }
 

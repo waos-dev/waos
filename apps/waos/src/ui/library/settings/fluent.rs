@@ -25,7 +25,7 @@ use waft_winui::{
     TextBlockStyle, TextBox, ThemeResources, ToggleSwitch,
 };
 use waos::{FileDialog, SimulatedSound};
-use waos_store::{Answer, DomainRule, Question};
+use waos_store::{Answer, DomainRule, Question, Role};
 
 use crate::logic::setting_changes::{
     DomainsKind, SettingChange, SettingsOf, Shown, ShownAnswerWith, ShownSettings, Which,
@@ -238,6 +238,7 @@ impl Page {
         }
         if self.of != SettingsOf::Global {
             sections.extend(self.link_schemes(&shown.link_schemes));
+            sections.extend(self.roles(&shown.roles));
             sections.extend(self.answered_without_asking(shown));
         }
         sections
@@ -256,6 +257,23 @@ impl Page {
         for (scheme, answer) in link_schemes {
             let forget = SettingChange::LinkScheme(scheme.clone(), None);
             rows.push(self.listed(&words::link_scheme(scheme, *answer), forget));
+        }
+        rows
+    }
+
+    /// The program's answers to holding the roles it asked for, each with Remove; nothing before
+    /// it asked for one.
+    fn roles(&self, roles: &[(Role, Answer)]) -> Vec<WidgetRef> {
+        if roles.is_empty() {
+            return Vec::new();
+        }
+        let mut rows = vec![
+            self.setting_name(words::ROLES),
+            caption(words::ROLES_DETAIL, &self.resources),
+        ];
+        for (role, answer) in roles {
+            let forget = SettingChange::Role(*role, None);
+            rows.push(self.listed(&words::role(*role, *answer), forget));
         }
         rows
     }

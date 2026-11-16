@@ -1,6 +1,6 @@
 //! What the deck says.
 
-use waos::{IncompatibleProgram, ProgramEnd};
+use waos::{IncompatibleProgram, ProgramEnd, Role, RoleNotGranted};
 
 /// What names the home, under its card.
 pub(crate) const HOME: &str = "Home";
@@ -33,20 +33,35 @@ pub(crate) fn ended(name: &str, end: &ProgramEnd) -> Ending {
     match end {
         ProgramEnd::Returned(Ok(())) => plain(format!("{name} ended.")),
         ProgramEnd::Returned(Err(())) => plain(format!("{name} ended with a failure.")),
-        ProgramEnd::Failed(error) => match error.downcast_ref::<IncompatibleProgram>() {
-            Some(incompatible) => Ending {
-                said: format!(
-                    "{name} was built for a different version of WaOS and cannot run in this one. Get an update of {name}, or update WaOS."
-                ),
-                detail: Some(incompatible.detail().to_owned()),
-            },
-            None => Ending {
-                said: format!("{name} stopped because of a problem."),
-                detail: Some(format!("{error:#}")),
-            },
-        },
+        ProgramEnd::Failed(error) => {
+            if let Some(incompatible) = error.downcast_ref::<IncompatibleProgram>() {
+                Ending {
+                    said: format!(
+                        "{name} was built for a different version of WaOS and cannot run in this one. Get an update of {name}, or update WaOS."
+                    ),
+                    detail: Some(incompatible.detail().to_owned()),
+                }
+            } else if let Some(not_granted) = error.downcast_ref::<RoleNotGranted>() {
+                plain(role_not_granted(name, not_granted.role()))
+            } else {
+                Ending {
+                    said: format!("{name} stopped because of a problem."),
+                    detail: Some(format!("{error:#}")),
+                }
+            }
+        }
         ProgramEnd::Stopped => plain(format!("{name} was stopped.")),
     }
+}
+
+/// What a tab says of `name`, which asks for `role` and was not granted it.
+fn role_not_granted(name: &str, role: Role) -> String {
+    let what = match role {
+        Role::Inspector => "see what your other programs do",
+    };
+    format!(
+        "{name} asks to {what}, and is not allowed to, so it did not start. You can change this in its settings in WaOS's library."
+    )
 }
 
 #[cfg(test)]
@@ -109,12 +124,26 @@ mod tests {
         );
     }
 
+    #[test]
+    fn a_program_not_granted_its_role_is_said_with_where_to_change_it() {
+        let ending = ended("Inspector", &end_of(waos_test_programs::INSPECTOR));
+        assert_eq!(
+            ending,
+            said_alone(
+                "Inspector asks to see what your other programs do, and is not allowed to, so it did not start. You can change this in its settings in WaOS's library."
+            )
+        );
+    }
+
     /// How the engine ends the component built for another version of the interface.
     fn incompatible_end() -> ProgramEnd {
+        end_of(waos_test_programs::INCOMPATIBLE)
+    }
+
+    /// How the engine ends the component at `path`, run with nothing granted.
+    fn end_of(path: &str) -> ProgramEnd {
         let engine = test_engine::engine(Arc::new(NoWindows), Path::new(CODE_CACHE));
-        let program = engine
-            .load(Path::new(waos_test_programs::INCOMPATIBLE))
-            .expect("it loads");
+        let program = engine.load(Path::new(path)).expect("it loads");
         let (running, _given) = engine
             .run(&program, ProgramEnvironment::default(), Vec::new())
             .expect("it starts");

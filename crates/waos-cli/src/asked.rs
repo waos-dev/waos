@@ -3,7 +3,7 @@
 //!
 //! The invariant: the row named is the one `cargo waos set` takes, by `waos-dev-protocol`'s keys.
 
-use waos_dev_protocol::{Asked, FileDialog, Question};
+use waos_dev_protocol::{Asked, FileDialog, Question, Role};
 
 /// What `asked` asks the user of the program `name`, and the row that answers it ahead.
 pub fn said(asked: &Asked, name: &str) -> String {
@@ -27,6 +27,7 @@ fn question(asked: &Asked, name: &str) -> String {
         Asked::FileDialog(FileDialog::OpenFiles) => format!("which files does {name} open?"),
         Asked::FileDialog(FileDialog::OpenFolder) => format!("which folder does {name} open?"),
         Asked::FileDialog(FileDialog::SaveFile) => format!("where does {name} save the file?"),
+        Asked::Role(Role::Inspector) => format!("may {name} see what your other programs do?"),
     }
 }
 
@@ -50,6 +51,7 @@ fn answered_ahead(asked: &Asked) -> String {
             "cargo waos set open-files <path>...".to_owned()
         }
         Asked::FileDialog(dialog) => format!("cargo waos set {} <path>", dialog.key()),
+        Asked::Role(role) => format!("cargo waos set {} allow|deny", role.key()),
     };
     format!("`{command}` answers it without asking from then on")
 }
@@ -72,6 +74,10 @@ mod tests {
         assert!(
             saving.contains("cargo waos set save-file <path>"),
             "{saving}"
+        );
+        assert_eq!(
+            said(&Asked::Role(Role::Inspector), "Inspector"),
+            "may Inspector see what your other programs do?; `cargo waos set role.inspector allow|deny` answers it without asking from then on"
         );
     }
 }

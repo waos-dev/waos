@@ -197,6 +197,8 @@ pub(crate) const OPEN_SYSTEM_SETTINGS: &str = "Open System Settings";
 
 pub(crate) const LINKS: &str = "Links";
 pub(crate) const LINKS_DETAIL: &str = "What this program was answered when it asked to open links of these kinds. Remove one to be asked again.";
+pub(crate) const ROLES: &str = "Roles";
+pub(crate) const ROLES_DETAIL: &str = "What this program was answered when it asked to be more than a program. Remove one to be asked again at its next start.";
 pub(crate) const ANSWERED_WITHOUT_ASKING: &str = "Answered without asking";
 pub(crate) const ANSWERED_WITHOUT_ASKING_DETAIL: &str = "When this program asks for one of these, WaOS gives it what is set here instead of asking you.";
 pub(crate) const WHICH_MACHINE: &str = "Which computer";
@@ -269,6 +271,18 @@ pub(crate) fn link_scheme(scheme: &str, answer: waos_store::Answer) -> String {
         waos_store::Answer::Simulated => SIMULATED,
     };
     format!("{scheme} links: {given}")
+}
+
+/// The answer a program was given to holding `role`.
+pub(crate) fn role(role: waos_store::Role, answer: waos_store::Answer) -> String {
+    let what = match role {
+        waos_store::Role::Inspector => "See what other programs do",
+    };
+    let given = match answer {
+        waos_store::Answer::Granted => ALLOW,
+        waos_store::Answer::Denied | waos_store::Answer::Simulated => DONT_ALLOW,
+    };
+    format!("{what}: {given}")
 }
 
 /// A folder mounted: where it is, where the program sees it, and whether it may write there.

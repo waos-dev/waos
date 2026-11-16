@@ -16,7 +16,7 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use tokio::sync::Notify;
 use waos_capabilities::{
     Answer, ChangedFuture, DomainRule, FileDialog, FileSystemGrant, Mount, NetworkGrant,
-    ProgramGrants, Question, Setting, SimulatedSound,
+    ProgramGrants, Question, Role, Setting, SimulatedSound,
 };
 use waos_package::ProgramId;
 
@@ -198,6 +198,20 @@ impl ProgramGrants for StoreGrants {
         });
         if let Err(error) = kept {
             tracing::warn!("the answer to opening {scheme} links for {id} is lost: {error}");
+        }
+    }
+
+    fn role(&self, role: Role) -> Option<Answer> {
+        self.read(|holding| holding.role(role), Some(Answer::Denied))
+    }
+
+    fn set_role(&self, role: Role, answer: Answer) {
+        let id = &self.id;
+        let kept = self.store.change_program_settings(id, |settings| {
+            settings.roles.insert(role, answer);
+        });
+        if let Err(error) = kept {
+            tracing::warn!("the answer to {id} holding the {role:?} role is lost: {error}");
         }
     }
 

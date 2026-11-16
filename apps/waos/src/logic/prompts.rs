@@ -1,5 +1,5 @@
 //! Where the programs' prompts go: each to the main thread, a question to be shown to the user
-//! (`state::questions`), a permission's or a link scheme's, which the engine's prompts ask, the
+//! (`state::questions`), a permission's, a link scheme's or a role's, which the engine's prompts ask, the
 //! output a program's sound plays on, which the shell's picker of outputs asks, or a machine for a
 //! program, which the shell's picker of machines asks; and a switch's
 //! page to be opened in the library's settings (`state::library`). Each is noted as asked of the
@@ -19,7 +19,7 @@ use futures::channel::mpsc::{self, UnboundedReceiver, UnboundedSender};
 use futures::channel::oneshot;
 use waos::{
     Answer, AnswerFuture, AudioOutput, AudioOutputPickedFuture, MachineChoice, MachinePickedFuture,
-    Prompts, Question, RunningProgram, SettingsClosedFuture, ShellAudioOutputPicker,
+    Prompts, Question, Role, RunningProgram, SettingsClosedFuture, ShellAudioOutputPicker,
     ShellMachinePicker, Switch,
 };
 use waos_dev_protocol::Asked as AskedNow;
@@ -59,6 +59,8 @@ pub(crate) enum ProgramQuestion {
     /// Whether it may open links of a scheme, any but `http`, `https` and `mailto`, which open
     /// freely: the scheme, in lower case.
     LinkScheme(String),
+    /// Whether it may hold a role it asks for by importing the role's interfaces, at its start.
+    Role(Role),
 }
 
 impl fmt::Debug for Asking {
@@ -196,6 +198,10 @@ impl Prompts for PromptsOnRequest {
         self.put(program, ProgramQuestion::LinkScheme(scheme.to_owned()))
     }
 
+    fn ask_for_role(&self, program: &RunningProgram, role: Role) -> AnswerFuture {
+        self.put(program, ProgramQuestion::Role(role))
+    }
+
     fn open_settings(&self, program: &RunningProgram, switch: Switch) -> SettingsClosedFuture {
         let (left, leaving) = oneshot::channel();
         let opened = SettingsOpened {
@@ -264,6 +270,9 @@ impl ProgramQuestion {
                 AskedNow::Question(protocol_question(*question))
             }
             ProgramQuestion::LinkScheme(scheme) => AskedNow::LinkScheme(scheme.clone()),
+            ProgramQuestion::Role(Role::Inspector) => {
+                AskedNow::Role(waos_dev_protocol::Role::Inspector)
+            }
         }
     }
 }

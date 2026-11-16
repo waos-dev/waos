@@ -303,11 +303,11 @@ pub(crate) enum Happened<'a> {
     /// A machine the user picked, by its id.
     MachinePicked { machine: &'a str },
     /// The head of the response to the HTTP request `request_id` came, with `status`, after
-    /// `time_to_head`.
+    /// `time_to_first_byte`.
     HttpResponded {
         request_id: u64,
         status: u16,
-        time_to_head: std::time::Duration,
+        time_to_first_byte: std::time::Duration,
     },
 }
 

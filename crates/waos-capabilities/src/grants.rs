@@ -103,6 +103,20 @@ pub trait ProgramGrants: Send + Sync {
         SimulatedSound::default()
     }
 
+    /// The user's answer to the program holding `role`, its own alone, since a role has no
+    /// setting for every program; none while the user has not answered, and the question is to be
+    /// put at its next start. None where nothing keeps an answer.
+    fn role(&self, role: Role) -> Option<Answer> {
+        let _ = role;
+        None
+    }
+
+    /// Keeps `answer`, the user's to the program holding `role`; nothing where nothing keeps
+    /// it, and the answer is the program's for its run alone.
+    fn set_role(&self, role: Role, answer: Answer) {
+        let _ = (role, answer);
+    }
+
     /// Resolves at the next change the user makes to what holds for the program, its own
     /// settings or the global ones; a change is heard by every future asked for before it.
     fn changed(&self) -> ChangedFuture;
@@ -258,6 +272,20 @@ impl FileDialog {
         FileDialog::OpenFolder,
         FileDialog::SaveFile,
     ];
+}
+
+/// What a program may be besides a program, which sees or does more than a program sees of
+/// itself: a role, which it asks for by importing the role's interfaces, and the user grants it
+/// by name, with no setting for every program (decisions 6 and 9 of
+/// `docs/proposals/2026-11-15-inspector-roles-and-compatibility.md`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum Role {
+    /// Sees what other programs do: `wasdk:inspect`.
+    Inspector,
+}
+
+impl Role {
+    pub const ALL: [Role; 1] = [Role::Inspector];
 }
 
 /// What a program uses constantly, which the user turns on or off in its settings.

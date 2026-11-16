@@ -13,7 +13,7 @@ use waft::{
     TextDirection, WidgetRef,
 };
 use waft_winui::{Button, ButtonStyle, TextBlockStyle, ThemeResources};
-use waos::{Answer, AudioOutput, MachineChoice, Question, RunningProgram};
+use waos::{Answer, AudioOutput, MachineChoice, Question, Role, RunningProgram};
 
 use crate::logic::prompts::{Asking, ProgramQuestion, Reply};
 use crate::state::questions::Questions;
@@ -171,6 +171,7 @@ const ALLOW: &str = "Allow";
 const DONT_ALLOW: &str = "Don't allow";
 const CANCEL: &str = "Cancel";
 const PICKED_DETAIL: &str = "It may play there until it quits.";
+const INSPECTOR_DETAIL: &str = "It sees the sites they reach, the files they open and change, when they use the camera and the microphone, and what they run. You can change this in its settings in WaOS's library.";
 const MACHINE_DETAIL: &str = "It acts on the machine you pick as you: it can run any command there and read and change any file you can, until you remove the machine in its settings in WaOS's library.";
 
 /// What the user is asked, `name` being the program's.
@@ -180,6 +181,7 @@ fn asked(name: &str, question: &ProgramQuestion) -> String {
         ProgramQuestion::Permission(Question::Camera) => "use the camera".to_owned(),
         ProgramQuestion::Permission(Question::Microphone) => "use the microphone".to_owned(),
         ProgramQuestion::LinkScheme(scheme) => format!("open {scheme} links"),
+        ProgramQuestion::Role(Role::Inspector) => "see what your other programs do".to_owned(),
     };
     format!("Allow {name} to {what}?")
 }
@@ -189,6 +191,7 @@ fn detail(question: &ProgramQuestion) -> &'static str {
     match question {
         ProgramQuestion::Permission(_) => "You can change this in its settings in WaOS's library.",
         ProgramQuestion::LinkScheme(_) => "They open in another app. WaOS keeps your answer.",
+        ProgramQuestion::Role(Role::Inspector) => INSPECTOR_DETAIL,
     }
 }
 

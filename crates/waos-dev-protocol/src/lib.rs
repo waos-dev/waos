@@ -50,7 +50,7 @@ pub use messages::{
 pub use pipe::{ClientStream, Listener, ServerStream, listener_path};
 pub use settings_rows::{
     ASK, AUDIO_OUTPUT, Answer, Asked, FileDialog, GLOBAL, LINK_SCHEME, MACHINE, Offered, Question,
-    Row, RowError, SIMULATED_MICROPHONE, SettingRow, SimulatedSound, Switch,
+    Role, Row, RowError, SIMULATED_MICROPHONE, SettingRow, SimulatedSound, Switch,
 };
 #[cfg(unix)]
 pub use socket::{ClientStream, Listener, ServerStream, listener_path};

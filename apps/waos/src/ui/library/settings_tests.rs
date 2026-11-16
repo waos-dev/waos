@@ -214,6 +214,8 @@ fn triangle_answered(desktop: &LibraryDesktop, folder: &std::path::Path) -> std:
         own.answer_with.open_folder = Some(folder.to_path_buf());
         own.link_schemes
             .insert("zoommtg".to_owned(), Answer::Granted);
+        own.roles
+            .insert(waos_store::Role::Inspector, Answer::Denied);
     });
     changed.unwrap();
     folder.join("out.pdf")
@@ -324,6 +326,20 @@ fn a_programs_answer_to_a_link_scheme_shows_and_is_forgotten_in_the_launcher() {
     desktop.tap_beside::<waft_winui::Button>(view, &link);
     let own = desktop.store.program_settings(&triangle()).unwrap();
     assert!(own.link_schemes.is_empty(), "asked again at its next link");
+}
+
+#[test]
+fn a_programs_answer_to_a_role_shows_and_is_forgotten_in_the_launcher() {
+    let (mut desktop, view) = in_launcher();
+    installs(&mut desktop, TRIANGLE, "Triangle", b"\0asm");
+    let scratch = tempfile::tempdir().unwrap();
+    triangle_answered(&desktop, scratch.path());
+    open_settings_from_icon(&mut desktop, view, "Triangle");
+    let role = words::role(waos_store::Role::Inspector, Answer::Denied);
+    desktop.scroll_until_visible(view, &role, words::NETWORK, SCROLL_STEP);
+    desktop.tap_beside::<waft_winui::Button>(view, &role);
+    let own = desktop.store.program_settings(&triangle()).unwrap();
+    assert!(own.roles.is_empty(), "asked again at its next start");
 }
 
 #[test]

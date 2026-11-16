@@ -77,7 +77,8 @@ pub enum ProgramEnd {
     /// with a code other than 0.
     Returned(Result<(), ()>),
     /// It trapped, or could not run: with an [`IncompatibleProgram`] in the error's chain when it
-    /// was built for another version of the interface.
+    /// was built for another version of the interface, and a
+    /// [`RoleNotGranted`](crate::RoleNotGranted) when it asks for a role its user did not grant.
     Failed(Arc<anyhow::Error>),
     /// `stop` ended it.
     Stopped,

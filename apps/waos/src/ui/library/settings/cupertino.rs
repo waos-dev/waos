@@ -34,7 +34,7 @@ use waft_cupertino::{
     CupertinoTextField, ObstructingPreferredSizeWidgetRef,
 };
 use waos::{FileDialog, SimulatedSound};
-use waos_store::{Answer, DomainRule, FileSystemGrant, NetworkGrant, Question};
+use waos_store::{Answer, DomainRule, FileSystemGrant, NetworkGrant, Question, Role};
 
 use crate::logic::setting_changes::{
     DomainsKind, SettingChange, SettingsOf, Shown, ShownAnswerWith, ShownSettings, Which,
@@ -270,6 +270,7 @@ impl Page {
         }
         if self.of != SettingsOf::Global {
             sections.extend(self.link_schemes(&shown.link_schemes));
+            sections.extend(self.roles(&shown.roles));
             sections.extend(self.answered_without_asking(shown));
         }
         sections
@@ -291,6 +292,26 @@ impl Page {
         Some(section(
             Some(words::LINKS),
             Some(words::LINKS_DETAIL),
+            tiles,
+        ))
+    }
+
+    /// The program's answers to holding the roles it asked for, each with Remove; nothing before
+    /// it asked for one.
+    fn roles(&self, roles: &[(Role, Answer)]) -> Option<WidgetRef> {
+        if roles.is_empty() {
+            return None;
+        }
+        let tiles = roles
+            .iter()
+            .map(|(role, answer)| {
+                let forget = SettingChange::Role(*role, None);
+                self.listed(&words::role(*role, *answer), forget)
+            })
+            .collect();
+        Some(section(
+            Some(words::ROLES),
+            Some(words::ROLES_DETAIL),
             tiles,
         ))
     }

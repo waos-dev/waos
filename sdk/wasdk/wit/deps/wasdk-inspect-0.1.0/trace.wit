@@ -76,8 +76,8 @@ interface trace {
     /// The id of the request it answers.
     request-id: u64,
     status: u16,
-    /// How long after the request was sent its head came.
-    time-to-head: duration,
+    /// How long after the request was sent the response began to come: its time to first byte.
+    time-to-first-byte: duration,
   }
 
   variant network-use {

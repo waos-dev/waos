@@ -13,7 +13,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use waos_capabilities::{
-    Answer, DomainRule, FileDialog, FileSystemGrant, NetworkGrant, Question, Setting,
+    Answer, DomainRule, FileDialog, FileSystemGrant, NetworkGrant, Question, Role, Setting,
     SimulatedSound,
 };
 
@@ -65,6 +65,9 @@ pub struct ProgramSettings {
     /// The user's answer to the program opening links of each scheme it asked for, by the
     /// scheme in lower case: those other than `http`, `https` and `mailto`, which open freely.
     pub link_schemes: BTreeMap<String, Answer>,
+    /// The user's answer to it holding each role it asked for: its own alone, since a role has
+    /// no setting for every program.
+    pub roles: BTreeMap<Role, Answer>,
     /// The machines the user picked for it, by their ids, in the order picked: its own alone.
     pub machines: Vec<String>,
     /// The answers the user set for its pickers and file dialogs: its own alone.
@@ -180,6 +183,10 @@ impl Holding<'_> {
 
     pub(crate) fn link_scheme_answer(&self, scheme: &str) -> Option<Answer> {
         self.own.link_schemes.get(scheme).copied()
+    }
+
+    pub(crate) fn role(&self, role: Role) -> Option<Answer> {
+        self.own.roles.get(&role).copied()
     }
 
     pub(crate) fn machines(&self) -> Vec<String> {

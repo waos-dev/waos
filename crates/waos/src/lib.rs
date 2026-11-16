@@ -79,6 +79,7 @@ mod opener;
 mod os;
 mod permissions;
 mod program;
+mod roles;
 mod running;
 mod screens;
 mod screenshots;
@@ -111,6 +112,9 @@ pub use menus::TrayIconReports;
 pub use network::HttpProxy;
 pub use notifications::{Notification, NotificationAction};
 pub use program::Program;
+/// What the user lets a program use, as its environment's grants give it and the shell's
+/// prompts ask for it.
+pub use roles::RoleNotGranted;
 pub use running::{IncompatibleProgram, ProgramEnd, RunningProgram};
 pub use screens::Screen;
 pub use shell::{
@@ -133,9 +137,9 @@ pub use shell::{
 pub use stats::Stats;
 pub use views::{HeldModifiers, KeyHandledFuture, ProgramView, Watching};
 pub use waos_capabilities::MachineChoice;
-/// What the user lets a program use, as its environment's grants give it and the shell's
-/// prompts ask for it.
-pub use waos_capabilities::{Answer, FileDialog, ProgramGrants, Question, SimulatedSound, Switch};
+pub use waos_capabilities::{
+    Answer, FileDialog, ProgramGrants, Question, Role, SimulatedSound, Switch,
+};
 /// A program's sound devices, and an output among them as the shell's picker shows it.
 pub use waos_capabilities::{AudioDeviceError, AudioDevices, AudioOutput};
 pub use waos_capabilities::{AuditDay, AuditLog};

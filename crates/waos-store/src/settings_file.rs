@@ -26,6 +26,9 @@
 //! [link-schemes]                            # a program's own alone
 //! zoommtg = "granted"                       # or "denied"; missing to ask
 //!
+//! [roles]                                   # a program's own alone
+//! inspector = "granted"                     # or "denied"; missing to ask at its next start
+//!
 //! [answer-with]                             # a program's own alone; each missing to ask
 //! machine = "this-computer"                 # a machine's id
 //! audio-output = "BuiltInSpeakerDevice"     # a sound output's id
@@ -36,7 +39,8 @@
 //! ```
 //!
 //! A program's `mounts = []` is its own list, empty: no folder, whatever the global ones are. The
-//! global file has no `link-schemes`: a program's user answers each scheme for it; nor
+//! global file has no `link-schemes`: a program's user answers each scheme for it; nor `roles`,
+//! which its user grants each program by name; nor
 //! `machines = ["this-computer"]`, a program's own list of the machines its user picked for it;
 //! nor `answer-with`, the answers its user set for its pickers and file dialogs.
 
@@ -47,7 +51,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 use waos_capabilities::{
-    Answer, Domain, DomainRule, FileSystemGrant, Mount, NetworkGrant, Question, Setting,
+    Answer, Domain, DomainRule, FileSystemGrant, Mount, NetworkGrant, Question, Role, Setting,
     SimulatedSound,
 };
 
@@ -75,6 +79,9 @@ struct SettingsFile {
     simulated: SimulatedFile,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     link_schemes: BTreeMap<String, AnswerFile>,
+    /// By the role's name, `inspector`; a name this version does not know is ignored.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    roles: BTreeMap<String, AnswerFile>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     machines: Vec<String>,
     #[serde(default, skip_serializing_if = "AnswerWithFile::is_empty")]
@@ -213,6 +220,7 @@ pub(crate) fn write_global(path: &Path, settings: &GlobalSettings) -> Result<(),
             microphone: Some(sound_file(settings.simulated_microphone)),
         },
         link_schemes: BTreeMap::new(),
+        roles: BTreeMap::new(),
         machines: Vec::new(),
         answer_with: AnswerWithFile::default(),
     };
@@ -240,6 +248,11 @@ pub(crate) fn read_program(path: &Path) -> Result<ProgramSettings, StoreError> {
             .into_iter()
             .map(|(scheme, answer)| (scheme, answer_of(answer)))
             .collect(),
+        roles: file
+            .roles
+            .into_iter()
+            .filter_map(|(name, answer)| Some((role_named(&name)?, answer_of(answer))))
+            .collect(),
         machines: file.machines,
         answer_with: answer_with_of(file.answer_with),
     })
@@ -265,6 +278,11 @@ pub(crate) fn write_program(path: &Path, settings: &ProgramSettings) -> Result<(
             .iter()
             .map(|(scheme, answer)| (scheme.clone(), answer_file(*answer)))
             .collect(),
+        roles: settings
+            .roles
+            .iter()
+            .map(|(role, answer)| (role_name(*role).to_owned(), answer_file(*answer)))
+            .collect(),
         machines: settings.machines.clone(),
         answer_with: answer_with_file(&settings.answer_with),
     };
@@ -283,6 +301,17 @@ fn read(path: &Path) -> Result<SettingsFile, StoreError> {
 fn write(path: &Path, file: &SettingsFile) -> Result<(), StoreError> {
     let text = toml::to_string(file).expect("the settings are TOML");
     write_whole(path, text.as_bytes()).map_err(StoreError::io_at(path))
+}
+
+/// A role's name in the file.
+fn role_name(role: Role) -> &'static str {
+    match role {
+        Role::Inspector => "inspector",
+    }
+}
+
+fn role_named(name: &str) -> Option<Role> {
+    Role::ALL.into_iter().find(|role| role_name(*role) == name)
 }
 
 fn own<T>(value: Option<T>) -> Setting<T> {
@@ -462,6 +491,7 @@ mod tests {
                 ("tel".to_owned(), Answer::Denied),
                 ("zoommtg".to_owned(), Answer::Granted),
             ]),
+            roles: BTreeMap::from([(Role::Inspector, Answer::Granted)]),
             machines: vec!["this-computer".to_owned()],
             answer_with: AnswerWith {
                 machine: Some("this-computer".to_owned()),

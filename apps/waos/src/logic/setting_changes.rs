@@ -19,7 +19,7 @@ use waos::{AudioOutput, FileDialog, MachineChoice, file_dialog_answer_refusal, m
 use waos_package::ProgramId;
 use waos_store::{
     Answer, AnswerWith, Domain, DomainRule, FileSystemGrant, GlobalSettings, Mount, NetworkGrant,
-    PerQuestion, ProgramSettings, Question, Setting,
+    PerQuestion, ProgramSettings, Question, Role, Setting,
 };
 
 /// Whose settings a page shows.
@@ -58,6 +58,8 @@ pub(crate) struct ShownSettings {
     /// The program's answers to opening links of its own schemes, by scheme; none on the global
     /// page.
     pub(crate) link_schemes: Vec<(String, Answer)>,
+    /// The program's answers to it holding each role it asked for; none on the global page.
+    pub(crate) roles: Vec<(Role, Answer)>,
     /// What the program's pickers offer now, which its page sets their answers from.
     pub(crate) offered: Offered,
 }
@@ -127,6 +129,8 @@ pub(crate) enum SettingChange {
     SimulatedMicrophone(SimulatedSound),
     /// The answer to opening links of a scheme, in lower case: none to ask again.
     LinkScheme(String, Option<Answer>),
+    /// The answer to the program holding a role: none to ask again at its next start.
+    Role(Role, Option<Answer>),
     /// The machine, by its id, the picker of machines answers: none to ask.
     MachineAnswer(Option<String>),
     /// The output, by its id, the picker of outputs answers: none to ask.
@@ -159,6 +163,7 @@ pub(crate) fn global_page(global: &GlobalSettings) -> ShownSettings {
         machines: Vec::new(),
         answer_with: ShownAnswerWith::default(),
         link_schemes: Vec::new(),
+        roles: Vec::new(),
         offered: Offered::default(),
     }
 }
@@ -225,6 +230,11 @@ pub(crate) fn program_page(
             .iter()
             .map(|(scheme, answer)| (scheme.clone(), *answer))
             .collect(),
+        roles: own
+            .roles
+            .iter()
+            .map(|(role, answer)| (*role, *answer))
+            .collect(),
         offered: offered.clone(),
     }
 }
@@ -278,6 +288,7 @@ pub(crate) fn change_global(
         SettingChange::FollowGlobal(_)
         | SettingChange::RemoveMachine(_)
         | SettingChange::LinkScheme(..)
+        | SettingChange::Role(..)
         | SettingChange::MachineAnswer(_)
         | SettingChange::AudioOutputAnswer(_)
         | SettingChange::FileDialogAnswer(..)
@@ -316,6 +327,15 @@ pub(crate) fn change_program(
         SettingChange::FollowGlobal(which) => follow_global(own, which),
         SettingChange::RemoveMachine(id) => own.machines.retain(|kept| *kept != id),
         SettingChange::LinkScheme(scheme, answer) => set_link_scheme(own, scheme, answer),
+        SettingChange::Role(_, Some(Answer::Simulated)) => {
+            return Err("a role is allowed or not; nothing simulates it".to_owned());
+        }
+        SettingChange::Role(role, Some(answer)) => {
+            own.roles.insert(role, answer);
+        }
+        SettingChange::Role(role, None) => {
+            own.roles.remove(&role);
+        }
         SettingChange::MachineAnswer(id) => own.answer_with.machine = id,
         SettingChange::AudioOutputAnswer(id) => own.answer_with.audio_output = id,
         SettingChange::FileDialogAnswer(dialog, typed) => {
@@ -785,6 +805,21 @@ mod tests {
         let forget = SettingChange::LinkScheme("zoommtg".to_owned(), None);
         change_program(&mut own, &global, forget).unwrap();
         assert!(own.link_schemes.is_empty());
+    }
+
+    #[test]
+    fn a_role_answered_is_shown_and_forgotten_to_be_asked_again_never_simulated() {
+        let global = GlobalSettings::default();
+        let mut own = ProgramSettings::default();
+        let allow = SettingChange::Role(Role::Inspector, Some(Answer::Granted));
+        change_program(&mut own, &global, allow).unwrap();
+        let page = program_page(&global, &own, &Offered::default());
+        assert_eq!(page.roles, [(Role::Inspector, Answer::Granted)]);
+        let simulate = SettingChange::Role(Role::Inspector, Some(Answer::Simulated));
+        assert!(change_program(&mut own, &global, simulate).is_err());
+        let forget = SettingChange::Role(Role::Inspector, None);
+        change_program(&mut own, &global, forget).unwrap();
+        assert!(own.roles.is_empty());
     }
 
     #[test]
