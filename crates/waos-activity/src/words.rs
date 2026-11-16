@@ -1,12 +1,12 @@
 //! The sections of what a program did, each in plain words.
 
-use super::{Activity, Captures, Counts, Named, Section};
+use super::{AccessKind, Activity, Captures, Counts, Named, Section};
 use crate::dates::date;
 
 /// How many of a list's names a section says before it says how many more.
 const NAMES_SAID: usize = 5;
 
-pub(super) fn captures(title: &'static str, captures: &Captures) -> Option<Section> {
+pub(super) fn captures(kind: AccessKind, captures: &Captures) -> Option<Section> {
     if captures.sessions == 0 {
         return None;
     }
@@ -15,7 +15,7 @@ pub(super) fn captures(title: &'static str, captures: &Captures) -> Option<Secti
         line.push_str(", WaOS's own, simulated");
     }
     Some(Section {
-        title,
+        kind,
         lines: vec![line],
     })
 }
@@ -40,7 +40,7 @@ pub(super) fn network(activity: &Activity) -> Option<Section> {
         ));
     }
     Some(Section {
-        title: "Network",
+        kind: AccessKind::Network,
         lines,
     })
 }
@@ -75,7 +75,7 @@ pub(super) fn files(activity: &Activity) -> Option<Section> {
         ));
     }
     Some(Section {
-        title: "Files",
+        kind: AccessKind::Files,
         lines,
     })
 }
@@ -100,7 +100,7 @@ pub(super) fn clipboard(activity: &Activity) -> Option<Section> {
         ));
     }
     (!lines.is_empty()).then_some(Section {
-        title: "Clipboard",
+        kind: AccessKind::Clipboard,
         lines,
     })
 }
@@ -125,7 +125,7 @@ pub(super) fn commands(activity: &Activity) -> Option<Section> {
         })
         .collect();
     Some(Section {
-        title: "Ran",
+        kind: AccessKind::Machines,
         lines,
     })
 }
@@ -141,7 +141,7 @@ pub(super) fn links(activity: &Activity) -> Option<Section> {
     )];
     lines.extend(most_used(&activity.links));
     Some(Section {
-        title: "Links",
+        kind: AccessKind::Links,
         lines,
     })
 }
@@ -149,7 +149,7 @@ pub(super) fn links(activity: &Activity) -> Option<Section> {
 pub(super) fn notifications(activity: &Activity) -> Option<Section> {
     let posted = activity.notifications;
     (posted != Counts::default()).then(|| Section {
-        title: "Notifications",
+        kind: AccessKind::Notifications,
         lines: vec![with_refused(
             format!("Posted {}", times(posted.allowed)),
             posted.refused,
@@ -176,7 +176,7 @@ pub(super) fn questions(activity: &Activity) -> Option<Section> {
         })
         .collect();
     Some(Section {
-        title: "Asked",
+        kind: AccessKind::Questions,
         lines,
     })
 }
@@ -298,7 +298,7 @@ mod tests {
         let said: Vec<(&str, Vec<String>)> = activity
             .sections()
             .into_iter()
-            .map(|section| (section.title, section.lines))
+            .map(|section| (section.kind.heading(), section.lines))
             .collect();
         assert_eq!(
             said,
@@ -326,7 +326,13 @@ mod tests {
         );
         assert_eq!(
             activity.marks(),
-            ["Camera", "Network", "Files", "Clipboard", "Machines"]
+            [
+                AccessKind::Camera,
+                AccessKind::Network,
+                AccessKind::Files,
+                AccessKind::Clipboard,
+                AccessKind::Machines
+            ]
         );
         assert_eq!(activity.short()[0], "Camera: twice, 12 minutes");
     }

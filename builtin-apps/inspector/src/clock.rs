@@ -32,6 +32,38 @@ pub(crate) fn time_of_day(at: i64) -> String {
     )
 }
 
+/// `at` as the user's clock showed it, to the millisecond: `14:03:27.012`.
+pub(crate) fn precise(at: Instant) -> String {
+    let millis = at.nanoseconds / 1_000_000;
+    format!("{}.{millis:03}", time_of_day(at.seconds))
+}
+
+/// `at` as the user's clock showed it, to the minute: `14:03`.
+pub(crate) fn minute_of(at: i64) -> String {
+    let mut said = time_of_day(at);
+    said.truncate(5);
+    said
+}
+
+/// When `at` was, in short: its time today, its weekday this week, else its date's day.
+pub(crate) fn said_when(at: i64) -> String {
+    let ago = (today() - (at - at.rem_euclid(DAY))) / DAY;
+    match ago {
+        ..=0 => minute_of(at),
+        1..=6 => weekday(usize::try_from(ago).unwrap_or(0)).to_owned(),
+        _ => format!("{} days ago", ago),
+    }
+}
+
+/// The weekday's short name of the UTC day `ago` days before today: Mon, Tue…
+pub(crate) fn weekday(ago: usize) -> &'static str {
+    const NAMES: [&str; 7] = ["Thu", "Fri", "Sat", "Sun", "Mon", "Tue", "Wed"];
+    let ago = i64::try_from(ago).unwrap_or(0);
+    let days = (today() / DAY - ago).rem_euclid(7);
+    // The epoch's day was a Thursday.
+    NAMES[usize::try_from(days).unwrap_or(0)]
+}
+
 /// The weekday's initial of the UTC day `ago` days before today: M, T, W…
 pub(crate) fn weekday_initial(ago: usize) -> &'static str {
     const INITIALS: [&str; 7] = ["T", "F", "S", "S", "M", "T", "W"];

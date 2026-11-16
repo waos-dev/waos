@@ -3,8 +3,9 @@
 //! report, as iOS's App Privacy Report shows an app's, and from it each live panel, a page each,
 //! with a way back.
 //!
-//! The invariant: the page shown follows the inspector's state alone: the list with no program
-//! chosen, else the chosen program's tab.
+//! The invariant: the page shown follows the entities alone: the list with no program chosen,
+//! else the chosen program's tab; a tap or the way back changes the program chosen, the list's
+//! selection, as a click in the desktop's list does.
 
 mod panel;
 mod report;
@@ -12,9 +13,9 @@ mod report;
 use std::rc::Rc;
 
 use waft::{
-    AnyColor, App, BuildContext, Builder, Color, Context, EdgeInsetsGeometry, Entity, Icon,
-    IntoWidget, ListView, Listener, MainAxisSize, MediaQuery, Row, StatelessWidget, Task, Text,
-    TextStyle, WidgetRef,
+    AnyColor, App, BuildContext, Builder, Color, EdgeInsetsGeometry, Entity, Icon, IntoWidget,
+    ListView, Listener, MainAxisSize, MediaQuery, Row, StatelessWidget, Task, Text, TextStyle,
+    WidgetRef,
 };
 use waft_cupertino::{
     CupertinoActivityIndicator, CupertinoApp, CupertinoButton, CupertinoColors,
@@ -23,8 +24,9 @@ use waft_cupertino::{
     ObstructingPreferredSizeWidgetRef,
 };
 
-use crate::inspector::{Found, Inspector, Seen, Tab, want_icon};
 use crate::program_icon::ProgramIcon;
+use crate::state::page::{ProgramPage, Tab};
+use crate::state::programs::{Found, Programs, Seen, choose, want_icon};
 use crate::words;
 
 const ICON_SIDE: f64 = 40.0;
@@ -32,15 +34,16 @@ const ICON_SIDE: f64 = 40.0;
 /// The app in Cupertino's widgets, in its own app.
 #[derive(Debug)]
 pub(crate) struct CupertinoInspector {
-    pub(crate) inspector: Entity<Inspector>,
+    pub(crate) page: Entity<ProgramPage>,
 }
 
 impl StatelessWidget for CupertinoInspector {
     fn build(&self, _app: &mut App, _context: BuildContext) -> WidgetRef {
         CupertinoApp::new()
             .title(words::APP_NAME)
+            .debug_show_checked_mode_banner(false)
             .home(Pages {
-                inspector: self.inspector.clone(),
+                page: self.page.clone(),
             })
             .into_widget()
     }
@@ -49,27 +52,28 @@ impl StatelessWidget for CupertinoInspector {
 /// The list, or the page of the program chosen: its report, or one of its panels.
 #[derive(Debug)]
 struct Pages {
-    inspector: Entity<Inspector>,
+    page: Entity<ProgramPage>,
 }
 
 impl StatelessWidget for Pages {
     fn build(&self, app: &mut App, _context: BuildContext) -> WidgetRef {
-        let read = self.inspector.read(app);
-        let (found, chosen) = (read.found, read.chosen().cloned());
-        let tab = read.tab;
+        let programs = self.page.read(app).programs.clone();
+        let read = programs.read(app);
+        let (found, chosen) = (read.found, read.chosen(app).cloned());
+        let tab = self.page.read(app).tab;
         match (found, chosen) {
             (Found::Ready, Some(seen)) if tab == Tab::Report => {
-                report::report_page(&self.inspector, &seen, app)
+                report::report_page(&self.page, &seen, app)
             }
-            (Found::Ready, Some(seen)) => panel::panel_page(&self.inspector, &seen, tab, app),
-            (found, _) => list_page(&self.inspector, found, app),
+            (Found::Ready, Some(seen)) => panel::panel_page(&self.page, &seen, tab, app),
+            (found, _) => list_page(&programs, found, app),
         }
     }
 }
 
 /// The programs, a tap on one opening its page.
-fn list_page(inspector: &Entity<Inspector>, found: Found, app: &mut App) -> WidgetRef {
-    let programs = inspector.read(app).programs.clone();
+fn list_page(programs_entity: &Entity<Programs>, found: Found, app: &mut App) -> WidgetRef {
+    let programs = programs_entity.read(app).list.clone();
     let sections = match found {
         Found::Looking => vec![section(
             None,
@@ -87,7 +91,8 @@ fn list_page(inspector: &Entity<Inspector>, found: Found, app: &mut App) -> Widg
         Found::Ready => {
             let tiles = programs
                 .iter()
-                .map(|seen| program_tile(app, inspector, seen))
+                .enumerate()
+                .map(|(index, seen)| program_tile(app, programs_entity, (index, seen)))
                 .collect();
             vec![section(Some(words::PROGRAMS), None, tiles)]
         }
@@ -98,10 +103,14 @@ fn list_page(inspector: &Entity<Inspector>, found: Found, app: &mut App) -> Widg
 
 /// A program's tile: its icon, name, what is said of it and what it used. Its icon is asked for as
 /// the tile is first shown.
-fn program_tile(app: &mut App, inspector: &Entity<Inspector>, seen: &Seen) -> WidgetRef {
-    want_icon(app, inspector, &seen.program.id);
+fn program_tile(
+    app: &mut App,
+    programs: &Entity<Programs>,
+    (index, seen): (usize, &Seen),
+) -> WidgetRef {
+    want_icon(app, programs, &seen.program.id);
     let icon = ProgramIcon {
-        image: inspector.read(app).icon(&seen.program.id),
+        png: programs.read(app).icon(&seen.program.id),
         side: ICON_SIDE,
     };
     let marks = words::marks(seen);
@@ -110,10 +119,9 @@ fn program_tile(app: &mut App, inspector: &Entity<Inspector>, seen: &Seen) -> Wi
     } else {
         format!("{}\n{marks}", words::detail(seen))
     };
-    let (inspector, id) = (inspector.clone(), seen.program.id.clone());
+    let programs = programs.clone();
     let open = Rc::new(move |app: &mut App| {
-        let id = Some(id.clone());
-        inspector.update(app, |inspector, cx| inspector.choose(id, cx));
+        choose(app, &programs, Some(index));
         Task::ready(())
     });
     CupertinoListTile::new(Text::new(seen.program.name.clone()))
@@ -139,13 +147,11 @@ pub(super) const BENEATH_LINES: i32 = 3;
 /// which `going` makes the page.
 pub(super) fn back(
     to: &'static str,
-    inspector: &Entity<Inspector>,
-    going: fn(&mut Inspector, &mut Context<Inspector>),
+    page: &Entity<ProgramPage>,
+    going: fn(&mut App, &Entity<ProgramPage>),
 ) -> WidgetRef {
-    let inspector = inspector.clone();
-    let back = Listener::new(move |app| {
-        inspector.update(app, going);
-    });
+    let page = page.clone();
+    let back = Listener::new(move |app| going(app, &page));
     let label = Row::new()
         .main_axis_size(MainAxisSize::Min)
         .spacing(2.0)

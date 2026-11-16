@@ -16,6 +16,10 @@ waft-winui.workspace = true
 waft-cupertino.workspace = true
 # What a program did over the days kept, in the words WaOS's settings page says it in too.
 waos-activity.workspace = true
+# A panel's streams, each ended as soon as the panel stops listening.
+futures.workspace = true
+# The segments of a phone's panel filter, which Cupertino's segmented control takes in order.
+indexmap.workspace = true
 
 [lints]
 workspace = true

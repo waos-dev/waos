@@ -87,10 +87,65 @@ pub struct Asked {
     pub answer: Option<String>,
 }
 
-/// One capability's part of what a program did: its name, and what it did, a line each.
+/// What a program can use that needs its user's permission, in the order its user worries about
+/// them: what records, the network, files, the clipboard, machines, links, notifications and
+/// questions.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum AccessKind {
+    Camera,
+    Microphone,
+    Network,
+    Files,
+    Clipboard,
+    Machines,
+    Links,
+    Notifications,
+    Questions,
+}
+
+impl AccessKind {
+    pub const ALL: [AccessKind; 9] = [
+        AccessKind::Camera,
+        AccessKind::Microphone,
+        AccessKind::Network,
+        AccessKind::Files,
+        AccessKind::Clipboard,
+        AccessKind::Machines,
+        AccessKind::Links,
+        AccessKind::Notifications,
+        AccessKind::Questions,
+    ];
+
+    /// Its name, as a list of programs marks it: `Camera`, `Machines`…
+    pub fn name(self) -> &'static str {
+        match self {
+            AccessKind::Camera => "Camera",
+            AccessKind::Microphone => "Microphone",
+            AccessKind::Network => "Network",
+            AccessKind::Files => "Files",
+            AccessKind::Clipboard => "Clipboard",
+            AccessKind::Machines => "Machines",
+            AccessKind::Links => "Links",
+            AccessKind::Notifications => "Notifications",
+            AccessKind::Questions => "Questions",
+        }
+    }
+
+    /// What its section is titled, before what it did: `Ran` for the machines, `Asked` for the
+    /// questions, its name for the rest.
+    pub fn heading(self) -> &'static str {
+        match self {
+            AccessKind::Machines => "Ran",
+            AccessKind::Questions => "Asked",
+            kind => kind.name(),
+        }
+    }
+}
+
+/// One capability's part of what a program did: which, and what it did, a line each.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Section {
-    pub title: &'static str,
+    pub kind: AccessKind,
     pub lines: Vec<String>,
 }
 
@@ -167,8 +222,8 @@ impl Activity {
     /// questions.
     pub fn sections(&self) -> Vec<Section> {
         [
-            words::captures("Camera", &self.camera),
-            words::captures("Microphone", &self.microphone),
+            words::captures(AccessKind::Camera, &self.camera),
+            words::captures(AccessKind::Microphone, &self.microphone),
             words::network(self),
             words::files(self),
             words::clipboard(self),
@@ -189,31 +244,32 @@ impl Activity {
             .into_iter()
             .filter_map(|section| {
                 let first = section.lines.into_iter().next()?;
-                Some(format!("{}: {first}", section.title))
+                Some(format!("{}: {first}", section.kind.heading()))
             })
             .collect()
     }
 
-    /// What it used, by name, as a list of programs marks each.
-    pub fn marks(&self) -> Vec<&'static str> {
+    /// What it used, as a list of programs marks each: what records, the network, files, the
+    /// clipboard and machines.
+    pub fn marks(&self) -> Vec<AccessKind> {
         let used = [
-            ("Camera", self.camera.sessions > 0),
-            ("Microphone", self.microphone.sessions > 0),
+            (AccessKind::Camera, self.camera.sessions > 0),
+            (AccessKind::Microphone, self.microphone.sessions > 0),
             (
-                "Network",
+                AccessKind::Network,
                 !self.sites.is_empty() || !self.local_addresses.is_empty(),
             ),
             (
-                "Files",
+                AccessKind::Files,
                 !self.folders.is_empty() || self.folder_refusals > 0,
             ),
             (
-                "Clipboard",
+                AccessKind::Clipboard,
                 self.clipboard_reads != Counts::default()
                     || self.pastes > 0
                     || self.clipboard_writes != Counts::default(),
             ),
-            ("Machines", !self.commands.is_empty()),
+            (AccessKind::Machines, !self.commands.is_empty()),
         ];
         used.into_iter()
             .filter_map(|(mark, used)| used.then_some(mark))

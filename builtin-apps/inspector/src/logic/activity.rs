@@ -106,6 +106,7 @@ fn add_counts(counts: &mut Counts, uses: &Uses) {
 
 #[cfg(test)]
 mod tests {
+    use waos_activity::AccessKind;
     use wasdk::inspect::audit::{CommandUses, DeviceSession, Overflow};
 
     use super::*;
@@ -179,6 +180,6 @@ mod tests {
         assert_eq!(activity.commands[0].uses.allowed, 5, "one command, summed");
         assert_eq!(activity.camera.sessions, 1);
         assert_eq!(activity.last_use, Some(90_000));
-        assert_eq!(activity.marks(), ["Camera", "Machines"]);
+        assert_eq!(activity.marks(), [AccessKind::Camera, AccessKind::Machines]);
     }
 }

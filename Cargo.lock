@@ -4159,6 +4159,8 @@ dependencies = [
 name = "inspector"
 version = "0.2.0"
 dependencies = [
+ "futures",
+ "indexmap",
  "waft",
  "waft-cupertino",
  "waft-winui",
