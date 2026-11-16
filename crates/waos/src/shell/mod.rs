@@ -342,12 +342,18 @@ pub enum LayerPicture {
 }
 
 /// The shell's side of `views.text-input`: the platform's input methods, which the program hands
-/// each change of its text to, so they always have a copy to read. What they do with it comes
-/// back among the view's events.
+/// each change of its text to, so they always have a copy to read, through Flutter's text input
+/// calls, one method each. What they do with it comes back among the view's events.
 pub trait ShellTextInput: Send + Sync {
-    /// Starts editing with `configuration`, and shows the on-screen keyboard where there is
-    /// one. Starting again replaces the configuration.
-    fn start(&self, configuration: TextInputConfiguration);
+    /// A new client, configured with `configuration`, has the connection from now on: Flutter's
+    /// `TextInput.setClient`. The on-screen keyboard shows only at [`show`](Self::show).
+    fn set_client(&self, configuration: TextInputConfiguration);
+
+    /// The input method shows for the current client: Flutter's `TextInput.show`.
+    fn show(&self);
+
+    /// The current client's configuration changed: Flutter's `TextInput.updateConfig`.
+    fn update_config(&self, configuration: TextInputConfiguration);
 
     /// The value the program holds now, which the input methods edit from here on.
     fn set_editing_state(&self, value: TextEditingValue);
@@ -359,14 +365,13 @@ pub trait ShellTextInput: Send + Sync {
     /// Where the text being composed is, in the view's physical pixels.
     fn set_composing_rect(&self, rect: PixelRect);
 
-    /// Shows the on-screen keyboard again.
-    fn show(&self);
+    /// The current client gave the connection up, and the input method drops what it was
+    /// composing: Flutter's `TextInput.clearClient`. The on-screen keyboard stays until
+    /// [`hide`](Self::hide).
+    fn clear_client(&self);
 
-    /// Hides the on-screen keyboard and keeps editing.
+    /// The input method goes, the on-screen keyboard with it: Flutter's `TextInput.hide`.
     fn hide(&self);
-
-    /// Ends editing; the input method drops what it was composing.
-    fn stop(&self);
 }
 
 /// The shell's side of `windows.window`, minus its frame, whether it is maximized and what a

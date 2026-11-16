@@ -946,9 +946,13 @@ pub struct RecordingTextInput {
 }
 
 impl ShellTextInput for RecordingTextInput {
-    fn start(&self, configuration: TextInputConfiguration) {
+    fn set_client(&self, configuration: TextInputConfiguration) {
         self.started.lock().unwrap().push(configuration.input_type);
     }
+
+    fn show(&self) {}
+
+    fn update_config(&self, _configuration: TextInputConfiguration) {}
 
     fn set_editing_state(&self, _value: TextEditingValue) {}
 
@@ -956,11 +960,9 @@ impl ShellTextInput for RecordingTextInput {
 
     fn set_composing_rect(&self, _rect: PixelRect) {}
 
-    fn show(&self) {}
+    fn clear_client(&self) {}
 
     fn hide(&self) {}
-
-    fn stop(&self) {}
 }
 
 /// The shell's side of a window: records what the program asked, the size limits, its moves,

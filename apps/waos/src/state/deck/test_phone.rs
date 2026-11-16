@@ -664,8 +664,8 @@ impl TestPhone {
         let last = calls
             .iter()
             .rev()
-            .find(|call| matches!(call, TextInputCall::Start(_) | TextInputCall::Stop));
-        matches!(last, Some(TextInputCall::Start(_)))
+            .find(|call| matches!(call, TextInputCall::Show | TextInputCall::Hide));
+        matches!(last, Some(TextInputCall::Show))
     }
 
     /// The keyboard makes what is edited read `text`, the caret after it, as typing it does.

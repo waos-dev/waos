@@ -287,13 +287,14 @@ pub(crate) mod drawing {
     struct NoInputMethods;
 
     impl ShellTextInput for NoInputMethods {
-        fn start(&self, _configuration: TextInputConfiguration) {}
+        fn set_client(&self, _configuration: TextInputConfiguration) {}
+        fn show(&self) {}
+        fn update_config(&self, _configuration: TextInputConfiguration) {}
         fn set_editing_state(&self, _value: TextEditingValue) {}
         fn set_caret_rect(&self, _rect: PixelRect) {}
         fn set_composing_rect(&self, _rect: PixelRect) {}
-        fn show(&self) {}
+        fn clear_client(&self) {}
         fn hide(&self) {}
-        fn stop(&self) {}
     }
 
     /// A window its view fills, with nothing around it, which takes every frame it is given and

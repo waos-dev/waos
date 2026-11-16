@@ -25,7 +25,7 @@ struct TextInputState {
 
 /// What is edited, as the engine keeps it.
 struct Edited {
-    /// From the program's `start` to its `stop`, or until the platform ends editing.
+    /// From the program's `set-client` to its `clear-client`, or until the platform ends editing.
     editing: bool,
     value: TextEditingValue,
 }
@@ -50,10 +50,10 @@ impl ViewTextInput {
         self.0.shell.as_ref()
     }
 
-    /// The program starts editing with `configuration`.
-    pub(crate) fn start(&self, configuration: TextInputConfiguration) {
+    /// A new client of the program's, configured with `configuration`, starts editing.
+    pub(crate) fn set_client(&self, configuration: TextInputConfiguration) {
         locked(&self.0.edited).editing = true;
-        self.0.shell.start(configuration);
+        self.0.shell.set_client(configuration);
     }
 
     /// The program holds `value` now, which the input methods edit from here on.
@@ -62,10 +62,10 @@ impl ViewTextInput {
         self.0.shell.set_editing_state(value);
     }
 
-    /// The program stops editing.
-    pub(crate) fn stop(&self) {
+    /// The program's client stops editing.
+    pub(crate) fn clear_client(&self) {
         locked(&self.0.edited).editing = false;
-        self.0.shell.stop();
+        self.0.shell.clear_client();
     }
 
     /// An input method changed the text: `value` is the whole of it after the change.
@@ -99,15 +99,16 @@ mod tests {
     struct Kept(Mutex<Vec<String>>);
 
     impl ShellTextInput for Kept {
-        fn start(&self, _configuration: TextInputConfiguration) {}
+        fn set_client(&self, _configuration: TextInputConfiguration) {}
+        fn show(&self) {}
+        fn update_config(&self, _configuration: TextInputConfiguration) {}
         fn set_editing_state(&self, value: TextEditingValue) {
             locked(&self.0).push(value.text);
         }
         fn set_caret_rect(&self, _rect: PixelRect) {}
         fn set_composing_rect(&self, _rect: PixelRect) {}
-        fn show(&self) {}
+        fn clear_client(&self) {}
         fn hide(&self) {}
-        fn stop(&self) {}
     }
 
     fn configuration() -> TextInputConfiguration {
@@ -137,13 +138,13 @@ mod tests {
     }
 
     #[test]
-    fn nothing_is_edited_until_the_program_starts_and_once_it_stops() {
+    fn nothing_is_edited_until_a_client_is_set_and_once_it_is_cleared() {
         let input = ViewTextInput::new(Arc::new(Kept::default()));
         input.set_editing_state(value("milk"));
-        assert!(input.editing_value().is_none(), "not started");
-        input.start(configuration());
+        assert!(input.editing_value().is_none(), "no client yet");
+        input.set_client(configuration());
         assert_eq!(input.editing_value().unwrap().text, "milk");
-        input.stop();
+        input.clear_client();
         assert!(input.editing_value().is_none());
     }
 
@@ -151,7 +152,7 @@ mod tests {
     fn the_value_is_whichever_side_changed_it_last_and_the_programs_reaches_the_shell() {
         let shell = Arc::new(Kept::default());
         let input = ViewTextInput::new(Arc::clone(&shell) as Arc<dyn ShellTextInput>);
-        input.start(configuration());
+        input.set_client(configuration());
         input.set_editing_state(value("milk"));
         input.edited(&value("milk, eggs"));
         assert_eq!(input.editing_value().unwrap().text, "milk, eggs");
@@ -163,7 +164,7 @@ mod tests {
     #[test]
     fn the_platform_ending_editing_ends_it() {
         let input = ViewTextInput::new(Arc::new(Kept::default()));
-        input.start(configuration());
+        input.set_client(configuration());
         input.closed();
         assert!(input.editing_value().is_none());
     }

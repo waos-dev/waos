@@ -62,30 +62,36 @@ impl ProgramTextInput {
     /// Ends editing and carries out no more of the program's calls: the canvas is gone. The
     /// canvas lets go of the text input after this, which frees it.
     pub(crate) fn close(self: Handle<Self>, app: &mut App) {
-        self.stop(app);
+        self.clear_client(app);
         app.get_mut(self).program_calls = None;
     }
 
     fn apply(self: Handle<Self>, app: &mut App, change: &TextInputCall) {
         match change {
-            TextInputCall::Start(configuration) => self.start(app, configuration),
+            TextInputCall::SetClient(configuration) => self.set_client(app, configuration),
+            TextInputCall::Show => self.show(app),
+            TextInputCall::UpdateConfig(configuration) => self.update_config(app, configuration),
             TextInputCall::SetEditingState(value) => self.set_editing_state(app, value),
             TextInputCall::SetCaretRect(rect) => self.set_caret_rect(app, *rect),
             TextInputCall::SetComposingRect(rect) => self.set_composing_rect(app, *rect),
-            TextInputCall::Show => self.show(app),
-            // Waft's connection cannot hide the on-screen keyboard and keep editing, and a
-            // desktop has no on-screen keyboard to hide.
-            TextInputCall::Hide => {}
-            TextInputCall::Stop => self.stop(app),
+            TextInputCall::ClearClient => self.clear_client(app),
+            TextInputCall::Hide => self.hide(app),
         }
     }
 
-    /// Takes Waft's text input over for the view's window, and shows it.
-    fn start(self: Handle<Self>, app: &mut App, configuration: &TextInputConfiguration) {
+    /// Takes Waft's text input over for the view's window as a new client: Waft's `attach`, which
+    /// is Flutter's `setClient`. The keyboard shows only at the program's `show`.
+    fn set_client(self: Handle<Self>, app: &mut App, configuration: &TextInputConfiguration) {
         let configuration = waft_configuration(configuration, self.shown_view(app).waft_view());
         let connection = TextInput::attach(app, self.as_text_input_client(), configuration);
-        connection.show(app);
         app.get_mut(self).connection = Some(connection);
+    }
+
+    fn update_config(self: Handle<Self>, app: &mut App, configuration: &TextInputConfiguration) {
+        let configuration = waft_configuration(configuration, self.shown_view(app).waft_view());
+        if let Some(connection) = self.attached_connection(app) {
+            connection.update_config(app, configuration);
+        }
     }
 
     fn set_editing_state(self: Handle<Self>, app: &mut App, value: &TextEditingValue) {
@@ -120,10 +126,23 @@ impl ProgramTextInput {
         }
     }
 
-    /// Closes the connection, which Waft ignores once it is another's.
-    fn stop(self: Handle<Self>, app: &mut App) {
+    /// Closes the connection, Flutter's `clearClient`, which Waft ignores once it is another's.
+    /// Waft hides the keyboard after the frame unless another client takes the connection by
+    /// then.
+    fn clear_client(self: Handle<Self>, app: &mut App) {
         if let Some(connection) = app.get_mut(self).connection.take() {
             connection.close(app);
+        }
+    }
+
+    /// Hides the input method of the view's window, as a Flutter app sends `TextInput.hide`
+    /// itself: Waft's connection has no hide of its own, and keeps the client.
+    fn hide(self: Handle<Self>, app: &mut App) {
+        let window_view = self.shown_view(app).waft_view();
+        if let Some(view) = app.platform().view(window_view)
+            && let Some(text_input) = view.host().text_input()
+        {
+            text_input.hide();
         }
     }
 

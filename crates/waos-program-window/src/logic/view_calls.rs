@@ -65,8 +65,16 @@ impl WindowCalls {
 }
 
 impl ShellTextInput for ViewCalls {
-    fn start(&self, configuration: TextInputConfiguration) {
-        self.text_input(TextInputCall::Start(configuration));
+    fn set_client(&self, configuration: TextInputConfiguration) {
+        self.text_input(TextInputCall::SetClient(configuration));
+    }
+
+    fn show(&self) {
+        self.text_input(TextInputCall::Show);
+    }
+
+    fn update_config(&self, configuration: TextInputConfiguration) {
+        self.text_input(TextInputCall::UpdateConfig(configuration));
     }
 
     fn set_editing_state(&self, value: TextEditingValue) {
@@ -81,16 +89,12 @@ impl ShellTextInput for ViewCalls {
         self.text_input(TextInputCall::SetComposingRect(rect));
     }
 
-    fn show(&self) {
-        self.text_input(TextInputCall::Show);
+    fn clear_client(&self) {
+        self.text_input(TextInputCall::ClearClient);
     }
 
     fn hide(&self) {
         self.text_input(TextInputCall::Hide);
-    }
-
-    fn stop(&self) {
-        self.text_input(TextInputCall::Stop);
     }
 }
 

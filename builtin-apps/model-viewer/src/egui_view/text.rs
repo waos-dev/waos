@@ -41,14 +41,16 @@ impl TextSession {
         match wanted {
             Some(ime) => {
                 if !self.editing {
-                    input.start(configuration());
+                    input.set_client(configuration());
+                    input.show();
                     input.set_editing_state(&empty_value());
                     self.editing = true;
                 }
                 input.set_caret_rect(pixel_rect(ime.cursor_rect, pixels_per_point));
             }
             None if self.editing => {
-                input.stop();
+                input.clear_client();
+                input.hide();
                 self.editing = false;
                 self.composing = false;
             }

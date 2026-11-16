@@ -83,7 +83,7 @@ impl TextInputBridge {
             return;
         }
         if !self.started {
-            self.platform.start(configuration());
+            self.platform.set_client(configuration());
             self.platform.show();
             self.started = true;
         }
@@ -165,7 +165,8 @@ impl TextInputBridge {
 
     fn stop(&mut self) {
         if self.started {
-            self.platform.stop();
+            self.platform.clear_client();
+            self.platform.hide();
             self.started = false;
             self.copy = None;
             self.caret = None;

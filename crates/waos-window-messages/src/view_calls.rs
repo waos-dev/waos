@@ -40,13 +40,14 @@ pub enum ViewCall {
 /// One call on a view's text input: a method of the engine's `ShellTextInput`.
 #[derive(Serialize, Deserialize)]
 pub enum TextInputCall {
-    Start(#[serde(with = "TextInputConfigurationDef")] TextInputConfiguration),
+    SetClient(#[serde(with = "TextInputConfigurationDef")] TextInputConfiguration),
+    Show,
+    UpdateConfig(#[serde(with = "TextInputConfigurationDef")] TextInputConfiguration),
     SetEditingState(#[serde(with = "TextEditingValueDef")] TextEditingValue),
     SetCaretRect(#[serde(with = "PixelRectDef")] PixelRect),
     SetComposingRect(#[serde(with = "PixelRectDef")] PixelRect),
-    Show,
+    ClearClient,
     Hide,
-    Stop,
 }
 
 /// One call on the window around a view: a method of the engine's `ShellWindow`, or of its
@@ -69,8 +70,12 @@ pub enum WindowCall {
 impl Debug for TextInputCall {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            TextInputCall::Start(configuration) => {
-                f.debug_tuple("Start").field(configuration).finish()
+            TextInputCall::SetClient(configuration) => {
+                f.debug_tuple("SetClient").field(configuration).finish()
+            }
+            TextInputCall::Show => f.write_str("Show"),
+            TextInputCall::UpdateConfig(configuration) => {
+                f.debug_tuple("UpdateConfig").field(configuration).finish()
             }
             TextInputCall::SetEditingState(value) => f
                 .debug_struct("SetEditingState")
@@ -81,9 +86,8 @@ impl Debug for TextInputCall {
             TextInputCall::SetComposingRect(rect) => {
                 f.debug_tuple("SetComposingRect").field(rect).finish()
             }
-            TextInputCall::Show => f.write_str("Show"),
+            TextInputCall::ClearClient => f.write_str("ClearClient"),
             TextInputCall::Hide => f.write_str("Hide"),
-            TextInputCall::Stop => f.write_str("Stop"),
         }
     }
 }

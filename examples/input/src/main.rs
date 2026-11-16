@@ -185,7 +185,7 @@ fn start_editing(view: &View) -> Option<TextInput> {
         println!("text: no text input");
         return None;
     };
-    text_input.start(TextInputConfiguration {
+    text_input.set_client(TextInputConfiguration {
         input_type: TextInputType::Text,
         input_action: TextInputAction::Done,
         obscure_text: false,
@@ -204,6 +204,7 @@ fn start_editing(view: &View) -> Option<TextInput> {
         }),
         composing: None,
     });
+    text_input.show();
     println!("text: editing");
     Some(text_input)
 }

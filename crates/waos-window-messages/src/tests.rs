@@ -159,7 +159,7 @@ fn the_programs_calls_on_a_view_cross_as_they_are() {
             status_bar_contrast_enforced: Some(false),
             navigation_bar_contrast_enforced: None,
         }),
-        ViewCall::TextInput(TextInputCall::Start(configuration)),
+        ViewCall::TextInput(TextInputCall::SetClient(configuration)),
         ViewCall::TextInput(TextInputCall::SetEditingState(editing_value("hello"))),
         ViewCall::Window(WindowCall::SetFrame(
             frame(),

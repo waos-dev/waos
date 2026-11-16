@@ -436,12 +436,28 @@ impl ViewsCtx<'_> {
 }
 
 impl HostTextInput for ViewsCtx<'_> {
-    fn start(
+    fn set_client(
         &mut self,
         text_input: Resource<TextInput>,
         configuration: TextInputConfiguration,
     ) -> wasmtime::Result<()> {
-        self.view_text_input(&text_input)?.start(configuration);
+        self.view_text_input(&text_input)?.set_client(configuration);
+        Ok(())
+    }
+
+    fn show(&mut self, text_input: Resource<TextInput>) -> wasmtime::Result<()> {
+        self.view_text_input(&text_input)?.shell().show();
+        Ok(())
+    }
+
+    fn update_config(
+        &mut self,
+        text_input: Resource<TextInput>,
+        configuration: TextInputConfiguration,
+    ) -> wasmtime::Result<()> {
+        self.view_text_input(&text_input)?
+            .shell()
+            .update_config(configuration);
         Ok(())
     }
 
@@ -476,18 +492,13 @@ impl HostTextInput for ViewsCtx<'_> {
         Ok(())
     }
 
-    fn show(&mut self, text_input: Resource<TextInput>) -> wasmtime::Result<()> {
-        self.view_text_input(&text_input)?.shell().show();
+    fn clear_client(&mut self, text_input: Resource<TextInput>) -> wasmtime::Result<()> {
+        self.view_text_input(&text_input)?.clear_client();
         Ok(())
     }
 
     fn hide(&mut self, text_input: Resource<TextInput>) -> wasmtime::Result<()> {
         self.view_text_input(&text_input)?.shell().hide();
-        Ok(())
-    }
-
-    fn stop(&mut self, text_input: Resource<TextInput>) -> wasmtime::Result<()> {
-        self.view_text_input(&text_input)?.stop();
         Ok(())
     }
 

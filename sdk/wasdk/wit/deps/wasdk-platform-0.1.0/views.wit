@@ -278,32 +278,42 @@ interface views {
   /// shell has placed it, or `request-failed` with this id when it could not.
   request-view: func(config: borrow<window-config>, initial-data: option<string>) -> result<request-id, view-error>;
 
-  /// The platform's side of text the program edits in a view: Flutter's text input connection.
-  /// Every handle on it reaches the same connection.
+  /// The platform's side of text the program edits in a view: Flutter's text input connection,
+  /// one call for each of Flutter's text input calls. A client is one text field's hold on the
+  /// connection: `set-client` gives it to a new field, which a platform whose input method keeps
+  /// its state by the field it edits, as iOS's does, gives a field of its own. Every handle on it
+  /// reaches the same connection.
   resource text-input {
-    /// Starts editing with `configuration`, and shows the on-screen keyboard where there is
-    /// one: Flutter's `TextInput.setClient` and `show`. Starting again replaces the
-    /// configuration.
-    start: func(configuration: text-input-configuration);
+    /// A new client, configured with `configuration`, has the connection from now on, and the
+    /// input methods edit its text: Flutter's `TextInput.setClient`. The on-screen keyboard shows
+    /// only at `show`.
+    set-client: func(configuration: text-input-configuration);
+
+    /// The input method shows for the current client, the on-screen keyboard where there is
+    /// one: Flutter's `TextInput.show`.
+    show: func();
+
+    /// The current client's configuration changed, the client staying the same: Flutter's
+    /// `TextInput.updateConfig`.
+    update-config: func(configuration: text-input-configuration);
 
     /// The value the program holds now: Flutter's `TextInput.setEditingState`.
     set-editing-state: func(value: text-editing-value);
 
-    /// Where the caret is, for the input method's candidate window.
+    /// Where the caret is, for the input method's candidate window: Flutter's
+    /// `TextInput.setCaretRect`.
     set-caret-rect: func(rect: pixel-rect);
 
-    /// Where the text being composed is.
+    /// Where the text being composed is: Flutter's `TextInput.setMarkedTextRect`.
     set-composing-rect: func(rect: pixel-rect);
 
-    /// Shows the on-screen keyboard again: Flutter's `TextInput.show`.
-    show: func();
+    /// The current client gave the connection up, and the input method drops what it was
+    /// composing: Flutter's `TextInput.clearClient`. The on-screen keyboard stays until `hide`,
+    /// so a field taking the connection next keeps it up.
+    clear-client: func();
 
-    /// Hides the on-screen keyboard and keeps editing: Flutter's `TextInput.hide`.
+    /// The input method goes, the on-screen keyboard with it: Flutter's `TextInput.hide`.
     hide: func();
-
-    /// Ends editing; the input method drops what it was composing. Flutter's
-    /// `TextInput.clearClient`.
-    stop: func();
   }
 
   /// Everything that happens to a view, in the order it happened.

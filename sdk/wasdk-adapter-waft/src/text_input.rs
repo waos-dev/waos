@@ -30,7 +30,8 @@ pub(crate) struct WasdkTextInput {
     platform_input: views::TextInput,
     /// The view's metrics, shared with it: its device pixel ratio scales the rectangles.
     view_metrics: Rc<Cell<ViewMetrics>>,
-    /// Set from `start` to `stop`, or until the platform ends editing.
+    /// The current client's, from `set_client` to `clear_client`, or until the platform ends
+    /// editing.
     active: Cell<Option<ActiveTextInput>>,
     /// What the framework set last, or the input method's last edit, or the last key typed
     /// here, whichever came last.
@@ -112,16 +113,31 @@ impl WasdkTextInput {
     }
 }
 
+/// Each of Flutter's text input calls is the platform's call of the same name.
 impl TextInputHost for WasdkTextInput {
-    fn start(&self, configuration: &TextInputConfiguration) {
+    fn set_client(&self, configuration: &TextInputConfiguration) {
         self.active.set(Some(ActiveTextInput::new(configuration)));
         self.platform_input
-            .start(platform_configuration(configuration));
+            .set_client(platform_configuration(configuration));
     }
 
-    fn stop(&self) {
+    fn show(&self) {
+        self.platform_input.show();
+    }
+
+    fn update_config(&self, configuration: &TextInputConfiguration) {
+        self.active.set(Some(ActiveTextInput::new(configuration)));
+        self.platform_input
+            .update_config(platform_configuration(configuration));
+    }
+
+    fn clear_client(&self) {
         self.active.set(None);
-        self.platform_input.stop();
+        self.platform_input.clear_client();
+    }
+
+    fn hide(&self) {
+        self.platform_input.hide();
     }
 
     fn set_editing_state(&self, value: &TextEditingValue) {
