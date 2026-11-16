@@ -1,6 +1,7 @@
 //! The app's state: the device inspected, this one, and the programs on it, each with what it did
-//! over the days kept, those that used something guarded lately first; the program chosen; and the
-//! icons asked for so far. The programs are read when the app starts and again at each change the
+//! over the days kept, those that used something guarded lately first; the program chosen, the
+//! tab of its page shown, and what that tab's panel hears as it happens; and the icons asked for
+//! so far. The programs are read when the app starts and again at each change the
 //! device tells, each program's icon only as its row is first shown (decision 10 of
 //! `docs/proposals/2026-11-15-inspector-roles-and-compatibility.md`).
 //!
@@ -11,12 +12,21 @@ use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::Arc;
 
-use waft::{App, Context, Entity};
+use waft::ui::{Image, Size};
+use waft::{App, AsyncApp, Context, Entity};
 use waos_activity::Activity;
 use wasdk::inspect::audit;
 use wasdk::inspect::devices::{self, Device, Program};
 
 use crate::activity::activity_of;
+use crate::live::{self, Live};
+use crate::words;
+
+/// The icon a program with no picture of its own shows, WaOS's default.
+const DEFAULT_PNG: &[u8] = include_bytes!("../assets/program-default.png");
+
+/// The side, in pixels, icons are decoded at: the largest drawn, at twice its points.
+const ICON_PIXELS: f64 = 96.0;
 
 /// What the app knows of the device.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -33,12 +43,70 @@ pub(crate) enum Found {
 pub(crate) struct Seen {
     pub(crate) program: Program,
     pub(crate) activity: Activity,
+    /// The days kept of it, newest first.
+    pub(crate) days: Vec<audit::Day>,
 }
 
-/// An icon, as far as it is known.
+/// The tabs of a program's page: its report, then the live panels (decision 14).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Tab {
+    Report,
+    Network,
+    Files,
+    Devices,
+    Output,
+    InUse,
+}
+
+impl Tab {
+    pub(crate) const ALL: [Tab; 6] = [
+        Tab::Report,
+        Tab::Network,
+        Tab::Files,
+        Tab::Devices,
+        Tab::Output,
+        Tab::InUse,
+    ];
+
+    pub(crate) fn name(self) -> &'static str {
+        match self {
+            Tab::Report => words::REPORT,
+            Tab::Network => words::NETWORK,
+            Tab::Files => words::FILES,
+            Tab::Devices => words::DEVICES,
+            Tab::Output => words::OUTPUT,
+            Tab::InUse => words::IN_USE,
+        }
+    }
+
+    /// The panel showing more of an access the report tells, by the access's name; none for one
+    /// no panel shows.
+    pub(crate) fn of_access(kind: &str) -> Option<Tab> {
+        match kind {
+            "Files" => Some(Tab::Files),
+            "Camera" | "Microphone" | "Machines" => Some(Tab::Devices),
+            _ => None,
+        }
+    }
+
+    /// What its panel shows, as the report's way to it says.
+    pub(crate) fn shows(self) -> &'static str {
+        match self {
+            Tab::Report => words::REPORT,
+            Tab::Network => words::SEE_NETWORK,
+            Tab::Files => words::SEE_FILES,
+            Tab::Devices => words::SEE_DEVICES,
+            Tab::Output => words::SEE_OUTPUT,
+            Tab::InUse => words::SEE_IN_USE,
+        }
+    }
+}
+
+/// An icon, as far as it is known: asked for, or read and decoded by the system's codecs; none
+/// where the system could not decode it.
 enum Icon {
     Asked,
-    Got(Option<Arc<[u8]>>),
+    Got(Option<Image>),
 }
 
 pub(crate) struct Inspector {
@@ -49,6 +117,10 @@ pub(crate) struct Inspector {
     pub(crate) programs: Vec<Seen>,
     /// The program whose activity shows, by its id.
     pub(crate) chosen: Option<String>,
+    /// The tab of its page that shows.
+    pub(crate) tab: Tab,
+    /// What the panel shown hears.
+    pub(crate) live: Live,
     icons: HashMap<String, Icon>,
 }
 
@@ -61,6 +133,8 @@ impl Inspector {
             found: Found::Looking,
             programs: Vec::new(),
             chosen: None,
+            tab: Tab::Report,
+            live: Live::default(),
             icons: HashMap::new(),
         });
         find_device(app, &inspector);
@@ -73,16 +147,21 @@ impl Inspector {
         self.programs.iter().find(|seen| seen.program.id == chosen)
     }
 
-    /// Shows the activity of the program `id`, or the list of programs alone with none.
+    /// Shows the report of the program `id`, or the list of programs alone with none.
     pub(crate) fn choose(&mut self, id: Option<String>, cx: &mut Context<Inspector>) {
+        if self.chosen != id {
+            self.tab = Tab::Report;
+            self.live.stop();
+        }
         self.chosen = id;
         cx.notify();
     }
 
-    /// The icon of the program `id`, a PNG; none until it is read, or for one with none.
-    pub(crate) fn icon(&self, id: &str) -> Option<Arc<[u8]>> {
+    /// The icon of the program `id`, decoded; none until it is read and decoded, or where the
+    /// system could not decode it.
+    pub(crate) fn icon(&self, id: &str) -> Option<Image> {
         match self.icons.get(id) {
-            Some(Icon::Got(png)) => png.clone(),
+            Some(Icon::Got(image)) => image.clone(),
             _ => None,
         }
     }
@@ -95,6 +174,38 @@ impl Inspector {
         self.programs = programs;
         self.found = Found::Ready;
         cx.notify();
+    }
+}
+
+/// Shows `tab` of the program chosen's page, listening to what its panel shows from now on.
+pub(crate) fn show_tab(app: &mut App, inspector: &Entity<Inspector>, tab: Tab) {
+    let wanted = inspector.update(app, |inspector, cx| {
+        inspector.tab = tab;
+        let listening = inspector.live.stop();
+        cx.notify();
+        Some((
+            inspector.device.clone()?,
+            inspector.chosen.clone()?,
+            listening,
+        ))
+    });
+    if let Some((device, id, listening)) = wanted {
+        live::listen(app, inspector, (&device, &id), tab, listening);
+    }
+}
+
+/// Starts hearing what the panel shown shows where nothing was heard, as when the program did not
+/// run as the panel was shown and runs now.
+fn listen_if_it_started(app: &mut App, inspector: &Entity<Inspector>) {
+    let wanted = {
+        let read = inspector.read(app);
+        let running = read.chosen().is_some_and(|seen| seen.program.running);
+        let unheard = read.tab != Tab::Report && !read.live.heard && running;
+        unheard.then(|| Some((read.device.clone()?, read.chosen.clone()?, read.tab)))
+    };
+    if let Some(Some((device, id, tab))) = wanted {
+        let listening = inspector.update(app, |inspector, _cx| inspector.live.stop());
+        live::listen(app, inspector, (&device, &id), tab, listening);
     }
 }
 
@@ -112,14 +223,30 @@ pub(crate) fn want_icon(app: &mut App, inspector: &Entity<Inspector>, id: &str) 
     };
     let (inspector, id) = (inspector.clone(), id.to_owned());
     app.spawn(async move |cx| {
-        let png = device.icon(id.clone()).await.map(Arc::from);
+        let png: Arc<[u8]> = match device.icon(id.clone()).await {
+            Some(png) => Arc::from(png),
+            None => Arc::from(DEFAULT_PNG),
+        };
+        let image = decode(cx, png).await;
         cx.update(|app| {
             inspector.update(app, |inspector, cx| {
-                inspector.icons.insert(id, Icon::Got(png));
+                inspector.icons.insert(id, Icon::Got(image));
                 cx.notify();
             });
         });
     });
+}
+
+/// `png` decoded by the system's codecs at the size the icons are drawn at; none where the system
+/// has no codecs or does not read it.
+async fn decode(cx: &AsyncApp, png: Arc<[u8]>) -> Option<Image> {
+    let opening = cx.update(|app| Some(app.platform().image_codecs()?.open(png)))?;
+    let source = opening.await.ok()?;
+    let pixels = source
+        .decode_pixels(0, Some(Size::new(ICON_PIXELS, ICON_PIXELS)))
+        .await
+        .ok()?;
+    cx.update(|app| app.platform().import_pixels(pixels))
 }
 
 /// Finds this device, reads its programs, and reads them again at each change it tells.
@@ -147,6 +274,7 @@ fn find_device(app: &mut App, inspector: &Entity<Inspector>) {
             let programs = read_programs(&device).await;
             cx.update(|app| {
                 inspector.update(app, |inspector, cx| inspector.set_programs(programs, cx));
+                listen_if_it_started(app, &inspector);
             });
             if changes.next().await.is_none() {
                 return;
@@ -163,6 +291,7 @@ async fn read_programs(device: &Device) -> Vec<Seen> {
         seen.push(Seen {
             activity: activity_of(&days),
             program,
+            days,
         });
     }
     seen

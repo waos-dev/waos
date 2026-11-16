@@ -15,16 +15,21 @@
 #![feature(arbitrary_self_types)]
 
 mod activity;
+mod clock;
 mod cupertino;
 mod fluent;
 mod inspector;
+mod live;
+mod panels;
 mod program_icon;
+mod report;
 mod words;
 
 use waft::{
     App, BuildContext, Entity, IntoWidget, MediaQuery, StatelessWidget, WidgetRef, WindowConfig,
     run_app_with,
 };
+use waft_cupertino::install_cupertino_icon_font;
 use waft_winui::install_icon_font;
 
 use crate::cupertino::CupertinoInspector;
@@ -49,8 +54,9 @@ fn start(app: &mut App) {
         ..WindowConfig::default()
     };
     run_app_with(app, LaidOut { inspector }.into_widget(), window);
-    // After `run_app_with`, which makes the font collection the icons' font joins.
+    // After `run_app_with`, which makes the font collection the icons' fonts join.
     install_icon_font(app);
+    install_cupertino_icon_font(app);
 }
 
 /// The app laid out for its window's width.
