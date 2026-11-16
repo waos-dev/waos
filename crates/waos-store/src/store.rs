@@ -239,7 +239,9 @@ impl Store {
         change: impl FnOnce(&mut GlobalSettings),
     ) -> Result<(), StoreError> {
         let _changing = self.lock_changes();
-        self.settings.change_global(change)
+        self.settings.change_global(change)?;
+        self.forget_unrecorded_days();
+        Ok(())
     }
 
     /// The program `id`'s own settings, each the global one until the user sets it: a program
@@ -258,7 +260,9 @@ impl Store {
     ) -> Result<(), StoreError> {
         let _changing = self.lock_changes();
         let folder = self.kept_program_folder(id)?;
-        self.settings.change_program(id, &folder, change)
+        self.settings.change_program(id, &folder, change)?;
+        self.forget_unrecorded_days();
+        Ok(())
     }
 
     /// What the user lets the program `id` use, installed or run in development, read live from

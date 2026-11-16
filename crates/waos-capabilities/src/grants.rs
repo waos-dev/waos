@@ -117,6 +117,13 @@ pub trait ProgramGrants: Send + Sync {
         let _ = (role, answer);
     }
 
+    /// Whether a record is kept of what the program does, its audit summary (decision 13 of
+    /// `docs/proposals/2026-11-15-inspector-roles-and-compatibility.md`): its own setting, or the
+    /// global one, on until the user turns it off; on where nothing keeps a choice.
+    fn keeps_record(&self) -> bool {
+        true
+    }
+
     /// Resolves at the next change the user makes to what holds for the program, its own
     /// settings or the global ones; a change is heard by every future asked for before it.
     fn changed(&self) -> ChangedFuture;

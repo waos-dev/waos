@@ -507,12 +507,13 @@ fn a_programs_settings_change_on_the_phone_and_follow_again() {
 type GlobalValue = fn(&GlobalSettings) -> bool;
 
 /// Each setting that is on or off, by the name its row shows, and its value for every program.
-fn on_off_settings() -> [(&'static str, GlobalValue); 4] {
+fn on_off_settings() -> [(&'static str, GlobalValue); 5] {
     [
         (words::NETWORK, |settings| settings.network.on),
         (words::LOCAL_NETWORK, |settings| settings.local_network),
         (words::CLIPBOARD_READ, |settings| settings.clipboard_read),
         (words::CLIPBOARD_WRITE, |settings| settings.clipboard_write),
+        (words::RECORD_EVERY, |settings| settings.record),
     ]
 }
 
@@ -565,6 +566,29 @@ fn a_tap_on_a_switch_or_on_its_row_changes_the_setting_on_the_phone() {
     desktop.tap(view, words::LOCAL_NETWORK);
     assert_eq!(local_network(&desktop), before, "the row's tap");
     assert_eq!(switch_shows(&desktop, words::LOCAL_NETWORK), before);
+}
+
+#[test]
+fn a_programs_record_turned_off_removes_what_was_kept_of_it_on_the_phone() {
+    use waos::AuditLog;
+    let (mut desktop, view) = on_phone();
+    installs(&mut desktop, TRIANGLE, "Triangle", b"\0asm");
+    let day = waos::AuditDay::starting(std::time::SystemTime::UNIX_EPOCH);
+    desktop.store.keep(triangle().as_str(), &day);
+    assert_eq!(desktop.store.days(triangle().as_str()).len(), 1);
+    open_settings_from_icon(&mut desktop, view, "Triangle");
+    desktop.scroll_until_visible(view, words::RECORD, words::NETWORK, SCROLL_STEP);
+    assert!(
+        switch_shows(&desktop, words::RECORD),
+        "on, as for every program"
+    );
+    desktop.tap_beside::<CupertinoSwitch>(view, words::RECORD);
+    let own = desktop.store.program_settings(&triangle()).unwrap();
+    assert_eq!(own.record, Setting::Own(false));
+    assert!(
+        desktop.store.days(triangle().as_str()).is_empty(),
+        "what was kept is removed"
+    );
 }
 
 #[test]

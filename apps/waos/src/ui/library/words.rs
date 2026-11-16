@@ -3,6 +3,7 @@
 use waft::ui::TargetPlatform;
 use waos::{RecordingDevice, Switch};
 
+use crate::logic::setting_changes::SettingsOf;
 use crate::state::library::Question;
 
 /// The home's title.
@@ -172,6 +173,18 @@ pub(crate) const ANY_DOMAIN_BUT: &str = "All domains but these";
 pub(crate) const DOMAIN_PLACEHOLDER: &str = "example.com";
 pub(crate) const CLIPBOARD_READ: &str = "Reading the clipboard";
 pub(crate) const CLIPBOARD_WRITE: &str = "Writing the clipboard";
+pub(crate) const RECORD: &str = "Keep a record of what it does";
+pub(crate) const RECORD_DETAIL: &str = "The sites it reaches, the files it opens and changes, when it uses the camera and the microphone, and what it runs, over the last seven days, on this device alone. Turned off, what was kept is removed.";
+pub(crate) const RECORD_EVERY: &str = "Keep a record of what programs do";
+pub(crate) const RECORD_EVERY_DETAIL: &str = "The sites each reaches, the files it opens and changes, when it uses the camera and the microphone, and what it runs, over the last seven days, on this device alone. Turned off, what was kept of every program that follows this is removed.";
+
+/// The record's name and what it is, on the page of `of`.
+pub(crate) fn record(of: &SettingsOf) -> (&'static str, &'static str) {
+    match of {
+        SettingsOf::Global => (RECORD_EVERY, RECORD_EVERY_DETAIL),
+        SettingsOf::Program(_) => (RECORD, RECORD_DETAIL),
+    }
+}
 pub(crate) const FOLDERS: &str = "Folders";
 pub(crate) const FOLDER_PLACEHOLDER: &str = "/Users/you/Documents";
 pub(crate) const FOLDER_AT_PLACEHOLDER: &str =

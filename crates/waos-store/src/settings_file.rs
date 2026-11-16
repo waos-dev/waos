@@ -6,6 +6,7 @@
 //! ```toml
 //! clipboard-read = true
 //! clipboard-write = false
+//! record = true                             # a record of what the program does, its audit summary
 //!
 //! [network]
 //! on = true
@@ -67,6 +68,9 @@ struct SettingsFile {
     clipboard_read: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     clipboard_write: Option<bool>,
+    /// Whether a record is kept of what the program does.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    record: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     network: Option<NetworkFile>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -198,6 +202,7 @@ pub(crate) fn read_global(path: &Path) -> Result<GlobalSettings, StoreError> {
         local_network: file.local_network.unwrap_or(defaults.local_network),
         clipboard_read: file.clipboard_read.unwrap_or(defaults.clipboard_read),
         clipboard_write: file.clipboard_write.unwrap_or(defaults.clipboard_write),
+        record: file.record.unwrap_or(defaults.record),
         file_system: file.mounts.map_or(defaults.file_system, file_system_of),
         answers: answers_of(&file.answers, |answer| answer),
         simulated_microphone: file
@@ -212,6 +217,7 @@ pub(crate) fn write_global(path: &Path, settings: &GlobalSettings) -> Result<(),
     let file = SettingsFile {
         clipboard_read: Some(settings.clipboard_read),
         clipboard_write: Some(settings.clipboard_write),
+        record: Some(settings.record),
         network: Some(network_file(&settings.network)),
         local_network: Some(settings.local_network),
         mounts: Some(mounts_file(&settings.file_system)),
@@ -240,6 +246,7 @@ pub(crate) fn read_program(path: &Path) -> Result<ProgramSettings, StoreError> {
         local_network: own(file.local_network),
         clipboard_read: own(file.clipboard_read),
         clipboard_write: own(file.clipboard_write),
+        record: own(file.record),
         file_system: own(file.mounts.map(file_system_of)),
         answers: answers_of(&file.answers, own),
         simulated_microphone: own(file.simulated.microphone.map(sound_of)),
@@ -264,6 +271,7 @@ pub(crate) fn write_program(path: &Path, settings: &ProgramSettings) -> Result<(
     let file = SettingsFile {
         clipboard_read: own_value(&settings.clipboard_read).copied(),
         clipboard_write: own_value(&settings.clipboard_write).copied(),
+        record: own_value(&settings.record).copied(),
         network: own_value(&settings.network).map(network_file),
         local_network: own_value(&settings.local_network).copied(),
         mounts: own_value(&settings.file_system).map(mounts_file),
@@ -471,6 +479,7 @@ mod tests {
 
     fn every_kind_set() -> ProgramSettings {
         let mut settings = ProgramSettings {
+            record: Setting::Own(false),
             network: Setting::Own(NetworkGrant {
                 on: true,
                 domains: DomainRule::AnyBut(vec!["tracker.example".parse().unwrap()]),

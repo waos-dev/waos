@@ -17,9 +17,11 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use futures::FutureExt;
+
 use waos_capabilities::{
-    Answer, AskedQuestion, AuditDay, AuditLog, DeviceSession, FolderUses, LIST_CAPS,
-    MachineCommand, MountKind, NamedUses, Question, Uses,
+    Answer, AskedQuestion, AuditDay, AuditLog, ChangedFuture, DeviceSession, FolderUses, LIST_CAPS,
+    MachineCommand, MountKind, NamedUses, ProgramGrants, Question, Uses,
 };
 
 use super::{Asked, Cause, FileChange, Happened, Noted, Prompt, Resolution};
@@ -42,6 +44,8 @@ pub(crate) struct KeptIn {
 /// One program's summary of today.
 pub(super) struct Summary {
     kept: Option<KeptIn>,
+    /// Whether the user keeps a record of what the program does.
+    grants: Arc<dyn ProgramGrants>,
     today: Mutex<Today>,
     /// The UDP datagrams since the day was last kept, counted apart from the lock.
     udp_datagrams: AtomicU64,
@@ -52,16 +56,25 @@ struct Today {
     /// When the day was last kept, and whether it changed since.
     kept_at: Instant,
     changed: bool,
+    /// Whether the user keeps a record of what the program does, as the grants said last, and
+    /// their next change, asked for before they were read.
+    recorded: bool,
+    grants_changed: ChangedFuture,
 }
 
 impl Summary {
-    pub(super) fn new(kept: Option<KeptIn>) -> Summary {
+    pub(super) fn new(kept: Option<KeptIn>, grants: Arc<dyn ProgramGrants>) -> Summary {
+        let grants_changed = grants.changed();
+        let recorded = grants.keeps_record();
         Summary {
             kept,
+            grants,
             today: Mutex::new(Today {
                 day: AuditDay::starting(day_of(SystemTime::now())),
                 kept_at: Instant::now(),
                 changed: false,
+                recorded,
+                grants_changed,
             }),
             udp_datagrams: AtomicU64::new(0),
         }
@@ -169,14 +182,36 @@ impl Summary {
         }
     }
 
-    /// Keeps the day as it is now, where it changed since it was last kept.
+    /// Keeps the day as it is now, where it changed since it was last kept, and the user keeps a
+    /// record of what the program does.
     pub(super) fn keep(&self) {
         let kept = {
             let mut today = locked(&self.today);
+            if !self.recorded(&mut today) {
+                // Counted apart from the lock while the record was off, and let go.
+                self.udp_datagrams.store(0, Ordering::Relaxed);
+                return;
+            }
             self.fold_datagrams(&mut today);
             today.take_changed()
         };
         self.keep_days(kept.into_iter().collect());
+    }
+
+    /// Whether the user keeps a record of what the program does, read again where the grants
+    /// changed; turned off, what was counted of today is let go, and what comes until it is
+    /// turned on again is not counted.
+    fn recorded(&self, today: &mut Today) -> bool {
+        if (&mut today.grants_changed).now_or_never().is_some() {
+            today.grants_changed = self.grants.changed();
+            today.recorded = self.grants.keeps_record();
+            if !today.recorded {
+                today.day = AuditDay::starting(today.day.start);
+                today.changed = false;
+                self.udp_datagrams.store(0, Ordering::Relaxed);
+            }
+        }
+        today.recorded
     }
 
     /// Today, as counted so far.
@@ -194,6 +229,9 @@ impl Summary {
         let mut to_keep = Vec::new();
         {
             let mut today = locked(&self.today);
+            if !self.recorded(&mut today) {
+                return;
+            }
             if day_of(now) != today.day.start {
                 self.fold_datagrams(&mut today);
                 to_keep.extend(today.take_changed());
@@ -548,6 +586,7 @@ mod tests {
     use std::net::SocketAddr;
 
     use super::*;
+    use crate::access::Answers;
     use crate::files::{MountOf, OpenMode};
 
     /// An audit log that keeps every day it is given, in order.
@@ -565,7 +604,7 @@ mod tests {
     }
 
     fn summary() -> Summary {
-        Summary::new(None)
+        Summary::new(None, Arc::new(Answers::default()))
     }
 
     const READ: OpenMode = OpenMode {
@@ -757,12 +796,46 @@ mod tests {
     }
 
     #[test]
+    fn nothing_is_counted_while_the_record_is_off_and_what_was_is_let_go() {
+        let log = Arc::new(Kept::default());
+        let answers = Arc::new(Answers::default());
+        let summary = Summary::new(
+            Some(KeptIn {
+                log: Arc::clone(&log) as Arc<dyn AuditLog>,
+                program: "dev.waos.notes".to_owned(),
+            }),
+            Arc::clone(&answers) as Arc<dyn ProgramGrants>,
+        );
+        let post = || summary.decided(&Asked::PostNotification, Some(&Resolution::Nothing), None);
+        post();
+        answers.keep_record(false);
+        post();
+        assert_eq!(
+            summary.today().notifications.allowed,
+            0,
+            "let go, and not counted"
+        );
+        summary.keep();
+        assert!(locked(&log.0).is_empty(), "nothing kept while off");
+        answers.keep_record(true);
+        post();
+        assert_eq!(
+            summary.today().notifications.allowed,
+            1,
+            "counted again from then on"
+        );
+    }
+
+    #[test]
     fn the_day_is_kept_under_the_programs_name_as_its_access_goes() {
         let log = Arc::new(Kept::default());
-        let summary = Summary::new(Some(KeptIn {
-            log: Arc::clone(&log) as Arc<dyn AuditLog>,
-            program: "dev.waos.notes".to_owned(),
-        }));
+        let summary = Summary::new(
+            Some(KeptIn {
+                log: Arc::clone(&log) as Arc<dyn AuditLog>,
+                program: "dev.waos.notes".to_owned(),
+            }),
+            Arc::new(Answers::default()),
+        );
         summary.decided(&Asked::PostNotification, Some(&Resolution::Nothing), None);
         assert!(
             locked(&log.0).is_empty(),

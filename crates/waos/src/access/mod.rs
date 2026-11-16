@@ -340,9 +340,9 @@ impl ProgramAccess {
         ProgramAccess {
             instance: 0,
             parts: Arc::new(AccessParts {
+                summary: summary::Summary::new(kept, Arc::clone(&grants)),
                 grants,
                 active_uses: active_uses::ActiveUses::new(shown),
-                summary: summary::Summary::new(kept),
                 taps: Arc::default(),
                 #[cfg(test)]
                 told: std::sync::Mutex::default(),

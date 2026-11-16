@@ -171,6 +171,11 @@ fn rows(page: &ShownSettings) -> Vec<SettingRow> {
             &page.clipboard_write.value,
             page.clipboard_write.follows_global,
         ),
+        switch_row(
+            Switch::Record,
+            &page.record.value,
+            page.record.follows_global,
+        ),
     ];
     for question in Question::ALL {
         rows.push(question_row(
@@ -270,6 +275,7 @@ fn switched(switch: Switch, on: bool) -> SettingChange {
         Switch::LocalNetwork => SettingChange::LocalNetwork(on),
         Switch::ClipboardRead => SettingChange::ClipboardRead(on),
         Switch::ClipboardWrite => SettingChange::ClipboardWrite(on),
+        Switch::Record => SettingChange::Record(on),
     }
 }
 
@@ -279,6 +285,7 @@ fn which_switch(switch: Switch) -> Which {
         Switch::LocalNetwork => Which::LocalNetwork,
         Switch::ClipboardRead => Which::ClipboardRead,
         Switch::ClipboardWrite => Which::ClipboardWrite,
+        Switch::Record => Which::Record,
     }
 }
 

@@ -26,7 +26,7 @@ cargo waos inspect active-uses [-p <package>]                             # what
 cargo waos inspect <capability>...|all [-p <package>]                     # its live trace of network, files, clipboard..., an event a line of JSON, until Ctrl-C or its end
 ```
 
-`inspect` prints JSON of `wasdk:inspect`'s values, one value a line, by the WIT's own names, so a field is `dropped-before` and a case `stdout` or `{"read": {"form": "text/plain", "pasted": false}}`: a record is an object of its fields, a case its name or an object of its name holding its payload, an option `null` or its value, a list an array. A summary has a day only where the program used something WaOS guards that day, the network, files, the clipboard, a device, a machine, a link, a notification or a question; what it writes to its output is not one, so a program that only runs and writes has no days, and the command says so on stderr, printing nothing. WaOS keeps seven days, so `--days` beyond seven prints seven.
+`inspect` prints JSON of `wasdk:inspect`'s values, one value a line, by the WIT's own names, so a field is `dropped-before` and a case `stdout` or `{"read": {"form": "text/plain", "pasted": false}}`: a record is an object of its fields, a case its name or an object of its name holding its payload, an option `null` or its value, a list an array. A summary has a day only where the program used something WaOS guards that day while its record was on (`record`, on unless turned off), the network, files, the clipboard, a device, a machine, a link, a notification or a question; what it writes to its output is not one, so a program that only runs and writes has no days, and the command says so on stderr, printing nothing. WaOS keeps seven days, so `--days` beyond seven prints seven.
 
 `new` writes a new program in a folder of its name in this directory, a Waft app over `wasdk-adapter-waft` in one widget kit's look, as `cargo waft new` writes a Waft app: by default WinUI's, a `WidgetsApp` in Fluent's look whose page has a button, in a window sized for a desktop, which works on a phone too; and with `--template cupertino`, for an app meant for phones alone, a `CupertinoApp` whose page says hello. `cargo waos run` runs it and `cargo waos package` packages it as it is written. It prints the command that runs it, `cd <name> && cargo waos run`.
 
@@ -79,6 +79,7 @@ camera | microphone                                          allow | deny | simu
 notifications                                                allow | deny | ask
 simulated-microphone                                         tone | silence | global
 network | local-network | clipboard-read | clipboard-write   on | off | global
+record                                                       on | off | global
 link-scheme <scheme>                                         allow | deny | ask
 role.inspector                                               allow | deny | ask
 machine | audio-output                                       <id> | ask

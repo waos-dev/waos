@@ -28,6 +28,8 @@ pub enum Switch {
     LocalNetwork,
     ClipboardRead,
     ClipboardWrite,
+    /// Whether a record is kept of what the program does, its audit summary.
+    Record,
 }
 
 /// The user's answer to a question or a link scheme.
@@ -151,11 +153,12 @@ impl Question {
 }
 
 impl Switch {
-    pub const ALL: [Switch; 4] = [
+    pub const ALL: [Switch; 5] = [
         Switch::Network,
         Switch::LocalNetwork,
         Switch::ClipboardRead,
         Switch::ClipboardWrite,
+        Switch::Record,
     ];
 
     pub fn key(self) -> &'static str {
@@ -164,6 +167,7 @@ impl Switch {
             Switch::LocalNetwork => "local-network",
             Switch::ClipboardRead => "clipboard-read",
             Switch::ClipboardWrite => "clipboard-write",
+            Switch::Record => "record",
         }
     }
 }
@@ -395,6 +399,7 @@ mod tests {
                 Row::Switch(Switch::ClipboardRead, Some(false)),
             ),
             ("network global", Row::Switch(Switch::Network, None)),
+            ("record off", Row::Switch(Switch::Record, Some(false))),
             (
                 "link-scheme ZoomMtg deny",
                 Row::LinkScheme("zoommtg".into(), Some(Answer::Deny)),

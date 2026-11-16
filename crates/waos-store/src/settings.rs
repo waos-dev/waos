@@ -30,6 +30,9 @@ pub struct GlobalSettings {
     pub answers: PerQuestion<Option<Answer>>,
     /// What a microphone answered simulated records.
     pub simulated_microphone: SimulatedSound,
+    /// Whether a record is kept of what each program does, its audit summary: on until the user
+    /// turns it off.
+    pub record: bool,
 }
 
 impl Default for GlobalSettings {
@@ -45,6 +48,7 @@ impl Default for GlobalSettings {
             file_system: FileSystemGrant::default(),
             answers: PerQuestion::default(),
             simulated_microphone: SimulatedSound::default(),
+            record: true,
         }
     }
 }
@@ -62,6 +66,9 @@ pub struct ProgramSettings {
     pub answers: PerQuestion<Setting<Answer>>,
     /// What its microphone records while answered simulated, or the global one.
     pub simulated_microphone: Setting<SimulatedSound>,
+    /// Whether a record is kept of what it does, or the global one; off, what was kept of it
+    /// is removed.
+    pub record: Setting<bool>,
     /// The user's answer to the program opening links of each scheme it asked for, by the
     /// scheme in lower case: those other than `http`, `https` and `mailto`, which open freely.
     pub link_schemes: BTreeMap<String, Answer>,
@@ -161,6 +168,10 @@ impl Holding<'_> {
 
     pub(crate) fn clipboard_write(&self) -> bool {
         *self.own.clipboard_write.or(&self.global.clipboard_write)
+    }
+
+    pub(crate) fn keeps_record(&self) -> bool {
+        *self.own.record.or(&self.global.record)
     }
 
     pub(crate) fn file_system(&self) -> FileSystemGrant {

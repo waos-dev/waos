@@ -2,8 +2,13 @@
 //! `audit/<program>/<date>.postcard`, each written whole in place of the last, the days older than
 //! [`DAYS_KEPT`] removed as a new one is kept, and all of a program's with the program.
 //!
-//! The invariant: a day is kept only for a program the store has a folder of, under the store's
-//! lock, so a program removed is never kept again by a run of it that ends after.
+//! A program whose record is off, by its own setting or the global one (decision 13 of
+//! `docs/proposals/2026-11-15-inspector-roles-and-compatibility.md`), has none kept, and what was
+//! kept of it is removed as the setting changes.
+//!
+//! The invariant: a day is kept only for a program the store has a folder of and keeps a record
+//! of, under the store's lock, so a program removed, or turned off, is never kept again by a run of
+//! it that ends after.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -13,6 +18,7 @@ use tracing::warn;
 use waos_capabilities::{AuditDay, AuditLog, DAYS_KEPT};
 
 use crate::files::write_whole;
+use crate::settings::Holding;
 use crate::store::Store;
 
 /// The folder of the audit summaries, in the store's directory.
@@ -31,7 +37,7 @@ impl AuditLog for Store {
             return;
         };
         let _changing = self.lock_changes();
-        if !self.has_folder_of(program) {
+        if !self.has_folder_of(program) || !self.keeps_record_of(program) {
             return;
         }
         if let Err(error) = keep_day(&folder, day) {
@@ -59,6 +65,44 @@ impl Store {
         let one_name =
             !program.is_empty() && !matches!(program, "." | "..") && !program.contains(['/', '\\']);
         one_name.then(|| self.directory().join(AUDIT).join(program))
+    }
+
+    /// Whether a record is kept of `program`, by its own setting or the global one; by the global
+    /// one for a name that is no program's the store keeps settings for.
+    fn keeps_record_of(&self, program: &str) -> bool {
+        let global = match self.global_settings() {
+            Ok(global) => global,
+            Err(error) => {
+                warn!(%error, "no record is kept while the settings cannot be read");
+                return false;
+            }
+        };
+        let own = program
+            .parse()
+            .ok()
+            .and_then(|id| self.program_settings(&id).ok())
+            .unwrap_or_default();
+        Holding {
+            global: &global,
+            own: &own,
+        }
+        .keeps_record()
+    }
+
+    /// Removes what was kept of every program whose record is off now: after a change of the
+    /// settings, under the store's lock.
+    pub(crate) fn forget_unrecorded_days(&self) {
+        let Ok(kept) = fs::read_dir(self.directory().join(AUDIT)) else {
+            return;
+        };
+        for program in kept.flatten() {
+            let Some(name) = program.file_name().to_str().map(str::to_owned) else {
+                continue;
+            };
+            if !self.keeps_record_of(&name) {
+                self.forget_days(&name);
+            }
+        }
     }
 
     /// Removes every day kept of `program`; a program none were kept of has nothing to remove.
@@ -178,6 +222,7 @@ mod tests {
 
     use super::*;
     use crate::SourceProxy;
+    use waos_capabilities::Setting;
 
     fn day(days_since_epoch: u64) -> AuditDay {
         let mut day = AuditDay::starting(UNIX_EPOCH + Duration::from_secs(days_since_epoch * DAY));
@@ -231,6 +276,50 @@ mod tests {
         assert!(
             store.days("dev.waos.never-run").is_empty(),
             "a program the store has no folder of is kept nothing of"
+        );
+    }
+
+    #[test]
+    fn a_program_whose_record_is_off_has_nothing_kept_and_what_was_is_removed() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = Store::open(directory.path(), SourceProxy::None).unwrap();
+        let (notes, reader) = (
+            "dev.waos.notes".parse().unwrap(),
+            "dev.waos.reader".parse().unwrap(),
+        );
+        store.folders(&notes).unwrap();
+        store.folders(&reader).unwrap();
+        store.keep("dev.waos.notes", &day(20_400));
+        store.keep("dev.waos.reader", &day(20_400));
+        store
+            .change_program_settings(&notes, |own| own.record = Setting::Own(false))
+            .unwrap();
+        assert!(
+            store.days("dev.waos.notes").is_empty(),
+            "removed as it is turned off"
+        );
+        store.keep("dev.waos.notes", &day(20_401));
+        assert!(
+            store.days("dev.waos.notes").is_empty(),
+            "and nothing kept after"
+        );
+        assert_eq!(store.days("dev.waos.reader").len(), 1, "another's stays");
+
+        store
+            .change_program_settings(&notes, |own| own.record = Setting::Own(true))
+            .unwrap();
+        store
+            .change_global_settings(|global| global.record = false)
+            .unwrap();
+        assert!(
+            store.days("dev.waos.reader").is_empty(),
+            "off for every program that follows"
+        );
+        store.keep("dev.waos.notes", &day(20_402));
+        assert_eq!(
+            store.days("dev.waos.notes").len(),
+            1,
+            "on by its own setting"
         );
     }
 

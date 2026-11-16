@@ -230,6 +230,7 @@ impl Page {
             Which::ClipboardWrite,
             SettingChange::ClipboardWrite,
         ));
+        sections.extend(self.record(&shown.record));
         sections.extend(self.folders(&shown.file_system));
         for question in Question::ALL {
             let refused = question == Question::Notifications && notifications_refused;
@@ -459,6 +460,15 @@ impl Page {
     ) -> Vec<WidgetRef> {
         let mut rows = self.header(name, shown.follows_global, which);
         rows.push(self.toggle(shown.value, change));
+        rows
+    }
+
+    /// Whether a record is kept of what the program does, with what the record is.
+    fn record(&self, shown: &Shown<bool>) -> Vec<WidgetRef> {
+        let (name, detail) = words::record(&self.of);
+        let mut rows = self.header(name, shown.follows_global, Which::Record);
+        rows.push(caption(detail, &self.resources));
+        rows.push(self.toggle(shown.value, SettingChange::Record));
         rows
     }
 

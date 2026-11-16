@@ -44,6 +44,8 @@ pub(crate) struct ShownSettings {
     pub(crate) local_network: Shown<bool>,
     pub(crate) clipboard_read: Shown<bool>,
     pub(crate) clipboard_write: Shown<bool>,
+    /// Whether a record is kept of what the program does, or of what every program does.
+    pub(crate) record: Shown<bool>,
     pub(crate) file_system: Shown<FileSystemGrant>,
     /// Each question's answer that holds; none to ask.
     pub(crate) answers: PerQuestion<Shown<Option<Answer>>>,
@@ -88,6 +90,7 @@ pub(crate) enum Which {
     LocalNetwork,
     ClipboardRead,
     ClipboardWrite,
+    Record,
     FileSystem,
     Answer(Question),
     /// What a simulated microphone records.
@@ -113,6 +116,8 @@ pub(crate) enum SettingChange {
     LocalNetwork(bool),
     ClipboardRead(bool),
     ClipboardWrite(bool),
+    /// Whether a record is kept of what the program does; off removes what was kept.
+    Record(bool),
     /// A folder of the machine, mounted at `at`, or at its own path when `at` is empty.
     AddMount {
         host: String,
@@ -153,6 +158,7 @@ pub(crate) fn global_page(global: &GlobalSettings) -> ShownSettings {
         local_network: Shown::global(global.local_network),
         clipboard_read: Shown::global(global.clipboard_read),
         clipboard_write: Shown::global(global.clipboard_write),
+        record: Shown::global(global.record),
         file_system: Shown::global(global.file_system.clone()),
         answers: PerQuestion {
             notifications: Shown::global(global.answers.notifications),
@@ -200,6 +206,7 @@ pub(crate) fn program_page(
         local_network: shown(&own.local_network, &global.local_network),
         clipboard_read: shown(&own.clipboard_read, &global.clipboard_read),
         clipboard_write: shown(&own.clipboard_write, &global.clipboard_write),
+        record: shown(&own.record, &global.record),
         file_system: shown(&own.file_system, &global.file_system),
         answers: PerQuestion {
             notifications: answer(Question::Notifications),
@@ -280,6 +287,7 @@ pub(crate) fn change_global(
         SettingChange::LocalNetwork(on) => global.local_network = on,
         SettingChange::ClipboardRead(on) => global.clipboard_read = on,
         SettingChange::ClipboardWrite(on) => global.clipboard_write = on,
+        SettingChange::Record(on) => global.record = on,
         SettingChange::Answer(question, answer) => {
             refuse_misplaced_simulation(question, answer)?;
             global.answers.set(question, answer);
@@ -316,6 +324,7 @@ pub(crate) fn change_program(
         SettingChange::LocalNetwork(on) => own.local_network = Setting::Own(on),
         SettingChange::ClipboardRead(on) => own.clipboard_read = Setting::Own(on),
         SettingChange::ClipboardWrite(on) => own.clipboard_write = Setting::Own(on),
+        SettingChange::Record(on) => own.record = Setting::Own(on),
         SettingChange::Answer(question, answer) => {
             refuse_misplaced_simulation(question, answer)?;
             let setting = answer.map_or(Setting::Global, Setting::Own);
@@ -430,6 +439,7 @@ fn follow_global(own: &mut ProgramSettings, which: Which) {
         Which::LocalNetwork => own.local_network = Setting::Global,
         Which::ClipboardRead => own.clipboard_read = Setting::Global,
         Which::ClipboardWrite => own.clipboard_write = Setting::Global,
+        Which::Record => own.record = Setting::Global,
         Which::FileSystem => own.file_system = Setting::Global,
         Which::Answer(question) => {
             own.answers.set(question, Setting::Global);

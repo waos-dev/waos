@@ -262,6 +262,7 @@ impl Page {
                 Which::ClipboardWrite,
                 SettingChange::ClipboardWrite,
             ),
+            self.record(&shown.record),
             self.folders(&shown.file_system),
         ]);
         for question in Question::ALL {
@@ -478,6 +479,16 @@ impl Page {
     ) -> WidgetRef {
         let tiles = vec![self.switch_row(name, shown.value, change)];
         self.setting(None, shown.follows_global, which, tiles)
+    }
+
+    /// Whether a record is kept of what the program does, with what the record is.
+    fn record(&self, shown: &Shown<bool>) -> WidgetRef {
+        let (name, detail) = words::record(&self.of);
+        let tiles = vec![
+            self.switch_row(name, shown.value, SettingChange::Record),
+            note(detail),
+        ];
+        self.setting(None, shown.follows_global, Which::Record, tiles)
     }
 
     fn folders(&self, shown: &Shown<FileSystemGrant>) -> WidgetRef {

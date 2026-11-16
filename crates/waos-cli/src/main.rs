@@ -166,6 +166,7 @@ enum Command {
     ///   notifications                                allow | deny | ask
     ///   simulated-microphone                         tone | silence | global
     ///   network | local-network | clipboard-read | clipboard-write   on | off | global
+    ///   record                                       on | off | global
     ///   link-scheme <scheme>                         allow | deny | ask
     ///   role.inspector                               allow | deny | ask
     ///   machine | audio-output                       <id> | ask

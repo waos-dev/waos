@@ -201,6 +201,11 @@ impl ProgramGrants for StoreGrants {
         }
     }
 
+    /// Off where the settings cannot be read, as nothing granted keeps the least.
+    fn keeps_record(&self) -> bool {
+        self.read(|holding| holding.keeps_record(), false)
+    }
+
     fn role(&self, role: Role) -> Option<Answer> {
         self.read(|holding| holding.role(role), Some(Answer::Denied))
     }

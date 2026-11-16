@@ -1,5 +1,6 @@
 //! Grants for the tests of what is asked: the answers to the questions, to link schemes and to
-//! roles, as a test sets them, each set heard as a change, and nothing else granted.
+//! roles, and whether a record is kept, as a test sets them, each set heard as a change, and
+//! nothing else granted.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -18,6 +19,8 @@ pub(crate) struct Answers {
     questions: Mutex<HashMap<Question, Answer>>,
     link_schemes: Mutex<HashMap<String, Answer>>,
     roles: Mutex<HashMap<Role, Answer>>,
+    /// Whether the record of what the program does is off.
+    record_off: Mutex<bool>,
     /// Who waits for the next change.
     waiting: Mutex<Vec<oneshot::Sender<()>>>,
 }
@@ -26,6 +29,12 @@ impl Answers {
     /// The access of a program with these answers.
     pub(crate) fn access(self: &Arc<Self>) -> ProgramAccess {
         ProgramAccess::new(Arc::clone(self) as Arc<dyn ProgramGrants>)
+    }
+
+    /// The user turns the record of what the program does on or off.
+    pub(crate) fn keep_record(&self, on: bool) {
+        *locked(&self.record_off) = !on;
+        self.changed_now();
     }
 
     fn changed_now(&self) {
@@ -81,6 +90,10 @@ impl ProgramGrants for Answers {
     fn set_role(&self, role: Role, answer: Answer) {
         locked(&self.roles).insert(role, answer);
         self.changed_now();
+    }
+
+    fn keeps_record(&self) -> bool {
+        !*locked(&self.record_off)
     }
 
     fn changed(&self) -> ChangedFuture {
