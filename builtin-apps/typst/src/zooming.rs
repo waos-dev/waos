@@ -40,7 +40,7 @@ fn zoom(app: &mut App, documents: &DocumentsApp, chosen: impl FnOnce(&Viewing) -
         cx.notify();
         viewing.scale() / before
     });
-    let scroll = documents.preview_scroll;
+    let scroll = documents.preview_scroll.handle();
     if scroll.has_clients(app) && grown.is_finite() {
         let place = scroll.offset(app) * grown;
         scroll.jump_to(app, place);

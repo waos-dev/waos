@@ -12,8 +12,8 @@
 use std::rc::Rc;
 
 use waft::{
-    App, BuildContext, EdgeInsetsGeometry, Entity, Handle, IntoWidget, ListView, Listener, State,
-    StateData, StatefulWidget, Task, Text, TextEditingController, TextEditingControllerLeaf,
+    App, BuildContext, EdgeInsetsGeometry, Entity, Handle, IntoWidget, ListView, Listener, Ref,
+    State, StateData, StatefulWidget, Task, Text, TextEditingController, TextEditingControllerLeaf,
     TextStyle, WidgetRef,
 };
 use waft_cupertino::{
@@ -53,7 +53,7 @@ impl StatefulWidget for CupertinoGetPrograms {
 pub(crate) struct CupertinoGetProgramsState {
     state: StateData<CupertinoGetPrograms>,
     /// What is typed as a source to add.
-    source_text: Option<Handle<TextEditingController>>,
+    source_text: Option<Ref<TextEditingController>>,
 }
 
 impl State for CupertinoGetProgramsState {
@@ -67,8 +67,7 @@ impl State for CupertinoGetProgramsState {
 
     fn dispose(self: Handle<Self>, app: &mut App) {
         if let Some(source_text) = app.get_mut(self).source_text.take() {
-            app.get_mut(source_text).dispose();
-            app.destroy(source_text);
+            source_text.dispose(app);
         }
     }
 
@@ -77,7 +76,11 @@ impl State for CupertinoGetProgramsState {
         let page = Page {
             package_picker: PackagePicker::of(&library, app, context),
             library,
-            source_text: app.get(self).source_text.expect("an initialized page"),
+            source_text: app
+                .get(self)
+                .source_text
+                .clone()
+                .expect("an initialized page"),
         };
         let mut sections = vec![page.add_source()];
         sections.extend(page.install_from_file(app, context));
@@ -115,7 +118,7 @@ impl State for CupertinoGetProgramsState {
 /// What one build of the page reads and writes.
 struct Page {
     library: Entity<Library>,
-    source_text: Handle<TextEditingController>,
+    source_text: Ref<TextEditingController>,
     /// What Install from file shows; none where the system has no file picker.
     package_picker: Option<PackagePicker>,
 }
@@ -123,7 +126,7 @@ struct Page {
 impl Page {
     /// The field a source is typed in, and Add.
     fn add_source(&self) -> WidgetRef {
-        let (library, text) = (self.library.clone(), self.source_text);
+        let (library, text) = (self.library.clone(), self.source_text.clone());
         let add = Listener::new(move |app| {
             let typed = text.text_value(app).to_owned();
             library.update(app, |library, cx| library.add_source(&typed, cx));
@@ -132,7 +135,7 @@ impl Page {
             }
         });
         let field = CupertinoTextField::new()
-            .controller(self.source_text.as_controller())
+            .controller(self.source_text.erase())
             .placeholder(words::SOURCE_PLACEHOLDER);
         let tile = CupertinoListTile::new(field)
             .trailing(CupertinoButton::new(

@@ -7,11 +7,10 @@
 //! ended is built again.
 
 use std::cell::Cell;
-use std::rc::Rc;
 use std::time::Duration;
 
 use waft_embedder::{PauseReason, PlayerActivity, PlayerState, PlayerStatus, SeekTolerance};
-use waft_foundation::{App, Entity, Handle, Listenable, Listener, WeakEntity};
+use waft_foundation::{App, Entity, Handle, ListenableObject, Listener, Ref, WeakEntity};
 use waft_widgets::Player;
 
 use crate::recents::{self, Recents};
@@ -34,7 +33,7 @@ pub(crate) struct Session {
     /// Names the session among this run's.
     pub(crate) number: u64,
     pub(crate) source: Source,
-    pub(crate) player: Handle<Player>,
+    pub(crate) player: Ref<Player>,
 }
 
 impl Playback {
@@ -58,7 +57,10 @@ impl Playback {
 
 /// The player of what plays, if anything does.
 pub(crate) fn current_player(playback: &Entity<Playback>, app: &App) -> Option<Handle<Player>> {
-    playback.read(app).session().map(|session| session.player)
+    playback
+        .read(app)
+        .session()
+        .map(|session| session.player.handle())
 }
 
 /// Plays `source` in place of what played, from where it was left the last time. Where the
@@ -69,9 +71,9 @@ pub(crate) fn open(playback: &Entity<Playback>, app: &mut App, source: Source) {
         return;
     };
     if let Some(left_at) = playback.read(app).recents.left_at(&source) {
-        resume_at(app, player, left_at);
+        resume_at(app, player.handle(), left_at);
     }
-    keep_where_it_pauses(app, player, playback.downgrade());
+    keep_where_it_pauses(app, player.handle(), playback.downgrade());
     player.play(app);
     playback.update(app, |playback, cx| {
         playback.recents.opened(&source);
@@ -103,7 +105,7 @@ pub(crate) fn keep_where_it_is(playback: &Entity<Playback>, app: &mut App) {
     let Some(session) = playback.read(app).session.clone() else {
         return;
     };
-    let player = session.player;
+    let player = session.player.handle();
     let Some(left_at) = resume_point(player.state(app), player.position(app)) else {
         return;
     };
@@ -180,8 +182,7 @@ fn keep_where_it_pauses(app: &mut App, player: Handle<Player>, playback: WeakEnt
 
 /// Has `listener` hear each change of `player`, until it is disposed.
 fn listen(app: &mut App, player: Handle<Player>, listener: Listener) {
-    let listenable: Rc<dyn Listenable> = Rc::new(player);
-    listenable.add_listener(app, listener);
+    player.add_listener(app, listener);
 }
 
 #[cfg(test)]

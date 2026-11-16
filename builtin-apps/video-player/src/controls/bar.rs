@@ -6,7 +6,7 @@
 use std::rc::Rc;
 
 use waft_embedder::{Color, PlayerState};
-use waft_foundation::{App, Handle, Listenable, Listener};
+use waft_foundation::{App, Listenable, Listener, Ref};
 use waft_widgets::{
     BorderRadius, BoxDecoration, DecoratedBox, EdgeInsetsGeometry, Expanded, IntoWidget,
     LayoutBuilder, ListenableBuilder, MainAxisSize, Padding, Player, Row, SizedBox, WidgetRef,
@@ -31,12 +31,14 @@ const WIDE: f64 = 640.0;
 const ICON_SIZE: f64 = 20.0;
 
 /// `player`'s controls, built again at each of its changes and of the room they have.
-pub(crate) fn control_bar(player: Handle<Player>) -> WidgetRef {
-    let listenable: Rc<dyn Listenable> = Rc::new(player);
+pub(crate) fn control_bar(player: &Ref<Player>) -> WidgetRef {
+    let listenable: Rc<dyn Listenable> = Rc::new(player.clone());
+    let player = player.clone();
     let controls = ListenableBuilder::new(listenable, move |app, _context, _child| {
         let state = player.state(app).clone();
+        let player = player.clone();
         LayoutBuilder::new(move |_app, _context, constraints| {
-            controls(player, &state, constraints.max_width >= WIDE)
+            controls(&player, &state, constraints.max_width >= WIDE)
         })
         .into_widget()
     });
@@ -65,14 +67,14 @@ fn on_background<K>(child: impl IntoWidget<K>) -> WidgetRef {
 }
 
 /// The controls in a row, the volume's slider among them where the bar is `wide`.
-fn controls(player: Handle<Player>, state: &PlayerState, wide: bool) -> WidgetRef {
+fn controls(player: &Ref<Player>, state: &PlayerState, wide: bool) -> WidgetRef {
     Row::new()
         .spacing(4.0)
         .children([
             icon_button(icons::SKIP_BACK_10, skip(player, Skip::Back)),
             play_pause_button(player, state),
             icon_button(icons::SKIP_FORWARD_10, skip(player, Skip::Forward)),
-            Expanded::new(Progress::new(player)).into_widget(),
+            Expanded::new(Progress::new(player.clone())).into_widget(),
             volume(player, state, wide),
             rate_button(player, state),
             tracks_button(player, state),
@@ -81,26 +83,29 @@ fn controls(player: Handle<Player>, state: &PlayerState, wide: bool) -> WidgetRe
 }
 
 /// Play while paused, pause while playing or waiting to.
-fn play_pause_button(player: Handle<Player>, state: &PlayerState) -> WidgetRef {
+fn play_pause_button(player: &Ref<Player>, state: &PlayerState) -> WidgetRef {
     let glyph = if commands::is_paused(state) {
         icons::PLAY
     } else {
         icons::PAUSE
     };
-    let toggle = Listener::new(move |app: &mut App| commands::play_or_pause(app, player));
+    let player = player.clone();
+    let toggle = Listener::new(move |app: &mut App| commands::play_or_pause(app, player.handle()));
     icon_button(glyph, toggle)
 }
 
-fn skip(player: Handle<Player>, skip: Skip) -> Listener {
-    Listener::new(move |app: &mut App| commands::skip(app, player, skip))
+fn skip(player: &Ref<Player>, skip: Skip) -> Listener {
+    let player = player.clone();
+    Listener::new(move |app: &mut App| commands::skip(app, player.handle(), skip))
 }
 
 /// The rate it plays at, which opens a menu of the rates.
-fn rate_button(player: Handle<Player>, state: &PlayerState) -> WidgetRef {
+fn rate_button(player: &Ref<Player>, state: &PlayerState) -> WidgetRef {
     let rate = state.rate;
     let items = RATES
         .into_iter()
         .map(|choice| {
+            let player = player.clone();
             let set = Listener::new(move |app: &mut App| player.set_rate(app, choice));
             MenuFlyoutItem::radio(rate_label(choice), (choice - rate).abs() < 0.01, set)
         })
@@ -110,7 +115,7 @@ fn rate_button(player: Handle<Player>, state: &PlayerState) -> WidgetRef {
 }
 
 /// The subtitles and audio to choose among, which opens a menu of them.
-fn tracks_button(player: Handle<Player>, state: &PlayerState) -> WidgetRef {
+fn tracks_button(player: &Ref<Player>, state: &PlayerState) -> WidgetRef {
     let subtitles = tracks::subtitle_choices(state)
         .iter()
         .map(|choice| track_item(player, choice))
@@ -126,9 +131,10 @@ fn tracks_button(player: Handle<Player>, state: &PlayerState) -> WidgetRef {
     MenuButton::new(icon(icons::SUBTITLES, ICON_SIZE).into_widget(), items).into_widget()
 }
 
-fn track_item(player: Handle<Player>, choice: &TrackChoice) -> MenuFlyoutItem {
-    let pick = choice.pick.clone();
-    let choose = Listener::new(move |app: &mut App| tracks::pick_track(app, player, &pick));
+fn track_item(player: &Ref<Player>, choice: &TrackChoice) -> MenuFlyoutItem {
+    let (player, pick) = (player.clone(), choice.pick.clone());
+    let choose =
+        Listener::new(move |app: &mut App| tracks::pick_track(app, player.handle(), &pick));
     MenuFlyoutItem::radio(choice.label.clone(), choice.chosen, choose)
 }
 

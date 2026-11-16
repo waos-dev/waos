@@ -19,7 +19,7 @@ use std::rc::Rc;
 
 use waft_cupertino::{CupertinoApp, CupertinoPageScaffold, CupertinoTextField};
 use waft_embedder::{ClipboardItem, Content, CopyOptions, FileSink, WindowConfig};
-use waft_foundation::{App, Listenable, Listener};
+use waft_foundation::{App, ListenableObject, Listener};
 use waft_services::{Clipboard, ServicesBinding};
 use waft_widgets::{Center, EdgeInsetsGeometry, IntoWidget, Padding, run_app_with};
 

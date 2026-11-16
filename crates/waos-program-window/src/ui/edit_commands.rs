@@ -9,8 +9,8 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use waft::{
-    Action, AnyAction, App, CallbackAction, CopySelectionTextIntent, DeleteCharacterIntent, Entity,
-    Intent, PasteTextIntent, RedoTextIntent, SelectAllTextIntent, UndoTextIntent,
+    ActionRef, App, CallbackAction, CopySelectionTextIntent, DeleteCharacterIntent, Entity, Intent,
+    PasteTextIntent, RedoTextIntent, SelectAllTextIntent, UndoTextIntent,
 };
 use waos::bindings::wasdk::platform::views::EditCommand;
 
@@ -18,7 +18,7 @@ use crate::link::ViewLink;
 use crate::state::shown_view::ShownView;
 
 /// The actions that send `view`'s program Edit's commands, by the intent each answers.
-pub(crate) fn edit_actions(app: &mut App, view: &Entity<ShownView>) -> HashMap<TypeId, AnyAction> {
+pub(crate) fn edit_actions(app: &mut App, view: &Entity<ShownView>) -> HashMap<TypeId, ActionRef> {
     let mut actions = HashMap::new();
     let copy_or_cut = |view: &dyn ViewLink, intent: &CopySelectionTextIntent| {
         if intent.collapse_selection() {
@@ -54,7 +54,7 @@ pub(crate) fn edit_actions(app: &mut App, view: &Entity<ShownView>) -> HashMap<T
 /// Adds the action that does `send` to `view`'s program for the intent `T`.
 fn add<T: Intent + 'static>(
     app: &mut App,
-    actions: &mut HashMap<TypeId, AnyAction>,
+    actions: &mut HashMap<TypeId, ActionRef>,
     view: &Entity<ShownView>,
     send: impl Fn(&dyn ViewLink, &T) + 'static,
 ) {
@@ -66,5 +66,5 @@ fn add<T: Intent + 'static>(
             None
         }),
     );
-    actions.insert(TypeId::of::<T>(), Action::as_action(action));
+    actions.insert(TypeId::of::<T>(), action.into_erased());
 }

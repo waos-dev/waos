@@ -140,11 +140,13 @@ pub(crate) fn list_with(app: &mut App, notes: &NotesApp, shown: &Shown) {
 /// From now on, what is typed in the search field narrows the list, keeping something listed
 /// shown.
 pub(crate) fn follow_search(app: &mut App, notes: &NotesApp) {
-    let following = notes.clone();
-    notes
-        .search
-        .text
-        .add_listener(app, Listener::new(move |app| searched(app, &following)));
+    let following = notes.downgrade();
+    let listener = Listener::new(move |app| {
+        if let Some(notes) = following.upgrade(app) {
+            searched(app, &notes);
+        }
+    });
+    notes.search.text.add_listener(app, listener);
 }
 
 /// The search field changed: a change of its text, not of its selection alone, searches anew.

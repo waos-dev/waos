@@ -17,9 +17,9 @@ use std::rc::Rc;
 
 use waft::ui::{KeyData, KeyEventType, ViewFocusState};
 use waft::{
-    Actions, AnyAction, App, BuildContext, CompositionLayerView, Entity, Focus, FocusNode,
-    FocusNodeLeaf, Handle, IntoWidget, KeyEventResult, KeyRef, MouseRegion, State, StateData,
-    StatefulWidget, Subscription, UnfocusDisposition, ValueKey, WidgetRef,
+    ActionRef, Actions, App, BuildContext, CompositionLayerView, Entity, Focus, FocusNode,
+    FocusNodeLeaf, Handle, IntoWidget, KeyEventResult, KeyRef, MouseRegion, OptionRetained, Ref,
+    State, StateData, StatefulWidget, Subscription, UnfocusDisposition, ValueKey, WidgetRef,
 };
 use waft_gestures::PointerEvent as HostPointerEvent;
 use waft_services::{HardwareKeyboard, KeyEvent as HostKeyEvent, SystemMouseCursor};
@@ -86,15 +86,15 @@ pub struct ProgramCanvasState {
     state: StateData<ProgramCanvas>,
     /// The keyboard focus the canvas takes when its window opens, when it is pressed, or when
     /// the program asks for it. The program gets the keys while the canvas has it.
-    focus: Option<Handle<FocusNode>>,
+    focus: Option<Ref<FocusNode>>,
     /// Keeps the program's requests for the focus coming.
     focus_requests: Option<Subscription>,
     /// Whether the program was last told its view has the focus.
     told_focused: bool,
     known_pointers: KnownPointers,
-    text_input: Option<Handle<ProgramTextInput>>,
+    text_input: Option<Ref<ProgramTextInput>>,
     /// What sends the program Edit's commands while the canvas has the focus.
-    edit_actions: HashMap<TypeId, AnyAction>,
+    edit_actions: HashMap<TypeId, ActionRef>,
 }
 
 impl State for ProgramCanvasState {
@@ -154,7 +154,7 @@ fn with_input(
     picture: WidgetRef,
 ) -> WidgetRef {
     let state = app.get(this);
-    let focus = state.focus.expect("init_state has run");
+    let focus = state.focus.as_ref().expect("init_state has run").erase();
     let edit_actions = state.edit_actions.clone();
     let holds_keyboard = this.widget(app).view.read(app).holds_keyboard();
     MouseRegion::new()
@@ -168,7 +168,7 @@ fn with_input(
         .child(Actions::new(
             edit_actions,
             Focus::new(pointer_listener(this).child(picture))
-                .focus_node(focus.as_node())
+                .focus_node(focus)
                 .autofocus(holds_keyboard)
                 .on_focus_change(move |app, focused| deliver_focus(this, app, focused))
                 .on_key_event(Rc::new(move |app, _node, event| {
@@ -307,13 +307,13 @@ fn change_focus(this: Handle<ProgramCanvasState>, app: &mut App, state: ViewFocu
     match state {
         ViewFocusState::Focused => take_focus(this, app),
         ViewFocusState::Unfocused => {
-            let focus = app.get(this).focus.expect("init_state has run");
+            let focus = app.get(this).focus.handle().expect("init_state has run");
             focus.as_node().unfocus(app, UnfocusDisposition::Scope);
         }
     }
 }
 
 fn take_focus(this: Handle<ProgramCanvasState>, app: &mut App) {
-    let focus = app.get(this).focus.expect("init_state has run");
+    let focus = app.get(this).focus.handle().expect("init_state has run");
     focus.request_focus(app, None);
 }

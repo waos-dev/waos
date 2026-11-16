@@ -2,7 +2,7 @@
 //! player reads back, since the system may change either itself.
 
 use waft_embedder::PlayerState;
-use waft_foundation::{App, Handle, Listener};
+use waft_foundation::{App, Listener, Ref};
 use waft_widgets::{IntoWidget, MainAxisSize, Player, Row, SizedBox, WidgetRef};
 use waft_winui::Slider;
 
@@ -14,12 +14,14 @@ use crate::icons;
 const SLIDER_WIDTH: f64 = 96.0;
 
 /// `player`'s mute switch and, `with_slider`, its volume's slider, as `state` has them.
-pub(crate) fn volume(player: Handle<Player>, state: &PlayerState, with_slider: bool) -> WidgetRef {
+pub(crate) fn volume(player: &Ref<Player>, state: &PlayerState, with_slider: bool) -> WidgetRef {
     if !with_slider {
         return mute_button(player, state);
     }
     let shown = if state.muted { 0.0 } else { state.volume };
+    let setting = player.clone();
     let slider = Slider::new(shown, move |app: &mut App, volume: f64| {
+        let player = setting.handle();
         player.set_volume(app, volume);
         if player.state(app).muted {
             player.set_muted(app, false);
@@ -42,8 +44,9 @@ pub(crate) fn volume(player: Handle<Player>, state: &PlayerState, with_slider: b
 }
 
 /// The speaker, showing whether the sound is off, which mutes or unmutes.
-fn mute_button(player: Handle<Player>, state: &PlayerState) -> WidgetRef {
-    let toggle = Listener::new(move |app: &mut App| commands::toggle_mute(app, player));
+fn mute_button(player: &Ref<Player>, state: &PlayerState) -> WidgetRef {
+    let player = player.clone();
+    let toggle = Listener::new(move |app: &mut App| commands::toggle_mute(app, player.handle()));
     let glyph = if state.muted || state.volume == 0.0 {
         icons::SPEAKER_MUTE
     } else {

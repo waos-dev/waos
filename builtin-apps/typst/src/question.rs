@@ -1,7 +1,7 @@
 //! The question the app asks before it lets go of a document with changes its file does not
 //! hold, as a WinUI `ContentDialog`: Save, the default, Discard, or Cancel.
 
-use waft::{App, GlobalKey, Handle, Task, Text};
+use waft::{App, GlobalKey, Ref, Task, Text};
 use waft_winui::{ContentDialog, ContentDialogButton, ContentDialogResult};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -34,15 +34,16 @@ pub(crate) fn ask_to_save(app: &mut App, navigator: &GlobalKey, name: &str) -> T
     })
 }
 
-fn dialog_asking(app: &mut App, name: &str) -> Handle<ContentDialog> {
-    ContentDialog::new(app)
-        .title(app, Text::new(format!("Save the changes to “{name}”?")))
-        .content(
-            app,
-            Text::new("Your changes will be lost if you don't save them."),
-        )
-        .primary_button_text(app, "Save")
-        .secondary_button_text(app, "Discard")
-        .close_button_text(app, "Cancel")
-        .default_button(app, ContentDialogButton::Primary)
+fn dialog_asking(app: &mut App, name: &str) -> Ref<ContentDialog> {
+    let dialog = ContentDialog::new(app);
+    dialog.title(app, Text::new(format!("Save the changes to “{name}”?")));
+    dialog.content(
+        app,
+        Text::new("Your changes will be lost if you don't save them."),
+    );
+    dialog.primary_button_text(app, "Save");
+    dialog.secondary_button_text(app, "Discard");
+    dialog.close_button_text(app, "Cancel");
+    dialog.default_button(app, ContentDialogButton::Primary);
+    dialog
 }

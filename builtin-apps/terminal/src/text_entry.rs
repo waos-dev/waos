@@ -11,7 +11,7 @@ use waft_embedder::{
     Matrix4, Rect, Size, TextAffinity, TextEditingValue, TextInputAction, TextInputConfiguration,
     TextInputType, TextSelection, ViewId,
 };
-use waft_foundation::{App, Entity, Handle};
+use waft_foundation::{App, Entity, Handle, OptionRetained, Ref};
 use waft_services::{TextInput, TextInputClient, TextInputConnection};
 
 use crate::session::{Session, set_composing, type_bytes};
@@ -20,11 +20,11 @@ use crate::session::{Session, set_composing, type_bytes};
 pub(crate) struct TextEntry {
     session: Entity<Session>,
     /// The connection to the platform's text input, while the session's view has the keyboard.
-    connection: Option<Handle<TextInputConnection>>,
+    connection: Option<Ref<TextInputConnection>>,
 }
 
 impl TextEntry {
-    pub(crate) fn new(app: &mut App, session: Entity<Session>) -> Handle<TextEntry> {
+    pub(crate) fn new(app: &mut App, session: Entity<Session>) -> Ref<TextEntry> {
         app.create(TextEntry {
             session,
             connection: None,
@@ -34,7 +34,7 @@ impl TextEntry {
     /// Starts taking text for the session in `view`, and shows the on-screen keyboard where
     /// there is one.
     pub(crate) fn open(self: Handle<Self>, app: &mut App, view: Option<ViewId>) {
-        if let Some(connection) = app.get(self).connection {
+        if let Some(connection) = app.get(self).connection.handle() {
             connection.show(app);
             return;
         }
@@ -62,7 +62,7 @@ impl TextEntry {
         transform: Matrix4,
         caret: Rect,
     ) {
-        let Some(connection) = app.get(self).connection else {
+        let Some(connection) = app.get(self).connection.handle() else {
             return;
         };
         connection.set_editable_size_and_transform(app, size, transform);
@@ -105,7 +105,7 @@ impl TextInputClient for TextEntry {
             return;
         }
         type_bytes(app, &session, value.text.as_bytes());
-        if let Some(connection) = app.get(self).connection {
+        if let Some(connection) = app.get(self).connection.handle() {
             connection.set_editing_state(app, empty_value());
         }
     }

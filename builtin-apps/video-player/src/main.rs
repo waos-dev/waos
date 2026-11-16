@@ -49,8 +49,8 @@ use std::rc::Rc;
 use waft_embedder::{AppExitResponse, WindowConfig};
 use waft_foundation::{App, Entity, Task};
 use waft_widgets::{
-    AppLifecycleListener, GlobalKey, IntoWidget, PageRoute, PageRouteBuilder, RouteSettingsRef,
-    SizedBox, WidgetRef, WidgetsApp, run_app_with,
+    AppLifecycleListener, GlobalKey, IntoWidget, PageRouteBuilder, RouteSettingsRef, SizedBox,
+    WidgetRef, WidgetsApp, run_app_with,
 };
 use waft_winui::{AccentPalette, Theme, ThemeScope, install_icon_font};
 
@@ -84,7 +84,7 @@ fn start(app: &mut App) {
                 Rc::new(move |app, context, _, _| builder(app, context)),
             )
             .settings(app, RouteSettingsRef::Settings(settings.clone()));
-            PageRoute::as_page_route(route)
+            route.into_erased()
         })
         .navigator_key(navigator.clone())
         .shortcuts(keys::shortcuts(app, &playback))

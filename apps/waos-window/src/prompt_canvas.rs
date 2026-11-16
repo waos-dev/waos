@@ -11,7 +11,8 @@ use std::rc::Rc;
 
 use waft::{
     App, BuildContext, CompositionLayerView, Focus, FocusNode, FocusNodeLeaf, Handle, IntoWidget,
-    KeyEventResult, KeyRef, MouseRegion, State, StateData, StatefulWidget, ValueKey, WidgetRef,
+    KeyEventResult, KeyRef, MouseRegion, OptionRetained, Ref, State, StateData, StatefulWidget,
+    ValueKey, WidgetRef,
 };
 use waft_gestures::PointerEvent;
 use waft_services::{KeyEvent, MouseCursor};
@@ -65,7 +66,7 @@ impl StatefulWidget for PromptCanvas {
 /// pointers WaOS has been told of.
 pub(crate) struct PromptCanvasState {
     state: StateData<PromptCanvas>,
-    focus: Option<Handle<FocusNode>>,
+    focus: Option<Ref<FocusNode>>,
     pointers: PromptPointers,
 }
 
@@ -86,7 +87,12 @@ impl State for PromptCanvasState {
 
     fn build(self: Handle<Self>, app: &mut App, _context: BuildContext) -> WidgetRef {
         let layer = self.widget(app).link.layer();
-        let focus = app.get(self).focus.expect("init_state has run");
+        let focus = app
+            .get(self)
+            .focus
+            .as_ref()
+            .expect("init_state has run")
+            .erase();
         MouseRegion::new()
             .cursor(<dyn MouseCursor>::uncontrolled())
             .on_enter(Rc::new(move |app, event| {
@@ -97,7 +103,7 @@ impl State for PromptCanvasState {
             }))
             .child(
                 Focus::new(pointer_listener(self).child(CompositionLayerView::new(layer)))
-                    .focus_node(focus.as_node())
+                    .focus_node(focus)
                     .autofocus(true)
                     .on_key_event(Rc::new(move |app, _node, event| {
                         deliver_key(self, app, event)
@@ -159,6 +165,6 @@ fn deliver_key(this: Handle<PromptCanvasState>, app: &mut App, event: &KeyEvent)
 }
 
 fn take_focus(this: Handle<PromptCanvasState>, app: &mut App) {
-    let focus = app.get(this).focus.expect("init_state has run");
+    let focus = app.get(this).focus.handle().expect("init_state has run");
     focus.request_focus(app, None);
 }

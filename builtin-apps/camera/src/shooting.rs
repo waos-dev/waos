@@ -31,7 +31,7 @@ fn begin(app: &mut App, camera: &CameraApp) -> Option<(PhotoFuture, Look)> {
     if viewfinder.is_taking_photo() {
         return None;
     }
-    let (session, look) = (viewfinder.running()?.session, viewfinder.look());
+    let (session, look) = (viewfinder.running()?.session.handle(), viewfinder.look());
     let taking = CameraSession::take_photo(session, app);
     camera.viewfinder.update(app, |viewfinder, cx| {
         viewfinder.set_taking_photo(true);

@@ -45,8 +45,8 @@ mod window;
 use std::rc::Rc;
 
 use waft::{
-    App, AppLifecycleListener, Entity, IntoWidget, PageRoute, PageRouteBuilder, RouteSettingsRef,
-    SizedBox, WidgetRef, WidgetsApp, WindowConfig, run_app_with,
+    App, AppLifecycleListener, Entity, IntoWidget, PageRouteBuilder, RouteSettingsRef, SizedBox,
+    WidgetRef, WidgetsApp, WindowConfig, run_app_with,
 };
 use waft_winui::{AccentPalette, Theme, ThemeScope, install_icon_font};
 
@@ -77,7 +77,7 @@ fn start(app: &mut App) {
                 Rc::new(move |app, context, _, _| builder(app, context)),
             )
             .settings(app, RouteSettingsRef::Settings(settings.clone()));
-            PageRoute::as_page_route(route)
+            route.into_erased()
         })
         // Around the navigator, so its pages, dialogs and tooltips are dark as well.
         .builder(|_app, _context, navigator| in_the_dark(navigator.cloned()))

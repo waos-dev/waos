@@ -9,7 +9,7 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use waft_embedder::{PlayerActivity, PlayerState, SeekTolerance, TimeRange};
-use waft_foundation::{App, Handle, Listenable, Listener};
+use waft_foundation::{App, Handle, ListenableObject, Listener, OptionRetained, Ref};
 use waft_scheduler::{FrameCallback, Ticker};
 use waft_widgets::{
     Align, AlignmentGeometry, BuildContext, Expanded, IntoWidget, KeyRef, Player, Row,
@@ -27,11 +27,11 @@ const TIME_WIDTH: f64 = 56.0;
 
 /// `player`'s time played, seek bar and time left.
 pub(crate) struct Progress {
-    player: Handle<Player>,
+    player: Ref<Player>,
 }
 
 impl Progress {
-    pub(crate) fn new(player: Handle<Player>) -> Progress {
+    pub(crate) fn new(player: Ref<Player>) -> Progress {
         Progress { player }
     }
 }
@@ -63,14 +63,14 @@ pub(crate) struct ProgressState {
     state: StateData<Progress>,
     single_ticker_provider: SingleTickerProviderStateMixinData,
     /// Builds the widget again at each frame while the player plays.
-    ticker: Option<Handle<Ticker>>,
+    ticker: Option<Ref<Ticker>>,
     /// Where a drag along the bar is, while one is under way.
     dragged_to: Option<Duration>,
 }
 
 impl ProgressState {
     fn player(self: Handle<Self>, app: &App) -> Handle<Player> {
-        self.widget(app).player
+        self.widget(app).player.handle()
     }
 
     fn listener(self: Handle<Self>) -> Listener {
@@ -84,7 +84,7 @@ impl ProgressState {
 
     /// Runs the ticker while the player plays, and stops it otherwise.
     fn tick_while_playing(self: Handle<Self>, app: &mut App) {
-        let Some(ticker) = app.get(self).ticker else {
+        let Some(ticker) = app.get(self).ticker.handle() else {
             return;
         };
         let playing = self.player(app).state(app).activity == PlayerActivity::Playing;
@@ -132,7 +132,7 @@ impl State for ProgressState {
         });
         let ticker = SingleTickerProviderStateMixin::create_ticker(self, app, tick);
         app.get_mut(self).ticker = Some(ticker);
-        listenable(self.player(app)).add_listener(app, self.listener());
+        self.player(app).add_listener(app, self.listener());
         self.tick_while_playing(app);
     }
 
@@ -140,8 +140,11 @@ impl State for ProgressState {
         if old_widget.player == self.player(app) {
             return;
         }
-        listenable(old_widget.player).remove_listener(app, &self.listener());
-        listenable(self.player(app)).add_listener(app, self.listener());
+        old_widget
+            .player
+            .handle()
+            .remove_listener(app, &self.listener());
+        self.player(app).add_listener(app, self.listener());
         self.tick_while_playing(app);
     }
 
@@ -150,7 +153,7 @@ impl State for ProgressState {
     }
 
     fn dispose(self: Handle<Self>, app: &mut App) {
-        listenable(self.player(app)).remove_listener(app, &self.listener());
+        self.player(app).remove_listener(app, &self.listener());
         if let Some(ticker) = app.get_mut(self).ticker.take() {
             ticker.dispose(app);
         }
@@ -177,10 +180,6 @@ impl State for ProgressState {
             ])
             .into_widget()
     }
-}
-
-fn listenable(player: Handle<Player>) -> Rc<dyn Listenable> {
-    Rc::new(player)
 }
 
 /// The bar at `at` over what is `loaded`, seeking where it is clicked or dragged; one that

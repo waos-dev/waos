@@ -80,7 +80,7 @@ use std::collections::{HashMap, HashSet};
 use waft::{
     Animation, AnimationBehavior, AnimationController, App, BuildContext, Clip, ColoredBox,
     EdgeInsets, Entity, FrameCallback, Handle, IntoWidget, KeyedSubtree, Listener, MediaQuery,
-    MediaQueryData, Offset, SchedulerBinding, Size, Stack, StackFit, State, StateData,
+    MediaQueryData, Offset, Ref, SchedulerBinding, Size, Stack, StackFit, State, StateData,
     StatefulWidget, StatelessWidget, Subscription, Ticker, TickerCallback, TickerProviderObject,
     TickerProviderStateMixin, TickerProviderStateMixinData, ValueKey, WidgetRef,
     WidgetsBindingObserverRef,
@@ -247,12 +247,11 @@ enum StripFollows {
 }
 
 /// The deck's own animated values.
-#[derive(Clone, Copy)]
 struct DeckMotions {
     /// Where the strip of pages is, in pages.
-    strip: Handle<AnimationController>,
+    strip: Ref<AnimationController>,
     /// How far the overview's grid is scrolled, in points.
-    grid_scroll: Handle<AnimationController>,
+    grid_scroll: Ref<AnimationController>,
 }
 
 pub(crate) struct DeckViewState {
@@ -294,16 +293,19 @@ impl DeckViewState {
         self.widget(app).tabs.clone()
     }
 
-    fn motions(self: Handle<Self>, app: &App) -> DeckMotions {
-        app.get(self).motions.expect("created in init_state")
+    fn motions(self: Handle<Self>, app: &App) -> &DeckMotions {
+        app.get(self)
+            .motions
+            .as_ref()
+            .expect("created in init_state")
     }
 
     fn strip(self: Handle<Self>, app: &App) -> Handle<AnimationController> {
-        self.motions(app).strip
+        self.motions(app).strip.handle()
     }
 
     fn grid_scroll(self: Handle<Self>, app: &App) -> Handle<AnimationController> {
-        self.motions(app).grid_scroll
+        self.motions(app).grid_scroll.handle()
     }
 
     /// The view as the last build measured it; a phone's until the first.
@@ -320,8 +322,8 @@ impl DeckViewState {
     }
 
     /// An unbounded controller at `value` that redraws the deck whenever it moves.
-    fn new_motion(self: Handle<Self>, app: &mut App, value: f64) -> Handle<AnimationController> {
-        let controller = AnimationController::create_unbounded(
+    fn new_motion(self: Handle<Self>, app: &mut App, value: f64) -> Ref<AnimationController> {
+        let controller = AnimationController::unbounded(
             app,
             value,
             None,
@@ -480,10 +482,9 @@ impl DeckViewState {
     fn forget_card(self: Handle<Self>, app: &mut App, tab: TabId) {
         app.get_mut(self).leaving.remove(&tab);
         if let Some(card) = app.get_mut(self).cards.remove(&tab) {
-            dispose_motion(app, card.slot);
-            dispose_motion(app, card.throw);
-            for motion in [card.flight, card.carry[0], card.carry[1]] {
-                dispose_motion(app, motion);
+            let [across, down] = card.carry;
+            for motion in [card.slot, card.throw, card.flight, across, down] {
+                motion.dispose(app);
             }
         }
     }
@@ -720,12 +721,6 @@ impl DeckViewState {
     }
 }
 
-/// Lets go of a motion for good.
-fn dispose_motion(app: &mut App, controller: Handle<AnimationController>) {
-    controller.dispose(app);
-    app.destroy(controller);
-}
-
 /// What a page is told of the box it is laid out in, in the view `context` is in, laid out as
 /// `layout`: the page's box, the system's bars and gesture zones at the top and the sides still
 /// covering it, the bottom the bar's, and a keyboard covering only what of it reaches above the
@@ -765,7 +760,7 @@ impl TickerProviderStateMixin for DeckViewState {
 }
 
 impl TickerProviderObject for DeckViewState {
-    fn create_ticker(self: Handle<Self>, app: &mut App, on_tick: TickerCallback) -> Handle<Ticker> {
+    fn create_ticker(self: Handle<Self>, app: &mut App, on_tick: TickerCallback) -> Ref<Ticker> {
         TickerProviderStateMixin::create_ticker(self, app, on_tick)
     }
 }
@@ -807,7 +802,7 @@ impl State for DeckViewState {
         }
         if let Some(motions) = app.get_mut(self).motions.take() {
             for motion in [motions.strip, motions.grid_scroll] {
-                dispose_motion(app, motion);
+                motion.dispose(app);
             }
         }
         TickerProviderStateMixin::dispose(self, app);

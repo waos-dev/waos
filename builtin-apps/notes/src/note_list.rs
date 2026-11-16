@@ -120,8 +120,8 @@ pub(crate) fn invoked(app: &mut App, notes: &NotesApp, args: NavigationViewItemE
 
 /// The search field, with what it searches for.
 pub(crate) fn search_field(notes: &NotesApp) -> TextBox {
-    TextBox::new(notes.search.text)
-        .focus_node(notes.search.focus)
+    TextBox::new(notes.search.text.clone())
+        .focus_node(notes.search.focus.erase())
         .placeholder_text("Search")
 }
 

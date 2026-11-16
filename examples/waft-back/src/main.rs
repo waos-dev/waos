@@ -17,7 +17,7 @@ use waft_embedder::{Color, WindowConfig};
 use waft_foundation::{App, Listener};
 use waft_rendering::HitTestBehavior;
 use waft_widgets::{
-    BuildContext, Builder, ColoredBox, GestureDetector, IntoWidget, Navigator, Route, WidgetRef,
+    BuildContext, Builder, ColoredBox, GestureDetector, IntoWidget, Navigator, WidgetRef,
     run_app_with,
 };
 
@@ -46,7 +46,7 @@ fn page(_app: &mut App, context: BuildContext, number: u32) -> WidgetRef {
             app,
             Rc::new(move |app, context| page(app, context, number + 1)),
         );
-        let _popped = Navigator::push(app, context, Route::as_route(route));
+        let _popped = Navigator::push(app, context, route.into_erased());
     });
     GestureDetector::new()
         .behavior(HitTestBehavior::Opaque)

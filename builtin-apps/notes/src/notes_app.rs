@@ -5,10 +5,10 @@
 use std::fmt;
 use std::time::SystemTime;
 
-use waft_foundation::{App, Entity, Handle};
+use waft_foundation::{App, Entity, Handle, Ref};
 use waft_widgets::{
     AnyTextEditingController, FocusNode, FocusNodeLeaf, GlobalKey, TextEditingController,
-    TextEditingControllerLeaf,
+    TextEditingControllerRef,
 };
 use waft_winui::InfoBarSeverity;
 
@@ -30,25 +30,74 @@ pub(crate) struct NotesApp {
     pub(crate) navigator: GlobalKey,
 }
 
+/// The app as a listener on one of its own text fields keeps it: the fields by their bare
+/// handles, since a listener registered on a field must not keep that field, and the rest as the
+/// app has it.
+pub(crate) struct WeakNotesApp {
+    library: Entity<Library>,
+    files: Entity<OpenFiles>,
+    browsing: Entity<Browsing>,
+    editor: WeakTextAndFocus,
+    search: WeakTextAndFocus,
+    navigator: GlobalKey,
+}
+
+impl WeakNotesApp {
+    /// The app again, while its text fields are kept.
+    pub(crate) fn upgrade(&self, app: &App) -> Option<NotesApp> {
+        Some(NotesApp {
+            library: self.library.clone(),
+            files: self.files.clone(),
+            browsing: self.browsing.clone(),
+            editor: self.editor.upgrade(app)?,
+            search: self.search.upgrade(app)?,
+            navigator: self.navigator.clone(),
+        })
+    }
+}
+
 /// A text field's text and focus, which outlive the field: the layout builds the field again as
 /// it changes, and a command moves the focus to it.
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub(crate) struct TextAndFocus {
-    pub(crate) text: AnyTextEditingController,
-    pub(crate) focus: Handle<FocusNode>,
+    pub(crate) text: TextEditingControllerRef,
+    pub(crate) focus: Ref<FocusNode>,
 }
 
 impl TextAndFocus {
     fn new(app: &mut App) -> TextAndFocus {
         TextAndFocus {
-            text: TextEditingController::new(app).as_controller(),
+            text: TextEditingController::new(app).into_erased(),
             focus: FocusNode::new(app),
         }
     }
 
     /// Moves the focus to the field, once it is built where it is not yet.
-    pub(crate) fn take_focus(self, app: &mut App) {
+    pub(crate) fn take_focus(&self, app: &mut App) {
         self.focus.request_focus(app, None);
+    }
+
+    fn downgrade(&self) -> WeakTextAndFocus {
+        WeakTextAndFocus {
+            text: self.text.handle(),
+            focus: self.focus.handle(),
+        }
+    }
+}
+
+/// A [`TextAndFocus`] by its bare handles.
+#[derive(Clone, Copy)]
+struct WeakTextAndFocus {
+    text: AnyTextEditingController,
+    focus: Handle<FocusNode>,
+}
+
+impl WeakTextAndFocus {
+    fn upgrade(self, app: &App) -> Option<TextAndFocus> {
+        Some(TextAndFocus {
+            text: self.text.upgrade(app)?,
+            focus: self.focus.upgrade(app)?,
+        })
     }
 }
 
@@ -61,6 +110,18 @@ impl fmt::Debug for TextAndFocus {
 }
 
 impl NotesApp {
+    /// The app as a listener registered on one of its text fields keeps it.
+    pub(crate) fn downgrade(&self) -> WeakNotesApp {
+        WeakNotesApp {
+            library: self.library.clone(),
+            files: self.files.clone(),
+            browsing: self.browsing.clone(),
+            editor: self.editor.downgrade(),
+            search: self.search.downgrade(),
+            navigator: self.navigator.clone(),
+        }
+    }
+
     /// The app over the notes the program's `/data` keeps and the files open at its last run,
     /// showing none yet, and those files that could not be opened again.
     pub(crate) fn open(app: &mut App) -> (NotesApp, Vec<Unreadable>) {

@@ -4,7 +4,7 @@
 use std::fmt;
 use std::rc::Rc;
 
-use waft_foundation::{App, Entity, Handle, Listenable, Listener, ValueKey};
+use waft_foundation::{App, Entity, Listenable, Listener, Ref, ValueKey};
 use waft_widgets::{
     BuildContext, Center, IntoWidget, KeyedSubtree, ListenableBuilder, Player, Stack, StackFit,
     StatelessWidget, WidgetRef,
@@ -76,20 +76,21 @@ fn on_page(app: &mut App, context: BuildContext, content: WidgetRef) -> WidgetRe
 /// bars too, as a phone's own player fills the screen, while the controls keep clear of the bars.
 fn playing(playback: &Entity<Playback>, session: Session) -> WidgetRef {
     let player = session.player;
-    let state = ListenableBuilder::new(heard(player), move |app, _context, _child| {
-        status::status_of(app, player)
+    let stating = player.clone();
+    let state = ListenableBuilder::new(heard(&player), move |app, _context, _child| {
+        status::status_of(app, &stating)
     });
     let picture = Stack::new().fit(StackFit::Expand).children([
-        video::letterboxed(player),
+        video::letterboxed(&player),
         Center::new().child(state).into_widget(),
     ]);
     let back = {
         let playback = playback.clone();
         Listener::new(move |app: &mut App| playback::close(&playback, app))
     };
-    let page = Controls::new(player, picture.into_widget(), back).into_widget();
+    let page = Controls::new(player.clone(), picture.into_widget(), back).into_widget();
     let name = session.source.name();
-    let titled = ListenableBuilder::new(heard(player), move |app, _context, _child| {
+    let titled = ListenableBuilder::new(heard(&player), move |app, _context, _child| {
         let title = title_for(&name, player.metadata(app).title.as_deref());
         PlayerWindow::new(title, page.clone()).into_widget()
     });
@@ -99,6 +100,6 @@ fn playing(playback: &Entity<Playback>, session: Session) -> WidgetRef {
 }
 
 /// `player`, as what a builder rebuilds at each change of.
-fn heard(player: Handle<Player>) -> Rc<dyn Listenable> {
-    Rc::new(player)
+fn heard(player: &Ref<Player>) -> Rc<dyn Listenable> {
+    Rc::new(player.clone())
 }

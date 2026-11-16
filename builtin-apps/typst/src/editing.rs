@@ -16,10 +16,12 @@ use crate::pages::typeset_soon;
 /// From now on, the document and the status bar follow the editor's text and caret.
 pub(crate) fn follow_editor(app: &mut App, documents: &DocumentsApp) {
     let seen = Rc::new(RefCell::new(String::new()));
-    let following = documents.clone();
+    let following = documents.downgrade();
     let listener = Listener::new(move |app| {
-        follow_text(app, &following, &seen);
-        follow_caret(app, &following);
+        if let Some(documents) = following.upgrade(app) {
+            follow_text(app, &documents, &seen);
+            follow_caret(app, &documents);
+        }
     });
     documents.editor.text.add_listener(app, listener);
 }
@@ -41,7 +43,7 @@ fn follow_text(app: &mut App, documents: &DocumentsApp, seen: &RefCell<String>) 
 }
 
 fn follow_caret(app: &mut App, documents: &DocumentsApp) {
-    let controller = documents.editor.text;
+    let controller = documents.editor.text.handle();
     let caret = controller.selection(app).extent_offset.max(0) as usize;
     let place = line_and_column(controller.text_value(app), caret);
     documents.caret.update(app, |caret, cx| {

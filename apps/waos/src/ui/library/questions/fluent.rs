@@ -11,7 +11,8 @@ use std::sync::Arc;
 
 use waft::{
     App, BuildContext, Column, CrossAxisAlignment, Entity, FrameCallback, Handle, IntoWidget,
-    MainAxisSize, SchedulerBinding, State, StateData, StatefulWidget, Text, WidgetRef,
+    MainAxisSize, OptionRetained, Ref, SchedulerBinding, State, StateData, StatefulWidget, Text,
+    WidgetRef,
 };
 use waft_winui::{ContentDialog, ContentDialogButton};
 
@@ -43,7 +44,7 @@ impl StatefulWidget for FluentAsked {
 
 pub(crate) struct FluentAskedState {
     state: StateData<FluentAsked>,
-    dialog: Option<Handle<ContentDialog>>,
+    dialog: Option<Ref<ContentDialog>>,
     /// Whether the dialog is shown, from its showing until it has closed.
     showing: bool,
 }
@@ -55,15 +56,15 @@ impl State for FluentAskedState {
     fn init_state(self: Handle<Self>, app: &mut App) {
         let library = self.widget(app).library.clone();
         let (yes, no) = (library.clone(), library);
-        let dialog = ContentDialog::new(app)
-            .primary_button_click(app, move |app, args| {
-                args.set_cancel(true);
-                confirm(&yes, app);
-            })
-            .close_button_click(app, move |app, args| {
-                args.set_cancel(true);
-                dismiss(&no, app);
-            });
+        let dialog = ContentDialog::new(app);
+        dialog.primary_button_click(app, move |app, args| {
+            args.set_cancel(true);
+            confirm(&yes, app);
+        });
+        dialog.close_button_click(app, move |app, args| {
+            args.set_cancel(true);
+            dismiss(&no, app);
+        });
         app.get_mut(self).dialog = Some(dialog);
     }
 
@@ -92,7 +93,7 @@ impl FluentAskedState {
         if !self.mounted(app) {
             return;
         }
-        let Some(dialog) = app.get(self).dialog else {
+        let Some(dialog) = app.get(self).dialog.handle() else {
             return;
         };
         let said = said_now(self.widget(app).library.read(app));
@@ -139,12 +140,11 @@ fn set_to(dialog: Handle<ContentDialog>, said: &Said, app: &mut App) {
         Some(confirm) => (confirm.label, ContentDialogButton::Primary),
         None => ("", ContentDialogButton::Close),
     };
-    dialog
-        .title(app, title)
-        .content(app, Text::new(said.message.clone()))
-        .primary_button_text(app, confirm)
-        .close_button_text(app, said.dismiss)
-        .default_button(app, default);
+    dialog.title(app, title);
+    dialog.content(app, Text::new(said.message.clone()));
+    dialog.primary_button_text(app, confirm);
+    dialog.close_button_text(app, said.dismiss);
+    dialog.default_button(app, default);
 }
 
 /// The dialog's title, under the program's icon where it has one.

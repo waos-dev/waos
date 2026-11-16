@@ -87,7 +87,7 @@ impl StatelessWidget for Card {
             BorderSide::STROKE_ALIGN_INSIDE,
         );
         let border = BoxDecoration {
-            border: Some(Box::new(hairline)),
+            border: Some(hairline.into()),
             border_radius: Some(radius),
             ..BoxDecoration::default()
         };

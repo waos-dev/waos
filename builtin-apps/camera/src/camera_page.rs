@@ -147,7 +147,7 @@ impl CameraPage {
     /// while it gives them.
     fn interruption(&self, app: &App) -> Option<Option<CameraInterruption>> {
         let running = self.camera.viewfinder.read(app).running()?;
-        match CameraSession::state(running.session, app) {
+        match CameraSession::state(running.session.handle(), app) {
             CaptureState::Interrupted(why) => Some(*why),
             CaptureState::Running | CaptureState::Ended(_) => None,
         }

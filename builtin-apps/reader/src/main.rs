@@ -74,8 +74,7 @@ use std::rc::Rc;
 
 use waft::ui::NotificationActivation;
 use waft::{
-    App, IntoWidget, PageRoute, PageRouteBuilder, RouteSettingsRef, WidgetRef, WidgetsApp,
-    run_app_with,
+    App, IntoWidget, PageRouteBuilder, RouteSettingsRef, WidgetRef, WidgetsApp, run_app_with,
 };
 use waft_winui::{AccentPalette, install_icon_font};
 
@@ -118,7 +117,7 @@ fn widgets_app(reader: &ReaderApp) -> WidgetRef {
                 Rc::new(move |app, context, _, _| builder(app, context)),
             )
             .settings(app, RouteSettingsRef::Settings(settings.clone()));
-            PageRoute::as_page_route(route)
+            route.into_erased()
         })
         .home(MainPage {
             reader: reader.clone(),

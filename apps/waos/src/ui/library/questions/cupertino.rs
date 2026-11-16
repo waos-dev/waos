@@ -12,8 +12,8 @@ use std::rc::Rc;
 
 use waft::{
     App, BuildContext, Column, Entity, FrameCallback, Handle, IntoWidget, Listener, MainAxisSize,
-    Navigator, PopScope, Route, SchedulerBinding, SizedBox, State, StateData, StatefulWidget,
-    StatelessWidget, Text, WidgetRef,
+    Navigator, OptionRetained, PopScope, Ref, Route, SchedulerBinding, SizedBox, State, StateData,
+    StatefulWidget, StatelessWidget, Text, WidgetRef,
 };
 use waft_cupertino::{CupertinoAlertDialog, CupertinoDialogAction, CupertinoDialogRoute};
 
@@ -46,7 +46,7 @@ impl StatefulWidget for CupertinoAsked {
 pub(crate) struct CupertinoAskedState {
     state: StateData<CupertinoAsked>,
     /// The alert's route, while it is on the navigator.
-    route: Option<Handle<CupertinoDialogRoute>>,
+    route: Option<Ref<CupertinoDialogRoute>>,
 }
 
 impl State for CupertinoAskedState {
@@ -76,10 +76,10 @@ impl CupertinoAskedState {
         }
         let library = self.widget(app).library.clone();
         let says = said_now(library.read(app)).is_some();
-        match (says, app.get(self).route) {
-            (true, None) => self.show(app, context, library),
-            (false, Some(route)) => {
-                app.get_mut(self).route = None;
+        match (says, app.get(self).route.is_some()) {
+            (true, false) => self.show(app, context, library),
+            (false, true) => {
+                let route = app.get_mut(self).route.take().expect("on the navigator");
                 let navigator = Navigator::of(app, context, true);
                 navigator.remove_route(app, route.as_route(), None);
             }
@@ -95,15 +95,15 @@ impl CupertinoAskedState {
             context,
         )
         .barrier_dismissible(app, false);
-        app.get_mut(self).route = Some(route);
+        let pushed = route.handle();
         let navigator = Navigator::of(app, context, true);
-        navigator
-            .push(app, route.as_route())
-            .then(app, move |app, _| {
-                if self.mounted(app) && app.get(self).route == Some(route) {
-                    app.get_mut(self).route = None;
-                }
-            });
+        let popped = navigator.push(app, route.erase());
+        app.get_mut(self).route = Some(route);
+        popped.then(app, move |app, _| {
+            if self.mounted(app) && app.get(self).route.handle() == Some(pushed) {
+                app.get_mut(self).route = None;
+            }
+        });
     }
 }
 

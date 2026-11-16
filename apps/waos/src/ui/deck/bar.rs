@@ -207,7 +207,7 @@ pub(super) fn bar_material(child: WidgetRef, app: &mut App, context: BuildContex
     let hairline = resolved(CupertinoColors::SEPARATOR, app, context);
     let decoration = BoxDecoration {
         color: Some(resolved(BAR_COLOR, app, context).into()),
-        border: Some(Box::new(top_hairline(hairline))),
+        border: Some(top_hairline(hairline).into()),
         ..BoxDecoration::default()
     };
     DecoratedBox::new(decoration).child(child).into_widget()

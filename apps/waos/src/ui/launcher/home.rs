@@ -14,8 +14,8 @@ use std::rc::Rc;
 use waft::{
     App, BuildContext, Builder, Column, CrossAxisAlignment, EdgeInsetsGeometry, Entity, Expanded,
     Focus, FocusNode, FocusNodeLeaf, FrameCallback, Handle, IntoWidget, KeyEventResult, Listenable,
-    Listener, Padding, Row, SchedulerBinding, State, StateData, StatefulWidget, Subscription,
-    TextEditingController, TextEditingControllerLeaf, WidgetRef,
+    Listener, OptionRetained, Padding, Ref, Row, SchedulerBinding, State, StateData,
+    StatefulWidget, Subscription, TextEditingController, TextEditingControllerLeaf, WidgetRef,
 };
 use waft_services::{KeyEvent, LogicalKeyboardKey};
 use waft_winui::{
@@ -61,7 +61,7 @@ pub(crate) struct LauncherHomeState {
     state: StateData<LauncherHome>,
     field: Option<SearchField>,
     /// The menu of "…".
-    menu: Option<Handle<MenuFlyout>>,
+    menu: Option<Ref<MenuFlyout>>,
     /// The library's and the launcher's changes, heard while the home shows.
     followed: Vec<Subscription>,
     /// The number of the launcher's last showing the field took the keyboard for.
@@ -69,10 +69,9 @@ pub(crate) struct LauncherHomeState {
 }
 
 /// What is typed in the search field, and what gives it the keyboard.
-#[derive(Clone, Copy)]
 struct SearchField {
-    text: Handle<TextEditingController>,
-    focus: Handle<FocusNode>,
+    text: Ref<TextEditingController>,
+    focus: Ref<FocusNode>,
 }
 
 impl State for LauncherHomeState {
@@ -86,9 +85,8 @@ impl State for LauncherHomeState {
         };
         let text = TextEditingController::new(app);
         let searched = library.read(app).search().to_owned();
-        text.as_controller().set_text(app, searched);
-        text.as_controller()
-            .add_listener(app, Listener::new(move |app| self.typed(app)));
+        text.set_text(app, searched);
+        text.add_listener(app, Listener::new(move |app| self.typed(app)));
         let field = SearchField {
             text,
             focus: FocusNode::new(app),
@@ -111,8 +109,7 @@ impl State for LauncherHomeState {
             menu.dispose(app);
         }
         if let Some(field) = app.get_mut(self).field.take() {
-            app.get_mut(field.text).dispose();
-            app.destroy(field.text);
+            field.text.dispose(app);
             field.focus.dispose(app);
         }
     }
@@ -135,8 +132,18 @@ impl State for LauncherHomeState {
 }
 
 impl LauncherHomeState {
-    fn field(self: Handle<Self>, app: &App) -> SearchField {
-        app.get(self).field.expect("made in init_state")
+    fn field(self: Handle<Self>, app: &App) -> &SearchField {
+        app.get(self).field.as_ref().expect("made in init_state")
+    }
+
+    /// What is typed in the search field.
+    fn text(self: Handle<Self>, app: &App) -> Handle<TextEditingController> {
+        self.field(app).text.handle()
+    }
+
+    /// What gives the search field the keyboard.
+    fn focus(self: Handle<Self>, app: &App) -> Handle<FocusNode> {
+        self.field(app).focus.handle()
     }
 
     /// The magnifier, the field and "…".
@@ -145,8 +152,8 @@ impl LauncherHomeState {
         let magnifier = FontIcon::symbol(FluentSymbol::Search)
             .font_size(ICON_SIZE)
             .foreground(resources.text_fill_color_secondary);
-        let text_box = TextBox::new(field.text.as_controller())
-            .focus_node(field.focus)
+        let text_box = TextBox::new(field.text.erase())
+            .focus_node(field.focus.erase())
             .placeholder_text(words::SEARCH_PROGRAMS)
             .font_size(SEARCH_FONT_SIZE);
         let opening_the_first = Focus::new(text_box)
@@ -171,7 +178,7 @@ impl LauncherHomeState {
     fn more_button(self: Handle<Self>) -> WidgetRef {
         FlyoutTarget::new(Builder::new(move |_app, target| {
             let open = Listener::new(move |app| {
-                if let Some(menu) = app.get(self).menu {
+                if let Some(menu) = app.get(self).menu.handle() {
                     menu.show_at(app, target);
                 }
             });
@@ -220,7 +227,7 @@ impl LauncherHomeState {
         if !self.mounted(app) {
             return;
         }
-        let typed = self.field(app).text.text_value(app).to_owned();
+        let typed = self.text(app).text_value(app).to_owned();
         let library = self.widget(app).library.clone();
         library.update(app, |library, cx| library.search_for(&typed, cx));
     }
@@ -232,9 +239,9 @@ impl LauncherHomeState {
             return;
         }
         let searched = self.widget(app).library.read(app).search().to_owned();
-        let text = self.field(app).text;
+        let text = self.text(app);
         if text.text_value(app) != searched {
-            text.as_controller().set_text(app, searched);
+            text.set_text(app, searched);
         }
     }
 
@@ -258,8 +265,7 @@ impl LauncherHomeState {
     fn give_the_keyboard_after_this_frame(self: Handle<Self>, app: &mut App) {
         let callback = FrameCallback::new(move |app, _| {
             if self.mounted(app) {
-                let focus = self.field(app).focus;
-                focus.request_focus(app, None);
+                self.focus(app).request_focus(app, None);
             }
         });
         SchedulerBinding::add_post_frame_callback(app, callback, None);

@@ -65,8 +65,8 @@ use std::rc::Rc;
 use waft_embedder::NotificationActivation;
 use waft_foundation::App;
 use waft_widgets::{
-    IntoWidget, PageRoute, PageRouteBuilder, PlatformMenuBar, RouteSettingsRef, WidgetRef,
-    WidgetsApp, run_app_with,
+    IntoWidget, PageRouteBuilder, PlatformMenuBar, RouteSettingsRef, WidgetRef, WidgetsApp,
+    run_app_with,
 };
 use waft_winui::{AccentPalette, install_icon_font};
 
@@ -123,7 +123,7 @@ fn widgets_app(notes: &NotesApp) -> WidgetRef {
                 Rc::new(move |app, context, _, _| builder(app, context)),
             )
             .settings(app, RouteSettingsRef::Settings(settings.clone()));
-            PageRoute::as_page_route(route)
+            route.into_erased()
         })
         .home(MainPage {
             notes: notes.clone(),

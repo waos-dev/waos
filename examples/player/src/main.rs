@@ -28,7 +28,7 @@ use waft_embedder::{
     MediaTrack, MediaTrackKind, PlayerActivity, PlayerState, PlayerStatus, VideoFrameReader,
     VideoOutput, WindowConfig,
 };
-use waft_foundation::{App, Handle, Listenable, Listener, ValueNotifier};
+use waft_foundation::{App, Handle, Listenable, ListenableObject, Listener, Ref, ValueNotifier};
 use waft_widgets::{
     AlignmentGeometry, Center, Column, EdgeInsetsGeometry, Expanded, IntoWidget, ListenableBuilder,
     Padding, Player, PlayerView, Positioned, Row, Stack, SubtitleView, Text, VideoFrameView,
@@ -79,25 +79,31 @@ fn home(app: &mut App) -> WidgetRef {
             .child(Text::new("This system has no media players"))
             .into_widget();
     };
-    print_changes(app, player);
+    print_changes(app, player.handle());
     let reader = app
         .platform()
         .video_frame_readers()
         .map(|readers| readers.make_reader());
     let way = app.create(ValueNotifier::new(Way::Layer));
-    show_as(app, player, reader.as_ref(), way, kept_way());
+    show_as(
+        app,
+        player.handle(),
+        reader.as_ref(),
+        way.handle(),
+        kept_way(),
+    );
     player.play(app);
-    let shown: Rc<dyn Listenable> = Rc::new(way);
+    let shown: Rc<dyn Listenable> = Rc::new(way.clone());
     ListenableBuilder::new(shown, move |app, _context, _child| {
-        let video = match (*app.get(way).value(), &reader) {
-            (Way::Frames, Some(reader)) => drawn_frames(player, reader),
-            _ => PlayerView::new(player).into_widget(),
+        let video = match (*app.get(&way).value(), &reader) {
+            (Way::Frames, Some(reader)) => drawn_frames(&player, reader),
+            _ => PlayerView::new(player.clone()).into_widget(),
         };
         Column::new()
             .children([
                 Expanded::new(Center::new().child(video)).into_widget(),
                 Padding::new(EdgeInsetsGeometry::all(16.0))
-                    .child(buttons(player, reader.clone(), way))
+                    .child(buttons(&player, reader.clone(), &way))
                     .into_widget(),
             ])
             .into_widget()
@@ -106,9 +112,10 @@ fn home(app: &mut App) -> WidgetRef {
 }
 
 /// The video drawn by the app from `reader`'s frames, with the player's subtitles over it.
-fn drawn_frames(player: Handle<Player>, reader: &Arc<dyn VideoFrameReader>) -> WidgetRef {
+fn drawn_frames(player: &Ref<Player>, reader: &Arc<dyn VideoFrameReader>) -> WidgetRef {
     let video = VideoFrameView::new(Arc::clone(reader)).into_widget();
-    let listenable: Rc<dyn Listenable> = Rc::new(player);
+    let listenable: Rc<dyn Listenable> = Rc::new(player.clone());
+    let player = player.clone();
     ListenableBuilder::new(listenable, move |app, _context, _child| {
         Stack::new()
             .alignment(AlignmentGeometry::TOP_LEFT)
@@ -123,19 +130,20 @@ fn drawn_frames(player: Handle<Player>, reader: &Arc<dyn VideoFrameReader>) -> W
 
 /// Play or pause, the subtitles, and the way the video is shown, each labelled for what it does.
 fn buttons(
-    player: Handle<Player>,
+    player: &Ref<Player>,
     reader: Option<Arc<dyn VideoFrameReader>>,
-    way: Handle<ValueNotifier<Way>>,
+    way: &Ref<ValueNotifier<Way>>,
 ) -> WidgetRef {
-    let listenable: Rc<dyn Listenable> = Rc::new(player);
+    let listenable: Rc<dyn Listenable> = Rc::new(player.clone());
+    let (player, way) = (player.clone(), way.clone());
     ListenableBuilder::new(listenable, move |app, _context, _child| {
         let state = player.state(app);
         let mut buttons = vec![
-            play_or_pause(player, is_paused(state)),
-            subtitles_button(player, state),
+            play_or_pause(&player, is_paused(state)),
+            subtitles_button(&player, state),
         ];
         if let Some(reader) = &reader {
-            buttons.push(way_button(player, reader, way, *app.get(way).value()));
+            buttons.push(way_button(&player, reader, &way, *app.get(&way).value()));
         }
         let spaced = buttons.into_iter().map(|button| {
             Padding::new(EdgeInsetsGeometry::all(8.0))
@@ -151,8 +159,9 @@ fn buttons(
 
 /// Play while the player is paused, by the program or the system; pause while it plays or waits
 /// to.
-fn play_or_pause(player: Handle<Player>, paused: bool) -> WidgetRef {
+fn play_or_pause(player: &Ref<Player>, paused: bool) -> WidgetRef {
     let label = if paused { "Play" } else { "Pause" };
+    let player = player.clone();
     let toggle = Listener::new(move |app| {
         if is_paused(player.state(app)) {
             player.play(app);
@@ -164,13 +173,14 @@ fn play_or_pause(player: Handle<Player>, paused: bool) -> WidgetRef {
 }
 
 /// Shows the subtitles in [`SUBTITLES`] while none are shown, and none while some are.
-fn subtitles_button(player: Handle<Player>, state: &PlayerState) -> WidgetRef {
+fn subtitles_button(player: &Ref<Player>, state: &PlayerState) -> WidgetRef {
     let shown = shown_text_track(&state.tracks).is_some();
     let label = if shown {
         "Hide subtitles"
     } else {
         "Show subtitles"
     };
+    let player = player.clone();
     let toggle = Listener::new(move |app| {
         let tracks = &player.state(app).tracks;
         if shown_text_track(tracks).is_some() {
@@ -185,18 +195,18 @@ fn subtitles_button(player: Handle<Player>, state: &PlayerState) -> WidgetRef {
 
 /// Switches the video from the way it is shown now, `now`, to the other.
 fn way_button(
-    player: Handle<Player>,
+    player: &Ref<Player>,
     reader: &Arc<dyn VideoFrameReader>,
-    way: Handle<ValueNotifier<Way>>,
+    way: &Ref<ValueNotifier<Way>>,
     now: Way,
 ) -> WidgetRef {
     let (label, other) = match now {
         Way::Layer => ("Draw the frames", Way::Frames),
         Way::Frames => ("Show on a layer", Way::Layer),
     };
-    let reader = Arc::clone(reader);
+    let (player, reader, way) = (player.clone(), Arc::clone(reader), way.clone());
     let switch = Listener::new(move |app| {
-        show_as(app, player, Some(&reader), way, other);
+        show_as(app, player.handle(), Some(&reader), way.handle(), other);
         keep_way(other);
     });
     CupertinoButton::filled(Text::new(label).into_widget(), Some(switch)).into_widget()

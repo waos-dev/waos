@@ -10,7 +10,7 @@ use std::rc::Rc;
 use waft_embedder::{Size, WindowConfig, WindowRef};
 use waft_foundation::{App, Entity, Handle, Subscription};
 use waft_widgets::{
-    Action, Actions, AnyAction, BuildContext, CallbackAction, Intent, IntoWidget, State, StateData,
+    ActionRef, Actions, BuildContext, CallbackAction, Intent, IntoWidget, State, StateData,
     StatefulWidget, View, WidgetRef,
 };
 
@@ -81,7 +81,7 @@ pub(crate) struct SessionWindowState {
     /// The title the window was given last.
     titled: Option<String>,
     /// What Close Window does here.
-    actions: HashMap<TypeId, AnyAction>,
+    actions: HashMap<TypeId, ActionRef>,
     /// Keeps the window following its session's title and end.
     following: Option<Subscription>,
 }
@@ -128,7 +128,7 @@ impl State for SessionWindowState {
         let state = app.get_mut(self);
         state
             .actions
-            .insert(TypeId::of::<CloseWindowIntent>(), close.as_action());
+            .insert(TypeId::of::<CloseWindowIntent>(), close.into_erased());
         state.following = Some(following);
     }
 
@@ -138,9 +138,7 @@ impl State for SessionWindowState {
         hang_up(app, &session);
         let state = app.get_mut(self);
         state.following = None;
-        for action in std::mem::take(&mut state.actions).into_values() {
-            app.destroy(action.id());
-        }
+        state.actions.clear();
     }
 
     /// The view's metrics change at each resize: only another window is limited and titled anew.

@@ -9,7 +9,6 @@
 //! only while its number is the newest, so a start overtaken by a rest, a switch or another start
 //! lets its session go instead of showing it.
 
-use std::rc::Rc;
 use std::sync::Arc;
 
 use waft::ui::{
@@ -17,8 +16,8 @@ use waft::ui::{
     VideoFrameReader,
 };
 use waft::{
-    App, AsyncApp, CameraSession, Entity, Handle, Listenable, Listener, Size, available_cameras,
-    available_cameras_changed, open_camera,
+    App, AsyncApp, CameraSession, Entity, Handle, ListenableObject, Listener, Ref, Size,
+    available_cameras, available_cameras_changed, open_camera,
 };
 
 use crate::looks::Look;
@@ -48,7 +47,7 @@ pub(crate) enum Status {
 #[derive(Clone)]
 pub(crate) struct Running {
     pub(crate) camera: Camera,
-    pub(crate) session: Handle<CameraSession>,
+    pub(crate) session: Ref<CameraSession>,
     /// The camera's frames, read by the live picture.
     pub(crate) frames: Arc<dyn VideoFrameReader>,
 }
@@ -216,7 +215,7 @@ fn finish_start(app: &mut App, viewfinder: &Entity<Viewfinder>, number: u64, sta
         return;
     }
     if let Status::Running(running) = &status {
-        follow_session(app, viewfinder, running.session);
+        follow_session(app, viewfinder, running.session.handle());
     }
     viewfinder.update(app, |viewfinder, cx| {
         viewfinder.status = status;
@@ -309,19 +308,23 @@ fn area(size: Size) -> f64 {
 
 /// Has the viewfinder hear `session`'s state change: shown again while it runs or is
 /// interrupted, and acted on once it has ended.
+///
+/// The listener holds the viewfinder weakly: the viewfinder keeps the session, and a listener
+/// registered on the session must not keep it.
 fn follow_session(app: &mut App, viewfinder: &Entity<Viewfinder>, session: Handle<CameraSession>) {
-    let viewfinder = viewfinder.clone();
-    let changed =
-        Listener::new(
-            move |app: &mut App| match CameraSession::state(session, app).clone() {
-                CaptureState::Ended(error) => session_ended(app, &viewfinder, error),
-                CaptureState::Running | CaptureState::Interrupted(_) => {
-                    viewfinder.update(app, |_viewfinder, cx| cx.notify());
-                }
-            },
-        );
-    let listenable: Rc<dyn Listenable> = Rc::new(session);
-    listenable.add_listener(app, changed);
+    let viewfinder = viewfinder.downgrade();
+    let changed = Listener::new(move |app: &mut App| {
+        let Some(viewfinder) = viewfinder.upgrade() else {
+            return;
+        };
+        match CameraSession::state(session, app).clone() {
+            CaptureState::Ended(error) => session_ended(app, &viewfinder, error),
+            CaptureState::Running | CaptureState::Interrupted(_) => {
+                viewfinder.update(app, |_viewfinder, cx| cx.notify());
+            }
+        }
+    });
+    session.add_listener(app, changed);
 }
 
 /// The session ended for good: another camera is started where this one was unplugged, and the

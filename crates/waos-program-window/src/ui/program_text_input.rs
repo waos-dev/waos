@@ -11,7 +11,7 @@
 //! connection once it is another's.
 
 use waft::ui::{Matrix4, Rect};
-use waft::{App, BuildContext, Entity, Handle, Size, Subscription};
+use waft::{App, BuildContext, Entity, Handle, OptionRetained, Ref, Size, Subscription};
 use waft_services::{
     TextEditingValue as WaftEditingValue, TextInput, TextInputAction as WaftAction,
     TextInputClient, TextInputConnection,
@@ -30,7 +30,7 @@ pub(crate) struct ProgramTextInput {
     /// Where the view is drawn: the input methods' windows are placed relative to it.
     canvas: BuildContext,
     /// Waft's connection since the program last started editing, until it stopped.
-    connection: Option<Handle<TextInputConnection>>,
+    connection: Option<Ref<TextInputConnection>>,
     /// The value the program last set.
     editing_value: Option<WaftEditingValue>,
     /// Keeps the program's calls coming while the canvas is in the tree.
@@ -43,7 +43,7 @@ impl ProgramTextInput {
         app: &mut App,
         view: Entity<ShownView>,
         canvas: BuildContext,
-    ) -> Handle<ProgramTextInput> {
+    ) -> Ref<ProgramTextInput> {
         let text_input = app.create(ProgramTextInput {
             view: view.clone(),
             canvas,
@@ -51,17 +51,19 @@ impl ProgramTextInput {
             editing_value: None,
             program_calls: None,
         });
+        let receiver = text_input.handle();
         let program_calls = app.subscribe(&view, move |app, change: &TextInputCall| {
-            text_input.apply(app, change);
+            receiver.apply(app, change);
         });
-        app.get_mut(text_input).program_calls = Some(program_calls);
+        app.get_mut(receiver).program_calls = Some(program_calls);
         text_input
     }
 
-    /// Ends editing and carries out no more of the program's calls: the canvas is gone.
+    /// Ends editing and carries out no more of the program's calls: the canvas is gone. The
+    /// canvas lets go of the text input after this, which frees it.
     pub(crate) fn close(self: Handle<Self>, app: &mut App) {
         self.stop(app);
-        app.destroy(self);
+        app.get_mut(self).program_calls = None;
     }
 
     fn apply(self: Handle<Self>, app: &mut App, change: &TextInputCall) {
@@ -82,8 +84,8 @@ impl ProgramTextInput {
     fn start(self: Handle<Self>, app: &mut App, configuration: &TextInputConfiguration) {
         let configuration = waft_configuration(configuration, self.shown_view(app).waft_view());
         let connection = TextInput::attach(app, self.as_text_input_client(), configuration);
-        app.get_mut(self).connection = Some(connection);
         connection.show(app);
+        app.get_mut(self).connection = Some(connection);
     }
 
     fn set_editing_state(self: Handle<Self>, app: &mut App, value: &TextEditingValue) {
@@ -130,7 +132,7 @@ impl ProgramTextInput {
         self: Handle<Self>,
         app: &mut App,
     ) -> Option<Handle<TextInputConnection>> {
-        let connection = app.get(self).connection?;
+        let connection = app.get(self).connection.handle()?;
         connection.attached(app).then_some(connection)
     }
 

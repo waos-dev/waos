@@ -25,7 +25,7 @@ use std::rc::Rc;
 use indexmap::IndexMap;
 use waft::{
     App, BuildContext, EdgeInsetsGeometry, Entity, Handle, Icon, IntoWidget, ListView, Listener,
-    Padding, SizedBox, State, StateData, StatefulWidget, Task, Text, TextEditingController,
+    Padding, Ref, SizedBox, State, StateData, StatefulWidget, Task, Text, TextEditingController,
     TextEditingControllerLeaf, ValueChanged, WidgetRef,
 };
 use waft_cupertino::{
@@ -74,19 +74,19 @@ pub(crate) struct CupertinoSettingsState {
 }
 
 /// What is being typed on the page.
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 struct Typed {
-    domain: Handle<TextEditingController>,
-    folder: Handle<TextEditingController>,
-    folder_at: Handle<TextEditingController>,
+    domain: Ref<TextEditingController>,
+    folder: Ref<TextEditingController>,
+    folder_at: Ref<TextEditingController>,
     /// A path for each file dialog, in [`FileDialog::ALL`]'s order.
-    paths: [Handle<TextEditingController>; 4],
+    paths: [Ref<TextEditingController>; 4],
 }
 
 impl Typed {
-    fn path(&self, dialog: FileDialog) -> Handle<TextEditingController> {
+    fn path(&self, dialog: FileDialog) -> &Ref<TextEditingController> {
         let index = FileDialog::ALL.iter().position(|each| *each == dialog);
-        self.paths[index.expect("every dialog")]
+        &self.paths[index.expect("every dialog")]
     }
 }
 
@@ -108,8 +108,7 @@ impl State for CupertinoSettingsState {
         if let Some(typed) = app.get_mut(self).typed.take() {
             let fields = [typed.domain, typed.folder, typed.folder_at];
             for controller in fields.into_iter().chain(typed.paths) {
-                app.get_mut(controller).dispose();
-                app.destroy(controller);
+                controller.dispose(app);
             }
         }
     }
@@ -119,7 +118,7 @@ impl State for CupertinoSettingsState {
         let page = Page {
             library: widget.library.clone(),
             of: widget.of.clone(),
-            typed: app.get(self).typed.expect("an initialized page"),
+            typed: app.get(self).typed.clone().expect("an initialized page"),
             writable: app.get(self).writable,
             state: self,
         };
@@ -384,7 +383,7 @@ impl Page {
     fn file_dialog_answer(&self, dialog: FileDialog, set: &ShownAnswerWith) -> WidgetRef {
         let paths = set.paths.file_dialog(dialog).unwrap_or_default();
         let placeholder = words::file_dialog_placeholder(dialog);
-        let typed = self.typed.path(dialog);
+        let typed = self.typed.path(dialog).clone();
         let mut tiles = Vec::new();
         if dialog == FileDialog::OpenFiles {
             for (index, path) in paths.iter().enumerate() {
@@ -460,7 +459,7 @@ impl Page {
                 );
             }
             tiles.push(self.adding(
-                self.typed.domain,
+                self.typed.domain.clone(),
                 words::DOMAIN_PLACEHOLDER,
                 words::ADD,
                 SettingChange::AddDomain,
@@ -698,12 +697,13 @@ impl Page {
     /// and clears the field once it is made.
     fn adding(
         &self,
-        typed: Handle<TextEditingController>,
+        typed: Ref<TextEditingController>,
         placeholder: &str,
         confirm: &str,
         change: impl Fn(String) -> SettingChange + 'static,
     ) -> WidgetRef {
         let (library, of) = (self.library.clone(), self.of.clone());
+        let controller = typed.erase();
         let add = Listener::new(move |app| {
             let text = typed.text_value(app).to_owned();
             library.update(app, |library, cx| {
@@ -714,7 +714,7 @@ impl Page {
             }
         });
         let field = CupertinoTextField::new()
-            .controller(typed.as_controller())
+            .controller(controller)
             .placeholder(placeholder);
         CupertinoListTile::new(field)
             .trailing(CupertinoButton::new(
@@ -729,9 +729,10 @@ impl Page {
         let (library, of, typed, writable) = (
             self.library.clone(),
             self.of.clone(),
-            self.typed,
+            self.typed.clone(),
             self.writable,
         );
+        let (folder, folder_at) = (typed.folder.erase(), typed.folder_at.erase());
         let add = Listener::new(move |app| {
             let change = SettingChange::AddMount {
                 host: typed.folder.text_value(app).to_owned(),
@@ -763,13 +764,13 @@ impl Page {
         vec![
             CupertinoListTile::new(
                 CupertinoTextField::new()
-                    .controller(typed.folder.as_controller())
+                    .controller(folder)
                     .placeholder(words::FOLDER_PLACEHOLDER),
             )
             .into_widget(),
             CupertinoListTile::new(
                 CupertinoTextField::new()
-                    .controller(typed.folder_at.as_controller())
+                    .controller(folder_at)
                     .placeholder(words::FOLDER_AT_PLACEHOLDER),
             )
             .into_widget(),

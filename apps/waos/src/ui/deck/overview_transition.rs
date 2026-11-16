@@ -215,12 +215,12 @@ impl DeckViewState {
         let Some((tab, travel)) = held.map(|held| (held.tab, held.travel)) else {
             return;
         };
-        let Some(card) = self.card(app, tab) else {
+        let Some(flight) = self.flight_of(app, tab) else {
             return;
         };
         let travel = self.travel_after(app, travel, moved.along);
         let whole_flight = self.layout(app).full_flight_travel();
-        card.flight.set_value(app, travel / whole_flight);
+        flight.set_value(app, travel / whole_flight);
         if let Some(held) = app.get_mut(self).held_page.as_mut() {
             held.travel = travel;
         }
@@ -245,8 +245,8 @@ impl DeckViewState {
         let Some(hold) = app.get(self).held_page.as_ref().map(|held| held.hold) else {
             return;
         };
-        let (Some((index, position)), Some(card)) =
-            (self.placed_card(app, tab), self.card(app, tab))
+        let (Some((index, position)), Some([across, down])) =
+            (self.placed_card(app, tab), self.carry_of(app, tab))
         else {
             return;
         };
@@ -254,8 +254,8 @@ impl DeckViewState {
         let carry = self
             .layout(app)
             .carried_by(index, hold, moved.at, &position, &deck);
-        card.carry[0].set_value(app, carry.dx());
-        card.carry[1].set_value(app, carry.dy());
+        across.set_value(app, carry.dx());
+        down.set_value(app, carry.dy());
         if let (Some(held), Some(time)) = (app.get_mut(self).held_page.as_mut(), moved.time) {
             held.carrying_speed.add_position(time, carry);
         }
@@ -353,23 +353,23 @@ impl DeckViewState {
 
     /// Puts the flight of `tab` at `flight` at once, where that cannot be seen.
     fn put_flight(self: Handle<Self>, app: &mut App, tab: TabId, flight: f64) {
-        if let Some(card) = self.card(app, tab) {
+        if let Some(motion) = self.flight_of(app, tab) {
             self.stop_flight(app, tab);
-            card.flight.set_value(app, flight);
+            motion.set_value(app, flight);
         }
     }
 
     fn stop_flight(self: Handle<Self>, app: &mut App, tab: TabId) {
-        if let Some(card) = self.card(app, tab) {
-            card.flight.stop(app, true);
+        if let Some(flight) = self.flight_of(app, tab) {
+            flight.stop(app, true);
             self.with_card(app, tab, |card| card.flight_heading = None);
         }
     }
 
     /// Stops the page of `tab` where a finger carried it.
     fn stop_carry(self: Handle<Self>, app: &mut App, tab: TabId) {
-        if let Some(card) = self.card(app, tab) {
-            for axis in card.carry {
+        if let Some(carry) = self.carry_of(app, tab) {
+            for axis in carry {
                 axis.stop(app, true);
             }
             self.with_card(app, tab, |card| card.carry_settling = [false; 2]);
@@ -398,19 +398,22 @@ impl DeckViewState {
     /// Lets the flight of `tab` settle where it heads, from where it is, at `velocity`, in
     /// flights a second, or at the speed it has; nothing while a finger has it.
     fn settle_flight(self: Handle<Self>, app: &mut App, tab: TabId, velocity: Option<f64>) {
-        let Some(card) = self.card(app, tab) else {
+        let Some((flight, heading)) = self
+            .card(app, tab)
+            .map(|card| (card.flight.handle(), card.flight_heading))
+        else {
             return;
         };
         if self.is_in_hand(app, tab) {
             return;
         }
         let target = self.flight_target(app, tab);
-        let heading_there = card.flight_heading == Some(target);
-        let there = card.flight.value(app) == target && card.flight_heading.is_none();
+        let heading_there = heading == Some(target);
+        let there = flight.value(app) == target && heading.is_none();
         if there || (heading_there && velocity.is_none()) {
             return;
         }
-        let velocity = velocity.unwrap_or_else(|| card.flight.velocity(app));
+        let velocity = velocity.unwrap_or_else(|| flight.velocity(app));
         self.with_card(app, tab, |card| card.flight_heading = Some(target));
         let spring = if target == 1.0 {
             springs::overview_opening()
@@ -418,7 +421,7 @@ impl DeckViewState {
             springs::overview_closing()
         };
         let whole_flight = self.layout(app).full_flight_travel();
-        springs::settle(app, card.flight, target, velocity, spring, whole_flight)
+        springs::settle(app, flight, target, velocity, spring, whole_flight)
             .when_complete(app, Listener::new(move |app| self.flight_settled(app, tab)));
     }
 
@@ -430,7 +433,7 @@ impl DeckViewState {
     /// Lets the page of `tab` settle back onto its flight's line from where it was carried, at
     /// `velocity`, in points a second, or at the speed it has; nothing while a finger has it.
     fn settle_carry(self: Handle<Self>, app: &mut App, tab: TabId, velocity: Option<Offset>) {
-        let Some(card) = self.card(app, tab) else {
+        let Some(carry) = self.carry_of(app, tab) else {
             return;
         };
         if self.is_in_hand(app, tab) {
@@ -439,7 +442,7 @@ impl DeckViewState {
         let velocity = velocity.map(|velocity| [velocity.dx(), velocity.dy()]);
         for axis in 0..2 {
             let velocity = velocity.map(|velocity| velocity[axis]);
-            self.settle_carry_along(app, tab, axis, card.carry[axis], velocity);
+            self.settle_carry_along(app, tab, axis, carry[axis], velocity);
         }
     }
 
@@ -494,7 +497,8 @@ impl DeckViewState {
         change(self, app);
         let after = self.clips_of_pages_in_flight(app);
         for (tab, was) in before {
-            let (Some(now), Some(card)) = (after.get(&tab), self.card(app, tab)) else {
+            let (Some(now), Some([across, down])) = (after.get(&tab), self.carry_of(app, tab))
+            else {
                 continue;
             };
             let moved = *now - was;
@@ -502,8 +506,8 @@ impl DeckViewState {
                 continue;
             }
             self.stop_carry(app, tab);
-            card.carry[0].set_value(app, card.carry[0].value(app) - moved.dx());
-            card.carry[1].set_value(app, card.carry[1].value(app) - moved.dy());
+            across.set_value(app, across.value(app) - moved.dx());
+            down.set_value(app, down.value(app) - moved.dy());
         }
     }
 

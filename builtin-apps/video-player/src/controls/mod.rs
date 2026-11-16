@@ -17,7 +17,7 @@ use std::fmt;
 use std::rc::Rc;
 use std::time::Duration;
 
-use waft_foundation::{App, Handle, Listenable, Listener, Timer};
+use waft_foundation::{App, Handle, ListenableObject, Listener, Ref, Timer};
 use waft_services::SystemMouseCursors;
 use waft_widgets::{
     AnimatedOpacity, BuildContext, IgnorePointer, IntoWidget, KeyRef, MouseRegion, Player,
@@ -39,13 +39,13 @@ const MARGIN: f64 = 16.0;
 /// `child`, the picture, with `player`'s controls over it, and `back`, which goes back to the
 /// library.
 pub(crate) struct Controls {
-    player: Handle<Player>,
+    player: Ref<Player>,
     child: WidgetRef,
     back: Listener,
 }
 
 impl Controls {
-    pub(crate) fn new(player: Handle<Player>, child: WidgetRef, back: Listener) -> Controls {
+    pub(crate) fn new(player: Ref<Player>, child: WidgetRef, back: Listener) -> Controls {
         Controls {
             player,
             child,
@@ -88,7 +88,7 @@ pub(crate) struct ControlsState {
 
 impl ControlsState {
     fn player(self: Handle<Self>, app: &App) -> Handle<Player> {
-        self.widget(app).player
+        self.widget(app).player.handle()
     }
 
     /// The pointer moved: the controls show, for [`SHOWN_FOR`] from now.
@@ -142,12 +142,12 @@ impl State for ControlsState {
     waft_widgets::state_accessors!();
 
     fn init_state(self: Handle<Self>, app: &mut App) {
-        listenable(self.player(app)).add_listener(app, self.listener());
+        self.player(app).add_listener(app, self.listener());
         self.hide_later(app);
     }
 
     fn dispose(self: Handle<Self>, app: &mut App) {
-        listenable(self.player(app)).remove_listener(app, &self.listener());
+        self.player(app).remove_listener(app, &self.listener());
         if let Some(hiding) = app.get_mut(self).hiding.take() {
             hiding.cancel(app);
         }
@@ -155,7 +155,7 @@ impl State for ControlsState {
 
     fn build(self: Handle<Self>, app: &mut App, _context: BuildContext) -> WidgetRef {
         let (player, child, shown) = (
-            self.player(app),
+            self.widget(app).player.clone(),
             self.widget(app).child.clone(),
             app.get(self).shown,
         );
@@ -166,7 +166,7 @@ impl State for ControlsState {
             .on_exit(Rc::new(move |app: &mut App, _event| {
                 self.pointer_over_bar(app, false);
             }))
-            .child(bar::control_bar(player));
+            .child(bar::control_bar(&player));
         let placed = Positioned::new(faded(shown, bar))
             .left(MARGIN)
             .right(MARGIN)
@@ -193,10 +193,6 @@ impl State for ControlsState {
             ]))
             .into_widget()
     }
-}
-
-fn listenable(player: Handle<Player>) -> Rc<dyn Listenable> {
-    Rc::new(player)
 }
 
 /// `controls` over the picture, kept clear of a phone's bars and cutout as the picture is not.

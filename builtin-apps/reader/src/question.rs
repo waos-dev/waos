@@ -1,7 +1,7 @@
 //! A question the app asks in its window, as a WinUI `ContentDialog`: what it asks, why, the
 //! button that does it, and Cancel, the default, so that Return never loses anything.
 
-use waft::{App, GlobalKey, Handle, Task, Text};
+use waft::{App, GlobalKey, Ref, Task, Text};
 use waft_winui::{ContentDialog, ContentDialogButton, ContentDialogResult};
 
 /// What is asked: whether to do what `confirm` names, which loses something.
@@ -33,11 +33,12 @@ pub(crate) fn ask(app: &mut App, navigator: &GlobalKey, question: Question) -> T
     })
 }
 
-fn dialog_asking(app: &mut App, question: Question) -> Handle<ContentDialog> {
-    ContentDialog::new(app)
-        .title(app, Text::new(question.title))
-        .content(app, Text::new(question.message))
-        .primary_button_text(app, question.confirm)
-        .close_button_text(app, CANCEL)
-        .default_button(app, ContentDialogButton::Close)
+fn dialog_asking(app: &mut App, question: Question) -> Ref<ContentDialog> {
+    let dialog = ContentDialog::new(app);
+    dialog.title(app, Text::new(question.title));
+    dialog.content(app, Text::new(question.message));
+    dialog.primary_button_text(app, question.confirm);
+    dialog.close_button_text(app, CANCEL);
+    dialog.default_button(app, ContentDialogButton::Close);
+    dialog
 }

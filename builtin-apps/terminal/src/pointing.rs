@@ -8,7 +8,7 @@
 //! program asks for meanwhile.
 
 use waft_embedder::{Offset, PointerDeviceKind};
-use waft_foundation::{App, Entity, Handle};
+use waft_foundation::{App, Entity, Handle, Ref};
 use waft_gestures::{
     K_PRIMARY_BUTTON, K_SECONDARY_BUTTON, PointerDownEvent, PointerEvent, PointerMoveEvent,
     PointerUpEvent,
@@ -53,7 +53,7 @@ pub(crate) struct Pointing {
 }
 
 impl Pointing {
-    pub(crate) fn new(app: &mut App, session: Entity<Session>) -> Handle<Pointing> {
+    pub(crate) fn new(app: &mut App, session: Entity<Session>) -> Ref<Pointing> {
         app.create(Pointing {
             session,
             metrics: None,

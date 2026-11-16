@@ -16,7 +16,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use waft_embedder::{Image, MediaAsset, PickedFile, VideoFrame};
-use waft_foundation::{App, AsyncApp, Entity, Handle};
+use waft_foundation::{App, AsyncApp, Entity, Ref};
 use waft_widgets::TextEditingController;
 
 use crate::facts::{Facts, facts_of, thumbnail_of};
@@ -45,7 +45,7 @@ pub(crate) struct Library {
     reading: bool,
     section: Section,
     /// The search field's text, which the field keeps across the library's screens.
-    search_field: Handle<TextEditingController>,
+    search_field: Ref<TextEditingController>,
 }
 
 /// A video found in one of the library's folders.
@@ -105,8 +105,8 @@ impl Library {
         self.section
     }
 
-    pub(crate) fn search_field(&self) -> Handle<TextEditingController> {
-        self.search_field
+    pub(crate) fn search_field(&self) -> &Ref<TextEditingController> {
+        &self.search_field
     }
 
     /// The tiles of the section chosen, among them those whose title holds `search`, each

@@ -5,7 +5,7 @@
 use std::rc::Rc;
 
 use waft_embedder::{FileType, FolderOptions, OpenOptions, OpenRequest, PickedFolder};
-use waft_foundation::{App, Entity, Handle};
+use waft_foundation::{App, Entity, Ref};
 use waft_widgets::{BuildContext, Text, TextEditingController, TextEditingControllerLeaf};
 use waft_winui::{ContentDialog, ContentDialogButton, ContentDialogResult, TextBox};
 
@@ -79,15 +79,15 @@ pub(crate) fn add_folder(library: &Entity<Library>, app: &mut App) {
 /// example stream, and plays the link given.
 pub(crate) fn open_location(playback: &Entity<Playback>, app: &mut App, context: BuildContext) {
     let link = TextEditingController::new(app).text(app, EXAMPLE_STREAM);
-    let field = TextBox::new(link.as_controller())
+    let field = TextBox::new(link.erase())
         .placeholder_text("https://")
         .autofocus(true);
-    let dialog = ContentDialog::new(app)
-        .title(app, Text::new("Open Location"))
-        .content(app, field)
-        .primary_button_text(app, "Open")
-        .close_button_text(app, "Cancel")
-        .default_button(app, ContentDialogButton::Primary);
+    let dialog = ContentDialog::new(app);
+    dialog.title(app, Text::new("Open Location"));
+    dialog.content(app, field);
+    dialog.primary_button_text(app, "Open");
+    dialog.close_button_text(app, "Cancel");
+    dialog.default_button(app, ContentDialogButton::Primary);
     let shown = match dialog.show_async(app, context) {
         Ok(shown) => shown,
         Err(error) => {
@@ -113,10 +113,9 @@ pub(crate) fn open_location(playback: &Entity<Playback>, app: &mut App, context:
 }
 
 /// Lets go of the Open Location dialog and of its field's text.
-fn let_go(app: &mut App, dialog: Handle<ContentDialog>, link: Handle<TextEditingController>) {
+fn let_go(app: &mut App, dialog: Ref<ContentDialog>, link: Ref<TextEditingController>) {
     dialog.dispose(app);
-    app.get_mut(link).dispose();
-    app.destroy(link);
+    link.dispose(app);
 }
 
 /// Plays what the user opens with the app from now on, such as a video opened with it in the

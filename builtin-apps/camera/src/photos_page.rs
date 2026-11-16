@@ -11,8 +11,8 @@ use waft::ui::Image;
 use waft::{
     App, Axis, BoxFit, BuildContext, CallbackShortcuts, Column, CrossAxisAlignment,
     EdgeInsetsGeometry, Expanded, Focus, GestureDetector, Handle, ImageInfo, IntoWidget, ListView,
-    Listener, Navigator, Padding, PageRouteBuilder, RawImage, Route, Row, SingleActivator, Size,
-    SizedBox, State, StateData, StatefulWidget, Text, WidgetRef,
+    Listener, Navigator, Padding, PageRouteBuilder, RawImage, Row, SingleActivator, Size, SizedBox,
+    State, StateData, StatefulWidget, Text, WidgetRef,
 };
 use waft_services::LogicalKeyboardKey;
 use waft_winui::{
@@ -49,7 +49,7 @@ pub(crate) fn open(app: &mut App, context: BuildContext, camera: &CameraApp, sho
         .into_widget()
     });
     let route = PageRouteBuilder::new(app, page);
-    let _closed = Navigator::push(app, context, route.as_route());
+    let _closed = Navigator::push(app, context, route.into_erased());
 }
 
 struct PhotosPage {
@@ -128,12 +128,12 @@ impl PhotosPageState {
     /// Asks whether to delete the photo shown, and deletes it at a yes.
     fn ask_to_delete_shown(self: Handle<Self>, app: &mut App) {
         let shown = app.get(self).shown.clone();
-        let dialog = ContentDialog::new(app)
-            .title(app, Text::new(format!("Delete “{}”?", name_of(&shown))))
-            .content(app, Text::new("The photo is deleted for good."))
-            .primary_button_text(app, "Delete")
-            .close_button_text(app, "Cancel")
-            .default_button(app, ContentDialogButton::Close);
+        let dialog = ContentDialog::new(app);
+        dialog.title(app, Text::new(format!("Delete “{}”?", name_of(&shown))));
+        dialog.content(app, Text::new("The photo is deleted for good."));
+        dialog.primary_button_text(app, "Delete");
+        dialog.close_button_text(app, "Cancel");
+        dialog.default_button(app, ContentDialogButton::Close);
         let Ok(answered) = dialog.show_async(app, self.context(app)) else {
             return dialog.dispose(app);
         };

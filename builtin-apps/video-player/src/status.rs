@@ -8,7 +8,7 @@ use waft_embedder::{
     PauseReason, PlayerActivity, PlayerError, PlayerErrorKind, PlayerState, PlayerStatus,
     WaitReason,
 };
-use waft_foundation::{App, Handle, Listener};
+use waft_foundation::{App, Listener, Ref};
 use waft_widgets::{
     BoxConstraints, Column, ConstrainedBox, EdgeInsetsGeometry, IntoWidget, MainAxisSize, Padding,
     Player, SizedBox, WidgetRef,
@@ -83,7 +83,7 @@ fn failed(error: &PlayerError) -> Shown {
 }
 
 /// `player`'s state as [`shown`] has it, centred where the widget is put.
-pub(crate) fn status_of(app: &App, player: Handle<Player>) -> WidgetRef {
+pub(crate) fn status_of(app: &App, player: &Ref<Player>) -> WidgetRef {
     match shown(player.state(app)) {
         Shown::Nothing => SizedBox::shrink().into_widget(),
         Shown::Spinner(why) => spinner(why),
@@ -108,7 +108,7 @@ fn spinner(why: &str) -> WidgetRef {
         .into_widget()
 }
 
-fn paused_by_system(player: Handle<Player>, why: &str) -> WidgetRef {
+fn paused_by_system(player: &Ref<Player>, why: &str) -> WidgetRef {
     let play = Button::new(icon(icons::PLAY, 16.0), play(player)).style(ButtonStyle::Accent);
     let bar = InfoBar::new(true, |_, _| {})
         .severity(InfoBarSeverity::Informational)
@@ -118,7 +118,7 @@ fn paused_by_system(player: Handle<Player>, why: &str) -> WidgetRef {
     bounded(bar.into_widget())
 }
 
-fn replay(player: Handle<Player>) -> WidgetRef {
+fn replay(player: &Ref<Player>) -> WidgetRef {
     let face = Column::new()
         .main_axis_size(MainAxisSize::Min)
         .spacing(4.0)
@@ -150,7 +150,8 @@ fn bounded(bar: WidgetRef) -> WidgetRef {
 }
 
 /// Plays `player`, from its start once it ended.
-fn play(player: Handle<Player>) -> Listener {
+fn play(player: &Ref<Player>) -> Listener {
+    let player = player.clone();
     Listener::new(move |app: &mut App| player.play(app))
 }
 

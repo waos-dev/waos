@@ -134,9 +134,9 @@ impl EditorPane {
     /// The text, wrapped, as many lines as the pane holds, scrolling past them; read-only for a
     /// deleted note.
     fn text_box(&self, showing: Showing) -> WidgetRef {
-        let text_box = TextBox::new(self.notes.editor.text)
+        let text_box = TextBox::new(self.notes.editor.text.clone())
             .key(ValueKey::new(showing.shown).into())
-            .focus_node(self.notes.editor.focus)
+            .focus_node(self.notes.editor.focus.erase())
             .is_read_only(showing.read_only)
             .accepts_return(true)
             .text_wrapping(TextWrapping::Wrap)

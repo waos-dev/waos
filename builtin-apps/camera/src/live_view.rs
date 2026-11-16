@@ -12,7 +12,7 @@ use std::time::Duration;
 
 use waft::{
     App, AspectRatio, BoxConstraints, BuildContext, CameraSession, Center, CompositionLayerView,
-    Entity, FrameCallback, Handle, IntoWidget, LayoutBuilder, MediaQuery,
+    Entity, FrameCallback, Handle, IntoWidget, LayoutBuilder, MediaQuery, Ref,
     SingleTickerProviderStateMixin, SingleTickerProviderStateMixinData, SizedBox, State, StateData,
     StatefulWidget, Ticker, WidgetRef,
 };
@@ -51,7 +51,7 @@ pub(crate) struct LiveViewState {
     state: StateData<LiveView>,
     single_ticker_provider: SingleTickerProviderStateMixinData,
     /// Shows the newest frame at each frame the window draws, while the widget is in sight.
-    ticker: Option<Handle<Ticker>>,
+    ticker: Option<Ref<Ticker>>,
     /// None where the system has no compositor to show it.
     picture: Option<LivePicture>,
     /// The layer's size in the screen's pixels as it was last laid out, which the picture is
@@ -105,10 +105,10 @@ impl LiveViewState {
     /// captures is.
     fn aspect_ratio(self: Handle<Self>, app: &App) -> Option<f64> {
         let running = self.widget(app).viewfinder.read(app).running()?;
-        let size = CameraSession::format(running.session, app).size;
+        let size = CameraSession::format(running.session.handle(), app).size;
         let shown = Shown {
             rotation: CameraSession::video_rotation_angle_for_horizon_level_capture(
-                running.session,
+                running.session.handle(),
                 app,
             ),
             flip: false,

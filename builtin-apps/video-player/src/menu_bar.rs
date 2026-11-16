@@ -6,7 +6,7 @@ use std::fmt;
 use std::rc::Rc;
 
 use waft_embedder::{CheckState, MenuItemCheck};
-use waft_foundation::{App, Entity, Handle, Listenable, Listener};
+use waft_foundation::{App, Entity, Handle, ListenableObject, Listener, OptionRetained, Ref};
 use waft_services::LogicalKeyboardKey;
 use waft_widgets::{
     BuildContext, GlobalKey, IntoWidget, KeyRef, PlainPlatformMenuItem, PlatformMenu,
@@ -75,7 +75,7 @@ impl StatefulWidget for PlayerMenuBar {
 pub(crate) struct PlayerMenuBarState {
     state: StateData<PlayerMenuBar>,
     /// The player whose changes it hears: the one playing when it was built last.
-    heard: Option<Handle<Player>>,
+    heard: Option<Ref<Player>>,
     /// What the menus show, as they were built last.
     shown: Option<MenuFacts>,
     menus: Vec<PlatformMenuItemRef>,
@@ -87,16 +87,15 @@ impl PlayerMenuBarState {
     }
 
     /// Hears `player` from now on, in place of the one heard before.
-    fn hear(self: Handle<Self>, app: &mut App, player: Option<Handle<Player>>) {
-        let heard = app.get(self).heard;
-        if heard == player {
+    fn hear(self: Handle<Self>, app: &mut App, player: Option<Ref<Player>>) {
+        if app.get(self).heard.handle() == player.handle() {
             return;
         }
-        if let Some(heard) = heard {
-            listenable(heard).remove_listener(app, &self.listener());
+        if let Some(heard) = app.get(self).heard.handle() {
+            heard.remove_listener(app, &self.listener());
         }
-        if let Some(player) = player {
-            listenable(player).add_listener(app, self.listener());
+        if let Some(player) = &player {
+            player.handle().add_listener(app, self.listener());
         }
         app.get_mut(self).heard = player;
     }
@@ -126,7 +125,10 @@ impl State for PlayerMenuBarState {
             widget.navigator.clone(),
             widget.child.clone(),
         );
-        let player = playback::current_player(&playback, app);
+        let player = playback
+            .read(app)
+            .session()
+            .map(|session| session.player.clone());
         self.hear(app, player);
         let facts = MenuFacts::of(app, &playback);
         if app.get(self).shown.as_ref() != Some(&facts) {
@@ -139,10 +141,6 @@ impl State for PlayerMenuBarState {
             .child(child)
             .into_widget()
     }
-}
-
-fn listenable(player: Handle<Player>) -> Rc<dyn Listenable> {
-    Rc::new(player)
 }
 
 /// What the menus show: the recent sources, and what plays.

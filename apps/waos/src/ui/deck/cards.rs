@@ -24,7 +24,7 @@
 
 use std::rc::Rc;
 
-use waft::{AnimationController, App, Handle, Listener};
+use waft::{AnimationController, App, Handle, Listener, Ref};
 
 use super::axis_drag::AxisDrag;
 use super::grip::{Grip, Owner, Released};
@@ -43,26 +43,25 @@ const CLOSE_BUTTON_VELOCITY: f64 = -1400.0;
 const FLIGHT_MARGIN: f64 = 40.0;
 
 /// One card's animated values, and who has hold of its throw.
-#[derive(Clone, Copy)]
 pub(super) struct CardMotions {
     /// The grid slot the card is in, fractional while it moves to a new one.
-    pub(super) slot: Handle<AnimationController>,
+    pub(super) slot: Ref<AnimationController>,
     /// The slot it is in or moving to.
     pub(super) slot_heading: f64,
     /// How far the card is dragged or thrown sideways, in points.
-    pub(super) throw: Handle<AnimationController>,
+    pub(super) throw: Ref<AnimationController>,
     pub(super) throw_grip: Grip,
     /// Whether the finger that last came down on the card caught it in flight: its tap then
     /// keeps the tab and grows nothing.
     pub(super) caught_in_flight: bool,
     /// How far the tab is from its page on the strip, 0, to its card in the grid, 1
     /// (`overview_transition`).
-    pub(super) flight: Handle<AnimationController>,
+    pub(super) flight: Ref<AnimationController>,
     /// Where the flight's spring is settling, on the page or on the card, while it is.
     pub(super) flight_heading: Option<f64>,
     /// How far the tab's page is carried on screen off its flight's line, across and down, by the
     /// finger that drags it, in points.
-    pub(super) carry: [Handle<AnimationController>; 2],
+    pub(super) carry: [Ref<AnimationController>; 2],
     /// Whether the spring that takes each of the two back is running.
     pub(super) carry_settling: [bool; 2],
 }
@@ -134,7 +133,7 @@ impl DeckViewState {
 
     fn drag_card(self: Handle<Self>, app: &mut App, tab: TabId, owner: Owner, finger_delta: f64) {
         let moved = self.with_card(app, tab, |card| card.throw_grip.moved(owner, finger_delta));
-        let (Some(true), Some(card)) = (moved, self.card(app, tab)) else {
+        let (Some(true), Some(throw)) = (moved, self.throw_of(app, tab)) else {
             return;
         };
         let view_width = self.layout(app).page_box().width();
@@ -143,8 +142,8 @@ impl DeckViewState {
             max: 0.0,
             viewport: view_width,
         };
-        let offset = followed_by_finger(card.throw.value(app), finger_delta, range);
-        card.throw.set_value(app, offset);
+        let offset = followed_by_finger(throw.value(app), finger_delta, range);
+        throw.set_value(app, offset);
     }
 
     fn release_card(
@@ -193,15 +192,15 @@ impl DeckViewState {
 
     /// Springs the card of `tab` back to its place, from where it is at `finger_velocity`.
     fn return_card(self: Handle<Self>, app: &mut App, tab: TabId, finger_velocity: f64) {
-        let Some(card) = self.card(app, tab) else {
+        let Some(throw) = self.throw_of(app, tab) else {
             return;
         };
-        if card.throw.value(app) == 0.0 && finger_velocity == 0.0 {
+        if throw.value(app) == 0.0 && finger_velocity == 0.0 {
             return;
         }
         springs::settle(
             app,
-            card.throw,
+            throw,
             0.0,
             finger_velocity,
             springs::card_return(),
@@ -212,7 +211,7 @@ impl DeckViewState {
     /// The card of `tab` is leaving: the others move into its place, it flies off the left of the
     /// view from where it is at `velocity`, and its tab closes once it is gone.
     fn send_card_away(self: Handle<Self>, app: &mut App, tab: TabId, velocity: f64) {
-        let Some(card) = self.card(app, tab) else {
+        let (Some(slot), Some(throw)) = (self.slot_of(app, tab), self.throw_of(app, tab)) else {
             return;
         };
         app.get_mut(self).leaving.insert(tab);
@@ -221,13 +220,13 @@ impl DeckViewState {
         let grid_scroll = self.grid_scroll(app).value(app);
         let card_right = self
             .layout(app)
-            .card_rect(card.slot.value(app), grid_scroll)
+            .card_rect(slot.value(app), grid_scroll)
             .right;
         let gone = -(card_right + FLIGHT_MARGIN);
         springs::settle(
             app,
-            card.throw,
-            gone.min(card.throw.value(app)),
+            throw,
+            gone.min(throw.value(app)),
             velocity.min(0.0),
             springs::card_throw(),
             1.0,
@@ -271,8 +270,8 @@ impl DeckViewState {
 
     /// Stops the throw of the card of `tab` where it is.
     fn stop_throw(self: Handle<Self>, app: &mut App, tab: TabId) {
-        if let Some(card) = self.card(app, tab) {
-            card.throw.stop(app, true);
+        if let Some(throw) = self.throw_of(app, tab) {
+            throw.stop(app, true);
         }
     }
 
@@ -299,16 +298,16 @@ impl DeckViewState {
             let heading = self.with_card(app, tab, |card| {
                 std::mem::replace(&mut card.slot_heading, slot)
             });
-            let (Some(heading), Some(card)) = (heading, self.card(app, tab)) else {
+            let (Some(heading), Some(slot_motion)) = (heading, self.slot_of(app, tab)) else {
                 continue;
             };
             if unseen {
-                card.slot.set_value(app, slot);
+                slot_motion.set_value(app, slot);
             } else if heading != slot {
-                let velocity = card.slot.velocity(app);
+                let velocity = slot_motion.velocity(app);
                 springs::settle(
                     app,
-                    card.slot,
+                    slot_motion,
                     slot,
                     velocity,
                     springs::card_reflow(),
@@ -318,8 +317,45 @@ impl DeckViewState {
         }
     }
 
-    pub(super) fn card(self: Handle<Self>, app: &App, tab: TabId) -> Option<CardMotions> {
-        app.get(self).cards.get(&tab).copied()
+    pub(super) fn card(self: Handle<Self>, app: &App, tab: TabId) -> Option<&CardMotions> {
+        app.get(self).cards.get(&tab)
+    }
+
+    /// The card of `tab`'s grid slot.
+    pub(super) fn slot_of(
+        self: Handle<Self>,
+        app: &App,
+        tab: TabId,
+    ) -> Option<Handle<AnimationController>> {
+        Some(self.card(app, tab)?.slot.handle())
+    }
+
+    /// How far the card of `tab` is thrown sideways.
+    pub(super) fn throw_of(
+        self: Handle<Self>,
+        app: &App,
+        tab: TabId,
+    ) -> Option<Handle<AnimationController>> {
+        Some(self.card(app, tab)?.throw.handle())
+    }
+
+    /// The flight of `tab` between its page and its card.
+    pub(super) fn flight_of(
+        self: Handle<Self>,
+        app: &App,
+        tab: TabId,
+    ) -> Option<Handle<AnimationController>> {
+        Some(self.card(app, tab)?.flight.handle())
+    }
+
+    /// How far the page of `tab` is carried off its flight's line, across and down.
+    pub(super) fn carry_of(
+        self: Handle<Self>,
+        app: &App,
+        tab: TabId,
+    ) -> Option<[Handle<AnimationController>; 2]> {
+        let [across, down] = &self.card(app, tab)?.carry;
+        Some([across.handle(), down.handle()])
     }
 
     /// What `change` answers of the card of `tab`, which it may change; none without the card.

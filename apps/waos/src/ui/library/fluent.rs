@@ -14,7 +14,7 @@ use waft::{
     StatelessWidget, ValueKey, WidgetRef, WidgetsApp,
 };
 use waft_services::{KeyEvent, LogicalKeyboardKey};
-use waft_widgets::{PageRoute, PageRouteBuilder, RouteSettingsRef};
+use waft_widgets::{PageRouteBuilder, RouteSettingsRef};
 use waft_winui::{AccentPalette, ThemeResources};
 
 use super::get_programs::fluent::FluentGetPrograms;
@@ -65,7 +65,7 @@ impl StatelessWidget for FluentLibrary {
                     Rc::new(move |app, context, _, _| builder(app, context)),
                 )
                 .settings(app, RouteSettingsRef::Settings(settings.clone()));
-                PageRoute::as_page_route(route)
+                route.into_erased()
             })
             .home(home)
             .into_widget()

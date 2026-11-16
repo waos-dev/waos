@@ -14,10 +14,10 @@ use std::fmt;
 use std::rc::Rc;
 
 use waft_embedder::{Rect, Size};
-use waft_foundation::{App, Entity, Handle};
+use waft_foundation::{App, Entity, Handle, Ref};
 use waft_services::SystemMouseCursors;
 use waft_widgets::{
-    Action, Actions, AnyAction, BuildContext, CallbackAction, ColoredBox, CopySelectionTextIntent,
+    ActionRef, Actions, BuildContext, CallbackAction, ColoredBox, CopySelectionTextIntent,
     CustomPaint, EdgeInsetsGeometry, Focus, FocusNode, FocusNodeLeaf, Intent, IntoWidget,
     LayoutBuilder, Listener, MediaQuery, MouseRegion, Padding, PasteTextIntent,
     SelectAllTextIntent, State, StateData, StatefulWidget, View, WidgetRef,
@@ -73,11 +73,11 @@ impl StatefulWidget for TerminalView {
 /// What the view makes once and keeps while it is in the tree.
 #[derive(Clone)]
 struct Parts {
-    focus: Handle<FocusNode>,
-    entry: Handle<TextEntry>,
-    pointing: Handle<Pointing>,
+    focus: Ref<FocusNode>,
+    entry: Ref<TextEntry>,
+    pointing: Ref<Pointing>,
     /// Edit's commands and Clear, acting on the session.
-    actions: HashMap<TypeId, AnyAction>,
+    actions: HashMap<TypeId, ActionRef>,
     /// The runs of text the last frame laid out.
     runs: Rc<RefCell<RunCache>>,
 }
@@ -97,8 +97,8 @@ pub(crate) struct TerminalViewState {
 }
 
 impl TerminalViewState {
-    fn parts(self: Handle<Self>, app: &App) -> Parts {
-        app.get(self).parts.clone().expect("init_state has run")
+    fn parts(self: Handle<Self>, app: &App) -> &Parts {
+        app.get(self).parts.as_ref().expect("init_state has run")
     }
 
     /// The cells of `text` on a screen of `pixel_ratio`, measured where they were not yet.
@@ -126,7 +126,7 @@ impl TerminalViewState {
     /// With the focus the view takes the text typed; without it, it stops. Either way the
     /// cursor is drawn anew.
     fn focus_changed(self: Handle<Self>, app: &mut App, focused: bool) {
-        let entry = self.parts(app).entry;
+        let entry = self.parts(app).entry.handle();
         if focused {
             let context = self.context(app);
             let view = View::maybe_of(app, context).map(|view| view.id());
@@ -155,9 +155,8 @@ impl TerminalViewState {
         );
         let size = MediaQuery::size_of(app, context);
         let transform = grid.get_transform_to(app, None);
-        self.parts(app)
-            .entry
-            .place_caret(app, size, transform, caret);
+        let entry = self.parts(app).entry.handle();
+        entry.place_caret(app, size, transform, caret);
     }
 }
 
@@ -182,11 +181,6 @@ impl State for TerminalViewState {
             return;
         };
         parts.entry.close(app);
-        app.destroy(parts.entry.id());
-        app.destroy(parts.pointing.id());
-        for action in parts.actions.into_values() {
-            app.destroy(action.id());
-        }
         parts.focus.dispose(app);
         parts.runs.borrow_mut().clear();
     }
@@ -194,7 +188,7 @@ impl State for TerminalViewState {
     fn build(self: Handle<Self>, app: &mut App, context: BuildContext) -> WidgetRef {
         let session = self.widget(app).session.clone();
         let text = *self.widget(app).text.read(app);
-        let parts = self.parts(app);
+        let parts = self.parts(app).clone();
         let pixel_ratio = MediaQuery::device_pixel_ratio_of(app, context);
         let palette = Palette::of_look(MediaQuery::platform_brightness_of(app, context));
         let cells = self.cells(app, text, pixel_ratio);
@@ -223,7 +217,7 @@ impl State for TerminalViewState {
                 CustomPaint::new().painter(painter).size(room).into_widget()
             }
         }));
-        let pointed = pointer_listener(parts.pointing, parts.focus, parts.entry, grid);
+        let pointed = pointer_listener(&parts, grid);
         let padded = ColoredBox::new(color(palette.background)).child(
             Padding::new(EdgeInsetsGeometry::all(PADDING)).child(
                 MouseRegion::new()
@@ -239,7 +233,7 @@ impl State for TerminalViewState {
             Rc::new(move |app: &mut App, focus, event: &_| key_pressed(app, &target, focus, event))
         };
         let focus = Focus::new(padded)
-            .focus_node(parts.focus.as_node())
+            .focus_node(parts.focus.erase())
             .autofocus(true)
             .on_key_event(keys)
             .on_focus_change(move |app, focused| self.focus_changed(app, focused));
@@ -285,12 +279,9 @@ fn fit_screen(
 
 /// `grid` hearing the pointer: a press takes the keyboard's focus and shows the on-screen
 /// keyboard where there is one, then selects, scrolls or is reported, as `pointing` decides.
-fn pointer_listener(
-    pointing: Handle<Pointing>,
-    focus: Handle<FocusNode>,
-    entry: Handle<TextEntry>,
-    grid: WidgetRef,
-) -> Listener {
+fn pointer_listener(parts: &Parts, grid: WidgetRef) -> Listener {
+    let (focus, entry) = (parts.focus.clone(), parts.entry.clone());
+    let [down, moving, up, signalled] = std::array::from_fn(|_| parts.pointing.clone());
     Listener::new()
         .on_pointer_down(Rc::new(move |app, event| {
             if focus.as_node().has_focus(app) {
@@ -299,17 +290,17 @@ fn pointer_listener(
             } else {
                 focus.request_focus(app, None);
             }
-            pointing.pressed(app, &event);
+            down.pressed(app, &event);
         }))
-        .on_pointer_move(Rc::new(move |app, event| pointing.moved(app, &event)))
-        .on_pointer_up(Rc::new(move |app, event| pointing.released(app, &event)))
-        .on_pointer_signal(Rc::new(move |app, event| pointing.signalled(app, &event)))
+        .on_pointer_move(Rc::new(move |app, event| moving.moved(app, &event)))
+        .on_pointer_up(Rc::new(move |app, event| up.released(app, &event)))
+        .on_pointer_signal(Rc::new(move |app, event| signalled.signalled(app, &event)))
         .child(grid)
 }
 
 /// Edit's Copy, Paste and Select All, as the platform's menu and its keys send them to what has
 /// the focus, and Clear, each acting on `session`.
-fn session_actions(app: &mut App, session: &Entity<Session>) -> HashMap<TypeId, AnyAction> {
+fn session_actions(app: &mut App, session: &Entity<Session>) -> HashMap<TypeId, ActionRef> {
     let mut actions = HashMap::new();
     add_action::<CopySelectionTextIntent>(app, &mut actions, session, copy_selection);
     add_action::<PasteTextIntent>(app, &mut actions, session, paste);
@@ -321,7 +312,7 @@ fn session_actions(app: &mut App, session: &Entity<Session>) -> HashMap<TypeId, 
 /// Adds to `actions` what the intent `I` does: `command`, on `session`.
 fn add_action<I: Intent>(
     app: &mut App,
-    actions: &mut HashMap<TypeId, AnyAction>,
+    actions: &mut HashMap<TypeId, ActionRef>,
     session: &Entity<Session>,
     command: fn(&mut App, &Entity<Session>),
 ) {
@@ -333,5 +324,5 @@ fn add_action<I: Intent>(
             None
         }),
     );
-    actions.insert(TypeId::of::<I>(), action.as_action());
+    actions.insert(TypeId::of::<I>(), action.into_erased());
 }

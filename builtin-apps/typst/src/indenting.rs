@@ -11,7 +11,7 @@ use std::rc::Rc;
 
 use waft::ui::{TextAffinity, TextSelection};
 use waft::{
-    Action, Actions, AnyAction, App, CallbackAction, Handle, IntoWidget, NextFocusIntent,
+    ActionRef, Actions, App, CallbackAction, Handle, IntoWidget, NextFocusIntent,
     TextEditingControllerLeaf, WidgetRef,
 };
 
@@ -20,16 +20,16 @@ use crate::markup::controller::MarkupController;
 const INDENT: &str = "  ";
 
 /// The action that indents the text of `controller` at its caret.
-pub(crate) fn indent_action(app: &mut App, controller: Handle<MarkupController>) -> AnyAction {
+pub(crate) fn indent_action(app: &mut App, controller: Handle<MarkupController>) -> ActionRef {
     let indenting = Rc::new(move |app: &mut App, _: &NextFocusIntent| {
         indent(app, controller);
         None
     });
-    CallbackAction::<NextFocusIntent>::new(app, indenting).as_action()
+    CallbackAction::<NextFocusIntent>::new(app, indenting).into_erased()
 }
 
 /// `editor`, with Tab doing `indenting` while the focus is in it.
-pub(crate) fn with_tab_indenting(indenting: AnyAction, editor: WidgetRef) -> WidgetRef {
+pub(crate) fn with_tab_indenting(indenting: ActionRef, editor: WidgetRef) -> WidgetRef {
     let actions = HashMap::from([(TypeId::of::<NextFocusIntent>(), indenting)]);
     Actions::new(actions, editor).into_widget()
 }

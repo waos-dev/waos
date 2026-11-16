@@ -5,7 +5,9 @@
 
 use std::fmt;
 
-use waft::{AnyAction, App, Entity, FocusNode, GlobalKey, Handle, ScrollController};
+use waft::{
+    ActionRef, AnyAction, App, Entity, FocusNode, GlobalKey, Handle, Ref, ScrollController,
+};
 
 use crate::document::Document;
 use crate::indenting::indent_action;
@@ -28,29 +30,88 @@ pub(crate) struct DocumentsApp {
     pub(crate) notice: Entity<Option<Notice>>,
     pub(crate) editor: Editor,
     /// How far down the pages the preview is scrolled, which zooming keeps in place.
-    pub(crate) preview_scroll: Handle<ScrollController>,
+    pub(crate) preview_scroll: Ref<ScrollController>,
     pub(crate) navigator: GlobalKey,
     pub(crate) typesetting: TypesettingWorker,
 }
 
 /// The editor's text, focus and Tab, which outlive the text box: the layout builds the box
 /// again as the window narrows, and a command moves the focus to it.
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub(crate) struct Editor {
-    pub(crate) text: Handle<MarkupController>,
-    pub(crate) focus: Handle<FocusNode>,
+    pub(crate) text: Ref<MarkupController>,
+    pub(crate) focus: Ref<FocusNode>,
     /// What Tab does in the editor.
-    pub(crate) indenting: AnyAction,
+    pub(crate) indenting: ActionRef,
 }
 
 impl Editor {
     fn new(app: &mut App) -> Editor {
         let text = MarkupController::new(app);
         Editor {
+            indenting: indent_action(app, text.handle()),
             text,
             focus: FocusNode::new(app),
-            indenting: indent_action(app, text),
         }
+    }
+
+    fn downgrade(&self) -> WeakEditor {
+        WeakEditor {
+            text: self.text.handle(),
+            focus: self.focus.handle(),
+            indenting: self.indenting.handle(),
+        }
+    }
+}
+
+/// An [`Editor`] by its bare handles.
+#[derive(Clone, Copy)]
+struct WeakEditor {
+    text: Handle<MarkupController>,
+    focus: Handle<FocusNode>,
+    indenting: AnyAction,
+}
+
+impl WeakEditor {
+    fn upgrade(self, app: &App) -> Option<Editor> {
+        Some(Editor {
+            text: self.text.upgrade(app)?,
+            focus: self.focus.upgrade(app)?,
+            indenting: self.indenting.upgrade(app)?,
+        })
+    }
+}
+
+/// The app as a listener on its editor's text keeps it: the editor by its bare handles, since a
+/// listener registered on the text must not keep that text, and the rest as the app has it.
+pub(crate) struct WeakDocumentsApp {
+    document: Entity<Document>,
+    pages: Entity<Pages>,
+    page_images: Entity<PageImages>,
+    viewing: Entity<Viewing>,
+    caret: Entity<(usize, usize)>,
+    notice: Entity<Option<Notice>>,
+    editor: WeakEditor,
+    preview_scroll: Ref<ScrollController>,
+    navigator: GlobalKey,
+    typesetting: TypesettingWorker,
+}
+
+impl WeakDocumentsApp {
+    /// The app again, while its editor is kept.
+    pub(crate) fn upgrade(&self, app: &App) -> Option<DocumentsApp> {
+        Some(DocumentsApp {
+            document: self.document.clone(),
+            pages: self.pages.clone(),
+            page_images: self.page_images.clone(),
+            viewing: self.viewing.clone(),
+            caret: self.caret.clone(),
+            notice: self.notice.clone(),
+            editor: self.editor.upgrade(app)?,
+            preview_scroll: self.preview_scroll.clone(),
+            navigator: self.navigator.clone(),
+            typesetting: self.typesetting.clone(),
+        })
     }
 }
 
@@ -64,6 +125,22 @@ impl fmt::Debug for Editor {
 }
 
 impl DocumentsApp {
+    /// The app as a listener registered on its editor's text keeps it.
+    pub(crate) fn downgrade(&self) -> WeakDocumentsApp {
+        WeakDocumentsApp {
+            document: self.document.clone(),
+            pages: self.pages.clone(),
+            page_images: self.page_images.clone(),
+            viewing: self.viewing.clone(),
+            caret: self.caret.clone(),
+            notice: self.notice.clone(),
+            editor: self.editor.downgrade(),
+            preview_scroll: self.preview_scroll.clone(),
+            navigator: self.navigator.clone(),
+            typesetting: self.typesetting.clone(),
+        }
+    }
+
     /// The app showing the starting document, untitled, not yet set as pages, whose pages
     /// `typesetting` sets.
     pub(crate) fn new(app: &mut App, typesetting: TypesettingWorker) -> DocumentsApp {

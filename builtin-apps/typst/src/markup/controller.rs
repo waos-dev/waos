@@ -10,8 +10,8 @@ use std::cell::RefCell;
 use std::ops::Range;
 
 use waft::{
-    App, BuildContext, ChangeNotifier, ChangeNotifierData, Handle, InlineSpanRef, TextDecoration,
-    TextEditingControllerData, TextEditingControllerLeaf, TextSpan, TextStyle,
+    App, BuildContext, ChangeNotifier, ChangeNotifierData, Handle, InlineSpanRef, Ref,
+    TextDecoration, TextEditingControllerData, TextEditingControllerLeaf, TextSpan, TextStyle,
 };
 
 use super::marks::{Run, runs_of};
@@ -35,7 +35,7 @@ struct Parsed {
 }
 
 impl MarkupController {
-    pub(crate) fn new(app: &mut App) -> Handle<MarkupController> {
+    pub(crate) fn new(app: &mut App) -> Ref<MarkupController> {
         app.create(MarkupController {
             change_notifier: ChangeNotifierData::new(),
             text_editing_controller: TextEditingControllerData::new(Default::default()),

@@ -8,10 +8,10 @@
 
 use waft::ui::{FontStyle, FontWeight, TextAlign};
 use waft::{
-    App, BuildContext, Handle, IntoWidget, Listener, State, StateData, StatefulWidget, Text,
+    App, BuildContext, Handle, IntoWidget, Listener, Ref, State, StateData, StatefulWidget, Text,
     TextSpan, TextStyle, WidgetRef,
 };
-use waft_gestures::{GestureRecognizerLeaf, TapGestureRecognizer};
+use waft_gestures::TapGestureRecognizer;
 use waft_services::SystemMouseCursors;
 use waft_winui::{ThemeResources, control_text_style};
 
@@ -87,7 +87,7 @@ impl StatefulWidget for RichText {
 pub(crate) struct RichTextState {
     state: StateData<RichText>,
     /// The tap recognizer of each span that is a link, in the spans' order.
-    link_taps: Vec<Handle<TapGestureRecognizer>>,
+    link_taps: Vec<Ref<TapGestureRecognizer>>,
 }
 
 impl RichTextState {
@@ -149,7 +149,7 @@ impl State for RichTextState {
             let tap = span.style.link.as_ref().and_then(|_| link_taps.next());
             match tap {
                 Some(tap) => styled
-                    .recognizer(tap.as_recognizer())
+                    .recognizer(tap.erase())
                     .mouse_cursor(SystemMouseCursors::CLICK),
                 None => styled,
             }

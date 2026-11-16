@@ -9,8 +9,8 @@
 use std::rc::Rc;
 
 use waft::{
-    App, BuildContext, Builder, Entity, GestureDetector, Handle, IntoWidget, Listener, State,
-    StateData, StatefulWidget, WidgetRef,
+    App, BuildContext, Builder, Entity, GestureDetector, Handle, IntoWidget, Listener,
+    OptionRetained, Ref, State, StateData, StatefulWidget, WidgetRef,
 };
 use waft_winui::{FlyoutShowOptions, FlyoutTarget, MenuFlyout, MenuFlyoutItem};
 use waos_package::ProgramId;
@@ -40,7 +40,7 @@ impl StatefulWidget for IconMenu {
 
 pub(crate) struct IconMenuState {
     state: StateData<IconMenu>,
-    menu: Option<Handle<MenuFlyout>>,
+    menu: Option<Ref<MenuFlyout>>,
 }
 
 impl State for IconMenuState {
@@ -75,7 +75,7 @@ impl State for IconMenuState {
 impl IconMenuState {
     /// Opens the menu at `at` in `target`, with what the program is offered now.
     fn open(self: Handle<Self>, app: &mut App, target: BuildContext, at: waft::Offset) {
-        let Some(menu) = app.get(self).menu else {
+        let Some(menu) = app.get(self).menu.handle() else {
             return;
         };
         let (library, id) = (

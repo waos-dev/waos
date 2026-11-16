@@ -4,7 +4,7 @@
 use std::rc::Rc;
 
 use waft::{
-    App, BuildContext, Center, ColoredBox, IntoWidget, Listener, PageRoute, PageRouteBuilder,
+    App, BuildContext, Center, ColoredBox, IntoWidget, Listener, PageRouteBuilder,
     RouteSettingsRef, StatelessWidget, WidgetRef, WidgetsApp, WindowConfig, run_app_with,
 };
 use waft_winui::{AccentPalette, Button, ThemeResources, install_icon_font};
@@ -34,7 +34,7 @@ fn widgets_app() -> WidgetRef {
                 Rc::new(move |app, context, _, _| builder(app, context)),
             )
             .settings(app, RouteSettingsRef::Settings(settings.clone()));
-            PageRoute::as_page_route(route)
+            route.into_erased()
         })
         .home(Home)
         .into_widget()

@@ -15,14 +15,12 @@
 //! cargo waos run -p camera
 //! ```
 
-use std::rc::Rc;
-
 use waft_cupertino::{CupertinoApp, CupertinoButton, CupertinoPageScaffold};
 use waft_embedder::{
     Camera, CameraDevice, CameraError, CameraFacing, CameraFormat, CameraInterruption,
     CameraOutputs, CaptureState, WindowConfig,
 };
-use waft_foundation::{App, AsyncApp, Entity, Handle, Listenable, Listener};
+use waft_foundation::{App, AsyncApp, Entity, Handle, ListenableObject, Listener, Ref};
 use waft_widgets::{
     BuildContext, CameraPreview, CameraSession, Center, Column, EdgeInsetsGeometry, Expanded,
     IntoWidget, Padding, StatelessWidget, Text, WidgetRef, available_cameras,
@@ -54,7 +52,7 @@ async fn main() {
 enum CameraPane {
     Opening,
     NoCamera,
-    Running(Handle<CameraSession>),
+    Running(Ref<CameraSession>),
     Failed(CameraError),
 }
 
@@ -116,7 +114,7 @@ fn show(app: &mut App, pane: &Entity<CameraPane>, next: CameraPane) {
 async fn start(
     cx: &AsyncApp,
     device: &dyn CameraDevice,
-) -> Result<Handle<CameraSession>, CameraError> {
+) -> Result<Ref<CameraSession>, CameraError> {
     let formats = device.formats();
     for format in &formats {
         println!("format {}", described(format));
@@ -135,8 +133,11 @@ async fn start(
     });
     let session = starting.await?;
     cx.update(|app| {
-        println!("runs in {}", described(CameraSession::format(session, app)));
-        print_states(app, session);
+        println!(
+            "runs in {}",
+            described(CameraSession::format(session.handle(), app))
+        );
+        print_states(app, session.handle());
     });
     Ok(session)
 }
@@ -178,8 +179,7 @@ fn print_states(app: &mut App, session: Handle<CameraSession>) {
         );
     });
     print.call(app);
-    let listenable: Rc<dyn Listenable> = Rc::new(session);
-    listenable.add_listener(app, print);
+    session.add_listener(app, print);
 }
 
 /// Takes a photo of `session`, printing its type and size once the system has encoded it.
@@ -257,18 +257,19 @@ impl StatelessWidget for CameraSide {
             CameraPane::Opening => label("Opening the camera…"),
             CameraPane::NoCamera => label("This system has no cameras"),
             CameraPane::Failed(error) => label(&format!("No camera: {error}")),
-            CameraPane::Running(session) => preview_with_button(*session),
+            CameraPane::Running(session) => preview_with_button(session),
         }
     }
 }
 
 /// `session`'s preview, with the button that takes a photo under it.
-fn preview_with_button(session: Handle<CameraSession>) -> WidgetRef {
-    let press = Listener::new(move |app| take_photo(app, session));
+fn preview_with_button(session: &Ref<CameraSession>) -> WidgetRef {
+    let pressed = session.clone();
+    let press = Listener::new(move |app| take_photo(app, pressed.handle()));
     let button = CupertinoButton::filled(Text::new("Take a photo").into_widget(), Some(press));
     Column::new()
         .children([
-            Expanded::new(Center::new().child(CameraPreview::new(session))).into_widget(),
+            Expanded::new(Center::new().child(CameraPreview::new(session.clone()))).into_widget(),
             Padding::new(EdgeInsetsGeometry::all(16.0))
                 .child(Center::new().child(button))
                 .into_widget(),

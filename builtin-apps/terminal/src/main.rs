@@ -55,8 +55,8 @@ use std::rc::Rc;
 
 use waft_foundation::{App, Entity};
 use waft_widgets::{
-    IntoWidget, MultiViewApp, PageRoute, PageRouteBuilder, PlatformMenuBar, RouteSettingsRef,
-    WidgetRef, WidgetsApp, run_widget,
+    IntoWidget, MultiViewApp, PageRouteBuilder, PlatformMenuBar, RouteSettingsRef, WidgetRef,
+    WidgetsApp, run_widget,
 };
 use waft_winui::AccentPalette;
 
@@ -111,7 +111,7 @@ fn widgets_app(page: SessionPage) -> WidgetRef {
                 Rc::new(move |app, context, _, _| builder(app, context)),
             )
             .settings(app, RouteSettingsRef::Settings(settings.clone()));
-            PageRoute::as_page_route(route)
+            route.into_erased()
         })
         .home(page)
         .into_widget()

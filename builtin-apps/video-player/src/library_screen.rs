@@ -7,7 +7,7 @@
 
 use std::fmt;
 
-use waft_foundation::{App, Entity, Handle, Listener};
+use waft_foundation::{App, Entity, Listener, Ref};
 use waft_widgets::{
     BuildContext, Center, Column, EdgeInsetsGeometry, Expanded, GridView, IntoWidget,
     LayoutBuilder, MainAxisSize, Padding, Row, SizedBox, StatelessWidget, TextEditingController,
@@ -73,7 +73,7 @@ impl fmt::Debug for LibraryScreen {
 struct Shown {
     library: Entity<Library>,
     playback: Entity<Playback>,
-    search_field: Handle<TextEditingController>,
+    search_field: Ref<TextEditingController>,
     folders: Vec<String>,
     section: Section,
     search: String,
@@ -87,7 +87,7 @@ impl StatelessWidget for LibraryScreen {
         let shown = Shown {
             library: self.library.clone(),
             playback: self.playback.clone(),
-            search_field: library.search_field(),
+            search_field: library.search_field().clone(),
             folders: library
                 .folders()
                 .iter()
@@ -194,7 +194,7 @@ fn section_of(id: &str) -> Option<Section> {
 /// The search, by title, whose text the library keeps.
 fn search_box(shown: &Shown) -> WidgetRef {
     let library = shown.library.clone();
-    TextBox::new(shown.search_field.as_controller())
+    TextBox::new(shown.search_field.erase())
         .placeholder_text("Search")
         .text_changed(move |app: &mut App, _text: String| library::search_changed(&library, app))
         .into_widget()

@@ -15,7 +15,7 @@ use waft::ui::TextInputAction;
 use waft::{
     App, BorderRadiusGeometry, BoxDecoration, BuildContext, DecoratedBox, EdgeInsetsGeometry,
     FocusNode, FocusNodeLeaf, GestureDetector, Handle, Icon, IgnorePointer, IntoWidget, Listenable,
-    Listener, Padding, State, TextEditingController, TextEditingControllerLeaf, TextStyle,
+    Listener, Padding, Ref, State, TextEditingController, TextEditingControllerLeaf, TextStyle,
     UnfocusDisposition, WidgetRef,
 };
 use waft_cupertino::{CupertinoColors, CupertinoIcons, CupertinoTextField, OverlayVisibilityMode};
@@ -30,10 +30,9 @@ use crate::ui::library::words as library_words;
 const ICON_SIDE: f64 = 18.0;
 
 /// The home's search field: what is typed in it, and what gives it the keyboard.
-#[derive(Clone, Copy)]
 pub(super) struct SearchField {
-    text: Handle<TextEditingController>,
-    focus: Handle<FocusNode>,
+    text: Ref<TextEditingController>,
+    focus: Ref<FocusNode>,
 }
 
 impl DeckViewState {
@@ -41,26 +40,35 @@ impl DeckViewState {
     /// deck when it gains or loses the keyboard.
     pub(super) fn new_search_field(self: Handle<Self>, app: &mut App) -> SearchField {
         let text = TextEditingController::new(app);
-        text.as_controller()
-            .add_listener(app, Listener::new(move |app| self.search_typed(app)));
+        text.add_listener(app, Listener::new(move |app| self.search_typed(app)));
         let focus = FocusNode::new(app);
-        focus
-            .as_node()
-            .add_listener(app, Listener::new(move |app| self.redraw(app)));
+        focus.add_listener(app, Listener::new(move |app| self.redraw(app)));
         SearchField { text, focus }
     }
 
     /// Lets go of the search field for good.
     pub(super) fn dispose_search_field(self: Handle<Self>, app: &mut App) {
         if let Some(search) = app.get_mut(self).search.take() {
-            app.get_mut(search.text).dispose();
-            app.destroy(search.text);
+            search.text.dispose(app);
             search.focus.dispose(app);
         }
     }
 
-    fn search_field(self: Handle<Self>, app: &App) -> SearchField {
-        app.get(self).search.expect("created in init_state")
+    fn search_field(self: Handle<Self>, app: &App) -> &SearchField {
+        app.get(self)
+            .search
+            .as_ref()
+            .expect("created in init_state")
+    }
+
+    /// What is typed in the search field.
+    fn search_text(self: Handle<Self>, app: &App) -> Handle<TextEditingController> {
+        self.search_field(app).text.handle()
+    }
+
+    /// What gives the search field the keyboard.
+    fn search_focus(self: Handle<Self>, app: &App) -> Handle<FocusNode> {
+        self.search_field(app).focus.handle()
     }
 
     /// The library searches for what the field holds.
@@ -68,27 +76,27 @@ impl DeckViewState {
         if !self.mounted(app) {
             return;
         }
-        let typed = self.search_field(app).text.text_value(app).to_owned();
+        let typed = self.search_text(app).text_value(app).to_owned();
         let library = self.widget(app).library.clone();
         library.update(app, |library, cx| library.search_for(&typed, cx));
     }
 
     /// Whether the search field has the keyboard.
     pub(super) fn search_has_the_keyboard(self: Handle<Self>, app: &mut App) -> bool {
-        self.search_field(app).focus.as_node().has_focus(app)
+        self.search_focus(app).as_node().has_focus(app)
     }
 
     /// The search field gives the keyboard up, where it has it.
     pub(super) fn leave_search(self: Handle<Self>, app: &mut App) {
         if self.search_has_the_keyboard(app) {
-            let focus = self.search_field(app).focus;
+            let focus = self.search_focus(app);
             focus.as_node().unfocus(app, UnfocusDisposition::Scope);
         }
     }
 
     /// Empties the search field, and so the library's search.
     pub(super) fn clear_search(self: Handle<Self>, app: &mut App) {
-        self.search_field(app).text.clear(app);
+        self.search_text(app).clear(app);
     }
 
     /// The home's pill.
@@ -97,7 +105,10 @@ impl DeckViewState {
         app: &mut App,
         context: BuildContext,
     ) -> WidgetRef {
-        let search = self.search_field(app);
+        let (text, focus) = {
+            let search = self.search_field(app);
+            (search.text.erase(), search.focus.erase())
+        };
         let has_the_keyboard = self.search_has_the_keyboard(app);
         let label = resolved(CupertinoColors::LABEL, app, context);
         let secondary = resolved(CupertinoColors::SECONDARY_LABEL, app, context);
@@ -107,8 +118,8 @@ impl DeckViewState {
                 .color(secondary),
         );
         let field = CupertinoTextField::borderless()
-            .controller(search.text.as_controller())
-            .focus_node(search.focus)
+            .controller(text)
+            .focus_node(focus)
             .placeholder(library_words::SEARCH_PROGRAMS)
             .prefix(magnifier)
             .clear_button_mode(OverlayVisibilityMode::Editing)
@@ -126,7 +137,7 @@ impl DeckViewState {
         GestureDetector::new()
             .behavior(HitTestBehavior::Opaque)
             .on_tap(Listener::new(move |app| {
-                self.search_field(app).focus.request_focus(app, None);
+                self.search_focus(app).request_focus(app, None);
             }))
             .child(IgnorePointer::new().ignoring(!has_the_keyboard).child(pill))
             .into_widget()

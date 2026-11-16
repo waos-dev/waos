@@ -29,7 +29,7 @@ use waft_embedder::{
     FileType, IconImage, MenuEntry, MenuId, MenuItem, Notification, NotificationAction,
     NotificationActivation, Offset, OpenOptions, OpenRequest, PickedFile, WindowConfig,
 };
-use waft_foundation::{App, Listenable, Listener};
+use waft_foundation::{App, Listener};
 use waft_widgets::{
     AnyTextEditingController, Center, EdgeInsetsGeometry, Focus, IntoWidget, Padding,
     PlainPlatformMenuItem, PlatformMenu, PlatformMenuBar, PlatformMenuItemRef,
@@ -46,10 +46,8 @@ const LINK: &str = "https://example.com/";
 #[wasdk::main]
 async fn main() {
     wasdk_adapter_waft::run(|app| {
-        let text = TextEditingController::new(app)
-            .text(app, LINE)
-            .as_controller();
-        print_changes(app, text);
+        let text = TextEditingController::new(app).text(app, LINE);
+        print_changes(app, text.as_controller());
         app.set_open_requested_handler(Some(Rc::new(print_opened_with_it)));
         app.set_notification_activated_handler(Some(Rc::new(print_click)));
         let window = WindowConfig {
@@ -57,7 +55,9 @@ async fn main() {
             size: [420.0, 160.0],
             ..WindowConfig::default()
         };
-        let field = CupertinoTextField::new().controller(text).autofocus(true);
+        let field = CupertinoTextField::new()
+            .controller(text.into_erased())
+            .autofocus(true);
         let field = Focus::new(field).on_focus_change(|_app, focused| {
             if focused {
                 println!("field: focused");

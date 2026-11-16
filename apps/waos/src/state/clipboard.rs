@@ -25,7 +25,7 @@ use futures::channel::mpsc::{self, UnboundedReceiver};
 use futures::channel::oneshot;
 use futures::stream::{self, StreamExt};
 use waft::ui::{ClipboardError as WaftError, ClipboardReadFuture, DataTransferItem, Platform};
-use waft::{App, AsyncApp, Listenable, Listener};
+use waft::{App, AsyncApp, ListenableObject, Listener};
 use waft_services::ServicesBinding;
 use waos::bindings::wasdk::platform::clipboard::ClipboardError;
 use waos::{CopiedItem, CopyOptions, ShellClipboard, ShellClipboardItem, WaOS};

@@ -6,7 +6,7 @@
 
 use std::fmt;
 
-use waft_foundation::{App, Handle};
+use waft_foundation::{App, Handle, OptionRetained, Ref};
 use waft_widgets::{BuildContext, IntoWidget, KeyRef, State, StateData, StatefulWidget, WidgetRef};
 use waft_winui::{DropDownButton, MenuFlyout, MenuFlyoutItem};
 
@@ -47,7 +47,7 @@ impl StatefulWidget for MenuButton {
 
 pub(crate) struct MenuButtonState {
     state: StateData<MenuButton>,
-    menu: Option<Handle<MenuFlyout>>,
+    menu: Option<Ref<MenuFlyout>>,
 }
 
 impl State for MenuButtonState {
@@ -62,7 +62,7 @@ impl State for MenuButtonState {
 
     fn did_update_widget(self: Handle<Self>, app: &mut App, _old_widget: &MenuButton) {
         let items = self.widget(app).items.clone();
-        if let Some(menu) = app.get(self).menu {
+        if let Some(menu) = app.get(self).menu.handle() {
             menu.items(app, items);
         }
     }
@@ -75,9 +75,9 @@ impl State for MenuButtonState {
 
     fn build(self: Handle<Self>, app: &mut App, _context: BuildContext) -> WidgetRef {
         let face = self.widget(app).face.clone();
-        let menu = app.get(self).menu.expect("init_state has run");
+        let menu = app.get(self).menu.handle().expect("init_state has run");
         DropDownButton::new(face)
-            .flyout(menu.as_flyout(app))
+            .flyout(menu.as_flyout(app).clone())
             .into_widget()
     }
 }

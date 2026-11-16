@@ -7,8 +7,8 @@ use std::rc::Rc;
 
 use waft::{
     App, Axis, BuildContext, Center, ColoredBox, EdgeInsetsGeometry, IntoWidget, LayoutBuilder,
-    ListView, Padding, ScrollControllerLeaf, SingleChildScrollView, SizedBox, StatelessWidget,
-    Text, TextAlign, WidgetRef,
+    ListView, Padding, SingleChildScrollView, SizedBox, StatelessWidget, Text, TextAlign,
+    WidgetRef,
 };
 use waft_winui::{TextBlockStyle, ThemeResources};
 
@@ -79,7 +79,7 @@ fn pages_in(app: &mut App, documents: &DocumentsApp, laid_out: LaidOut, width: f
     })
     .item_count(count as i32)
     .build()
-    .controller(documents.preview_scroll.as_controller())
+    .controller(documents.preview_scroll.erase())
     .item_extent_builder(Rc::new(move |index, _dimensions| {
         let height = heights.get(usize::try_from(index).ok()?)?;
         Some(height * scale + 2.0 * HALF_GAP)

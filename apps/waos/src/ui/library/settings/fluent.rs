@@ -17,7 +17,7 @@ use std::rc::Rc;
 
 use waft::{
     App, BuildContext, Column, CrossAxisAlignment, EdgeInsetsGeometry, Entity, Expanded, Handle,
-    IntoWidget, ListView, Listener, Padding, Row, State, StateData, StatefulWidget, Text,
+    IntoWidget, ListView, Listener, Padding, Ref, Row, State, StateData, StatefulWidget, Text,
     TextEditingController, TextEditingControllerLeaf, WidgetRef,
 };
 use waft_winui::{
@@ -67,19 +67,19 @@ pub(crate) struct FluentSettingsState {
 }
 
 /// What is being typed on the page.
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 struct Typed {
-    domain: Handle<TextEditingController>,
-    folder: Handle<TextEditingController>,
-    folder_at: Handle<TextEditingController>,
+    domain: Ref<TextEditingController>,
+    folder: Ref<TextEditingController>,
+    folder_at: Ref<TextEditingController>,
     /// A path for each file dialog, in [`FileDialog::ALL`]'s order.
-    paths: [Handle<TextEditingController>; 4],
+    paths: [Ref<TextEditingController>; 4],
 }
 
 impl Typed {
-    fn path(&self, dialog: FileDialog) -> Handle<TextEditingController> {
+    fn path(&self, dialog: FileDialog) -> &Ref<TextEditingController> {
         let index = FileDialog::ALL.iter().position(|each| *each == dialog);
-        self.paths[index.expect("every dialog")]
+        &self.paths[index.expect("every dialog")]
     }
 }
 
@@ -101,8 +101,7 @@ impl State for FluentSettingsState {
         if let Some(typed) = app.get_mut(self).typed.take() {
             let fields = [typed.domain, typed.folder, typed.folder_at];
             for controller in fields.into_iter().chain(typed.paths) {
-                app.get_mut(controller).dispose();
-                app.destroy(controller);
+                controller.dispose(app);
             }
         }
     }
@@ -114,7 +113,7 @@ impl State for FluentSettingsState {
             library: widget.library.clone(),
             of: widget.of.clone(),
             resources,
-            typed: app.get(self).typed.expect("an initialized page"),
+            typed: app.get(self).typed.clone().expect("an initialized page"),
             writable: app.get(self).writable,
             state: self,
         };
@@ -367,7 +366,7 @@ impl Page {
         let mut rows = vec![self.subsetting_name(words::file_dialog_name(dialog))];
         let paths = set.paths.file_dialog(dialog).unwrap_or_default();
         let placeholder = words::file_dialog_placeholder(dialog);
-        let typed = self.typed.path(dialog);
+        let typed = self.typed.path(dialog).clone();
         if dialog == FileDialog::OpenFiles {
             for (index, path) in paths.iter().enumerate() {
                 let remove = SettingChange::RemoveFileToOpen(index);
@@ -441,7 +440,7 @@ impl Page {
                 rows.push(self.listed(domain.as_str(), remove));
             }
             rows.push(self.adding(
-                self.typed.domain,
+                self.typed.domain.clone(),
                 words::DOMAIN_PLACEHOLDER,
                 words::ADD,
                 SettingChange::AddDomain,
@@ -737,12 +736,13 @@ impl Page {
     /// makes it and clears the field once it is added.
     fn adding(
         &self,
-        typed: Handle<TextEditingController>,
+        typed: Ref<TextEditingController>,
         placeholder: &str,
         confirm: &str,
         change: impl Fn(String) -> SettingChange + 'static,
     ) -> WidgetRef {
         let (library, of) = (self.library.clone(), self.of.clone());
+        let controller = typed.erase();
         let add = Listener::new(move |app| {
             let text = typed.text_value(app).to_owned();
             library.update(app, |library, cx| {
@@ -755,8 +755,7 @@ impl Page {
         Row::new()
             .spacing(GAP)
             .children([
-                Expanded::new(TextBox::new(typed.as_controller()).placeholder_text(placeholder))
-                    .into_widget(),
+                Expanded::new(TextBox::new(controller).placeholder_text(placeholder)).into_widget(),
                 Button::text(confirm, add).into_widget(),
             ])
             .into_widget()
@@ -767,9 +766,10 @@ impl Page {
         let (library, of, typed, writable) = (
             self.library.clone(),
             self.of.clone(),
-            self.typed,
+            self.typed.clone(),
             self.writable,
         );
+        let (folder, folder_at) = (typed.folder.erase(), typed.folder_at.erase());
         let add = Listener::new(move |app| {
             let change = SettingChange::AddMount {
                 host: typed.folder.text_value(app).to_owned(),
@@ -791,10 +791,10 @@ impl Page {
             .cross_axis_alignment(CrossAxisAlignment::Stretch)
             .spacing(GAP)
             .children([
-                TextBox::new(typed.folder.as_controller())
+                TextBox::new(folder)
                     .placeholder_text(words::FOLDER_PLACEHOLDER)
                     .into_widget(),
-                TextBox::new(typed.folder_at.as_controller())
+                TextBox::new(folder_at)
                     .placeholder_text(words::FOLDER_AT_PLACEHOLDER)
                     .into_widget(),
                 Row::new()

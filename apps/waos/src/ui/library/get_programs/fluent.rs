@@ -9,7 +9,7 @@
 
 use waft::{
     App, BuildContext, Column, CrossAxisAlignment, EdgeInsetsGeometry, Entity, Expanded, Handle,
-    IntoWidget, ListView, Listener, Padding, Row, State, StateData, StatefulWidget, Text,
+    IntoWidget, ListView, Listener, Padding, Ref, Row, State, StateData, StatefulWidget, Text,
     TextEditingController, TextEditingControllerLeaf, TextOverflow, WidgetRef,
 };
 use waft_winui::{
@@ -48,7 +48,7 @@ impl StatefulWidget for FluentGetPrograms {
 pub(crate) struct FluentGetProgramsState {
     state: StateData<FluentGetPrograms>,
     /// What is typed as a source to add.
-    source_text: Option<Handle<TextEditingController>>,
+    source_text: Option<Ref<TextEditingController>>,
 }
 
 impl State for FluentGetProgramsState {
@@ -62,8 +62,7 @@ impl State for FluentGetProgramsState {
 
     fn dispose(self: Handle<Self>, app: &mut App) {
         if let Some(source_text) = app.get_mut(self).source_text.take() {
-            app.get_mut(source_text).dispose();
-            app.destroy(source_text);
+            source_text.dispose(app);
         }
     }
 
@@ -72,7 +71,11 @@ impl State for FluentGetProgramsState {
         let page = Page {
             package_picker: PackagePicker::of(&library, app, context),
             library,
-            source_text: app.get(self).source_text.expect("an initialized page"),
+            source_text: app
+                .get(self)
+                .source_text
+                .clone()
+                .expect("an initialized page"),
             resources: ThemeResources::of(app, context),
         };
         let mut rows = Vec::new();
@@ -103,7 +106,7 @@ impl State for FluentGetProgramsState {
 /// What one build of the page reads and writes.
 struct Page {
     library: Entity<Library>,
-    source_text: Handle<TextEditingController>,
+    source_text: Ref<TextEditingController>,
     /// What Install from file… shows; none where the system has no file picker.
     package_picker: Option<PackagePicker>,
     resources: std::rc::Rc<ThemeResources>,
@@ -141,7 +144,7 @@ impl Page {
     /// The field a source is typed in, Add, and Install from file… where the system has a file
     /// picker.
     fn add_row(&self) -> WidgetRef {
-        let (library, text) = (self.library.clone(), self.source_text);
+        let (library, text) = (self.library.clone(), self.source_text.clone());
         let add = Listener::new(move |app| {
             let typed = text.text_value(app).to_owned();
             library.update(app, |library, cx| library.add_source(&typed, cx));
@@ -149,8 +152,8 @@ impl Page {
                 text.clear(app);
             }
         });
-        let field = TextBox::new(self.source_text.as_controller())
-            .placeholder_text(words::SOURCE_PLACEHOLDER);
+        let field =
+            TextBox::new(self.source_text.erase()).placeholder_text(words::SOURCE_PLACEHOLDER);
         let mut controls = vec![
             Expanded::new(field).into_widget(),
             Button::text(words::ADD, add).into_widget(),

@@ -4,7 +4,7 @@
 
 use waft::{
     App, BuildContext, Color, ColoredBox, Column, CrossAxisAlignment, Expanded, IntoWidget,
-    StatelessWidget, TextEditingControllerLeaf, WidgetRef,
+    StatelessWidget, WidgetRef,
 };
 use waft_winui::{TextBox, TextWrapping, Theme, ThemeResources, ThemeScope};
 
@@ -53,16 +53,16 @@ impl StatelessWidget for EditorPane {
 impl EditorPane {
     /// The markup, wrapped at the pane's width, scrolling past its height.
     fn text_box(&self) -> WidgetRef {
-        let editor = self.documents.editor;
-        let text_box = TextBox::new(editor.text.as_controller())
-            .focus_node(editor.focus)
+        let editor = &self.documents.editor;
+        let text_box = TextBox::new(editor.text.erase())
+            .focus_node(editor.focus.erase())
             .accepts_return(true)
             .text_wrapping(TextWrapping::Wrap)
             .font_size(FONT_SIZE)
             .padding(PADDING)
             .placeholder_text("Write in Typst's markup");
         let text_box = ThemeScope::overriding(text_box).any(as_source);
-        with_tab_indenting(editor.indenting, text_box.into_widget())
+        with_tab_indenting(editor.indenting.clone(), text_box.into_widget())
     }
 }
 

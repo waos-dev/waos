@@ -57,11 +57,13 @@ pub(crate) fn recover_shown(app: &mut App, notes: &NotesApp) {
 
 /// From now on, each edit of the note or the file shown is kept as it is typed.
 pub(crate) fn keep_edits(app: &mut App, notes: &NotesApp) {
-    let following = notes.clone();
-    notes
-        .editor
-        .text
-        .add_listener(app, Listener::new(move |app| edited(app, &following)));
+    let following = notes.downgrade();
+    let listener = Listener::new(move |app| {
+        if let Some(notes) = following.upgrade(app) {
+            edited(app, &notes);
+        }
+    });
+    notes.editor.text.add_listener(app, listener);
 }
 
 /// The editor changed: a change of its text, not of its selection alone, is the shown's, and

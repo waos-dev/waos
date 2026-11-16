@@ -7,9 +7,8 @@ use std::rc::Rc;
 
 use url::Url;
 use waft::{
-    AnyTextEditingController, App, BuildContext, Column, CrossAxisAlignment, Entity, Handle,
-    IntoWidget, MainAxisSize, SizedBox, StatelessWidget, Text, TextEditingController,
-    TextEditingControllerLeaf, WidgetRef,
+    App, BuildContext, Column, CrossAxisAlignment, Entity, Handle, IntoWidget, MainAxisSize, Ref,
+    SizedBox, StatelessWidget, Text, TextEditingController, TextEditingControllerRef, WidgetRef,
 };
 use waft_winui::{
     ContentDialog, ContentDialogButton, ContentDialogButtonClickEventArgs, ProgressBar,
@@ -46,7 +45,7 @@ pub(crate) enum Adding {
 /// What the dialog is made of: the address typed and how far adding has come.
 #[derive(Clone)]
 struct Form {
-    address: AnyTextEditingController,
+    address: TextEditingControllerRef,
     adding: Entity<Adding>,
 }
 
@@ -63,7 +62,7 @@ pub(crate) fn ask_for_a_feed(app: &mut App, reader: &ReaderApp) {
         return;
     };
     let form = Form {
-        address: TextEditingController::new(app).as_controller(),
+        address: TextEditingController::new(app).into_erased(),
         adding: app.new_entity(|_cx| Adding::default()),
     };
     let dialog = dialog_asking(app, reader, &form);
@@ -76,18 +75,19 @@ pub(crate) fn ask_for_a_feed(app: &mut App, reader: &ReaderApp) {
     });
 }
 
-fn dialog_asking(app: &mut App, reader: &ReaderApp, form: &Form) -> Handle<ContentDialog> {
+fn dialog_asking(app: &mut App, reader: &ReaderApp, form: &Form) -> Ref<ContentDialog> {
     let (reader, adding_form) = (reader.clone(), form.clone());
     let dialog = ContentDialog::new(app);
+    dialog.title(app, Text::new(TITLE));
+    dialog.content(app, FormView { form: form.clone() });
+    dialog.primary_button_text(app, "Add");
+    dialog.close_button_text(app, "Cancel");
+    dialog.default_button(app, ContentDialogButton::Primary);
+    let clicked = dialog.handle();
+    dialog.primary_button_click(app, move |app, args| {
+        add_clicked(app, &reader, &adding_form, clicked, args);
+    });
     dialog
-        .title(app, Text::new(TITLE))
-        .content(app, FormView { form: form.clone() })
-        .primary_button_text(app, "Add")
-        .close_button_text(app, "Cancel")
-        .default_button(app, ContentDialogButton::Primary)
-        .primary_button_click(app, move |app, args| {
-            add_clicked(app, &reader, &adding_form, dialog, args);
-        })
 }
 
 /// Add was clicked: an address that is none, or a feed followed already, keeps the dialog and
@@ -171,7 +171,7 @@ impl StatelessWidget for FormView {
         let adding = self.form.adding.read(app).clone();
         let asked =
             TextBlockStyle::Body.text_style(&resources, resources.text_fill_color_secondary);
-        let address = TextBox::new(self.form.address)
+        let address = TextBox::new(self.form.address.clone())
             .placeholder_text(PLACEHOLDER)
             .autofocus(true)
             .is_enabled(adding != Adding::Looking);

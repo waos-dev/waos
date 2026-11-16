@@ -10,9 +10,9 @@ use std::collections::HashMap;
 use std::fmt;
 use std::rc::Rc;
 
-use waft_foundation::{App, Entity, Handle, Listener};
+use waft_foundation::{App, Entity, Handle, Listener, Ref};
 use waft_widgets::{
-    Action, Actions, AnyAction, BuildContext, CallbackAction, DismissIntent, Focus, FocusNode,
+    ActionRef, Actions, BuildContext, CallbackAction, DismissIntent, Focus, FocusNode,
     FocusNodeLeaf, IntoWidget, KeyRef, ShortcutMap, State, StateData, StatefulWidget,
     VoidCallbackIntent, WidgetRef, WidgetsApp,
 };
@@ -85,9 +85,9 @@ impl StatefulWidget for BackOnEscape {
 pub(crate) struct BackOnEscapeState {
     state: StateData<BackOnEscape>,
     /// The dismissal's action, made once for the page.
-    actions: HashMap<TypeId, AnyAction>,
+    actions: HashMap<TypeId, ActionRef>,
     /// The page's focus, which its keys reach the action from.
-    focus: Option<Handle<FocusNode>>,
+    focus: Option<Ref<FocusNode>>,
 }
 
 impl State for BackOnEscapeState {
@@ -105,7 +105,7 @@ impl State for BackOnEscapeState {
         );
         app.get_mut(self)
             .actions
-            .insert(TypeId::of::<DismissIntent>(), back.as_action());
+            .insert(TypeId::of::<DismissIntent>(), back.into_erased());
         // Taken as the node is attached, below.
         let focus = FocusNode::new(app);
         focus.request_focus(app, None);
@@ -113,9 +113,7 @@ impl State for BackOnEscapeState {
     }
 
     fn dispose(self: Handle<Self>, app: &mut App) {
-        for action in std::mem::take(&mut app.get_mut(self).actions).into_values() {
-            app.destroy(action.id());
-        }
+        app.get_mut(self).actions.clear();
         if let Some(focus) = app.get_mut(self).focus.take() {
             focus.dispose(app);
         }
@@ -123,10 +121,15 @@ impl State for BackOnEscapeState {
 
     fn build(self: Handle<Self>, app: &mut App, _context: BuildContext) -> WidgetRef {
         let child = self.widget(app).child.clone();
-        let focus = app.get(self).focus.expect("init_state has run");
+        let focus = app
+            .get(self)
+            .focus
+            .as_ref()
+            .expect("init_state has run")
+            .erase();
         Actions::new(
             app.get(self).actions.clone(),
-            Focus::new(child).focus_node(focus.as_node()),
+            Focus::new(child).focus_node(focus),
         )
         .into_widget()
     }

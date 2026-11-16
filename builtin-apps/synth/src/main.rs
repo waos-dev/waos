@@ -42,8 +42,8 @@ mod window;
 use std::rc::Rc;
 
 use waft::{
-    App, AppLifecycleListener, IntoWidget, PageRoute, PageRouteBuilder, RouteSettingsRef,
-    WidgetRef, WidgetsApp, WindowConfig, run_app_with,
+    App, AppLifecycleListener, IntoWidget, PageRouteBuilder, RouteSettingsRef, WidgetRef,
+    WidgetsApp, WindowConfig, run_app_with,
 };
 use waft_winui::{AccentPalette, install_icon_font};
 
@@ -93,7 +93,7 @@ fn widgets_app(instrument: Instrument) -> WidgetRef {
                 Rc::new(move |app, context, _, _| builder(app, context)),
             )
             .settings(app, RouteSettingsRef::Settings(settings.clone()));
-            PageRoute::as_page_route(route)
+            route.into_erased()
         })
         .home(Page::new(instrument));
     SynthWindow::new(app.into_widget()).into_widget()
