@@ -16,6 +16,8 @@ use futures::channel::oneshot;
 use waft::ui::OpenFuture;
 use waft::{App, Context, Entity, WeakEntity};
 use waos::Switch;
+
+use crate::logic::activity::activity_of;
 use waos_package::ProgramId;
 
 use super::{Library, WantsToBeSeen};
@@ -92,6 +94,14 @@ impl Library {
                     .map_err(|error| format!("{error}"))?;
                 Ok(program_page(&global, &own, &self.offered))
             }
+        }
+    }
+
+    /// What the program `of` shows did over the days kept of it; none on the global page.
+    pub(crate) fn activity(&self, of: &SettingsOf) -> Option<waos_activity::Activity> {
+        match of {
+            SettingsOf::Global => None,
+            SettingsOf::Program(id) => Some(activity_of(&self.store, id)),
         }
     }
 

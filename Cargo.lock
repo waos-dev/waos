@@ -4156,6 +4156,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "inspector"
+version = "0.2.0"
+dependencies = [
+ "waft",
+ "waft-cupertino",
+ "waft-winui",
+ "waos-activity",
+ "wasdk",
+ "wasdk-adapter-waft",
+]
+
+[[package]]
 name = "interpolate_name"
 version = "0.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -10468,6 +10480,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "waos-activity"
+version = "0.2.0"
+
+[[package]]
 name = "waos-app"
 version = "0.2.0"
 dependencies = [
@@ -10519,6 +10535,7 @@ dependencies = [
  "waft-widgets",
  "waft-winui",
  "waos",
+ "waos-activity",
  "waos-capabilities",
  "waos-dev-protocol",
  "waos-local",

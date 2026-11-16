@@ -568,6 +568,42 @@ fn a_tap_on_a_switch_or_on_its_row_changes_the_setting_on_the_phone() {
     assert_eq!(switch_shows(&desktop, words::LOCAL_NETWORK), before);
 }
 
+/// A day of Triangle's kept, on which it posted a notification.
+fn triangle_posted_once(desktop: &LibraryDesktop) {
+    use waos::AuditLog;
+    let mut day = waos::AuditDay::starting(std::time::SystemTime::UNIX_EPOCH);
+    day.notifications.allowed = 1;
+    desktop.store.keep(triangle().as_str(), &day);
+}
+
+#[test]
+fn a_programs_last_seven_days_are_said_on_its_page_on_the_phone() {
+    let (mut desktop, view) = on_phone();
+    installs(&mut desktop, TRIANGLE, "Triangle", b"\0asm");
+    triangle_posted_once(&desktop);
+    open_settings_from_icon(&mut desktop, view, "Triangle");
+    desktop.scroll_until_visible(view, words::LAST_DAYS, words::NETWORK, SCROLL_STEP);
+    assert!(
+        desktop.shows("Notifications: Posted once"),
+        "{:?}",
+        desktop.labels()
+    );
+}
+
+#[test]
+fn a_programs_last_seven_days_are_said_on_its_page_in_the_launcher() {
+    let (mut desktop, view) = in_launcher();
+    installs(&mut desktop, TRIANGLE, "Triangle", b"\0asm");
+    triangle_posted_once(&desktop);
+    open_settings_from_icon(&mut desktop, view, "Triangle");
+    desktop.scroll_until_visible(
+        view,
+        "Notifications: Posted once",
+        words::NETWORK,
+        SCROLL_STEP,
+    );
+}
+
 #[test]
 fn a_programs_record_turned_off_removes_what_was_kept_of_it_on_the_phone() {
     use waos::AuditLog;

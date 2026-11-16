@@ -1,0 +1,27 @@
+[package]
+name = "inspector"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "WaOS's inspector, a program holding the inspector role: the programs on this device, the ones that used something guarded lately first, and what each did over the last seven days, in plain words. A Waft app over wasdk-adapter-waft, in Fluent's controls at a desktop's width and Cupertino's at a phone's. `cargo waos run -p inspector`."
+
+[dependencies]
+wasdk = { workspace = true, features = ["inspector"] }
+wasdk-adapter-waft.workspace = true
+waft.workspace = true
+# Fluent's controls, at a desktop's or a tablet's width.
+waft-winui.workspace = true
+# Cupertino's, at a phone's.
+waft-cupertino.workspace = true
+# What a program did over the days kept, in the words WaOS's settings page says it in too.
+waos-activity.workspace = true
+
+[lints]
+workspace = true
+
+# The id `cargo waos run` runs this program as, with that program's settings and folders.
+[package.metadata.waos]
+id = "dev.waos.inspector"
+name = "Inspector"
+icon = "icon.png"

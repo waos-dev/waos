@@ -176,6 +176,9 @@ pub(crate) const CLIPBOARD_WRITE: &str = "Writing the clipboard";
 pub(crate) const RECORD: &str = "Keep a record of what it does";
 pub(crate) const RECORD_DETAIL: &str = "The sites it reaches, the files it opens and changes, when it uses the camera and the microphone, and what it runs, over the last seven days, on this device alone. Turned off, what was kept is removed.";
 pub(crate) const RECORD_EVERY: &str = "Keep a record of what programs do";
+pub(crate) const LAST_DAYS: &str = "Last seven days";
+pub(crate) const NOTHING_USED: &str = "It has used nothing that needs your permission.";
+pub(crate) const NOTHING_RECORDED: &str = "No record is kept of what it does.";
 pub(crate) const RECORD_EVERY_DETAIL: &str = "The sites each reaches, the files it opens and changes, when it uses the camera and the microphone, and what it runs, over the last seven days, on this device alone. Turned off, what was kept of every program that follows this is removed.";
 
 /// The record's name and what it is, on the page of `of`.

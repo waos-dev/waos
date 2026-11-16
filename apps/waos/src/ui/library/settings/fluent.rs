@@ -25,6 +25,7 @@ use waft_winui::{
     TextBlockStyle, TextBox, ThemeResources, ToggleSwitch,
 };
 use waos::{FileDialog, SimulatedSound};
+use waos_activity::Activity;
 use waos_store::{Answer, DomainRule, Question, Role};
 
 use crate::logic::setting_changes::{
@@ -122,7 +123,11 @@ impl State for FluentSettingsState {
         rows.extend(page.where_programs_open(app));
         rows.extend(page.where_waos_stays(app));
         match page.library.read(app).settings(&page.of) {
-            Ok(shown) => rows.extend(page.sections(&shown, page.notifications_refused(app))),
+            Ok(shown) => {
+                let activity = page.library.read(app).activity(&page.of);
+                let refused = page.notifications_refused(app);
+                rows.extend(page.sections(&shown, activity.as_ref(), refused));
+            }
             Err(why) => rows.push(caption(&why, &page.resources)),
         }
         ListView::new()
@@ -205,7 +210,12 @@ impl Page {
         }
     }
 
-    fn sections(&self, shown: &ShownSettings, notifications_refused: bool) -> Vec<WidgetRef> {
+    fn sections(
+        &self,
+        shown: &ShownSettings,
+        activity: Option<&Activity>,
+        notifications_refused: bool,
+    ) -> Vec<WidgetRef> {
         let mut sections = Vec::new();
         if self.of != SettingsOf::Global {
             sections.extend(self.machines(&shown.machines));
@@ -230,6 +240,9 @@ impl Page {
             SettingChange::ClipboardWrite,
         ));
         sections.extend(self.record(&shown.record));
+        if let Some(activity) = activity {
+            sections.extend(self.last_days(activity, shown.record.value));
+        }
         sections.extend(self.folders(&shown.file_system));
         for question in Question::ALL {
             let refused = question == Question::Notifications && notifications_refused;
@@ -468,6 +481,20 @@ impl Page {
         let mut rows = self.header(name, shown.follows_global, Which::Record);
         rows.push(caption(detail, &self.resources));
         rows.push(self.toggle(shown.value, SettingChange::Record));
+        rows
+    }
+
+    /// What the program did over the days kept of it, a line per capability; that none is kept
+    /// while its record is off.
+    fn last_days(&self, activity: &Activity, recorded: bool) -> Vec<WidgetRef> {
+        let mut rows = vec![self.setting_name(words::LAST_DAYS)];
+        let lines = activity.short();
+        if !recorded {
+            rows.push(caption(words::NOTHING_RECORDED, &self.resources));
+        } else if lines.is_empty() {
+            rows.push(caption(words::NOTHING_USED, &self.resources));
+        }
+        rows.extend(lines.iter().map(|line| caption(line, &self.resources)));
         rows
     }
 

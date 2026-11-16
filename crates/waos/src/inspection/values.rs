@@ -40,10 +40,10 @@ pub fn day_of(day: &AuditDay) -> audit::Day {
         commands: day
             .commands
             .iter()
-            .map(|uses| {
-                named_uses_of(uses, |command| {
-                    format!("{} {}", command.machine, command.command)
-                })
+            .map(|run| audit::CommandUses {
+                machine: run.name.machine.clone(),
+                command: run.name.command.clone(),
+                uses: uses_of(&run.uses),
             })
             .collect(),
         links: day

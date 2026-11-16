@@ -16,8 +16,17 @@ interface audit {
 
   /// The uses of one thing, by its name.
   record named-uses {
-    /// What was used: a domain, an address, a scheme and host, a machine and command.
+    /// What was used: a domain, an address, a scheme and host.
     name: string,
+    uses: uses,
+  }
+
+  /// The runs of one command on one machine.
+  record command-uses {
+    /// The machine, by its name.
+    machine: string,
+    /// The program the command ran, as the program named it; never its arguments.
+    command: string,
     uses: uses,
   }
 
@@ -101,7 +110,7 @@ interface audit {
     clipboard-writes: uses,
     camera: list<device-session>,
     microphone: list<device-session>,
-    commands: list<named-uses>,
+    commands: list<command-uses>,
     links: list<named-uses>,
     notifications: uses,
     questions: list<question-asked>,

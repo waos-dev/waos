@@ -36,6 +36,7 @@
 //! The invariant: nothing here names Waft's application or a widget. What ties this to the
 //! application is `state`'s.
 
+pub(crate) mod activity;
 pub(crate) mod asking_now;
 pub(crate) mod camera_calls;
 pub(crate) mod camera_values;

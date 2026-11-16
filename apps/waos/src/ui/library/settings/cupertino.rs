@@ -34,6 +34,7 @@ use waft_cupertino::{
     CupertinoTextField, ObstructingPreferredSizeWidgetRef,
 };
 use waos::{FileDialog, SimulatedSound};
+use waos_activity::Activity;
 use waos_store::{Answer, DomainRule, FileSystemGrant, NetworkGrant, Question, Role};
 
 use crate::logic::setting_changes::{
@@ -131,7 +132,11 @@ impl State for CupertinoSettingsState {
         sections.extend(page.where_programs_open(app));
         sections.extend(page.where_waos_stays(app));
         match page.library.read(app).settings(&page.of) {
-            Ok(shown) => sections.extend(page.sections(&shown, page.notifications_refused(app))),
+            Ok(shown) => {
+                let activity = page.library.read(app).activity(&page.of);
+                let refused = page.notifications_refused(app);
+                sections.extend(page.sections(&shown, activity.as_ref(), refused));
+            }
             Err(why) => sections.push(section(Some(words::SETTINGS), None, vec![note(&why)])),
         }
         let bar = CupertinoNavigationBar::new()
@@ -236,7 +241,12 @@ impl Page {
         }
     }
 
-    fn sections(&self, shown: &ShownSettings, notifications_refused: bool) -> Vec<WidgetRef> {
+    fn sections(
+        &self,
+        shown: &ShownSettings,
+        activity: Option<&Activity>,
+        notifications_refused: bool,
+    ) -> Vec<WidgetRef> {
         let mut sections = Vec::new();
         if self.of != SettingsOf::Global {
             sections.push(self.machines(&shown.machines));
@@ -262,8 +272,11 @@ impl Page {
                 SettingChange::ClipboardWrite,
             ),
             self.record(&shown.record),
-            self.folders(&shown.file_system),
         ]);
+        if let Some(activity) = activity {
+            sections.push(last_days(activity, shown.record.value));
+        }
+        sections.push(self.folders(&shown.file_system));
         for question in Question::ALL {
             let refused = question == Question::Notifications && notifications_refused;
             sections.push(self.question(question, shown, refused));
@@ -814,6 +827,20 @@ fn spanning(text: &str) -> WidgetRef {
         .width(f64::INFINITY)
         .child(Text::new(text))
         .into_widget()
+}
+
+/// What the program did over the days kept of it, a line per capability; that none is kept while
+/// its record is off.
+fn last_days(activity: &Activity, recorded: bool) -> WidgetRef {
+    let lines = activity.short();
+    let tiles = if !recorded {
+        vec![note(words::NOTHING_RECORDED)]
+    } else if lines.is_empty() {
+        vec![note(words::NOTHING_USED)]
+    } else {
+        lines.iter().map(|line| note(line)).collect()
+    };
+    section(Some(words::LAST_DAYS), None, tiles)
 }
 
 /// A tile that only says `text`.

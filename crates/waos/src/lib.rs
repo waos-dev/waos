@@ -142,6 +142,7 @@ pub use waos_capabilities::{
 };
 /// A program's sound devices, and an output among them as the shell's picker shows it.
 pub use waos_capabilities::{AudioDeviceError, AudioDevices, AudioOutput};
-pub use waos_capabilities::{AuditDay, AuditLog};
+/// A program's audit summary, a day of it, and the counts it is made of.
+pub use waos_capabilities::{AuditDay, AuditLog, Uses};
 pub use waos_capabilities::{OutputStream, ProgramEnvironment, ProgramOutput};
 pub use windows::WindowConfig;
