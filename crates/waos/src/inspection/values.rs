@@ -119,11 +119,10 @@ fn active_use_kind_of(kind: ActiveUseKind) -> active_uses::ActiveUseKind {
                 recursive,
             })
         }
-        ActiveUseKind::OpenFile { file, mount, mode } => Kind::OpenFile(active_uses::OpenFile {
-            path: file
-                .upgrade()
-                .and_then(|file| crate::files::path_of(&file).ok())
-                .map(|path| path.display().to_string()),
+        ActiveUseKind::OpenFile {
+            mount, mode, at, ..
+        } => Kind::OpenFile(active_uses::OpenFile {
+            path: at.map(|path| path.display().to_string()),
             mount: mount_kind_of(mount),
             read: mode.read,
             write: mode.write,

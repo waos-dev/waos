@@ -1,9 +1,9 @@
 //! The programs an inspector sees on this computer (decision 12 of
 //! `docs/proposals/2026-11-15-inspector-roles-and-compatibility.md`): every program installed,
-//! by the store's manifests, and every one running, by the runs, a development run of a program
-//! not installed by its id alone; each change to them as it happens, an install or a removal as
-//! the library makes it, a start or an end as the runs list it; and each one's icon, read as it is
-//! asked for.
+//! by the store's manifests; every one running, by the runs; and every one run in development the
+//! store keeps days of, though it has ended; a program not installed by its id alone. Each change
+//! to them as it happens, an install or a removal as the library makes it, a start or an end as
+//! the runs list it; and each one's icon, read as it is asked for.
 //!
 //! The invariant: a program is named by its id, as the runs name the program they run, so what an
 //! inspector reads of a running one the engine finds under that name.
@@ -77,11 +77,13 @@ impl InspectedPrograms for ProgramsOnThisComputer {
         let store = self.store.clone();
         let running = self.runs.running_ids().borrow().clone();
         async move {
-            // The installed programs are read from their files.
-            let installed = tokio::task::spawn_blocking(move || store.installed())
-                .await
-                .unwrap_or_default();
-            listed(&installed, &running)
+            // The installed programs and the days kept are read from their files.
+            let (installed, recorded) = tokio::task::spawn_blocking(move || {
+                (store.installed(), store.programs_with_days())
+            })
+            .await
+            .unwrap_or_default();
+            listed(&installed, &running, &recorded)
         }
         .boxed()
     }
@@ -107,20 +109,39 @@ impl InspectedPrograms for ProgramsOnThisComputer {
     }
 }
 
-/// Every program installed, and then each running one not installed, by its id alone.
-fn listed(installed: &[InstalledProgram], running: &BTreeSet<ProgramId>) -> Vec<Program> {
+/// Every program installed; then each one not installed, by its id alone: those running, then
+/// those ended that days are kept of.
+fn listed(
+    installed: &[InstalledProgram],
+    running: &BTreeSet<ProgramId>,
+    recorded: &[String],
+) -> Vec<Program> {
     let installed_ids = ids_of(installed);
     let mut programs: Vec<Program> = installed
         .iter()
         .map(|program| program_of(program, running.contains(program.manifest.id())))
         .collect();
-    programs.extend(running.difference(&installed_ids).map(|id| Program {
-        id: id.to_string(),
-        name: id.to_string(),
-        version: None,
-        running: true,
-    }));
+    programs.extend(
+        running
+            .difference(&installed_ids)
+            .map(|id| run_in_development(id.to_string(), true)),
+    );
+    let ended = recorded.iter().filter(|name| {
+        let id: Option<ProgramId> = name.parse().ok();
+        id.is_some_and(|id| !installed_ids.contains(&id) && !running.contains(&id))
+    });
+    programs.extend(ended.map(|name| run_in_development(name.clone(), false)));
     programs
+}
+
+/// A program run in development, not installed, by its id alone.
+fn run_in_development(id: String, running: bool) -> Program {
+    Program {
+        name: id.clone(),
+        id,
+        version: None,
+        running,
+    }
 }
 
 /// Each start and end of a run from now on, as the runs list them.
@@ -211,12 +232,27 @@ mod tests {
     fn a_run_of_a_program_not_installed_is_listed_by_its_id() {
         let running = BTreeSet::from(["dev.example.forever".parse().unwrap()]);
         assert_eq!(
-            listed(&[], &running),
+            listed(&[], &running, &["dev.example.forever".to_owned()]),
             [Program {
                 id: "dev.example.forever".to_owned(),
                 name: "dev.example.forever".to_owned(),
                 version: None,
                 running: true,
+            }],
+            "once, though days are kept of it too"
+        );
+    }
+
+    #[test]
+    fn a_development_run_that_ended_stays_listed_while_days_are_kept_of_it() {
+        let recorded = ["dev.example.camera".to_owned()];
+        assert_eq!(
+            listed(&[], &BTreeSet::new(), &recorded),
+            [Program {
+                id: "dev.example.camera".to_owned(),
+                name: "dev.example.camera".to_owned(),
+                version: None,
+                running: false,
             }]
         );
     }

@@ -12,8 +12,9 @@
 //! place of what it missed, so it never shows a use that ended, and the program never waits for it.
 //!
 //! An entry is a lock, a map insertion and two clocks read, beside work far slower; an open
-//! file's path, and the bytes a socket moved, are read only when someone reads the entry (`../experiments/2026-11-15-audit-cost`
-//! and `../experiments/2026-11-16-active-uses-burst`).
+//! file's path is read only as the entry is told to a listener, and the bytes a socket moved only
+//! when someone reads the entry (`../experiments/2026-11-15-audit-cost` and
+//! `../experiments/2026-11-16-active-uses-burst`).
 //!
 //! The invariant: an entry goes exactly when its [`ActiveUse`] is dropped, and every change to the
 //! entries is sent to the listeners under the same lock that makes it, so a listener's snapshot
@@ -59,12 +60,16 @@ pub(crate) enum ActiveUseKind {
     },
     /// A folder watched, where it was on the machine when the watch began.
     FolderWatch { folder: PathBuf, recursive: bool },
-    /// A file or folder open, while its handle is held: the handle, whose path the system says
-    /// when it is read, the kind of mount it was opened in, and what for.
+    /// A file or folder open, while its handle is held: the handle, the kind of mount it was
+    /// opened in, and what for.
     OpenFile {
         file: Weak<fs::File>,
         mount: MountKind,
         mode: OpenMode,
+        /// Where the system says it is, read from the handle as the use is told to a listener,
+        /// while the handle is surely there; none in the registry, and none where the system
+        /// cannot say.
+        at: Option<PathBuf>,
     },
     /// A TCP connection, until its socket closes.
     TcpConnection {
@@ -287,10 +292,18 @@ impl Entries {
 }
 
 impl Entry {
+    /// The entry as a listener is told it: an open file named where the system says it is now,
+    /// before the program can close it, since what is told is read later.
     fn now(&self, id: u64) -> ActiveUseNow {
+        let mut kind = self.kind.clone();
+        if let ActiveUseKind::OpenFile { file, at, .. } = &mut kind {
+            *at = file
+                .upgrade()
+                .and_then(|file| crate::files::path_of(&file).ok());
+        }
         ActiveUseNow {
             id,
-            kind: self.kind.clone(),
+            kind,
             since: self.since,
         }
     }
@@ -426,6 +439,37 @@ mod tests {
         assert!(
             matches!(changes.next().now_or_never(), Some(None)),
             "ends with the access"
+        );
+    }
+
+    #[test]
+    fn a_listener_hears_where_a_file_was_opened_though_it_is_closed_before_it_reads() {
+        let access = access();
+        let (_, mut changes) = access.subscribe_active_uses();
+        let scratch = tempfile::tempdir().unwrap();
+        let path = scratch.path().join("feeds.json.saving");
+        let file = Arc::new(fs::File::create(&path).unwrap());
+        let mode = OpenMode {
+            read: false,
+            write: true,
+        };
+        let open = access.opened(&file, MountKind::OwnData, mode);
+        drop(open);
+        drop(file);
+        let heard = waiting(&mut changes);
+        let [
+            ActiveUseChange::Started(ActiveUseNow {
+                kind: ActiveUseKind::OpenFile { at: Some(at), .. },
+                ..
+            }),
+            ActiveUseChange::Ended(_),
+        ] = &heard[..]
+        else {
+            panic!("its start, named, then its end: {heard:?}");
+        };
+        assert_eq!(
+            fs::canonicalize(at).unwrap(),
+            fs::canonicalize(&path).unwrap()
         );
     }
 

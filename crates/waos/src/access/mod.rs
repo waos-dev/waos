@@ -383,6 +383,7 @@ impl ProgramAccess {
             file: Arc::downgrade(file),
             mount,
             mode,
+            at: None,
         })
     }
 
@@ -455,10 +456,9 @@ impl ProgramAccess {
     pub(crate) fn open_files(&self) -> Vec<(Option<std::path::PathBuf>, MountKind, OpenMode)> {
         let uses = self.parts.active_uses.now().into_iter();
         uses.filter_map(|now| match now.kind {
-            ActiveUseKind::OpenFile { file, mount, mode } => {
-                let path = file.upgrade().and_then(|file| crate::files::path_of(&file).ok());
-                Some((path, mount, mode))
-            }
+            ActiveUseKind::OpenFile {
+                mount, mode, at, ..
+            } => Some((at, mount, mode)),
             _ => None,
         })
         .collect()

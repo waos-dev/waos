@@ -60,6 +60,21 @@ impl AuditLog for Store {
 }
 
 impl Store {
+    /// The programs a day is kept of, by name, each once: those installed and those run in
+    /// development alike.
+    pub fn programs_with_days(&self) -> Vec<String> {
+        let Ok(kept) = fs::read_dir(self.directory().join(AUDIT)) else {
+            return Vec::new();
+        };
+        let mut programs: Vec<String> = kept
+            .flatten()
+            .filter(|program| !day_files(&program.path()).is_empty())
+            .filter_map(|program| program.file_name().to_str().map(str::to_owned))
+            .collect();
+        programs.sort();
+        programs
+    }
+
     /// Where `program`'s days are kept; none for a name that is no one folder's.
     fn audit_folder_of(&self, program: &str) -> Option<PathBuf> {
         let one_name =
@@ -266,12 +281,14 @@ mod tests {
             .unwrap()
             .count();
         assert_eq!(files, DAYS_KEPT, "the older days are removed");
+        assert_eq!(store.programs_with_days(), ["dev.waos.notes"]);
 
         store.forget_days("dev.waos.notes");
         assert!(
             store.days("dev.waos.notes").is_empty(),
             "forgotten with the program"
         );
+        assert!(store.programs_with_days().is_empty());
         store.keep("dev.waos.never-run", &day(20_410));
         assert!(
             store.days("dev.waos.never-run").is_empty(),

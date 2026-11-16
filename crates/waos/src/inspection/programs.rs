@@ -18,7 +18,8 @@ pub trait InspectedPrograms: Send + Sync {
     /// This device's name, as its user knows it.
     fn device_name(&self) -> String;
 
-    /// Every program installed or running, each once.
+    /// Every program installed, running, or run in development and ended with days kept of it,
+    /// each once.
     fn programs(&self) -> BoxFuture<'static, Vec<Program>>;
 
     /// Each change to them from now on.
