@@ -273,7 +273,10 @@ fn status_bar<L: Log>(
             resources.text_fill_color_primary,
             resources,
         ),
-        caption(&words::heard(rows.len(), refused), resources),
+        caption(
+            &words::heard(rows.len(), <L::Row as PanelRow>::COUNTED_AS, refused),
+            resources,
+        ),
     ];
     items.extend(<L::Row as PanelRow>::summed(&rows).map(|summed| caption(&summed, resources)));
     let clear = {

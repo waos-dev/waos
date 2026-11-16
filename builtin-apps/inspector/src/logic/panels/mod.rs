@@ -228,6 +228,9 @@ pub(crate) trait PanelRow: Clone + 'static {
     /// Whether WaOS decides its rows, so some may be refused.
     const DECIDED: bool = true;
 
+    /// What its rows are counted as in its status: events, or uses in use.
+    const COUNTED_AS: &'static str = crate::words::EVENTS;
+
     fn kind(&self) -> Self::Kind;
 
     fn glyph(&self) -> Glyph;

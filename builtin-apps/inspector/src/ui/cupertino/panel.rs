@@ -77,7 +77,7 @@ fn sections_of<L: Log>(app: &App, panel: &Entity<LivePanel<L>>, seen: &Seen) -> 
     tiles.extend(shown.iter().map(|row| tile(&row.tile())));
     let all: Vec<&L::Row> = read.all(app).collect();
     let refused = all.iter().filter(|row| row.refused()).count();
-    let mut footer = words::heard(all.len(), refused);
+    let mut footer = words::heard(all.len(), <L::Row as PanelRow>::COUNTED_AS, refused);
     if seen.program.id != OWN_ID {
         footer = format!("{footer}. {}", words::START_DETAIL);
     }

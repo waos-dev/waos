@@ -180,8 +180,9 @@ enum Command {
     /// Prints what WaOS knows of what the program does with what it was allowed, as JSON lines of
     /// wasdk:inspect's values, one value a line: `summary`, its audit summary, a day a line,
     /// newest first; `active-uses`, what it uses now, each use that lasts and each file it has
-    /// open, on one line, then each start and end, a line each, a `resync` of all of it where the
-    /// command fell behind; or its live trace of the capabilities named, each event as it comes;
+    /// open, on one line, then each start and end, and what a connection or a socket moved, at
+    /// most once a second as it moves, a line each, a `resync` of all of it where the command fell
+    /// behind; or its live trace of the capabilities named, each event as it comes;
     /// the last two until Ctrl-C or the program's end: network, files, clipboard, camera, microphone, machines, permissions,
     /// links, notifications, output, or `all` of them.
     ///

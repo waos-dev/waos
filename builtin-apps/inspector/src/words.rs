@@ -92,6 +92,7 @@ pub(crate) const LINE: &str = "Line";
 pub(crate) const SENT: &str = "Sent";
 pub(crate) const RECEIVED: &str = "Received";
 pub(crate) const EVENTS: &str = "events";
+pub(crate) const IN_USE_NOW: &str = "in use";
 pub(crate) const FILTER: &str = "Filter";
 pub(crate) const CLEAR: &str = "Clear";
 pub(crate) const LISTENING: &str = "Listening";
@@ -176,12 +177,13 @@ pub(crate) fn refused_kinds(refused: &[(&str, u32)]) -> String {
     )
 }
 
-/// How many events a panel heard, and how many WaOS refused: `13 events · 3 refused`.
-pub(crate) fn heard(events: usize, refused: usize) -> String {
+/// How many rows a panel holds, as its rows are counted, and how many WaOS refused:
+/// `13 events · 3 refused`.
+pub(crate) fn heard(rows: usize, counted_as: &str, refused: usize) -> String {
     if refused == 0 {
-        format!("{events} {EVENTS}")
+        format!("{rows} {counted_as}")
     } else {
-        format!("{events} {EVENTS} · {refused} {REFUSED_LOWER}")
+        format!("{rows} {counted_as} · {refused} {REFUSED_LOWER}")
     }
 }
 

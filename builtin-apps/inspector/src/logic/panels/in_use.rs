@@ -1,12 +1,13 @@
 //! What a program uses now, as a system's activity monitor lists a process's open files and
 //! sockets: a row per use active, what it is, what kind, what it moved for a connection or a
-//! socket, and since when; a use leaves as it ends.
+//! socket, ticking in place as it moves, and since when; a use leaves as it ends.
 //!
 //! The invariant: the rows are exactly the uses active as last told, so a use that ended never
-//! shows; and what a connection moved is as of when it was told, its start or a resync.
+//! shows; and what a connection or a socket moved is as WaOS last told it, its start, a resync or
+//! its traffic, an update of its row, at most once a second.
 
 use wasdk::inspect::active_uses::{
-    ActiveUse, ActiveUseChange, ActiveUseKind, SocketAddress, TcpConnectionOrigin,
+    ActiveUse, ActiveUseChange, ActiveUseKind, SocketAddress, TcpConnectionOrigin, Traffic,
 };
 
 use super::{Cell, Column, PanelRow, RowKind, Rows, Tile, Tone, found_in};
@@ -37,6 +38,11 @@ impl InUse {
                 }
             }
             ActiveUseChange::Resync(uses) => self.began(rows, uses),
+            ActiveUseChange::Updated(traffic) => {
+                if let Some(index) = rows.newest(|row| row.used.id == traffic.id) {
+                    rows.update(index, |row| row.moved_to(&traffic));
+                }
+            }
         }
     }
 }
@@ -94,6 +100,21 @@ impl InUseRow {
         }
     }
 
+    /// What a connection or a socket moved so far, as WaOS told it.
+    fn moved_to(&mut self, traffic: &Traffic) {
+        match &mut self.used.kind {
+            ActiveUseKind::TcpConnection(connection) => {
+                connection.bytes_sent = traffic.bytes_sent;
+                connection.bytes_received = traffic.bytes_received;
+            }
+            ActiveUseKind::UdpSocket(socket) => {
+                socket.bytes_sent = traffic.bytes_sent;
+                socket.bytes_received = traffic.bytes_received;
+            }
+            _ => {}
+        }
+    }
+
     /// The bytes it sent and received, for a connection or a socket.
     pub(crate) fn moved(&self) -> Option<(u64, u64)> {
         match &self.used.kind {
@@ -120,6 +141,8 @@ impl PanelRow for InUseRow {
     const NOTHING_YET: &'static str = words::NOTHING_IN_USE;
 
     const DECIDED: bool = false;
+
+    const COUNTED_AS: &'static str = words::IN_USE_NOW;
 
     fn kind(&self) -> InUseKind {
         self.kind
@@ -295,7 +318,7 @@ fn address(at: &SocketAddress) -> String {
 
 #[cfg(test)]
 mod tests {
-    use wasdk::inspect::active_uses::FolderWatch;
+    use wasdk::inspect::active_uses::{FolderWatch, TcpConnection};
     use wasdk::system_clock::Instant;
 
     use super::*;
@@ -328,5 +351,37 @@ mod tests {
         assert_eq!(ids(&rows), [2, 3]);
         log.change(&mut rows, ActiveUseChange::Resync(vec![watch(4, 40)]));
         assert_eq!(ids(&rows), [4], "a resync replaces them all");
+    }
+
+    #[test]
+    fn a_connections_traffic_updates_its_row() {
+        let (mut log, mut rows) = (InUse, Vec::new());
+        let connection = ActiveUse {
+            id: 7,
+            kind: ActiveUseKind::TcpConnection(TcpConnection {
+                origin: TcpConnectionOrigin::Connected,
+                local: None,
+                remote: SocketAddress {
+                    address: "192.0.2.1".to_owned(),
+                    port: 443,
+                },
+                names: Vec::new(),
+                bytes_sent: 0,
+                bytes_received: 0,
+            }),
+            since: Instant {
+                seconds: 1,
+                nanoseconds: 0,
+            },
+        };
+        log.began(&mut rows, vec![connection, watch(8, 2)]);
+        let traffic = Traffic {
+            id: 7,
+            bytes_sent: 3_700,
+            bytes_received: 176_400,
+        };
+        log.change(&mut rows, ActiveUseChange::Updated(traffic));
+        assert_eq!(rows[0].moved(), Some((3_700, 176_400)));
+        assert_eq!(rows[1].moved(), None, "a watch moves nothing");
     }
 }

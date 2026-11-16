@@ -10,6 +10,9 @@
 //! `docs/proposals/2026-11-15-inspector-roles-and-compatibility.md`) is given what is active as it
 //! subscribes, then each start and end; one that falls behind is sent the whole of it again in
 //! place of what it missed, so it never shows a use that ended, and the program never waits for it.
+//! A listener is also told what each TCP connection and UDP socket moved, at most once a second
+//! for each and only as it moved more (decision 20): its own stream reads the counts on its own
+//! tick, so a program nobody listens to pays nothing for it.
 //!
 //! An entry is a lock, a map insertion and two clocks read, beside work far slower; an open
 //! file's path is asked of the system only for a listener, and outside the lock: before it for a
@@ -19,9 +22,10 @@
 //!
 //! The invariant: an entry goes exactly when its [`ActiveUse`] is dropped, and every change to the
 //! entries is sent to the listeners under the same lock that makes it, so a listener's snapshot
-//! and the changes after it say the same as the entries.
+//! and the changes after it say the same as the entries; a listener is told a use's traffic only
+//! between its start and its end, as the listener heard them.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::fs;
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -29,7 +33,7 @@ use std::pin::Pin;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 use std::task::{Context, Poll};
-use std::time::{Instant, SystemTime};
+use std::time::{Duration, Instant, SystemTime};
 
 use futures::Stream;
 use futures::channel::mpsc;
@@ -43,6 +47,9 @@ use crate::sync::locked;
 
 /// How many changes wait for a listener before it is behind, and is sent the whole again.
 const LISTENER_CAPACITY: usize = 1024;
+
+/// How often a listener reads what the connections and sockets moved.
+const TRAFFIC_EVERY: Duration = Duration::from_secs(1);
 
 /// A use the program makes now.
 #[derive(Clone, Debug)]
@@ -133,6 +140,16 @@ pub(crate) enum ActiveUseChange {
     Ended(u64),
     /// Everything active now, in place of the changes the listener fell behind on.
     Resync(Vec<ActiveUseNow>),
+    /// What a connection or a socket moved so far.
+    Updated(Traffic),
+}
+
+/// What a TCP connection or a UDP socket moved so far.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Traffic {
+    pub(crate) id: u64,
+    pub(crate) sent: u64,
+    pub(crate) received: u64,
 }
 
 /// One program's registry of what it uses now.
@@ -172,6 +189,25 @@ pub(crate) struct ActiveUseChanges {
     /// The registry, held without keeping it: it goes with the program's access, and the
     /// changes end then.
     parts: Weak<AccessParts>,
+    traffic: TrafficTold,
+}
+
+/// What a listener was told each connection and socket moved, and when it reads them next.
+#[derive(Default)]
+struct TrafficTold {
+    /// Each connection's and socket's bytes sent and received, as last told, by its id.
+    told: HashMap<u64, (u64, u64)>,
+    /// Made as the listener is first read, on the runtime that reads it.
+    tick: Option<tokio::time::Interval>,
+    /// What the last reading found moved, not given to the listener yet.
+    waiting: VecDeque<Traffic>,
+}
+
+/// Where a connection's or a socket's bytes are read, copied under the registry's lock and read
+/// after it.
+enum Moving {
+    Connection(Arc<Counts>),
+    Socket(Weak<Datagrams>),
 }
 
 impl ActiveUses {
@@ -266,13 +302,16 @@ impl ActiveUses {
             parts.active_uses.count_listeners(&entries);
             entries.now()
         };
-        let changes = ActiveUseChanges {
+        let mut changes = ActiveUseChanges {
             changes: received,
             behind,
             parts: Arc::downgrade(parts),
+            traffic: TrafficTold::default(),
         };
         // Each open file named after the lock is let go: there may be thousands.
-        (now.into_iter().map(named_now).collect(), changes)
+        let now: Vec<ActiveUseNow> = now.into_iter().map(named_now).collect();
+        changes.traffic.heard_all(&now);
+        (now, changes)
     }
 
     /// Notes how many listen now.
@@ -351,28 +390,150 @@ impl Stream for ActiveUseChanges {
     type Item = ActiveUseChange;
 
     /// The next change; once every change sent before it fell behind is read, the whole as it is
-    /// now, taken under the lock that sends, so nothing between is lost.
+    /// now, taken under the lock that sends, so nothing between is lost; and between them, once a
+    /// second, what each connection and socket moved since the listener was last told.
     fn poll_next(
         mut self: Pin<&mut Self>,
         context: &mut Context<'_>,
     ) -> Poll<Option<ActiveUseChange>> {
-        match Pin::new(&mut self.changes).poll_next(context) {
-            Poll::Ready(change) => Poll::Ready(change),
-            Poll::Pending if self.behind.load(std::sync::atomic::Ordering::Relaxed) => {
-                let Some(parts) = self.parts.upgrade() else {
+        let this = &mut *self;
+        if let Some(traffic) = this.traffic.waiting.pop_front() {
+            return Poll::Ready(Some(ActiveUseChange::Updated(traffic)));
+        }
+        let change = match Pin::new(&mut this.changes).poll_next(context) {
+            Poll::Ready(change) => Some(change),
+            Poll::Pending if this.behind.load(std::sync::atomic::Ordering::Relaxed) => {
+                let Some(parts) = this.parts.upgrade() else {
                     return Poll::Ready(None);
                 };
                 let now = {
                     let entries = locked(&parts.active_uses.entries);
-                    self.behind
+                    this.behind
                         .store(false, std::sync::atomic::Ordering::Relaxed);
                     entries.now()
                 };
                 // Named after the lock is let go: a resync may hold thousands of open files.
                 let now = now.into_iter().map(named_now).collect();
-                Poll::Ready(Some(ActiveUseChange::Resync(now)))
+                Some(Some(ActiveUseChange::Resync(now)))
             }
-            Poll::Pending => Poll::Pending,
+            Poll::Pending => None,
+        };
+        if let Some(change) = change {
+            if let Some(change) = &change {
+                this.traffic.heard(change);
+            }
+            return Poll::Ready(change);
+        }
+        match this.traffic.poll_moved(context, &this.parts) {
+            Some(traffic) => Poll::Ready(Some(ActiveUseChange::Updated(traffic))),
+            None => Poll::Pending,
+        }
+    }
+}
+
+impl TrafficTold {
+    /// The listener heard `change`: a connection or a socket that started is told with its
+    /// bytes, one that ended is no longer, and a resync tells them all again.
+    fn heard(&mut self, change: &ActiveUseChange) {
+        match change {
+            ActiveUseChange::Started(started) => self.heard_one(started),
+            ActiveUseChange::Ended(id) => {
+                self.told.remove(id);
+                self.waiting.retain(|traffic| traffic.id != *id);
+            }
+            ActiveUseChange::Resync(now) => self.heard_all(now),
+            ActiveUseChange::Updated(_) => {}
+        }
+    }
+
+    /// The listener heard `now` as all that is active.
+    fn heard_all(&mut self, now: &[ActiveUseNow]) {
+        self.told.clear();
+        self.waiting.clear();
+        for active in now {
+            self.heard_one(active);
+        }
+    }
+
+    fn heard_one(&mut self, active: &ActiveUseNow) {
+        if let Some(moved) = Moving::of(&active.kind).and_then(|moving| moving.moved()) {
+            self.told.insert(active.id, moved);
+        }
+    }
+
+    /// What moved since the listener was last told, read once its tick comes; the rest of what
+    /// moved waits for its next read. A listener that knows no connection or socket has no tick,
+    /// and one that does reads on the tokio runtime that polls it, as every listener's is.
+    fn poll_moved(
+        &mut self,
+        context: &mut Context<'_>,
+        parts: &Weak<AccessParts>,
+    ) -> Option<Traffic> {
+        if self.told.is_empty() {
+            return None;
+        }
+        let mut tick = self.tick.take().unwrap_or_else(|| {
+            let start = tokio::time::Instant::now() + TRAFFIC_EVERY;
+            let mut tick = tokio::time::interval_at(start, TRAFFIC_EVERY);
+            tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+            tick
+        });
+        let mut moved = None;
+        while moved.is_none() && tick.poll_tick(context).is_ready() {
+            let Some(parts) = parts.upgrade() else {
+                break;
+            };
+            self.read_moved(&parts);
+            moved = self.waiting.pop_front();
+        }
+        self.tick = Some(tick);
+        moved
+    }
+
+    /// Notes, to tell, each connection and socket the listener knows that moved more.
+    fn read_moved(&mut self, parts: &AccessParts) {
+        // Copied under the lock and read after it: there may be thousands.
+        let moving: Vec<(u64, Moving)> = {
+            let entries = locked(&parts.active_uses.entries);
+            (self.told.keys())
+                .filter_map(|id| {
+                    let entry = entries.active.get(id)?;
+                    Some((*id, Moving::of(&entry.kind)?))
+                })
+                .collect()
+        };
+        for (id, moving) in moving {
+            let Some((sent, received)) = moving.moved() else {
+                continue;
+            };
+            let told = self.told.insert(id, (sent, received));
+            if told != Some((sent, received)) {
+                self.waiting.push_back(Traffic { id, sent, received });
+            }
+        }
+    }
+}
+
+impl Moving {
+    /// Where `kind` counts what it moved: a TCP connection or a UDP socket.
+    fn of(kind: &ActiveUseKind) -> Option<Moving> {
+        match kind {
+            ActiveUseKind::TcpConnection { counts, .. } => {
+                Some(Moving::Connection(Arc::clone(counts)))
+            }
+            ActiveUseKind::UdpSocket { socket } => Some(Moving::Socket(Weak::clone(socket))),
+            _ => None,
+        }
+    }
+
+    /// The bytes sent and received so far; none for a socket gone.
+    fn moved(&self) -> Option<(u64, u64)> {
+        match self {
+            Moving::Connection(counts) => Some((counts.sent(), counts.received())),
+            Moving::Socket(socket) => {
+                let socket = socket.upgrade()?;
+                Some((socket.counts().sent(), socket.counts().received()))
+            }
         }
     }
 }
@@ -514,6 +675,68 @@ mod tests {
             fs::canonicalize(at).unwrap(),
             fs::canonicalize(&path).unwrap()
         );
+    }
+
+    #[test]
+    fn a_listener_is_told_what_a_connection_moved_only_as_it_moves_more() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_time()
+            .build()
+            .unwrap();
+        runtime.block_on(async {
+            let access = access();
+            let counts = Arc::new(Counts::default());
+            let connection = access.hold(ActiveUseKind::TcpConnection {
+                origin: TcpOrigin::Connected,
+                local: None,
+                remote: "192.0.2.1:443".parse().unwrap(),
+                names: Vec::new(),
+                counts: Arc::clone(&counts),
+            });
+            let (_, mut changes) = access.subscribe_active_uses();
+            counts.add_sent(10);
+            let moved = changes.next().await;
+            assert!(
+                matches!(
+                    moved,
+                    Some(ActiveUseChange::Updated(Traffic {
+                        id: 0,
+                        sent: 10,
+                        received: 0
+                    }))
+                ),
+                "{moved:?}"
+            );
+            let still = tokio::time::timeout(TRAFFIC_EVERY * 3 / 2, changes.next()).await;
+            assert!(
+                still.is_err(),
+                "nothing told while it moves nothing: {still:?}"
+            );
+            counts.add_received(5);
+            let moved = changes.next().await;
+            assert!(
+                matches!(
+                    moved,
+                    Some(ActiveUseChange::Updated(Traffic {
+                        id: 0,
+                        sent: 10,
+                        received: 5
+                    }))
+                ),
+                "{moved:?}"
+            );
+            drop(connection);
+            counts.add_sent(1);
+            assert!(matches!(
+                changes.next().await,
+                Some(ActiveUseChange::Ended(0))
+            ));
+            let after = tokio::time::timeout(TRAFFIC_EVERY * 3 / 2, changes.next()).await;
+            assert!(
+                after.is_err(),
+                "nothing told of a use that ended: {after:?}"
+            );
+        });
     }
 
     #[test]

@@ -124,6 +124,17 @@ interface active-uses {
     since: instant,
   }
 
+  /// What a TCP connection or a UDP socket moved so far, as Android's `TrafficStats` and DevTools
+  /// call it.
+  record traffic {
+    /// The use's id.
+    id: u64,
+    /// The bytes sent so far.
+    bytes-sent: u64,
+    /// The bytes received so far.
+    bytes-received: u64,
+  }
+
   /// A change to what a program uses now.
   variant active-use-change {
     started(active-use),
@@ -131,6 +142,10 @@ interface active-uses {
     ended(u64),
     /// Everything active now, in place of the changes the listener fell behind on.
     resync(list<active-use>),
+    /// What a TCP connection or a UDP socket moved so far: sent only as it moved more, at most
+    /// once a second for each, and only to a listener, so a program nobody listens to pays
+    /// nothing for it.
+    updated(traffic),
   }
 
   /// What the program `id` names uses now, and each change from then on, until it ends; none for

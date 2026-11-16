@@ -87,6 +87,13 @@ pub(crate) fn active_use_change_of(change: ActiveUseChange) -> active_uses::Acti
         ActiveUseChange::Resync(active) => {
             active_uses::ActiveUseChange::Resync(active.into_iter().map(active_use_of).collect())
         }
+        ActiveUseChange::Updated(traffic) => {
+            active_uses::ActiveUseChange::Updated(active_uses::Traffic {
+                id: traffic.id,
+                bytes_sent: traffic.sent,
+                bytes_received: traffic.received,
+            })
+        }
     }
 }
 

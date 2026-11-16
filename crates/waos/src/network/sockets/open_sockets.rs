@@ -36,11 +36,11 @@ pub(crate) struct Counts {
 }
 
 impl Counts {
-    fn add_sent(&self, bytes: usize) {
+    pub(crate) fn add_sent(&self, bytes: usize) {
         self.sent.fetch_add(bytes as u64, Ordering::Relaxed);
     }
 
-    fn add_received(&self, bytes: usize) {
+    pub(crate) fn add_received(&self, bytes: usize) {
         self.received.fetch_add(bytes as u64, Ordering::Relaxed);
     }
 
