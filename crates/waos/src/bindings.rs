@@ -9,8 +9,7 @@
 //! shell's compositor and layer, a window its `ProgramWindow`, a window's
 //! configuration the record of what the program set, a screen the plain value the list holds, an
 //! exit request the lifecycle's, a view's text input the shell's side of it, a typeface the face
-//! handed out with its id, a permission the guarded capability it stands for, a name lookup's
-//! answer the network's, the clipboard, an item listed, a copy's options, a source, a paste's
+//! handed out with its id, a permission the guarded capability it stands for, the clipboard, an item listed, a copy's options, a source, a paste's
 //! request, the user's copy request and the user's paste the clipboard's, a menu's place, a
 //! tray icon and its menus the menus', sound's resources web-audio-api's own values where it
 //! has one (a param, a buffer, a periodic wave, a listener, a context's options) and the audio
@@ -24,12 +23,13 @@
 //! system's hardware buffers and any buffer the program holds the hardware buffers', and the
 //! cameras, a camera,
 //! its outputs and a capture session the cameras', and the workers and a worker the workers'.
-//! The interfaces another crate serves are that crate's generated types: WASI's clocks and
-//! sockets are `wasmtime-wasi`'s, its HTTP client `wasmtime-wasi-http`'s, and `wasi:webgpu` is
+//! The interfaces another crate serves are that crate's generated types: WASI's clocks are
+//! `wasmtime-wasi`'s, its HTTP client `wasmtime-wasi-http`'s, and `wasi:webgpu` is
 //! the WebGPU host's, `waos-webgpu-host`, so a view's canvas context is the host's own resource; a
 //! notification's time is Preview 3's system clock's `instant`, which `wasmtime-wasi` serves; and
 //! a machine's root, and the folder a watch is of, is `wasi:filesystem@0.3`'s own `descriptor`,
-//! the files' bindings', which the files serve. A stream-returning function is given store access, which a stream needs and an
+//! the files' bindings', which the files serve; and `wasi:sockets@0.3` is the network's bindings',
+//! which the network serves. A stream-returning function is given store access, which a stream needs and an
 //! `async func` gets on its own.
 //!
 //! No derive is added to the generated types: `additional_derives` applies to every type of the
@@ -171,7 +171,8 @@ wasmtime::component::bindgen!({
         "wasi:clocks/types@0.3.0": wasmtime_wasi::p3::bindings::clocks::types,
         "wasi:clocks/monotonic-clock@0.3.0": wasmtime_wasi::p3::bindings::clocks::monotonic_clock,
         "wasi:clocks/system-clock@0.3.0": wasmtime_wasi::p3::bindings::clocks::system_clock,
-        "wasi:sockets/types@0.3.0": wasmtime_wasi::p3::bindings::sockets::types,
+        "wasi:sockets/types@0.3.0": crate::network::host::bindings::wasi::sockets::types,
+        "wasi:sockets/ip-name-lookup@0.3.0": crate::network::host::bindings::wasi::sockets::ip_name_lookup,
         "wasi:http/types@0.3.0": wasmtime_wasi_http::p3::bindings::http::types,
         "wasi:http/client@0.3.0": wasmtime_wasi_http::p3::bindings::http::client,
     },

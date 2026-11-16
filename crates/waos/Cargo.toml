@@ -28,7 +28,7 @@ tracing.workspace = true
 wasmtime.workspace = true
 wasmtime-wasi.workspace = true
 bytes.workspace = true
-# A program's files (`files`): the system calls the engine makes itself.
+# A program's files (`files`) and sockets (`network`): the system calls the engine makes itself.
 rustix.workspace = true
 # `wasdk:platform/file-watching`: the system's watch of a folder, FSEvents, inotify or
 # `ReadDirectoryChangesW`.

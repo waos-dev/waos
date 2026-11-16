@@ -311,7 +311,7 @@ fn store_data(
             &instances.name,
             instances.clock,
             environment.output.clone(),
-            &network,
+            network.access(),
             instances.temporary_folder.is_some(),
         ),
         gpu: Arc::clone(&instances.gpu),
@@ -403,8 +403,8 @@ pub(crate) struct StoreData {
     fonts: ProgramFonts,
     /// Its files: its own folders and its grants' mounts.
     files: ProgramFiles,
-    /// What it may reach of the network, and the addresses its lookups answered; the same one
-    /// checks its sockets, in `wasi`.
+    /// What it may reach of the network, and the addresses its lookups answered, which serves
+    /// its lookups and its sockets.
     network: ProgramNetwork,
     /// Its HTTP requests, checked by the same network; and `wasi:http`'s own state.
     http: ProgramHttp,
@@ -555,6 +555,7 @@ impl NetworkCtxView for StoreData {
     fn network_ctx(&mut self) -> NetworkCtx<'_> {
         NetworkCtx {
             network: &self.network,
+            table: &mut self.table,
         }
     }
 }

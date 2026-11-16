@@ -88,8 +88,9 @@ rustls-platform-verifier = "0.7"
 rcgen = { version = "0.14", default-features = false, features = ["aws_lc_rs"] }
 # The system calls a program's files make (`files`): each call on a path beneath a mount's folder,
 # kept there by the system's flag where it has one, `openat2` on Linux among them, and a time to
-# set; a file's flags and advice.
-rustix = { version = "1", features = ["fs", "time"] }
+# set; a file's flags and advice. And its sockets' (`network`): their options, and a UDP socket
+# made, bound and connected.
+rustix = { version = "1", features = ["fs", "net", "time"] }
 # Linux's `/proc/self/fd`, through which a file's times are set where the system has no call that
 # keeps the path beneath its folder, as `wasmtime-wasi`'s copy of cap-std's code sets them.
 rustix-linux-procfs = "0.1.1"
@@ -121,8 +122,9 @@ uuid = "1"
 # Grapheme boundaries, for the text field `examples/gpui-hello` takes from GPUI's own example.
 unicode-segmentation = "1"
 # What a program's thread runs on: a single-threaded runtime, `select!` for its stop, the
-# time driver WASI's sleeps need, and `watch` for whether its thread is in its code.
-tokio = { version = "1", features = ["rt", "macros", "time", "sync"] }
+# time driver WASI's sleeps need, `watch` for whether its thread is in its code, and the sockets
+# its TCP and UDP are.
+tokio = { version = "1", features = ["rt", "macros", "time", "sync", "net"] }
 # This computer's terminals: a pseudo-terminal on every system, ConPTY on Windows, with the started
 # command made the leader of a session whose controlling terminal it is, as the experiment proved.
 portable-pty = "0.9"

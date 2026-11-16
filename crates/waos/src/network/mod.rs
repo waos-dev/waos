@@ -9,8 +9,8 @@
 //! rule refuses answers `access-denied`; one it allows is resolved by the system's resolver, and
 //! its addresses are kept with the name ([`record`]). With the network refused and the local
 //! network allowed, such a name answers only the addresses of this computer and the local network
-//! it resolves to. TCP and UDP, of both versions, are
-//! `wasmtime-wasi`'s, checked address by address: a local address needs the local-network switch; any other needs the
+//! it resolves to. TCP and UDP are the engine's own too ([`sockets`]), checked address by address
+//! at each use: a local address needs the local-network switch; any other needs the
 //! network switch, then its rule, by the names the address was looked up by: any domain allows
 //! it, only some allows it when one of its names is among them, so a bare address is refused,
 //! and all but some refuses it when one of its names is among them.
@@ -38,6 +38,7 @@ pub(crate) mod host;
 mod http;
 mod localhost;
 mod record;
+mod sockets;
 
 use std::fmt;
 use std::net::{IpAddr, SocketAddr, ToSocketAddrs};
@@ -230,8 +231,8 @@ impl ProgramNetwork {
         }
     }
 
-    /// Whether the program may use `address` as `use_` says, `wasmtime-wasi`'s check of every
-    /// socket address: binding a port reaches nothing; listening is reached from this computer
+    /// Whether the program may use `address` as `use_` says, which its sockets ask at each use
+    /// ([`sockets`]): binding a port reaches nothing; listening is reached from this computer
     /// and the local network; connecting, accepting, sending and receiving reach the address. A
     /// connection, an accepted one and a listening socket are decided and told; a datagram, which
     /// is checked one by one, noted.

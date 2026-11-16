@@ -1,18 +1,12 @@
 //! `wasi:sockets/ip-name-lookup@0.3.0`: a lookup the program awaits, answered whole.
 
-use wasmtime::component::{Accessor, Linker};
-use wasmtime_wasi::p3::bindings::sockets::types::IpAddress;
+use wasmtime::component::Accessor;
 use wasmtime_wasi::runtime::spawn_blocking;
 
+use super::bindings::wasi::sockets::ip_name_lookup::{self, ErrorCode, HostWithStore};
+use super::bindings::wasi::sockets::types::IpAddress;
 use super::{HasNetwork, NetworkCtx, NetworkCtxView};
-use crate::bindings::wasi::sockets::ip_name_lookup::{self, ErrorCode, HostWithStore};
 use crate::network::LookupError;
-
-pub(super) fn add_to_linker<T: NetworkCtxView + 'static>(
-    linker: &mut Linker<T>,
-) -> wasmtime::Result<()> {
-    ip_name_lookup::add_to_linker::<_, HasNetwork>(linker, T::network_ctx)
-}
 
 impl ip_name_lookup::Host for NetworkCtx<'_> {}
 
