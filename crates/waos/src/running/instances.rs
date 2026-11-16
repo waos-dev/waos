@@ -93,7 +93,7 @@ impl ProgramInstances {
         let inspector_reach = InspectorReach {
             programs: start.inspected_programs.clone(),
             running: start.programs.clone(),
-            audit: start.audit.clone(),
+            days: start.days.clone(),
             access: access.clone(),
         };
         let user_side = UserSide {
@@ -176,8 +176,8 @@ pub(super) fn access_of(start: &ProgramStart, program: &RunningProgram) -> Progr
             indicator: Arc::clone(indicator),
             program: program.clone(),
         });
-    let kept = start.audit.as_ref().map(|log| KeptIn {
-        log: Arc::clone(log),
+    let kept = start.days.as_ref().map(|days| KeptIn {
+        days: days.clone(),
         program: program.name().to_owned(),
     });
     ProgramAccess::of(grants, shown, kept)

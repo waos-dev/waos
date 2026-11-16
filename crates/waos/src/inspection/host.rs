@@ -1,9 +1,10 @@
 //! The code serving `wasdk:inspect` to a program holding the inspector role: this device, the
 //! programs on it as the embedder gives them (`InspectedPrograms`), each one's icon as it is asked
-//! for, a program started held as the embedder starts it, kept until the inspector drops it, or ended, a program's audit summary as the engine's audit log keeps it, today's kept first where it
-//! runs, what it uses now and each change to it, and its live trace, a stream per capability. A running program is the one the engine
-//! runs under the id asked for, its name, as the embedder names it (`Program::named`). Linked only
-//! for a program its user granted the role (`roles`).
+//! for, a program started held as the embedder starts it, kept until the inspector drops it, or
+//! ended; a program's audit summary, the days kept with today's as counted in memory; what it uses
+//! now and each change to it; and its live trace, a stream per capability. A running program is
+//! the one the engine runs under the id asked for, its name, as the embedder names it
+//! (`Program::named`). Linked only for a program its user granted the role (`roles`).
 //!
 //! The invariant: the role is read again at each call and each stream ends as the user takes it
 //! back, so a program whose role is turned off sees what a program with no embedder sees: no
@@ -15,7 +16,7 @@ use std::sync::Arc;
 use futures::future;
 use futures::stream::{self, BoxStream};
 use futures::{FutureExt, StreamExt};
-use waos_capabilities::{Answer, AuditLog, Role};
+use waos_capabilities::{Answer, Role};
 use wasmtime::component::{
     Access, Accessor, HasData, Linker, Resource, ResourceTable, StreamReader,
 };
@@ -32,18 +33,18 @@ use super::bindings::wasdk::inspect::trace::{
     NotificationEvent, OutputChunk, PermissionEvent,
 };
 use super::{Device, InspectedPrograms, day_of};
-use crate::access::{ProgramAccess, TraceEvent, TraceKind};
+use crate::access::{Days, ProgramAccess, TraceEvent, TraceKind};
 use crate::running::{HeldProgram, Programs, RunningProgram};
 use crate::stream::stream_of;
 
 /// What an inspector reaches: the programs the embedder gives, those the engine runs, the days
-/// the engine's audit log keeps, and its own access, whose grants say whether it still holds the
+/// the engine counts and keeps, and its own access, whose grants say whether it still holds the
 /// role.
 #[derive(Clone)]
 pub(crate) struct InspectorReach {
     pub(crate) programs: Option<Arc<dyn InspectedPrograms>>,
     pub(crate) running: Programs,
-    pub(crate) audit: Option<Arc<dyn AuditLog>>,
+    pub(crate) days: Option<Days>,
     pub(crate) access: ProgramAccess,
 }
 
@@ -254,7 +255,7 @@ impl<T: InspectCtxView + 'static> HostHeldProgramWithStore<T> for HasInspect {
 }
 
 impl<T: InspectCtxView + 'static> audit::HostWithStore<T> for HasInspect {
-    /// The days kept of the program, newest first, today's kept first where it runs, so they say
+    /// The days kept of the program, newest first, today's as counted in memory now, so they say
     /// all it did until now.
     async fn days(
         accessor: &Accessor<T, Self>,
@@ -262,14 +263,11 @@ impl<T: InspectCtxView + 'static> audit::HostWithStore<T> for HasInspect {
         id: String,
     ) -> wasmtime::Result<Vec<Day>> {
         let reach = reach_of(accessor);
-        let (Some(_), Some(log)) = (reach.programs(), reach.audit.clone()) else {
+        let (Some(_), Some(days)) = (reach.programs(), reach.days.clone()) else {
             return Ok(Vec::new());
         };
-        if let Some(program) = reach.running(&id) {
-            program.keep_summary();
-        }
-        // The days are read from their files.
-        let days = spawn_blocking(move || log.days(&id)).await;
+        // The days kept are read from their files.
+        let days = spawn_blocking(move || days.days_of(&id)).await;
         Ok(days.iter().map(day_of).collect())
     }
 }
@@ -471,7 +469,7 @@ mod tests {
         let reach = InspectorReach {
             programs: Some(Arc::new(NoPrograms)),
             running: Programs::default(),
-            audit: None,
+            days: None,
             access: answers.access(),
         };
         let mut held = reach.while_held(stream::pending::<()>().boxed());

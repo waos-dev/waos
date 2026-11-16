@@ -1,62 +1,54 @@
 //! A program's audit summary: what it did with what it was allowed today, counted as each use is
-//! told, from what the use asked and what its rule resolved it to ([`Summary`]), and kept through
-//! the engine's [`AuditLog`] about once a minute, as the day ends, and as the program's access goes
-//! with it; a run begins from what the runs before it kept of today, so the day counts them all. A
-//! crash loses at most what came since the last keep.
+//! told, from what the use asked and what its rule resolved it to ([`Summary`]), into the
+//! program's day in memory, which every run of it shares and the engine's one writer keeps
+//! (`days`). Counting never writes: a guarded use only counts in memory.
 //!
-//! A use is counted under the program's lock, beside a check that already did far slower work:
-//! a lookup, a connection, an open. A datagram, which is checked one at a time, is counted alone
-//! on an atomic, and a stat not at all (`../experiments/2026-11-15-audit-cost`).
+//! A use is counted under the day's lock, beside a check that already did far slower work: a
+//! lookup, a connection, an open; where a file is on the machine is asked of the system before
+//! the lock is taken. A datagram, which is checked one at a time, is counted alone on an atomic,
+//! and a stat not at all (`../experiments/2026-11-15-audit-cost`).
 //!
 //! The invariant: a day holds only that uses happened, never what they read or wrote, and grows
 //! no list past its cap ([`LIST_CAPS`]): what falls beyond is counted in its overflow.
 
 use std::net::IpAddr;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::{Duration, SystemTime};
 
 use futures::FutureExt;
 
 use waos_capabilities::{
-    Answer, AskedQuestion, AuditDay, AuditLog, ChangedFuture, DeviceSession, FolderUses, LIST_CAPS,
+    Answer, AskedQuestion, AuditDay, ChangedFuture, DeviceSession, FolderUses, LIST_CAPS,
     MachineCommand, MountKind, NamedUses, ProgramGrants, Question, Uses,
 };
 
+use super::days::{Days, ProgramDay};
 use super::{Asked, Cause, FileChange, Happened, Noted, Prompt, Resolution};
 use crate::network::is_local;
 use crate::shell::RecordingDevice;
 use crate::sync::locked;
 
-/// How often a program's day is kept while it changes.
-const KEEP_EVERY: Duration = Duration::from_secs(60);
-
-/// A day, in seconds.
-const DAY: u64 = 24 * 60 * 60;
-
 /// Where a program's days are kept, and under which name.
 pub(crate) struct KeptIn {
-    pub(crate) log: Arc<dyn AuditLog>,
+    pub(crate) days: Days,
     pub(crate) program: String,
 }
 
-/// One program's summary of today.
+/// One run's summary, counting into its program's day.
 pub(super) struct Summary {
+    day: Arc<ProgramDay>,
     kept: Option<KeptIn>,
     /// Whether the user keeps a record of what the program does.
     grants: Arc<dyn ProgramGrants>,
-    today: Mutex<Today>,
-    /// The UDP datagrams since the day was last kept, counted apart from the lock.
-    udp_datagrams: AtomicU64,
+    recording: Mutex<Recording>,
+    /// Whether it records, as last read, for a datagram, which takes no lock.
+    recorded_now: AtomicBool,
 }
 
-struct Today {
-    day: AuditDay,
-    /// When the day was last kept, and whether it changed since.
-    kept_at: Instant,
-    changed: bool,
+struct Recording {
     /// Whether the user keeps a record of what the program does, as the grants said last, and
     /// their next change, asked for before they were read.
     recorded: bool,
@@ -64,28 +56,25 @@ struct Today {
 }
 
 impl Summary {
-    /// The program's summary of today, from what was kept of today by its runs before, so a day
-    /// counts every run of it.
+    /// The summary of a run with `grants`, counting into its program's day where `kept` keeps
+    /// its days, which every run of it shares; into a day of its own in memory otherwise.
     pub(super) fn new(kept: Option<KeptIn>, grants: Arc<dyn ProgramGrants>) -> Summary {
         let grants_changed = grants.changed();
         let recorded = grants.keeps_record();
-        let today = day_of(SystemTime::now());
-        let day = kept
-            .as_ref()
-            .filter(|_| recorded)
-            .and_then(|kept| kept_day(kept, today))
-            .unwrap_or_else(|| AuditDay::starting(today));
+        let day = match &kept {
+            Some(kept) => kept.days.of(&kept.program),
+            None => ProgramDay::in_memory(),
+        };
+        day.follow(Arc::clone(&grants));
         Summary {
+            day,
             kept,
             grants,
-            today: Mutex::new(Today {
-                day,
-                kept_at: Instant::now(),
-                changed: false,
+            recording: Mutex::new(Recording {
                 recorded,
                 grants_changed,
             }),
-            udp_datagrams: AtomicU64::new(0),
+            recorded_now: AtomicBool::new(recorded),
         }
     }
 
@@ -102,7 +91,12 @@ impl Summary {
             return;
         }
         let allowed = resolution.is_some();
-        self.change(|day, at| count_decided(day, asked, resolution, (allowed, at)));
+        // Asked of the system before the day's lock is taken.
+        let changed = match (asked, resolution) {
+            (Asked::ChangeFile { .. }, Some(resolution)) => changed_paths(resolution),
+            _ => Vec::new(),
+        };
+        self.change(|day, at| count_decided(day, asked, resolution, &changed, (allowed, at)));
     }
 
     /// Counts what `noted` says of the day: a datagram, and the first write of a file in one of
@@ -110,7 +104,9 @@ impl Summary {
     pub(super) fn noted(&self, noted: &Noted<'_>) {
         match noted {
             Noted::UdpDatagram { .. } => {
-                self.udp_datagrams.fetch_add(1, Ordering::Relaxed);
+                if self.recorded_now.load(Ordering::Relaxed) {
+                    self.day.count_datagram();
+                }
             }
             Noted::FirstWrite { mount, file } if mount.kind.is_the_users() => {
                 let Ok(changed) = crate::files::path_of(file) else {
@@ -191,116 +187,46 @@ impl Summary {
         }
     }
 
-    /// Keeps the day as it is now, where it changed since it was last kept, and the user keeps a
-    /// record of what the program does.
-    pub(super) fn keep(&self) {
-        let kept = {
-            let mut today = locked(&self.today);
-            if !self.recorded(&mut today) {
-                // Counted apart from the lock while the record was off, and let go.
-                self.udp_datagrams.store(0, Ordering::Relaxed);
-                return;
-            }
-            self.fold_datagrams(&mut today);
-            today.take_changed()
-        };
-        self.keep_days(kept.into_iter().collect());
-    }
-
     /// Whether the user keeps a record of what the program does, read again where the grants
     /// changed; turned off, what was counted of today is let go, and what comes until it is
     /// turned on again is not counted.
-    fn recorded(&self, today: &mut Today) -> bool {
-        if (&mut today.grants_changed).now_or_never().is_some() {
-            today.grants_changed = self.grants.changed();
-            today.recorded = self.grants.keeps_record();
-            if !today.recorded {
-                today.day = AuditDay::starting(today.day.start);
-                today.changed = false;
-                self.udp_datagrams.store(0, Ordering::Relaxed);
+    fn recorded(&self) -> bool {
+        let mut recording = locked(&self.recording);
+        if (&mut recording.grants_changed).now_or_never().is_some() {
+            recording.grants_changed = self.grants.changed();
+            recording.recorded = self.grants.keeps_record();
+            self.recorded_now
+                .store(recording.recorded, Ordering::Relaxed);
+            if !recording.recorded {
+                self.day.forget();
             }
         }
-        today.recorded
+        recording.recorded
     }
 
     /// Today, as counted so far.
     #[cfg(test)]
     pub(super) fn today(&self) -> AuditDay {
-        let mut today = locked(&self.today);
-        self.fold_datagrams(&mut today);
-        today.day.clone()
+        self.day.today()
     }
 
-    /// Changes the day by `change`, given the time now; a day that ended is kept and a new one
-    /// begun first, and the day is kept once a minute has passed since it last was.
+    /// Changes the day by `change`, given the time now, while the user keeps a record of the
+    /// program.
     fn change(&self, change: impl FnOnce(&mut AuditDay, SystemTime)) {
-        let now = SystemTime::now();
-        let mut to_keep = Vec::new();
-        {
-            let mut today = locked(&self.today);
-            if !self.recorded(&mut today) {
-                return;
-            }
-            if day_of(now) != today.day.start {
-                self.fold_datagrams(&mut today);
-                to_keep.extend(today.take_changed());
-                today.day = AuditDay::starting(day_of(now));
-            }
-            change(&mut today.day, now);
-            today.changed = true;
-            if today.kept_at.elapsed() >= KEEP_EVERY {
-                self.fold_datagrams(&mut today);
-                to_keep.extend(today.take_changed());
-            }
+        if self.recorded() {
+            self.day.change(change);
         }
-        self.keep_days(to_keep);
-    }
-
-    fn fold_datagrams(&self, today: &mut Today) {
-        let udp_datagrams = self.udp_datagrams.swap(0, Ordering::Relaxed);
-        if udp_datagrams > 0 {
-            today.day.udp_datagrams += udp_datagrams;
-            today.changed = true;
-        }
-    }
-
-    /// Keeps `days` through the log, outside the program's lock: a keep writes a file.
-    fn keep_days(&self, days: Vec<AuditDay>) {
-        let Some(kept) = &self.kept else {
-            return;
-        };
-        for day in &days {
-            kept.log.keep(&kept.program, day);
-        }
-    }
-}
-
-impl Today {
-    /// The day, to be kept, where it changed since it last was.
-    fn take_changed(&mut self) -> Option<AuditDay> {
-        self.kept_at = Instant::now();
-        std::mem::take(&mut self.changed).then(|| self.day.clone())
     }
 }
 
 impl Drop for Summary {
-    /// Keeps the day as the program's access goes: the program and every use it held have ended.
+    /// Asks the writer to keep the day as the run's access goes: the run and every use it held
+    /// have ended.
     fn drop(&mut self) {
-        self.keep();
+        if let Some(kept) = &self.kept {
+            kept.days.keep_now(&kept.program);
+        }
     }
-}
-
-/// What was kept of the day that begins at `start`, by the program's runs before; none where
-/// they kept nothing of it.
-fn kept_day(kept: &KeptIn, start: SystemTime) -> Option<AuditDay> {
-    let newest = kept.log.days(&kept.program).into_iter().next()?;
-    (newest.start == start).then_some(newest)
-}
-
-/// The midnight, UTC, that begins the day `at` is in.
-fn day_of(at: SystemTime) -> SystemTime {
-    let seconds = at.duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
-    UNIX_EPOCH + Duration::from_secs(seconds - seconds % DAY)
 }
 
 /// Counts `asked` in `day`, allowed or refused at `at`.
@@ -308,6 +234,7 @@ fn count_decided(
     day: &mut AuditDay,
     asked: &Asked<'_>,
     resolution: Option<&Resolution<'_>>,
+    changed: &[PathBuf],
     (allowed, at): (bool, SystemTime),
 ) {
     match asked {
@@ -349,7 +276,7 @@ fn count_decided(
         },
         Asked::ChangeFile { change, .. } => match resolution {
             None => day.folder_refusals += 1,
-            Some(resolution) => count_change(day, resolution, change),
+            Some(resolution) => count_change(day, resolution, change, changed),
         },
         Asked::OpenCamera { .. } | Asked::OpenMicrophone { .. } | Asked::WatchFolder { .. } => {}
     }
@@ -470,19 +397,21 @@ fn count_open(day: &mut AuditDay, resolution: &Resolution<'_>, to_write: bool) {
     }
 }
 
-/// Counts a change in the mount it is made in, and, in one of the user's, lists where.
-fn count_change(day: &mut AuditDay, resolution: &Resolution<'_>, change: &FileChange<'_>) {
-    let (made, moved_to) = match resolution {
-        Resolution::Both(both) => (&both.0, Some(&both.1)),
-        made => (made, None),
+/// Counts a change in the mount it is made in, and, in one of the user's, lists `changed`, where
+/// the change is on the machine.
+fn count_change(
+    day: &mut AuditDay,
+    resolution: &Resolution<'_>,
+    change: &FileChange<'_>,
+    changed: &[PathBuf],
+) {
+    let made = match resolution {
+        Resolution::Both(both) => &both.0,
+        made => made,
     };
     let Some((kind, place)) = mount_of(made) else {
         return;
     };
-    let changed = kind.is_the_users().then(|| path_on_machine(made)).flatten();
-    let moved_to = moved_to
-        .filter(|_| kind.is_the_users())
-        .and_then(path_on_machine);
     let mut beyond = 0;
     let Some(folder) = folder_of(day, kind, place) else {
         day.beyond_caps.folders += 1;
@@ -496,14 +425,34 @@ fn count_change(day: &mut AuditDay, resolution: &Resolution<'_>, change: &FileCh
         FileChange::Rename { .. } => folder.renamed += 1,
         FileChange::SetTimes => {}
     }
-    for path in changed.into_iter().chain(moved_to) {
-        list_changed(folder, path, &mut beyond);
+    for path in changed {
+        list_changed(folder, path.clone(), &mut beyond);
     }
     day.beyond_caps.changed += beyond;
 }
 
+/// Where a change `resolution` resolved to is on the machine, and where it moved to, where it is
+/// made in one of the user's mounts: what the day lists of it. Asks the system, so it is called
+/// before the day's lock is taken.
+fn changed_paths(resolution: &Resolution<'_>) -> Vec<PathBuf> {
+    let (made, moved_to) = match resolution {
+        Resolution::Both(both) => (&both.0, Some(&both.1)),
+        made => (made, None),
+    };
+    let Some((kind, _)) = mount_of(made) else {
+        return Vec::new();
+    };
+    if !kind.is_the_users() {
+        return Vec::new();
+    }
+    path_on_machine(made)
+        .into_iter()
+        .chain(moved_to.and_then(path_on_machine))
+        .collect()
+}
+
 /// Lists `path` among `folder`'s changed files, once, while the day's cap allows.
-fn list_changed(folder: &mut FolderUses, path: std::path::PathBuf, beyond: &mut u32) {
+fn list_changed(folder: &mut FolderUses, path: PathBuf, beyond: &mut u32) {
     if folder.changed.contains(&path) {
         return;
     }
@@ -524,7 +473,7 @@ fn mount_of<'a>(resolution: &'a Resolution<'_>) -> Option<(MountKind, &'a Path)>
 }
 
 /// Where on the machine a resolution's file is, as the system names its folder now.
-fn path_on_machine(resolution: &Resolution<'_>) -> Option<std::path::PathBuf> {
+fn path_on_machine(resolution: &Resolution<'_>) -> Option<PathBuf> {
     match resolution {
         Resolution::File {
             folder, beneath, ..
@@ -601,9 +550,17 @@ mod tests {
     use std::fs;
     use std::net::SocketAddr;
 
+    use std::time::UNIX_EPOCH;
+
+    use waos_capabilities::AuditLog;
+
     use super::*;
     use crate::access::Answers;
+    use crate::access::days::day_of;
     use crate::files::{MountOf, OpenMode};
+
+    /// A day, in seconds.
+    const DAY: u64 = 24 * 60 * 60;
 
     /// An audit log that keeps every day it is given, in order.
     #[derive(Default)]
@@ -818,30 +775,43 @@ mod tests {
         assert_eq!(summary.today(), AuditDay::starting(summary.today().start));
     }
 
+    /// The days of programs whose days `log` keeps, and a run's summary of `program` among them.
+    fn kept_in(days: &Days, program: &str) -> Option<KeptIn> {
+        Some(KeptIn {
+            days: days.clone(),
+            program: program.to_owned(),
+        })
+    }
+
+    fn days_kept_in(log: &Arc<Kept>) -> Days {
+        Days::new(Arc::clone(log) as Arc<dyn AuditLog>).unwrap()
+    }
+
+    fn post(summary: &Summary) {
+        summary.decided(&Asked::PostNotification, Some(&Resolution::Nothing), None);
+    }
+
     #[test]
     fn nothing_is_counted_while_the_record_is_off_and_what_was_is_let_go() {
         let log = Arc::new(Kept::default());
+        let days = days_kept_in(&log);
         let answers = Arc::new(Answers::default());
         let summary = Summary::new(
-            Some(KeptIn {
-                log: Arc::clone(&log) as Arc<dyn AuditLog>,
-                program: "dev.waos.notes".to_owned(),
-            }),
+            kept_in(&days, "dev.waos.notes"),
             Arc::clone(&answers) as Arc<dyn ProgramGrants>,
         );
-        let post = || summary.decided(&Asked::PostNotification, Some(&Resolution::Nothing), None);
-        post();
+        post(&summary);
         answers.keep_record(false);
-        post();
+        post(&summary);
         assert_eq!(
             summary.today().notifications.allowed,
             0,
             "let go, and not counted"
         );
-        summary.keep();
+        days.keep_all_now();
         assert!(locked(&log.0).is_empty(), "nothing kept while off");
         answers.keep_record(true);
-        post();
+        post(&summary);
         assert_eq!(
             summary.today().notifications.allowed,
             1,
@@ -850,21 +820,21 @@ mod tests {
     }
 
     #[test]
-    fn the_day_is_kept_under_the_programs_name_as_its_access_goes() {
+    fn a_use_counts_in_memory_and_the_writer_keeps_the_day_under_the_programs_name() {
         let log = Arc::new(Kept::default());
+        let days = days_kept_in(&log);
         let summary = Summary::new(
-            Some(KeptIn {
-                log: Arc::clone(&log) as Arc<dyn AuditLog>,
-                program: "dev.waos.notes".to_owned(),
-            }),
+            kept_in(&days, "dev.waos.notes"),
             Arc::new(Answers::default()),
         );
-        summary.decided(&Asked::PostNotification, Some(&Resolution::Nothing), None);
-        assert!(
-            locked(&log.0).is_empty(),
-            "kept once a minute, not at each use"
+        post(&summary);
+        assert!(locked(&log.0).is_empty(), "a use writes nothing");
+        assert_eq!(
+            days.days_of("dev.waos.notes")[0].notifications.allowed,
+            1,
+            "today is read from memory"
         );
-        drop(summary);
+        days.keep_all_now();
         let kept = locked(&log.0);
         assert_eq!(kept.len(), 1);
         assert_eq!(kept[0].0, "dev.waos.notes");
@@ -872,37 +842,71 @@ mod tests {
     }
 
     #[test]
-    fn two_runs_on_one_day_add_up_in_the_day_kept() {
+    fn the_writer_keeps_a_runs_day_once_it_ends() {
         let log = Arc::new(Kept::default());
+        let days = days_kept_in(&log);
+        let summary = Summary::new(
+            kept_in(&days, "dev.waos.notes"),
+            Arc::new(Answers::default()),
+        );
+        post(&summary);
+        drop(summary);
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        while locked(&log.0).is_empty() {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "kept by the writer, off the run"
+            );
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert_eq!(locked(&log.0)[0].1.notifications.allowed, 1);
+    }
+
+    #[test]
+    fn two_runs_on_one_day_add_up_in_one_day() {
+        let log = Arc::new(Kept::default());
+        let days = days_kept_in(&log);
         let run = || {
             Summary::new(
-                Some(KeptIn {
-                    log: Arc::clone(&log) as Arc<dyn AuditLog>,
-                    program: "dev.waos.notes".to_owned(),
-                }),
+                kept_in(&days, "dev.waos.notes"),
                 Arc::new(Answers::default()),
             )
-        };
-        let post = |summary: &Summary| {
-            summary.decided(&Asked::PostNotification, Some(&Resolution::Nothing), None);
         };
         let first = run();
         post(&first);
         post(&first);
-        drop(first);
         let second = run();
         post(&second);
+        drop(first);
         drop(second);
+        days.keep_all_now();
         let today = &log.days("dev.waos.notes")[0];
         assert_eq!(
             today.notifications.allowed, 3,
-            "the first run's two and the second's one"
+            "the first run's two and the second's one, though they overlapped"
         );
-        assert_eq!(
-            log.days("dev.waos.other").len(),
-            0,
-            "another program's day starts afresh"
+        assert!(
+            log.days("dev.waos.other").is_empty(),
+            "another program's day is its own"
         );
+    }
+
+    #[test]
+    fn a_program_the_engine_runs_again_counts_on_from_the_day_kept_before() {
+        let log = Arc::new(Kept::default());
+        let earlier = days_kept_in(&log);
+        post(&Summary::new(
+            kept_in(&earlier, "dev.waos.notes"),
+            Arc::new(Answers::default()),
+        ));
+        earlier.keep_all_now();
+        let later = days_kept_in(&log);
+        post(&Summary::new(
+            kept_in(&later, "dev.waos.notes"),
+            Arc::new(Answers::default()),
+        ));
+        later.keep_all_now();
+        assert_eq!(log.days("dev.waos.notes")[0].notifications.allowed, 2);
     }
 
     #[test]

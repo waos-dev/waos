@@ -1,5 +1,5 @@
 //! An inspection `cargo waos inspect` asks for (the inspector proposal's protocol): a program's
-//! audit summary, its days as the store keeps them, today's kept first where it runs; what it uses
+//! audit summary, the days kept with today's as the engine counts it now; what it uses
 //! now and each change to it; or its live trace, each event as it comes; the last two until the
 //! connection closes or the program ends.
 //! Each value goes as JSON of `wasdk:inspect`'s, one a line, so the command prints what it reads.
@@ -10,12 +10,11 @@
 
 use futures::StreamExt;
 use futures::stream::{self, BoxStream};
-use waos::{AuditLog, RunningProgram, TraceKind};
+use waos::{RunningProgram, TraceKind, WaOS};
 use waos_dev_protocol::{
     Connection, FromWaOS, Inspection, ServerStream, TracedCapability, Unreached,
 };
 use waos_package::ProgramId;
-use waos_store::Store;
 
 use super::runs::Runs;
 use super::sent_components::SentComponents;
@@ -24,7 +23,7 @@ use super::sent_components::SentComponents;
 pub(crate) struct InspectionContext<'a> {
     pub(crate) runs: &'a Runs,
     pub(crate) components: &'a SentComponents,
-    pub(crate) store: &'a Store,
+    pub(crate) engine: &'a WaOS,
 }
 
 /// Answers a connection's `Inspect`: what `asked` asks of the program `id`.
@@ -39,7 +38,7 @@ pub(crate) async fn answer(
         Inspection::Summary { days } => {
             let was_run = running.is_some() || context.components.was_sent(id);
             if was_run {
-                Ok(summary(context.store, running.as_ref(), id, days))
+                Ok(summary(context.engine, id, days))
             } else {
                 Err(Unreached::NeverRunByCargoWaos)
             }
@@ -68,18 +67,10 @@ pub(crate) async fn answer(
     let _ = connection.send(&answer).await;
 }
 
-/// The program's last `days` days, newest first, today's kept as it is now where it runs.
-fn summary(
-    store: &Store,
-    running: Option<&RunningProgram>,
-    id: &ProgramId,
-    days: u32,
-) -> Vec<String> {
-    if let Some(program) = running {
-        program.keep_summary();
-    }
-    store
-        .days(id.as_str())
+/// The program's last `days` days, newest first, today's as the engine counts it now.
+fn summary(engine: &WaOS, id: &ProgramId, days: u32) -> Vec<String> {
+    engine
+        .days_of(id.as_str())
         .iter()
         .take(usize::try_from(days).unwrap_or(usize::MAX))
         .map(|day| json(&waos::inspection::day_of(day)))

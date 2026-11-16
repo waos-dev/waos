@@ -19,6 +19,7 @@
 //! permission's state, what a picker answers, an answer kept.
 
 mod active_uses;
+mod days;
 pub(crate) mod events;
 mod summary;
 #[cfg(test)]
@@ -40,6 +41,7 @@ pub(crate) use active_uses::{
     ActiveUse, ActiveUseChange, ActiveUseChanges, ActiveUseKind, ActiveUseNow, ShownRecordings,
     TcpOrigin,
 };
+pub(crate) use days::Days;
 pub(crate) use summary::KeptIn;
 #[cfg(test)]
 pub(crate) use test_answers::Answers;
@@ -427,11 +429,6 @@ impl ProgramAccess {
         trace::TraceTaps::subscribe(&self.parts.taps, kind)
     }
 
-    /// Keeps the program's day of its audit summary as it is now.
-    pub(crate) fn keep_summary(&self) {
-        self.parts.summary.keep();
-    }
-
     /// The access, held without keeping it.
     pub(crate) fn downgrade(&self) -> WeakAccess {
         WeakAccess(Arc::downgrade(&self.parts))
@@ -456,9 +453,12 @@ impl ProgramAccess {
     pub(crate) fn open_files(&self) -> Vec<(Option<std::path::PathBuf>, MountKind, OpenMode)> {
         let uses = self.parts.active_uses.now().into_iter();
         uses.filter_map(|now| match now.kind {
-            ActiveUseKind::OpenFile {
-                mount, mode, at, ..
-            } => Some((at, mount, mode)),
+            ActiveUseKind::OpenFile { file, mount, mode, .. } => {
+                let at = file
+                    .upgrade()
+                    .and_then(|file| crate::files::path_of(&file).ok());
+                Some((at, mount, mode))
+            }
             _ => None,
         })
         .collect()

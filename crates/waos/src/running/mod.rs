@@ -31,11 +31,11 @@ use anyhow::{Context as _, Result};
 use futures::FutureExt;
 use futures::channel::oneshot::{self, Canceled};
 use futures::future::{Map, Shared};
-use waos_capabilities::{AuditLog, ProgramEnvironment};
+use waos_capabilities::ProgramEnvironment;
 use wasmtime::Engine;
 use wasmtime::component::Component;
 
-use crate::access::{ProgramAccess, TraceKind, TraceStream, WeakAccess};
+use crate::access::{Days, ProgramAccess, TraceKind, TraceStream, WeakAccess};
 use crate::bindings::wasdk::platform::lifecycle::AppExitResponse;
 use crate::bindings::wasdk::platform::menus::MenuEntry;
 use crate::bindings::wasdk::platform::notifications::Activation;
@@ -190,8 +190,9 @@ pub(crate) struct ProgramStart {
     pub(crate) environment: ProgramEnvironment,
     /// Where its `/tmp` is on the machine, where it has one.
     pub(crate) temporary_folder: Option<PathBuf>,
-    /// Where its audit summary is kept, where the engine keeps one.
-    pub(crate) audit: Option<Arc<dyn AuditLog>>,
+    /// The days of what programs did, which its summary counts into, where the engine keeps
+    /// them.
+    pub(crate) days: Option<Days>,
     /// What it sees of the programs while it holds the inspector role, where the embedder gives
     /// it.
     pub(crate) inspected_programs: Option<Arc<dyn crate::inspection::InspectedPrograms>>,
@@ -256,10 +257,15 @@ impl RunningProgram {
         start.programs.add(&program);
         let on_thread = program.clone();
         let thread_name = format!("program {}", start.name);
+        let days = start.days.clone().map(|days| (days, start.name.clone()));
         thread::Builder::new()
             .name(thread_name.clone())
             .spawn(move || {
                 let ending = run_on_this_thread(start, on_thread, clock, stopped);
+                // Its day is kept at its end, by the engine's writer.
+                if let Some((days, name)) = days {
+                    days.keep_now(&name);
+                }
                 drop(temporary);
                 // Nobody waiting for the end is not an error.
                 let _ = end.send(ending);
@@ -400,14 +406,6 @@ impl RunningProgram {
             now,
             changes.map(crate::inspection::active_use_change_of).boxed(),
         ))
-    }
-
-    /// Keeps the program's day of its audit summary as it is now, so what is kept says all it
-    /// did until now.
-    pub fn keep_summary(&self) {
-        if let Some(access) = self.0.access.get().and_then(WeakAccess::upgrade) {
-            access.keep_summary();
-        }
     }
 
     /// Its access, from its instances' link on.

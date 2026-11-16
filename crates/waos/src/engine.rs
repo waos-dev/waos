@@ -18,9 +18,10 @@ use std::time::Instant;
 use anyhow::{Context as _, Result, ensure};
 use futures::FutureExt;
 use futures::future::join_all;
-use waos_capabilities::{AuditLog, ProgramEnvironment};
+use waos_capabilities::{AuditDay, AuditLog, ProgramEnvironment};
 use wasmtime::{Config, Engine, WasmBacktraceDetails};
 
+use crate::access::Days;
 use crate::bindings::wasdk::media::caption_settings::CaptionStyle;
 use crate::bindings::wasdk::platform::screens::ScreenId;
 use crate::bindings::wasdk::platform::system::{Brightness, Locale};
@@ -108,8 +109,9 @@ pub struct WaOS {
     code_cache: PathBuf,
     /// Where each program's `/tmp` is made.
     temporary_folders: Arc<TemporaryFolders>,
-    /// Where each program's audit summary is kept.
-    audit: Option<Arc<dyn AuditLog>>,
+    /// The days of what each program did, counted in memory and kept by their writer, where the
+    /// engine keeps them.
+    days: Option<Days>,
     /// What an inspector sees of the programs.
     inspected_programs: Option<Arc<dyn InspectedPrograms>>,
     freeze: FreezePolicy,
@@ -131,6 +133,11 @@ impl WaOS {
         let clock = config.time.start(&engine, &programs)?;
         let gpu = gpu::instance();
         let screens = Screens::new(platform.screens);
+        let days = config
+            .audit
+            .map(Days::new)
+            .transpose()
+            .context("the thread that keeps the programs' days")?;
         Ok(WaOS {
             engine,
             screenshots: Arc::new(Screenshots::new(Arc::clone(&gpu))),
@@ -147,7 +154,7 @@ impl WaOS {
             caption_settings: platform.caption_style.map(CaptionSettings::new),
             code_cache: config.code_cache,
             temporary_folders,
-            audit: config.audit,
+            days,
             inspected_programs: config.inspected_programs,
             freeze: config.freeze,
             http_proxy: config.http_proxy,
@@ -233,6 +240,16 @@ impl WaOS {
         code_cache::remove(&self.engine, component, &self.code_cache)
     }
 
+    /// The days kept of what the program `name` did, newest first, today's as counted now in
+    /// place of the one kept; none where the engine keeps no days. Reads files, so call it off the
+    /// main thread.
+    pub fn days_of(&self, name: &str) -> Vec<AuditDay> {
+        self.days
+            .as_ref()
+            .map(|days| days.days_of(name))
+            .unwrap_or_default()
+    }
+
     /// Starts `program` on a thread of its own, with `environment` as its capabilities, a `/tmp`
     /// of its own, and `views` as the views it has before its code runs; answers the handle on it
     /// and each view as the shell reports into it, in the order given.
@@ -300,7 +317,7 @@ impl WaOS {
             machine_picker: self.shell.machine_picker.clone(),
             environment,
             temporary_folder: temporary.as_ref().map(|folder| folder.path().to_owned()),
-            audit: self.audit.clone(),
+            days: self.days.clone(),
             inspected_programs: self.inspected_programs.clone(),
             freeze: self.freeze,
             http_proxy: self.http_proxy,

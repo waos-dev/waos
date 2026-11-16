@@ -12,8 +12,9 @@
 //! place of what it missed, so it never shows a use that ended, and the program never waits for it.
 //!
 //! An entry is a lock, a map insertion and two clocks read, beside work far slower; an open
-//! file's path is read only as the entry is told to a listener, and the bytes a socket moved only
-//! when someone reads the entry (`../experiments/2026-11-15-audit-cost` and
+//! file's path is asked of the system only for a listener, and outside the lock: before it for a
+//! file that opens, after it for a listener's snapshot or resync, which may hold thousands; and
+//! the bytes a socket moved only when someone reads the entry (`../experiments/2026-11-15-audit-cost` and
 //! `../experiments/2026-11-16-active-uses-burst`).
 //!
 //! The invariant: an entry goes exactly when its [`ActiveUse`] is dropped, and every change to the
@@ -25,6 +26,7 @@ use std::fs;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::pin::Pin;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 use std::task::{Context, Poll};
 use std::time::{Instant, SystemTime};
@@ -136,6 +138,9 @@ pub(crate) enum ActiveUseChange {
 /// One program's registry of what it uses now.
 pub(super) struct ActiveUses {
     entries: Mutex<Entries>,
+    /// How many listen, read without the lock, so a use nobody listens to asks the system
+    /// nothing.
+    listening: AtomicUsize,
     shown: Option<ShownRecordings>,
 }
 
@@ -173,6 +178,7 @@ impl ActiveUses {
     pub(super) fn new(shown: Option<ShownRecordings>) -> ActiveUses {
         ActiveUses {
             entries: Mutex::default(),
+            listening: AtomicUsize::new(0),
             shown,
         }
     }
@@ -181,6 +187,10 @@ impl ActiveUses {
     /// listener.
     pub(super) fn start(parts: &Arc<AccessParts>, kind: ActiveUseKind, instance: u32) -> ActiveUse {
         let registry = &parts.active_uses;
+        // Named before the lock is taken: an open file is asked of the system while it is surely
+        // open, since a listener reads what it is told later.
+        let listened = registry.listening.load(Ordering::Relaxed) > 0;
+        let told = listened.then(|| named(kind.clone()));
         let mut entries = locked(&registry.entries);
         if let ActiveUseKind::Recording(device) = kind
             && !entries.records_with(device)
@@ -195,8 +205,13 @@ impl ActiveUses {
             started: SystemTime::now(),
         };
         if !entries.listeners.is_empty() {
-            let started = ActiveUseChange::Started(entry.now(id));
+            let started = ActiveUseChange::Started(ActiveUseNow {
+                id,
+                kind: told.unwrap_or_else(|| entry.kind.clone()),
+                since: entry.since,
+            });
             entries.send(&started);
+            registry.count_listeners(&entries);
         }
         entries.active.insert(id, entry);
         ActiveUse {
@@ -218,6 +233,7 @@ impl ActiveUses {
         }
         if !entries.listeners.is_empty() {
             entries.send(&ActiveUseChange::Ended(id));
+            self.count_listeners(&entries);
         }
         Some(ended)
     }
@@ -241,19 +257,48 @@ impl ActiveUses {
     pub(super) fn subscribe(parts: &Arc<AccessParts>) -> (Vec<ActiveUseNow>, ActiveUseChanges) {
         let (changes, received) = mpsc::channel(LISTENER_CAPACITY);
         let behind = Arc::default();
-        let mut entries = locked(&parts.active_uses.entries);
-        entries.listeners.push(Listener {
-            changes,
-            behind: Arc::clone(&behind),
-        });
-        let now = entries.now();
+        let now = {
+            let mut entries = locked(&parts.active_uses.entries);
+            entries.listeners.push(Listener {
+                changes,
+                behind: Arc::clone(&behind),
+            });
+            parts.active_uses.count_listeners(&entries);
+            entries.now()
+        };
         let changes = ActiveUseChanges {
             changes: received,
             behind,
             parts: Arc::downgrade(parts),
         };
-        (now, changes)
+        // Each open file named after the lock is let go: there may be thousands.
+        (now.into_iter().map(named_now).collect(), changes)
     }
+
+    /// Notes how many listen now.
+    fn count_listeners(&self, entries: &Entries) {
+        self.listening
+            .store(entries.listeners.len(), Ordering::Relaxed);
+    }
+}
+
+/// `now`, an open file named where the system says it is.
+fn named_now(now: ActiveUseNow) -> ActiveUseNow {
+    ActiveUseNow {
+        kind: named(now.kind),
+        ..now
+    }
+}
+
+/// `kind`, an open file named where the system says it is now; asks the system, so it is called
+/// outside the registry's lock.
+fn named(mut kind: ActiveUseKind) -> ActiveUseKind {
+    if let ActiveUseKind::OpenFile { file, at, .. } = &mut kind {
+        *at = file
+            .upgrade()
+            .and_then(|file| crate::files::path_of(&file).ok());
+    }
+    kind
 }
 
 impl Entries {
@@ -292,18 +337,11 @@ impl Entries {
 }
 
 impl Entry {
-    /// The entry as a listener is told it: an open file named where the system says it is now,
-    /// before the program can close it, since what is told is read later.
+    /// The entry as it is held; an open file is named by [`named`], outside the lock.
     fn now(&self, id: u64) -> ActiveUseNow {
-        let mut kind = self.kind.clone();
-        if let ActiveUseKind::OpenFile { file, at, .. } = &mut kind {
-            *at = file
-                .upgrade()
-                .and_then(|file| crate::files::path_of(&file).ok());
-        }
         ActiveUseNow {
             id,
-            kind,
+            kind: self.kind.clone(),
             since: self.since,
         }
     }
@@ -324,10 +362,15 @@ impl Stream for ActiveUseChanges {
                 let Some(parts) = self.parts.upgrade() else {
                     return Poll::Ready(None);
                 };
-                let entries = locked(&parts.active_uses.entries);
-                self.behind
-                    .store(false, std::sync::atomic::Ordering::Relaxed);
-                Poll::Ready(Some(ActiveUseChange::Resync(entries.now())))
+                let now = {
+                    let entries = locked(&parts.active_uses.entries);
+                    self.behind
+                        .store(false, std::sync::atomic::Ordering::Relaxed);
+                    entries.now()
+                };
+                // Named after the lock is let go: a resync may hold thousands of open files.
+                let now = now.into_iter().map(named_now).collect();
+                Poll::Ready(Some(ActiveUseChange::Resync(now)))
             }
             Poll::Pending => Poll::Pending,
         }

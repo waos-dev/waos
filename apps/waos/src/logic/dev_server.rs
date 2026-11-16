@@ -236,7 +236,7 @@ async fn serve_connection(mut connection: Connection<ServerStream>, context: Con
             let inspection = InspectionContext {
                 runs: &context.run.runs,
                 components: &context.run.components,
-                store: &context.store,
+                engine: &context.run.engine,
             };
             dev_inspect::answer(connection, inspection, &id, asked).await;
         }
