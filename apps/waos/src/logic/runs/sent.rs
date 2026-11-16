@@ -86,10 +86,12 @@ impl Runs {
         id: &ProgramId,
         start: impl FnOnce() -> Result<RunningProgram>,
     ) -> Result<SentRun> {
-        let mut running = self.running.lock().await;
-        self.end_the_one_before(&mut running, id).await;
+        let _turn = self.turn_of(id).await;
+        self.end_the_one_before(id).await;
         let program = start()?;
-        let run = self.list(&mut running, id, program);
+        // The run's mark and mouse join the list under the same lock as its program.
+        let mut running = self.listed();
+        let run = self.list_in(&mut running, id, program);
         let replaced = Arc::new(AtomicBool::new(false));
         if let Some(listed) = running.get_mut(id) {
             listed.sent = Some(Sent {
@@ -103,7 +105,7 @@ impl Runs {
     /// The program `id` running now, if `cargo waos run` sent it; none for one the library
     /// opened.
     pub(crate) async fn dev_run(&self, id: &ProgramId) -> Option<DevRun> {
-        let running = self.running.lock().await;
+        let running = self.listed();
         let current = running.get(id)?;
         Some(DevRun {
             program: current.program.clone(),
