@@ -46,7 +46,6 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use waos_capabilities::DomainRule;
-use wasmtime_wasi::sockets::SocketAddrUse;
 
 use crate::access::{Asked, Cause, Noted, ProgramAccess, Refusal, Refused};
 
@@ -231,44 +230,62 @@ impl ProgramNetwork {
         }
     }
 
-    /// Whether the program may use `address` as `use_` says, which its sockets ask at each use
-    /// ([`sockets`]): binding a port reaches nothing; listening is reached from this computer
-    /// and the local network; connecting, accepting, sending and receiving reach the address. A
-    /// connection, an accepted one and a listening socket are decided and told; a datagram, which
-    /// is checked one by one, noted.
-    pub(crate) fn allows_socket(&self, address: SocketAddr, use_: SocketAddrUse) -> bool {
-        let reached = || self.reach(address.ip());
-        // What a connection resolved to: the names its address was looked up by.
-        let named =
-            |reached: Result<(), Refusal>| reached.map(|()| self.record.names_of(address.ip()));
+    /// Whether the program may listen at `address`, which is reached from this computer and the
+    /// local network, so under the local-network switch: decided and told. Its sockets ask it as
+    /// they listen ([`sockets`]); a bind, which reaches nothing, asks nothing.
+    pub(crate) fn allows_listen(&self, address: SocketAddr) -> bool {
         let listened = || match self.access.grants().local_network() {
             true => Ok(()),
             false => Err(LOCAL_NETWORK),
         };
-        match use_ {
-            SocketAddrUse::TcpBind | SocketAddrUse::UdpBind => true,
-            SocketAddrUse::TcpListen => self
-                .access
-                .decide(Asked::ListenTcp { address }, |_| listened())
-                .is_ok(),
-            SocketAddrUse::TcpConnect => self
-                .access
-                .decide(Asked::ConnectTcp { address }, |_| named(reached()))
-                .is_ok(),
-            SocketAddrUse::TcpAccept => self
-                .access
-                .decide(Asked::AcceptTcp { address }, |_| named(reached()))
-                .is_ok(),
-            SocketAddrUse::UdpSend | SocketAddrUse::UdpReceive => {
-                let refusal = reached().err();
-                self.access.note(Noted::UdpDatagram {
-                    address,
-                    sent: matches!(use_, SocketAddrUse::UdpSend),
-                    refusal,
-                });
-                refusal.is_none()
-            }
-        }
+        self.access
+            .decide(Asked::ListenTcp { address }, |_| listened())
+            .is_ok()
+    }
+
+    /// Whether the program may connect to `address`: decided and told, with the names the
+    /// address was looked up by.
+    pub(crate) fn allows_connect(&self, address: SocketAddr) -> bool {
+        self.access
+            .decide(Asked::ConnectTcp { address }, |_| self.named(address))
+            .is_ok()
+    }
+
+    /// Whether the program may take a connection from `address`, which its listener accepted:
+    /// decided and told, with the names the address was looked up by.
+    pub(crate) fn allows_accept(&self, address: SocketAddr) -> bool {
+        self.access
+            .decide(Asked::AcceptTcp { address }, |_| self.named(address))
+            .is_ok()
+    }
+
+    /// Whether the program may send a datagram to `address`: noted, as each datagram is checked
+    /// on its own.
+    pub(crate) fn allows_send_to(&self, address: SocketAddr) -> bool {
+        self.allows_datagram(address, true)
+    }
+
+    /// Whether the program may be handed a datagram from `address`: noted, as each datagram is
+    /// checked on its own.
+    pub(crate) fn allows_receive_from(&self, address: SocketAddr) -> bool {
+        self.allows_datagram(address, false)
+    }
+
+    fn allows_datagram(&self, address: SocketAddr, sent: bool) -> bool {
+        let refusal = self.reach(address.ip()).err();
+        self.access.note(Noted::UdpDatagram {
+            address,
+            sent,
+            refusal,
+        });
+        refusal.is_none()
+    }
+
+    /// The names `address` was looked up by, if the program may reach it: what a connection
+    /// resolved to.
+    fn named(&self, address: SocketAddr) -> Result<Vec<String>, Refusal> {
+        self.reach(address.ip())
+            .map(|()| self.record.names_of(address.ip()))
     }
 
     /// Whether the program may reach `address`, or what refuses it: a local one under the

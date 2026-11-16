@@ -2,7 +2,6 @@ use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 
 use waos_capabilities::{DomainRule, NetworkGrant};
-use wasmtime_wasi::sockets::SocketAddrUse;
 
 use super::test_grants::{TestGrants, any, any_but, off, only};
 use super::{LOCAL_NETWORK, Lookup, LookupError, ProgramNetwork, Resolver};
@@ -252,23 +251,21 @@ fn an_address_of_the_internet_needs_the_network_switch_and_its_rule() {
 }
 
 #[test]
-fn a_socket_binds_freely_listens_on_the_local_network_and_reaches_what_it_may() {
+fn a_socket_listens_on_the_local_network_and_reaches_what_it_may() {
     let grants = TestGrants::new(any(), false);
     let network = ProgramNetwork::new(ProgramAccess::new(grants.clone()));
     let wildcard: SocketAddr = "0.0.0.0:0".parse().unwrap();
     let loopback: SocketAddr = "127.0.0.1:8080".parse().unwrap();
     let public: SocketAddr = format!("{PUBLIC}:443").parse().unwrap();
-    assert!(network.allows_socket(wildcard, SocketAddrUse::TcpBind));
-    assert!(network.allows_socket(wildcard, SocketAddrUse::UdpBind));
-    assert!(!network.allows_socket(wildcard, SocketAddrUse::TcpListen));
-    assert!(!network.allows_socket(loopback, SocketAddrUse::TcpConnect));
-    assert!(network.allows_socket(public, SocketAddrUse::TcpConnect));
-    assert!(network.allows_socket(public, SocketAddrUse::UdpSend));
-    assert!(!network.allows_socket(loopback, SocketAddrUse::UdpReceive));
+    assert!(!network.allows_listen(wildcard));
+    assert!(!network.allows_connect(loopback));
+    assert!(network.allows_connect(public));
+    assert!(network.allows_send_to(public));
+    assert!(!network.allows_receive_from(loopback));
 
     grants.set_local_network(true);
-    assert!(network.allows_socket(wildcard, SocketAddrUse::TcpListen));
-    assert!(network.allows_socket(loopback, SocketAddrUse::TcpAccept));
+    assert!(network.allows_listen(wildcard));
+    assert!(network.allows_accept(loopback));
 }
 
 #[test]
@@ -281,9 +278,9 @@ fn each_refusal_of_a_lookup_a_connection_a_listener_and_a_datagram_is_told_by_it
 
     assert!(network.look_up("localhost").is_err());
     assert!(network.look_up("example.com").is_err());
-    assert!(!network.allows_socket(loopback, SocketAddrUse::TcpConnect));
-    assert!(!network.allows_socket(public, SocketAddrUse::TcpAccept));
-    assert!(!network.allows_socket(loopback, SocketAddrUse::TcpListen));
+    assert!(!network.allows_connect(loopback));
+    assert!(!network.allows_accept(public));
+    assert!(!network.allows_listen(loopback));
     assert_eq!(
         access.refusals(),
         [
@@ -299,7 +296,7 @@ fn each_refusal_of_a_lookup_a_connection_a_listener_and_a_datagram_is_told_by_it
     assert!(network.reachable(PUBLIC, Cause::MediaPlayer).is_err());
     assert_eq!(access.refusals().last(), Some(&"domains"));
 
-    assert!(!network.allows_socket(public, SocketAddrUse::UdpSend));
+    assert!(!network.allows_send_to(public));
     let noted = access.told().last().cloned();
     assert!(
         matches!(&noted, Some(Told::Noted(datagram)) if datagram.contains("domains")),

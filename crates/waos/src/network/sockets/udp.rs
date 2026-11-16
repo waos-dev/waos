@@ -9,11 +9,10 @@ use rustix::fd::AsFd;
 use rustix::io::Errno;
 use tracing::debug;
 use wasmtime_wasi::runtime::with_ambient_tokio_runtime;
-use wasmtime_wasi::sockets::SocketAddrUse;
 
-use super::check;
 use super::family::{is_of_family, is_remote, unspecified};
 use super::options;
+use super::refused_unless;
 use crate::network::ProgramNetwork;
 use crate::network::host::bindings::wasi::sockets::types::{ErrorCode, IpAddressFamily};
 
@@ -83,7 +82,6 @@ impl UdpSocket {
         if !is_of_family(address.ip(), self.family) {
             return Err(ErrorCode::InvalidArgument);
         }
-        check(&self.network, address, SocketAddrUse::UdpBind)?;
         Ok(bind(&*self.socket, address)?)
     }
 
@@ -91,15 +89,8 @@ impl UdpSocket {
         if !is_of_family(address.ip(), self.family) || !is_remote(address) {
             return Err(ErrorCode::InvalidArgument);
         }
-        if !self.is_bound() {
-            check(
-                &self.network,
-                unspecified(self.family),
-                SocketAddrUse::UdpBind,
-            )?;
-        }
-        check(&self.network, address, SocketAddrUse::UdpSend)?;
-        check(&self.network, address, SocketAddrUse::UdpReceive)?;
+        refused_unless(self.network.allows_send_to(address))?;
+        refused_unless(self.network.allows_receive_from(address))?;
         let connected = connect(&*self.socket, address);
         self.update_remote_address();
         Ok(connected?)
@@ -136,7 +127,6 @@ impl UdpSocket {
         let socket = Arc::clone(&self.socket);
         let network = self.network.clone();
         let connected = self.remote_address;
-        let is_bound = self.is_bound();
         async move {
             if data.len() > MAX_DATAGRAM_SIZE {
                 return Err(ErrorCode::DatagramTooLarge);
@@ -154,10 +144,7 @@ impl UdpSocket {
                 (None, Some(connected)) => connected,
                 (None, None) => return Err(ErrorCode::InvalidArgument),
             };
-            if !is_bound {
-                check(&network, unspecified(family), SocketAddrUse::UdpBind)?;
-            }
-            check(&network, to, SocketAddrUse::UdpSend)?;
+            refused_unless(network.allows_send_to(to))?;
             if connected == Some(to) {
                 socket.send(&data).await?;
             } else {
@@ -182,7 +169,7 @@ impl UdpSocket {
                 let mut data = vec![0; MAX_DATAGRAM_SIZE];
                 let (length, from) = socket.recv_from(&mut data).await?;
                 data.truncate(length);
-                if check(&network, from, SocketAddrUse::UdpReceive).is_ok() {
+                if network.allows_receive_from(from) {
                     return Ok((data, from));
                 }
             }

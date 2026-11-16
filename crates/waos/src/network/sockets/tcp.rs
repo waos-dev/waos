@@ -15,11 +15,10 @@ use rustix::fd::{AsFd, BorrowedFd};
 use rustix::io::Errno;
 use rustix::net::sockopt;
 use wasmtime_wasi::runtime::with_ambient_tokio_runtime;
-use wasmtime_wasi::sockets::SocketAddrUse;
 
-use super::check;
 use super::family::{is_of_family, is_remote, is_unicast, unspecified};
 use super::options::{self, ListenerOptions, clamp_keep_alive_count, clamp_keep_alive_time};
+use super::refused_unless;
 use crate::network::ProgramNetwork;
 use crate::network::host::bindings::wasi::sockets::types::{ErrorCode, IpAddressFamily};
 
@@ -136,7 +135,6 @@ impl TcpSocket {
         if !is_unicast(address.ip()) || !is_of_family(address.ip(), self.family) {
             return Err(ErrorCode::InvalidArgument);
         }
-        check(&self.network, address, SocketAddrUse::TcpBind)?;
         bind(socket, address)
     }
 
@@ -154,18 +152,11 @@ impl TcpSocket {
             return Err(ErrorCode::InvalidArgument);
         }
         let network = self.network.clone();
-        let family = self.family;
-        let already_bound = self.is_bound();
         let TcpState::Default(socket) = self.state.take() else {
             unreachable!("checked above");
         };
         self.state = TcpState::Connecting(Pending::new(async move {
-            if !already_bound {
-                // The system binds it as it connects; WaOS asks for that bind, and leaves it to
-                // the system, whose own binding spends ports more sparingly.
-                check(&network, unspecified(family), SocketAddrUse::TcpBind)?;
-            }
-            check(&network, address, SocketAddrUse::TcpConnect)?;
+            refused_unless(network.allows_connect(address))?;
             Ok(socket.connect(address).await?)
         }));
         Ok(())
@@ -209,17 +200,13 @@ impl TcpSocket {
                 return Err(ErrorCode::InvalidState);
             }
         };
-        if already_bound {
-            check(
-                &self.network,
-                socket.local_addr()?,
-                SocketAddrUse::TcpListen,
-            )?;
-        } else {
-            let implicit = unspecified(self.family);
-            check(&self.network, implicit, SocketAddrUse::TcpBind)?;
-            check(&self.network, implicit, SocketAddrUse::TcpListen)?;
-            bind(&socket, implicit)?;
+        let address = match already_bound {
+            true => socket.local_addr()?,
+            false => unspecified(self.family),
+        };
+        refused_unless(self.network.allows_listen(address))?;
+        if !already_bound {
+            bind(&socket, address)?;
         }
         let listener = socket
             .listen(self.listen_backlog_size)
@@ -459,7 +446,7 @@ impl TcpListenStream {
             self.pending_accept = Some(Pending::new(async move {
                 loop {
                     let (client, peer) = accept(&listener).await?;
-                    if check(&network, peer, SocketAddrUse::TcpAccept).is_ok() {
+                    if network.allows_accept(peer) {
                         return Ok((client, peer));
                     }
                     reset(client);
