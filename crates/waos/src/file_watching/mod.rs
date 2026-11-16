@@ -26,7 +26,7 @@ use std::time::Duration;
 use futures::stream::{self, BoxStream, StreamExt};
 use notify::{Config, EventKindMask, RecommendedWatcher, RecursiveMode, Watcher};
 
-use crate::access::Held;
+use crate::access::ActiveUse;
 use crate::bindings::wasdk::platform::file_watching::Change;
 use crate::files::{ErrorCode, HeldFolder};
 use batch::Arrivals;
@@ -41,7 +41,7 @@ pub(crate) fn watch(
     folder: &HeldFolder,
     recursive: bool,
     latency: Duration,
-    watching: Held,
+    watching: ActiveUse,
 ) -> Result<Batches, ErrorCode> {
     let arrivals = Arc::new(Arrivals::new(folder.path().to_path_buf()));
     let heard = Arc::clone(&arrivals);
@@ -66,7 +66,7 @@ pub(crate) fn watch(
 /// The batches `watcher` gathers in `arrivals`, each taken `latency` after its first change; the
 /// stream holds the watcher, and the watch's use.
 fn batches(
-    watcher: (RecommendedWatcher, Held),
+    watcher: (RecommendedWatcher, ActiveUse),
     arrivals: Arc<Arrivals>,
     latency: Duration,
 ) -> Batches {

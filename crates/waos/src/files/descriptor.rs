@@ -19,6 +19,7 @@ use super::errors::ErrorCode;
 use super::mounts::{MountOf, Mounted};
 use super::status::{DescriptorType, FileStat};
 use super::target::{Beneath, Target};
+use crate::access::ActiveUse;
 
 /// The most one read takes at once, what `wasmtime-wasi` allocates for one.
 pub(crate) const READ_LIMIT: usize = 64 * 1024;
@@ -50,6 +51,16 @@ pub struct Opened {
     /// Where it is on the machine, opened from a machine's root, whose paths resolve as the
     /// system resolves any path; none beneath a mount, whose paths resolve beneath it.
     on_machine: Option<PathBuf>,
+    /// The program's use of it as an open file, shared by every copy of the handle and each
+    /// stream on it, so it ends as the last goes; none for a mount's own folder.
+    open_use: Option<Arc<ActiveUse>>,
+}
+
+/// An open file's handle as a stream reads or writes through it, with what keeps it among the
+/// program's open files while the stream lasts.
+pub(crate) struct StreamedFile {
+    pub(crate) file: Arc<fs::File>,
+    pub(crate) open_use: Option<Arc<ActiveUse>>,
 }
 
 /// What a file or folder was opened for.
@@ -208,6 +219,21 @@ impl Opened {
             open_mode,
             written: Arc::default(),
             on_machine: None,
+            open_use: None,
+        }
+    }
+
+    /// The handle, kept among the program's open files by `open_use` from now on.
+    pub(crate) fn used_as(mut self, open_use: ActiveUse) -> Opened {
+        self.open_use = Some(Arc::new(open_use));
+        self
+    }
+
+    /// The handle, for a stream to read or write through, with what keeps it open.
+    pub(crate) fn streamed(&self) -> StreamedFile {
+        StreamedFile {
+            file: Arc::clone(&self.handle),
+            open_use: self.open_use.clone(),
         }
     }
 
@@ -231,6 +257,7 @@ impl Opened {
             },
             written: Arc::default(),
             on_machine: None,
+            open_use: None,
         }
     }
 

@@ -11,7 +11,7 @@ use wasmtime::component::{
 };
 
 use super::{Camera, CameraOutputs, Cameras, CaptureSession, ProgramCameras};
-use crate::access::Holding;
+use crate::access::ActiveUseKind;
 use crate::bindings::wasdk::media::cameras::{
     self, CameraError, CameraFormat, CameraInfo, CaptureState, HostCamera, HostCameraOutputs,
     HostCameraWithStore, HostCameras, HostCamerasWithStore, HostCaptureSession,
@@ -143,7 +143,7 @@ impl<T: CamerasCtxView + 'static> HostCameraWithStore<T> for HasCameras {
         match started.await {
             Ok(started) => {
                 let (access, lifecycle) = cameras;
-                let recording = access.hold(Holding::Recording(device));
+                let recording = access.hold(ActiveUseKind::Recording(device));
                 let session = CaptureSession::new(started, state, recording, lifecycle.capturing());
                 accessor.with(|mut access| Ok(Ok(access.get().table.push(session)?)))
             }

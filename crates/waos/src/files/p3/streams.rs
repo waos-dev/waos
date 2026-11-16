@@ -18,7 +18,8 @@ use wasmtime::StoreContextMut;
 use wasmtime::component::{Destination, Source, StreamConsumer, StreamProducer, StreamResult};
 
 use super::bindings::wasi::filesystem::types::ErrorCode;
-use crate::files::descriptor::{READ_LIMIT, append, read_into, write_at};
+use crate::access::ActiveUse;
+use crate::files::descriptor::{READ_LIMIT, StreamedFile, append, read_into, write_at};
 use crate::files::errors;
 
 /// How a stream ended, which the program reads from the call's future.
@@ -36,14 +37,17 @@ pub(super) struct FileReader {
     file: Arc<fs::File>,
     position: u64,
     ending: Option<Ending>,
+    /// What keeps the file among the program's open files while the stream lasts.
+    _open_use: Option<Arc<ActiveUse>>,
 }
 
 impl FileReader {
-    pub(super) fn new(file: Arc<fs::File>, position: u64, ending: Ending) -> FileReader {
+    pub(super) fn new(file: StreamedFile, position: u64, ending: Ending) -> FileReader {
         FileReader {
-            file,
+            file: file.file,
             position,
             ending: Some(ending),
+            _open_use: file.open_use,
         }
     }
 }
@@ -90,14 +94,17 @@ pub(super) struct FileWriter {
     file: Arc<fs::File>,
     at: WriteAt,
     ending: Option<Ending>,
+    /// What keeps the file among the program's open files while the stream lasts.
+    _open_use: Option<Arc<ActiveUse>>,
 }
 
 impl FileWriter {
-    pub(super) fn new(file: Arc<fs::File>, at: WriteAt, ending: Ending) -> FileWriter {
+    pub(super) fn new(file: StreamedFile, at: WriteAt, ending: Ending) -> FileWriter {
         FileWriter {
-            file,
+            file: file.file,
             at,
             ending: Some(ending),
+            _open_use: file.open_use,
         }
     }
 

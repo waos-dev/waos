@@ -112,18 +112,14 @@ fn an_open_is_told_where_it_landed_and_held_open_while_its_handle_is() {
         resolved.contains("OwnData") && resolved.contains("note.txt"),
         "{resolved}"
     );
-    let open_files = access.holdings().open_files;
+    let open_files = access.open_files();
     assert_eq!(open_files.len(), 1);
     assert!(
-        open_files[0]
-            .path
-            .as_ref()
-            .unwrap()
-            .ends_with("data/note.txt"),
+        open_files[0].0.as_ref().unwrap().ends_with("data/note.txt"),
         "named where the system says it is"
     );
     drop(opened);
-    assert!(access.holdings().open_files.is_empty());
+    assert!(access.open_files().is_empty());
 }
 
 #[test]
@@ -179,11 +175,11 @@ fn a_path_handed_to_the_system_is_decided_as_an_open_on_the_programs_behalf() {
 fn a_machines_root_is_among_the_open_files_while_the_program_holds_it() {
     let access = ProgramAccess::new(Arc::new(NothingGranted));
     let root = folder_of_machine(Path::new("/"), &access).unwrap();
-    let open_files = access.holdings().open_files;
+    let open_files = access.open_files();
     assert_eq!(open_files.len(), 1);
-    assert_eq!(open_files[0].kind, MountKind::Machine);
+    assert_eq!(open_files[0].1, MountKind::Machine);
     drop(root);
-    assert!(access.holdings().open_files.is_empty());
+    assert!(access.open_files().is_empty());
 }
 
 /// Notes' save, as `builtin-apps/notes/src/safe_write.rs` makes it through `std`: its folder made

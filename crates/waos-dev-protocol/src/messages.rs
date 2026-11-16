@@ -70,9 +70,10 @@ pub enum ToWaOS {
     },
     /// What `asked` asks of the program `id` names (the inspector proposal's protocol): its audit
     /// summary, for a program a run of `cargo waos run` on this machine runs or has run; or what it
-    /// holds now, or its live trace, while a run runs it. Answered `Inspected`, once for a summary
-    /// or what is held, after which the connection ends, and for a trace with each event as it
-    /// comes, until the connection closes or the program ends; or `Unreached`.
+    /// uses now, or its live trace, while a run runs it. Answered `Inspected`, once for a summary,
+    /// after which the connection ends; for what it uses, first with what is active, then with
+    /// each change; and for a trace with each event as it comes; the last two until the
+    /// connection closes or the program ends; or `Unreached`.
     Inspect { id: ProgramId, asked: Inspection },
 }
 
@@ -81,8 +82,8 @@ pub enum ToWaOS {
 pub enum Inspection {
     /// Its audit summary's days, newest first, `days` at most.
     Summary { days: u32 },
-    /// What it holds now: each use that lasts, and each file it has open.
-    Holdings,
+    /// What it uses now, each use that lasts and each file it has open, then each change, live.
+    ActiveUses,
     /// Its uses of each of `traced` from now on, live.
     Trace(Vec<TracedCapability>),
 }
@@ -617,7 +618,7 @@ mod tests {
         let id: ProgramId = "dev.waos.notes".parse().unwrap();
         let asked = [
             Inspection::Summary { days: 7 },
-            Inspection::Holdings,
+            Inspection::ActiveUses,
             Inspection::Trace(TracedCapability::ALL.to_vec()),
         ];
         for asked in asked {

@@ -22,7 +22,7 @@ cargo waos resize --to <width>x<height> [--window <n>] [-p <package>]     # the 
 cargo waos settings [-p <package>]                                        # its settings, a row each, as its settings page in WaOS shows them
 cargo waos set <row> <value>... [-p <package>]                            # one row set: camera allow, save-file /tmp/out.pdf, machine this-computer, open-file ask
 cargo waos inspect summary [--days <n>] [-p <package>]                    # its audit summary, a day a line as JSON, newest first, 7 days by default
-cargo waos inspect holdings [-p <package>]                                # what it holds now, as one line of JSON
+cargo waos inspect active-uses [-p <package>]                             # what it uses now on one line of JSON, then each change, until Ctrl-C or its end
 cargo waos inspect <capability>...|all [-p <package>]                     # its live trace of network, files, clipboard..., an event a line of JSON, until Ctrl-C or its end
 ```
 

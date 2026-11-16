@@ -57,6 +57,6 @@ interface devices {
 world inspection {
   import devices;
   import audit;
-  import holdings;
+  import active-uses;
   import trace;
 }

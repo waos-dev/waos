@@ -12,18 +12,18 @@ use tokio::time::Interval;
 use wasmtime_wasi_http::Error;
 
 use super::error_of;
-use crate::access::Held;
+use crate::access::ActiveUse;
 
 /// A response's body, each part of which must come within a time of the one before, and its
 /// request in flight until the body ends, fails or is let go.
 pub(super) struct BetweenBytes {
     body: Incoming,
     deadline: Interval,
-    in_flight: Option<Held>,
+    in_flight: Option<ActiveUse>,
 }
 
 impl BetweenBytes {
-    pub(super) fn new(body: Incoming, within: Duration, in_flight: Held) -> BetweenBytes {
+    pub(super) fn new(body: Incoming, within: Duration, in_flight: ActiveUse) -> BetweenBytes {
         // An interval of zero is refused; the least there is waits next to nothing.
         let within = within.max(Duration::from_nanos(1));
         let mut deadline = tokio::time::interval(within);

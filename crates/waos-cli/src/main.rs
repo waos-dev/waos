@@ -178,9 +178,10 @@ enum Command {
     Set(SetArgs),
     /// Prints what WaOS knows of what the program does with what it was allowed, as JSON lines of
     /// wasdk:inspect's values, one value a line: `summary`, its audit summary, a day a line,
-    /// newest first; `holdings`, what it holds now, each use that lasts and each file it has
-    /// open; or its live trace of the capabilities named, each event as it comes, until Ctrl-C or
-    /// the program's end: network, files, clipboard, camera, microphone, machines, permissions,
+    /// newest first; `active-uses`, what it uses now, each use that lasts and each file it has
+    /// open, on one line, then each start and end, a line each, a `resync` of all of it where the
+    /// command fell behind; or its live trace of the capabilities named, each event as it comes;
+    /// the last two until Ctrl-C or the program's end: network, files, clipboard, camera, microphone, machines, permissions,
     /// links, notifications, output, or `all` of them.
     ///
     /// A summary has a day only where the program used something WaOS guards that day; its output
@@ -193,7 +194,7 @@ enum Command {
 struct InspectArgs {
     #[command(flatten)]
     program: Program,
-    /// What to inspect: summary, holdings, all, or the capabilities to trace.
+    /// What to inspect: summary, active-uses, all, or the capabilities to trace.
     #[arg(required = true, num_args = 1..)]
     what: Vec<String>,
     /// How many of the summary's days, newest first.

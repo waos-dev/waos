@@ -94,5 +94,6 @@ world inspector-base {
   include program-base;
   import wasdk:inspect/devices@0.1.0;
   import wasdk:inspect/audit@0.1.0;
+  import wasdk:inspect/active-uses@0.1.0;
   import wasdk:inspect/trace@0.1.0;
 }

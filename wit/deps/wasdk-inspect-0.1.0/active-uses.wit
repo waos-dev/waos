@@ -1,0 +1,90 @@
+/// What a program uses now, as a stream: what is active as it is asked for, then each start and
+/// end. Each use that lasts is here from the moment what owns the real thing starts it until that
+/// thing really ends, and each file the program has open until its last handle goes. A listener
+/// that falls behind is sent everything active again in place of the changes it missed, so it
+/// never shows a use that ended; the program never waits for it.
+interface active-uses {
+  use wasi:clocks/system-clock@0.3.0.{instant};
+  use devices.{device};
+  use audit.{mount-kind};
+
+  /// What a program uses now. The program's TCP connections and listeners and its UDP sockets
+  /// join as cases of their own once WaOS owns its sockets.
+  variant active-use-kind {
+    /// A camera's capture session.
+    camera(capture),
+    /// The microphone recording.
+    microphone(capture),
+    /// A command running on a machine.
+    command(running-command),
+    /// An HTTP request in flight, until its response's body ends.
+    http-request(http-request),
+    /// A folder watched.
+    folder-watch(folder-watch),
+    /// A file or folder open.
+    open-file(open-file),
+  }
+
+  /// A camera or the microphone capturing.
+  record capture {
+    /// Whether it captures from one of WaOS's own devices, simulated, rather than the machine's.
+    simulated: bool,
+  }
+
+  /// A command running on a machine.
+  record running-command {
+    /// The machine, by its name.
+    machine: string,
+    /// The program the command runs, as the program named it.
+    command: string,
+    /// Whether it runs in a terminal; with pipes otherwise.
+    in-terminal: bool,
+  }
+
+  /// An HTTP request in flight.
+  record http-request {
+    method: string,
+    url: string,
+  }
+
+  /// A folder watched.
+  record folder-watch {
+    /// Where it was on the machine when the watch began.
+    folder: string,
+    /// Whether everything under it is watched too.
+    recursive: bool,
+  }
+
+  /// A file or folder open.
+  record open-file {
+    /// Where the system says it is as this is sent; none where it cannot say.
+    path: option<string>,
+    /// The kind of mount it was opened in.
+    mount: mount-kind,
+    /// Whether it was opened to read.
+    read: bool,
+    /// Whether it was opened to write.
+    write: bool,
+  }
+
+  /// A use active now.
+  record active-use {
+    /// Its id among the program's uses, which its end names.
+    id: u64,
+    kind: active-use-kind,
+    since: instant,
+  }
+
+  /// A change to what a program uses now.
+  variant active-use-change {
+    started(active-use),
+    /// The use of this id ended.
+    ended(u64),
+    /// Everything active now, in place of the changes the listener fell behind on.
+    resync(list<active-use>),
+  }
+
+  /// What the program `id` names uses now, and each change from then on, until it ends; none for
+  /// a program that does not run.
+  active-uses: func(device: borrow<device>, id: string) -> option<tuple<list<active-use>, stream<active-use-change>>>;
+}

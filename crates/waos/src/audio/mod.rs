@@ -42,7 +42,7 @@ use waos_capabilities::web_audio_api::context::{
 use waos_capabilities::web_audio_api::media_streams::MediaStream;
 use waos_capabilities::{Answer, AudioDeviceError, AudioDevices, ProgramGrants, Question};
 
-use crate::access::{Asked, Holding, ProgramAccess, Refusal};
+use crate::access::{ActiveUseKind, Asked, ProgramAccess, Refusal};
 use crate::bindings::wasdk::platform::audio::{AudioError, MediaDeviceInfo};
 use crate::bindings::wasdk::platform::permissions::State;
 use crate::engine_time::EngineClock;
@@ -216,7 +216,7 @@ impl ProgramAudio {
                 } else {
                     RecordingDevice::Microphone
                 };
-                let recording = self.access.hold(Holding::Recording(device));
+                let recording = self.access.hold(ActiveUseKind::Recording(device));
                 Microphone::new(source, stream, recording, self.lifecycle.sounding())
             })
             .map_err(AudioError::InvalidState))

@@ -10,7 +10,7 @@ use wasmtime::component::{Accessor, HasData, Linker, Resource, ResourceTable, St
 use wasmtime_wasi::runtime::spawn_blocking;
 
 use super::watch;
-use crate::access::{Asked, Holding, ProgramAccess};
+use crate::access::{ActiveUseKind, Asked, ProgramAccess};
 use crate::bindings::wasdk::platform::file_watching::{self, Change, HostWithStore};
 use crate::files::p3::bindings::wasi::filesystem::types::ErrorCode;
 use crate::files::{Descriptor, HeldFolder};
@@ -62,7 +62,7 @@ impl<T: FileWatchingCtxView + 'static> HostWithStore<T> for HasFileWatching {
             Ok(decided) => decided,
             Err(code) => return Ok(Err(code.into())),
         };
-        let watching = access.hold(Holding::Watch {
+        let watching = access.hold(ActiveUseKind::FolderWatch {
             folder: held.path().to_path_buf(),
             recursive,
         });

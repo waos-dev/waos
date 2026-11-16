@@ -1,15 +1,15 @@
 //! The engine's own values made `wasdk:inspect`'s: a day of a program's audit summary, and what it
-//! holds now.
+//! uses now and each change to it.
 
-use std::time::{Instant, SystemTime};
+use std::time::SystemTime;
 
 use waos_capabilities::{AskedQuestion, AuditDay, DeviceSession, FolderUses, NamedUses, Uses};
 
+use super::bindings::wasdk::inspect::active_uses;
 use super::bindings::wasdk::inspect::audit;
-use super::bindings::wasdk::inspect::holdings;
 use crate::access::events::mount_kind_of;
 use crate::access::trace::instant_of;
-use crate::access::{Holding, Holdings};
+use crate::access::{ActiveUseChange, ActiveUseKind, ActiveUseNow};
 use crate::shell::RecordingDevice;
 
 /// `day`, one day of a program's audit summary, as `wasdk:inspect` says it.
@@ -63,56 +63,67 @@ pub fn day_of(day: &AuditDay) -> audit::Day {
     }
 }
 
-/// What a program holds now, as `wasdk:inspect` says it, each use held since the time of day
-/// `now` and `at` say it started.
-pub(crate) fn now_of(holdings: Holdings) -> holdings::Now {
-    let (now, at) = (Instant::now(), SystemTime::now());
-    holdings::Now {
-        held: holdings
-            .held
-            .into_iter()
-            .map(|held| holdings::Held {
-                holding: holding_of(held.holding),
-                since: instant_of(at - now.duration_since(held.since)),
-            })
-            .collect(),
-        open_files: holdings
-            .open_files
-            .into_iter()
-            .map(|open| holdings::OpenFile {
-                path: open.path.map(|path| path.display().to_string()),
-                mount: mount_kind_of(open.kind),
-                read: open.mode.read,
-                write: open.mode.write,
-            })
-            .collect(),
+/// `active`, a use a program makes now, as `wasdk:inspect` says it: an open file where the
+/// system says it is now, since the time of day its start was.
+pub(crate) fn active_use_of(active: ActiveUseNow) -> active_uses::ActiveUse {
+    let since = SystemTime::now() - active.since.elapsed();
+    active_uses::ActiveUse {
+        id: active.id,
+        kind: active_use_kind_of(active.kind),
+        since: instant_of(since),
     }
 }
 
-fn holding_of(holding: Holding) -> holdings::Holding {
-    match holding {
-        Holding::Recording(device) => holdings::Holding::Recording(match device {
-            RecordingDevice::Camera => holdings::RecordingDevice::Camera,
-            RecordingDevice::Microphone => holdings::RecordingDevice::Microphone,
-            RecordingDevice::SimulatedCamera => holdings::RecordingDevice::SimulatedCamera,
-            RecordingDevice::SimulatedMicrophone => holdings::RecordingDevice::SimulatedMicrophone,
-        }),
-        Holding::Run {
+/// `change`, to what a program uses now, as `wasdk:inspect` says it.
+pub(crate) fn active_use_change_of(change: ActiveUseChange) -> active_uses::ActiveUseChange {
+    match change {
+        ActiveUseChange::Started(started) => {
+            active_uses::ActiveUseChange::Started(active_use_of(started))
+        }
+        ActiveUseChange::Ended(id) => active_uses::ActiveUseChange::Ended(id),
+        ActiveUseChange::Resync(active) => {
+            active_uses::ActiveUseChange::Resync(active.into_iter().map(active_use_of).collect())
+        }
+    }
+}
+
+fn active_use_kind_of(kind: ActiveUseKind) -> active_uses::ActiveUseKind {
+    use active_uses::ActiveUseKind as Kind;
+    let capture = |simulated| active_uses::Capture { simulated };
+    match kind {
+        ActiveUseKind::Recording(RecordingDevice::Camera) => Kind::Camera(capture(false)),
+        ActiveUseKind::Recording(RecordingDevice::SimulatedCamera) => Kind::Camera(capture(true)),
+        ActiveUseKind::Recording(RecordingDevice::Microphone) => Kind::Microphone(capture(false)),
+        ActiveUseKind::Recording(RecordingDevice::SimulatedMicrophone) => {
+            Kind::Microphone(capture(true))
+        }
+        ActiveUseKind::Command {
             machine,
-            program,
+            command,
             in_terminal,
-        } => holdings::Holding::Run(holdings::Run {
+        } => Kind::Command(active_uses::RunningCommand {
             machine,
-            program,
+            command,
             in_terminal,
         }),
-        Holding::Request { method, uri } => holdings::Holding::Request(holdings::Request {
+        ActiveUseKind::HttpRequest { method, uri } => Kind::HttpRequest(active_uses::HttpRequest {
             method: method.to_string(),
             url: uri.to_string(),
         }),
-        Holding::Watch { folder, recursive } => holdings::Holding::Watch(holdings::Watch {
-            folder: folder.display().to_string(),
-            recursive,
+        ActiveUseKind::FolderWatch { folder, recursive } => {
+            Kind::FolderWatch(active_uses::FolderWatch {
+                folder: folder.display().to_string(),
+                recursive,
+            })
+        }
+        ActiveUseKind::OpenFile { file, mount, mode } => Kind::OpenFile(active_uses::OpenFile {
+            path: file
+                .upgrade()
+                .and_then(|file| crate::files::path_of(&file).ok())
+                .map(|path| path.display().to_string()),
+            mount: mount_kind_of(mount),
+            read: mode.read,
+            write: mode.write,
         }),
     }
 }

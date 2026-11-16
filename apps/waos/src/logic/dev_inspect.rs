@@ -1,6 +1,7 @@
 //! An inspection `cargo waos inspect` asks for (the inspector proposal's protocol): a program's
-//! audit summary, its days as the store keeps them, today's kept first where it runs; what it holds
-//! now; or its live trace, each event as it comes until the connection closes or the program ends.
+//! audit summary, its days as the store keeps them, today's kept first where it runs; what it uses
+//! now and each change to it; or its live trace, each event as it comes; the last two until the
+//! connection closes or the program ends.
 //! Each value goes as JSON of `wasdk:inspect`'s, one a line, so the command prints what it reads.
 //!
 //! The invariant: only a program a run of `cargo waos run` on this machine runs is inspected live,
@@ -43,11 +44,14 @@ pub(crate) async fn answer(
                 Err(Unreached::NeverRunByCargoWaos)
             }
         }
-        Inspection::Holdings => running
-            .as_ref()
-            .and_then(RunningProgram::holdings)
-            .map(|now| vec![json(&now)])
-            .ok_or(Unreached::NotRunByCargoWaos),
+        Inspection::ActiveUses => match running.as_ref().and_then(RunningProgram::active_uses) {
+            Some((now, changes)) => {
+                let changes = changes.map(|change| json(&change)).boxed();
+                send_lines(connection, vec![json(&now)], changes).await;
+                return;
+            }
+            None => Err(Unreached::NotRunByCargoWaos),
+        },
         Inspection::Trace(traced) => match running {
             Some(program) => {
                 trace(connection, &program, &traced).await;
@@ -94,16 +98,29 @@ async fn trace(
         .filter_map(|traced| program.trace(kind_of(*traced)))
         .map(StreamExt::boxed)
         .collect();
-    let mut events = stream::select_all(streams);
+    let events = stream::select_all(streams).map(|event| json(&event));
+    send_lines(connection, Vec::new(), events.boxed()).await;
+}
+
+/// Sends `first`, where there is anything, then each of `lines` as it comes, a line an
+/// `Inspected`, until the connection closes or the lines end.
+async fn send_lines(
+    connection: Connection<ServerStream>,
+    first: Vec<String>,
+    mut lines: BoxStream<'static, String>,
+) {
     let (mut reading, mut writing) = connection.into_split();
-    // The client says nothing more: anything it sends, or its closing, ends the trace.
+    if !first.is_empty() && writing.send(&FromWaOS::Inspected(first)).await.is_err() {
+        return;
+    }
+    // The client says nothing more: anything it sends, or its closing, ends what is sent.
     let closed = reading.receive::<waos_dev_protocol::ToWaOS>();
     tokio::pin!(closed);
     loop {
         tokio::select! {
-            event = events.next() => {
-                let Some(event) = event else { return };
-                if writing.send(&FromWaOS::Inspected(vec![json(&event)])).await.is_err() {
+            line = lines.next() => {
+                let Some(line) = line else { return };
+                if writing.send(&FromWaOS::Inspected(vec![line])).await.is_err() {
                     return;
                 }
             }

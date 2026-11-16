@@ -9,7 +9,7 @@ use waos_capabilities::web_audio_api::media_streams::MediaStream;
 use waos_capabilities::web_audio_api::node::MediaStreamAudioSourceNode;
 
 use super::nodes::{AnyNode, Node};
-use crate::access::Held;
+use crate::access::ActiveUse;
 use crate::lifecycle::Sounding;
 
 /// A microphone open: the value behind a program's `microphone-node`.
@@ -17,7 +17,7 @@ pub struct Microphone {
     node: Node<MediaStreamAudioSourceNode>,
     stream: MediaStream,
     /// The microphone's use, held while it records.
-    _recording: Held,
+    _recording: ActiveUse,
     _sounding: Sounding,
 }
 
@@ -27,7 +27,7 @@ impl Microphone {
     pub(super) fn new(
         source: MediaStreamAudioSourceNode,
         stream: MediaStream,
-        recording: Held,
+        recording: ActiveUse,
         sounding: Sounding,
     ) -> Microphone {
         Microphone {

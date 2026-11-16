@@ -1,7 +1,7 @@
 //! The code serving `wasdk:inspect` to a program holding the inspector role: this device, the
 //! programs on it as the embedder gives them (`InspectedPrograms`), each one's icon as it is asked
 //! for, a program's audit summary as the engine's audit log keeps it, today's kept first where it
-//! runs, and its live trace, a stream per capability. A running program is the one the engine
+//! runs, what it uses now and each change to it, and its live trace, a stream per capability. A running program is the one the engine
 //! runs under the id asked for, its name, as the embedder names it (`Program::named`). Linked only
 //! for a program its user granted the role (`roles`).
 //!
@@ -21,6 +21,7 @@ use wasmtime::component::{
 };
 use wasmtime_wasi::runtime::spawn_blocking;
 
+use super::bindings::wasdk::inspect::active_uses::{self, ActiveUse, ActiveUseChange};
 use super::bindings::wasdk::inspect::audit::{self, Day};
 use super::bindings::wasdk::inspect::devices::{
     self, DeviceChange, HostDevice, HostDeviceWithStore, Program, ProgramChange,
@@ -97,12 +98,13 @@ impl HasData for HasInspect {
 }
 
 /// Adds every interface of `wasdk:inspect` the inspector imports: its devices, their programs'
-/// audit summaries and their live traces.
+/// audit summaries, what each uses now and their live traces.
 pub(crate) fn add_to_linker<T: InspectCtxView + 'static>(
     linker: &mut Linker<T>,
 ) -> wasmtime::Result<()> {
     devices::add_to_linker::<_, HasInspect>(linker, T::inspect_ctx)?;
     audit::add_to_linker::<_, HasInspect>(linker, T::inspect_ctx)?;
+    active_uses::add_to_linker::<_, HasInspect>(linker, T::inspect_ctx)?;
     trace::add_to_linker::<_, HasInspect>(linker, T::inspect_ctx)
 }
 
@@ -126,6 +128,7 @@ where
 impl devices::Host for InspectCtx<'_> {}
 impl HostDevice for InspectCtx<'_> {}
 impl audit::Host for InspectCtx<'_> {}
+impl active_uses::Host for InspectCtx<'_> {}
 impl trace::Host for InspectCtx<'_> {}
 
 impl<T: InspectCtxView + 'static> devices::HostWithStore<T> for HasInspect {
@@ -228,6 +231,24 @@ impl<T: InspectCtxView + 'static> audit::HostWithStore<T> for HasInspect {
         // The days are read from their files.
         let days = spawn_blocking(move || log.days(&id)).await;
         Ok(days.iter().map(day_of).collect())
+    }
+}
+
+impl<T: InspectCtxView + 'static> active_uses::HostWithStore<T> for HasInspect {
+    /// What the program uses now, and each change from then on, until it ends or the role is
+    /// taken back.
+    fn active_uses(
+        mut access: Access<'_, T, Self>,
+        _device: Resource<Device>,
+        id: String,
+    ) -> wasmtime::Result<Option<(Vec<ActiveUse>, StreamReader<ActiveUseChange>)>> {
+        let reach = access.get().reach;
+        let Some((now, changes)) = reach.running(&id).and_then(|program| program.active_uses())
+        else {
+            return Ok(None);
+        };
+        let changes = reach.while_held(changes);
+        Ok(Some((now, stream_to(access, changes)?)))
     }
 }
 

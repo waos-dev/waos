@@ -187,6 +187,7 @@ fn a_program_granted_its_role_sees_the_programs_and_traces_one() {
         "device Test device this=true",
         "program forever \"Forever\" running=true icon=4 days=0",
         "program inspect \"Inspect\" running=true icon=0 days=0",
+        "forever uses 0 now",
         "forever wrote: count ",
     ] {
         assert!(said.contains(line), "{line:?} in {said}");

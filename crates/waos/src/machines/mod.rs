@@ -6,7 +6,7 @@
 //! its grants by their ids and read at each `granted`; a machine handed to the program, granted or
 //! picked, stays its until it ends, as an open file does, so a command run on it is told through
 //! the program's access (`access`), never refused, and held from its start until it ends, watched
-//! on a thread of its own whatever the program does with its handle ([`Run`]). A command ends with
+//! on a thread of its own whatever the program does with its handle ([`DecidedCommand`]). A command ends with
 //! the program that started it, as a tree beneath it ([`StartedCommands`]): dropping its handle
 //! leaves it running, the program ending ends it, whichever of its instances started it. A pick
 //! is asked of the user through the shell's [`ShellMachinePicker`], which shows what the providers
@@ -32,7 +32,7 @@ use waos_capabilities::{
     ChildInput, Command, ExecError, Machine as ProvidedMachine, MachineChoice, Machines as Provider,
 };
 
-use crate::access::{Asked, Happened, Holding, ProgramAccess, Refusal};
+use crate::access::{ActiveUseKind, Asked, Happened, ProgramAccess, Refusal};
 use crate::running::RunningProgram;
 use crate::shell::ShellMachinePicker;
 use crate::sync::locked;
@@ -47,11 +47,11 @@ pub type Machine = Arc<dyn ProvidedMachine>;
 /// [`StartedCommands`] holds too.
 pub type Child = Arc<dyn waos_capabilities::Child>;
 
-/// A run decided and not started yet: what holds it once its command starts, and the program's
+/// A command decided and not started yet: what it is as an active use once it starts, and the program's
 /// commands, which it joins.
-pub(crate) struct Run {
+pub(crate) struct DecidedCommand {
     access: ProgramAccess,
-    holding: Holding,
+    active_use: ActiveUseKind,
     commands: StartedCommands,
 }
 
@@ -169,11 +169,11 @@ impl ProgramMachines {
         machine: &Machine,
         command: &Command,
         in_terminal: bool,
-    ) -> Result<Run, ExecError> {
+    ) -> Result<DecidedCommand, ExecError> {
         let machine = machine.name();
         decide_run(&self.access, &machine, command, in_terminal)?;
-        let run = Run::of(&self.access, machine, command, in_terminal);
-        Ok(Run {
+        let run = DecidedCommand::of(&self.access, machine, command, in_terminal);
+        Ok(DecidedCommand {
             commands: self.commands.clone(),
             ..run
         })
@@ -211,15 +211,20 @@ fn decide_run(
         })
 }
 
-impl Run {
+impl DecidedCommand {
     /// The run of `command` on the machine named `machine` for the program `access` is of, among
     /// commands of its own.
-    fn of(access: &ProgramAccess, machine: String, command: &Command, in_terminal: bool) -> Run {
-        Run {
+    fn of(
+        access: &ProgramAccess,
+        machine: String,
+        command: &Command,
+        in_terminal: bool,
+    ) -> DecidedCommand {
+        DecidedCommand {
             access: access.clone(),
-            holding: Holding::Run {
+            active_use: ActiveUseKind::Command {
                 machine,
-                program: command.program.clone(),
+                command: command.program.clone(),
                 in_terminal,
             },
             commands: StartedCommands::default(),
@@ -230,7 +235,7 @@ impl Run {
     /// held from now until it ends, watched on a thread of its own, since the program that ran it
     /// may end first and end it; where no thread starts, the run is held no longer.
     pub(crate) fn started(self, child: &Child) {
-        let held = self.access.hold(self.holding);
+        let held = self.access.hold(self.active_use);
         let ended = Arc::new(AtomicBool::new(false));
         self.commands.add(child, Arc::clone(&ended));
         let exit = child.exit_status();
@@ -364,7 +369,7 @@ mod tests {
     /// Waits until `access` holds nothing, or fails the test.
     fn until_nothing_held(access: &ProgramAccess, why: &str) {
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
-        while !access.holdings().held.is_empty() {
+        while !access.uses_but_open_files().is_empty() {
             assert!(std::time::Instant::now() < deadline, "{why}");
             std::thread::yield_now();
         }
@@ -375,10 +380,11 @@ mod tests {
         let access = ProgramAccess::new(Arc::new(NothingGranted));
         let ending = Ending::child();
         let child: Child = ending.clone();
-        Run::of(&access, "This Mac".to_owned(), &Command::new("git"), false).started(&child);
+        DecidedCommand::of(&access, "This Mac".to_owned(), &Command::new("git"), false)
+            .started(&child);
         drop(child);
         assert_eq!(
-            access.holdings().held.len(),
+            access.uses_but_open_files().len(),
             1,
             "running after its child was let go"
         );
@@ -393,9 +399,9 @@ mod tests {
         let worker = commands.clone();
         let (still_running, done) = (Ending::child(), Ending::child());
         for ending in [&still_running, &done] {
-            let run = Run {
+            let run = DecidedCommand {
                 commands: worker.clone(),
-                ..Run::of(
+                ..DecidedCommand::of(
                     &access,
                     "This Mac".to_owned(),
                     &Command::new("sleep"),

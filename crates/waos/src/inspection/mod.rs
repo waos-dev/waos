@@ -5,7 +5,7 @@
 //! without types of its own.
 //!
 //! The engine's own values are made `wasdk:inspect`'s in [`values`]: a day of a program's audit
-//! summary ([`day_of`]), and what it holds now (`RunningProgram::holdings`). The package is served
+//! summary ([`day_of`]), and what it uses now and each change to it (`RunningProgram::active_uses`). The package is served
 //! to a program holding the inspector role in [`host`], over the programs the embedder gives
 //! ([`InspectedPrograms`]).
 //!
@@ -18,7 +18,7 @@ mod values;
 
 pub use programs::InspectedPrograms;
 pub use values::day_of;
-pub(crate) use values::now_of;
+pub(crate) use values::{active_use_change_of, active_use_of};
 
 pub mod bindings {
     wasmtime::component::bindgen!({
@@ -30,7 +30,6 @@ pub mod bindings {
             "wasdk:inspect/devices.[method]device.programs": async | store | trappable,
             "wasdk:inspect/devices.[method]device.icon": async | store | trappable,
             "wasdk:inspect/audit.days": async | store | trappable,
-            "wasdk:inspect/holdings.holdings": async | store | trappable,
         },
         additional_derives: [waos_wit_serialize::WitSerialize, PartialEq],
         with: {

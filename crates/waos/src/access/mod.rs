@@ -1,12 +1,12 @@
 //! Every guarded use a program makes, decided and told ([`ProgramAccess`]): the one place a
 //! capability asks whether the program may, the one place that says it did, and the one record of
-//! what the program holds now ([`holdings`]). A capability holds its program's access rather than
+//! what the program uses now ([`active_uses`]). A capability holds its program's access rather than
 //! its grants, and hands [`ProgramAccess::decide`] what the program asked ([`Asked`]) and its own
 //! rule, which reads the grants, or what was compiled from them, as the mount table is, and
 //! answers what the use resolved to ([`Resolved`]); the rules stay with the capabilities that
 //! know them. An operation nothing decides anew, a stat or a datagram on a checked address, is
-//! [`ProgramAccess::note`]d, and a use that lasts is [`ProgramAccess::hold`]en by whatever owns
-//! the real thing, from its start until it really ends.
+//! [`ProgramAccess::note`]d, and a use that lasts, an open file among them, is
+//! [`ProgramAccess::hold`]en by whatever owns the real thing, from its start until it really ends.
 //!
 //! What is told is counted in the program's audit summary ([`summary`]), what it did today,
 //! kept day by day through the engine's `AuditLog`, and sent as an event of `wasdk:inspect` to
@@ -18,8 +18,8 @@
 //! decided one way and told another. [`ProgramAccess::grants`] is for what is no use: a
 //! permission's state, what a picker answers, an answer kept.
 
+mod active_uses;
 pub(crate) mod events;
-mod holdings;
 mod summary;
 #[cfg(test)]
 mod test_answers;
@@ -36,7 +36,9 @@ use waos_capabilities::{Answer, Command, ProgramGrants, Question, Switch};
 
 use crate::files::{MountKind, MountOf, OpenMode};
 use crate::shell::AnswerFuture;
-pub(crate) use holdings::{Held, Holding, Holdings, ShownRecordings};
+pub(crate) use active_uses::{
+    ActiveUse, ActiveUseChange, ActiveUseChanges, ActiveUseKind, ActiveUseNow, ShownRecordings,
+};
 pub(crate) use summary::KeptIn;
 #[cfg(test)]
 pub(crate) use test_answers::Answers;
@@ -58,8 +60,8 @@ pub(crate) struct WeakAccess(std::sync::Weak<AccessParts>);
 
 struct AccessParts {
     grants: Arc<dyn ProgramGrants>,
-    /// What the program holds now.
-    holdings: holdings::Registry,
+    /// What the program uses now.
+    active_uses: active_uses::ActiveUses,
     /// What it did today, kept day by day.
     summary: summary::Summary,
     /// Who listens to what it does now.
@@ -339,7 +341,7 @@ impl ProgramAccess {
             instance: 0,
             parts: Arc::new(AccessParts {
                 grants,
-                holdings: holdings::Registry::new(shown),
+                active_uses: active_uses::ActiveUses::new(shown),
                 summary: summary::Summary::new(kept),
                 taps: Arc::default(),
                 #[cfg(test)]
@@ -366,17 +368,21 @@ impl ProgramAccess {
         self.parts.tell_noted(&noted, self.instance);
     }
 
-    /// Registers `holding`, which the program holds from now until the [`Held`] answered is
+    /// Registers `kind`, which the program uses from now until the [`ActiveUse`] answered is
     /// dropped by whatever owns the real thing, as it ends.
-    pub(crate) fn hold(&self, holding: Holding) -> Held {
-        self.parts.tell_held(&holding, self.instance);
-        holdings::Registry::hold(&self.parts, holding, self.instance)
+    pub(crate) fn hold(&self, kind: ActiveUseKind) -> ActiveUse {
+        self.parts.tell_held(&kind, self.instance);
+        active_uses::ActiveUses::start(&self.parts, kind, self.instance)
     }
 
-    /// Registers `file`, open in a mount of `kind` as `mode` says, among the program's open files
-    /// while anything holds it.
-    pub(crate) fn opened(&self, file: &Arc<fs::File>, kind: MountKind, mode: OpenMode) {
-        self.parts.holdings.opened(file, kind, mode);
+    /// Registers `file`, open in a mount of `mount` as `mode` says, among what the program uses
+    /// until the [`ActiveUse`] answered goes with the last copy of its handle.
+    pub(crate) fn opened(&self, file: &Arc<fs::File>, mount: MountKind, mode: OpenMode) -> ActiveUse {
+        self.hold(ActiveUseKind::OpenFile {
+            file: Arc::downgrade(file),
+            mount,
+            mode,
+        })
     }
 
     /// Tells what happened that decides nothing: a question asked or answered, a pick kept.
@@ -434,10 +440,33 @@ impl ProgramAccess {
     pub(crate) fn grants(&self) -> &dyn ProgramGrants {
         self.parts.grants.as_ref()
     }
-    /// What the program holds now: each use held, since when, and each file open, where the
-    /// system says it is. Read on demand; nothing is made for it while nobody reads it.
-    pub(crate) fn holdings(&self) -> Holdings {
-        self.parts.holdings.now()
+    /// What the program uses now but its open files, oldest first, for a test to read.
+    #[cfg(test)]
+    pub(crate) fn uses_but_open_files(&self) -> Vec<ActiveUseKind> {
+        let uses = self.parts.active_uses.now().into_iter().map(|now| now.kind);
+        uses.filter(|kind| !matches!(kind, ActiveUseKind::OpenFile { .. }))
+            .collect()
+    }
+
+    /// The files the program has open, oldest first, each where the system says it is, the kind
+    /// of mount it was opened in and what for, for a test to read.
+    #[cfg(test)]
+    pub(crate) fn open_files(&self) -> Vec<(Option<std::path::PathBuf>, MountKind, OpenMode)> {
+        let uses = self.parts.active_uses.now().into_iter();
+        uses.filter_map(|now| match now.kind {
+            ActiveUseKind::OpenFile { file, mount, mode } => {
+                let path = file.upgrade().and_then(|file| crate::files::path_of(&file).ok());
+                Some((path, mount, mode))
+            }
+            _ => None,
+        })
+        .collect()
+    }
+
+    /// What the program uses now, and each change from then on, until it and every use it made
+    /// have ended.
+    pub(crate) fn subscribe_active_uses(&self) -> (Vec<ActiveUseNow>, ActiveUseChanges) {
+        active_uses::ActiveUses::subscribe(&self.parts)
     }
 }
 
@@ -482,12 +511,14 @@ impl AccessParts {
         self.record(Told::Noted(format!("{noted:?}")));
     }
 
-    fn tell_held(&self, holding: &Holding, instance: u32) {
-        if let Some(kind) = events::held_kind(holding) {
-            self.taps.send(kind, || events::held(kind, instance));
+    fn tell_held(&self, kind: &ActiveUseKind, instance: u32) {
+        if let Some(traced) = events::held_kind(kind) {
+            self.taps.send(traced, || events::held(traced, instance));
         }
         #[cfg(test)]
-        self.record(Told::Held(format!("{holding:?}")));
+        if !matches!(kind, ActiveUseKind::OpenFile { .. }) {
+            self.record(Told::Held(format!("{kind:?}")));
+        }
     }
 
     fn tell_happened(&self, happened: &Happened<'_>, instance: u32) {
@@ -500,17 +531,19 @@ impl AccessParts {
     }
 
     /// Tells a held use's end; a recording's counts as a session, from `since`.
-    fn tell_ended(&self, holding: &Holding, since: (SystemTime, Instant), instance: u32) {
+    fn tell_ended(&self, kind: &ActiveUseKind, since: (SystemTime, Instant), instance: u32) {
         let length = since.1.elapsed();
-        if let Holding::Recording(device) = holding {
+        if let ActiveUseKind::Recording(device) = kind {
             self.summary.session_ended(*device, since.0, length);
         }
-        if let Some(kind) = events::ended_kind(holding) {
+        if let Some(traced) = events::ended_kind(kind) {
             self.taps
-                .send(kind, || events::ended(kind, length, instance));
+                .send(traced, || events::ended(traced, length, instance));
         }
         #[cfg(test)]
-        self.record(Told::Ended);
+        if !matches!(kind, ActiveUseKind::OpenFile { .. }) {
+            self.record(Told::Ended);
+        }
     }
 
     #[cfg(test)]

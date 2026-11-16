@@ -94,8 +94,13 @@ pub(crate) fn folder_of_machine(folder: &Path, access: &ProgramAccess) -> io::Re
             write: true,
         },
     );
-    access.opened(opened.handle(), opened.mount().kind, opened.open_mode());
-    Ok(Descriptor::Dir(opened))
+    Ok(Descriptor::Dir(used_as_open(opened, access)))
+}
+
+/// `opened`, kept among the files `access`'s program has open while any copy of it is held.
+fn used_as_open(opened: Opened, access: &ProgramAccess) -> Opened {
+    let open_use = access.opened(opened.handle(), opened.mount().kind, opened.open_mode());
+    opened.used_as(open_use)
 }
 
 /// What the files read and write in a program's store, whichever WASI version calls them.
@@ -158,11 +163,11 @@ impl ProgramFiles {
             cause: Cause::Program,
         };
         let target = access.decide(asked, |_| self.permitted_open(from, path, request))?;
-        let opened = target.open(request)?;
-        if let Descriptor::Dir(opened) | Descriptor::File(opened) = &opened {
-            access.opened(opened.handle(), opened.mount().kind, opened.open_mode());
-        }
-        Ok(opened)
+        Ok(match target.open(request)? {
+            Descriptor::Dir(opened) => Descriptor::Dir(used_as_open(opened, &access)),
+            Descriptor::File(opened) => Descriptor::File(used_as_open(opened, &access)),
+            other => other,
+        })
     }
 
     /// Where `path` leads from `from`, if the mounts let it be opened as `request` asks.

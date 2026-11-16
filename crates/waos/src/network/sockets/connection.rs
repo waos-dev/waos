@@ -51,8 +51,8 @@ impl Counts {
 /// A TCP connection: the system's socket and what it moved, shared by the program's socket and
 /// its two streams, and closed as the last of them drops.
 pub(crate) struct Connection {
-    // TODO(connection table): the connection's entry in what the program holds
-    // (`access::holdings`), held here, so the entry ends as the system's socket closes.
+    // TODO(connection table): the connection's entry in what the program uses now
+    // (`access::active_uses`), held here, so the entry ends as the system's socket closes.
     stream: tokio::net::TcpStream,
     counts: Counts,
 }
@@ -174,8 +174,8 @@ impl Drop for Connection {
 /// A UDP socket: the system's socket and what it moved, shared by the program's socket and the
 /// sends and receives it started.
 pub(crate) struct Datagrams {
-    // TODO(connection table): the socket's entry in what the program holds (`access::holdings`),
-    // held here, so it ends as the system's socket closes.
+    // TODO(connection table): the socket's entry in what the program uses now
+    // (`access::active_uses`), held here, so it ends as the system's socket closes.
     socket: tokio::net::UdpSocket,
     counts: Counts,
 }

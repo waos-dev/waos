@@ -1,13 +1,13 @@
 //! A program with the inspector role, which it asks for by calling `wasdk::inspect`: it says this
 //! device, each program on it with its icon's size and how many days of its summary are kept,
-//! then traces what the first running one writes, which may be itself, and says the first chunk
-//! it hears before it returns. What the engine's tests run an inspector as.
+//! then says how many uses the first running one has active and traces what it writes, which may
+//! be itself, saying the first chunk it hears before it returns. What the engine's tests run an inspector as.
 //!
 //! ```text
 //! cargo build -p inspect --target wasm32-wasip3
 //! ```
 
-use wasdk::inspect::{audit, devices, trace};
+use wasdk::inspect::{active_uses, audit, devices, trace};
 
 #[wasdk::main]
 async fn main() {
@@ -34,6 +34,9 @@ async fn main() {
         println!("nothing runs");
         return;
     };
+    if let Some((active, _changes)) = active_uses::active_uses(device, &first.id) {
+        println!("{} uses {} now", first.id, active.len());
+    }
     let Some(mut output) = trace::output(device, &first.id) else {
         println!("{} ended", first.id);
         return;

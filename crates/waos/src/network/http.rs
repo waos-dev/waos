@@ -46,7 +46,7 @@ use hyper_util::rt::{TokioExecutor, TokioTimer};
 use wasmtime_wasi_http::{Error, RequestOptions, WasiBody, WasiHttpHooks};
 
 use super::{Lookup, LookupError, ProgramNetwork};
-use crate::access::{Asked, Happened, Held, Holding, Refusal};
+use crate::access::{ActiveUse, ActiveUseKind, Asked, Happened, Refusal};
 use bodies::BetweenBytes;
 use connector::{Connector, tls_config};
 use pins::Pins;
@@ -224,7 +224,7 @@ impl WasiHttpHooks for ProgramHttp {
 
 /// A request allowed: held in flight from now on, and what its response is told by.
 struct InFlight {
-    held: Held,
+    active_use: ActiveUse,
     id: u64,
     sent: Instant,
 }
@@ -238,12 +238,12 @@ fn check_host(network: &ProgramNetwork, method: &Method, uri: &Uri) -> Result<In
         .access
         .decide(asked, |_| host_reachable(network, uri))
         .map_err(refusal)?;
-    let request = Holding::Request {
+    let request = ActiveUseKind::HttpRequest {
         method: method.clone(),
         uri: uri.clone(),
     };
     Ok(InFlight {
-        held: network.access.hold(request),
+        active_use: network.access.hold(request),
         id,
         sent: Instant::now(),
     })
@@ -304,8 +304,9 @@ async fn send(
         status: response.status().as_u16(),
         time_to_first_byte: in_flight.sent.elapsed(),
     });
-    let held = in_flight.held;
-    let response = response.map(|body| BetweenBytes::new(body, between_bytes, held).boxed_unsync());
+    let active_use = in_flight.active_use;
+    let response =
+        response.map(|body| BetweenBytes::new(body, between_bytes, active_use).boxed_unsync());
     Ok((response, Box::new(async { Ok(()) })))
 }
 

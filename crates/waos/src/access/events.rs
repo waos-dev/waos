@@ -10,7 +10,7 @@ use std::time::{Duration, SystemTime};
 
 use super::summary::{answer_key, prompt_key, switch_key};
 use super::trace::{TraceEvent, TraceKind, duration_of, instant_of};
-use super::{Asked, Cause, FileChange, Happened, Holding, Noted, Resolution};
+use super::{ActiveUseKind, Asked, Cause, FileChange, Happened, Noted, Resolution};
 use crate::inspection::bindings::wasdk::inspect::audit::MountKind as WitMountKind;
 use crate::inspection::bindings::wasdk::inspect::trace::{
     Cause as WitCause, ClipboardEvent, ClipboardRead, ClipboardUse, DeviceEvent, DeviceOpened,
@@ -252,24 +252,27 @@ pub(super) fn noted(noted: &Noted<'_>, instance: u32) -> TraceEvent {
     }
 }
 
-/// The capability `holding`'s start and end are told on, where they are told.
-pub(super) fn held_kind(holding: &Holding) -> Option<TraceKind> {
-    match holding {
-        Holding::Recording(RecordingDevice::Camera | RecordingDevice::SimulatedCamera) => {
+/// The capability `kind`'s start and end are told on, where they are told: a recording's.
+pub(super) fn held_kind(kind: &ActiveUseKind) -> Option<TraceKind> {
+    match kind {
+        ActiveUseKind::Recording(RecordingDevice::Camera | RecordingDevice::SimulatedCamera) => {
             Some(TraceKind::Camera)
         }
-        Holding::Recording(RecordingDevice::Microphone | RecordingDevice::SimulatedMicrophone) => {
-            Some(TraceKind::Microphone)
-        }
-        Holding::Run { .. } | Holding::Request { .. } | Holding::Watch { .. } => None,
+        ActiveUseKind::Recording(
+            RecordingDevice::Microphone | RecordingDevice::SimulatedMicrophone,
+        ) => Some(TraceKind::Microphone),
+        ActiveUseKind::Command { .. }
+        | ActiveUseKind::HttpRequest { .. }
+        | ActiveUseKind::FolderWatch { .. }
+        | ActiveUseKind::OpenFile { .. } => None,
     }
 }
 
-/// The capability a held use's end is told on, where it is told: a recording's, and a run's.
-pub(super) fn ended_kind(holding: &Holding) -> Option<TraceKind> {
-    match holding {
-        Holding::Run { .. } => Some(TraceKind::Machines),
-        _ => held_kind(holding),
+/// The capability a use's end is told on, where it is told: a recording's, and a command's.
+pub(super) fn ended_kind(kind: &ActiveUseKind) -> Option<TraceKind> {
+    match kind {
+        ActiveUseKind::Command { .. } => Some(TraceKind::Machines),
+        _ => held_kind(kind),
     }
 }
 

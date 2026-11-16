@@ -17,6 +17,7 @@ use super::convert::{follows, open_request, time_to_set};
 use super::streams::{FileReader, FileWriter, WriteAt};
 use super::{FsError, FsResult};
 use crate::access::FileChange;
+use crate::files::descriptor::StreamedFile;
 use crate::files::errors::ErrorCode;
 use crate::files::target::Target;
 use crate::files::{Descriptor, FilesCtx, HasFiles, ProgramFiles};
@@ -44,14 +45,11 @@ impl FilesCtx<'_> {
     }
 
     /// The writable file the handle `descriptor` is on, about to be written.
-    fn writable_file(
-        &mut self,
-        descriptor: &Resource<Descriptor>,
-    ) -> FsResult<std::sync::Arc<std::fs::File>> {
+    fn writable_file(&mut self, descriptor: &Resource<Descriptor>) -> FsResult<StreamedFile> {
         let file = self.table.get(descriptor)?.file()?;
         file.check_writable()?;
         self.files.writing(file);
-        Ok(file.handle().clone())
+        Ok(file.streamed())
     }
 }
 
@@ -100,7 +98,7 @@ fn failed_stream<T: Lift + Lower + Send + Sync + 'static>(
 /// once, its stream closed.
 fn write_stream<U: 'static>(
     mut store: Access<'_, U, HasFiles>,
-    file: FsResult<std::sync::Arc<std::fs::File>>,
+    file: FsResult<StreamedFile>,
     mut data: StreamReader<u8>,
     at: WriteAt,
 ) -> wasmtime::Result<StreamEnding> {
@@ -123,7 +121,7 @@ impl<U: 'static> types::HostDescriptorWithStore<U> for HasFiles {
         offset: Filesize,
     ) -> wasmtime::Result<(StreamReader<u8>, StreamEnding)> {
         let file = match store.get().table.get(&descriptor)? {
-            Descriptor::File(file) => file.handle().clone(),
+            Descriptor::File(file) => file.streamed(),
             _ => return failed_stream(&mut store, ErrorCode::IsDirectory.into()),
         };
         let (ending, ended) = oneshot::channel();

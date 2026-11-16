@@ -465,13 +465,15 @@ fn a_request_is_told_refused_by_its_setting_or_held_in_flight() {
     ));
     assert_eq!(access.refusals(), ["local-network", "domains"]);
     assert!(
-        access.holdings().held.is_empty(),
+        access.uses_but_open_files().is_empty(),
         "nothing refused is in flight"
     );
 
     let uri = "https://api.example.com/".parse().unwrap();
-    let in_flight = super::check_host(&network, &method, &uri).unwrap().held;
-    assert_eq!(access.holdings().held.len(), 1);
+    let in_flight = super::check_host(&network, &method, &uri)
+        .unwrap()
+        .active_use;
+    assert_eq!(access.uses_but_open_files().len(), 1);
     drop(in_flight);
-    assert!(access.holdings().held.is_empty());
+    assert!(access.uses_but_open_files().is_empty());
 }

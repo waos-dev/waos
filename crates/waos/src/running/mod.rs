@@ -372,11 +372,29 @@ impl RunningProgram {
         Some(access.subscribe(kind))
     }
 
-    /// What the program holds now, as `wasdk:inspect` says it: each use held and each file open;
-    /// none before its code is linked and once it and every use it held have ended.
-    pub fn holdings(&self) -> Option<crate::inspection::bindings::wasdk::inspect::holdings::Now> {
+    /// What the program uses now, as `wasdk:inspect` says it, and each change from then on,
+    /// until it and every use it made have ended; none before its code is linked and once that
+    /// has happened.
+    pub fn active_uses(
+        &self,
+    ) -> Option<(
+        Vec<crate::inspection::bindings::wasdk::inspect::active_uses::ActiveUse>,
+        futures::stream::BoxStream<
+            'static,
+            crate::inspection::bindings::wasdk::inspect::active_uses::ActiveUseChange,
+        >,
+    )> {
+        use futures::StreamExt;
         let access = self.0.access.get()?.upgrade()?;
-        Some(crate::inspection::now_of(access.holdings()))
+        let (now, changes) = access.subscribe_active_uses();
+        let now = now
+            .into_iter()
+            .map(crate::inspection::active_use_of)
+            .collect();
+        Some((
+            now,
+            changes.map(crate::inspection::active_use_change_of).boxed(),
+        ))
     }
 
     /// Keeps the program's day of its audit summary as it is now, so what is kept says all it
