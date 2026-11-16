@@ -75,7 +75,7 @@ use super::installed_runs::InstalledRuns;
 use super::program_places::ProgramPlace;
 pub(crate) use app_reach::LaunchAttempt;
 pub(crate) use app_reach::{AppReach, ReachedApp};
-use bundles::{BundleFolders, Bundles, KeptCodeHash, ProgramDescription};
+use bundles::{BundleFolders, Bundles, KeptCodeHash, ProgramDescription, made_from};
 pub(crate) use canvas_pictures::{CanvasPictures, ToShow};
 pub(crate) use canvases::{CanvasCall, CanvasKey, CanvasPlace, CanvasesOnRequest};
 pub(crate) use notifications::AppNotifications;
@@ -141,7 +141,14 @@ impl ProgramApps {
             development: folders.development,
         };
         let key = safe_storage_key().context("the key the programs' apps are vouched for with")?;
-        let bundles = Bundles::open(bundle_folders, waos, &folders.data, system_version(), key);
+        let made_from = made_from(&waos).context("what the programs' apps are made from")?;
+        let bundles = Bundles::open(
+            bundle_folders,
+            (waos, made_from),
+            &folders.data,
+            system_version(),
+            key,
+        );
         let runtime = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(THREADS)
             .thread_name("waos-program-apps")
@@ -169,7 +176,7 @@ impl ProgramApps {
         });
         server::listen(&apps, &bootstrap_name(&folders.data))
             .context("listening for the programs' apps")?;
-        apps.rebuild_if_the_system_changed();
+        apps.rebuild_stale();
         Ok(apps)
     }
 
@@ -394,17 +401,23 @@ impl ProgramApps {
         }
     }
 
-    /// Rebuilds every bundle, in the background, when the system changed since they were signed.
-    fn rebuild_if_the_system_changed(&self) {
-        if !self.bundles.signed_on_another_system() {
+    /// Rebuilds, in the background, every bundle signed on another version of the system, and each
+    /// made from other files of WaOS's than these, so an app the user opens from the Dock loads
+    /// this WaOS's window code.
+    fn rebuild_stale(&self) {
+        let stale = self.bundles.stale();
+        if stale.is_empty() {
             return;
         }
         let Some(apps) = self.me.upgrade() else {
             return;
         };
-        tracing::info!("the system changed since the programs' apps were signed: rebuilding them");
+        tracing::info!(
+            count = stale.len(),
+            "the programs' apps were signed on another system or made from another WaOS: rebuilding them"
+        );
         self.runtime.spawn_blocking(move || {
-            for id in apps.bundles.programs() {
+            for id in stale {
                 log_failure(&id, apps.bundles.write(&apps.describe(&id)).map(drop));
             }
         });

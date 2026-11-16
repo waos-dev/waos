@@ -72,9 +72,12 @@ use records::{
 };
 pub use view_calls::{TextInputCall, ViewCall, WindowCall};
 
-/// The protocol's number: a change to a message adds at the end of it, and anything else raises
-/// this, so a window process and a WaOS of different builds refuse each other rather than misread.
-pub const PROTOCOL: u32 = 5;
+/// The protocol's number, every message's Mach id, which a receiver reads before the message: a
+/// change to a message adds at the end of it, and anything else raises this, so a window process
+/// and a WaOS of different builds refuse each other, each saying both numbers, rather than misread.
+/// The handshake's bytes are pinned to it by a test, which fails when [`Hello`] or [`Welcome`]
+/// changes and this does not.
+pub const PROTOCOL: u32 = 6;
 
 /// Names one key a window process sent, which WaOS's reply names back.
 pub type KeyId = u64;

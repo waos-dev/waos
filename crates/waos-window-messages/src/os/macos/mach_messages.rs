@@ -52,6 +52,13 @@ const AUDIT_TRAILER: i32 = (MACH_RCV_TRAILER_AUDIT as i32) << 24;
 #[derive(Debug)]
 pub enum Arrival {
     Message(Received),
+    /// A message of another protocol than the one asked for, from a WaOS or a window process of
+    /// another build: its protocol, from its id, which is read before anything of it, and what it
+    /// brought, its body unread, so the receiver can say which and answer it.
+    OtherProtocol {
+        protocol: u32,
+        received: Received,
+    },
     /// No send right to the port is left: the process that held the last one let it go, or
     /// ended (`ReceiveRight::notify_when_no_senders`).
     NoSenders,
@@ -117,7 +124,7 @@ impl SendRight {
 
 impl ReceiveRight {
     /// Waits for what arrives next on the port. A message of another protocol than `protocol`
-    /// is an error, and is destroyed.
+    /// arrives as [`Arrival::OtherProtocol`], its body for nobody to read.
     pub fn receive(&self, protocol: u32) -> io::Result<Arrival> {
         let mut buffer = ReceiveBuffer::sized(INLINE_LIMIT + 1024);
         loop {
@@ -263,20 +270,12 @@ impl ReceiveBuffer {
         u32::from_ne_bytes(bytes[offset..offset + 4].try_into().expect("four bytes"))
     }
 
-    /// The message the kernel wrote: a notification, or one of `protocol` whose parts are taken
-    /// out.
+    /// The message the kernel wrote: a notification, or a message whose parts are taken out, of
+    /// `protocol` or another one.
     fn read(&mut self, protocol: u32) -> io::Result<Arrival> {
         let header = self.header_read();
         if header.msgh_id == MACH_NOTIFY_NO_SENDERS {
             return Ok(Arrival::NoSenders);
-        }
-        if header.msgh_id as u32 != protocol {
-            // SAFETY: a message just received, with every right and page it carries.
-            unsafe { mach_msg_destroy(self.header()) };
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                format!("a message of protocol {}, not {protocol}", header.msgh_id),
-            ));
         }
         let complex = header.msgh_bits & MACH_MSGH_BITS_COMPLEX != 0;
         let (ports, out_of_line, mut offset) = self.descriptors(complex);
@@ -288,11 +287,20 @@ impl ReceiveBuffer {
         };
         let trailer = (header.msgh_size as usize).next_multiple_of(4) + AUDIT_TOKEN_OFFSET;
         let sender = AuditToken(std::array::from_fn(|index| self.word(trailer + index * 4)));
-        Ok(Arrival::Message(Received {
+        let received = Received {
             bytes,
             ports,
             sender,
-        }))
+        };
+        let sent_in = header.msgh_id as u32;
+        Ok(if sent_in == protocol {
+            Arrival::Message(received)
+        } else {
+            Arrival::OtherProtocol {
+                protocol: sent_in,
+                received,
+            }
+        })
     }
 
     /// The ports a message carried and its out-of-line bytes, taken over, and where what follows

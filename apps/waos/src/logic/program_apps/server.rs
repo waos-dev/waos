@@ -34,6 +34,10 @@ pub(super) fn listen(apps: &Arc<ProgramApps>, name: &str) -> io::Result<()> {
                 let hello = match port.receive(PROTOCOL) {
                     Ok(Arrival::Message(hello)) => hello,
                     Ok(Arrival::NoSenders) => continue,
+                    Ok(Arrival::OtherProtocol { protocol, received }) => {
+                        refuse_other_protocol(protocol, received);
+                        continue;
+                    }
                     Err(error) => {
                         tracing::warn!(%error, "a message no app could have sent");
                         continue;
@@ -74,6 +78,23 @@ fn take_hello(apps: &Arc<ProgramApps>, received: Received) {
             }
         }
         Err(reason) => refuse(&app, &reason),
+    }
+}
+
+/// Refuses the app whose hello, `received`, is of `protocol`, not this WaOS's: one plain line names
+/// both, and the app is answered in this WaOS's protocol, which it cannot read, so it ends rather
+/// than waits. Its bundle is written again at its next launch through WaOS, or as WaOS starts, being
+/// made from another WaOS's files (`bundles`).
+fn refuse_other_protocol(protocol: u32, received: Received) {
+    let pid = received.sender.pid();
+    tracing::warn!(
+        pid,
+        "a program's app speaks the window protocol {protocol} and this WaOS {PROTOCOL}: it is refused"
+    );
+    if let Some(app) = received.ports.into_iter().next() {
+        let reason = format!("this WaOS speaks the window protocol {PROTOCOL}, not {protocol}");
+        // An app gone meanwhile has nobody to tell.
+        let _ = app.send(PROTOCOL, &encode(&ToWindow::Refused(reason)), Vec::new());
     }
 }
 
@@ -152,10 +173,52 @@ fn carry_out(connection: &ReceiveRight, process: &WindowProcess) {
                 Err(error) => tracing::warn!(%error, "a message this WaOS cannot read"),
             },
             Ok(Arrival::NoSenders) => return,
+            Ok(Arrival::OtherProtocol { protocol, .. }) => {
+                tracing::warn!(
+                    "the program's app spoke the window protocol {protocol}, not {PROTOCOL}: its connection ends"
+                );
+                return;
+            }
             Err(error) => {
                 tracing::warn!(%error, "receiving from the program's app");
                 return;
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_app_of_another_protocol_is_answered_in_this_one_and_so_ends() {
+        let waos = ReceiveRight::new().unwrap();
+        let to_waos = waos.make_send().unwrap();
+        let app = ReceiveRight::new().unwrap();
+        let older = PROTOCOL - 1;
+        to_waos
+            .send(older, b"an older hello", vec![app.make_send().unwrap()])
+            .unwrap();
+        let Arrival::OtherProtocol { protocol, received } = waos.receive(PROTOCOL).unwrap() else {
+            panic!("a hello of another protocol");
+        };
+        assert_eq!(protocol, older);
+        refuse_other_protocol(protocol, received);
+        let Arrival::OtherProtocol {
+            protocol: answered_in,
+            received,
+        } = app.receive(older).unwrap()
+        else {
+            panic!("an answer the older app cannot read, which ends it");
+        };
+        assert_eq!(answered_in, PROTOCOL);
+        let Ok(ToWindow::Refused(reason)) = decode::<ToWindow>(&received.bytes) else {
+            panic!("refused");
+        };
+        assert_eq!(
+            reason,
+            format!("this WaOS speaks the window protocol {PROTOCOL}, not {older}")
+        );
     }
 }

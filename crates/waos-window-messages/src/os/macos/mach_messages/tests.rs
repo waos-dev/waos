@@ -13,6 +13,7 @@ fn message(arrival: Arrival) -> Received {
     match arrival {
         Arrival::Message(received) => received,
         Arrival::NoSenders => panic!("a message, not the last sender gone"),
+        Arrival::OtherProtocol { protocol, .. } => panic!("a message of protocol {protocol}"),
     }
 }
 
@@ -75,14 +76,26 @@ fn the_port_hears_when_its_last_sender_is_gone() {
 }
 
 #[test]
-fn a_message_of_another_protocol_is_refused() {
+fn a_message_of_another_protocol_says_which_and_brings_its_ports_to_answer_on() {
     let (port, right) = port();
-    let (_, carried) = self::port();
+    let (answers, carried) = self::port();
     right
         .send(PROTOCOL + 1, b"elsewhere", vec![carried])
         .unwrap();
-    let refused = port.receive(PROTOCOL).unwrap_err();
-    assert_eq!(refused.kind(), io::ErrorKind::InvalidData);
+    let Arrival::OtherProtocol {
+        protocol,
+        mut received,
+    } = port.receive(PROTOCOL).unwrap()
+    else {
+        panic!("a message of another protocol");
+    };
+    assert_eq!(protocol, PROTOCOL + 1);
+    let answer_on = received.ports.remove(0);
+    answer_on.send(PROTOCOL, b"refused", Vec::new()).unwrap();
+    assert_eq!(
+        message(answers.receive(PROTOCOL).unwrap()).bytes,
+        b"refused"
+    );
 }
 
 #[test]

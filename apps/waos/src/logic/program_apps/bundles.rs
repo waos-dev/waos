@@ -2,7 +2,10 @@
 //! program's in a folder of the user's applications, named after the program, with its package's
 //! name, version and icon; a program run in development's under WaOS's caches, named by its id,
 //! the id its only name. Each is written at install, or at the first launch that finds none,
-//! rewritten when the program is updated, and deleted when it is removed. WaOS keeps, in its data
+//! rewritten when the program is updated, and when WaOS's files it is made from are not those it
+//! was written from, as Chrome rewrites its shims when Chrome updates: the loader it carries a copy
+//! of, by its SHA-256, and the window library and the WaOS it names, by their paths
+//! ([`made_from`]); and deleted when it is removed. WaOS keeps, in its data
 //! folder, where each bundle is and the code hash it was signed with, which its process is checked
 //! against at each connection, and the system's version it was signed on: when the system's
 //! version changes, every bundle is rebuilt, since Gatekeeper then treats the ad-hoc signatures
@@ -25,7 +28,7 @@ use std::sync::{Mutex, PoisonError};
 
 use hmac::{Hmac, KeyInit, Mac};
 use serde::{Deserialize, Serialize};
-use sha2::Sha256;
+use sha2::{Digest, Sha256};
 use waos_package::ProgramId;
 
 use crate::os::{BundleContents, WaosFiles, delete_bundle, write_bundle};
@@ -76,6 +79,8 @@ pub(crate) struct Bundles {
     record: Mutex<Record>,
     /// The system's version now.
     system: String,
+    /// What WaOS's files a bundle is made from are now ([`made_from`]).
+    made_from: String,
 }
 
 /// What WaOS keeps of the bundles it wrote.
@@ -99,14 +104,19 @@ pub(crate) struct KeptBundle {
     version: String,
     /// Whether it is an installed program's, rather than one run in development's.
     installed: bool,
+    /// What WaOS's files it was made from were ([`made_from`]); none for a bundle written before
+    /// WaOS kept it, which is made again.
+    #[serde(default)]
+    made_from: String,
 }
 
 impl Bundles {
-    /// The bundles in `folders`, referring to `waos`'s files, as the record in `data_folder` says
-    /// they were written, on the system at `system`, their code hashes vouched for under `key`.
+    /// The bundles in `folders`, referring to `waos`'s files, which are `made_from` now, as the
+    /// record in `data_folder` says they were written, on the system at `system`, their code
+    /// hashes vouched for under `key`.
     pub(crate) fn open(
         folders: BundleFolders,
-        waos: WaosFiles,
+        (waos, made_from): (WaosFiles, String),
         data_folder: &Path,
         system: String,
         key: Vec<u8>,
@@ -120,6 +130,7 @@ impl Bundles {
             record_file,
             record: Mutex::new(record),
             system,
+            made_from,
         }
     }
 
@@ -127,6 +138,21 @@ impl Bundles {
     pub(crate) fn signed_on_another_system(&self) -> bool {
         let record = self.record();
         !record.apps.is_empty() && record.system != self.system
+    }
+
+    /// The programs whose bundle is to be written again: every one where they were signed on
+    /// another version of the system, and otherwise each made from other files of WaOS's than
+    /// these.
+    pub(crate) fn stale(&self) -> Vec<ProgramId> {
+        if self.signed_on_another_system() {
+            return self.programs();
+        }
+        self.record()
+            .apps
+            .iter()
+            .filter(|(_, kept)| kept.made_from != self.made_from)
+            .filter_map(|(id, _)| id.parse().ok())
+            .collect()
     }
 
     /// The programs that have a bundle.
@@ -148,14 +174,16 @@ impl Bundles {
             .collect()
     }
 
-    /// The bundle of `program`, as WaOS wrote it, at the version it is now; written now if there
-    /// is none, or it is of another version.
+    /// The bundle of `program`, as WaOS wrote it, at the version it is now, from WaOS's files as
+    /// they are now; written now if there is none, or it is of another version, or made from
+    /// other files.
     pub(crate) fn ensure(&self, program: &ProgramDescription) -> io::Result<KeptBundle> {
         let kept = self.kept(&program.id);
         match kept {
             Some(kept)
                 if kept.version == program.version
                     && kept.installed == program.installed
+                    && kept.made_from == self.made_from
                     && kept.path.exists() =>
             {
                 Ok(kept)
@@ -184,6 +212,7 @@ impl Bundles {
             code_hash: hex::encode(code_hash),
             version: program.version.clone(),
             installed: program.installed,
+            made_from: self.made_from.clone(),
         };
         tracing::info!(program = %program.id, path = %kept.path.display(), "the program's app was written");
         self.change_record(|record| {
@@ -284,6 +313,18 @@ fn read_record(file: &Path) -> Record {
         tracing::warn!(%error, file = %file.display(), "the record of the programs' apps is unreadable");
         Record::default()
     })
+}
+
+/// What a bundle made from `waos` is made from, as one value that changes whenever a bundle would
+/// change: the SHA-256 of the loader it carries a copy of, in hex, then the paths it names, the
+/// window library, the WaOS it starts and the data folder it looks WaOS up by. A WaOS updated in
+/// place keeps the paths and changes the loader's hash; a WaOS run from elsewhere, another build of
+/// it, changes the paths.
+pub(crate) fn made_from(waos: &WaosFiles) -> io::Result<String> {
+    let loader = Sha256::digest(fs::read(&waos.loader)?);
+    let named = [&waos.window_library, &waos.waos, &waos.data_folder]
+        .map(|path| path.to_string_lossy().into_owned());
+    Ok(format!("{} {}", hex::encode(loader), named.join(" ")))
 }
 
 /// `name` as a file's name: a slash, which macOS's files cannot hold in a name, as a hyphen.

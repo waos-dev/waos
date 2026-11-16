@@ -836,3 +836,35 @@ fn a_picture_shown_crosses_with_its_window_and_its_size_in_pixels() {
         "{shown:?}"
     );
 }
+
+/// The first two messages' bytes in the protocol this crate says, [`PROTOCOL`]: what a WaOS and a
+/// window process of different builds first read of each other. A change to either fails this
+/// test until `PROTOCOL` is raised and the bytes here are made again.
+#[test]
+fn the_handshake_is_as_this_protocol_says_it() {
+    let hello = FromWindow::Hello(Hello {
+        program: ProgramId::try_from("dev.example.notes".to_owned()).unwrap(),
+        launched_for: LaunchReason::UserOpened,
+        opened: OpenRequest {
+            files: Vec::new(),
+            links: Vec::new(),
+        },
+    });
+    let welcome = ToWindow::Welcome(Welcome {
+        name: "Notes".to_owned(),
+    });
+    let said = (
+        PROTOCOL,
+        hex::encode(encode(&hello)),
+        hex::encode(encode(&welcome)),
+    );
+    let pinned = (
+        6,
+        "00116465762e6578616d706c652e6e6f746573010000".to_owned(),
+        "00054e6f746573".to_owned(),
+    );
+    assert_eq!(
+        said, pinned,
+        "the handshake changed: raise PROTOCOL, and pin what it says now"
+    );
+}

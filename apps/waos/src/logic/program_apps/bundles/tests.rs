@@ -4,6 +4,11 @@ use super::*;
 const KEY: &[u8] = b"a key of the tests' own, 32 bytes";
 
 fn bundles(folder: &Path, system: &str) -> Bundles {
+    bundles_made_from(folder, system, "loader 1")
+}
+
+/// The bundles in `folder`, on the system at `system`, made from WaOS's files as `made_from` says.
+fn bundles_made_from(folder: &Path, system: &str, made_from: &str) -> Bundles {
     let folders = BundleFolders {
         installed: folder.join("Applications/WaOS Programs"),
         development: folder.join("Caches/apps"),
@@ -16,7 +21,7 @@ fn bundles(folder: &Path, system: &str) -> Bundles {
     };
     Bundles::open(
         folders,
-        waos,
+        (waos, made_from.to_owned()),
         &folder.join("data"),
         system.to_owned(),
         KEY.to_vec(),
@@ -48,6 +53,7 @@ fn record(bundles: &Bundles, program: &ProgramDescription, path: PathBuf) {
                     code_hash_hmac,
                     version: program.version.clone(),
                     installed: program.installed,
+                    made_from: bundles.made_from.clone(),
                 },
             );
         })
@@ -179,5 +185,73 @@ fn a_record_vouched_for_under_another_key_is_not_vouched_for() {
     assert_eq!(
         under_another_key.code_hash(&notes.id),
         KeptCodeHash::Unvouched
+    );
+}
+
+#[test]
+fn a_bundle_made_from_another_waos_is_to_be_written_again_and_one_from_this_is_not() {
+    let folder = tempfile::tempdir().unwrap();
+    let notes = installed("dev.example.notes", "Notes");
+    let reader = installed("dev.example.reader", "Reader");
+    let before = bundles_made_from(folder.path(), "27.0.1", "loader 1");
+    record(&before, &notes, folder.path().join("Notes.app"));
+    let now = bundles_made_from(folder.path(), "27.0.1", "loader 2");
+    record(&now, &reader, folder.path().join("Reader.app"));
+    assert_eq!(
+        now.stale(),
+        std::slice::from_ref(&notes.id),
+        "made from the loader before"
+    );
+    assert!(
+        bundles_made_from(folder.path(), "27.1", "loader 2")
+            .stale()
+            .len()
+            == 2
+    );
+}
+
+#[test]
+fn a_bundle_recorded_before_waos_kept_what_it_was_made_from_is_to_be_written_again() {
+    let folder = tempfile::tempdir().unwrap();
+    let notes = installed("dev.example.notes", "Notes");
+    record(
+        &bundles(folder.path(), "27.0.1"),
+        &notes,
+        folder.path().join("Notes.app"),
+    );
+    let text = fs::read_to_string(folder.path().join("data").join(RECORD)).unwrap();
+    let older: String = text
+        .lines()
+        .filter(|line| !line.starts_with("made_from"))
+        .map(|line| format!("{line}\n"))
+        .collect();
+    fs::write(folder.path().join("data").join(RECORD), older).unwrap();
+    assert_eq!(bundles(folder.path(), "27.0.1").stale(), [notes.id]);
+}
+
+#[test]
+fn what_a_bundle_is_made_from_changes_with_the_loader_and_the_paths_it_names() {
+    let folder = tempfile::tempdir().unwrap();
+    let loader = folder.path().join("waos-program-loader");
+    let files = |data: &str| WaosFiles {
+        loader: loader.clone(),
+        window_library: folder.path().join("libwaos_window.dylib"),
+        waos: folder.path().join("WaOS.app"),
+        data_folder: folder.path().join(data),
+    };
+    fs::write(&loader, b"a loader").unwrap();
+    let first = made_from(&files("data")).unwrap();
+    assert_eq!(
+        made_from(&files("data")).unwrap(),
+        first,
+        "the same files, the same"
+    );
+    fs::write(&loader, b"a loader, rebuilt").unwrap();
+    let rebuilt = made_from(&files("data")).unwrap();
+    assert_ne!(rebuilt, first, "another loader");
+    assert_ne!(
+        made_from(&files("elsewhere")).unwrap(),
+        rebuilt,
+        "another path"
     );
 }

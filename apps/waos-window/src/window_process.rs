@@ -194,6 +194,9 @@ fn event_of(arrival: io::Result<Arrival>) -> Event {
             Err(error) => Event::Gone(format!("WaOS sent what this build cannot read: {error}")),
         },
         Ok(Arrival::NoSenders) => Event::Gone("WaOS is gone".to_owned()),
+        Ok(Arrival::OtherProtocol { protocol, .. }) => Event::Gone(format!(
+            "WaOS speaks the window protocol {protocol} and this app {PROTOCOL}: its app is written again at its next launch through WaOS"
+        )),
         Err(error) => Event::Gone(format!("receiving from WaOS: {error}")),
     }
 }

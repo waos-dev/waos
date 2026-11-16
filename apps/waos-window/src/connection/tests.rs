@@ -27,6 +27,7 @@ pub(crate) fn sent(waos: &ReceiveRight) -> FromWindow {
     match waos.receive(PROTOCOL).unwrap() {
         Arrival::Message(received) => decode(&received.bytes).unwrap(),
         Arrival::NoSenders => panic!("a message"),
+        Arrival::OtherProtocol { protocol, .. } => panic!("a message of protocol {protocol}"),
     }
 }
 
