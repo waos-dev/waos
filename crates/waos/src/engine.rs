@@ -39,6 +39,7 @@ use crate::running::{HeldProgram, Hold, ProgramStart, Programs, RunningProgram};
 use crate::screens::{Screen, Screens};
 use crate::screenshots::Screenshots;
 use crate::shell::{PlacedView, Shell, ShellClipboardItem};
+use crate::source_lines::ComponentFile;
 use crate::system::SystemSettings;
 use crate::temporary_folders::TemporaryFolders;
 use crate::views::{ProgramView, Refresh, ScreenRefreshes};
@@ -214,8 +215,9 @@ impl WaOS {
     /// before, and mapped from the code cache after; blocks while compiling, so call it off the
     /// main thread.
     pub fn load(&self, component: &Path) -> Result<Program> {
+        let file = ComponentFile::at(component);
         let compiled = code_cache::load(&self.engine, component, &self.code_cache)?;
-        Ok(Program::new(compiled, name_of(component)))
+        Ok(Program::new(compiled, name_of(component), file))
     }
 
     /// Compiles the program at `component` into the code cache ahead of its load, as an app
@@ -304,6 +306,7 @@ impl WaOS {
             screenshots: Arc::clone(&self.screenshots),
             component: program.component().clone(),
             name: program.name().to_owned(),
+            file: program.file().clone(),
             placement: Arc::clone(&self.shell.views),
             compositor: self.shell.compositor.clone(),
             prompts: Arc::clone(&self.shell.prompts),
@@ -368,7 +371,8 @@ impl Drop for WaOS {
 }
 
 /// Components with their async ABI, fuel and an epoch tick for what a program costs and for
-/// freezing it, and native unwind information where `native_unwind_info` asks for it. Cranelift
+/// freezing it, backtraces without wasmtime's details, and native unwind information where
+/// `native_unwind_info` asks for it. Cranelift
 /// compiles programs for this system's engine ([`compile_for_this_system`]). A program's trap is
 /// caught on macOS by a signal handler on its own thread, as on every other Unix (the project
 /// proposal's decision 58).
@@ -387,9 +391,10 @@ pub(crate) fn engine_config(native_unwind_info: bool) -> Config {
     // How a program's fuel gets read: a tick interrupts it wherever it is, which is the one
     // moment wasmtime lets the engine look into a running store.
     config.epoch_interruption(true);
-    // A trap's backtrace names each frame's file and line, from the program's line tables where
-    // it was built with them.
-    config.wasm_backtrace_details(WasmBacktraceDetails::Enable);
+    // A backtrace names each frame by its function alone: wasmtime's details would read the
+    // program's DWARF at every unwind, a stop's among them. A program that fails has its frames'
+    // files and lines read then (`source_lines`). Part of the code cache's key, as every setting.
+    config.wasm_backtrace_details(WasmBacktraceDetails::Disable);
     // Windows walks every frame with it to handle an exception, so wasmtime refuses it off there.
     config.native_unwind_info(native_unwind_info || cfg!(windows));
     config

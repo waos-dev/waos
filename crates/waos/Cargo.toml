@@ -27,6 +27,10 @@ tokio.workspace = true
 tracing.workspace = true
 wasmtime.workspace = true
 wasmtime-wasi.workspace = true
+# Where in its source a failed program was (`source_lines`), from its component's DWARF.
+wasmparser.workspace = true
+addr2line.workspace = true
+rustc-demangle.workspace = true
 bytes.workspace = true
 # A program's files (`files`) and sockets (`network`): the system calls the engine makes itself.
 rustix.workspace = true

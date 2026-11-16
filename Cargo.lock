@@ -10436,6 +10436,7 @@ dependencies = [
 name = "waos"
 version = "0.2.0"
 dependencies = [
+ "addr2line 0.26.1",
  "anyhow",
  "ash",
  "bytes",
@@ -10456,6 +10457,7 @@ dependencies = [
  "objc2-io-surface",
  "objc2-metal",
  "rcgen",
+ "rustc-demangle",
  "rustix",
  "rustix-linux-procfs",
  "rustls",
@@ -10479,6 +10481,7 @@ dependencies = [
  "waos-test-programs",
  "waos-webgpu-host",
  "waos-wit-serialize",
+ "wasmparser 0.261.0",
  "wasmtime",
  "wasmtime-wasi",
  "wasmtime-wasi-http",

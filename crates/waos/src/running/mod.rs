@@ -36,6 +36,7 @@ use wasmtime::Engine;
 use wasmtime::component::Component;
 
 use crate::access::{Days, ProgramAccess, TraceKind, TraceStream, WeakAccess};
+use crate::source_lines::ComponentFile;
 use crate::bindings::wasdk::platform::lifecycle::AppExitResponse;
 use crate::bindings::wasdk::platform::menus::MenuEntry;
 use crate::bindings::wasdk::platform::notifications::Activation;
@@ -147,6 +148,8 @@ pub(crate) struct ProgramStart {
     pub(crate) screenshots: Arc<Screenshots>,
     pub(crate) component: Component,
     pub(crate) name: String,
+    /// The file its component was loaded from, which a failure is located in.
+    pub(crate) file: ComponentFile,
     pub(crate) placement: Arc<dyn ViewPlacement>,
     /// The system's compositor, which makes the program's composition layers, where the shell
     /// has one.

@@ -64,6 +64,7 @@ use crate::shell::{
     ShellCompositor, ShellFileDialogs, ShellImageCodecs, ShellMediaAssets, ShellMediaPlayers,
     ShellNotifications, ShellOpener, ShellVideoFrameReaders, ViewPlacement,
 };
+use crate::source_lines::{self, ComponentFile};
 use crate::stream::{Forwarded, stream_of};
 use crate::system::SystemSettings;
 use crate::system::host::{SystemCtx, SystemCtxView};
@@ -91,9 +92,10 @@ const YIELD_INTERVAL: u64 = 10_000_000;
 /// Runs the program to its end: instantiates it in a store of its own and calls its
 /// `wasi:cli/run`.
 pub(super) async fn run(start: ProgramStart, program: RunningProgram, clock: Clock) -> ProgramEnd {
+    let file = start.file.clone();
     match run_in_store(start, program, clock).await {
         Ok(Ok(returned)) => ProgramEnd::Returned(returned),
-        Ok(Err(trap)) | Err(trap) => end_of_error(trap),
+        Ok(Err(trap)) | Err(trap) => end_of_error(trap, &file),
     }
 }
 
@@ -129,7 +131,7 @@ pub(super) async fn run_worker(instances: &Arc<ProgramInstances>, run: WorkerRun
     let entry = run.entry.clone();
     match run_worker_in_store(instances, run).await {
         Ok(()) => Ok(()),
-        Err(error) => worker_end_of_error(&entry, error),
+        Err(error) => worker_end_of_error(&entry, error, &instances.file),
     }
 }
 
@@ -174,24 +176,26 @@ async fn run_worker_in_store(
 }
 
 /// A worker that exited with 0 ended well, one that exited with another code or trapped
-/// failed, said in the log with its backtrace.
-fn worker_end_of_error(entry: &str, error: wasmtime::Error) -> WorkerEnd {
+/// failed, said in the log with its backtrace, located in the program's source (`file`).
+fn worker_end_of_error(entry: &str, error: wasmtime::Error, file: &ComponentFile) -> WorkerEnd {
     match error.downcast_ref::<I32Exit>() {
         Some(I32Exit(0)) => Ok(()),
         Some(I32Exit(code)) => Err(format!("the worker exited with {code}")),
         None => {
+            let error = source_lines::located(error.into(), file);
             tracing::warn!(target: targets::PROGRAM, "the worker at {entry} failed: {error:?}");
             Err(format!("{error:?}"))
         }
     }
 }
 
-/// A program that exited with a code returned, with 0 for success; anything else failed.
-fn end_of_error(error: wasmtime::Error) -> ProgramEnd {
+/// A program that exited with a code returned, with 0 for success; anything else failed, its
+/// backtrace located in the program's source (`file`).
+fn end_of_error(error: wasmtime::Error, file: &ComponentFile) -> ProgramEnd {
     match error.downcast_ref::<I32Exit>() {
         Some(I32Exit(0)) => ProgramEnd::Returned(Ok(())),
         Some(I32Exit(_)) => ProgramEnd::Returned(Err(())),
-        None => ProgramEnd::Failed(Arc::new(error.into())),
+        None => ProgramEnd::Failed(Arc::new(source_lines::located(error.into(), file))),
     }
 }
 

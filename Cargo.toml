@@ -66,6 +66,12 @@ inventory = "0.3.25"
 # (`../experiments/2026-11-08-wasmtime-abort-on-child-exit`); it runs what wit-bindgen 0.63 makes.
 wasmtime = "50.0.1"
 wasmtime-wasi = { version = "50.0.1", features = ["p3"] }
+# Where in its source a failed program was, read from the DWARF of its component's file: the
+# versions wasmtime reads a component and its DWARF with, and the demangler it names functions
+# with.
+wasmparser = "0.261"
+addr2line = { version = "0.26", default-features = false, features = ["std"] }
+rustc-demangle = "0.1"
 # The bytes a stream of the component model carries, as wasmtime's streams and HTTP bodies hold
 # them: the version wasmtime takes.
 bytes = "1.12"

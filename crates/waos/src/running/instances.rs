@@ -19,6 +19,7 @@ use wasmtime::component::{Component, InstancePre};
 
 use super::{IncompatibleProgram, ProgramStart, RunningProgram};
 use crate::access::{KeptIn, ProgramAccess, ShownRecordings};
+use crate::source_lines::ComponentFile;
 use crate::bindings::exports::wasdk::platform::worker_entry;
 use crate::bindings::exports::wasi::cli::run;
 use crate::caption_settings::CaptionSettings;
@@ -51,6 +52,8 @@ pub(crate) struct ProgramInstances {
     pub(super) worker_entry: Option<worker_entry::GuestIndices>,
     pub(super) gpu: GpuInstance,
     pub(super) name: String,
+    /// The file its component was loaded from, which a worker's failure is located in.
+    pub(super) file: ComponentFile,
     pub(super) prompts: Arc<dyn Prompts>,
     pub(super) screens: Screens,
     pub(super) settings: SystemSettings,
@@ -121,6 +124,7 @@ impl ProgramInstances {
             worker_entry,
             gpu: start.gpu,
             name: start.name,
+            file: start.file,
             prompts: start.prompts,
             screens: start.screens,
             settings: start.settings,

@@ -84,6 +84,7 @@ mod running;
 mod screens;
 mod screenshots;
 mod shell;
+mod source_lines;
 mod stats;
 mod stream;
 mod sync;
