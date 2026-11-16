@@ -28,6 +28,9 @@ Taken after the audit summary, the live trace and `cargo waos inspect` were buil
 11. **What a program has now is a stream**, a snapshot and then each change, not a query read again. Open files become entries of the same registry as the uses that last (a recording, a run, a request, a watch), each with a guard that ends its entry when it drops, so one mechanism adds and ends both. A listener that falls behind is sent a fresh snapshot instead of the changes it missed, so it never shows a file open that was closed; the program never waits for it. It must stay cheap for a program that opens thousands of files, such as an editor indexing a project; if it does not, that is raised.
 12. **An inspector sees every program**: installed ones, development runs, and itself.
 13. **The record of what programs do follows the permission model**: a global default, on, with an override on each program's page. Off for a program stops its record and clears what was kept of it; the live trace and what it has now still work, since they keep nothing.
+14. **The inspector's program page is layered** (2026-11-16): its first tab is the report, a summary of what the program did, as iOS's App Privacy Report and Android's Privacy dashboard show it; the other tabs are the detail, live panels as Chrome DevTools has them (network, files, devices, output, what it uses now), reached from the report. An auditor stops at the report; a developer goes on to the panels.
+15. **Each event says why** where that is easy to build and keep organized: the setting that allowed or refused it, with the way to change it.
+16. **The widgets the panels need are ported to Waft**, not worked around: WinUI's table and Cupertino's `CupertinoSearchTextField`.
 
 ## The design
 
