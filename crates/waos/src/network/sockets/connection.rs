@@ -1,6 +1,7 @@
 //! A connection of a program's, made or accepted: the system's socket, and the bytes it moved,
 //! counted as the system answers each read and write. The program's TCP streams read and write
-//! it ([`super::tcp`]); a datagram socket counts its datagrams the same way ([`Datagrams`]).
+//! it ([`super::tcp`]), and its HTTP sends its requests over it (`network::http`), through tokio's
+//! traits; a datagram socket counts its datagrams the same way ([`Datagrams`]).
 //!
 //! A count costs one relaxed atomic add beside the system call it counts, on counters only that
 //! connection's own reads and writes touch, so a program streaming at full speed pays nothing it
@@ -10,9 +11,12 @@
 //! counted once, and nothing else is.
 
 use std::io;
+use std::net::SocketAddr;
+use std::pin::Pin;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::task::{Context, Poll};
 
+use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tracing::debug;
 
 /// The bytes a socket moved for the program.
@@ -59,6 +63,14 @@ impl Connection {
             stream,
             counts: Counts::default(),
         }
+    }
+
+    /// A connection to `address`, which the engine makes for the program, as its HTTP does: its
+    /// writes sent at once, as a request's are.
+    pub(crate) async fn dial(address: SocketAddr) -> io::Result<Connection> {
+        let stream = tokio::net::TcpStream::connect(address).await?;
+        stream.set_nodelay(true)?;
+        Ok(Connection::new(stream))
     }
 
     /// The system's socket, for its addresses and options.
@@ -111,6 +123,40 @@ impl Connection {
                 Err(error) => return Poll::Ready(Err(error)),
             }
         }
+    }
+}
+
+impl AsyncRead for Connection {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buffer: &mut ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
+        let read = std::task::ready!(Connection::poll_read(
+            &self,
+            cx,
+            buffer.initialize_unfilled()
+        ))?;
+        buffer.advance(read);
+        Poll::Ready(Ok(()))
+    }
+}
+
+impl AsyncWrite for Connection {
+    fn poll_write(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buffer: &[u8],
+    ) -> Poll<io::Result<usize>> {
+        Connection::poll_write(&self, cx, buffer)
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Poll::Ready(Ok(()))
+    }
+
+    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.stream).poll_shutdown(cx)
     }
 }
 

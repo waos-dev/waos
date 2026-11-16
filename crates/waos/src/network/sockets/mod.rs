@@ -25,6 +25,7 @@ mod tcp;
 mod udp;
 
 use super::host::bindings::wasi::sockets::types::ErrorCode;
+pub(crate) use connection::Connection;
 pub use tcp::TcpSocket;
 pub(crate) use tcp::{TcpListenStream, TcpReceiveStream, TcpSendStream};
 pub use udp::UdpSocket;

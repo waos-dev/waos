@@ -35,16 +35,18 @@ rustix.workspace = true
 notify.workspace = true
 # A host name as a lookup reads it: an address, or a domain in ASCII and lower case.
 url.workspace = true
-# A program's HTTP: `wasi:http`'s client of Preview 3, and reqwest, which sends a request through the
-# system's proxy, an HTTP proxy or a SOCKS one, and checks the server's certificate as the system
-# does.
+# A program's HTTP: `wasi:http`'s client of Preview 3, and hyper's client over the program's own
+# connections, which sends a request through the system's proxy, an HTTP proxy or a SOCKS one, in
+# TLS checked as the system checks a server's certificate.
 wasmtime-wasi-http.workspace = true
 http.workspace = true
 http-body.workspace = true
 http-body-util.workspace = true
-reqwest = { workspace = true, features = ["system-proxy", "socks"] }
+hyper.workspace = true
 hyper-util.workspace = true
+tower-service.workspace = true
 rustls.workspace = true
+tokio-rustls.workspace = true
 # `wasdk:platform/trust`: the system's own check of a server's certificate.
 rustls-platform-verifier.workspace = true
 # `wasi:webgpu`, served over wgpu-core; `gpu` re-exports the wgpu crates it works at the level
@@ -139,7 +141,7 @@ windows-core = "0.62"
 wgpu-hal = { version = "30", features = ["dx12"] }
 
 # The proxy settings macOS's own apps follow, from SystemConfiguration's dynamic store, which `os`
-# reads for a program's HTTP: the version reqwest's proxy matcher reads them with.
+# reads for a program's HTTP: the version hyper-util's proxy matcher reads them with.
 [target.'cfg(target_os = "macos")'.dependencies]
 system-configuration = "0.7"
 

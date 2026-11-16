@@ -71,18 +71,24 @@ bytes = "1.12"
 # `wasi:http`'s client of Preview 3, which a program's HTTP goes through: its types and client
 # from wasmtime, its sending ours, through the hook it leaves to the embedder.
 wasmtime-wasi-http = { version = "50.0.1", default-features = false, features = ["p3"] }
-# The types a request and a response are, as `wasmtime-wasi-http` hands them over and reqwest
+# The types a request and a response are, as `wasmtime-wasi-http` hands them over and hyper
 # takes them.
 http = "1"
 http-body = "1"
 http-body-util = "0.1"
-# The system's proxy settings as reqwest reads them, at reqwest's version: which proxy a request
-# goes through, whose host is resolved apart from the hosts a program names.
-hyper-util = { version = "0.1", features = ["client-proxy-system"] }
-# The TLS reqwest speaks, at reqwest's version, with its cryptography: what tells a certificate
-# refused from another failure of a request, and what a chain is checked with.
-rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs", "std"] }
-# The system's own check of a server's certificate, at reqwest's version.
+# What sends a program's request over its own connections: hyper's HTTP/1.1 client, and
+# hyper-util's pooling client over it, its runtime on tokio, its tunnels through an HTTP and a
+# SOCKS 5 proxy, and the system's proxy settings, which proxy a request goes through, whose host
+# is resolved apart from the hosts a program names.
+hyper = { version = "1", features = ["client", "http1"] }
+hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "client-proxy-system", "http1", "tokio"] }
+# The service a connector is, as hyper-util's client calls it.
+tower-service = "0.3"
+# The TLS a program's HTTPS speaks, 1.2 and 1.3, over tokio, with its cryptography: what tells a
+# certificate refused from another failure of a request, and what a chain is checked with.
+rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs", "std", "tls12"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["aws_lc_rs", "tls12"] }
+# The system's own check of a server's certificate.
 rustls-platform-verifier = "0.7"
 # Certificates made for a test, signed by an authority of its own.
 rcgen = { version = "0.14", default-features = false, features = ["aws_lc_rs"] }

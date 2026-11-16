@@ -1,7 +1,7 @@
 //! The proxy settings the system's own apps follow, where WaOS reads them itself: macOS's, from
 //! SystemConfiguration's dynamic store (`SCDynamicStoreCopyProxies`), which every app on
-//! CFNetwork reads, Safari among them. Windows's, in the registry's Internet Settings, reqwest
-//! reads itself. Other systems have none beyond the environment's variables.
+//! CFNetwork reads, Safari among them. Windows's, in the registry's Internet Settings,
+//! hyper-util's proxy matcher reads itself. Other systems have none beyond the environment's variables.
 //!
 //! The invariant: this module reads the settings and says nothing of what they mean for a
 //! request, which is `network`'s.

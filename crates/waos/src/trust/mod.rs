@@ -1,7 +1,7 @@
 //! `wasdk:platform/trust`: the system's check of a server's certificate chain, for a program
 //! that brings its own TLS, made with `rustls-platform-verifier`, which asks the system's own
-//! checker: its roots, those the user or an organization added, revocation and its rules. HTTP
-//! through `wasi:http` is checked the same way, by reqwest, which uses the same verifier. The
+//! checker: its roots, those the user or an organization added, revocation and its rules. HTTPS
+//! through `wasi:http` is checked the same way, with the same verifier (`network::http`). The
 //! interface is served to a program by [`host`].
 //!
 //! The invariant: a chain is trusted only by the system's answer. Nothing here adds a root, so
@@ -69,9 +69,9 @@ impl Trust {
     }
 }
 
-/// The cryptography the checker verifies signatures with: reqwest's, so a chain is checked as
-/// the program's HTTP checks it.
-fn provider() -> Arc<rustls::crypto::CryptoProvider> {
+/// The cryptography the checker verifies signatures with, and the program's HTTP speaks TLS with
+/// (`network::http`), so a chain is checked as the program's HTTPS checks it.
+pub(crate) fn provider() -> Arc<rustls::crypto::CryptoProvider> {
     Arc::new(rustls::crypto::aws_lc_rs::default_provider())
 }
 

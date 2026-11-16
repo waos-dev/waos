@@ -1,24 +1,23 @@
 //! The proxies a program's requests may go through, read at its first request into one value
 //! that both the route, which asks whether a proxy is in effect for a request (`route`), and the
-//! client that sends through a proxy are made from, so the two agree.
+//! connection made through a proxy (`connector`) ask, so the two agree.
 //!
 //! On macOS WaOS reads the system's settings itself (`os::system_proxies`): its HTTP, HTTPS and
 //! SOCKS proxies, the exceptions the user listed, and whether a name without a dot is reached
 //! without a proxy, so a host the user excepted is reached directly, as other apps reach it. The
-//! environment's variables come first, as reqwest reads them: `HTTP_PROXY`, `HTTPS_PROXY` and
-//! `ALL_PROXY` over the system's proxies, and `NO_PROXY` beside the system's exceptions. Other
-//! systems but Windows have only the environment's; on Windows reqwest reads the registry's
-//! Internet Settings itself, and the route reads them as it does.
+//! environment's variables come first, as apps built with reqwest read them: `HTTP_PROXY`,
+//! `HTTPS_PROXY` and `ALL_PROXY` over the system's proxies, and `NO_PROXY` beside the system's
+//! exceptions. Other systems read them as hyper-util's matcher does: the environment's, and on
+//! Windows the registry's Internet Settings.
 //!
 //! A SOCKS 5 proxy is asked for the host by its name (`socks5h`), whether the settings say
 //! `socks5` or not, as an HTTP proxy is: the route has looked the name up already, and sends it
 //! through a proxy only for internet answers (decision 14), so the proxy looking it up again is
 //! the blind spot an HTTP proxy has too, and no address it answered is handed over unchecked.
 //!
-//! The invariant: the route's matcher and the proxied client's proxies are made from the same
-//! settings, so a request the route sends through a proxy is sent through that proxy; names
-//! without a dot, which only the route tells apart, never reach the proxied client unless a proxy
-//! is in effect for them.
+//! The invariant: the route and the connection through a proxy ask the same matcher, so a request
+//! the route sends through a proxy is sent through that proxy, and a name without a dot the
+//! system reaches directly is reached directly by both.
 
 use http::Uri;
 use hyper_util::client::proxy::matcher::{Intercept, Matcher};
@@ -30,19 +29,10 @@ pub(super) struct Proxies {
     matcher: Matcher,
     /// Whether a name without a dot is reached without a proxy.
     simple_hostnames_direct: bool,
-    client: ClientProxies,
 }
 
-/// How the client that sends through a proxy is told of the proxies.
-enum ClientProxies {
-    /// It reads the system's settings itself, as the matcher was read.
-    ReadByReqwest,
-    /// It is given these, which the matcher was made from.
-    Listed(ProxySettings),
-}
-
-/// Proxy settings in the form hyper-util's matcher and reqwest's proxies both take: each proxy's
-/// URL, empty where none is set, and the hosts no proxy is used for, as `NO_PROXY` lists them.
+/// Proxy settings in the form hyper-util's matcher takes: each proxy's URL, empty where none is
+/// set, and the hosts no proxy is used for, as `NO_PROXY` lists them.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(super) struct ProxySettings {
     http: String,
@@ -52,9 +42,6 @@ pub(super) struct ProxySettings {
     no: String,
     simple_hostnames_direct: bool,
 }
-
-/// reqwest's proxy for the schemes it is made for, at a URL.
-type ProxyOf = fn(&str) -> reqwest::Result<reqwest::Proxy>;
 
 /// The proxy settings of the environment's variables, as reqwest reads them; empty where unset.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -67,14 +54,13 @@ struct EnvironmentProxies {
 
 impl Proxies {
     /// The system's proxies: on macOS as WaOS reads them, beneath the environment's; elsewhere as
-    /// reqwest reads them.
+    /// hyper-util's matcher reads them.
     pub(super) fn system() -> Proxies {
         match system_proxies() {
             Some(system) => Proxies::listed(ProxySettings::of(EnvironmentProxies::read(), system)),
             None => Proxies {
                 matcher: Matcher::from_system(),
                 simple_hostnames_direct: false,
-                client: ClientProxies::ReadByReqwest,
             },
         }
     }
@@ -89,7 +75,6 @@ impl Proxies {
         Proxies {
             matcher: settings.matcher(),
             simple_hostnames_direct: settings.simple_hostnames_direct,
-            client: ClientProxies::Listed(settings),
         }
     }
 
@@ -100,17 +85,6 @@ impl Proxies {
             return None;
         }
         self.matcher.intercept(uri)
-    }
-
-    /// `client`, sending through these proxies.
-    pub(super) fn sending_through(&self, client: reqwest::ClientBuilder) -> reqwest::ClientBuilder {
-        match &self.client {
-            ClientProxies::ReadByReqwest => client,
-            ClientProxies::Listed(settings) => settings
-                .client_proxies()
-                .into_iter()
-                .fold(client.no_proxy(), reqwest::ClientBuilder::proxy),
-        }
     }
 }
 
@@ -153,29 +127,6 @@ impl ProxySettings {
             .no(self.no.as_str())
             .build()
     }
-
-    /// The proxies reqwest's client is given, in the order the matcher prefers them: a scheme's
-    /// own before the one of either scheme. One whose URL reqwest cannot read is left out, as the
-    /// matcher leaves it out.
-    fn client_proxies(&self) -> Vec<reqwest::Proxy> {
-        let no = reqwest::NoProxy::from_string(&self.no);
-        let proxies: [(&String, ProxyOf); 3] = [
-            (&self.http, |url| reqwest::Proxy::http(url)),
-            (&self.https, |url| reqwest::Proxy::https(url)),
-            (&self.all, |url| reqwest::Proxy::all(url)),
-        ];
-        proxies
-            .into_iter()
-            .filter(|(url, _)| !url.is_empty())
-            .filter_map(|(url, proxy_of)| match proxy_of(url) {
-                Ok(proxy) => Some(proxy.no_proxy(no.clone())),
-                Err(error) => {
-                    tracing::warn!(%error, "a proxy setting is left out");
-                    None
-                }
-            })
-            .collect()
-    }
 }
 
 impl EnvironmentProxies {
@@ -206,8 +157,8 @@ fn or_system(environment: String, system: Option<String>, scheme: &str) -> Strin
     }
 }
 
-/// `url`, a SOCKS 5 proxy's asked for a host by its name (`socks5h`) rather than by the address
-/// reqwest would look up first.
+/// `url`, a SOCKS 5 proxy's asked for a host by its name (`socks5h`) rather than by an address
+/// looked up first.
 fn named_to_the_proxy(url: String) -> String {
     match url.strip_prefix("socks5://") {
         Some(rest) => format!("socks5h://{rest}"),

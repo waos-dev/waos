@@ -1,6 +1,6 @@
 //! Which way a program's request goes (decision 14 of the permissions proposal). With no proxy in
 //! effect for it, as the proxy settings and their exceptions say, it goes straight to its host,
-//! which reqwest looks up through the program's resolver. With one, WaOS looks the host up
+//! which its connection looks up through the program's checked lookup (`connector`). With one, WaOS looks the host up
 //! itself first, through the program's own lookup (the domain rule, the address record, the
 //! local-network switch), and picks the way by where the host lands: an address on this computer
 //! or the local network is connected to directly, at the addresses that lookup answered, under
@@ -22,6 +22,7 @@
 use std::net::IpAddr;
 
 use http::Uri;
+use hyper_util::client::proxy::matcher::Intercept;
 use wasmtime_wasi::runtime::spawn_blocking;
 
 use super::proxies::Proxies;
@@ -30,14 +31,14 @@ use crate::network::addresses::is_local;
 use crate::network::{LookupError, ProgramNetwork};
 
 /// The way a request goes.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug)]
 pub(super) enum Route {
     /// Straight to the host. Where a proxy was in effect, at the addresses the program's lookup
-    /// answered for it (`answered`); otherwise wherever reqwest's lookup through the program's
-    /// resolver answers, as without a proxy.
+    /// answered for it (`answered`); otherwise wherever the program's lookup answers as its
+    /// connection is made, as without a proxy.
     Direct { answered: Option<Answered> },
-    /// Through the proxy at `proxy`, which looks the host up again.
-    Proxied { proxy: Uri },
+    /// Through `proxy`, which looks the host up again.
+    Proxied { proxy: Intercept },
 }
 
 /// The addresses the program's lookup answered for a host, as the request names it.
@@ -71,9 +72,7 @@ pub(super) async fn route(
         .filter(|address| is_local(*address))
         .collect();
     if local.is_empty() {
-        return Ok(Route::Proxied {
-            proxy: proxy.uri().clone(),
-        });
+        return Ok(Route::Proxied { proxy });
     }
     Ok(Route::Direct {
         answered: Some(Answered {

@@ -1,47 +1,56 @@
 //! A program's HTTP requests, `wasi:http/client@0.3.0`'s, through `wasmtime-wasi-http`'s hook
 //! (decision 13 of the permissions proposal): each checked by its URL's host as a lookup and a
-//! connection are checked, then sent with reqwest, which goes through the system's proxy and
-//! checks the server's certificate as the system does, and follows no redirect, so a redirect's
-//! target is a request of the program's own, checked the same way. An engine set up with
-//! [`HttpProxy::None`], as the tests' are, sends each request straight to its host, whatever
-//! proxy the machine has set.
+//! connection are checked, then sent with hyper's client, over connections of the program's own
+//! (`sockets`), so their bytes are counted as its sockets' are ([`connector`]), through the
+//! system's proxy, in TLS checked as the system checks a server's certificate, and following no
+//! redirect, so a redirect's target is a request of the program's own, checked the same way. An
+//! engine set up with [`HttpProxy::None`], as the tests' are, sends each request straight to its
+//! host, whatever proxy the machine has set.
 //!
 //! A host that is an address is judged by the address rules before the request is sent. A host
 //! that is a name the domain rule refuses is refused then too. With no proxy in effect, any other
-//! name is resolved by reqwest through the program's own checked lookup ([`resolver`]), which
+//! name is resolved as its connection is made, through the program's own checked lookup, which
 //! answers only the addresses the program may reach, so the connection goes to exactly those,
 //! resolved once: a name whose answer changes between a check and a connection cannot lead one to
 //! this computer or the local network without the local-network switch. With a proxy in effect,
 //! WaOS looks the host up itself first and picks the way by where it lands ([`route`], decision
-//! 14): this computer and the local network directly, at the addresses that lookup answered, the
-//! internet through the proxy, which looks the name up again.
+//! 14): this computer and the local network directly, at the addresses that lookup answered
+//! ([`pins`]), the internet through the proxy, which looks the name up again.
 //!
 //! Each request is decided and told through the program's access by its host's check
 //! ([`check_host`]), the lookups it causes told apart as its own, and held from then until its
 //! response's body ends or is let go, or the request fails.
 //!
-//! The invariant: a request reaches reqwest only after its host passed the program's network,
-//! read as the grants are when it is sent, and reqwest connects only to addresses the same
-//! network answered, or to the proxy for a host it answered only internet addresses for.
+//! The invariant: a request is sent only after its host passed the program's network, read as
+//! the grants are when it is sent, and its connection goes only to addresses the same network
+//! answered, or to the proxy for a host it answered only internet addresses for.
 
 mod bodies;
+mod connector;
+mod pins;
 mod proxies;
-mod resolver;
 mod route;
+mod wire;
 
 use std::future::Future;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use http::header::PROXY_AUTHORIZATION;
 use http::{Method, Uri};
 use http_body_util::BodyExt;
+use hyper::body::Incoming;
+use hyper_util::client::legacy::Client;
+use hyper_util::client::proxy::matcher::Intercept;
+use hyper_util::rt::{TokioExecutor, TokioTimer};
 use wasmtime_wasi_http::{Error, RequestOptions, WasiBody, WasiHttpHooks};
 
 use super::{Lookup, LookupError, ProgramNetwork};
 use crate::access::{Asked, Happened, Held, Holding, Refusal};
-use bodies::{BetweenBytes, SyncBody};
+use bodies::BetweenBytes;
+use connector::{Connector, tls_config};
+use pins::Pins;
 use proxies::Proxies;
-use resolver::ProgramResolver;
 use route::{Route, route};
 
 /// How long a request waits where the program set no time, as `wasmtime-wasi-http` waits.
@@ -85,19 +94,19 @@ pub(crate) struct ProgramHttp {
 }
 
 /// What sends a program's requests: its network, which picks each request's way past a proxy;
-/// the proxies; a client straight to each host and one through the proxies, both resolving
-/// through the program's resolver.
+/// the proxies; the hosts pinned to what the network answered for them; a client straight to
+/// each host and one through the proxies.
 #[derive(Clone)]
 struct Sender {
     network: ProgramNetwork,
     proxies: Arc<Proxies>,
-    direct: reqwest::Client,
-    proxied: reqwest::Client,
-    resolver: Arc<ProgramResolver>,
+    pins: Arc<Pins>,
+    direct: Client<Connector, WasiBody>,
+    proxied: Client<Connector, WasiBody>,
 }
 
 /// What a request sends back: the response, and what reports an error of the request's own after
-/// the response came, which reqwest reports through the response.
+/// the response came, which hyper reports through the response.
 type Sent = (
     http::Response<WasiBody>,
     Box<dyn Future<Output = Result<(), Error>> + Send>,
@@ -113,65 +122,87 @@ impl ProgramHttp {
     }
 
     /// What requests are sent with: the proxies, the system's certificate check, the program's
-    /// resolver, no redirect followed.
+    /// network, no redirect followed.
     fn sender(&mut self) -> Result<Sender, Error> {
         if let Some(sender) = &self.sender {
             return Ok(sender.clone());
         }
-        let resolver = Arc::new(ProgramResolver::new(self.network.clone()));
-        let proxies = self.proxy.proxies();
+        let tls = tls_config().map_err(|error| Error::InternalError(Some(error.to_string())))?;
+        let proxies = Arc::new(self.proxy.proxies());
+        let pins = Arc::new(Pins::default());
         let sender = Sender {
             network: self.network.clone(),
-            direct: client(reqwest::Client::builder().no_proxy(), &resolver)?,
-            proxied: client(
-                proxies.sending_through(reqwest::Client::builder()),
-                &resolver,
-            )?,
-            proxies: Arc::new(proxies),
-            resolver,
+            direct: client(Connector::direct(
+                self.network.clone(),
+                Arc::clone(&pins),
+                Arc::clone(&tls),
+            )),
+            proxied: client(Connector::proxied(Arc::clone(&proxies), tls)),
+            proxies,
+            pins,
         };
         self.sender = Some(sender.clone());
         Ok(sender)
     }
 }
 
-/// `builder`'s client, resolving through `resolver` and following no redirect.
-fn client(
-    builder: reqwest::ClientBuilder,
-    resolver: &Arc<ProgramResolver>,
-) -> Result<reqwest::Client, Error> {
-    builder
-        .redirect(reqwest::redirect::Policy::none())
-        .dns_resolver(Arc::clone(resolver))
-        .build()
-        .map_err(|error| Error::InternalError(Some(error.to_string())))
+/// A client over `connector`, keeping each connection a while for the next request to its host,
+/// as hyper's pool does.
+fn client(connector: Connector) -> Client<Connector, WasiBody> {
+    Client::builder(TokioExecutor::new())
+        .timer(TokioTimer::new())
+        .pool_timer(TokioTimer::new())
+        .build(connector)
 }
 
 impl Sender {
     /// Sends `request` the way its route says, and answers the response once its head came.
-    async fn execute(&self, request: http::Request<WasiBody>) -> Result<reqwest::Response, Error> {
+    async fn execute(
+        &self,
+        mut request: http::Request<WasiBody>,
+    ) -> Result<http::Response<Incoming>, Error> {
+        if !is_sendable(request.uri()) {
+            return Err(Error::HttpRequestUriInvalid);
+        }
         let route = route(&self.network, &self.proxies, request.uri())
             .await
             .map_err(refusal)?;
-        let request = request.map(|body| reqwest::Body::wrap(SyncBody::new(body)));
-        let request =
-            reqwest::Request::try_from(request).map_err(|_| Error::HttpRequestUriInvalid)?;
         let sent = match route {
             Route::Direct { answered } => {
-                let _pinned = answered.map(|answered| self.resolver.pin(answered));
-                self.direct.execute(request).await
+                let _pinned = answered.map(|answered| self.pins.pin(answered));
+                self.direct.request(request).await
             }
             Route::Proxied { proxy } => {
-                self.resolver.note_proxy(&proxy);
-                self.proxied.execute(request).await
+                authorize_to(&proxy, &mut request);
+                self.proxied.request(request).await
             }
         };
         sent.map_err(|error| error_of(&error))
     }
 }
 
+/// Whether `uri` names what hyper sends: an HTTP or HTTPS URL with a host.
+fn is_sendable(uri: &Uri) -> bool {
+    matches!(uri.scheme_str(), Some("http" | "https")) && uri.host().is_some()
+}
+
+/// Gives `request` the credentials of `proxy` where an HTTP proxy is sent it whole, a plain HTTP
+/// request, and the program set none of its own.
+fn authorize_to(proxy: &Intercept, request: &mut http::Request<WasiBody>) {
+    let to_http_proxy = matches!(proxy.uri().scheme_str(), Some("http" | "https"));
+    if request.uri().scheme_str() != Some("http") || !to_http_proxy {
+        return;
+    }
+    if let Some(authorization) = proxy.basic_auth() {
+        request
+            .headers_mut()
+            .entry(PROXY_AUTHORIZATION)
+            .or_insert_with(|| authorization.clone());
+    }
+}
+
 impl WasiHttpHooks for ProgramHttp {
-    /// reqwest writes the `host` header from the URL.
+    /// hyper's client writes the `host` header from the URL.
     fn set_host_header(&mut self) -> bool {
         false
     }
@@ -220,8 +251,8 @@ fn check_host(network: &ProgramNetwork, method: &Method, uri: &Uri) -> Result<In
 
 /// Whether `uri`'s host may be reached: addresses known without the system, such as an address,
 /// by the address rules, a name the system resolves unless the domain rule and the local network
-/// both refuse it. The addresses the system resolves a name to are judged when reqwest resolves
-/// it.
+/// both refuse it. The addresses the system resolves a name to are judged as the request's
+/// connection is made.
 fn host_reachable(network: &ProgramNetwork, uri: &Uri) -> Result<(), LookupError> {
     let host = uri.host().ok_or(LookupError::Invalid)?;
     let host = host.trim_start_matches('[').trim_end_matches(']');
@@ -274,26 +305,25 @@ async fn send(
         time_to_first_byte: in_flight.sent.elapsed(),
     });
     let held = in_flight.held;
-    let response = http::Response::from(response)
-        .map(|body| BetweenBytes::new(body, between_bytes, held).boxed_unsync());
+    let response = response.map(|body| BetweenBytes::new(body, between_bytes, held).boxed_unsync());
     Ok((response, Box::new(async { Ok(()) })))
 }
 
-/// WASI's error for what reqwest reports, by the first of its causes that tells: the program's
-/// resolver refusing the host, the certificate, the TLS exchange, a refused or timed-out
-/// connection.
-fn error_of(error: &reqwest::Error) -> Error {
-    if error.is_timeout() {
-        return Error::ConnectionTimeout;
-    }
-    let mut cause: Option<&(dyn std::error::Error + 'static)> = Some(error);
+/// WASI's error for what hyper's client reports, by the first of its causes that tells: the
+/// program's lookup refusing the host, the certificate, the TLS exchange, a refused or timed-out
+/// connection; any other failure to connect as an unavailable destination.
+fn error_of(error: &(dyn std::error::Error + 'static)) -> Error {
+    let mut cause = Some(error);
     while let Some(current) = cause {
         if let Some(told) = told_by(current) {
             return told;
         }
         cause = next_cause(current);
     }
-    if error.is_connect() {
+    let connecting = error
+        .downcast_ref::<hyper_util::client::legacy::Error>()
+        .is_some_and(hyper_util::client::legacy::Error::is_connect);
+    if connecting {
         Error::DestinationUnavailable
     } else {
         Error::InternalError(Some(error.to_string()))

@@ -8,8 +8,9 @@ description = "Installed programs, their updates, and the package sources they c
 
 [dependencies]
 waos-package.workspace = true
-# Reading a source's index and downloading its packages, and the URL a source is.
-reqwest.workspace = true
+# Reading a source's index and downloading its packages, through the system's proxy, an HTTP
+# proxy or a SOCKS one; and the URL a source is.
+reqwest = { workspace = true, features = ["system-proxy", "socks"] }
 url.workspace = true
 # A download's SHA-256, checked against its listing, and said in hex when it differs.
 sha2.workspace = true

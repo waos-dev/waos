@@ -15,7 +15,7 @@
 //! it, only some allows it when one of its names is among them, so a bare address is refused,
 //! and all but some refuses it when one of its names is among them.
 //!
-//! HTTP is checked the same way ([`http`]): reqwest resolves a request's host through the
+//! HTTP is checked the same way ([`http`]): a request's connection resolves its host through the
 //! program's checked lookup ([`ProgramNetwork::reachable`]), so the request connects to the
 //! addresses that passed the rules, resolved once. Where a proxy would carry a request, the
 //! engine runs that lookup itself before picking the way: an address of this computer or the
