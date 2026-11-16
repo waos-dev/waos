@@ -36,6 +36,7 @@ impl HeldStarts {
     /// Starts the program `id` held, in place of the one running, and answers it once linked.
     pub(crate) async fn start(&self, id: &str) -> Result<HeldProgram, StartError> {
         let id: ProgramId = id.parse().map_err(|_| StartError::Unknown)?;
+        tracing::info!(%id, "an inspector asks to start it held");
         if let Some(installed) = self.store.program(&id) {
             return self.start_from(&id, installed).await;
         }

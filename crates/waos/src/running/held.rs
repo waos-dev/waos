@@ -59,7 +59,9 @@ impl Hold {
     pub(crate) async fn wait(self) {
         // Nobody waiting for the link is not an error.
         let _ = self.linked.send(());
+        tracing::info!("held before its first instruction");
         // Dropped is the release; the channel carries nothing else.
         let _ = self.released.await;
+        tracing::info!("let go");
     }
 }
