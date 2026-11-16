@@ -1,6 +1,6 @@
 //! A live panel, as a table: the columns' titles, then a row an event or a use, the oldest first,
 //! each with what is said beneath it; or why there is none; and above it, the way to start the
-//! program inspected, so the panel hears it from its first instruction. Drawn with what Waft has until WinUI's
+//! program inspected, so the panel hears it from its first instruction, and to stop it. Drawn with what Waft has until WinUI's
 //! table is ported, in its shape: columns by title and width, rows of cells.
 //!
 //! The invariant: a panel is drawn from its `Panel` alone, so every panel looks the same.
@@ -13,7 +13,7 @@ use waft::{
 use waft_winui::{Button, TextBlockStyle, ThemeResources};
 
 use super::{GAP, MARGIN, ROW_PADDING, one_line, paragraph, said};
-use crate::inspector::{Inspector, start_inspected};
+use crate::inspector::{Inspector, end_program, start_inspected};
 use crate::panels::{Column, Panel};
 use crate::words;
 
@@ -57,34 +57,41 @@ pub(super) fn panel(
         .into_widget()
 }
 
-/// Start inspected, or Restart inspected while it runs, with what that does beside it.
+/// Start inspected, or Restart inspected and Stop while it runs, with what starting does beside
+/// them.
 fn start_row(
     inspector: &Entity<Inspector>,
     running: bool,
     resources: &ThemeResources,
 ) -> WidgetRef {
-    let inspector = inspector.clone();
-    let start = Listener::new(move |app| start_inspected(app, &inspector));
+    let starting = inspector.clone();
+    let start = Listener::new(move |app| start_inspected(app, &starting));
     let label = if running {
         words::RESTART_INSPECTED
     } else {
         words::START_INSPECTED
     };
+    let mut controls = vec![Button::text(label, start).into_widget()];
+    if running {
+        let ending = inspector.clone();
+        let stop = Listener::new(move |app| end_program(app, &ending));
+        controls.push(Button::text(words::STOP, stop).into_widget());
+    }
+    controls.push(
+        Expanded::new(one_line(
+            words::START_DETAIL,
+            TextBlockStyle::Caption,
+            resources,
+            false,
+        ))
+        .into_widget(),
+    );
     Padding::new(EdgeInsetsGeometry::from_ltrb(MARGIN, GAP, MARGIN, 0.0))
         .child(
             Row::new()
                 .spacing(GAP)
                 .cross_axis_alignment(CrossAxisAlignment::Center)
-                .children([
-                    Button::text(label, start).into_widget(),
-                    Expanded::new(one_line(
-                        words::START_DETAIL,
-                        TextBlockStyle::Caption,
-                        resources,
-                        false,
-                    ))
-                    .into_widget(),
-                ]),
+                .children(controls),
         )
         .into_widget()
 }

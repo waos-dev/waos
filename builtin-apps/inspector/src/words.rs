@@ -19,7 +19,7 @@ pub(crate) const RUNNING: &str = "Running";
 pub(crate) const REPORT: &str = "Report";
 pub(crate) const NETWORK: &str = "Network";
 pub(crate) const FILES: &str = "Files";
-pub(crate) const DEVICES: &str = "Devices";
+pub(crate) const ACCESS_TAB: &str = "Access";
 pub(crate) const OUTPUT: &str = "Output";
 pub(crate) const IN_USE: &str = "In use";
 pub(crate) const ACCESS: &str = "Data and sensor access";
@@ -34,7 +34,8 @@ pub(crate) const LIVE: &str = "As it happens";
 pub(crate) const LIVE_DETAIL: &str = "What it does from now on, one event a row, while it runs.";
 pub(crate) const SEE_NETWORK: &str = "Its connections and requests";
 pub(crate) const SEE_FILES: &str = "The files it opens and changes";
-pub(crate) const SEE_DEVICES: &str = "Its camera, microphone and machines";
+pub(crate) const SEE_ACCESS: &str =
+    "Its camera, microphone, clipboard, links, notifications, questions and machines";
 pub(crate) const SEE_OUTPUT: &str = "What it writes to its output and errors";
 pub(crate) const SEE_IN_USE: &str = "What it uses now: files open, connections, captures";
 pub(crate) const NOT_RUNNING: &str =
@@ -49,8 +50,8 @@ pub(crate) const NO_NETWORK_YET: &str =
     "Nothing yet. Its connections and requests show here as it makes them.";
 pub(crate) const NO_FILES_YET: &str =
     "Nothing yet. The files it opens and changes show here as it does.";
-pub(crate) const NO_DEVICES_YET: &str =
-    "Nothing yet. Its camera, microphone and machines show here as it uses them.";
+pub(crate) const NO_ACCESS_YET: &str =
+    "Nothing yet. What it reaches that you decide shows here as it reaches it.";
 pub(crate) const NO_OUTPUT_YET: &str = "Nothing yet. What it writes shows here as it writes it.";
 pub(crate) const NOTHING_IN_USE: &str =
     "It uses nothing now: no file open, no connection, no capture.";
@@ -61,6 +62,8 @@ pub(crate) const MICROPHONE: &str = "Microphone";
 pub(crate) const WAOS_OWN: &str = "WaOS's own, simulated";
 pub(crate) const IN_A_TERMINAL: &str = "in a terminal";
 pub(crate) const A_COMMAND: &str = "A command";
+pub(crate) const A_NOTIFICATION: &str = "A notification";
+pub(crate) const STOP: &str = "Stop";
 pub(crate) const NOT_BOUND: &str = "not bound yet";
 pub(crate) const SINCE: &str = "Since";
 pub(crate) const LOCAL_ADDRESSES: &str = "This computer and the local network";
@@ -176,6 +179,29 @@ pub(crate) fn stream(instance: u32, errors: bool) -> String {
         (0, true) => "Errors".to_owned(),
         (worker, false) => format!("Worker {worker}, output"),
         (worker, true) => format!("Worker {worker}, errors"),
+    }
+}
+
+/// A question WaOS puts to a program's user, by its row's key, as its settings page names it.
+pub(crate) fn question(key: &str) -> String {
+    match key {
+        "camera" => "Camera".to_owned(),
+        "microphone" => "Microphone".to_owned(),
+        "notifications" => "Notifications".to_owned(),
+        "role.inspector" => "Seeing what other programs do".to_owned(),
+        "machine" => "Machines".to_owned(),
+        other => other.to_owned(),
+    }
+}
+
+/// A question's answer, by its key; none for one nobody answered.
+pub(crate) fn answer(key: Option<&str>) -> String {
+    match key {
+        Some("allow") => "allowed".to_owned(),
+        Some("deny") => "not allowed".to_owned(),
+        Some("simulated") => "simulated".to_owned(),
+        Some(other) => other.to_owned(),
+        None => "not answered".to_owned(),
     }
 }
 

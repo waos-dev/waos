@@ -230,6 +230,10 @@ impl InspectedPrograms for TwoPrograms {
     fn start_held(&self, _id: &str) -> BoxFuture<'static, Result<HeldProgram, StartError>> {
         future::ready(Err(StartError::Unknown)).boxed()
     }
+
+    fn end(&self, _id: &str) -> BoxFuture<'static, ()> {
+        future::ready(()).boxed()
+    }
 }
 
 /// What a program wrote to its standard output, kept.

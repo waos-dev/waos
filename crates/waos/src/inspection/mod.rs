@@ -31,6 +31,7 @@ pub mod bindings {
             "wasdk:inspect/devices.[method]device.programs": async | store | trappable,
             "wasdk:inspect/devices.[method]device.icon": async | store | trappable,
             "wasdk:inspect/devices.[method]device.start-held": async | store | trappable,
+            "wasdk:inspect/devices.[method]device.end": async | store | trappable,
             "wasdk:inspect/audit.days": async | store | trappable,
         },
         additional_derives: [waos_wit_serialize::WitSerialize, PartialEq],

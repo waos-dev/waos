@@ -56,7 +56,7 @@ pub(crate) enum Tab {
     Report,
     Network,
     Files,
-    Devices,
+    Access,
     Output,
     InUse,
 }
@@ -66,7 +66,7 @@ impl Tab {
         Tab::Report,
         Tab::Network,
         Tab::Files,
-        Tab::Devices,
+        Tab::Access,
         Tab::Output,
         Tab::InUse,
     ];
@@ -76,7 +76,7 @@ impl Tab {
             Tab::Report => words::REPORT,
             Tab::Network => words::NETWORK,
             Tab::Files => words::FILES,
-            Tab::Devices => words::DEVICES,
+            Tab::Access => words::ACCESS_TAB,
             Tab::Output => words::OUTPUT,
             Tab::InUse => words::IN_USE,
         }
@@ -87,7 +87,9 @@ impl Tab {
     pub(crate) fn of_access(kind: &str) -> Option<Tab> {
         match kind {
             "Files" => Some(Tab::Files),
-            "Camera" | "Microphone" | "Machines" => Some(Tab::Devices),
+            "Camera" | "Microphone" | "Clipboard" | "Machines" | "Notifications" => {
+                Some(Tab::Access)
+            }
             _ => None,
         }
     }
@@ -98,7 +100,7 @@ impl Tab {
             Tab::Report => words::REPORT,
             Tab::Network => words::SEE_NETWORK,
             Tab::Files => words::SEE_FILES,
-            Tab::Devices => words::SEE_DEVICES,
+            Tab::Access => words::SEE_ACCESS,
             Tab::Output => words::SEE_OUTPUT,
             Tab::InUse => words::SEE_IN_USE,
         }
@@ -229,6 +231,16 @@ pub(crate) fn start_inspected(app: &mut App, inspector: &Entity<Inspector>) {
             }),
         });
     });
+}
+
+/// Ends the program chosen, with a stop, as its user may from the inspector (decision 19); its
+/// panel keeps what it heard.
+pub(crate) fn end_program(app: &mut App, inspector: &Entity<Inspector>) {
+    let read = inspector.read(app);
+    let (Some(device), Some(id)) = (read.device.clone(), read.chosen.clone()) else {
+        return;
+    };
+    app.spawn(async move |_cx| device.end(id).await);
 }
 
 /// Starts hearing what the panel shown shows where nothing was heard, as when the program did not

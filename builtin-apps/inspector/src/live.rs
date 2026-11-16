@@ -13,7 +13,7 @@ use wasdk::inspect::trace;
 
 use crate::inspector::{Inspector, Tab};
 use crate::panels::Panel;
-use crate::panels::devices::{Capturing, DeviceLog};
+use crate::panels::access::{AccessLog, Capturing};
 use crate::panels::files::FileLog;
 use crate::panels::in_use::InUse;
 use crate::panels::network::NetworkLog;
@@ -29,7 +29,7 @@ pub(crate) struct Live {
     pub(crate) refused: Option<String>,
     network: NetworkLog,
     files: FileLog,
-    devices: DeviceLog,
+    access: AccessLog,
     output: OutputLog,
     in_use: InUse,
 }
@@ -41,7 +41,7 @@ impl Live {
             Tab::Report => None,
             Tab::Network => Some(&self.network),
             Tab::Files => Some(&self.files),
-            Tab::Devices => Some(&self.devices),
+            Tab::Access => Some(&self.access),
             Tab::Output => Some(&self.output),
             Tab::InUse => Some(&self.in_use),
         }
@@ -93,7 +93,7 @@ pub(crate) fn listen(
                 live.files.add(&event);
             },
         ),
-        Tab::Devices => listen_to_devices(app, inspector, (device, id), listening),
+        Tab::Access => listen_to_access(app, inspector, (device, id), listening),
         Tab::Output => hear(
             app,
             inspector,
@@ -115,41 +115,81 @@ pub(crate) fn listen(
     }
 }
 
-/// The camera's, the microphone's and the machines' streams, into the one panel.
-fn listen_to_devices(
+/// The streams of what the program reaches that its user decides, into the one panel: the
+/// camera's, the microphone's, the clipboard's, the links', the notifications', the questions' and
+/// the machines'.
+fn listen_to_access(
     app: &mut App,
     inspector: &Entity<Inspector>,
     (device, id): (&Device, &str),
     listening: u64,
 ) -> bool {
-    let camera = hear(
-        app,
-        inspector,
-        listening,
-        trace::camera(device, id),
-        |live, event| {
-            live.devices.add_capture(Capturing::Camera, &event);
-        },
-    );
-    let microphone = hear(
-        app,
-        inspector,
-        listening,
-        trace::microphone(device, id),
-        |live, event| {
-            live.devices.add_capture(Capturing::Microphone, &event);
-        },
-    );
-    let machines = hear(
-        app,
-        inspector,
-        listening,
-        trace::machines(device, id),
-        |live, event| {
-            live.devices.add_machine(&event);
-        },
-    );
-    camera || microphone || machines
+    let heard = [
+        hear(
+            app,
+            inspector,
+            listening,
+            trace::camera(device, id),
+            |live, event| {
+                live.access.add_capture(Capturing::Camera, &event);
+            },
+        ),
+        hear(
+            app,
+            inspector,
+            listening,
+            trace::microphone(device, id),
+            |live, event| {
+                live.access.add_capture(Capturing::Microphone, &event);
+            },
+        ),
+        hear(
+            app,
+            inspector,
+            listening,
+            trace::clipboard(device, id),
+            |live, event| {
+                live.access.add_clipboard(&event);
+            },
+        ),
+        hear(
+            app,
+            inspector,
+            listening,
+            trace::links(device, id),
+            |live, event| {
+                live.access.add_link(&event);
+            },
+        ),
+        hear(
+            app,
+            inspector,
+            listening,
+            trace::notifications(device, id),
+            |live, event| {
+                live.access.add_notification(&event);
+            },
+        ),
+        hear(
+            app,
+            inspector,
+            listening,
+            trace::permissions(device, id),
+            |live, event| {
+                live.access.add_permission(&event);
+            },
+        ),
+        hear(
+            app,
+            inspector,
+            listening,
+            trace::machines(device, id),
+            |live, event| {
+                live.access.add_machine(&event);
+            },
+        ),
+    ];
+    heard.contains(&true)
 }
 
 /// What the program uses now, then each change.

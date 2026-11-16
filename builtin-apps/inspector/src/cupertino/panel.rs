@@ -1,18 +1,18 @@
 //! A live panel's page: a tile a row, the oldest first, titled with what it was, with when and how
 //! WaOS decided it beneath, and what the row says beneath it; or why there is none; and in its
 //! navigation bar, the way to start the program inspected, so the page hears it from its first
-//! instruction.
+//! instruction, and to stop it.
 //!
 //! The invariant: a page is drawn from its `Panel` alone, so every panel looks the same.
 
 use waft::{
     App, Column, CrossAxisAlignment, EdgeInsetsGeometry, Entity, IntoWidget, Listener,
-    MainAxisSize, Text, WidgetRef,
+    MainAxisSize, Row, Text, WidgetRef,
 };
 use waft_cupertino::{CupertinoButton, CupertinoListTile, CupertinoNavigationBar};
 
 use super::{BENEATH_LINES, TALL_TILE_PADDING, back, note, scaffold, section};
-use crate::inspector::{Inspector, OWN_ID, Seen, Tab, start_inspected};
+use crate::inspector::{Inspector, OWN_ID, Seen, Tab, end_program, start_inspected};
 use crate::panels::{Panel, PanelRow};
 use crate::words;
 
@@ -40,23 +40,35 @@ pub(super) fn panel_page(
         }))
         .middle(Text::new(tab.name()));
     if seen.program.id != OWN_ID {
-        bar = bar.trailing(start_button(inspector, seen.program.running));
+        bar = bar.trailing(start_buttons(inspector, seen.program.running));
     }
     scaffold(bar, sections)
 }
 
-/// Start, or Restart while it runs: the program started inspected, so the page hears it from its
-/// first instruction.
-fn start_button(inspector: &Entity<Inspector>, running: bool) -> WidgetRef {
-    let inspector = inspector.clone();
-    let start = Listener::new(move |app| start_inspected(app, &inspector));
+/// Start, or Stop and Restart while it runs: the program started inspected, so the page hears it
+/// from its first instruction, or ended.
+fn start_buttons(inspector: &Entity<Inspector>, running: bool) -> WidgetRef {
+    let button = |label: &'static str, pressed: fn(&mut App, &Entity<Inspector>)| {
+        let inspector = inspector.clone();
+        let press = Listener::new(move |app| pressed(app, &inspector));
+        CupertinoButton::new(Text::new(label).into_widget(), Some(press))
+            .padding(EdgeInsetsGeometry::all(0.0))
+            .into_widget()
+    };
+    let mut buttons = Vec::new();
+    if running {
+        buttons.push(button(words::STOP, end_program));
+    }
     let label = if running {
         words::RESTART
     } else {
         words::START
     };
-    CupertinoButton::new(Text::new(label).into_widget(), Some(start))
-        .padding(EdgeInsetsGeometry::all(0.0))
+    buttons.push(button(label, start_inspected));
+    Row::new()
+        .main_axis_size(MainAxisSize::Min)
+        .spacing(16.0)
+        .children(buttons)
         .into_widget()
 }
 

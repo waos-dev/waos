@@ -57,6 +57,9 @@ interface devices {
     /// later `cargo waos run` of it ends the one before. A program run in development starts again
     /// from the component its last `cargo waos run` sent, with its settings and folders.
     start-held: async func(id: string) -> result<held-program, start-error>;
+    /// Ends the program `id` names where it runs, with a stop, as a start in its place ends it;
+    /// answers once it has ended. Nothing for one that does not run.
+    end: async func(id: string);
   }
 
   /// A device reached or lost, by its name: `devices` answers it once reached.

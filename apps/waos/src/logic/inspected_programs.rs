@@ -4,7 +4,7 @@
 //! store keeps days of, though it has ended; a program not installed by its id alone. Each change
 //! to them as it happens, an install or a removal as the library makes it, a start or an end as
 //! the runs list it; each one's icon, read as it is asked for; and a program started held
-//! (`held_starts`), on WaOS's own runtime, so it outlives the inspector that asked.
+//! (`held_starts`), or ended, on WaOS's own runtime, so it outlives the inspector that asked.
 //!
 //! The invariant: a program is named by its id, as the runs name the program they run, so what an
 //! inspector reads of a running one the engine finds under that name.
@@ -118,6 +118,22 @@ impl InspectedPrograms for ProgramsOnThisComputer {
             starting
                 .await
                 .unwrap_or_else(|_| Err(StartError::Failed("the start was cut short".to_owned())))
+        }
+        .boxed()
+    }
+
+    fn end(&self, id: &str) -> BoxFuture<'static, ()> {
+        let (Some((_, runtime)), Ok(id)) = (self.starts.get(), id.parse::<ProgramId>()) else {
+            return futures::future::ready(()).boxed();
+        };
+        let runs = Arc::clone(&self.runs);
+        let ending = runtime.spawn(async move {
+            tracing::info!(%id, "ended from an inspector");
+            runs.stop(&id).await;
+        });
+        async move {
+            // A cut short end has nothing more to wait for.
+            let _ = ending.await;
         }
         .boxed()
     }

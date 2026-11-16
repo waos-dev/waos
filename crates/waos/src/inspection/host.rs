@@ -1,6 +1,6 @@
 //! The code serving `wasdk:inspect` to a program holding the inspector role: this device, the
 //! programs on it as the embedder gives them (`InspectedPrograms`), each one's icon as it is asked
-//! for, a program started held as the embedder starts it, kept until the inspector drops it, a program's audit summary as the engine's audit log keeps it, today's kept first where it
+//! for, a program started held as the embedder starts it, kept until the inspector drops it, or ended, a program's audit summary as the engine's audit log keeps it, today's kept first where it
 //! runs, what it uses now and each change to it, and its live trace, a stream per capability. A running program is the one the engine
 //! runs under the id asked for, its name, as the embedder names it (`Program::named`). Linked only
 //! for a program its user granted the role (`roles`).
@@ -227,6 +227,18 @@ impl<T: InspectCtxView + 'static> HostDeviceWithStore<T> for HasInspect {
         Ok(Ok(pushed))
     }
 
+    /// The program ended, while the role is held; nothing for an inspector without it.
+    async fn end(
+        accessor: &Accessor<T, Self>,
+        _device: Resource<Device>,
+        id: String,
+    ) -> wasmtime::Result<()> {
+        if let Some(programs) = reach_of(accessor).programs() {
+            programs.end(&id).await;
+        }
+        Ok(())
+    }
+
     fn drop(mut access: Access<'_, T, Self>, device: Resource<Device>) -> wasmtime::Result<()> {
         access.get().table.delete(device)?;
         Ok(())
@@ -445,6 +457,10 @@ mod tests {
 
         fn start_held(&self, _id: &str) -> BoxFuture<'static, Result<HeldProgram, StartError>> {
             future::ready(Err(StartError::Unknown)).boxed()
+        }
+
+        fn end(&self, _id: &str) -> BoxFuture<'static, ()> {
+            future::ready(()).boxed()
         }
     }
 

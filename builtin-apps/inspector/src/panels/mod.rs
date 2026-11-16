@@ -7,7 +7,7 @@
 //! The invariant: a row says what its events say, a refusal naming the setting that refused it;
 //! and a panel keeps at most `KEPT` rows, the oldest going first.
 
-pub(crate) mod devices;
+pub(crate) mod access;
 pub(crate) mod files;
 pub(crate) mod in_use;
 pub(crate) mod network;

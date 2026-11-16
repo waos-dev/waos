@@ -163,7 +163,7 @@ impl Runs {
             return;
         };
         self.ids.send_replace(running.keys().cloned().collect());
-        tracing::info!(%id, "the program is removed or updated: its run ends");
+        tracing::info!(%id, "its run is stopped");
         current.program.stop();
         current.program.ended().await;
     }

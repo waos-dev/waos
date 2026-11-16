@@ -100,14 +100,16 @@ mod tests {
     use waos_local::LocalCapabilities;
 
     use super::*;
+    use waos::inspection::InspectedPrograms;
+
     use crate::logic::environments::ProgramEnvironments;
+    use crate::logic::inspected_programs::ProgramsOnThisComputer;
     use crate::logic::program_places::{ProgramPlace, ProgramPlaces};
     use crate::logic::runs::Runs;
     use crate::logic::test_engine::{self, NoWindows};
 
     #[tokio::test(flavor = "multi_thread")]
-    async fn a_development_run_starts_held_from_the_component_last_sent_in_place_of_the_one_running()
-     {
+    async fn an_inspector_starts_a_development_run_held_in_place_of_the_one_running_and_ends_it() {
         let folder = tempfile::tempdir().unwrap();
         let engine = test_engine::engine(Arc::new(NoWindows), &folder.path().join("code"));
         let store =
@@ -119,6 +121,7 @@ mod tests {
             Arc::clone(&runs),
             ProgramPlaces::new(ProgramPlace::Windows),
         );
+        let programs = ProgramsOnThisComputer::new(store.clone(), Arc::clone(&runs));
         let sent = Arc::new(SentComponents::new(folder.path().join("dev")));
         let id: ProgramId = "dev.example.forever".parse().unwrap();
         let forever = std::fs::read(waos_test_programs::FOREVER).unwrap();
@@ -128,8 +131,9 @@ mod tests {
             store,
             sent,
         };
+        programs.serve_starts(starts, tokio::runtime::Handle::current());
 
-        let held = starts.start("dev.example.forever").await.unwrap();
+        let held = programs.start_held("dev.example.forever").await.unwrap();
         let program = runs.running(&id).await.expect("among the runs");
         let mut output = program.trace(TraceKind::Output).expect("linked");
         drop(held);
@@ -138,7 +142,7 @@ mod tests {
         let bytes: Vec<u8> = serde_json::from_value(json["bytes"].clone()).unwrap();
         assert_eq!(String::from_utf8_lossy(&bytes), "count 1048576\n");
 
-        let again = starts.start("dev.example.forever").await.unwrap();
+        let again = programs.start_held("dev.example.forever").await.unwrap();
         assert!(
             matches!(program.ended().await, waos::ProgramEnd::Stopped),
             "the run before is stopped first"
@@ -147,12 +151,16 @@ mod tests {
         drop(again);
         assert!(
             matches!(
-                starts.start("dev.example.never-sent").await,
+                programs.start_held("dev.example.never-sent").await,
                 Err(StartError::Unknown)
             ),
             "an id neither installed nor sent"
         );
-        started_again.stop();
-        started_again.ended().await;
+        programs.end("dev.example.forever").await;
+        assert!(
+            matches!(started_again.ended().await, waos::ProgramEnd::Stopped),
+            "ended by an inspector"
+        );
+        assert!(runs.running(&id).await.is_none(), "and out of the runs");
     }
 }
