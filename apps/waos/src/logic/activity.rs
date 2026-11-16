@@ -1,15 +1,15 @@
-//! What a program did over the days the store keeps of it, summed as `waos-activity` says it, for
-//! its settings page to show in short (the inspector's first panels, decision 2).
+//! What a program did over the days the engine keeps of it, today's as counted now, summed as
+//! `waos-activity` says it, for its settings page to show in short (the inspector's first panels,
+//! decision 2).
 
-use waos::{AuditDay, AuditLog};
+use waos::{AuditDay, WaOS};
 use waos_activity::{Activity, Counts, Folder};
 use waos_package::ProgramId;
-use waos_store::Store;
 
-/// What the program `id` did over the days `store` keeps of it.
-pub(crate) fn activity_of(store: &Store, id: &ProgramId) -> Activity {
+/// What the program `id` did over the days `engine` keeps of it.
+pub(crate) fn activity_of(engine: &WaOS, id: &ProgramId) -> Activity {
     let mut activity = Activity::default();
-    for day in store.days(id.as_str()) {
+    for day in engine.days_of(id.as_str()) {
         add_day(&mut activity, &day);
     }
     activity

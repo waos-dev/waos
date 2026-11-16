@@ -808,7 +808,7 @@ mod tests {
             0,
             "let go, and not counted"
         );
-        days.keep_all_now();
+        days.keep_all();
         assert!(locked(&log.0).is_empty(), "nothing kept while off");
         answers.keep_record(true);
         post(&summary);
@@ -834,7 +834,7 @@ mod tests {
             1,
             "today is read from memory"
         );
-        days.keep_all_now();
+        days.keep_all();
         let kept = locked(&log.0);
         assert_eq!(kept.len(), 1);
         assert_eq!(kept[0].0, "dev.waos.notes");
@@ -879,7 +879,7 @@ mod tests {
         post(&second);
         drop(first);
         drop(second);
-        days.keep_all_now();
+        days.keep_all();
         let today = &log.days("dev.waos.notes")[0];
         assert_eq!(
             today.notifications.allowed, 3,
@@ -899,13 +899,13 @@ mod tests {
             kept_in(&earlier, "dev.waos.notes"),
             Arc::new(Answers::default()),
         ));
-        earlier.keep_all_now();
+        earlier.keep_all();
         let later = days_kept_in(&log);
         post(&Summary::new(
             kept_in(&later, "dev.waos.notes"),
             Arc::new(Answers::default()),
         ));
-        later.keep_all_now();
+        later.keep_all();
         assert_eq!(log.days("dev.waos.notes")[0].notifications.allowed, 2);
     }
 

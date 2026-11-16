@@ -408,7 +408,8 @@ pub(crate) fn start(
 /// Listens for `cargo waos` on the socket `waos-dev-protocol` names, running what it sends on
 /// `installed`'s engine with its environments, counted in its runs, the components kept in
 /// `sent`, and opening files with an installed program as `installed` opens it; and
-/// makes a quit ask every program in its runs first, stopping the server once they agree. Not on
+/// makes a quit ask every program in its runs first, stopping the server and keeping the
+/// engine's days once they agree. Not on
 /// a phone: `cargo waos` reaches none yet, and the system ends an app there without asking it.
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn listen_for_cargo_waos(
@@ -420,10 +421,11 @@ fn listen_for_cargo_waos(
 ) -> Result<()> {
     let socket = waos_dev_protocol::listener_path();
     let runs = Arc::clone(&installed.runs);
+    let engine = Arc::clone(&installed.engine);
     let server = DevServer::start(installed, store.clone(), asking, &socket, sent)
         .with_context(|| format!("listening for cargo waos at {}", socket.display()))?;
     tracing::info!(socket = %socket.display(), "WaOS listens for cargo waos");
-    quitting::ask_programs_before_quitting(app, runs, server);
+    quitting::ask_programs_before_quitting(app, runs, server, engine);
     Ok(())
 }
 

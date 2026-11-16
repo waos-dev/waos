@@ -5,7 +5,7 @@
 //! that show nothing; and the
 //! app as it starts, over a store in a folder of the test's own: the library, the programs'
 //! windows, the questions they put to their user and the programs recording, on an engine whose
-//! screens never refresh. The test plays the host: it reports each window made, draws the frames
+//! screens never refresh, which keeps the programs' days in the store, as the app's does. The test plays the host: it reports each window made, draws the frames
 //! asked for, a twentieth of a second apart, runs the app's tasks, and taps and types as a user
 //! does.
 
@@ -165,9 +165,10 @@ impl LibraryDesktop {
         let machine_picker = Arc::new(prompts.machine_picker());
         let (recording_indicator, recording_changes) = RecordingIndicatorOnRequest::new();
         let prompts = Arc::new(prompts);
-        let engine = test_engine::engine_asking(
+        let engine = test_engine::engine_keeping_days(
             Arc::new(placement),
             Arc::clone(&prompts) as Arc<dyn waos::Prompts>,
+            Arc::new(store.clone()),
             &folder.path().join("code"),
         );
         let installed_runs = InstalledRuns::new(

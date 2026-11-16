@@ -1,7 +1,8 @@
 //! Every program's day of what it did with what it was allowed, counted in memory as each use is
 //! told ([`ProgramDay`]), and the one writer per engine that keeps those days through the
 //! engine's [`AuditLog`] ([`Days`]): each day that changed, about once a minute; a day that
-//! ended, as the next begins; and a program's day at its end. It writes on a thread of its own,
+//! ended, as the next begins; a program's day at its end; and every day, waited for, as WaOS
+//! quits or the engine goes, so a clean quit loses nothing. It writes on a thread of its own,
 //! so a guarded use only ever counts in memory, and no program waits on the store's lock, a file
 //! write or a sync. The runs of one program count into one day, begun from what was kept of
 //! today, so the day counts them all, and an inspector reads today's day from memory.
@@ -31,7 +32,15 @@ const DAY: u64 = 24 * 60 * 60;
 #[derive(Clone)]
 pub(crate) struct Days {
     shared: Arc<Shared>,
-    writer: mpsc::Sender<String>,
+    writer: mpsc::Sender<Ask>,
+}
+
+/// What the writer is asked besides its minute.
+enum Ask {
+    /// Keep the day of the program so named: it ended.
+    Keep(String),
+    /// Keep every day that changed, and say when it is done.
+    KeepAll(mpsc::Sender<()>),
 }
 
 struct Shared {
@@ -94,7 +103,17 @@ impl Days {
     /// Asks the writer to keep the program `name`'s day now: the program ended.
     pub(crate) fn keep_now(&self, name: &str) {
         // A writer gone keeps nothing more; nothing is lost that it would have kept.
-        let _ = self.writer.send(name.to_owned());
+        let _ = self.writer.send(Ask::Keep(name.to_owned()));
+    }
+
+    /// Keeps every day that changed, through the writer, after what it was asked before;
+    /// returns once they are kept. Writes files, so call it off the main thread.
+    pub(crate) fn keep_all(&self) {
+        let (done, kept) = mpsc::channel();
+        if self.writer.send(Ask::KeepAll(done)).is_ok() {
+            // A writer gone has kept everything a last time already.
+            let _ = kept.recv();
+        }
     }
 
     /// The days kept of the program `name`, newest first, today's as counted in memory now in
@@ -109,21 +128,20 @@ impl Days {
         }
         days
     }
-
-    /// Keeps every day that changed now, on the caller's thread, as the writer does.
-    #[cfg(test)]
-    pub(crate) fn keep_all_now(&self) {
-        self.shared.keep_all();
-    }
 }
 
 impl Shared {
     /// Keeps each day that changed once a minute, and a program's day when asked, until every
     /// [`Days`] is gone; then keeps them all a last time.
-    fn write_until_gone(&self, asked: &mpsc::Receiver<String>) {
+    fn write_until_gone(&self, asked: &mpsc::Receiver<Ask>) {
         loop {
             match asked.recv_timeout(KEEP_EVERY) {
-                Ok(name) => self.keep(&name),
+                Ok(Ask::Keep(name)) => self.keep(&name),
+                Ok(Ask::KeepAll(done)) => {
+                    self.keep_all();
+                    // Whoever asked may have stopped waiting.
+                    let _ = done.send(());
+                }
                 Err(RecvTimeoutError::Timeout) => self.keep_all(),
                 Err(RecvTimeoutError::Disconnected) => {
                     self.keep_all();

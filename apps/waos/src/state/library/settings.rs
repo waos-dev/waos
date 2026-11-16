@@ -97,11 +97,12 @@ impl Library {
         }
     }
 
-    /// What the program `of` shows did over the days kept of it; none on the global page.
+    /// What the program `of` shows did over the days kept of it, today's as counted now; none on
+    /// the global page.
     pub(crate) fn activity(&self, of: &SettingsOf) -> Option<waos_activity::Activity> {
         match of {
             SettingsOf::Global => None,
-            SettingsOf::Program(id) => Some(activity_of(&self.store, id)),
+            SettingsOf::Program(id) => Some(activity_of(&self.runs.engine, id)),
         }
     }
 

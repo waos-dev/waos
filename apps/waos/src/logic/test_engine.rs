@@ -1,7 +1,8 @@
 //! An engine for the app's tests: no screens, screens that never refresh, the code cache the test
 //! gives it, and the placement the test gives it, or one that makes no windows, with the prompts
-//! the test gives it, or none to ask; or over a shell the test fills in further, on the time it
-//! gives; or, on Apple's systems, one whose programs' windows draw (`drawing::engine`): each
+//! the test gives it, or none to ask, keeping no days of what the programs do unless the test
+//! gives it the log to keep them in, as the app gives its store; or over a shell the test fills
+//! in further, on the time it gives; or, on Apple's systems, one whose programs' windows draw (`drawing::engine`): each
 //! request given a window at once, on one screen that refreshes a moment after it is asked, each
 //! window keeping the picture presented last until the next replaces it, as a compositor does, and
 //! taking the frame it is given, its view filling it. A
@@ -16,8 +17,8 @@ use std::sync::Arc;
 use waos::bindings::wasdk::platform::system::Brightness;
 use waos::bindings::wasdk::platform::views::ViewError;
 use waos::{
-    EngineTime, FreezePolicy, HttpProxy, NoPrompts, PlatformState, Prompts, RunningProgram, Shell,
-    ViewPlacement, ViewRequest, VsyncWaiter, WaOS, WaOSConfig,
+    AuditLog, EngineTime, FreezePolicy, HttpProxy, NoPrompts, PlatformState, Prompts,
+    RunningProgram, Shell, ViewPlacement, ViewRequest, VsyncWaiter, WaOS, WaOSConfig,
 };
 
 /// Why [`NoWindows`] refuses every request.
@@ -59,6 +60,21 @@ pub(crate) fn engine_asking(
     engine_over(shell(views, prompts), EngineTime::Real, code_cache)
 }
 
+/// An engine placing views with `views` and asking the user through `prompts`, keeping the days
+/// of what its programs do in `audit` and compiled programs in `code_cache`.
+pub(crate) fn engine_keeping_days(
+    views: Arc<dyn ViewPlacement>,
+    prompts: Arc<dyn Prompts>,
+    audit: Arc<dyn AuditLog>,
+    code_cache: &Path,
+) -> WaOS {
+    let config = WaOSConfig {
+        audit: Some(audit),
+        ..config(EngineTime::Real, code_cache)
+    };
+    engine_of(config, shell(views, prompts))
+}
+
 /// The shell of an engine for the app's tests: `views` places its views and `prompts` asks its
 /// user, its screens never refresh, and it has nothing else.
 pub(crate) fn shell(views: Arc<dyn ViewPlacement>, prompts: Arc<dyn Prompts>) -> Shell {
@@ -88,7 +104,13 @@ pub(crate) fn shell(views: Arc<dyn ViewPlacement>, prompts: Arc<dyn Prompts>) ->
 
 /// An engine over `shell`, on `time`, with no screens, keeping compiled programs in `code_cache`.
 pub(crate) fn engine_over(shell: Shell, time: EngineTime, code_cache: &Path) -> WaOS {
-    let config = WaOSConfig {
+    engine_of(config(time, code_cache), shell)
+}
+
+/// A test engine's configuration: on `time`, keeping compiled programs in `code_cache`, and
+/// nothing else.
+fn config(time: EngineTime, code_cache: &Path) -> WaOSConfig {
+    WaOSConfig {
         code_cache: code_cache.to_owned(),
         freeze: FreezePolicy::default(),
         native_unwind_info: false,
@@ -97,7 +119,11 @@ pub(crate) fn engine_over(shell: Shell, time: EngineTime, code_cache: &Path) -> 
         temporary_folders: std::env::temp_dir().join("waos-tests"),
         audit: None,
         inspected_programs: None,
-    };
+    }
+}
+
+/// An engine of `config` over `shell`, with no screens.
+fn engine_of(config: WaOSConfig, shell: Shell) -> WaOS {
     let platform = PlatformState {
         screens: Vec::new(),
         platform_brightness: Brightness::Light,

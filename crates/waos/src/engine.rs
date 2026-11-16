@@ -241,13 +241,23 @@ impl WaOS {
     }
 
     /// The days kept of what the program `name` did, newest first, today's as counted now in
-    /// place of the one kept; none where the engine keeps no days. Reads files, so call it off the
-    /// main thread.
+    /// place of the one kept; none where the engine keeps no days. Reads the kept days from the
+    /// engine's audit log.
     pub fn days_of(&self, name: &str) -> Vec<AuditDay> {
         self.days
             .as_ref()
             .map(|days| days.days_of(name))
             .unwrap_or_default()
+    }
+
+    /// Keeps every program's day as counted now, after each day the writer was asked to keep
+    /// before, and returns once they are kept: an app calls it as it quits, after its programs
+    /// end, since a process ended without unwinding never drops the engine. Writes files, so
+    /// call it off the main thread.
+    pub fn keep_every_day(&self) {
+        if let Some(days) = &self.days {
+            days.keep_all();
+        }
     }
 
     /// Starts `program` on a thread of its own, with `environment` as its capabilities, a `/tmp`
@@ -347,6 +357,13 @@ impl WaOS {
     /// its views give, and thawed if that shows it.
     pub fn app_resumed(&self) {
         self.programs.resume();
+    }
+}
+
+impl Drop for WaOS {
+    /// The engine goes once every day is kept, so nothing counted is lost with it.
+    fn drop(&mut self) {
+        self.keep_every_day();
     }
 }
 
