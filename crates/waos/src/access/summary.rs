@@ -1,7 +1,8 @@
 //! A program's audit summary: what it did with what it was allowed today, counted as each use is
 //! told, from what the use asked and what its rule resolved it to ([`Summary`]), and kept through
 //! the engine's [`AuditLog`] about once a minute, as the day ends, and as the program's access goes
-//! with it. A crash loses at most what came since the last keep.
+//! with it; a run begins from what the runs before it kept of today, so the day counts them all. A
+//! crash loses at most what came since the last keep.
 //!
 //! A use is counted under the program's lock, beside a check that already did far slower work:
 //! a lookup, a connection, an open. A datagram, which is checked one at a time, is counted alone
@@ -63,14 +64,22 @@ struct Today {
 }
 
 impl Summary {
+    /// The program's summary of today, from what was kept of today by its runs before, so a day
+    /// counts every run of it.
     pub(super) fn new(kept: Option<KeptIn>, grants: Arc<dyn ProgramGrants>) -> Summary {
         let grants_changed = grants.changed();
         let recorded = grants.keeps_record();
+        let today = day_of(SystemTime::now());
+        let day = kept
+            .as_ref()
+            .filter(|_| recorded)
+            .and_then(|kept| kept_day(kept, today))
+            .unwrap_or_else(|| AuditDay::starting(today));
         Summary {
             kept,
             grants,
             today: Mutex::new(Today {
-                day: AuditDay::starting(day_of(SystemTime::now())),
+                day,
                 kept_at: Instant::now(),
                 changed: false,
                 recorded,
@@ -279,6 +288,13 @@ impl Drop for Summary {
     fn drop(&mut self) {
         self.keep();
     }
+}
+
+/// What was kept of the day that begins at `start`, by the program's runs before; none where
+/// they kept nothing of it.
+fn kept_day(kept: &KeptIn, start: SystemTime) -> Option<AuditDay> {
+    let newest = kept.log.days(&kept.program).into_iter().next()?;
+    (newest.start == start).then_some(newest)
 }
 
 /// The midnight, UTC, that begins the day `at` is in.
@@ -598,8 +614,15 @@ mod tests {
             locked(&self.0).push((program.to_owned(), day.clone()));
         }
 
-        fn days(&self, _program: &str) -> Vec<AuditDay> {
-            Vec::new()
+        /// The days kept of `program`, newest first, each as it was kept last.
+        fn days(&self, program: &str) -> Vec<AuditDay> {
+            let mut days: Vec<AuditDay> = Vec::new();
+            for (kept, day) in locked(&self.0).iter().rev() {
+                if kept == program && days.iter().all(|newer| newer.start != day.start) {
+                    days.push(day.clone());
+                }
+            }
+            days
         }
     }
 
@@ -846,6 +869,40 @@ mod tests {
         assert_eq!(kept.len(), 1);
         assert_eq!(kept[0].0, "dev.waos.notes");
         assert_eq!(kept[0].1.notifications.allowed, 1);
+    }
+
+    #[test]
+    fn two_runs_on_one_day_add_up_in_the_day_kept() {
+        let log = Arc::new(Kept::default());
+        let run = || {
+            Summary::new(
+                Some(KeptIn {
+                    log: Arc::clone(&log) as Arc<dyn AuditLog>,
+                    program: "dev.waos.notes".to_owned(),
+                }),
+                Arc::new(Answers::default()),
+            )
+        };
+        let post = |summary: &Summary| {
+            summary.decided(&Asked::PostNotification, Some(&Resolution::Nothing), None);
+        };
+        let first = run();
+        post(&first);
+        post(&first);
+        drop(first);
+        let second = run();
+        post(&second);
+        drop(second);
+        let today = &log.days("dev.waos.notes")[0];
+        assert_eq!(
+            today.notifications.allowed, 3,
+            "the first run's two and the second's one"
+        );
+        assert_eq!(
+            log.days("dev.waos.other").len(),
+            0,
+            "another program's day starts afresh"
+        );
     }
 
     #[test]
