@@ -173,6 +173,33 @@ fn a_flick_moves_on_to_the_next_page_however_little_the_strip_moved() {
 }
 
 #[test]
+fn a_swipe_that_turns_back_and_lifts_moving_back_returns_to_the_page_it_left() {
+    let mut phone = two_programs_running();
+    let start = on_the_bar();
+    let out = start + Offset::new(0.75 * page_spacing(), 0.0);
+    phone.touch_down(1, start);
+    phone.slide(1, start, out, 20);
+    let back = out + Offset::new(-0.1 * page_spacing(), 0.0);
+    phone.slide(1, out, back, 9);
+    phone.touch_up(1, back);
+    let released_at = page_left(&phone, SURVEYS);
+    for frame in 0..600 {
+        let asked = phone.pump();
+        let left = page_left(&phone, SURVEYS);
+        assert!(
+            left <= released_at + 0.75,
+            "frame {frame} after the release took survey's page right to {left}, from \
+             {released_at}"
+        );
+        if !asked {
+            break;
+        }
+    }
+    phone.settle();
+    assert_eq!(phone.current_tab(), SURVEY, "the finger went back last");
+}
+
+#[test]
 fn the_release_settles_at_the_fingers_speed_without_a_jump() {
     let mut phone = two_programs_running();
     let start = on_the_bar();
@@ -785,6 +812,40 @@ fn a_flick_down_closes_the_overview_it_was_dragged_into() {
     phone.touch_up(1, down);
     assert!(!phone.overview_open());
     phone.settle();
+    assert_rect_near(shown_part(&phone, SURVEYS), page_box(), "survey's page");
+}
+
+/// Frames until the deck settles, none of which takes the bottom of what shows of the `nth`
+/// program's page above where it was at the release.
+fn assert_never_rises_after_the_release(phone: &mut TestPhone, nth: usize) {
+    let released_at = shown_part(phone, nth).bottom;
+    for frame in 0..600 {
+        let asked = phone.pump();
+        let bottom = shown_part(phone, nth).bottom;
+        assert!(
+            bottom >= released_at - 0.75,
+            "frame {frame} after the release took the page's edge up to {bottom}, from \
+             {released_at}"
+        );
+        if !asked {
+            break;
+        }
+    }
+}
+
+#[test]
+fn a_drag_up_that_turns_back_down_and_lifts_moving_down_closes_the_overview_the_fingers_last_way() {
+    let mut phone = two_programs_running();
+    let start = on_the_bar();
+    let up = start + Offset::new(0.0, -300.0);
+    phone.touch_down(1, start);
+    phone.slide(1, start, up, 20);
+    let down = up + Offset::new(0.0, 90.0);
+    phone.slide(1, up, down, 20);
+    phone.touch_up(1, down);
+    assert_never_rises_after_the_release(&mut phone, SURVEYS);
+    phone.settle();
+    assert!(!phone.overview_open(), "the finger went down last");
     assert_rect_near(shown_part(&phone, SURVEYS), page_box(), "survey's page");
 }
 

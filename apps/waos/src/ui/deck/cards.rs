@@ -1,11 +1,12 @@
 //! The overview's cards: tapping one to grow it back into its page, throwing one away sideways to
 //! close its tab and end its program, and the others moving into the place it leaves.
 //!
-//! A thrown card follows the finger one to one to the left and resists to the right. Let go far
-//! or fast enough, it is leaving: it flies off on a spring that starts at the finger's velocity,
-//! the other cards move into its place at once, and its tab closes when it is gone, so a finger
-//! that catches it on the way keeps the tab, and the others make room again. Let go short of
-//! that, it springs back. Every card springs to its place from where it is at the speed it has,
+//! A thrown card follows the finger one to one to the left and resists to the right. Let go headed
+//! far enough left, by where the finger's speed would carry it (`projection`), it is leaving: it
+//! flies off on a spring that starts at the finger's velocity, the other cards move into its place
+//! at once, and its tab closes when it is gone, so a finger that catches it on the way keeps the
+//! tab, and the others make room again. Let go short of that, or on its way back, it springs back.
+//! Every card springs to its place from where it is at the speed it has,
 //! so closing several cards quickly never jumps. The home alone cannot be closed, so its card
 //! always springs back.
 //!
@@ -29,13 +30,12 @@ use waft::{AnimationController, App, Handle, Listener, Ref};
 use super::axis_drag::AxisDrag;
 use super::grip::{Grip, Owner, Released};
 use super::overscroll::{DragRange, followed_by_finger};
+use super::projection::projected;
 use super::{DeckViewState, StripFollows, springs};
 use crate::logic::tab_list::TabId;
 
-/// The finger speed, in points a second, above which a release to the left closes the tab however
-/// little the card has moved.
-const THROW_VELOCITY: f64 = 600.0;
-/// How far left, as a fraction of its width, a card let go slowly must be to close its tab.
+/// How far left, as a fraction of its width, a card let go must be headed, by where its release
+/// would carry it, to close its tab.
 const THROW_DISTANCE: f64 = 0.45;
 /// The speed the close button sends a card off at.
 const CLOSE_BUTTON_VELOCITY: f64 = -1400.0;
@@ -171,17 +171,15 @@ impl DeckViewState {
         }
     }
 
-    /// Whether the card of `tab`, let go at `finger_velocity`, was thrown away: fast enough to
-    /// the left, or far enough and not on its way back; never the home alone.
+    /// Whether the card of `tab`, let go at `finger_velocity`, was thrown away: headed far enough
+    /// to the left, by where the release would carry it (`projection`); never the home alone.
     fn is_thrown(self: Handle<Self>, app: &App, tab: TabId, finger_velocity: f64) -> bool {
         let Some(card) = self.card(app, tab) else {
             return false;
         };
         let card_width = self.layout(app).card_size().width();
-        let far_enough = card.throw.value(app) <= -card_width * THROW_DISTANCE;
-        let thrown =
-            finger_velocity <= -THROW_VELOCITY || (far_enough && finger_velocity < THROW_VELOCITY);
-        thrown && self.may_close(app, tab)
+        let headed_to = projected(card.throw.value(app), finger_velocity);
+        headed_to <= -card_width * THROW_DISTANCE && self.may_close(app, tab)
     }
 
     /// Whether `tab` may close: any but the home alone.

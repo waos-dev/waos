@@ -1,7 +1,9 @@
 //! Swiping the bar sideways: the strip of pages follows the finger one to one, resists before the
 //! first page and after the last as a scroll view does, and on release settles on a page with the
-//! finger's velocity; a flick moves on to the next page however little the strip moved. Past the
-//! last tab, while no home is open, is the home's page: settling on it opens the home there.
+//! finger's velocity: the page nearest where that velocity would carry the strip, so a flick moves
+//! on to the next page however little the strip moved, and a swipe that turned back returns.
+//! Past the last tab, while no home is open, is the home's page: settling on it opens the home
+//! there.
 //!
 //! The gesture's states are the strip's grip. Free: the strip settles on the current tab's page.
 //! Held: a finger came down on the bar and the strip stands still where it was, moving or not; a
@@ -21,13 +23,10 @@ use waft::{App, Handle};
 use super::axis_drag::AxisDrag;
 use super::grip::{Owner, Released};
 use super::overscroll::{DragRange, scrolled_by_finger};
+use super::projection::projected;
 use super::{DeckViewState, StripFollows};
 use crate::logic::tab_list::TabId;
 use crate::state::deck::tabs::Tabs;
-
-/// The finger speed, in points a second, above which a release moves on to the next page in its
-/// direction however little the strip has moved.
-const FLICK_VELOCITY: f64 = 300.0;
 
 impl DeckViewState {
     /// The bar's sideways drag.
@@ -81,13 +80,13 @@ impl DeckViewState {
     /// the swipe ends on, and the strip settles on it at the finger's speed.
     fn settle_strip_after_swipe(self: Handle<Self>, app: &mut App, finger_velocity: f64) {
         let position = self.strip(app).value(app);
-        let page = page_after_swipe(position, finger_velocity, self.strip_page_count(app));
+        let strip_velocity = -finger_velocity / self.layout(app).page_spacing();
+        let page = page_after_swipe(position, strip_velocity, self.strip_page_count(app));
         let tab = app.get(self).followed.order.get(page).copied();
         self.change_tabs(app, StripFollows::Gliding, move |tabs, cx| {
             head_to_strip_page(tabs, tab, cx);
         });
-        let spacing = self.layout(app).page_spacing();
-        self.settle_strip(app, Some(-finger_velocity / spacing));
+        self.settle_strip(app, Some(strip_velocity));
     }
 
     fn cancel_strip_hold(self: Handle<Self>, app: &mut App, owner: Owner) {
@@ -115,19 +114,16 @@ fn head_to_strip_page(tabs: &mut Tabs, tab: Option<TabId>, cx: &mut waft::Contex
     }
 }
 
-/// The page a swipe released at `position` and `finger_velocity` settles on, as Flutter's
-/// `PageScrollPhysics` chooses it: a flick goes on to the next page in its direction, a slower
-/// release to the nearest page.
-fn page_after_swipe(position: f64, finger_velocity: f64, page_count: usize) -> usize {
-    let heading = if finger_velocity <= -FLICK_VELOCITY {
-        0.5
-    } else if finger_velocity >= FLICK_VELOCITY {
-        -0.5
-    } else {
-        0.0
-    };
-    (position + heading)
+/// The page a swipe released at `position`, moving at `strip_velocity` in pages a second, settles
+/// on, as a paging scroll view on iOS chooses it: the page nearest where the release would carry
+/// the strip (`projection`), but never past the next page on either side of where it is, so a
+/// swipe moves on one page at most.
+fn page_after_swipe(position: f64, strip_velocity: f64, page_count: usize) -> usize {
+    let next_back = position.ceil() - 1.0;
+    let next_on = position.floor() + 1.0;
+    projected(position, strip_velocity)
         .round()
+        .clamp(next_back, next_on)
         .clamp(0.0, (page_count - 1) as f64) as usize
 }
 
@@ -155,27 +151,38 @@ mod tests {
     use crate::logic::tab_list::TabList;
 
     #[test]
-    fn a_slow_release_settles_on_the_nearest_page() {
+    fn a_release_at_rest_settles_on_the_nearest_page() {
         assert_eq!(page_after_swipe(1.4, 0.0, 4), 1);
         assert_eq!(page_after_swipe(1.6, 0.0, 4), 2);
-        assert_eq!(page_after_swipe(1.6, -299.0, 4), 2);
+    }
+
+    #[test]
+    fn a_slow_release_settles_on_the_page_nearest_where_it_would_carry_the_strip() {
+        assert_eq!(page_after_swipe(1.6, -0.3, 4), 1);
+        assert_eq!(page_after_swipe(1.4, 0.3, 4), 2);
     }
 
     #[test]
     fn a_flick_goes_on_to_the_next_page_however_little_the_strip_moved() {
-        assert_eq!(page_after_swipe(1.02, -800.0, 4), 2);
-        assert_eq!(page_after_swipe(1.98, 800.0, 4), 1);
+        assert_eq!(page_after_swipe(1.02, 2.0, 4), 2);
+        assert_eq!(page_after_swipe(1.98, -2.0, 4), 1);
     }
 
     #[test]
     fn a_flick_that_turned_back_returns_to_the_page_it_left() {
-        assert_eq!(page_after_swipe(1.3, 800.0, 4), 1);
+        assert_eq!(page_after_swipe(1.3, -2.0, 4), 1);
+    }
+
+    #[test]
+    fn a_fast_flick_moves_on_one_page_at_most() {
+        assert_eq!(page_after_swipe(1.0, 6.0, 4), 2);
+        assert_eq!(page_after_swipe(1.0, -6.0, 4), 0);
     }
 
     #[test]
     fn a_flick_past_either_end_stays_on_the_end() {
-        assert_eq!(page_after_swipe(-0.1, 900.0, 3), 0);
-        assert_eq!(page_after_swipe(2.05, -900.0, 3), 2);
+        assert_eq!(page_after_swipe(-0.1, -2.2, 3), 0);
+        assert_eq!(page_after_swipe(2.05, 2.2, 3), 2);
     }
 
     /// The ids of three programs' tabs and of the home opened after them, as a list hands them

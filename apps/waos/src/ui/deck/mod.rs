@@ -26,7 +26,8 @@
 //! One rule settles the deck: wherever the tabs say it heads, the strip springs to the current
 //! tab's page and every tab's flight to its page or its card, each from where it is at the speed
 //! it has, unless a finger holds it. A gesture holds a value while its finger is down (`grip`),
-//! and ends by saying where the deck heads and letting go; nothing waits for a motion to be over.
+//! and ends by saying where the deck heads, by where the release would carry the value
+//! (`projection`), and letting go; nothing waits for a motion to be over.
 //! A change of where the deck heads that no gesture of its own made, a program opened from outside
 //! or the current tab closed, takes every value out of the fingers' hands, and so does a change of
 //! the view's size: the finger still down does nothing more.
@@ -67,6 +68,7 @@ mod overscroll;
 mod overview_toolbar;
 mod overview_transition;
 mod pages;
+mod projection;
 mod search_pill;
 mod springs;
 mod strip;

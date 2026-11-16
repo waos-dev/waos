@@ -14,9 +14,10 @@
 //! page's height, and a little past it against a scroll view's resistance; and the page is carried
 //! to stay under the finger both ways, its bottom edge as far above the finger as it was taken
 //! hold of and the point of it the finger came down under still above the finger. The release
-//! says open or closed, by the finger's speed or by how far the page has flown, and the page
-//! springs from where it is, at the finger's speed, to its slot or back to fill its box; the tabs
-//! button, Done and a tapped card are the same flight with no finger.
+//! says open or closed, by how far the page would have flown once the finger's speed as it lifted
+//! carried it on (`projection`), and the page springs from where it is, at the finger's speed, to
+//! its slot or back to fill its box; the tabs button, Done and a tapped card are the same flight
+//! with no finger.
 //!
 //! While the current tab's page flies to its card, a finger that comes down on it takes it over
 //! from where it is, as the bar's does. Anywhere else on the overview there is no page under the
@@ -58,14 +59,13 @@ use waft_gestures::VelocityTracker;
 use super::axis_drag::{AxisDrag, FingerMove};
 use super::grip::{Owner, Released};
 use super::overscroll::{DragRange, scrolled_by_finger};
+use super::projection::projected;
 use super::{DeckViewState, StripFollows, springs};
 use crate::logic::deck_geometry::{CardPosition, PageHold};
 use crate::logic::tab_list::TabId;
 
-/// The finger speed, in points a second, above which a release opens or closes the overview in
-/// its direction however far the page has flown.
-const FLICK_VELOCITY: f64 = 300.0;
-/// How far a page let go slowly must have flown for the overview to open.
+/// How far a page let go must be headed to fly, by where its release would carry it
+/// (`projection`), for the overview to open.
 const OPEN_THRESHOLD: f64 = 0.35;
 /// How far the current tab's page has flown before the overview's cards and its toolbar take
 /// touches. Before that a touch on the overview catches the flight instead.
@@ -274,17 +274,12 @@ impl DeckViewState {
             return;
         }
         let whole_flight = self.layout(app).full_flight_travel();
-        let open = if finger_velocity <= -FLICK_VELOCITY {
-            true
-        } else if finger_velocity >= FLICK_VELOCITY {
-            false
-        } else {
-            held.travel / whole_flight >= OPEN_THRESHOLD
-        };
+        let flight_velocity = -finger_velocity / whole_flight;
+        let open = projected(held.travel / whole_flight, flight_velocity) >= OPEN_THRESHOLD;
         self.change_tabs(app, StripFollows::Unseen, move |tabs, cx| {
             tabs.set_overview_open(open, cx);
         });
-        self.settle_flight(app, held.tab, Some(-finger_velocity / whole_flight));
+        self.settle_flight(app, held.tab, Some(flight_velocity));
         let carrying = held.carrying_speed.get_velocity().pixels_per_second;
         self.settle_carry(app, held.tab, Some(carrying));
     }
