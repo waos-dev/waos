@@ -373,6 +373,7 @@ fn a_package_picked_from_a_file_is_asked_about_and_installed_once_the_user_says_
         "{:?}",
         desktop.labels()
     );
+    assert!(!desktop.read(|library| library.is_picking()));
     desktop.tap(view, words::INSTALL);
     assert_eq!(desktop.read(|library| library.installed().len()), 1);
     assert!(!desktop.has::<CupertinoAlertDialog>(), "the alert goes");
@@ -393,6 +394,19 @@ fn a_cancelled_pick_shows_nothing() {
     );
     assert!(desktop.read(|library| library.question().is_none() && library.problem().is_none()));
     assert!(desktop.shows(words::ADD_SOURCE), "still on the page");
+}
+
+#[test]
+fn the_library_is_picking_until_the_picker_answers_a_cancelled_one_too() {
+    let mut desktop = desktop();
+    desktop
+        .library
+        .update(&mut desktop.shell.app(), |library, cx| {
+            library.pick_package(None, cx)
+        });
+    assert!(desktop.read(|library| library.is_picking()));
+    desktop.settle();
+    assert!(!desktop.read(|library| library.is_picking()));
 }
 
 #[test]

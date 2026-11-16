@@ -106,6 +106,9 @@ pub(crate) struct Library {
     problem: Option<String>,
     /// Where the packages handed without a path are copied while they are asked about.
     package_copies: PackageCopies,
+    /// Whether the system's file picker the library opened for a package is open, until it
+    /// answers (`package_picker`).
+    picking: bool,
     /// The page the library is on.
     page: LibraryPage,
     /// The switch a program asked its user to change, on the settings page open for it.
@@ -235,6 +238,7 @@ impl Library {
             questions: Vec::new(),
             problem: None,
             package_copies,
+            picking: false,
             page: LibraryPage::Home,
             switch_asked: None,
             offered: Offered::default(),

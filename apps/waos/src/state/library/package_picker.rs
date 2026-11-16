@@ -4,8 +4,12 @@
 //! goes: a path is opened as it is, and a document without one, as Android's picker hands it,
 //! copied first (`Library::open_documents`); then the library asks whether to install it.
 //!
+//! While the picker is open the library is picking, which keeps the launcher from going as the
+//! picker takes its focus (`logic::launcher_rules`).
+//!
 //! The invariant: a pick reaches the library exactly as a file opened with WaOS does, so nothing
-//! here opens, verifies or installs a package; a cancelled pick changes nothing.
+//! here opens, verifies or installs a package; a cancelled pick changes nothing but ending the
+//! picking, which every answer of the picker ends.
 
 use waft::ui::{FileDialogError, OpenOptions, PickedFile, ViewId};
 use waft::{App, Context};
@@ -19,6 +23,12 @@ pub(crate) fn picks_packages(app: &App) -> bool {
 }
 
 impl Library {
+    /// Whether the system's file picker the library opened for a package is open, until it
+    /// answers.
+    pub(crate) fn is_picking(&self) -> bool {
+        self.picking
+    }
+
     /// Shows the system's file picker for a package to install, on the window of `parent`; the
     /// package picked is asked about as one opened with WaOS. A picker the system does not show is
     /// the library's problem.
@@ -34,6 +44,7 @@ impl Library {
         else {
             return self.failed("this system has no file picker".to_owned(), cx);
         };
+        self.picking = true;
         let library = cx.weak_entity();
         // The task runs to its end whether or not its handle is kept.
         let _picking = cx.spawn(async move |cx| {
@@ -46,13 +57,14 @@ impl Library {
         });
     }
 
-    /// What the picker answered: the file picked, taken as one opened with WaOS; nothing for a
-    /// cancelled pick; why not, for a picker that failed.
+    /// What the picker answered, which ends the picking: the file picked, taken as one opened
+    /// with WaOS; nothing more for a cancelled pick; why not, for a picker that failed.
     fn package_picked(
         &mut self,
         picked: Result<Option<PickedFile>, FileDialogError>,
         cx: &mut Context<Library>,
     ) {
+        self.picking = false;
         let file = match picked {
             Ok(Some(file)) => file,
             Ok(None) => return,

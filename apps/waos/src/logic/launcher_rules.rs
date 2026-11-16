@@ -4,7 +4,8 @@
 //! 1. It is summoned by WaOS's icon in the Dock or the taskbar, by its icon in the menu bar or the
 //!    tray, by a second start of WaOS, by WaOS's first start, and by the library asking to be seen.
 //! 2. It is dismissed by Escape or the system's close command, by a click outside once it has had
-//!    the focus, and by opening a program.
+//!    the focus, and by opening a program; not by the focus going to the file picker the library
+//!    opened for a package, which is the launcher's own, until the picker answers.
 //! 3. Dismissed, it is minimized where a desktop shows a running app in its taskbar only through
 //!    the app's windows and WaOS is kept there, so its button stays; otherwise it is hidden, and
 //!    hidden by the user, it hands the focus back to where it was.
@@ -106,9 +107,10 @@ impl LauncherRules {
         self.dismiss(false)
     }
 
-    /// The launcher's window gained or lost the focus: a click elsewhere dismisses it, and a
-    /// minimized one regaining the focus was restored by the user.
-    pub(crate) fn focus_changed(&mut self, focused: bool) -> LauncherStep {
+    /// The launcher's window gained or lost the focus, while the library's file picker is open
+    /// where `picking` says: a click elsewhere dismisses it, the picker taking the focus does not,
+    /// and a minimized one regaining the focus was restored by the user.
+    pub(crate) fn focus_changed(&mut self, focused: bool, picking: bool) -> LauncherStep {
         if focused {
             if !self.shown && self.when_dismissed == WhenDismissed::Minimized {
                 self.shown = true;
@@ -116,7 +118,7 @@ impl LauncherRules {
             self.focused_since_shown = self.shown;
             return LauncherStep::Keep;
         }
-        if !self.focused_since_shown {
+        if !self.focused_since_shown || picking {
             return LauncherStep::Keep;
         }
         self.dismiss(false)
@@ -146,7 +148,7 @@ mod tests {
     fn shown_and_focused(when_dismissed: WhenDismissed) -> LauncherRules {
         let mut rules = LauncherRules::new(when_dismissed);
         rules.summoned();
-        rules.focus_changed(true);
+        rules.focus_changed(true, false);
         rules
     }
 
@@ -183,13 +185,28 @@ mod tests {
     fn losing_the_focus_dismisses_the_launcher_only_once_it_has_had_it() {
         let mut rules = LauncherRules::new(WhenDismissed::Hidden);
         rules.summoned();
-        assert_eq!(rules.focus_changed(false), LauncherStep::Keep);
-        assert_eq!(rules.focus_changed(true), LauncherStep::Keep);
+        assert_eq!(rules.focus_changed(false, false), LauncherStep::Keep);
+        assert_eq!(rules.focus_changed(true, false), LauncherStep::Keep);
         assert_eq!(
-            rules.focus_changed(false),
+            rules.focus_changed(false, false),
             LauncherStep::Dismiss(Dismissal::Hide {
                 hand_back_focus: false
             })
+        );
+    }
+
+    #[test]
+    fn the_focus_going_to_the_librarys_file_picker_keeps_the_launcher() {
+        let mut rules = shown_and_focused(WhenDismissed::Hidden);
+        assert_eq!(rules.focus_changed(false, true), LauncherStep::Keep);
+        assert!(rules.is_shown());
+        assert_eq!(rules.focus_changed(true, false), LauncherStep::Keep);
+        assert_eq!(
+            rules.focus_changed(false, false),
+            LauncherStep::Dismiss(Dismissal::Hide {
+                hand_back_focus: false
+            }),
+            "once the picker answered, a click elsewhere dismisses it"
         );
     }
 
@@ -208,11 +225,11 @@ mod tests {
     fn a_minimized_launcher_taking_the_focus_was_restored_and_shows() {
         let mut rules = shown_and_focused(WhenDismissed::Minimized);
         rules.dismissed_by_user();
-        assert_eq!(rules.focus_changed(false), LauncherStep::Keep);
-        assert_eq!(rules.focus_changed(true), LauncherStep::Keep);
+        assert_eq!(rules.focus_changed(false, false), LauncherStep::Keep);
+        assert_eq!(rules.focus_changed(true, false), LauncherStep::Keep);
         assert!(rules.is_shown());
         assert_eq!(
-            rules.focus_changed(false),
+            rules.focus_changed(false, false),
             LauncherStep::Dismiss(Dismissal::Minimize),
             "it goes again as a click elsewhere takes the focus"
         );
@@ -222,9 +239,9 @@ mod tests {
     fn a_hidden_launcher_taking_the_focus_stays_dismissed() {
         let mut rules = shown_and_focused(WhenDismissed::Hidden);
         rules.dismissed_by_user();
-        rules.focus_changed(true);
+        rules.focus_changed(true, false);
         assert!(!rules.is_shown());
-        assert_eq!(rules.focus_changed(false), LauncherStep::Keep);
+        assert_eq!(rules.focus_changed(false, false), LauncherStep::Keep);
     }
 
     #[test]
@@ -232,7 +249,7 @@ mod tests {
         let mut rules = shown_and_focused(WhenDismissed::Hidden);
         rules.dismissed_by_user();
         rules.summoned();
-        assert_eq!(rules.focus_changed(false), LauncherStep::Keep);
+        assert_eq!(rules.focus_changed(false, false), LauncherStep::Keep);
     }
 
     #[test]

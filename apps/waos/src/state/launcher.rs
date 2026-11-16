@@ -17,7 +17,7 @@
 //! icon in the menu bar or the tray (`state::waos_tray`), whenever the library asks to be seen, a
 //! second start of WaOS among it, and at launch unless WaOS started with it closed; dismissed as a
 //! program opens from it, and at Escape, the system's close command or the window losing the
-//! focus. Dismissed, it is minimized on Windows and Linux while WaOS is kept in the taskbar, and
+//! focus, unless to the file picker the library opened for a package. Dismissed, it is minimized on Windows and Linux while WaOS is kept in the taskbar, and
 //! hidden otherwise, as the user's choice is from the next dismissal on. A minimized launcher the
 //! user restores from the taskbar takes the focus, and is summoned by that.
 //!
@@ -150,9 +150,13 @@ impl Launcher {
             return;
         }
         let was_shown = self.rules.is_shown();
+        let picking = self
+            .library
+            .upgrade()
+            .is_some_and(|library| library.read(cx).is_picking());
         let step = self
             .rules
-            .focus_changed(event.state == ViewFocusState::Focused);
+            .focus_changed(event.state == ViewFocusState::Focused, picking);
         if !was_shown && self.rules.is_shown() {
             tracing::info!("the launcher was restored by the user");
             cx.notify();
