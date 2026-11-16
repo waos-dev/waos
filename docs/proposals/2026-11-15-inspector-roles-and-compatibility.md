@@ -31,6 +31,7 @@ Taken after the audit summary, the live trace and `cargo waos inspect` were buil
 14. **The inspector's program page is layered** (2026-11-16): its first tab is the report, a summary of what the program did, as iOS's App Privacy Report and Android's Privacy dashboard show it; the other tabs are the detail, live panels as Chrome DevTools has them (network, files, devices, output, what it uses now), reached from the report. An auditor stops at the report; a developer goes on to the panels.
 15. **Each event says why** where that is easy to build and keep organized: the setting that allowed or refused it, with the way to change it.
 16. **The widgets the panels need are ported to Waft**, not worked around: WinUI's table and Cupertino's `CupertinoSearchTextField`.
+17. **The table is a port of WinUI's own `TableView`** (Windows App SDK 2.5, `Microsoft.UI.Xaml.Controls.Tabular`), in its structure: rows on the kit's lazy list, selection on the kit's `SelectionModel`, cells laid out by a port of `TableViewCellsPanel` so every row and the header share each column's width. This replaces building it over `ItemsView` and `Grid`, decided before WinUI had a table of its own. One row is selected at a time, as in WinUI's first version; a panel filters through the table's source, with its own search box above. The selection and the sort are objects the app owns, as the kit's `ItemsView` takes its selection.
 
 ## The design
 
