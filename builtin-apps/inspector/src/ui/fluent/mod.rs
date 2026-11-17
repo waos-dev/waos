@@ -19,15 +19,18 @@ use std::rc::Rc;
 use waft::{
     App, BuildContext, Center, ColoredBox, Column, CrossAxisAlignment, EdgeInsetsGeometry, Entity,
     Expanded, IntoWidget, MainAxisSize, Padding, PageRouteBuilder, RouteSettingsRef, Row, SizedBox,
-    StatelessWidget, Text, TextOverflow, WidgetRef, WidgetsApp,
+    StatelessWidget, Text, TextOverflow, TextStyle, WidgetRef, WidgetsApp,
 };
 use waft_winui::{
-    AccentPalette, Brush, ControlBorder, FluentSymbol, FontIcon, ProgressRing, SelectorBar,
-    SelectorBarItem, TextBlockStyle, ThemeResources,
+    AccentPalette, Brush, ControlBorder, FluentSymbol, FontIcon, InfoBadge, InfoBadgeStyle,
+    ProgressRing, SelectorBar, SelectorBarItem, TextBlockStyle, ThemeResources,
 };
 
+use crate::clock;
+use crate::code_font::CODE_FONT;
 use crate::logic::detail::Glyph;
 use crate::logic::panels::Tone;
+use crate::logic::report::Report;
 use crate::program_icon::ProgramIcon;
 use crate::state::page::{ProgramPage, Tab, show_tab};
 use crate::state::programs::{Found, Programs, Seen};
@@ -133,8 +136,9 @@ impl StatelessWidget for ProgramPane {
             return said(words::CHOOSE, &resources);
         };
         let tab = self.page.read(app).tab;
+        let report = Report::of(&seen.days, clock::today());
         let content = match (tab, self.page.read(app).panels()) {
-            (Tab::Report, _) | (_, None) => report::report(app, &self.page, &seen, &resources),
+            (Tab::Report, _) | (_, None) => report::report(app, &self.page, &report, &resources),
             (tab, Some(panels)) => panel::panel_of(panels, tab, &seen),
         };
         Column::new()
@@ -149,7 +153,7 @@ impl StatelessWidget for ProgramPane {
                     MARGIN,
                     0.0,
                 ))
-                .child(tabs(app, &self.page, tab))
+                .child(tabs(&self.page, &report, tab))
                 .into_widget(),
                 Expanded::new(content).into_widget(),
             ])
@@ -180,7 +184,12 @@ fn header(
         .main_axis_size(MainAxisSize::Min)
         .spacing(6.0)
         .children([
-            caption(&seen.program.id, resources),
+            code_line(
+                &seen.program.id,
+                TextBlockStyle::Caption,
+                resources.text_fill_color_secondary,
+                resources,
+            ),
             caption("·", resources),
             status_dot(seen.program.running, resources),
             caption(running, resources),
@@ -200,20 +209,33 @@ fn header(
 }
 
 /// The page's tabs, as a selector bar: the report, then each live panel, each with its glyph and
-/// the shown panel with how many rows it heard.
-fn tabs(app: &mut App, page: &Entity<ProgramPage>, shown: Tab) -> WidgetRef {
-    let counted = page
-        .read(app)
-        .panels()
-        .and_then(|panels| panel::heard_count(app, panels, shown));
+/// how often its kinds were used today in a badge beside its name, critical where WaOS refused
+/// one, and no badge on a day they were not used.
+fn tabs(page: &Entity<ProgramPage>, report: &Report, shown: Tab) -> WidgetRef {
     let items = Tab::ALL
         .iter()
         .map(|tab| {
-            let text = match counted {
-                Some(count) if *tab == shown => format!("{} {count}", tab.name()),
-                _ => tab.name().to_owned(),
-            };
-            SelectorBarItem::new(tab.name(), text).icon(FontIcon::symbol(tab_symbol(*tab)))
+            let kinds = tab.counted();
+            let counted = (!kinds.is_empty())
+                .then(|| report.today_of(kinds))
+                .filter(|counted| counted.allowed + counted.refused > 0);
+            let mut label = vec![Text::new(tab.name()).into_widget()];
+            label.extend(counted.map(|counted| {
+                let style = if counted.refused > 0 {
+                    InfoBadgeStyle::Critical
+                } else {
+                    InfoBadgeStyle::Informational
+                };
+                InfoBadge::new()
+                    .value(i32::try_from(counted.allowed + counted.refused).unwrap_or(i32::MAX))
+                    .style(style)
+                    .into_widget()
+            }));
+            let label = Row::new()
+                .main_axis_size(MainAxisSize::Min)
+                .spacing(6.0)
+                .children(label);
+            SelectorBarItem::with_child(tab.name(), label).icon(FontIcon::symbol(tab_symbol(*tab)))
         })
         .collect();
     let selected = Tab::ALL.iter().position(|tab| *tab == shown);
@@ -233,16 +255,17 @@ fn tab_symbol(tab: Tab) -> FluentSymbol {
         Tab::Files => FluentSymbol::Folder,
         Tab::Access => FluentSymbol::Camera,
         Tab::Output => FluentSymbol::WindowConsole,
-        Tab::InUse => FluentSymbol::Timer,
+        Tab::InUse => FluentSymbol::Pulse,
     }
 }
 
-/// The Fluent symbol a glyph is drawn with: the closest the named symbols have.
+/// The Fluent symbol a glyph is drawn with.
 pub(super) fn symbol(glyph: Glyph) -> FluentSymbol {
     match glyph {
-        Glyph::Request | Glyph::Connection | Glyph::Datagram => FluentSymbol::Globe,
+        Glyph::Request | Glyph::Datagram => FluentSymbol::Globe,
+        Glyph::Connection => FluentSymbol::PlugConnected,
         Glyph::Lookup => FluentSymbol::Search,
-        Glyph::Listener => FluentSymbol::Eye,
+        Glyph::Listener => FluentSymbol::Live,
         Glyph::File => FluentSymbol::Document,
         Glyph::Folder => FluentSymbol::Folder,
         Glyph::Watch => FluentSymbol::Eye,
@@ -251,8 +274,9 @@ pub(super) fn symbol(glyph: Glyph) -> FluentSymbol {
         Glyph::Clipboard => FluentSymbol::Clipboard,
         Glyph::Link => FluentSymbol::Link,
         Glyph::Notification => FluentSymbol::Alert,
-        Glyph::Question => FluentSymbol::Info,
-        Glyph::Machine | Glyph::Output => FluentSymbol::WindowConsole,
+        Glyph::Question => FluentSymbol::Question,
+        Glyph::Machine => FluentSymbol::Desktop,
+        Glyph::Output => FluentSymbol::WindowConsole,
     }
 }
 
@@ -297,6 +321,29 @@ pub(super) fn line(
 ) -> WidgetRef {
     Text::new(text.to_owned())
         .style(style.text_style(resources, color))
+        .max_lines(1)
+        .overflow(TextOverflow::Ellipsis)
+        .into_widget()
+}
+
+/// `style` in `color`, in the code font: for URLs, paths, addresses, times and sizes.
+pub(super) fn code_style(
+    style: TextBlockStyle,
+    color: waft::Color,
+    resources: &ThemeResources,
+) -> TextStyle {
+    style.text_style(resources, color).font_family(CODE_FONT)
+}
+
+/// `text` on one line in the code font, in `style` and `color`, cut short where it is too long.
+pub(super) fn code_line(
+    text: &str,
+    style: TextBlockStyle,
+    color: waft::Color,
+    resources: &ThemeResources,
+) -> WidgetRef {
+    Text::new(text.to_owned())
+        .style(code_style(style, color, resources))
         .max_lines(1)
         .overflow(TextOverflow::Ellipsis)
         .into_widget()

@@ -8,11 +8,12 @@
 //! shows are the panel entity's.
 
 use std::fmt;
+use std::rc::Rc;
 
 use waft::{
     App, BuildContext, Column, CrossAxisAlignment, EdgeInsetsGeometry, Entity, Expanded, Handle,
-    IntoWidget, Listener, MainAxisSize, Padding, Ref, Row, SizedBox, State, StateData,
-    StatefulWidget, TextEditingController, WidgetRef, Wrap,
+    IntoWidget, Listenable, ListenableBuilder, Listener, MainAxisSize, Padding, Ref, Row, SizedBox,
+    State, StateData, StatefulWidget, TextEditingController, WidgetRef, Wrap,
 };
 use waft_winui::{
     Button, ButtonStyle, FluentSymbol, FontIcon, InfoBadge, InfoBadgeStyle, InfoBar,
@@ -42,22 +43,6 @@ pub(super) fn panel_of(panels: &Panels, tab: Tab, seen: &Seen) -> WidgetRef {
         Tab::Access => PanelView::of(&panels.access, running),
         Tab::Output => PanelView::of(&panels.output, running),
         Tab::InUse => PanelView::of(&panels.in_use, running),
-    }
-}
-
-/// How many rows the panel of `tab` holds; none for the report, or a panel that never listened.
-pub(super) fn heard_count(app: &App, panels: &Panels, tab: Tab) -> Option<usize> {
-    fn count<L: Log>(app: &App, panel: &Entity<LivePanel<L>>) -> Option<usize> {
-        let panel = panel.read(app);
-        (panel.heard != Heard::Nothing).then(|| panel.rows.handle().item_count(app))
-    }
-    match tab {
-        Tab::Report => None,
-        Tab::Network => count(app, &panels.network),
-        Tab::Files => count(app, &panels.files),
-        Tab::Access => count(app, &panels.access),
-        Tab::Output => count(app, &panels.output),
-        Tab::InUse => count(app, &panels.in_use),
     }
 }
 
@@ -211,31 +196,40 @@ fn toolbar<L: Log>(
         .into_widget()
 }
 
-/// The table of the panel's rows, with the detail of the row selected beside it.
+/// The table of the panel's rows, with the detail of the row selected beside it, drawn again as
+/// the selection changes; the table narrows while the detail shows.
 fn rows_and_detail<L: Log>(app: &App, panel: &Entity<LivePanel<L>>) -> WidgetRef {
-    let read = panel.read(app);
-    let detail = read.selected(app).map(|row| {
-        let selection = read.selection.clone();
-        SizedBox::new()
-            .width(DETAIL_WIDTH)
-            .child(DetailPane {
-                detail: row.detail(),
-                close: Listener::new(move |app| selection.handle().deselect_all(app)),
-            })
-            .into_widget()
-    });
-    let table = Table::<L::Row> {
-        rows: read.rows.clone(),
-        selection: Some(read.selection.clone()),
-        empty: <L::Row as PanelRow>::NOTHING_YET,
-        narrowed: detail.is_some(),
-    };
-    let mut parts = vec![Expanded::new(table).into_widget()];
-    parts.extend(detail);
-    Row::new()
-        .cross_axis_alignment(CrossAxisAlignment::Stretch)
-        .children(parts)
-        .into_widget()
+    let selection = panel.read(app).selection.clone();
+    let shown = panel.clone();
+    ListenableBuilder::new(
+        Rc::new(selection.clone()) as Rc<dyn Listenable>,
+        move |app, _context, _child| {
+            let read = shown.read(app);
+            let detail = read.selected(app).map(|row| {
+                let selection = selection.clone();
+                SizedBox::new()
+                    .width(DETAIL_WIDTH)
+                    .child(DetailPane {
+                        detail: row.detail(),
+                        close: Listener::new(move |app| selection.handle().deselect_all(app)),
+                    })
+                    .into_widget()
+            });
+            let table = Table::<L::Row> {
+                rows: read.rows.clone(),
+                selection: Some(read.selection.clone()),
+                empty: <L::Row as PanelRow>::NOTHING_YET,
+                narrowed: detail.is_some(),
+            };
+            let mut parts = vec![Expanded::new(table).into_widget()];
+            parts.extend(detail);
+            Row::new()
+                .cross_axis_alignment(CrossAxisAlignment::Stretch)
+                .children(parts)
+                .into_widget()
+        },
+    )
+    .into_widget()
 }
 
 /// Whether the panel listens, and since when; how many rows it holds and how many WaOS refused;

@@ -16,6 +16,7 @@
 #![feature(arbitrary_self_types)]
 
 mod clock;
+mod code_font;
 mod logic;
 mod program_icon;
 mod state;
@@ -29,6 +30,7 @@ use waft::{
 use waft_cupertino::install_cupertino_icon_font;
 use waft_winui::install_icon_font;
 
+use crate::code_font::install_code_font;
 use crate::state::page::ProgramPage;
 use crate::state::programs::Programs;
 use crate::ui::cupertino::CupertinoInspector;
@@ -56,6 +58,7 @@ fn start(app: &mut App) {
     // After `run_app_with`, which makes the font collection the icons' fonts join.
     install_icon_font(app);
     install_cupertino_icon_font(app);
+    install_code_font(app);
 }
 
 /// The app laid out for its window's width.

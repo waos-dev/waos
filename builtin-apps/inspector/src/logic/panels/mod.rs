@@ -182,6 +182,8 @@ pub(crate) enum Tone {
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct Tile {
     pub(crate) title: String,
+    /// Whether the title reads as code: a URL, a path, an address, an output line.
+    pub(crate) code: bool,
     /// When and how it was decided, on one line.
     pub(crate) details: Vec<String>,
     /// What is said beneath, a line each: why WaOS refused it and where to change that.

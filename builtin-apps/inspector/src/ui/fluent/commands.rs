@@ -35,7 +35,7 @@ pub(super) fn commands(page: &Entity<ProgramPage>, seen: &Seen) -> WidgetRef {
             },
             Command {
                 label: words::STOP,
-                symbol: FluentSymbol::DismissCircle,
+                symbol: FluentSymbol::Stop,
                 accent: false,
                 pressed: end_program,
             },
@@ -43,7 +43,7 @@ pub(super) fn commands(page: &Entity<ProgramPage>, seen: &Seen) -> WidgetRef {
     } else {
         vec![Command {
             label: words::START_INSPECTED,
-            symbol: FluentSymbol::ChevronRight,
+            symbol: FluentSymbol::Play,
             accent: true,
             pressed: start_inspected,
         }]

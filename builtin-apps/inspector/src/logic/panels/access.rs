@@ -265,7 +265,7 @@ impl PanelRow for AccessRow {
         Column::rest("What"),
         Column::numeric("Lasted", 88.0).stepping_out(),
         Column::points("Decided", 160.0),
-        Column::numeric("At", 100.0),
+        Column::numeric("At", 130.0),
     ];
 
     const NOTHING_YET: &'static str = words::NO_ACCESS_YET;
@@ -304,6 +304,7 @@ impl PanelRow for AccessRow {
         details.extend(self.lasted.map(words::took));
         details.extend((self.decided.iter()).map(|decided| words::decided(decided).to_owned()));
         Tile {
+            code: false,
             title: self.what.clone(),
             details,
             beneath: self.decided.iter().filter_map(words::why_decided).collect(),

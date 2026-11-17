@@ -14,7 +14,7 @@ use std::rc::{Rc, Weak};
 use futures::FutureExt;
 use futures::channel::oneshot;
 use futures::future::{Either, Shared, select};
-use waft::{App, Context, Entity, Handle, ListenableObject, Listener, Ref};
+use waft::{App, Context, Entity, Handle, Ref};
 use waft_winui::{TableViewSelection, TableViewSource};
 use wasdk::StreamReader;
 
@@ -61,13 +61,11 @@ pub(crate) struct LivePanel<L: Log> {
 }
 
 impl<L: Log> LivePanel<L> {
-    /// A panel that has not listened yet; it hears each change of its row selected, which the
-    /// detail pane shows.
+    /// A panel that has not listened yet.
     pub(crate) fn new(app: &mut App) -> Entity<LivePanel<L>> {
         let rows = TableViewSource::from(app, Vec::new());
         let selection = TableViewSelection::new(app);
-        let selected = selection.handle();
-        let panel = app.new_entity(|_cx| LivePanel {
+        app.new_entity(|_cx| LivePanel {
             rows,
             selection,
             log: L::default(),
@@ -76,24 +74,7 @@ impl<L: Log> LivePanel<L> {
             heard: Heard::Nothing,
             listening: None,
             streams: Weak::new(),
-        });
-        let hearing = panel.downgrade();
-        selected.add_listener(
-            app,
-            Listener::new(move |app| {
-                let hearing = hearing.clone();
-                // Heard after the change, not within it: a table changes the selection while it
-                // builds, as it binds it, and the rows change it inside this panel's own update.
-                app.spawn(async move |cx| {
-                    cx.update(|app| {
-                        if let Some(panel) = hearing.upgrade() {
-                            panel.update(app, |_panel, cx| cx.notify());
-                        }
-                    });
-                });
-            }),
-        );
-        panel
+        })
     }
 
     /// Begins a listening, its rows and its log new; answers it, for its streams to hold.
@@ -162,6 +143,14 @@ impl<L: Log> LivePanel<L> {
         let index = self.selection.handle().selected_item(app)?;
         Some(self.rows.handle().item(app, index))
     }
+}
+
+/// Stops `panel`, which goes out of sight: its streams end at once, and no row stays selected, so
+/// the table that shows it again binds a selection with nothing to clear.
+pub(crate) fn stop<L: Log>(app: &mut App, panel: &Entity<LivePanel<L>>) {
+    let selection = panel.read(app).selection.handle();
+    selection.deselect_all(app);
+    panel.update(app, |panel, _cx| panel.stop());
 }
 
 /// Shows the rows `filter` keeps, with the filter's field's text.

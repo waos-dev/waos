@@ -173,6 +173,7 @@ impl PanelRow for OutputLine {
 
     fn tile(&self) -> Tile {
         Tile {
+            code: true,
             title: self.text.clone(),
             details: [self.time(), self.stream()]
                 .into_iter()

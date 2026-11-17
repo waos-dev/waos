@@ -176,7 +176,7 @@ impl PanelRow for NetworkRow {
         Column::numeric("Status", 56.0).stepping_out(),
         Column::points("Decided", 150.0),
         Column::numeric("Time", 72.0).stepping_out(),
-        Column::numeric("Started", 100.0),
+        Column::numeric("Started", 130.0),
     ];
 
     const NOTHING_YET: &'static str = words::NO_NETWORK_YET;
@@ -231,6 +231,7 @@ impl PanelRow for NetworkRow {
         details.extend(self.took.map(words::took));
         details.push(words::decided(&self.decided).to_owned());
         Tile {
+            code: true,
             title: format!("{} {}", self.what, self.name),
             details,
             beneath: words::why_decided(&self.decided).into_iter().collect(),

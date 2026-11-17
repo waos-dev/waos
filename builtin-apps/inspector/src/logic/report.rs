@@ -108,6 +108,20 @@ impl Report {
     pub(crate) fn is_empty(&self) -> bool {
         self.used.is_empty()
     }
+
+    /// How often it used `kinds` today, and how often WaOS refused them.
+    pub(crate) fn today_of(&self, kinds: &[AccessKind]) -> Counts {
+        kinds.iter().fold(Counts::default(), |total, kind| {
+            let used = (self.used.iter())
+                .find(|used| used.kind == *kind)
+                .map(|used| used.days[DAYS - 1])
+                .unwrap_or_default();
+            Counts {
+                allowed: total.allowed + used.allowed,
+                refused: total.refused + used.refused,
+            }
+        })
+    }
 }
 
 /// What `activity` did of `kind`, in short; none where it did nothing of it.
@@ -257,5 +271,107 @@ impl Tabular for Contacted {
 
     fn leading(&self) -> Option<Glyph> {
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use wasdk::inspect::audit::{Day, FolderUses, MountKind, NamedUses, Overflow, Uses};
+    use wasdk::system_clock::Instant;
+
+    use super::*;
+
+    fn at(seconds: i64) -> Instant {
+        Instant {
+            seconds,
+            nanoseconds: 0,
+        }
+    }
+
+    fn uses(allowed: u32, refused: u32) -> Uses {
+        Uses {
+            allowed,
+            refused,
+            first: None,
+            last: None,
+        }
+    }
+
+    fn day(start: i64) -> Day {
+        Day {
+            start: at(start),
+            domains: Vec::new(),
+            local_addresses: Vec::new(),
+            udp_datagrams: 0,
+            folders: Vec::new(),
+            folder_refusals: 0,
+            clipboard_reads: uses(0, 0),
+            pastes: 0,
+            clipboard_writes: uses(0, 0),
+            camera: Vec::new(),
+            microphone: Vec::new(),
+            commands: Vec::new(),
+            links: Vec::new(),
+            notifications: uses(0, 0),
+            questions: Vec::new(),
+            beyond_caps: Overflow {
+                domains: 0,
+                local_addresses: 0,
+                folders: 0,
+                changed: 0,
+                commands: 0,
+                links: 0,
+                device_sessions: 0,
+                questions: 0,
+            },
+        }
+    }
+
+    #[test]
+    fn a_tabs_count_is_its_kinds_uses_today() {
+        let today = 86_400;
+        let mut yesterday = day(0);
+        yesterday.domains.push(NamedUses {
+            name: "old.example".to_owned(),
+            uses: uses(9, 0),
+        });
+        let mut today_day = day(today);
+        today_day.domains.push(NamedUses {
+            name: "today.example".to_owned(),
+            uses: uses(3, 2),
+        });
+        today_day.folders.push(FolderUses {
+            path: "/data".to_owned(),
+            kind: MountKind::OwnData,
+            opened_to_read: 3,
+            opened_to_write: 1,
+            created: 1,
+            removed: 0,
+            renamed: 0,
+            changed: Vec::new(),
+        });
+        let report = Report::of(&[today_day, yesterday], today);
+        assert_eq!(
+            report.today_of(&[AccessKind::Network]),
+            Counts {
+                allowed: 3,
+                refused: 2
+            }
+        );
+        assert_eq!(
+            report.today_of(&[AccessKind::Files]),
+            Counts {
+                allowed: 5,
+                refused: 0
+            }
+        );
+        assert_eq!(
+            report.today_of(&[AccessKind::Network, AccessKind::Files]),
+            Counts {
+                allowed: 8,
+                refused: 2
+            }
+        );
+        assert_eq!(report.today_of(&[]), Counts::default());
     }
 }

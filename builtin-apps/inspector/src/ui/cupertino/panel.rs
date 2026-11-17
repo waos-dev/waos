@@ -12,7 +12,7 @@ use std::rc::Rc;
 use indexmap::IndexMap;
 use waft::{
     App, Column, CrossAxisAlignment, EdgeInsetsGeometry, Entity, IntoWidget, Listener,
-    MainAxisSize, Padding, Row, Text, WidgetRef,
+    MainAxisSize, Padding, Row, Text, TextStyle, WidgetRef,
 };
 use waft_cupertino::{
     CupertinoButton, CupertinoListTile, CupertinoNavigationBar, CupertinoSearchTextField,
@@ -20,6 +20,7 @@ use waft_cupertino::{
 };
 
 use super::{BENEATH_LINES, TALL_TILE_PADDING, back, note, scaffold, section};
+use crate::code_font::CODE_FONT;
 use crate::logic::panels::{Filter, PanelRow, Tile};
 use crate::state::page::{ProgramPage, Tab, end_program, show_tab, start_inspected};
 use crate::state::panel::{Heard, LivePanel, Log, set_filter};
@@ -173,7 +174,11 @@ fn tile(tile: &Tile) -> WidgetRef {
         .cross_axis_alignment(CrossAxisAlignment::Start)
         .spacing(2.0)
         .children(lines);
-    CupertinoListTile::new(Text::new(tile.title.clone()))
+    let mut title = Text::new(tile.title.clone());
+    if tile.code {
+        title = title.style(TextStyle::new().font_family(CODE_FONT));
+    }
+    CupertinoListTile::new(title)
         .subtitle(subtitle)
         .padding(TALL_TILE_PADDING)
         .into_widget()

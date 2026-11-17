@@ -190,6 +190,7 @@ impl PanelRow for InUseRow {
             ));
         }
         Tile {
+            code: true,
             title: format!("{}: {}", self.what, self.name),
             details,
             beneath: Vec::new(),

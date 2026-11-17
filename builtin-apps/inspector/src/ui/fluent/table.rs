@@ -17,7 +17,7 @@ use waft_winui::{
     TableViewSelection, TableViewSelectionMode, TableViewSource, TextBlockStyle, ThemeResources,
 };
 
-use super::{glyph, line, said, toned};
+use super::{code_line, glyph, line, said, toned};
 use crate::logic::panels::{Cell, Tabular, Width};
 
 /// A table of `R`s.
@@ -134,7 +134,11 @@ fn cell(
 ) -> WidgetRef {
     let resources = ThemeResources::of(app, context);
     let color = toned(cell.tone, &resources);
-    let text = line(&cell.text, TextBlockStyle::Body, color, &resources);
+    let text = if cell.code {
+        code_line(&cell.text, TextBlockStyle::Body, color, &resources)
+    } else {
+        line(&cell.text, TextBlockStyle::Body, color, &resources)
+    };
     let content = match leading {
         Some(leading) => Row::new()
             .spacing(8.0)

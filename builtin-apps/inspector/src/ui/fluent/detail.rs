@@ -17,7 +17,7 @@ use waft_winui::{
     InfoBarSeverity, TextBlockStyle, ThemeResources,
 };
 
-use super::{GAP, caption, glyph, line, toned};
+use super::{GAP, caption, code_style, glyph, line, toned};
 use crate::logic::detail::{Detail, Section};
 use crate::words;
 
@@ -132,10 +132,11 @@ fn head(detail: &Detail, close: Listener, resources: &ThemeResources) -> WidgetR
                 resources,
             ),
             Text::new(detail.subtitle.clone())
-                .style(
-                    TextBlockStyle::Caption
-                        .text_style(resources, resources.text_fill_color_secondary),
-                )
+                .style(code_style(
+                    TextBlockStyle::Caption,
+                    resources.text_fill_color_secondary,
+                    resources,
+                ))
                 .max_lines(3)
                 .into_widget(),
         ]);
@@ -167,9 +168,15 @@ fn facts(section: &Section, resources: &ThemeResources) -> WidgetRef {
                     .width(LABEL_WIDTH)
                     .child(caption(field.label, resources))
                     .into_widget(),
-                Expanded::new(Text::new(field.value.clone()).style(
-                    TextBlockStyle::Caption.text_style(resources, toned(field.tone, resources)),
-                ))
+                Expanded::new(Text::new(field.value.clone()).style(if field.code {
+                    code_style(
+                        TextBlockStyle::Caption,
+                        toned(field.tone, resources),
+                        resources,
+                    )
+                } else {
+                    TextBlockStyle::Caption.text_style(resources, toned(field.tone, resources))
+                }))
                 .into_widget(),
             ])
             .into_widget()

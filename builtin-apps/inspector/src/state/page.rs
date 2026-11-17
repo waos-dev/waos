@@ -21,7 +21,7 @@ use crate::logic::panels::in_use::{InUse, InUseRow};
 use crate::logic::panels::network::{NetworkLog, NetworkRow};
 use crate::logic::panels::output::{OutputLine, OutputLog};
 use crate::logic::report::{Contacted, Report};
-use crate::state::panel::{LivePanel, Log, hear};
+use crate::state::panel::{LivePanel, Log, hear, stop};
 use crate::state::programs::{OWN_ID, Programs};
 use crate::words;
 
@@ -89,6 +89,28 @@ impl Tab {
             | AccessKind::Links
             | AccessKind::Notifications
             | AccessKind::Questions => Tab::Access,
+        }
+    }
+
+    /// The kinds of guarded use its badge counts today, from the days kept; none for the report,
+    /// whose tab has no kind of its own, and for the two tabs the days keep nothing of: what a
+    /// program writes and what it uses now.
+    pub(crate) fn counted(self) -> &'static [AccessKind] {
+        const ACCESS: &[AccessKind] = &[
+            AccessKind::Camera,
+            AccessKind::Microphone,
+            AccessKind::Clipboard,
+            AccessKind::Machines,
+            AccessKind::Links,
+            AccessKind::Notifications,
+            AccessKind::Questions,
+        ];
+        match self {
+            Tab::Report => &[],
+            Tab::Network => &[AccessKind::Network],
+            Tab::Files => &[AccessKind::Files],
+            Tab::Access => ACCESS,
+            Tab::Output | Tab::InUse => &[],
         }
     }
 
@@ -226,11 +248,11 @@ impl Panels {
     fn stop(&self, app: &mut App, tab: Tab) {
         match tab {
             Tab::Report => {}
-            Tab::Network => self.network.update(app, |panel, _cx| panel.stop()),
-            Tab::Files => self.files.update(app, |panel, _cx| panel.stop()),
-            Tab::Access => self.access.update(app, |panel, _cx| panel.stop()),
-            Tab::Output => self.output.update(app, |panel, _cx| panel.stop()),
-            Tab::InUse => self.in_use.update(app, |panel, _cx| panel.stop()),
+            Tab::Network => stop(app, &self.network),
+            Tab::Files => stop(app, &self.files),
+            Tab::Access => stop(app, &self.access),
+            Tab::Output => stop(app, &self.output),
+            Tab::InUse => stop(app, &self.in_use),
         }
     }
 

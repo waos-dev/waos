@@ -23,7 +23,6 @@ use crate::clock;
 use crate::logic::detail::Glyph;
 use crate::logic::report::{self, Report, Used};
 use crate::state::page::{ProgramPage, Tab, show_tab};
-use crate::state::programs::Seen;
 use crate::words;
 
 /// The tallest a day's bar is.
@@ -32,16 +31,15 @@ const BAR_WIDTH: f64 = 6.0;
 /// The most domains the report's table shows before it scrolls.
 const DOMAINS_SHOWN: usize = 8;
 
-/// The report of the program `seen`.
+/// The report `report`.
 pub(super) fn report(
     app: &mut App,
     page: &Entity<ProgramPage>,
-    seen: &Seen,
+    report: &Report,
     resources: &ThemeResources,
 ) -> WidgetRef {
-    let report = Report::of(&seen.days, clock::today());
     let mut parts = Vec::new();
-    if let Some(bar) = refusals(&report) {
+    if let Some(bar) = refusals(report) {
         parts.push(bar);
     }
     parts.push(heading(
@@ -49,7 +47,7 @@ pub(super) fn report(
         &words::last_seven_days(),
         resources,
     ));
-    parts.push(access_card(page, &report, resources));
+    parts.push(access_card(page, report, resources));
     parts.push(heading(
         words::NETWORK_ACTIVITY,
         words::NETWORK_ACTIVITY_DETAIL,

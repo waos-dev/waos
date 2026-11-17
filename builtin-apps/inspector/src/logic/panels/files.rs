@@ -111,7 +111,7 @@ impl PanelRow for FileRow {
         Column::rest("Path"),
         Column::points("Kind", 132.0).stepping_out(),
         Column::points("Decided", 150.0),
-        Column::numeric("Started", 100.0),
+        Column::numeric("Started", 130.0),
     ];
 
     const NOTHING_YET: &'static str = words::NO_FILES_YET;
@@ -160,6 +160,7 @@ impl PanelRow for FileRow {
         beneath.extend(self.for_whom.map(str::to_owned));
         beneath.extend(words::why_decided(&self.decided));
         Tile {
+            code: true,
             title: format!("{} {}", self.what, self.path),
             details: vec![
                 clock::time_of_day(self.at.seconds),
