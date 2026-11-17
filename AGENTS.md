@@ -53,11 +53,11 @@ git clone https://github.com/tauri-apps/plugins-workspace.git .reference/tauri-p
 
 Neighbouring repositories:
 - `../wasdk`: the wasdk experiment, this project's private predecessor, frozen (not `sdk/wasdk`, the SDK that kept its name). Its code is ported where it is proven, piece by piece with a review, never copied whole; its decisions are precedent, not rules, and where this project's design differs, this project wins. Its `docs/proposals/` and the maintainers' experiments folder (`../experiments/`) hold what it learned.
-- `../waft`: Waft (github.com/waos-dev/waft), the framework the WaOS app and `wasdk-adapter-waft` are built on. Never commit there: the lead reviews it first.
-- `../valo`: Valo, Waft's renderer (github.com/seedeai/valo). Never commit there.
+- `../waft`: Waft (github.com/waos-dev/waft), the framework the WaOS app and `wasdk-adapter-waft` are built on. Changes go there as a branch and a pull request, never on its `main`.
+- `../valo`: Valo, Waft's renderer (github.com/seedeai/valo). Changes go there as a branch and a pull request, never on its `main`.
 
 ## Workflow
 
-- Commit each finished, checked step on `main`, adding only the paths it changed, once its design has been settled with the lead, who does not review the code before it is committed.
+- Commit each finished, checked step on a branch of its own, adding only the paths it changed, once its design has been settled with the lead, and open a pull request for the lead to merge; never push to `main`.
 - When a change does not fit the code's shape, reshape the code first, in a commit of its own, then make the change.
 - A design decision that matters goes to the lead, with the options and a recommendation. An implementation question with a measurable answer goes to an experiment under the maintainers' experiments folder (`../experiments/<date>-<question>/`), self-contained, with a README of the question, the commands, the numbers and the conclusion.
