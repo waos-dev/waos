@@ -239,14 +239,14 @@ waft-single-instance = { version = "0.5.0", path = "../waft/crates/waft-single-i
 cupertino-gallery = { path = "../waft/examples/cupertino_gallery" }
 # valo, Waft's renderer, which a program's views are drawn with: its context, its fonts and
 # their glyph raster, at the version Waft draws with.
-valo = "0.25.1"
+valo = "0.26.0"
 # The platform's fonts in the shape of Skia's `SkFontMgr`, from valo, Waft's renderer: a
 # program's fonts are a capability whose provider is its `FontManager` (the design's decision 33).
-valo-fontmgr = "0.25.1"
+valo-fontmgr = "0.26.0"
 # valo's text stack, which the engine draws a program's glyphs with: its fonts and `Rasterizer`,
 # and the geometry its strokes and outlines are in.
-valo-text = "0.25.1"
-valo-geometry = "0.25.1"
+valo-text = "0.26.0"
+valo-geometry = "0.26.0"
 # Mach's ports, messages and bootstrap server, which carry what WaOS and a program's window process
 # say to each other on macOS, at the version the experiment measured; and the C library's
 # `clock_gettime_nsec_np`, the clock both processes stamp a program's input on.
