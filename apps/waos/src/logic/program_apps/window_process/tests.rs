@@ -43,6 +43,8 @@ pub(crate) struct Served {
     pub(crate) dialog_reports: UnboundedReceiver<DialogReport>,
     /// What it said macOS said of the program's notifications.
     pub(crate) system_permissions: UnboundedReceiver<SystemPermission>,
+    /// Whether each of its windows is in sight.
+    pub(crate) window_presences: UnboundedReceiver<WindowPresence>,
 }
 
 /// The window process of `program`'s app, as WaOS serves it once it said hello.
@@ -54,12 +56,14 @@ pub(crate) fn window_process(program: RunningProgram) -> Served {
     let (canvases, canvas_calls) = CanvasesOnRequest::new();
     let (dialog_reports, reported) = mpsc::unbounded();
     let (system_permissions, said) = mpsc::unbounded();
+    let (window_presences, presence) = mpsc::unbounded();
     let process = WindowProcess::new(
         program,
         send,
         Arc::new(canvases),
         dialog_reports,
         system_permissions,
+        window_presences,
         tokio::runtime::Handle::current(),
     );
     Served {
@@ -68,6 +72,7 @@ pub(crate) fn window_process(program: RunningProgram) -> Served {
         canvas_calls,
         dialog_reports: reported,
         system_permissions: said,
+        window_presences: presence,
     }
 }
 
@@ -79,7 +84,8 @@ async fn survey() -> (RunningProgram, ViewRequest) {
     let engine = test_engine::engine(Arc::new(placement), Path::new(CODE_CACHE));
     let survey = engine
         .load(Path::new(waos_test_programs::SURVEY))
-        .expect("survey loads");
+        .expect("survey loads")
+        .named("dev.example.survey");
     let (program, _given) = engine
         .run(&survey, ProgramEnvironment::default(), Vec::new())
         .expect("survey runs");
@@ -240,6 +246,47 @@ async fn a_window_with_size_limits_takes_those_the_program_sets() {
         size_limit_of(next(&mut sent).await),
         ("max", Some((1920.0, 1200.0)))
     );
+    program.stop();
+}
+
+/// A window's app says it is in sight as it opens and not once it closes, which the main thread
+/// hears, for the activity that keeps macOS from throttling WaOS.
+#[tokio::test]
+async fn a_windows_being_in_sight_is_reported_to_the_main_thread() {
+    let (program, request) = survey().await;
+    let Served {
+        process,
+        mut sent,
+        mut canvas_calls,
+        mut window_presences,
+        ..
+    } = window_process(program.clone());
+    process.open_window(request);
+    make_canvas(&mut canvas_calls).await;
+    let ToWindow::OpenWindow { window, .. } = next(&mut sent).await else {
+        panic!("the window is asked of the program's app");
+    };
+    process.received(
+        FromWindow::WindowOpened {
+            window,
+            opened: opened(),
+        },
+        Vec::new(),
+    );
+
+    let told = tokio::time::timeout(WITHIN, window_presences.next())
+        .await
+        .expect("in sight as it opens")
+        .expect("a report");
+    assert!(told.in_sight);
+    assert_eq!(told.window, window);
+
+    process.received(FromWindow::WindowClosed { window }, Vec::new());
+    let told = tokio::time::timeout(WITHIN, window_presences.next())
+        .await
+        .expect("not in sight once it closes")
+        .expect("a report");
+    assert!(!told.in_sight);
     program.stop();
 }
 

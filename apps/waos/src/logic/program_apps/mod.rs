@@ -81,7 +81,8 @@ pub(crate) use canvases::{CanvasCall, CanvasKey, CanvasPlace, CanvasesOnRequest}
 pub(crate) use notifications::AppNotifications;
 use window_process::SendToWindow;
 pub(crate) use window_process::{
-    DialogReport, DialogReports, SystemPermission, SystemPermissions, WindowProcess,
+    DialogReport, DialogReports, SystemPermission, SystemPermissions, WindowPresence,
+    WindowPresences, WindowProcess,
 };
 #[cfg(test)]
 pub(crate) use {
@@ -112,6 +113,8 @@ pub(crate) struct ProgramApps {
     dialog_reports: DialogReports,
     /// Where what the apps say macOS said of the programs' notifications goes, on the main thread.
     system_permissions: SystemPermissions,
+    /// Where whether each of the programs' windows is in sight goes, on the main thread.
+    window_presences: WindowPresences,
     /// What opens an installed program the user opened the app of, once the engine is made.
     runs: OnceLock<InstalledRuns>,
     runtime: tokio::runtime::Runtime,
@@ -123,14 +126,16 @@ impl ProgramApps {
     /// The programs' apps, their bundles in `folders`, the installed ones' read from `store`, the
     /// canvases of their views kept by `canvases`, what their prompts' dialogs report sent to
     /// `dialog_reports`, what they say macOS said of the programs' notifications to
-    /// `system_permissions`, and listening for their hellos from now on; every bundle is rebuilt if
-    /// the system changed since it was signed.
+    /// `system_permissions`, whether each of their windows is in sight to `window_presences`, and
+    /// listening for their hellos from now on; every bundle is rebuilt if the system changed
+    /// since it was signed.
     pub(crate) fn start(
         folders: AppsFolders,
         store: Store,
         canvases: CanvasesOnRequest,
         dialog_reports: DialogReports,
         system_permissions: SystemPermissions,
+        window_presences: WindowPresences,
     ) -> Result<Arc<ProgramApps>> {
         let waos = waos_files(&folders.data)?;
         check_layer_contexts().map_err(|lacking| {
@@ -169,6 +174,7 @@ impl ProgramApps {
                 canvases: Arc::new(canvases),
                 dialog_reports,
                 system_permissions,
+                window_presences,
                 runs: OnceLock::new(),
                 runtime,
                 reach: Arc::new(reach),
@@ -350,6 +356,7 @@ impl ProgramApps {
             Arc::clone(&self.canvases),
             self.dialog_reports.clone(),
             self.system_permissions.clone(),
+            self.window_presences.clone(),
             self.runtime.handle().clone(),
         );
         self.reach.connected(id, &process);

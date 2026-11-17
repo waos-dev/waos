@@ -92,6 +92,18 @@ pub(crate) struct SystemPermission {
 /// Where what macOS says of the programs' notifications goes, on its way to the main thread.
 pub(crate) type SystemPermissions = UnboundedSender<SystemPermission>;
 
+/// Whether one of a program's windows is in sight, as its window process says, on its way to the
+/// main thread, where the activity that keeps macOS from throttling WaOS follows it.
+#[derive(Debug)]
+pub(crate) struct WindowPresence {
+    pub(crate) program: ProgramId,
+    pub(crate) window: RequestId,
+    pub(crate) in_sight: bool,
+}
+
+/// Where whether each of a program's windows is in sight goes, on its way to the main thread.
+pub(crate) type WindowPresences = UnboundedSender<WindowPresence>;
+
 pub(crate) struct WindowProcess {
     program: RunningProgram,
     send: SendToWindow,
@@ -105,6 +117,8 @@ pub(crate) struct WindowProcess {
     gone: AtomicBool,
     dialog_reports: DialogReports,
     system_permissions: SystemPermissions,
+    /// Whether each of the program's windows is in sight, on its way to the main thread.
+    window_presences: WindowPresences,
     /// The prompts shown in dialogs there, until hidden or closed.
     prompts: Mutex<HashSet<PromptId>>,
     /// Held while the program's menu bar is read and sent, so the bar sent last is the one it set
@@ -134,18 +148,22 @@ struct AppWindow {
     key: CanvasKey,
     /// The view shown in it, once it opened.
     view: Option<ProgramView>,
+    /// Whether its app says the window is in sight: on screen and not occluded.
+    in_sight: bool,
 }
 
 impl WindowProcess {
     /// `program`'s window process, which `send` reaches, its views' canvases kept by `canvases`,
-    /// what its prompts' dialogs report sent to `dialog_reports`, and what it says macOS said of
-    /// the program's notifications to `system_permissions`; key replies are awaited on `runtime`.
+    /// what its prompts' dialogs report sent to `dialog_reports`, what it says macOS said of the
+    /// program's notifications to `system_permissions`, and whether each of its windows is in
+    /// sight to `window_presences`; key replies are awaited on `runtime`.
     pub(crate) fn new(
         program: RunningProgram,
         send: SendToWindow,
         canvases: Arc<CanvasesOnRequest>,
         dialog_reports: DialogReports,
         system_permissions: SystemPermissions,
+        window_presences: WindowPresences,
         runtime: tokio::runtime::Handle,
     ) -> Arc<WindowProcess> {
         Arc::new(WindowProcess {
@@ -157,6 +175,7 @@ impl WindowProcess {
             gone: AtomicBool::new(false),
             dialog_reports,
             system_permissions,
+            window_presences,
             prompts: Mutex::default(),
             menu_bar_sending: Mutex::default(),
             asking: Mutex::default(),
@@ -331,6 +350,7 @@ impl WindowProcess {
             pictures,
             key,
             view: None,
+            in_sight: false,
         };
         let _asking = self.asking_the_app();
         self.windows().insert(request.id, window);
@@ -369,6 +389,9 @@ impl WindowProcess {
                 report: ViewReport::MetricsChanged(metrics),
             } => self.resized(window, metrics, ports.into_iter().next()),
             FromWindow::View { window, report } => {
+                if let ViewReport::PresenceChanged(presence) = &report {
+                    self.window_in_sight_changed(window, presence.in_sight());
+                }
                 if let Some(view) = self.view(window) {
                     report_to(&view, report);
                 }
@@ -498,6 +521,7 @@ impl WindowProcess {
         if let Some(shown) = self.windows().get_mut(&window) {
             shown.view = Some(view);
         }
+        self.window_in_sight_changed(window, opened.presence.in_sight());
     }
 
     /// The view in `window` takes a new size: its canvas is resized to it, with the program's
@@ -564,11 +588,38 @@ impl WindowProcess {
         let Some(gone) = self.windows().remove(&window) else {
             return;
         };
+        if gone.in_sight {
+            self.tell_in_sight(window, false);
+        }
         gone.pictures.window_gone();
         self.canvases.remove(gone.key);
         if let Some(view) = gone.view {
             self.program.remove_view(view.id());
         }
+    }
+
+    /// Keeps whether the window `window` is in sight, telling the main thread when it changes.
+    fn window_in_sight_changed(&self, window: RequestId, in_sight: bool) {
+        let changed = self
+            .windows()
+            .get_mut(&window)
+            .is_some_and(|shown| std::mem::replace(&mut shown.in_sight, in_sight) != in_sight);
+        if changed {
+            self.tell_in_sight(window, in_sight);
+        }
+    }
+
+    /// Tells the main thread whether the window `window` is in sight now, for the activity that
+    /// keeps macOS from throttling WaOS. A program with no id has no app, and no window here.
+    fn tell_in_sight(&self, window: RequestId, in_sight: bool) {
+        let Ok(program) = app_id(&self.program) else {
+            return;
+        };
+        let _ = self.window_presences.unbounded_send(WindowPresence {
+            program,
+            window,
+            in_sight,
+        });
     }
 
     /// Hands the program the key; its reply goes back once it gives one.

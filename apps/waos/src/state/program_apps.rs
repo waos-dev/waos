@@ -66,23 +66,26 @@ mod macos {
     use crate::logic::program_apps::{
         AppNotifications, AppsFolders, CanvasCall, CanvasKey, CanvasPictures, CanvasPlace,
         CanvasesOnRequest, DialogReport, NoProgramApps, ProgramApps, SystemPermission, ToShow,
+        WindowPresence,
     };
     use crate::logic::runs::Runs;
     use crate::os::LayerContext;
     use crate::state::desktop_host::with_macos;
     use crate::state::library::{InstalledChanged, Library};
     use crate::state::prompt_dialogs::PromptDialogs;
+    use crate::state::app_nap_exemption::{self, AppNapExemption};
     use crate::ui::every_window::ViewContent;
 
     /// The programs' apps, or why there can be none, with their notifications; and where the
-    /// calls on their views' canvases, the reports of their prompts' dialogs and what macOS says of
-    /// their notifications arrive.
+    /// calls on their views' canvases, the reports of their prompts' dialogs, what macOS says of
+    /// their notifications and whether each of their windows is in sight arrive.
     pub(crate) struct Started {
         apps: Result<Arc<ProgramApps>, String>,
         notifications: Option<Arc<AppNotifications>>,
         canvas_calls: UnboundedReceiver<CanvasCall>,
         dialog_reports: UnboundedReceiver<DialogReport>,
         system_permissions: UnboundedReceiver<SystemPermission>,
+        window_presences: UnboundedReceiver<WindowPresence>,
     }
 
     /// The programs' apps, listening for them, over `store`; or why there can be none, said as an
@@ -96,12 +99,20 @@ mod macos {
         let (canvases, canvas_calls) = CanvasesOnRequest::new();
         let (dialogs, dialog_reports) = mpsc::unbounded();
         let (said, system_permissions) = mpsc::unbounded();
-        let apps = ProgramApps::start(apps_folders, store.clone(), canvases, dialogs, said)
-            .map_err(|error| {
-                let why = format!("{error:#}");
-                tracing::error!("no program's windows can be shown: {why}");
-                why
-            });
+        let (presence, window_presences) = mpsc::unbounded();
+        let apps = ProgramApps::start(
+            apps_folders,
+            store.clone(),
+            canvases,
+            dialogs,
+            said,
+            presence,
+        )
+        .map_err(|error| {
+            let why = format!("{error:#}");
+            tracing::error!("no program's windows can be shown: {why}");
+            why
+        });
         let notifications = apps
             .as_ref()
             .ok()
@@ -112,6 +123,7 @@ mod macos {
             canvas_calls,
             dialog_reports,
             system_permissions,
+            window_presences,
         }
     }
 
@@ -168,25 +180,36 @@ mod macos {
     /// From now on, the canvases of the views in the programs' apps are kept on the main thread,
     /// the programs whose app the user opens alone are opened with `runs`, each program `library`
     /// has installed has its app, what macOS says of a program's notifications goes to `library`,
-    /// and every running program's app reads it again each time WaOS comes to the front; answers
-    /// where the programs' prompts are shown: in dialogs of their apps, launched for a prompt when
-    /// they do not run, or by `own_windows` where there are no apps.
+    /// every running program's app reads it again each time WaOS comes to the front, and whether
+    /// each of their windows is in sight tells `activity`; answers where the programs' prompts are
+    /// shown: in dialogs of their apps, launched for a prompt when they do not run, or by
+    /// `own_windows` where there are no apps.
     pub(crate) fn follow(
         app: &mut App,
         started: Started,
         runs: InstalledRuns,
         library: &Entity<Library>,
         own_windows: Rc<PromptWindows>,
+        activity: &Entity<AppNapExemption>,
     ) -> ProgramPrompts {
-        let Ok(apps) = started.apps else {
+        let Started {
+            apps,
+            notifications,
+            canvas_calls,
+            dialog_reports,
+            system_permissions,
+            window_presences,
+        } = started;
+        let Ok(apps) = apps else {
             return in_own_windows(own_windows);
         };
-        keep_canvases(app, started.canvas_calls);
-        tell_system_permissions(app, library, started.system_permissions);
-        if let Some(notifications) = started.notifications {
+        keep_canvases(app, canvas_calls);
+        tell_system_permissions(app, library, system_permissions);
+        app_nap_exemption::follow_windows(app, activity.clone(), window_presences);
+        if let Some(notifications) = notifications {
             read_system_permissions_at_the_front(app, notifications, Arc::clone(&runs.runs));
         }
-        let prompts = prompts_in_apps(app, &apps, started.dialog_reports, own_windows);
+        let prompts = prompts_in_apps(app, &apps, dialog_reports, own_windows);
         apps.open_with(runs);
         apps.installed_changed(library.read(app).installed());
         let followed = library.clone();

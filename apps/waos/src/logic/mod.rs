@@ -3,7 +3,8 @@
 //! dev server that runs what each connection sends, or opens the files it sends with a program
 //! (`opening`), and `waos open`'s side of that (`open_command`), or answers its screenshot of a
 //! program's windows (`dev_screenshot`), gives them its input (`dev_input`) or sizes one
-//! (`dev_resize`), or reads and sets a program's settings (`dev_settings`), with what WaOS asks each program's user now, which a run
+//! (`dev_resize`), or reads and sets a program's settings (`dev_settings`), with which programs'
+//! code it is compiling (`dev_compiles`), with what WaOS asks each program's user now, which a run
 //! says and a screenshot and an input read (`asking_now`), its file dialogs among it
 //! (`noted_file_dialogs`); what each program
 //! runs with (`environments`): this computer's capabilities and the grants of the store's settings;
@@ -46,6 +47,8 @@ pub(crate) mod clipboard_calls;
 pub(crate) mod command_line;
 pub(crate) mod cues;
 pub(crate) mod deck_geometry;
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+pub(crate) mod dev_compiles;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(crate) mod dev_input;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]

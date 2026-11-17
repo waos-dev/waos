@@ -7,7 +7,8 @@
 //! store in the desktop's launcher or in a window of a phone's size, the questions
 //! programs put to their user, the picker of their sound's output among them, shown on macOS in
 //! dialogs of the programs' apps (`prompt_dialogs`), the programs recording, and the quit that
-//! asks every program first.
+//! asks every program first; and on macOS the activity that keeps App Nap from throttling WaOS
+//! while a program compiles or its window is in sight (`app_nap_exemption`).
 //!
 //! The invariant: nothing here is touched off the main thread. What reaches it from the programs'
 //! threads and the dev server's comes through a queue a task of the main thread's empties: the view
@@ -16,8 +17,9 @@
 //! calls (`logic::menu_calls`), the openings (`logic::opener_calls`), the notifications' calls
 //! (`logic::notification_calls`), the players' calls (`logic::media_player_calls`), the media
 //! assets' calls (`logic::media_asset_calls`), the cameras'
-//! calls (`logic::camera_calls`), each view's calls (`waos-program-window`'s), and on macOS what
-//! the programs' apps send (`logic::program_apps`).
+//! calls (`logic::camera_calls`), each view's calls (`waos-program-window`'s), on macOS what
+//! the programs' apps send (`logic::program_apps`), the presence of each of their windows among
+//! it, and what the compiles' lists say (`logic::installed_code`, `logic::dev_compiles`).
 
 pub(crate) mod cameras;
 pub(crate) mod clipboard;
@@ -49,6 +51,8 @@ pub(crate) mod recordings;
 pub(crate) mod test_system;
 #[cfg(test)]
 mod tests;
+#[cfg(any(target_os = "macos", test))]
+pub(crate) mod app_nap_exemption;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(crate) mod waos_tray;
 
@@ -74,6 +78,8 @@ use waos_store::{SourceProxy, Store};
 
 use crate::logic::asking_now::AskingNow;
 use crate::logic::command_line::LibraryPlace;
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+use crate::logic::dev_compiles::DevCompiles;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 use crate::logic::dev_server::DevServer;
 use crate::logic::environments::ProgramEnvironments;
@@ -198,6 +204,10 @@ pub(crate) fn start(
     let faces = program_faces(&store, &folders);
     let (own_windows, requests) = WindowsOnRequest::new(faces.clone());
     let program_apps = program_apps::start(&folders, &store);
+    // The activity macOS must not throttle WaOS under, from now until WaOS ends: the programs
+    // that compile and the windows in sight tell it (`state::app_nap_exemption`).
+    #[cfg(target_os = "macos")]
+    let app_nap_exemption = app_nap_exemption::start(app);
     let places = ProgramPlaces::new(usual_place(place));
     let placement = Arc::new(PlacedWhereOpened {
         places: places.clone(),
@@ -303,8 +313,26 @@ pub(crate) fn start(
     // What a tab closed on a phone stops its program among.
     let tabs_runs = Arc::clone(&runs);
     let installed_runs = InstalledRuns::new(Arc::clone(&engine), environments, runs, places);
+    #[cfg(target_os = "macos")]
+    app_nap_exemption::follow_installed_compiling(
+        app,
+        app_nap_exemption.clone(),
+        installed_runs.code.compiling_ids(),
+    );
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     let sent = Arc::new(SentComponents::new(folders.dev_components));
+    // The compiles `cargo waos`'s runs make, for the same activity.
+    #[cfg(target_os = "macos")]
+    let dev_compiles = {
+        let (compiles, compiling) = DevCompiles::new();
+        app_nap_exemption::follow_dev_compiling(app, app_nap_exemption.clone(), compiling);
+        Some(compiles)
+    };
+    #[cfg(all(
+        not(target_os = "macos"),
+        not(any(target_os = "android", target_os = "ios"))
+    ))]
+    let dev_compiles: Option<Arc<DevCompiles>> = None;
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     listen_for_cargo_waos(
         app,
@@ -312,6 +340,7 @@ pub(crate) fn start(
         &store,
         asking,
         Arc::clone(&sent),
+        dev_compiles,
     )?;
     let starts = HeldStarts {
         installed: installed_runs.clone(),
@@ -333,6 +362,16 @@ pub(crate) fn start(
     bring_opened_programs_forward(app, &library, &view_windows);
     inspected.serve_starts(starts, library.read(app).runtime());
     tell_installs_to_inspectors(app, &library, inspected);
+    #[cfg(target_os = "macos")]
+    let prompts = program_apps::follow(
+        app,
+        program_apps,
+        installed_runs,
+        &library,
+        Rc::clone(&prompt_windows),
+        &app_nap_exemption,
+    );
+    #[cfg(not(target_os = "macos"))]
     let prompts = program_apps::follow(
         app,
         program_apps,
@@ -409,7 +448,8 @@ pub(crate) fn start(
 
 /// Listens for `cargo waos` on the socket `waos-dev-protocol` names, running what it sends on
 /// `installed`'s engine with its environments, counted in its runs, the components kept in
-/// `sent`, and opening files with an installed program as `installed` opens it; and
+/// `sent`, reporting each compile a run makes to `dev_compiles`, and opening files with an
+/// installed program as `installed` opens it; and
 /// makes a quit ask every program in its runs first, stopping the server and keeping the
 /// engine's days once they agree. Not on
 /// a phone: `cargo waos` reaches none yet, and the system ends an app there without asking it.
@@ -420,12 +460,20 @@ fn listen_for_cargo_waos(
     store: &Store,
     asking: Arc<AskingNow>,
     sent: Arc<SentComponents>,
+    dev_compiles: Option<Arc<DevCompiles>>,
 ) -> Result<()> {
     let socket = waos_dev_protocol::listener_path();
     let runs = Arc::clone(&installed.runs);
     let engine = Arc::clone(&installed.engine);
-    let server = DevServer::start(installed, store.clone(), asking, &socket, sent)
-        .with_context(|| format!("listening for cargo waos at {}", socket.display()))?;
+    let server = DevServer::start(
+        installed,
+        store.clone(),
+        asking,
+        &socket,
+        sent,
+        dev_compiles,
+    )
+    .with_context(|| format!("listening for cargo waos at {}", socket.display()))?;
     tracing::info!(socket = %socket.display(), "WaOS listens for cargo waos");
     quitting::ask_programs_before_quitting(app, runs, server, engine);
     Ok(())

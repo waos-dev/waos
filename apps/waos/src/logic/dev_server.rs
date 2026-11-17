@@ -19,6 +19,7 @@ use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
 use super::asking_now::AskingNow;
+use super::dev_compiles::DevCompiles;
 use super::dev_inspect::{self, InspectionContext};
 use super::dev_run::{self, RunContext};
 use super::dev_settings::{self, SettingsContext};
@@ -49,7 +50,8 @@ pub(crate) struct DevServer {
 impl DevServer {
     /// Listens at `socket` for runs on `installed`'s engine, each program run as its environments
     /// say, keeping each component sent under `components` and each program running among its
-    /// runs, and telling each run what `asking` says its program's user is asked; for files to
+    /// runs, telling each run what `asking` says its program's user is asked and reporting each
+    /// compile it makes to `dev_compiles`; for files to
     /// open with a program, installed in `store`, opened as `installed` opens it, or running; and
     /// for the settings `store` keeps of a program a run has run. Refused, as `Listener::bind`
     /// refuses, while another WaOS answers there.
@@ -59,6 +61,7 @@ impl DevServer {
         asking: Arc<AskingNow>,
         socket: &Path,
         components: Arc<SentComponents>,
+        dev_compiles: Option<Arc<DevCompiles>>,
     ) -> io::Result<DevServer> {
         let (stop, stopped) = oneshot::channel();
         let (bound, binding) = mpsc::channel();
@@ -68,6 +71,7 @@ impl DevServer {
             asking,
             socket: socket.to_owned(),
             components: Arc::clone(&components),
+            dev_compiles,
         };
         let thread = thread::Builder::new()
             .name("dev server".into())
@@ -115,6 +119,9 @@ struct ServerContext {
     asking: Arc<AskingNow>,
     socket: PathBuf,
     components: Arc<SentComponents>,
+    /// Which programs' code the runs' compiles are making, for the activity that keeps macOS from
+    /// throttling WaOS; none where nothing follows them.
+    dev_compiles: Option<Arc<DevCompiles>>,
 }
 
 /// The server's thread: binds, reports whether it could, and serves until told to stop.
@@ -187,6 +194,7 @@ fn connection_context(context: &ServerContext) -> ConnectionContext {
             environments: Arc::clone(&context.installed.environments),
             runs: Arc::clone(&context.installed.runs),
             components: Arc::clone(&context.components),
+            dev_compiles: context.dev_compiles.clone(),
             asking: Arc::clone(&context.asking),
         },
         installed: context.installed.clone(),
@@ -338,6 +346,7 @@ pub(crate) mod tests {
                 Arc::clone(&asking),
                 &socket,
                 Arc::new(SentComponents::new(folder.join("dev"))),
+                None,
             )
             .expect("the server binds");
             TestServer {

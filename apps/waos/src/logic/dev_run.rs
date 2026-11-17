@@ -20,6 +20,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use super::asking_now::AskingNow;
+use super::dev_compiles::DevCompiles;
 use super::environments::ProgramEnvironments;
 use super::runs::{Runs, SentRun};
 use super::sent_components::{SentComponent, SentComponents};
@@ -40,6 +41,9 @@ pub(crate) struct RunContext {
     pub(crate) runs: Arc<Runs>,
     /// Where the components sent are kept.
     pub(crate) components: Arc<SentComponents>,
+    /// Which programs' code is being compiled, for the activity that keeps macOS from throttling
+    /// WaOS; none where nothing follows them.
+    pub(crate) dev_compiles: Option<Arc<DevCompiles>>,
     /// What each program's user is asked now.
     pub(crate) asking: Arc<AskingNow>,
 }
@@ -165,12 +169,20 @@ async fn load(
 ) -> Result<(Program, SentComponent)> {
     let engine = Arc::clone(&context.engine);
     let frames = frames.clone();
+    let dev_compiles = context.dev_compiles.clone();
+    let compiling_id = id.clone();
     let (program, file) = tokio::task::spawn_blocking(move || {
         file.write(&component)?;
-        if !engine.is_compiled(file.path())? {
+        let compiling = if engine.is_compiled(file.path())? {
+            None
+        } else {
             queue(&frames, FromWaOS::Compiling);
-        }
+            dev_compiles
+                .as_ref()
+                .map(|compiles| compiles.compiling(&compiling_id))
+        };
         let program = engine.load(file.path())?;
+        drop(compiling);
         Ok::<_, anyhow::Error>((program, file))
     })
     .await
