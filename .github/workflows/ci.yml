@@ -39,4 +39,4 @@ jobs:
           workspaces: waos
       - name: Tests
         working-directory: waos
-        run: cargo test --workspace
+        run: cargo test --workspace --no-fail-fast

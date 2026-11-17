@@ -18,11 +18,25 @@ pub(crate) fn time_zone() -> Option<String> {
 mod tests {
     use objc2_foundation::NSTimeZone;
 
-    /// jiff's reading names the zone Foundation names, which System Settings sets.
+    /// jiff's reading is the zone Foundation names, which System Settings sets: the same offsets
+    /// through a year, so its two names for UTC, Foundation's `GMT` where no zone is set and the
+    /// zone files' `UTC`, are one zone.
     #[test]
     fn the_zone_is_the_one_foundation_names() {
         NSTimeZone::resetSystemTimeZone();
         let foundation = NSTimeZone::systemTimeZone().name().to_string();
-        assert_eq!(super::time_zone().as_deref(), Some(foundation.as_str()));
+        let foundation =
+            jiff::tz::TimeZone::get(&foundation).expect("Foundation names an IANA zone");
+        let name = super::time_zone().expect("the system names its zone");
+        let read = jiff::tz::TimeZone::get(&name).expect("jiff names an IANA zone");
+        let now = jiff::Timestamp::now();
+        for month in 0..12 {
+            let instant = now + jiff::SignedDuration::from_hours(24 * 30 * month);
+            assert_eq!(
+                read.to_offset(instant),
+                foundation.to_offset(instant),
+                "{name} at {instant}"
+            );
+        }
     }
 }
