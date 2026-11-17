@@ -275,14 +275,16 @@ mod tests {
         let mut tracker = VelocityTracker::with_kind(HostKind::Touch);
         let up = (0..20).map(|nth| 600.0 - 10.0 * f64::from(nth));
         let down = (1..=8).map(|nth| 410.0 + 6.0 * f64::from(nth));
+        let mut now = Duration::ZERO;
         for (nth, y) in up.chain(down).enumerate() {
             let at = Duration::from_secs(3) + TOUCH_SPACING * nth as u32;
             for event in known.translate(&finger_move(y, at), 1.0) {
                 let position = Offset::new(event.x, event.y);
-                tracker.add_position(Duration::from_nanos(event.time), position);
+                now = Duration::from_nanos(event.time);
+                tracker.add_position(now, now, position);
             }
         }
-        let fling = tracker.get_velocity().pixels_per_second;
+        let fling = tracker.get_velocity(now).pixels_per_second;
         assert!(
             fling.dy() > 500.0,
             "the fling goes down, as the finger went last: {fling:?}"

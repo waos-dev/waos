@@ -43,7 +43,7 @@ use std::time::{Duration, Instant, SystemTime};
 use waos_capabilities::{Answer, AudioOutput, MachineChoice, Question, Role, Switch};
 
 use crate::bindings::wasdk::media::cameras::{CameraError, CameraFormat, CameraInfo, Photo};
-use crate::bindings::wasdk::media::image_codecs::{ImageFrame, ImageMetadata, ImageOrientation};
+use crate::bindings::wasdk::media::image_codecs::{ImageMetadata, ImageOrientation, ImagePictures};
 use crate::bindings::wasdk::media::media_players::{
     MediaMetadata, MediaTrack, PlayerError, SeekTolerance,
 };
@@ -876,7 +876,9 @@ pub struct OpenedImage {
     pub mime_type: String,
     /// Its size in pixels, upright.
     pub size: Size,
-    pub frames: Vec<ImageFrame>,
+    /// How its pictures go: one still picture, the frames of an animation or the pages of a
+    /// document.
+    pub pictures: ImagePictures,
     pub orientation: ImageOrientation,
     pub metadata: ImageMetadata,
 }
@@ -885,20 +887,20 @@ pub struct OpenedImage {
 /// shell gets its own type back from by downcasting through `Any`, as its hardware codecs are
 /// handed it.
 pub trait ShellImageSource: Any + Send + Sync {
-    /// Frame `frame`, one of the image's, upright, scaled down to fit `max_size`, in pixels,
+    /// Picture `index`, one of the image's, upright, scaled down to fit `max_size`, in pixels,
     /// keeping its shape, where given, in the program's memory.
-    fn decode_pixels(&self, frame: u32, max_size: Option<Size>) -> ImageFuture<PixelBuffer>;
+    fn decode_pixels(&self, index: u32, max_size: Option<Size>) -> ImageFuture<PixelBuffer>;
 }
 
 /// The shell's side of `image-codecs.hardware-image-codecs`: the system's codecs between images and
 /// hardware buffers, which the engine holds as a program's `hardware-buffer`s.
 pub trait ShellHardwareImageCodecs: Send + Sync {
-    /// Frame `frame` of `image`, an image the shell's codecs opened, in a hardware buffer of the
+    /// Picture `index` of `image`, an image the shell's codecs opened, in a hardware buffer of the
     /// program's own, which no pool waits for: on Apple's systems an `IOSurface` in 32-bit BGRA.
     fn decode(
         &self,
         image: &dyn ShellImageSource,
-        frame: u32,
+        index: u32,
         max_size: Option<Size>,
     ) -> ImageFuture<HardwareBuffer>;
 

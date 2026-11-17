@@ -8,7 +8,8 @@
 use waft::ui;
 use waft::ui::image_codecs as codecs;
 use waos::bindings::wasdk::media::image_codecs::{
-    DateTime, ImageFrame, ImageMetadata, ImageOrientation, ImageRotation, Location,
+    AnimationFrame, AnimationPlays, DateTime, ImageAnimation, ImageMetadata, ImageOrientation,
+    ImagePage, ImagePages, ImagePictures, ImageRotation, Location,
 };
 use waos::bindings::wasdk::platform::hardware_buffers::{
     AlphaType, ImageError, ImageErrorKind, PixelBuffer, PixelFormat,
@@ -19,7 +20,7 @@ use waos::bindings::wasdk::platform::windows::Size;
 pub(crate) struct ImageFacts {
     pub(crate) mime_type: String,
     pub(crate) size: Size,
-    pub(crate) frames: Vec<ImageFrame>,
+    pub(crate) pictures: ImagePictures,
     pub(crate) orientation: ImageOrientation,
     pub(crate) metadata: ImageMetadata,
 }
@@ -33,17 +34,45 @@ pub(crate) fn program_facts(image: &dyn codecs::ImageSource) -> ImageFacts {
             width: size.width(),
             height: size.height(),
         },
-        frames: image.frames().into_iter().map(program_frame).collect(),
+        pictures: program_pictures(image.pictures()),
         orientation: program_orientation(image.orientation()),
         metadata: program_metadata(image.metadata()),
     }
 }
 
-fn program_frame(frame: codecs::ImageFrame) -> ImageFrame {
-    ImageFrame {
+/// How Waft says an image's pictures go, in the program's terms.
+fn program_pictures(pictures: codecs::ImagePictures) -> ImagePictures {
+    match pictures {
+        codecs::ImagePictures::Still => ImagePictures::Still,
+        codecs::ImagePictures::Animation(animation) => ImagePictures::Animation(ImageAnimation {
+            frames: animation.frames.into_iter().map(program_frame).collect(),
+            plays: match animation.plays {
+                codecs::AnimationPlays::Times(times) => AnimationPlays::Times(times),
+                codecs::AnimationPlays::Forever => AnimationPlays::Forever,
+            },
+        }),
+        codecs::ImagePictures::Pages(pages) => ImagePictures::Pages(ImagePages {
+            pages: pages.pages.into_iter().map(program_page).collect(),
+            primary: pages.primary,
+        }),
+    }
+}
+
+fn program_frame(frame: codecs::AnimationFrame) -> AnimationFrame {
+    AnimationFrame {
         duration: frame
             .duration
             .map(|duration| u64::try_from(duration.as_nanos()).unwrap_or(u64::MAX)),
+    }
+}
+
+fn program_page(page: codecs::ImagePage) -> ImagePage {
+    ImagePage {
+        size: Size {
+            width: page.size.width(),
+            height: page.size.height(),
+        },
+        orientation: program_orientation(page.orientation),
     }
 }
 
@@ -171,10 +200,83 @@ mod tests {
 
     #[test]
     fn a_frames_delay_is_a_wit_duration() {
-        let frame = codecs::ImageFrame {
+        let frame = codecs::AnimationFrame {
             duration: Some(Duration::from_millis(100)),
         };
         assert_eq!(program_frame(frame).duration, Some(100_000_000));
-        assert_eq!(program_frame(codecs::ImageFrame::default()).duration, None);
+        assert_eq!(
+            program_frame(codecs::AnimationFrame::default()).duration,
+            None
+        );
+    }
+
+    #[test]
+    fn pictures_go_over_field_for_field() {
+        use codecs::{AnimationPlays as WaftPlays, ImagePage as WaftPage, ImagePictures as Waft};
+
+        assert!(matches!(
+            program_pictures(Waft::Still),
+            ImagePictures::Still
+        ));
+
+        let animation = Waft::Animation(codecs::ImageAnimation {
+            frames: vec![
+                codecs::AnimationFrame {
+                    duration: Some(Duration::from_millis(100)),
+                },
+                codecs::AnimationFrame { duration: None },
+            ],
+            plays: WaftPlays::Times(2),
+        });
+        let ImagePictures::Animation(animation) = program_pictures(animation) else {
+            panic!("an animation");
+        };
+        assert_eq!(animation.frames.len(), 2);
+        assert_eq!(animation.frames[0].duration, Some(100_000_000));
+        assert_eq!(animation.frames[1].duration, None);
+        assert!(matches!(animation.plays, AnimationPlays::Times(2)));
+
+        let forever = Waft::Animation(codecs::ImageAnimation {
+            frames: Vec::new(),
+            plays: WaftPlays::Forever,
+        });
+        let ImagePictures::Animation(forever) = program_pictures(forever) else {
+            panic!("an animation");
+        };
+        assert!(matches!(forever.plays, AnimationPlays::Forever));
+
+        let document = Waft::Pages(codecs::ImagePages {
+            pages: vec![
+                WaftPage {
+                    size: ui::Size::new(3.0, 2.0),
+                    orientation: codecs::ImageOrientation::default(),
+                },
+                WaftPage {
+                    size: ui::Size::new(2.0, 5.0),
+                    orientation: codecs::ImageOrientation {
+                        mirrored: true,
+                        rotation: codecs::ImageRotation::HalfTurn,
+                    },
+                },
+            ],
+            primary: 1,
+        });
+        let ImagePictures::Pages(document) = program_pictures(document) else {
+            panic!("a document");
+        };
+        assert_eq!(document.primary, 1);
+        assert_eq!(
+            (document.pages[0].size.width, document.pages[0].size.height),
+            (3.0, 2.0)
+        );
+        assert_eq!(
+            (document.pages[1].size.width, document.pages[1].size.height),
+            (2.0, 5.0)
+        );
+        assert!(document.pages[1].orientation.mirrored);
+        assert!(matches!(
+            document.pages[1].orientation.rotation,
+            ImageRotation::HalfTurn
+        ));
     }
 }

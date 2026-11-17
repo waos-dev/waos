@@ -108,7 +108,9 @@ fn the_empty_homes_button_gets_programs() {
 #[test]
 fn a_window_made_as_wide_as_a_tablets_takes_fluents_layout() {
     let mut desktop = desktop();
-    phone_window(&desktop).test_view().resize(768.0, 1024.0);
+    phone_window(&desktop)
+        .test_view()
+        .set_physical_size(waft::ui::Size::new(768.0, 1024.0));
     let view = phone_view(&desktop);
     desktop.shell.view_metrics_changed(view);
     desktop.settle();
@@ -230,7 +232,9 @@ fn an_installing_program_says_so_in_fluents_layout_too() {
     let _held = desktop.hold_compiles();
     let forever = std::fs::read(waos_test_programs::FOREVER).unwrap();
     install_on_the_phone(&mut desktop, &forever);
-    phone_window(&desktop).test_view().resize(768.0, 1024.0);
+    phone_window(&desktop)
+        .test_view()
+        .set_physical_size(waft::ui::Size::new(768.0, 1024.0));
     let view = phone_view(&desktop);
     desktop.shell.view_metrics_changed(view);
     desktop.settle();
@@ -428,7 +432,9 @@ fn a_package_picked_without_a_path_is_copied_and_asked_about() {
 #[test]
 fn a_package_picked_from_a_file_in_fluents_layout_is_asked_about() {
     let mut desktop = desktop();
-    phone_window(&desktop).test_view().resize(768.0, 1024.0);
+    phone_window(&desktop)
+        .test_view()
+        .set_physical_size(waft::ui::Size::new(768.0, 1024.0));
     let view = phone_view(&desktop);
     desktop.shell.view_metrics_changed(view);
     let package = desktop.package(TRIANGLE, "Triangle", "1.0.0", b"\0asm");

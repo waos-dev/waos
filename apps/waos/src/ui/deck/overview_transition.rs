@@ -256,8 +256,9 @@ impl DeckViewState {
             .carried_by(index, hold, moved.at, &position, &deck);
         across.set_value(app, carry.dx());
         down.set_value(app, carry.dy());
+        let now = app.clock();
         if let (Some(held), Some(time)) = (app.get_mut(self).held_page.as_mut(), moved.time) {
-            held.carrying_speed.add_position(time, carry);
+            held.carrying_speed.add_position(now, time, carry);
         }
     }
 
@@ -280,7 +281,10 @@ impl DeckViewState {
             tabs.set_overview_open(open, cx);
         });
         self.settle_flight(app, held.tab, Some(flight_velocity));
-        let carrying = held.carrying_speed.get_velocity().pixels_per_second;
+        let carrying = held
+            .carrying_speed
+            .get_velocity(app.clock())
+            .pixels_per_second;
         self.settle_carry(app, held.tab, Some(carrying));
     }
 

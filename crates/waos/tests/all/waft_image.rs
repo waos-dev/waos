@@ -1,6 +1,6 @@
 //! `examples/waft-image`, a Waft app over `wasdk-adapter-waft` that draws a PNG of its own bytes
 //! with Waft's `Image::memory`, under the test shell: the bytes reach the shell's image codecs, its
-//! frame decodes there at its full size, by the hardware codecs where the shell has them and into
+//! picture decodes there at its full size, by the hardware codecs where the shell has them and into
 //! the program's memory where it has none, and the window's picture is the colour the codecs
 //! decoded. It is a debug build of Waft, slow to start, and draws, so it runs where the engine
 //! makes hardware buffers, on Apple's systems.
@@ -84,7 +84,7 @@ fn decoded(hardware: bool) -> Vec<Asked> {
             from: OpenedFrom::Bytes(PNG_BYTES),
         },
         Asked::Decode {
-            frame: 0,
+            index: 0,
             max_size: None,
             hardware,
         },

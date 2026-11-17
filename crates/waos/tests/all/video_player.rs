@@ -325,7 +325,7 @@ fn a_thumbnail_is_kept_encoded_from_its_frame_and_the_next_run_draws_it_decoded_
                 from: OpenedFrom::File(machine_path),
             },
             Asked::Decode {
-                frame: 0,
+                index: 0,
                 max_size: None,
                 hardware: true,
             },

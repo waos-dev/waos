@@ -8,7 +8,7 @@
 use std::sync::{Arc, Mutex};
 
 use waos::bindings::wasdk::media::image_codecs::{
-    ImageFrame, ImageMetadata, ImageOrientation, ImageRotation,
+    ImageMetadata, ImageOrientation, ImagePictures, ImageRotation,
 };
 use waos::bindings::wasdk::platform::hardware_buffers::{
     AlphaType, ImageError, ImageErrorKind, PixelBuffer, PixelFormat,
@@ -47,7 +47,7 @@ pub struct ImageAnswers {
 pub struct ImageFacts {
     pub mime_type: String,
     pub size: (f64, f64),
-    pub frames: Vec<ImageFrame>,
+    pub pictures: ImagePictures,
     pub orientation: ImageOrientation,
     pub metadata: ImageMetadata,
 }
@@ -59,7 +59,7 @@ impl ImageFacts {
         ImageFacts {
             mime_type: mime_type.to_owned(),
             size: (width, height),
-            frames: vec![ImageFrame { duration: None }],
+            pictures: ImagePictures::Still,
             orientation: ImageOrientation {
                 mirrored: false,
                 rotation: ImageRotation::None,
@@ -111,8 +111,9 @@ fn unset() -> ImageError {
 pub enum Asked {
     /// An image opened by the program named, from what it says.
     Open { program: String, from: OpenedFrom },
+    /// A picture decoded into the program's memory, or into a hardware buffer.
     Decode {
-        frame: u32,
+        index: u32,
         max_size: Option<(f64, f64)>,
         hardware: bool,
     },
@@ -196,13 +197,14 @@ impl Shared {
             image: Box::new(TestImage {
                 shared: Arc::clone(self),
                 size: facts.size,
+                pictures: facts.pictures.clone(),
             }),
             mime_type: facts.mime_type,
             size: Size {
                 width: facts.size.0,
                 height: facts.size.1,
             },
-            frames: facts.frames,
+            pictures: facts.pictures,
             orientation: facts.orientation,
             metadata: facts.metadata,
         });
@@ -270,16 +272,30 @@ impl ShellImageCodecs for TestImageCodecs {
 struct TestImage {
     shared: Arc<Shared>,
     size: (f64, f64),
+    pictures: ImagePictures,
+}
+
+impl TestImage {
+    /// The size picture `index` decodes at: a page's own, and the image's otherwise.
+    fn size_of_picture(&self, index: u32) -> (f64, f64) {
+        match &self.pictures {
+            ImagePictures::Pages(pages) => {
+                let page = &pages.pages[index as usize];
+                (page.size.width, page.size.height)
+            }
+            ImagePictures::Still | ImagePictures::Animation(_) => self.size,
+        }
+    }
 }
 
 impl ShellImageSource for TestImage {
-    fn decode_pixels(&self, frame: u32, max_size: Option<Size>) -> ImageFuture<PixelBuffer> {
+    fn decode_pixels(&self, index: u32, max_size: Option<Size>) -> ImageFuture<PixelBuffer> {
         self.shared.ask(Asked::Decode {
-            frame,
+            index,
             max_size: max_size.map(|size| (size.width, size.height)),
             hardware: false,
         });
-        let [width, height] = fitted(self.size, max_size);
+        let [width, height] = fitted(self.size_of_picture(index), max_size);
         let pixels = self.shared.answers().pixels.map(|rgba| PixelBuffer {
             width,
             height,
@@ -299,20 +315,22 @@ impl ShellHardwareImageCodecs for TestHardwareImageCodecs {
     fn decode(
         &self,
         image: &dyn ShellImageSource,
-        frame: u32,
+        index: u32,
         max_size: Option<Size>,
     ) -> ImageFuture<HardwareBuffer> {
         self.0.ask(Asked::Decode {
-            frame,
+            index,
             max_size: max_size.map(|size| (size.width, size.height)),
             hardware: true,
         });
         let image: &dyn std::any::Any = image;
-        let size = image
+        let image = image
             .downcast_ref::<TestImage>()
-            .expect("an image the test codecs opened")
-            .size;
-        decoded(fitted(size, max_size), self.0.answers().pixels)
+            .expect("an image the test codecs opened");
+        decoded(
+            fitted(image.size_of_picture(index), max_size),
+            self.0.answers().pixels,
+        )
     }
 
     fn encode(

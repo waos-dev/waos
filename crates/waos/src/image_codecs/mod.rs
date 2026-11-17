@@ -11,7 +11,7 @@
 //! encoded once the GPU has finished what the program submitted and wrote to draw into it. The
 //! interface is served to a program by `host`.
 //!
-//! The invariant: the program's mistakes reach no shell, and trap: a frame its image does not
+//! The invariant: the program's mistakes reach no shell, and trap: a picture its image does not
 //! have, pixels whose bytes do not hold their rows, a quality outside 0 to 1 and a size to fit of
 //! no pixels.
 
@@ -23,7 +23,7 @@ use std::sync::Arc;
 use wasmtime::bail;
 
 use crate::access::Cause;
-use crate::bindings::wasdk::media::image_codecs::{ImageFrame, ImageMetadata, ImageOrientation};
+use crate::bindings::wasdk::media::image_codecs::{ImageMetadata, ImageOrientation, ImagePictures};
 use crate::bindings::wasdk::platform::hardware_buffers::{ImageError, ImageErrorKind, PixelBuffer};
 use crate::bindings::wasdk::platform::windows::Size;
 use crate::files::ProgramFiles;
@@ -42,7 +42,7 @@ pub struct ImageSource {
     shell: Arc<dyn ShellImageSource>,
     mime_type: String,
     size: Size,
-    frames: Vec<ImageFrame>,
+    pictures: ImagePictures,
     orientation: ImageOrientation,
     metadata: ImageMetadata,
 }
@@ -115,7 +115,7 @@ impl ImageSource {
             shell: Arc::from(opened.image),
             mime_type: opened.mime_type,
             size: opened.size,
-            frames: opened.frames,
+            pictures: opened.pictures,
             orientation: opened.orientation,
             metadata: opened.metadata,
         }
@@ -129,8 +129,8 @@ impl ImageSource {
         self.size
     }
 
-    fn frames(&self) -> Vec<ImageFrame> {
-        self.frames.clone()
+    fn pictures(&self) -> ImagePictures {
+        self.pictures.clone()
     }
 
     fn orientation(&self) -> ImageOrientation {
@@ -141,24 +141,22 @@ impl ImageSource {
         self.metadata.clone()
     }
 
-    /// Frame `frame` decoded by the shell into the program's memory; a trap for a frame the image
-    /// does not have, or a size to fit of no pixels.
+    /// Picture `index` decoded by the shell into the program's memory; a trap for a picture the
+    /// image does not have, or a size to fit of no pixels.
     fn decode_pixels(
         &self,
-        frame: u32,
+        index: u32,
         max_size: Option<Size>,
     ) -> wasmtime::Result<ImageFuture<PixelBuffer>> {
-        self.check_decoding(frame, max_size)?;
-        Ok(self.shell.decode_pixels(frame, max_size))
+        self.check_decoding(index, max_size)?;
+        Ok(self.shell.decode_pixels(index, max_size))
     }
 
-    /// Whether `frame` and `max_size` are the program's to ask: a trap otherwise.
-    fn check_decoding(&self, frame: u32, max_size: Option<Size>) -> wasmtime::Result<()> {
-        if frame as usize >= self.frames.len() {
-            bail!(
-                "the program decoded frame {frame} of an image of {} frames",
-                self.frames.len()
-            );
+    /// Whether `index` and `max_size` are the program's to ask: a trap otherwise.
+    fn check_decoding(&self, index: u32, max_size: Option<Size>) -> wasmtime::Result<()> {
+        let pictures = picture_count(&self.pictures);
+        if index as usize >= pictures {
+            bail!("the program decoded picture {index} of an image of {pictures} pictures");
         }
         if let Some(size) = max_size
             && !(size.width >= 1.0 && size.height >= 1.0)
@@ -174,16 +172,16 @@ impl ImageSource {
 }
 
 impl HardwareImageCodecs {
-    /// Frame `frame` of `image` decoded by the shell into a hardware buffer of the program's own;
+    /// Picture `index` of `image` decoded by the shell into a hardware buffer of the program's own;
     /// a trap as [`ImageSource::decode_pixels`] traps.
     fn decode(
         &self,
         image: &ImageSource,
-        frame: u32,
+        index: u32,
         max_size: Option<Size>,
     ) -> wasmtime::Result<ImageFuture<HardwareBuffer>> {
-        image.check_decoding(frame, max_size)?;
-        Ok(self.0.decode(image.shell.as_ref(), frame, max_size))
+        image.check_decoding(index, max_size)?;
+        Ok(self.0.decode(image.shell.as_ref(), index, max_size))
     }
 
     /// The shell's codecs, to encode a buffer at `quality` once the GPU work that drew into it is
@@ -191,6 +189,15 @@ impl HardwareImageCodecs {
     fn encoder(&self, quality: Option<f32>) -> wasmtime::Result<Arc<dyn ShellHardwareImageCodecs>> {
         check_quality(quality)?;
         Ok(Arc::clone(&self.0))
+    }
+}
+
+/// How many pictures `pictures` holds: one still, an animation's frames or a document's pages.
+fn picture_count(pictures: &ImagePictures) -> usize {
+    match pictures {
+        ImagePictures::Still => 1,
+        ImagePictures::Animation(animation) => animation.frames.len(),
+        ImagePictures::Pages(pages) => pages.pages.len(),
     }
 }
 
@@ -261,13 +268,13 @@ mod tests {
         assert!(check_pixels(&pixels(0, 3, 8, 24)).is_err(), "no pixels");
     }
 
-    /// An image of `frames` frames, whose shell is never asked anything.
-    fn image_of(frames: usize) -> ImageSource {
+    /// An image whose pictures go as `pictures` say, whose shell is never asked anything.
+    fn image_of(pictures: ImagePictures) -> ImageSource {
         struct Unasked;
         impl ShellImageSource for Unasked {
             fn decode_pixels(
                 &self,
-                _frame: u32,
+                _index: u32,
                 _max_size: Option<Size>,
             ) -> ImageFuture<PixelBuffer> {
                 unreachable!("a mistake reaches no shell")
@@ -281,12 +288,7 @@ mod tests {
                 width: 8.0,
                 height: 8.0,
             },
-            frames: vec![
-                ImageFrame {
-                    duration: Some(100_000_000)
-                };
-                frames
-            ],
+            pictures,
             orientation: ImageOrientation {
                 mirrored: false,
                 rotation: ImageRotation::None,
@@ -308,16 +310,55 @@ mod tests {
         }
     }
 
+    /// An animation of `frames` frames that plays forever.
+    fn animation_of(frames: usize) -> ImagePictures {
+        use crate::bindings::wasdk::media::image_codecs::{
+            AnimationFrame, AnimationPlays, ImageAnimation,
+        };
+        ImagePictures::Animation(ImageAnimation {
+            frames: vec![
+                AnimationFrame {
+                    duration: Some(100_000_000)
+                };
+                frames
+            ],
+            plays: AnimationPlays::Forever,
+        })
+    }
+
     #[test]
-    fn a_frame_the_image_has_not_and_a_size_of_no_pixels_are_mistakes() {
-        let image = image_of(3);
+    fn a_picture_the_image_has_not_and_a_size_of_no_pixels_are_mistakes() {
+        let image = image_of(animation_of(3));
         assert!(image.check_decoding(2, None).is_ok());
         let fit = |width, height| Some(Size { width, height });
         assert!(image.check_decoding(0, fit(1.0, 1.0)).is_ok());
-        assert!(image.check_decoding(3, None).is_err(), "past its frames");
+        assert!(image.check_decoding(3, None).is_err(), "past its pictures");
         assert!(image.check_decoding(0, fit(0.0, 10.0)).is_err());
         assert!(image.check_decoding(0, fit(10.0, f64::NAN)).is_err());
         assert!(image.decode_pixels(3, None).is_err(), "no shell is asked");
+    }
+
+    #[test]
+    fn pictures_are_one_still_an_animations_frames_or_a_documents_pages() {
+        use crate::bindings::wasdk::media::image_codecs::{ImagePage, ImagePages, ImageRotation};
+        assert_eq!(picture_count(&ImagePictures::Still), 1);
+        assert_eq!(picture_count(&animation_of(2)), 2);
+        let page = ImagePage {
+            size: Size {
+                width: 8.0,
+                height: 8.0,
+            },
+            orientation: ImageOrientation {
+                mirrored: false,
+                rotation: ImageRotation::None,
+            },
+        };
+        let pages = ImagePictures::Pages(ImagePages {
+            pages: vec![page; 3],
+            primary: 1,
+        });
+        assert_eq!(picture_count(&pages), 3);
+        assert!(image_of(pages).check_decoding(3, None).is_err());
     }
 
     #[test]

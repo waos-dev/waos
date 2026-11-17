@@ -611,7 +611,9 @@ fn a_requested_view_arrives_in_its_window_hears_a_resize_and_goes_with_its_windo
     assert_eq!(window.max_size(), Some(waft::Size::new(1920.0, 1200.0)));
 
     let view = window.test_view().id();
-    window.test_view().resize(400.0, 300.0);
+    window
+        .test_view()
+        .set_physical_size(waft::ui::Size::new(400.0, 300.0));
     desktop.shell.view_metrics_changed(view);
     desktop.pump_until("survey hearing the resize", |_| {
         output.has("view 1: now 400x300")
@@ -735,7 +737,9 @@ fn a_press_on_surveys_title_bar_moves_its_window_and_survey_hears_it_maximized()
     window.set_maximized(true);
     window.set_frame(Rect::from_ltwh(0.0, 0.0, 1200.0, 800.0), None);
     desktop.shell.window_changed(view);
-    window.test_view().resize(1200.0, 800.0);
+    window
+        .test_view()
+        .set_physical_size(waft::ui::Size::new(1200.0, 800.0));
     desktop.shell.view_metrics_changed(view);
     desktop.pump_until("survey hearing its window maximized", |_| {
         output.has("view 1: its window is maximized")

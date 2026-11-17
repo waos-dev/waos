@@ -1,10 +1,10 @@
 //! Waft's image codecs over `wasdk:media/image-codecs`, where the system has them, one to one: the
 //! formats are the WIT's; an image opened from bytes or from a file, its path inside the program,
-//! is the WIT's, what it says of itself read from it as Waft asks; a frame decoded into the
-//! program's memory is the WIT's pixel buffer as valo's, field for field; a frame the hardware
+//! is the WIT's, what it says of itself read from it as Waft asks; a picture decoded into the
+//! program's memory is the WIT's pixel buffer as valo's, field for field; a picture the hardware
 //! codecs decoded is the WIT's hardware buffer as Waft's (`hardware_buffers`); and pixels and a
 //! hardware buffer encode through the WIT's calls of the same names. What the WIT traps a program
-//! for, a frame the image does not have, a size to fit of no pixels and a quality outside 0 to 1,
+//! for, a picture the image does not have, a size to fit of no pixels and a quality outside 0 to 1,
 //! fails here first, as `ImageErrorKind::Other`, as Waft's hosts answer it; valo's pixel buffers
 //! always hold their rows.
 //!
@@ -18,9 +18,10 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use waft_embedder::image_codecs::{
-    AlphaType, DateTime, HardwareImageCodecs, ImageCodecs, ImageError, ImageErrorKind, ImageFrame,
-    ImageFuture, ImageMetadata, ImageOrientation, ImageRotation, ImageSource, Location,
-    PixelBuffer, PixelFormat, PixelLayout,
+    AlphaType, AnimationFrame, AnimationPlays, DateTime, HardwareImageCodecs, ImageAnimation,
+    ImageCodecs, ImageError, ImageErrorKind, ImageFuture, ImageMetadata, ImageOrientation,
+    ImagePage, ImagePages, ImagePictures, ImageRotation, ImageSource, Location, PixelBuffer,
+    PixelFormat, PixelLayout,
 };
 use waft_embedder::{HardwareBuffer, Size};
 use wasdk::hardware_buffers as buffers;
@@ -111,7 +112,7 @@ impl HardwareImageCodecs for WasdkHardwareImageCodecs {
     fn decode(
         &self,
         image: &dyn ImageSource,
-        frame: u32,
+        index: u32,
         max_size: Option<Size>,
     ) -> ImageFuture<Arc<dyn HardwareBuffer>> {
         let image: &dyn Any = image;
@@ -121,12 +122,12 @@ impl HardwareImageCodecs for WasdkHardwareImageCodecs {
                 "an image these codecs did not open",
             ));
         };
-        if let Err(mistake) = image.check_decoding(frame, max_size) {
+        if let Err(mistake) = image.check_decoding(index, max_size) {
             return failed(mistake);
         }
         let (codecs, image) = (Rc::clone(&self.0), Rc::clone(&image.0));
         Box::pin(async move {
-            let decoded = codecs.decode(&image, frame, max_size.map(wit_size)).await;
+            let decoded = codecs.decode(&image, index, max_size.map(wit_size)).await;
             decoded.map(framework_buffer).map_err(framework_image_error)
         })
     }
@@ -158,14 +159,14 @@ impl HardwareImageCodecs for WasdkHardwareImageCodecs {
 struct WasdkImage(Rc<platform::ImageSource>);
 
 impl WasdkImage {
-    /// Whether `frame` and `max_size` are the app's to ask of the image: why not, where the WIT
+    /// Whether `index` and `max_size` are the app's to ask of the image: why not, where the WIT
     /// would trap.
-    fn check_decoding(&self, frame: u32, max_size: Option<Size>) -> Result<(), ImageError> {
-        let frames = self.0.frames().len();
-        if frame as usize >= frames {
+    fn check_decoding(&self, index: u32, max_size: Option<Size>) -> Result<(), ImageError> {
+        let pictures = picture_count(&self.0.pictures());
+        if index as usize >= pictures {
             return Err(ImageError::new(
                 ImageErrorKind::Other,
-                format!("frame {frame} of an image of {frames} frames"),
+                format!("picture {index} of an image of {pictures} pictures"),
             ));
         }
         match max_size {
@@ -188,8 +189,8 @@ impl ImageSource for WasdkImage {
         Size::new(size.width, size.height)
     }
 
-    fn frames(&self) -> Vec<ImageFrame> {
-        self.0.frames().into_iter().map(framework_frame).collect()
+    fn pictures(&self) -> ImagePictures {
+        framework_pictures(self.0.pictures())
     }
 
     fn orientation(&self) -> ImageOrientation {
@@ -200,13 +201,13 @@ impl ImageSource for WasdkImage {
         framework_metadata(self.0.metadata())
     }
 
-    fn decode_pixels(&self, frame: u32, max_size: Option<Size>) -> ImageFuture<PixelBuffer> {
-        if let Err(mistake) = self.check_decoding(frame, max_size) {
+    fn decode_pixels(&self, index: u32, max_size: Option<Size>) -> ImageFuture<PixelBuffer> {
+        if let Err(mistake) = self.check_decoding(index, max_size) {
             return failed(mistake);
         }
         let image = Rc::clone(&self.0);
         Box::pin(async move {
-            let decoded = image.decode_pixels(frame, max_size.map(wit_size)).await;
+            let decoded = image.decode_pixels(index, max_size.map(wit_size)).await;
             framework_pixels(decoded.map_err(framework_image_error)?)
         })
     }
@@ -297,9 +298,44 @@ pub(crate) fn framework_image_error(error: buffers::ImageError) -> ImageError {
     ImageError::new(kind, error.message)
 }
 
-fn framework_frame(frame: platform::ImageFrame) -> ImageFrame {
-    ImageFrame {
+/// How the WIT says an image's pictures go, in Waft's terms.
+fn framework_pictures(pictures: platform::ImagePictures) -> ImagePictures {
+    match pictures {
+        platform::ImagePictures::Still => ImagePictures::Still,
+        platform::ImagePictures::Animation(animation) => ImagePictures::Animation(ImageAnimation {
+            frames: animation.frames.into_iter().map(framework_frame).collect(),
+            plays: match animation.plays {
+                platform::AnimationPlays::Times(times) => AnimationPlays::Times(times),
+                platform::AnimationPlays::Forever => AnimationPlays::Forever,
+            },
+        }),
+        platform::ImagePictures::Pages(pages) => ImagePictures::Pages(ImagePages {
+            pages: pages.pages.into_iter().map(framework_page).collect(),
+            primary: pages.primary,
+        }),
+    }
+}
+
+fn framework_frame(frame: platform::AnimationFrame) -> AnimationFrame {
+    AnimationFrame {
         duration: frame.duration.map(Duration::from_nanos),
+    }
+}
+
+fn framework_page(page: platform::ImagePage) -> ImagePage {
+    ImagePage {
+        size: Size::new(page.size.width, page.size.height),
+        orientation: framework_orientation(page.orientation),
+    }
+}
+
+/// How many pictures the WIT's `pictures` holds: one still, an animation's frames or a document's
+/// pages.
+fn picture_count(pictures: &platform::ImagePictures) -> usize {
+    match pictures {
+        platform::ImagePictures::Still => 1,
+        platform::ImagePictures::Animation(animation) => animation.frames.len(),
+        platform::ImagePictures::Pages(pages) => pages.pages.len(),
     }
 }
 

@@ -1,7 +1,7 @@
 //! The code serving `wasdk:media/image-codecs` to a program: the shell's codecs, where it has them,
 //! the formats they read and write, an image opened from the program's bytes or from a file of its
-//! own, what the image said of itself as it opened, its frames decoded into the program's memory or
-//! into a hardware buffer it holds as a video frame's, and pixels or a hardware buffer encoded,
+//! own, what the image said of itself as it opened, its pictures decoded into the program's memory
+//! or into a hardware buffer it holds as a video frame's, and pixels or a hardware buffer encoded,
 //! each answered once the shell has, off the program's store, so the program does other things
 //! meanwhile.
 
@@ -13,8 +13,8 @@ use wasmtime_wasi::runtime::spawn_blocking;
 use super::{HardwareImageCodecs, ImageCodecs, ImageSource};
 use crate::bindings::wasdk::media::image_codecs::{
     self, HostHardwareImageCodecs, HostHardwareImageCodecsWithStore, HostImageCodecs,
-    HostImageCodecsWithStore, HostImageSource, HostImageSourceWithStore, ImageFrame, ImageMetadata,
-    ImageOrientation,
+    HostImageCodecsWithStore, HostImageSource, HostImageSourceWithStore, ImageMetadata,
+    ImageOrientation, ImagePictures,
 };
 use crate::bindings::wasdk::platform::hardware_buffers::{ImageError, ImageErrorKind, PixelBuffer};
 use crate::bindings::wasdk::platform::windows::Size;
@@ -134,8 +134,8 @@ impl HostImageSource for ImageCodecsCtx<'_> {
         Ok(self.table.get(&image)?.size())
     }
 
-    fn frames(&mut self, image: Resource<ImageSource>) -> wasmtime::Result<Vec<ImageFrame>> {
-        Ok(self.table.get(&image)?.frames())
+    fn pictures(&mut self, image: Resource<ImageSource>) -> wasmtime::Result<ImagePictures> {
+        Ok(self.table.get(&image)?.pictures())
     }
 
     fn orientation(&mut self, image: Resource<ImageSource>) -> wasmtime::Result<ImageOrientation> {
@@ -157,7 +157,7 @@ impl<T: ImageCodecsCtxView + 'static> HostImageSourceWithStore<T> for HasImageCo
     async fn decode_pixels(
         accessor: &Accessor<T, Self>,
         image: Resource<ImageSource>,
-        frame: u32,
+        index: u32,
         max_size: Option<Size>,
     ) -> wasmtime::Result<Result<PixelBuffer, ImageError>> {
         let decoding = accessor.with(|mut access| {
@@ -165,7 +165,7 @@ impl<T: ImageCodecsCtxView + 'static> HostImageSourceWithStore<T> for HasImageCo
                 .get()
                 .table
                 .get(&image)?
-                .decode_pixels(frame, max_size)
+                .decode_pixels(index, max_size)
         })?;
         Ok(decoding.await.and_then(pixels_fitting_a_list))
     }
@@ -184,7 +184,7 @@ impl<T: ImageCodecsCtxView + 'static> HostHardwareImageCodecsWithStore<T> for Ha
         accessor: &Accessor<T, Self>,
         codecs: Resource<HardwareImageCodecs>,
         image: Resource<ImageSource>,
-        frame: u32,
+        index: u32,
         max_size: Option<Size>,
     ) -> wasmtime::Result<Result<Resource<ProgramHardwareBuffer>, ImageError>> {
         let (decoding, stats) = accessor.with(|mut access| {
@@ -192,7 +192,7 @@ impl<T: ImageCodecsCtxView + 'static> HostHardwareImageCodecsWithStore<T> for Ha
             let table = &context.table;
             let decoding = table
                 .get(&codecs)?
-                .decode(table.get(&image)?, frame, max_size)?;
+                .decode(table.get(&image)?, index, max_size)?;
             wasmtime::Result::<_>::Ok((decoding, context.program.shared_stats()))
         })?;
         let decoded = decoding

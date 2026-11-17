@@ -40,17 +40,17 @@ pub(crate) enum CodecCall {
         source: ImageSource,
         answer: oneshot::Sender<Result<ImageFacts, codecs::ImageError>>,
     },
-    /// A frame of one of the images, into the program's memory.
+    /// A picture of one of the images, into the program's memory.
     DecodePixels {
         image: ImageKey,
-        frame: u32,
+        index: u32,
         max_size: Option<ui::Size>,
         answer: oneshot::Sender<Result<codecs::PixelBuffer, codecs::ImageError>>,
     },
-    /// A frame of one of the images, into a hardware buffer.
+    /// A picture of one of the images, into a hardware buffer.
     DecodeHardware {
         image: ImageKey,
-        frame: u32,
+        index: u32,
         max_size: Option<ui::Size>,
         answer: oneshot::Sender<Result<Arc<dyn ui::HardwareBuffer>, codecs::ImageError>>,
     },
@@ -139,7 +139,7 @@ impl CodecsOnRequest {
                 image: Box::new(ImageOnRequest { image, calls }),
                 mime_type: facts.mime_type,
                 size: facts.size,
-                frames: facts.frames,
+                pictures: facts.pictures,
                 orientation: facts.orientation,
                 metadata: facts.metadata,
             })
@@ -196,7 +196,7 @@ impl ShellHardwareImageCodecs for HardwareOnRequest {
     fn decode(
         &self,
         image: &dyn ShellImageSource,
-        frame: u32,
+        index: u32,
         max_size: Option<Size>,
     ) -> ImageFuture<HardwareBuffer> {
         let image: &dyn std::any::Any = image;
@@ -208,7 +208,7 @@ impl ShellHardwareImageCodecs for HardwareOnRequest {
         };
         let decoding = self.0.ask(move |answer| CodecCall::DecodeHardware {
             image: image.image,
-            frame,
+            index,
             max_size: max_size.map(waft_size),
             answer,
         });
@@ -242,10 +242,10 @@ struct ImageOnRequest {
 }
 
 impl ShellImageSource for ImageOnRequest {
-    fn decode_pixels(&self, frame: u32, max_size: Option<Size>) -> ImageFuture<PixelBuffer> {
+    fn decode_pixels(&self, index: u32, max_size: Option<Size>) -> ImageFuture<PixelBuffer> {
         let decoding = self.calls.ask(move |answer| CodecCall::DecodePixels {
             image: self.image,
-            frame,
+            index,
             max_size: max_size.map(waft_size),
             answer,
         });

@@ -2,14 +2,17 @@
 //! decode and encode, as `formats: decodes image/jpeg, image/png; encodes image/png`, and
 //! `hardware codecs: none` where the system has none; then, for each image listed in
 //! `/data/sources`, one a line, a path opened as a file or, after `bytes `, read and opened from its
-//! bytes, it says what the image says of itself, as `source: image/jpeg 32x48, frames: still,
-//! turned quarter-turn`, when and with what it was taken and where, as `source: taken 2024-05-01
+//! bytes, it says what the image says of itself, as `source: image/jpeg 32x48, pictures: still,
+//! turned quarter-turn`, an animation's frames and how often it plays as `pictures: 2 frames of
+//! 100ms, 200ms, played 3 times`, and a document's pages, each its size, as `pictures: 2 pages of
+//! 3x2, 2x5, primary 1`; when and with what it was taken and where, as `source: taken 2024-05-01
 //! 10:20:30 +02:00`, `source: camera Waft Test Camera, lens Test Lens`, `source: exposure 1/120 s,
-//! f/1.8, ISO 200` and `source: location 48.85083, -2.29500, 35 m`; its first frame decoded into
-//! its own memory, no larger than 16 by 16, by its size, its layout and the colours at its top and
-//! its bottom, as `source: pixels 11x16 rgba8 premultiplied, red above blue`; where the system can,
-//! decoded whole into a hardware buffer, saying what the buffer can be used for, and read back, as
-//! `source: hardware buffer 32x48 for gpu-sampled, composer-overlay, cpu-read, read 32x48 bgra8
+//! f/1.8, ISO 200` and `source: location 48.85083, -2.29500, 35 m`; the picture it shows, a still
+//! image's one, an animation's first or a document's primary page, decoded into its own memory, no
+//! larger than 16 by 16, by its size, its layout and the colours at its top and its bottom, as
+//! `source: pixels 11x16 rgba8 premultiplied, red above blue`; where the system can, decoded whole
+//! into a hardware buffer, saying what the buffer can be used for, and read back, as `source:
+//! hardware buffer 32x48 for gpu-sampled, composer-overlay, cpu-read, read 32x48 bgra8
 //! premultiplied, red above blue` on Apple's systems; and both encoded again, the pixels as PNG and the hardware buffer
 //! as JPEG, each opened again by its size, as `source: encoded image/png, opens 11x16`; or why a
 //! step failed, as `source: open failed (not-found: why)`. Then it ends. Where the system has no
@@ -26,7 +29,8 @@ use wasdk::hardware_buffers::{
     PixelFormat,
 };
 use wasdk::image_codecs::{
-    self, HardwareImageCodecs, ImageCodecs, ImageFrame, ImageMetadata, ImageRotation, ImageSource,
+    self, AnimationPlays, HardwareImageCodecs, ImageCodecs, ImageMetadata, ImagePictures,
+    ImageRotation, ImageSource,
 };
 use wasdk::windows::Size;
 
@@ -89,7 +93,8 @@ async fn go_through(
     for line in described_metadata(&image.metadata()) {
         say(line);
     }
-    let pixels = image.decode_pixels(0, Some(PIXELS_SIZE)).await;
+    let picture = shown_picture(&image.pictures());
+    let pixels = image.decode_pixels(picture, Some(PIXELS_SIZE)).await;
     say(answered("pixels", &pixels, described_pixels));
     if let Ok(pixels) = pixels {
         let encoded = codecs
@@ -100,7 +105,7 @@ async fn go_through(
     let Some(hardware) = hardware else {
         return;
     };
-    let buffer = hardware.decode(image, 0, None).await;
+    let buffer = hardware.decode(image, picture, None).await;
     let Ok(buffer) = buffer else {
         say(answered("hardware buffer", &buffer, |_| String::new()));
         return;
@@ -127,7 +132,7 @@ async fn reopened(
     })
 }
 
-/// The image's format, size, frames and how it is turned.
+/// The image's format, size, pictures and how it is turned.
 fn described_image(image: &ImageSource) -> String {
     let orientation = image.orientation();
     let turned = match orientation.rotation {
@@ -142,26 +147,58 @@ fn described_image(image: &ImageSource) -> String {
         ""
     };
     format!(
-        "{} {}, frames: {}, {turned}{mirrored}",
+        "{} {}, pictures: {}, {turned}{mirrored}",
         image.mime_type(),
         sized(image.size()),
-        described_frames(&image.frames())
+        described_pictures(&image.pictures())
     )
 }
 
-/// `still` for one frame without a duration, else each frame's, in milliseconds, or `-`.
-fn described_frames(frames: &[ImageFrame]) -> String {
-    if let [ImageFrame { duration: None }] = frames {
-        return "still".to_owned();
+/// `still`; an animation's frames, each shown for its milliseconds or `-` where the file says
+/// nothing, and how often it plays; or a document's pages, each its size, and which it names as its
+/// own.
+fn described_pictures(pictures: &ImagePictures) -> String {
+    match pictures {
+        ImagePictures::Still => "still".to_owned(),
+        ImagePictures::Animation(animation) => {
+            let durations: Vec<String> = animation
+                .frames
+                .iter()
+                .map(|frame| match frame.duration {
+                    Some(nanoseconds) => format!("{}ms", nanoseconds / 1_000_000),
+                    None => "-".to_owned(),
+                })
+                .collect();
+            let plays = match animation.plays {
+                AnimationPlays::Times(1) => "played once".to_owned(),
+                AnimationPlays::Times(times) => format!("played {times} times"),
+                AnimationPlays::Forever => "played forever".to_owned(),
+            };
+            format!(
+                "{} frames of {}, {plays}",
+                durations.len(),
+                durations.join(", ")
+            )
+        }
+        ImagePictures::Pages(pages) => {
+            let sizes: Vec<String> = pages.pages.iter().map(|page| sized(page.size)).collect();
+            format!(
+                "{} pages of {}, primary {}",
+                sizes.len(),
+                sizes.join(", "),
+                pages.primary
+            )
+        }
     }
-    let durations: Vec<String> = frames
-        .iter()
-        .map(|frame| match frame.duration {
-            Some(nanoseconds) => format!("{}ms", nanoseconds / 1_000_000),
-            None => "-".to_owned(),
-        })
-        .collect();
-    durations.join(" ")
+}
+
+/// The picture the program decodes: a still image's one, an animation's first, or a document's
+/// primary page, the one Waft shows.
+fn shown_picture(pictures: &ImagePictures) -> u32 {
+    match pictures {
+        ImagePictures::Pages(pages) => pages.primary,
+        ImagePictures::Still | ImagePictures::Animation(_) => 0,
+    }
 }
 
 /// When, with what, how and where it was taken, a line each, each saying `none` where the file says

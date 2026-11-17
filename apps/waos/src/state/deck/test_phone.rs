@@ -698,9 +698,10 @@ impl TestPhone {
 
     /// The screen measures `width` by `height` points from now on, as a phone turned does.
     pub(crate) fn resize(&mut self, width: f64, height: f64) {
-        self.screen
-            .view
-            .resize(width * PIXEL_RATIO, height * PIXEL_RATIO);
+        self.screen.view.set_physical_size(waft::ui::Size::new(
+            width * PIXEL_RATIO,
+            height * PIXEL_RATIO,
+        ));
         self.shell.view_metrics_changed(self.screen.id());
     }
 

@@ -1,5 +1,5 @@
 //! The programs' image codecs on the main thread, over Waft's: each image opened on Waft's as the
-//! engine asks, kept once it opened until the program lets it go, each frame decoded and each
+//! engine asks, kept once it opened until the program lets it go, each picture decoded and each
 //! encoding asked of Waft's codecs, and each answer sent back once Waft has it. The codecs are the
 //! engine's shell's only where Waft's platform has them.
 //!
@@ -90,21 +90,21 @@ fn take(app: &mut App, open: &OpenImages, call: CodecCall) {
         }
         CodecCall::DecodePixels {
             image,
-            frame,
+            index,
             max_size,
             answer,
         } => match opened(open, image) {
-            Some(waft) => answer_once_done(app, waft.decode_pixels(frame, max_size), answer),
+            Some(waft) => answer_once_done(app, waft.decode_pixels(index, max_size), answer),
             None => drop(answer.send(Err(not_open()))),
         },
         CodecCall::DecodeHardware {
             image,
-            frame,
+            index,
             max_size,
             answer,
         } => match (opened(open, image), codecs.hardware_image_codecs()) {
             (Some(waft), Some(hardware)) => {
-                let decoding = hardware.decode(waft.as_ref(), frame, max_size);
+                let decoding = hardware.decode(waft.as_ref(), index, max_size);
                 answer_once_done(app, decoding, answer);
             }
             _ => drop(answer.send(Err(not_open()))),
@@ -263,7 +263,7 @@ mod tests {
         let codecs = MockImageCodecs::with_hardware(answers());
         let ran = running(Rc::new(codecs.clone()), "/data/photo.jpg\n", b"a photo");
         ran.wait_for("formats: decodes image/jpeg, image/heic; encodes image/png");
-        ran.wait_for("/data/photo.jpg: image/heic 400x300, frames: still, upright");
+        ran.wait_for("/data/photo.jpg: image/heic 400x300, pictures: still, upright");
         ran.wait_for("/data/photo.jpg: location none");
         ran.wait_for("/data/photo.jpg: pixels 16x12 rgba8 premultiplied, all blue");
         ran.wait_for("/data/photo.jpg: encoded image/png opens 400x300");
@@ -281,14 +281,14 @@ mod tests {
         assert_eq!(
             asked[1],
             Asked::Decode {
-                frame: 0,
+                index: 0,
                 max_size: Some(ui::Size::new(16.0, 16.0)),
                 hardware: false,
             }
         );
         assert!(
             asked.contains(&Asked::Decode {
-                frame: 0,
+                index: 0,
                 max_size: None,
                 hardware: true,
             }),
@@ -318,7 +318,7 @@ mod tests {
         let ran = running(codecs, "/data/photo.jpg\nbytes /data/photo.jpg\n", &photo);
         let photo = "/data/photo.jpg";
         for line in [
-            format!("{photo}: image/jpeg 32x48, frames: still, turned quarter-turn"),
+            format!("{photo}: image/jpeg 32x48, pictures: still, turned quarter-turn"),
             format!("{photo}: taken 2024-05-01 10:20:30 +02:00"),
             format!("{photo}: camera Waft Test Camera, lens Test Lens 4.2mm f/1.8"),
             format!(
@@ -329,7 +329,7 @@ mod tests {
                 "{photo}: hardware buffer 32x48 for gpu-sampled, composer-overlay, cpu-read, read 32x48 bgra8 premultiplied, red above blue"
             ),
             format!("{photo}: hardware encoded image/jpeg opens 32x48"),
-            format!("bytes {photo}: image/jpeg 32x48, frames: still, turned quarter-turn"),
+            format!("bytes {photo}: image/jpeg 32x48, pictures: still, turned quarter-turn"),
         ] {
             ran.wait_for(&line);
         }
