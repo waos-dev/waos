@@ -6,6 +6,7 @@ license.workspace = true
 publish = true
 description = "#[derive(WitSerialize)]: serde's Serialize for the types wasmtime's bindgen makes of a WIT package, by the WIT's own names."
 homepage.workspace = true
+repository.workspace = true
 readme = "README.md"
 
 [lib]

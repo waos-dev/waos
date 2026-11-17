@@ -9,8 +9,8 @@
 //! recording, since a program making sound, or taking it in, feeds or follows it as it goes, which
 //! a phone's system allows an app in the background too; and while it runs a camera, which it
 //! follows as it goes, as it follows sound it records (the lead's answer of 2026-11-03), a phone's
-//! system interrupting the camera itself in the background. Why, and what was measured:
-//! `../wasdk/docs/proposals/2026-09-26-suspend-model.md`.
+//! system interrupting the camera itself in the background. Why, and what was measured: a frozen
+//! program uses no CPU, and gives back the driver's GPU memory about a second later.
 //!
 //! The rule is applied with the program's state and the clock as they stand, as often as either
 //! moves, and decides the same whoever applies it. The invariant: a program is frozen by this

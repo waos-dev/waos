@@ -10,9 +10,9 @@ export function siteOrigin(): string {
 
 export const docsRoute = '/docs';
 
-/** Placeholders until WaOS is released and its repository is public (decision 9). */
+/** The download waits for WaOS's release (decision 9); the repository is public. */
 export const downloadUrl = 'about:blank';
-export const repositoryUrl = 'about:blank';
+export const repositoryUrl = 'https://github.com/waos-dev/waos';
 
 /** Waft's Cupertino gallery, deployed for Waft; it will move. */
 export const cupertinoGalleryUrl = 'https://cupertino-gallery.inset.rs';

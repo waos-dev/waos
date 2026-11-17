@@ -86,7 +86,7 @@ const MEMORY_COUNT_LIMIT: usize = 32;
 /// How often a program yields to its runtime, in fuel: where a stop takes it. A yield costs
 /// far more than the fuel between two of them at a small interval: at 100,000 a program's own
 /// compute ran six times slower than with none, and at this one within a tenth of it, a stop
-/// still taken within a millisecond (`../experiments/2026-11-13-fuel-yield-interval`).
+/// still taken within a millisecond (measured).
 const YIELD_INTERVAL: u64 = 10_000_000;
 
 /// Runs the program to its end: instantiates it in a store of its own and calls its

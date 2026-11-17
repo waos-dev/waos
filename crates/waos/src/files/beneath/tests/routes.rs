@@ -1,6 +1,6 @@
 //! Every route beneath a folder gives the walk's verdicts on the same paths: what stays inside
 //! opens, and `..`, an absolute path and a symlink leading out are refused, with the walk's error,
-//! the verdicts `experiments/2026-10-23-wasi-open-speed` found for `wasmtime-wasi`'s walk; and a
+//! the verdicts measured for `wasmtime-wasi`'s walk; and a
 //! path ending in `/` or `/.` asks for a folder whichever route serves it, through a symlink the
 //! status does not follow among them (wasmtime#14387) and on a file (wasmtime#14368).
 

@@ -8,7 +8,8 @@
 //!
 //! `bootstrap_check_in` and `bootstrap_look_up` are not deprecated in macOS 27's SDK
 //! (`servers/bootstrap.h`), and a name checked in that no launchd plist declares works outside the
-//! App Sandbox, which WaOS and its window processes are (`../experiments/2026-10-29-present-over-mach`).
+//! App Sandbox, which WaOS and its window processes are (measured: a window process Launch Services
+//! started on its own found the name).
 //!
 //! The invariant: each value owns exactly one reference to its right and lets it go when dropped,
 //! and a right moved into a message is no longer the value's (`SendRight::into_name`).

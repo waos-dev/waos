@@ -4,8 +4,8 @@
 //! (`waos_window_messages::bundle`); its icon, made from the package's PNG with the system's own
 //! `sips` and `iconutil`; a copy of WaOS's loader as its executable; signed ad hoc with the
 //! hardened runtime and the one entitlement the loader needs to load WaOS's library,
-//! `com.apple.security.cs.disable-library-validation`, measured necessary
-//! (`../experiments/2026-10-29-generated-app-bundle`); and registered with Launch Services.
+//! `com.apple.security.cs.disable-library-validation`, measured necessary (without it a hardened
+//! loader cannot load the library); and registered with Launch Services.
 //! Deleting one resets what the system granted it first, since `tccutil` finds a bundle id
 //! through Launch Services, then unregisters it and removes it whole.
 //!

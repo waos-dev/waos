@@ -5,8 +5,8 @@
 //!
 //! The shell says it is done with a hardware buffer only once it finds the compositor no longer
 //! using it, which on macOS it asks at the view's next present: the compositor lets go of a
-//! hardware buffer about a refresh after the next replaces it
-//! (`../experiments/2026-09-25-buffer-hold`), and says nothing when it does. So, as Flutter's
+//! hardware buffer about a refresh after the next replaces it (measured: about two refreshes after
+//! the GPU finishes the frame, at 60 and at 120 Hz), and says nothing when it does. So, as Flutter's
 //! `FlutterSurfaceManager` and Firefox's `SurfacePoolCA` do, a frame never waits for a hardware
 //! buffer: a view starts with three, and when a frame is due while the shell holds every one, the
 //! pool adds another. Spares go back once the view has drawn nothing for [`SPARE_IDLE`] of the

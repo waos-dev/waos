@@ -6,8 +6,8 @@
 //! instance's side of a worker's stream is the engine's own: what one instance writes ends at a
 //! consumer that sends each message on a bounded channel (`stream::Forwarded`), and the other
 //! instance reads the channel's messages as a stream the engine produces (`stream::stream_of`). A
-//! message is copied twice, out of one memory and into the other, which
-//! `../experiments/2026-11-13-workers` measured at about 21 GiB/s.
+//! message is copied twice, out of one memory and into the other, which costs 0.7 ms for 16 MiB
+//! (measured at about 21 GiB/s).
 //!
 //! The invariants: a message is taken from its writer only once the channel has room for it, so a
 //! reader that stops reading stops the writer, as one stream would on its own; a [`Worker`]

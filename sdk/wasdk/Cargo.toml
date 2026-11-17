@@ -9,6 +9,7 @@ license = "MIT AND Apache-2.0 WITH LLVM-exception AND BSD-3-Clause"
 publish = true
 description = "What WaOS programs are written with: the bindings of the WIT packages wasdk:platform and wasdk:media, as wit-bindgen generates them, passed through, and the program's entry."
 homepage.workspace = true
+repository.workspace = true
 readme = "README.md"
 
 [features]

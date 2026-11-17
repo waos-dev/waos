@@ -1,6 +1,6 @@
 # A program's pictures on Android, composited by Android
 
-**Decisions taken (2026-11-11),** by the lead, on the design below and on the experiment that followed it (`../experiments/2026-11-11-android-surface-control`); the design is kept as it was written, and where a decision differs from it, the decision holds.
+**Decisions taken (2026-11-11),** by the lead, on the design below and on the experiment that followed it, on an emulator and an API 30 phone; the design is kept as it was written, and where a decision differs from it, the decision holds.
 
 1. **A program's picture on Android is composited by Android,** as macOS composites it: each layer an `ASurfaceControl` under WaOS's window, its buffers `AHardwareBuffer`s. Not drawn by WaOS into its own picture, a stand-in to throw away.
 2. **What belongs in Waft is designed with the lead and built in Waft,** never worked around in WaOS.
@@ -288,7 +288,7 @@ One page in sight at a time, no animation: the library is the first page; a bar 
 
 Each builds and passes on its own. Waft's steps are written in Waft's working tree and left uncommitted for the lead; WaOS's are committed on `main` once this design is settled.
 
-1. **Experiment** `../experiments/2026-11-1x-surface-control-on-the-emulator/`, the rows that decide 2.1 and question 6 only: under `NativeActivity` on the emulator, (a) a child surface control with a buffer and a never-drawn window shows; (b) the emulator's Vulkan has `VK_ANDROID_external_memory_android_hardware_buffer` and `VK_EXT_queue_family_foreign`; (c) a wgpu-hal texture over an imported `AHardwareBuffer`, cleared red and set on the child, shows red, with and without the foreign transfer. Checked: three screenshots and the extension list.
+1. **Experiment**, the rows that decide 2.1 and question 6 only: under `NativeActivity` on the emulator, (a) a child surface control with a buffer and a never-drawn window shows; (b) the emulator's Vulkan has `VK_ANDROID_external_memory_android_hardware_buffer` and `VK_EXT_queue_family_foreign`; (c) a wgpu-hal texture over an imported `AHardwareBuffer`, cleared red and set on the child, shows red, with and without the foreign transfer. Checked: three screenshots and the extension list.
 2. **Waft:** the device opened through `open_with_callback` with the import extensions, `AndroidHardwareBuffer`, the allocator and `import_texture`. Checked on the emulator: an example allocates a buffer, draws into it and shows it as an image (`import_hardware_buffer`).
 3. **Waft:** the view's picture in a surface control of its own (2.1 A), the swapchain kept for GLES. Checked: WaOS's library looks as before; resize and background-return still draw.
 4. **Waft:** the compositor, layers, placements, fence releases, `current_picture`. Checked: an example with a `CompositionLayerView` shows a presented buffer beneath its picture, moved and cropped; releases come back (a count in the log).

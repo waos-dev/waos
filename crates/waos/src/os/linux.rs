@@ -7,7 +7,7 @@
 //! queue family once the work that drew it is submitted and acquired back before it is drawn into
 //! again (`vulkan::queue_ownership`); and before that acquire, the program's thread waits for the
 //! fence the compositor's reads left on the dmabuf, which a compositor may still hold when it gives
-//! the buffer back (`../experiments/2026-11-13-linux-dmabuf-subsurfaces`, row 3).
+//! the buffer back (measured: a few of 187 buffers came back with a fence still pending).
 //! Linear memory serves every use, so a buffer answers every usage, as Apple's do; the CPU reads it
 //! between `DMA_BUF_IOCTL_SYNC`'s start and end.
 //!
@@ -437,8 +437,8 @@ pub(crate) fn take_back_from_compositor(
 /// the sync file `DMA_BUF_IOCTL_EXPORT_SYNC_FILE` exports, polled for at most [`READERS_WAIT`].
 /// The wait is on the CPU, on the program's thread: a semaphore imported from the sync file and
 /// waited on by the next submission, the GPU's wait, crashes lavapipe's `vkQueueSubmit`, and the
-/// fence has nearly always signalled by the time a buffer comes back
-/// (`../experiments/2026-11-13-linux-dmabuf-subsurfaces`, row 3). Where it cannot be waited for,
+/// fence has nearly always signalled by the time a buffer comes back (measured: usually signalled
+/// before the wait, a few of 187 buffers with it still pending). Where it cannot be waited for,
 /// it is said, and the buffer is drawn into without it.
 fn wait_for_readers(memory: &HardwareBufferMemory) {
     if let Err(error) = readers_done(memory) {

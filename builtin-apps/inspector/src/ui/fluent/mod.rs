@@ -1,5 +1,5 @@
-//! The app at a desktop's or a tablet's width, in Fluent's controls, as D1 of
-//! `../experiments/2026-11-17-inspector-visual-design` draws it: the programs in a side pane, as
+//! The app at a desktop's or a tablet's width, in Fluent's controls, as the inspector design's
+//! mockups draw it: the programs in a side pane, as
 //! Windows Settings lists its pages, beside the page of the program chosen: its header with its
 //! commands on the right, its report first and its live panels in tabs after it, as WinUI's
 //! `SelectorBar` switches a page's views.

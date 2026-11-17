@@ -6,6 +6,7 @@ license.workspace = true
 publish = true
 description = "The .wapk format: a program's manifest, component and icon in one zip, signed with its publisher's key; and the index.json a package source lists its programs in."
 homepage.workspace = true
+repository.workspace = true
 readme = "README.md"
 
 [dependencies]

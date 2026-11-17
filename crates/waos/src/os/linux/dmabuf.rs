@@ -4,10 +4,10 @@
 //!
 //! The invariants a later editor must keep: a buffer is exported with `DRM_RDWR`, since
 //! `gbm_bo_get_fd` exports read-only and a driver that maps the memory, as lavapipe does, refuses
-//! such an fd (`../experiments/2026-11-13-linux-dmabuf-subsurfaces`, row 1); the CPU reads the
-//! memory only between `DMA_BUF_IOCTL_SYNC`'s start and end; and a buffer is drawn into again only
-//! after the fence its last reader left (`writers_fence`), since a compositor gives a buffer back
-//! with that fence still pending now and then (the same experiment, row 3).
+//! such an fd (measured); the CPU reads the memory only between `DMA_BUF_IOCTL_SYNC`'s start and
+//! end; and a buffer is drawn into again only after the fence its last reader left (`writers_fence`),
+//! since a compositor gives a buffer back with that fence still pending now and then (measured: a
+//! few of 187 buffers).
 
 use std::ffi::{c_int, c_void};
 use std::fs::{File, OpenOptions};

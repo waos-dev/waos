@@ -6,6 +6,7 @@ license.workspace = true
 publish = true
 description = "A wgpu backend over wasi:webgpu, so a program written against wgpu draws in a component unchanged."
 homepage.workspace = true
+repository.workspace = true
 readme = "README.md"
 
 [dependencies]

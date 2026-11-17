@@ -93,8 +93,7 @@ impl EventLoop {
             // longer than a refresh the view's next frame is always ready and wins every pick, and a
             // stream opened later, a player's state among them, gets nothing until frames catch up.
             // While this yields the stream just read is not read again, so another ready stream's
-            // event goes first: one each frame, at 1 to 2 µs a yield
-            // (`experiments/2026-11-09-stream-starvation-release`).
+            // event goes first: one each frame, at 1 to 2 µs a yield (measured).
             wasdk::yield_async().await;
         }
     }

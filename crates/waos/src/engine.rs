@@ -403,7 +403,7 @@ pub(crate) fn engine_config(native_unwind_info: bool) -> Config {
 /// iOS gives an app no executable memory, so programs are compiled to Pulley's bytecode, which
 /// wasmtime's interpreter runs, and which the code cache keeps as it keeps native code. The
 /// simulator is held to the same rule, though it would map Cranelift's code, so that it fails
-/// where an iPhone would (`../wasdk/docs/proposals/2026-09-26-ios-jit.md`).
+/// where an iPhone would.
 ///
 /// A program's memory reserves only what it holds and room to grow, not wasmtime's 64-bit 4 GiB:
 /// iOS gives an app a few gigabytes of address space in all, so the second program's 4 GiB failed

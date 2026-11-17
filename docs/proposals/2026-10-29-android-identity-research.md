@@ -1,6 +1,6 @@
 # How each WaOS program could appear as an app of its own on Android
 
-Research for the lead, 2026-10-29. Read only: nothing under `/Users/mac/code` was changed. Every claim is marked **[read: source]** or **[inferred]**. AOSP sources are `main` at frameworks/base unless stated; Chromium sources are `main`.
+Research for the lead, 2026-10-29. Read only. Every claim is marked **[read: source]** or **[inferred]**. AOSP sources are `main` at frameworks/base unless stated; Chromium sources are `main`.
 
 ## In short
 
@@ -9,11 +9,11 @@ Research for the lead, 2026-10-29. Read only: nothing under `/Users/mac/code` wa
 - **A shell that owns the window (C)** adds little over B, at API 35 and an unverified keyboard path.
 - **Recommendation:** A for v1, built so that B can be added later.
 
-## Starting point (local)
+## Starting point
 
-- Inset's Android app is one `NativeActivity` subclass, `rs.inset.InsetActivity`, plus a non-exported `InsetFileProvider` and `InsetNotificationReceiver`; notifications go on two fixed channels, "Notifications" and "Silent notifications", with the app's icon as small icon **[read: `/Users/mac/code/inset-rs/crates/inset-cli/android/rs/inset/*.java`]**.
-- v1 decision 3: on Android, "an identity per task in WaOS's one process" **[read: `/Users/mac/code/waos/docs/proposals/2026-10-16-waos-v1.md`]**. Notifications decision: "WaOS with a channel per program on Android" **[read: `/Users/mac/code/waos/docs/proposals/2026-10-29-notifications.md`]**.
-- Inset's default `minSdkVersion` is 26; WaOS's mobile minimum is 36 for convenience, 31 workable; surfaces need 29, geometry 31, `ASurfaceControl_fromJava` 34 **[read: `/Users/mac/code/waos/docs/proposals/2026-10-29-media-research.md`, `/Users/mac/code/wasdk/docs/proposals/2026-09-26-waos-mobile.md`]**.
+- Inset's Android app is one `NativeActivity` subclass, `rs.inset.InsetActivity`, plus a non-exported `InsetFileProvider` and `InsetNotificationReceiver`; notifications go on two fixed channels, "Notifications" and "Silent notifications", with the app's icon as small icon **[read: Inset's `crates/inset-cli/android/rs/inset/*.java`]**.
+- v1 decision 3: on Android, "an identity per task in WaOS's one process" **[read: `docs/proposals/2026-10-16-waos-v1.md`]**. Notifications decision: "WaOS with a channel per program on Android" **[read: `docs/proposals/2026-10-29-notifications.md`]**.
+- Inset's default `minSdkVersion` is 26; WaOS's mobile minimum is 36 for convenience, 31 workable; surfaces need 29, geometry 31, `ASurfaceControl_fromJava` 34 **[read: `docs/proposals/2026-10-29-media-research.md`, wasdk's `2026-09-26-waos-mobile.md`]**.
 
 ## Findings
 
@@ -25,7 +25,7 @@ Research for the lead, 2026-10-29. Read only: nothing under `/Users/mac/code` wa
 - AOSP Launcher3's Recents takes a task's icon from the description's in-memory `Bitmap` or icon file; a resource icon is not loaded ("TODO: Load icon resource (b/143363444)") and falls back to the base activity's icon. Its content description is "<application label> <task label>"; with the `enable_overview_icon_menu` flag on, the title shown beside the icon is the base activity's label, not the task's **[read: AOSP `packages/apps/Launcher3/quickstep/src/com/android/quickstep/TaskIconCache.java`, `aconfig/launcher_overview.aconfig`]**. Recents' "App info" opens the app of the task's base intent **[read: Launcher3 `TaskShortcutFactory.java` `APP_INFO`; inferred: that is WaOS's page for a task in WaOS's APK]**.
 - In desktop windowing (tablets, external displays), WM Shell's window header takes the icon from the base activity's `ActivityInfo` and the name from `getApplicationLabel` of the base activity's application: a TaskDescription is not consulted **[read: AOSP `libs/WindowManager/Shell/src/com/android/wm/shell/windowdecor/DesktopModeWindowDecoration.java`, `loadAppInfoIfNeeded`]**. So every task in WaOS's APK shows "WaOS" and WaOS's icon in its desktop window header, while a task whose base activity is a shell APK's shows the shell's **[inferred]**. Pixel Launcher is a Google build of Launcher3 and may differ in detail **[inferred]**.
 - Document mode, API 21: `FLAG_ACTIVITY_NEW_DOCUMENT` makes the started activity a task of its own in Recents, found again by "the intent component name and the intent data"; with `FLAG_ACTIVITY_MULTIPLE_TASK` a new task is always made. `android:documentLaunchMode` sets the same in the manifest (`intoExisting`, `always`, `none`, `never`) and needs `launchMode="standard"`. `android:maxRecents` caps an app's tasks in Recents: "The default is 16, and the maximum value is 50 (25 on low memory devices)". `ActivityManager.AppTask` removes or moves a task **[read: https://developer.android.com/guide/components/activities/recents]**. So a task per program is `FLAG_ACTIVITY_NEW_DOCUMENT` with the program's id as the intent's data (one task per program, found again), on API 21+ **[inferred]**.
-- Inset's activity is declared `android:launchMode="singleTask"` **[read: `/Users/mac/code/inset-rs/crates/inset-cli/src/android.rs`, the manifest template]**, which document mode does not allow **[inferred from the guide above]**. Inset's Android host runs one loop for the one `AndroidApp` that `android_main` is handed **[read: `inset-embedder-android/src/lib.rs`, `host.rs`]**. `android-activity` 0.6 calls `android_main` per activity instance and says that "Theoretically you could even run multiple `Activity` instances at the same" time **[read: `~/.cargo/registry/src/*/android-activity-0.6.1/README.md`, `src/lib.rs`]**. So a task per program needs Inset's Android host to hold one window per activity instance, several at once, each its own view **[inferred]**.
+- Inset's activity is declared `android:launchMode="singleTask"` **[read: Inset's `crates/inset-cli/src/android.rs`, the manifest template]**, which document mode does not allow **[inferred from the guide above]**. Inset's Android host runs one loop for the one `AndroidApp` that `android_main` is handed **[read: `inset-embedder-android/src/lib.rs`, `host.rs`]**. `android-activity` 0.6 calls `android_main` per activity instance and says that "Theoretically you could even run multiple `Activity` instances at the same" time **[read: `~/.cargo/registry/src/*/android-activity-0.6.1/README.md`, `src/lib.rs`]**. So a task per program needs Inset's Android host to hold one window per activity instance, several at once, each its own view **[inferred]**.
 
 ### Launcher shortcuts
 

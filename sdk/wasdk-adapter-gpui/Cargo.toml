@@ -6,6 +6,7 @@ license.workspace = true
 publish.workspace = true
 description = "GPUI over wasdk: GPUI's platform for a program, its windows, input, frames, text, clipboard and file dialogs over the SDK, drawn by gpui_wgpu over wasdk-wgpu."
 homepage.workspace = true
+repository.workspace = true
 readme = "README.md"
 
 # Only a component has GPUI here, so the workspace's native build does not build GPUI.

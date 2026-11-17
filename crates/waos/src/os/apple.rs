@@ -412,7 +412,8 @@ impl Drop for InUse {
 /// A video's frame as the engine holds it: the system's `CVPixelBuffer`, whose `IOSurface` is its
 /// hardware buffer. Cloning it is a retain: whoever still holds one keeps the frame's slot in its
 /// decoder's pool, which a CoreVideo pool hands out again once nothing holds the pixel buffer,
-/// whatever still reads its surface (`../experiments/2026-11-01-corevideo-pool-reuse`).
+/// whatever still reads its surface (measured: the pool decides by the surface's use count, not its
+/// retain count).
 #[derive(Clone)]
 pub(crate) struct FrameMemory {
     frame: VideoPicture,

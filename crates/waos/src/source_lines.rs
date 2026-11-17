@@ -5,7 +5,8 @@
 //! The engine compiles programs without wasmtime's backtrace details: with them, wasmtime turns
 //! every frame into a file and line on each unwind, a stop's among them, parsing the program's
 //! DWARF again for every frame, which took a debug build of `examples/camera`, 166 MB, up to 21 s
-//! to stop (`../experiments/2026-11-16-waos-stop-backtrace`). wasmtime keeps no DWARF without
+//! to stop; with them off, a stop of a 90 MB debug build fell from about 190 ms to under 10 ms.
+//! wasmtime keeps no DWARF without
 //! them, so the component's file is read again here, with the same `addr2line` and `wasmparser`
 //! wasmtime reads it with. A frame's offset is the component's own, as wasmtime translates a
 //! component's modules where they lie in it, so the frame's module is the one whose bytes hold

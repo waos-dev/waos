@@ -128,7 +128,7 @@ tests:   WidgetTester::pump(duration) → one refresh of every view that asked; 
 
 ## The work, in order
 
-Each step builds and passes on its own; the Inset steps stay uncommitted in `../inset-rs` for the lead's review.
+Each step builds and passes on its own; the Inset steps stay uncommitted in Inset's checkout (github.com/waos-dev/waft) for the lead's review.
 
 1. Inset's embedder layer: `request_frame(view)` and `frame(view, …)`; each host delivers per view (winit per screen with hidden windows held, web, Android, the test platform), while the framework still runs its whole-app frame on any view's frame.
 2. Inset's scheduler: `FrameTarget` on every scheduling call, each call site choosing; requests and frame phases per view; `Ticker`'s target, and the providers passing their view.

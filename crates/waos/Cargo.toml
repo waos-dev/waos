@@ -8,6 +8,7 @@ license = "MIT AND Apache-2.0 WITH LLVM-exception"
 publish = true
 description = "WaOS's engine, for any app to embed: runs programs, WASI components written with wasdk, and serves them wasdk:platform and wasdk:media through its capabilities and the embedding app's shell."
 homepage.workspace = true
+repository.workspace = true
 readme = "README.md"
 # The tests run the example programs, which `waos-test-programs` builds from the workspace and
 # which is not published, so they run from the repository alone.

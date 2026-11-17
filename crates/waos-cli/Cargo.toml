@@ -6,6 +6,7 @@ license.workspace = true
 publish = true
 description = "cargo waos: writes a new program, builds a program as a component, runs it in the WaOS on this machine, packages it as a signed .wapk, and takes screenshots of its windows and gives them input while it runs."
 homepage.workspace = true
+repository.workspace = true
 readme = "README.md"
 # `tests/new.rs` builds each new program against the workspace's own crates, so it runs from the
 # repository alone.

@@ -17,8 +17,8 @@
 //! An entry is a lock, a map insertion and two clocks read, beside work far slower; an open
 //! file's path is asked of the system only for a listener, and outside the lock: before it for a
 //! file that opens, after it for a listener's snapshot or resync, which may hold thousands; and
-//! the bytes a socket moved only when someone reads the entry (`../experiments/2026-11-15-audit-cost` and
-//! `../experiments/2026-11-16-active-uses-burst`).
+//! the bytes a socket moved only when someone reads the entry (measured: with nobody listening an
+//! entry costs nothing beside an open, and a listener makes each open about 3 µs slower).
 //!
 //! The invariant: an entry goes exactly when its [`ActiveUse`] is dropped, and every change to the
 //! entries is sent to the listeners under the same lock that makes it, so a listener's snapshot

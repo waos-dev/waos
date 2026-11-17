@@ -36,7 +36,7 @@
 //! lifecycle changes, its windows hidden with it. Whether a window is maximized is read only when
 //! its frame changed: winit answers it for a window without decorations by giving the window a
 //! title bar for a moment, which it reports as two moves and two resizes, so a read at each such
-//! report would never stop (`../experiments/2026-11-11-zoomed-borderless-window`).
+//! report would never stop (measured: every read reports a move and a resize).
 
 use std::collections::HashMap;
 use std::rc::Rc;

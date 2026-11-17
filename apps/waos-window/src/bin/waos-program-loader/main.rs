@@ -3,8 +3,7 @@
 //! `Info.plist` says, and hands the process to the library's entry. It holds no program's code,
 //! so one copy serves every program, and an update of WaOS changes the window code without
 //! rewriting the bundles; the bundle's identity, its `Info.plist`, name and icon, stays the
-//! process's, which a loader that started another executable would lose
-//! (`../experiments/2026-10-29-generated-app-bundle`).
+//! process's, which a loader that started another executable would lose.
 //!
 //! The invariant: the loader stays this small, since each bundle is signed over its copy. A
 //! loader that cannot load the library ends at once, which WaOS takes as a failed launch and

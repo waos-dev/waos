@@ -32,3 +32,11 @@ The work is in the order the design gives. Built so far:
 - A window's controls for a program that draws its own title bar (decision 61): its move from the press under way, maximizing and minimizing it, what the system's settings say a double-click on a title bar does, and on macOS a window with no title bar of its own, its buttons in a band of the program's, carried out on macOS in the program's app by Waft's host, with `examples/survey` and Waft's `HostWindow` in a program written as a Waft app.
 - `sdk/wasdk-adapter-gpui`, GPUI, Zed's UI framework, over wasdk: its windows over views requested and arriving later, its frames on demand, its pointer, keys and text input, its text over cosmic-text with the system's fonts read as named, its clipboard's text and its file dialogs, drawn by GPUI's own wgpu renderer on the view's surface, with GPUI from a fork of Zed that builds its renderer for a WASI component, and `examples/gpui-hello`.
 - `packages/waos-site`, the website, `waos.app`: its home page, whose sample is `examples/hello`, the smallest Waft app, and its docs' pages, written in `content/docs/`, every one also as Markdown for agents.
+
+## Building
+
+The workspace builds against Waft from source: check out [Waft](https://github.com/waos-dev/waft) beside this repository, as `../waft`, which `Cargo.toml` names by path. The toolchain is pinned in `rust-toolchain.toml`, with the `wasm32-wasip3` target programs are built for.
+
+- `cargo test --workspace` tests the engine, the SDK, the command and the app.
+- `cargo waft run -p waos-app` runs the WaOS app, with Waft's command installed from `../waft/crates/waft-cli` (`cargo install --path ../waft/crates/waft-cli`).
+- `cargo install --path crates/waos-cli` installs `cargo waos`; in a program's folder, `cargo waos run` builds it as a component and runs it in the WaOS on this machine, and `cargo waos new <name>` starts one.

@@ -6,7 +6,7 @@
 //! A use is counted under the day's lock, beside a check that already did far slower work: a
 //! lookup, a connection, an open; where a file is on the machine is asked of the system before
 //! the lock is taken. A datagram, which is checked one at a time, is counted alone on an atomic,
-//! and a stat not at all (`../experiments/2026-11-15-audit-cost`).
+//! and a stat not at all (measured: neither an open nor a stat shows the counting beside it).
 //!
 //! The invariant: a day holds only that uses happened, never what they read or wrote, and grows
 //! no list past its cap ([`LIST_CAPS`]): what falls beyond is counted in its overflow.

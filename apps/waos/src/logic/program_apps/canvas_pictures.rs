@@ -9,11 +9,12 @@
 //! that the picture is shown ([`ToWindow::PictureShown`]), and lets the resize go on. A resize to
 //! the size of the picture the canvas shows already is laid out at once under its fence, and
 //! answered the same way. Keeping the fence holds no window up, since the window server holds only
-//! commits that carry one (`../experiments/2026-11-05-ca-fence-hold/`): the window commits the
-//! transaction carrying it only once it stops waiting, so WaOS's commit under it comes first and is
-//! held only until the window's, which lets the fence go, and both land together. Nothing waits
-//! before a view's first picture, so a fence before it goes at once with the layout, and the window
-//! hears of the first picture as it is shown, after which it waits in each resize. Nor does anything
+//! commits that carry one (measured: the window process's main thread blocks nowhere while a fence
+//! is held): the window commits the transaction carrying it only once it stops waiting, so WaOS's
+//! commit under it comes first and is held only until the window's, which lets the fence go, and
+//! both land together. Nothing waits before a view's first picture, so a fence before it goes at
+//! once with the layout, and the window hears of the first picture as it is shown, after which it
+//! waits in each resize. Nor does anything
 //! wait while the program awaits the app's answer to a request WaOS made of it, since the program
 //! may wait for that answer before it draws: the window's wait ends as such a request arrives, and
 //! WaOS lets the fence go then, laying the canvas out at the size awaited at once

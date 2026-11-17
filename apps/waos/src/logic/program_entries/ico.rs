@@ -1,7 +1,7 @@
 //! A program's icon as Windows takes one from a file: an `.ico`, the package's PNG scaled to each
 //! size the shell asks for, as Waft's CLI writes an executable's icon, so the taskbar, a pin and
 //! the Start menu each find theirs. Windows drops a window's whole relaunch, command and name too,
-//! when its icon cannot be loaded (`../experiments/2026-11-14-window-app-identity`), so the file is
+//! when its icon cannot be loaded (measured on Windows 11), so the file is
 //! one every reader of icons takes.
 //!
 //! The invariants a later editor will break: the directory's entries are in the order of the

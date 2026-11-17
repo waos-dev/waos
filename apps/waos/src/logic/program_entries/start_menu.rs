@@ -1,9 +1,8 @@
 //! A program's entry on Windows: a shortcut in the Start menu's `WaOS Programs` folder, named after
 //! the program, which Start's search finds by that name, carrying the program's identity as its
-//! AppUserModelID, so a pin of the program's taskbar button is that shortcut, with its name and
-//! icon (`../experiments/2026-11-14-window-app-identity`); it starts `waos.exe open --program <id>`,
-//! and its icon is the program's `.ico` among WaOS's (`Identities::ico_of`), written from its
-//! package's PNG (`ico`).
+//! AppUserModelID, so a pin of the program's taskbar button is that shortcut; it starts
+//! `waos.exe open --program <id>`, and its icon is the program's `.ico` among WaOS's
+//! (`Identities::ico_of`), written from its package's PNG (`ico`).
 //!
 //! The invariant a later editor will break: the shortcut carries its AppUserModelID from the moment
 //! it is written, as Microsoft asks, and two programs of the same name never share a file: the one

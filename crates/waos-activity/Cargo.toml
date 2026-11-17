@@ -6,6 +6,7 @@ license.workspace = true
 publish = true
 description = "What a program did over the days WaOS keeps of it, summed and said in plain words, for the inspector's Activity and a program's settings page alike."
 homepage.workspace = true
+repository.workspace = true
 readme = "README.md"
 
 [lints]

@@ -2,7 +2,7 @@
 //! rather than reading it: the code's pages are the file's, clean, which the system drops and
 //! reads again as it likes, where code read from a file is decompressed into the process's own
 //! memory. The experiment measured it on gallery: 4 MiB of footprint against 104 MiB, and a load
-//! of 4-9 ms against 57 ms (`../experiments/2026-09-26-suspending-programs`).
+//! of 4-9 ms against 57 ms (measured on gallery).
 //!
 //! The invariants a later editor will break:
 //! - A file is never changed where it is, since a running program may have it mapped. Each compile

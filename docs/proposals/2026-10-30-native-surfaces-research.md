@@ -1,6 +1,6 @@
 # How frameworks composite native surfaces, and how they give a compositor root no window shows
 
-Research for two Inset design questions, 2026-10-30. Nothing under `/Users/mac/code` was changed.
+Research for two Inset design questions, 2026-10-30. Read only.
 
 1. Inset's `RenderSurfaceView` (`crates/inset-rendering/src/surface_view.rs`, `origin/main`) paints its rectangle with `BlendMode::Clear` and separately records the placement through `SceneBuilder::add_surface` (`crates/inset-embedder/src/scene_builder.rs`), which records the rectangle and clip, not the hole. Every surface sits beneath the view's one GPU-drawn buffer. PR #11 (`draw-only-what-paints`, `crates/inset-embedder-winit/src/rendered_contents.rs`, `has_rendered_contents`) has to infer "this frame paints only holes" by walking the recorded ops for upright cleared rectangles. The lead chose "a clear hole in the framework's picture, surfaces beneath" (`2026-10-29-media.md`, decision 3; `2026-10-29-media-research.md` §1).
 2. Inset's PR #12 (`detached-surface-root`) adds `MacOs::detached_root() -> (Arc<dyn SurfaceParent>, Retained<CALayer>)` on macOS: surfaces opened under it go into a `CALayer` the app places itself; WaOS puts it in a private `CAContext` that a window process hosts with `CALayerHost`.
@@ -10,7 +10,7 @@ Every claim is marked:
 - **[read]**: read in source code or documentation, cited;
 - **[inferred]**: my conclusion from what was read, not checked by running anything.
 
-Sources read: local checkouts of Flutter (`/Users/mac/code/flutter`, 2026-08-24, engine under `engine/src/flutter`), Chromium (`/Users/mac/code/chromium`, 2026-08-15), WebKit (`/Users/mac/code/WebKit`, 2026-09-24) and microsoft-ui-xaml (`/Users/mac/code/microsoft-ui-xaml`, 2026-09-04); AOSP `frameworks/base` main from android.googlesource.com; GTK main from gitlab.gnome.org and its GitHub mirror; androidx and JetBrains/compose-multiplatform-core (`jb-main`) and flutter/packages from GitHub; Microsoft and Qt documentation. Paths below are relative to those roots.
+Sources read: local checkouts of Flutter (github.com/flutter/flutter, 2026-08-24, engine under `engine/src/flutter`), Chromium (chromium.googlesource.com/chromium/src, 2026-08-15), WebKit (github.com/WebKit/WebKit, 2026-09-24) and microsoft-ui-xaml (github.com/microsoft/microsoft-ui-xaml, 2026-09-04); AOSP `frameworks/base` main from android.googlesource.com; GTK main from gitlab.gnome.org and its GitHub mirror; androidx and JetBrains/compose-multiplatform-core (`jb-main`) and flutter/packages from GitHub; Microsoft and Qt documentation. Paths below are relative to those roots.
 
 ---
 

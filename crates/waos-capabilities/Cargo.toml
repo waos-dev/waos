@@ -6,6 +6,7 @@ license.workspace = true
 publish = true
 description = "The capability traits WaOS's engine serves programs through, and their records, in the shape of the WIT interfaces they serve."
 homepage.workspace = true
+repository.workspace = true
 readme = "README.md"
 
 [dependencies]

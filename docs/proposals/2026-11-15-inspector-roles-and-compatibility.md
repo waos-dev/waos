@@ -662,7 +662,7 @@ What Waft's Fluent kit has for it: `NavigationView`, `TabView`, `SelectorBar`, `
 
 Each step is built, checked and committed on its own; the WIT and Rust types of each are shown to the lead before code is written.
 
-1. **Measure the summary's cost** (`../experiments/2026-11-15-audit-cost`): a program opening and stat-ing files in a loop, and sending UDP datagrams, with no counting, with the summary's counting, and with a listener attached. Only the rows that decide: is counting each open under 1% of the open; is a listener's cost bounded. It decides whether the summary counts stats and datagrams.
+1. **Measure the summary's cost**: a program opening and stat-ing files in a loop, and sending UDP datagrams, with no counting, with the summary's counting, and with a listener attached. Only the rows that decide: is counting each open under 1% of the open; is a listener's cost bounded. It decides whether the summary counts stats and datagrams.
 2. **The access layer, a reshape with no new behaviour**: `ProgramAccess` with `decide`, `hold` and `tell`, counting into nothing and with no taps; each capability moved onto it in turn (network, files, clipboard, camera, microphone, machines, links, notifications, questions), its tests unchanged, and one test per capability that every refusal is told. One commit per capability.
 3. **The audit summary**: counting in the layer, `AuditLog` and `AuditDay` in `waos-capabilities`, the store's files and their pruning, and a program's settings page showing its last seven days.
 4. **The protocol and `cargo waos inspect`**: the `wasdk:inspect` WIT, the taps and the live trace, the engine's public API, the dev protocol's inspection, the command. From here a developer and a coding agent can inspect a run.

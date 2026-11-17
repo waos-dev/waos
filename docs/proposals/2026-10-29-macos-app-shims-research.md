@@ -4,7 +4,7 @@ Research for v1 decision 3 (`waos/docs/proposals/2026-10-16-waos-v1.md`) and dec
 
 **How claims are marked.** **[read]** means read in the source or page named beside it; **[inferred]** means my reasoning from what was read, not checked by running anything. Nothing here was run or measured: no PWA is installed on this Mac (`~/Applications/Chrome Apps.localized` is empty), and the brief allowed writing only this file.
 
-**Sources.** Chromium at revision `e211e2d52491adbb55c4b6a7e722de3e16a2d435` (main, 2026-10-29), fetched from `chromium.googlesource.com/chromium/src/+/<rev>/<path>`; paths below are at that revision unless marked *(GitHub mirror, main, 2026-10-29)*, used after googlesource began answering with a bot check (the log endpoint was skipped then; commit messages were read from the `chromium/chromium` GitHub mirror instead). Apple's documentation and the macOS SDK headers in Xcode on this Mac. WaOS at `/Users/mac/code/waos` and Inset at `/Users/mac/code/inset-rs`, read as they are today.
+**Sources.** Chromium at revision `e211e2d52491adbb55c4b6a7e722de3e16a2d435` (main, 2026-10-29), fetched from `chromium.googlesource.com/chromium/src/+/<rev>/<path>`; paths below are at that revision unless marked *(GitHub mirror, main, 2026-10-29)*, used after googlesource began answering with a bot check (the log endpoint was skipped then; commit messages were read from the `chromium/chromium` GitHub mirror instead). Apple's documentation and the macOS SDK headers in Xcode on this Mac. WaOS's repository and a local checkout of Inset (github.com/waos-dev/waft) at 2026-10-29, read as they were that day.
 
 ## 1. How Chrome makes a shim bundle
 

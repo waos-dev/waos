@@ -14,7 +14,8 @@
 //!
 //! The invariant: only focus the launcher has had since it showed can be lost: at launch AppKit
 //! reports the window unfocused before it first reports it focused, while WaOS is still becoming
-//! the active application (the experiment's `experiments/2026-09-26-dock-anchored-window`).
+//! the active application (measured: AppKit reports the window unfocused before it first reports it
+//! focused).
 
 /// What happens to the launcher.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

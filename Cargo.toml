@@ -22,6 +22,7 @@ license = "MIT"
 # what it needs (the design's decision 57).
 publish = false
 homepage = "https://waos.app"
+repository = "https://github.com/waos-dev/waos"
 
 # Our crates another of ours depends on, each at its path, so a manifest says only
 # `waos-capabilities.workspace = true`. A crate nothing of ours depends on yet is not listed. A
@@ -62,8 +63,8 @@ wit-bindgen = { version = "=0.63.0", features = ["futures-stream", "async-spawn"
 inventory = "0.3.25"
 # The engine that runs a component, and the WASI it serves; `p3` for the 0.3 a program's `std`
 # imports on `wasm32-wasip3`, its sockets and its entry. 50, the first release whose macOS exception thread lives through a caught
-# signal, as the `SIGCHLD` of a child tokio runs is
-# (`../experiments/2026-11-08-wasmtime-abort-on-child-exit`); it runs what wit-bindgen 0.63 makes.
+# signal, as the `SIGCHLD` of a child tokio runs is (measured: 49 aborted in every run where children
+# ended together, 50 in none of 260); it runs what wit-bindgen 0.63 makes.
 wasmtime = "50.0.1"
 wasmtime-wasi = { version = "50.0.1", features = ["p3"] }
 # Where in its source a failed program was, read from the DWARF of its component's file: the
@@ -303,7 +304,7 @@ unsafe_code = "forbid"
 # Line tables as the only debug information in debug builds, the workspace's own crates and every
 # other, their build scripts and proc macros too: a backtrace names files and lines, and a debugger
 # shows no variables. Measured on Waft's workspace, it shrank the target folder by 29% and changed
-# no rebuild's time (`../experiments/2026-11-15-build-time-and-disk`). For a session in a
+# no rebuild's time (measured on Waft's workspace). For a session in a
 # debugger, `CARGO_PROFILE_DEV_DEBUG=full` builds with all of it. The overrides below set only
 # `opt-level`, so their crates take this too.
 [profile.dev]

@@ -70,7 +70,7 @@ No crate implements WebVTT's cue-positioning rules [not found]. Blink's `vtt_cue
 ## Sources
 
 - macOS SDK headers: `AVFoundation.framework/Headers/{AVPlayerItemOutput.h, AVMediaFormat.h, AVMediaSelectionGroup.h}`, `CoreMedia.framework/Headers/{CMTextMarkup.h, CMFormatDescription.h}`, `MediaAccessibility.framework/Headers/MACaptionAppearance.h`.
-- Chromium at `/Users/mac/code/chromium` (2026-08-15): `ui/native_theme/caption_style*`, `chrome/browser/chrome_content_browser_client.cc`, `content/browser/accessibility/captioning_controller.cc`, `third_party/blink/renderer/core/css/css_default_style_sheets.cc`, `third_party/blink/renderer/core/html/track/vtt/`, `media/formats/hls/`.
+- Chromium (chromium.googlesource.com/chromium/src, read 2026-08-15): `ui/native_theme/caption_style*`, `chrome/browser/chrome_content_browser_client.cc`, `content/browser/accessibility/captioning_controller.cc`, `third_party/blink/renderer/core/css/css_default_style_sheets.cc`, `third_party/blink/renderer/core/html/track/vtt/`, `media/formats/hls/`.
 - WebKit on GitHub: `Source/WebCore/html/track/TextTrackCueGeneric.h`, `platform/graphics/avfoundation/objc/MediaPlayerPrivateAVFoundationObjC.mm`, `page/CaptionUserPreferencesMediaAF.cpp`.
 - androidx/media on GitHub (`release`): `Cue.java`, `DefaultSubtitleParserFactory.java`, `SubtitleDecoderFactory.java`, `SubtitleView.java`, `PlayerView.java`. Android reference: `CaptioningManager`.
 - Microsoft Learn: `TimedMetadataTrackPresentationMode`, `TimedMetadataKind`, `ImageCue`, `TimedTextStyle`, `ClosedCaptionProperties`, `MediaPlayer.RenderSubtitlesToSurface`, "Media items, playlists, and tracks", "Supported codecs", "Adaptive streaming".

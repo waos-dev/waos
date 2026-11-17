@@ -304,7 +304,7 @@ impl ProgramHardwareBuffer {
     /// The buffer's pixels copied into the program's memory, as they lie now: `unsupported` for a
     /// buffer whose usage lacks `cpu-read`, on every system, since some of Android's allocators
     /// lock a buffer for the CPU whatever its usage and the emulator's refuses one without it
-    /// (`../experiments/2026-11-11-android-surface-control`, question 7).
+    /// (measured: the Pixel's allocator allowed the read, the emulator refused it).
     pub(crate) fn read_pixels(&self) -> Result<PixelBuffer, ImageError> {
         refusal_to_read(self.usage()).map_or_else(|| self.0.pixels.memory.read_pixels(), Err)
     }

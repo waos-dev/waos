@@ -2,8 +2,8 @@
 //! held from the moment any program's code begins compiling or one of its windows comes into
 //! sight until none does, as Chrome holds one in a renderer while its tab is in front. App Nap
 //! otherwise runs a process it thinks is in the background at low priority, which made a compile
-//! that takes seconds take minutes (the experiment at
-//! `../experiments/2026-11-16-inspector-compile-time`).
+//! that takes seconds take minutes (measured: a 5-second compile took 9 minutes 15 seconds without
+//! the activity, and 5 seconds with it).
 //!
 //! The activity is the system's, behind the closure this state is made with, so its rule is tested
 //! without macOS. [`start`] makes it over Waft's macOS host; [`follow_installed_compiling`],

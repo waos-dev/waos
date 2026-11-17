@@ -1,13 +1,13 @@
 # Does the media model built on Apple's systems fit Windows, Linux, Android and the web?
 
-Research for `waos/docs/proposals/2026-10-29-media.md`, decisions 1–4. 2026-10-28. Nothing under `/Users/mac/code` was changed.
+Research for `waos/docs/proposals/2026-10-29-media.md`, decisions 1–4. 2026-10-28. Read only.
 
-It builds on two earlier reports and does not repeat them: `experiments/2026-10-17-interface-research/reports/surface-placement.md` (how each system keeps a layer's placement in step with a frame) and `reports/media.md` (sound, cameras, players). Where a claim comes from them it is marked **[read, prior]** or **[measured, prior]**, and their sources apply.
+It builds on two earlier reports and does not repeat them: the interface research's report on surface placement (how each system keeps a layer's placement in step with a frame) and its report on media (sound, cameras, players). Where a claim comes from them it is marked **[read, prior]** or **[measured, prior]**, and their sources apply.
 
 Every claim is marked:
 
 - **[read]**: read in documentation, a header, a specification or source code, cited below;
-- **[measured, prior]**: a number from an experiment under `experiments/`;
+- **[measured, prior]**: a number from an experiment in the maintainers' experiments folder;
 - **[inferred]**: my conclusion from what was read, not checked by running anything.
 
 ## The model under test
@@ -258,7 +258,7 @@ Missing outputs simply answer none: Firefox lacks `ImageCapture` and `MediaStrea
 - CameraX architecture: https://developer.android.com/media/camera/camerax/architecture
 - Flutter engine (local): `shell/platform/android/io/flutter/plugin/platform/PlatformViewsController2.java`, `io/flutter/embedding/engine/renderer/FlutterRenderer.java`
 - Inset: `crates/inset-cli/android/rs/inset/InsetActivity.java`, `crates/inset-cli/src/{android.rs,project.rs}`, `crates/inset-embedder-android/src/{surface.rs,gpu.rs,display.rs}`
-- Experiment: `experiments/2026-09-26-android-frame-path/README.md`
+- Experiment (in the maintainers' experiments folder): Android's frame path.
 
 ### Web
 - WebGPU: https://www.w3.org/TR/webgpu/ (canvas alpha modes, "update the rendering", `importExternalTexture`)
@@ -267,5 +267,5 @@ Missing outputs simply answer none: Firefox lacks `ImageCapture` and `MediaStrea
 - Inset: `crates/inset-embedder-web/src/gpu.rs`
 
 ### Prior reports
-- `experiments/2026-10-17-interface-research/reports/surface-placement.md`
-- `experiments/2026-10-17-interface-research/reports/media.md`
+- the interface research's report on surface placement
+- its report on media

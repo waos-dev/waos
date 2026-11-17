@@ -2,8 +2,7 @@
 //! applications (`$XDG_DATA_HOME/applications`), which the app grid and its search list, a pin in
 //! the dock is, and GNOME and KDE match the program's windows to by their app id
 //! (`StartupWMClass`); with the program's name, its icon by its path, a copy of its package's PNG
-//! among WaOS's (`Identities::png_of`), and `Exec` starting `waos open --program <id>`
-//! (`../experiments/2026-11-14-window-app-identity`).
+//! among WaOS's (`Identities::png_of`), and `Exec` starting `waos open --program <id>`.
 //!
 //! The invariants a later editor will break: the entry has `StartupNotify=true` from its first
 //! write, since GNOME gives a launch from an entry it first read without it no activation token,

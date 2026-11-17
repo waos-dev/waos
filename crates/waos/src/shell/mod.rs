@@ -332,7 +332,7 @@ pub trait ShellCompositionLayer: Any + Send + Sync {
 /// What a composition layer shows now, as the shell hands it over, raw or lent as Waft's
 /// `LayerPicture` is: the platform's own types, so a video's frame stays held from its decoder's
 /// or camera's pool while the engine keeps it, since a pool hands a frame's surface out again once
-/// nothing holds the frame (`../experiments/2026-11-01-corevideo-pool-reuse`).
+/// nothing holds the frame (a pool decides by the surface's use count, not its retain count).
 pub enum LayerPicture {
     /// The raw buffer presented to the layer last, which fills it.
     Buffer(HardwareBuffer),

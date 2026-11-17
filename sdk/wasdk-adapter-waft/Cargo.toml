@@ -6,6 +6,7 @@ license.workspace = true
 publish = true
 description = "Waft over wasdk: Waft's embedder for a program, the platform it sees over the SDK's views, screens, system, windows, lifecycle, fonts, clipboard, menus, file dialogs, opener, notifications, media players and cameras, drawn with valo over wasdk-wgpu."
 homepage.workspace = true
+repository.workspace = true
 readme = "README.md"
 
 [dependencies]

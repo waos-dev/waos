@@ -6,7 +6,7 @@ The WebGPU host the engine serves `wasi:webgpu` with: wasmtime's host of `wasi:w
 - **Provides:** `add_to_linker`, which serves `wasi:webgpu` to a program; the types bindgen generates for it (`wasi::webgpu::webgpu`); the values behind its resources (`Device`, `Texture`, `CanvasContext`, `GpuObject` and the rest), and `reexports`, the wgpu-core and wgpu-types it works with.
 - **Used by:** `waos`, the engine, which links it as the crate that serves `wasi:webgpu` and reuses the types it generates (`crates/waos/src/bindings.rs`), as the design's decision 20 says.
 
-It carries the experiment's patches, as `../wasdk`'s history under `vendor/` left them, until they land upstream:
+It carries the experiment's patches, as wasdk's history under `vendor/` left them, until they land upstream:
 
 - What the pinned revision leaves unimplemented is filled in: the canvas context (`canvas.rs`, a `CanvasSurface` the embedder supplies, so a platform that composites a view itself brings its own target), a texture's size and attributes, labels on every object (`labels.rs`), and every call a program can reach answers without a `todo!()`, a `panic!` or an `unwrap`.
 - Every GPU object is given back when the resource holding it goes (`gpu_object.rs`): when the program drops its handle, or when its store is dropped with the handle still in its table, so a program ended where it stands leaks nothing.

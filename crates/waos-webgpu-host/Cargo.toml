@@ -9,6 +9,7 @@ license = "Apache-2.0 WITH LLVM-exception"
 publish = true
 description = "The WebGPU host the engine serves wasi:webgpu with, over wgpu-core: the wasi-gfx runtime's wasi-webgpu-wasmtime, modified."
 homepage.workspace = true
+repository.workspace = true
 readme = "README.md"
 
 [dependencies]

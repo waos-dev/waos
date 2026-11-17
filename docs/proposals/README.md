@@ -26,9 +26,9 @@ Designs written for the project lead before something is built, each with the le
 - [A program's media across the WIT](2026-11-02-program-media.md): composition layers named with each present; a player's or camera's picture sent to one destination the program makes, a layer or a frame reader; frames as the platform hands them, the hardware buffer in a frame and one conversion to a texture; a media player's tracks, tags and subtitle cues, which the program draws with the user's caption settings merged in, from the research on subtitles (`2026-11-02-subtitles-research.md`); cameras listing their formats and starting with their outputs whole.
 - [A machine's facts, file watching and a per-program `/tmp`](2026-11-15-machine-facts-file-watching-tmp.md): what a machine runs and its user's login shell, the systems' watches of a folder the program holds as a stream of batches, and a `/tmp` of each program's own under WaOS's caches; written after they were built, with the lead's decisions and the choices made building them.
 
-## The experiment's, in `../wasdk/docs/proposals/` (frozen)
+## The experiment's, in wasdk (frozen)
 
-Earlier designs and their decisions, still the best account of what was learned:
+Earlier designs of wasdk's, and their decisions, still the best account of what was learned:
 
 - `2026-09-26-waos-mobile.md`: the phone form factor, frames into tabs, Android first, Pulley on iOS, lifecycle states and freezing.
 - `2026-09-26-remote-machine.md` and `2026-09-26-remote-ux.md`: running programs against another machine over SSH, and its UI.
@@ -43,4 +43,4 @@ The experiment's `DESIGN.md` and `docs/waos.md` describe what it built, includin
 
 ## Research
 
-In `../experiments/`, each with a README of its question, numbers and conclusions; the latest, behind the interface sketches, is `2026-10-17-interface-research/`.
+The maintainers' experiments folder, which is not part of this repository, holds a report for each question, with its commands, numbers and conclusions. The latest, behind the interface sketches, is the interface research of 2026-10-17: one report per capability, on how each system abstracts it.

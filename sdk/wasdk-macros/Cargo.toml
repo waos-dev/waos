@@ -6,6 +6,7 @@ license.workspace = true
 publish = true
 description = "#[wasdk::main], the entry of a WaOS program written with wasdk, which wasdk re-exports."
 homepage.workspace = true
+repository.workspace = true
 readme = "README.md"
 
 [lib]

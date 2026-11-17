@@ -21,7 +21,7 @@ The reference's page for each interface is made from the WIT each time the site 
 
 The built-in apps' icons are made the same way: `scripts/write-app-icons.mjs` takes each app's icon from `builtin-apps`, as its `[package.metadata.waos]` names it, and writes it at 512 pixels into `public/apps/`, which is not committed and which Next serves as it is. The icons page, `content/docs/icons.mdx`, which the playbook's Icon step links, lists them by name; the smoke test checks it shows every built-in app.
 
-The site's origin is `https://waos.app`, or `NEXT_PUBLIC_SITE_URL` when that is set; the metadata, the sitemap, `llms-full.txt`, each page's Markdown and the agent's prompt name it. The download and GitHub links are `about:blank` until WaOS is released and its repository is public (decision 9).
+The site's origin is `https://waos.app`, or `NEXT_PUBLIC_SITE_URL` when that is set; the metadata, the sitemap, `llms-full.txt`, each page's Markdown and the agent's prompt name it. The download link is `about:blank` until WaOS is released (decision 9); the GitHub link names `github.com/waos-dev/waos`.
 
 The smoke test uses Playwright's Chromium, which `npx playwright install chromium` fetches where it is missing. It keeps the gallery out, so it runs without the network.
 

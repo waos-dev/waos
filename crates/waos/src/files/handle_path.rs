@@ -1,7 +1,7 @@
 //! Where the system says an open handle is now: `F_GETPATH` on Apple's systems, `/proc/self/fd` on
 //! Linux and Android, `GetFinalPathNameByHandleW` on Windows. A rename moves the answer with the
 //! file; a removed file is answered by its last path, which Android follows with ` (deleted)`
-//! (`../experiments/2026-11-15-audit-cost`).
+//! (measured with `fcntl` on macOS and `readlink` on Android).
 
 use std::fs;
 use std::io;

@@ -18,7 +18,8 @@
 //! A face's whole file, which `typeface.open-stream` hands a program that reads fonts itself with
 //! its length, is copied into the program as it reads, from that one mapping: the file's size in
 //! each program that asks. The interface would let the engine map the file into the program instead, with no
-//! copy (`../experiments/2026-10-17-font-file-mapping`, on macOS and Linux); that is not built.
+//! copy (measured on macOS: eight programs reading a 53 MiB face cost 0.2 MiB each mapped and 53.4 MiB
+//! copied); that is not built.
 
 mod changes;
 mod glyphs;

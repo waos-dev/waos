@@ -2,7 +2,7 @@
 
 **Proposal (2026-10-30), for the lead to walk through.** Decision 2 of `2026-10-30-native-surfaces.md` chose it: a frame's scene keeps its layers, each native surface a layer of its own, and the host walks the tree, places each surface, draws the pictures with valo making room at each surface, and draws nothing when nothing besides surfaces was painted. This proposes the shape: the scene's layer types, what `Scene`, `EngineLayer` and `add_retained` become, what reaches a host for each surface, the host's walk, the points where the parts meet, the size of the change in steps, and the questions left. Nothing in it is decided beyond the two decisions, and nothing in Inset or WaOS was changed.
 
-Every claim is marked **[read]** (read in the source cited) or **[inferred]** (concluded from what was read, not run). Sources: Inset `origin/main` at `1d70c21`, read with `git show` in `/Users/mac/code/inset-rs-2`; Flutter at `ed21324` (2026-08-24) in `/Users/mac/code/flutter`, engine paths relative to `engine/src/flutter`; valo 0.13.1 (`valo-dl` in the cargo registry); WaOS `main` of 2026-10-29.
+Every claim is marked **[read]** (read in the source cited) or **[inferred]** (concluded from what was read, not run). Sources: Inset `origin/main` at `1d70c21` (github.com/waos-dev/waft), read with `git show`; Flutter at `ed21324` (2026-08-24, github.com/flutter/flutter), engine paths relative to `engine/src/flutter`; valo 0.13.1 (`valo-dl` in the cargo registry); WaOS `main` of 2026-10-29.
 
 ## In one paragraph
 

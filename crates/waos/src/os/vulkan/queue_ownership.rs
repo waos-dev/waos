@@ -2,8 +2,7 @@
 //! `VK_QUEUE_FAMILY_FOREIGN_EXT` once the work that drew it is submitted, and acquired back before
 //! it is drawn into again (decision 8 of `docs/proposals/2026-11-11-android-pictures.md`, as
 //! amended). On the emulator a buffer whose last write was a copy shows black without the release
-//! and right with it, a change of layout alone not helping
-//! (`../experiments/2026-11-11-android-surface-control`, its section 8).
+//! and right with it, a change of layout alone not helping.
 //!
 //! wgpu-core records no transfer to another queue family and offers no way to read the layout it
 //! tracks, so each step is two command buffers in one submission: one of wgpu-core's, which moves
