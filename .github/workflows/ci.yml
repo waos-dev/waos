@@ -1,0 +1,42 @@
+# Every change: the WIT keeps its versions honest and the workspace's tests pass (the design's
+# decision 67). The workspace builds Waft from source, so Waft's main is checked out beside it as
+# `../waft`, as the README's Building section says.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  wit-versions:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: waos
+          fetch-depth: 0
+      - uses: actions/checkout@v4
+        with:
+          repository: waos-dev/waft
+          path: waft
+      - name: Every WIT package changed since the last release has a new version
+        working-directory: waos
+        run: cargo xtask check-wit-versions
+
+  test:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: waos
+      - uses: actions/checkout@v4
+        with:
+          repository: waos-dev/waft
+          path: waft
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: waos
+      - name: Tests
+        working-directory: waos
+        run: cargo test --workspace

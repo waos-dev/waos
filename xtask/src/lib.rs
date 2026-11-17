@@ -1,6 +1,7 @@
 //! The repository's own chores, which `cargo xtask` runs from its checkout and its tests check.
 
 pub mod wit_copies;
+pub mod wit_versions;
 
 use std::path::{Path, PathBuf};
 

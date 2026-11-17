@@ -1,0 +1,44 @@
+# A release is one tag, `v<version>` (the design's decision 67): its tests pass, the SDK, the
+# command and the engine are published together at the tag's version, so the SDK always matches
+# its WaOS, and a program written by the published `cargo waos new` builds from crates.io alone.
+# Waft's crates the SDK names must be on crates.io first, at the versions the workspace names.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+jobs:
+  release:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: waos
+      - uses: actions/checkout@v4
+        with:
+          repository: waos-dev/waft
+          path: waft
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: waos
+      - name: The tag names the workspace's version
+        working-directory: waos
+        run: |
+          version=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "waos") | .version')
+          test "${GITHUB_REF_NAME#v}" = "$version" || { echo "tag $GITHUB_REF_NAME, workspace $version"; exit 1; }
+      - name: Tests
+        working-directory: waos
+        run: cargo test --workspace
+      - name: Publish the SDK, the command and the engine
+        working-directory: waos
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: cargo publish --workspace
+      - name: A new program builds from crates.io alone
+        working-directory: ${{ runner.temp }}
+        run: |
+          cargo install waos-cli --version "${GITHUB_REF_NAME#v}" --locked
+          cargo waos new release-check
+          cd release-check
+          cargo waos build
