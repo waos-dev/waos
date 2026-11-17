@@ -1,42 +1,56 @@
-# waos
+<p align="center"><img src="apps/waos/assets/icon.png" width="96" alt="WaOS"></p>
 
-A platform for programs that draw with WebGPU and need nothing of a browser.
+# WaOS
 
-- **waos** is an engine any app can embed to run programs, the capabilities that serve them (files, network, sound, cameras and more, each swappable), and the WaOS app built on it.
-- **wasdk** is what programs are written with: the WIT packages `wasdk:platform` and `wasdk:media`, the media's own so it is versioned apart, the program's world over both in `wasdk:program`, and their bindings.
+Apps on demand. Secure. Fast. Efficient.
 
-Programs are WASI components. The design is `docs/proposals/2026-10-17-the-waos-project.md`; the rules for working here are in `AGENTS.md`.
+WaOS runs apps that draw with WebGPU and need nothing of a browser. An app is a WebAssembly component: it runs in its own sandbox with only what its user allows (files, network, camera, microphone), and gets the system's own windows, menus, file dialogs, media, fonts and notifications. One build runs on every platform WaOS runs on.
 
-The work is in the order the design gives. Built so far:
+Apps are written in Rust, usually with [Waft](https://github.com/waos-dev/waft), a Rust port of Flutter with Material, Cupertino and WinUI widgets; anything that draws with wgpu works too.
 
-- The core of `wasdk:platform` (`wit/`: views, screens, windows, the system and the lifecycle, with `wasi:webgpu`) and its first capability, `fonts`, its bindings in `sdk/wasdk`, `#[wasdk::main]`, `sdk/wasdk-wgpu`, a wgpu backend over `wasi:webgpu` so a program draws with wgpu unchanged, on a view through wgpu's own surface, `examples/survey`, a program a reader learns the API from, `examples/triangle`, the smallest that draws, `examples/fonts`, one that reads the fonts it was given, and the engine in `crates/waos` as far as running, drawing and freezing: `WaOS` loads a program through its code cache, runs it on a thread of its own with the views the shell gives it, serves it those interfaces, `wasi:webgpu` through the WebGPU host, the wasi-gfx runtime's, modified, in `crates/waos-webgpu-host` and the WASI its `std` imports, makes the hardware buffers its frames are drawn into on Apple's systems and hands each to the shell once the GPU has drawn it, with the composition layers the program made on the shell's compositor and set on the view beneath it (`examples/composition-layers`), freezes it when it stays out of sight or the app goes to the background, and reports how it ended, what it writes going to the output whoever runs it chose or to the engine's log, and serves the fonts in its environment, drawing their glyphs with valo.
-- `crates/waos-capabilities` and `capabilities/local`, which give each program this computer's fonts through one valo font manager.
-- `crates/waos-dev-protocol`, what `cargo waos` and a running WaOS say to each other over a Unix socket in the user's folder: the messages of one run, framed with a length prefix in postcard, after the protocol's number each way.
-- `crates/waos-cli`, `cargo waos new`, which writes a new program, a Waft app in WinUI's look or Cupertino's that `run` runs and `package` packages as it is written, `cargo waos build`, `cargo waos run`, which sends a program to the WaOS on this machine as the program the id in its `[package.metadata.waos]` names, starting the installed app when none answers, and shows what it writes until it ends, with `--env NAME=VALUE` giving that run alone variables it reads, and `cargo waos package`, which signs a program's release build with the user's signing key, kept in the user's configuration folder, and lists the package in an `index.json` beside it, ready to serve as a package source.
-- `crates/waos-package`, the `.wapk` format a program is distributed in, signed with its publisher's Ed25519 key and verified before anything in it is believed, and the `index.json` a package source lists its programs in.
-- `crates/waos-store`, the programs installed in a directory the app gives it, installed, updated only with the same publisher's key at a newer version, and removed so that a crash leaves the earlier install or the new one, and the package sources the user added, an index at its own URL or a GitHub repository's latest release, read over HTTPS with each download checked against its listed SHA-256.
-- `wasdk:platform/permissions`, what the user lets a program use, the network and the clipboard as switches and notifications, the camera and the microphone as questions put at their first use, served by the engine from each program's grants, `ProgramGrants` in `crates/waos-capabilities`, which the store implements over the global settings and each program's own, and asked of the user through the shell's `Prompts`, with `examples/permissions`, a program that asks.
-- A program's files, which the engine serves as the WASI its `std` imports from the program's mounts, its own `/data` and `/cache`, which the store keeps for it, and the folders the user mounted, read live, one root through which every path resolves, each kept inside its mount in one call where the system has one, with `examples/files`, a program that uses them.
-- A program's network, WASI 0.3's HTTP client and sockets, which it awaits and `std::net` uses, checked against its grants at each use: the internet under the network switch and its rule of domains, by the names the engine's own lookups recorded for each address, this computer and the local network under a switch of their own, HTTP sent with the system's proxy and certificate check, the proxy carrying only what the engine's own lookup found on the internet while this computer and the local network are reached directly, and `trust`, the system's check of a certificate chain, with `examples/network`, `examples/fetch` and `examples/trust`.
-- `wasdk:platform/clipboard`, the platform's one clipboard, which the shell writes and lists whole at each change, seen by a program only while one of its views has the focus, read and written under its switches, each form given at once, by a file's path inside the program, or promised and produced on paste through the program's `source`, which thaws it to answer, a promised file streamed into the receiver's file, and asked for its promised forms when it flushes the clipboard before it ends or is stopped, so they outlive it, with `examples/clipboard`, and Waft's clipboard in a program written as an Waft app (`sdk/wasdk-adapter-waft`), with `examples/copy-paste`.
-- `apps/waos`, the WaOS app as a Waft app, which starts the engine with what Waft reports of the machine, runs what `cargo waos` sends, each program on a thread of its own with its output back on its connection, and shows the library, the launcher a desktop summons and the deck a phone opens, Fluent's at a desktop's width and Cupertino's at a phone's: the programs installed to open and remove, the package sources with their programs to install or update, a `.wapk` opened with WaOS installed, the settings for every program and each program's, and the questions programs put to their user, over their windows.
-- Waft's clipboard as the programs' one, which on macOS hears another app's copy when WaOS is activated or one of its windows gains the focus.
-- `wasdk:media/media-players`, a program's media played by the system's player, served by the engine over the shell's players and by the app over Waft's: a link handed over once its host passes the program's network rules and a path where its mount puts it, the picture drawn on a composition layer the program places or handed to the program as frames, the player's state with its media's tracks, an audio track and a text track picked among them, the text track's cues for the program to draw, as the media styles them, beside the user's caption style (`wasdk:media/caption-settings`), and the media's metadata, each as the shell reports it, with `examples/media-players`.
-- `wasdk:media/video-frames` and `wasdk:platform/hardware-buffers`, a frame reader made on the system's readers and given to a player, asked for the frame of each frame's display time, the moment its picture is expected on screen, a frame lent with its slot in its decoder's pool, and its hardware buffer sampled through a texture imported on the program's own device over the buffer's memory, which holds the frame until the GPU is done with it, with `examples/video-frames`.
-- GPU memory of the program's own through `wasdk:platform/hardware-buffers`, allocated in BGRA on Apple's systems, drawn into and sampled through textures it imports on its own device through `wasdk:platform/gpu-interop`, the buffer naming no GPU API, read back once the GPU has finished drawing it, counted in the program's stats, decoded images among them, and shown on a composition layer the program places, in place of a player's or a camera's picture, once the GPU has drawn them, with `examples/hardware-buffers`.
-- `wasdk:media/media-assets`, a program's media read by the system without playing it, served by the engine over the shell's reading of media and by the app over Waft's, its source checked as a player's: its length, its tracks, its tags and its picture at a time within a tolerance and fitting a size, as a frame the program draws, with `examples/media-assets`.
-- `wasdk:media/image-codecs`, a program's images decoded and encoded by the system's codecs, served by the engine over the shell's codecs and by the app over Waft's, Image I/O's on Apple's systems, with GPU memory and the program's memory two types and every move between them a call: an image opened from bytes or from a file where its mount puts it, what it says of itself, its EXIF orientation, metadata and location among it, how its pictures go, one still picture, an animation's frames and how often they play or a document's pages each its own size and orientation, a picture decoded by its index into a pixel buffer in the program's memory and, where the system can, into a hardware buffer of the program's own, pixels and hardware buffers encoded again, and a hardware buffer's pixels read back into the program's memory, which the engine copies itself, with `examples/image-codecs`.
-- Waft's `Player`, `PlayerView`, `VideoFrameView` and `SubtitleView` in a program written as an Waft app, with `examples/player`, and `builtin-apps/video-player`, a video player a person uses, in Fluent's look, with a library of the folders its user adds, its thumbnails and lengths read through `wasdk:media/media-assets` and its thumbnails kept through `wasdk:media/image-codecs`, the file dialogs, the menus and keys, the caption style and the window's size limits.
-- `wasdk:media/cameras`, the system's cameras, served by the engine over the shell's cameras and by the app over Waft's: listed without asking, opened once the user allows the program the camera, started in a format the camera lists with its preview on a composition layer, its frames in a frame reader and its photos encoded by the system, the session's format, which says when it joined another program's, and its state as the shell reports it, a program using one shown in the library as one recording sound is, with `examples/cameras`, and Waft's `CameraSession` and `CameraPreview` in a program written as an Waft app, with `examples/camera`.
-- `wasdk:platform/workers`, parallel work as the web's workers do it: another instance of the program's own code, at an entry `#[wasdk::worker]` registers and the `worker-entry` every program exports runs, in a store of its own on a thread of its own, sharing nothing with the program and exchanging messages of bytes over a stream each way, which the engine copies between the two stores with back-pressure; with the program's IO side and none of its user's, frozen, counted and ended with it, with `examples/workers`, and Documents setting, drawing and exporting its pages on one.
-- A window's controls for a program that draws its own title bar (decision 61): its move from the press under way, maximizing and minimizing it, what the system's settings say a double-click on a title bar does, and on macOS a window with no title bar of its own, its buttons in a band of the program's, carried out on macOS in the program's app by Waft's host, with `examples/survey` and Waft's `HostWindow` in a program written as a Waft app.
-- `sdk/wasdk-adapter-gpui`, GPUI, Zed's UI framework, over wasdk: its windows over views requested and arriving later, its frames on demand, its pointer, keys and text input, its text over cosmic-text with the system's fonts read as named, its clipboard's text and its file dialogs, drawn by GPUI's own wgpu renderer on the view's surface, with GPUI from a fork of Zed that builds its renderer for a WASI component, and `examples/gpui-hello`.
-- `packages/waos-site`, the website, `waos.app`: its home page, whose sample is `examples/hello`, the smallest Waft app, and its docs' pages, written in `content/docs/`, every one also as Markdown for agents.
+## Use WaOS
 
-## Building
+WaOS is at [waos.app](https://waos.app).
 
-The workspace builds against Waft from source: check out [Waft](https://github.com/waos-dev/waft) beside this repository, as `../waft`, which `Cargo.toml` names by path. The toolchain is pinned in `rust-toolchain.toml`, with the `wasm32-wasip3` target programs are built for.
+## Write an app
 
-- `cargo test --workspace` tests the engine, the SDK, the command and the app.
-- `cargo waft run -p waos-app` runs the WaOS app, with Waft's command installed from `../waft/crates/waft-cli` (`cargo install --path ../waft/crates/waft-cli`).
-- `cargo install --path crates/waos-cli` installs `cargo waos`; in a program's folder, `cargo waos run` builds it as a component and runs it in the WaOS on this machine, and `cargo waos new <name>` starts one.
+```bash
+cargo install waos-cli        # the cargo waos command; Rust from rustup.rs
+cargo waos new hello          # a Waft app; --template cupertino for one meant for phones
+cd hello && cargo waos run    # build it and run it in WaOS
+cargo waos package            # a signed .wapk to share
+```
+
+Building with an agent? Point it at [waos.app/agents.md](https://waos.app/agents.md).
+
+The docs are at [waos.app/docs](https://waos.app/docs): concepts, a guide per feature, and the full interface.
+
+## Contribute
+
+Check out [Waft](https://github.com/waos-dev/waft) beside this repository as `../waft`; the toolchain is pinned in `rust-toolchain.toml`.
+
+```bash
+cargo test --workspace
+cargo install --path ../waft/crates/waft-cli    # cargo waft, which runs Waft apps
+cargo waft run -p waos-app                      # the WaOS app
+```
+
+What each folder is:
+
+| Folder | What it is |
+|---|---|
+| `wit/` | The interface apps see, in WIT |
+| `sdk/` | `wasdk`, what apps are written with, and its adapters for Waft and GPUI |
+| `crates/waos` | The engine any app can embed to run WaOS apps |
+| `crates/waos-cli` | `cargo waos` |
+| `apps/waos` | The WaOS app |
+| `builtin-apps/` | Apps that come with WaOS: Notes, Reader, Inspector, a video player and more |
+| `examples/` | Small apps, one per feature |
+| `packages/waos-site` | waos.app |
+| `docs/proposals/` | The design and its decisions |
+
+Contributors and agents: read `AGENTS.md` first.
+
+## License
+
+MIT
