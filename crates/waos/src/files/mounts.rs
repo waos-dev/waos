@@ -28,12 +28,13 @@ use std::sync::{Arc, Mutex};
 use futures::FutureExt;
 use tracing::warn;
 pub(crate) use waos_capabilities::MountKind;
-use waos_capabilities::{ChangedFuture, FileSystemGrant, ProgramFolders};
+use waos_capabilities::{ChangedFuture, FileSystemGrant, ProgramFolders, ProgramGrants};
 
 use super::FilesRefusal;
 use super::descriptor::DirectoryEntry;
 use super::errors::ErrorCode;
 use super::machine_paths;
+use super::status::DescriptorType;
 use super::target::{Beneath, Target};
 use crate::access::ProgramAccess;
 use crate::sync::locked;
@@ -271,6 +272,24 @@ fn is_path_of_names(path: &Path) -> bool {
         && components.all(|component| matches!(component, Component::Normal(_)))
 }
 
+/// A mount as an inspector reads it: where the program sees it, what it is, whether the program
+/// may change it, and where it is on the machine.
+pub(crate) struct MountView {
+    pub(crate) at: PathBuf,
+    pub(crate) writable: bool,
+    pub(crate) kind: MountKind,
+    pub(crate) place: Arc<Path>,
+}
+
+/// One entry of a folder as an inspector reads it: its name, whether it is a folder, its size
+/// where it is a file, and when it last changed.
+pub(crate) struct EntryView {
+    pub(crate) name: String,
+    pub(crate) is_folder: bool,
+    pub(crate) size: Option<u64>,
+    pub(crate) modified: Option<(i64, u32)>,
+}
+
 /// The mounts a program sees at one time.
 pub(crate) struct MountTable {
     /// The deepest first, so the first containing a path is the longest.
@@ -278,6 +297,92 @@ pub(crate) struct MountTable {
 }
 
 impl MountTable {
+    /// The table a program sees from its own `folders` and `temporary` folder, its `grants` and
+    /// the files handed to it, as its run builds it and an inspector reads it.
+    pub(crate) fn of(
+        folders: Option<&ProgramFolders>,
+        temporary: Option<&Path>,
+        grants: &dyn ProgramGrants,
+        handed: &HandedFiles,
+    ) -> MountTable {
+        let own = own_mounts(folders, temporary);
+        let granted = grants.file_system();
+        let (handed, _) = handed.mounts();
+        MountTable::new(&own, &granted, &handed)
+    }
+
+    /// Each mount, as an inspector reads it.
+    pub(crate) fn mounts(&self) -> Vec<MountView> {
+        (self.mounts.iter())
+            .map(|mounted| MountView {
+                at: mounted.at.clone(),
+                writable: mounted.writable,
+                kind: mounted.kind,
+                place: Arc::clone(&mounted.host),
+            })
+            .collect()
+    }
+
+    /// The entries of `path`, a path of the program with `/` at its root, as the program's own
+    /// access resolves it: a folder above the mounts, a mount's own folder, or a folder beneath
+    /// one. Never a folder outside a mount.
+    pub(crate) fn read_folder(&self, path: &str) -> Result<Vec<EntryView>, ErrorCode> {
+        let path = Path::new(path);
+        let relative = path.strip_prefix(ROOT).map_err(|_| ErrorCode::Invalid)?;
+        // The root itself names the folder the mounts are under.
+        let relative = if relative.as_os_str().is_empty() {
+            Path::new(".")
+        } else {
+            relative
+        };
+        let entries = match self.resolve(Path::new(ROOT), relative)? {
+            Target::Above(folder) => self.entries_under(&folder),
+            target => target.open_folder()?.read_directory()?,
+        };
+        let mut entries: Vec<EntryView> = (entries.into_iter())
+            .filter_map(|entry| self.entry_view(path, entry))
+            .collect();
+        entries.sort_by(|left, right| {
+            right
+                .is_folder
+                .cmp(&left.is_folder)
+                .then_with(|| left.name.to_lowercase().cmp(&right.name.to_lowercase()))
+                .then_with(|| left.name.cmp(&right.name))
+        });
+        Ok(entries)
+    }
+
+    /// `entry`, one of the entries of the program's `folder`, read as an inspector reads it; none
+    /// for an entry whose name the program cannot read, which is skipped.
+    fn entry_view(
+        &self,
+        folder: &Path,
+        entry: Result<DirectoryEntry, ErrorCode>,
+    ) -> Option<EntryView> {
+        let entry = entry.ok()?;
+        let is_folder = entry.type_ == DescriptorType::Directory;
+        let path = folder.join(&entry.name);
+        let relative = path.strip_prefix(ROOT).ok()?;
+        let stat = self
+            .resolve(Path::new(ROOT), relative)
+            .and_then(|target| target.status(true))
+            .ok();
+        let (size, modified) = match stat {
+            Some(stat) => (
+                (!is_folder).then_some(stat.size),
+                stat.data_modification_timestamp
+                    .map(|time| (time.seconds, time.nanoseconds)),
+            ),
+            None => (None, None),
+        };
+        Some(EntryView {
+            name: entry.name,
+            is_folder,
+            size,
+            modified,
+        })
+    }
+
     /// `own`, then each of `granted`'s mounts that opens, then each of `handed`, but for one at a
     /// path a mount is at already, which is left out, and one handed that the program reaches at
     /// its path already, through a mount of the folder it is in, which keeps that mount's access:

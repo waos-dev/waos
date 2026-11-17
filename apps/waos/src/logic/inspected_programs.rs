@@ -18,6 +18,7 @@ use futures::stream::{self, BoxStream};
 use futures::{FutureExt, StreamExt};
 use waos::HeldProgram;
 use waos::inspection::InspectedPrograms;
+use waos::inspection::ProgramStorage;
 use waos::inspection::bindings::wasdk::inspect::devices::{Program, ProgramChange, StartError};
 use waos_package::ProgramId;
 use waos_store::{InstalledProgram, Store};
@@ -151,6 +152,22 @@ impl InspectedPrograms for ProgramsOnThisComputer {
         }
         .boxed()
     }
+
+    fn storage(&self, id: &str) -> Option<ProgramStorage> {
+        let id: ProgramId = id.parse().ok()?;
+        if let Some(program) = self.runs.running_now(&id) {
+            return Some(program.storage());
+        }
+        // A program that does not run is known by the folder the store keeps of it, installed
+        // or run in development before.
+        self.store.program_settings(&id).ok()?;
+        let folders = self.store.folders(&id).ok();
+        Some(ProgramStorage::of(
+            folders,
+            None,
+            Some(self.store.grants(&id)),
+        ))
+    }
 }
 
 /// Every program installed; then each one not installed, by its id alone: those running, then
@@ -270,6 +287,48 @@ mod tests {
         let icon = programs.icon("dev.example.notes").await.expect("its icon");
         assert!(icon.starts_with(b"\x89PNG"), "the package's PNG");
         assert_eq!(programs.icon("dev.example.gone").await, None);
+    }
+
+    #[tokio::test]
+    async fn a_program_that_does_not_run_has_the_mounts_of_its_store_folder() {
+        let folder = tempfile::tempdir().unwrap();
+        let store = store_in(folder.path());
+        let key = SigningKey::generate();
+        let package = write_package(
+            folder.path(),
+            "dev.example.notes",
+            "Notes",
+            "1.2.0",
+            b"\0asm",
+            &key,
+        );
+        store
+            .install(waos_package::Package::open(&package).unwrap())
+            .unwrap();
+        let id: waos_package::ProgramId = "dev.example.notes".parse().unwrap();
+        let folders = store.folders(&id).unwrap();
+        std::fs::write(folders.data.join("a note.txt"), b"hi").unwrap();
+
+        let programs = ProgramsOnThisComputer::new(store, Arc::new(Runs::default()));
+        let storage = programs.storage("dev.example.notes").expect("its storage");
+        let mounts = storage.mounts();
+        let data = mounts
+            .iter()
+            .find(|mount| mount.path == "/data")
+            .expect("its own data folder");
+        assert_eq!(
+            data.kind,
+            waos::inspection::bindings::wasdk::inspect::storage::MountKind::OwnData
+        );
+        assert!(data.writable);
+        assert_eq!(data.place, folders.data.display().to_string());
+        let entries = storage.read_folder("/data").unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].name, "a note.txt");
+        assert!(!entries[0].is_folder);
+        assert_eq!(entries[0].size, Some(2));
+        assert!(storage.read_folder("/data/../..").is_err());
+        assert!(programs.storage("dev.example.gone").is_none());
     }
 
     #[test]

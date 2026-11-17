@@ -37,7 +37,7 @@ const DETAIL_WIDTH: f64 = 320.0;
 pub(super) fn panel_of(panels: &Panels, tab: Tab, seen: &Seen) -> WidgetRef {
     let running = seen.program.running;
     match tab {
-        Tab::Report => SizedBox::new().into_widget(),
+        Tab::Report | Tab::Storage => SizedBox::new().into_widget(),
         Tab::Network => PanelView::of(&panels.network, running),
         Tab::Files => PanelView::of(&panels.files, running),
         Tab::Access => PanelView::of(&panels.access, running),

@@ -10,8 +10,8 @@ use futures::executor::block_on;
 use futures::future::{self, BoxFuture};
 use futures::stream::{self, BoxStream};
 use futures::{FutureExt, StreamExt};
-use waos::inspection::InspectedPrograms;
 use waos::inspection::bindings::wasdk::inspect::devices::{Program, ProgramChange, StartError};
+use waos::inspection::{InspectedPrograms, ProgramStorage};
 use waos::{
     Answer, HeldProgram, OutputStream, ProgramEnd, ProgramEnvironment, ProgramGrants,
     ProgramOutput, Question, Role, RoleNotGranted, TraceKind, WaOSConfig,
@@ -233,6 +233,10 @@ impl InspectedPrograms for TwoPrograms {
 
     fn end(&self, _id: &str) -> BoxFuture<'static, ()> {
         future::ready(()).boxed()
+    }
+
+    fn storage(&self, _id: &str) -> Option<ProgramStorage> {
+        None
     }
 }
 

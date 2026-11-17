@@ -21,6 +21,10 @@ futures.workspace = true
 # The segments of a phone's panel filter, which Cupertino's segmented control takes in order.
 indexmap.workspace = true
 
+[dev-dependencies]
+# A platform and a test app for the state tests, which read a panel's rows without a window.
+waft-test.workspace = true
+
 [lints]
 workspace = true
 

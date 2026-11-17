@@ -4163,6 +4163,7 @@ dependencies = [
  "indexmap",
  "waft",
  "waft-cupertino",
+ "waft-test",
  "waft-winui",
  "waos-activity",
  "wasdk",

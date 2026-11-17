@@ -12,6 +12,7 @@ mod detail;
 mod panel;
 mod program_list;
 mod report;
+mod storage;
 mod table;
 
 use std::rc::Rc;
@@ -136,9 +137,12 @@ impl StatelessWidget for ProgramPane {
             return said(words::CHOOSE, &resources);
         };
         let tab = self.page.read(app).tab;
-        let report = Report::of(&seen.days, clock::today());
         let content = match (tab, self.page.read(app).panels()) {
-            (Tab::Report, _) | (_, None) => report::report(app, &self.page, &report, &resources),
+            (Tab::Report, _) | (_, None) => {
+                let report = Report::of(&seen.days, clock::today());
+                report::report(app, &self.page, &report, &resources)
+            }
+            (Tab::Storage, _) => storage::storage(app, &self.page, &resources),
             (tab, Some(panels)) => panel::panel_of(panels, tab, &seen),
         };
         Column::new()
@@ -153,7 +157,7 @@ impl StatelessWidget for ProgramPane {
                     MARGIN,
                     0.0,
                 ))
-                .child(tabs(&self.page, &report, tab))
+                .child(tabs(app, &self.page, tab))
                 .into_widget(),
                 Expanded::new(content).into_widget(),
             ])
@@ -209,25 +213,30 @@ fn header(
 }
 
 /// The page's tabs, as a selector bar: the report, then each live panel, each with its glyph and
-/// how often its kinds were used today in a badge beside its name, critical where WaOS refused
-/// one, and no badge on a day they were not used.
-fn tabs(page: &Entity<ProgramPage>, report: &Report, shown: Tab) -> WidgetRef {
+/// how many rows its list holds in a badge beside its name, critical where any of them were
+/// refused, and none while the list is empty.
+fn tabs(app: &mut App, page: &Entity<ProgramPage>, shown: Tab) -> WidgetRef {
+    let counts: Option<[Option<(usize, usize)>; Tab::ALL.len()]> = page
+        .read(app)
+        .panels()
+        .map(|panels| Tab::ALL.map(|tab| panels.counted(app, tab)));
     let items = Tab::ALL
         .iter()
-        .map(|tab| {
-            let kinds = tab.counted();
-            let counted = (!kinds.is_empty())
-                .then(|| report.today_of(kinds))
-                .filter(|counted| counted.allowed + counted.refused > 0);
+        .enumerate()
+        .map(|(index, tab)| {
+            let counted = counts
+                .as_ref()
+                .and_then(|counts| counts[index])
+                .filter(|(rows, _)| *rows > 0);
             let mut label = vec![Text::new(tab.name()).into_widget()];
-            label.extend(counted.map(|counted| {
-                let style = if counted.refused > 0 {
+            label.extend(counted.map(|(rows, refused)| {
+                let style = if refused > 0 {
                     InfoBadgeStyle::Critical
                 } else {
                     InfoBadgeStyle::Informational
                 };
                 InfoBadge::new()
-                    .value(i32::try_from(counted.allowed + counted.refused).unwrap_or(i32::MAX))
+                    .value(i32::try_from(rows).unwrap_or(i32::MAX))
                     .style(style)
                     .into_widget()
             }));
@@ -253,6 +262,7 @@ fn tab_symbol(tab: Tab) -> FluentSymbol {
         Tab::Report => FluentSymbol::Shield,
         Tab::Network => FluentSymbol::Globe,
         Tab::Files => FluentSymbol::Folder,
+        Tab::Storage => FluentSymbol::Folder,
         Tab::Access => FluentSymbol::Camera,
         Tab::Output => FluentSymbol::WindowConsole,
         Tab::InUse => FluentSymbol::Pulse,

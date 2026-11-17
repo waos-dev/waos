@@ -1,0 +1,45 @@
+/// What a program sees of this computer's files: the folders it sees at paths of its own, and the
+/// entries of any folder inside them, read as its own access would resolve them.
+interface storage {
+  use wasi:clocks/system-clock@0.3.0.{instant};
+  use devices.{device};
+
+  /// One folder or file a program sees, at its path inside the program.
+  record mount {
+    /// Where the program sees it: "/data", "/cache", "/tmp", or a granted folder's path.
+    path: string,
+    kind: mount-kind,
+    writable: bool,
+    /// Where it is on this machine, for the user to find it.
+    place: string,
+  }
+
+  /// What a mount is to the program.
+  enum mount-kind {
+    /// Its own `/data`.
+    own-data,
+    /// Its own `/cache`.
+    own-cache,
+    /// Its own `/tmp`, emptied when it ends.
+    own-temporary,
+    /// A folder its user granted it.
+    granted-folder,
+    /// A file or folder its user picked or pasted.
+    handed-file,
+  }
+
+  /// One entry in a folder.
+  record entry {
+    name: string,
+    is-folder: bool,
+    /// In bytes; none for a folder.
+    size: option<u64>,
+    modified: option<instant>,
+  }
+
+  /// The program's mounts as its settings and grants make them now, whether it runs or not.
+  mounts: func(device: borrow<device>, id: string) -> list<mount>;
+  /// The entries of `path`, a path inside the program, resolved through its mounts as the
+  /// program's own would be; read-only, never outside a mount.
+  read-folder: async func(device: borrow<device>, id: string, path: string) -> result<list<entry>, string>;
+}

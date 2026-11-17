@@ -2,8 +2,9 @@
 //! program it knows, installed or running, the inspector among them (decision 12 of
 //! `docs/proposals/2026-11-15-inspector-roles-and-compatibility.md`), each change to them, and a
 //! program's icon, asked for one at a time; and a program started held, which the embedder starts
-//! as it starts any, or ended (decisions 18 and 19). What a running one does the engine reads itself, of
-//! the program it runs under that id.
+//! as it starts any, or ended (decisions 18 and 19); and what a program sees of this computer's
+//! files, from its own folders, grants and handed files. What a running one does the engine reads
+//! itself, of the program it runs under that id.
 //!
 //! The invariant: the programs are said in `wasdk:inspect`'s own types, so what the embedder gives
 //! is what the inspector reads, with no second schema between them.
@@ -11,6 +12,7 @@
 use futures::future::BoxFuture;
 use futures::stream::BoxStream;
 
+use super::ProgramStorage;
 use super::bindings::wasdk::inspect::devices::{Program, ProgramChange, StartError};
 use crate::running::HeldProgram;
 
@@ -37,4 +39,9 @@ pub trait InspectedPrograms: Send + Sync {
 
     /// Ends the program `id` names where it runs, with a stop; resolves once it has ended.
     fn end(&self, id: &str) -> BoxFuture<'static, ()>;
+
+    /// What the program `id` names sees of this computer's files now: the mounts its settings,
+    /// grants and handed files make, whether it runs or not; none for a program this device does
+    /// not know.
+    fn storage(&self, id: &str) -> Option<ProgramStorage>;
 }

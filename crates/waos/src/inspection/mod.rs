@@ -5,7 +5,9 @@
 //! without types of its own.
 //!
 //! The engine's own values are made `wasdk:inspect`'s in [`values`]: a day of a program's audit
-//! summary ([`day_of`]), and what it uses now and each change to it (`RunningProgram::active_uses`). The package is served
+//! summary ([`day_of`]), and what it uses now and each change to it (`RunningProgram::active_uses`).
+//! A program's storage ([`ProgramStorage`]) is its mounts and a folder's entries, resolved through
+//! its own mount table. The package is served
 //! to a program holding the inspector role in [`host`], over the programs the embedder gives
 //! ([`InspectedPrograms`]).
 //!
@@ -15,9 +17,11 @@
 
 pub(crate) mod host;
 mod programs;
+mod storage;
 mod values;
 
 pub use programs::InspectedPrograms;
+pub use storage::ProgramStorage;
 pub use values::day_of;
 pub(crate) use values::{active_use_change_of, active_use_of};
 
@@ -33,6 +37,7 @@ pub mod bindings {
             "wasdk:inspect/devices.[method]device.start-held": async | store | trappable,
             "wasdk:inspect/devices.[method]device.end": async | store | trappable,
             "wasdk:inspect/audit.days": async | store | trappable,
+            "wasdk:inspect/storage.read-folder": async | store | trappable,
         },
         additional_derives: [waos_wit_serialize::WitSerialize, PartialEq],
         with: {

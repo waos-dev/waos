@@ -9,6 +9,7 @@
 
 mod panel;
 mod report;
+mod storage;
 
 use std::rc::Rc;
 
@@ -65,6 +66,7 @@ impl StatelessWidget for Pages {
             (Found::Ready, Some(seen)) if tab == Tab::Report => {
                 report::report_page(&self.page, &seen, app)
             }
+            (Found::Ready, Some(_)) if tab == Tab::Storage => storage::storage_page(&self.page),
             (Found::Ready, Some(seen)) => panel::panel_page(&self.page, &seen, tab, app),
             (found, _) => list_page(&programs, found, app),
         }
@@ -152,14 +154,19 @@ pub(super) fn back(
 ) -> WidgetRef {
     let page = page.clone();
     let back = Listener::new(move |app| going(app, &page));
+    back_by(to, back)
+}
+
+/// The way back to `to`, by `pressed`.
+pub(super) fn back_by(to: impl Into<String>, pressed: Listener) -> WidgetRef {
     let label = Row::new()
         .main_axis_size(MainAxisSize::Min)
         .spacing(2.0)
         .children([
             Icon::new(Some(CupertinoIcons::back())).into_widget(),
-            Text::new(to).into_widget(),
+            Text::new(to.into()).into_widget(),
         ]);
-    CupertinoButton::new(label.into_widget(), Some(back))
+    CupertinoButton::new(label.into_widget(), Some(pressed))
         .padding(EdgeInsetsGeometry::all(0.0))
         .into_widget()
 }

@@ -128,7 +128,10 @@ fn a_listener_of_the_programs_output_hears_what_it_writes_from_then_on() {
     assert_eq!(json["channel"], "stdout");
     assert_eq!(json["instance"], 0);
     let bytes: Vec<u8> = serde_json::from_value(json["bytes"].clone()).unwrap();
-    assert!(String::from_utf8_lossy(&bytes).starts_with("count "), "{bytes:?}");
+    assert!(
+        String::from_utf8_lossy(&bytes).starts_with("count "),
+        "{bytes:?}"
+    );
     running.stop();
     assert!(matches!(block_on(running.ended()), ProgramEnd::Stopped));
 }

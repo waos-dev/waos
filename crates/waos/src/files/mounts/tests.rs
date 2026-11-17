@@ -203,6 +203,37 @@ fn a_file_handed_that_a_mount_reaches_at_its_path_keeps_that_mounts_access() {
 }
 
 #[test]
+fn an_inspector_reads_a_folders_entries_and_never_outside_its_mount() {
+    let machine = Machine::new(&["data"]);
+    machine.file("data", "note.txt");
+    fs::create_dir(machine.folder("data").join("sub")).unwrap();
+    let table = machine.table(&[("data", "/data")]);
+
+    let entries = table.read_folder("/data").unwrap();
+    let names: Vec<&str> = entries.iter().map(|entry| entry.name.as_str()).collect();
+    assert_eq!(names, ["sub", "note.txt"], "folders first, by name");
+    assert!(entries[0].is_folder);
+    assert_eq!(entries[0].size, None, "a folder has no size");
+    assert!(!entries[1].is_folder);
+    assert_eq!(entries[1].size, Some(6));
+    assert!(entries[1].modified.is_some());
+
+    let above = table.read_folder("/").unwrap();
+    assert!(
+        above
+            .iter()
+            .any(|entry| entry.name == "data" && entry.is_folder)
+    );
+
+    assert_eq!(
+        table.read_folder("/data/../..").err(),
+        Some(ErrorCode::NotPermitted),
+        "a path out of its mount"
+    );
+    assert_eq!(table.read_folder("data").err(), Some(ErrorCode::Invalid));
+}
+
+#[test]
 fn a_mount_added_or_removed_applies_at_the_next_call() {
     let machine = Machine::new(&["data", "later"]);
     let grants = Arc::new(TestGrants::default());

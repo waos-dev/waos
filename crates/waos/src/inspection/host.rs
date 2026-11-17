@@ -2,7 +2,8 @@
 //! programs on it as the embedder gives them (`InspectedPrograms`), each one's icon as it is asked
 //! for, a program started held as the embedder starts it, kept until the inspector drops it, or
 //! ended; a program's audit summary, the days kept with today's as counted in memory; what it uses
-//! now and each change to it; and its live trace, a stream per capability. A running program is
+//! now and each change to it; its live trace, a stream per capability; and what it sees of this
+//! computer's files, its mounts and the entries of a folder inside them. A running program is
 //! the one the engine runs under the id asked for, its name, as the embedder names it
 //! (`Program::named`). Linked only for a program its user granted the role (`roles`).
 //!
@@ -28,6 +29,7 @@ use super::bindings::wasdk::inspect::devices::{
     self, DeviceChange, HostDevice, HostDeviceWithStore, HostHeldProgram, HostHeldProgramWithStore,
     Program, ProgramChange, StartError,
 };
+use super::bindings::wasdk::inspect::storage::{self, Entry, Mount};
 use super::bindings::wasdk::inspect::trace::{
     self, ClipboardEvent, DeviceEvent, FileEvent, LinkEvent, MachineEvent, NetworkEvent,
     NotificationEvent, OutputChunk, PermissionEvent,
@@ -107,7 +109,8 @@ pub(crate) fn add_to_linker<T: InspectCtxView + 'static>(
     devices::add_to_linker::<_, HasInspect>(linker, T::inspect_ctx)?;
     audit::add_to_linker::<_, HasInspect>(linker, T::inspect_ctx)?;
     active_uses::add_to_linker::<_, HasInspect>(linker, T::inspect_ctx)?;
-    trace::add_to_linker::<_, HasInspect>(linker, T::inspect_ctx)
+    trace::add_to_linker::<_, HasInspect>(linker, T::inspect_ctx)?;
+    storage::add_to_linker::<_, HasInspect>(linker, T::inspect_ctx)
 }
 
 /// What the store's reach answers, read without holding the store across an await.
@@ -133,6 +136,7 @@ impl HostHeldProgram for InspectCtx<'_> {}
 impl audit::Host for InspectCtx<'_> {}
 impl active_uses::Host for InspectCtx<'_> {}
 impl trace::Host for InspectCtx<'_> {}
+impl storage::Host for InspectCtx<'_> {}
 
 impl<T: InspectCtxView + 'static> devices::HostWithStore<T> for HasInspect {
     /// This device alone, while the role is held; no device reached yet is another.
@@ -269,6 +273,41 @@ impl<T: InspectCtxView + 'static> audit::HostWithStore<T> for HasInspect {
         // The days kept are read from their files.
         let days = spawn_blocking(move || days.days_of(&id)).await;
         Ok(days.iter().map(day_of).collect())
+    }
+}
+
+impl<T: InspectCtxView + 'static> storage::HostWithStore<T> for HasInspect {
+    /// The program's mounts as its settings and grants make them now; none for an inspector
+    /// without the role or a program this device does not know.
+    fn mounts(
+        mut access: Access<'_, T, Self>,
+        _device: Resource<Device>,
+        id: String,
+    ) -> wasmtime::Result<Vec<Mount>> {
+        let Some(programs) = access.get().reach.programs() else {
+            return Ok(Vec::new());
+        };
+        Ok(programs
+            .storage(&id)
+            .map(|storage| storage.mounts())
+            .unwrap_or_default())
+    }
+
+    /// The entries of a folder inside the program's mounts, read off the program's thread; a
+    /// path outside every mount is refused by the mounts.
+    async fn read_folder(
+        accessor: &Accessor<T, Self>,
+        _device: Resource<Device>,
+        id: String,
+        path: String,
+    ) -> wasmtime::Result<Result<Vec<Entry>, String>> {
+        let Some(programs) = reach_of(accessor).programs() else {
+            return Ok(Err("no device".to_owned()));
+        };
+        let Some(storage) = programs.storage(&id) else {
+            return Ok(Err("no such program".to_owned()));
+        };
+        Ok(spawn_blocking(move || storage.read_folder(&path)).await)
     }
 }
 
@@ -432,6 +471,7 @@ mod tests {
 
     use super::*;
     use crate::access::Answers;
+    use crate::inspection::ProgramStorage;
 
     /// The embedder's programs, of which the test reads none.
     struct NoPrograms;
@@ -459,6 +499,10 @@ mod tests {
 
         fn end(&self, _id: &str) -> BoxFuture<'static, ()> {
             future::ready(()).boxed()
+        }
+
+        fn storage(&self, _id: &str) -> Option<ProgramStorage> {
+            None
         }
     }
 

@@ -9,7 +9,6 @@
 
 use std::future::Future;
 use std::pin::pin;
-use std::rc::{Rc, Weak};
 
 use futures::FutureExt;
 use futures::channel::oneshot;
@@ -37,12 +36,10 @@ pub(crate) enum Heard {
     Refused(String),
 }
 
-/// A listening, as each of its streams holds it: what ends the stream once the panel stops, and
-/// what says the stream is still heard.
+/// A listening, as each of its streams holds it: what ends the stream once the panel stops.
 #[derive(Clone)]
 pub(crate) struct Listening {
     stopped: Shared<oneshot::Receiver<()>>,
-    heard: Rc<()>,
 }
 
 pub(crate) struct LivePanel<L: Log> {
@@ -56,8 +53,6 @@ pub(crate) struct LivePanel<L: Log> {
     pub(crate) heard: Heard,
     /// Dropped to end every stream of the listening.
     listening: Option<oneshot::Sender<()>>,
-    /// Alive while any stream of the listening is heard.
-    streams: Weak<()>,
 }
 
 impl<L: Log> LivePanel<L> {
@@ -73,7 +68,6 @@ impl<L: Log> LivePanel<L> {
             text: String::new(),
             heard: Heard::Nothing,
             listening: None,
-            streams: Weak::new(),
         })
     }
 
@@ -85,19 +79,10 @@ impl<L: Log> LivePanel<L> {
         self.heard = Heard::Since(clock::now());
         let (listening, stopped) = oneshot::channel();
         self.listening = Some(listening);
-        let heard = Rc::new(());
-        self.streams = Rc::downgrade(&heard);
         cx.notify();
         Listening {
             stopped: stopped.shared(),
-            heard,
         }
-    }
-
-    /// Whether any stream of its listening is still heard: none once the panel stopped or its
-    /// program ended.
-    pub(crate) fn listens(&self) -> bool {
-        self.streams.strong_count() > 0
     }
 
     /// Lets go of the rows heard so far; the listening goes on.
@@ -184,10 +169,7 @@ pub(crate) fn hear<L: Log, E: 'static>(
 ) {
     let panel = panel.clone();
     app.spawn(async move |cx| {
-        let Listening {
-            mut stopped,
-            heard: _heard,
-        } = listening;
+        let Listening { mut stopped } = listening;
         loop {
             let Some(event) = until(events.next(), &mut stopped).await.flatten() else {
                 return;

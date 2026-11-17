@@ -5,3 +5,4 @@
 pub(crate) mod page;
 pub(crate) mod panel;
 pub(crate) mod programs;
+pub(crate) mod storage;

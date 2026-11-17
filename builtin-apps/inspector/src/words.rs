@@ -2,6 +2,7 @@
 
 use waos_activity::Folder;
 use wasdk::inspect::devices::StartError;
+use wasdk::inspect::storage::MountKind;
 
 use crate::clock::now;
 use crate::logic::panels::Decided;
@@ -22,6 +23,7 @@ pub(crate) const FILES: &str = "Files";
 pub(crate) const ACCESS_TAB: &str = "Access";
 pub(crate) const OUTPUT: &str = "Output";
 pub(crate) const IN_USE: &str = "In use";
+pub(crate) const STORAGE: &str = "Storage";
 pub(crate) const NETWORK_ACTIVITY: &str = "Network activity";
 pub(crate) const NETWORK_ACTIVITY_DETAIL: &str =
     "The domains it contacted, the most contacted first.";
@@ -35,6 +37,7 @@ pub(crate) const SEE_ACCESS: &str =
     "Its camera, microphone, clipboard, links, notifications, questions and machines";
 pub(crate) const SEE_OUTPUT: &str = "What it writes to its output and errors";
 pub(crate) const SEE_IN_USE: &str = "What it uses now: files open, connections, captures";
+pub(crate) const SEE_STORAGE: &str = "The folders it sees and what they hold";
 pub(crate) const NOT_RUNNING: &str =
     "It is not running. Start it inspected to see what it does from its first instruction.";
 pub(crate) const START_INSPECTED: &str = "Start inspected";
@@ -112,6 +115,12 @@ pub(crate) const NOT_RUNNING_SHORT: &str = "Not running";
 pub(crate) const NOT_STARTED: &str = "WaOS did not start it";
 pub(crate) const REFUSED_BY_WAOS: &str = "Refused by WaOS";
 pub(crate) const FILTER_PANEL: &str = "Filter by what it reached";
+pub(crate) const NO_MOUNTS: &str = "It sees no folder of this computer.";
+pub(crate) const STORAGE_UNAVAILABLE: &str = "Its folders could not be read.";
+pub(crate) const READING: &str = "Reading…";
+pub(crate) const READ_FAILED: &str = "Could not be read";
+pub(crate) const WRITABLE: &str = "writable";
+pub(crate) const READ_ONLY: &str = "read-only";
 
 /// What a program's row says beneath its name: its version, whether it runs, and when it last
 /// used something guarded.
@@ -244,6 +253,22 @@ pub(crate) fn took(nanoseconds: u64) -> String {
         10_000..120_000 => format!("{:.1} s", ms as f64 / 1000.0),
         _ => format!("{} min", ms / 60_000),
     }
+}
+
+/// What a mount is, in a word.
+pub(crate) fn mount_kind(kind: MountKind) -> &'static str {
+    match kind {
+        MountKind::OwnData => "its data",
+        MountKind::OwnCache => "its cache",
+        MountKind::OwnTemporary => "its temporary folder",
+        MountKind::GrantedFolder => "a folder you granted",
+        MountKind::HandedFile => "a file you handed it",
+    }
+}
+
+/// Whether a mount is writable or read-only, in a word.
+pub(crate) fn written(writable: bool) -> &'static str {
+    if writable { WRITABLE } else { READ_ONLY }
 }
 
 /// `n` bytes, in the largest unit that keeps a whole number before the point: `512 B`, `12.3 KB`.

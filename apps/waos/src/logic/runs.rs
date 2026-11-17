@@ -185,6 +185,11 @@ impl Runs {
 
     /// The program `id` running now, if one is.
     pub(crate) async fn running(&self, id: &ProgramId) -> Option<RunningProgram> {
+        self.running_now(id)
+    }
+
+    /// The program `id` running now, if one is, without waiting.
+    pub(crate) fn running_now(&self, id: &ProgramId) -> Option<RunningProgram> {
         self.listed().get(id).map(|current| current.program.clone())
     }
 

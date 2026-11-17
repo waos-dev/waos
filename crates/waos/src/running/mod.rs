@@ -36,7 +36,6 @@ use wasmtime::Engine;
 use wasmtime::component::Component;
 
 use crate::access::{Days, ProgramAccess, TraceKind, TraceStream, WeakAccess};
-use crate::source_lines::ComponentFile;
 use crate::bindings::wasdk::platform::lifecycle::AppExitResponse;
 use crate::bindings::wasdk::platform::menus::MenuEntry;
 use crate::bindings::wasdk::platform::notifications::Activation;
@@ -45,13 +44,15 @@ use crate::caption_settings::CaptionSettings;
 use crate::clipboard::{PlatformClipboard, ProgramSources};
 use crate::clock::Clock;
 use crate::engine_time::EngineClock;
+use crate::files::HandedFiles;
 use crate::gpu::{GpuInstance, InFlight, OpenedDevices};
 use crate::hardware_buffers::UnaskedRead;
+use crate::inspection::ProgramStorage;
 use crate::lifecycle::{FreezePolicy, Lifecycle, OpenRequest};
 use crate::menus::{MenuPlaces, ProgramMenus};
 use crate::network::HttpProxy;
 use crate::notifications::ProgramNotifications;
-use crate::permissions::SystemRefusal;
+use crate::permissions::{NothingGranted, SystemRefusal};
 use crate::screens::Screens;
 use crate::screenshots::Screenshots;
 use crate::shell::{
@@ -59,6 +60,7 @@ use crate::shell::{
     ShellImageCodecs, ShellMachinePicker, ShellMediaAssets, ShellMediaPlayers, ShellNotifications,
     ShellOpener, ShellRecordingIndicator, ShellVideoFrameReaders, ViewPlacement,
 };
+use crate::source_lines::ComponentFile;
 use crate::stats::Stats;
 use crate::sync::locked;
 use crate::system::SystemSettings;
@@ -134,6 +136,12 @@ struct Running {
     /// Its access, once its code is linked, held without keeping it: the access holds the
     /// program in turn.
     access: OnceLock<WeakAccess>,
+    /// The files the user hands it while it runs, mounted for every instance and for an
+    /// inspector.
+    handed: HandedFiles,
+    /// What it sees of this computer's files, as its settings, grants and handed files make them
+    /// now, for an inspector.
+    storage: ProgramStorage,
 }
 
 /// The program's end, as every `ended` resolves with it.
@@ -237,6 +245,13 @@ impl RunningProgram {
         let (stop, stopped) = oneshot::channel();
         let (end, ended) = oneshot::channel();
         let stats = Arc::new(Stats::default());
+        let handed = HandedFiles::default();
+        let storage = ProgramStorage::with_handed(
+            start.environment.folders.clone(),
+            start.temporary_folder.clone(),
+            (start.environment.grants.clone()).unwrap_or_else(|| Arc::new(NothingGranted)),
+            handed.clone(),
+        );
         let program = RunningProgram(Arc::new(Running {
             name: Arc::from(start.name.as_str()),
             views: program_views,
@@ -256,6 +271,8 @@ impl RunningProgram {
             stop: Mutex::new(Some(stop)),
             ended: ended.map(end_of_thread as fn(_) -> _).shared(),
             access: OnceLock::new(),
+            handed,
+            storage,
         }));
         start.programs.add(&program);
         let on_thread = program.clone();
@@ -415,6 +432,17 @@ impl RunningProgram {
     pub(crate) fn attach_access(&self, access: &ProgramAccess) {
         // Linked once; a second link would be the same program's.
         let _ = self.0.access.set(access.downgrade());
+    }
+
+    /// The files the user handed it, which every instance mounts.
+    pub(crate) fn handed(&self) -> HandedFiles {
+        self.0.handed.clone()
+    }
+
+    /// What it sees of this computer's files now, as its settings, grants and handed files make
+    /// them, for an inspector.
+    pub fn storage(&self) -> ProgramStorage {
+        self.0.storage.clone()
     }
 
     /// Now on the program's clock, in nanoseconds: what the program's `wasi:clocks` read, and what

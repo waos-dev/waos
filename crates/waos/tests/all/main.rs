@@ -62,6 +62,7 @@ mod opener;
 mod output;
 mod permissions;
 mod roles;
+mod storage;
 mod survey;
 mod trust;
 mod video_frames;

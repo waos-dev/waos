@@ -40,7 +40,7 @@ pub(super) fn panel_page(
     let sections = match page.read(app).panels().cloned() {
         None => vec![section(None, None, vec![note(words::NOT_RUNNING)])],
         Some(panels) => match tab {
-            Tab::Report => Vec::new(),
+            Tab::Report | Tab::Storage => Vec::new(),
             Tab::Network => sections_of(app, &panels.network, seen),
             Tab::Files => sections_of(app, &panels.files, seen),
             Tab::Access => sections_of(app, &panels.access, seen),

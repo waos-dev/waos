@@ -19,7 +19,6 @@ use wasmtime::component::{Component, InstancePre};
 
 use super::{IncompatibleProgram, ProgramStart, RunningProgram};
 use crate::access::{KeptIn, ProgramAccess, ShownRecordings};
-use crate::source_lines::ComponentFile;
 use crate::bindings::exports::wasdk::platform::worker_entry;
 use crate::bindings::exports::wasi::cli::run;
 use crate::caption_settings::CaptionSettings;
@@ -38,6 +37,7 @@ use crate::shell::{
     ShellImageCodecs, ShellMachinePicker, ShellMediaAssets, ShellMediaPlayers, ShellNotifications,
     ShellOpener, ShellVideoFrameReaders, ViewPlacement,
 };
+use crate::source_lines::ComponentFile;
 use crate::system::SystemSettings;
 use crate::views::ViewLayers;
 
@@ -135,7 +135,7 @@ impl ProgramInstances {
             access,
             inspector_reach,
             http_proxy: start.http_proxy,
-            handed: HandedFiles::default(),
+            handed: program.handed(),
             commands: StartedCommands::default(),
             workers_started: AtomicU32::new(0),
             temporary_folder: start.temporary_folder,

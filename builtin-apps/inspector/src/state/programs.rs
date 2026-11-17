@@ -106,6 +106,20 @@ impl Programs {
         self.list.get(index)
     }
 
+    /// An empty list for a test: no device, nothing chosen.
+    #[cfg(test)]
+    pub(crate) fn none(app: &mut App) -> Entity<Programs> {
+        let selection = ItemsViewSource::new(app, 0);
+        app.new_entity(|_cx| Programs {
+            device: None,
+            device_name: String::new(),
+            found: Found::NoDevice,
+            list: Vec::new(),
+            selection,
+            icons: HashMap::new(),
+        })
+    }
+
     /// The icon of the program `id`, as a PNG; none until it is read.
     pub(crate) fn icon(&self, id: &str) -> Option<Arc<[u8]>> {
         match self.icons.get(id) {

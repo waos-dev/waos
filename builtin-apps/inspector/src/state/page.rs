@@ -1,10 +1,12 @@
-//! The page of the program chosen: the tab it shows, its report's table of domains, and its live
-//! panels, one entity each, made for each program chosen. Only the panel shown listens, from when
-//! it is shown or its program starts; showing another tab stops the panel that showed, and
-//! choosing another program stops them all.
+//! The page of the program chosen: the tab it shows, its report's table of domains, its live
+//! panels, one entity each, made for each program chosen, and its storage. Every live panel
+//! listens while a program is chosen and runs, from when it is chosen or from its start, and keeps
+//! its rows across tab switches and rebuilds; choosing another program stops them all, and a
+//! program ending keeps their rows, as it does now.
 //!
 //! The invariant: the page follows the program chosen: its panels are of that program and no
-//! other, so a panel never hears a program after another is chosen.
+//! other, so a panel never hears a program after another is chosen; and a tab shows what its
+//! panel holds, which a tab switch never changes.
 
 use std::rc::Rc;
 
@@ -12,9 +14,10 @@ use waft::{App, Context, Entity, Ref, Subscription};
 use waft_winui::TableViewSource;
 use waos_activity::AccessKind;
 use wasdk::inspect::devices::Device;
-use wasdk::inspect::{active_uses, trace};
+use wasdk::inspect::{active_uses, storage as inspect_storage, trace};
 
 use crate::clock;
+use crate::logic::panels::PanelRow;
 use crate::logic::panels::access::{AccessLog, AccessRow, Capturing};
 use crate::logic::panels::files::{FileLog, FileRow};
 use crate::logic::panels::in_use::{InUse, InUseRow};
@@ -23,6 +26,7 @@ use crate::logic::panels::output::{OutputLine, OutputLog};
 use crate::logic::report::{Contacted, Report};
 use crate::state::panel::{LivePanel, Log, hear, stop};
 use crate::state::programs::{OWN_ID, Programs};
+use crate::state::storage::Storage;
 use crate::words;
 
 impl Log for NetworkLog {
@@ -51,16 +55,18 @@ pub(crate) enum Tab {
     Report,
     Network,
     Files,
+    Storage,
     Access,
     Output,
     InUse,
 }
 
 impl Tab {
-    pub(crate) const ALL: [Tab; 6] = [
+    pub(crate) const ALL: [Tab; 7] = [
         Tab::Report,
         Tab::Network,
         Tab::Files,
+        Tab::Storage,
         Tab::Access,
         Tab::Output,
         Tab::InUse,
@@ -71,6 +77,7 @@ impl Tab {
             Tab::Report => words::REPORT,
             Tab::Network => words::NETWORK,
             Tab::Files => words::FILES,
+            Tab::Storage => words::STORAGE,
             Tab::Access => words::ACCESS_TAB,
             Tab::Output => words::OUTPUT,
             Tab::InUse => words::IN_USE,
@@ -92,34 +99,13 @@ impl Tab {
         }
     }
 
-    /// The kinds of guarded use its badge counts today, from the days kept; none for the report,
-    /// whose tab has no kind of its own, and for the two tabs the days keep nothing of: what a
-    /// program writes and what it uses now.
-    pub(crate) fn counted(self) -> &'static [AccessKind] {
-        const ACCESS: &[AccessKind] = &[
-            AccessKind::Camera,
-            AccessKind::Microphone,
-            AccessKind::Clipboard,
-            AccessKind::Machines,
-            AccessKind::Links,
-            AccessKind::Notifications,
-            AccessKind::Questions,
-        ];
-        match self {
-            Tab::Report => &[],
-            Tab::Network => &[AccessKind::Network],
-            Tab::Files => &[AccessKind::Files],
-            Tab::Access => ACCESS,
-            Tab::Output | Tab::InUse => &[],
-        }
-    }
-
     /// What its panel shows, as a phone's report's way to it says.
     pub(crate) fn shows(self) -> &'static str {
         match self {
             Tab::Report => words::REPORT,
             Tab::Network => words::SEE_NETWORK,
             Tab::Files => words::SEE_FILES,
+            Tab::Storage => words::SEE_STORAGE,
             Tab::Access => words::SEE_ACCESS,
             Tab::Output => words::SEE_OUTPUT,
             Tab::InUse => words::SEE_IN_USE,
@@ -143,8 +129,14 @@ pub(crate) struct ProgramPage {
     pub(crate) programs: Entity<Programs>,
     pub(crate) tab: Tab,
     panels: Option<Panels>,
+    /// Whether the panels listen to the program chosen now.
+    listening: bool,
+    /// Whether a start inspected is held, waiting for every panel to listen.
+    starting: bool,
     /// The domains the report of the program chosen lists, in its table.
     pub(crate) domains: Ref<TableViewSource<Contacted>>,
+    /// The storage tab's mounts and the folders opened of the program chosen.
+    storage: Storage,
     _following: Subscription,
 }
 
@@ -156,7 +148,10 @@ impl ProgramPage {
             programs: programs.clone(),
             tab: Tab::Report,
             panels: None,
+            listening: false,
+            starting: false,
             domains,
+            storage: Storage::default(),
             _following: cx.observe(programs, |page: &mut ProgramPage, _programs, cx| {
                 page.follow(cx);
             }),
@@ -168,8 +163,13 @@ impl ProgramPage {
         self.panels.as_ref()
     }
 
+    /// The storage of the program chosen.
+    pub(crate) fn storage(&self) -> &Storage {
+        &self.storage
+    }
+
     /// The programs changed, or the one chosen: the panels follow the program chosen, its
-    /// report's domains its days, and the panel shown listens where its program started.
+    /// report's domains its days, and every panel listens where its program runs.
     fn follow(&mut self, cx: &mut Context<ProgramPage>) {
         let programs = self.programs.read(cx);
         let chosen = programs.chosen(cx).map(|seen| {
@@ -186,16 +186,29 @@ impl ProgramPage {
             cx.notify();
             return;
         };
-        if self.panels.as_ref().is_none_or(|panels| panels.id != id) {
+        let chosen_new = self.panels.as_ref().is_none_or(|panels| panels.id != id);
+        if chosen_new {
             self.leave(cx);
             self.tab = Tab::Report;
             self.panels = Some(Panels::new(cx, id.clone()));
+            self.listening = false;
+            self.starting = false;
+            self.storage.reset();
+            if let Some(device) = &device {
+                read_mounts(cx, device, &id);
+            }
         }
         self.show_domains(cx, domains);
-        if let (true, Some(device), Some(panels)) = (running, device, &self.panels)
-            && panels.listens(cx, self.tab) == Some(false)
-        {
-            panels.listen(cx, self.tab, &device);
+        if running {
+            if let (Some(device), Some(panels)) = (device, &self.panels)
+                && !self.starting
+                && !self.listening
+            {
+                panels.listen_all(cx, &device);
+                self.listening = true;
+            }
+        } else {
+            self.listening = false;
         }
         cx.notify();
     }
@@ -203,10 +216,10 @@ impl ProgramPage {
     /// Stops the panels of the program that was chosen, which go.
     fn leave(&mut self, app: &mut App) {
         if let Some(panels) = self.panels.take() {
-            for tab in Tab::ALL {
-                panels.stop(app, tab);
-            }
+            panels.stop_all(app);
         }
+        self.listening = false;
+        self.starting = false;
     }
 
     fn show_domains(&self, app: &mut App, domains: Vec<Contacted>) {
@@ -232,27 +245,43 @@ impl Panels {
         }
     }
 
-    /// Whether the panel of `tab` still hears any of its streams; none for the report.
-    fn listens(&self, app: &App, tab: Tab) -> Option<bool> {
-        match tab {
-            Tab::Report => None,
-            Tab::Network => Some(self.network.read(app).listens()),
-            Tab::Files => Some(self.files.read(app).listens()),
-            Tab::Access => Some(self.access.read(app).listens()),
-            Tab::Output => Some(self.output.read(app).listens()),
-            Tab::InUse => Some(self.in_use.read(app).listens()),
+    /// Stops every panel, which goes out of sight with its program.
+    fn stop_all(&self, app: &mut App) {
+        stop(app, &self.network);
+        stop(app, &self.files);
+        stop(app, &self.access);
+        stop(app, &self.output);
+        stop(app, &self.in_use);
+    }
+
+    /// Every panel listens to its streams of the program from now on, its rows new.
+    fn listen_all(&self, app: &mut App, device: &Device) {
+        for tab in [
+            Tab::Network,
+            Tab::Files,
+            Tab::Access,
+            Tab::Output,
+            Tab::InUse,
+        ] {
+            self.listen(app, tab, device);
         }
     }
 
-    /// Stops the panel of `tab`.
-    fn stop(&self, app: &mut App, tab: Tab) {
+    /// How many rows the panel of `tab` holds, and how many of them WaOS refused; none for the
+    /// report, which keeps no rows.
+    pub(crate) fn counted(&self, app: &App, tab: Tab) -> Option<(usize, usize)> {
+        fn count<L: Log>(app: &App, panel: &Entity<LivePanel<L>>) -> (usize, usize) {
+            let read = panel.read(app);
+            let rows: Vec<&L::Row> = read.all(app).collect();
+            (rows.len(), rows.iter().filter(|row| row.refused()).count())
+        }
         match tab {
-            Tab::Report => {}
-            Tab::Network => stop(app, &self.network),
-            Tab::Files => stop(app, &self.files),
-            Tab::Access => stop(app, &self.access),
-            Tab::Output => stop(app, &self.output),
-            Tab::InUse => stop(app, &self.in_use),
+            Tab::Report | Tab::Storage => None,
+            Tab::Network => Some(count(app, &self.network)),
+            Tab::Files => Some(count(app, &self.files)),
+            Tab::Access => Some(count(app, &self.access)),
+            Tab::Output => Some(count(app, &self.output)),
+            Tab::InUse => Some(count(app, &self.in_use)),
         }
     }
 
@@ -260,7 +289,7 @@ impl Panels {
     fn listen(&self, app: &mut App, tab: Tab, device: &Device) {
         let id = self.id.as_str();
         match tab {
-            Tab::Report => {}
+            Tab::Report | Tab::Storage => {}
             Tab::Network => {
                 let listening = self.network.update(app, |panel, cx| panel.begin(cx));
                 if let Some(events) = trace::network(device, id) {
@@ -350,47 +379,69 @@ impl Panels {
     }
 }
 
-/// Shows `tab` of the program chosen's page: the panel that showed stops, and the one shown
-/// listens where its program runs.
+/// Shows `tab` of the program chosen's page. Every panel listens while the program is chosen, so
+/// showing another only changes what is seen.
 pub(crate) fn show_tab(app: &mut App, page: &Entity<ProgramPage>, tab: Tab) {
-    let shown = page.update(app, |page, cx| {
-        let shown = page.tab;
+    page.update(app, |page, cx| {
         page.tab = tab;
         cx.notify();
-        shown
     });
-    let Some((device, running)) = chosen_device(app, page) else {
-        return;
-    };
-    let Some(panels) = page.read(app).panels.clone() else {
-        return;
-    };
-    panels.stop(app, shown);
-    if running {
-        panels.listen(app, tab, &device);
-    }
 }
 
-/// Starts the program chosen again, or starts it where it ended, held until the panel shown
-/// listens to it, so the panel hears it from its first instruction (decision 18 of
-/// `docs/proposals/2026-11-15-inspector-roles-and-compatibility.md`); one WaOS could not start says
-/// why in the panel.
+/// Starts the program chosen again, or starts it where it ended, held until every panel listens
+/// to it, so each hears it from its first instruction (decision 18 of
+/// `docs/proposals/2026-11-15-inspector-roles-and-compatibility.md`); one WaOS could not start
+/// says why in each panel.
 pub(crate) fn start_inspected(app: &mut App, page: &Entity<ProgramPage>) {
     let Some((device, _running)) = chosen_device(app, page) else {
         return;
     };
-    let read = page.read(app);
-    let tab = read.tab;
-    let Some(panels) = read.panels.clone().filter(|panels| panels.id != OWN_ID) else {
+    let panels = page
+        .read(app)
+        .panels
+        .clone()
+        .filter(|panels| panels.id != OWN_ID);
+    let Some(panels) = panels else {
         return;
     };
-    panels.stop(app, tab);
+    page.update(app, |page, cx| {
+        page.starting = true;
+        page.listening = false;
+        cx.notify();
+    });
+    panels.stop_all(app);
+    let page = page.clone();
     app.spawn(async move |cx| {
         let started = device.start_held(panels.id.clone()).await;
-        cx.update(|app| match started {
-            // Listened to before it is let go, as the held program is dropped.
-            Ok(_held) => panels.listen(app, tab, &device),
-            Err(error) => panels.refused(app, tab, words::start_refused(&error)),
+        cx.update(|app| {
+            // The page may show another program by now, whose panels are the ones that listen.
+            let showing = page
+                .read(app)
+                .panels()
+                .is_some_and(|current| current.id == panels.id);
+            if !showing {
+                panels.stop_all(app);
+                return;
+            }
+            match started {
+                // Listened to before it is let go, as the held program is dropped.
+                Ok(_held) => {
+                    panels.listen_all(app, &device);
+                    page.update(app, |page, cx| {
+                        page.starting = false;
+                        page.listening = true;
+                        cx.notify();
+                    });
+                }
+                Err(error) => {
+                    panels.refused_all(app, words::start_refused(&error));
+                    page.update(app, |page, cx| {
+                        page.starting = false;
+                        page.listening = false;
+                        cx.notify();
+                    });
+                }
+            }
         });
     });
 }
@@ -420,15 +471,237 @@ fn chosen_device(app: &App, page: &Entity<ProgramPage>) -> Option<(Rc<Device>, b
 }
 
 impl Panels {
-    /// WaOS did not start the program for the panel of `tab`, for `why`.
-    fn refused(&self, app: &mut App, tab: Tab, why: String) {
-        match tab {
-            Tab::Report => {}
-            Tab::Network => self.network.update(app, |panel, cx| panel.refused(why, cx)),
-            Tab::Files => self.files.update(app, |panel, cx| panel.refused(why, cx)),
-            Tab::Access => self.access.update(app, |panel, cx| panel.refused(why, cx)),
-            Tab::Output => self.output.update(app, |panel, cx| panel.refused(why, cx)),
-            Tab::InUse => self.in_use.update(app, |panel, cx| panel.refused(why, cx)),
+    /// WaOS did not start the program, for `why`, for every panel.
+    fn refused_all(&self, app: &mut App, why: String) {
+        self.network
+            .update(app, |panel, cx| panel.refused(why.clone(), cx));
+        self.files
+            .update(app, |panel, cx| panel.refused(why.clone(), cx));
+        self.access
+            .update(app, |panel, cx| panel.refused(why.clone(), cx));
+        self.output
+            .update(app, |panel, cx| panel.refused(why.clone(), cx));
+        self.in_use.update(app, |panel, cx| panel.refused(why, cx));
+    }
+}
+
+/// Reads the mounts of the program `id` on `device`, for the page chosen.
+fn read_mounts(cx: &mut Context<ProgramPage>, device: &Rc<Device>, id: &str) {
+    let page = cx.entity();
+    let (device, id) = (Rc::clone(device), id.to_owned());
+    cx.spawn(async move |cx| {
+        let mounts = inspect_storage::mounts(&device, &id);
+        cx.update(|app| {
+            page.update(app, |page, cx| {
+                page.storage.mounts_arrived(mounts);
+                cx.notify();
+            });
+        });
+    });
+}
+
+/// Opens the storage folder `path` of the program chosen, reading its entries the first time.
+pub(crate) fn open_storage_folder(app: &mut App, page: &Entity<ProgramPage>, path: &str) {
+    let read = page.update(app, |page, cx| {
+        let read = page.storage.expand(path);
+        if read {
+            page.storage.folder_looking(path);
+        }
+        cx.notify();
+        read
+    });
+    if !read {
+        return;
+    }
+    let Some((device, _running)) = chosen_device(app, page) else {
+        fail_folder(app, page, path, "It is not on this device.".to_owned());
+        return;
+    };
+    let Some(id) = page.read(app).panels().map(|panels| panels.id.clone()) else {
+        fail_folder(app, page, path, "It is not on this device.".to_owned());
+        return;
+    };
+    let page = page.clone();
+    let path = path.to_owned();
+    app.spawn(async move |cx| {
+        let done = inspect_storage::read_folder(&device, id, path.clone()).await;
+        cx.update(|app| {
+            page.update(app, |page, cx| {
+                match done {
+                    Ok(entries) => page.storage.folder_arrived(&path, entries),
+                    Err(why) => page.storage.folder_failed(&path, why),
+                }
+                cx.notify();
+            });
+        });
+    });
+}
+
+/// Closes the storage folder `path` of the program chosen; its entries are kept.
+pub(crate) fn close_storage_folder(app: &mut App, page: &Entity<ProgramPage>, path: &str) {
+    page.update(app, |page, cx| {
+        page.storage.collapse(path);
+        cx.notify();
+    });
+}
+
+/// Says why the entries of `path` were not read.
+fn fail_folder(app: &mut App, page: &Entity<ProgramPage>, path: &str, why: String) {
+    page.update(app, |page, cx| {
+        page.storage.folder_failed(path, why);
+        cx.notify();
+    });
+}
+
+#[cfg(test)]
+mod tests {
+    use std::rc::Rc;
+
+    use waft::AppCell;
+    use waft_test::TestPlatform;
+    use wasdk::inspect::active_uses::{ActiveUse, ActiveUseKind, Capture};
+    use wasdk::inspect::trace::{
+        Cause, DeviceEvent, DeviceOpened, DeviceUse, FileEvent, FileUse, NameLookup, NetworkEvent,
+        NetworkUse, OutputChunk, OutputStream, Verdict,
+    };
+    use wasdk::system_clock::Instant;
+
+    use super::*;
+    use crate::state::programs::Programs;
+
+    #[test]
+    fn every_panels_rows_and_badge_stay_as_tabs_change() {
+        let cell = AppCell::with_platform(Rc::new(TestPlatform::new()));
+        let mut app = cell.borrow_mut();
+        let programs = Programs::none(&mut app);
+        let page = ProgramPage::open(&mut app, &programs);
+        let panels = Panels::new(&mut app, "dev.example.storage".to_owned());
+        let at = Instant {
+            seconds: 10,
+            nanoseconds: 0,
+        };
+
+        panels.network.update(&mut app, |panel, cx| {
+            panel.tell(cx, |log, rows| {
+                log.add(
+                    rows,
+                    &NetworkEvent {
+                        at,
+                        instance: 0,
+                        dropped_before: 0,
+                        kind: NetworkUse::NameLookup(NameLookup {
+                            name: "example.com".to_owned(),
+                            cause: Cause::Program,
+                            addresses: vec!["93.184.216.34".to_owned()],
+                        }),
+                        verdict: Verdict::Refused("network".to_owned()),
+                    },
+                );
+            });
+        });
+        panels.files.update(&mut app, |panel, cx| {
+            panel.tell(cx, |log, rows| {
+                log.add(
+                    rows,
+                    &FileEvent {
+                        at,
+                        instance: 0,
+                        dropped_before: 0,
+                        path: Some("/data/a".to_owned()),
+                        on_machine: None,
+                        mount: None,
+                        cause: Cause::Program,
+                        kind: FileUse::OpenToRead,
+                        verdict: Verdict::Allowed,
+                    },
+                );
+            });
+        });
+        panels.access.update(&mut app, |panel, cx| {
+            panel.tell(cx, |log, rows| {
+                log.add_capture(
+                    rows,
+                    Capturing::Camera,
+                    &DeviceEvent {
+                        at,
+                        instance: 0,
+                        dropped_before: 0,
+                        kind: DeviceUse::Opened(DeviceOpened {
+                            camera_id: None,
+                            simulated: true,
+                        }),
+                        verdict: Verdict::Allowed,
+                    },
+                );
+            });
+        });
+        panels.output.update(&mut app, |panel, cx| {
+            panel.tell(cx, |log, rows| {
+                log.add(
+                    rows,
+                    &OutputChunk {
+                        at,
+                        instance: 0,
+                        dropped_before: 0,
+                        channel: OutputStream::Stdout,
+                        bytes: b"hello\n".to_vec(),
+                    },
+                );
+            });
+        });
+        panels.in_use.update(&mut app, |panel, cx| {
+            panel.tell(cx, |log, rows| {
+                log.began(
+                    rows,
+                    vec![ActiveUse {
+                        id: 1,
+                        kind: ActiveUseKind::Camera(Capture { simulated: true }),
+                        since: at,
+                    }],
+                );
+            });
+        });
+        page.update(&mut app, |page, cx| {
+            page.panels = Some(panels.clone());
+            cx.notify();
+        });
+
+        let counts = |app: &App| {
+            [
+                panels.counted(app, Tab::Network),
+                panels.counted(app, Tab::Files),
+                panels.counted(app, Tab::Access),
+                panels.counted(app, Tab::Output),
+                panels.counted(app, Tab::InUse),
+            ]
+        };
+        assert_eq!(
+            counts(&app),
+            [
+                Some((1, 1)),
+                Some((1, 0)),
+                Some((1, 0)),
+                Some((1, 0)),
+                Some((1, 0)),
+            ],
+            "a badge is its panel's rows, refused ones counted"
+        );
+        assert_eq!(panels.counted(&app, Tab::Report), None);
+        assert_eq!(panels.counted(&app, Tab::Storage), None);
+
+        for tab in Tab::ALL {
+            show_tab(&mut app, &page, tab);
+            assert_eq!(
+                counts(&app),
+                [
+                    Some((1, 1)),
+                    Some((1, 0)),
+                    Some((1, 0)),
+                    Some((1, 0)),
+                    Some((1, 0)),
+                ],
+                "showing {tab:?} keeps every panel's rows"
+            );
         }
     }
 }

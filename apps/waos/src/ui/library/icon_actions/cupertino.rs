@@ -12,7 +12,7 @@ use waft::{
 };
 use waft_cupertino::{
     CupertinoActionSheet, CupertinoActionSheetAction, K_CUPERTINO_MODAL_BARRIER_COLOR,
-    show_cupertino_modal_popup,
+    ShowCupertinoModalPopup,
 };
 use waos_package::ProgramId;
 
@@ -32,18 +32,12 @@ pub(crate) fn show_icon_actions(
         id: id.clone(),
     };
     // The sheet answers nothing: what it does, it does through the library.
-    let _closed = show_cupertino_modal_popup(
-        app,
-        context,
-        std::rc::Rc::new(move |_app, _context| sheet.clone().into_widget()),
-        None,
-        K_CUPERTINO_MODAL_BARRIER_COLOR,
-        true,
-        true,
-        true,
-        None,
-        None,
-    );
+    let _closed = ShowCupertinoModalPopup::new(std::rc::Rc::new(move |_app, _context| {
+        sheet.clone().into_widget()
+    }))
+    .barrier_color(K_CUPERTINO_MODAL_BARRIER_COLOR)
+    .semantics_dismissible(true)
+    .show(app, context);
 }
 
 /// The sheet of a program's actions.

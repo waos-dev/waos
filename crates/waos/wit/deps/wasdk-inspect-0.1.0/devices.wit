@@ -80,4 +80,5 @@ world inspection {
   import audit;
   import active-uses;
   import trace;
+  import storage;
 }
