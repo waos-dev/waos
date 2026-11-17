@@ -7,9 +7,9 @@ description: What WaOS promises a program built against an older version of its 
 
 ## What stays stable
 
-The interface is three WIT packages, `wasdk:platform`, `wasdk:media` and `wasdk:program`, at `0.1.0` from WaOS's first release. Each later `0.1.x` only adds: a new interface, function, method or type, marked `@since(version = 0.1.x)` in the [reference](/docs/reference). Nothing released is removed, renamed or changed in shape, and a function keeps its meaning. A record never gains a field and a variant or enum never gains a case: where more is needed, a new type or function comes beside the old one.
+The interface is three WIT packages, `wasdk:platform`, `wasdk:media` and `wasdk:program`, at `1.0.0` from the release that carries them. Each later `1.x` only adds: a new interface, function, method or type, marked `@since(version = 1.x)` in the [reference](/docs/reference). Nothing released is removed, renamed or changed in shape, and a function keeps its meaning. A record never gains a field and a variant or enum never gains a case: where more is needed, a new type or function comes beside the old one.
 
-A program uses only what it calls. Built against `0.1.4`, it runs on any WaOS serving `0.1.4` or later, and on an older one too unless it calls something that came after that one.
+A program uses only what it calls. Built against `1.4.0`, it runs on any WaOS serving `1.4.0` or later, and on an older one too unless it calls something that came after that one.
 
 WASI's packages a program imports (`wasi:http`, `wasi:sockets`, `wasi:clocks`, `wasi:webgpu` and the rest) are under the same promise, at the versions WaOS served when you built.
 
@@ -26,7 +26,7 @@ In Rust, enable wasdk's `unstable` feature to see these APIs. WaOS's library tel
 
 ## When something must break
 
-A break is a new version of the package, such as `wasdk:platform@0.2.0`. WaOS serves it beside the old one, so programs built against either run. The old version is served for at least a year after the new one is released, and across at least two WaOS releases; `cargo waos build` warns while a program is built against a version on its way out.
+A break is a new version of the package, such as `wasdk:platform@2.0.0`. WaOS serves it beside the old one, so programs built against either run. The old version is served for at least a year after the new one is released, and across at least two WaOS releases; `cargo waos build` warns while a program is built against a version on its way out.
 
 ## The SDK
 

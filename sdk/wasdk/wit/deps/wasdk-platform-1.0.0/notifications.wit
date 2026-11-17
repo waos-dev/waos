@@ -1,0 +1,101 @@
+package wasdk:platform@1.0.0;
+
+/// The system's notifications, as every system's own model has them: a notification is a value
+/// posted under an id, and posting the same id again replaces it.
+///
+/// **Ids are the program's own**: two programs' notifications of the same id are two
+/// notifications. Until a program has an identity of its own with the system, WaOS posts under its
+/// own name and puts the program's name in the notification.
+///
+/// **Permission** is the `permissions` interface's `notifications`, a question: a post, or a
+/// schedule, without it answers `denied` and never asks, since a program's first notification is
+/// often posted when its user is not looking. A program asks first, through the permission's
+/// `request`. Where the program has an identity of its own with the system, as on macOS, the system
+/// keeps a permission of its own for the program and asks for it once, after WaOS: `request` puts
+/// the system's question once the user allowed the program in WaOS, and resolves to both answers.
+/// A refusal there, at its question or later in the system's settings, answers posts `denied`, and
+/// the permission reads `denied` whatever the user answered WaOS, from when the system says so: as
+/// it answers its question, and as WaOS reads it again, when the program's app starts or comes to
+/// the front, or a post is answered.
+///
+/// **A notification is a resource with setters**, so that a new field breaks no program, as the
+/// clipboard's `copy-options` is. A typed reply and delivery at a later time are getters that
+/// answer none where the system has neither: replies on macOS, iOS, Windows, Android and Linux
+/// where the desktop offers them; scheduling, which the system holds whether or not the program
+/// runs, on macOS, iOS, Windows and Android.
+///
+/// **Activations**: what the user does to a notification comes on `activations`, by the
+/// notification's id and the action chosen. One that starts the program, as a click on a
+/// notification of a program not running does, waits for the program's next stream of them, so
+/// the program hears it once it listens. Removing a program removes its notifications and cancels
+/// those scheduled.
+interface notifications {
+  use menus.{image};
+  use wasi:clocks/system-clock@0.3.0.{instant};
+
+  /// One notification, built before it is posted.
+  resource notification {
+    /// A notification under `id`, the program's own, titled `title`.
+    constructor(id: string, title: string);
+    /// The text beneath the title.
+    body: func(body: string);
+    /// The image shown with it.
+    image: func(image: image);
+    /// A button, which answers `id` when chosen.
+    add-action: func(id: string, label: string);
+    /// Shown without the system's sound.
+    silent: func();
+  }
+
+  /// Why a notification was not posted.
+  variant notification-error {
+    /// The program may not show notifications: its user has not allowed it, or the system does
+    /// not let it.
+    denied,
+    /// The system did not take it; why.
+    failed(string),
+  }
+
+  /// What the user did to a notification.
+  record activation {
+    /// The notification's id.
+    id: string,
+    /// The action chosen; none for the notification itself.
+    action: option<string>,
+    /// What the user typed, for an action answered by typing.
+    reply: option<string>,
+  }
+
+  /// Actions the user answers by typing, where the system has them.
+  resource notification-replies {
+    /// Adds to `notification` an action answered by typing, which answers `id` with what the user
+    /// typed, its empty field showing `placeholder`.
+    add-reply-action: func(notification: borrow<notification>, id: string, label: string, placeholder: string);
+  }
+
+  /// Delivery at a later time, which the system holds whether or not the program runs, where the
+  /// system has it.
+  resource notification-scheduling {
+    /// Has the system post `notification` at `at`, in place of one of the same id.
+    schedule: async func(notification: notification, at: instant) -> result<_, notification-error>;
+  }
+
+  /// The system's notifications.
+  resource notifications {
+    /// Posts `notification`, in place of one of the same id, and answers once the system has it.
+    post: async func(notification: notification) -> result<_, notification-error>;
+    /// Takes the notification `id` away, shown or scheduled.
+    remove: func(id: string);
+    /// Actions answered by typing, where the system has them.
+    replies: func() -> option<notification-replies>;
+    /// Delivery at a later time, where the system has it.
+    scheduling: func() -> option<notification-scheduling>;
+    /// What the user does to the program's notifications from now on, after what waited while no
+    /// stream was open. Each call is a stream of its own, and each stream open hears every
+    /// activation. An activation thaws a frozen program until it has read it.
+    activations: func() -> stream<activation>;
+  }
+
+  /// The system's notifications, where it has them.
+  get-notifications: func() -> option<notifications>;
+}

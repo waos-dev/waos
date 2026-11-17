@@ -20,7 +20,7 @@ const referenceDir = join(siteRoot, 'content/docs/reference');
 
 for (const name of PACKAGES) writePackage(readPackage(packageDir(name)));
 
-/** The folder of `wit/deps` that holds the package, `wasdk-platform-0.1.0` for `wasdk:platform`. */
+/** The folder of `wit/deps` that holds the package, `wasdk-platform-1.0.0` for `wasdk:platform`. */
 function packageDir(name) {
   const prefix = `${packageSlug(name)}-`;
   const dirs = readdirSync(witDeps).filter((dir) => dir.startsWith(prefix) && /^\d/.test(dir.slice(prefix.length)));
@@ -89,7 +89,7 @@ function firstSentence(docs) {
   return paragraph;
 }
 
-/** The name a world imports the interface by, `wasdk:platform/windows@0.1.0`. */
+/** The name a world imports the interface by, `wasdk:platform/windows@1.0.0`. */
 function interfaceId(pkg, iface) {
   return `${pkg.name}/${iface.name}${pkg.version ? `@${pkg.version}` : ''}`;
 }

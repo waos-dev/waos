@@ -1,0 +1,223 @@
+package wasdk:platform@1.0.0;
+
+/// Menus: a program's menu bar, its context menus and its tray icons, in the places the platform
+/// has them.
+///
+/// **A menu is a value**, rebuilt from the program's state and given whole, as Flutter's
+/// `PlatformMenuBar` is a widget: an item checked or enabled follows the program's state at each
+/// `set`, and the platform replaces what it shows with the new value. WIT has no recursive
+/// types, so a menu is a flat list of entries, each naming the submenu it is in by its id.
+///
+/// **Places.** Each place is a getter that answers none where the platform has none, and the
+/// program, or its framework, then draws its own: the menu bar is macOS's, context menus are
+/// macOS's and Windows', tray icons macOS's, Windows' and Linux's StatusNotifierItem's. Nothing
+/// asks the user before a program uses one, and a program's tray icons go when it ends. A tray
+/// icon is answered once the platform has made it, and then says which menus it offers; when they
+/// open is the program's, or its framework's, to decide.
+///
+/// **Choices** come back by the id of the item chosen. An item the platform provides
+/// (`provided-item`) is carried out by the platform: the program's `quit` asks the program to end
+/// (`lifecycle`'s exit request), its `hide`, `minimize` and the rest act on the program's
+/// windows, and Edit's commands reach the focused view as its `copy`, `cut`, `paste` and `edit`
+/// events (`views`). A program that sets no menu bar gets the platform's standard one.
+interface menus {
+  use views.{view};
+  use windows.{point};
+
+  /// One entry of a menu.
+  record menu-entry {
+    /// What names the entry within its menu: a choice of it answers it, and an entry in the
+    /// submenu it is names it as `parent`.
+    id: u32,
+    /// The submenu the entry is in; none for the menu's top level.
+    parent: option<u32>,
+    kind: menu-entry-kind,
+  }
+
+  variant menu-entry-kind {
+    /// A submenu: the entries naming it as `parent` are in it, in their order.
+    submenu(submenu),
+    /// An item of the program's own, which answers its id when chosen.
+    item(menu-item),
+    /// An item the platform provides and carries out itself.
+    provided(provided),
+    /// A line between the entries before and after it.
+    separator,
+  }
+
+  /// A submenu, by its title.
+  record submenu {
+    label: string,
+    /// Whether the user can open it; one that is not is shown greyed.
+    enabled: bool,
+  }
+
+  /// An item the platform provides.
+  record provided {
+    item: provided-item,
+    /// Whether the user can choose it; one that is not is shown greyed.
+    enabled: bool,
+  }
+
+  /// An item of the program's own.
+  record menu-item {
+    label: string,
+    /// Whether the user can choose it; one that is not is shown greyed.
+    enabled: bool,
+    check: item-check,
+    /// The keys that choose it, shown beside it.
+    shortcut: option<shortcut>,
+    icon: option<image>,
+  }
+
+  /// Whether an item shows a check, and of what kind.
+  variant item-check {
+    /// No check.
+    plain,
+    /// A checkbox, on, off, or mixed for an item standing for several states at once.
+    checkbox(check-state),
+    /// One of a group of which one is on, as the items between two separators are: on or off.
+    radio(bool),
+  }
+
+  enum check-state {
+    off,
+    on,
+    mixed,
+  }
+
+  /// The keys that choose an item: a key, by its logical key as a view's `key-event` names it,
+  /// with the modifier keys held.
+  record shortcut {
+    logical: u64,
+    modifiers: shortcut-modifiers,
+  }
+
+  flags shortcut-modifiers {
+    /// ⌘ on Apple's systems, the Windows key elsewhere.
+    meta,
+    control,
+    alt,
+    shift,
+  }
+
+  /// An item the platform provides: the app's, the focused window's, and the focused view's
+  /// edit commands.
+  enum provided-item {
+    about,
+    services,
+    hide,
+    hide-others,
+    show-all,
+    quit,
+    minimize,
+    zoom,
+    toggle-full-screen,
+    bring-all-to-front,
+    undo,
+    redo,
+    cut,
+    copy,
+    paste,
+    select-all,
+    delete,
+  }
+
+  /// An image an item or a tray icon shows: RGBA, eight bits a channel, not premultiplied, rows
+  /// top first and tightly packed.
+  record image {
+    width: u32,
+    height: u32,
+    rgba: list<u8>,
+    /// Drawn from its alpha alone, in the colour the platform picks for light or dark, as
+    /// macOS's template images are.
+    template: bool,
+  }
+
+  /// The program's menu bar, where the platform has one: shown while the program is in front.
+  resource menu-bar {
+    /// Replaces the program's menu bar with `entries`, whole.
+    set: func(entries: list<menu-entry>);
+    /// The id of each item the user chooses in the menu bar, from now on. Each call is a stream
+    /// of its own.
+    chosen: func() -> stream<u32>;
+  }
+
+  /// Menus opened at a point of one of the program's views, where the platform has them.
+  resource context-menus {
+    /// Opens `entries` at (`x`, `y`) in `view`'s physical pixels, and answers the id of the item
+    /// the user chose; none when the menu closed without a choice.
+    show: async func(view: borrow<view>, x: f64, y: f64, entries: list<menu-entry>) -> option<u32>;
+  }
+
+  /// A menu the platform opens by itself at a tray icon, when it chooses: macOS's on a click,
+  /// Linux's when the desktop decides.
+  resource attached-menu {
+    /// Replaces the menu with `entries`, whole.
+    set: func(entries: list<menu-entry>);
+    /// The id of each item the user chooses in it, from now on. Each call is a stream of its
+    /// own.
+    chosen: func() -> stream<u32>;
+  }
+
+  /// A menu the program opens at its tray icon: macOS's and Windows'.
+  resource menu-at-icon {
+    /// Opens `entries` at the icon now, and answers the id of the item the user chose; none
+    /// when the menu closed without a choice.
+    show: async func(entries: list<menu-entry>) -> option<u32>;
+  }
+
+  /// What the user did to a tray icon, as the platform reports it: each platform reports some of
+  /// these, at a point on the screens in logical points, as `windows` places them.
+  variant tray-icon-event {
+    /// Clicked, or activated as the desktop names it.
+    activated(point),
+    /// A menu asked for at the icon, as Windows' right click is.
+    context-menu-requested(point),
+    /// Clicked with the secondary button, or activated in the desktop's second way.
+    secondary-activated(point),
+    double-clicked,
+    /// Scrolled over, by this much.
+    scrolled(f64),
+  }
+
+  /// Why a tray icon did not appear.
+  variant tray-icon-error {
+    /// The platform did not show it: its tray refused the icon, or could not be reached; why.
+    failed(string),
+  }
+
+  /// One of the program's tray icons, which the platform has made. It goes when the program drops
+  /// it and its menus, or ends.
+  /// An event on the icon of a frozen program that reads its events thaws it until it has read
+  /// the event.
+  resource tray-icon {
+    set-image: func(image: image);
+    set-tooltip: func(tooltip: option<string>);
+    /// The menu the platform opens by itself at the icon: macOS's on a click, Linux's when the
+    /// desktop decides; none where it opens none, as on Windows.
+    attached-menu: func() -> option<attached-menu>;
+    /// What opens a menu at the icon: macOS's and Windows'; none where the program cannot open
+    /// one, as on Linux.
+    menu-at-icon: func() -> option<menu-at-icon>;
+    /// What the user does to the icon, from now on. Each call is a stream of its own.
+    events: func() -> stream<tray-icon-event>;
+  }
+
+  /// Where the program adds its tray icons, where the platform has them.
+  resource tray-icons {
+    /// Adds an icon showing `image`, with `tooltip` shown over it, and answers it once the
+    /// platform has made it: the icon then says which menus it offers. Fails where the platform
+    /// did not show it.
+    add: async func(image: image, tooltip: option<string>) -> result<tray-icon, tray-icon-error>;
+  }
+
+  /// The program's menu bar, where the platform has one.
+  get-menu-bar: func() -> option<menu-bar>;
+
+  /// The program's context menus, where the platform has them.
+  get-context-menus: func() -> option<context-menus>;
+
+  /// The program's tray icons, where the platform has them.
+  get-tray-icons: func() -> option<tray-icons>;
+}

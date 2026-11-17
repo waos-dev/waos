@@ -71,7 +71,7 @@ fn a_program_built_for_another_version_of_the_interface_ends_incompatible() {
     assert!(
         incompatible
             .detail()
-            .contains("wasdk:platform/system@0.1.0"),
+            .contains("wasdk:platform/system@1.0.0"),
         "wasmtime's words name the import: {}",
         incompatible.detail()
     );

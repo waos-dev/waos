@@ -1,0 +1,84 @@
+package wasdk:inspect@1.0.0;
+
+/// The devices whose WaOS can be inspected, and the programs on each: this device, and each phone
+/// or computer WaOS reaches now.
+interface devices {
+  /// A program on a device, installed or run in development.
+  record program {
+    id: string,
+    /// As its user knows it: its package's name, or its id for a development run of a program
+    /// not installed.
+    name: string,
+    /// Its package's version; none for a development run of a program not installed.
+    version: option<string>,
+    /// Whether it runs now.
+    running: bool,
+  }
+
+  /// A change to the programs on a device, each by its id but one installed.
+  variant program-change {
+    /// A program installed.
+    added(program),
+    /// A program removed.
+    removed(string),
+    /// A program that started running.
+    started(string),
+    /// A program that ended.
+    ended(string),
+  }
+
+  /// A program started held, before its first instruction: its code is linked, so its trace and
+  /// what it uses now can be listened to, but it runs nothing, not even its role's question,
+  /// until this is dropped.
+  resource held-program {}
+
+  /// Why a program could not be started.
+  variant start-error {
+    /// No program on the device goes by the id: none installed, none run in development.
+    unknown,
+    /// It could not start, and why.
+    failed(string),
+  }
+
+  resource device {
+    /// Its name, as its user knows it.
+    name: func() -> string;
+    /// Whether it is the device this program runs on.
+    is-this-device: func() -> bool;
+    programs: async func() -> list<program>;
+    /// Each change from now on, on a stream of its own.
+    program-changes: func() -> stream<program-change>;
+    /// The icon of the program `id` names, as its package's PNG; none for one without an icon,
+    /// as a development run of a program not installed. Asked for as a program is shown, so a
+    /// list of many stays small.
+    icon: async func(id: string) -> option<list<u8>>;
+    /// Starts the program `id` names, held before its first instruction until the answer is
+    /// dropped, so a listener hears it from its start. One that runs now is ended first, as a
+    /// later `cargo waos run` of it ends the one before. A program run in development starts again
+    /// from the component its last `cargo waos run` sent, with its settings and folders.
+    start-held: async func(id: string) -> result<held-program, start-error>;
+    /// Ends the program `id` names where it runs, with a stop, as a start in its place ends it;
+    /// answers once it has ended. Nothing for one that does not run.
+    end: async func(id: string);
+  }
+
+  /// A device reached or lost, by its name: `devices` answers it once reached.
+  variant device-change {
+    reached(string),
+    lost(string),
+  }
+
+  /// This device first, then each device reached now.
+  devices: func() -> list<device>;
+  device-changes: func() -> stream<device-change>;
+}
+
+/// What an inspector imports: every interface of this package, which a program has only once its
+/// user granted it the inspector role.
+world inspection {
+  import devices;
+  import audit;
+  import active-uses;
+  import trace;
+  import storage;
+}
