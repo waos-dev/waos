@@ -4,7 +4,7 @@
 ;; of a program runs, its exports with it. Text, which wasmtime compiles as it does a component's
 ;; binary.
 (component
-  (import "wasdk:platform/system@0.1.0" (instance
+  (import "wasdk:platform/system@1.0.0" (instance
     (type (enum "android" "fuchsia" "ios" "linux" "macos" "windows"))
     (export "operating-system" (type (eq 0)))
     (type (func (result 1)))

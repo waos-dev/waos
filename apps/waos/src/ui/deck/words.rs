@@ -119,7 +119,7 @@ mod tests {
         );
         let detail = ending.detail.expect("the engine's words");
         assert!(
-            detail.starts_with("component imports instance `wasdk:platform/system@0.1.0`"),
+            detail.starts_with("component imports instance `wasdk:platform/system@1.0.0`"),
             "wasmtime's own words, whole: {detail}"
         );
     }

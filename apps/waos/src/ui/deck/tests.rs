@@ -2528,7 +2528,7 @@ fn a_program_built_for_another_version_says_so_plainly_over_the_engines_words() 
     let said = "Old was built for a different version of WaOS and cannot run in this one. Get an update of Old, or update WaOS.";
     assert!(phone.shows(said), "{:?}", phone.labels());
     let detail = detail_beneath(&phone, said, |label| {
-        label.starts_with("component imports instance `wasdk:platform/system@0.1.0`")
+        label.starts_with("component imports instance `wasdk:platform/system@1.0.0`")
     });
     assert!(detail.ends_with("found 6 names"), "whole: {detail}");
 }

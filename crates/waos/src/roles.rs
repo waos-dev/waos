@@ -44,7 +44,7 @@ pub(crate) fn asked_for(component: &Component, engine: &Engine) -> Vec<Role> {
         .collect()
 }
 
-/// Whether the import `name`, `wasdk:inspect/devices@0.1.0`, is an interface of `package`.
+/// Whether the import `name`, `wasdk:inspect/devices@1.0.0`, is an interface of `package`.
 fn imports_from(name: &str, package: &str) -> bool {
     name.strip_prefix(package)
         .is_some_and(|rest| rest.starts_with('/'))
@@ -116,12 +116,12 @@ mod tests {
 
     #[test]
     fn an_import_is_a_roles_where_it_is_an_interface_of_the_roles_package() {
-        assert!(imports_from("wasdk:inspect/devices@0.1.0", "wasdk:inspect"));
+        assert!(imports_from("wasdk:inspect/devices@1.0.0", "wasdk:inspect"));
         assert!(imports_from("wasdk:inspect/trace", "wasdk:inspect"));
         assert!(!imports_from(
-            "wasdk:inspector/devices@0.1.0",
+            "wasdk:inspector/devices@1.0.0",
             "wasdk:inspect"
         ));
-        assert!(!imports_from("wasdk:platform/views@0.1.0", "wasdk:inspect"));
+        assert!(!imports_from("wasdk:platform/views@1.0.0", "wasdk:inspect"));
     }
 }
