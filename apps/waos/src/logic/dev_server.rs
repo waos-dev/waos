@@ -216,8 +216,12 @@ async fn serve_connection(mut connection: Connection<ServerStream>, context: Con
         return;
     }
     match connection.receive::<ToWaOS>().await {
-        Ok(Some(ToWaOS::Run { id, component })) => {
-            dev_run::serve(connection, id, component, context.run).await;
+        Ok(Some(ToWaOS::Run {
+            id,
+            component,
+            variables,
+        })) => {
+            dev_run::serve(connection, id, component, variables, context.run).await;
         }
         Ok(Some(ToWaOS::Open { id, files })) => {
             let request = OpenRequest {
@@ -376,12 +380,24 @@ pub(crate) mod tests {
 
         /// A client connected and agreed, its `Run` of `component` as the program `id` sent.
         pub(crate) async fn run(&self, id: &str, component: &Path) -> Connection<ClientStream> {
+            self.run_with_variables(id, component, Vec::new()).await
+        }
+
+        /// A client connected and agreed, its `Run` of `component` as the program `id` sent, with
+        /// `variables` added to the program's environment.
+        pub(crate) async fn run_with_variables(
+            &self,
+            id: &str,
+            component: &Path,
+            variables: Vec<(String, String)>,
+        ) -> Connection<ClientStream> {
             let mut client = Connection::connect(&self.socket).await.unwrap();
             client.agree_on_protocol().await.unwrap();
             client
                 .send(&ToWaOS::Run {
                     id: id.parse().unwrap(),
                     component: fs::read(component).unwrap(),
+                    variables,
                 })
                 .await
                 .unwrap();
@@ -766,6 +782,33 @@ pub(crate) mod tests {
     }
 
     #[tokio::test]
+    async fn the_variables_a_run_adds_reach_the_program_and_waos_s_own_win() {
+        let server = TestServer::start("variables");
+        let mut client = server
+            .run_with_variables(
+                "dev.waos.examples.environment",
+                Path::new(waos_test_programs::ENVIRONMENT),
+                vec![
+                    ("RUST_LOG".to_owned(), "debug".to_owned()),
+                    ("TMPDIR".to_owned(), "/elsewhere".to_owned()),
+                ],
+            )
+            .await;
+        started(&mut client).await;
+        let frames = frames_until(&mut client, |frame| matches!(frame, FromWaOS::Ended(_))).await;
+        assert_eq!(
+            frames.last(),
+            Some(&FromWaOS::Ended(RunEnd::Returned { success: true }))
+        );
+        assert_eq!(
+            stdout_of(&frames),
+            "RUST_LOG=debug\nTMPDIR=/tmp\n",
+            "the run's variable, and WaOS's own TMPDIR over one of that name"
+        );
+        assert_eq!(client.receive::<FromWaOS>().await.unwrap(), None, "closed");
+    }
+
+    #[tokio::test]
     async fn a_program_that_does_not_listen_agrees_to_end_when_asked() {
         let server = TestServer::start("asked");
         let mut client = server
@@ -788,6 +831,7 @@ pub(crate) mod tests {
             .send(&ToWaOS::Run {
                 id: "dev.waos.examples.nonsense".parse().unwrap(),
                 component: b"not a component".to_vec(),
+                variables: Vec::new(),
             })
             .await
             .unwrap();

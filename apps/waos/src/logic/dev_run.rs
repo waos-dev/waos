@@ -48,17 +48,19 @@ pub(crate) struct RunContext {
     pub(crate) asking: Arc<AskingNow>,
 }
 
-/// Serves `connection` to its end: the run of `component` as the program `id` it asked for.
+/// Serves `connection` to its end: the run of `component` as the program `id` it asked for, with
+/// `variables` added to its environment.
 pub(crate) async fn serve(
     connection: Connection<ServerStream>,
     id: ProgramId,
     component: Vec<u8>,
+    variables: Vec<(String, String)>,
     context: RunContext,
 ) {
     let (reading, writing) = connection.into_split();
     let (frames, queued) = mpsc::unbounded_channel();
     let sending = tokio::spawn(send_frames(writing, queued));
-    run(&id, component, reading, &context, &frames)
+    run(&id, component, variables, reading, &context, &frames)
         .instrument(tracing::info_span!("run", name = id.as_str()))
         .await;
     drop(frames);
@@ -79,16 +81,17 @@ async fn send_frames(
 }
 
 /// Runs the component sent as the program `id` until it ends or the connection closes,
-/// queueing what the connection hears of it.
+/// queueing what the connection hears of it, with `variables` added to its environment.
 async fn run(
     id: &ProgramId,
     component: Vec<u8>,
+    variables: Vec<(String, String)>,
     reading: Connection<ReadHalf<ServerStream>>,
     context: &RunContext,
     frames: &UnboundedSender<FromWaOS>,
 ) {
     let told = context.asking.told();
-    let (sent, watching) = match start(id, component, context, frames).await {
+    let (sent, watching) = match start(id, component, variables, context, frames).await {
         Ok(started) => started,
         Err(why) => {
             tracing::info!("refused: {why:#}");
@@ -124,11 +127,12 @@ async fn run(
 
 /// Starts the component sent as the program `id`, watched: loaded first, which compiles it,
 /// while no other program waits for it, then started among the runs in place of the program
-/// running under the id. The id's file is held until the run is among the runs, so the runs of
-/// one id start in the order they came.
+/// running under the id, with `variables` added to its environment. The id's file is held until
+/// the run is among the runs, so the runs of one id start in the order they came.
 async fn start(
     id: &ProgramId,
     component: Vec<u8>,
+    variables: Vec<(String, String)>,
     context: &RunContext,
     frames: &UnboundedSender<FromWaOS>,
 ) -> Result<(SentRun, Watching)> {
@@ -145,6 +149,7 @@ async fn start(
                 output: Some(Arc::new(OutputToConnection {
                     frames: frames.clone(),
                 })),
+                variables,
                 ..environment
             };
             let (running, _views) = context.engine.run(&program, environment, Vec::new())?;

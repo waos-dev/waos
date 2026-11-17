@@ -95,6 +95,10 @@ pub struct ProgramEnvironment {
     /// The providers of the machines the program may be given, each of one kind, which its picker
     /// offers the user. With none, it has no machines: its `get-machines` answers none.
     pub machines: Vec<Arc<dyn Machines>>,
+    /// The variables the program reads besides the engine's own, each its name and value, as
+    /// whoever runs it gave them: a development run's `--env` (the design's decision 68). With
+    /// none, it reads only the engine's own, `TMPDIR`, which wins where both name one.
+    pub variables: Vec<(String, String)>,
 }
 
 /// A program's own folders on the machine, free of any grant: what it keeps, which it sees at
@@ -115,6 +119,7 @@ impl fmt::Debug for ProgramEnvironment {
             .field("folders", &self.folders)
             .field("audio", &self.audio.as_ref().map(|_| "given"))
             .field("machines", &self.machines.len())
+            .field("variables", &self.variables.len())
             .finish()
     }
 }
@@ -148,7 +153,7 @@ mod tests {
         }
         assert_eq!(
             format!("{:?}", ProgramEnvironment::default()),
-            "ProgramEnvironment { output: None, fonts: None, grants: None, folders: None, audio: None, machines: 0 }"
+            "ProgramEnvironment { output: None, fonts: None, grants: None, folders: None, audio: None, machines: 0, variables: 0 }"
         );
         let chosen = ProgramEnvironment {
             output: Some(Arc::new(Nowhere)),
@@ -156,7 +161,7 @@ mod tests {
         };
         assert_eq!(
             format!("{chosen:?}"),
-            "ProgramEnvironment { output: Some(\"chosen\"), fonts: None, grants: None, folders: None, audio: None, machines: 0 }"
+            "ProgramEnvironment { output: Some(\"chosen\"), fonts: None, grants: None, folders: None, audio: None, machines: 0, variables: 0 }"
         );
     }
 
@@ -168,7 +173,7 @@ mod tests {
         };
         assert_eq!(
             format!("{given:?}"),
-            "ProgramEnvironment { output: None, fonts: Some(\"given\"), grants: None, folders: None, audio: None, machines: 0 }"
+            "ProgramEnvironment { output: None, fonts: Some(\"given\"), grants: None, folders: None, audio: None, machines: 0, variables: 0 }"
         );
     }
 

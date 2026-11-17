@@ -3,7 +3,8 @@
 //! on Windows.
 //!
 //! The connection is the run (the design's decision 29): `cargo waos run` connects, sends one
-//! [`ToWaOS::Run`], and reads what comes back until the run ends: [`FromWaOS::Compiling`] while
+//! [`ToWaOS::Run`], the component with its id and the variables that run adds to the program's
+//! environment (decision 68), and reads what comes back until the run ends: [`FromWaOS::Compiling`] while
 //! WaOS compiles the component, then the program's start, its output and its end. Closing the
 //! connection, by Ctrl-C or the terminal closing, stops the program; a later run of the same id replaces it. A run is the
 //! program its id names (decision 11 of the permissions proposal), with that program's settings and

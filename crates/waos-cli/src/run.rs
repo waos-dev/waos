@@ -1,7 +1,8 @@
 //! A run: the program sent to the WaOS on this machine over `waos-dev-protocol`'s connection, which is the
 //! run (the design's decision 29), as the program its id names, which runs with that program's
-//! settings and folders in WaOS. What the program writes comes to this process's stdout and
-//! stderr as it writes it; what WaOS asks its user while the program waits for the answer is
+//! settings and folders in WaOS and the variables `--env` gave for it alone (decision 68). What
+//! the program writes comes to this process's stdout and stderr as it writes it; what WaOS asks
+//! its user while the program waits for the answer is
 //! said, with the row that answers it ahead; how it ended is said and becomes the exit status;
 //! Ctrl-C closes the connection, which stops the program.
 //!
@@ -22,8 +23,13 @@ use crate::connecting::connect_or_start;
 /// The exit status of a run Ctrl-C stopped: the shell's for a command the interrupt ended.
 const INTERRUPTED: u8 = 130;
 
-/// Runs `program` in WaOS, as the program `id` names, until it ends, or until Ctrl-C.
-pub async fn run(id: ProgramId, program: &BuiltProgram) -> Result<ExitCode> {
+/// Runs `program` in WaOS, as the program `id` names, with `variables` added to its environment,
+/// until it ends, or until Ctrl-C.
+pub async fn run(
+    id: ProgramId,
+    program: &BuiltProgram,
+    variables: &[(String, String)],
+) -> Result<ExitCode> {
     let component = std::fs::read(&program.component)
         .with_context(|| format!("reading {}", program.component.display()))?;
     let mut connection = connect_or_start().await?;
@@ -33,7 +39,11 @@ pub async fn run(id: ProgramId, program: &BuiltProgram) -> Result<ExitCode> {
         .context("the WaOS that answered")?;
     let name = &program.name;
     connection
-        .send(&ToWaOS::Run { id, component })
+        .send(&ToWaOS::Run {
+            id,
+            component,
+            variables: variables.to_vec(),
+        })
         .await
         .with_context(|| format!("sending {name} to WaOS"))?;
     let interrupted = tokio::signal::ctrl_c();

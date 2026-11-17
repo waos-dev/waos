@@ -30,6 +30,7 @@ mod composition_layers;
 #[cfg(target_vendor = "apple")]
 mod drawing;
 mod ending;
+mod environment;
 mod fetch;
 mod file_dialogs;
 mod file_watching;

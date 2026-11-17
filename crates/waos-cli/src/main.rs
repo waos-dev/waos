@@ -33,6 +33,7 @@ mod screenshot;
 mod settings;
 mod signing_key;
 mod unreached;
+mod variables;
 mod waos_app;
 mod workspace;
 
@@ -85,7 +86,11 @@ enum Command {
     /// answers, as the program the id in its [package.metadata.waos] names, with that program's
     /// settings and folders. What it writes comes here as it writes it; Ctrl-C stops it; the exit
     /// status is 0 for a run that returned success and 1 otherwise.
-    Run(BuildArgs),
+    ///
+    /// Each --env NAME=VALUE adds a variable the program reads in this run alone, and nothing of
+    /// this shell's environment is passed. Installed programs never get them, and TMPDIR, which
+    /// WaOS sets, wins over a variable of that name given here.
+    Run(RunArgs),
     /// Builds the program's release component and writes it as a package signed with your
     /// signing key, at target/waos/<id>-<version>.wapk, listed in target/waos/index.json.
     /// The id, name and icon are the package's [package.metadata.waos]; the version is its own.
@@ -240,6 +245,18 @@ struct BuildArgs {
     /// An optimized build.
     #[arg(long)]
     release: bool,
+}
+
+/// Which program, which build of it, and the variables its run adds.
+#[derive(Args)]
+struct RunArgs {
+    #[command(flatten)]
+    build: BuildArgs,
+    /// A variable the program reads in this run alone, as NAME=VALUE, repeatable: --env
+    /// RUST_LOG=debug. Nothing of this shell's environment is passed, installed programs never
+    /// get these, and TMPDIR, which WaOS sets, wins over a variable of that name.
+    #[arg(long, value_name = "NAME=VALUE", value_parser = variables::parse)]
+    env: Vec<(String, String)>,
 }
 
 /// Which program, and which of its windows.
@@ -437,12 +454,12 @@ fn build_only(args: &BuildArgs) -> Result<ExitCode> {
 
 /// Builds the program and runs it in WaOS as the program its id names until it ends, on a
 /// runtime of this thread's. A package with no id is refused before anything is built.
-fn build_and_run(args: &BuildArgs) -> Result<ExitCode> {
+fn build_and_run(args: &RunArgs) -> Result<ExitCode> {
     let metadata = workspace::metadata()?;
-    let package = workspace::chosen_package(&metadata, args.program.package.as_deref())?;
+    let package = workspace::chosen_package(&metadata, args.build.program.package.as_deref())?;
     let id = WaosMetadata::id_of(package)?;
-    let built = build::build(&metadata, package, args.profile())?;
-    on_this_thread(run::run(id, &built))
+    let built = build::build(&metadata, package, args.build.profile())?;
+    on_this_thread(run::run(id, &built, &args.env))
 }
 
 /// Writes the pictures of the program's windows under target/waos/screenshots/<package>, as the

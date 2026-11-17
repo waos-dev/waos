@@ -21,7 +21,7 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadHalf, Wr
 /// as this build of the crate has them. Raised with any change a side of the build before would
 /// misread, which, with postcard, is any change to a message but a variant or a field added at
 /// the end.
-pub const PROTOCOL: u32 = 7;
+pub const PROTOCOL: u32 = 8;
 
 /// The largest frame either side accepts. A component is megabytes, a debug build tens of
 /// them; a count beyond this is a stream that is not ours, refused before a byte of it is read.

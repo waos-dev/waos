@@ -27,12 +27,15 @@ use crate::settings_rows::{Asked, Row, SettingRow};
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub enum ToWaOS {
     /// Run this component as the program `id` names, from its `[package.metadata.waos]`, with
-    /// that program's settings and folders, installed or not; the program running under that
-    /// id is stopped first.
+    /// that program's settings and folders, installed or not, and the variables `variables` names,
+    /// each its name and value, which this run alone adds to the program's environment (the
+    /// design's decision 68); the program running under that id is stopped first. Nothing of the
+    /// client's own environment is sent, and WaOS's own variables win where both name one.
     Run {
         id: ProgramId,
         #[serde(with = "serde_bytes")]
         component: Vec<u8>,
+        variables: Vec<(String, String)>,
     },
     /// Open these files, absolute paths on this machine, with the program `id` names, as its
     /// user would open them with it: the program running under that id, or the installed one,
@@ -285,16 +288,24 @@ pub enum RunEnd {
     Replaced,
 }
 
-/// A component is megabytes, and typed text may be a password: an event that prints the message
-/// says how many bytes and characters, not which.
+/// A component is megabytes, typed text may be a password, and a variable's value may be a
+/// secret: an event that prints the message says how many bytes and characters, and a variable's
+/// name, where its value is not said anywhere.
 impl fmt::Debug for ToWaOS {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            ToWaOS::Run { id, component } => f
-                .debug_struct("Run")
-                .field("id", &format_args!("{id}"))
-                .field("component", &format_args!("{} bytes", component.len()))
-                .finish(),
+            ToWaOS::Run {
+                id,
+                component,
+                variables,
+            } => {
+                let names: Vec<&str> = variables.iter().map(|(name, _)| name.as_str()).collect();
+                f.debug_struct("Run")
+                    .field("id", &format_args!("{id}"))
+                    .field("component", &format_args!("{} bytes", component.len()))
+                    .field("variables", &format_args!("{names:?}"))
+                    .finish()
+            }
             ToWaOS::Open { id, files } => f
                 .debug_struct("Open")
                 .field("id", &format_args!("{id}"))
@@ -403,7 +414,11 @@ mod tests {
     /// element of a sequence.
     #[derive(Debug, PartialEq, Serialize, Deserialize)]
     enum ToWaOSAsSequence {
-        Run { id: ProgramId, component: Vec<u8> },
+        Run {
+            id: ProgramId,
+            component: Vec<u8>,
+            variables: Vec<(String, String)>,
+        },
     }
 
     #[derive(Debug, PartialEq, Serialize, Deserialize)]
@@ -423,13 +438,16 @@ mod tests {
     #[test]
     fn a_run_is_encoded_as_it_was_when_its_component_was_a_sequence() {
         let id: ProgramId = "dev.example.triangle".parse().unwrap();
+        let variables = vec![("RUST_LOG".to_owned(), "debug".to_owned())];
         let run = ToWaOS::Run {
             id: id.clone(),
             component: bytes(),
+            variables: variables.clone(),
         };
         let as_sequence = ToWaOSAsSequence::Run {
             id,
             component: bytes(),
+            variables,
         };
         let encoded = postcard::to_allocvec(&run).unwrap();
         assert_eq!(encoded, postcard::to_allocvec(&as_sequence).unwrap());
@@ -437,6 +455,7 @@ mod tests {
             postcard::from_bytes::<ToWaOSAsSequence>(&encoded).unwrap(),
             as_sequence
         );
+        assert_eq!(postcard::from_bytes::<ToWaOS>(&encoded).unwrap(), run);
     }
 
     #[test]
@@ -478,10 +497,15 @@ mod tests {
         let run = ToWaOS::Run {
             id: "dev.example.triangle".parse().unwrap(),
             component: vec![0; 1024],
+            variables: vec![
+                ("RUST_LOG".to_owned(), "debug".to_owned()),
+                ("API_TOKEN".to_owned(), "s3cret".to_owned()),
+            ],
         };
         assert_eq!(
             format!("{run:?}"),
-            "Run { id: dev.example.triangle, component: 1024 bytes }"
+            "Run { id: dev.example.triangle, component: 1024 bytes, variables: [\"RUST_LOG\", \"API_TOKEN\"] }",
+            "a variable's value may be a secret, so only its name is said"
         );
     }
 

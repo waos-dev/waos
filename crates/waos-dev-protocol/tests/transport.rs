@@ -174,6 +174,7 @@ fn every_to_waos() -> Vec<ToWaOS> {
         ToWaOS::Run {
             id: id.clone(),
             component: (0..=255).cycle().take(3 << 20).collect(),
+            variables: vec![("RUST_LOG".to_owned(), "debug".to_owned())],
         },
         ToWaOS::Open {
             id: id.clone(),

@@ -2331,6 +2331,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "environment"
+version = "0.2.0"
+dependencies = [
+ "wasdk",
+]
+
+[[package]]
 name = "epaint"
 version = "0.37.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
