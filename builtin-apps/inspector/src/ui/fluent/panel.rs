@@ -307,3 +307,147 @@ fn status_bar<L: Log>(
     )
     .into_widget()
 }
+
+#[cfg(test)]
+mod tests {
+    use std::rc::Rc;
+    use std::time::Duration;
+
+    use waft::ui::TargetPlatform;
+    use waft::{
+        App, AppCell, BuildContext, Entity, IntoWidget, PaintingBinding, SchedulerBinding,
+        SizedBox, StatelessWidget, WidgetRef, WidgetsApp, run_app,
+    };
+    use waft_test::{IMPLICIT_VIEW_ID, TestPlatform, TestView};
+    use waft_winui::{AccentPalette, Theme, ThemeScope, install_icon_font};
+    use wasdk::inspect::trace::{DeviceEvent, DeviceOpened, DeviceUse, Verdict};
+    use wasdk::system_clock::Instant;
+
+    use super::*;
+    use crate::logic::panels::access::{AccessLog, Capturing};
+
+    /// A view on a macOS host, which lays the app out.
+    fn host() -> TestPlatform {
+        TestPlatform::new()
+            .on(TargetPlatform::MacOS)
+            .with_view(Rc::new(TestView::new(800.0, 600.0)))
+    }
+
+    /// One frame, as the host draws it.
+    fn pump(cell: &Rc<AppCell>, time: &mut Duration) {
+        *time += Duration::from_millis(20);
+        let mut app = cell.borrow_mut();
+        let views = [IMPLICIT_VIEW_ID];
+        SchedulerBinding::handle_begin_frame(&mut app, &views, Some(*time));
+        app.drain_microtasks();
+        SchedulerBinding::handle_draw_frame(&mut app, &views);
+        app.drain_microtasks();
+    }
+
+    /// The panel, or nothing, as showing another tab and coming back does.
+    #[derive(Debug)]
+    struct Shown {
+        panel: Entity<LivePanel<AccessLog>>,
+        showing: Entity<bool>,
+    }
+
+    impl StatelessWidget for Shown {
+        fn build(&self, app: &mut App, _context: BuildContext) -> WidgetRef {
+            if *self.showing.read(app) {
+                PanelView::of(&self.panel, true)
+            } else {
+                SizedBox::new().into_widget()
+            }
+        }
+    }
+
+    /// The Access card on the report shows the same panel again, as switching tabs does. The
+    /// panel's test keeps its row selected; Waft's `TableView`, binding that selection when the
+    /// table is made again, clears the row and tells the `ListenableBuilder` above it during the
+    /// build, which marks it dirty and panics. This passes only once Waft keeps a selection a new
+    /// table binds over the same source.
+    #[test]
+    fn a_selected_access_row_survives_showing_the_report_and_coming_back() {
+        let cell = AppCell::with_platform(Rc::new(host()));
+        let (panel, showing) = {
+            let mut app = cell.borrow_mut();
+            PaintingBinding::instance(&mut app).install_platform_fonts(&mut app);
+            install_icon_font(&mut app);
+            let panel = LivePanel::<AccessLog>::new(&mut app);
+            let showing = app.new_entity(|_| true);
+            let at = Instant {
+                seconds: 1,
+                nanoseconds: 0,
+            };
+            panel.update(&mut app, |panel, cx| {
+                panel.begin(cx);
+            });
+            panel.update(&mut app, |panel, cx| {
+                panel.tell(cx, |log, rows| {
+                    log.add_capture(
+                        rows,
+                        Capturing::Camera,
+                        &DeviceEvent {
+                            at,
+                            instance: 0,
+                            dropped_before: 0,
+                            kind: DeviceUse::Opened(DeviceOpened {
+                                camera_id: None,
+                                simulated: false,
+                            }),
+                            verdict: Verdict::Allowed,
+                        },
+                    );
+                });
+            });
+            let root_panel = panel.clone();
+            let root_showing = showing.clone();
+            run_app(
+                &mut app,
+                WidgetsApp::new(AccentPalette::default().base)
+                    .builder(move |_app, _context, _child| {
+                        ThemeScope::new(
+                            Theme::Light,
+                            Shown {
+                                panel: root_panel.clone(),
+                                showing: root_showing.clone(),
+                            }
+                            .into_widget(),
+                        )
+                        .into_widget()
+                    })
+                    .into_widget(),
+            );
+            (panel, showing)
+        };
+        let mut time = Duration::ZERO;
+        cell.elapse(Duration::ZERO);
+        pump(&cell, &mut time);
+
+        let selection = panel.read(&cell.borrow()).selection.handle();
+        selection.select(&mut cell.borrow_mut(), 0);
+        assert_eq!(
+            selection.selected_index(&cell.borrow()),
+            Some(0),
+            "a row is selected"
+        );
+        pump(&cell, &mut time);
+
+        showing.update(&mut cell.borrow_mut(), |showing, cx| {
+            *showing = false;
+            cx.notify();
+        });
+        pump(&cell, &mut time);
+
+        showing.update(&mut cell.borrow_mut(), |showing, cx| {
+            *showing = true;
+            cx.notify();
+        });
+        pump(&cell, &mut time);
+        assert_eq!(
+            selection.selected_index(&cell.borrow()),
+            Some(0),
+            "the row is still selected when the panel shows again"
+        );
+    }
+}

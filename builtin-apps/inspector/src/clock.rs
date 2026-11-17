@@ -1,6 +1,7 @@
 //! Times as the user's clock shows them, in the user's time zone as the system says it; in UTC
 //! where it has none.
 
+#[cfg(target_arch = "wasm32")]
 use wasdk::system;
 use wasdk::system_clock::Instant;
 
@@ -73,11 +74,20 @@ pub(crate) fn weekday_initial(ago: usize) -> &'static str {
     INITIALS[usize::try_from(days).unwrap_or(0)]
 }
 
-/// How far the user's clock is from UTC at `at`, in seconds.
+/// How far the user's clock is from UTC at `at`, in seconds; UTC itself where the system has no
+/// time zone, as it has none for the tests on this computer.
 fn offset_at(at: i64) -> i64 {
-    let when = Instant {
-        seconds: at,
-        nanoseconds: 0,
-    };
-    system::utc_offset(when).map_or(0, |offset| offset / 1_000_000_000)
+    #[cfg(target_arch = "wasm32")]
+    {
+        let when = Instant {
+            seconds: at,
+            nanoseconds: 0,
+        };
+        system::utc_offset(when).map_or(0, |offset| offset / 1_000_000_000)
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let _ = at;
+        0
+    }
 }
