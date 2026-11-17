@@ -3,7 +3,7 @@ title: File watching
 description: Hear what changes in a folder the program holds.
 ---
 
-The system's own watch of a folder: FSEvents on macOS, inotify on Linux and Android, `ReadDirectoryChangesW` on Windows. A program watches a folder it holds, by its descriptor: one of its own folders or mounts, opened from its root, a folder the user picked, or a machine's root and the folders opened from it; nothing outside the folder is told, and watching asks the user nothing. Each change names a path relative to the folder, its names joined by `/`, the folder itself `.`: something created, modified, removed or renamed, `other` where the system says only that something changed, and `rescan` where changes were lost and the program reads a path, or the whole folder, again. Changes come in batches, each the changes of at most the latency asked after its first, so a burst is one batch.
+The system's own watch of a folder: FSEvents on macOS, inotify on Linux and Android, `ReadDirectoryChangesW` on Windows. A program watches a folder it holds, by its descriptor: one of its own folders or mounts, opened from its root, a folder the user picked, or a machine's root and the folders opened from it; nothing outside the folder is told, and watching asks the user nothing. Each change names a path relative to the folder, its names joined by `/`, the folder itself `.`: something created, modified, removed or renamed, `moved` where the system did not pair the two ends of a rename, `other` where the system says only that something changed, and `rescan` where changes were lost and the program reads a path, or the whole folder, again. Changes come in batches, each the changes of at most the latency asked after its first, so a burst is one batch.
 
 ## With wasdk
 
@@ -23,6 +23,7 @@ while let Some(batch) = changes.next().await {
     for change in batch {
         match change {
             Change::Renamed((from, to)) => { /* paired by inotify and Windows */ }
+            Change::Moved(path) => { /* one end of a rename, as FSEvents: read the path */ }
             Change::Rescan(path) => { /* read it again, or everything with none */ }
             _ => { /* created, modified, removed, other: read the path */ }
         }
@@ -39,7 +40,7 @@ Waft has no API for file watching; use `wasdk::file_watching` from a task, as ab
 
 ## Where it's missing
 
-A watch reports what the system reports, coalesced as the system coalesces it: a write may be one change or several, an editor's save may be a file made and renamed onto the one it replaces, and FSEvents never pairs a rename's ends, which come as `other` each. A program that needs to know what is there reads it. `recursive` watches everything beneath, never a symlink's target; without it, the folder's own entries. A batch the program has not read, past what the system's queue or WaOS holds, becomes one `rescan` of everything. A folder above the program's mounts, its root among them, and on Windows this computer's root, the folder of its drives, cannot be watched (`unsupported`), nor can a file (`not-directory`). An SSH machine's root cannot be watched yet: WaOS reaches no SSH machine yet.
+A watch reports what the system reports, coalesced as the system coalesces it: a write may be one change or several, an editor's save may be a file made and renamed onto the one it replaces, and FSEvents never pairs a rename's two ends, which come as `moved` each. A program that needs to know what is there reads it. `recursive` watches everything beneath, never a symlink's target; without it, the folder's own entries. A batch the program has not read, past what the system's queue or WaOS holds, becomes one `rescan` of everything. A folder above the program's mounts, its root among them, and on Windows this computer's root, the folder of its drives, cannot be watched (`unsupported`), nor can a file (`not-directory`). An SSH machine's root cannot be watched yet: WaOS reaches no SSH machine yet.
 
 ## Interface
 

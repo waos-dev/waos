@@ -30,8 +30,12 @@ interface file-watching {
     /// What was at the path is gone, or moved outside the folder.
     removed(string),
     /// What was at the first path is at the second, where the system pairs the two ends of a
-    /// rename: inotify and Windows do; FSEvents does not, and tells each end as `other`.
+    /// rename: inotify and Windows do; FSEvents does not, and tells each end as `moved`.
     renamed(tuple<string, string>),
+    /// Something was moved to or from the path, and the system did not say which, or from or
+    /// to where: macOS reports each end of a rename on its own. Look at the path to see what is
+    /// there now.
+    moved(string),
     /// Something changed at the path; the system did not say what.
     other(string),
     /// Changes were lost: what is under the path must be read again, or the whole folder with

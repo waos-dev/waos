@@ -106,6 +106,7 @@ impl PartialEq for Change {
             (Change::Created(one), Change::Created(other))
             | (Change::Modified(one), Change::Modified(other))
             | (Change::Removed(one), Change::Removed(other))
+            | (Change::Moved(one), Change::Moved(other))
             | (Change::Other(one), Change::Other(other)) => one == other,
             (Change::Renamed(one), Change::Renamed(other)) => one == other,
             (Change::Rescan(one), Change::Rescan(other)) => one == other,

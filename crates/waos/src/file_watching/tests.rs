@@ -1,7 +1,8 @@
 //! Watches of a folder of this machine, as the system reports its changes: what a file's creation,
-//! write, rename and removal come as, a folder beneath the watched one watched only where the
-//! watch is recursive, the changes of a burst in one batch, a burst past what a batch holds a
-//! rescan, and a folder no path leads to refused.
+//! write, rename (one rename where the system pairs its ends, each end a `moved` where it does
+//! not) and removal come as, a folder beneath the watched one watched only where the watch is
+//! recursive, the changes of a burst in one batch, a burst past what a batch holds a rescan, and a
+//! folder no path leads to refused.
 
 use std::fs;
 use std::path::Path;
@@ -69,14 +70,35 @@ fn removed(path: &str) -> Change {
     Change::Removed(path.to_owned())
 }
 
-/// What `from` renamed to `to`, both in the folder, comes as: one rename where the system pairs
-/// its ends, each end apart where it does not, as FSEvents.
-fn renames(from: &str, to: &str) -> Vec<Change> {
+/// What `from` renamed to `to`, both in the folder, may come as: one rename where the system
+/// pairs its ends, and each end apart as `moved` where it does not, as FSEvents; a system says
+/// which it does.
+fn renames(from: &str, to: &str) -> Vec<Vec<Change>> {
+    let paired = vec![Change::Renamed((from.to_owned(), to.to_owned()))];
+    let each_end = vec![Change::Moved(from.to_owned()), Change::Moved(to.to_owned())];
     if cfg!(target_os = "macos") {
-        vec![Change::Other(from.to_owned()), Change::Other(to.to_owned())]
+        vec![each_end, paired]
     } else {
-        vec![Change::Renamed((from.to_owned(), to.to_owned()))]
+        vec![paired]
     }
+}
+
+/// The changes the watch reports until one of `ways` is among them, or the test's patience runs
+/// out.
+async fn changes_until_any(batches: &mut Batches, ways: &[Vec<Change>]) -> Vec<Change> {
+    let mut seen = Vec::new();
+    while !ways.iter().any(|way| holds(&seen, way)) {
+        match tokio::time::timeout(PATIENCE, batches.next()).await {
+            Ok(Some(batch)) => seen.extend(batch),
+            _ => panic!("none of {ways:?} among {seen:?}"),
+        }
+    }
+    seen
+}
+
+/// Whether `seen` holds each change of `way`.
+fn holds(seen: &[Change], way: &[Change]) -> bool {
+    way.iter().all(|change| seen.contains(change))
 }
 
 #[tokio::test]
@@ -96,7 +118,7 @@ async fn a_file_made_written_renamed_and_removed_is_told_by_its_path_in_the_fold
     changes_until(&mut batches, &[modified("note.txt")]).await;
 
     fs::rename(folder.join("note.txt"), folder.join("kept.txt")).unwrap();
-    changes_until(&mut batches, &renames("note.txt", "kept.txt")).await;
+    changes_until_any(&mut batches, &renames("note.txt", "kept.txt")).await;
 
     fs::remove_file(folder.join("kept.txt")).unwrap();
     changes_until(&mut batches, &[removed("kept.txt")]).await;

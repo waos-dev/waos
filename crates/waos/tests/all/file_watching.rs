@@ -1,9 +1,9 @@
 //! `examples/file-watching`, with no folders of its own and no grants: its `/tmp`, which `TMPDIR`
 //! names, takes a file; a watch of a folder in it tells a file made, written, renamed and removed
-//! by its path in the folder, the rename's ends paired where the system pairs them, and a file
-//! beneath only where the watch is recursive; neither the root nor a file can be watched. And a
-//! program's `/tmp`, a folder of its own in the engine's folder of them, goes when it ends,
-//! whether it returned, trapped or was stopped.
+//! by its path in the folder, the rename one rename where the system pairs its ends and each end a
+//! `moved` where it does not, as FSEvents, and a file beneath only where the watch is recursive;
+//! neither the root nor a file can be watched. And a program's `/tmp`, a folder of its own in the
+//! engine's folder of them, goes when it ends, whether it returned, trapped or was stopped.
 
 use std::fs;
 use std::path::Path;
@@ -15,7 +15,7 @@ use waos::{ProgramEnd, ProgramEnvironment, ProgramOutput, WaOS, WaOSConfig};
 use crate::shell;
 use crate::shell::{Lines, TestShell};
 
-/// How the program's rename comes: paired by inotify and Windows, each end apart by FSEvents.
+/// How the program's rename comes: paired by inotify and Windows, each end a `moved` by FSEvents.
 const RENAMED: &str = if cfg!(target_os = "macos") {
     "renamed: note.txt to kept.txt, each end"
 } else {

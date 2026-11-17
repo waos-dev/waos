@@ -91,7 +91,7 @@ async fn change_a_file(batches: &mut Batches) {
         if holds(&seen, &["renamed note.txt kept.txt"]) {
             break "paired";
         }
-        if holds(&seen, &["other note.txt", "other kept.txt"]) {
+        if holds(&seen, &["moved note.txt", "moved kept.txt"]) {
             break "each end";
         }
         seen.extend(next_batch(batches).await);
@@ -176,6 +176,7 @@ fn told(change: &Change) -> String {
         Change::Modified(path) => format!("modified {path}"),
         Change::Removed(path) => format!("removed {path}"),
         Change::Renamed((from, to)) => format!("renamed {from} {to}"),
+        Change::Moved(path) => format!("moved {path}"),
         Change::Other(path) => format!("other {path}"),
         Change::Rescan(Some(path)) => format!("rescan {path}"),
         Change::Rescan(None) => "rescan everything".to_owned(),

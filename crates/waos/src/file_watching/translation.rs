@@ -5,9 +5,10 @@
 //!
 //! notify tells the two ends of a rename apart, in the order they happened: inotify's as the
 //! `From`, then the `To` and a `Both` pairing them under one cookie, Windows' as a `From` and the
-//! `To` that follows it, FSEvents' as `Any`, unpaired. A `From` is held until what follows says
-//! whether it is paired; a `From` nothing pairs is the path's removal, a `To` nothing pairs its
-//! creation.
+//! `To` that follows it, FSEvents' as `Any`, each an end the system did not pair, which is a
+//! `moved`: the path may be the one it left or the one it arrived at. A `From` is held until what
+//! follows says whether it is paired; a `From` nothing pairs is the path's removal, a `To` nothing
+//! pairs its creation.
 //!
 //! The invariant: no change names a path outside the watched folder; an end of a rename outside
 //! it is a removal or a creation inside it.
@@ -131,6 +132,7 @@ impl Translation {
             EventKind::Access(_) => return None,
             EventKind::Create(_) => Change::Created,
             EventKind::Remove(_) => Change::Removed,
+            EventKind::Modify(ModifyKind::Name(RenameMode::Any)) => Change::Moved,
             EventKind::Modify(ModifyKind::Name(_)) | EventKind::Any | EventKind::Other => {
                 Change::Other
             }
@@ -280,12 +282,13 @@ mod tests {
     }
 
     #[test]
-    fn an_end_of_a_rename_nothing_pairs_is_a_removal_or_a_creation_and_fsevents_is_other() {
+    fn an_end_of_a_rename_nothing_pairs_is_a_removal_a_creation_or_fsevents_moved() {
         let changes = translated(vec![
             rename(RenameMode::From, &["gone"], Some(1)),
             event(EventKind::Create(CreateKind::File), &["new"]),
             rename(RenameMode::To, &["arrived"], Some(2)),
-            rename(RenameMode::Any, &["either"], None),
+            rename(RenameMode::Any, &["left"], None),
+            rename(RenameMode::Any, &["arrived-at"], None),
             rename(RenameMode::From, &["last"], Some(3)),
         ]);
         assert_eq!(
@@ -294,7 +297,8 @@ mod tests {
                 Change::Removed("gone".to_owned()),
                 Change::Created("new".to_owned()),
                 Change::Created("arrived".to_owned()),
-                Change::Other("either".to_owned()),
+                Change::Moved("left".to_owned()),
+                Change::Moved("arrived-at".to_owned()),
                 Change::Removed("last".to_owned()),
             ]
         );
