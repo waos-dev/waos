@@ -10,9 +10,10 @@
 //! each view holding the composition layers its scene places as it presents, which Waft's
 //! compositor makes as the WIT's ([`composition`]);
 //! windows through `request-view` and `view.window()`; the screens and the screen each view is on;
-//! light or dark and the languages; the lifecycle state and the requests to end; the clipboard, its
-//! items, writes and changes, flushed as the program ends, and the user's copy, cut and paste and
-//! Edit's other commands, which a view hears; the menu bar, context menus and tray icons
+//! light or dark, the languages and the local time zone; the lifecycle state and the requests to
+//! end; the clipboard, its items, writes and changes, flushed as the program ends, and the user's
+//! copy, cut and paste and Edit's other commands, which a view hears; the menu bar, context menus
+//! and tray icons
 //! ([`menus`]); the file dialogs ([`file_dialogs`]); the system's opener ([`opener`]) and what the
 //! user opens with the program ([`open_requests`]); the system's notifications and the clicks on
 //! them ([`notifications`]); the system's players, their pictures on the program's composition

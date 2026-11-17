@@ -1,6 +1,6 @@
 //! The user's time zone as programs are told it: its IANA name, as the shell reports it, and its
 //! rules from the system's time zone database, which answer how far local time is from UTC at
-//! any instant (`utc-offset`).
+//! any instant (`utc-offset`) and what the zone is called there (`time-zone-abbreviation`).
 //!
 //! The database is jiff's reading of the system's: `/usr/share/zoneinfo` on macOS and Linux,
 //! Android's own `tzdata`, and on Windows, which keeps none in IANA's form, the copy jiff bundles.
@@ -39,6 +39,19 @@ impl UserTimeZone {
         let rules = self.rules.as_ref()?;
         let offset = rules.to_offset(timestamp_of(when));
         Some(i64::from(offset.seconds()) * 1_000_000_000)
+    }
+
+    /// The zone's abbreviation at `when`, "CET"; none where the database holds no rules for the
+    /// zone. An instant outside the years the database's arithmetic covers is answered as at the
+    /// nearest it covers, as [`utc_offset`](Self::utc_offset) is.
+    pub(crate) fn abbreviation(&self, when: Instant) -> Option<String> {
+        let rules = self.rules.as_ref()?;
+        Some(
+            rules
+                .to_offset_info(timestamp_of(when))
+                .abbreviation()
+                .to_owned(),
+        )
     }
 }
 
@@ -82,6 +95,41 @@ mod tests {
     fn new_york_is_west_of_greenwich() {
         let new_york = UserTimeZone::named("America/New_York".to_owned());
         assert_eq!(new_york.utc_offset(instant(1_768_478_400)), Some(-5 * HOUR));
+    }
+
+    #[test]
+    fn paris_is_called_cet_in_winter_and_cest_in_summer() {
+        let paris = UserTimeZone::named("Europe/Paris".to_owned());
+        assert_eq!(
+            paris.abbreviation(instant(1_768_478_400)).as_deref(),
+            Some("CET")
+        );
+        assert_eq!(
+            paris.abbreviation(instant(1_784_116_800)).as_deref(),
+            Some("CEST")
+        );
+    }
+
+    /// A zone of the test's own, so the answer cannot come from the machine's database.
+    #[test]
+    fn a_fixed_zone_is_called_by_its_offset() {
+        let fixed = UserTimeZone {
+            name: "Fixed".to_owned(),
+            rules: Some(TimeZone::fixed(jiff::tz::offset(9))),
+        };
+        assert_eq!(fixed.abbreviation(instant(0)).as_deref(), Some("+09"));
+        assert_eq!(
+            fixed.abbreviation(instant(1_784_116_800)).as_deref(),
+            Some("+09"),
+            "a fixed zone is the same all year"
+        );
+        assert_eq!(fixed.utc_offset(instant(0)), Some(9 * HOUR));
+    }
+
+    #[test]
+    fn a_zone_the_database_does_not_hold_has_no_abbreviation() {
+        let nowhere = UserTimeZone::named("Nowhere/Atlantis".to_owned());
+        assert_eq!(nowhere.abbreviation(instant(0)), None);
     }
 
     #[test]

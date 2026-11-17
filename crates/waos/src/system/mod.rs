@@ -3,10 +3,10 @@
 //!
 //! One [`SystemSettings`] serves every program, written by the shell, and every clone is the same
 //! one; the operating system is read from the system itself, and what the user set is the
-//! shell's to report, the time zone by its name, whose offsets the engine reads from the system's
-//! time zone database ([`time_zone`]). The interface is served to a program by [`host`]. The invariant: a stream
-//! hears a change only when the value is another than it was, so the shell may report what it
-//! reads as often as it likes.
+//! shell's to report, the time zone by its name, whose offsets and abbreviations the engine reads
+//! from the system's time zone database ([`time_zone`]). The interface is served to a program by
+//! [`host`]. The invariant: a stream hears a change only when the value is another than it was,
+//! so the shell may report what it reads as often as it likes.
 
 pub(crate) mod host;
 pub(crate) mod time_zone;
@@ -95,6 +95,12 @@ impl SystemSettings {
     /// where the system has no time zone, or the database no rules for it.
     pub(crate) fn utc_offset(&self, when: Instant) -> Option<i64> {
         locked(&self.0.time_zone).as_ref()?.utc_offset(when)
+    }
+
+    /// The user's time zone's abbreviation at `when`; none where the system has no time zone, or
+    /// the database no rules for it.
+    pub(crate) fn time_zone_abbreviation(&self, when: Instant) -> Option<String> {
+        locked(&self.0.time_zone).as_ref()?.abbreviation(when)
     }
 
     /// Each change of what the user set, from now on, on a stream of its own.
@@ -197,6 +203,10 @@ mod tests {
             settings.utc_offset(winter_noon),
             Some(9 * 3_600 * 1_000_000_000)
         );
+        assert_eq!(
+            settings.time_zone_abbreviation(winter_noon).as_deref(),
+            Some("JST")
+        );
         assert!(matches!(
             changes.try_recv().unwrap(),
             SystemChange::TimeZone(Some(name)) if name == "Asia/Tokyo"
@@ -207,6 +217,7 @@ mod tests {
         );
         settings.time_zone_changed(None);
         assert_eq!(settings.utc_offset(winter_noon), None);
+        assert_eq!(settings.time_zone_abbreviation(winter_noon), None);
         assert!(matches!(
             changes.try_recv().unwrap(),
             SystemChange::TimeZone(None)

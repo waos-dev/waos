@@ -55,6 +55,10 @@ interface system {
   /// the system has no time zone.
   utc-offset: func(when: instant) -> option<s64>;
 
+  /// The abbreviation of the user's time zone at `when`, as the system gives it ("CET", "PDT"):
+  /// Dart's `DateTime.timeZoneName`. None where the system has no time zone.
+  time-zone-abbreviation: func(when: instant) -> option<string>;
+
   /// What the user changes from now on. Each call is a stream of its own.
   changes: func() -> stream<system-change>;
 }

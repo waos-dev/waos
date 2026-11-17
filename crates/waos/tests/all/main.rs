@@ -73,6 +73,8 @@ mod waft_back;
 mod waft_image;
 #[cfg(target_vendor = "apple")]
 mod waft_menus;
+#[cfg(target_vendor = "apple")]
+mod waft_time;
 mod workers;
 
 #[cfg(not(target_vendor = "apple"))]

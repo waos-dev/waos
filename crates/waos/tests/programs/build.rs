@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 /// The programs built, by package name.
-const PROGRAMS: [&str; 39] = [
+const PROGRAMS: [&str; 40] = [
     "survey",
     "forever",
     "trap",
@@ -50,6 +50,7 @@ const PROGRAMS: [&str; 39] = [
     "back",
     "waft-back",
     "waft-image",
+    "waft-time",
     "workers",
     "inspect",
 ];
@@ -59,8 +60,8 @@ const TARGET: &str = "wasm32-wasip3";
 
 /// What the programs are built from, from the workspace's root: its programs, the SDK and the
 /// WIT, the versions of what they depend on, and the crates of Waft's checkout beside it, which
-/// the gallery, two-windows, copy-paste, waft-menus, waft-back, waft-image, notes and video-player
-/// are built from.
+/// the gallery, two-windows, copy-paste, waft-menus, waft-back, waft-image, waft-time, notes and
+/// video-player are built from.
 const WATCHED: [&str; 7] = [
     "builtin-apps",
     "examples",

@@ -10380,6 +10380,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "waft-time"
+version = "0.2.0"
+dependencies = [
+ "waft-embedder",
+ "waft-foundation",
+ "waft-widgets",
+ "wasdk",
+ "wasdk-adapter-waft",
+]
+
+[[package]]
 name = "waft-widgets"
 version = "0.5.0"
 dependencies = [

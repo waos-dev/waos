@@ -28,8 +28,8 @@ use waft_embedder::{
     Dispatcher, FileDialogFuture, FileDialogs, FolderOptions, FontSource, HardwareBuffer,
     HardwareBufferAllocator, ImageCodecFuture, ImageDecodeError, Instant, Locale, MediaAssets, MenuBar, MenuEntry, Notifications,
     Offset, OpenOptions, Opener, PickedFile, PickedFolder, Platform, Players, PopupMenuFuture,
-    PopupMenus, RequestId, SaveOptions, Screens, TargetPlatform, TrayIcons, VideoFrame,
-    VideoFrameReaders, ViewError, ViewId, ViewRef, WindowBackground, WindowConfig,
+    PopupMenus, RequestId, SaveOptions, Screens, SignedDuration, TargetPlatform, TrayIcons,
+    VideoFrame, VideoFrameReaders, ViewError, ViewId, ViewRef, WindowBackground, WindowConfig,
 };
 use wasdk::{lifecycle, system, views};
 
@@ -54,7 +54,7 @@ use crate::opener::WasdkOpener;
 use crate::players::WasdkPlayers;
 use crate::renderer::Renderer;
 use crate::screens::WasdkScreens;
-use crate::system::{brightness_of, locale_of, target_platform_of};
+use crate::system::{brightness_of, instant_of, locale_of, signed_duration_of, target_platform_of};
 use crate::text_input::WasdkTextInput;
 use crate::video_frames::WasdkVideoFrameReaders;
 use crate::views::WasdkView;
@@ -301,6 +301,20 @@ impl Platform for WasdkPlatform {
 
     fn platform_brightness(&self) -> Brightness {
         self.brightness.get()
+    }
+
+    /// `utc-offset` at that instant, as Waft's duration; UTC's zero, Waft's default, where the
+    /// system has no time zone.
+    fn time_zone_offset(&self, seconds_since_epoch: i64) -> SignedDuration {
+        system::utc_offset(instant_of(seconds_since_epoch))
+            .map_or(SignedDuration::ZERO, signed_duration_of)
+    }
+
+    /// `time-zone-abbreviation` at that instant; Waft's default "UTC" where the system has no
+    /// time zone.
+    fn time_zone_name(&self, seconds_since_epoch: i64) -> String {
+        system::time_zone_abbreviation(instant_of(seconds_since_epoch))
+            .unwrap_or_else(|| "UTC".to_owned())
     }
 
     /// The state the program is in when the framework first asks, which is when its binding is

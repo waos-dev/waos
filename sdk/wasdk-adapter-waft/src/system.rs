@@ -1,9 +1,10 @@
 //! What `system` says, as Waft's vocabulary: the operating system as the platform whose
-//! conventions the widgets follow, light or dark, and the user's languages. Both sides speak
-//! Flutter's names, so each is a rename.
+//! conventions the widgets follow, light or dark, the user's languages, and the local time zone at
+//! an instant. Both sides speak Flutter's names, so each is a rename.
 
-use waft_embedder::{Brightness, Locale, TargetPlatform};
+use waft_embedder::{Brightness, Locale, SignedDuration, TargetPlatform};
 use wasdk::system::{self, OperatingSystem};
+use wasdk::system_clock;
 
 /// The platform whose conventions the widgets follow. A system Waft cannot name is treated as
 /// Linux, as Waft's winit embedder treats one.
@@ -35,6 +36,20 @@ pub(crate) fn locale_of(locale: system::Locale) -> Locale {
         result = result.country_code(region);
     }
     result
+}
+
+/// `seconds_since_epoch` as the instant on the WIT's system clock, whose epoch is the Unix one.
+pub(crate) fn instant_of(seconds_since_epoch: i64) -> system_clock::Instant {
+    system_clock::Instant {
+        seconds: seconds_since_epoch,
+        nanoseconds: 0,
+    }
+}
+
+/// How far local time is from UTC in nanoseconds, as `utc-offset` gives it, as Waft's duration,
+/// which counts microseconds.
+pub(crate) fn signed_duration_of(nanoseconds: i64) -> SignedDuration {
+    SignedDuration::from_microseconds(nanoseconds / 1_000)
 }
 
 #[cfg(test)]
@@ -82,5 +97,25 @@ mod tests {
     fn brightness_is_the_users_own_preference() {
         assert_eq!(brightness_of(system::Brightness::Dark), Brightness::Dark);
         assert_eq!(brightness_of(system::Brightness::Light), Brightness::Light);
+    }
+
+    #[test]
+    fn a_seconds_since_the_epoch_instant_has_no_nanoseconds() {
+        let instant = instant_of(1_768_478_400);
+        assert_eq!(instant.seconds, 1_768_478_400);
+        assert_eq!(instant.nanoseconds, 0);
+    }
+
+    #[test]
+    fn an_offset_in_nanoseconds_is_wafts_microseconds_either_side_of_utc() {
+        assert_eq!(
+            signed_duration_of(9 * 3_600 * 1_000_000_000),
+            SignedDuration::from_hours(9)
+        );
+        assert_eq!(
+            signed_duration_of(-5 * 3_600 * 1_000_000_000),
+            SignedDuration::from_hours(-5)
+        );
+        assert_eq!(signed_duration_of(0), SignedDuration::ZERO);
     }
 }

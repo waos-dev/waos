@@ -52,6 +52,10 @@ impl system::Host for SystemCtx<'_> {
     fn utc_offset(&mut self, when: Instant) -> wasmtime::Result<Option<i64>> {
         Ok(self.settings.utc_offset(when))
     }
+
+    fn time_zone_abbreviation(&mut self, when: Instant) -> wasmtime::Result<Option<String>> {
+        Ok(self.settings.time_zone_abbreviation(when))
+    }
 }
 
 impl<T: SystemCtxView + 'static> HostWithStore<T> for HasSystem {
