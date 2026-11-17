@@ -10,6 +10,7 @@ Written 2026-11-15, after building them. Three gaps the Zed-on-WaOS experiment f
 4. **The `/tmp` folders are under WaOS's own cache folder**, on the volume of the programs' `/data`, so a file renamed from one into the other is one rename. (Built first under the system's temporary folder, as the first decision said; on Linux `/tmp` is often a volume of its own, where a rename from it into `/data`, or into a file inside a picked folder, fails.)
 5. **A machine's commands and its `login-shell` both take the shell from the user database**, as SSH does, whatever `SHELL` WaOS was started with.
 6. **`watch` is an `async func`**: inotify watches each folder beneath a recursive watch apart, which takes a while for a large tree, and the program's other tasks go on meanwhile.
+7. **One end of a rename the system did not pair is `moved(path)`** (2026-11-17): something was moved to or from the path, and the system did not say which or from or to where; the program looks at the path to see what is there now. macOS's FSEvents reports each end of a rename on its own with `ItemRenamed`, which WaOS had turned into `other`, dropping that it was a rename; Zed's port (`../experiments/2026-11-15-zed-on-waos`, milestone 4) then lost git's updates, which rename a `.lock` file into place. Linux and Windows keep the paired `renamed(from, to)`. The lead chose the plain name over `renamed-end`.
 
 ## What was built
 
