@@ -10,8 +10,7 @@ use wasdk::inspect::active_uses::{
     ActiveUse, ActiveUseChange, ActiveUseKind, SocketAddress, TcpConnectionOrigin, Traffic,
 };
 
-use super::{Cell, Column, PanelRow, RowKind, Rows, Tile, Tone, found_in};
-use crate::clock;
+use super::{Cell, Column, PanelRow, RowKind, Rows, Said, Tile, Tone, Wording, found_in};
 use crate::logic::detail::{Detail, Field, Glyph, Section};
 use crate::words;
 
@@ -167,7 +166,7 @@ impl PanelRow for InUseRow {
                     .map(|(_, received)| words::bytes(received))
                     .unwrap_or_default(),
             ),
-            _ => Cell::code(clock::time_of_day(self.used.since.seconds)).toned(Tone::Quiet),
+            _ => Cell::code(Said::moment(self.used.since, Wording::TimeOfDay)).toned(Tone::Quiet),
         }
     }
 
@@ -180,14 +179,14 @@ impl PanelRow for InUseRow {
     }
 
     fn tile(&self) -> Tile {
-        let since = clock::time_of_day(self.used.since.seconds);
-        let mut details = vec![format!("{} {since}", words::SINCE)];
+        let since = Said::moment_after(words::SINCE, self.used.since, Wording::TimeOfDay);
+        let mut details = vec![since];
         if let Some((sent, received)) = self.moved() {
-            details.push(format!(
+            details.push(Said::text(format!(
                 "{} sent, {} received",
                 words::bytes(sent),
                 words::bytes(received)
-            ));
+            )));
         }
         Tile {
             code: true,
@@ -213,7 +212,10 @@ impl PanelRow for InUseRow {
     fn detail(&self) -> Detail {
         let mut fields = vec![
             Field::plain(words::KIND, self.what),
-            Field::code(words::SINCE, clock::precise(self.used.since)),
+            Field::code(
+                words::SINCE,
+                Said::moment(self.used.since, Wording::Precise),
+            ),
         ];
         if let Some((sent, received)) = self.moved() {
             fields.push(Field::code(words::SENT, words::bytes(sent)));

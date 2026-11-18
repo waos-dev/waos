@@ -40,7 +40,7 @@ pub(super) fn report_page(page: &Entity<ProgramPage>, seen: &Seen, app: &mut App
         .leading(icon)
         .leading_size(ICON_SIDE)
         .into_widget();
-    let report = Report::of(&seen.days, clock::today());
+    let report = Report::of(&seen.days, clock::today(app));
     let mut sections = vec![section(None, None, vec![header])];
     let refused = report.refused();
     if refused > 0 {
@@ -63,7 +63,7 @@ pub(super) fn report_page(page: &Entity<ProgramPage>, seen: &Seen, app: &mut App
     }
     sections.push(section(
         Some(words::DATA_AND_SENSOR_ACCESS),
-        Some(&words::last_seven_days()),
+        Some(&words::last_seven_days(app)),
         tiles,
     ));
     let mut domains: Vec<WidgetRef> = if report.domains.is_empty() {

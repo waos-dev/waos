@@ -249,7 +249,13 @@ fn status_bar<L: Log>(
                 "{} {} {}",
                 words::LISTENING,
                 words::SINCE_LOWER,
-                clock::time_of_day(*since)
+                clock::time_of_day(
+                    app,
+                    wasdk::system_clock::Instant {
+                        seconds: *since,
+                        nanoseconds: 0,
+                    },
+                )
             ),
         ),
         (Heard::Since(_), false) => (
@@ -318,7 +324,7 @@ mod tests {
         App, AppCell, BuildContext, Entity, IntoWidget, PaintingBinding, SchedulerBinding,
         SizedBox, StatelessWidget, WidgetRef, WidgetsApp, run_app,
     };
-    use waft_test::{IMPLICIT_VIEW_ID, TestPlatform, TestView};
+    use waft_test::{IMPLICIT_VIEW_ID, TestPlatform, TestTimeZone, TestView};
     use waft_winui::{AccentPalette, Theme, ThemeScope, install_icon_font};
     use wasdk::inspect::trace::{DeviceEvent, DeviceOpened, DeviceUse, Verdict};
     use wasdk::system_clock::Instant;
@@ -326,10 +332,14 @@ mod tests {
     use super::*;
     use crate::logic::panels::access::{AccessLog, Capturing};
 
-    /// A view on a macOS host, which lays the app out.
+    /// A view on a macOS host in a zone two hours on, which lays the app out and says its times.
     fn host() -> TestPlatform {
         TestPlatform::new()
             .on(TargetPlatform::MacOS)
+            .with_time_zone(TestTimeZone::fixed(
+                waft::SignedDuration::from_hours(2),
+                "CEST",
+            ))
             .with_view(Rc::new(TestView::new(800.0, 600.0)))
     }
 
