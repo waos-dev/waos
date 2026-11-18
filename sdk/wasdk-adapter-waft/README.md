@@ -2,6 +2,8 @@
 
 Waft over wasdk: Waft's embedder for a program, the platform an Waft app sees over the SDK's `views` (with its composition layers), `screens`, `system`, `windows`, `lifecycle`, `fonts`, `clipboard`, `menus`, `file_dialogs`, `opener`, `notifications`, `media_players`, `media_assets`, `image_codecs`, `video_frames`, `hardware_buffers`, `gpu_interop`, `cameras` and `permissions`, drawn with valo over `wasdk-wgpu`. `run(setup)` is the body of a program's `main`. It lives in `sdk/` until its API settles.
 
+The docs and guides are at [waos.app/docs](https://waos.app/docs).
+
 - **Takes:** `wasdk`, the generated bindings; `wasdk-wgpu` and `wgpu`, what the program's one device is; Waft's `waft-embedder` (the host traits), `waft-shell` (the client a host drives) and `waft-foundation` (the app), from Waft's checkout beside this workspace; valo, Waft's renderer, and `valo-fontmgr`'s `assemble`; and `url`, which reads a picked file's `file:` URL back as its path inside the program.
 - **Provides:** `run`, which runs an Waft app until it quits, itself or because the platform took its last view away, as a card swiped away in Android's Recents does; and `targets`, the `tracing` targets it records its work under, each frame of a video it draws among them, which a subscriber of the program's own reads.
 - **Used by:** programs written as Waft apps, such as `examples/gallery`, `examples/copy-paste`, `examples/waft-menus`, `examples/waft-back`, `examples/waft-image`, `examples/waft-time`, `examples/player`, `builtin-apps/video-player` and `examples/camera`.

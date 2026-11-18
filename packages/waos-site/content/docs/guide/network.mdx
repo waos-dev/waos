@@ -10,11 +10,12 @@ The network as WASI gives it: an HTTP client, `wasdk::http`, WASI 0.3's, whose r
 ```rust
 // wasdk::http: a request, sent and awaited; its body read as a stream
 let (_no_trailers, trailers) = wit_future::new(|| Ok(None));
-let (request, _sent) = Request::new(Fields::new(), None, trailers, None);
+let (request, sent) = Request::new(Fields::new(), None, trailers, None);
 request.set_scheme(Some(&Scheme::Https)).unwrap();
 request.set_authority(Some("example.com")).unwrap();
 request.set_path_with_query(Some("/")).unwrap();
 let response = client::send(request).await?;
+let _ = sent.await; // the request has gone; drop `sent` instead to follow nothing
 let (_done, read) = wit_future::new(|| Ok(()));
 let (body, _trailers) = Response::consume_body(response, read);
 let page = body.collect().await;
@@ -27,6 +28,8 @@ let (mut received, _) = socket.receive();
 // std::net: blocks until it is done
 let mut stream = TcpStream::connect(("example.com", 80))?;
 ```
+
+`Request::new` answers the request and a future of its transmission, and takes a future of its trailers. Both report on a request in flight, so neither completes before `client::send` sends it: the transmission future resolves once the request, body and all, has gone, and the host reads the trailers future only as it sends. Send first and await the transmission after, or drop it where nothing follows the transmission; a request with no body leaves its trailers future at `wit_future::new`'s default, its writer dropped, and never writes it. Awaiting the transmission, or writing and awaiting the trailers, before `send` waits for a send that has not begun: it hangs, with no error.
 
 A request whose future is dropped before it resolves is cancelled, its connection closed; to give up after a time, race `client::send` against `monotonic_clock::wait_for`. A body the program sends is a stream it writes, as `wit_stream::new` makes one; once a write comes back with something unwritten, the server is no longer reading, and a further write traps.
 
