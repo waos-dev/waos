@@ -51,20 +51,12 @@ mod typing;
 mod wheel;
 mod window;
 
-use std::rc::Rc;
+use waft_foundation::App;
+use waft_widgets::{IntoWidget, MultiViewApp, PlatformMenuBar, run_widget};
 
-use waft_foundation::{App, Entity};
-use waft_widgets::{
-    IntoWidget, MultiViewApp, PageRouteBuilder, PlatformMenuBar, RouteSettingsRef, WidgetRef,
-    WidgetsApp, run_widget,
-};
-use waft_winui::AccentPalette;
-
-use crate::grid_painter::TextSettings;
 use crate::menus::menu_bar;
-use crate::session_page::SessionPage;
 use crate::text_size::first_text_settings;
-use crate::window::{APP_NAME, SessionWindow, open_window};
+use crate::window::{SessionWindow, open_window};
 
 #[wasdk::main]
 async fn main() {
@@ -72,7 +64,7 @@ async fn main() {
 }
 
 /// Starts the app: the text every window shares, a first window where the platform gives the
-/// program none, and a session in each window that arrives, under the menu bar.
+/// program none, and a session's window in each window that arrives, under the menu bar.
 fn start(app: &mut App) {
     let text = app.new_entity(|_cx| first_text_settings());
     if app.platform().views().is_empty() {
@@ -80,39 +72,8 @@ fn start(app: &mut App) {
     }
     let windows = MultiViewApp::new({
         let text = text.clone();
-        move |app, _view| Some(session_window(app, &text))
+        move |_app, _view| Some(SessionWindow { text: text.clone() }.into_widget())
     });
     let content = PlatformMenuBar::new(menu_bar(&text)).child(windows);
     run_widget(app, content.into_widget());
-}
-
-/// What a window shows: a session of its own, opened as the window arrives.
-fn session_window(app: &mut App, text: &Entity<TextSettings>) -> WidgetRef {
-    let session = session::open(app);
-    let page = SessionPage {
-        session: session.clone(),
-        text: text.clone(),
-    };
-    SessionWindow {
-        session,
-        child: widgets_app(page),
-    }
-    .into_widget()
-}
-
-/// The window's app: the navigator its page is the one route of, in Fluent's accent.
-fn widgets_app(page: SessionPage) -> WidgetRef {
-    WidgetsApp::new(AccentPalette::default().base)
-        .title(APP_NAME)
-        .debug_show_checked_mode_banner(false)
-        .page_route_builder(|app, settings, builder| {
-            let route = PageRouteBuilder::new(
-                app,
-                Rc::new(move |app, context, _, _| builder(app, context)),
-            )
-            .settings(app, RouteSettingsRef::Settings(settings.clone()));
-            route.into_erased()
-        })
-        .home(page)
-        .into_widget()
 }
