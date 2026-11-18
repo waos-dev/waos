@@ -168,7 +168,7 @@ mod tests {
     #[test]
     fn each_template_runs_a_waft_app_in_its_kit() {
         for (template, app) in [
-            (Template::Winui, "WidgetsApp"),
+            (Template::Winui, "FluentApp"),
             (Template::Cupertino, "CupertinoApp"),
         ] {
             let main_rs = template.main_rs();
@@ -298,7 +298,7 @@ waft = "0.6"
             manifest["dependencies"]["wasdk"]["workspace"].as_bool(),
             Some(true)
         );
-        assert_eq!(manifest["dependencies"]["waft-winui"].as_str(), Some("0.6"));
+        assert_eq!(manifest["dependencies"]["waft-winui"].as_str(), Some("0.7"));
         assert!(!created.folder.join("rust-toolchain.toml").exists());
         assert!(workspace_problem(&created.folder).is_none());
         let metadata = MetadataCommand::new()

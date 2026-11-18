@@ -24,7 +24,7 @@ const SDK_VERSION: &str = concat!(
 );
 
 /// Waft's version, the facade's and the kits', as a requirement.
-const WAFT_VERSION: &str = "0.6";
+const WAFT_VERSION: &str = "0.7";
 
 /// The `Cargo.toml` of a program named `name`, written with `template`'s kit, taking what
 /// `inherited` names from its workspace.
@@ -69,14 +69,13 @@ fn package_fields(inherited: &Inherited) -> String {
     fields.into_iter().map(|(_, line)| line + "\n").collect()
 }
 
-/// The program's dependencies, a line each: the SDK, Waft and its widgets, and `template`'s kit,
-/// each from the workspace when it lists it, else by its crates.io version.
+/// The program's dependencies, a line each: the SDK, Waft and `template`'s kit, each from the
+/// workspace when it lists it, else by its crates.io version.
 fn dependencies(template: Template, inherited: &Inherited) -> String {
     let named = [
         ("wasdk", SDK_VERSION),
         ("wasdk-adapter-waft", SDK_VERSION),
         ("waft", WAFT_VERSION),
-        ("waft-widgets", WAFT_VERSION),
         (template.kit(), WAFT_VERSION),
     ];
     named
@@ -103,7 +102,7 @@ mod tests {
     }
 
     #[test]
-    fn the_manifest_names_the_sdk_waft_the_widgets_and_the_kit_by_version() {
+    fn the_manifest_names_the_sdk_waft_and_the_kit_by_version() {
         let manifest = written("my-app", Template::Winui);
         let dependencies = manifest["dependencies"].as_table().unwrap();
         let mut named: Vec<(&str, &str)> = dependencies
@@ -114,9 +113,8 @@ mod tests {
         assert_eq!(
             named,
             [
-                ("waft", "0.6"),
-                ("waft-widgets", "0.6"),
-                ("waft-winui", "0.6"),
+                ("waft", "0.7"),
+                ("waft-winui", "0.7"),
                 ("wasdk", SDK_VERSION),
                 ("wasdk-adapter-waft", SDK_VERSION),
             ]
@@ -154,7 +152,6 @@ mod tests {
             dependencies: [
                 "wasdk".to_owned(),
                 "waft".to_owned(),
-                "waft-widgets".to_owned(),
                 "waft-winui".to_owned(),
             ]
             .into(),
@@ -169,7 +166,7 @@ mod tests {
         );
         assert!(
             manifest.contains(
-                "waft.workspace = true\nwaft-widgets.workspace = true\nwaft-winui.workspace = true\n\n[lints]\nworkspace = true\n"
+                "waft.workspace = true\nwaft-winui.workspace = true\n\n[lints]\nworkspace = true\n"
             ),
             "{manifest}"
         );
