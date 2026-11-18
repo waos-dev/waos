@@ -129,7 +129,21 @@ mod tests {
     #[test]
     fn the_socket_is_in_the_user_folder_under_its_name() {
         let path = listener_path();
+        #[cfg(target_vendor = "apple")]
         assert!(path.starts_with(home()), "{}", path.display());
+        #[cfg(not(target_vendor = "apple"))]
+        {
+            let kept_for_the_user = match std::env::var_os("XDG_RUNTIME_DIR") {
+                Some(runtime) if !runtime.is_empty() => PathBuf::from(runtime),
+                _ => home().join(".local/share"),
+            };
+            assert_eq!(
+                path.parent(),
+                Some(kept_for_the_user.join("waos").as_path()),
+                "{}",
+                path.display()
+            );
+        }
         assert!(path.ends_with(SOCKET_FILE), "{}", path.display());
     }
 }

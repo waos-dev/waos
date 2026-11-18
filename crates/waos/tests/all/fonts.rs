@@ -13,6 +13,7 @@ use std::sync::Arc;
 
 use futures::executor::block_on;
 use waos::{ProgramEnd, ProgramEnvironment, WaOS};
+use waos_capabilities::valo_fontmgr::Style;
 use waos_local::LocalCapabilities;
 
 use crate::shell;
@@ -28,6 +29,19 @@ fn a_program_given_this_computers_fonts_draws_a_glyph_of_the_system_font() {
         .map_or(0, |fonts| fonts.lock().unwrap().face_count());
     if installed == 0 {
         eprintln!("SKIP: no fonts installed on this machine");
+        return;
+    }
+    // A system whose font manager names no face as its own, as Linux's does not, has none for
+    // the program to draw, and every answer about it is empty: say so and pass.
+    let names_a_system_font = environment.fonts.as_ref().is_some_and(|fonts| {
+        fonts
+            .lock()
+            .unwrap()
+            .system_font(13.0, Style::default())
+            .is_some()
+    });
+    if !names_a_system_font {
+        eprintln!("SKIP: this system names no system font");
         return;
     }
     let printed = run_fonts(environment);

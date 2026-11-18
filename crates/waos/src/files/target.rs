@@ -697,7 +697,7 @@ mod tests {
     use super::*;
 
     /// The first bytes of what `file` holds, as a read from its start answers them.
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     fn contents(file: &Opened) -> Vec<u8> {
         let mut buffer = vec![0; 100];
         let read = read_into(file.handle(), &mut buffer, 0).unwrap();
