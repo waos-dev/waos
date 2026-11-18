@@ -96,6 +96,16 @@ pub(crate) enum Reply {
 }
 
 impl Asking {
+    /// The row's key that answers what is asked, as `cargo waos set` names it; none for a picker
+    /// that has no row.
+    pub(crate) fn key(&self) -> Option<String> {
+        match self {
+            Asking::Question { question, .. } => Some(question.asked_now().key()),
+            Asking::Output { .. } => Some(AskedNow::AudioOutput.key()),
+            Asking::Machine { .. } => Some(AskedNow::Machine.key()),
+        }
+    }
+
     /// Sends `reply` to the program, or none when the user gave none, or a reply of the other
     /// kind. A program gone meanwhile hears nothing.
     pub(crate) fn reply(self, reply: Option<Reply>) {
@@ -264,7 +274,7 @@ impl ShellMachinePicker for MachinePickerOnRequest {
 
 impl ProgramQuestion {
     /// The question, as a run of `cargo waos run` is told it is asked.
-    fn asked_now(&self) -> AskedNow {
+    pub(crate) fn asked_now(&self) -> AskedNow {
         match self {
             ProgramQuestion::Permission(question) => {
                 AskedNow::Question(protocol_question(*question))

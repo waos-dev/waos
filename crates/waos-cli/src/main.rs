@@ -37,7 +37,7 @@ mod variables;
 mod waos_app;
 mod workspace;
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::Duration;
 
@@ -84,12 +84,17 @@ enum Command {
     Build(BuildArgs),
     /// Builds the program and runs it in the WaOS on this machine, starting WaOS.app when none
     /// answers, as the program the id in its [package.metadata.waos] names, with that program's
-    /// settings and folders. What it writes comes here as it writes it; Ctrl-C stops it; the exit
-    /// status is 0 for a run that returned success and 1 otherwise.
+    /// settings and folders. What it writes comes here as it writes it, each line after the
+    /// program's name; Ctrl-C stops it; the exit status is 0 for a run that returned success and
+    /// 1 otherwise.
     ///
     /// Each --env NAME=VALUE adds a variable the program reads in this run alone, and nothing of
     /// this shell's environment is passed. Installed programs never get them, and TMPDIR, which
     /// WaOS sets, wins over a variable of that name given here.
+    ///
+    /// A question WaOS asks while the program runs, to allow something or to pick a file, has a
+    /// row among the program's settings: `cargo waos settings` lists them, and `cargo waos set`
+    /// answers one ahead, so the run does not wait for a person.
     Run(RunArgs),
     /// Builds the program's release component and writes it as a package signed with your
     /// signing key, at target/waos/<id>-<version>.wapk, listed in target/waos/index.json.
@@ -98,7 +103,11 @@ enum Command {
     /// Writes the last picture of each window of the program `cargo waos run` runs, as
     /// target/waos/screenshots/<package>/window-<n>.png, and prints each with its window's
     /// number, title and size in pixels. Windows are numbered from 1 in the order they opened.
-    Screenshot(Program),
+    ///
+    /// --out writes them where it names instead: a folder, one that exists or is written with a
+    /// `/` at its end, holds every window's picture as window-<n>.png; any other path is one
+    /// file, holding --window's picture, window 1's without it.
+    Screenshot(ScreenshotArgs),
     /// Taps a window of the program `cargo waos run` runs: a press and release of the mouse there.
     /// Returns once the window has shown its next picture.
     ///
@@ -181,6 +190,10 @@ enum Command {
     /// A path is made whole against this directory, and must be one the dialog could have
     /// chosen: a file to open that exists, a folder that exists, a file to save in a folder that
     /// exists. A machine or an output is named by its id, as `cargo waos settings` lists them.
+    ///
+    /// A row set while the program waits for that question answers it at once, as its user would
+    /// in the prompt or the file dialog; --cancel leaves it unanswered, as cancelling the prompt
+    /// does, and changes no setting.
     Set(SetArgs),
     /// Prints what WaOS knows of what the program does with what it was allowed, as JSON lines of
     /// wasdk:inspect's values, one value a line: `summary`, its audit summary, a day a line,
@@ -210,12 +223,29 @@ struct InspectArgs {
 }
 
 #[derive(Args)]
+struct ScreenshotArgs {
+    #[command(flatten)]
+    program: Program,
+    /// The window whose picture --out names as a file, numbered from 1 as the pictures are.
+    #[arg(long, default_value_t = 1)]
+    window: u32,
+    /// Where the pictures go: a folder, one that exists or is written with a `/` at its end, for
+    /// every window's picture as window-<n>.png, or a file for --window's picture alone.
+    #[arg(long, value_name = "PATH")]
+    out: Option<PathBuf>,
+}
+
+#[derive(Args)]
 struct SetArgs {
     #[command(flatten)]
     program: Program,
     /// The row, then its value: `camera allow`, `save-file /tmp/out.pdf`, `machine ask`.
-    #[arg(required = true, num_args = 2..)]
+    #[arg(required = true, num_args = 1..)]
     row: Vec<String>,
+    /// Leaves the question that row names, waiting now, unanswered, as cancelling its prompt
+    /// does; no setting changes.
+    #[arg(long)]
+    cancel: bool,
 }
 
 /// What a new program is called, and the widget kit it starts with.
@@ -369,7 +399,7 @@ fn main() -> ExitCode {
         Command::Build(build) => build_only(&build),
         Command::Run(build) => build_and_run(&build),
         Command::Package(program) => package(&program),
-        Command::Screenshot(program) => screenshot(&program),
+        Command::Screenshot(shot) => screenshot(&shot),
         Command::Tap(tap) => give(
             &tap.window,
             Input::Tap {
@@ -410,9 +440,8 @@ fn main() -> ExitCode {
         Command::Settings(program) => {
             program_id(&program).and_then(|id| on_this_thread(settings::show(id)))
         }
-        Command::Set(set) => {
-            program_id(&set.program).and_then(|id| on_this_thread(settings::set(id, &set.row)))
-        }
+        Command::Set(set) => program_id(&set.program)
+            .and_then(|id| on_this_thread(settings::set(id, &set.row, set.cancel))),
         Command::Inspect(inspect) => inspect::inspection_of(&inspect.what, inspect.days)
             .and_then(|asked| Ok((program_id(&inspect.program)?, asked)))
             .and_then(|(id, asked)| on_this_thread(inspect::inspect(id, asked))),
@@ -462,16 +491,21 @@ fn build_and_run(args: &RunArgs) -> Result<ExitCode> {
     on_this_thread(run::run(id, &built, &args.env))
 }
 
-/// Writes the pictures of the program's windows under target/waos/screenshots/<package>, as the
-/// WaOS running it answers.
-fn screenshot(program: &Program) -> Result<ExitCode> {
+/// Writes the pictures of the program's windows under target/waos/screenshots/<package>, or where
+/// --out asks, as the WaOS running it answers.
+fn screenshot(args: &ScreenshotArgs) -> Result<ExitCode> {
     let metadata = workspace::metadata()?;
-    let package = workspace::chosen_package(&metadata, program.package.as_deref())?;
+    let package = workspace::chosen_package(&metadata, args.program.package.as_deref())?;
     let id = WaosMetadata::id_of(package)?;
-    let folder = workspace::waos_folder(&metadata)
+    let default = workspace::waos_folder(&metadata)
         .join("screenshots")
         .join(package.name.as_str());
-    on_this_thread(screenshot::take(id, &folder))
+    on_this_thread(screenshot::take(
+        id,
+        args.out.as_deref(),
+        args.window,
+        &default,
+    ))
 }
 
 /// Gives `input` to the window the arguments choose, and waits for WaOS's answer.
@@ -534,15 +568,28 @@ mod tests {
     }
 
     #[test]
-    fn a_screenshot_names_its_package_or_none() {
-        let Command::Screenshot(program) = parsed(&["screenshot"]) else {
+    fn a_screenshot_names_its_package_where_its_pictures_go_and_which_window() {
+        let Command::Screenshot(shot) = parsed(&["screenshot"]) else {
             panic!("a screenshot");
         };
-        assert_eq!(program.package, None);
-        let Command::Screenshot(program) = parsed(&["screenshot", "-p", "notes"]) else {
+        assert_eq!(
+            (shot.program.package.as_deref(), shot.window, shot.out),
+            (None, 1, None)
+        );
+        let Command::Screenshot(shot) = parsed(&[
+            "screenshot",
+            "-p",
+            "notes",
+            "--out",
+            "shots/",
+            "--window",
+            "2",
+        ]) else {
             panic!("a screenshot");
         };
-        assert_eq!(program.package.as_deref(), Some("notes"));
+        assert_eq!(shot.program.package.as_deref(), Some("notes"));
+        assert_eq!(shot.window, 2);
+        assert_eq!(shot.out.as_deref(), Some(Path::new("shots/")));
     }
 
     #[test]
@@ -671,17 +718,22 @@ mod tests {
     }
 
     #[test]
-    fn a_set_names_its_row_then_its_value_or_values() {
+    fn a_set_names_its_row_then_its_value_or_values_or_cancels_the_row() {
         let Command::Set(set) = parsed(&["set", "camera", "allow"]) else {
             panic!("a set");
         };
         assert_eq!(set.row, ["camera", "allow"]);
+        assert!(!set.cancel);
         let Command::Set(set) = parsed(&["set", "open-files", "/a", "/b", "-p", "notes"]) else {
             panic!("a set");
         };
         assert_eq!(set.row, ["open-files", "/a", "/b"]);
         assert_eq!(set.program.package.as_deref(), Some("notes"));
-        assert!(refused(&["set", "camera"]), "a row needs its value");
+        let Command::Set(set) = parsed(&["set", "camera", "--cancel"]) else {
+            panic!("a set");
+        };
+        assert_eq!(set.row, ["camera"]);
+        assert!(set.cancel);
         assert!(matches!(parsed(&["settings"]), Command::Settings(_)));
     }
 

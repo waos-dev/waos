@@ -98,7 +98,8 @@ impl Desktop {
             std::env::temp_dir().join(format!("waos-desktop-{}-{test}", std::process::id()));
         let store = Store::open(&folder.join("store"), SourceProxy::None).expect("a store");
         let (placement, requests) = WindowsOnRequest::new(ProgramFaces::new(store.clone(), None));
-        let (prompts, prompted) = PromptsOnRequest::new(crate::logic::asking_now::AskingNow::new());
+        let asking = crate::logic::asking_now::AskingNow::new();
+        let (prompts, prompted) = PromptsOnRequest::new(Arc::clone(&asking));
         let config = WaOSConfig {
             code_cache: waos_test_programs::CODE_CACHE.into(),
             freeze: FreezePolicy::default(),
@@ -159,6 +160,7 @@ impl Desktop {
             Questions::listen(
                 app,
                 prompted.questions,
+                asking.answers(),
                 prompt_windows.clone(),
                 questions_store,
             );

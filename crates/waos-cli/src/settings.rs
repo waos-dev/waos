@@ -1,9 +1,11 @@
 //! `cargo waos settings` and `cargo waos set`: a program's settings, as its settings page in WaOS
 //! shows them, one row each, read or set by the WaOS on this machine, which keeps them; a set
 //! answer is the program's setting, used by every run, installed or not (decision 11 of the
-//! permissions proposal). Only a program a run of `cargo waos run` on this machine runs or has run
-//! is reached. WaOS is started when none answers, since the settings are there to be set before
-//! the run that needs them.
+//! permissions proposal). A set made while the program waits for that question answers it now, as
+//! its user would in the prompt, and `--cancel` leaves it unanswered, as cancelling the prompt
+//! does. Only a program a run of `cargo waos run` on this machine runs or has run is reached, or
+//! one the store does not have installed, which may be set before its first run. WaOS is started
+//! when none answers, since the settings are there to be set before the run that needs them.
 //!
 //! The invariant: a path set is whole before it is sent, made so against this directory, as
 //! `waos open` makes the files it opens.
@@ -29,15 +31,30 @@ pub async fn show(id: ProgramId) -> Result<ExitCode> {
     answered(&id, answer, None)
 }
 
-/// Sets the row `words` name among the program `id`'s settings, and prints the rows after it.
-pub async fn set(id: ProgramId, words: &[String]) -> Result<ExitCode> {
-    let row = whole_paths(Row::parse(words)?)?;
-    let set = ToWaOS::Set {
-        id: id.clone(),
-        row: row.clone(),
+/// Sets the row `words` name among the program `id`'s settings, or with `cancel`, leaves the
+/// question that row names unanswered, as a person cancelling it; then prints the rows.
+pub async fn set(id: ProgramId, words: &[String], cancel: bool) -> Result<ExitCode> {
+    let connection = connect_or_start().await?;
+    let (question, row) = if cancel {
+        (
+            ToWaOS::Cancel {
+                id: id.clone(),
+                key: words.join(" "),
+            },
+            None,
+        )
+    } else {
+        let row = whole_paths(Row::parse(words)?)?;
+        (
+            ToWaOS::Set {
+                id: id.clone(),
+                row: row.clone(),
+            },
+            Some(row),
+        )
     };
-    let answer = ask_on(connect_or_start().await?, &set).await?;
-    answered(&id, answer, Some(&row))
+    let answer = ask_on(connection, &question).await?;
+    answered(&id, answer, row.as_ref())
 }
 
 /// Prints what WaOS answered of the program `id`'s settings, after `set` where one was set.

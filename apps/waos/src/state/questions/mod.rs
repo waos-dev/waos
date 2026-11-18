@@ -17,11 +17,15 @@ use std::rc::Rc;
 
 use futures::StreamExt;
 use futures::channel::mpsc::UnboundedReceiver;
+use tokio::sync::broadcast;
+use tokio::sync::broadcast::error::RecvError;
 use waft::{App, Context, Entity, IntoWidget, WeakEntity};
 use waos::RunningProgram;
+use waos_dev_protocol::{Answer, Row};
 use waos_program_window::{PromptPlacement, PromptWindows, ShownPrompt};
 use waos_store::Store;
 
+use crate::logic::asking_now::AnswerNow;
 use crate::logic::program_faces::ProgramFaces;
 use crate::logic::program_name::program_name;
 use crate::logic::prompts::{Asked, Asking, Reply};
@@ -50,11 +54,12 @@ pub(crate) struct Pending {
 
 impl Questions {
     /// The questions, which take each one arriving on `asked` for as long as questions can
-    /// arrive, each program's prompt shown by `placement`; an installed program's name is read
-    /// from `store`.
+    /// arrive, each program's prompt shown by `placement`, and each answered now when a setting
+    /// arrives on `answers`; an installed program's name is read from `store`.
     pub(crate) fn listen(
         app: &mut App,
         asked: UnboundedReceiver<Asked>,
+        answers: broadcast::Receiver<AnswerNow>,
         placement: Rc<dyn PromptPlacement>,
         store: Store,
     ) {
@@ -64,7 +69,8 @@ impl Questions {
             shown: Vec::new(),
             store,
         });
-        take_questions(app, questions, asked);
+        take_questions(app, questions.clone(), asked);
+        take_answers(app, questions.downgrade(), answers);
     }
 
     /// The question `program`'s user is asked now: its first one waiting.
@@ -82,6 +88,38 @@ impl Questions {
         cx: &mut Context<Questions>,
     ) {
         self.take_first_of(program, reply, cx);
+    }
+
+    /// A setting made while a question waits answers that question, as its user would in the
+    /// prompt; a cancelled one, or one set back to ask, is left waiting.
+    fn answer_now(&mut self, answer: AnswerNow, cx: &mut Context<Questions>) {
+        let (program, key, reply) = match answer {
+            AnswerNow::Set { program, row } => {
+                let Some(reply) = reply_of(&row) else {
+                    return;
+                };
+                (program, row.key(), Some(reply))
+            }
+            AnswerNow::Cancel { program, key } => (program, key, None),
+        };
+        let Some(index) = self.asked.iter().position(|pending| {
+            pending.program.name() == program
+                && pending.asking.key().as_deref() == Some(key.as_str())
+        }) else {
+            return;
+        };
+        let pending = self.asked.remove(index);
+        tracing::info!(program, key, ?reply, "answered by a setting");
+        pending.asking.reply(reply);
+        if self
+            .asked
+            .iter()
+            .all(|pending| pending.program.name() != program)
+        {
+            self.shown
+                .retain(|(shown_for, _)| shown_for.name() != program);
+        }
+        cx.notify();
     }
 
     /// A question arrived: it waits its turn in its program's prompt, shown now if the program
@@ -168,6 +206,59 @@ fn take_questions(
             });
         }
     });
+}
+
+/// One task answers the questions settings made while they wait, on the main thread.
+fn take_answers(
+    app: &mut App,
+    questions: WeakEntity<Questions>,
+    mut answers: broadcast::Receiver<AnswerNow>,
+) {
+    app.spawn(async move |cx| {
+        loop {
+            match answers.recv().await {
+                Ok(answer) => {
+                    let Some(questions) = questions.upgrade() else {
+                        return;
+                    };
+                    cx.update(|app| {
+                        questions.update(app, |questions, cx| questions.answer_now(answer, cx));
+                    });
+                }
+                Err(RecvError::Lagged(_)) => continue,
+                Err(RecvError::Closed) => return,
+            }
+        }
+    });
+}
+
+/// The reply a row's value gives the question it answers; none for a row that is not one, or one
+/// set back to ask.
+fn reply_of(row: &Row) -> Option<Reply> {
+    match row {
+        Row::Question(_, Some(answer))
+        | Row::LinkScheme(_, Some(answer))
+        | Row::Role(_, Some(answer)) => Some(Reply::Answer(app_answer(*answer))),
+        Row::Machine(Some(id)) => Some(Reply::Machine(id.clone())),
+        Row::AudioOutput(Some(id)) => Some(Reply::Output(id.clone())),
+        Row::Question(_, None)
+        | Row::LinkScheme(_, None)
+        | Row::Role(_, None)
+        | Row::Machine(None)
+        | Row::AudioOutput(None)
+        | Row::Switch(..)
+        | Row::FileDialog(..)
+        | Row::SimulatedMicrophone(_) => None,
+    }
+}
+
+/// The answer `answer` is, as the program hears it.
+fn app_answer(answer: Answer) -> waos::Answer {
+    match answer {
+        Answer::Allow => waos::Answer::Granted,
+        Answer::Deny => waos::Answer::Denied,
+        Answer::Simulate => waos::Answer::Simulated,
+    }
 }
 
 /// Drops `program`'s questions once it has ended.

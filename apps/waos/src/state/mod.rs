@@ -21,6 +21,8 @@
 //! the programs' apps send (`logic::program_apps`), the presence of each of their windows among
 //! it, and what the compiles' lists say (`logic::installed_code`, `logic::dev_compiles`).
 
+#[cfg(any(target_os = "macos", test))]
+pub(crate) mod app_nap_exemption;
 pub(crate) mod cameras;
 pub(crate) mod clipboard;
 mod days_kept;
@@ -51,8 +53,6 @@ pub(crate) mod recordings;
 pub(crate) mod test_system;
 #[cfg(test)]
 mod tests;
-#[cfg(any(target_os = "macos", test))]
-pub(crate) mod app_nap_exemption;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(crate) mod waos_tray;
 
@@ -257,7 +257,12 @@ pub(crate) fn start(
         )
         .map(|dialogs| {
             let asking = Arc::clone(&asking);
-            Arc::new(NotedFileDialogs { dialogs, asking }) as Arc<dyn ShellFileDialogs>
+            let answers = asking.answers();
+            Arc::new(NotedFileDialogs {
+                dialogs,
+                asking,
+                answers,
+            }) as Arc<dyn ShellFileDialogs>
         }),
         opener: opener.as_ref().map(Opener::shell),
         notifications: program_apps::notifications(
@@ -338,7 +343,7 @@ pub(crate) fn start(
         app,
         installed_runs.clone(),
         &store,
-        asking,
+        Arc::clone(&asking),
         Arc::clone(&sent),
         dev_compiles,
     )?;
@@ -379,7 +384,13 @@ pub(crate) fn start(
         &library,
         Rc::clone(&prompt_windows),
     );
-    Questions::listen(app, prompted.questions, prompts.placement, questions_store);
+    Questions::listen(
+        app,
+        prompted.questions,
+        asking.answers(),
+        prompts.placement,
+        questions_store,
+    );
     match opened {
         Some(OpenedAtStart::WithProgram { id, request }) => {
             library.update(app, |library, cx| library.open_with(&id, request, cx));

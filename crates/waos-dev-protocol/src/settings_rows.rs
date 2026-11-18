@@ -136,6 +136,22 @@ pub enum Asked {
     Role(Role),
 }
 
+impl Asked {
+    /// The row's key that answers this while it waits, as `cargo waos set` names it: `camera`,
+    /// `link-scheme zoommtg`, `save-file`.
+    pub fn key(&self) -> String {
+        match self {
+            Asked::Question(question) => question.key().to_owned(),
+            Asked::LinkScheme(scheme) => format!("{LINK_SCHEME} {scheme}"),
+            Asked::Switch(switch) => switch.key().to_owned(),
+            Asked::Machine => MACHINE.to_owned(),
+            Asked::AudioOutput => AUDIO_OUTPUT.to_owned(),
+            Asked::FileDialog(dialog) => dialog.key().to_owned(),
+            Asked::Role(role) => role.key().to_owned(),
+        }
+    }
+}
+
 impl Question {
     pub const ALL: [Question; 3] = [
         Question::Notifications,
@@ -277,6 +293,20 @@ impl Row {
                 "no row is named {key:?}: {}",
                 every_key()
             ))),
+        }
+    }
+
+    /// The row's key, as `cargo waos set` names it: `camera`, `link-scheme zoommtg`, `save-file`.
+    pub fn key(&self) -> String {
+        match self {
+            Row::Question(question, _) => question.key().to_owned(),
+            Row::Switch(switch, _) => switch.key().to_owned(),
+            Row::LinkScheme(scheme, _) => format!("{LINK_SCHEME} {scheme}"),
+            Row::Machine(_) => MACHINE.to_owned(),
+            Row::AudioOutput(_) => AUDIO_OUTPUT.to_owned(),
+            Row::FileDialog(dialog, _) => dialog.key().to_owned(),
+            Row::SimulatedMicrophone(_) => SIMULATED_MICROPHONE.to_owned(),
+            Row::Role(role, _) => role.key().to_owned(),
         }
     }
 }

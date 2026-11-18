@@ -176,6 +176,14 @@ impl Store {
         programs::own_folders(&self.program_folder(id))
     }
 
+    /// Makes the folder the store keeps the program `id`'s settings and folders in, which its
+    /// install or its first run makes, so a setting is kept before either.
+    pub fn keep_program(&self, id: &ProgramId) -> Result<(), StoreError> {
+        let _changing = self.lock_changes();
+        let folder = self.program_folder(id);
+        fs::create_dir_all(&folder).map_err(StoreError::io_at(&folder))
+    }
+
     /// The component of the program `id` names, which the app runs; none when it is not
     /// installed, or its files cannot be read, which is said to whoever subscribes.
     pub fn program(&self, id: &ProgramId) -> Option<PathBuf> {

@@ -204,6 +204,7 @@ fn connection_context(context: &ServerContext) -> ConnectionContext {
             components: Arc::clone(&context.components),
             store: context.store.clone(),
             environments: Arc::clone(&context.installed.environments),
+            asking: Arc::clone(&context.asking),
         },
     }
 }
@@ -239,10 +240,13 @@ async fn serve_connection(mut connection: Connection<ServerStream>, context: Con
             dev_input::answer(connection, runs, asking, &id, window, input).await;
         }
         Ok(Some(ToWaOS::Settings { id })) => {
-            dev_settings::answer(connection, &context.settings, &id, None).await;
+            dev_settings::answer(connection, &context.settings, &id, None, None).await;
         }
         Ok(Some(ToWaOS::Set { id, row })) => {
-            dev_settings::answer(connection, &context.settings, &id, Some(row)).await;
+            dev_settings::answer(connection, &context.settings, &id, Some(row), None).await;
+        }
+        Ok(Some(ToWaOS::Cancel { id, key })) => {
+            dev_settings::answer(connection, &context.settings, &id, None, Some(key)).await;
         }
         Ok(Some(ToWaOS::Inspect { id, asked })) => {
             let inspection = InspectionContext {
@@ -615,13 +619,16 @@ pub(crate) mod tests {
     }
 
     #[tokio::test]
-    async fn a_programs_settings_are_read_and_set_once_a_run_ran_it_and_never_before() {
+    async fn a_programs_settings_are_read_before_its_first_run_and_set_at_any_time() {
         let server = TestServer::start("settings");
         let id: ProgramId = FOREVER.parse().unwrap();
-        let settings = ToWaOS::Settings { id: id.clone() };
-        assert_eq!(
-            server.ask(&settings).await,
-            FromWaOS::Unreached(Unreached::NeverRunByCargoWaos)
+        let before = match server.ask(&ToWaOS::Settings { id: id.clone() }).await {
+            FromWaOS::Settings(rows) => rows,
+            other => panic!("the rows before a run: {other:?}"),
+        };
+        assert!(
+            before.iter().any(|row| row.key == "camera"),
+            "a development program's rows are read before its first run"
         );
         let mut client = server
             .run(FOREVER, Path::new(waos_test_programs::FOREVER))
