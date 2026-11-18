@@ -23,11 +23,11 @@ use std::rc::Rc;
 use http::{Method, Request};
 use waft::{
     App, Column, EdgeInsetsGeometry, Image, IntoWidget, Listener, MainAxisAlignment, MainAxisSize,
-    Padding, Text, WindowConfig, run_app_with,
+    Padding, Text, WidgetsApp, WindowConfig, run_app_with,
 };
 use waft_embedder::{Body, OpenOptions, PickedFile, SendOptions};
 use waft_painting::{ImageProviderRef, NetworkImage};
-use waft_winui::Button;
+use waft_winui::{AccentPalette, Button, install_icon_font};
 
 /// The page the app fetches and prints: a redirect the client follows to a page.
 const PAGE: &str = "https://httpbin.org/redirect/1";
@@ -59,7 +59,13 @@ async fn main() {
                     .into_widget(),
             ])
             .into_widget();
-        run_app_with(app, page, window);
+        // The app widget gives the page its text direction and Fluent's accent; with no `home`
+        // and no `routes` it has no navigator, so no page route.
+        let page_app = WidgetsApp::new(AccentPalette::default().base)
+            .builder(move |_app, _context, _child| page.clone())
+            .into_widget();
+        run_app_with(app, page_app, window);
+        install_icon_font(app);
         fetch(app, PAGE);
         round_trip_files(app);
     })
