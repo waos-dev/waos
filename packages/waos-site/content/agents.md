@@ -2,7 +2,7 @@
 
 Do each step yourself; ask the user only where a step says so.
 
-1. **Tools:** Rust through rustup (ask the user before installing it), then `cargo install waos-cli`.
+1. **Tools:** Rust through rustup, the latest stable and 1.85 at least (ask the user before installing it; `rustup update stable` if an older one is there), then `cargo install waos-cli`.
 2. **Make:** `cargo waos new <name>`, a WinUI app that works on desktops and phones; `--template cupertino` only for an app meant for phones alone. Edit `src/main.rs`.
 3. **Look things up:** `cargo waos docs` prints the map of WaOS's docs, for the version your app builds with, `cargo waos docs <page>` one page, and `cargo waos docs --search <text>` the lines that hold the text. Read `waft` (how an app is put together: logic, state and UI), `concepts` (which crate holds what) and the page of each thing the app uses, before writing it. The same pages are at https://waos.app/docs, and the API on docs.rs: `wasdk`, `waft`, `waft-winui`, `waft-cupertino`, `waft-material`.
 4. **Icon:** replace `icon.png` with one thing that says what the app does, drawn with care: few colours and one accent, light from above, soft shading, on a quiet background. Aim for the finish of Apple's own icons, and draw it to sit beside WaOS's own apps in its library (they are at https://waos.app/docs/icons); not a line symbol, a letter or a photo. It is 1024 × 1024 and fills the whole square, with no rounded corners, margin, transparency or shadow of its own; WaOS cuts each system's shape, so nothing depends on the edge and what matters stays in the middle two thirds.
