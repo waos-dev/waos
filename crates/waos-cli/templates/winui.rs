@@ -1,3 +1,4 @@
+// WaOS's docs, for this version: `cargo waos docs` prints their map, `cargo waos docs waft` how an app is put together.
 // Waft's `StatefulWidget::State` takes `self: Handle<Self>`.
 #![feature(arbitrary_self_types)]
 

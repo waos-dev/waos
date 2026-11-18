@@ -2,7 +2,9 @@
 //! this machine, and packages it as a signed `.wapk` for a package source; while it runs there,
 //! takes a screenshot of its windows, gives them input and sizes them, so an agent building the
 //! program sees it and uses it, at a phone's width among others (the design's decision 60); and reads and sets the program's settings, a set
-//! answer in place of each question WaOS would ask its user, so a run never waits for a person.
+//! answer in place of each question WaOS would ask its user, so a run never waits for a person;
+//! and carries WaOS's docs of its own version, which `docs` prints and `skill install` writes as
+//! an agent's skill.
 //!
 //! The invariant: every command is about a program and the WaOS it runs in. A run goes to the
 //! WaOS already running, starting the installed app when none answers, never to an engine of
@@ -16,6 +18,7 @@ mod asked;
 mod asking;
 mod build;
 mod connecting;
+mod docs;
 mod icon_rule;
 // Linux's alone; its tests run everywhere.
 #[cfg(any(target_os = "linux", test))]
@@ -32,6 +35,7 @@ mod run;
 mod screenshot;
 mod settings;
 mod signing_key;
+mod skill;
 mod unreached;
 mod variables;
 mod waos_app;
@@ -58,7 +62,7 @@ use crate::resize::Points;
 enum Cargo {
     #[command(
         name = "waos",
-        about = "cargo waos: writes a new program, and builds a program as a component, runs it in WaOS and packages it, and takes screenshots of its windows, gives them input and sizes them while it runs",
+        about = "cargo waos: writes a new program, and builds a program as a component, runs it in WaOS and packages it, and takes screenshots of its windows, gives them input and sizes them while it runs. `cargo waos docs` is the map of WaOS's docs, this version's, for writing an app.",
         version
     )]
     Waos(WaosArgs),
@@ -204,6 +208,51 @@ enum Command {
     /// is not one. The summary is read for a program `cargo waos run` on this machine runs or has
     /// run, the rest for one it runs; WaOS is never started.
     Inspect(InspectArgs),
+    /// Prints WaOS's docs, this version's, as the site has them: without a page, their map, a
+    /// line a page by the name to give, in the order to read them; with one, that page as
+    /// Markdown; with --search, every line of every page that holds the text, whatever its case,
+    /// as <page>:<line>: <text>.
+    ///
+    /// A page is named as its address on waos.app names it, less /docs/: guide/network,
+    /// waft/state, waft. Its address works too, and so does the end of its name where one page
+    /// alone ends so: network. A link to /docs/<page> in a page is `cargo waos docs <page>`; the
+    /// playbook, the steps an agent follows, is `playbook`.
+    Docs(DocsArgs),
+    /// Writes WaOS's docs, this version's, as a skill an agent loads when it builds a WaOS app.
+    Skill(SkillArgs),
+}
+
+#[derive(Args)]
+struct DocsArgs {
+    /// The page: guide/network, waft/state, network, or its address on waos.app.
+    #[arg(conflicts_with = "search")]
+    page: Option<String>,
+    /// Prints every line of every page that holds this text, whatever its case.
+    #[arg(long, value_name = "TEXT")]
+    search: Option<String>,
+}
+
+#[derive(Args)]
+struct SkillArgs {
+    #[command(subcommand)]
+    command: SkillCommand,
+}
+
+#[derive(Subcommand)]
+enum SkillCommand {
+    /// Writes the skill as a folder, waos, in a skills folder, and prints where: SKILL.md, the
+    /// playbook under the front matter that says when to use it, and docs/, every page of the
+    /// docs as `cargo waos docs <page>` prints it, with docs/index.md their map. SKILL.md and
+    /// docs/ are replaced whole; nothing else in the folder is touched.
+    ///
+    /// Without --dir it goes in ~/.claude/skills, Claude Code's personal skills folder, which
+    /// every project sees, as every app you make wants it. For a project's alone, or for
+    /// another agent, name that agent's skills folder: --dir .claude/skills.
+    Install {
+        /// The skills folder the skill's folder, waos, is written in; ~/.claude/skills without it.
+        #[arg(long, value_name = "PATH")]
+        dir: Option<PathBuf>,
+    },
 }
 
 #[derive(Args)]
@@ -438,6 +487,10 @@ fn main() -> ExitCode {
         Command::Inspect(inspect) => inspect::inspection_of(&inspect.what, inspect.days)
             .and_then(|asked| Ok((program_id(&inspect.program)?, asked)))
             .and_then(|(id, asked)| on_this_thread(inspect::inspect(id, asked))),
+        Command::Docs(asked) => show_docs(&asked),
+        Command::Skill(SkillArgs {
+            command: SkillCommand::Install { dir },
+        }) => install_skill(dir),
     };
     done.unwrap_or_else(|error| {
         eprintln!("cargo waos: {error:#}");
@@ -534,6 +587,36 @@ fn package(program: &Program) -> Result<ExitCode> {
     let packaged = package::package(program.package.as_deref())?;
     eprintln!("cargo waos: listed in {}", packaged.index.display());
     println!("{}", packaged.package.display());
+    Ok(ExitCode::SUCCESS)
+}
+
+/// Prints the map of the docs, the page asked for, or the lines that hold the text searched for;
+/// a search that finds nothing fails, saying so.
+fn show_docs(args: &DocsArgs) -> Result<ExitCode> {
+    let docs = docs::Docs::bundled();
+    match (&args.page, &args.search) {
+        (_, Some(text)) => {
+            let hits = docs.search(text);
+            anyhow::ensure!(!hits.is_empty(), "no page holds {text:?}");
+            for hit in hits {
+                println!("{}:{}: {}", hit.page, hit.line, hit.text);
+            }
+        }
+        (Some(page), None) => print!("{}", docs.find(page)?.markdown()),
+        (None, None) => print!("{}", docs::terminal_map(&docs)),
+    }
+    Ok(ExitCode::SUCCESS)
+}
+
+/// Writes the skill into `dir`, or the default skills folder, and says where.
+fn install_skill(dir: Option<PathBuf>) -> Result<ExitCode> {
+    let skills = match dir {
+        Some(dir) => dir,
+        None => skill::default_skills_folder()?,
+    };
+    let folder = skill::install(&skills, &docs::Docs::bundled())?;
+    eprintln!("cargo waos: wrote the skill, SKILL.md and docs/");
+    println!("{}", folder.display());
     Ok(ExitCode::SUCCESS)
 }
 
@@ -723,6 +806,42 @@ mod tests {
         assert_eq!(set.program.package.as_deref(), Some("notes"));
         assert!(refused(&["set", "camera"]), "a row needs its value");
         assert!(matches!(parsed(&["settings"]), Command::Settings(_)));
+    }
+
+    #[test]
+    fn docs_take_a_page_or_a_search_and_skill_install_a_folder() {
+        let Command::Docs(docs) = parsed(&["docs"]) else {
+            panic!("docs");
+        };
+        assert_eq!((docs.page, docs.search), (None, None));
+        let Command::Docs(docs) = parsed(&["docs", "guide/network"]) else {
+            panic!("docs");
+        };
+        assert_eq!(docs.page.as_deref(), Some("guide/network"));
+        let Command::Docs(docs) = parsed(&["docs", "--search", "Retained"]) else {
+            panic!("docs");
+        };
+        assert_eq!(docs.search.as_deref(), Some("Retained"));
+        assert!(
+            refused(&["docs", "waft", "--search", "x"]),
+            "one or the other"
+        );
+        let Command::Skill(SkillArgs {
+            command: SkillCommand::Install { dir },
+        }) = parsed(&["skill", "install", "--dir", ".claude/skills"])
+        else {
+            panic!("skill install");
+        };
+        assert_eq!(dir.as_deref(), Some(Path::new(".claude/skills")));
+        assert!(refused(&["skill"]), "skill needs install");
+    }
+
+    #[test]
+    fn the_help_points_at_the_docs() {
+        let mut cargo = Cargo::command();
+        let waos = cargo.find_subcommand_mut("waos").expect("cargo waos");
+        let help = waos.render_help().to_string();
+        assert!(help.contains("`cargo waos docs`"), "{help}");
     }
 
     #[test]

@@ -1,0 +1,34 @@
+---
+title: Audio
+description: Play and capture sound with a Web Audio graph.
+---
+
+Sound: Web Audio's graph, named one for one, which the platform renders and plays on a thread of its own. A program makes nodes, connects them and schedules them on the context's clock, and what it scheduled plays out while the program waits. Two inputs are the platform's own, in place of the web's media streams: samples the program writes ahead (`create-stream-input`), and the microphone. A program is not frozen while it is audible or recording.
+
+## With wasdk
+
+```rust
+// audio: audio::get_audio(); on the default output
+let context = audio.new_context(AudioContextOptions::new())?;
+let graph = context.base();
+let tone = graph.create_oscillator();
+tone.frequency().set_value(440.0);
+tone.node().connect(&graph.destination().node());
+tone.start(graph.current_time());
+// plays out while the program waits
+tone.stop(graph.current_time() + 1.0);
+// asks the user the first time
+let microphone = context.open_microphone().await?;
+```
+
+## With Waft
+
+Waft has no API for sound; use `wasdk::audio` directly, as above.
+
+## Where it's missing
+
+`get-audio` is none where the platform has no sound. Every node of the spec is here but `AudioWorklet` and the nodes over the web's media elements and streams; an offline context renders its whole length at once, with no `suspend` or `resume`. The microphone asks the user at its first use and answers `not-allowed` if they refuse, and the platform shows that the program records. A context plays on the system's default output, or on one the user picked in the platform's picker (`select-audio-output`), or set in the program's settings, which answers it without asking: a program never sees the list of devices. A program whose microphone is answered simulated in its settings (`cargo waos set microphone simulated`) records WaOS's own microphone, on every system, touching no device: a quiet beep every half second, or silence. What the spec answers with an exception, such as an argument out of range, traps the program.
+
+## Interface
+
+[`wasdk:platform/audio`](/docs/reference/wasdk-platform/audio)

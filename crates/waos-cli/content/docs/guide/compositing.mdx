@@ -1,0 +1,61 @@
+---
+title: Compositing
+description: Place layers the system composes beneath your drawing.
+---
+
+What the system's compositor shows for a program beneath its drawing, with no copy through the program's picture: a composition layer, showing a hardware buffer the program drew, a player's video or a camera's preview, one at a time. A hardware buffer is GPU memory the compositor can show, an `IOSurface` on Apple's systems, which the program draws into through a texture it imports on its own device. A view shows the layers it was last given, where its drawing leaves them clear, from its next present; each is placed by a rectangle and what the program's containers do to it: transforms, clips, rounded clips and opacity.
+
+## With wasdk
+
+```rust
+let usage = HardwareBufferUsage::GPU_SAMPLED
+    | HardwareBufferUsage::GPU_COLOR_OUTPUT
+    | HardwareBufferUsage::COMPOSER_OVERLAY;
+// allocator: hardware_buffers::get_hardware_buffer_allocator()
+let buffer = allocator.allocate(640, 360, PixelFormat::Bgra8, usage)?;
+// draw into it with wgpu, and submit
+let texture = wasdk_wgpu::import_texture(&device, &buffer);
+// compositor: views::get_compositor()
+let layer = compositor.make_layer(true);
+// resolves once the compositor is done with the buffer
+let released = layer.present(&buffer);
+let placement = Placement { rect, mutators: Vec::new() };
+view.set_layers(&[PlacedLayer { layer: &layer, placement }]);
+// the view's next present shows the layer beneath its picture
+```
+
+## With Waft
+
+```rust
+use waft::ui::HardwareBufferUsage;
+use waft::ui::image_codecs::PixelFormat;
+
+let platform = app.platform();
+let (compositor, allocator) = (platform.compositor()?, platform.hardware_buffer_allocator()?);
+let usage = HardwareBufferUsage {
+    gpu_sampled: true,
+    gpu_color_output: true,
+    composer_overlay: true,
+    ..HardwareBufferUsage::default()
+};
+let buffer = allocator.allocate(640, 360, PixelFormat::Bgra8, usage).ok()?;
+// device: the app's own, from wasdk_wgpu
+let texture = platform.import_texture(&*buffer, &device)?;
+let layer = compositor.make_layer(true);
+layer.present(buffer, Vec::new(), Box::new(|| { /* the compositor is done with the buffer */ }));
+// in a widget: the layer shows where the widget is
+CompositionLayerView::new(layer)
+```
+A `PlayerView` makes a layer of its own, and a `CameraPreview` places the one its session started with.
+
+## A picture that changes
+
+A layer holds the buffer it shows, so a program that draws a new picture at each frame takes turns with a few buffers: it draws into one the compositor is done with, which the answer to `present` says (`released`, in Waft), and presents it. Never wait for a buffer to come back before presenting the next one. On Apple's systems WaOS learns that the compositor has let go of a buffer only at the layer's next present, so a program that waits while every buffer it has is out presents nothing more, and its picture stops. When no buffer is back, allocate one more and draw into that, and drop the extra ones later: presenting a 1920 by 1080 picture at every refresh, a program that started with three buffers ran with four or five, and held eleven after one slow moment.
+
+## Where it's missing
+
+`get-compositor` is none where the system has no compositor: the program then draws everything in its own picture, a player's video through a frame reader ([Media players](/docs/guide/media-players)). `get-hardware-buffer-allocator` is none where the system allocates no hardware buffers. Apple's systems allocate only `bgra8` and Android's only `rgba8`, any other format answering `unsupported`; a side past 16384 pixels on Apple's systems answers `too-large`. The usage a buffer is allocated for is the least it is for, and the buffer's `usage` answers all it is for, which every check reads: `read-pixels` answers `unsupported` for a buffer whose usage lacks `cpu-read`, and a texture of it allows what its usage allows. Android gives a buffer what it was allocated for: one a layer shows wants `composer-overlay`, without which the compositor draws it on the GPU, and one read back wants `cpu-read`. Apple's systems give a buffer the program allocates every use, whatever it asked, so a program that reads back a buffer it allocated without `cpu-read` works there and is refused on Android; WaOS logs a warning, once for each flag, when a program relies on that.
+
+## Interface
+
+[`wasdk:platform/views`](/docs/reference/wasdk-platform/views), [`wasdk:platform/hardware-buffers`](/docs/reference/wasdk-platform/hardware-buffers), [`wasdk:platform/gpu-interop`](/docs/reference/wasdk-platform/gpu-interop)

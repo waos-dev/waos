@@ -1,0 +1,31 @@
+{
+  "title": "Building the app",
+  "pages": [
+    "---Windows and input---",
+    "windows",
+    "back",
+    "system-bars",
+    "keys",
+    "---Drawing---",
+    "images",
+    "webgpu",
+    "compositing",
+    "fonts",
+    "---Files and data---",
+    "file-dialogs",
+    "file-watching",
+    "clipboard",
+    "---Network---",
+    "network",
+    "---Media---",
+    "media-players",
+    "cameras",
+    "audio",
+    "---The system---",
+    "system",
+    "menus",
+    "notifications",
+    "processes",
+    "workers"
+  ]
+}

@@ -1,0 +1,53 @@
+---
+title: File dialogs
+description: Let the user pick files to open or a place to save.
+---
+
+The system's own dialogs for opening a file, several files or a folder, and for saving one. What the user picks is mounted for the program at its own path the moment they confirm: read-only unless the program asked to write (`writable`), and a file to save writable whether or not it exists yet. A pick stays among the program's mounts until the user removes it. Given a view, the dialog is a sheet on its window.
+
+## With wasdk
+
+```rust
+let options = OpenOptions::new();
+options.add_type("Text", &["txt".into()], &["text/plain".into()]);
+// dialogs: file_dialogs::get_file_dialogs()
+if let Some(path) = dialogs.open_file(Some(&view), options).await? {
+    // mounted read-only at that path
+    let text = std::fs::read_to_string(path)?;
+}
+```
+
+## With Waft
+
+```rust
+use waft::ui::{FileType, OpenOptions, PickedFile};
+
+let text = FileType {
+    label: "Text".into(),
+    extensions: vec!["txt".into()],
+    mime_types: vec!["text/plain".into()],
+};
+let options = OpenOptions { types: vec![text], ..OpenOptions::default() };
+let platform = app.platform();
+// a sheet on its window
+let parent = platform.views().first().map(|view| view.id());
+let Some(dialogs) = platform.file_dialogs() else { return };
+let picked = dialogs.open_file(parent, options);
+app.spawn(async move |_cx| {
+    if let Ok(Some(PickedFile::Path(path))) = picked.await {
+        // mounted read-only at that path
+        let text = std::fs::read_to_string(&path);
+    }
+});
+```
+`save_file` answers a path to write in the same way, writable whether or not the file exists yet.
+
+> In WaOS a pick is always a `PickedFile::Path`, the file mounted at its own path: read and write it with `std::fs`. `PickedFile::read_all` reads through Waft's own file system, which WaOS does not serve yet.
+
+## Where it's missing
+
+`get-file-dialogs` is none where the platform has none, and Waft's `file_dialogs()` with it. Nothing of a picked file's folder is the program's but the file, so it cannot make a temporary file beside it: to save safely, it writes in `/data`, `/cache` or `/tmp`, its temporary folder, which `TMPDIR` names, and renames that onto the file picked, which replaces it whole, copied first where the two are on different volumes. `/tmp` is the program's own and goes when it ends, crash or not. Rust's `std::env::temp_dir()` panics on WASI whatever `TMPDIR` says, so read `TMPDIR`, and tell the `tempfile` crate once with `tempfile::env::override_temp_dir(Path::new("/tmp"))` before its first temporary file. A dialog whose answer is set in the program's settings (`cargo waos set save-file /tmp/out.pdf`) is not shown, and answers that path; a set path that no longer holds, a file to open that is gone, fails the dialog with why.
+
+## Interface
+
+[`wasdk:platform/file-dialogs`](/docs/reference/wasdk-platform/file-dialogs)

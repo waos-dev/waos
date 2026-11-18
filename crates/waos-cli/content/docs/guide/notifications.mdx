@@ -1,0 +1,49 @@
+---
+title: Notifications
+description: Post notifications and hear what the user does with them.
+---
+
+The system's notifications. A notification is a value posted under an id of the program's own, and posting the same id again replaces it. What the user does to one, a click, a button or a typed reply, comes back on `activations`, a click that starts the program among them.
+
+## With wasdk
+
+```rust
+// asks the user: a post without it answers denied
+permissions::notifications().request().await;
+let reminder = Notification::new("meeting", "Meeting at 3");
+reminder.body("Room 4");
+reminder.add_action("snooze", "Snooze");
+// notifications: notifications::get_notifications()
+notifications.post(reminder).await?;
+// its id, the action chosen, what the user typed
+let mut activations = notifications.activations();
+```
+
+## With Waft
+
+```rust
+use waft::ui::{Notification, NotificationActivation};
+
+let platform = app.platform();
+app.spawn(async move |_cx| {
+    let Some(notifications) = platform.notifications() else { return };
+    if let Some(permission) = notifications.permission() {
+        // asks the user first
+        permission.request().await;
+    }
+    let mut reminder = Notification::new("meeting", "Meeting at 3");
+    reminder.body = Some("Room 4".into());
+    let posted = notifications.post(&reminder).await;
+});
+app.set_notification_activated_handler(Some(Rc::new(|_app: &mut App, activation: NotificationActivation| {
+    // activation.id, activation.action
+})));
+```
+
+## Where it's missing
+
+`get-notifications` is none where the system has none. The permission is a question: until the user allows it, a post or a schedule answers `denied` without asking, so a program asks first. On macOS the system asks once more, after WaOS, and a refusal there reads `denied`. A notification shows under the program's own name and icon on macOS, and on Windows for an installed program; on Linux and Android, and for a program never installed on Windows, it shows under WaOS's, its title after the program's name: `Notes: Meeting at 3`. Typed replies (`replies`) and delivery at a later time (`scheduling`) are none where the system lacks them: replies are on macOS, iOS, Windows, Android, and Linux where the desktop offers them; scheduling on macOS, iOS, Windows and Android.
+
+## Interface
+
+[`wasdk:platform/notifications`](/docs/reference/wasdk-platform/notifications), with the permission in [`wasdk:platform/permissions`](/docs/reference/wasdk-platform/permissions)

@@ -1,0 +1,31 @@
+---
+title: System settings
+description: Read what the user set up, light or dark, the languages and the time zone, and hear it change.
+---
+
+What the user set up on the system, which belongs to no one view: the system the program runs on, light or dark, the user's languages, most preferred first, and the time zone, by its IANA name, `Europe/Paris`. The clock a program reads is UTC; `utc-offset` says how far the user's clock is from it at an instant, in nanoseconds, which the program adds to the instant for the time the user sees, daylight saving included. Each change comes on `changes`, in the order the user made them.
+
+## With wasdk
+
+```rust
+let zone = system::time_zone();
+let now = system_clock::now();
+// none where the system names no zone: read it as UTC
+let offset = system::utc_offset(now).unwrap_or(0);
+let local_seconds = now.seconds + offset / 1_000_000_000;
+let mut changes = system::changes();
+// SystemChange::PlatformBrightness, Locales or TimeZone, as the user changes them
+let change = changes.next().await;
+```
+
+## With Waft
+
+Light or dark and the languages are Flutter's, `MediaQuery`'s `platform_brightness` and the app's locales, which Waft follows by itself. Waft keeps no time zone, as Flutter keeps none: read `wasdk::system` as above, and hear its changes from a task.
+
+## Where it's missing
+
+`time-zone` and `utc-offset` are none where the system names no zone. WaOS hears the user change the time zone on macOS; on Windows, Linux and Android a program keeps the zone WaOS read as it started until WaOS starts again.
+
+## Interface
+
+[`wasdk:platform/system`](/docs/reference/wasdk-platform/system)

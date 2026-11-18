@@ -1,0 +1,68 @@
+---
+title: Images
+description: Show a picture from its bytes, and paint shapes of your own.
+---
+The system's own image codecs: Image I/O on Apple's systems, `ImageDecoder` on Android, `BitmapDecoder` on Windows. A program reads and writes every format the system does, with no codec of its own. Opening an image reads what it says of itself, its format, size, frames, orientation and metadata; its pixels decode when asked, at the size asked, into the program's memory, or, where the system can, into GPU memory the program draws with no copy.
+
+## With wasdk
+
+```rust
+use wasdk::image_codecs;
+use wasdk::windows::Size;
+
+// codecs: image_codecs::get_image_codecs()
+let image = codecs.open(bytes).await?;
+// or a file of the program's, which the system reads only as far as it needs
+let photo = codecs.open_file("/data/photo.heic".into()).await?;
+let size = image.size();
+// at most 512 pixels on a side, into the program's memory
+let pixels = image.decode_pixels(0, Some(Size { width: 512.0, height: 512.0 })).await?;
+```
+
+## With Waft
+
+```rust
+use std::sync::Arc;
+
+// bytes: a file's, from std::fs::read, or an HTTP response's body
+let bytes: Arc<[u8]> = Arc::from(bytes);
+Image::memory(bytes.clone()).fit(BoxFit::Cover)
+```
+Waft decodes it through the system's codecs, and an animated image plays. `Image::memory_static(include_bytes!("logo.png"))` shows one built into the program. An image decodes once for each `Arc`, so keep the bytes, in an entity, and hand `Image::memory` a clone of the same `Arc` at each build.
+
+> Waft's `FileImage` and `NetworkImage` read through Waft's own file system and HTTP client, which WaOS does not serve yet, so they fail: read the bytes with `std::fs::read`, or fetch them ([Network](/docs/guide/network)), and show them with `Image::memory`.
+
+To paint shapes of its own, a widget is a `CustomPaint` whose painter implements `CustomPainter`, as in Flutter. `CustomPainter` is in the `waft-rendering` crate, which the program adds to its dependencies. Its `paint` is given a `Canvas`; `Canvas`, `Paint` and `Path` are `waft::ui`'s, valo's types under Flutter's names, with valo's methods:
+
+```rust
+use std::any::Any;
+use waft::ui::{Canvas, Paint};
+use waft_rendering::CustomPainter;
+
+struct Dot;
+
+impl CustomPainter for Dot {
+    fn paint(&self, _app: &mut App, canvas: &mut Canvas, size: Size) {
+        let center = (size.width() as f32 / 2.0, size.height() as f32 / 2.0);
+        canvas.draw_circle(center, 8.0, &Paint::from_color(Color::new(0xFF0067C0).into()));
+    }
+
+    fn should_repaint(&self, _app: &App, _old: &dyn CustomPainter) -> bool {
+        false
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+}
+
+CustomPaint::new().painter(Dot).size(Size::new(32.0, 32.0))
+```
+
+## Where it's missing
+
+`get-image-codecs` is none where the system has no codecs. The formats differ between systems, and between machines: `decoded-formats` and `encoded-formats` list them. `hardware-image-codecs`, which decode into GPU memory, are none where the system has none. A photo's location is read as its file holds it; Android takes it out of the files a program reads. Encoding writes no metadata.
+
+## Interface
+
+[`wasdk:media/image-codecs`](/docs/reference/wasdk-media/image-codecs)
