@@ -15,6 +15,10 @@ description: The ideas the rest of the docs use, and the crates an app is writte
 
 **Permissions.** A program gets no more than the user gives it. Its own `/data`, `/cache` and `/tmp`, a file the user picks, sound, menus and dialogs are free. Notifications, the camera and the microphone ask at first use. The network (on by default), the local network (off) and folders (none) are switches in the program's settings, and a machine to run commands on is one the user picks when the program asks. Every question WaOS asks has a row in the program's settings, which can hold an answer set ahead: allow or don't allow, a simulated camera or microphone, a path for a file dialog, a machine for the picker. A development run is the program its id names, so it has the program's own settings.
 
+**The program's life.** A program is always in one of four states, each heard on `state-changes` in `lifecycle`: `resumed` while its user works in it, `inactive` while another program has the input, `hidden` when nothing of it shows — the moment to save to `/data` what it must not lose and let go of what it can make again — and `paused`, the platform itself in the background. From `hidden` on, the platform may stop the program where it stands, without another word, and run it again when its user comes back; a stopped program goes on from where it stopped, and is never stopped while it is audible or recording.
+
+> When a frozen program thaws, its monotonic clock has jumped by the time it was frozen, so periodic work should not replay the periods it missed: Waft's `Timer::periodic` fires once and its `tick` jumps, as Dart's VM does; GPUI's timers are one-shot and fire once; Bevy caps a frame's delta; tokio's `interval` replays every missed tick unless given `MissedTickBehavior::Skip` (or `Delay`).
+
 ## The crates
 An app names a few crates; `cargo waos new` adds the first four and one kit.
 

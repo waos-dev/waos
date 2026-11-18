@@ -74,7 +74,7 @@ impl StatelessWidget for Home {
             lines.push(Text::new(line).into_widget());
         }
         CupertinoPageScaffold::new(
-            Padding::new(EdgeInsetsGeometry::all(24.0)).child(
+            Padding::new(EdgeInsets::all(24.0)).child(
                 Column::new()
                     .cross_axis_alignment(CrossAxisAlignment::Start)
                     .spacing(12.0)
