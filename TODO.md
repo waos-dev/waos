@@ -20,7 +20,6 @@ What stands between today and a first stable release, in the order it blocks one
 - [ ] Android: a developer build that installs packages end to end; each program a task of its own.
 - [ ] iOS: developer builds (the App Store refuses downloaded code).
 - [ ] Windows, then Linux (`docs/proposals/2026-11-13-windows-and-linux.md`).
-  - [ ] On Windows, the system's chain check refuses the trust test's chain (`TRUST_E_CERT_SIGNATURE`) that macOS and Linux accept; the test is ignored on Windows until a Windows machine shows whether the test's certificates or the engine's call is wrong.
 - [ ] Remote machines over SSH (work order step 12).
 
 ## A developer, or an agent, succeeding alone

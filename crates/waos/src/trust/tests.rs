@@ -8,8 +8,8 @@
 use std::sync::Arc;
 
 use rcgen::{
-    BasicConstraints, CertificateParams, CertifiedIssuer, ExtendedKeyUsagePurpose, IsCa, KeyPair,
-    KeyUsagePurpose,
+    BasicConstraints, CertificateParams, CertifiedIssuer, DnType, ExtendedKeyUsagePurpose, IsCa,
+    KeyPair,
 };
 use rustls::pki_types::CertificateDer;
 use rustls_platform_verifier::Verifier;
@@ -31,10 +31,6 @@ fn a_self_signed_chain_is_untrusted() {
 }
 
 #[test]
-#[cfg_attr(
-    windows,
-    ignore = "Windows' chain check answers TRUST_E_CERT_SIGNATURE for this chain, which macOS and Linux trust; why waits for a Windows machine (TODO.md)"
-)]
 fn a_chain_up_to_a_trusted_root_for_its_name_is_trusted_and_for_another_is_not() {
     let authority = authority();
     let leaf = leaf_signed_by(&authority);
@@ -60,12 +56,15 @@ fn what_is_no_chain_or_no_name_fails_to_be_checked() {
     );
 }
 
-/// An authority of the test's own, which signs servers' certificates.
+/// An authority of the test's own, which signs servers' certificates. Its name is its own, not
+/// rcgen's default the leaf also has: a certificate whose issuer is its own name is self-signed
+/// to Windows, which checks its signature against its own key and refuses it.
 fn authority() -> CertifiedIssuer<'static, KeyPair> {
     let mut params = CertificateParams::new(Vec::<String>::new()).unwrap();
+    params
+        .distinguished_name
+        .push(DnType::CommonName, "WaOS test authority");
     params.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
-    // Windows' checker asks that a certificate that signs have the use, as it is absent here.
-    params.key_usages = vec![KeyUsagePurpose::KeyCertSign, KeyUsagePurpose::CrlSign];
     CertifiedIssuer::self_signed(params, KeyPair::generate().unwrap()).unwrap()
 }
 
@@ -73,7 +72,6 @@ fn authority() -> CertifiedIssuer<'static, KeyPair> {
 fn leaf_signed_by(authority: &CertifiedIssuer<'static, KeyPair>) -> Vec<u8> {
     let mut params = CertificateParams::new(vec![NAME.to_owned()]).unwrap();
     params.extended_key_usages = vec![ExtendedKeyUsagePurpose::ServerAuth];
-    params.key_usages = vec![KeyUsagePurpose::DigitalSignature];
     let key = KeyPair::generate().unwrap();
     params.signed_by(&key, authority).unwrap().der().to_vec()
 }
