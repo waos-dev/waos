@@ -71,6 +71,8 @@ use descriptor::{DirectoryEntry, Opened};
 pub(crate) use errors::ErrorCode;
 pub(crate) use handle_path::path_of;
 pub(crate) use held_folder::HeldFolder;
+#[cfg(test)]
+pub(crate) use mounts::open_folder;
 pub(crate) use mounts::{HandedFiles, MountKind, MountOf, MountTable};
 use mounts::{LiveMounts, ROOT};
 pub(crate) use picks::Picks;

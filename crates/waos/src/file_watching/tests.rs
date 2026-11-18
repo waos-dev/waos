@@ -176,6 +176,8 @@ async fn a_burst_past_what_a_batch_holds_is_a_rescan_of_everything() {
     assert_eq!(batch, [Change::Rescan(None)]);
 }
 
+/// Windows moves no folder a handle holds, so a watched folder cannot leave its path there.
+#[cfg(unix)]
 #[test]
 fn a_folder_no_path_leads_to_is_not_watched() {
     let (scratch, folder) = scratch();

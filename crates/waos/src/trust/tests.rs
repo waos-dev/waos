@@ -9,6 +9,7 @@ use std::sync::Arc;
 
 use rcgen::{
     BasicConstraints, CertificateParams, CertifiedIssuer, ExtendedKeyUsagePurpose, IsCa, KeyPair,
+    KeyUsagePurpose,
 };
 use rustls::pki_types::CertificateDer;
 use rustls_platform_verifier::Verifier;
@@ -59,6 +60,8 @@ fn what_is_no_chain_or_no_name_fails_to_be_checked() {
 fn authority() -> CertifiedIssuer<'static, KeyPair> {
     let mut params = CertificateParams::new(Vec::<String>::new()).unwrap();
     params.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
+    // Windows' checker asks that a certificate that signs have the use, as it is absent here.
+    params.key_usages = vec![KeyUsagePurpose::KeyCertSign, KeyUsagePurpose::CrlSign];
     CertifiedIssuer::self_signed(params, KeyPair::generate().unwrap()).unwrap()
 }
 
@@ -66,6 +69,7 @@ fn authority() -> CertifiedIssuer<'static, KeyPair> {
 fn leaf_signed_by(authority: &CertifiedIssuer<'static, KeyPair>) -> Vec<u8> {
     let mut params = CertificateParams::new(vec![NAME.to_owned()]).unwrap();
     params.extended_key_usages = vec![ExtendedKeyUsagePurpose::ServerAuth];
+    params.key_usages = vec![KeyUsagePurpose::DigitalSignature];
     let key = KeyPair::generate().unwrap();
     params.signed_by(&key, authority).unwrap().der().to_vec()
 }

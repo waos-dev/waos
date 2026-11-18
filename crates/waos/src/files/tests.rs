@@ -204,6 +204,10 @@ fn save_as_notes_saves(files: &mut ProgramFiles, contents: &str) {
         panic!("the draft is a file");
     };
     std::io::Write::write_all(&mut &**draft.handle(), contents.as_bytes()).unwrap();
+    // Windows renames no file another handle holds open, and the engine opens every path
+    // sharing reading and writing alone, as wasmtime-wasi does; Unix renames it either way.
+    #[cfg(windows)]
+    drop(draft);
     let rename = FileChange::Rename {
         to: "data/notes/5.json",
     };

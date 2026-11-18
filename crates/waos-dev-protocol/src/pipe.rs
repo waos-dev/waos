@@ -152,7 +152,7 @@ fn refused_as_second(error: io::Error, path: &Path) -> io::Error {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::os::windows::owner_and_access_text;
+    use crate::os::windows::{as_the_system_writes_it, owner_and_access_text};
 
     #[test]
     fn the_pipe_is_named_after_the_user() {
@@ -171,7 +171,8 @@ mod tests {
         let listener = Listener::bind(&path).await.unwrap();
         let user = user_sid().unwrap();
         let security = owner_and_access_text(listener.waiting.as_handle()).unwrap();
-        // `FA`, every right a file has, is what `GA` comes to on a pipe.
-        assert_eq!(security, format!("O:{user}D:P(A;;FA;;;{user})"));
+        // `FA`, every right a pipe has, is what `GA` comes to on one.
+        let expected = as_the_system_writes_it(&format!("O:{user}D:P(A;;FA;;;{user})")).unwrap();
+        assert_eq!(security, expected);
     }
 }

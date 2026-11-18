@@ -323,3 +323,45 @@ pub(crate) fn owner_and_access_text(path: &Path) -> io::Result<String> {
 pub(crate) fn this_users_sid() -> String {
     user_sid().expect("this process's user")
 }
+
+/// `text`, an SDDL descriptor, as the system writes it back: the same descriptor, with the SIDs
+/// SDDL abbreviates written as it abbreviates them, a machine's Administrator as `LA` among them.
+#[cfg(test)]
+pub(crate) fn as_the_system_writes_it(text: &str) -> io::Result<String> {
+    use windows_sys::Win32::Security::Authorization::ConvertSecurityDescriptorToStringSecurityDescriptorW;
+    use windows_sys::Win32::Security::{DACL_SECURITY_INFORMATION, OWNER_SECURITY_INFORMATION};
+
+    let wide: Vec<u16> = text.encode_utf16().chain(std::iter::once(0)).collect();
+    let mut descriptor: PSECURITY_DESCRIPTOR = ptr::null_mut();
+    // SAFETY: a NUL-terminated SDDL string; the descriptor the call allocates is freed below.
+    if unsafe {
+        ConvertStringSecurityDescriptorToSecurityDescriptorW(
+            wide.as_ptr(),
+            SDDL_REVISION_1,
+            &mut descriptor,
+            ptr::null_mut(),
+        )
+    } == 0
+    {
+        return Err(io::Error::last_os_error());
+    }
+    let wanted = OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION;
+    let mut written = ptr::null_mut();
+    // SAFETY: the descriptor made above; the text the call allocates is freed below.
+    let converted = unsafe {
+        ConvertSecurityDescriptorToStringSecurityDescriptorW(
+            descriptor,
+            SDDL_REVISION_1,
+            wanted,
+            &mut written,
+            ptr::null_mut(),
+        )
+    };
+    // SAFETY: the descriptor the system allocated, freed once.
+    unsafe { LocalFree(descriptor) };
+    if converted == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: the text the call allocated, not used after.
+    Ok(unsafe { take_system_text(written) })
+}

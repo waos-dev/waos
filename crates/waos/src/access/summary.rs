@@ -662,7 +662,7 @@ mod tests {
     #[test]
     fn opens_and_changes_are_counted_per_mount_and_a_change_listed_in_the_users_alone() {
         let scratch = tempfile::tempdir().unwrap();
-        let folder = fs::File::open(scratch.path()).unwrap();
+        let folder = crate::files::open_folder(scratch.path()).unwrap();
         let mount = |kind| MountOf {
             writable: true,
             kind,
