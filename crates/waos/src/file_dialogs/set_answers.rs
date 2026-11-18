@@ -4,9 +4,11 @@
 //! settings say not to ask.
 //!
 //! The invariant: what passes here is only what the user could have chosen in that dialog: files
-//! that exist to open, a folder that exists, and a file to save in a folder that exists.
+//! that exist to open, a folder that exists, and a file to save in a folder that exists, each
+//! named by a path resolved, with no `..`, since the program knows each pick by the path it is
+//! mounted at and names no `..`.
 
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use waos_capabilities::FileDialog;
 
@@ -34,6 +36,12 @@ pub(super) fn checked(
 pub fn refusal(dialog: FileDialog, path: &Path) -> Option<&'static str> {
     if !path.is_absolute() {
         return Some("is not a whole path");
+    }
+    if path
+        .components()
+        .any(|component| component == Component::ParentDir)
+    {
+        return Some("holds `..`, which leaves the mount it names: set the path resolved");
     }
     match dialog {
         FileDialog::OpenFile | FileDialog::OpenFiles if !path.exists() => Some("does not exist"),
@@ -81,6 +89,18 @@ mod tests {
         assert!(!holds(FileDialog::SaveFile, &folder));
         assert!(!holds(FileDialog::SaveFile, &missing.join("out.pdf")));
         assert!(!holds(FileDialog::OpenFile, Path::new("model.glb")));
+    }
+
+    #[test]
+    fn a_path_that_climbs_from_where_it_names_is_refused() {
+        let scratch = tempfile::tempdir().unwrap();
+        let file = scratch.path().join("a.txt");
+        fs::write(&file, "a").unwrap();
+        let climbing = scratch.path().join("photos").join("..").join("a.txt");
+        let why = refusal(FileDialog::OpenFile, &climbing).unwrap();
+        assert!(why.contains("`..`"), "{why}");
+        assert!(why.contains("leaves the mount"), "{why}");
+        assert!(checked(FileDialog::OpenFile, vec![climbing]).is_err());
     }
 
     #[test]

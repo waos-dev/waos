@@ -1,3 +1,5 @@
+//! A new WaOS app in Cupertino's look, which `cargo waos run` runs. The docs and guides are at
+//! https://waos.app/docs.
 // Waft's `StatefulWidget::State` takes `self: Handle<Self>`.
 #![feature(arbitrary_self_types)]
 
@@ -6,8 +8,7 @@ use waft_cupertino::{CupertinoApp, CupertinoPageScaffold};
 
 #[wasdk::main]
 async fn main() {
-    wasdk_adapter_waft::run(|app| run_app(app, CupertinoApp::new().home(Home).into_widget()))
-        .await;
+    wasdk_adapter_waft::run(|app| run_app(app, CupertinoApp::new().home(Home).into_widget())).await;
 }
 
 #[derive(Debug)]

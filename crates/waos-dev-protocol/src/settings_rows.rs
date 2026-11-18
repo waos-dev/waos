@@ -9,7 +9,7 @@
 //! end, as every message does (the crate's doc).
 
 use std::fmt;
-use std::path::PathBuf;
+use std::path::{Component, Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
@@ -239,7 +239,8 @@ impl std::error::Error for RowError {}
 impl Row {
     /// The row `words` name, its key first and its values after: `camera allow`,
     /// `link-scheme zoommtg deny`, `open-files /a.txt /b.txt`. Paths are taken as given; whoever
-    /// reads them from a person makes them whole first.
+    /// reads them from a person makes them whole first, and resolves them with
+    /// [`resolved_lexically`].
     pub fn parse(words: &[String]) -> Result<Row, RowError> {
         let (key, values) = words
             .split_first()
@@ -279,6 +280,24 @@ impl Row {
             ))),
         }
     }
+}
+
+/// `path` as a person typed it, with every `.` dropped and every `..` taken back one folder, never
+/// above its root: read as written, without the machine, since a file to save need not exist yet
+/// and no symlink is followed, so a set answer names the folder its `..` leads to, which a
+/// program's mount can be named by.
+pub fn resolved_lexically(path: &Path) -> PathBuf {
+    let mut resolved = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                resolved.pop();
+            }
+            component => resolved.push(component.as_os_str()),
+        }
+    }
+    resolved
 }
 
 /// Every row's name, for a refusal to list.
@@ -372,6 +391,20 @@ mod tests {
 
     fn words(text: &str) -> Vec<String> {
         text.split(' ').map(str::to_owned).collect()
+    }
+
+    #[test]
+    fn a_path_is_resolved_as_its_person_wrote_it() {
+        assert_eq!(
+            resolved_lexically(Path::new("/a/./b/../c.txt")),
+            Path::new("/a/c.txt"),
+            "a `.` dropped and a `..` taken back one folder"
+        );
+        assert_eq!(
+            resolved_lexically(Path::new("/../c.txt")),
+            Path::new("/c.txt"),
+            "never above its root"
+        );
     }
 
     #[test]

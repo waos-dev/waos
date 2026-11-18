@@ -16,6 +16,7 @@ use std::path::{Path, PathBuf};
 
 use waos::SimulatedSound;
 use waos::{AudioOutput, FileDialog, MachineChoice, file_dialog_answer_refusal, machine_paths};
+use waos_dev_protocol::resolved_lexically;
 use waos_package::ProgramId;
 use waos_store::{
     Answer, AnswerWith, Domain, DomainRule, FileSystemGrant, GlobalSettings, Mount, NetworkGrant,
@@ -404,8 +405,9 @@ fn set_link_scheme(own: &mut ProgramSettings, scheme: String, answer: Option<Ans
     }
 }
 
-/// The paths `typed` as `dialog` answers them: each a whole path of this computer that the dialog
-/// could choose now, one alone for a dialog that answers one; else why not.
+/// The paths `typed` as `dialog` answers them: each resolved as its person wrote it, then a whole
+/// path of this computer that the dialog could choose now, one alone for a dialog that answers
+/// one; else why not.
 fn answer_paths(dialog: FileDialog, typed: &[String]) -> Result<Vec<PathBuf>, String> {
     if dialog != FileDialog::OpenFiles && typed.len() > 1 {
         return Err("this dialog answers one path".to_owned());
@@ -413,10 +415,10 @@ fn answer_paths(dialog: FileDialog, typed: &[String]) -> Result<Vec<PathBuf>, St
     typed
         .iter()
         .map(|text| {
-            let path = Path::new(text.trim());
-            match file_dialog_answer_refusal(dialog, path) {
+            let path = resolved_lexically(Path::new(text.trim()));
+            match file_dialog_answer_refusal(dialog, &path) {
                 Some(why) => Err(format!("{} {why}", path.display())),
-                None => Ok(path.to_path_buf()),
+                None => Ok(path),
             }
         })
         .collect()
@@ -755,6 +757,15 @@ mod tests {
         let open = SettingChange::FileDialogAnswer(FileDialog::OpenFile, vec![typed(&model)]);
         change_program(&mut own, &global, open).unwrap();
         assert_eq!(own.answer_with.open_file.as_deref(), Some(model.as_path()));
+
+        let climbing = scratch.path().join("photos").join("..").join("model.glb");
+        let climbed = SettingChange::FileDialogAnswer(FileDialog::OpenFile, vec![typed(&climbing)]);
+        change_program(&mut own, &global, climbed).unwrap();
+        assert_eq!(
+            own.answer_with.open_file.as_deref(),
+            Some(model.as_path()),
+            "a typed `..` is resolved before it is kept"
+        );
 
         let missing = scratch.path().join("missing.glb");
         let refused = SettingChange::FileDialogAnswer(FileDialog::OpenFile, vec![typed(&missing)]);

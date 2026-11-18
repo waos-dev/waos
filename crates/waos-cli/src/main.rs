@@ -59,6 +59,7 @@ enum Cargo {
     #[command(
         name = "waos",
         about = "cargo waos: writes a new program, and builds a program as a component, runs it in WaOS and packages it, and takes screenshots of its windows, gives them input and sizes them while it runs",
+        after_help = "The docs and guides are at https://waos.app/docs",
         version
     )]
     Waos(WaosArgs),
@@ -178,9 +179,11 @@ enum Command {
     ///   open-file | open-folder | save-file          <path> | ask
     ///   open-files                                   <path>... | ask
     ///
-    /// A path is made whole against this directory, and must be one the dialog could have
-    /// chosen: a file to open that exists, a folder that exists, a file to save in a folder that
-    /// exists. A machine or an output is named by its id, as `cargo waos settings` lists them.
+    /// A path is made whole against this directory, with `.` and `..` resolved as written, and
+    /// must be one the dialog could have chosen: a file to open that exists, a folder that
+    /// exists, a file to save in a folder that exists, and none holding `..`, which a program
+    /// cannot name. A machine or an output is named by its id, as `cargo waos settings` lists
+    /// them.
     Set(SetArgs),
     /// Prints what WaOS knows of what the program does with what it was allowed, as JSON lines of
     /// wasdk:inspect's values, one value a line: `summary`, its audit summary, a day a line,
@@ -213,7 +216,8 @@ struct InspectArgs {
 struct SetArgs {
     #[command(flatten)]
     program: Program,
-    /// The row, then its value: `camera allow`, `save-file /tmp/out.pdf`, `machine ask`.
+    /// The row, then its value: `camera allow`, `save-file /tmp/out.pdf`, `machine ask`. A path is
+    /// made whole against this directory, with `.` and `..` resolved as written.
     #[arg(required = true, num_args = 2..)]
     row: Vec<String>,
 }
