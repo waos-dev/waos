@@ -11,10 +11,9 @@
 use waos_activity::{AccessKind, Activity, Counts};
 use wasdk::inspect::audit::Day;
 
-use crate::clock;
 use crate::logic::activity::activity_of;
 use crate::logic::detail::Glyph;
-use crate::logic::panels::{Cell, Column, Tabular, Tone};
+use crate::logic::panels::{Cell, Column, Said, Tabular, Tone, Wording};
 use crate::words;
 
 /// How many days a strip shows, the days the device keeps.
@@ -71,7 +70,8 @@ pub(crate) struct Contacted {
 }
 
 impl Report {
-    /// The report of `days`, against `today`, the start of today in seconds since the epoch.
+    /// The report of `days`, against `today`, the day [`clock::today`](crate::clock::today) names
+    /// in seconds since the epoch.
     pub(crate) fn of(days: &[Day], today: i64) -> Report {
         let activity = activity_of(days);
         let mut used = Vec::new();
@@ -107,6 +107,11 @@ impl Report {
     /// Whether the days say nothing at all.
     pub(crate) fn is_empty(&self) -> bool {
         self.used.is_empty()
+    }
+
+    /// The domains `days` name, the most contacted first, for a page that lays out no week.
+    pub(crate) fn domains(days: &[Day]) -> Vec<Contacted> {
+        contacted(days, &activity_of(days))
     }
 }
 
@@ -249,9 +254,17 @@ impl Tabular for Contacted {
             1 => Cell::code(self.times.to_string()),
             2 if self.refused > 0 => Cell::code(self.refused.to_string()).toned(Tone::Refused),
             2 => Cell::plain("–").toned(Tone::Quiet),
-            _ => {
-                Cell::plain(self.last.map(clock::said_when).unwrap_or_default()).toned(Tone::Quiet)
-            }
+            _ => match self.last {
+                Some(last) => Cell::plain(Said::moment(
+                    wasdk::system_clock::Instant {
+                        seconds: last,
+                        nanoseconds: 0,
+                    },
+                    Wording::Ago,
+                ))
+                .toned(Tone::Quiet),
+                None => Cell::plain(String::new()).toned(Tone::Quiet),
+            },
         }
     }
 

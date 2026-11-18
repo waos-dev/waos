@@ -75,7 +75,7 @@ impl<R: Tabular> State for TableState<R> {
                         cell(app, context, row.cell_at(index), leading, numeric)
                     });
                 made.set_custom_sort_comparer(app, move |a: &R, b: &R| {
-                    a.cell_at(index).text.cmp(&b.cell_at(index).text)
+                    a.cell_at(index).order().cmp(&b.cell_at(index).order())
                 });
                 made.set_width(
                     app,
@@ -134,10 +134,11 @@ fn cell(
 ) -> WidgetRef {
     let resources = ThemeResources::of(app, context);
     let color = toned(cell.tone, &resources);
+    let said = crate::ui::said(&cell.text, app);
     let text = if cell.code {
-        code_line(&cell.text, TextBlockStyle::Body, color, &resources)
+        code_line(&said, TextBlockStyle::Body, color, &resources)
     } else {
-        line(&cell.text, TextBlockStyle::Body, color, &resources)
+        line(&said, TextBlockStyle::Body, color, &resources)
     };
     let content = match leading {
         Some(leading) => Row::new()

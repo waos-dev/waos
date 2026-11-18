@@ -87,7 +87,7 @@ impl State for DetailPaneState {
             parts.push(
                 Expander::new(open, move |app, open| self.toggle(app, title, open))
                     .header(Text::new(title))
-                    .content(facts(section, &resources))
+                    .content(facts(section, app, &resources))
                     .into_widget(),
             );
         }
@@ -159,7 +159,7 @@ fn head(detail: &Detail, close: Listener, resources: &ThemeResources) -> WidgetR
 }
 
 /// A section's facts, a label and its value a line.
-fn facts(section: &Section, resources: &ThemeResources) -> WidgetRef {
+fn facts(section: &Section, app: &App, resources: &ThemeResources) -> WidgetRef {
     let lines = section.fields.iter().map(|field| {
         Row::new()
             .cross_axis_alignment(CrossAxisAlignment::Start)
@@ -168,15 +168,17 @@ fn facts(section: &Section, resources: &ThemeResources) -> WidgetRef {
                     .width(LABEL_WIDTH)
                     .child(caption(field.label, resources))
                     .into_widget(),
-                Expanded::new(Text::new(field.value.clone()).style(if field.code {
-                    code_style(
-                        TextBlockStyle::Caption,
-                        toned(field.tone, resources),
-                        resources,
-                    )
-                } else {
-                    TextBlockStyle::Caption.text_style(resources, toned(field.tone, resources))
-                }))
+                Expanded::new(
+                    Text::new(crate::ui::said(&field.value, app)).style(if field.code {
+                        code_style(
+                            TextBlockStyle::Caption,
+                            toned(field.tone, resources),
+                            resources,
+                        )
+                    } else {
+                        TextBlockStyle::Caption.text_style(resources, toned(field.tone, resources))
+                    }),
+                )
                 .into_widget(),
             ])
             .into_widget()
