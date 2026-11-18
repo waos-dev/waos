@@ -2331,6 +2331,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "env_filter"
+version = "2.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "900d271a03799a1ee8d1ca9b19893b48ca674a9284fefcfb85f05e74ed314217"
+dependencies = [
+ "log",
+ "regex",
+]
+
+[[package]]
 name = "environment"
 version = "0.2.0"
 dependencies = [
@@ -10816,6 +10826,7 @@ name = "wasdk-adapter-gpui"
 version = "0.2.0"
 dependencies = [
  "anyhow",
+ "env_filter",
  "futures",
  "gpui",
  "gpui_wgpu",

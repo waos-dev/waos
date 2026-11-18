@@ -2,8 +2,9 @@
 //! shows them, one row each, read or set by the WaOS on this machine, which keeps them; a set
 //! answer is the program's setting, used by every run, installed or not (decision 11 of the
 //! permissions proposal). Only a program a run of `cargo waos run` on this machine runs or has run
-//! is reached. WaOS is started when none answers, since the settings are there to be set before
-//! the run that needs them.
+//! is reached, or one the store does not have installed, which may be set before its first run.
+//! WaOS is started when none answers, since the settings are there to be set before the run that
+//! needs them.
 //!
 //! The invariant: a path set is whole before it is sent, made so against this directory, as
 //! `waos open` makes the files it opens; WaOS resolves it as it was written before keeping it,

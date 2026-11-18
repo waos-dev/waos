@@ -615,13 +615,20 @@ pub(crate) mod tests {
     }
 
     #[tokio::test]
-    async fn a_programs_settings_are_read_and_set_once_a_run_ran_it_and_never_before() {
+    async fn a_programs_settings_are_read_before_its_first_run_and_set_at_any_time() {
         let server = TestServer::start("settings");
         let id: ProgramId = FOREVER.parse().unwrap();
-        let settings = ToWaOS::Settings { id: id.clone() };
-        assert_eq!(
-            server.ask(&settings).await,
-            FromWaOS::Unreached(Unreached::NeverRunByCargoWaos)
+        let before = match server.ask(&ToWaOS::Settings { id: id.clone() }).await {
+            FromWaOS::Settings(rows) => rows,
+            other => panic!("the rows before a run: {other:?}"),
+        };
+        assert!(
+            before.iter().any(|row| row.key == "camera"),
+            "a development program's rows are read before its first run"
+        );
+        assert!(
+            !server.folder.join("store/programs").join(FOREVER).exists(),
+            "reading the rows keeps nothing"
         );
         let mut client = server
             .run(FOREVER, Path::new(waos_test_programs::FOREVER))

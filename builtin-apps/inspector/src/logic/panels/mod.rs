@@ -135,17 +135,102 @@ impl Column {
     }
 }
 
-/// A cell: its text, and how it reads.
+/// A moment a row says, and how it reads: the UI says it in the user's time zone with the `App`,
+/// and logic never turns it into words (the design's decision on the Inspector's local time).
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Moment {
+    pub(crate) at: wasdk::system_clock::Instant,
+    pub(crate) wording: Wording,
+}
+
+/// A moment's instant is its two numbers, which the generated type compares by no trait of its
+/// own.
+impl PartialEq for Moment {
+    fn eq(&self, other: &Moment) -> bool {
+        (self.at.seconds, self.at.nanoseconds) == (other.at.seconds, other.at.nanoseconds)
+            && self.wording == other.wording
+    }
+}
+
+impl Eq for Moment {}
+
+/// How a moment reads.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Wording {
+    /// To the millisecond: `14:03:27.012`.
+    Precise,
+    /// The time of day: `14:03:27`.
+    TimeOfDay,
+    /// Its time today, its weekday this week, else its date's day: `14:03`, `Tue`, `5 days ago`.
+    Ago,
+}
+
+/// What a cell, a field or a line says: text as it is, or a moment with the words that come
+/// before it, which only the UI can say.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) enum Said {
+    Text(String),
+    Moment {
+        /// What comes before it: `Since `.
+        before: &'static str,
+        moment: Moment,
+    },
+}
+
+impl Said {
+    pub(crate) fn text(text: impl Into<String>) -> Said {
+        Said::Text(text.into())
+    }
+
+    pub(crate) fn moment(at: wasdk::system_clock::Instant, wording: Wording) -> Said {
+        Said::Moment {
+            before: "",
+            moment: Moment { at, wording },
+        }
+    }
+
+    /// The moment, with `before` before it: `Since 14:03`.
+    pub(crate) fn moment_after(
+        before: &'static str,
+        at: wasdk::system_clock::Instant,
+        wording: Wording,
+    ) -> Said {
+        Said::Moment {
+            before,
+            moment: Moment { at, wording },
+        }
+    }
+}
+
+impl From<String> for Said {
+    fn from(text: String) -> Said {
+        Said::Text(text)
+    }
+}
+
+impl From<&str> for Said {
+    fn from(text: &str) -> Said {
+        Said::Text(text.to_owned())
+    }
+}
+
+impl From<&String> for Said {
+    fn from(text: &String) -> Said {
+        Said::Text(text.clone())
+    }
+}
+
+/// A cell: what it says, and how it reads.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct Cell {
-    pub(crate) text: String,
+    pub(crate) text: Said,
     pub(crate) tone: Tone,
     /// Whether it is a URL, a path, an address, a time or a size, which read best monospaced.
     pub(crate) code: bool,
 }
 
 impl Cell {
-    pub(crate) fn plain(text: impl Into<String>) -> Cell {
+    pub(crate) fn plain(text: impl Into<Said>) -> Cell {
         Cell {
             text: text.into(),
             tone: Tone::Plain,
@@ -153,7 +238,7 @@ impl Cell {
         }
     }
 
-    pub(crate) fn code(text: impl Into<String>) -> Cell {
+    pub(crate) fn code(text: impl Into<Said>) -> Cell {
         Cell {
             text: text.into(),
             tone: Tone::Plain,
@@ -164,6 +249,14 @@ impl Cell {
     pub(crate) fn toned(mut self, tone: Tone) -> Cell {
         self.tone = tone;
         self
+    }
+
+    /// What sorts it among its column's cells: the instant where it says one, else its text.
+    pub(crate) fn order(&self) -> (i64, u32, &str) {
+        match &self.text {
+            Said::Moment { moment, .. } => (moment.at.seconds, moment.at.nanoseconds, ""),
+            Said::Text(text) => (0, 0, text),
+        }
     }
 }
 
@@ -185,7 +278,7 @@ pub(crate) struct Tile {
     /// Whether the title reads as code: a URL, a path, an address, an output line.
     pub(crate) code: bool,
     /// When and how it was decided, on one line.
-    pub(crate) details: Vec<String>,
+    pub(crate) details: Vec<Said>,
     /// What is said beneath, a line each: why WaOS refused it and where to change that.
     pub(crate) beneath: Vec<String>,
 }

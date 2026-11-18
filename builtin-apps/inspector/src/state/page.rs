@@ -16,7 +16,6 @@ use waos_activity::AccessKind;
 use wasdk::inspect::devices::Device;
 use wasdk::inspect::{active_uses, storage as inspect_storage, trace};
 
-use crate::clock;
 use crate::logic::panels::PanelRow;
 use crate::logic::panels::access::{AccessLog, AccessRow, Capturing};
 use crate::logic::panels::files::{FileLog, FileRow};
@@ -173,11 +172,10 @@ impl ProgramPage {
     fn follow(&mut self, cx: &mut Context<ProgramPage>) {
         let programs = self.programs.read(cx);
         let chosen = programs.chosen(cx).map(|seen| {
-            let report = Report::of(&seen.days, clock::today());
             (
                 seen.program.id.clone(),
                 seen.program.running,
-                report.domains,
+                Report::domains(&seen.days),
             )
         });
         let device = programs.device();

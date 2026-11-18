@@ -44,10 +44,10 @@ pub(super) fn report(
     }
     parts.push(heading(
         words::DATA_AND_SENSOR_ACCESS,
-        &words::last_seven_days(),
+        &words::last_seven_days(app),
         resources,
     ));
-    parts.push(access_card(page, report, resources));
+    parts.push(access_card(page, app, report, resources));
     parts.push(heading(
         words::NETWORK_ACTIVITY,
         words::NETWORK_ACTIVITY_DETAIL,
@@ -120,6 +120,7 @@ fn heading(title: &str, detail: &str, resources: &ThemeResources) -> WidgetRef {
 /// The card of the kinds of access used, a row each, and the kinds not used beneath them.
 fn access_card(
     page: &Entity<ProgramPage>,
+    app: &App,
     report: &Report,
     resources: &ThemeResources,
 ) -> WidgetRef {
@@ -135,7 +136,7 @@ fn access_card(
         if !rows.is_empty() {
             rows.push(divider(resources));
         }
-        rows.push(used_row(page, used, resources));
+        rows.push(used_row(page, app, used, resources));
     }
     if !report.unused.is_empty() {
         rows.push(divider(resources));
@@ -157,7 +158,12 @@ fn access_card(
 
 /// One kind of access used: its glyph, what it did, the week's strip, when it last did, and the
 /// way on to its panel.
-fn used_row(page: &Entity<ProgramPage>, used: &Used, resources: &ThemeResources) -> WidgetRef {
+fn used_row(
+    page: &Entity<ProgramPage>,
+    app: &App,
+    used: &Used,
+    resources: &ThemeResources,
+) -> WidgetRef {
     let text = Column::new()
         .main_axis_size(MainAxisSize::Min)
         .cross_axis_alignment(CrossAxisAlignment::Start)
@@ -180,7 +186,7 @@ fn used_row(page: &Entity<ProgramPage>, used: &Used, resources: &ThemeResources)
         .children([
             glyph_tile(Glyph::of_access(used.kind), resources),
             Expanded::new(text).into_widget(),
-            strip(used, resources),
+            strip(used, app, resources),
             SizedBox::new()
                 .width(96.0)
                 .child(caption(&last, resources))
@@ -243,7 +249,7 @@ fn glyph_tile(glyph: Glyph, resources: &ThemeResources) -> WidgetRef {
 
 /// The week's days, oldest first: a bar each by how often, its refusals stacked in red on top,
 /// over each day's initial. Drawn until Waft has a chart.
-fn strip(used: &Used, resources: &ThemeResources) -> WidgetRef {
+fn strip(used: &Used, app: &App, resources: &ThemeResources) -> WidgetRef {
     let most = (used.days.iter())
         .map(|day| day.allowed + day.refused)
         .max()
@@ -284,7 +290,7 @@ fn strip(used: &Used, resources: &ThemeResources) -> WidgetRef {
                             .children(bar),
                     )
                     .into_widget(),
-                Text::new(clock::weekday_initial(ago))
+                Text::new(clock::weekday_initial(app, ago))
                     .style(initial.clone())
                     .into_widget(),
             ])

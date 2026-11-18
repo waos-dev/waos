@@ -59,7 +59,7 @@ impl State for StoragePageState {
             let storage = read.storage();
             match &path {
                 None => mounts(storage, page.clone(), self),
-                Some(path) => entries(storage, path, page.clone(), self),
+                Some(path) => entries(app, storage, path, page.clone(), self),
             }
         };
         let leading = match &path {
@@ -129,6 +129,7 @@ fn mount_tile(
 
 /// The entries of `path`, a tile each; a folder opens it, a file says what it is.
 fn entries(
+    app: &App,
     storage: &Storage,
     path: &str,
     page: Entity<ProgramPage>,
@@ -139,13 +140,14 @@ fn entries(
         Some(Load::Failed(why)) => vec![note(&format!("{} {why}", words::READ_FAILED))],
         Some(Load::Ready(entries)) => entries
             .iter()
-            .map(|entry| entry_tile(entry, path, page.clone(), this))
+            .map(|entry| entry_tile(app, entry, path, page.clone(), this))
             .collect(),
     }
 }
 
 /// An entry's tile.
 fn entry_tile(
+    app: &App,
     entry: &Entry,
     parent: &str,
     page: Entity<ProgramPage>,
@@ -161,11 +163,11 @@ fn entry_tile(
             format!(
                 "{} · {}",
                 words::bytes(size),
-                clock::said_when(modified.seconds)
+                clock::said_when(app, modified)
             )
         }
         (Some(size), None) => words::bytes(size),
-        (None, Some(modified)) => clock::said_when(modified.seconds),
+        (None, Some(modified)) => clock::said_when(app, modified),
         (None, None) => String::new(),
     };
     let mut tile = CupertinoListTile::new(Text::new(entry.name.clone())).subtitle(Text::new(said));

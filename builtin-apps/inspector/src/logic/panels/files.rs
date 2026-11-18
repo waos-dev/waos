@@ -9,8 +9,7 @@
 use wasdk::inspect::trace::{Cause, FileEvent, FileUse};
 use wasdk::system_clock::Instant;
 
-use super::{Cell, Column, Decided, PanelRow, RowKind, Rows, Tile, Tone, found_in};
-use crate::clock;
+use super::{Cell, Column, Decided, PanelRow, RowKind, Rows, Said, Tile, Tone, Wording, found_in};
 use crate::logic::detail::{self, Detail, Field, Glyph, Refusal, Section};
 use crate::words;
 
@@ -140,7 +139,7 @@ impl PanelRow for FileRow {
             }
             1 => Cell::plain(self.what).toned(Tone::Quiet),
             2 => self.decided.cell(),
-            _ => Cell::code(clock::precise(self.at)).toned(Tone::Quiet),
+            _ => Cell::code(Said::moment(self.at, Wording::Precise)).toned(Tone::Quiet),
         }
     }
 
@@ -163,8 +162,8 @@ impl PanelRow for FileRow {
             code: true,
             title: format!("{} {}", self.what, self.path),
             details: vec![
-                clock::time_of_day(self.at.seconds),
-                words::decided(&self.decided).to_owned(),
+                Said::moment(self.at, Wording::TimeOfDay),
+                Said::text(words::decided(&self.decided)),
             ],
             beneath,
         }
@@ -175,7 +174,7 @@ impl PanelRow for FileRow {
             Field::plain(words::KIND, self.what),
             Field::code(words::ON_THIS_COMPUTER, &self.on_machine),
             Field::plain(words::INSTANCE, words::instance(self.instance)),
-            Field::code(words::AT, clock::precise(self.at)),
+            Field::code(words::AT, Said::moment(self.at, Wording::Precise)),
         ];
         if self.on_machine.is_empty() {
             fields.remove(1);

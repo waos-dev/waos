@@ -5,7 +5,7 @@
 //! The invariant: a detail says only what its row says, so the pane never reaches back to the
 //! events or the device.
 
-use crate::logic::panels::{Decided, Tone};
+use crate::logic::panels::{Decided, Said, Tone};
 use crate::words;
 
 /// What a row, a capability or a use is drawn with, named by what it is, not by any kit's icon.
@@ -79,14 +79,14 @@ pub(crate) struct Section {
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct Field {
     pub(crate) label: &'static str,
-    pub(crate) value: String,
+    pub(crate) value: Said,
     pub(crate) tone: Tone,
     /// Whether the value is a URL, a path, an address or a time, which read best monospaced.
     pub(crate) code: bool,
 }
 
 impl Field {
-    pub(crate) fn plain(label: &'static str, value: impl Into<String>) -> Field {
+    pub(crate) fn plain(label: &'static str, value: impl Into<Said>) -> Field {
         Field {
             label,
             value: value.into(),
@@ -95,7 +95,7 @@ impl Field {
         }
     }
 
-    pub(crate) fn code(label: &'static str, value: impl Into<String>) -> Field {
+    pub(crate) fn code(label: &'static str, value: impl Into<Said>) -> Field {
         Field {
             label,
             value: value.into(),
@@ -122,7 +122,7 @@ impl Refusal {
 pub(crate) fn decision(decided: &Decided) -> Section {
     let mut fields = vec![Field {
         label: words::DECIDED,
-        value: words::decided(decided).to_owned(),
+        value: Said::text(words::decided(decided)),
         tone: if decided.refused() {
             Tone::Refused
         } else {

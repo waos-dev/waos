@@ -162,7 +162,7 @@ fn entry_node(
         );
     }
     if let Some(modified) = entry.modified {
-        row.push(caption(&clock::said_when(modified.seconds), resources));
+        row.push(caption(&clock::said_when(app, modified), resources));
     }
     let row = Row::new().spacing(8.0).children(row).into_widget();
     if entry.is_folder {

@@ -5,8 +5,9 @@
 //! permissions proposal).
 //!
 //! The invariant: only a program a run of `cargo waos run` on this machine runs or has run, whose
-//! component one sent is among the components kept (`sent_components`), is read or set; any other,
-//! one the library installed among them, is `Unreached`.
+//! component one sent is among the components kept (`sent_components`), or one the store does not
+//! have installed, which may be set before its first run, is read or set; one the library
+//! installed, which no run sent, is `Unreached`.
 
 use std::sync::Arc;
 
@@ -16,7 +17,7 @@ use waos_dev_protocol::{
     Unreached,
 };
 use waos_package::ProgramId;
-use waos_store::Store;
+use waos_store::{ProgramSettings, Store, StoreError};
 
 use super::environments::ProgramEnvironments;
 use super::runs::Runs;
@@ -34,7 +35,7 @@ pub(crate) struct SettingsContext {
 }
 
 /// Answers a connection's `Settings`, with `set` none, or its `Set`: the rows of the program
-/// `id`'s settings, after the row set where one is.
+/// `id`'s settings, after the change where one is.
 pub(crate) async fn answer(
     mut connection: Connection<ServerStream>,
     context: &SettingsContext,
@@ -54,7 +55,7 @@ async fn rows_after(
     id: &ProgramId,
     set: Option<Row>,
 ) -> Result<FromWaOS, FromWaOS> {
-    if !was_run_by_cargo_waos(context, id).await {
+    if !is_a_development_program(context, id).await {
         return Err(FromWaOS::Unreached(Unreached::NeverRunByCargoWaos));
     }
     let environments = Arc::clone(&context.environments);
@@ -68,15 +69,25 @@ async fn rows_after(
         set_program(&context.store, id, change).map_err(FromWaOS::Refused)?;
     }
     let global = context.store.global_settings().map_err(refused)?;
-    let own = context.store.program_settings(id).map_err(refused)?;
+    let own = match context.store.program_settings(id) {
+        Ok(own) => own,
+        // A development program with nothing kept yet: it has no settings of its own, so the
+        // page is every global setting, and the read keeps no folder.
+        Err(StoreError::NotInstalled(_)) => ProgramSettings::default(),
+        Err(error) => return Err(refused(error)),
+    };
     Ok(FromWaOS::Settings(rows(&program_page(
         &global, &own, &offered,
     ))))
 }
 
-/// Whether a run of `cargo waos run` runs the program `id` now, or ran it once.
-async fn was_run_by_cargo_waos(context: &SettingsContext, id: &ProgramId) -> bool {
-    context.runs.dev_run(id).await.is_some() || context.components.was_sent(id)
+/// Whether `id` is a development program: one a run of `cargo waos run` on this machine runs or
+/// has run, or one the store does not have installed, which may be set before its first run. An
+/// installed program no run sent is not one.
+async fn is_a_development_program(context: &SettingsContext, id: &ProgramId) -> bool {
+    context.runs.dev_run(id).await.is_some()
+        || context.components.was_sent(id)
+        || context.store.program(id).is_none()
 }
 
 fn refused(error: waos_store::StoreError) -> FromWaOS {

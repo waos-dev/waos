@@ -10,8 +10,7 @@
 use wasdk::inspect::trace::{HttpResponse, NetworkEvent, NetworkUse, TcpConnection};
 use wasdk::system_clock::Instant;
 
-use super::{Cell, Column, Decided, PanelRow, RowKind, Rows, Tile, Tone, found_in};
-use crate::clock;
+use super::{Cell, Column, Decided, PanelRow, RowKind, Rows, Said, Tile, Tone, Wording, found_in};
 use crate::logic::detail::{self, Detail, Field, Glyph, Refusal, Section};
 use crate::words;
 
@@ -212,7 +211,7 @@ impl PanelRow for NetworkRow {
             ),
             2 => self.decided.cell(),
             3 => Cell::code(self.took.map(words::took).unwrap_or_default()).toned(Tone::Quiet),
-            _ => Cell::code(clock::precise(self.at)).toned(Tone::Quiet),
+            _ => Cell::code(Said::moment(self.at, Wording::Precise)).toned(Tone::Quiet),
         }
     }
 
@@ -226,10 +225,10 @@ impl PanelRow for NetworkRow {
     }
 
     fn tile(&self) -> Tile {
-        let mut details = vec![clock::time_of_day(self.at.seconds)];
-        details.extend(self.status.map(|status| status.to_string()));
-        details.extend(self.took.map(words::took));
-        details.push(words::decided(&self.decided).to_owned());
+        let mut details = vec![Said::moment(self.at, Wording::TimeOfDay)];
+        details.extend(self.status.map(|status| Said::text(status.to_string())));
+        details.extend(self.took.map(|took| Said::text(words::took(took))));
+        details.push(Said::text(words::decided(&self.decided)));
         Tile {
             code: true,
             title: format!("{} {}", self.what, self.name),
@@ -242,7 +241,7 @@ impl PanelRow for NetworkRow {
         let mut facts = vec![
             Field::plain(words::KIND, self.what),
             Field::plain(words::INSTANCE, words::instance(self.instance)),
-            Field::code(words::AT, clock::precise(self.at)),
+            Field::code(words::AT, Said::moment(self.at, Wording::Precise)),
         ];
         if self.kind == NetworkKind::Request {
             facts.insert(1, Field::plain(words::THROUGH, words::WAOS_HTTP_CLIENT));
@@ -334,7 +333,7 @@ mod tests {
         let (mut log, mut rows) = (NetworkLog, Vec::new());
         log.add(&mut rows, &event(response(7), Verdict::Allowed));
         assert_eq!(rows.len(), 1);
-        assert_eq!(rows[0].cell(1).text, "200");
+        assert_eq!(rows[0].cell(1).text, Said::text("200"));
     }
 
     #[test]
