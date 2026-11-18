@@ -29,7 +29,11 @@ jobs:
         working-directory: waos
         run: cargo xtask check-wit-versions
 
-  test:
+  # macOS runs every test of the workspace, in two jobs that run side by side: the engine and the
+  # command (the engine's tests start programs, which take most of its time), and everything else
+  # (the app's, whose deck tests start programs of their own). Between them they are
+  # `cargo test --workspace`; a package added to the workspace lands in `test-the-rest`.
+  test-engine:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
@@ -42,14 +46,36 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: waos
-      - name: Tests
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Tests of the engine and the command
         working-directory: waos
-        run: cargo test --workspace --no-fail-fast
+        run: cargo test --no-fail-fast -p waos -p waos-cli
+
+  test-the-rest:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: waos
+      - uses: actions/checkout@v4
+        with:
+          repository: waos-dev/waft
+          path: waft
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: waos
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Tests of the rest of the workspace
+        working-directory: waos
+        run: cargo test --workspace --exclude waos --exclude waos-cli --no-fail-fast
 
   # Windows and Linux run the engine, the command and the SDK today; the app's shell still waits
   # for the decisions of docs/proposals/2026-11-13-windows-and-linux.md (dmabufs, ConPTY,
-  # DirectComposition), so only the crates that are meant to run there are tested. The workspace
-  # still has to check and lint whole, to catch what is apparent before the real machines arrive.
+  # DirectComposition), so only the crates that are meant to run there are tested, and of those
+  # only the ones whose code depends on the system (`.github/platform-test-packages.sh`): macOS
+  # runs the others' tests, which no system can change. The workspace still has to lint whole, to
+  # catch what is apparent before the real machines arrive; clippy compiles every crate for the
+  # system, so it is `cargo check` and more, and there is no check of its own.
   test-linux:
     runs-on: ubuntu-latest
     steps:
@@ -60,24 +86,25 @@ jobs:
         with:
           repository: waos-dev/waft
           path: waft
+      # A mirror once stalled on one package for 17 minutes in Waft's CI: a stuck download times
+      # out after 30 seconds and is tried again, rather than waiting on apt's default.
       - name: The system packages the build's probes ask for
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
+          apt_net="-o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 -o Acquire::Retries=5"
+          sudo apt-get $apt_net update
+          sudo apt-get $apt_net install -y --no-install-recommends \
             pkg-config libasound2-dev libwayland-dev libxkbcommon-dev \
             libx11-dev libxcursor-dev libxrandr-dev libxi-dev libxinerama-dev
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: waos
-      - name: Check
-        working-directory: waos
-        run: cargo check --workspace --all-targets
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Clippy
         working-directory: waos
         run: cargo clippy --workspace --all-targets
-      - name: Tests of what runs on Linux today
+      - name: Tests of what runs on Linux today and depends on the system
         working-directory: waos
-        run: cargo test --no-fail-fast -p waos -p waos-cli -p waos-dev-protocol -p waos-package -p waos-store -p wasdk -p wasdk-macros -p wasdk-wgpu
+        run: cargo test --no-fail-fast $(.github/platform-test-packages.sh)
 
   test-windows:
     runs-on: windows-latest
@@ -92,12 +119,11 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: waos
-      - name: Check
-        working-directory: waos
-        run: cargo check --workspace --all-targets
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Clippy
         working-directory: waos
         run: cargo clippy --workspace --all-targets
-      - name: Tests of what runs on Windows today
+      - name: Tests of what runs on Windows today and depends on the system
         working-directory: waos
-        run: cargo test --no-fail-fast -p waos -p waos-cli -p waos-dev-protocol -p waos-package -p waos-store -p wasdk -p wasdk-macros -p wasdk-wgpu
+        shell: bash
+        run: cargo test --no-fail-fast $(.github/platform-test-packages.sh)
