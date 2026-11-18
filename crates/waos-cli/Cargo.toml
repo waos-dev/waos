@@ -9,8 +9,9 @@ homepage.workspace = true
 repository.workspace = true
 readme = "README.md"
 # `tests/new.rs` builds each new program against the workspace's own crates, so it runs from the
-# repository alone.
-exclude = ["/tests/new.rs"]
+# repository alone. The reference's pages under `docs/` are the website's build's, never
+# published: `build.rs` makes the crate's own from `wit/`.
+exclude = ["/tests/new.rs", "/docs/reference/wasdk-*"]
 
 [[bin]]
 name = "cargo-waos"

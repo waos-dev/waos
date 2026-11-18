@@ -1,11 +1,11 @@
 use super::*;
 
 /// A small tree of the site's shape: the playbook, top pages, a folder with an index and
-/// separators, a folder of its own pages, the reference with its generated folders absent, and
-/// the icons page.
+/// separators, a folder of its own pages, the reference with an interface's page, and the
+/// icons page.
 const FILES: &[(&str, &str)] = &[
     (
-        "agents.md",
+        "playbook.md",
         "# Build an app on WaOS\n\n1. **Tools:** rustup.\n",
     ),
     (
@@ -53,6 +53,18 @@ const FILES: &[(&str, &str)] = &[
         "---\ntitle: Reference\ndescription: Every interface.\n---\n",
     ),
     (
+        "docs/reference/wasdk-platform/meta.json",
+        r#"{"title": "wasdk:platform", "pages": ["windows"]}"#,
+    ),
+    (
+        "docs/reference/wasdk-platform/index.md",
+        "---\ntitle: \"wasdk:platform\"\ndescription: \"wasdk:platform@1.0.0\"\n---\n",
+    ),
+    (
+        "docs/reference/wasdk-platform/windows.md",
+        "---\ntitle: \"windows\"\ndescription: \"wasdk:platform/windows@1.0.0\"\n---\n\n```wit\ninterface windows {\n}\n```\n",
+    ),
+    (
         "docs/icons.mdx",
         "---\ntitle: Icons\ndescription: The icons.\n---\n\n<AppIcons>\n  <AppIcon name=\"Notes\" src=\"/apps/notes.png\" />\n</AppIcons>\n",
     ),
@@ -80,6 +92,8 @@ fn the_map_is_the_playbook_then_the_sidebars_order_with_its_sections() {
             "waft",
             "waft/state",
             "reference",
+            "reference/wasdk-platform",
+            "reference/wasdk-platform/windows",
             "icons"
         ]
     );
@@ -162,16 +176,12 @@ fn a_page_prints_as_markdown_with_its_title_and_description() {
 }
 
 #[test]
-fn a_reference_interface_is_at_the_site_and_in_the_wit() {
-    let error = docs()
-        .find("/docs/reference/wasdk-platform/windows")
-        .unwrap_err()
-        .to_string();
-    assert!(
-        error.contains("https://waos.app/docs/reference/wasdk-platform/windows"),
-        "{error}"
-    );
-    assert!(error.contains("wit/"), "{error}");
+fn an_interfaces_page_is_found_by_its_address_and_yields_its_name_to_a_written_page() {
+    let docs = docs();
+    let windows = docs.find("/docs/reference/wasdk-platform/windows").unwrap();
+    assert_eq!(windows.name, "reference/wasdk-platform/windows");
+    assert!(windows.markdown().contains("interface windows {"));
+    assert_eq!(docs.find("windows").unwrap().name, "guide/windows");
 }
 
 #[test]
@@ -249,7 +259,14 @@ fn the_bundled_docs_follow_the_sites_hierarchy() {
             "icons"
         ]
     );
-    for name in ["guide/network", "waft/state", "waft/text-input", "network"] {
+    for name in [
+        "guide/network",
+        "waft/state",
+        "waft/text-input",
+        "network",
+        "reference/wasdk-platform/windows",
+        "reference/wasdk-media/cameras",
+    ] {
         assert!(docs.find(name).is_ok(), "{name}");
     }
     for page in docs.pages() {

@@ -1,7 +1,5 @@
 //! The repository's own chores, which `cargo xtask` runs from its checkout and its tests check.
 
-pub mod docs_copy;
-pub mod folder_copy;
 pub mod wit_copies;
 pub mod wit_versions;
 

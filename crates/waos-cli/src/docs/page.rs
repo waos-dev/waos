@@ -31,7 +31,7 @@ impl Page {
         }
     }
 
-    /// The playbook, `content/agents.md`, which is Markdown with its title as its first heading.
+    /// The playbook, `playbook.md`, which is Markdown with its title as its first heading.
     pub fn from_playbook(name: &str, description: &str, text: &str) -> Page {
         let (title, body) = match text.split_once('\n') {
             Some((first, rest)) if first.starts_with("# ") => (&first[2..], rest),

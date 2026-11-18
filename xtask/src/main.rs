@@ -2,23 +2,19 @@
 //!
 //! - `sync-wit` copies `wit/` into each crate that generates bindings from it, replacing the
 //!   copy there, after any change to `wit/`.
-//! - `sync-docs` copies the site's docs into `cargo waos`, replacing its copy, after any change
-//!   to `packages/waos-site/content`.
 //! - `check-wit-versions` fails when a WIT package changed since the last release under the
 //!   same version, which CI runs on every change.
 
 use std::process::ExitCode;
 
-use xtask::folder_copy::FolderCopy;
 use xtask::wit_copies::COPIES;
-use xtask::{docs_copy, wit_versions};
+use xtask::wit_versions;
 
-const USAGE: &str = "usage: cargo xtask sync-wit | sync-docs | check-wit-versions";
+const USAGE: &str = "usage: cargo xtask sync-wit | check-wit-versions";
 
 fn main() -> ExitCode {
     match std::env::args().nth(1).as_deref() {
-        Some("sync-wit") => sync(&COPIES),
-        Some("sync-docs") => sync(std::slice::from_ref(&docs_copy::COPY)),
+        Some("sync-wit") => sync_wit(),
         Some("check-wit-versions") => check_wit_versions(),
         _ => {
             eprintln!("{USAGE}");
@@ -27,10 +23,10 @@ fn main() -> ExitCode {
     }
 }
 
-/// Makes each of `copies` again from its source, saying each copy made.
-fn sync(copies: &[FolderCopy]) -> ExitCode {
+/// Copies `wit/` again into every crate that carries a copy, saying each copy made.
+fn sync_wit() -> ExitCode {
     let root = xtask::workspace_root();
-    for copy in copies {
+    for copy in &COPIES {
         if let Err(error) = copy.sync(&root) {
             eprintln!("copying {} to {}: {error}", copy.source, copy.destination);
             return ExitCode::FAILURE;

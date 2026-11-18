@@ -1,6 +1,6 @@
-//! The docs `cargo waos` carries: the site's pages (`packages/waos-site/content`, copied into
-//! this crate's `content/` by `cargo xtask sync-docs` and built in by `build.rs`), so an agent
-//! reads the docs of the version it builds with, offline. `cargo waos docs` prints their map,
+//! The docs `cargo waos` carries: this crate's `playbook.md` and `docs/`, which the website
+//! renders too, and the reference's pages, which `build.rs` makes from the WIT and builds in with
+//! the rest, so an agent reads the docs of the version it builds with, offline. `cargo waos docs` prints their map,
 //! one page, or the lines that match a search; `cargo waos skill install` writes them as files.
 //!
 //! The invariant: a page is named as the site's address names it, less `/docs/`
@@ -20,8 +20,9 @@ pub use map::{skill_index, terminal_map};
 pub use outline::Line;
 pub use page::{Page, SITE};
 
-/// Every file under `content/`, by its path from it, as `build.rs` built them in.
-const BUNDLED: &[(&str, &str)] = include!(concat!(env!("OUT_DIR"), "/content.rs"));
+/// Every file of the docs, `playbook.md` and the pages under `docs/`, by its path, as `build.rs`
+/// built them in.
+const BUNDLED: &[(&str, &str)] = include!(concat!(env!("OUT_DIR"), "/docs.rs"));
 
 /// The playbook's name, and the line the map gives it.
 pub const PLAYBOOK: &str = "playbook";
@@ -48,13 +49,13 @@ impl Docs {
         Docs::from_files(BUNDLED)
     }
 
-    /// The docs `files` hold, each by its path from the content folder: `agents.md`, the
+    /// The docs `files` hold, each by its path from the crate's folder: `playbook.md`, the
     /// playbook, and the site's pages under `docs/`.
     pub fn from_files(files: &[(&str, &str)]) -> Docs {
         let files: BTreeMap<&str, &str> = files.iter().copied().collect();
         let mut pages = Vec::new();
         let mut lines = Vec::new();
-        if let Some(playbook) = files.get("agents.md") {
+        if let Some(playbook) = files.get("playbook.md") {
             pages.push(Page::from_playbook(
                 PLAYBOOK,
                 PLAYBOOK_DESCRIPTION,
@@ -83,7 +84,8 @@ impl Docs {
 
     /// The page `asked` names: its name (`guide/network`), its address on the site
     /// (`/docs/guide/network.md`, `https://waos.app/docs/waft#state`, `/agents.md`), or the last
-    /// part of its name where one page alone ends so (`network`).
+    /// part of its name where one page alone ends so (`network`), or one page outside the
+    /// reference does (`windows`, which is a guide page and an interface's).
     pub fn find(&self, asked: &str) -> Result<&Page> {
         let name = name_asked(asked);
         if let Some(page) = self.page(&name) {
@@ -94,6 +96,14 @@ impl Docs {
             .iter()
             .filter(|page| page.name.rsplit('/').next() == Some(name.as_str()))
             .collect();
+        let written: Vec<&Page> = ending
+            .iter()
+            .copied()
+            .filter(|page| !page.name.starts_with("reference/"))
+            .collect();
+        if let [page] = written.as_slice() {
+            return Ok(page);
+        }
         match ending.as_slice() {
             [page] => return Ok(page),
             [_, ..] => bail!(
@@ -101,11 +111,6 @@ impl Docs {
                 names(&ending)
             ),
             [] => {}
-        }
-        if name.starts_with("reference/") {
-            bail!(
-                "{asked} is one of the reference's pages, which `cargo waos` does not carry: it is at {SITE}/docs/{name}, and its WIT, which the page is made of, is in the wasdk crate's wit/ folder, under ~/.cargo/registry/src once a program has built with it"
-            );
         }
         let close: Vec<&Page> = self
             .pages

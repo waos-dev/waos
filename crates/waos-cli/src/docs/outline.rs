@@ -1,8 +1,8 @@
 //! The docs' order, as the site's sidebar has it: each folder's `meta.json` lists its pages and
 //! folders in order, a `---Name---` among them heading the ones after it, and a folder's
-//! `index` page is the folder's own line. Read from the files under `content/docs`.
+//! `index` page is the folder's own line. Read from the files under `docs/`.
 //!
-//! The invariant: every page under `content/docs` has one line. A page or folder a `meta.json`
+//! The invariant: every page under `docs/` has one line. A page or folder a `meta.json`
 //! leaves out comes after the folder's listed ones, by name, where the site would hide it, so no
 //! page is out of reach of `cargo waos docs`.
 
@@ -25,7 +25,7 @@ enum Listed {
     Item(String),
 }
 
-/// The pages under `docs/` of `files`, each a site page by its path from the content folder, in
+/// The pages under `docs/` of `files`, each a site page by its path from the crate's folder, in
 /// the outline's order, and the outline's lines, starting at `depth`.
 pub fn read(files: &BTreeMap<&str, &str>, depth: usize) -> (Vec<Page>, Vec<Line>) {
     let mut outline = Outline {

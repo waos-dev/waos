@@ -81,7 +81,7 @@ mod tests {
 
     const FILES: &[(&str, &str)] = &[
         (
-            "agents.md",
+            "playbook.md",
             "# Build an app on WaOS\n\n1. **Tools:** rustup.\n",
         ),
         ("docs/meta.json", r#"{"pages": ["start", "guide"]}"#),
