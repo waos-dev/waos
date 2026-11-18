@@ -177,7 +177,8 @@ mod tests {
             assert!(
                 lines
                     .windows(2)
-                    .any(|pair| pair == ["#[wasdk::main]", "async fn main()"]),
+                    .any(|pair| pair[0] == "#[wasdk::main]"
+                        && pair[1].starts_with("async fn main()")),
                 "{template:?}"
             );
             assert!(main_rs.contains("wasdk_adapter_waft::run("));

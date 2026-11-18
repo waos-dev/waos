@@ -271,9 +271,11 @@ fn send(network: ProgramNetwork, proxy: HttpProxy, authority: &str) -> Result<u1
     let request = http::Request::get(format!("http://{authority}/"))
         .body(body)
         .unwrap();
+    // Long enough for a system that takes a moment to refuse IPv6's loopback address before the
+    // engine asks IPv4's, which is where this computer answers.
     let options = RequestOptions {
-        connect_timeout: Some(Duration::from_millis(200)),
-        first_byte_timeout: Some(Duration::from_millis(200)),
+        connect_timeout: Some(Duration::from_secs(1)),
+        first_byte_timeout: Some(Duration::from_secs(1)),
         between_bytes_timeout: None,
     };
     let sending = http.send_request(request, Some(options), Box::new(async { Ok(()) }));
