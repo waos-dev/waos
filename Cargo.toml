@@ -190,6 +190,10 @@ cargo_metadata = "0.23"
 # place, keeping its comments and layout, at the version `toml` parses with; and the patterns of
 # its members, matched with the glob cargo matches them with.
 toml_edit = "0.25"
+# The docs' archive `cargo waos docs` downloads from a release: a tar, gzipped, read with the
+# zlib-rs backend `zip` already brings.
+flate2 = { version = "1", default-features = false, features = ["zlib-rs"] }
+tar = { version = "0.4", default-features = false }
 glob = "0.3"
 # The icon `cargo waos new` gives a new program, encoded as a PNG, at the version the workspace
 # builds already, which `image` encodes with.

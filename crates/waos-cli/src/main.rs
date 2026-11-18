@@ -62,8 +62,8 @@ use crate::resize::Points;
 enum Cargo {
     #[command(
         name = "waos",
-        about = "cargo waos: writes a new program, and builds a program as a component, runs it in WaOS and packages it, and takes screenshots of its windows, gives them input and sizes them while it runs. `cargo waos docs` is the map of WaOS's docs, this version's, for writing an app.",
-        after_help = "The docs and guides are at https://waos.app/docs; `cargo waos docs` prints this version's.",
+        about = "cargo waos: writes a new program, and builds a program as a component, runs it in WaOS and packages it, and takes screenshots of its windows, gives them input and sizes them while it runs. `cargo waos docs` is the map of WaOS's docs, of the version the app builds with, for writing an app.",
+        after_help = "The docs and guides are at https://waos.app/docs; `cargo waos docs` prints the app's version's.",
         version
     )]
     Waos(WaosArgs),
@@ -211,17 +211,22 @@ enum Command {
     /// is not one. The summary is read for a program `cargo waos run` on this machine runs or has
     /// run, the rest for one it runs; WaOS is never started.
     Inspect(InspectArgs),
-    /// Prints WaOS's docs, this version's, as the site has them: without a page, their map, a
-    /// line a page by the name to give, in the order to read them; with one, that page as
-    /// Markdown; with --search, every line of every page that holds the text, whatever its case,
-    /// as <page>:<line>: <text>.
+    /// Prints WaOS's docs as the site has them: without a page, their map, a line a page by the
+    /// name to give, in the order to read them; with one, that page as Markdown; with --search,
+    /// every line of every page that holds the text, whatever its case, as <page>:<line>: <text>.
+    ///
+    /// They are the docs of the version the app in this directory builds with, its `wasdk` in its
+    /// Cargo.lock, or this cargo waos's own outside an app: downloaded the first time from that
+    /// version's GitHub release into the user's cache folder, and read from there, offline, after.
+    /// Where they cannot be downloaded, waos.app's latest docs stand in, and it says so.
     ///
     /// A page is named as its address on waos.app names it, less /docs/: guide/network,
     /// waft/state, waft. Its address works too, and so does the end of its name where one page
     /// alone ends so: network. A link to /docs/<page> in a page is `cargo waos docs <page>`; the
     /// playbook, the steps an agent follows, is `playbook`.
     Docs(DocsArgs),
-    /// Writes WaOS's docs, this version's, as a skill an agent loads when it builds a WaOS app.
+    /// Writes WaOS's docs, of the version the app builds with, as a skill an agent loads when it
+    /// builds a WaOS app.
     Skill(SkillArgs),
 }
 
@@ -577,13 +582,14 @@ fn program_id(program: &Program) -> Result<ProgramId> {
     WaosMetadata::id_of(package)
 }
 
-/// What `connection` answers, on a runtime of this thread's, for a command's connection to WaOS.
-fn on_this_thread(connection: impl Future<Output = Result<ExitCode>>) -> Result<ExitCode> {
+/// What `work` answers, on a runtime of this thread's: a command's connection to WaOS, or a
+/// download.
+fn on_this_thread<T>(work: impl Future<Output = Result<T>>) -> Result<T> {
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .context("a runtime for the connection")?;
-    runtime.block_on(connection)
+    runtime.block_on(work)
 }
 
 /// Packages the program and says where its package is.
@@ -597,7 +603,7 @@ fn package(program: &Program) -> Result<ExitCode> {
 /// Prints the map of the docs, the page asked for, or the lines that hold the text searched for;
 /// a search that finds nothing fails, saying so.
 fn show_docs(args: &DocsArgs) -> Result<ExitCode> {
-    let docs = docs::Docs::bundled();
+    let docs = on_this_thread(docs::load())?;
     match (&args.page, &args.search) {
         (_, Some(text)) => {
             let hits = docs.search(text);
@@ -606,7 +612,7 @@ fn show_docs(args: &DocsArgs) -> Result<ExitCode> {
                 println!("{}:{}: {}", hit.page, hit.line, hit.text);
             }
         }
-        (Some(page), None) => print!("{}", docs.find(page)?.markdown()),
+        (Some(page), None) => print!("{}", docs.find(page)?.markdown),
         (None, None) => print!("{}", docs::terminal_map(&docs)),
     }
     Ok(ExitCode::SUCCESS)
@@ -618,7 +624,7 @@ fn install_skill(dir: Option<PathBuf>) -> Result<ExitCode> {
         Some(dir) => dir,
         None => skill::default_skills_folder()?,
     };
-    let folder = skill::install(&skills, &docs::Docs::bundled())?;
+    let folder = skill::install(&skills, &on_this_thread(docs::load())?)?;
     eprintln!("cargo waos: wrote the skill, SKILL.md and docs/");
     println!("{}", folder.display());
     Ok(ExitCode::SUCCESS)

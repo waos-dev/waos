@@ -2,5 +2,3 @@
 .DS_Store
 .reference/
 .vercel
-# The reference's pages for each interface, which the site's build writes from the WIT
-/crates/waos-cli/docs/reference/wasdk-*/

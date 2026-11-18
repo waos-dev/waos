@@ -4,7 +4,7 @@
 //! The invariant: both follow [`Docs::lines`], so the map and the skill's index list the same
 //! pages in the same order, and each says how a page's links are followed.
 
-use super::{Docs, Line, PLAYBOOK, Page};
+use super::{Docs, Line, Origin, PLAYBOOK, Page};
 
 /// The map `cargo waos docs` prints: how to read on, then a line for each page, indented under
 /// its section, with its name, its title and its description.
@@ -19,8 +19,8 @@ pub fn terminal_map(docs: &Docs) -> String {
         .max()
         .unwrap_or(0);
     let mut text = format!(
-        "WaOS's docs, waos-cli {}'s. `cargo waos docs <page>` prints a page, `cargo waos docs --search <text>` prints the lines that hold the text, and a link to /docs/<page> in a page is `cargo waos docs <page>`.\n\n",
-        env!("CARGO_PKG_VERSION")
+        "{}. `cargo waos docs <page>` prints a page, `cargo waos docs --search <text>` prints the lines that hold the text, and a link to /docs/<page> in a page is `cargo waos docs <page>`.\n\n",
+        whose(docs)
     );
     for line in docs.lines() {
         match line {
@@ -45,8 +45,8 @@ pub fn terminal_map(docs: &Docs) -> String {
 /// the playbook the skill's own `SKILL.md`.
 pub fn skill_index(docs: &Docs) -> String {
     let mut text = format!(
-        "# WaOS's docs\n\nwaos-cli {}'s, a page a file. A link to /docs/<page> in a page is the file <page>.md in this folder.\n\n",
-        env!("CARGO_PKG_VERSION")
+        "# WaOS's docs\n\n{}, a page a file. A link to /docs/<page> in a page is the file <page>.md in this folder.\n\n",
+        whose(docs)
     );
     for line in docs.lines() {
         match line {
@@ -74,6 +74,17 @@ pub fn skill_index(docs: &Docs) -> String {
         }
     }
     text
+}
+
+/// Whose docs these are: the version's, or waos.app's latest standing in for it.
+pub fn whose(docs: &Docs) -> String {
+    match docs.origin {
+        Origin::Release => format!("WaOS's docs, version {}'s", docs.version),
+        Origin::Latest => format!(
+            "WaOS's latest docs, from waos.app, which may not match version {}",
+            docs.version
+        ),
+    }
 }
 
 fn page_named<'a>(docs: &'a Docs, name: &str) -> &'a Page {

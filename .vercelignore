@@ -1,6 +1,6 @@
 # The website deploys to Vercel from the repository's root, its project's root directory being
-# packages/waos-site, so the site's build reads the docs in crates/waos-cli, the WIT,
-# examples/hello and the built-in apps' icons where they are. Only those and the site are uploaded.
+# packages/waos-site, so the site's build reads the WIT, examples/hello and the built-in apps'
+# icons where they are. Only those and the site are uploaded.
 /*
 !/packages
 /packages/*
@@ -8,13 +8,7 @@
 /packages/waos-site/node_modules
 /packages/waos-site/.next
 /packages/waos-site/.source
-!/crates
-/crates/*
-!/crates/waos-cli
-/crates/waos-cli/*
-!/crates/waos-cli/docs
-!/crates/waos-cli/playbook.md
-/crates/waos-cli/docs/reference/wasdk-*/
+/packages/waos-site/content/docs/reference/wasdk-*/
 !/wit
 !/examples
 /examples/*

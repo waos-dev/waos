@@ -51,7 +51,7 @@ fn write_files(folder: &Path, docs: &Docs) -> io::Result<()> {
         if let Some(parent) = file.parent() {
             fs::create_dir_all(parent)?;
         }
-        fs::write(file, page.markdown())?;
+        fs::write(file, &page.markdown)?;
     }
     Ok(())
 }
@@ -60,11 +60,11 @@ fn write_files(folder: &Path, docs: &Docs) -> io::Result<()> {
 fn skill_md(docs: &Docs) -> String {
     let playbook = docs
         .find(docs::PLAYBOOK)
-        .map(|page| format!("# {}\n\n{}", page.title, page.body))
+        .map(|page| format!("# {}\n\n{}", page.title, page.body()))
         .unwrap_or_default();
     format!(
-        "---\nname: {NAME}\ndescription: {DESCRIPTION}\n---\n\nThis version's docs, waos-cli {}'s, are in `docs/`, a page a file; `docs/index.md` is their map.\n\n{playbook}",
-        env!("CARGO_PKG_VERSION")
+        "---\nname: {NAME}\ndescription: {DESCRIPTION}\n---\n\n{} are in `docs/`, a page a file; `docs/index.md` is their map.\n\n{playbook}",
+        docs::whose(docs)
     )
 }
 
@@ -79,30 +79,19 @@ fn remove_folder_if_there(folder: &Path) -> io::Result<()> {
 mod tests {
     use super::*;
 
-    const FILES: &[(&str, &str)] = &[
-        (
-            "playbook.md",
+    /// Docs of a few pages, as waos.app's `llms-full.txt` and `agents.md` have them.
+    fn docs() -> Docs {
+        Docs::from_latest(
+            "9.8.7",
+            "# Start (https://waos.app/docs/start)\n\nInstall.\n\n# Building the app (https://waos.app/docs/guide)\n\n# Network (https://waos.app/docs/guide/network)\n\nHTTP.\n",
             "# Build an app on WaOS\n\n1. **Tools:** rustup.\n",
-        ),
-        ("docs/meta.json", r#"{"pages": ["start", "guide"]}"#),
-        (
-            "docs/start.mdx",
-            "---\ntitle: Start\ndescription: Begin.\n---\n\nInstall.\n",
-        ),
-        (
-            "docs/guide/index.mdx",
-            "---\ntitle: Building the app\n---\n",
-        ),
-        (
-            "docs/guide/network.mdx",
-            "---\ntitle: Network\n---\n\nHTTP.\n",
-        ),
-    ];
+        )
+    }
 
     #[test]
     fn the_skill_is_the_playbook_and_every_page_as_a_file() {
         let skills = tempfile::tempdir().unwrap();
-        let docs = Docs::from_files(FILES);
+        let docs = docs();
         let folder = install(skills.path(), &docs).unwrap();
         assert_eq!(folder, skills.path().join("waos"));
         let skill = fs::read_to_string(folder.join("SKILL.md")).unwrap();
@@ -133,7 +122,7 @@ mod tests {
         fs::create_dir_all(folder.join("docs/gone")).unwrap();
         fs::write(folder.join("docs/gone/page.md"), "old").unwrap();
         fs::write(folder.join("notes.md"), "the user's").unwrap();
-        install(skills.path(), &Docs::from_files(FILES)).unwrap();
+        install(skills.path(), &docs()).unwrap();
         assert!(!folder.join("docs/gone").exists());
         assert_eq!(
             fs::read_to_string(folder.join("notes.md")).unwrap(),

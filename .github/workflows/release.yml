@@ -1,7 +1,8 @@
 # A release is one tag, `v<version>` (the design's decision 67): its tests pass, the SDK, the
 # command and the engine are published together at the tag's version, so the SDK always matches
 # its WaOS, and a program written by the published `cargo waos new` builds from crates.io alone.
-# Waft's crates the SDK names must be on crates.io first, at the versions the workspace names.
+# Waft's crates the SDK names must be on crates.io first, at the versions the workspace names. The
+# release on GitHub carries the docs of that version, which `cargo waos docs` downloads.
 name: Release
 
 on:
@@ -11,6 +12,9 @@ on:
 jobs:
   release:
     runs-on: macos-15
+    permissions:
+      # The GitHub release, made and given the docs' archive.
+      contents: write
     steps:
       - uses: actions/checkout@v4
         with:
@@ -42,3 +46,11 @@ jobs:
           cargo waos new release-check
           cd release-check
           cargo waos build
+      - name: The docs of this version, on the GitHub release
+        working-directory: waos/packages/waos-site
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          archive=$(node scripts/write-docs-bundle.mjs "$RUNNER_TEMP/docs")
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || gh release create "$GITHUB_REF_NAME" --verify-tag --title "$GITHUB_REF_NAME" --notes "WaOS $GITHUB_REF_NAME"
+          gh release upload "$GITHUB_REF_NAME" "$archive" --clobber

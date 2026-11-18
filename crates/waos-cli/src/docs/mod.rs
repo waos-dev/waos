@@ -1,37 +1,56 @@
-//! The docs `cargo waos` carries: this crate's `playbook.md` and `docs/`, which the website
-//! renders too, and the reference's pages, which `build.rs` makes from the WIT and builds in with
-//! the rest, so an agent reads the docs of the version it builds with, offline. `cargo waos docs` prints their map,
-//! one page, or the lines that match a search; `cargo waos skill install` writes them as files.
+//! The docs `cargo waos docs` and `cargo waos skill install` serve: those of the version the app
+//! builds with, from the archive its GitHub release carries (`waos-docs-<version>.tar.gz`, which
+//! the site's `write-docs-bundle.mjs` makes at the release's tag), downloaded once into the user's
+//! cache and read from there offline afterwards; or, where none could be downloaded, waos.app's
+//! latest, said to be so.
 //!
-//! The invariant: a page is named as the site's address names it, less `/docs/`
-//! (`guide/network` for `/docs/guide/network`), so a link in one page is the name of another;
-//! the playbook, `/agents.md` on the site, is `playbook`.
+//! The invariant: a page is named as the site's address names it, less `/docs/` (`guide/network`
+//! for `/docs/guide/network`), so a link in one page is the name of another; the playbook,
+//! `/agents.md` on the site, is `playbook`. The order and the pages are the archive's: nothing
+//! here reads the site's sources.
 
-mod front_matter;
+mod bundle;
+mod cache;
+mod download;
+mod latest;
 mod map;
-mod outline;
 mod page;
+mod version;
 
-use std::collections::BTreeMap;
+use std::path::Path;
 
 use anyhow::{Result, bail};
 
-pub use map::{skill_index, terminal_map};
-pub use outline::Line;
+pub use map::{skill_index, terminal_map, whose};
 pub use page::{Page, SITE};
-
-/// Every file of the docs, `playbook.md` and the pages under `docs/`, by its path, as `build.rs`
-/// built them in.
-const BUNDLED: &[(&str, &str)] = include!(concat!(env!("OUT_DIR"), "/docs.rs"));
 
 /// The playbook's name, and the line the map gives it.
 pub const PLAYBOOK: &str = "playbook";
 const PLAYBOOK_DESCRIPTION: &str = "the steps, from the tools to a packaged app";
 
-/// The docs: their pages in the map's order, the playbook first, and the map's lines.
+/// The docs: their version, where they came from, their pages in the map's order, the playbook
+/// first, and the map's lines.
 pub struct Docs {
+    pub version: String,
+    pub origin: Origin,
     pages: Vec<Page>,
     lines: Vec<Line>,
+}
+
+/// Where the docs came from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Origin {
+    /// The archive of the version's release.
+    Release,
+    /// waos.app's, the latest release's, which may not be the version's.
+    Latest,
+}
+
+/// A line of the map: a heading over the lines after it, or a page, each at its depth.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Line {
+    Heading { title: String, depth: usize },
+    Page { name: String, depth: usize },
 }
 
 /// A line of a page that matched a search: the page's name, the line's number in the page as
@@ -43,33 +62,44 @@ pub struct Hit {
     pub text: String,
 }
 
+/// The docs of the version this directory's app builds with, or this `cargo waos`'s outside an
+/// app: from the cache, downloaded into it the first time, or waos.app's latest where that fails,
+/// which it says on stderr.
+pub async fn load() -> Result<Docs> {
+    let version = version::wanted()?;
+    let root = cache::root()?;
+    if let Some(folder) = cache::bundle(&root, &version) {
+        return Docs::from_bundle(&folder);
+    }
+    match download::archive(&version).await {
+        Ok(archive) => {
+            let folder = cache::install(&root, &version, &archive)?;
+            eprintln!(
+                "cargo waos: downloaded the docs of version {version} into {}",
+                folder.display()
+            );
+            Docs::from_bundle(&folder)
+        }
+        Err(error) => {
+            eprintln!(
+                "cargo waos: the docs of version {version} could not be downloaded ({error:#}); these are waos.app's latest docs, which may not match version {version}"
+            );
+            let (pages, playbook) = download::latest().await?;
+            Ok(Docs::from_latest(&version, &pages, &playbook))
+        }
+    }
+}
+
 impl Docs {
-    /// The docs built into this `cargo waos`.
-    pub fn bundled() -> Docs {
-        Docs::from_files(BUNDLED)
+    /// The docs an unpacked archive in `folder` holds: `manifest.json`, `agents.md` and `docs/`.
+    pub fn from_bundle(folder: &Path) -> Result<Docs> {
+        bundle::read(folder)
     }
 
-    /// The docs `files` hold, each by its path from the crate's folder: `playbook.md`, the
-    /// playbook, and the site's pages under `docs/`.
-    pub fn from_files(files: &[(&str, &str)]) -> Docs {
-        let files: BTreeMap<&str, &str> = files.iter().copied().collect();
-        let mut pages = Vec::new();
-        let mut lines = Vec::new();
-        if let Some(playbook) = files.get("playbook.md") {
-            pages.push(Page::from_playbook(
-                PLAYBOOK,
-                PLAYBOOK_DESCRIPTION,
-                playbook,
-            ));
-            lines.push(Line::Page {
-                name: PLAYBOOK.to_owned(),
-                depth: 0,
-            });
-        }
-        let (site_pages, site_lines) = outline::read(&files, 0);
-        pages.extend(site_pages);
-        lines.extend(site_lines);
-        Docs { pages, lines }
+    /// The docs waos.app's `llms-full.txt` and `agents.md` hold, for `version`, which they may not
+    /// be.
+    pub fn from_latest(version: &str, pages: &str, playbook: &str) -> Docs {
+        latest::read(version, pages, playbook)
     }
 
     /// The pages, in the map's order.
@@ -134,8 +164,7 @@ impl Docs {
         self.pages
             .iter()
             .flat_map(|page| {
-                let markdown = page.markdown();
-                markdown
+                page.markdown
                     .lines()
                     .enumerate()
                     .filter(|(_, line)| line.to_lowercase().contains(&wanted))

@@ -1,5 +1,5 @@
 /**
- * Writes the reference's pages on the WIT into the docs' `reference` folder, in `crates/waos-cli/docs`, from `wit/deps` as it is
+ * Writes the reference's pages on the WIT into `content/docs/reference`, from `wit/deps` as it is
  * when the site builds, so they never drift from it: for each package, a page per interface, its
  * doc comment and then each item's doc comment and WIT, and a page listing its interfaces.
  * `npm run dev` and `npm run build` run it first. What it writes is not committed, and each run
@@ -10,13 +10,13 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readPackage } from './read-wit.mjs';
 
-/** The packages the reference shows; the docs' `reference/meta.json` orders them. */
+/** The packages the reference shows; `content/docs/reference/meta.json` orders them. */
 const PACKAGES = ['wasdk:platform', 'wasdk:media'];
 const REFERENCE_ROUTE = '/docs/reference';
 
 const siteRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 const witDeps = join(siteRoot, '../../wit/deps');
-const referenceDir = join(siteRoot, '../../crates/waos-cli/docs/reference');
+const referenceDir = join(siteRoot, 'content/docs/reference');
 
 for (const name of PACKAGES) writePackage(readPackage(packageDir(name)));
 
