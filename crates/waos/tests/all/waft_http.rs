@@ -1,9 +1,11 @@
-//! `examples/waft-http`, a Waft app over `wasdk-adapter-waft`'s HTTP client, under the test
-//! shell and against a server on this computer: a response's trailers come through `Body::trailers`
-//! after its body has ended, a request's trailers are sent after its streamed body, a 307 follows
-//! with a body held in memory, and a 307 whose body streamed is answered to the app because the
-//! body cannot be sent again. It is a debug build of Waft, slow to start, and draws, so it runs
-//! where the engine makes hardware buffers, on Apple's systems.
+//! `examples/waft-http`, a Waft app over `wasdk-adapter-waft`'s HTTP client, under the test shell
+//! and against servers on this computer: a response's trailers come through `Body::trailers`
+//! after its body has ended, a request's trailers are sent after its streamed or held body, a 307
+//! follows with a body held in memory and is answered to the app where the body streamed, a 301,
+//! 302 or 303 of a `POST` becomes a `GET` without the body, the redirect limit is told from a
+//! redirect whose body can never be sent again, credentials stay within their origin, and a `GET`
+//! or `HEAD` with no body sends no `Content-Length: 0`. It is a debug build of Waft, slow to start,
+//! and draws, so it runs where the engine makes hardware buffers, on Apple's systems.
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -23,7 +25,7 @@ use crate::shell::{self, Lines, WITHIN};
 #[test]
 fn trailers_go_both_ways_and_a_307_keeps_a_held_body_but_not_a_streamed_one() {
     let (engine, _shell, arrivals) = shell::engine();
-    let (port, content_length_on_get) = serve();
+    let (port, _other, flags) = serve();
     let folders = TempDir::new().unwrap();
     let data = folders.path().join("data");
     std::fs::create_dir_all(&data).unwrap();
@@ -47,11 +49,24 @@ fn trailers_go_both_ways_and_a_307_keeps_a_held_body_but_not_a_streamed_one() {
     lines.wait_for("response trailers: x-checksum=7 after 5 bytes");
     lines.wait_for("response trailers again: same");
     lines.wait_for("request trailers: x-checksum=7");
+    lines.wait_for("held trailers: x-checksum=7");
+    lines.wait_for("redirect held trailers: x-checksum=7");
     lines.wait_for("redirect in memory: payload");
     lines.wait_for("redirect stream: 307 Temporary Redirect");
+    lines.wait_for("301 POST: GET 0");
+    lines.wait_for("302 POST: GET 0");
+    lines.wait_for("303 POST: GET 0");
+    lines.wait_for("too many: too many redirects");
+    lines.wait_for("limit stream: 307 Temporary Redirect");
+    lines.wait_for("credentials: authorization: none");
+    lines.wait_for("head: 200 OK");
     assert!(
-        !content_length_on_get.load(Ordering::SeqCst),
+        !flags.content_length_on_get.load(Ordering::SeqCst),
         "a GET with no body sends no Content-Length: 0"
+    );
+    assert!(
+        !flags.content_length_on_head.load(Ordering::SeqCst),
+        "a HEAD with no body sends no Content-Length: 0"
     );
     end(&running, &view, &lines);
 }
@@ -67,59 +82,109 @@ fn end(running: &RunningProgram, view: &ProgramView, lines: &Lines) {
     );
 }
 
+/// What a server watched for in the requests it answered.
+#[derive(Default)]
+struct Flags {
+    /// Whether a `GET` with no body was sent a `Content-Length: 0`.
+    content_length_on_get: AtomicBool,
+    /// Whether a `HEAD` with no body was sent a `Content-Length: 0`.
+    content_length_on_head: AtomicBool,
+}
+
 /// What came with a request: its body and its trailer fields.
 type Received = (Vec<u8>, Option<Vec<(String, String)>>);
 
-/// A server on this computer, at the port it answers. `/trailers` streams five bytes and
-/// trailers, `/echo-trailers` says the trailers the request sent after its body, `/redirect`
-/// answers a 307 to `/echo`, and `/echo` answers the body it was sent. Each connection is one
-/// request.
-fn serve() -> (u16, Arc<AtomicBool>) {
-    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-    let port = listener.local_addr().unwrap().port();
-    // Whether a `GET` with no body was sent a `Content-Length: 0`, which it must not be.
-    let content_length_on_get = Arc::new(AtomicBool::new(false));
-    let seen = Arc::clone(&content_length_on_get);
+/// A server on this computer, at the port it answers, and another origin at the second port:
+/// `/trailers` streams five bytes and trailers; `/echo-trailers` says the trailers the request
+/// sent after its body; `/redirect` and `/redirect-trailers` answer a 307 to `/echo` and
+/// `/echo-trailers`; `/moved301`, `/moved302` and `/see303` answer their redirect to `/method`,
+/// which says the method and how many bytes came; `/loop` redirects to itself; `/redirect-other`
+/// sends the request to `/echo-headers` on the other origin, which says whether `authorization`
+/// arrived; and `/head` answers a `HEAD` with no content. Each connection is one request.
+fn serve() -> (u16, u16, Arc<Flags>) {
+    let (main, port) = listen();
+    let (other, other_port) = listen();
+    let flags = Arc::new(Flags::default());
+    let watched = Arc::clone(&flags);
     thread::spawn(move || {
-        for stream in listener.incoming().flatten() {
-            let seen = Arc::clone(&seen);
-            thread::spawn(move || answer(stream, &seen));
+        for stream in main.incoming().flatten() {
+            let watched = Arc::clone(&watched);
+            thread::spawn(move || answer(stream, &watched, other_port));
         }
     });
-    (port, content_length_on_get)
+    let watched = Arc::clone(&flags);
+    thread::spawn(move || {
+        for stream in other.incoming().flatten() {
+            let watched = Arc::clone(&watched);
+            thread::spawn(move || answer(stream, &watched, port));
+        }
+    });
+    (port, other_port, flags)
+}
+
+/// A listener on this computer, and the port it answers.
+fn listen() -> (TcpListener, u16) {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    (listener, port)
 }
 
 /// Reads one request from `stream` and answers it.
-fn answer(stream: TcpStream, content_length_on_get: &AtomicBool) {
+fn answer(stream: TcpStream, flags: &Flags, other_port: u16) {
     let mut reader = BufReader::new(stream.try_clone().unwrap());
-    let Some((method, path, framing)) = head(&mut reader) else {
+    let Some(request) = head(&mut reader) else {
         return;
     };
-    if method == "GET" && matches!(framing, Framing::Length(0)) {
-        content_length_on_get.store(true, Ordering::SeqCst);
+    if matches!(&request.framing, Framing::Length(0)) {
+        match request.method.as_str() {
+            "GET" => flags.content_length_on_get.store(true, Ordering::SeqCst),
+            "HEAD" => flags.content_length_on_head.store(true, Ordering::SeqCst),
+            _ => {}
+        }
     }
-    let Some((body, trailers)) = read_body(&mut reader, framing) else {
+    let Some((body, trailers)) = read_body(&mut reader, &request.framing) else {
         return;
     };
-    match path.as_str() {
+    match request.path.as_str() {
         "/trailers" => chunked(&stream, b"hello", &[("x-checksum", "7")]),
-        "/echo-trailers" => {
-            let text = trailers
-                .unwrap_or_default()
-                .iter()
-                .map(|(name, value)| format!("{name}={value}"))
-                .collect::<Vec<_>>()
-                .join(", ");
-            page(&stream, "200 OK", text.as_bytes());
-        }
-        "/redirect" => {
-            let response = "HTTP/1.1 307 Temporary Redirect\r\nlocation: /echo\r\ncontent-length: 0\r\nconnection: close\r\n\r\n";
-            let mut writer = &stream;
-            let _ = writer.write_all(response.as_bytes());
-        }
+        "/echo-trailers" => page(&stream, "200 OK", trailers_text(&trailers).as_bytes()),
+        "/redirect" => moved(&stream, "307 Temporary Redirect", "/echo"),
+        "/redirect-trailers" => moved(&stream, "307 Temporary Redirect", "/echo-trailers"),
         "/echo" => page(&stream, "200 OK", &body),
+        "/moved301" => moved(&stream, "301 Moved Permanently", "/method"),
+        "/moved302" => moved(&stream, "302 Found", "/method"),
+        "/see303" => moved(&stream, "303 See Other", "/method"),
+        "/method" => page(
+            &stream,
+            "200 OK",
+            format!("{} {}", request.method, body.len()).as_bytes(),
+        ),
+        "/loop" => moved(&stream, "302 Found", "/loop"),
+        "/redirect-other" => moved(
+            &stream,
+            "307 Temporary Redirect",
+            &format!("http://127.0.0.1:{other_port}/echo-headers"),
+        ),
+        "/echo-headers" => page(
+            &stream,
+            "200 OK",
+            format!(
+                "authorization: {}",
+                request.authorization.as_deref().unwrap_or("none")
+            )
+            .as_bytes(),
+        ),
+        "/head" => page(&stream, "200 OK", b""),
         _ => page(&stream, "404 Not Found", b""),
     }
+}
+
+/// A request's method and path, how its body is framed, and its credentials.
+struct Head {
+    method: String,
+    path: String,
+    framing: Framing,
+    authorization: Option<String>,
 }
 
 /// How a request's body is framed.
@@ -132,15 +197,15 @@ enum Framing {
     Chunked,
 }
 
-/// The method and path a request asks for, and how its body is framed.
-fn head(reader: &mut BufReader<TcpStream>) -> Option<(String, String, Framing)> {
+/// Reads one request's method, path, framing and credentials.
+fn head(reader: &mut BufReader<TcpStream>) -> Option<Head> {
     let mut request = String::new();
     if reader.read_line(&mut request).ok()? == 0 {
         return None;
     }
     let method = request.split_whitespace().next()?.to_owned();
     let path = request.split_whitespace().nth(1)?.to_owned();
-    let (mut length, mut chunked) = (None, false);
+    let (mut length, mut chunked, mut authorization) = (None, false, None);
     loop {
         let mut line = String::new();
         if reader.read_line(&mut line).ok()? == 0 {
@@ -157,6 +222,7 @@ fn head(reader: &mut BufReader<TcpStream>) -> Option<(String, String, Framing)> 
         match name.trim().to_ascii_lowercase().as_str() {
             "content-length" => length = value.parse().ok(),
             "transfer-encoding" if value.eq_ignore_ascii_case("chunked") => chunked = true,
+            "authorization" => authorization = Some(value.to_owned()),
             _ => {}
         }
     }
@@ -165,15 +231,20 @@ fn head(reader: &mut BufReader<TcpStream>) -> Option<(String, String, Framing)> 
         (false, Some(length)) => Framing::Length(length),
         (false, None) => Framing::None,
     };
-    Some((method, path, framing))
+    Some(Head {
+        method,
+        path,
+        framing,
+        authorization,
+    })
 }
 
 /// The body of a request and its trailers, or `None` when the connection ended early.
-fn read_body(reader: &mut BufReader<TcpStream>, framing: Framing) -> Option<Received> {
+fn read_body(reader: &mut BufReader<TcpStream>, framing: &Framing) -> Option<Received> {
     match framing {
         Framing::None => Some((Vec::new(), None)),
         Framing::Length(length) => {
-            let mut body = vec![0; length];
+            let mut body = vec![0; *length];
             reader.read_exact(&mut body).ok()?;
             Some((body, None))
         }
@@ -215,6 +286,17 @@ fn read_body(reader: &mut BufReader<TcpStream>, framing: Framing) -> Option<Rece
     }
 }
 
+/// `trailers` as `name=value`, one pair after another.
+fn trailers_text(trailers: &Option<Vec<(String, String)>>) -> String {
+    trailers
+        .as_deref()
+        .unwrap_or_default()
+        .iter()
+        .map(|(name, value)| format!("{name}={value}"))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 /// Answers with `body` and its length.
 fn page(stream: &TcpStream, status: &str, body: &[u8]) {
     let mut stream = stream;
@@ -244,5 +326,14 @@ fn chunked(stream: &TcpStream, body: &[u8], trailers: &[(&str, &str)]) {
         response.push_str(&format!("{name}: {value}\r\n"));
     }
     response.push_str("\r\n");
+    let _ = stream.write_all(response.as_bytes());
+}
+
+/// Answers with a redirect to `location`.
+fn moved(stream: &TcpStream, status: &str, location: &str) {
+    let mut stream = stream;
+    let response = format!(
+        "HTTP/1.1 {status}\r\nlocation: {location}\r\ncontent-length: 0\r\nconnection: close\r\n\r\n"
+    );
     let _ = stream.write_all(response.as_bytes());
 }

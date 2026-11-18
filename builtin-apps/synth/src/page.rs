@@ -1,4 +1,4 @@
-//! The app's one page, on Fluent's `FluentPage`, clear of a phone's bars: the preset, the sustain switch and the octave above the scope, the tone's sliders under it,
+//! The app's one page, on a `FluentPage`, clear of a phone's bars: the preset, the sustain switch and the octave above the scope, the tone's sliders under it,
 //! and the keyboard along the bottom. At a phone's
 //! width the sliders stand one under another and the keyboard is lower.
 

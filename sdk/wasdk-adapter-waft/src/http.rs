@@ -17,7 +17,7 @@
 //! through [`Body::trailers`]; a response's trailers are read from WASI's future once its body has
 //! ended, and asking again answers the same fields. HTTP/1.1 sends a chunked request's trailers
 //! only when its header names them in `Trailer`, so a request whose body carries them sets that
-//! header, as the test program does.
+//! header, as `examples/waft-http` does.
 //!
 //! The invariant a later editor will break: never await the transmission future `Request::new`
 //! answers, nor write or await the trailers future, before `client::send`: both report on a send
@@ -53,13 +53,14 @@ impl HttpClient for WasdkHttp {
 }
 
 /// The headers that describe a body, which a redirect that drops the body drops with it: fetch's
-/// request-body headers and the length.
-const BODY_HEADERS: [HeaderName; 5] = [
+/// request-body headers, the length, and the names of its trailers.
+const BODY_HEADERS: [HeaderName; 6] = [
     header::CONTENT_ENCODING,
     header::CONTENT_LANGUAGE,
     header::CONTENT_LOCATION,
     header::CONTENT_LENGTH,
     header::CONTENT_TYPE,
+    header::TRAILER,
 ];
 
 /// The headers that carry credentials, which a redirect to another origin drops, as browsers and
@@ -91,24 +92,26 @@ async fn send(request: Request<Body>, options: SendOptions) -> Result<Response<B
             RedirectPolicy::Never => return Ok(response),
             RedirectPolicy::Follow { max } => max,
         };
+        // A redirect whose body cannot be sent again is answered to the app, even at the limit:
+        // following it was never possible.
+        let Some(next) = redirect_of(response.status(), &method, resend) else {
+            return Ok(response);
+        };
         if followed >= max {
             return Err(HttpError::TooManyRedirects);
         }
-        let Some(next) = next_hop(response.status(), &method, resend) else {
-            return Ok(response);
-        };
         let target = location_target(&uri, &location)?;
         drop(response);
         if !same_origin(&uri, &target) {
             drop_headers(&mut headers, &CREDENTIAL_HEADERS);
         }
         body = match next {
-            Next::AsGet => {
+            Redirect::AsGet => {
                 method = Method::GET;
                 drop_headers(&mut headers, &BODY_HEADERS);
                 Body::empty()
             }
-            Next::Same(resend) => resend,
+            Redirect::Same(resend) => resend,
         };
         uri = target;
         followed += 1;
@@ -117,19 +120,28 @@ async fn send(request: Request<Body>, options: SendOptions) -> Result<Response<B
 
 /// What the next hop of a followed redirect sends.
 #[derive(Debug)]
-enum Next {
+enum Redirect {
     /// A `GET` without the body.
     AsGet,
     /// The same method and this body.
     Same(Body),
 }
 
-/// What the hop after a redirect of `status` sends, from `resend`, the copy of the body kept to
-/// send again: `None` where the body cannot be sent again, so the redirect is the app's to answer.
-fn next_hop(status: StatusCode, method: &Method, resend: Option<Body>) -> Option<Next> {
-    match redirected(status, method) {
-        Redirected::AsGet => Some(Next::AsGet),
-        Redirected::Same => resend.map(Next::Same),
+/// What a redirect with `status` does to a request of `method`, by fetch's rules: 303 makes
+/// anything but a `GET` or a `HEAD` a `GET`, 301 and 302 make a `POST` one, and every other
+/// redirect keeps both. `resend` is the copy of the body kept to send again; `None` where it
+/// cannot be sent again, so the redirect is the app's to answer.
+fn redirect_of(status: StatusCode, method: &Method, resend: Option<Body>) -> Option<Redirect> {
+    let get_or_head = method == Method::GET || method == Method::HEAD;
+    let as_get = match status.as_u16() {
+        303 if !get_or_head => true,
+        301 | 302 if method == Method::POST => true,
+        _ => false,
+    };
+    if as_get {
+        Some(Redirect::AsGet)
+    } else {
+        resend.map(Redirect::Same)
     }
 }
 
@@ -142,10 +154,13 @@ async fn send_once(
     options: &SendOptions,
 ) -> Result<Response<Body>, HttpError> {
     let fields = fields_of(headers)?;
-    // RFC 9110 §8.6: no `Content-Length: 0` on a request that carries no content.
+    // A body whose trailers a `Trailer` header names goes chunked, so they are sent after it; and
+    // RFC 9110 §8.6 leaves `Content-Length: 0` off a method that carries no content, as hyper
+    // does for `GET`, `HEAD` and `CONNECT`.
     if !headers.contains_key(header::CONTENT_LENGTH)
+        && !headers.contains_key(header::TRAILER)
         && let Some(length) = body.length()
-        && !(length == 0 && method == Method::GET)
+        && !(length == 0 && carries_no_content(method))
     {
         fields
             .append(
@@ -167,25 +182,9 @@ async fn send_once(
     response_of(response)
 }
 
-/// What a redirect does to a request's method and body.
-#[derive(Debug, PartialEq, Eq)]
-enum Redirected {
-    /// Sent again as a `GET`, without the body.
-    AsGet,
-    /// Sent again with the same method and body.
-    Same,
-}
-
-/// What a redirect with `status` does to a request of `method`, by fetch's rules: 303 makes
-/// anything but a `GET` or a `HEAD` a `GET`, 301 and 302 make a `POST` one, and every other
-/// redirect keeps both.
-fn redirected(status: StatusCode, method: &Method) -> Redirected {
-    let get_or_head = method == Method::GET || method == Method::HEAD;
-    match status.as_u16() {
-        303 if !get_or_head => Redirected::AsGet,
-        301 | 302 if method == Method::POST => Redirected::AsGet,
-        _ => Redirected::Same,
-    }
+/// Whether `method`'s requests carry no content, so an empty body sends no `Content-Length: 0`.
+fn carries_no_content(method: &Method) -> bool {
+    matches!(method.as_str(), "GET" | "HEAD" | "CONNECT")
 }
 
 /// Takes `names` out of `headers`.
@@ -337,29 +336,26 @@ async fn stream_body(
     let ending = match written {
         Ok(()) => match body.trailers().await {
             Ok(trailers) => sent_trailers(trailers),
-            Err(error) => Err(ErrorCode::InternalError(Some(format!(
-                "the request body's trailers: {error}"
-            )))),
+            Err(error) => Err(wasi_error(error)),
         },
-        Err(error) => Err(ErrorCode::InternalError(Some(error))),
+        Err(error) => Err(wasi_error(error)),
     };
     // The host reads the trailers only once it has sent the body, and is gone if it stopped.
     let _ = trailers.write(ending).await;
 }
 
-/// Writes all of `body` into `contents`, or says why it stopped.
-async fn write_contents(body: &mut Body, contents: &mut StreamWriter<u8>) -> Result<(), String> {
+/// Writes all of `body` into `contents`, or says why it stopped, keeping the app's own failure.
+async fn write_contents(body: &mut Body, contents: &mut StreamWriter<u8>) -> Result<(), HttpError> {
     let mut chunk = vec![0; 64 * 1024];
     loop {
-        let read = body
-            .read(&mut chunk)
-            .await
-            .map_err(|error| format!("the request body failed: {error}"))?;
+        let read = body.read(&mut chunk).await?;
         if read == 0 {
             return Ok(());
         }
         if !contents.write_all(chunk[..read].to_vec()).await.is_empty() {
-            return Err("the host stopped reading the request body".to_owned());
+            return Err(HttpError::Internal(Some(
+                "the host stopped reading the request body".to_owned(),
+            )));
         }
     }
 }
@@ -499,6 +495,89 @@ fn http_error(error: ErrorCode) -> HttpError {
     }
 }
 
+/// Waft's error as WASI's code, for a request body that fails before the host sends it.
+fn wasi_error(error: HttpError) -> ErrorCode {
+    match error {
+        HttpError::DnsTimeout => ErrorCode::DnsTimeout,
+        HttpError::DnsError(payload) => ErrorCode::DnsError(types::DnsErrorPayload {
+            rcode: payload.rcode,
+            info_code: payload.info_code,
+        }),
+        HttpError::DestinationNotFound => ErrorCode::DestinationNotFound,
+        HttpError::DestinationUnavailable => ErrorCode::DestinationUnavailable,
+        HttpError::DestinationIpProhibited => ErrorCode::DestinationIpProhibited,
+        HttpError::DestinationIpUnroutable => ErrorCode::DestinationIpUnroutable,
+        HttpError::ConnectionRefused => ErrorCode::ConnectionRefused,
+        HttpError::ConnectionTerminated => ErrorCode::ConnectionTerminated,
+        HttpError::ConnectionTimeout => ErrorCode::ConnectionTimeout,
+        HttpError::ConnectionReadTimeout => ErrorCode::ConnectionReadTimeout,
+        HttpError::ConnectionWriteTimeout => ErrorCode::ConnectionWriteTimeout,
+        HttpError::ConnectionLimitReached => ErrorCode::ConnectionLimitReached,
+        HttpError::TlsProtocolError => ErrorCode::TlsProtocolError,
+        HttpError::TlsCertificateError => ErrorCode::TlsCertificateError,
+        HttpError::TlsAlertReceived(payload) => {
+            ErrorCode::TlsAlertReceived(types::TlsAlertReceivedPayload {
+                alert_id: payload.alert_id,
+                alert_message: payload.alert_message,
+            })
+        }
+        HttpError::HttpRequestDenied => ErrorCode::HttpRequestDenied,
+        HttpError::HttpRequestLengthRequired => ErrorCode::HttpRequestLengthRequired,
+        HttpError::HttpRequestBodySize(limit) => ErrorCode::HttpRequestBodySize(limit),
+        HttpError::HttpRequestMethodInvalid => ErrorCode::HttpRequestMethodInvalid,
+        HttpError::HttpRequestUriInvalid => ErrorCode::HttpRequestUriInvalid,
+        HttpError::HttpRequestUriTooLong => ErrorCode::HttpRequestUriTooLong,
+        HttpError::HttpRequestHeaderSectionSize(limit) => {
+            ErrorCode::HttpRequestHeaderSectionSize(limit)
+        }
+        HttpError::HttpRequestHeaderSize(field) => {
+            ErrorCode::HttpRequestHeaderSize(field.map(wasi_field_size))
+        }
+        HttpError::HttpRequestTrailerSectionSize(limit) => {
+            ErrorCode::HttpRequestTrailerSectionSize(limit)
+        }
+        HttpError::HttpRequestTrailerSize(field) => {
+            ErrorCode::HttpRequestTrailerSize(wasi_field_size(field))
+        }
+        HttpError::HttpResponseIncomplete => ErrorCode::HttpResponseIncomplete,
+        HttpError::HttpResponseHeaderSectionSize(limit) => {
+            ErrorCode::HttpResponseHeaderSectionSize(limit)
+        }
+        HttpError::HttpResponseHeaderSize(field) => {
+            ErrorCode::HttpResponseHeaderSize(wasi_field_size(field))
+        }
+        HttpError::HttpResponseBodySize(limit) => ErrorCode::HttpResponseBodySize(limit),
+        HttpError::HttpResponseTrailerSectionSize(limit) => {
+            ErrorCode::HttpResponseTrailerSectionSize(limit)
+        }
+        HttpError::HttpResponseTrailerSize(field) => {
+            ErrorCode::HttpResponseTrailerSize(wasi_field_size(field))
+        }
+        HttpError::HttpResponseTransferCoding(coding) => {
+            ErrorCode::HttpResponseTransferCoding(coding)
+        }
+        HttpError::HttpResponseContentCoding(coding) => {
+            ErrorCode::HttpResponseContentCoding(coding)
+        }
+        HttpError::HttpResponseTimeout => ErrorCode::HttpResponseTimeout,
+        HttpError::HttpUpgradeFailed => ErrorCode::HttpUpgradeFailed,
+        HttpError::HttpProtocolError => ErrorCode::HttpProtocolError,
+        HttpError::LoopDetected => ErrorCode::LoopDetected,
+        HttpError::ConfigurationError => ErrorCode::ConfigurationError,
+        HttpError::Internal(reason) => ErrorCode::InternalError(reason),
+        // `TooManyRedirects`, and any case a later Waft adds: WASI has no separate code for it.
+        other => ErrorCode::InternalError(Some(other.to_string())),
+    }
+}
+
+/// Waft's field size as WASI's.
+fn wasi_field_size(field: waft_embedder::FieldSizePayload) -> FieldSizePayload {
+    FieldSizePayload {
+        field_name: field.field_name,
+        field_size: field.field_size,
+    }
+}
+
 /// WASI's field size as Waft's.
 fn field_size(field: FieldSizePayload) -> waft_embedder::FieldSizePayload {
     waft_embedder::FieldSizePayload {
@@ -623,81 +702,46 @@ mod tests {
 
     #[test]
     fn a_redirect_changes_the_method_as_fetch_does() {
-        assert_eq!(
-            redirected(StatusCode::SEE_OTHER, &Method::POST),
-            Redirected::AsGet
-        );
-        assert_eq!(
-            redirected(StatusCode::SEE_OTHER, &Method::PUT),
-            Redirected::AsGet
-        );
-        assert_eq!(
-            redirected(StatusCode::SEE_OTHER, &Method::HEAD),
-            Redirected::Same
-        );
-        assert_eq!(
-            redirected(StatusCode::FOUND, &Method::POST),
-            Redirected::AsGet
-        );
-        assert_eq!(
-            redirected(StatusCode::MOVED_PERMANENTLY, &Method::DELETE),
-            Redirected::Same
-        );
-        assert_eq!(
-            redirected(StatusCode::TEMPORARY_REDIRECT, &Method::POST),
-            Redirected::Same
-        );
-        assert_eq!(
-            redirected(StatusCode::PERMANENT_REDIRECT, &Method::GET),
-            Redirected::Same
-        );
-    }
-
-    /// A body that streams, so it cannot be sent again: the copy a redirect that keeps the body
-    /// needs.
-    struct Stream;
-
-    impl BodyStream for Stream {
-        fn read<'a>(&'a mut self, _buf: &'a mut [u8]) -> BodyReadFuture<'a> {
-            Box::pin(std::future::ready(Ok(0)))
-        }
-
-        fn trailers(&mut self) -> BodyTrailersFuture<'_> {
-            Box::pin(std::future::ready(Ok(None)))
-        }
-
-        fn length(&self) -> Option<u64> {
-            None
-        }
-    }
-
-    #[test]
-    fn a_redirect_that_keeps_the_body_needs_one_held_in_memory() {
-        let held = Body::from(b"a body".to_vec());
         assert!(matches!(
-            next_hop(
+            redirect_of(StatusCode::SEE_OTHER, &Method::POST, None),
+            Some(Redirect::AsGet)
+        ));
+        assert!(matches!(
+            redirect_of(StatusCode::SEE_OTHER, &Method::PUT, None),
+            Some(Redirect::AsGet)
+        ));
+        assert!(matches!(
+            redirect_of(StatusCode::SEE_OTHER, &Method::HEAD, Some(Body::empty())),
+            Some(Redirect::Same(_))
+        ));
+        assert!(matches!(
+            redirect_of(StatusCode::FOUND, &Method::POST, None),
+            Some(Redirect::AsGet)
+        ));
+        assert!(matches!(
+            redirect_of(
+                StatusCode::MOVED_PERMANENTLY,
+                &Method::DELETE,
+                Some(Body::empty())
+            ),
+            Some(Redirect::Same(_))
+        ));
+        assert!(matches!(
+            redirect_of(
                 StatusCode::TEMPORARY_REDIRECT,
                 &Method::POST,
-                held.try_clone()
+                Some(Body::empty())
             ),
-            Some(Next::Same(_))
+            Some(Redirect::Same(_))
         ));
-        assert!(
-            next_hop(
+        assert!(matches!(
+            redirect_of(
                 StatusCode::PERMANENT_REDIRECT,
-                &Method::POST,
-                Body::from_stream(Stream).try_clone()
-            )
-            .is_none(),
-            "a streamed body is gone, so the redirect is the app's"
-        );
-        assert!(
-            matches!(
-                next_hop(StatusCode::SEE_OTHER, &Method::POST, None),
-                Some(Next::AsGet)
+                &Method::GET,
+                Some(Body::empty())
             ),
-            "a GET needs no body"
-        );
+            Some(Redirect::Same(_))
+        ));
     }
 
     #[test]

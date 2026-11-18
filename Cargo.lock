@@ -10316,7 +10316,6 @@ dependencies = [
  "http",
  "waft",
  "waft-embedder",
- "waft-widgets",
  "wasdk",
  "wasdk-adapter-waft",
 ]

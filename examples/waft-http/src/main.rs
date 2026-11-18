@@ -1,6 +1,8 @@
 //! A Waft app that sends HTTP through `wasdk-adapter-waft`: it reads a response's trailers, sends
-//! a request whose body is streamed with trailers of its own, follows a 307 that resends a body
-//! held in memory, and answers a 307 whose body streamed, which cannot be sent again.
+//! requests whose bodies carry trailers, follows a 307 that resends a body held in memory, and
+//! answers a 307 whose body streamed, which cannot be sent again. It follows a 301, a 302 and a
+//! 303 of a `POST` as a `GET` without the body, stops at a redirect limit, drops credentials on the
+//! way to another origin, and sends a `HEAD` with no `Content-Length`.
 //!
 //! It reads the port its test's server answers on from `/data/port` and prints each answer as
 //! `what: result`, so the engine's test can check them.
@@ -12,7 +14,7 @@
 use http::{HeaderMap, Method, Request};
 use waft::{App, Color, ColoredBox, IntoWidget, WindowConfig, run_app_with};
 use waft_embedder::{
-    Body, BodyReadFuture, BodyStream, BodyTrailersFuture, HttpFuture, SendOptions,
+    Body, BodyReadFuture, BodyStream, BodyTrailersFuture, HttpFuture, RedirectPolicy, SendOptions,
 };
 
 #[wasdk::main]
@@ -37,7 +39,7 @@ async fn main() {
     .await;
 }
 
-/// Sends the test's four requests and prints each answer.
+/// Sends the test's requests and prints each answer.
 fn check(app: &mut App, port: &str) {
     let platform = app.platform();
     let Some(client) = platform.http() else {
@@ -59,6 +61,24 @@ fn check(app: &mut App, port: &str) {
         ),
         SendOptions::new(),
     );
+    let held_trailers = client.send(
+        request_with_trailers(
+            Method::POST,
+            &format!("{base}/echo-trailers"),
+            Body::from(b"payload".to_vec()).with_trailers(trailers()),
+            "x-checksum",
+        ),
+        SendOptions::new(),
+    );
+    let redirect_held_trailers = client.send(
+        request_with_trailers(
+            Method::POST,
+            &format!("{base}/redirect-trailers"),
+            Body::from(b"payload".to_vec()).with_trailers(trailers()),
+            "x-checksum",
+        ),
+        SendOptions::new(),
+    );
     let held = client.send(
         request(
             Method::POST,
@@ -75,12 +95,71 @@ fn check(app: &mut App, port: &str) {
         ),
         SendOptions::new(),
     );
+    let moved301 = client.send(
+        request(
+            Method::POST,
+            &format!("{base}/moved301"),
+            Body::from(b"payload".to_vec()),
+        ),
+        SendOptions::new(),
+    );
+    let moved302 = client.send(
+        request(
+            Method::POST,
+            &format!("{base}/moved302"),
+            Body::from(b"payload".to_vec()),
+        ),
+        SendOptions::new(),
+    );
+    let see303 = client.send(
+        request(
+            Method::POST,
+            &format!("{base}/see303"),
+            Body::from(b"payload".to_vec()),
+        ),
+        SendOptions::new(),
+    );
+    let too_many = client.send(
+        request(Method::GET, &format!("{base}/loop"), Body::empty()),
+        SendOptions::new().redirects(RedirectPolicy::Follow { max: 2 }),
+    );
+    let limit_stream = client.send(
+        request(
+            Method::POST,
+            &format!("{base}/redirect"),
+            Body::from_stream(Chunks::new()),
+        ),
+        SendOptions::new().redirects(RedirectPolicy::Follow { max: 0 }),
+    );
+    let credentials = client.send(
+        request_with_header(
+            Method::POST,
+            &format!("{base}/redirect-other"),
+            Body::empty(),
+            "authorization",
+            "secret",
+        ),
+        SendOptions::new(),
+    );
+    let head = client.send(
+        request(Method::HEAD, &format!("{base}/head"), Body::empty()),
+        SendOptions::new(),
+    );
 
     app.spawn(async move |_cx| {
         report_response_trailers(response_trailers).await;
         report_body("request trailers", request_trailers).await;
+        report_body("held trailers", held_trailers).await;
+        report_body("redirect held trailers", redirect_held_trailers).await;
         report_body("redirect in memory", held).await;
         report_status("redirect stream", streamed).await;
+        report_body("301 POST", moved301).await;
+        report_body("302 POST", moved302).await;
+        report_body("303 POST", see303).await;
+        report_error("too many", too_many).await;
+        report_status("limit stream", limit_stream).await;
+        report_body("credentials", credentials).await;
+        report_status("head", head).await;
     });
 }
 
@@ -89,6 +168,22 @@ fn request(method: Method, uri: &str, body: Body) -> Request<Body> {
     Request::builder()
         .method(method)
         .uri(uri)
+        .body(body)
+        .expect("a well-formed request")
+}
+
+/// A request with `name: value` among its headers.
+fn request_with_header(
+    method: Method,
+    uri: &str,
+    body: Body,
+    name: &'static str,
+    value: &'static str,
+) -> Request<Body> {
+    Request::builder()
+        .method(method)
+        .uri(uri)
+        .header(name, value)
         .body(body)
         .expect("a well-formed request")
 }
@@ -158,6 +253,14 @@ async fn report_status(what: &str, sending: HttpFuture) {
     match sending.await {
         Ok(response) => println!("{what}: {}", response.status()),
         Err(error) => println!("{what}: failed: {error}"),
+    }
+}
+
+/// Says why a request got no response.
+async fn report_error(what: &str, sending: HttpFuture) {
+    match sending.await {
+        Ok(response) => println!("{what}: {}", response.status()),
+        Err(error) => println!("{what}: {error}"),
     }
 }
 

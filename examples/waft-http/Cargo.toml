@@ -10,7 +10,6 @@ description = "A Waft app that sends HTTP through wasdk-adapter-waft: response t
 http.workspace = true
 waft.workspace = true
 waft-embedder.workspace = true
-waft-widgets.workspace = true
 wasdk.workspace = true
 wasdk-adapter-waft.workspace = true
 
