@@ -1,10 +1,17 @@
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { createMDX } from 'fumadocs-mdx/next';
 
 const withMDX = createMDX();
+const repositoryRoot = join(dirname(fileURLToPath(import.meta.url)), '../..');
 
 /** @type {import('next').NextConfig} */
 const config = {
   reactStrictMode: true,
+  // The docs' pages are in `crates/waos-cli/docs`, outside the site's folder, so the build reaches
+  // from the repository's root.
+  turbopack: { root: repositoryRoot },
+  outputFileTracingRoot: repositoryRoot,
   // Next writes its own AGENTS.md and CLAUDE.md into the package on dev start; the repository's
   // AGENTS.md at the root is the one that holds.
   agentRules: false,

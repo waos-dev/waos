@@ -5,7 +5,8 @@ import { metaSchema, pageSchema } from 'fumadocs-core/source/schema';
 import { docsRoute, siteOrigin } from './shared';
 
 const docs = defineDocs({
-  dir: 'content/docs',
+  // The docs live in the crate that ships them, `cargo waos`, which prints the same files.
+  dir: '../../crates/waos-cli/docs',
   docs: {
     schema: pageSchema,
     postprocess: {
