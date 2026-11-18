@@ -749,7 +749,7 @@ impl LibraryPlatform {
             inner: TestPlatform::new()
                 .on(system)
                 .with_windows(Rc::clone(&windows))
-                .with_font_source(|| Box::new(SystemFontSource::platform()))
+                .with_font_source(|| Box::new(SystemFontSource::new(valo_fontmgr::platform())))
                 .with_opener(Rc::new(opener.clone()))
                 .with_tray_icons(Rc::new(tray.clone()))
                 .with_file_dialogs(Rc::new(file_dialogs.clone())),

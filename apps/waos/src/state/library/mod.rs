@@ -663,9 +663,10 @@ impl Library {
             let name = document_name(&document).unwrap_or_default();
             tracing::info!(name, "the system opened a document with WaOS");
             let library = cx.weak_entity();
+            let reading = read_document(document, cx.platform().files());
             // The task runs to its end whether or not its handle is kept.
             let _reading = cx.spawn(async move |cx| {
-                let read = read_document(document).await;
+                let read = reading.await;
                 cx.update(|app: &mut App| {
                     if let Some(library) = library.upgrade() {
                         library.update(app, |library, cx| library.document_read(name, read, cx));
