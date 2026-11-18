@@ -1,4 +1,4 @@
-//! The window's page: a Fluent `NavigationView` on a `Page`, clear of a phone's bars and keyboard, its pane the list (`note_list`) under the folder's
+//! The window's page: a Fluent `NavigationView` on a `FluentPage`, clear of a phone's bars and keyboard, its pane the list (`note_list`) under the folder's
 //! name and the search field, its content the note or the file shown (`editor_pane`). From 600 logical points
 //! wide the pane is a sidebar beside the note, as on a desktop or a tablet; narrower, as on a phone
 //! or in a narrow window, it is a pane over the note that its toggle opens and that closes as a note
@@ -14,7 +14,7 @@ use std::rc::Rc;
 use waft_foundation::{App, Listener};
 use waft_widgets::{BuildContext, IntoWidget, StatelessWidget, WidgetRef};
 use waft_winui::{
-    Brush, NavigationView, NavigationViewBackButtonVisible, NavigationViewDisplayMode, Page,
+    Brush, FluentPage, NavigationView, NavigationViewBackButtonVisible, NavigationViewDisplayMode,
     ThemeResources,
 };
 
@@ -77,7 +77,7 @@ impl MainPage {
 /// `navigation` on the window's page, which reaches under a phone's bars: the navigation's pane
 /// and content run to the screen's edges and keep their controls clear of the bars.
 fn on_page(resources: &ThemeResources, navigation: NavigationView) -> WidgetRef {
-    Page::new()
+    FluentPage::new()
         .background(Brush::Solid(resources.solid_background_fill_color_base))
         .extends_content_into_system_bars(true)
         .content(navigation)

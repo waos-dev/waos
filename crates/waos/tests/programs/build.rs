@@ -50,6 +50,7 @@ const PROGRAMS: [&str; 42] = [
     "back",
     "waft-back",
     "waft-image",
+    "waft-http",
     "waft-time",
     "workers",
     "inspect",

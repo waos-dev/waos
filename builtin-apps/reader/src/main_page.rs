@@ -1,4 +1,4 @@
-//! The window's page: a Fluent `NavigationView` on a `Page`, clear of a phone's bars and keyboard, its pane the list of feeds (`feed_list`), its
+//! The window's page: a Fluent `NavigationView` on a `FluentPage`, clear of a phone's bars and keyboard, its pane the list of feeds (`feed_list`), its
 //! content what the window shows (`content`) under a header that names it and holds its commands
 //! (`header`). From 640 logical points wide the pane is a sidebar beside the content, as on a
 //! desktop or a tablet; narrower, as on a phone, it is a pane over the content that its toggle
@@ -72,7 +72,7 @@ impl MainPage {
 /// `navigation` on the window's page, which reaches under a phone's bars: the navigation's pane
 /// and content run to the screen's edges and keep their controls clear of the bars.
 fn on_page(resources: &ThemeResources, navigation: NavigationView) -> WidgetRef {
-    waft_winui::Page::new()
+    waft_winui::FluentPage::new()
         .background(Brush::Solid(resources.solid_background_fill_color_base))
         .extends_content_into_system_bars(true)
         .content(navigation)

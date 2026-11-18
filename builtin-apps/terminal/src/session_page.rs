@@ -10,7 +10,7 @@ use waft_widgets::{
     ConstrainedBox, CrossAxisAlignment, EdgeInsetsGeometry, Expanded, IntoWidget, MainAxisSize,
     MediaQuery, Padding, SizedBox, StatelessWidget, Text, WidgetRef,
 };
-use waft_winui::{Brush, Button, ButtonStyle, Page, TextBlockStyle, ThemeResources};
+use waft_winui::{Brush, Button, ButtonStyle, FluentPage, TextBlockStyle, ThemeResources};
 
 use crate::grid_painter::{TextSettings, color};
 use crate::palette::Palette;
@@ -37,7 +37,7 @@ impl StatelessWidget for SessionPage {
         let stage = self.session.read(app).stage.clone();
         let background = background(app, context, &stage);
         let content = self.content(app, context, stage);
-        Page::new()
+        FluentPage::new()
             .background(Brush::Solid(background))
             .content(content)
             .into_widget()

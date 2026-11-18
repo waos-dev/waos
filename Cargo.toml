@@ -204,47 +204,47 @@ png = "0.18"
 # Waft, the framework the WaOS app is built on, from its checkout beside this one while the two
 # move together; and the layers its facade does not name, which a program's view takes its input
 # from: the pointer widget, the pointer events a widget receives, and the keys and text input.
-waft = { version = "0.7.0", path = "../waft/crates/waft" }
-waft-widgets = { version = "0.7.0", path = "../waft/crates/waft-widgets" }
-waft-gestures = { version = "0.7.0", path = "../waft/crates/waft-gestures" }
-waft-services = { version = "0.7.0", path = "../waft/crates/waft-services" }
+waft = { version = "0.8.0", path = "../waft/crates/waft" }
+waft-widgets = { version = "0.8.0", path = "../waft/crates/waft-widgets" }
+waft-gestures = { version = "0.8.0", path = "../waft/crates/waft-gestures" }
+waft-services = { version = "0.8.0", path = "../waft/crates/waft-services" }
 # The ticker a widget reads a player's position with at each frame, which `waft-widgets` does
 # not re-export.
-waft-scheduler = { version = "0.7.0", path = "../waft/crates/waft-scheduler" }
+waft-scheduler = { version = "0.8.0", path = "../waft/crates/waft-scheduler" }
 # How a gesture detector is hit, which `waft-widgets`' `GestureDetector::behavior` takes but does
 # not re-export.
-waft-rendering = { version = "0.7.0", path = "../waft/crates/waft-rendering" }
+waft-rendering = { version = "0.8.0", path = "../waft/crates/waft-rendering" }
 # The springs and the scroll simulations the WaOS app's deck settles its motions with, which
 # `waft-widgets` does not re-export.
-waft-physics = { version = "0.7.0", path = "../waft/crates/waft-physics" }
+waft-physics = { version = "0.8.0", path = "../waft/crates/waft-physics" }
 # A platform with no window server, for the app's tests of its windows.
-waft-test = { version = "0.7.0", path = "../waft/crates/waft-test" }
+waft-test = { version = "0.8.0", path = "../waft/crates/waft-test" }
 # What `wasdk-adapter-waft` is made of: Waft's host traits and value types, its app, and the
 # client a host drives.
-waft-embedder = { version = "0.7.0", path = "../waft/crates/waft-embedder" }
-waft-foundation = { version = "0.7.0", path = "../waft/crates/waft-foundation" }
-waft-shell = { version = "0.7.0", path = "../waft/crates/waft-shell" }
+waft-embedder = { version = "0.8.0", path = "../waft/crates/waft-embedder" }
+waft-foundation = { version = "0.8.0", path = "../waft/crates/waft-foundation" }
+waft-shell = { version = "0.8.0", path = "../waft/crates/waft-shell" }
 # Waft's Cupertino widgets, which `examples/two-windows` spins an activity indicator of, and
 # the library is drawn with at a phone's size.
-waft-cupertino = { version = "0.7.0", path = "../waft/crates/waft-cupertino" }
+waft-cupertino = { version = "0.8.0", path = "../waft/crates/waft-cupertino" }
 # Fluent's controls over Waft, which the library is drawn with at a desktop's or a tablet's
 # size, and the Video Player throughout.
-waft-winui = { version = "0.7.0", path = "../waft/crates/waft-winui" }
+waft-winui = { version = "0.8.0", path = "../waft/crates/waft-winui" }
 # Waft's desktop host, for what only macOS offers beyond its `Platform`: hearing WaOS's Dock
 # icon clicked, a window that slides in, and hiding the app.
-waft-embedder-winit = { version = "0.7.0", path = "../waft/crates/waft-embedder-winit" }
+waft-embedder-winit = { version = "0.8.0", path = "../waft/crates/waft-embedder-winit" }
 # What Waft's hosts on macOS and iOS share, for its `SurfaceBuffer` and `CoreVideoFrame`, which a
 # program's hardware buffers and video frames are shown and read as on Apple's systems.
-waft-embedder-apple = { version = "0.7.0", path = "../waft/crates/waft-embedder-apple", default-features = false }
+waft-embedder-apple = { version = "0.8.0", path = "../waft/crates/waft-embedder-apple", default-features = false }
 # Waft's Android host, for its `AndroidHardwareBuffer`, which a program's hardware buffers are
 # shown as on a Waft composition layer on Android.
-waft-embedder-android = { version = "0.7.0", path = "../waft/crates/waft-embedder-android" }
+waft-embedder-android = { version = "0.8.0", path = "../waft/crates/waft-embedder-android" }
 # One instance of WaOS: a later launch on Windows or Linux hands the files it was started with to
 # the WaOS running, as macOS does itself.
-waft-single-instance = { version = "0.7.0", path = "../waft/crates/waft-single-instance" }
+waft-single-instance = { version = "0.8.0", path = "../waft/crates/waft-single-instance" }
 # Waft's painting: its image providers, `NetworkImage` above all, which a program shows with
 # Waft's `Image` widget over the platform's HTTP client.
-waft-painting = { version = "0.7.0", path = "../waft/crates/waft-painting" }
+waft-painting = { version = "0.8.0", path = "../waft/crates/waft-painting" }
 # Waft's Cupertino gallery, a library as well as its own binary, which `examples/gallery` runs.
 cupertino-gallery = { path = "../waft/examples/cupertino_gallery" }
 # valo, Waft's renderer, which a program's views are drawn with: its context, its fonts and
