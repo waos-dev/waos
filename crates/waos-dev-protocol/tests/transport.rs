@@ -8,8 +8,8 @@ use std::path::{Path, PathBuf};
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use waos_dev_protocol::{
-    Asked, ClientStream, Connection, FromWaOS, Input, Listener, OutputStream, PROTOCOL, Question,
-    RunEnd, ServerStream, ToWaOS, Unreached, WindowPicture,
+    Asked, ClientStream, Connection, FromWaOS, Input, Listener, MAX_FRAME_BYTES, OutputStream,
+    PROTOCOL, Question, RunEnd, ServerStream, ToWaOS, Unreached, WindowPicture, component_digest,
 };
 
 /// Where this test's WaOS listens, apart from every other test's and from the user's own WaOS: a
@@ -182,8 +182,12 @@ fn every_to_waos() -> Vec<ToWaOS> {
     vec![
         ToWaOS::Run {
             id: id.clone(),
-            component: (0..=255).cycle().take(3 << 20).collect(),
+            length: 3 << 20,
+            digest: [0xab; 32],
             variables: vec![("RUST_LOG".to_owned(), "debug".to_owned())],
+        },
+        ToWaOS::Component {
+            bytes: (0..=255).cycle().take(1 << 16).collect(),
         },
         ToWaOS::Open {
             id: id.clone(),
@@ -234,6 +238,39 @@ async fn every_message_comes_back_as_sent() {
         sent.unwrap();
         assert_eq!(received.unwrap(), Some(message));
     }
+}
+
+/// A run's component larger than one frame goes over the transport as parts and comes back
+/// whole, checked by its length and digest: a debug build is hundreds of megabytes, over the
+/// frame a connection accepts whole.
+#[tokio::test]
+async fn a_component_larger_than_one_frame_round_trips() {
+    let place = TestPlace::new("big-component");
+    let (_listener, mut client, mut server) = connected(&place.path).await;
+    let id: waos_package::ProgramId = "dev.example.triangle".parse().unwrap();
+    let length = (MAX_FRAME_BYTES + 1) as u64;
+    let sending = tokio::spawn(async move {
+        let component: Vec<u8> = (0..=255u8).cycle().take(MAX_FRAME_BYTES + 1).collect();
+        client.send_run(&id, &[], &component).await.unwrap();
+    });
+    let ToWaOS::Run {
+        length: announced,
+        digest,
+        ..
+    } = server.receive::<ToWaOS>().await.unwrap().expect("a run")
+    else {
+        panic!("a run");
+    };
+    assert_eq!(announced, length);
+    let component = server.receive_component(announced, &digest).await.unwrap();
+    assert_eq!(component.len() as u64, length);
+    assert_eq!(component_digest(&component), digest, "the whole of it");
+    // The pattern the component was made of, where the parts meet and at its end.
+    let end = (MAX_FRAME_BYTES + 1) - 1;
+    for at in [0, end / 2, end] {
+        assert_eq!(component[at], (at % 256) as u8, "byte {at}");
+    }
+    sending.await.unwrap();
 }
 
 #[tokio::test]

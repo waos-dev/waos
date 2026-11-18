@@ -3,8 +3,10 @@
 //! on Windows.
 //!
 //! The connection is the run (the design's decision 29): `cargo waos run` connects, sends one
-//! [`ToWaOS::Run`], the component with its id and the variables that run adds to the program's
-//! environment (decision 68), and reads what comes back until the run ends: [`FromWaOS::Compiling`] while
+//! [`ToWaOS::Run`], the program's id with the variables that run adds to the program's
+//! environment (decision 68) and its component's length and digest, then the component itself in
+//! [`ToWaOS::Component`] frames until its length is reached, so a component larger
+//! than one frame goes over too, and reads what comes back until the run ends: [`FromWaOS::Compiling`] while
 //! WaOS compiles the component, then the program's start, its output and its end. Closing the
 //! connection, by Ctrl-C or the terminal closing, stops the program; a later run of the same id replaces it. A run is the
 //! program its id names (decision 11 of the permissions proposal), with that program's settings and
@@ -34,6 +36,7 @@
 //!   the messages' encoding, and a side reads no message until the numbers agree: `cargo waos`
 //!   and the WaOS it reaches are built from the same crate, and find out when they are not.
 
+mod component;
 mod connection;
 mod messages;
 mod os;
@@ -43,6 +46,7 @@ mod settings_rows;
 #[cfg(unix)]
 mod socket;
 
+pub use component::{CHUNK_BYTES, component_digest};
 pub use connection::{Connection, MAX_FRAME_BYTES, PROTOCOL};
 pub use messages::{
     FromWaOS, Input, Inspection, OutputStream, RunEnd, ToWaOS, TracedCapability, Unreached,

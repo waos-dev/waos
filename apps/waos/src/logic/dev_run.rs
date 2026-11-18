@@ -1,8 +1,9 @@
 //! One connection from `cargo waos`, which is one run (the design's decision 29), once its `Run`
-//! is read (`dev_server`): the component kept in a file of the app's own (`sent_components`) and
-//! loaded off this thread, which compiles it unless the code cache holds its code, with
-//! `Compiling` on the connection first, before the run takes the runs' lock, which every start,
-//! screenshot, input and quit takes, so a compile holds back no other program; the program run as the one its id names, with that program's settings and folders,
+//! and the component it announced have arrived (`dev_server`): the component kept in a file of
+//! the app's own (`sent_components`) and loaded off this thread, which compiles it unless the code
+//! cache holds its code, with `Compiling` on the connection first, before the run takes the runs'
+//! lock, which every start, screenshot, input and quit takes, so a compile holds back no other
+//! program; the program run as the one its id names, with that program's settings and folders,
 //! installed or not (decision 11 of the permissions proposal), with this computer's
 //! capabilities and its output as `Output` frames on the connection, `Started`, then `Ended`
 //! with how it ended; a component that cannot load or run is `Refused` with why, and the

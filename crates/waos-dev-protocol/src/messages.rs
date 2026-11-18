@@ -30,11 +30,16 @@ pub enum ToWaOS {
     /// that program's settings and folders, installed or not, and the variables `variables` names,
     /// each its name and value, which this run alone adds to the program's environment (the
     /// design's decision 68); the program running under that id is stopped first. Nothing of the
-    /// client's own environment is sent, and WaOS's own variables win where both name one.
+    /// client's own environment is sent, and WaOS's own variables win where both name one. The
+    /// component is not in this message: it follows in `Component` frames, `length` bytes
+    /// together whose SHA-256 is `digest`, so a component larger than one frame
+    /// goes over too.
     Run {
         id: ProgramId,
-        #[serde(with = "serde_bytes")]
-        component: Vec<u8>,
+        /// The component's bytes, which the `Component` frames that follow carry together.
+        length: u64,
+        /// The component's SHA-256 (`component_digest`), checked once its bytes are all there.
+        digest: [u8; 32],
         variables: Vec<(String, String)>,
     },
     /// Open these files, absolute paths on this machine, with the program `id` names, as its
@@ -78,6 +83,13 @@ pub enum ToWaOS {
     /// each change; and for a trace with each event as it comes; the last two until the
     /// connection closes or the program ends; or `Unreached`.
     Inspect { id: ProgramId, asked: Inspection },
+    /// Part of the component a run's `Run` announced: at most [`CHUNK_BYTES`](crate::CHUNK_BYTES)
+    /// of it, the parts in order until the announced length is reached. Only a run's connection
+    /// sends these, after its `Run`.
+    Component {
+        #[serde(with = "serde_bytes")]
+        bytes: Vec<u8>,
+    },
 }
 
 /// What an inspection asks of a program.
@@ -306,13 +318,15 @@ impl fmt::Debug for ToWaOS {
         match self {
             ToWaOS::Run {
                 id,
-                component,
+                length,
+                digest,
                 variables,
             } => {
                 let names: Vec<&str> = variables.iter().map(|(name, _)| name.as_str()).collect();
                 f.debug_struct("Run")
                     .field("id", &format_args!("{id}"))
-                    .field("component", &format_args!("{} bytes", component.len()))
+                    .field("component", &format_args!("{length} bytes"))
+                    .field("digest", &format_args!("{}", said_digest(digest)))
                     .field("variables", &format_args!("{names:?}"))
                     .finish()
             }
@@ -357,8 +371,23 @@ impl fmt::Debug for ToWaOS {
                 .field("id", &format_args!("{id}"))
                 .field("asked", asked)
                 .finish(),
+            ToWaOS::Component { bytes } => f
+                .debug_struct("Component")
+                .field("bytes", &format_args!("{} bytes", bytes.len()))
+                .finish(),
         }
     }
+}
+
+/// The digest as `Debug` writes it: its first bytes in hex, enough to tell digests apart in a
+/// traced line, not the whole of it.
+fn said_digest(digest: &[u8; 32]) -> String {
+    let mut said = String::new();
+    for byte in &digest[..4] {
+        said.push_str(&format!("{byte:02x}"));
+    }
+    said.push('…');
+    said
 }
 
 impl fmt::Debug for Input {
@@ -420,17 +449,13 @@ impl fmt::Debug for WindowPicture {
 mod tests {
     use super::*;
 
-    /// The messages as they were encoded before their bytes were a string of bytes: each byte an
-    /// element of a sequence.
-    #[derive(Debug, PartialEq, Serialize, Deserialize)]
-    enum ToWaOSAsSequence {
-        Run {
-            id: ProgramId,
-            component: Vec<u8>,
-            variables: Vec<(String, String)>,
-        },
+    /// Every byte, more than once, so the length takes more than one byte of its own.
+    fn bytes() -> Vec<u8> {
+        (0..=u8::MAX).cycle().take(1000).collect()
     }
 
+    /// The messages as they were encoded before their bytes were a string of bytes: each byte an
+    /// element of a sequence.
     #[derive(Debug, PartialEq, Serialize, Deserialize)]
     enum FromWaOSAsSequence {
         Started,
@@ -438,34 +463,6 @@ mod tests {
             stream: OutputStream,
             bytes: Vec<u8>,
         },
-    }
-
-    /// Every byte, more than once, so the length takes more than one byte of its own.
-    fn bytes() -> Vec<u8> {
-        (0..=u8::MAX).cycle().take(1000).collect()
-    }
-
-    #[test]
-    fn a_run_is_encoded_as_it_was_when_its_component_was_a_sequence() {
-        let id: ProgramId = "dev.example.triangle".parse().unwrap();
-        let variables = vec![("RUST_LOG".to_owned(), "debug".to_owned())];
-        let run = ToWaOS::Run {
-            id: id.clone(),
-            component: bytes(),
-            variables: variables.clone(),
-        };
-        let as_sequence = ToWaOSAsSequence::Run {
-            id,
-            component: bytes(),
-            variables,
-        };
-        let encoded = postcard::to_allocvec(&run).unwrap();
-        assert_eq!(encoded, postcard::to_allocvec(&as_sequence).unwrap());
-        assert_eq!(
-            postcard::from_bytes::<ToWaOSAsSequence>(&encoded).unwrap(),
-            as_sequence
-        );
-        assert_eq!(postcard::from_bytes::<ToWaOS>(&encoded).unwrap(), run);
     }
 
     #[test]
@@ -503,10 +500,11 @@ mod tests {
     }
 
     #[test]
-    fn a_run_prints_its_component_as_a_count() {
+    fn a_run_prints_its_component_as_a_count_and_its_digest_shortened() {
         let run = ToWaOS::Run {
             id: "dev.example.triangle".parse().unwrap(),
-            component: vec![0; 1024],
+            length: 1024,
+            digest: [0xab; 32],
             variables: vec![
                 ("RUST_LOG".to_owned(), "debug".to_owned()),
                 ("API_TOKEN".to_owned(), "s3cret".to_owned()),
@@ -514,7 +512,7 @@ mod tests {
         };
         assert_eq!(
             format!("{run:?}"),
-            "Run { id: dev.example.triangle, component: 1024 bytes, variables: [\"RUST_LOG\", \"API_TOKEN\"] }",
+            "Run { id: dev.example.triangle, component: 1024 bytes, digest: abababab…, variables: [\"RUST_LOG\", \"API_TOKEN\"] }",
             "a variable's value may be a secret, so only its name is said"
         );
     }
