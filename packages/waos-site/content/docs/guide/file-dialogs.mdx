@@ -42,7 +42,7 @@ app.spawn(async move |_cx| {
 ```
 `save_file` answers a path to write in the same way, writable whether or not the file exists yet.
 
-> In WaOS a pick is always a `PickedFile::Path`, the file mounted at its own path: read and write it with `std::fs`. Waft reads a picked path through its own file service, `app.platform().files()`, with `files.read(&path)`, and a `PickedFile::Handle` or `PickedFile::Stream`, which other systems answer, reads itself with `read_all()`; WaOS does not serve Waft's file service yet, so `files()` is `None` there.
+> In WaOS a pick is always a `PickedFile::Path`, the file mounted at its own path: read and write it with `std::fs`. Waft reads a picked path through its own file service, `app.platform().files()`, with `files.read(&path)`, and a `PickedFile::Handle` or `PickedFile::Stream`, which other systems answer, reads itself with `read_all()`; WaOS serves Waft's file service over the same files `std::fs` reaches.
 
 ## Where it's missing
 

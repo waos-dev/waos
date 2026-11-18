@@ -70,7 +70,7 @@ app.spawn(async move |cx| {
     }));
 });
 ```
-Waft has an HTTP client of its own, `app.platform().http()`, which WaOS does not serve yet; once it does, Waft apps will use it, and `NetworkImage` with it.
+Waft has an HTTP client of its own, `app.platform().http()`, which WaOS serves over the same `wasi:http`, under the same settings: `client.send(request, SendOptions::new())` takes an `http::Request<Body>` and answers the response once its head has come, its body read with `read_all()` or a piece at a time; it follows redirects as `SendOptions::redirects` says, and fails with WASI's errors. `NetworkImage` fetches through it.
 
 ## Where it's missing
 
