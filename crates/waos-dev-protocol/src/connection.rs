@@ -21,10 +21,12 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadHalf, Wr
 /// as this build of the crate has them. Raised with any change a side of the build before would
 /// misread, which, with postcard, is any change to a message but a variant or a field added at
 /// the end.
-pub const PROTOCOL: u32 = 9;
+pub const PROTOCOL: u32 = 10;
 
-/// The largest frame either side accepts. A component is megabytes, a debug build tens of
-/// them; a count beyond this is a stream that is not ours, refused before a byte of it is read.
+/// The largest frame either side accepts. A run's component goes over in parts far under this,
+/// [`CHUNK_BYTES`](crate::CHUNK_BYTES) at most, and a program's output and a window's picture are
+/// megabytes; a count beyond this is a stream that is not ours, refused before a byte of it is
+/// read.
 pub const MAX_FRAME_BYTES: usize = 256 << 20;
 
 const PREFIX_BYTES: usize = 4;
@@ -167,7 +169,9 @@ fn cut_short() -> io::Error {
     )
 }
 
-fn invalid_data(error: impl Into<Box<dyn std::error::Error + Send + Sync>>) -> io::Error {
+pub(crate) fn invalid_data(
+    error: impl Into<Box<dyn std::error::Error + Send + Sync>>,
+) -> io::Error {
     io::Error::new(ErrorKind::InvalidData, error)
 }
 

@@ -1,6 +1,8 @@
 //! A run: the program sent to the WaOS on this machine over `waos-dev-protocol`'s connection, which is the
 //! run (the design's decision 29), as the program its id names, which runs with that program's
-//! settings and folders in WaOS and the variables `--env` gave for it alone (decision 68). What
+//! settings and folders in WaOS and the variables `--env` gave for it alone (decision 68). The
+//! component goes over in parts, so a component of any size runs; the run says how much it is
+//! sending when that takes noticeable time. What
 //! the program writes comes to this process's stdout and stderr as it writes it, each line after
 //! the program's name, so two runs' output read apart; what WaOS asks its user while the program
 //! waits for the answer is said, with the row that answers it ahead; how it ended is said and
@@ -13,7 +15,7 @@ use std::io::{self, Write};
 use std::process::ExitCode;
 
 use anyhow::{Context, Result, bail};
-use waos_dev_protocol::{FromWaOS, OutputStream, RunEnd, ToWaOS};
+use waos_dev_protocol::{FromWaOS, OutputStream, RunEnd};
 use waos_package::ProgramId;
 
 use crate::asked;
@@ -22,6 +24,10 @@ use crate::connecting::connect_or_start;
 
 /// The exit status of a run Ctrl-C stopped: the shell's for a command the interrupt ended.
 const INTERRUPTED: u8 = 130;
+
+/// Over this many bytes, sending a component takes noticeable time, so the run says how much it
+/// is sending. A debug build is hundreds of megabytes; a release one is under this.
+const SAID_OVER_BYTES: usize = 64 << 20;
 
 /// Runs `program` in WaOS, as the program `id` names, with `variables` added to its environment,
 /// until it ends, or until Ctrl-C.
@@ -38,12 +44,14 @@ pub async fn run(
         .await
         .context("the WaOS that answered")?;
     let name = &program.name;
+    if component.len() > SAID_OVER_BYTES {
+        eprintln!(
+            "cargo waos: sending {name} to WaOS, {} MiB",
+            component.len() >> 20
+        );
+    }
     connection
-        .send(&ToWaOS::Run {
-            id,
-            component,
-            variables: variables.to_vec(),
-        })
+        .send_run(&id, variables, &component)
         .await
         .with_context(|| format!("sending {name} to WaOS"))?;
     let interrupted = tokio::signal::ctrl_c();

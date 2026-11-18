@@ -31,7 +31,7 @@ use tokio::sync::oneshot;
 use tokio::task::JoinSet;
 use waos::OpenRequest;
 use waos::bindings::wasdk::platform::windows::Size;
-use waos_dev_protocol::{Connection, Listener, ServerStream, ToWaOS};
+use waos_dev_protocol::{Connection, FromWaOS, Listener, ServerStream, ToWaOS};
 use waos_store::Store;
 
 /// How long the connections may take to say their runs ended, once every program is stopped.
@@ -218,10 +218,28 @@ async fn serve_connection(mut connection: Connection<ServerStream>, context: Con
     match connection.receive::<ToWaOS>().await {
         Ok(Some(ToWaOS::Run {
             id,
-            component,
+            length,
+            digest,
             variables,
         })) => {
+            let component = match connection.receive_component(length, &digest).await {
+                Ok(component) => component,
+                // A wrong upload was whole frames, so the connection still speaks: the run is
+                // refused on it, as a component that cannot load is.
+                Err(error) if error.kind() == io::ErrorKind::InvalidData => {
+                    tracing::warn!(%error, "a run's component did not arrive as announced");
+                    let _ = connection.send(&FromWaOS::Refused(error.to_string())).await;
+                    return;
+                }
+                Err(error) => {
+                    tracing::warn!(%error, "a run's component did not arrive");
+                    return;
+                }
+            };
             dev_run::serve(connection, id, component, variables, context.run).await;
+        }
+        Ok(Some(ToWaOS::Component { .. })) => {
+            tracing::warn!("a component frame, where no run was asked for");
         }
         Ok(Some(ToWaOS::Open { id, files })) => {
             let request = OpenRequest {
@@ -276,7 +294,7 @@ pub(crate) mod tests {
     use waos_dev_protocol::ClientStream;
     use waos_dev_protocol::{
         Answer, Asked, Connection, FileDialog, FromWaOS, OutputStream, Question, Row, RunEnd,
-        ToWaOS, Unreached,
+        ToWaOS, Unreached, component_digest,
     };
     use waos_package::ProgramId;
 
@@ -394,13 +412,44 @@ pub(crate) mod tests {
             let mut client = Connection::connect(&self.socket).await.unwrap();
             client.agree_on_protocol().await.unwrap();
             client
+                .send_run(
+                    &id.parse().unwrap(),
+                    &variables,
+                    &fs::read(component).unwrap(),
+                )
+                .await
+                .unwrap();
+            client
+        }
+
+        /// A client connected and agreed, its `Run` of `component`'s bytes as the program `id`
+        /// sent, the component in parts of at most `parts` bytes, announcing `digest` for it.
+        pub(crate) async fn run_in_parts_of(
+            &self,
+            id: &str,
+            component: &[u8],
+            parts: usize,
+            digest: [u8; 32],
+        ) -> Connection<ClientStream> {
+            let mut client = Connection::connect(&self.socket).await.unwrap();
+            client.agree_on_protocol().await.unwrap();
+            client
                 .send(&ToWaOS::Run {
                     id: id.parse().unwrap(),
-                    component: fs::read(component).unwrap(),
-                    variables,
+                    length: component.len() as u64,
+                    digest,
+                    variables: Vec::new(),
                 })
                 .await
                 .unwrap();
+            for part in component.chunks(parts) {
+                client
+                    .send(&ToWaOS::Component {
+                        bytes: part.to_vec(),
+                    })
+                    .await
+                    .unwrap();
+            }
             client
         }
 
@@ -832,21 +881,46 @@ pub(crate) mod tests {
     #[tokio::test]
     async fn a_component_that_is_not_one_is_refused() {
         let server = TestServer::start("refused");
-        let mut client = Connection::connect(&server.socket).await.unwrap();
-        client.agree_on_protocol().await.unwrap();
-        client
-            .send(&ToWaOS::Run {
-                id: "dev.waos.examples.nonsense".parse().unwrap(),
-                component: b"not a component".to_vec(),
-                variables: Vec::new(),
-            })
-            .await
-            .unwrap();
+        let mut client = server
+            .run_in_parts_of(
+                "dev.waos.examples.nonsense",
+                b"not a component",
+                4,
+                component_digest(b"not a component"),
+            )
+            .await;
         assert_eq!(next(&mut client).await, FromWaOS::Compiling);
         let FromWaOS::Refused(why) = next(&mut client).await else {
             panic!("refused");
         };
         assert!(why.contains("nonsense"), "{why}");
+        assert_eq!(client.receive::<FromWaOS>().await.unwrap(), None, "closed");
+        server.wait_for_runs(&[]).await;
+    }
+
+    #[tokio::test]
+    async fn a_component_sent_in_parts_is_assembled_and_runs() {
+        let server = TestServer::start("parts");
+        let component = fs::read(waos_test_programs::FOREVER).unwrap();
+        // Parts far under a frame's worth, so the component spans many of them.
+        let mut client = server
+            .run_in_parts_of(FOREVER, &component, 100_000, component_digest(&component))
+            .await;
+        started(&mut client).await;
+        server.wait_for_runs(&[FOREVER]).await;
+    }
+
+    #[tokio::test]
+    async fn a_component_whose_digest_is_not_the_one_announced_is_refused() {
+        let server = TestServer::start("wrong-digest");
+        let component = fs::read(waos_test_programs::FOREVER).unwrap();
+        let mut client = server
+            .run_in_parts_of(FOREVER, &component, 100_000, [0xab; 32])
+            .await;
+        let FromWaOS::Refused(why) = next(&mut client).await else {
+            panic!("refused");
+        };
+        assert!(why.contains("digest"), "{why}");
         assert_eq!(client.receive::<FromWaOS>().await.unwrap(), None, "closed");
         server.wait_for_runs(&[]).await;
     }

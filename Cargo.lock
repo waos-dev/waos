@@ -10681,6 +10681,7 @@ dependencies = [
  "postcard",
  "serde",
  "serde_bytes",
+ "sha2 0.11.1",
  "tokio",
  "tracing",
  "waos-package",
