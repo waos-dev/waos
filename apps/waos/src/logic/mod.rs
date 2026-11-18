@@ -121,6 +121,7 @@ pub(crate) mod recording_indicator;
 pub(crate) mod runs;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(crate) mod sent_components;
+pub(crate) mod setting_answers;
 pub(crate) mod setting_changes;
 #[cfg(any(target_os = "macos", target_os = "android"))]
 pub(crate) mod simulated_cameras;

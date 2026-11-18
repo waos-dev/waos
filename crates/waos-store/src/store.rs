@@ -176,14 +176,6 @@ impl Store {
         programs::own_folders(&self.program_folder(id))
     }
 
-    /// Makes the folder the store keeps the program `id`'s settings and folders in, which its
-    /// install or its first run makes, so a setting is kept before either.
-    pub fn keep_program(&self, id: &ProgramId) -> Result<(), StoreError> {
-        let _changing = self.lock_changes();
-        let folder = self.program_folder(id);
-        fs::create_dir_all(&folder).map_err(StoreError::io_at(&folder))
-    }
-
     /// The component of the program `id` names, which the app runs; none when it is not
     /// installed, or its files cannot be read, which is said to whoever subscribes.
     pub fn program(&self, id: &ProgramId) -> Option<PathBuf> {
@@ -259,15 +251,15 @@ impl Store {
         self.settings.program(id, &folder)
     }
 
-    /// Changes the program `id`'s own settings as `change` does, installed or run in
-    /// development; the program hears it.
+    /// Changes the program `id`'s own settings as `change` does, installed or run in development,
+    /// or set before its first run, which makes its folder; the program hears it.
     pub fn change_program_settings(
         &self,
         id: &ProgramId,
         change: impl FnOnce(&mut ProgramSettings),
     ) -> Result<(), StoreError> {
         let _changing = self.lock_changes();
-        let folder = self.kept_program_folder(id)?;
+        let folder = self.keep_program(id)?;
         self.settings.change_program(id, &folder, change)?;
         self.forget_unrecorded_days();
         Ok(())
@@ -359,6 +351,14 @@ impl Store {
         } else {
             Err(StoreError::NotInstalled(id.clone()))
         }
+    }
+
+    /// The folder of the program `id`, made so a setting is kept there before its install or its
+    /// first run; the caller holds the store's lock.
+    fn keep_program(&self, id: &ProgramId) -> Result<PathBuf, StoreError> {
+        let folder = self.program_folder(id);
+        fs::create_dir_all(&folder).map_err(StoreError::io_at(&folder))?;
+        Ok(folder)
     }
 
     fn removing_folder(&self) -> PathBuf {

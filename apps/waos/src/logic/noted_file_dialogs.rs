@@ -19,9 +19,10 @@ use waos::bindings::wasdk::platform::views::ViewId;
 use waos::{
     FileDialogFuture, FolderOptions, OpenOptions, RunningProgram, SaveOptions, ShellFileDialogs,
 };
-use waos_dev_protocol::{Asked, FileDialog, Row};
+use waos_dev_protocol::{Asked, FileDialog};
 
 use super::asking_now::{AnswerNow, AskingNow};
+use super::setting_answers;
 
 /// `dialogs`, each noted in `asking` while it is open, and answered by a setting made meanwhile.
 pub(crate) struct NotedFileDialogs {
@@ -111,12 +112,12 @@ fn answered_by(
     dialog: FileDialog,
 ) -> impl Future<Output = Vec<PathBuf>> + Send + 'static {
     let named = program.name().to_owned();
-    let key = dialog.key();
+    let asked = Asked::FileDialog(dialog);
     async move {
         loop {
             match answers.recv().await {
                 Ok(answer) => {
-                    if let Some(paths) = answered(answer, &named, key) {
+                    if let Some(paths) = answered(answer, &named, &asked) {
                         return paths;
                     }
                 }
@@ -128,57 +129,92 @@ fn answered_by(
     }
 }
 
-/// The paths `answer` gives the dialog whose row's key is `key`, of the program `program`; none
-/// when it answers another question, or sets this one back to ask.
-fn answered(answer: AnswerNow, program: &str, key: &str) -> Option<Vec<PathBuf>> {
+/// The paths `answer` gives the dialog `asked`, of the program `program`; none when it answers
+/// another question, or sets this one back to ask.
+fn answered(answer: AnswerNow, program: &str, asked: &Asked) -> Option<Vec<PathBuf>> {
     match answer {
         AnswerNow::Set {
             program: named,
-            row: Row::FileDialog(kind, paths),
-        } if named == program && kind.key() == key && !paths.is_empty() => Some(paths),
+            change,
+        } if named == program => {
+            let (dialog, paths) = setting_answers::file_dialog(&change)?;
+            (Asked::FileDialog(dialog) == *asked).then_some(paths)
+        }
         AnswerNow::Cancel {
             program: named,
-            key: named_key,
-        } if named == program && named_key == key => Some(Vec::new()),
+            asked: cancelled,
+        } if named == program && cancelled == *asked => Some(Vec::new()),
         _ => None,
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use waos_store::FileDialog as StoreDialog;
+
+    use super::super::setting_changes::SettingChange;
     use super::*;
 
-    fn set(program: &str, dialog: FileDialog, paths: &[&str]) -> AnswerNow {
+    fn set(program: &str, dialog: StoreDialog, paths: &[&str]) -> AnswerNow {
         AnswerNow::Set {
             program: program.to_owned(),
-            row: Row::FileDialog(dialog, paths.iter().map(PathBuf::from).collect()),
+            change: SettingChange::FileDialogAnswer(
+                dialog,
+                paths.iter().map(|p| p.to_string()).collect(),
+            ),
         }
     }
 
     #[test]
     fn a_setting_answers_the_dialog_it_names_and_no_other() {
-        let saved = set("/tmp/a.txt", FileDialog::SaveFile, &["/tmp/out.pdf"]);
+        let saved = set("/tmp/a.txt", StoreDialog::SaveFile, &["/tmp/out.pdf"]);
         assert_eq!(
-            answered(saved, "/tmp/a.txt", "save-file"),
+            answered(
+                saved,
+                "/tmp/a.txt",
+                &Asked::FileDialog(FileDialog::SaveFile)
+            ),
             Some(vec![PathBuf::from("/tmp/out.pdf")])
         );
-        let opened = set("/tmp/a.txt", FileDialog::OpenFile, &["/tmp/in.txt"]);
-        assert_eq!(answered(opened, "/tmp/a.txt", "save-file"), None);
-        let other = set("/tmp/b.txt", FileDialog::SaveFile, &["/tmp/out.pdf"]);
-        assert_eq!(answered(other, "/tmp/a.txt", "save-file"), None);
+        let opened = set("/tmp/a.txt", StoreDialog::OpenFile, &["/tmp/in.txt"]);
+        assert_eq!(
+            answered(
+                opened,
+                "/tmp/a.txt",
+                &Asked::FileDialog(FileDialog::SaveFile)
+            ),
+            None
+        );
+        let other = set("/tmp/b.txt", StoreDialog::SaveFile, &["/tmp/out.pdf"]);
+        assert_eq!(
+            answered(
+                other,
+                "/tmp/a.txt",
+                &Asked::FileDialog(FileDialog::SaveFile)
+            ),
+            None
+        );
     }
 
     #[test]
     fn a_cancel_answers_with_nothing_and_a_setting_back_to_ask_does_not() {
+        let asked = Asked::FileDialog(FileDialog::OpenFiles);
         let cancel = AnswerNow::Cancel {
             program: "/tmp/a.txt".to_owned(),
-            key: "open-files".to_owned(),
+            asked,
         };
         assert_eq!(
-            answered(cancel, "/tmp/a.txt", "open-files"),
+            answered(
+                cancel,
+                "/tmp/a.txt",
+                &Asked::FileDialog(FileDialog::OpenFiles)
+            ),
             Some(Vec::new())
         );
-        let ask = set("/tmp/a.txt", FileDialog::OpenFiles, &[]);
-        assert_eq!(answered(ask, "/tmp/a.txt", "open-files"), None);
+        let ask = set("/tmp/a.txt", StoreDialog::OpenFiles, &[]);
+        assert_eq!(
+            answered(ask, "/tmp/a.txt", &Asked::FileDialog(FileDialog::OpenFiles)),
+            None
+        );
     }
 }

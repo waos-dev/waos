@@ -96,13 +96,12 @@ pub(crate) enum Reply {
 }
 
 impl Asking {
-    /// The row's key that answers what is asked, as `cargo waos set` names it; none for a picker
-    /// that has no row.
-    pub(crate) fn key(&self) -> Option<String> {
+    /// What is asked, as a run of `cargo waos run` is told it is asked.
+    pub(crate) fn asked_now(&self) -> AskedNow {
         match self {
-            Asking::Question { question, .. } => Some(question.asked_now().key()),
-            Asking::Output { .. } => Some(AskedNow::AudioOutput.key()),
-            Asking::Machine { .. } => Some(AskedNow::Machine.key()),
+            Asking::Question { question, .. } => question.asked_now(),
+            Asking::Output { .. } => AskedNow::AudioOutput,
+            Asking::Machine { .. } => AskedNow::Machine,
         }
     }
 
@@ -274,7 +273,7 @@ impl ShellMachinePicker for MachinePickerOnRequest {
 
 impl ProgramQuestion {
     /// The question, as a run of `cargo waos run` is told it is asked.
-    pub(crate) fn asked_now(&self) -> AskedNow {
+    fn asked_now(&self) -> AskedNow {
         match self {
             ProgramQuestion::Permission(question) => {
                 AskedNow::Question(protocol_question(*question))

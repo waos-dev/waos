@@ -13,18 +13,26 @@ use std::sync::{Arc, Mutex, PoisonError};
 
 use tokio::sync::broadcast;
 use waos::RunningProgram;
-use waos_dev_protocol::{Asked, Row};
+use waos_dev_protocol::Asked;
+
+use super::setting_changes::SettingChange;
 
 /// How many askings a run that is slow to read may fall behind by before it misses some.
 const TOLD_BACKLOG: usize = 64;
 
 /// A setting `cargo waos set` made while a program's questions wait, or a cancel, for the main
-/// thread to answer the question with: the row that answers it, or the row whose key names the
-/// question to leave unanswered.
+/// thread to answer the question with: the change the set resolved and checked, or the question
+/// whose prompt is to be left unanswered.
 #[derive(Clone, Debug)]
 pub(crate) enum AnswerNow {
-    Set { program: String, row: Row },
-    Cancel { program: String, key: String },
+    Set {
+        program: String,
+        change: SettingChange,
+    },
+    Cancel {
+        program: String,
+        asked: Asked,
+    },
 }
 
 /// What WaOS asks each program's user now. Every clone of the `Arc` is the same.
@@ -60,20 +68,21 @@ impl AskingNow {
         self.answers.subscribe()
     }
 
-    /// `row` was set for the program `program`: a question of that row waiting is answered with it.
-    pub(crate) fn answer(&self, program: &str, row: Row) {
+    /// A change was made for the program `program`: a question it answers, waiting now, is
+    /// answered with it.
+    pub(crate) fn answer(&self, program: &str, change: SettingChange) {
         // Nobody answering means the next question is answered from the setting, as before.
         let _ = self.answers.send(AnswerNow::Set {
             program: program.to_owned(),
-            row,
+            change,
         });
     }
 
-    /// The row `key` names is to be left unanswered, as a user cancels it.
-    pub(crate) fn cancel(&self, program: &str, key: String) {
+    /// The question `asked` names, waiting now, is left unanswered, as a user cancels it.
+    pub(crate) fn cancel(&self, program: &str, asked: Asked) {
         let _ = self.answers.send(AnswerNow::Cancel {
             program: program.to_owned(),
-            key,
+            asked,
         });
     }
 

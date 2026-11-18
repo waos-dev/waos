@@ -245,8 +245,8 @@ async fn serve_connection(mut connection: Connection<ServerStream>, context: Con
         Ok(Some(ToWaOS::Set { id, row })) => {
             dev_settings::answer(connection, &context.settings, &id, Some(row), None).await;
         }
-        Ok(Some(ToWaOS::Cancel { id, key })) => {
-            dev_settings::answer(connection, &context.settings, &id, None, Some(key)).await;
+        Ok(Some(ToWaOS::Cancel { id, asked })) => {
+            dev_settings::answer(connection, &context.settings, &id, None, Some(asked)).await;
         }
         Ok(Some(ToWaOS::Inspect { id, asked })) => {
             let inspection = InspectionContext {
@@ -629,6 +629,10 @@ pub(crate) mod tests {
         assert!(
             before.iter().any(|row| row.key == "camera"),
             "a development program's rows are read before its first run"
+        );
+        assert!(
+            !server.folder.join("store/programs").join(FOREVER).exists(),
+            "reading the rows keeps nothing"
         );
         let mut client = server
             .run(FOREVER, Path::new(waos_test_programs::FOREVER))

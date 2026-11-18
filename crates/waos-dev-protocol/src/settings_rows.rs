@@ -5,7 +5,7 @@
 //! what WaOS asks the program's user, which a run's terminal says while it waits.
 //!
 //! The invariant: a row's key is its name on the command line and in what `settings` prints, and
-//! [`Row::key`] and [`Row::parse`] say the same names; a new kind of row adds its variant at the
+//! [`Row::parse`] and [`Asked::parse`] say the same names; a new kind of row adds its variant at the
 //! end, as every message does (the crate's doc).
 
 use std::fmt;
@@ -137,17 +137,40 @@ pub enum Asked {
 }
 
 impl Asked {
-    /// The row's key that answers this while it waits, as `cargo waos set` names it: `camera`,
-    /// `link-scheme zoommtg`, `save-file`.
-    pub fn key(&self) -> String {
-        match self {
-            Asked::Question(question) => question.key().to_owned(),
-            Asked::LinkScheme(scheme) => format!("{LINK_SCHEME} {scheme}"),
-            Asked::Switch(switch) => switch.key().to_owned(),
-            Asked::Machine => MACHINE.to_owned(),
-            Asked::AudioOutput => AUDIO_OUTPUT.to_owned(),
-            Asked::FileDialog(dialog) => dialog.key().to_owned(),
-            Asked::Role(role) => role.key().to_owned(),
+    /// What `words` say WaOS asks, as `cargo waos set <row> --cancel` names it: `camera`,
+    /// `link-scheme zoommtg`, `save-file`, `machine`. A switch's page is named too, though a
+    /// switch waits on its page rather than in a prompt.
+    pub fn parse(words: &[String]) -> Result<Asked, RowError> {
+        let (key, values) = words
+            .split_first()
+            .ok_or_else(|| RowError(format!("name what is asked: {}", every_asked())))?;
+        if let Some(question) = Question::ALL.into_iter().find(|each| each.key() == key) {
+            alone(key, values)?;
+            return Ok(Asked::Question(question));
+        }
+        if let Some(switch) = Switch::ALL.into_iter().find(|each| each.key() == key) {
+            alone(key, values)?;
+            return Ok(Asked::Switch(switch));
+        }
+        if let Some(dialog) = FileDialog::ALL.into_iter().find(|each| each.key() == key) {
+            alone(key, values)?;
+            return Ok(Asked::FileDialog(dialog));
+        }
+        if let Some(role) = Role::ALL.into_iter().find(|each| each.key() == key) {
+            alone(key, values)?;
+            return Ok(Asked::Role(role));
+        }
+        match key.as_str() {
+            LINK_SCHEME => match values {
+                [scheme] => Ok(Asked::LinkScheme(scheme.to_ascii_lowercase())),
+                _ => Err(RowError("name the scheme: link-scheme zoommtg".to_owned())),
+            },
+            MACHINE => alone(key, values).map(|()| Asked::Machine),
+            AUDIO_OUTPUT => alone(key, values).map(|()| Asked::AudioOutput),
+            _ => Err(RowError(format!(
+                "nothing is asked under {key:?}: {}",
+                every_asked()
+            ))),
         }
     }
 }
@@ -240,7 +263,7 @@ pub const AUDIO_OUTPUT: &str = "audio-output";
 /// The key of what a simulated microphone records.
 pub const SIMULATED_MICROPHONE: &str = "simulated-microphone";
 
-/// Why the words of a row name no row, or no value of it.
+/// Why the words of a row, or of what WaOS asks, name no row or question, or no value of it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RowError(String);
 
@@ -295,20 +318,6 @@ impl Row {
             ))),
         }
     }
-
-    /// The row's key, as `cargo waos set` names it: `camera`, `link-scheme zoommtg`, `save-file`.
-    pub fn key(&self) -> String {
-        match self {
-            Row::Question(question, _) => question.key().to_owned(),
-            Row::Switch(switch, _) => switch.key().to_owned(),
-            Row::LinkScheme(scheme, _) => format!("{LINK_SCHEME} {scheme}"),
-            Row::Machine(_) => MACHINE.to_owned(),
-            Row::AudioOutput(_) => AUDIO_OUTPUT.to_owned(),
-            Row::FileDialog(dialog, _) => dialog.key().to_owned(),
-            Row::SimulatedMicrophone(_) => SIMULATED_MICROPHONE.to_owned(),
-            Row::Role(role, _) => role.key().to_owned(),
-        }
-    }
 }
 
 /// Every row's name, for a refusal to list.
@@ -319,6 +328,26 @@ fn every_key() -> String {
     keys.extend(FileDialog::ALL.iter().map(|each| each.key()));
     keys.extend(Role::ALL.iter().map(|each| each.key()));
     keys.join(", ")
+}
+
+/// Every name of what WaOS asks, for a refusal to list; the simulated microphone is a setting,
+/// not a question WaOS puts while it waits.
+fn every_asked() -> String {
+    let mut keys: Vec<&str> = Question::ALL.iter().map(|each| each.key()).collect();
+    keys.extend(Switch::ALL.iter().map(|each| each.key()));
+    keys.extend([LINK_SCHEME, MACHINE, AUDIO_OUTPUT]);
+    keys.extend(FileDialog::ALL.iter().map(|each| each.key()));
+    keys.extend(Role::ALL.iter().map(|each| each.key()));
+    keys.join(", ")
+}
+
+/// Refuses values after the `key` of a question that is named alone.
+fn alone(key: &str, values: &[String]) -> Result<(), RowError> {
+    if values.is_empty() {
+        Ok(())
+    } else {
+        Err(RowError(format!("{key} names a question alone")))
+    }
 }
 
 /// The one value of the row `key`.
@@ -458,6 +487,30 @@ mod tests {
             ("role.inspector ask", Row::Role(Role::Inspector, None)),
         ] {
             assert_eq!(Row::parse(&words(text)).unwrap(), row, "{text}");
+        }
+    }
+
+    #[test]
+    fn what_is_asked_is_named_by_the_rows_key() {
+        for (text, asked) in [
+            ("camera", Asked::Question(Question::Camera)),
+            ("notifications", Asked::Question(Question::Notifications)),
+            ("network", Asked::Switch(Switch::Network)),
+            ("link-scheme ZoomMtg", Asked::LinkScheme("zoommtg".into())),
+            ("machine", Asked::Machine),
+            ("audio-output", Asked::AudioOutput),
+            ("save-file", Asked::FileDialog(FileDialog::SaveFile)),
+            ("role.inspector", Asked::Role(Role::Inspector)),
+        ] {
+            assert_eq!(Asked::parse(&words(text)).unwrap(), asked, "{text}");
+        }
+        for text in [
+            "simulated-microphone",
+            "camera allow",
+            "link-scheme",
+            "webcam",
+        ] {
+            assert!(Asked::parse(&words(text)).is_err(), "{text}");
         }
     }
 

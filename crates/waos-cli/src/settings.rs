@@ -14,7 +14,7 @@ use std::path::{self, PathBuf};
 use std::process::ExitCode;
 
 use anyhow::{Context, Result, bail};
-use waos_dev_protocol::{ASK, FromWaOS, Row, SettingRow, ToWaOS};
+use waos_dev_protocol::{ASK, Asked, FromWaOS, Row, SettingRow, ToWaOS};
 use waos_package::ProgramId;
 
 use crate::asking::ask_on;
@@ -39,7 +39,7 @@ pub async fn set(id: ProgramId, words: &[String], cancel: bool) -> Result<ExitCo
         (
             ToWaOS::Cancel {
                 id: id.clone(),
-                key: words.join(" "),
+                asked: Asked::parse(words)?,
             },
             None,
         )

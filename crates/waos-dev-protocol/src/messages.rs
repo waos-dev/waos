@@ -81,10 +81,10 @@ pub enum ToWaOS {
     /// connection closes or the program ends; or `Unreached`.
     Inspect { id: ProgramId, asked: Inspection },
     /// Answers no question of the program `id` waiting now, as its user would cancel the prompt or
-    /// dialog: the row `key` names it, `save-file` or `link-scheme zoommtg`, and the question is
-    /// left as it was, so a program asks it again at its next use. Answered `Settings`, the rows
-    /// as they are, or `Unreached`, after which the connection ends.
-    Cancel { id: ProgramId, key: String },
+    /// dialog: `asked` names it, a question, a link scheme, a picker or a file dialog, and the
+    /// question is left as it was, so a program asks it again at its next use. Answered `Settings`,
+    /// the rows as they are, or `Unreached`, after which the connection ends.
+    Cancel { id: ProgramId, asked: Asked },
 }
 
 /// What an inspection asks of a program.
@@ -337,10 +337,10 @@ impl fmt::Debug for ToWaOS {
                 .field("id", &format_args!("{id}"))
                 .field("row", row)
                 .finish(),
-            ToWaOS::Cancel { id, key } => f
+            ToWaOS::Cancel { id, asked } => f
                 .debug_struct("Cancel")
                 .field("id", &format_args!("{id}"))
-                .field("key", key)
+                .field("asked", asked)
                 .finish(),
             ToWaOS::Resize {
                 id,
@@ -522,16 +522,16 @@ mod tests {
     }
 
     #[test]
-    fn a_cancel_reads_back_as_written_and_prints_its_key() {
+    fn a_cancel_reads_back_as_written_and_prints_what_it_cancels() {
         let cancel = ToWaOS::Cancel {
             id: "dev.example.notes".parse().unwrap(),
-            key: "link-scheme zoommtg".into(),
+            asked: Asked::LinkScheme("zoommtg".into()),
         };
         let encoded = postcard::to_allocvec(&cancel).unwrap();
         assert_eq!(postcard::from_bytes::<ToWaOS>(&encoded).unwrap(), cancel);
         assert_eq!(
             format!("{cancel:?}"),
-            "Cancel { id: dev.example.notes, key: \"link-scheme zoommtg\" }"
+            "Cancel { id: dev.example.notes, asked: LinkScheme(\"zoommtg\") }"
         );
     }
 

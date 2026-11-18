@@ -13,12 +13,12 @@
 use std::sync::Arc;
 
 use waos_dev_protocol::{
-    ASK, AUDIO_OUTPUT, Answer, Connection, FileDialog, FromWaOS, LINK_SCHEME, MACHINE, Offered,
-    Question, Role, Row, SIMULATED_MICROPHONE, ServerStream, SettingRow, SimulatedSound, Switch,
-    Unreached,
+    ASK, AUDIO_OUTPUT, Answer, Asked, Connection, FileDialog, FromWaOS, LINK_SCHEME, MACHINE,
+    Offered, Question, Role, Row, SIMULATED_MICROPHONE, ServerStream, SettingRow, SimulatedSound,
+    Switch, Unreached,
 };
 use waos_package::ProgramId;
-use waos_store::Store;
+use waos_store::{ProgramSettings, Store, StoreError};
 
 use super::asking_now::AskingNow;
 use super::environments::ProgramEnvironments;
@@ -38,14 +38,14 @@ pub(crate) struct SettingsContext {
     pub(crate) asking: Arc<AskingNow>,
 }
 
-/// Answers a connection's `Settings`, with `set` none, its `Set`, or its `Cancel` of the row
+/// Answers a connection's `Settings`, with `set` none, its `Set`, or its `Cancel` of the question
 /// `cancel` names: the rows of the program `id`'s settings, after the change where one is.
 pub(crate) async fn answer(
     mut connection: Connection<ServerStream>,
     context: &SettingsContext,
     id: &ProgramId,
     set: Option<Row>,
-    cancel: Option<String>,
+    cancel: Option<Asked>,
 ) {
     let answer = rows_after(context, id, set, cancel)
         .await
@@ -54,20 +54,16 @@ pub(crate) async fn answer(
     let _ = connection.send(&answer).await;
 }
 
-/// The rows of the program `id`'s settings after `set` or the cancel of a row, or what refuses it.
+/// The rows of the program `id`'s settings after `set` or the cancel of a question, or what
+/// refuses it.
 async fn rows_after(
     context: &SettingsContext,
     id: &ProgramId,
     set: Option<Row>,
-    cancel: Option<String>,
+    cancel: Option<Asked>,
 ) -> Result<FromWaOS, FromWaOS> {
-    if !was_run_by_cargo_waos(context, id).await {
+    if !is_a_development_program(context, id).await {
         return Err(FromWaOS::Unreached(Unreached::NeverRunByCargoWaos));
-    }
-    // A development program set before its first run: the store keeps its folder from now, so
-    // the settings are kept there before it runs.
-    if context.store.program(id).is_none() {
-        context.store.keep_program(id).map_err(refused)?;
     }
     let environments = Arc::clone(&context.environments);
     // Listing the sound outputs waits for the system's audio.
@@ -75,25 +71,32 @@ async fn rows_after(
         .await
         .map_err(|error| FromWaOS::Refused(format!("reading what the pickers offer: {error}")))?;
     if let Some(row) = set {
-        let change = change_of(row.clone(), &offered).map_err(FromWaOS::Refused)?;
+        let change = change_of(row, &offered).map_err(FromWaOS::Refused)?;
         tracing::info!(%id, ?change, "cargo waos sets a program's setting");
-        set_program(&context.store, id, change).map_err(FromWaOS::Refused)?;
-        context.asking.answer(id.as_str(), row);
+        set_program(&context.store, id, change.clone()).map_err(FromWaOS::Refused)?;
+        context.asking.answer(id.as_str(), change);
     }
-    if let Some(key) = cancel {
-        tracing::info!(%id, %key, "cargo waos cancels a question waiting");
-        context.asking.cancel(id.as_str(), key);
+    if let Some(asked) = cancel {
+        tracing::info!(%id, ?asked, "cargo waos cancels a question waiting");
+        context.asking.cancel(id.as_str(), asked);
     }
     let global = context.store.global_settings().map_err(refused)?;
-    let own = context.store.program_settings(id).map_err(refused)?;
+    let own = match context.store.program_settings(id) {
+        Ok(own) => own,
+        // A development program with nothing kept yet: it has no settings of its own, so the
+        // page is every global setting, and the read keeps no folder.
+        Err(StoreError::NotInstalled(_)) => ProgramSettings::default(),
+        Err(error) => return Err(refused(error)),
+    };
     Ok(FromWaOS::Settings(rows(&program_page(
         &global, &own, &offered,
     ))))
 }
 
-/// Whether a run of `cargo waos run` runs the program `id` now, or ran it once; a program the
-/// store does not have installed is a development one, which may be set before its first run.
-async fn was_run_by_cargo_waos(context: &SettingsContext, id: &ProgramId) -> bool {
+/// Whether `id` is a development program: one a run of `cargo waos run` on this machine runs or
+/// has run, or one the store does not have installed, which may be set before its first run. An
+/// installed program no run sent is not one.
+async fn is_a_development_program(context: &SettingsContext, id: &ProgramId) -> bool {
     context.runs.dev_run(id).await.is_some()
         || context.components.was_sent(id)
         || context.store.program(id).is_none()

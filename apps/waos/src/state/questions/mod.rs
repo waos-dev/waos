@@ -21,7 +21,6 @@ use tokio::sync::broadcast;
 use tokio::sync::broadcast::error::RecvError;
 use waft::{App, Context, Entity, IntoWidget, WeakEntity};
 use waos::RunningProgram;
-use waos_dev_protocol::{Answer, Row};
 use waos_program_window::{PromptPlacement, PromptWindows, ShownPrompt};
 use waos_store::Store;
 
@@ -29,6 +28,7 @@ use crate::logic::asking_now::AnswerNow;
 use crate::logic::program_faces::ProgramFaces;
 use crate::logic::program_name::program_name;
 use crate::logic::prompts::{Asked, Asking, Reply};
+use crate::logic::setting_answers;
 use crate::state::ViewWindows;
 use crate::ui::question_sheet::QuestionSheet;
 
@@ -93,23 +93,22 @@ impl Questions {
     /// A setting made while a question waits answers that question, as its user would in the
     /// prompt; a cancelled one, or one set back to ask, is left waiting.
     fn answer_now(&mut self, answer: AnswerNow, cx: &mut Context<Questions>) {
-        let (program, key, reply) = match answer {
-            AnswerNow::Set { program, row } => {
-                let Some(reply) = reply_of(&row) else {
+        let (program, asked, reply) = match answer {
+            AnswerNow::Set { program, change } => {
+                let Some((asked, reply)) = setting_answers::question(&change) else {
                     return;
                 };
-                (program, row.key(), Some(reply))
+                (program, asked, Some(reply))
             }
-            AnswerNow::Cancel { program, key } => (program, key, None),
+            AnswerNow::Cancel { program, asked } => (program, asked, None),
         };
         let Some(index) = self.asked.iter().position(|pending| {
-            pending.program.name() == program
-                && pending.asking.key().as_deref() == Some(key.as_str())
+            pending.program.name() == program && pending.asking.asked_now() == asked
         }) else {
             return;
         };
         let pending = self.asked.remove(index);
-        tracing::info!(program, key, ?reply, "answered by a setting");
+        tracing::info!(program, ?asked, ?reply, "answered by a setting");
         pending.asking.reply(reply);
         if self
             .asked
@@ -230,35 +229,6 @@ fn take_answers(
             }
         }
     });
-}
-
-/// The reply a row's value gives the question it answers; none for a row that is not one, or one
-/// set back to ask.
-fn reply_of(row: &Row) -> Option<Reply> {
-    match row {
-        Row::Question(_, Some(answer))
-        | Row::LinkScheme(_, Some(answer))
-        | Row::Role(_, Some(answer)) => Some(Reply::Answer(app_answer(*answer))),
-        Row::Machine(Some(id)) => Some(Reply::Machine(id.clone())),
-        Row::AudioOutput(Some(id)) => Some(Reply::Output(id.clone())),
-        Row::Question(_, None)
-        | Row::LinkScheme(_, None)
-        | Row::Role(_, None)
-        | Row::Machine(None)
-        | Row::AudioOutput(None)
-        | Row::Switch(..)
-        | Row::FileDialog(..)
-        | Row::SimulatedMicrophone(_) => None,
-    }
-}
-
-/// The answer `answer` is, as the program hears it.
-fn app_answer(answer: Answer) -> waos::Answer {
-    match answer {
-        Answer::Allow => waos::Answer::Granted,
-        Answer::Deny => waos::Answer::Denied,
-        Answer::Simulate => waos::Answer::Simulated,
-    }
 }
 
 /// Drops `program`'s questions once it has ended.
