@@ -27,7 +27,7 @@ What stands between today and a first stable release, in the order it blocks one
 The trials' ranked list: `../experiments/2026-11-17-app-trials/RANKED.md` (the maintainers' experiments folder).
 - [ ] Pixiv moved onto Waft's HTTP and files, as the real-app check.
 - [ ] `wasdk-adapter-waft`'s HTTP client on Waft's `Body` trailers and `try_clone`, once Waft has them (waos-dev/waft, in progress).
-- [ ] The dialog a setting answers goes away with the answer: neither Waft nor the system offers a way to put one away, so it stays showing where it was shown.
+- [ ] A setting answers a question a program is waiting on: the engine re-checks waiting questions when a setting changes, and the program's dialog closes as Waft's dropped dialog future already does (waos-dev/waft#101).
 - [ ] A stack for a hung program (`cargo waos inspect`).
 - [ ] `block_on` waiting on tasks it did not start (wit-bindgen's shared queue).
 - [ ] Screenshots at a size larger than the screen.
