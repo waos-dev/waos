@@ -80,8 +80,8 @@ impl Files for WasdkFiles {
         let bytes = bytes.to_vec();
         let root = Rc::clone(&self.root);
         Box::pin(async move {
-            let mut file = opened(&root, &path?, OpenMode::Write).await?;
-            write_whole(&mut file, &bytes).await?;
+            let file = opened(&root, &path?, OpenMode::Write).await?;
+            file.write_at_offset(0, &bytes).await?;
             file.descriptor.sync_data().await.map_err(io_error)
         })
     }
@@ -146,7 +146,8 @@ impl Files for WasdkFiles {
                 }
                 made.push_str(component);
                 match root.create_directory_at(made.clone()).await {
-                    Ok(()) | Err(ErrorCode::Exist) => {}
+                    Ok(()) => {}
+                    Err(ErrorCode::Exist) => check_folder(&root, &made).await?,
                     Err(error) => return Err(io_error(error)),
                 }
             }
@@ -261,14 +262,17 @@ async fn read_whole(file: &mut WasdkFile) -> io::Result<Vec<u8>> {
     }
 }
 
-/// Writes `bytes` to `file` at its cursor, all of them.
-async fn write_whole(file: &mut WasdkFile, bytes: &[u8]) -> io::Result<()> {
-    let mut written = 0;
-    while written < bytes.len() {
-        file.write(&bytes[written..]).await?;
-        written = file.cursor as usize;
+/// Checks that what is already at `path` is a folder, as making one there asks: a file there
+/// is an error, as Dart's `Directory.create` makes it.
+async fn check_folder(root: &Descriptor, path: &str) -> io::Result<()> {
+    let status = root
+        .stat_at(PathFlags::SYMLINK_FOLLOW, path.to_owned())
+        .await
+        .map_err(io_error)?;
+    match status.type_ {
+        DescriptorType::Directory => Ok(()),
+        _ => Err(io_error(ErrorCode::Exist)),
     }
-    Ok(())
 }
 
 /// Deletes the file, link or folder at `path`, a folder with what is in it, as Dart's
@@ -285,12 +289,13 @@ fn delete_tree<'a>(
         if !matches!(status.type_, DescriptorType::Directory) {
             return root.unlink_file_at(path.to_owned()).await.map_err(io_error);
         }
+        // Not following a link put there since the stat, so the walk never leaves the folder.
         let folder = root
             .open_at(
-                PathFlags::SYMLINK_FOLLOW,
+                PathFlags::empty(),
                 path.to_owned(),
                 OpenFlags::DIRECTORY,
-                DescriptorFlags::READ | DescriptorFlags::MUTATE_DIRECTORY,
+                DescriptorFlags::READ,
             )
             .await
             .map_err(io_error)?;
@@ -338,18 +343,29 @@ fn kind_of(type_: DescriptorType) -> FileKind {
     }
 }
 
-/// What a descriptor's status says, as Waft's metadata.
+/// What a descriptor's status says, as Waft's metadata: a size for a file alone.
 fn metadata_of(status: DescriptorStat) -> Metadata {
+    let kind = kind_of(status.type_);
     Metadata {
-        kind: kind_of(status.type_),
-        size: status.size,
+        kind,
+        size: if kind == FileKind::File {
+            status.size
+        } else {
+            0
+        },
         modified: status.data_modification_timestamp.map(system_time),
     }
 }
 
-/// `at`, a WASI instant, as the system's time.
+/// `at`, a WASI instant, as the system's time, before 1970 as well as after.
 fn system_time(at: Instant) -> SystemTime {
-    UNIX_EPOCH + Duration::new(at.seconds as u64, at.nanoseconds)
+    let seconds = Duration::from_secs(at.seconds.unsigned_abs());
+    let nanoseconds = Duration::from_nanos(u64::from(at.nanoseconds));
+    if at.seconds >= 0 {
+        UNIX_EPOCH + seconds + nanoseconds
+    } else {
+        UNIX_EPOCH - seconds + nanoseconds
+    }
 }
 
 /// Why WASI refused a call, as the I/O error Waft's `Files` answers.
@@ -359,6 +375,23 @@ fn io_error(code: ErrorCode) -> io::Error {
         ErrorCode::Access | ErrorCode::NotPermitted => io::ErrorKind::PermissionDenied,
         ErrorCode::Exist => io::ErrorKind::AlreadyExists,
         ErrorCode::Invalid => io::ErrorKind::InvalidInput,
+        ErrorCode::NotDirectory => io::ErrorKind::NotADirectory,
+        ErrorCode::IsDirectory => io::ErrorKind::IsADirectory,
+        ErrorCode::NotEmpty => io::ErrorKind::DirectoryNotEmpty,
+        ErrorCode::ReadOnly => io::ErrorKind::ReadOnlyFilesystem,
+        ErrorCode::InsufficientSpace => io::ErrorKind::StorageFull,
+        ErrorCode::Quota => io::ErrorKind::QuotaExceeded,
+        ErrorCode::FileTooLarge => io::ErrorKind::FileTooLarge,
+        ErrorCode::NameTooLong => io::ErrorKind::InvalidFilename,
+        ErrorCode::Busy => io::ErrorKind::ResourceBusy,
+        ErrorCode::TextFileBusy => io::ErrorKind::ExecutableFileBusy,
+        ErrorCode::CrossDevice => io::ErrorKind::CrossesDevices,
+        ErrorCode::TooManyLinks => io::ErrorKind::TooManyLinks,
+        ErrorCode::Deadlock => io::ErrorKind::Deadlock,
+        ErrorCode::InvalidSeek => io::ErrorKind::NotSeekable,
+        ErrorCode::Interrupted => io::ErrorKind::Interrupted,
+        ErrorCode::InsufficientMemory => io::ErrorKind::OutOfMemory,
+        ErrorCode::Unsupported => io::ErrorKind::Unsupported,
         _ => io::ErrorKind::Other,
     };
     io::Error::new(kind, format!("{code:?}"))
