@@ -13,7 +13,7 @@ use waft::{
     StatelessWidget, WidgetRef,
 };
 use waft_services::LogicalKeyboardKey;
-use waft_winui::{Brush, Page, ThemeResources};
+use waft_winui::{Brush, FluentPage, ThemeResources};
 
 use crate::camera_app::CameraApp;
 use crate::controls::Controls;
@@ -56,7 +56,7 @@ impl CameraPage {
     /// bars, as a phone's camera is, its picture and notice clear of them. The bars below it keep
     /// the screen's bottom, so its page does not.
     fn finder_page(&self, app: &mut App, context: BuildContext) -> WidgetRef {
-        let page = Page::new()
+        let page = FluentPage::new()
             .background(Brush::Solid(BLACK))
             .content(self.finder(app));
         let above_the_bars = MediaQuery::of(app, context)
@@ -70,7 +70,7 @@ impl CameraPage {
     /// screen's top, so their page does not.
     fn bars_page(&self, app: &mut App, context: BuildContext) -> WidgetRef {
         let background = ThemeResources::of(app, context).solid_background_fill_color_base;
-        let page = Page::new()
+        let page = FluentPage::new()
             .background(Brush::Solid(background))
             .content(self.bars());
         MediaQuery::remove_padding(app, context, false, true, false, false, page).into_widget()
