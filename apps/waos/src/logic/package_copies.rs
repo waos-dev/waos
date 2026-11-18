@@ -10,14 +10,13 @@
 //! question is answered, or once it turns out not to be a package; copies an earlier run left are
 //! removed as WaOS starts, before any is made.
 
-use std::future::Future;
 use std::io;
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use anyhow::{Context, Result, bail};
-use waft::ui::{Files, PickedFile};
+use waft::ui::PickedFile;
 
 /// The folder the copies are made in, and the number of the next one.
 #[derive(Clone)]
@@ -85,17 +84,6 @@ pub(crate) fn document_name(document: &PickedFile) -> Option<String> {
         PickedFile::Handle(handle) => Some(handle.name().to_owned()),
         PickedFile::Stream(stream) => Some(stream.name().to_owned()),
     }
-}
-
-/// The whole of `document`, read from its start to its end, a path through the platform's
-/// `files`: the read is started now, and the answer awaited wherever the caller awaits it.
-pub(crate) fn read_document(
-    document: PickedFile,
-    files: Option<&dyn Files>,
-) -> impl Future<Output = Result<Vec<u8>>> + use<> {
-    let name = document_name(&document).unwrap_or_default();
-    let reading = document.read_all(files);
-    async move { reading.await.with_context(|| format!("{name} could not be read")) }
 }
 
 #[cfg(test)]
