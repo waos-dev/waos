@@ -6,6 +6,7 @@ What stands between today and a first stable release, in the order it blocks one
 - [ ] A signed, notarized WaOS.app for macOS, built by CI on a tag (needs the Apple Developer account and signing identity).
 - [ ] waos.app's Download points at the release (`packages/waos-site/lib/shared.ts`, `downloadUrl`).
 - [ ] WaOS updating itself (for example Sparkle on macOS): decide whether 1.0 has it.
+- [ ] `cargo waos docs` serving a version's docs from its release: the release workflow writes them on a tag, and no release carries one yet.
 - [x] The SDK, `cargo waos` and the engine published from a tag by CI (decision 67).
 - [x] The `wasdk:*` interface at 1.0.0, and CI refusing a changed package under the same version.
 
@@ -24,10 +25,8 @@ What stands between today and a first stable release, in the order it blocks one
 
 ## A developer, or an agent, succeeding alone
 The trials' ranked list: `../experiments/2026-11-17-app-trials/RANKED.md` (the maintainers' experiments folder).
-- [ ] HTTP and files in Waft (waos-dev/waft#99), then the WaOS adapter for them, then pixiv moved onto them as the real-app check.
-- [ ] A setting answers a question a program is waiting on, and the dialog closes (Waft first, then the engine).
-- [ ] The docs as one hierarchy of information, from what WaOS is to each interface's reference, bundled with `cargo waos` and installable as an agent skill.
-- [ ] `Timer.periodic` and `Future.delayed` in Waft, so the template's clock is a few lines.
+- [ ] `wasdk-adapter-waft`'s HTTP client on Waft's `Body` trailers and `try_clone`, once Waft has them (waos-dev/waft, in progress).
+- [ ] A setting answers a question a program is waiting on: the engine re-checks waiting questions when a setting changes, and the program's dialog closes as Waft's dropped dialog future already does (waos-dev/waft#101).
 - [ ] A stack for a hung program (`cargo waos inspect`).
 - [ ] `block_on` waiting on tasks it did not start (wit-bindgen's shared queue).
 - [ ] Screenshots at a size larger than the screen.
@@ -35,4 +34,5 @@ The trials' ranked list: `../experiments/2026-11-17-app-trials/RANKED.md` (the m
 ## Solid
 - [x] CI green in Waft, WaOS and Valo; each releases from a tag.
 - [ ] Every built-in app on a release build, end to end.
+- [ ] The engine's audit days are UTC days, so the Inspector's report counts an event just after local midnight in a zone east of UTC in the previous day's column: make the buckets the user's.
 - [ ] The trial apps rebuilt from crates.io's release alone, with no preview config, as the last outside check.

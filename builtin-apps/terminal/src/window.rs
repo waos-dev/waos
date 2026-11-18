@@ -1,6 +1,11 @@
 //! A session's window: asked for at a size that holds a classic 80 by 24 screen, kept no smaller
 //! than a few words wide, titled as its session says, closed by File's Close Window, and closed
 //! by itself once its shell has ended as the user asked.
+//!
+//! The invariant a later editor will break: the window's state opens its session, once, as the
+//! window arrives, and hangs it up as the window goes. A session opened in a build, the
+//! `MultiViewApp`'s builder's included, is a new shell at each rebuild, and the build that read it
+//! is rebuilt each time it changes: shells start and are hung up at once, and nothing is drawn.
 
 use std::any::TypeId;
 use std::collections::HashMap;
@@ -10,11 +15,14 @@ use std::rc::Rc;
 use waft_embedder::{Size, WindowConfig, WindowRef};
 use waft_foundation::{App, Entity, Handle, Subscription};
 use waft_widgets::{
-    ActionRef, Actions, BuildContext, CallbackAction, Intent, IntoWidget, State, StateData,
-    StatefulWidget, View, WidgetRef,
+    ActionRef, Actions, BuildContext, CallbackAction, Intent, IntoWidget, PageRouteBuilder,
+    RouteSettingsRef, State, StateData, StatefulWidget, View, WidgetRef, WidgetsApp,
 };
+use waft_winui::AccentPalette;
 
-use crate::session::{Session, Stage, hang_up};
+use crate::grid_painter::TextSettings;
+use crate::session::{self, Session, Stage, hang_up};
+use crate::session_page::SessionPage;
 
 /// The app's name, a window's title until its session has one.
 pub(crate) const APP_NAME: &str = "Terminal";
@@ -48,10 +56,10 @@ pub(crate) fn open_window(app: &mut App) {
     }
 }
 
-/// `child`, in the window of `session`.
+/// A session of its own, in the window the widget is in, its terminal drawn in the font `text`
+/// holds.
 pub(crate) struct SessionWindow {
-    pub(crate) session: Entity<Session>,
-    pub(crate) child: WidgetRef,
+    pub(crate) text: Entity<TextSettings>,
 }
 
 impl fmt::Debug for SessionWindow {
@@ -66,6 +74,7 @@ impl StatefulWidget for SessionWindow {
     fn create_state(&self) -> SessionWindowState {
         SessionWindowState {
             state: StateData::new(),
+            session: None,
             window: None,
             titled: None,
             actions: HashMap::new(),
@@ -76,6 +85,8 @@ impl StatefulWidget for SessionWindow {
 
 pub(crate) struct SessionWindowState {
     state: StateData<SessionWindow>,
+    /// The session the window shows, opened as the window arrived.
+    session: Option<Entity<Session>>,
     /// The window around the view the widget is in, where it is in one.
     window: Option<WindowRef>,
     /// The title the window was given last.
@@ -87,9 +98,15 @@ pub(crate) struct SessionWindowState {
 }
 
 impl SessionWindowState {
+    fn session(self: Handle<Self>, app: &App) -> Entity<Session> {
+        let session = app.get(self).session.as_ref();
+        session.expect("init_state has run").clone()
+    }
+
     /// Titles the window as the session says, and closes it once the shell has left.
     fn follow_session(self: Handle<Self>, app: &mut App) {
-        let session = self.widget(app).session.read(app);
+        let session = self.session(app);
+        let session = session.read(app);
         let left = session.stage == Stage::Left;
         let title = session.title().unwrap_or(APP_NAME).to_owned();
         let state = app.get_mut(self);
@@ -123,9 +140,10 @@ impl State for SessionWindowState {
                 None
             }),
         );
-        let session = self.widget(app).session.clone();
+        let session = session::open(app);
         let following = app.observe(&session, move |app| self.follow_session(app));
         let state = app.get_mut(self);
+        state.session = Some(session);
         state
             .actions
             .insert(TypeId::of::<CloseWindowIntent>(), close.into_erased());
@@ -134,9 +152,10 @@ impl State for SessionWindowState {
 
     /// The window is gone: its shell is hung up, whatever still holds the session.
     fn dispose(self: Handle<Self>, app: &mut App) {
-        let session = self.widget(app).session.clone();
+        let session = self.session(app);
         hang_up(app, &session);
         let state = app.get_mut(self);
+        state.session = None;
         state.following = None;
         state.actions.clear();
     }
@@ -162,7 +181,27 @@ impl State for SessionWindowState {
     }
 
     fn build(self: Handle<Self>, app: &mut App, _context: BuildContext) -> WidgetRef {
-        let child = self.widget(app).child.clone();
-        Actions::new(app.get(self).actions.clone(), child).into_widget()
+        let page = SessionPage {
+            session: self.session(app),
+            text: self.widget(app).text.clone(),
+        };
+        Actions::new(app.get(self).actions.clone(), widgets_app(page)).into_widget()
     }
+}
+
+/// The window's app: the navigator its page is the one route of, in Fluent's accent.
+fn widgets_app(page: SessionPage) -> WidgetRef {
+    WidgetsApp::new(AccentPalette::default().base)
+        .title(APP_NAME)
+        .debug_show_checked_mode_banner(false)
+        .page_route_builder(|app, settings, builder| {
+            let route = PageRouteBuilder::new(
+                app,
+                Rc::new(move |app, context, _, _| builder(app, context)),
+            )
+            .settings(app, RouteSettingsRef::Settings(settings.clone()));
+            route.into_erased()
+        })
+        .home(page)
+        .into_widget()
 }
