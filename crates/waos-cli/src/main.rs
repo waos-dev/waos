@@ -102,6 +102,9 @@ enum Command {
     /// Taps a window of the program `cargo waos run` runs: a press and release of the mouse there.
     /// Returns once the window has shown its next picture.
     ///
+    /// The point is in the window's pixels, as `cargo waos screenshot` writes them, not in its
+    /// logical points; a Retina window's point is two pixels.
+    ///
     /// The press and release are made by WaOS, with a mouse of its own, and handed to the program
     /// as WaOS hands over its user's input, so the program hears them as a user's; the system
     /// never sees them, and the real pointer does not move.
@@ -125,6 +128,9 @@ enum Command {
     /// Scrolls a window of the program `cargo waos run` runs at a point, as a mouse wheel does.
     /// Returns once the window has shown its next picture.
     ///
+    /// The point and the distance are in the window's pixels, as `cargo waos screenshot` writes
+    /// them, not in its logical points; a Retina window's point is two pixels.
+    ///
     /// The scroll is made by WaOS, with a mouse of its own, and handed to the program as WaOS
     /// hands over its user's input, so the program hears it as a user's; the system never sees
     /// it, and the real pointer does not move.
@@ -133,6 +139,9 @@ enum Command {
     /// button down there, held for --duration, then up. Returns once the window has shown its
     /// next picture after the release.
     ///
+    /// The point is in the window's pixels, as `cargo waos screenshot` writes them, not in its
+    /// logical points; a Retina window's point is two pixels.
+    ///
     /// The press and release are made by WaOS, with a mouse of its own, and handed to the program
     /// as WaOS hands over its user's input, so the program hears them as a user's; the system
     /// never sees them, and the real pointer does not move.
@@ -140,6 +149,9 @@ enum Command {
     /// Drags in a window of the program `cargo waos run` runs: the mouse's button down at --from,
     /// held there for --hold, moved to --to in --steps equal moves spread over --duration, and up
     /// at --to. Returns once the window has shown its next picture after the release.
+    ///
+    /// Both points are in the window's pixels, as `cargo waos screenshot` writes them, not in its
+    /// logical points; a Retina window's point is two pixels.
     ///
     /// The press, the moves and the release are made by WaOS, with a mouse of its own, and handed
     /// to the program as WaOS hands over its user's input, so the program hears them as a user's;
@@ -264,7 +276,8 @@ struct RunArgs {
 struct WindowArgs {
     #[command(flatten)]
     program: Program,
-    /// The window, numbered from 1 as `cargo waos screenshot` lists them.
+    /// The window, numbered from 1 as `cargo waos screenshot` lists them: its picture is in
+    /// pixels, as the screenshot's, and its logical points are those divided by its scale.
     #[arg(long, default_value_t = 1)]
     window: u32,
 }
@@ -273,7 +286,8 @@ struct WindowArgs {
 struct TapArgs {
     #[command(flatten)]
     window: WindowArgs,
-    /// Where, in the window's pixels from its top-left, as a screenshot has them: <x>,<y>.
+    /// Where, in the window's pixels from its top-left, as `cargo waos screenshot` writes them,
+    /// not in its logical points: <x>,<y>.
     #[arg(long, value_name = "X,Y", allow_hyphen_values = true)]
     at: Pair,
 }
@@ -302,7 +316,8 @@ struct KeyArgs {
 struct ScrollArgs {
     #[command(flatten)]
     window: WindowArgs,
-    /// Where, in the window's pixels from its top-left, as a screenshot has them: <x>,<y>.
+    /// Where, in the window's pixels from its top-left, as `cargo waos screenshot` writes them,
+    /// not in its logical points: <x>,<y>.
     #[arg(long, value_name = "X,Y", allow_hyphen_values = true)]
     at: Pair,
     /// How far, in pixels: <dx>,<dy>, a positive dy scrolling down, towards the content's end.
@@ -314,7 +329,8 @@ struct ScrollArgs {
 struct PressArgs {
     #[command(flatten)]
     window: WindowArgs,
-    /// Where, in the window's pixels from its top-left, as a screenshot has them: <x>,<y>.
+    /// Where, in the window's pixels from its top-left, as `cargo waos screenshot` writes them,
+    /// not in its logical points: <x>,<y>.
     #[arg(long, value_name = "X,Y", allow_hyphen_values = true)]
     at: Pair,
     /// How long the button is held down, in milliseconds.
@@ -326,10 +342,12 @@ struct PressArgs {
 struct DragArgs {
     #[command(flatten)]
     window: WindowArgs,
-    /// Where the button goes down, in the window's pixels from its top-left: <x>,<y>.
+    /// Where the button goes down, in the window's pixels from its top-left, as `cargo waos
+    /// screenshot` writes them, not in its logical points: <x>,<y>.
     #[arg(long, value_name = "X,Y", allow_hyphen_values = true)]
     from: Pair,
-    /// Where the button comes up, in the window's pixels from its top-left: <x>,<y>.
+    /// Where the button comes up, in the window's pixels from its top-left, as `cargo waos
+    /// screenshot` writes them, not in its logical points: <x>,<y>.
     #[arg(long, value_name = "X,Y", allow_hyphen_values = true)]
     to: Pair,
     /// How many equal moves the way from --from to --to is made in.
@@ -347,7 +365,8 @@ struct DragArgs {
 struct ResizeArgs {
     #[command(flatten)]
     window: WindowArgs,
-    /// The size of what the window shows, in logical points: <width>x<height>, such as 390x844.
+    /// The size of what the window shows, in logical points, not pixels: <width>x<height>, such
+    /// as 390x844, which a Retina window's screenshot is 780x1688 pixels.
     #[arg(long, value_name = "WIDTHxHEIGHT")]
     to: Points,
 }

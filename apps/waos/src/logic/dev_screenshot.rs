@@ -316,7 +316,10 @@ mod tests {
             };
             assert_eq!(
                 server.ask(&tap).await,
-                FromWaOS::InputDone { new_picture: true }
+                FromWaOS::InputDone {
+                    in_sight: true,
+                    new_picture: true,
+                }
             );
             let pictures = pictures_once_shown(&server, INPUT).await;
             assert_colour(middle_of(pictures[0].png.as_ref().unwrap()).0, SECOND);
@@ -346,7 +349,10 @@ mod tests {
             };
             assert_eq!(
                 server.ask(&tap).await,
-                FromWaOS::InputDone { new_picture: true },
+                FromWaOS::InputDone {
+                    in_sight: true,
+                    new_picture: true,
+                },
                 "a covered window draws what the input changed"
             );
 

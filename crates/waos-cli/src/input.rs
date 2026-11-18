@@ -1,8 +1,9 @@
 //! `cargo waos tap`, `press`, `drag`, `type`, `key` and `scroll`: input to a window of the program
 //! a run of `cargo waos run` runs, sent to the WaOS running it, which gives it to the program as
-//! its user would give it and answers once the window shows the picture after it, so a screenshot
-//! taken next shows what it did (the design's decision 60). A point is in the window's pixels, a
-//! screenshot's, from its top-left, written `<x>,<y>`.
+//! its user would give it and answers once the window shows the picture after it, or once it
+//! knows the window was out of sight or drew nothing new, so a screenshot taken next shows what
+//! it did (the design's decision 60). A point is in the window's pixels, a screenshot's, from its
+//! top-left, written `<x>,<y>`.
 //!
 //! The invariant: a command returns only once WaOS has answered, the input given or why not.
 
@@ -43,11 +44,13 @@ pub async fn give(id: ProgramId, window: u32, input: Input) -> Result<ExitCode> 
     })
     .await?;
     match answer {
-        FromWaOS::InputDone { new_picture: true } => Ok(ExitCode::SUCCESS),
-        FromWaOS::InputDone { new_picture: false } => {
-            eprintln!(
-                "cargo waos: window {window} showed no new picture after the input: it changed nothing the program draws, or the window is out of sight"
-            );
+        FromWaOS::InputDone {
+            in_sight,
+            new_picture,
+        } => {
+            if let Some(said) = said(in_sight, new_picture, window) {
+                eprintln!("cargo waos: {said}");
+            }
             Ok(ExitCode::SUCCESS)
         }
         FromWaOS::Unreached(why) => {
@@ -59,9 +62,43 @@ pub async fn give(id: ProgramId, window: u32, input: Input) -> Result<ExitCode> 
     }
 }
 
+/// What the answer to an input says, in words: none where the window drew its new picture; else
+/// whether the window was in sight and why no new picture came.
+fn said(in_sight: bool, new_picture: bool, window: u32) -> Option<String> {
+    match (in_sight, new_picture) {
+        (true, true) => None,
+        (true, false) => Some(format!(
+            "window {window} was in sight, and the program drew nothing new after the input"
+        )),
+        (false, true) => Some(format!(
+            "window {window} was out of sight when the input was given, and showed the program's new picture after it"
+        )),
+        (false, false) => Some(format!(
+            "window {window} was out of sight when the input was given, so it showed no new picture; bring it into sight to see what it drew"
+        )),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_input_says_whether_its_window_was_in_sight_and_why_no_new_picture_came() {
+        assert_eq!(said(true, true, 1), None, "its new picture says enough");
+        assert_eq!(
+            said(true, false, 2).unwrap(),
+            "window 2 was in sight, and the program drew nothing new after the input"
+        );
+        assert_eq!(
+            said(false, false, 3).unwrap(),
+            "window 3 was out of sight when the input was given, so it showed no new picture; bring it into sight to see what it drew"
+        );
+        assert_eq!(
+            said(false, true, 4).unwrap(),
+            "window 4 was out of sight when the input was given, and showed the program's new picture after it"
+        );
+    }
 
     #[test]
     fn a_pair_is_two_numbers_either_signed_with_a_comma_between() {

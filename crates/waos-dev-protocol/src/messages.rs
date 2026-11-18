@@ -184,10 +184,13 @@ pub enum FromWaOS {
     Opened,
     /// The last picture of each of the program's windows, in the order they opened.
     Screenshots(Vec<WindowPicture>),
-    /// The program heard the input. `new_picture` says whether the window then showed a picture
-    /// the program drew after it, within the time WaOS waits for one: none comes for an input
-    /// that changed nothing, nor while the window is out of sight.
+    /// The program heard the input. `in_sight` says whether its window was in sight when the
+    /// input was given, a run of `cargo waos run` counting its windows in sight while it is
+    /// attached; `new_picture` says whether the window then showed a picture the program drew
+    /// after it, within the time WaOS waits for one: none comes for an input that changed
+    /// nothing, nor while the window is out of sight.
     InputDone {
+        in_sight: bool,
         new_picture: bool,
     },
     /// The screenshot or the input reached no window, and why.
@@ -244,15 +247,22 @@ pub struct WindowPicture {
 }
 
 /// Why a screenshot or an input reached no window of the program.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum Unreached {
     /// No run of `cargo waos run` runs the program: nothing runs under its id, or the program
     /// running was opened otherwise, from WaOS's library, which no tool reads or drives.
     NotRunByCargoWaos,
     /// The program has no window numbered `window`: it has `windows`.
     NoWindow { window: u32, windows: u32 },
-    /// The point is outside the window, which is `width` by `height` physical pixels.
-    OutsideWindow { width: u32, height: u32 },
+    /// The point `x`, `y` is outside the window, which is `width` by `height` physical pixels at
+    /// `scale` physical pixels a logical point, as a screenshot's are.
+    OutsideWindow {
+        width: u32,
+        height: u32,
+        x: f64,
+        y: f64,
+        scale: f64,
+    },
     /// Nothing in the window is being edited, so text typed there has nowhere to go.
     NotEditing,
     /// No key has this name, or the chord names one no key has.
