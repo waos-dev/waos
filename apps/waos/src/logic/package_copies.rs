@@ -87,20 +87,15 @@ pub(crate) fn document_name(document: &PickedFile) -> Option<String> {
     }
 }
 
-/// The whole of `document`, read from its start to its end through the platform's `files`: the
-/// read is started now, and the answer awaited wherever the caller awaits it.
+/// The whole of `document`, read from its start to its end, a path through the platform's
+/// `files`: the read is started now, and the answer awaited wherever the caller awaits it.
 pub(crate) fn read_document(
     document: PickedFile,
     files: Option<&dyn Files>,
 ) -> impl Future<Output = Result<Vec<u8>>> + use<> {
     let name = document_name(&document).unwrap_or_default();
-    let reading = files.map(|files| document.read_all(files));
-    async move {
-        let Some(reading) = reading else {
-            bail!("{name} could not be read: this system gives WaOS no file system");
-        };
-        reading.await.with_context(|| format!("{name} could not be read"))
-    }
+    let reading = document.read_all(files);
+    async move { reading.await.with_context(|| format!("{name} could not be read")) }
 }
 
 #[cfg(test)]
