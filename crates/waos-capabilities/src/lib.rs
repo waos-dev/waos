@@ -49,6 +49,7 @@ mod machines;
 use std::fmt;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
+use std::task::{Context, Poll};
 
 pub use audio::{AudioDeviceError, AudioDevices, AudioOutput};
 pub use audit::{
@@ -99,8 +100,8 @@ pub struct ProgramEnvironment {
     /// whoever runs it gave them: a development run's `--env` (the design's decision 68). With
     /// none, it reads only the engine's own, `TMPDIR`, which wins where both name one.
     pub variables: Vec<(String, String)>,
-    /// The program's arguments, as whoever runs it gave them: a development run's after `--`.
-    /// With none, it has none.
+    /// The program's arguments, after its own name, as whoever runs it gave them: a development
+    /// run's after `--`. With none, it gets its name alone.
     pub arguments: Vec<String>,
 }
 
@@ -131,10 +132,10 @@ impl fmt::Debug for ProgramEnvironment {
 /// `Command::stdout` does for a process. A run from `cargo waos` writes to its connection; the
 /// app's log window, later, is another.
 pub trait ProgramOutput: Send + Sync {
-    /// Bytes the program wrote to `stream`, as it wrote them: a line may come in pieces, and a
-    /// prompt without its newline is a write of its own. Called from the program's thread, so
-    /// it must not wait on anything the program's thread does.
-    fn write(&self, stream: OutputStream, bytes: &[u8]);
+    /// Writes some or all of `bytes` to `stream`, returning how many bytes were taken, or
+    /// `Pending` after registering `cx.waker()` to be woken when room opens. Called on the
+    /// program's async task, so it must not block the thread.
+    fn poll_write(&self, stream: OutputStream, cx: &mut Context<'_>, bytes: &[u8]) -> Poll<usize>;
 }
 
 /// Which of a program's two standard streams some bytes went to.
@@ -152,7 +153,14 @@ mod tests {
     fn an_environment_says_whether_an_output_was_chosen_without_printing_it() {
         struct Nowhere;
         impl ProgramOutput for Nowhere {
-            fn write(&self, _stream: OutputStream, _bytes: &[u8]) {}
+            fn poll_write(
+                &self,
+                _stream: OutputStream,
+                _cx: &mut Context<'_>,
+                bytes: &[u8],
+            ) -> Poll<usize> {
+                Poll::Ready(bytes.len())
+            }
         }
         assert_eq!(
             format!("{:?}", ProgramEnvironment::default()),

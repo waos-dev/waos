@@ -88,24 +88,60 @@ impl SentComponent {
     }
 
     /// Writes `component` as the file, in place of what was sent as the id before, unless the
-    /// file holds it already. Blocks, so call it off the runtime's thread.
+    /// file holds it already. Keeps a sidecar digest beside the file so `Have` checks compare it
+    /// without re-reading the component. Blocks, so call it off the runtime's thread.
     pub(crate) fn write(&self, component: &[u8]) -> Result<()> {
         #[cfg(test)]
         self.write_hold.wait_while_held();
+        let digest = component_digest(component);
+        let sidecar = digest_path(&self.path);
         if self.holds(component) {
+            if fs::read(&sidecar).ok().as_deref() != Some(&digest) {
+                let _ = fs::write(&sidecar, digest);
+            }
             return Ok(());
         }
         if let Some(folder) = self.path.parent() {
             fs::create_dir_all(folder).with_context(|| format!("making {}", folder.display()))?;
         }
-        fs::write(&self.path, component).with_context(|| format!("writing {}", self.path.display()))
+        // Clear any earlier digest first so an interrupted write never pairs old hash with new bytes.
+        let _ = fs::remove_file(&sidecar);
+        fs::write(&self.path, component)
+            .with_context(|| format!("writing {}", self.path.display()))?;
+        fs::write(&sidecar, digest).with_context(|| format!("writing {}", sidecar.display()))
     }
 
-    /// Whether the file holds the component `length` bytes long whose SHA-256 is `digest`: the
-    /// one a run announced, so WaOS answers `Have` and nothing is sent.
-    pub(crate) fn holds_digest(&self, length: u64, digest: &[u8; 32]) -> bool {
-        fs::metadata(&self.path).is_ok_and(|metadata| metadata.len() == length)
-            && fs::read(&self.path).is_ok_and(|kept| &component_digest(&kept) == digest)
+    /// Whether the file holds the component `length` bytes long whose SHA-256 is `digest`: compares
+    /// the sidecar digest beside the file when present, and hashes off the async thread only when
+    /// none is kept yet.
+    pub(crate) async fn holds_digest(&self, length: u64, digest: &[u8; 32]) -> bool {
+        let Ok(metadata) = fs::metadata(&self.path) else {
+            return false;
+        };
+        if metadata.len() != length {
+            return false;
+        }
+        let sidecar = digest_path(&self.path);
+        if let Ok(kept) = fs::read(&sidecar)
+            && kept.len() == 32
+        {
+            return kept.as_slice() == digest;
+        }
+        let path = self.path.clone();
+        let digest = *digest;
+        tokio::task::spawn_blocking(move || {
+            let Ok(kept) = fs::read(&path) else {
+                return false;
+            };
+            if kept.len() as u64 != length {
+                return false;
+            }
+            let actual = component_digest(&kept);
+            let _ = fs::write(sidecar, actual);
+            actual == digest
+        })
+        .await
+        .unwrap_or(false)
     }
 
     /// Whether the file holds `component`, byte for byte: what was sent before, unchanged.
@@ -120,6 +156,11 @@ impl SentComponent {
 /// letters, digits and dots always make one.
 fn component_path(components: &Path, id: &ProgramId) -> PathBuf {
     components.join(format!("{id}.wasm"))
+}
+
+/// Sidecar digest beside a stored component so `Have` never reads and hashes whole binaries.
+fn digest_path(component: &Path) -> PathBuf {
+    component.with_extension("sha256")
 }
 
 /// Whether a test holds the writes back, and how many have waited for it to let go.
@@ -202,6 +243,30 @@ mod tests {
         file.write(b"\0asm two").unwrap();
         assert_ne!(modified(), earlier, "written");
         assert_eq!(fs::read(file.path()).unwrap(), b"\0asm two");
+    }
+
+    #[tokio::test]
+    async fn holds_digest_uses_the_sidecar_and_falls_back_to_hashing_when_missing() {
+        let folder = tempfile::tempdir().unwrap();
+        let components = SentComponents::new(folder.path().to_owned());
+        let file = components.hold(&survey()).await;
+        let bytes = b"\0asm component bytes";
+        let digest = component_digest(bytes);
+        file.write(bytes).unwrap();
+
+        let sidecar = digest_path(file.path());
+        assert_eq!(fs::read(&sidecar).unwrap(), digest);
+        // Tamper the `.wasm` bytes temporarily so we prove `holds_digest` reads the sidecar
+        // rather than re-hashing the whole component.
+        fs::write(file.path(), vec![0u8; bytes.len()]).unwrap();
+        assert!(file.holds_digest(bytes.len() as u64, &digest).await);
+
+        // Removing the sidecar falls back to hashing off-thread and restores it.
+        fs::write(file.path(), bytes).unwrap();
+        fs::remove_file(&sidecar).unwrap();
+        assert!(file.holds_digest(bytes.len() as u64, &digest).await);
+        assert_eq!(fs::read(&sidecar).unwrap(), digest);
+        assert!(!file.holds_digest(bytes.len() as u64, &[0u8; 32]).await);
     }
 
     #[tokio::test]

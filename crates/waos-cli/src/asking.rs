@@ -78,14 +78,14 @@ pub async fn connect() -> Result<Connection<ClientStream>> {
 
 #[cfg(test)]
 mod tests {
-    use waos_dev_protocol::{Listener, MAJOR, ResizeAnswer, WindowId};
+    use waos_dev_protocol::{Listener, MAJOR, ResizeAnswer};
 
     use super::*;
 
     fn resize() -> Request {
         Request::Resize {
             id: "dev.example.notes".parse().unwrap(),
-            window: WindowId(1),
+            window: None,
             width: 390.0,
             height: 844.0,
         }
@@ -102,7 +102,7 @@ mod tests {
                 serves: vec!["run".to_owned()],
                 ..Hello::waos("WaOS 0.3.0")
             };
-            server.hello(&older).await.unwrap();
+            server.accept_hello(&older).await.unwrap();
             server.receive::<Request>().await.unwrap()
         });
         let client = Connection::connect(&socket).await.unwrap();
@@ -129,7 +129,7 @@ mod tests {
                 major: MAJOR + 1,
                 ..Hello::waos("WaOS 0.4.0")
             };
-            server.hello(&newer).await.unwrap();
+            server.accept_hello(&newer).await.unwrap();
             server.receive::<Request>().await.unwrap()
         });
         let client = Connection::connect(&socket).await.unwrap();

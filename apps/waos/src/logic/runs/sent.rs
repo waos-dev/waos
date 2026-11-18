@@ -73,15 +73,24 @@ impl DevRun {
             .collect()
     }
 
-    /// The program's window `window`, by the id it was given as it opened.
-    pub(crate) fn window(&self, window: WindowId) -> Result<ProgramView, Refusal> {
+    /// The program's window `window` by the id it was given as it opened, or its first open
+    /// window (lowest id) when `window` is `None`.
+    pub(crate) fn window(
+        &self,
+        window: Option<WindowId>,
+    ) -> Result<(WindowId, ProgramView), Refusal> {
         let windows = self.windows();
         let count = windows.len();
-        windows
-            .into_iter()
-            .find(|(each, _)| *each == window)
-            .map(|(_, view)| view)
-            .ok_or_else(|| dev_refusal::no_window(&self.id, window, count))
+        match window {
+            Some(window) => windows
+                .into_iter()
+                .find(|(each, _)| *each == window)
+                .ok_or_else(|| dev_refusal::no_window(&self.id, window, count)),
+            None => windows
+                .into_iter()
+                .min_by_key(|(each, _)| *each)
+                .ok_or_else(|| dev_refusal::no_window(&self.id, WindowId(1), 0)),
+        }
     }
 }
 

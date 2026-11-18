@@ -1,118 +1,200 @@
-//! Deserializing adjacently tagged enums (`#[serde(tag = "...", content = "...")]`) whose
-//! `Unknown` variant catches any variant a newer build added, even when that variant carries a
-//! payload under the content key.
+//! Forward-compatible deserialization for enums inside messages (`#[serde(remote = "Self",
+//! tag = "kind", content = "data")]` with `#[serde(skip)] Unknown`).
 //!
-//! `#[derive(Deserialize)]` with `#[serde(other)]` rejects any unknown variant that carries a
-//! content field (`invalid type: ..., expected unit variant`), because serde passes the content to
-//! `unit_variant()`. Here the tag is checked first so an unknown tag's content is skipped
-//! unread, while known variants deserialize straight from the stream without buffering.
+//! `serde`'s derived `#[serde(other)]` rejects an unknown variant that carries a `"data"` field,
+//! and only one `#[serde(other)]` variant can sit on a unit. Instead, incoming CBOR is read as
+//! [`ciborium::Value`], its `"kind"` tag is probed directly against the derived deserializer via
+//! [`MapDeserializer`], and an unknown tag resolves to `Unknown` while known tags decode through
+//! the derive as usual — with no hand-written tag lists.
 
 use std::fmt;
 use std::marker::PhantomData;
 
 use ciborium::Value;
-use serde::Deserializer;
-use serde::de::{self, DeserializeOwned, DeserializeSeed, IgnoredAny, MapAccess, Visitor};
+use serde::de::value::{MapAccessDeserializer, MapDeserializer, SeqDeserializer};
+use serde::de::{self, Deserialize, Deserializer, IntoDeserializer, Visitor};
 
-/// An adjacently tagged enum whose unknown variants deserialize to [`Adjacent::unknown`].
-pub(crate) trait Adjacent: Sized + DeserializeOwned {
-    const TAG: &'static str;
-    const CONTENT: &'static str;
+/// The tag key every enum in the protocol uses.
+const TAG: &str = "kind";
 
-    fn unknown() -> Self;
-    fn is_known(tag: &str) -> bool;
-    fn unit(tag: &str) -> Option<Self>;
-    fn payload<'de, D: Deserializer<'de>>(tag: &str, deserializer: D) -> Result<Self, D::Error>;
+/// Error type used solely to probe whether a variant tag is known to a derived deserializer.
+#[derive(Debug)]
+pub(crate) enum ProbeError {
+    UnknownVariant,
+    Other,
 }
 
-/// Deserializes `T` from a CBOR map of `T::TAG` and optionally `T::CONTENT`, reading any unknown
-/// variant tag as `T::unknown()`.
-pub(crate) fn deserialize<'de, D, T>(deserializer: D) -> Result<T, D::Error>
-where
-    D: Deserializer<'de>,
-    T: Adjacent,
-{
-    deserializer.deserialize_map(AdjacentVisitor::<T>(PhantomData))
+impl fmt::Display for ProbeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("tag probe")
+    }
 }
 
-struct AdjacentVisitor<T>(PhantomData<T>);
+impl std::error::Error for ProbeError {}
 
-impl<'de, T: Adjacent> Visitor<'de> for AdjacentVisitor<T> {
-    type Value = T;
-
-    fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "a map with {:?}", T::TAG)
+impl de::Error for ProbeError {
+    fn custom<T: fmt::Display>(_msg: T) -> Self {
+        ProbeError::Other
     }
 
-    fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<T, A::Error> {
-        let mut tag: Option<String> = None;
-        let mut value: Option<T> = None;
-        let mut buffered: Option<Value> = None;
+    fn unknown_variant(_variant: &str, _expected: &'static [&'static str]) -> Self {
+        ProbeError::UnknownVariant
+    }
+}
 
-        while let Some(key) = map.next_key::<String>()? {
-            if key == T::TAG {
-                if tag.is_some() {
-                    return Err(de::Error::duplicate_field(T::TAG));
-                }
-                tag = Some(map.next_value()?);
-            } else if key == T::CONTENT {
-                if value.is_some() || buffered.is_some() {
-                    return Err(de::Error::duplicate_field(T::CONTENT));
-                }
-                match tag.as_deref() {
-                    Some(known) if T::is_known(known) => {
-                        value = Some(map.next_value_seed(PayloadSeed::<T> {
-                            tag: known,
-                            _marker: PhantomData,
-                        })?);
-                    }
-                    Some(_unknown) => {
-                        let _ = map.next_value::<IgnoredAny>()?;
-                    }
-                    None => {
-                        buffered = Some(map.next_value::<Value>()?);
-                    }
-                }
-            } else {
-                let _ = map.next_value::<IgnoredAny>()?;
+/// Deserializes the incoming CBOR tree and extracts its `"kind"` tag if present as text.
+pub(crate) fn read_value<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Value, D::Error> {
+    Value::deserialize(deserializer)
+}
+
+/// The `"kind"` tag in `value` when `value` is a map carrying one as text.
+pub(crate) fn tag_of(value: &Value) -> Option<&str> {
+    let Value::Map(entries) = value else {
+        return None;
+    };
+    entries.iter().find_map(|(key, val)| match (key, val) {
+        (Value::Text(k), Value::Text(v)) if k == TAG => Some(v.as_str()),
+        _ => None,
+    })
+}
+
+/// Single-entry map deserializer feeding `"kind": tag` to a derived `Deserialize` to probe
+/// whether `tag` is known.
+pub(crate) fn probe(tag: &str) -> MapDeserializer<'_, std::iter::Once<(&str, &str)>, ProbeError> {
+    MapDeserializer::new(std::iter::once((TAG, tag)))
+}
+
+/// Deserializer over `value` for decoding a known variant through its derived `Deserialize`.
+pub(crate) fn decode<'a, E>(value: &'a Value) -> ValueDeserializer<'a, E> {
+    ValueDeserializer::new(value)
+}
+
+/// Implements `Serialize` and forward-compatible `Deserialize` for a `#[serde(remote = "Self",
+/// tag = "kind", content = "data")]` enum with a `#[serde(skip)] Unknown` variant.
+macro_rules! adjacent_unknown {
+    ($name:ident) => {
+        impl serde::Serialize for $name {
+            fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+                $name::serialize(self, serializer)
             }
         }
 
-        let Some(tag) = tag else {
-            return Err(de::Error::missing_field(T::TAG));
-        };
-        if !T::is_known(&tag) {
-            return Ok(T::unknown());
+        impl<'de> serde::Deserialize<'de> for $name {
+            fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+                let value = crate::adjacent::read_value(deserializer)?;
+                if let Some(tag) = crate::adjacent::tag_of(&value)
+                    && matches!(
+                        $name::deserialize(crate::adjacent::probe(tag)),
+                        Err(crate::adjacent::ProbeError::UnknownVariant)
+                    )
+                {
+                    return Ok($name::Unknown);
+                }
+                $name::deserialize(crate::adjacent::decode(&value))
+            }
         }
-        if let Some(value) = value {
-            return Ok(value);
+    };
+}
+
+pub(crate) use adjacent_unknown;
+
+/// A `serde::Deserializer` over a borrowed [`ciborium::Value`], preserving byte strings for
+/// `serde_bytes` and delegating sequences and maps to serde's own value deserializers.
+pub(crate) struct ValueDeserializer<'a, E> {
+    value: &'a Value,
+    _error: PhantomData<fn() -> E>,
+}
+
+impl<'a, E> ValueDeserializer<'a, E> {
+    fn new(value: &'a Value) -> Self {
+        Self {
+            value,
+            _error: PhantomData,
         }
-        if let Some(buffered) = buffered {
-            // Re-run with `TAG` first so the known variant's payload deserializes directly.
-            let ordered = Value::Map(vec![
-                (Value::Text(T::TAG.to_owned()), Value::Text(tag)),
-                (Value::Text(T::CONTENT.to_owned()), buffered),
-            ]);
-            return ordered.deserialized().map_err(de::Error::custom);
-        }
-        T::unit(&tag).ok_or_else(|| de::Error::missing_field(T::CONTENT))
     }
 }
 
-struct PayloadSeed<'a, T> {
-    tag: &'a str,
-    _marker: PhantomData<T>,
+impl<'a, E> Clone for ValueDeserializer<'a, E> {
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 
-impl<'de, T: Adjacent> DeserializeSeed<'de> for PayloadSeed<'_, T> {
-    type Value = T;
+impl<'a, E> Copy for ValueDeserializer<'a, E> {}
 
-    fn deserialize<D: Deserializer<'de>>(self, deserializer: D) -> Result<T, D::Error> {
-        if let Some(unit) = T::unit(self.tag) {
-            // Accept `null` or `()` if a writer emits an empty content field for a unit variant.
-            let _: Option<()> = de::Deserialize::deserialize(deserializer)?;
-            return Ok(unit);
+impl<'a, 'de, E: de::Error> IntoDeserializer<'de, E> for ValueDeserializer<'a, E> {
+    type Deserializer = Self;
+
+    fn into_deserializer(self) -> Self {
+        self
+    }
+}
+
+impl<'a, 'de, E: de::Error> Deserializer<'de> for ValueDeserializer<'a, E> {
+    type Error = E;
+
+    fn deserialize_any<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, E> {
+        match self.value {
+            Value::Null => visitor.visit_unit(),
+            Value::Bool(b) => visitor.visit_bool(*b),
+            Value::Integer(int) => {
+                if let Ok(u) = u64::try_from(*int) {
+                    visitor.visit_u64(u)
+                } else if let Ok(i) = i64::try_from(*int) {
+                    visitor.visit_i64(i)
+                } else {
+                    visitor.visit_i128(i128::from(*int))
+                }
+            }
+            Value::Float(f) => visitor.visit_f64(*f),
+            Value::Bytes(bytes) => visitor.visit_bytes(bytes),
+            Value::Text(text) => visitor.visit_str(text),
+            Value::Array(items) => {
+                visitor.visit_seq(SeqDeserializer::new(items.iter().map(Self::new)))
+            }
+            Value::Map(entries) => visitor.visit_map(MapDeserializer::new(
+                entries.iter().map(|(k, v)| (Self::new(k), Self::new(v))),
+            )),
+            Value::Tag(_, inner) => Self::new(inner).deserialize_any(visitor),
+            _ => Err(de::Error::custom("unsupported CBOR value")),
         }
-        T::payload(self.tag, deserializer)
+    }
+
+    fn deserialize_option<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, E> {
+        match self.value {
+            Value::Null => visitor.visit_none(),
+            _ => visitor.visit_some(self),
+        }
+    }
+
+    fn deserialize_enum<V: Visitor<'de>>(
+        self,
+        _name: &'static str,
+        _variants: &'static [&'static str],
+        visitor: V,
+    ) -> Result<V::Value, E> {
+        match self.value {
+            Value::Text(variant) => visitor.visit_enum(variant.as_str().into_deserializer()),
+            Value::Map(entries) if entries.len() == 1 => {
+                visitor.visit_enum(MapAccessDeserializer::new(MapDeserializer::new(
+                    entries.iter().map(|(k, v)| (Self::new(k), Self::new(v))),
+                )))
+            }
+            _ => self.deserialize_any(visitor),
+        }
+    }
+
+    fn deserialize_newtype_struct<V: Visitor<'de>>(
+        self,
+        _name: &'static str,
+        visitor: V,
+    ) -> Result<V::Value, E> {
+        visitor.visit_newtype_struct(self)
+    }
+
+    serde::forward_to_deserialize_any! {
+        bool i8 i16 i32 i64 i128 u8 u16 u32 u64 u128 f32 f64 char str string
+        bytes byte_buf unit unit_struct seq tuple tuple_struct
+        map struct identifier ignored_any
     }
 }

@@ -43,7 +43,7 @@ mod socket;
 
 pub use component::{CHUNK_BYTES, component_digest};
 pub use connection::{Connection, Locality, MAX_FRAME_BYTES};
-pub use hello::{Hello, MAJOR, Mismatch, SERVED};
+pub use hello::{Hello, MAJOR, Mismatch, Peer, SERVED};
 pub use messages::{
     Component, Input, InputAnswer, InputDone, InspectAnswer, Inspection, OpenAnswer, OutputStream,
     Request, ResizeAnswer, Resized, Run, RunEnd, RunEvent, ScreenshotAnswer, SettingsAnswer,

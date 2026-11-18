@@ -77,7 +77,7 @@ async fn connected(path: &Path) -> (Listener, Connection<ClientStream>, Connecti
     let (client, server) = tokio::join!(Connection::connect(path), listener.accept());
     let (mut client, mut server) = (client.unwrap(), server.unwrap());
     let (ours, theirs) = (cargo_waos_hello(), waos_hello());
-    let (theirs, theirs_too) = tokio::join!(client.hello(&ours), server.hello(&theirs));
+    let (theirs, theirs_too) = tokio::join!(client.hello(&ours), server.accept_hello(&theirs));
     theirs.unwrap();
     theirs_too.unwrap();
     (listener, client, server)
@@ -95,7 +95,7 @@ async fn a_client_of_another_major_is_named_with_both_builds() {
     newer.major = MAJOR + 1;
     newer.build = "cargo-waos 0.4.0".to_owned();
     let ours = waos_hello();
-    let (theirs, theirs_too) = tokio::join!(client.hello(&newer), server.hello(&ours));
+    let (theirs, theirs_too) = tokio::join!(client.hello(&newer), server.accept_hello(&ours));
     let theirs = theirs.unwrap();
     assert_eq!(theirs.major, MAJOR);
     assert_eq!(theirs_too.unwrap(), newer);
@@ -137,17 +137,17 @@ fn every_request() -> Vec<Request> {
         },
         Request::Input {
             id: id.clone(),
-            window: WindowId(1),
+            window: Some(WindowId(1)),
             input: Input::Tap { x: 1.5, y: 2.5 },
         },
         Request::Input {
             id: id.clone(),
-            window: WindowId(1),
+            window: None,
             input: Input::Key("cmd+shift+z".into()),
         },
         Request::Resize {
             id: id.clone(),
-            window: WindowId(1),
+            window: Some(WindowId(1)),
             width: 390.0,
             height: 844.0,
         },
@@ -258,7 +258,7 @@ async fn every_answer_comes_back_as_sent() {
 #[tokio::test]
 async fn an_unknown_answer_from_a_newer_waos_reads_as_unknown_and_leaves_the_connection_whole() {
     #[derive(serde::Serialize)]
-    #[serde(tag = "event", content = "data")]
+    #[serde(tag = "kind", content = "data")]
     enum NewerRunEvent {
         Progress { percent: u8 },
     }
@@ -310,7 +310,8 @@ async fn one_listener_serves_one_connection_after_another() {
     let (second, second_served) = tokio::join!(Connection::connect(&place.path), listener.accept());
     let (mut second, mut second_served) = (second.unwrap(), second_served.unwrap());
     let (ours, theirs) = (cargo_waos_hello(), waos_hello());
-    let (theirs, theirs_too) = tokio::join!(second.hello(&ours), second_served.hello(&theirs));
+    let (theirs, theirs_too) =
+        tokio::join!(second.hello(&ours), second_served.accept_hello(&theirs));
     theirs.unwrap();
     theirs_too.unwrap();
     for (client, served) in [

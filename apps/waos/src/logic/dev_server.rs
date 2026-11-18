@@ -33,11 +33,11 @@ use tokio::sync::oneshot;
 use tokio::task::JoinSet;
 use waos::OpenRequest;
 use waos::bindings::wasdk::platform::windows::Size;
-use waos_dev_protocol::{Connection, Hello, Listener, MAJOR, Request, ServerStream};
+use waos_dev_protocol::{Connection, Hello, Listener, MAJOR, OpenAnswer, Request, ServerStream};
 use waos_store::Store;
 
 /// This build, as its hello names it: "WaOS 0.3.0".
-const BUILD: &str = concat!("WaOS ", env!("CARGO_PKG_VERSION"));
+pub(crate) const BUILD: &str = concat!("WaOS ", env!("CARGO_PKG_VERSION"));
 
 /// How long the connections may take to say their runs ended, once every program is stopped.
 const CLOSING_WAIT: Duration = Duration::from_secs(2);
@@ -216,8 +216,12 @@ fn connection_context(context: &ServerContext) -> ConnectionContext {
 /// Serves `connection` to its end: the request its first message asks for, or nothing when it
 /// asks for none, after the hellos say the two halves speak the same protocol.
 async fn serve_connection(mut connection: Connection<ServerStream>, context: ConnectionContext) {
-    let theirs = match connection.hello(&Hello::waos(BUILD)).await {
+    let theirs = match connection.accept_hello(&Hello::waos(BUILD)).await {
         Ok(theirs) => theirs,
+        Err(error) if error.kind() == io::ErrorKind::Unsupported => {
+            tracing::info!("{error}");
+            return;
+        }
         Err(error) => {
             tracing::info!(%error, "a connection ended before it said its hello");
             return;
@@ -277,6 +281,10 @@ async fn serve_connection(mut connection: Connection<ServerStream>, context: Con
         })) => {
             let size = Size { width, height };
             dev_resize::answer(connection, &context.run.runs, &id, window, size).await;
+        }
+        Ok(Some(Request::Unknown)) => {
+            let refusal = dev_refusal::unsupported(BUILD, "request");
+            let _ = connection.send(&OpenAnswer::Refused(refusal)).await;
         }
         Ok(None) => {}
         Err(error) => tracing::warn!(%error, "a connection ended before it asked anything"),
@@ -776,7 +784,10 @@ pub(crate) mod tests {
             .await;
         started(&mut client).await;
         let frames = frames_until(&mut client, |frame| matches!(frame, RunEvent::Ended(_))).await;
-        assert_eq!(stdout_of(&frames), "argument: one\nargument: two words\n");
+        assert_eq!(
+            stdout_of(&frames),
+            "argument: dev.waos.examples.arguments\nargument: one\nargument: two words\n"
+        );
     }
 
     #[tokio::test]
@@ -941,7 +952,7 @@ pub(crate) mod tests {
         assert_eq!(frames.last(), Some(&RunEvent::Asking(camera.clone())));
         let input = Request::Input {
             id: FOREVER.parse().unwrap(),
-            window: waos_dev_protocol::WindowId(1),
+            window: Some(waos_dev_protocol::WindowId(1)),
             input: waos_dev_protocol::Input::Key("enter".to_owned()),
         };
         let waos_dev_protocol::InputAnswer::Refused(refusal) =
@@ -1187,5 +1198,255 @@ pub(crate) mod tests {
         let frames = frames_until(&mut client, |frame| matches!(frame, RunEvent::Ended(_))).await;
         assert_eq!(frames.last(), Some(&RunEvent::Ended(RunEnd::Stopped)));
         assert!(!socket.exists(), "the socket file is gone");
+    }
+
+    #[tokio::test]
+    async fn a_program_writing_while_nobody_reads_keeps_running_and_is_stopped_in_time() {
+        const FLOOD: &str = "dev.waos.examples.flood";
+        let server = TestServer::start("flood");
+        let mut first = server
+            .run(FLOOD, Path::new(waos_test_programs::FLOOD))
+            .await;
+        started(&mut first).await;
+
+        let ticks_file = server
+            .folder
+            .join("store/programs")
+            .join(FLOOD)
+            .join("data/ticks");
+        let read_ticks = || -> u64 {
+            fs::read_to_string(&ticks_file)
+                .ok()
+                .and_then(|s| s.trim().parse().ok())
+                .unwrap_or(0)
+        };
+        let deadline = Instant::now() + WITHIN;
+        while read_ticks() == 0 {
+            assert!(Instant::now() < deadline, "timer task never wrote a tick");
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        // Let the flood fill the 1 MiB frame queue and socket buffer while nobody reads `first`.
+        tokio::time::sleep(Duration::from_millis(250)).await;
+        let ticks_before = read_ticks();
+        tokio::time::sleep(Duration::from_millis(150)).await;
+        let ticks_after = read_ticks();
+        assert!(
+            ticks_after > ticks_before,
+            "timer kept running while stdout waited ({ticks_before} -> {ticks_after})"
+        );
+
+        let replacing = tokio::time::timeout(
+            Duration::from_secs(1),
+            server.run(FLOOD, Path::new(waos_test_programs::FLOOD)),
+        )
+        .await
+        .expect("a replacing run stops the blocked writer within a second");
+        drop(replacing);
+        drop(first);
+    }
+
+    #[tokio::test]
+    async fn an_unknown_request_or_inner_variant_is_refused_naming_this_build_and_leaves_the_connection_whole()
+     {
+        #[derive(serde::Serialize)]
+        #[serde(tag = "kind", content = "data")]
+        enum FutureOuter {
+            NewCommand { x: u32 },
+        }
+
+        #[derive(serde::Serialize)]
+        #[serde(tag = "kind", content = "data")]
+        enum FutureRequestInner {
+            Input {
+                id: ProgramId,
+                window: Option<waos_dev_protocol::WindowId>,
+                input: FutureVariant,
+            },
+            Set {
+                id: ProgramId,
+                row: FutureVariant,
+            },
+            Inspect {
+                id: ProgramId,
+                asked: FutureVariant,
+            },
+            InspectTrace {
+                id: ProgramId,
+                asked: FutureInspect,
+            },
+        }
+
+        #[derive(serde::Serialize)]
+        #[serde(tag = "kind", content = "data")]
+        enum FutureInspect {
+            Trace(Vec<FutureVariant>),
+        }
+
+        #[derive(serde::Serialize)]
+        #[serde(tag = "kind", content = "data")]
+        enum FutureVariant {
+            BrandNew { detail: String },
+        }
+
+        let server = TestServer::start("unknown-requests");
+        let id: ProgramId = FOREVER.parse().unwrap();
+
+        let assert_unsupported = |refusal: waos_dev_protocol::Refusal| {
+            assert_eq!(refusal.kind, RefusalKind::Failed);
+            assert!(refusal.message.contains(BUILD), "{}", refusal.message);
+            assert!(
+                refusal.message.contains("https://waos.app"),
+                "{}",
+                refusal.message
+            );
+        };
+
+        let mut client = Connection::connect(&server.socket).await.unwrap();
+        client
+            .hello(&Hello::cargo_waos("cargo-waos 0.9.0"))
+            .await
+            .unwrap();
+        client
+            .send(&FutureOuter::NewCommand { x: 1 })
+            .await
+            .unwrap();
+        let OpenAnswer::Refused(refusal) = next::<OpenAnswer>(&mut client).await else {
+            panic!("refusal");
+        };
+        assert_unsupported(refusal);
+
+        let future = || FutureVariant::BrandNew {
+            detail: "v9".to_owned(),
+        };
+        let mut client = Connection::connect(&server.socket).await.unwrap();
+        client
+            .hello(&Hello::cargo_waos("cargo-waos 0.9.0"))
+            .await
+            .unwrap();
+        client
+            .send(&FutureRequestInner::Input {
+                id: id.clone(),
+                window: None,
+                input: future(),
+            })
+            .await
+            .unwrap();
+        let waos_dev_protocol::InputAnswer::Refused(refusal) =
+            next::<waos_dev_protocol::InputAnswer>(&mut client).await
+        else {
+            panic!("refusal");
+        };
+        assert_unsupported(refusal);
+
+        let mut client = Connection::connect(&server.socket).await.unwrap();
+        client
+            .hello(&Hello::cargo_waos("cargo-waos 0.9.0"))
+            .await
+            .unwrap();
+        client
+            .send(&FutureRequestInner::Set {
+                id: id.clone(),
+                row: future(),
+            })
+            .await
+            .unwrap();
+        let waos_dev_protocol::SettingsAnswer::Refused(refusal) =
+            next::<waos_dev_protocol::SettingsAnswer>(&mut client).await
+        else {
+            panic!("refusal");
+        };
+        assert_unsupported(refusal);
+
+        let mut client = Connection::connect(&server.socket).await.unwrap();
+        client
+            .hello(&Hello::cargo_waos("cargo-waos 0.9.0"))
+            .await
+            .unwrap();
+        client
+            .send(&FutureRequestInner::Inspect {
+                id: id.clone(),
+                asked: future(),
+            })
+            .await
+            .unwrap();
+        let waos_dev_protocol::InspectAnswer::Refused(refusal) =
+            next::<waos_dev_protocol::InspectAnswer>(&mut client).await
+        else {
+            panic!("refusal");
+        };
+        assert_unsupported(refusal);
+
+        let mut client = Connection::connect(&server.socket).await.unwrap();
+        client
+            .hello(&Hello::cargo_waos("cargo-waos 0.9.0"))
+            .await
+            .unwrap();
+        client
+            .send(&FutureRequestInner::InspectTrace {
+                id,
+                asked: FutureInspect::Trace(vec![future()]),
+            })
+            .await
+            .unwrap();
+        let waos_dev_protocol::InspectAnswer::Refused(refusal) =
+            next::<waos_dev_protocol::InspectAnswer>(&mut client).await
+        else {
+            panic!("refusal");
+        };
+        assert_unsupported(refusal);
+    }
+
+    #[tokio::test]
+    async fn a_legacy_0_2_client_receives_a_legacy_number_frame() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let server = TestServer::start("legacy-client");
+        let mut client = tokio::net::UnixStream::connect(&server.socket)
+            .await
+            .unwrap();
+        let mut legacy_hello = Vec::new();
+        legacy_hello.extend_from_slice(&4u32.to_le_bytes());
+        legacy_hello.extend_from_slice(&10u32.to_le_bytes());
+        client.write_all(&legacy_hello).await.unwrap();
+
+        let mut reply = [0u8; 8];
+        client.read_exact(&mut reply).await.unwrap();
+        assert_eq!(u32::from_le_bytes(reply[0..4].try_into().unwrap()), 4);
+        assert_eq!(
+            u32::from_le_bytes(reply[4..8].try_into().unwrap()),
+            waos_dev_protocol::MAJOR
+        );
+        let mut eof = [0u8; 1];
+        assert_eq!(client.read(&mut eof).await.unwrap(), 0);
+    }
+
+    #[tokio::test]
+    async fn a_run_whose_environment_fails_to_prepare_is_refused_before_upload() {
+        let server = TestServer::start("refuse-before-upload");
+        let broken = "dev.waos.examples.broken";
+        let blocker = server.folder.join("store/programs").join(broken);
+        fs::create_dir_all(blocker.parent().unwrap()).unwrap();
+        fs::write(&blocker, b"not a directory").unwrap();
+
+        let mut client = Connection::connect(&server.socket).await.unwrap();
+        client
+            .hello(&Hello::cargo_waos("cargo-waos 0.3.0"))
+            .await
+            .unwrap();
+        client
+            .send(&Request::Run(Run {
+                id: broken.parse().unwrap(),
+                args: Vec::new(),
+                variables: Vec::new(),
+                length: 16,
+                digest: [0x11; 32],
+            }))
+            .await
+            .unwrap();
+        let Upload::Refused(refusal) = next::<Upload>(&mut client).await else {
+            panic!("refused before upload");
+        };
+        assert_eq!(refusal.kind, RefusalKind::Failed);
+        assert!(refusal.message.contains(broken), "{}", refusal.message);
     }
 }

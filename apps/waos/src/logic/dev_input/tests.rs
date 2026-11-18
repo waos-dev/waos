@@ -74,7 +74,7 @@ async fn wait_for_line(
 fn input(window: WindowId, input: Input) -> Request {
     Request::Input {
         id: INPUT.parse().unwrap(),
-        window,
+        window: Some(window),
         input,
     }
 }

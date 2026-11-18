@@ -9,6 +9,7 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
+use crate::adjacent::adjacent_unknown;
 use crate::messages::Request;
 
 /// The protocol's major, which each hello says: raised only by a real break in the messages'
@@ -27,6 +28,20 @@ pub const SERVED: [&str; 8] = [
     "open",
 ];
 
+/// Which half of the protocol sent a [`Hello`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(remote = "Self", tag = "kind", content = "data")]
+pub enum Peer {
+    WaOS,
+    #[default]
+    CargoWaos,
+    WaosOpen,
+    #[serde(skip)]
+    Unknown,
+}
+
+adjacent_unknown!(Peer);
+
 /// What each side says first: the build it is, the protocol's major it speaks, and, for WaOS,
 /// the requests it serves.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -37,6 +52,9 @@ pub struct Hello {
     /// WaOS's: the requests it serves ([`SERVED`]); `cargo waos`'s: none.
     #[serde(default)]
     pub serves: Vec<String>,
+    /// Which binary sent this hello.
+    #[serde(default)]
+    pub peer: Peer,
 }
 
 impl Hello {
@@ -46,6 +64,7 @@ impl Hello {
             major: MAJOR,
             build: build.into(),
             serves: SERVED.iter().map(|request| request.to_string()).collect(),
+            peer: Peer::WaOS,
         }
     }
 
@@ -55,12 +74,22 @@ impl Hello {
             major: MAJOR,
             build: build.into(),
             serves: Vec::new(),
+            peer: Peer::CargoWaos,
         }
     }
 
-    /// Whether the half that said `self` may be sent `request` by `ours`: the majors agree and,
-    /// when `self` is WaOS's, it serves the request; else what to say, naming both builds and
-    /// which one to update.
+    /// `waos open`'s hello, `build` naming it.
+    pub fn waos_open(build: impl Into<String>) -> Hello {
+        Hello {
+            major: MAJOR,
+            build: build.into(),
+            serves: Vec::new(),
+            peer: Peer::WaosOpen,
+        }
+    }
+
+    /// Whether the half that said `self` may be sent `request` by `ours`: the majors agree and
+    /// `self` serves the request; else what to say, naming both builds and which one to update.
     pub fn accepts(&self, ours: &Hello, request: &Request) -> Result<(), Mismatch> {
         if self.major != ours.major {
             return Err(Mismatch::Major {
@@ -68,7 +97,7 @@ impl Hello {
                 ours: ours.clone(),
             });
         }
-        if !self.serves.is_empty() && !self.serves.iter().any(|served| served == request.name()) {
+        if !self.serves.iter().any(|served| served == request.name()) {
             return Err(Mismatch::NotServed {
                 theirs: self.clone(),
                 request: request.name(),
@@ -93,16 +122,24 @@ pub enum Mismatch {
 impl fmt::Display for Mismatch {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Mismatch::Major { theirs, ours } if theirs.major > ours.major => write!(
-                f,
-                "{} speaks dev protocol {} and {} speaks {}: update cargo waos with `cargo install cargo-waos`",
-                theirs.build, theirs.major, ours.build, ours.major
-            ),
-            Mismatch::Major { theirs, ours } => write!(
-                f,
-                "{} speaks dev protocol {} and {} speaks {}: update WaOS from https://waos.app",
-                theirs.build, theirs.major, ours.build, ours.major
-            ),
+            Mismatch::Major { theirs, ours } => {
+                let older = if theirs.major > ours.major {
+                    ours.peer
+                } else {
+                    theirs.peer
+                };
+                let action = match older {
+                    Peer::CargoWaos => "update cargo waos with `cargo install cargo-waos`",
+                    Peer::WaOS | Peer::WaosOpen | Peer::Unknown => {
+                        "update WaOS from https://waos.app"
+                    }
+                };
+                write!(
+                    f,
+                    "{} speaks dev protocol {} and {} speaks {}: {action}",
+                    theirs.build, theirs.major, ours.build, ours.major
+                )
+            }
             Mismatch::NotServed { theirs, request } => write!(
                 f,
                 "{} does not serve `{request}`: update WaOS from https://waos.app",
@@ -116,7 +153,10 @@ impl std::error::Error for Mismatch {}
 
 #[cfg(test)]
 mod tests {
-    use crate::messages::{Request, Run};
+    use std::path::PathBuf;
+
+    use crate::messages::{Input, Inspection, Request, Run, WindowId};
+    use crate::settings_rows::Row;
     use waos_package::ProgramId;
 
     use super::*;
@@ -136,6 +176,77 @@ mod tests {
             id: "dev.example.triangle".parse::<ProgramId>().unwrap(),
             window: None,
         }
+    }
+
+    #[test]
+    fn served_lists_every_request() {
+        let id: ProgramId = "dev.example.triangle".parse().unwrap();
+        let all = [
+            Request::Run(Run {
+                id: id.clone(),
+                args: Vec::new(),
+                variables: Vec::new(),
+                length: 0,
+                digest: [0; 32],
+            }),
+            Request::Screenshot {
+                id: id.clone(),
+                window: None,
+            },
+            Request::Input {
+                id: id.clone(),
+                window: Some(WindowId(1)),
+                input: Input::Tap { x: 0.0, y: 0.0 },
+            },
+            Request::Resize {
+                id: id.clone(),
+                window: None,
+                width: 100.0,
+                height: 100.0,
+            },
+            Request::Settings { id: id.clone() },
+            Request::Set {
+                id: id.clone(),
+                row: Row::Machine(None),
+            },
+            Request::Inspect {
+                id: id.clone(),
+                asked: Inspection::ActiveUses,
+            },
+            Request::Open {
+                id,
+                files: Vec::<PathBuf>::new(),
+            },
+        ];
+        // Match exhaustively so adding a `Request` variant updates `SERVED` too.
+        for request in &all {
+            match request {
+                Request::Run(_)
+                | Request::Screenshot { .. }
+                | Request::Input { .. }
+                | Request::Resize { .. }
+                | Request::Settings { .. }
+                | Request::Set { .. }
+                | Request::Inspect { .. }
+                | Request::Open { .. }
+                | Request::Unknown => {}
+            }
+        }
+        let names: Vec<&str> = all.iter().map(Request::name).collect();
+        assert_eq!(names, SERVED);
+        let waos = Hello::waos("WaOS 0.3.0");
+        let cli = Hello::cargo_waos("cargo-waos 0.3.0");
+        for request in &all {
+            assert_eq!(waos.accepts(&cli, request), Ok(()));
+        }
+        let empty = Hello {
+            serves: Vec::new(),
+            ..Hello::waos("WaOS 0.3.0")
+        };
+        assert!(matches!(
+            empty.accepts(&cli, &run()),
+            Err(Mismatch::NotServed { request: "run", .. })
+        ));
     }
 
     #[test]
@@ -179,6 +290,15 @@ mod tests {
                 && refused.to_string().contains("WaOS 0.2.0"),
             "{refused}"
         );
+
+        let open = Hello::waos_open("waos 0.3.0");
+        let refused = newer.accepts(&open, &run()).unwrap_err();
+        assert!(
+            refused.to_string().contains("update WaOS")
+                && !refused.to_string().contains("cargo install")
+                && refused.to_string().contains("waos 0.3.0"),
+            "{refused}"
+        );
     }
 
     #[test]
@@ -203,5 +323,6 @@ mod tests {
         let hello: Hello = ciborium::from_reader(bytes.as_slice()).unwrap();
         assert_eq!(hello.build, "WaOS 0.4.0");
         assert_eq!(hello.major, MAJOR);
+        assert_eq!(hello.peer, Peer::CargoWaos);
     }
 }

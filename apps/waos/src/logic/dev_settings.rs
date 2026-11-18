@@ -20,6 +20,7 @@ use waos_package::ProgramId;
 use waos_store::{ProgramSettings, Store, StoreError};
 
 use super::dev_refusal;
+use super::dev_server::BUILD;
 use super::environments::ProgramEnvironments;
 use super::runs::Runs;
 use super::sent_components::SentComponents;
@@ -66,7 +67,7 @@ async fn rows_after(
         .await
         .map_err(|error| failed(format!("reading what the pickers offer: {error}")))?;
     if let Some(row) = set {
-        let change = change_of(row, &offered).map_err(failed)?;
+        let change = change_of(row, &offered)?;
         tracing::info!(%id, ?change, "cargo waos sets a program's setting");
         set_program(&context.store, id, change).map_err(failed)?;
     }
@@ -109,40 +110,54 @@ fn set_program(store: &Store, id: &ProgramId, change: SettingChange) -> Result<(
     refusal.map_or(Ok(()), Err)
 }
 
-/// The page's change `row` makes; why not for a machine or an output not offered now.
-fn change_of(row: Row, offered: &setting_changes::Offered) -> Result<SettingChange, String> {
+/// The page's change `row` makes; why not for a machine or an output not offered now, or a row
+/// from a newer client that this build does not know.
+fn change_of(row: Row, offered: &setting_changes::Offered) -> Result<SettingChange, Refusal> {
+    let unsupported = || dev_refusal::unsupported(BUILD, "setting");
     Ok(match row {
-        Row::Question(question, Some(answer)) => {
-            SettingChange::Answer(store_question(question), Some(store_answer(answer)))
+        Row::Question(question, Some(answer)) => SettingChange::Answer(
+            store_question(question).ok_or_else(unsupported)?,
+            Some(store_answer(answer).ok_or_else(unsupported)?),
+        ),
+        Row::Question(question, None) => SettingChange::FollowGlobal(Which::Answer(
+            store_question(question).ok_or_else(unsupported)?,
+        )),
+        Row::Switch(switch, Some(on)) => switched(switch, on).ok_or_else(unsupported)?,
+        Row::Switch(switch, None) => {
+            SettingChange::FollowGlobal(which_switch(switch).ok_or_else(unsupported)?)
         }
-        Row::Question(question, None) => {
-            SettingChange::FollowGlobal(Which::Answer(store_question(question)))
-        }
-        Row::Switch(switch, Some(on)) => switched(switch, on),
-        Row::Switch(switch, None) => SettingChange::FollowGlobal(which_switch(switch)),
-        Row::LinkScheme(scheme, answer) => {
-            SettingChange::LinkScheme(scheme, answer.map(store_answer))
-        }
-        Row::Role(role, answer) => SettingChange::Role(store_role(role), answer.map(store_answer)),
+        Row::LinkScheme(scheme, answer) => SettingChange::LinkScheme(
+            scheme,
+            answer
+                .map(|answer| store_answer(answer).ok_or_else(unsupported))
+                .transpose()?,
+        ),
+        Row::Role(role, answer) => SettingChange::Role(
+            store_role(role).ok_or_else(unsupported)?,
+            answer
+                .map(|answer| store_answer(answer).ok_or_else(unsupported))
+                .transpose()?,
+        ),
         Row::Machine(id) => {
             let ids = offered.machines.iter().map(|machine| machine.id.as_str());
-            SettingChange::MachineAnswer(one_offered(id, ids, "machine")?)
+            SettingChange::MachineAnswer(one_offered(id, ids, "machine").map_err(failed)?)
         }
         Row::AudioOutput(id) => {
             let ids = offered.outputs.iter().map(|output| output.id.as_str());
-            SettingChange::AudioOutputAnswer(one_offered(id, ids, "sound output")?)
+            SettingChange::AudioOutputAnswer(one_offered(id, ids, "sound output").map_err(failed)?)
         }
         Row::SimulatedMicrophone(Some(sound)) => {
-            SettingChange::SimulatedMicrophone(store_sound(sound))
+            SettingChange::SimulatedMicrophone(store_sound(sound).ok_or_else(unsupported)?)
         }
         Row::SimulatedMicrophone(None) => SettingChange::FollowGlobal(Which::SimulatedMicrophone),
         Row::FileDialog(dialog, paths) => SettingChange::FileDialogAnswer(
-            store_dialog(dialog),
+            store_dialog(dialog).ok_or_else(unsupported)?,
             paths
                 .iter()
                 .map(|path| path.to_string_lossy().into_owned())
                 .collect(),
         ),
+        Row::Unknown => return Err(unsupported()),
     })
 }
 
@@ -190,10 +205,9 @@ fn rows(page: &ShownSettings) -> Vec<SettingRow> {
         ),
     ];
     for question in Question::ALL {
-        rows.push(question_row(
-            question,
-            page.answers.get(store_question(question)),
-        ));
+        if let Some(store) = store_question(question) {
+            rows.push(question_row(question, page.answers.get(store)));
+        }
     }
     let sound = &page.simulated_microphone;
     rows.push(SettingRow {
@@ -212,17 +226,19 @@ fn rows(page: &ShownSettings) -> Vec<SettingRow> {
         rows.push(row(key, vec![answer_key(*answer).to_owned()]));
     }
     for dialog in FileDialog::ALL {
-        let paths = page.answer_with.paths.file_dialog(store_dialog(dialog));
-        let values = paths.map_or_else(
-            || vec![ASK.to_owned()],
-            |paths| {
-                paths
-                    .iter()
-                    .map(|path| path.to_string_lossy().into_owned())
-                    .collect()
-            },
-        );
-        rows.push(row(dialog.key(), values));
+        if let Some(store) = store_dialog(dialog) {
+            let paths = page.answer_with.paths.file_dialog(store);
+            let values = paths.map_or_else(
+                || vec![ASK.to_owned()],
+                |paths| {
+                    paths
+                        .iter()
+                        .map(|path| path.to_string_lossy().into_owned())
+                        .collect()
+                },
+            );
+            rows.push(row(dialog.key(), values));
+        }
     }
     let output = page
         .answer_with
@@ -281,38 +297,42 @@ fn picker_row(key: &str, set: Option<String>, offered: Vec<Offered>) -> SettingR
     }
 }
 
-fn switched(switch: Switch, on: bool) -> SettingChange {
-    match switch {
+fn switched(switch: Switch, on: bool) -> Option<SettingChange> {
+    Some(match switch {
         Switch::Network => SettingChange::NetworkOn(on),
         Switch::LocalNetwork => SettingChange::LocalNetwork(on),
         Switch::ClipboardRead => SettingChange::ClipboardRead(on),
         Switch::ClipboardWrite => SettingChange::ClipboardWrite(on),
         Switch::Record => SettingChange::Record(on),
-    }
+        Switch::Unknown => return None,
+    })
 }
 
-fn which_switch(switch: Switch) -> Which {
-    match switch {
+fn which_switch(switch: Switch) -> Option<Which> {
+    Some(match switch {
         Switch::Network => Which::Network,
         Switch::LocalNetwork => Which::LocalNetwork,
         Switch::ClipboardRead => Which::ClipboardRead,
         Switch::ClipboardWrite => Which::ClipboardWrite,
         Switch::Record => Which::Record,
-    }
+        Switch::Unknown => return None,
+    })
 }
 
-fn store_question(question: Question) -> waos_store::Question {
-    match question {
+fn store_question(question: Question) -> Option<waos_store::Question> {
+    Some(match question {
         Question::Notifications => waos_store::Question::Notifications,
         Question::Camera => waos_store::Question::Camera,
         Question::Microphone => waos_store::Question::Microphone,
-    }
+        Question::Unknown => return None,
+    })
 }
 
-fn store_role(role: Role) -> waos_store::Role {
-    match role {
+fn store_role(role: Role) -> Option<waos_store::Role> {
+    Some(match role {
         Role::Inspector => waos_store::Role::Inspector,
-    }
+        Role::Unknown => return None,
+    })
 }
 
 fn protocol_role(role: waos_store::Role) -> Role {
@@ -321,19 +341,21 @@ fn protocol_role(role: waos_store::Role) -> Role {
     }
 }
 
-fn store_answer(answer: Answer) -> waos_store::Answer {
-    match answer {
+fn store_answer(answer: Answer) -> Option<waos_store::Answer> {
+    Some(match answer {
         Answer::Allow => waos_store::Answer::Granted,
         Answer::Deny => waos_store::Answer::Denied,
         Answer::Simulate => waos_store::Answer::Simulated,
-    }
+        Answer::Unknown => return None,
+    })
 }
 
-fn store_sound(sound: SimulatedSound) -> waos::SimulatedSound {
-    match sound {
+fn store_sound(sound: SimulatedSound) -> Option<waos::SimulatedSound> {
+    Some(match sound {
         SimulatedSound::Tone => waos::SimulatedSound::Tone,
         SimulatedSound::Silence => waos::SimulatedSound::Silence,
-    }
+        SimulatedSound::Unknown => return None,
+    })
 }
 
 fn sound_key(sound: waos::SimulatedSound) -> &'static str {
@@ -352,11 +374,12 @@ fn answer_key(answer: waos_store::Answer) -> &'static str {
     }
 }
 
-fn store_dialog(dialog: FileDialog) -> waos::FileDialog {
-    match dialog {
+fn store_dialog(dialog: FileDialog) -> Option<waos::FileDialog> {
+    Some(match dialog {
         FileDialog::OpenFile => waos::FileDialog::OpenFile,
         FileDialog::OpenFiles => waos::FileDialog::OpenFiles,
         FileDialog::OpenFolder => waos::FileDialog::OpenFolder,
         FileDialog::SaveFile => waos::FileDialog::SaveFile,
-    }
+        FileDialog::Unknown => return None,
+    })
 }

@@ -348,7 +348,7 @@ mod tests {
 
             let tap = Request::Input {
                 id: INPUT.parse().unwrap(),
-                window: WindowId(1),
+                window: Some(WindowId(1)),
                 input: Input::Tap { x: 1.0, y: 1.0 },
             };
             assert_eq!(
@@ -381,7 +381,7 @@ mod tests {
             assert!(pictures[0].in_sight);
             let tap = Request::Input {
                 id: INPUT.parse().unwrap(),
-                window: WindowId(1),
+                window: Some(WindowId(1)),
                 input: Input::Tap { x: 1.0, y: 1.0 },
             };
             assert_eq!(
@@ -483,6 +483,31 @@ mod tests {
                 panic!("window 2 survives");
             };
             assert_eq!(still_second[0].window, WindowId(2));
+
+            // With window 1 closed, input and resize without `--window` reach window 2.
+            let default_input = server
+                .ask::<waos_dev_protocol::InputAnswer>(&Request::Input {
+                    id: TWO_WINDOWS.parse().unwrap(),
+                    window: None,
+                    input: Input::Tap { x: 1.0, y: 1.0 },
+                })
+                .await;
+            assert!(
+                matches!(default_input, waos_dev_protocol::InputAnswer::Done(_)),
+                "input without --window reached window 2: {default_input:?}"
+            );
+            let default_resize = server
+                .ask::<waos_dev_protocol::ResizeAnswer>(&Request::Resize {
+                    id: TWO_WINDOWS.parse().unwrap(),
+                    window: None,
+                    width: 320.0,
+                    height: 240.0,
+                })
+                .await;
+            assert!(
+                matches!(default_resize, waos_dev_protocol::ResizeAnswer::Done(_)),
+                "resize without --window reached window 2: {default_resize:?}"
+            );
 
             let third = crate::logic::test_engine::drawing::add_window(&program, None);
             assert_eq!(third.id(), 3);

@@ -31,6 +31,7 @@ use mouse::DragPath;
 
 use super::asking_now::AskingNow;
 use super::dev_refusal;
+use super::dev_server::BUILD;
 use super::runs::{DevRun, Runs};
 
 /// How long WaOS waits for the window's picture after an input: many frames of a program that
@@ -45,7 +46,7 @@ pub(crate) async fn answer(
     runs: &Runs,
     asking: &AskingNow,
     id: &ProgramId,
-    window: WindowId,
+    window: Option<WindowId>,
     input: Input,
 ) {
     let answer = match give(runs, asking, id, window, input).await {
@@ -54,7 +55,7 @@ pub(crate) async fn answer(
             new_picture: given.new_picture,
         }),
         Err(refusal) => {
-            tracing::info!(%id, %window, ?refusal, "an input reached no window");
+            tracing::info!(%id, ?window, ?refusal, "an input reached no window");
             InputAnswer::Refused(refusal)
         }
     };
@@ -69,14 +70,17 @@ struct Given {
     new_picture: bool,
 }
 
-/// Gives `input` to the window `window` of the program `id`.
+/// Gives `input` to the window `window` (or the program's first open window) of the program `id`.
 async fn give(
     runs: &Runs,
     asking: &AskingNow,
     id: &ProgramId,
-    window: WindowId,
+    window: Option<WindowId>,
     input: Input,
 ) -> Result<Given, Refusal> {
+    if matches!(input, Input::Unknown) {
+        return Err(dev_refusal::unsupported(BUILD, "input"));
+    }
     let run = runs
         .dev_run(id)
         .await
@@ -84,7 +88,7 @@ async fn give(
     if let Some(asked) = asking.of(id.as_str()) {
         return Err(dev_refusal::asking(id, &asked, "the input was not given"));
     }
-    let view = run.window(window)?;
+    let (window, view) = run.window(window)?;
     tracing::info!(%id, %window, ?input, "an input from cargo waos");
     // The answer says how it stood when the input was given, not how it stands after the wait.
     let in_sight = view.in_sight();
@@ -137,6 +141,7 @@ async fn deliver(
         }
         Input::Key(ref chord) => press(id, window, view, chord)?,
         Input::Text(ref text) => commit(id, window, view, text)?,
+        Input::Unknown => return Err(dev_refusal::unsupported(BUILD, "input")),
     }
     Ok(())
 }

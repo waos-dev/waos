@@ -35,7 +35,7 @@ impl FromStr for Pair {
 }
 
 /// Gives `input` to the window `window` of the program `id`, and waits for WaOS's answer.
-pub async fn give(id: ProgramId, window: WindowId, input: Input) -> Result<ExitCode> {
+pub async fn give(id: ProgramId, window: Option<WindowId>, input: Input) -> Result<ExitCode> {
     let answer = ask(&Request::Input { id, window, input }).await?;
     match answer {
         InputAnswer::Done(InputDone {
@@ -59,17 +59,21 @@ pub async fn give(id: ProgramId, window: WindowId, input: Input) -> Result<ExitC
 
 /// What the answer to an input says, in words: none where the window drew its new picture; else
 /// whether the window was in sight and why no new picture came.
-fn said(in_sight: bool, new_picture: bool, window: WindowId) -> Option<String> {
+fn said(in_sight: bool, new_picture: bool, window: Option<WindowId>) -> Option<String> {
+    let named = match window {
+        Some(window) => format!("window {window}"),
+        None => "the window".to_owned(),
+    };
     match (in_sight, new_picture) {
         (true, true) => None,
         (true, false) => Some(format!(
-            "window {window} was in sight, and the program drew nothing new after the input"
+            "{named} was in sight, and the program drew nothing new after the input"
         )),
         (false, true) => Some(format!(
-            "window {window} was out of sight when the input was given, and showed the program's new picture after it"
+            "{named} was out of sight when the input was given, and showed the program's new picture after it"
         )),
         (false, false) => Some(format!(
-            "window {window} was out of sight when the input was given, so it showed no new picture; bring it into sight to see what it drew"
+            "{named} was out of sight when the input was given, so it showed no new picture; bring it into sight to see what it drew"
         )),
     }
 }
@@ -81,21 +85,25 @@ mod tests {
     #[test]
     fn an_input_says_whether_its_window_was_in_sight_and_why_no_new_picture_came() {
         assert_eq!(
-            said(true, true, WindowId(1)),
+            said(true, true, Some(WindowId(1))),
             None,
             "its new picture says enough"
         );
         assert_eq!(
-            said(true, false, WindowId(2)).unwrap(),
+            said(true, false, Some(WindowId(2))).unwrap(),
             "window 2 was in sight, and the program drew nothing new after the input"
         );
         assert_eq!(
-            said(false, false, WindowId(3)).unwrap(),
+            said(false, false, Some(WindowId(3))).unwrap(),
             "window 3 was out of sight when the input was given, so it showed no new picture; bring it into sight to see what it drew"
         );
         assert_eq!(
-            said(false, true, WindowId(4)).unwrap(),
+            said(false, true, Some(WindowId(4))).unwrap(),
             "window 4 was out of sight when the input was given, and showed the program's new picture after it"
+        );
+        assert_eq!(
+            said(true, false, None).unwrap(),
+            "the window was in sight, and the program drew nothing new after the input"
         );
     }
 

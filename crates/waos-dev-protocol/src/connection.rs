@@ -19,7 +19,7 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadHalf, WriteHalf};
 
-use crate::hello::Hello;
+use crate::hello::{Hello, MAJOR};
 
 /// The largest frame either side accepts. A run's component goes over in parts far under this,
 /// [`CHUNK_BYTES`](crate::CHUNK_BYTES) at most, and a program's output and a window's picture are
@@ -28,6 +28,7 @@ use crate::hello::Hello;
 pub const MAX_FRAME_BYTES: usize = 256 << 20;
 
 const PREFIX_BYTES: usize = 4;
+const LEGACY_PROTOCOL_BYTES: usize = 4;
 
 /// Whether a connection's stream stays on this machine, as the socket and the pipe do, or crosses
 /// the network, where this machine's paths mean nothing, so `Open` is refused there.
@@ -80,17 +81,63 @@ impl<S: AsyncRead + AsyncWrite> Connection<S> {
 }
 
 impl<S: AsyncRead + AsyncWrite + Unpin> Connection<S> {
-    /// The first frame each way: says `ours`, and reads the other side's hello before anything
+    /// The client's first frame each way: says `ours`, and reads the WaOS's hello before anything
     /// else. An other side that closed before saying one is `UnexpectedEof`, or `BrokenPipe` when
-    /// it was gone before this side's frame went out.
+    /// it was gone before this side's frame went out; an older WaOS speaking the 4-byte protocol
+    /// number of WaOS 0.2 is `Unsupported` naming WaOS 0.2 and how to update.
     pub async fn hello(&mut self, ours: &Hello) -> io::Result<Hello> {
         self.send(ours).await?;
-        self.receive::<Hello>().await?.ok_or_else(|| {
-            io::Error::new(
+        let Some(len) = self.read_prefix().await? else {
+            return Err(io::Error::new(
                 ErrorKind::UnexpectedEof,
                 "the other side closed before saying its hello",
-            )
-        })
+            ));
+        };
+        if len == LEGACY_PROTOCOL_BYTES {
+            let mut number = [0; LEGACY_PROTOCOL_BYTES];
+            self.stream.read_exact(&mut number).await?;
+            return Err(io::Error::new(
+                ErrorKind::Unsupported,
+                "this WaOS speaks the dev protocol of WaOS 0.2; update WaOS from https://waos.app",
+            ));
+        }
+        let mut body = vec![0; len];
+        self.stream.read_exact(&mut body).await?;
+        ciborium::from_reader(body.as_slice()).map_err(invalid_data)
+    }
+
+    /// WaOS's side of the hello: reads the client's first frame first, and answers with `ours`;
+    /// when a `cargo waos` of WaOS 0.2 sends its 4-byte protocol number, answers a 4-byte number
+    /// frame of our own so the old client prints its mismatch naming both numbers, and returns
+    /// `Unsupported`.
+    pub async fn accept_hello(&mut self, ours: &Hello) -> io::Result<Hello> {
+        let Some(len) = self.read_prefix().await? else {
+            return Err(io::Error::new(
+                ErrorKind::UnexpectedEof,
+                "the other side closed before saying its hello",
+            ));
+        };
+        if len == LEGACY_PROTOCOL_BYTES {
+            let mut number = [0; LEGACY_PROTOCOL_BYTES];
+            self.stream.read_exact(&mut number).await?;
+            let theirs = u32::from_le_bytes(number);
+            let reply = if theirs == MAJOR { 0 } else { MAJOR };
+            let mut frame = Vec::with_capacity(PREFIX_BYTES + LEGACY_PROTOCOL_BYTES);
+            frame.extend_from_slice(&(LEGACY_PROTOCOL_BYTES as u32).to_le_bytes());
+            frame.extend_from_slice(&reply.to_le_bytes());
+            let _ = self.stream.write_all(&frame).await;
+            return Err(io::Error::new(
+                ErrorKind::Unsupported,
+                format!(
+                    "a cargo waos of WaOS 0.2 speaks legacy dev protocol {theirs}; this WaOS speaks {MAJOR}"
+                ),
+            ));
+        }
+        let mut body = vec![0; len];
+        self.stream.read_exact(&mut body).await?;
+        let theirs: Hello = ciborium::from_reader(body.as_slice()).map_err(invalid_data)?;
+        self.send(ours).await?;
+        Ok(theirs)
     }
 }
 
@@ -193,11 +240,50 @@ mod tests {
     async fn two_sides_exchange_their_hellos_and_go_on_to_the_messages() {
         let (mut one, mut other) = pair();
         let ours = hello();
-        let (theirs, theirs_too) = tokio::join!(one.hello(&ours), other.hello(&ours));
-        assert_eq!(theirs.unwrap(), ours);
+        let server_hello = Hello::waos("WaOS 0.3.0");
+        let (theirs, theirs_too) =
+            tokio::join!(one.hello(&ours), other.accept_hello(&server_hello));
+        assert_eq!(theirs.unwrap(), server_hello);
         assert_eq!(theirs_too.unwrap(), ours);
         tokio::spawn(async move { one.send(&7u32).await });
         assert_eq!(other.receive::<u32>().await.unwrap(), Some(7));
+    }
+
+    #[tokio::test]
+    async fn a_new_client_meeting_a_legacy_server_names_waos_0_2_and_how_to_update() {
+        let (mut client, mut legacy_server) = pair();
+        tokio::spawn(async move {
+            let mut frame = Vec::new();
+            frame.extend_from_slice(&4u32.to_le_bytes());
+            frame.extend_from_slice(&10u32.to_le_bytes());
+            legacy_server.stream.write_all(&frame).await.unwrap();
+        });
+        let error = client.hello(&hello()).await.unwrap_err();
+        assert_eq!(error.kind(), ErrorKind::Unsupported);
+        assert_eq!(
+            error.to_string(),
+            "this WaOS speaks the dev protocol of WaOS 0.2; update WaOS from https://waos.app"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_new_server_meeting_a_legacy_client_answers_a_legacy_number_frame() {
+        let (mut legacy_client, mut server) = pair();
+        let mut frame = Vec::new();
+        frame.extend_from_slice(&4u32.to_le_bytes());
+        frame.extend_from_slice(&10u32.to_le_bytes());
+        legacy_client.stream.write_all(&frame).await.unwrap();
+        let error = server
+            .accept_hello(&Hello::waos("WaOS 0.3.0"))
+            .await
+            .unwrap_err();
+        assert_eq!(error.kind(), ErrorKind::Unsupported);
+        assert!(error.to_string().contains("10"), "{error}");
+
+        let mut reply = [0u8; 8];
+        legacy_client.stream.read_exact(&mut reply).await.unwrap();
+        assert_eq!(u32::from_le_bytes(reply[..4].try_into().unwrap()), 4);
+        assert_eq!(u32::from_le_bytes(reply[4..].try_into().unwrap()), MAJOR);
     }
 
     #[tokio::test]

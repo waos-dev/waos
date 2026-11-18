@@ -60,7 +60,7 @@ impl fmt::Display for Points {
 
 /// Sizes the window `window` of the program `id` so its view is `size`, waits for WaOS's
 /// answer, and says the size the window took.
-pub async fn resize(id: ProgramId, window: WindowId, size: Points) -> Result<ExitCode> {
+pub async fn resize(id: ProgramId, window: Option<WindowId>, size: Points) -> Result<ExitCode> {
     let answer = ask(&Request::Resize {
         id,
         window,
@@ -79,15 +79,17 @@ pub async fn resize(id: ProgramId, window: WindowId, size: Points) -> Result<Exi
                 width: f64::from(width) / scale,
                 height: f64::from(height) / scale,
             };
-            println!("window {window}: {taken} points at scale {scale}, {width}x{height} pixels");
+            let named = match window {
+                Some(window) => format!("window {window}"),
+                None => "the window".to_owned(),
+            };
+            println!("{named}: {taken} points at scale {scale}, {width}x{height} pixels");
             if !size.is_in_pixels(width, height, scale) {
-                eprintln!(
-                    "cargo waos: the window system gave window {window} {taken} points, not {size}"
-                );
+                eprintln!("cargo waos: the window system gave {named} {taken} points, not {size}");
             }
             if !new_picture {
                 eprintln!(
-                    "cargo waos: window {window} showed no new picture at its size: the program drew nothing after it, or the window is out of sight"
+                    "cargo waos: {named} showed no new picture at its size: the program drew nothing after it, or the window is out of sight"
                 );
             }
             Ok(ExitCode::SUCCESS)

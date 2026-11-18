@@ -27,13 +27,13 @@ pub(crate) async fn answer(
     mut connection: Connection<ServerStream>,
     runs: &Runs,
     id: &ProgramId,
-    window: WindowId,
+    window: Option<WindowId>,
     size: Size,
 ) {
     let answer = match resize(runs, id, window, size).await {
         Ok(resized) => ResizeAnswer::Done(resized),
         Err(refusal) => {
-            tracing::info!(%id, %window, ?refusal, "a resize reached no window");
+            tracing::info!(%id, ?window, ?refusal, "a resize reached no window");
             ResizeAnswer::Refused(refusal)
         }
     };
@@ -41,19 +41,20 @@ pub(crate) async fn answer(
     let _ = connection.send(&answer).await;
 }
 
-/// Sizes the window `window` of the program `id` so its view is `size`; answers the size the view
-/// then reports, and whether the program drew a picture at it.
+/// Sizes the window `window` (or the program's first open window) of the program `id` so its
+/// view is `size`; answers the size the view then reports, and whether the program drew a picture
+/// at it.
 async fn resize(
     runs: &Runs,
     id: &ProgramId,
-    window: WindowId,
+    window: Option<WindowId>,
     size: Size,
 ) -> Result<Resized, Refusal> {
     let run = runs
         .dev_run(id)
         .await
         .ok_or_else(|| dev_refusal::no_dev_run_now(id))?;
-    let view = run.window(window)?;
+    let (window, view) = run.window(window)?;
     tracing::info!(%id, %window, size.width, size.height, "a resize from cargo waos");
     let reported = view
         .resize_window(size)
@@ -86,7 +87,7 @@ mod tests {
     fn resize(window: WindowId, width: f64, height: f64) -> Request {
         Request::Resize {
             id: INPUT.parse().unwrap(),
-            window,
+            window: Some(window),
             width,
             height,
         }

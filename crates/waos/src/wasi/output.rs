@@ -113,11 +113,10 @@ struct Forwarded {
 impl AsyncWrite for Forwarded {
     fn poll_write(
         self: Pin<&mut Self>,
-        _cx: &mut Context<'_>,
+        cx: &mut Context<'_>,
         bytes: &[u8],
     ) -> Poll<io::Result<usize>> {
-        self.output.write(self.stream, bytes);
-        Poll::Ready(Ok(bytes.len()))
+        self.output.poll_write(self.stream, cx, bytes).map(Ok)
     }
 
     fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
@@ -208,9 +207,81 @@ mod tests {
     }
 
     impl ProgramOutput for Recording {
-        fn write(&self, stream: OutputStream, bytes: &[u8]) {
+        fn poll_write(
+            &self,
+            stream: OutputStream,
+            _cx: &mut Context<'_>,
+            bytes: &[u8],
+        ) -> Poll<usize> {
             self.writes.lock().unwrap().push((stream, bytes.to_vec()));
+            Poll::Ready(bytes.len())
         }
+    }
+
+    /// An output that holds writes while `blocked`, waking the waiting writer when let go.
+    #[derive(Default)]
+    struct Backpressured {
+        state: Mutex<BackpressuredState>,
+    }
+
+    #[derive(Default)]
+    struct BackpressuredState {
+        blocked: bool,
+        waker: Option<std::task::Waker>,
+        writes: Vec<u8>,
+    }
+
+    impl Backpressured {
+        fn block(&self) {
+            self.state.lock().unwrap().blocked = true;
+        }
+
+        fn release(&self) {
+            let mut state = self.state.lock().unwrap();
+            state.blocked = false;
+            if let Some(waker) = state.waker.take() {
+                waker.wake();
+            }
+        }
+    }
+
+    impl ProgramOutput for Backpressured {
+        fn poll_write(
+            &self,
+            _stream: OutputStream,
+            cx: &mut Context<'_>,
+            bytes: &[u8],
+        ) -> Poll<usize> {
+            let mut state = self.state.lock().unwrap();
+            if state.blocked {
+                state.waker = Some(cx.waker().clone());
+                return Poll::Pending;
+            }
+            state.writes.extend_from_slice(bytes);
+            Poll::Ready(bytes.len())
+        }
+    }
+
+    #[tokio::test]
+    async fn a_write_waits_with_pending_until_room_opens() {
+        let output = Arc::new(Backpressured::default());
+        output.block();
+        let access = ProgramAccess::new(Arc::new(crate::permissions::NothingGranted));
+        let stdout = StandardStream::new(
+            "test",
+            OutputStream::Stdout,
+            Some(Arc::clone(&output) as Arc<dyn ProgramOutput>),
+            access,
+        );
+        let mut out = Box::into_pin(stdout.async_stream());
+        let writer = tokio::spawn(async move {
+            out.write_all(b"hello").await.unwrap();
+        });
+        tokio::task::yield_now().await;
+        assert!(!writer.is_finished(), "waiting while blocked");
+        output.release();
+        writer.await.unwrap();
+        assert_eq!(output.state.lock().unwrap().writes, b"hello");
     }
 
     #[tokio::test]

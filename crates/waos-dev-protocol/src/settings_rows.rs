@@ -5,24 +5,33 @@
 //! what WaOS asks the program's user, which a run's terminal says while it waits.
 //!
 //! The invariant: a row's key is its name on the command line and in what `settings` prints, and
-//! [`Row::key`] and [`Row::parse`] say the same names; a new kind of row adds its variant at the
-//! end, as every message does (the crate's doc).
+//! [`Row::key`] and [`Row::parse`] say the same names; CBOR names each variant and field, so
+//! order means nothing and adding a variant anywhere is safe, with unknown variants reading as
+//! `Unknown`.
 
 use std::fmt;
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
+use crate::adjacent::adjacent_unknown;
+
 /// What a program asks its user at its first use.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(remote = "Self", tag = "kind", content = "data")]
 pub enum Question {
     Notifications,
     Camera,
     Microphone,
+    #[serde(skip)]
+    Unknown,
 }
+
+adjacent_unknown!(Question);
 
 /// What a program uses constantly, which its user turns on or off.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(remote = "Self", tag = "kind", content = "data")]
 pub enum Switch {
     Network,
     LocalNetwork,
@@ -30,52 +39,78 @@ pub enum Switch {
     ClipboardWrite,
     /// Whether a record is kept of what the program does, its audit summary.
     Record,
+    #[serde(skip)]
+    Unknown,
 }
+
+adjacent_unknown!(Switch);
 
 /// The user's answer to a question or a link scheme.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(remote = "Self", tag = "kind", content = "data")]
 pub enum Answer {
     Allow,
     Deny,
     /// For the camera and the microphone alone: allowed, with a device of WaOS's own.
     Simulate,
+    #[serde(skip)]
+    Unknown,
 }
+
+adjacent_unknown!(Answer);
 
 /// What a program may be besides a program, which it asks for by importing the role's
 /// interfaces.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(remote = "Self", tag = "kind", content = "data")]
 pub enum Role {
     /// Sees what other programs do.
     Inspector,
+    #[serde(skip)]
+    Unknown,
 }
+
+adjacent_unknown!(Role);
 
 /// What a simulated microphone records.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(remote = "Self", tag = "kind", content = "data")]
 pub enum SimulatedSound {
     Tone,
     Silence,
+    #[serde(skip)]
+    Unknown,
 }
+
+adjacent_unknown!(SimulatedSound);
 
 impl SimulatedSound {
     pub fn key(self) -> &'static str {
         match self {
             SimulatedSound::Tone => "tone",
             SimulatedSound::Silence => "silence",
+            SimulatedSound::Unknown => "unknown",
         }
     }
 }
 
 /// A kind of file dialog a program shows its user.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(remote = "Self", tag = "kind", content = "data")]
 pub enum FileDialog {
     OpenFile,
     OpenFiles,
     OpenFolder,
     SaveFile,
+    #[serde(skip)]
+    Unknown,
 }
+
+adjacent_unknown!(FileDialog);
 
 /// One row of a program's settings set to a value.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(remote = "Self", tag = "kind", content = "data")]
 pub enum Row {
     /// Allow or Don't allow; none to ask, which removes the program's own answer, so it follows
     /// the answer for every program, Ask unless its user set one.
@@ -96,7 +131,11 @@ pub enum Row {
     SimulatedMicrophone(Option<SimulatedSound>),
     /// Allow or Don't allow the program to hold the role; none to ask again at its next start.
     Role(Role, Option<Answer>),
+    #[serde(skip)]
+    Unknown,
 }
+
+adjacent_unknown!(Row);
 
 /// One row of a program's settings as they are, as `cargo waos settings` prints it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -121,6 +160,7 @@ pub struct Offered {
 
 /// What WaOS asks a program's user now, which a row on Ask lets it ask.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(remote = "Self", tag = "kind", content = "data")]
 pub enum Asked {
     Question(Question),
     /// Whether it may open links of this scheme.
@@ -134,7 +174,11 @@ pub enum Asked {
     FileDialog(FileDialog),
     /// Whether it may hold a role, at its start.
     Role(Role),
+    #[serde(skip)]
+    Unknown,
 }
+
+adjacent_unknown!(Asked);
 
 impl Question {
     pub const ALL: [Question; 3] = [
@@ -148,6 +192,7 @@ impl Question {
             Question::Notifications => "notifications",
             Question::Camera => "camera",
             Question::Microphone => "microphone",
+            Question::Unknown => "unknown",
         }
     }
 }
@@ -168,6 +213,7 @@ impl Switch {
             Switch::ClipboardRead => "clipboard-read",
             Switch::ClipboardWrite => "clipboard-write",
             Switch::Record => "record",
+            Switch::Unknown => "unknown",
         }
     }
 }
@@ -179,6 +225,7 @@ impl Role {
     pub fn key(self) -> &'static str {
         match self {
             Role::Inspector => "role.inspector",
+            Role::Unknown => "unknown",
         }
     }
 }
@@ -189,6 +236,7 @@ impl Answer {
             Answer::Allow => "allow",
             Answer::Deny => "deny",
             Answer::Simulate => "simulated",
+            Answer::Unknown => "unknown",
         }
     }
 }
@@ -207,6 +255,7 @@ impl FileDialog {
             FileDialog::OpenFiles => "open-files",
             FileDialog::OpenFolder => "open-folder",
             FileDialog::SaveFile => "save-file",
+            FileDialog::Unknown => "unknown",
         }
     }
 }
@@ -248,6 +297,7 @@ impl Row {
             let answer = match question {
                 Question::Camera | Question::Microphone => one_device_answer(key, values)?,
                 Question::Notifications => one_answer(key, values)?,
+                Question::Unknown => return Err(RowError(format!("unknown row: {key}"))),
             };
             return Ok(Row::Question(question, answer));
         }

@@ -2664,6 +2664,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "28a80e3145d8ad11ba0995949bbcf48b9df2be62772b3d351ef017dff6ecb853"
 
 [[package]]
+name = "flood"
+version = "0.3.0"
+dependencies = [
+ "wasdk",
+ "wit-bindgen 0.63.0",
+]
+
+[[package]]
 name = "flume"
 version = "0.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

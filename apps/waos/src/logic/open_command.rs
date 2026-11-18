@@ -41,7 +41,7 @@ pub(crate) async fn send_to(socket: &Path, id: &ProgramId, files: Vec<PathBuf>) 
                 .with_context(|| format!("connecting to WaOS at {}", socket.display()));
         }
     };
-    let ours = Hello::cargo_waos(concat!("waos ", env!("CARGO_PKG_VERSION")));
+    let ours = Hello::waos_open(concat!("waos ", env!("CARGO_PKG_VERSION")));
     let theirs = connection.hello(&ours).await?;
     let open = Request::Open {
         id: id.clone(),

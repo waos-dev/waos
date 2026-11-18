@@ -46,7 +46,7 @@ pub(crate) fn context(
     variables: &[(String, String)],
 ) -> WasiCtx {
     let mut wasi = WasiCtxBuilder::new();
-    wasi.args(arguments);
+    wasi.arg(name).args(arguments);
     set_variables(&mut wasi, variables, has_temporary_folder);
     wasi.stdout(StandardStream::new(
         name,

@@ -112,6 +112,14 @@ pub(crate) fn local_only(id: &ProgramId) -> Refusal {
     )
 }
 
+/// A request or one of its inner variants came from a newer client that `build` does not know.
+pub(crate) fn unsupported(build: &str, what: &str) -> Refusal {
+    Refusal::new(
+        RefusalKind::Failed,
+        format!("{build} does not know this {what}: update WaOS from https://waos.app"),
+    )
+}
+
 /// `Open`'s answer before its paths are looked at, on a connection of `locality`: `LocalOnly` for
 /// `id` on one that is not on this machine, whose paths a network peer does not mean; none on
 /// this machine, where the files are handed over.

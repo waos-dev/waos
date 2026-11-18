@@ -364,9 +364,10 @@ struct WindowArgs {
     #[command(flatten)]
     program: Program,
     /// The window's id, as `cargo waos screenshot` lists it: its picture is in pixels, as the
-    /// screenshot's, and its logical points are those divided by its scale.
-    #[arg(long, default_value_t = WindowId(1))]
-    window: WindowId,
+    /// screenshot's, and its logical points are those divided by its scale. Without it, acts on
+    /// the program's first open window.
+    #[arg(long)]
+    window: Option<WindowId>,
 }
 
 #[derive(Args)]
@@ -709,15 +710,15 @@ mod tests {
         let Command::Tap(tap) = parsed(&["tap", "--at", "120,48"]) else {
             panic!("a tap");
         };
-        assert_eq!(
-            (tap.at, tap.window.window),
-            (Pair(120.0, 48.0), WindowId(1))
-        );
+        assert_eq!((tap.at, tap.window.window), (Pair(120.0, 48.0), None));
         let Command::Tap(tap) = parsed(&["tap", "--at", "1.5,2", "--window", "2", "-p", "notes"])
         else {
             panic!("a tap");
         };
-        assert_eq!((tap.at, tap.window.window), (Pair(1.5, 2.0), WindowId(2)));
+        assert_eq!(
+            (tap.at, tap.window.window),
+            (Pair(1.5, 2.0), Some(WindowId(2)))
+        );
         assert_eq!(tap.window.program.package.as_deref(), Some("notes"));
         assert!(refused(&["tap"]), "a tap needs a point");
         assert!(refused(&["tap", "--at", "120"]));
@@ -795,7 +796,7 @@ mod tests {
             panic!("a drag");
         };
         assert_eq!((drag.steps, drag.duration, drag.hold), (1, 0, 600));
-        assert_eq!(drag.window.window, WindowId(2));
+        assert_eq!(drag.window.window, Some(WindowId(2)));
         assert!(refused(&["drag", "--from", "1,2"]), "a drag needs its end");
         assert!(
             refused(&["drag", "--from", "1,2", "--to", "3,4", "--steps", "0"]),
@@ -815,7 +816,7 @@ mod tests {
                     width: 390.0,
                     height: 844.0
                 },
-                WindowId(1)
+                None
             )
         );
         let Command::Resize(resize) =
@@ -823,7 +824,7 @@ mod tests {
         else {
             panic!("a resize");
         };
-        assert_eq!(resize.window.window, WindowId(2));
+        assert_eq!(resize.window.window, Some(WindowId(2)));
         assert_eq!(resize.window.program.package.as_deref(), Some("notes"));
         assert!(refused(&["resize"]), "a resize needs a size");
         assert!(
@@ -894,7 +895,7 @@ mod tests {
         };
         assert_eq!(
             (key.chord.as_str(), key.window.window),
-            ("cmd+s", WindowId(3))
+            ("cmd+s", Some(WindowId(3)))
         );
         let Command::Key(key) = parsed(&["key", "-"]) else {
             panic!("a key");

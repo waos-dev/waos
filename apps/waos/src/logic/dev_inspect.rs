@@ -15,6 +15,7 @@ use waos_dev_protocol::{Connection, InspectAnswer, Inspection, ServerStream, Tra
 use waos_package::ProgramId;
 
 use super::dev_refusal;
+use super::dev_server::BUILD;
 use super::runs::Runs;
 use super::sent_components::SentComponents;
 
@@ -50,13 +51,25 @@ pub(crate) async fn answer(
             }
             None => Err(dev_refusal::no_dev_run_now(id)),
         },
-        Inspection::Trace(traced) => match running {
-            Some(program) => {
-                trace(connection, &program, &traced).await;
+        Inspection::Trace(traced) => {
+            let Some(kinds) = traced
+                .iter()
+                .map(|each| kind_of(*each))
+                .collect::<Option<Vec<_>>>()
+            else {
+                let refusal = dev_refusal::unsupported(BUILD, "inspection");
+                let _ = connection.send(&InspectAnswer::Refused(refusal)).await;
                 return;
+            };
+            match running {
+                Some(program) => {
+                    trace(connection, &program, &kinds).await;
+                    return;
+                }
+                None => Err(dev_refusal::no_dev_run_now(id)),
             }
-            None => Err(dev_refusal::no_dev_run_now(id)),
-        },
+        }
+        Inspection::Unknown => Err(dev_refusal::unsupported(BUILD, "inspection")),
     };
     let answer = match answered {
         Ok(lines) => InspectAnswer::Inspected(lines),
@@ -76,16 +89,16 @@ fn summary(engine: &WaOS, id: &ProgramId, days: u32) -> Vec<String> {
         .collect()
 }
 
-/// Sends each event of `program`'s uses of `traced` as it comes, until the connection closes or
+/// Sends each event of `program`'s uses of `kinds` as it comes, until the connection closes or
 /// the program ends.
 async fn trace(
     connection: Connection<ServerStream>,
     program: &RunningProgram,
-    traced: &[TracedCapability],
+    kinds: &[TraceKind],
 ) {
-    let streams: Vec<BoxStream<'static, waos::TraceEvent>> = traced
+    let streams: Vec<BoxStream<'static, waos::TraceEvent>> = kinds
         .iter()
-        .filter_map(|traced| program.trace(kind_of(*traced)))
+        .filter_map(|kind| program.trace(*kind))
         .map(StreamExt::boxed)
         .collect();
     let events = stream::select_all(streams).map(|event| json(&event));
@@ -124,8 +137,8 @@ async fn send_lines(
     }
 }
 
-fn kind_of(traced: TracedCapability) -> TraceKind {
-    match traced {
+fn kind_of(traced: TracedCapability) -> Option<TraceKind> {
+    Some(match traced {
         TracedCapability::Network => TraceKind::Network,
         TracedCapability::Files => TraceKind::Files,
         TracedCapability::Clipboard => TraceKind::Clipboard,
@@ -136,7 +149,8 @@ fn kind_of(traced: TracedCapability) -> TraceKind {
         TracedCapability::Links => TraceKind::Links,
         TracedCapability::Notifications => TraceKind::Notifications,
         TracedCapability::Output => TraceKind::Output,
-    }
+        TracedCapability::Unknown => return None,
+    })
 }
 
 /// `value` as one line of JSON.

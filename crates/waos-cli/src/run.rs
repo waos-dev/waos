@@ -72,8 +72,19 @@ async fn run_on(
         digest: component_digest(component),
     });
     let mut connection = asking::greeted(connection, &request).await?;
+    send_run(&mut connection, name, &request, component).await?;
+    stream_events(connection, name).await
+}
+
+/// Announces `request` to WaOS and sends `component` unless WaOS answers `Upload::Have`.
+async fn send_run(
+    connection: &mut Connection<ClientStream>,
+    name: &str,
+    request: &Request,
+    component: &[u8],
+) -> Result<()> {
     connection
-        .send(&request)
+        .send(request)
         .await
         .with_context(|| format!("sending {name} to WaOS"))?;
     match connection
@@ -91,16 +102,20 @@ async fn run_on(
             connection
                 .send_component(component)
                 .await
-                .with_context(|| format!("sending {name} to WaOS"))?;
+                .with_context(|| format!("sending {name} to WaOS"))
         }
         // WaOS holds this component already: nothing is sent, and the run starts from it.
-        Some(Upload::Have) => {}
+        Some(Upload::Have) => Ok(()),
         Some(Upload::Refused(refusal)) => bail!("WaOS refused {name}: {}", refusal.message),
         Some(Upload::Unknown) => bail!(
             "WaOS answered the upload in a way this cargo waos does not know: update cargo waos with `cargo install cargo-waos`"
         ),
         None => bail!("WaOS closed the connection before {name} was sent"),
     }
+}
+
+/// Reads the running program's events until it ends or the user stops it with Ctrl-C.
+async fn stream_events(mut connection: Connection<ClientStream>, name: &str) -> Result<ExitCode> {
     let interrupted = tokio::signal::ctrl_c();
     tokio::pin!(interrupted);
     let mut output = Output {
@@ -149,18 +164,23 @@ impl Output<'_> {
     fn written(&mut self, stream: OutputStream, bytes: &[u8]) -> Result<()> {
         let (prefixed, at_line_start) = match stream {
             OutputStream::Stdout => prefixed(self.name, self.stdout_at_line_start, bytes),
-            OutputStream::Stderr => prefixed(self.name, self.stderr_at_line_start, bytes),
+            // Unknown streams fall back to stderr so bytes from a newer WaOS are still shown.
+            OutputStream::Stderr | OutputStream::Unknown => {
+                prefixed(self.name, self.stderr_at_line_start, bytes)
+            }
         };
         match stream {
             OutputStream::Stdout => self.stdout_at_line_start = at_line_start,
-            OutputStream::Stderr => self.stderr_at_line_start = at_line_start,
+            OutputStream::Stderr | OutputStream::Unknown => {
+                self.stderr_at_line_start = at_line_start
+            }
         }
         let written = match stream {
             OutputStream::Stdout => io::stdout()
                 .lock()
                 .write_all(&prefixed)
                 .and_then(|()| io::stdout().flush()),
-            OutputStream::Stderr => io::stderr()
+            OutputStream::Stderr | OutputStream::Unknown => io::stderr()
                 .lock()
                 .write_all(&prefixed)
                 .and_then(|()| io::stderr().flush()),
@@ -201,6 +221,10 @@ fn ended(name: &str, end: &RunEnd) -> ExitCode {
             format!("{name} was replaced by a later run"),
             ExitCode::FAILURE,
         ),
+        RunEnd::Unknown => (
+            format!("{name} ended in a way this cargo waos does not know; update cargo waos"),
+            ExitCode::FAILURE,
+        ),
     };
     eprintln!("cargo waos: {said}");
     status
@@ -226,9 +250,23 @@ mod tests {
     #[tokio::test]
     async fn have_skips_the_upload_and_unknown_events_are_skipped() {
         #[derive(serde::Serialize)]
-        #[serde(tag = "event", content = "data")]
+        #[serde(tag = "kind", content = "data")]
         enum NewerRunEvent {
             Progress { percent: u8 },
+            Output { stream: NewerStream, bytes: Vec<u8> },
+            Ended(NewerEnd),
+        }
+
+        #[derive(serde::Serialize)]
+        #[serde(tag = "kind", content = "data")]
+        enum NewerStream {
+            Trace,
+        }
+
+        #[derive(serde::Serialize)]
+        #[serde(tag = "kind", content = "data")]
+        enum NewerEnd {
+            Cancelled,
         }
 
         let folder = tempfile::tempdir().unwrap();
@@ -239,7 +277,10 @@ mod tests {
         let expected_length = component.len() as u64;
         let served = tokio::spawn(async move {
             let mut server = listener.accept().await.unwrap();
-            server.hello(&Hello::waos("WaOS 0.3.0")).await.unwrap();
+            server
+                .accept_hello(&Hello::waos("WaOS 0.3.0"))
+                .await
+                .unwrap();
             let Some(Request::Run(run)) = server.receive::<Request>().await.unwrap() else {
                 panic!("a run");
             };
@@ -252,7 +293,14 @@ mod tests {
                 .await
                 .unwrap();
             server
-                .send(&RunEvent::Ended(RunEnd::Returned { success: true }))
+                .send(&NewerRunEvent::Output {
+                    stream: NewerStream::Trace,
+                    bytes: b"from future stream\n".to_vec(),
+                })
+                .await
+                .unwrap();
+            server
+                .send(&NewerRunEvent::Ended(NewerEnd::Cancelled))
                 .await
                 .unwrap();
             // Nothing was uploaded after `Upload::Have`.
@@ -269,7 +317,11 @@ mod tests {
         )
         .await
         .unwrap();
-        assert_eq!(status, ExitCode::SUCCESS);
+        assert_eq!(
+            status,
+            ExitCode::FAILURE,
+            "unknown RunEnd fails rather than silently succeeding"
+        );
         assert_eq!(served.await.unwrap(), None, "no component frame sent");
     }
 
@@ -282,7 +334,10 @@ mod tests {
         let expected = component.clone();
         let served = tokio::spawn(async move {
             let mut server = listener.accept().await.unwrap();
-            server.hello(&Hello::waos("WaOS 0.3.0")).await.unwrap();
+            server
+                .accept_hello(&Hello::waos("WaOS 0.3.0"))
+                .await
+                .unwrap();
             let Some(Request::Run(run)) = server.receive::<Request>().await.unwrap() else {
                 panic!("a run");
             };

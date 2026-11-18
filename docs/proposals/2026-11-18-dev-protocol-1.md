@@ -100,3 +100,7 @@ The network transport's security, for phones: in the transport, not the messages
 2. `Upload` with `Have`, a run's arguments, window ids, bounded output, a screenshot of one window, `Open` local only.
 
 Tests: each request's round trip; a newer WaOS's unknown answer met by an older client (skipped), and a request an older WaOS does not serve (refused by `serves` before it is sent); the dev server's tests as they are.
+
+## Built
+
+Every enum inside a message (both requests and answers, and settings rows/asks) uses shared `"kind"` and `"data"` keys rather than per-enum tag names, and derives `#[serde(remote = "Self", tag = "kind", content = "data")]` with `#[serde(skip)] Unknown` instead of `#[serde(other)]` alone: `serde`'s `#[serde(other)]` rejects unknown variants carrying content and allows only one variant per enum, so `adjacent.rs` probes `"kind"` generically against the derived deserializer via `MapDeserializer` before falling back to `Unknown` — with no hand-written tag lists.

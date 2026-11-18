@@ -15,14 +15,14 @@
 //! meanwhile, a row of its settings on Ask, the connection hears as `Asking` as it is asked
 //! (`asking_now`).
 //!
-//! The invariants: every frame to the connection goes through one queue, in the order it was
-//! queued, so `Started` comes before the first `Output` and `Ended` after the last, and the queue
-//! is closed only after the program has ended; and the program's output waiting to go over the
-//! connection is bounded (`OUTPUT_IN_FLIGHT`), so a program writing faster than it carries waits,
-//! as one writing to a pipe does.
+//! The invariants: every frame to the connection goes through one queue (`frames`), in the order
+//! it was pushed, so `Started` comes before the first `Output` and `Ended` after the last, and
+//! `frames` is closed when the run stops or ends.
 
-use std::collections::VecDeque;
-use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
+mod frames;
+
+use std::sync::Arc;
+use std::task::{Context as TaskContext, Poll};
 use std::time::Instant;
 
 use super::asking_now::AskingNow;
@@ -32,8 +32,8 @@ use super::environments::ProgramEnvironments;
 use super::runs::{Runs, SentRun};
 use super::sent_components::{SentComponent, SentComponents};
 use anyhow::{Context, Result};
+use frames::Frames;
 use tokio::io::{ReadHalf, WriteHalf};
-use tokio::sync::Notify;
 use tokio::sync::broadcast::{self, error::RecvError};
 use tracing::Instrument;
 use waos::{OutputStream, Program, ProgramEnvironment, ProgramOutput, WaOS, Watching};
@@ -42,10 +42,6 @@ use waos_dev_protocol::{
     Upload,
 };
 use waos_package::ProgramId;
-
-/// How much of a program's output may wait to go over the connection: a program writing faster
-/// than it carries waits, as one writing to a pipe does.
-const OUTPUT_IN_FLIGHT: usize = 1 << 20;
 
 /// What a connection's run needs of the app.
 pub(crate) struct RunContext {
@@ -65,10 +61,21 @@ pub(crate) struct RunContext {
 /// Serves a connection's `Run` to its end: the upload WaOS answers, the component's parts, then
 /// the run of it as the program it names.
 pub(crate) async fn serve(mut connection: Connection<ServerStream>, run: Run, context: RunContext) {
+    let environment = match context.environments.of(&run.id) {
+        Ok(environment) => environment,
+        Err(why) => {
+            let refusal = Refusal::new(
+                RefusalKind::Failed,
+                format!("{} could not be set up: {why:#}", run.id),
+            );
+            let _ = connection.send(&Upload::Refused(refusal)).await;
+            return;
+        }
+    };
     // The id's file is held from before WaOS answers `Have`, so no later run of the id changes it
     // between the answer and the load.
     let file = context.components.hold(&run.id).await;
-    let component = if file.holds_digest(run.length, &run.digest) {
+    let component = if file.holds_digest(run.length, &run.digest).await {
         if connection.send(&Upload::Have).await.is_err() {
             return;
         }
@@ -97,12 +104,23 @@ pub(crate) async fn serve(mut connection: Connection<ServerStream>, run: Run, co
     let frames = Frames::new();
     let sending = tokio::spawn(send_frames(writing, Arc::clone(&frames)));
     let span = tracing::info_span!("run", name = run.id.as_str());
-    serve_run(run, component, file, reading, &context, &frames)
-        .instrument(span)
-        .await;
+    let closed_by_peer = serve_run(
+        run,
+        component,
+        environment,
+        file,
+        reading,
+        &context,
+        &frames,
+    )
+    .instrument(span)
+    .await;
     frames.close();
-    // The sender ends with the queue; nothing to hear from it.
-    let _ = sending.await;
+    if closed_by_peer {
+        sending.abort();
+    } else {
+        let _ = sending.await;
+    }
 }
 
 /// Sends every frame queued, in order, until the queue is closed; a connection gone ends it.
@@ -117,15 +135,16 @@ async fn send_frames(mut writing: Connection<WriteHalf<ServerStream>>, frames: A
 
 /// Runs the component `component` — or the one the held file has, when WaOS answered `Have` — as
 /// the program `run` names until it ends or the connection closes, queueing what the connection
-/// hears of it, with `run`'s arguments and variables.
+/// hears of it, with `run`'s arguments and variables. Returns `true` when the connection closed.
 async fn serve_run(
     run: Run,
     component: Option<Vec<u8>>,
+    environment: ProgramEnvironment,
     file: SentComponent,
     reading: Connection<ReadHalf<ServerStream>>,
     context: &RunContext,
     frames: &Arc<Frames>,
-) {
+) -> bool {
     let Run {
         id,
         args,
@@ -133,29 +152,37 @@ async fn serve_run(
         ..
     } = run;
     let told = context.asking.told();
-    let (sent, watching) = match start(&id, component, file, args, variables, context, frames).await
+    let (sent, watching) = match start(
+        &id,
+        component,
+        environment,
+        file,
+        args,
+        variables,
+        context,
+        frames,
+    )
+    .await
     {
         Ok(started) => started,
         Err(why) => {
             tracing::info!("refused: {why:#}");
-            queue(
-                frames,
-                RunEvent::Refused(dev_refusal::cannot_load(&id, &why)),
-            );
-            return;
+            frames.push(RunEvent::Refused(dev_refusal::cannot_load(&id, &why)));
+            return false;
         }
     };
     tracing::info!("started");
     let started_at = Instant::now();
-    let end = tokio::select! {
-        end = sent.run.program.ended() => Some(end),
-        () = tell_asking(told, &id, frames) => None,
+    let (end, closed_by_peer) = tokio::select! {
+        end = sent.run.program.ended() => (Some(end), false),
+        () = tell_asking(told, &id, frames) => (None, false),
         () = closed(reading) => {
             tracing::info!("the connection closed: stopping the program");
+            frames.close();
             drop(watching);
             sent.run.program.stop();
             sent.run.program.ended().await;
-            None
+            (None, true)
         }
     };
     let stats = sent.run.program.stats();
@@ -166,18 +193,21 @@ async fn serve_run(
         "ended"
     );
     if let Some(end) = end {
-        queue(frames, RunEvent::Ended(sent.end(&end)));
+        frames.push(RunEvent::Ended(sent.end(&end)));
     }
     context.runs.ended(&sent.run).await;
+    closed_by_peer
 }
 
 /// Starts the component sent as the program `id`, watched: loaded first, which compiles it,
 /// while no other program waits for it, then started among the runs in place of the program
 /// running under the id, with its `args` and the run's `variables`. The id's file is held by the
 /// caller until the run is among the runs, so the runs of one id start in the order they came.
+#[expect(clippy::too_many_arguments)]
 async fn start(
     id: &ProgramId,
     component: Option<Vec<u8>>,
+    environment: ProgramEnvironment,
     file: SentComponent,
     args: Vec<String>,
     variables: Vec<(String, String)>,
@@ -189,9 +219,8 @@ async fn start(
     let sent = context
         .runs
         .start(id, || {
-            let environment = context.environments.of(id)?;
             // Queued before the program can write anything, so it comes first.
-            queue(frames, RunEvent::Started);
+            frames.push(RunEvent::Started);
             let environment = ProgramEnvironment {
                 output: Some(Arc::new(OutputToConnection {
                     frames: Arc::clone(frames),
@@ -233,7 +262,7 @@ async fn load(
         let compiling = if engine.is_compiled(file.path())? {
             None
         } else {
-            queue(&frames, RunEvent::Compiling);
+            frames.push(RunEvent::Compiling);
             dev_compiles
                 .as_ref()
                 .map(|compiles| compiles.compiling(&compiling_id))
@@ -256,7 +285,7 @@ async fn tell_asking(
 ) {
     loop {
         match told.recv().await {
-            Ok((name, asked)) if name == id.as_str() => queue(frames, RunEvent::Asking(asked)),
+            Ok((name, asked)) if name == id.as_str() => frames.push(RunEvent::Asking(asked)),
             Ok(_) => {}
             Err(RecvError::Lagged(missed)) => {
                 tracing::warn!(
@@ -280,181 +309,22 @@ async fn closed(mut reading: Connection<ReadHalf<ServerStream>>) {
     }
 }
 
-/// Queues a frame; a connection already gone has nobody to send to.
-fn queue(frames: &Frames, frame: RunEvent) {
-    frames.push(frame);
-}
-
-/// The frames a run's connection sends, in the order queued, with the program's output waiting
-/// for room as it would in a pipe.
-struct Frames {
-    queued: Mutex<Queued>,
-    /// Wakes the sender when a frame is queued or the run ends.
-    wake: Notify,
-    /// Wakes a program whose output waits for room.
-    room: Condvar,
-}
-
-#[derive(Default)]
-struct Queued {
-    frames: VecDeque<RunEvent>,
-    /// The bytes of the queued `Output` events, which [`OUTPUT_IN_FLIGHT`] bounds.
-    output: usize,
-    closed: bool,
-}
-
-impl Frames {
-    fn new() -> Arc<Frames> {
-        Arc::new(Frames {
-            queued: Mutex::default(),
-            wake: Notify::new(),
-            room: Condvar::new(),
-        })
-    }
-
-    /// Queues `event`; a run that ended drops it.
-    fn push(&self, event: RunEvent) {
-        let mut queued = self.lock();
-        if queued.closed {
-            return;
-        }
-        queued.frames.push_back(event);
-        drop(queued);
-        self.wake.notify_one();
-    }
-
-    /// Queues the program's `bytes` on `stream`, waiting while [`OUTPUT_IN_FLIGHT`] of output
-    /// waits already, as writing to a pipe waits.
-    fn write(&self, stream: ProtocolStream, bytes: &[u8]) {
-        for chunk in bytes.chunks(OUTPUT_IN_FLIGHT) {
-            let mut queued = self.lock();
-            while !queued.closed && queued.output + chunk.len() > OUTPUT_IN_FLIGHT {
-                queued = self
-                    .room
-                    .wait(queued)
-                    .unwrap_or_else(PoisonError::into_inner);
-            }
-            if queued.closed {
-                return;
-            }
-            queued.output += chunk.len();
-            queued.frames.push_back(RunEvent::Output {
-                stream,
-                bytes: chunk.to_vec(),
-            });
-            drop(queued);
-            self.wake.notify_one();
-        }
-    }
-
-    /// The next frame, once one is queued; none once the run ended and the queue is drained.
-    async fn next(&self) -> Option<RunEvent> {
-        loop {
-            let woken = self.wake.notified();
-            {
-                let mut queued = self.lock();
-                if let Some(event) = queued.frames.pop_front() {
-                    if let RunEvent::Output { bytes, .. } = &event {
-                        queued.output -= bytes.len();
-                        self.room.notify_all();
-                    }
-                    return Some(event);
-                }
-                if queued.closed {
-                    return None;
-                }
-            }
-            woken.await;
-        }
-    }
-
-    /// Ends the queue: a program waiting for room goes on, its output dropped.
-    fn close(&self) {
-        self.lock().closed = true;
-        self.room.notify_all();
-        self.wake.notify_one();
-    }
-
-    fn lock(&self) -> MutexGuard<'_, Queued> {
-        self.queued.lock().unwrap_or_else(PoisonError::into_inner)
-    }
-}
-
 /// A program's output, as `Output` events on its run's connection.
 struct OutputToConnection {
     frames: Arc<Frames>,
 }
 
 impl ProgramOutput for OutputToConnection {
-    fn write(&self, stream: OutputStream, bytes: &[u8]) {
+    fn poll_write(
+        &self,
+        stream: OutputStream,
+        cx: &mut TaskContext<'_>,
+        bytes: &[u8],
+    ) -> Poll<usize> {
         let stream = match stream {
             OutputStream::Stdout => ProtocolStream::Stdout,
             OutputStream::Stderr => ProtocolStream::Stderr,
         };
-        self.frames.write(stream, bytes);
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use std::sync::mpsc;
-    use std::time::Duration;
-
-    use super::*;
-
-    #[tokio::test(flavor = "multi_thread")]
-    async fn output_waits_for_room_as_a_pipe_does() {
-        let frames = Frames::new();
-        frames.write(ProtocolStream::Stdout, &vec![1; OUTPUT_IN_FLIGHT]);
-        let (written, wrote) = mpsc::channel();
-        let writer = Arc::clone(&frames);
-        std::thread::spawn(move || {
-            writer.write(ProtocolStream::Stdout, b"more");
-            let _ = written.send(());
-        });
-        assert!(
-            wrote.recv_timeout(Duration::from_millis(100)).is_err(),
-            "the output waits while the queue is full"
-        );
-        let first = frames.next().await.unwrap();
-        assert!(matches!(first, RunEvent::Output { .. }));
-        wrote
-            .recv_timeout(Duration::from_secs(5))
-            .expect("the write goes on once there is room");
-        let second = frames.next().await.unwrap();
-        assert!(
-            matches!(&second, RunEvent::Output { bytes, .. } if bytes == b"more"),
-            "{second:?}"
-        );
-    }
-
-    #[tokio::test]
-    async fn a_closed_queue_drops_what_a_program_writes_and_ends_the_sender() {
-        let frames = Frames::new();
-        frames.write(ProtocolStream::Stdout, b"kept");
-        frames.close();
-        frames.write(ProtocolStream::Stdout, b"dropped");
-        assert!(matches!(frames.next().await, Some(RunEvent::Output { .. })));
-        assert!(
-            frames.next().await.is_none(),
-            "the queue is drained and closed"
-        );
-    }
-
-    #[test]
-    fn a_queue_closed_with_output_waiting_lets_the_writer_go() {
-        let frames = Frames::new();
-        frames.write(ProtocolStream::Stdout, &vec![1; OUTPUT_IN_FLIGHT]);
-        let (written, wrote) = mpsc::channel();
-        let writer = Arc::clone(&frames);
-        std::thread::spawn(move || {
-            writer.write(ProtocolStream::Stdout, b"more");
-            let _ = written.send(());
-        });
-        assert!(wrote.recv_timeout(Duration::from_millis(50)).is_err());
-        frames.close();
-        wrote
-            .recv_timeout(Duration::from_secs(5))
-            .expect("the writer goes on when the run ends");
+        self.frames.poll_write(stream, cx, bytes)
     }
 }

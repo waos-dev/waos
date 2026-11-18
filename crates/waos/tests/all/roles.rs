@@ -251,8 +251,14 @@ impl Said {
 }
 
 impl ProgramOutput for Said {
-    fn write(&self, _stream: OutputStream, bytes: &[u8]) {
+    fn poll_write(
+        &self,
+        _stream: OutputStream,
+        _cx: &mut std::task::Context<'_>,
+        bytes: &[u8],
+    ) -> std::task::Poll<usize> {
         self.0.lock().unwrap().extend_from_slice(bytes);
+        std::task::Poll::Ready(bytes.len())
     }
 }
 

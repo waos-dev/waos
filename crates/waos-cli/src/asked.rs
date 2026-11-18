@@ -3,7 +3,7 @@
 //!
 //! The invariant: the row named is the one `cargo waos set` takes, by `waos-dev-protocol`'s keys.
 
-use waos_dev_protocol::{Asked, FileDialog, Question, Role};
+use waos_dev_protocol::{Asked, FileDialog, Question, Role, Switch};
 
 /// What `asked` asks the user of the program `name`, and the row that answers it ahead.
 pub fn said(asked: &Asked, name: &str) -> String {
@@ -16,6 +16,13 @@ fn question(asked: &Asked, name: &str) -> String {
         Asked::Question(Question::Camera) => format!("may {name} use the camera?"),
         Asked::Question(Question::Microphone) => format!("may {name} use the microphone?"),
         Asked::Question(Question::Notifications) => format!("may {name} show notifications?"),
+        Asked::Question(Question::Unknown)
+        | Asked::Switch(Switch::Unknown)
+        | Asked::FileDialog(FileDialog::Unknown)
+        | Asked::Role(Role::Unknown)
+        | Asked::Unknown => {
+            format!("something a newer WaOS asked for {name} that this cargo waos does not know")
+        }
         Asked::LinkScheme(scheme) => format!("may {name} open {scheme} links?"),
         Asked::Switch(switch) => format!(
             "to turn {} on for {name}, on its settings page",
@@ -36,6 +43,13 @@ fn answered_ahead(asked: &Asked) -> String {
     let command = match asked {
         Asked::Question(question @ (Question::Camera | Question::Microphone)) => {
             format!("cargo waos set {} allow|deny|simulated", question.key())
+        }
+        Asked::Question(Question::Unknown)
+        | Asked::Switch(Switch::Unknown)
+        | Asked::FileDialog(FileDialog::Unknown)
+        | Asked::Role(Role::Unknown)
+        | Asked::Unknown => {
+            return "update cargo waos with `cargo install cargo-waos` to see it".to_owned();
         }
         Asked::Question(question) => format!("cargo waos set {} allow|deny", question.key()),
         Asked::LinkScheme(scheme) => format!("cargo waos set link-scheme {scheme} allow|deny"),
@@ -79,5 +93,20 @@ mod tests {
             said(&Asked::Role(Role::Inspector), "Inspector"),
             "may Inspector see what your other programs do?; `cargo waos set role.inspector allow|deny` answers it without asking from then on"
         );
+    }
+
+    #[test]
+    fn an_unknown_question_from_a_newer_waos_says_to_update_instead_of_breaking() {
+        for unknown in [
+            Asked::Question(Question::Unknown),
+            Asked::Switch(Switch::Unknown),
+            Asked::FileDialog(FileDialog::Unknown),
+            Asked::Role(Role::Unknown),
+            Asked::Unknown,
+        ] {
+            let line = said(&unknown, "App");
+            assert!(line.contains("App"), "{line}");
+            assert!(line.contains("cargo install cargo-waos"), "{line}");
+        }
     }
 }
