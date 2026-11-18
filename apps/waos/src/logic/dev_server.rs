@@ -1396,6 +1396,9 @@ pub(crate) mod tests {
         assert_unsupported(refusal);
     }
 
+    // Writes the old client's raw bytes on the Unix socket itself; the framing it checks is the
+    // same over Windows's named pipe, which the protocol crate's own tests cover.
+    #[cfg(unix)]
     #[tokio::test]
     async fn a_legacy_0_2_client_receives_a_legacy_number_frame() {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
