@@ -24,7 +24,7 @@ const SDK_VERSION: &str = concat!(
 );
 
 /// Waft's version, the facade's and the kits', as a requirement.
-const WAFT_VERSION: &str = "0.5";
+const WAFT_VERSION: &str = "0.6";
 
 /// The `Cargo.toml` of a program named `name`, written with `template`'s kit, taking what
 /// `inherited` names from its workspace.
@@ -113,8 +113,8 @@ mod tests {
         assert_eq!(
             named,
             [
-                ("waft", "0.5"),
-                ("waft-winui", "0.5"),
+                ("waft", "0.6"),
+                ("waft-winui", "0.6"),
                 ("wasdk", SDK_VERSION),
                 ("wasdk-adapter-waft", SDK_VERSION),
             ]
