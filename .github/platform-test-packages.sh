@@ -25,12 +25,14 @@ depends_on_system() {
 packages=$(
   cargo metadata --no-deps --format-version 1 |
     jq -r '.packages[] | .name + " " + (.manifest_path | gsub("\\\\"; "/") | sub("/Cargo\\.toml$"; ""))' |
+    tr -d '\r' |  # jq on Windows ends its lines with CRLF
     while read -r name folder; do
+      [ -d "$folder" ] || { echo "no folder $folder for $name" >&2; exit 1; }
       case " $runs_there " in
         (*" $name "*) depends_on_system "$folder" && echo "-p $name" ;;
       esac
     done
-)
+) || exit 1
 # `cargo test` with no `-p` runs the workspace's default members, so an empty answer is a failure.
 [ -n "$packages" ] || { echo "no package to test: is jq installed?" >&2; exit 1; }
 echo "$packages"

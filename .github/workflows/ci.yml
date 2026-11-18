@@ -104,7 +104,11 @@ jobs:
         run: cargo clippy --workspace --all-targets
       - name: Tests of what runs on Linux today and depends on the system
         working-directory: waos
-        run: cargo test --no-fail-fast $(.github/platform-test-packages.sh)
+        run: |
+          # An answer of none must stop the step, which `cargo test $(...)` would not: it would
+          # test the workspace's default members.
+          packages=$(.github/platform-test-packages.sh)
+          cargo test --no-fail-fast $packages
 
   test-windows:
     runs-on: windows-latest
@@ -126,4 +130,8 @@ jobs:
       - name: Tests of what runs on Windows today and depends on the system
         working-directory: waos
         shell: bash
-        run: cargo test --no-fail-fast $(.github/platform-test-packages.sh)
+        run: |
+          # An answer of none must stop the step, which `cargo test $(...)` would not: it would
+          # test the workspace's default members.
+          packages=$(.github/platform-test-packages.sh)
+          cargo test --no-fail-fast $packages
