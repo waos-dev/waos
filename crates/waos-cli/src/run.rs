@@ -15,10 +15,11 @@ use std::io::{self, Write};
 use std::process::ExitCode;
 
 use anyhow::{Context, Result, bail};
-use waos_dev_protocol::{FromWaOS, OutputStream, RunEnd};
+use waos_dev_protocol::{OutputStream, Request, Run, RunEnd, RunEvent, component_digest};
 use waos_package::ProgramId;
 
 use crate::asked;
+use crate::asking;
 use crate::build::BuiltProgram;
 use crate::connecting::connect_or_start;
 
@@ -38,11 +39,13 @@ pub async fn run(
 ) -> Result<ExitCode> {
     let component = std::fs::read(&program.component)
         .with_context(|| format!("reading {}", program.component.display()))?;
-    let mut connection = connect_or_start().await?;
-    connection
-        .agree_on_protocol()
-        .await
-        .context("the WaOS that answered")?;
+    let request = Request::Run(Run {
+        id: id.clone(),
+        variables: variables.to_vec(),
+        length: component.len() as u64,
+        digest: component_digest(&component),
+    });
+    let mut connection = asking::greeted(connect_or_start().await?, &request).await?;
     let name = &program.name;
     if component.len() > SAID_OVER_BYTES {
         eprintln!(
@@ -51,7 +54,11 @@ pub async fn run(
         );
     }
     connection
-        .send_run(&id, variables, &component)
+        .send(&request)
+        .await
+        .with_context(|| format!("sending {name} to WaOS"))?;
+    connection
+        .send_component(&component)
         .await
         .with_context(|| format!("sending {name} to WaOS"))?;
     let interrupted = tokio::signal::ctrl_c();
@@ -63,24 +70,20 @@ pub async fn run(
     };
     loop {
         tokio::select! {
-            received = connection.receive::<FromWaOS>() => match received.context("reading from WaOS")? {
-                Some(FromWaOS::Compiling) => eprintln!("cargo waos: WaOS is compiling {name}"),
-                Some(FromWaOS::Started) => eprintln!("cargo waos: {name} is running in WaOS"),
-                Some(FromWaOS::Output { stream, bytes }) => output.written(stream, &bytes)?,
-                Some(FromWaOS::Ended(end)) => return Ok(ended(name, &end)),
-                Some(FromWaOS::Refused(why)) => bail!("WaOS refused {name}: {why}"),
-                Some(FromWaOS::Asking(asked)) => {
+            received = connection.receive::<RunEvent>() => match received.context("reading from WaOS")? {
+                Some(RunEvent::Compiling) => eprintln!("cargo waos: WaOS is compiling {name}"),
+                Some(RunEvent::Started) => eprintln!("cargo waos: {name} is running in WaOS"),
+                Some(RunEvent::Output { stream, bytes }) => output.written(stream, &bytes)?,
+                Some(RunEvent::Ended(end)) => return Ok(ended(name, &end)),
+                Some(RunEvent::Refused(refusal)) => {
+                    bail!("WaOS refused {name}: {}", refusal.message)
+                }
+                Some(RunEvent::Asking(asked)) => {
                     eprintln!("cargo waos: WaOS asks the user: {}", asked::said(&asked, name));
                 }
-                Some(other @ (FromWaOS::Opened
-                | FromWaOS::Screenshots(_)
-                | FromWaOS::InputDone { .. }
-                | FromWaOS::Unreached(_)
-                | FromWaOS::Settings(_)
-                | FromWaOS::Resized { .. }
-                | FromWaOS::Inspected(_))) => {
-                    bail!("WaOS answered {other:?}, which a run never asks for")
-                }
+                // An event of a newer WaOS's this build does not know: skipped, as the protocol
+                // promises, never breaking the run over it.
+                Some(RunEvent::Unknown) => {}
                 None => bail!("WaOS closed the connection before {name} ended"),
             },
             _ = &mut interrupted => {

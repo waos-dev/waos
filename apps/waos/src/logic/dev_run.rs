@@ -22,6 +22,7 @@ use std::time::Instant;
 
 use super::asking_now::AskingNow;
 use super::dev_compiles::DevCompiles;
+use super::dev_refusal;
 use super::environments::ProgramEnvironments;
 use super::runs::{Runs, SentRun};
 use super::sent_components::{SentComponent, SentComponents};
@@ -31,7 +32,7 @@ use tokio::sync::broadcast::{self, error::RecvError};
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 use tracing::Instrument;
 use waos::{OutputStream, Program, ProgramEnvironment, ProgramOutput, WaOS, Watching};
-use waos_dev_protocol::{Connection, FromWaOS, ServerStream, ToWaOS};
+use waos_dev_protocol::{Connection, Request, RunEvent, ServerStream};
 use waos_package::ProgramId;
 
 /// What a connection's run needs of the app.
@@ -72,7 +73,7 @@ pub(crate) async fn serve(
 /// Sends every frame queued, in order, until the queue is closed; a connection gone ends it.
 async fn send_frames(
     mut writing: Connection<WriteHalf<ServerStream>>,
-    mut queued: UnboundedReceiver<FromWaOS>,
+    mut queued: UnboundedReceiver<RunEvent>,
 ) {
     while let Some(frame) = queued.recv().await {
         if writing.send(&frame).await.is_err() {
@@ -89,14 +90,17 @@ async fn run(
     variables: Vec<(String, String)>,
     reading: Connection<ReadHalf<ServerStream>>,
     context: &RunContext,
-    frames: &UnboundedSender<FromWaOS>,
+    frames: &UnboundedSender<RunEvent>,
 ) {
     let told = context.asking.told();
     let (sent, watching) = match start(id, component, variables, context, frames).await {
         Ok(started) => started,
         Err(why) => {
             tracing::info!("refused: {why:#}");
-            queue(frames, FromWaOS::Refused(format!("{why:#}")));
+            queue(
+                frames,
+                RunEvent::Refused(dev_refusal::cannot_load(id, &why)),
+            );
             return;
         }
     };
@@ -121,7 +125,7 @@ async fn run(
         "ended"
     );
     if let Some(end) = end {
-        queue(frames, FromWaOS::Ended(sent.end(&end)));
+        queue(frames, RunEvent::Ended(sent.end(&end)));
     }
     context.runs.ended(&sent.run).await;
 }
@@ -135,7 +139,7 @@ async fn start(
     component: Vec<u8>,
     variables: Vec<(String, String)>,
     context: &RunContext,
-    frames: &UnboundedSender<FromWaOS>,
+    frames: &UnboundedSender<RunEvent>,
 ) -> Result<(SentRun, Watching)> {
     let file = context.components.hold(id).await;
     let (program, _file) = load(id, component, file, context, frames).await?;
@@ -145,7 +149,7 @@ async fn start(
         .start(id, || {
             let environment = context.environments.of(id)?;
             // Queued before the program can write anything, so it comes first.
-            queue(frames, FromWaOS::Started);
+            queue(frames, RunEvent::Started);
             let environment = ProgramEnvironment {
                 output: Some(Arc::new(OutputToConnection {
                     frames: frames.clone(),
@@ -171,7 +175,7 @@ async fn load(
     component: Vec<u8>,
     file: SentComponent,
     context: &RunContext,
-    frames: &UnboundedSender<FromWaOS>,
+    frames: &UnboundedSender<RunEvent>,
 ) -> Result<(Program, SentComponent)> {
     let engine = Arc::clone(&context.engine);
     let frames = frames.clone();
@@ -182,7 +186,7 @@ async fn load(
         let compiling = if engine.is_compiled(file.path())? {
             None
         } else {
-            queue(&frames, FromWaOS::Compiling);
+            queue(&frames, RunEvent::Compiling);
             dev_compiles
                 .as_ref()
                 .map(|compiles| compiles.compiling(&compiling_id))
@@ -201,11 +205,11 @@ async fn load(
 async fn tell_asking(
     mut told: broadcast::Receiver<(String, waos_dev_protocol::Asked)>,
     id: &ProgramId,
-    frames: &UnboundedSender<FromWaOS>,
+    frames: &UnboundedSender<RunEvent>,
 ) {
     loop {
         match told.recv().await {
-            Ok((name, asked)) if name == id.as_str() => queue(frames, FromWaOS::Asking(asked)),
+            Ok((name, asked)) if name == id.as_str() => queue(frames, RunEvent::Asking(asked)),
             Ok(_) => {}
             Err(RecvError::Lagged(missed)) => {
                 tracing::warn!(
@@ -222,7 +226,7 @@ async fn tell_asking(
 /// protocol and is dropped.
 async fn closed(mut reading: Connection<ReadHalf<ServerStream>>) {
     loop {
-        match reading.receive::<ToWaOS>().await {
+        match reading.receive::<Request>().await {
             Ok(Some(message)) => tracing::warn!(?message, "a message after the run was asked"),
             Ok(None) | Err(_) => return,
         }
@@ -230,13 +234,13 @@ async fn closed(mut reading: Connection<ReadHalf<ServerStream>>) {
 }
 
 /// Queues a frame; a connection already gone has nobody to send to.
-fn queue(frames: &UnboundedSender<FromWaOS>, frame: FromWaOS) {
+fn queue(frames: &UnboundedSender<RunEvent>, frame: RunEvent) {
     let _ = frames.send(frame);
 }
 
-/// A program's output, as `Output` frames on its run's connection.
+/// A program's output, as `Output` events on its run's connection.
 struct OutputToConnection {
-    frames: UnboundedSender<FromWaOS>,
+    frames: UnboundedSender<RunEvent>,
 }
 
 impl ProgramOutput for OutputToConnection {
@@ -247,7 +251,7 @@ impl ProgramOutput for OutputToConnection {
         };
         queue(
             &self.frames,
-            FromWaOS::Output {
+            RunEvent::Output {
                 stream,
                 bytes: bytes.to_vec(),
             },

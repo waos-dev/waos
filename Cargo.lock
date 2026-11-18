@@ -10678,7 +10678,7 @@ dependencies = [
 name = "waos-dev-protocol"
 version = "0.3.0"
 dependencies = [
- "postcard",
+ "ciborium",
  "serde",
  "serde_bytes",
  "sha2 0.11.1",

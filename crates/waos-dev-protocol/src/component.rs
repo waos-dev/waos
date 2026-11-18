@@ -19,10 +19,8 @@ use std::io;
 use sha2::{Digest as _, Sha256};
 use tokio::io::{AsyncRead, AsyncWrite};
 
-use waos_package::ProgramId;
-
 use crate::connection::{Connection, invalid_data};
-use crate::messages::ToWaOS;
+use crate::messages::Component;
 
 /// How many bytes of a component each `Component` frame carries, at most: far under the largest
 /// frame a connection accepts, so the cap keeps guarding each frame while the whole component is
@@ -30,23 +28,11 @@ use crate::messages::ToWaOS;
 pub const CHUNK_BYTES: usize = 8 << 20;
 
 impl<S: AsyncWrite + Unpin> Connection<S> {
-    /// Sends a run of `component` as the program `id` with `variables`: the `Run` announcing the
-    /// component's length and digest, then the component itself in `Component` frames.
-    pub async fn send_run(
-        &mut self,
-        id: &ProgramId,
-        variables: &[(String, String)],
-        component: &[u8],
-    ) -> io::Result<()> {
-        self.send(&ToWaOS::Run {
-            id: id.clone(),
-            length: component.len() as u64,
-            digest: component_digest(component),
-            variables: variables.to_vec(),
-        })
-        .await?;
+    /// Sends `component` as the `Component` frames its `Run` announced: the parts in order, each
+    /// at most [`CHUNK_BYTES`].
+    pub async fn send_component(&mut self, component: &[u8]) -> io::Result<()> {
         for part in component.chunks(CHUNK_BYTES) {
-            self.send(&ToWaOS::Component {
+            self.send(&Component {
                 bytes: part.to_vec(),
             })
             .await?;
@@ -69,19 +55,14 @@ impl<S: AsyncRead + Unpin> Connection<S> {
         // a length of anything preallocates nothing.
         let mut component = Vec::new();
         while (component.len() as u64) < length {
-            match self.receive::<ToWaOS>().await? {
-                Some(ToWaOS::Component { bytes }) => {
+            match self.receive::<Component>().await? {
+                Some(Component { bytes }) => {
                     if component.len() as u64 + bytes.len() as u64 > length {
                         return Err(invalid_data(format!(
                             "a component frame past the {length} bytes its run announced"
                         )));
                     }
                     component.extend_from_slice(&bytes);
-                }
-                Some(_) => {
-                    return Err(invalid_data(
-                        "a message that is not a component frame, while the component was still being sent",
-                    ));
                 }
                 None => {
                     return Err(io::Error::new(
@@ -112,9 +93,10 @@ mod tests {
     use std::io::ErrorKind;
 
     use tokio::io::DuplexStream;
-    use waos_package::ProgramId;
 
     use super::*;
+    use crate::messages::Run;
+    use waos_package::ProgramId;
 
     fn pair() -> (Connection<DuplexStream>, Connection<DuplexStream>) {
         let (one, other) = tokio::io::duplex(64);
@@ -125,16 +107,21 @@ mod tests {
         "dev.example.triangle".parse().unwrap()
     }
 
+    fn run(length: u64, digest: [u8; 32]) -> Run {
+        Run {
+            id: id(),
+            variables: Vec::new(),
+            length,
+            digest,
+        }
+    }
+
     /// The `Run` at the other end of `receiver`, whose component the test reads.
     async fn announced(
         mut receiver: Connection<DuplexStream>,
     ) -> (Connection<DuplexStream>, u64, [u8; 32]) {
-        let ToWaOS::Run { length, digest, .. } =
-            receiver.receive::<ToWaOS>().await.unwrap().expect("a run")
-        else {
-            panic!("a run");
-        };
-        (receiver, length, digest)
+        let run: Run = receiver.receive().await.unwrap().expect("a run");
+        (receiver, run.length, run.digest)
     }
 
     #[tokio::test]
@@ -145,9 +132,14 @@ mod tests {
             .cycle()
             .take(CHUNK_BYTES + CHUNK_BYTES / 2)
             .collect();
-        let sending = tokio::spawn(async move { sender.send_run(&id(), &[], &component).await });
+        let sending = tokio::spawn(async move {
+            sender
+                .send(&run(component.len() as u64, component_digest(&component)))
+                .await
+                .unwrap();
+            sender.send_component(&component).await
+        });
         let (mut receiver, length, digest) = announced(receiver).await;
-        assert_eq!(length, (CHUNK_BYTES + CHUNK_BYTES / 2) as u64);
         let received = receiver.receive_component(length, &digest).await.unwrap();
         assert_eq!(received.len(), CHUNK_BYTES + CHUNK_BYTES / 2);
         // The pattern the component was made of, at the ends and where the parts meet.
@@ -163,19 +155,8 @@ mod tests {
         let component = b"not the component announced".to_vec();
         let length = component.len() as u64;
         let sending = tokio::spawn(async move {
-            sender
-                .send(&ToWaOS::Run {
-                    id: id(),
-                    length,
-                    digest: [0; 32],
-                    variables: Vec::new(),
-                })
-                .await
-                .unwrap();
-            sender
-                .send(&ToWaOS::Component { bytes: component })
-                .await
-                .unwrap();
+            sender.send(&run(length, [0; 32])).await.unwrap();
+            sender.send_component(&component).await.unwrap();
         });
         let (mut receiver, length, digest) = announced(receiver).await;
         let error = receiver
@@ -190,21 +171,12 @@ mod tests {
     #[tokio::test]
     async fn a_part_past_the_length_a_run_announced_is_refused() {
         let (mut sender, receiver) = pair();
-        let part = b"eight bytes".to_vec();
         let sending = tokio::spawn(async move {
             sender
-                .send(&ToWaOS::Run {
-                    id: id(),
-                    length: 4,
-                    digest: component_digest(b"eight"),
-                    variables: Vec::new(),
-                })
+                .send(&run(4, component_digest(b"eight")))
                 .await
                 .unwrap();
-            sender
-                .send(&ToWaOS::Component { bytes: part })
-                .await
-                .unwrap();
+            sender.send_component(b"eight bytes").await.unwrap();
         });
         let (mut receiver, length, digest) = announced(receiver).await;
         let error = receiver

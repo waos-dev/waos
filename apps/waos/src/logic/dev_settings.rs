@@ -12,13 +12,14 @@
 use std::sync::Arc;
 
 use waos_dev_protocol::{
-    ASK, AUDIO_OUTPUT, Answer, Connection, FileDialog, FromWaOS, LINK_SCHEME, MACHINE, Offered,
-    Question, Role, Row, SIMULATED_MICROPHONE, ServerStream, SettingRow, SimulatedSound, Switch,
-    Unreached,
+    ASK, AUDIO_OUTPUT, Answer, Connection, FileDialog, LINK_SCHEME, MACHINE, Offered, Question,
+    Refusal, RefusalKind, Role, Row, SIMULATED_MICROPHONE, ServerStream, SettingRow,
+    SettingsAnswer, SimulatedSound, Switch,
 };
 use waos_package::ProgramId;
 use waos_store::{ProgramSettings, Store, StoreError};
 
+use super::dev_refusal;
 use super::environments::ProgramEnvironments;
 use super::runs::Runs;
 use super::sent_components::SentComponents;
@@ -35,50 +36,54 @@ pub(crate) struct SettingsContext {
 }
 
 /// Answers a connection's `Settings`, with `set` none, or its `Set`: the rows of the program
-/// `id`'s settings, after the change where one is.
+/// `id`'s settings, after the change where one is, or why it could not answer.
 pub(crate) async fn answer(
     mut connection: Connection<ServerStream>,
     context: &SettingsContext,
     id: &ProgramId,
     set: Option<Row>,
 ) {
-    let answer = rows_after(context, id, set)
-        .await
-        .unwrap_or_else(|answer| answer);
+    let answer = match rows_after(context, id, set).await {
+        Ok(rows) => SettingsAnswer::Rows(rows),
+        Err(refusal) => SettingsAnswer::Refused(refusal),
+    };
     // A client gone meanwhile has nobody to tell.
     let _ = connection.send(&answer).await;
 }
 
-/// The rows of the program `id`'s settings after `set`, or what refuses it.
+/// The rows of the program `id`'s settings after `set`, or why they could not be read or set.
 async fn rows_after(
     context: &SettingsContext,
     id: &ProgramId,
     set: Option<Row>,
-) -> Result<FromWaOS, FromWaOS> {
+) -> Result<Vec<SettingRow>, Refusal> {
     if !is_a_development_program(context, id).await {
-        return Err(FromWaOS::Unreached(Unreached::NeverRunByCargoWaos));
+        return Err(dev_refusal::never_dev_run(id));
     }
     let environments = Arc::clone(&context.environments);
     // Listing the sound outputs waits for the system's audio.
     let offered = tokio::task::spawn_blocking(move || environments.offered())
         .await
-        .map_err(|error| FromWaOS::Refused(format!("reading what the pickers offer: {error}")))?;
+        .map_err(|error| failed(format!("reading what the pickers offer: {error}")))?;
     if let Some(row) = set {
-        let change = change_of(row, &offered).map_err(FromWaOS::Refused)?;
+        let change = change_of(row, &offered).map_err(failed)?;
         tracing::info!(%id, ?change, "cargo waos sets a program's setting");
-        set_program(&context.store, id, change).map_err(FromWaOS::Refused)?;
+        set_program(&context.store, id, change).map_err(failed)?;
     }
-    let global = context.store.global_settings().map_err(refused)?;
+    let global = context.store.global_settings().map_err(failed)?;
     let own = match context.store.program_settings(id) {
         Ok(own) => own,
         // A development program with nothing kept yet: it has no settings of its own, so the
         // page is every global setting, and the read keeps no folder.
         Err(StoreError::NotInstalled(_)) => ProgramSettings::default(),
-        Err(error) => return Err(refused(error)),
+        Err(error) => return Err(failed(error)),
     };
-    Ok(FromWaOS::Settings(rows(&program_page(
-        &global, &own, &offered,
-    ))))
+    Ok(rows(&program_page(&global, &own, &offered)))
+}
+
+/// A request of the settings' own that failed: its message is the error's.
+fn failed(error: impl std::fmt::Display) -> Refusal {
+    Refusal::new(RefusalKind::Failed, error.to_string())
 }
 
 /// Whether `id` is a development program: one a run of `cargo waos run` on this machine runs or
@@ -88,10 +93,6 @@ async fn is_a_development_program(context: &SettingsContext, id: &ProgramId) -> 
     context.runs.dev_run(id).await.is_some()
         || context.components.was_sent(id)
         || context.store.program(id).is_none()
-}
-
-fn refused(error: waos_store::StoreError) -> FromWaOS {
-    FromWaOS::Refused(format!("{error}"))
 }
 
 /// Makes `change` to the program `id`'s own settings, as its page makes it.

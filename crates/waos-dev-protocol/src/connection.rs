@@ -1,15 +1,17 @@
-//! One connection, as frames over a stream: each message as postcard encodes it, behind a
-//! four-byte little-endian count of its bytes, so the reader knows how much to wait for before
-//! it allocates anything, and refuses a frame over [`MAX_FRAME_BYTES`] on the count alone. The
-//! first frame each way is the protocol's number, [`PROTOCOL`], outside the messages' encoding,
-//! so two sides of different builds find out before either reads a message it would misread.
+//! One connection, as frames over a stream: each message as CBOR encodes it, behind a four-byte
+//! little-endian count of its bytes, so the reader knows how much to wait for before it allocates
+//! anything, and refuses a frame over [`MAX_FRAME_BYTES`] on the count alone. CBOR names each
+//! variant and field, so a message added or a field added is read by a side that knows it, and
+//! ignored by one that does not. The first frame each way is the [`Hello`], which says the build
+//! and the protocol's major, so the two halves find out before either reads a request it would
+//! misread.
 //!
 //! The invariants a later editor will break:
 //! - After `send` or `receive` fails, the connection is done. A frame cut short, or one refused,
 //!   leaves the stream somewhere inside a frame, and nothing says where the next one begins; the
 //!   side that saw the error closes.
-//! - The protocol frame's shape never changes: a count of four, then the number, little-endian.
-//!   A side of any build reads it, and reads nothing else until the numbers agree.
+//! - The hello's shape is frozen: a field is added with `#[serde(default)]`, and only a real break
+//!   raises the major.
 
 use std::io::{self, ErrorKind};
 
@@ -17,11 +19,7 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadHalf, WriteHalf};
 
-/// The protocol's number, which the first frame each way says: the messages and their encoding
-/// as this build of the crate has them. Raised with any change a side of the build before would
-/// misread, which, with postcard, is any change to a message but a variant or a field added at
-/// the end.
-pub const PROTOCOL: u32 = 10;
+use crate::hello::Hello;
 
 /// The largest frame either side accepts. A run's component goes over in parts far under this,
 /// [`CHUNK_BYTES`](crate::CHUNK_BYTES) at most, and a program's output and a window's picture are
@@ -31,21 +29,42 @@ pub const MAX_FRAME_BYTES: usize = 256 << 20;
 
 const PREFIX_BYTES: usize = 4;
 
-/// The protocol frame's body: the number's four bytes.
-const PROTOCOL_BYTES: usize = 4;
+/// Whether a connection's stream stays on this machine, as the socket and the pipe do, or crosses
+/// the network, where this machine's paths mean nothing, so `Open` is refused there.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Locality {
+    ThisMachine,
+    Network,
+}
 
-/// One connection: length-prefixed postcard frames over `S`, the stream that carries them on
-/// this machine ([`ClientStream`](crate::ClientStream) and [`ServerStream`](crate::ServerStream)).
+/// One connection: length-prefixed CBOR frames over `S`, the stream that carries them on this
+/// machine ([`ClientStream`](crate::ClientStream) and [`ServerStream`](crate::ServerStream)).
 /// Split into its halves, each is a `Connection` that only sends or only receives, so a WaOS
 /// sends a program's output on one task while another watches for the connection closing.
 #[derive(Debug)]
 pub struct Connection<S> {
     stream: S,
+    locality: Locality,
 }
 
 impl<S> Connection<S> {
+    /// A connection over `stream`, which stays on this machine.
     pub fn new(stream: S) -> Connection<S> {
-        Connection { stream }
+        Connection {
+            stream,
+            locality: Locality::ThisMachine,
+        }
+    }
+
+    /// A connection over `stream`, which is `locality`'s: a network transport says
+    /// [`Locality::Network`], and nothing else may send `Open` over it.
+    pub fn over(stream: S, locality: Locality) -> Connection<S> {
+        Connection { stream, locality }
+    }
+
+    /// Whether the connection stays on this machine.
+    pub fn locality(&self) -> Locality {
+        self.locality
     }
 }
 
@@ -53,50 +72,25 @@ impl<S: AsyncRead + AsyncWrite> Connection<S> {
     /// The two halves, to receive on one task while another sends.
     pub fn into_split(self) -> (Connection<ReadHalf<S>>, Connection<WriteHalf<S>>) {
         let (reading, writing) = tokio::io::split(self.stream);
-        (Connection::new(reading), Connection::new(writing))
+        (
+            Connection::over(reading, self.locality),
+            Connection::over(writing, self.locality),
+        )
     }
 }
 
 impl<S: AsyncRead + AsyncWrite + Unpin> Connection<S> {
-    /// The first frame each way: says this build's [`PROTOCOL`], and reads the other side's
-    /// before anything else. When they differ the connection is done, and the error, of kind
-    /// `Unsupported`, names both numbers; `cargo waos` prints it. An other side that closed
-    /// before saying its number is `UnexpectedEof`, or `BrokenPipe` when it was gone before this
-    /// side's frame went out.
-    pub async fn agree_on_protocol(&mut self) -> io::Result<()> {
-        self.agree_on(PROTOCOL).await
-    }
-
-    async fn agree_on(&mut self, ours: u32) -> io::Result<()> {
-        self.stream.write_all(&protocol_frame(ours)).await?;
-        let theirs = self.read_protocol().await?;
-        if theirs != ours {
-            return Err(io::Error::new(
-                ErrorKind::Unsupported,
-                format!(
-                    "the other side speaks protocol {theirs} and this side protocol {ours}: cargo waos and the WaOS it reaches must be built from the same waos-dev-protocol"
-                ),
-            ));
-        }
-        Ok(())
-    }
-
-    /// The other side's protocol number, from its first frame.
-    async fn read_protocol(&mut self) -> io::Result<u32> {
-        let len = self.read_prefix().await?.ok_or_else(|| {
+    /// The first frame each way: says `ours`, and reads the other side's hello before anything
+    /// else. An other side that closed before saying one is `UnexpectedEof`, or `BrokenPipe` when
+    /// it was gone before this side's frame went out.
+    pub async fn hello(&mut self, ours: &Hello) -> io::Result<Hello> {
+        self.send(ours).await?;
+        self.receive::<Hello>().await?.ok_or_else(|| {
             io::Error::new(
                 ErrorKind::UnexpectedEof,
-                "the other side closed before saying its protocol",
+                "the other side closed before saying its hello",
             )
-        })?;
-        if len != PROTOCOL_BYTES {
-            return Err(invalid_data(format!(
-                "the first frame is {len} bytes long, not a protocol number"
-            )));
-        }
-        let mut number = [0; PROTOCOL_BYTES];
-        self.stream.read_exact(&mut number).await?;
-        Ok(u32::from_le_bytes(number))
+        })
     }
 }
 
@@ -116,7 +110,9 @@ impl<S: AsyncRead + Unpin> Connection<S> {
         };
         let mut body = vec![0; len];
         self.stream.read_exact(&mut body).await?;
-        postcard::from_bytes(&body).map(Some).map_err(invalid_data)
+        ciborium::from_reader(body.as_slice())
+            .map(Some)
+            .map_err(invalid_data)
     }
 
     /// The next frame's byte count, checked against the limit; none when the other side closed
@@ -135,17 +131,10 @@ impl<S: AsyncRead + Unpin> Connection<S> {
     }
 }
 
-/// The protocol frame: a count of four, then `protocol` little-endian.
-fn protocol_frame(protocol: u32) -> [u8; PREFIX_BYTES + PROTOCOL_BYTES] {
-    let mut frame = [0; PREFIX_BYTES + PROTOCOL_BYTES];
-    frame[..PREFIX_BYTES].copy_from_slice(&(PROTOCOL_BYTES as u32).to_le_bytes());
-    frame[PREFIX_BYTES..].copy_from_slice(&protocol.to_le_bytes());
-    frame
-}
-
-/// `message` as one frame: its byte count, then its bytes.
+/// `message` as one frame: its byte count, then its CBOR.
 fn frame(message: &impl Serialize) -> io::Result<Vec<u8>> {
-    let mut frame = postcard::to_extend(message, vec![0; PREFIX_BYTES]).map_err(invalid_data)?;
+    let mut frame = vec![0; PREFIX_BYTES];
+    ciborium::into_writer(message, &mut frame).map_err(invalid_data)?;
     let len = accepted(frame.len() - PREFIX_BYTES)?;
     // Within the limit, so within a `u32`.
     frame[..PREFIX_BYTES].copy_from_slice(&(len as u32).to_le_bytes());
@@ -181,9 +170,15 @@ mod tests {
 
     use tokio::io::DuplexStream;
 
+    use crate::messages::Component;
+
     fn pair() -> (Connection<DuplexStream>, Connection<DuplexStream>) {
         let (one, other) = tokio::io::duplex(64);
         (Connection::new(one), Connection::new(other))
+    }
+
+    fn hello() -> Hello {
+        Hello::cargo_waos("cargo-waos 0.3.0")
     }
 
     #[tokio::test]
@@ -195,45 +190,21 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn two_sides_of_one_build_agree_and_go_on_to_the_messages() {
+    async fn two_sides_exchange_their_hellos_and_go_on_to_the_messages() {
         let (mut one, mut other) = pair();
-        let (agreed, agreed_too) = tokio::join!(one.agree_on_protocol(), other.agree_on_protocol());
-        agreed.unwrap();
-        agreed_too.unwrap();
+        let ours = hello();
+        let (theirs, theirs_too) = tokio::join!(one.hello(&ours), other.hello(&ours));
+        assert_eq!(theirs.unwrap(), ours);
+        assert_eq!(theirs_too.unwrap(), ours);
         tokio::spawn(async move { one.send(&7u32).await });
         assert_eq!(other.receive::<u32>().await.unwrap(), Some(7));
     }
 
-    #[test]
-    fn the_protocol_frame_is_a_count_of_four_then_the_number() {
-        assert_eq!(protocol_frame(1), [4, 0, 0, 0, 1, 0, 0, 0]);
-        assert_eq!(protocol_frame(258), [4, 0, 0, 0, 2, 1, 0, 0]);
-    }
-
     #[tokio::test]
-    async fn two_sides_of_different_builds_each_refuse_naming_both_numbers() {
-        let (mut one, mut other) = pair();
-        let (refused, refused_too) = tokio::join!(one.agree_on(1), other.agree_on(2));
-        let (refused, refused_too) = (refused.unwrap_err(), refused_too.unwrap_err());
-        assert_eq!(refused.kind(), ErrorKind::Unsupported);
-        assert_eq!(refused_too.kind(), ErrorKind::Unsupported);
-        assert!(
-            refused.to_string().contains("protocol 2")
-                && refused.to_string().contains("protocol 1"),
-            "{refused}"
-        );
-        assert!(
-            refused_too.to_string().contains("protocol 1")
-                && refused_too.to_string().contains("protocol 2"),
-            "{refused_too}"
-        );
-    }
-
-    #[tokio::test]
-    async fn closing_before_the_protocol_frame_is_an_error() {
+    async fn closing_before_the_hello_is_an_error() {
         let (one, mut other) = pair();
         drop(one);
-        let error = other.agree_on_protocol().await.unwrap_err();
+        let error = other.hello(&hello()).await.unwrap_err();
         assert!(
             matches!(
                 error.kind(),
@@ -243,19 +214,18 @@ mod tests {
         );
     }
 
-    #[tokio::test]
-    async fn a_first_frame_that_is_not_a_number_is_refused() {
-        let (mut one, mut other) = pair();
-        tokio::spawn(async move { one.send(&"a message before the protocol").await });
-        let error = other.agree_on_protocol().await.unwrap_err();
-        assert_eq!(error.kind(), ErrorKind::InvalidData);
-    }
-
     #[test]
     fn the_count_is_four_bytes_little_endian_before_the_message() {
-        let frame = frame(&vec![1u8, 2, 3]).unwrap();
-        // postcard writes a `Vec` as its length, then its bytes.
-        assert_eq!(frame, [4, 0, 0, 0, 3, 1, 2, 3]);
+        let frame = frame(&Component {
+            bytes: vec![1, 2, 3],
+        })
+        .unwrap();
+        assert_eq!(&frame[..4], &11u32.to_le_bytes());
+        // CBOR writes the struct as a map, and its bytes as a byte string: `{"bytes": h'010203'}`.
+        assert_eq!(
+            &frame[4..],
+            &[0xa1, 0x65, b'b', b'y', b't', b'e', b's', 0x43, 1, 2, 3]
+        );
     }
 
     #[tokio::test]
@@ -298,5 +268,14 @@ mod tests {
         drop(sender);
         let error = receiver.receive::<u32>().await.unwrap_err();
         assert_eq!(error.kind(), ErrorKind::UnexpectedEof);
+    }
+
+    #[test]
+    fn a_split_connection_keeps_the_locality_it_was_given() {
+        let (one, _other) = tokio::io::duplex(64);
+        let network = Connection::over(one, Locality::Network);
+        let (reading, writing) = network.into_split();
+        assert_eq!(reading.locality(), Locality::Network);
+        assert_eq!(writing.locality(), Locality::Network);
     }
 }

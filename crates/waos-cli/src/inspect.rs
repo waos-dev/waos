@@ -11,12 +11,11 @@
 use std::io::Write as _;
 use std::process::ExitCode;
 
-use anyhow::{Context, Result, bail};
-use waos_dev_protocol::{FromWaOS, Inspection, ToWaOS, TracedCapability};
+use anyhow::{Context, Result};
+use waos_dev_protocol::{InspectAnswer, Inspection, Request, TracedCapability};
 use waos_package::ProgramId;
 
-use crate::asking::connect;
-use crate::unreached;
+use crate::asking::{self, connect};
 
 /// What `what` asks of a program, with a summary's `days`: `summary`, `active-uses`, `all`, or the
 /// capabilities to trace by name.
@@ -44,38 +43,35 @@ pub fn inspection_of(what: &[String], days: u32) -> Result<Inspection> {
 
 /// Prints what WaOS answers `asked` of the program `id`, a line a value, until it has answered.
 pub async fn inspect(id: ProgramId, asked: Inspection) -> Result<ExitCode> {
-    let mut connection = connect().await?;
-    connection
-        .agree_on_protocol()
-        .await
-        .context("the WaOS that answered")?;
     let summary = matches!(asked, Inspection::Summary { .. });
-    let inspect = ToWaOS::Inspect {
+    let inspect = Request::Inspect {
         id: id.clone(),
         asked,
     };
+    let mut connection = asking::greeted(connect().await?, &inspect).await?;
     connection.send(&inspect).await.context("sending to WaOS")?;
     let mut printed = false;
     let mut stdout = std::io::stdout().lock();
     while let Some(answer) = connection
-        .receive::<FromWaOS>()
+        .receive::<InspectAnswer>()
         .await
         .context("reading from WaOS")?
     {
         match answer {
-            FromWaOS::Inspected(lines) => {
+            InspectAnswer::Inspected(lines) => {
                 for line in lines {
                     writeln!(stdout, "{line}")?;
                     printed = true;
                 }
                 stdout.flush()?;
             }
-            FromWaOS::Unreached(why) => {
-                eprintln!("cargo waos: {}", unreached::said(&why, &id, 1));
+            InspectAnswer::Refused(refusal) => {
+                eprintln!("cargo waos: {}", refusal.message);
                 return Ok(ExitCode::FAILURE);
             }
-            FromWaOS::Refused(why) => bail!("WaOS refused the inspection: {why}"),
-            other => bail!("WaOS answered {other:?}, not an inspection"),
+            // A line of a newer WaOS's this build does not know: skipped, as the protocol
+            // promises, never breaking the trace over it.
+            InspectAnswer::Unknown => {}
         }
     }
     if summary && !printed {

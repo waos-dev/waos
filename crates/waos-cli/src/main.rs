@@ -36,7 +36,6 @@ mod screenshot;
 mod settings;
 mod signing_key;
 mod skill;
-mod unreached;
 mod variables;
 mod waos_app;
 mod workspace;
@@ -47,7 +46,7 @@ use std::time::Duration;
 
 use anyhow::{Context as _, Result};
 use clap::{Args, Parser, Subcommand};
-use waos_dev_protocol::Input;
+use waos_dev_protocol::{Input, WindowId};
 use waos_package::ProgramId;
 
 use crate::build::{BuiltProgram, Profile};
@@ -106,12 +105,14 @@ enum Command {
     /// The id, name and icon are the package's [package.metadata.waos]; the version is its own.
     Package(Program),
     /// Writes the last picture of each window of the program `cargo waos run` runs, as
-    /// target/waos/screenshots/<package>/window-<n>.png, and prints each with its window's
-    /// number, title and size in pixels. Windows are numbered from 1 in the order they opened.
+    /// target/waos/screenshots/<package>/window-<id>.png, and prints each with its window's id,
+    /// title and size in pixels. A window's id is the one the run gave it as it opened, which no
+    /// run gives twice, so a window keeps its id however others close.
     ///
     /// --out writes them where it names instead: a folder, one that exists or is written with a
-    /// `/` at its end, holds every window's picture as window-<n>.png; any other path is one
-    /// file, holding --window's picture, window 1's without it.
+    /// `/` at its end, holds every window's picture as window-<id>.png; any other path is one
+    /// file, holding --window's picture, the first window's without it. --window asks WaOS for
+    /// that window alone.
     Screenshot(ScreenshotArgs),
     /// Taps a window of the program `cargo waos run` runs: a press and release of the mouse there.
     /// Returns once the window has shown its next picture.
@@ -291,11 +292,13 @@ struct InspectArgs {
 struct ScreenshotArgs {
     #[command(flatten)]
     program: Program,
-    /// The window whose picture --out names as a file, numbered from 1 as the pictures are.
-    #[arg(long, default_value_t = 1)]
-    window: u32,
+    /// The window to take a picture of alone, by its id as the pictures list them; every window
+    /// without it. With --out a file, this window's picture is the one written, or the first
+    /// window's without it.
+    #[arg(long, value_name = "ID")]
+    window: Option<WindowId>,
     /// Where the pictures go: a folder, one that exists or is written with a `/` at its end, for
-    /// every window's picture as window-<n>.png, or a file for --window's picture alone.
+    /// every window's picture as window-<id>.png, or a file for one window's picture.
     #[arg(long, value_name = "PATH")]
     out: Option<PathBuf>,
 }
@@ -356,10 +359,10 @@ struct RunArgs {
 struct WindowArgs {
     #[command(flatten)]
     program: Program,
-    /// The window, numbered from 1 as `cargo waos screenshot` lists them: its picture is in
-    /// pixels, as the screenshot's, and its logical points are those divided by its scale.
-    #[arg(long, default_value_t = 1)]
-    window: u32,
+    /// The window's id, as `cargo waos screenshot` lists it: its picture is in pixels, as the
+    /// screenshot's, and its logical points are those divided by its scale.
+    #[arg(long, default_value_t = WindowId(1))]
+    window: WindowId,
 }
 
 #[derive(Args)]
@@ -679,7 +682,7 @@ mod tests {
         };
         assert_eq!(
             (shot.program.package.as_deref(), shot.window, shot.out),
-            (None, 1, None)
+            (None, None, None)
         );
         let Command::Screenshot(shot) = parsed(&[
             "screenshot",
@@ -693,7 +696,7 @@ mod tests {
             panic!("a screenshot");
         };
         assert_eq!(shot.program.package.as_deref(), Some("notes"));
-        assert_eq!(shot.window, 2);
+        assert_eq!(shot.window, Some(WindowId(2)));
         assert_eq!(shot.out.as_deref(), Some(Path::new("shots/")));
     }
 
@@ -702,12 +705,15 @@ mod tests {
         let Command::Tap(tap) = parsed(&["tap", "--at", "120,48"]) else {
             panic!("a tap");
         };
-        assert_eq!((tap.at, tap.window.window), (Pair(120.0, 48.0), 1));
+        assert_eq!(
+            (tap.at, tap.window.window),
+            (Pair(120.0, 48.0), WindowId(1))
+        );
         let Command::Tap(tap) = parsed(&["tap", "--at", "1.5,2", "--window", "2", "-p", "notes"])
         else {
             panic!("a tap");
         };
-        assert_eq!((tap.at, tap.window.window), (Pair(1.5, 2.0), 2));
+        assert_eq!((tap.at, tap.window.window), (Pair(1.5, 2.0), WindowId(2)));
         assert_eq!(tap.window.program.package.as_deref(), Some("notes"));
         assert!(refused(&["tap"]), "a tap needs a point");
         assert!(refused(&["tap", "--at", "120"]));
@@ -785,7 +791,7 @@ mod tests {
             panic!("a drag");
         };
         assert_eq!((drag.steps, drag.duration, drag.hold), (1, 0, 600));
-        assert_eq!(drag.window.window, 2);
+        assert_eq!(drag.window.window, WindowId(2));
         assert!(refused(&["drag", "--from", "1,2"]), "a drag needs its end");
         assert!(
             refused(&["drag", "--from", "1,2", "--to", "3,4", "--steps", "0"]),
@@ -805,7 +811,7 @@ mod tests {
                     width: 390.0,
                     height: 844.0
                 },
-                1
+                WindowId(1)
             )
         );
         let Command::Resize(resize) =
@@ -813,7 +819,7 @@ mod tests {
         else {
             panic!("a resize");
         };
-        assert_eq!(resize.window.window, 2);
+        assert_eq!(resize.window.window, WindowId(2));
         assert_eq!(resize.window.program.package.as_deref(), Some("notes"));
         assert!(refused(&["resize"]), "a resize needs a size");
         assert!(
@@ -882,7 +888,10 @@ mod tests {
         let Command::Key(key) = parsed(&["key", "cmd+s", "--window", "3"]) else {
             panic!("a key");
         };
-        assert_eq!((key.chord.as_str(), key.window.window), ("cmd+s", 3));
+        assert_eq!(
+            (key.chord.as_str(), key.window.window),
+            ("cmd+s", WindowId(3))
+        );
         let Command::Key(key) = parsed(&["key", "-"]) else {
             panic!("a key");
         };

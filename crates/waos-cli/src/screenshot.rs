@@ -1,11 +1,12 @@
 //! `cargo waos screenshot`: the last picture of each window of the program a run of `cargo waos
-//! run` runs, asked of the WaOS running it, written as `window-<n>.png` under
-//! `target/waos/screenshots/<package>`, each printed with its window's number, title and size, so
+//! run` runs, asked of the WaOS running it, written as `window-<id>.png` under
+//! `target/waos/screenshots/<package>`, each printed with its window's id, title and size, so
 //! an agent building the program sees it as its user does (the design's decision 60). `--out`
 //! writes them in a folder instead, one named as a folder or one that exists, all the windows, or
-//! one window's picture at a file's path. The windows are numbered from 1 in the order they
-//! opened, as `--window` names them, and a point in a picture's pixels, from its top-left, is
-//! where `tap` and `scroll` reach.
+//! one window's picture at a file's path; `--window` asks WaOS for that window alone. A window's
+//! id is the one it was given as it opened, and no run gives one twice, so a window keeps its id
+//! however others close; a point in a picture's pixels, from its top-left, is where `tap` and
+//! `scroll` reach.
 //!
 //! What WaOS asks the program's user over its windows is the program's prompt, not its picture:
 //! the screenshot says on stderr what is asked.
@@ -20,36 +21,32 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use anyhow::{Context, Result, bail};
-use waos_dev_protocol::{FromWaOS, ToWaOS, WindowPicture};
+use waos_dev_protocol::{Request, ScreenshotAnswer, WindowId, WindowPicture};
 use waos_package::ProgramId;
 
 use crate::asked;
 use crate::asking::ask;
-use crate::unreached;
 
 /// The prefix and the extension of a window's picture's file.
 const PREFIX: &str = "window-";
 const EXTENSION: &str = "png";
 
-/// Where a screenshot's pictures go: each window's as `window-<n>.png` in a folder, or `window`'s
-/// alone at a file's path.
+/// Where a screenshot's pictures go: each window's as `window-<id>.png` in a folder, or one
+/// window's alone at a file's path.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Where {
     Folder(PathBuf),
-    File { path: PathBuf, window: u32 },
+    File(PathBuf),
 }
 
 impl Where {
     /// Where `out` asks for, or the folder `default` when it names none: a folder for a path that
-    /// is one or is written as one, else a file for `window`'s picture.
-    pub fn of(out: Option<&Path>, window: u32, default: &Path) -> Where {
+    /// is one or is written as one, else a file.
+    pub fn of(out: Option<&Path>, default: &Path) -> Where {
         match out {
             None => Where::Folder(default.to_path_buf()),
             Some(path) if names_folder(path) => Where::Folder(path.to_path_buf()),
-            Some(path) => Where::File {
-                path: path.to_path_buf(),
-                window,
-            },
+            Some(path) => Where::File(path.to_path_buf()),
         }
     }
 }
@@ -63,41 +60,47 @@ fn names_folder(path: &Path) -> bool {
     written.ends_with('/') || written.ends_with('\\')
 }
 
-/// Asks for the pictures of the windows of the program `id`, writes them where `out` asks, or in
-/// `default` without it, and prints each.
+/// Asks for the pictures of the windows of the program `id`, or of `window` alone, writes them
+/// where `out` asks, or in `default` without it, and prints each.
 pub async fn take(
     id: ProgramId,
     out: Option<&Path>,
-    window: u32,
+    window: Option<WindowId>,
     default: &Path,
 ) -> Result<ExitCode> {
-    let answer = ask(&ToWaOS::Screenshot { id: id.clone() }).await?;
+    let answer = ask(&Request::Screenshot {
+        id: id.clone(),
+        window,
+    })
+    .await?;
     let pictures = match answer {
-        FromWaOS::Screenshots(pictures) => pictures,
-        FromWaOS::Unreached(why) => {
-            eprintln!("cargo waos: {}", unreached::said(&why, &id, 1));
+        ScreenshotAnswer::Pictures(pictures) => pictures,
+        ScreenshotAnswer::Refused(refusal) => {
+            eprintln!("cargo waos: {}", refusal.message);
             return Ok(ExitCode::FAILURE);
         }
-        FromWaOS::Refused(why) => bail!("WaOS refused the screenshot: {why}"),
-        other => bail!("WaOS answered {other:?}, not a screenshot"),
+        ScreenshotAnswer::Unknown => bail!(
+            "WaOS answered the screenshot in a way this cargo waos does not know: update cargo waos with `cargo install cargo-waos`"
+        ),
     };
     if pictures.is_empty() {
         eprintln!("cargo waos: {id} has no window open");
     }
-    match Where::of(out, window, default) {
+    match Where::of(out, default) {
         Where::Folder(folder) => {
             for (picture, path) in pictures.iter().zip(write(&folder, &pictures)?) {
                 say(picture, path.as_deref());
             }
         }
-        Where::File { path, window } => match pictures.iter().find(|each| each.window == window) {
-            Some(picture) => say(picture, write_one(&path, picture)?.as_deref()),
-            None if !pictures.is_empty() => eprintln!(
-                "cargo waos: {id} has no window {window}: it has {}, numbered from 1",
-                pictures.len()
-            ),
-            None => {}
-        },
+        Where::File(path) => {
+            let picture = match window {
+                Some(window) => pictures.iter().find(|each| each.window == window),
+                None => pictures.first(),
+            };
+            if let Some(picture) = picture {
+                say(picture, write_one(&path, picture)?.as_deref());
+            }
+        }
     }
     if let Some(asking) = pictures.iter().find_map(|picture| picture.asking.as_ref()) {
         eprintln!(
@@ -143,8 +146,8 @@ fn write_one(path: &Path, picture: &WindowPicture) -> Result<Option<PathBuf>> {
     Ok(Some(path.to_path_buf()))
 }
 
-/// The file the picture of the window numbered `window` is written to.
-fn file_name(window: u32) -> String {
+/// The file the picture of the window `window` is written to.
+fn file_name(window: WindowId) -> String {
     format!("{PREFIX}{window}.{EXTENSION}")
 }
 
@@ -173,7 +176,7 @@ fn is_window_picture(path: &Path) -> bool {
     let number = name
         .strip_prefix(PREFIX)
         .and_then(|rest| rest.strip_suffix(&format!(".{EXTENSION}")));
-    number.is_some_and(|number| number.parse::<u32>().is_ok())
+    number.is_some_and(|number| number.parse::<u64>().is_ok())
 }
 
 /// Prints where `picture` went with its window's number, title and size, and says on stderr what
@@ -206,9 +209,9 @@ fn say(picture: &WindowPicture, path: Option<&Path>) {
 mod tests {
     use super::*;
 
-    fn picture(window: u32, png: Option<&[u8]>) -> WindowPicture {
+    fn picture(window: u64, png: Option<&[u8]>) -> WindowPicture {
         WindowPicture {
-            window,
+            window: WindowId(window),
             title: "Notes".into(),
             width: 4,
             height: 2,
@@ -267,21 +270,18 @@ mod tests {
         let default = folder.path().join("default");
         let existing = folder.path().join("existing");
         fs::create_dir(&existing).unwrap();
-        assert_eq!(Where::of(None, 1, &default), Where::Folder(default.clone()));
+        assert_eq!(Where::of(None, &default), Where::Folder(default.clone()));
         assert_eq!(
-            Where::of(Some(&existing), 1, &default),
+            Where::of(Some(&existing), &default),
             Where::Folder(existing)
         );
         assert_eq!(
-            Where::of(Some(Path::new("later/")), 1, &default),
+            Where::of(Some(Path::new("later/")), &default),
             Where::Folder(PathBuf::from("later/"))
         );
         assert_eq!(
-            Where::of(Some(Path::new("notes.png")), 2, &default),
-            Where::File {
-                path: PathBuf::from("notes.png"),
-                window: 2
-            }
+            Where::of(Some(Path::new("notes.png")), &default),
+            Where::File(PathBuf::from("notes.png"))
         );
     }
 

@@ -11,11 +11,12 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use anyhow::Result;
 use waos::{ProgramEnd, ProgramView, RunningProgram};
-use waos_dev_protocol::{RunEnd, Unreached};
+use waos_dev_protocol::{Refusal, RunEnd, WindowId};
 use waos_package::ProgramId;
 
 use super::{Run, Runs};
 use crate::logic::dev_input::DevMouse;
+use crate::logic::dev_refusal;
 
 /// What a run `cargo waos` sent has in the list beside its program.
 pub(super) struct Sent {
@@ -56,22 +57,25 @@ impl SentRun {
 /// drive: the program, and the mouse that input moves over its windows.
 #[derive(Clone)]
 pub(crate) struct DevRun {
+    pub(crate) id: ProgramId,
     pub(crate) program: RunningProgram,
     pub(crate) mouse: Arc<DevMouse>,
 }
 
 impl DevRun {
-    /// The program's window numbered `number`, from 1 in the order its views arrived, as `cargo
-    /// waos screenshot` lists them.
-    pub(crate) fn window(&self, number: u32) -> Result<ProgramView, Unreached> {
+    /// The program's window `window`, by the id the run gave it as it opened.
+    pub(crate) fn window(&self, window: WindowId) -> Result<ProgramView, Refusal> {
         let views = self.program.views();
-        let no_window = Unreached::NoWindow {
-            window: number,
-            windows: u32::try_from(views.len()).unwrap_or(u32::MAX),
-        };
-        let index = usize::try_from(number.checked_sub(1).ok_or(no_window.clone())?)
-            .map_err(|_| no_window.clone())?;
-        views.into_iter().nth(index).ok_or(no_window)
+        let windows = views.len();
+        let index = window
+            .0
+            .checked_sub(1)
+            .and_then(|index| usize::try_from(index).ok())
+            .ok_or_else(|| dev_refusal::no_window(&self.id, window, windows))?;
+        views
+            .into_iter()
+            .nth(index)
+            .ok_or_else(|| dev_refusal::no_window(&self.id, window, windows))
     }
 }
 
@@ -108,6 +112,7 @@ impl Runs {
         let running = self.listed();
         let current = running.get(id)?;
         Some(DevRun {
+            id: id.clone(),
             program: current.program.clone(),
             mouse: Arc::clone(&current.sent.as_ref()?.mouse),
         })

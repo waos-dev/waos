@@ -1,19 +1,62 @@
-//! One question to the WaOS on this machine about a program: for `cargo waos screenshot`, `tap`,
+//! One request to the WaOS on this machine about a program: for `cargo waos screenshot`, `tap`,
 //! `press`, `drag`, `type`, `key` and `scroll`, connected to as it runs, never started, since only
 //! a program a run of `cargo waos run` runs is read or driven (the design's decision 60); for
-//! `cargo waos settings` and `set`, on a connection the caller made. Each the protocol agreed, the
-//! question sent, and its one answer read.
+//! `cargo waos settings` and `set`, on a connection the caller made. Each side says its hello
+//! first: a different protocol's major, or a request WaOS does not serve, is refused before it is
+//! sent, with both builds named and which one to update.
 //!
 //! The invariant: [`ask`] never starts WaOS. With none answering, there is no run to ask about.
 
-use anyhow::{Context, Result, bail};
-use waos_dev_protocol::{ClientStream, Connection, FromWaOS, ToWaOS};
+use anyhow::{Context, Result, anyhow, bail};
+use serde::de::DeserializeOwned;
+use waos_dev_protocol::{ClientStream, Connection, Hello, Request};
 
 use crate::connecting::nobody_answers;
 
-/// What the WaOS running answers `question`.
-pub async fn ask(question: &ToWaOS) -> Result<FromWaOS> {
-    ask_on(connect().await?, question).await
+/// This build, as its hello names it: "cargo-waos 0.3.0".
+pub const BUILD: &str = concat!("cargo-waos ", env!("CARGO_PKG_VERSION"));
+
+/// What the WaOS running answers `request`, its hello read and checked first.
+pub async fn ask<A: DeserializeOwned>(request: &Request) -> Result<A> {
+    answer(connect().await?, request).await
+}
+
+/// What the WaOS running, or the one started when none answers, answers `request`, its hello read
+/// and checked first: the settings are set before the run that needs them.
+pub async fn ask_starting<A: DeserializeOwned>(request: &Request) -> Result<A> {
+    answer(crate::connecting::connect_or_start().await?, request).await
+}
+
+/// What the WaOS at the other end of `connection` answers `request`, its hello read and checked
+/// first.
+pub async fn answer<A: DeserializeOwned>(
+    connection: Connection<ClientStream>,
+    request: &Request,
+) -> Result<A> {
+    let mut connection = greeted(connection, request).await?;
+    connection.send(request).await.context("sending to WaOS")?;
+    connection
+        .receive::<A>()
+        .await
+        .context("reading from WaOS")?
+        .context("WaOS closed the connection without an answer")
+}
+
+/// `connection` with WaOS's hello read and checked against `request`, as this build's: a mismatch
+/// is the error, in the words naming both builds and which one to update.
+pub async fn greeted(
+    mut connection: Connection<ClientStream>,
+    request: &Request,
+) -> Result<Connection<ClientStream>> {
+    let ours = Hello::cargo_waos(BUILD);
+    let theirs = connection
+        .hello(&ours)
+        .await
+        .context("the WaOS that answered")?;
+    theirs
+        .accepts(&ours, request)
+        .map_err(|mismatch| anyhow!("{mismatch}"))?;
+    Ok(connection)
 }
 
 /// A connection to the WaOS running, never started.
@@ -31,21 +74,4 @@ pub async fn connect() -> Result<Connection<ClientStream>> {
             Err(error).with_context(|| format!("connecting to WaOS at {}", socket.display()))
         }
     }
-}
-
-/// What the WaOS at the other end of `connection` answers `question`.
-pub async fn ask_on(
-    mut connection: Connection<ClientStream>,
-    question: &ToWaOS,
-) -> Result<FromWaOS> {
-    connection
-        .agree_on_protocol()
-        .await
-        .context("the WaOS that answered")?;
-    connection.send(question).await.context("sending to WaOS")?;
-    connection
-        .receive::<FromWaOS>()
-        .await
-        .context("reading from WaOS")?
-        .context("WaOS closed the connection without an answer")
 }
