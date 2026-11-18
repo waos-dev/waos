@@ -1,0 +1,80 @@
+# The WaOS app of a release, on the same tag as the crates (`release.yml`): built in release from
+# the tag and the Waft release it names, signed with the publisher's Developer ID, notarized and
+# stapled, as a disk image attached to the tag's GitHub release, where waos.app's Download points.
+# `cargo waft build dmg` signs and notarizes when the environment names an identity and an account;
+# until the Apple secrets below are set, the image is built ad hoc and the job says so.
+#
+# Secrets: APPLE_CERTIFICATE (the Developer ID Application certificate and its key, a .p12, in
+# base64), APPLE_CERTIFICATE_PASSWORD, APPLE_SIGNING_IDENTITY (its name, "Developer ID Application:
+# …"), and an App Store Connect API key for notarization: APPLE_API_KEY (its id), APPLE_API_ISSUER,
+# APPLE_API_KEY_P8 (the .p8's text).
+name: Release the app
+
+on:
+  push:
+    tags: ['v*']
+
+jobs:
+  macos:
+    runs-on: macos-15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: waos
+      - name: The Waft release the workspace names
+        id: waft
+        working-directory: waos
+        # Read from the manifest: cargo cannot resolve the workspace before Waft is beside it.
+        run: echo "version=$(sed -n 's/^waft = { version = "\([^"]*\)".*/\1/p' Cargo.toml)" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v4
+        with:
+          repository: waos-dev/waft
+          ref: v${{ steps.waft.outputs.version }}
+          path: waft
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: waos
+      - name: Waft's command
+        run: cargo install --locked --path waft/crates/waft-cli
+      - name: The signing identity, in a keychain of the job's own
+        id: signing
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+        run: |
+          if [ -z "$APPLE_CERTIFICATE" ]; then
+            echo "::warning::no Apple signing secrets: the disk image is signed ad hoc and not notarized"
+            echo "identity=-" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          keychain="$RUNNER_TEMP/signing.keychain-db"
+          password="$(uuidgen)"
+          security create-keychain -p "$password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+          echo "$APPLE_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/certificate.p12"
+          security import "$RUNNER_TEMP/certificate.p12" -P "$APPLE_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$keychain"
+          security set-key-partition-list -S apple-tool:,apple: -k "$password" "$keychain"
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+          printf '%s' "$APPLE_API_KEY_P8" > "$RUNNER_TEMP/notary.p8"
+          echo "identity=${{ secrets.APPLE_SIGNING_IDENTITY }}" >> "$GITHUB_OUTPUT"
+      - name: WaOS.app, as a disk image
+        working-directory: waos
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ steps.signing.outputs.identity }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY_PATH: ${{ runner.temp }}/notary.p8
+        run: cargo waft build dmg -p waos-app
+      - name: Attached to the release
+        working-directory: waos
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          image=$(find target/waft -name '*.dmg' -newer Cargo.toml | head -1)
+          test -n "$image" || { echo "no disk image was made"; exit 1; }
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || gh release create "$GITHUB_REF_NAME" --title "WaOS ${GITHUB_REF_NAME#v}" --notes ""
+          gh release upload "$GITHUB_REF_NAME" "$image#WaOS-${GITHUB_REF_NAME#v}.dmg" --clobber

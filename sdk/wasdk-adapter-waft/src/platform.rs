@@ -25,11 +25,12 @@ use futures::channel::mpsc;
 use waft_embedder::image_codecs::ImageCodecs;
 use waft_embedder::{
     AppExit, AppLifecycleState, Brightness, Cameras, CaptionSettings, Clipboard, Compositor,
-    Dispatcher, FileDialogFuture, FileDialogs, FolderOptions, FontSource, HardwareBuffer,
-    HardwareBufferAllocator, ImageCodecFuture, ImageDecodeError, Instant, Locale, MediaAssets, MenuBar, MenuEntry, Notifications,
-    Offset, OpenOptions, Opener, PickedFile, PickedFolder, Platform, Players, PopupMenuFuture,
-    PopupMenus, RequestId, SaveOptions, Screens, SignedDuration, TargetPlatform, TrayIcons,
-    VideoFrame, VideoFrameReaders, ViewError, ViewId, ViewRef, WindowBackground, WindowConfig,
+    Dispatcher, FileDialogFuture, FileDialogs, Files, FolderOptions, FontSource, HardwareBuffer,
+    HardwareBufferAllocator, HttpClient, ImageCodecFuture, ImageDecodeError, Instant, Locale,
+    MediaAssets, MenuBar, MenuEntry, Notifications, Offset, OpenOptions, Opener, PickedFile,
+    PickedFolder, Platform, Players, PopupMenuFuture, PopupMenus, RequestId, SaveOptions, Screens,
+    SignedDuration, TargetPlatform, TrayIcons, VideoFrame, VideoFrameReaders, ViewError, ViewId,
+    ViewRef, WindowBackground, WindowConfig,
 };
 use wasdk::{lifecycle, system, views};
 
@@ -41,6 +42,7 @@ use crate::composition::WasdkCompositor;
 use crate::dispatcher::Wake;
 use crate::events::{Notice, StreamOpener};
 use crate::file_dialogs::WasdkFileDialogs;
+use crate::files::WasdkFiles;
 use crate::fonts::ProgramFonts;
 use crate::gpu_interop;
 use crate::hardware_buffers::WasdkHardwareBufferAllocator;
@@ -80,6 +82,8 @@ pub(crate) struct WasdkPlatform {
     tray_icons: Option<WasdkTrayIcons>,
     /// The platform's file dialogs, where it has them.
     file_dialogs: Option<WasdkFileDialogs>,
+    /// The program's file system, over the root the engine gives it, where it has one.
+    files: Option<WasdkFiles>,
     /// The system's opener and its notifications, each where the platform has it.
     opener: Option<WasdkOpener>,
     notifications: Option<WasdkNotifications>,
@@ -130,6 +134,7 @@ impl WasdkPlatform {
             context_menus: WasdkContextMenus::get(),
             tray_icons: WasdkTrayIcons::get(opener),
             file_dialogs: WasdkFileDialogs::get(),
+            files: WasdkFiles::get(),
             opener: WasdkOpener::get(),
             compositor: WasdkCompositor::get().map(Arc::new),
             hardware_buffer_allocator: WasdkHardwareBufferAllocator::get().map(Arc::new),
@@ -403,6 +408,19 @@ impl Platform for WasdkPlatform {
 
     fn file_dialogs(&self) -> Option<&dyn FileDialogs> {
         self.file_dialogs.as_ref().map(|_| self as &dyn FileDialogs)
+    }
+
+    /// WASI 0.3's HTTP client, which the engine serves every program: every method, a body
+    /// streamed both ways, the three timeouts, and redirects followed here as the request asks.
+    fn http(&self) -> Option<&dyn HttpClient> {
+        static HTTP: crate::http::WasdkHttp = crate::http::WasdkHttp;
+        Some(&HTTP)
+    }
+
+    /// The program's file system, WASI 0.3's over the root the engine gives it: its own folders,
+    /// its mounts and the files picked for it.
+    fn files(&self) -> Option<&dyn Files> {
+        self.files.as_ref().map(|files| files as &dyn Files)
     }
 
     fn opener(&self) -> Option<&dyn Opener> {

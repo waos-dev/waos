@@ -203,7 +203,7 @@ function WindowWithMenus() {
 const docs = [
   { name: 'Start', text: 'Install, make an app, run it, package it.', url: `${docsRoute}/start` },
   { name: 'Concepts', text: 'Programs, views, capabilities, permissions.', url: `${docsRoute}/concepts` },
-  { name: 'Waft', text: 'The UI framework apps are written with.', url: `${docsRoute}/frameworks/waft` },
+  { name: 'Waft', text: 'The UI framework apps are written with.', url: `${docsRoute}/waft` },
   { name: 'Reference', text: 'The interfaces, and the SDK on docs.rs.', url: `${docsRoute}/reference` },
 ];
 

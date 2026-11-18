@@ -11,6 +11,8 @@ readme = "README.md"
 
 [dependencies]
 futures.workspace = true
+# Waft's HTTP client's own values: requests, responses, methods, headers and URIs.
+http.workspace = true
 waft-embedder.workspace = true
 waft-foundation.workspace = true
 waft-shell.workspace = true

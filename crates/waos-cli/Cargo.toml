@@ -36,6 +36,11 @@ glob.workspace = true
 png.workspace = true
 # A run's connection: the socket, its frames, Ctrl-C, and the wait for a WaOS just started.
 tokio = { workspace = true, features = ["net", "io-util", "signal"] }
+# The docs of a version, downloaded once from its GitHub release over that runtime, and unpacked
+# from their gzipped tar into the user's cache; waos.app's latest where there is none.
+reqwest.workspace = true
+flate2.workspace = true
+tar.workspace = true
 
 # The signing key's folder and file made for the user alone, and where WaOS's installer recorded
 # it; at the version tokio reaches Windows with.

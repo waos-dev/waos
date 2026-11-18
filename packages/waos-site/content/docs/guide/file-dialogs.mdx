@@ -20,6 +20,8 @@ if let Some(path) = dialogs.open_file(Some(&view), options).await? {
 ## With Waft
 
 ```rust
+use waft::ui::{FileType, OpenOptions, PickedFile};
+
 let text = FileType {
     label: "Text".into(),
     extensions: vec!["txt".into()],
@@ -32,9 +34,15 @@ let parent = platform.views().first().map(|view| view.id());
 let Some(dialogs) = platform.file_dialogs() else { return };
 let picked = dialogs.open_file(parent, options);
 app.spawn(async move |_cx| {
-    if let Ok(Some(PickedFile::Path(path))) = picked.await { /* read it at path */ }
+    if let Ok(Some(PickedFile::Path(path))) = picked.await {
+        // mounted read-only at that path
+        let text = std::fs::read_to_string(&path);
+    }
 });
 ```
+`save_file` answers a path to write in the same way, writable whether or not the file exists yet.
+
+> In WaOS a pick is always a `PickedFile::Path`, the file mounted at its own path: read and write it with `std::fs`. Waft reads a picked path through its own file service, `app.platform().files()`, with `files.read(&path)`, and a `PickedFile::Handle` or `PickedFile::Stream`, which other systems answer, reads itself with `read_all()`; WaOS serves Waft's file service over the same files `std::fs` reaches.
 
 ## Where it's missing
 

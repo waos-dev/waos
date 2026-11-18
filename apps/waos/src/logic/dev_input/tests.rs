@@ -10,6 +10,7 @@
 use std::path::Path;
 use std::time::{Duration, Instant};
 
+use waos::Presence;
 use waos_dev_protocol::{ClientStream, Connection, FromWaOS, Input, ToWaOS, Unreached};
 
 use super::mouse::DEVICE;
@@ -87,7 +88,10 @@ async fn a_tap_reaches_the_program_as_a_mouse_of_the_runs_own_done_once_its_next
     let tap = Input::Tap { x: 40.0, y: 30.0 };
     assert_eq!(
         server.ask(&input(1, tap.clone())).await,
-        FromWaOS::InputDone { new_picture: true }
+        FromWaOS::InputDone {
+            in_sight: true,
+            new_picture: true,
+        }
     );
     for (change, buttons) in [("Add", 0), ("Hover", 0), ("Down", 1), ("Up", 0)] {
         let line = mouse_line(change, "None", (40.0, 30.0), buttons, "0,0");
@@ -95,7 +99,10 @@ async fn a_tap_reaches_the_program_as_a_mouse_of_the_runs_own_done_once_its_next
     }
     assert_eq!(
         server.ask(&input(1, tap)).await,
-        FromWaOS::InputDone { new_picture: true }
+        FromWaOS::InputDone {
+            in_sight: true,
+            new_picture: true,
+        }
     );
     let added = mouse_line("Add", "None", (40.0, 30.0), 0, "0,0");
     let pressed = mouse_line("Down", "None", (40.0, 30.0), 1, "0,0");
@@ -128,7 +135,10 @@ async fn text_is_committed_into_what_the_window_edits_once_it_edits() {
     wait_for_line(&mut client, &mut frames, "text: editing").await;
     assert_eq!(
         server.ask(&input(1, Input::Text("milk".into()))).await,
-        FromWaOS::InputDone { new_picture: true }
+        FromWaOS::InputDone {
+            in_sight: true,
+            new_picture: true,
+        }
     );
     wait_for_line(
         &mut client,
@@ -151,7 +161,10 @@ async fn a_chord_reaches_the_program_as_its_keys_done_without_a_picture_when_non
     let (mut client, mut frames) = run_input(&server).await;
     assert_eq!(
         server.ask(&input(1, Input::Key("cmd+s".into()))).await,
-        FromWaOS::InputDone { new_picture: false },
+        FromWaOS::InputDone {
+            in_sight: true,
+            new_picture: false,
+        },
         "the program draws nothing for a key"
     );
     for line in [
@@ -180,7 +193,10 @@ async fn a_scroll_reaches_the_program_where_the_mouse_came() {
     };
     assert_eq!(
         server.ask(&input(1, scroll)).await,
-        FromWaOS::InputDone { new_picture: true }
+        FromWaOS::InputDone {
+            in_sight: true,
+            new_picture: true,
+        }
     );
     for line in [
         mouse_line("Add", "None", (10.0, 20.0), 0, "0,0"),
@@ -270,6 +286,9 @@ async fn an_input_to_a_window_or_a_point_not_there_reaches_nothing() {
         FromWaOS::Unreached(Unreached::OutsideWindow {
             width: WINDOW_WIDTH,
             height: WINDOW_HEIGHT,
+            x: f64::from(WINDOW_WIDTH),
+            y: 0.0,
+            scale: 2.0,
         })
     );
     let drag_out = Input::Drag {
@@ -284,8 +303,32 @@ async fn an_input_to_a_window_or_a_point_not_there_reaches_nothing() {
         FromWaOS::Unreached(Unreached::OutsideWindow {
             width: WINDOW_WIDTH,
             height: WINDOW_HEIGHT,
+            x: 1.0,
+            y: f64::from(WINDOW_HEIGHT),
+            scale: 2.0,
         }),
         "a drag ends in the window"
+    );
+}
+
+#[tokio::test]
+async fn an_input_to_a_window_out_of_sight_says_it_was_out_of_sight() {
+    let server = TestServer::drawing("out-of-sight");
+    let (_client, _frames) = run_input(&server).await;
+    let view = server.programs().await[0].views().remove(0);
+    view.presence_changed(Presence {
+        on_screen: false,
+        occluded: false,
+        focused: false,
+    });
+    assert!(!view.in_sight());
+    assert_eq!(
+        server.ask(&input(1, Input::Tap { x: 1.0, y: 1.0 })).await,
+        FromWaOS::InputDone {
+            in_sight: false,
+            new_picture: false,
+        },
+        "answered at once, with why no picture came"
     );
 }
 

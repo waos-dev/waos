@@ -190,6 +190,10 @@ cargo_metadata = "0.23"
 # place, keeping its comments and layout, at the version `toml` parses with; and the patterns of
 # its members, matched with the glob cargo matches them with.
 toml_edit = "0.25"
+# The docs' archive `cargo waos docs` downloads from a release: a tar, gzipped, read with the
+# zlib-rs backend `zip` already brings.
+flate2 = { version = "1", default-features = false, features = ["zlib-rs"] }
+tar = { version = "0.4", default-features = false }
 glob = "0.3"
 # The icon `cargo waos new` gives a new program, encoded as a PNG, at the version the workspace
 # builds already, which `image` encodes with.
@@ -235,6 +239,9 @@ waft-embedder-android = { version = "0.6.0", path = "../waft/crates/waft-embedde
 # One instance of WaOS: a later launch on Windows or Linux hands the files it was started with to
 # the WaOS running, as macOS does itself.
 waft-single-instance = { version = "0.6.0", path = "../waft/crates/waft-single-instance" }
+# Waft's painting: its image providers, `NetworkImage` above all, which a program shows with
+# Waft's `Image` widget over the platform's HTTP client.
+waft-painting = { version = "0.6.0", path = "../waft/crates/waft-painting" }
 # Waft's Cupertino gallery, a library as well as its own binary, which `examples/gallery` runs.
 cupertino-gallery = { path = "../waft/examples/cupertino_gallery" }
 # valo, Waft's renderer, which a program's views are drawn with: its context, its fonts and

@@ -10,6 +10,7 @@ import {
 import { notFound } from 'next/navigation';
 import { getMDXComponents } from '@/components/mdx';
 import type { Metadata } from 'next';
+import type { ReactNode } from 'react';
 import { createRelativeLink } from 'fumadocs-ui/mdx';
 import Link from 'next/link';
 import { topicIcon } from '@/lib/topic-icons';
@@ -42,45 +43,66 @@ export default async function Page(props: PageProps<'/docs/[[...slug]]'>) {
   );
 }
 
-/** The pages under the one at `url`, where it opens a section: each with its sign, name and one line. */
+/** The pages under the one at `url`, where it opens a section: each with its sign, name and one line, grouped under the sidebar's headings. */
 function PagesWithin({ url }: { url: string }) {
-  const pages = source.getPages().filter((page) => {
-    const rest = page.url.startsWith(`${url}/`) ? page.url.slice(url.length + 1) : '';
-    return rest !== '' && !rest.includes('/') && !url.endsWith('/reference') && !url.includes('/reference/');
-  });
-  if (pages.length === 0) return null;
-  const order = pagesOrder(url);
-  pages.sort((one, other) => order.indexOf(one.url) - order.indexOf(other.url));
+  if (url.endsWith('/reference') || url.includes('/reference/')) return null;
+  const groups = pageGroups(url);
+  if (groups.length === 0) return null;
 
   return (
-    <ul className="not-prose mt-2 grid gap-4 sm:grid-cols-2">
-      {pages.map((page) => {
-        const Icon = topicIcon(page.url);
-        return (
-          <li key={page.url}>
-            <Link
-              href={page.url}
-              className="flex h-full items-start gap-4 rounded-2xl border bg-fd-card p-5 transition-colors hover:bg-fd-accent"
-            >
-              <span className="flex size-10 shrink-0 items-center justify-center rounded-xl border bg-fd-background">
-                <Icon aria-hidden className="size-5" strokeWidth={1.75} />
-              </span>
-              <span className="flex flex-col gap-1">
-                <span className="text-lg font-semibold">{page.data.title}</span>
-                <span className="text-fd-muted-foreground">{page.data.description}</span>
-              </span>
-            </Link>
-          </li>
-        );
-      })}
-    </ul>
+    <>
+      {groups.map((group, index) => (
+        <section key={index}>
+          {group.heading ? <h2>{group.heading}</h2> : null}
+          <ul className="not-prose mt-2 grid gap-4 sm:grid-cols-2">
+            {group.pages.map((page) => (
+              <PageCard key={page.url} page={page} />
+            ))}
+          </ul>
+        </section>
+      ))}
+    </>
   );
 }
 
-/** The addresses of the pages under `url`, in the sidebar's order. */
-function pagesOrder(url: string): string[] {
+type DocsPage = ReturnType<typeof source.getPages>[number];
+
+function PageCard({ page }: { page: DocsPage }) {
+  const Icon = topicIcon(page.url);
+  return (
+    <li>
+      <Link
+        href={page.url}
+        className="flex h-full items-start gap-4 rounded-2xl border bg-fd-card p-5 transition-colors hover:bg-fd-accent"
+      >
+        <span className="flex size-10 shrink-0 items-center justify-center rounded-xl border bg-fd-background">
+          <Icon aria-hidden className="size-5" strokeWidth={1.75} />
+        </span>
+        <span className="flex flex-col gap-1">
+          <span className="text-lg font-semibold">{page.data.title}</span>
+          <span className="text-fd-muted-foreground">{page.data.description}</span>
+        </span>
+      </Link>
+    </li>
+  );
+}
+
+/** The pages of the section `url` opens, in the sidebar's order, a group under each of its headings. */
+function pageGroups(url: string): { heading?: ReactNode; pages: DocsPage[] }[] {
   const folder = source.getPageTree().children.find((node) => node.type === 'folder' && node.index?.url === url);
-  return folder?.type === 'folder' ? folder.children.flatMap((node) => (node.type === 'page' ? [node.url] : [])) : [];
+  if (folder?.type !== 'folder') return [];
+  const groups: { heading?: ReactNode; pages: DocsPage[] }[] = [];
+  for (const node of folder.children) {
+    if (node.type === 'separator') {
+      groups.push({ heading: node.name, pages: [] });
+    } else if (node.type === 'page') {
+      const page = source.getPages().find((candidate) => candidate.url === node.url);
+      if (!page) continue;
+      if (groups.length === 0) groups.push({ pages: [] });
+      groups[groups.length - 1].pages.push(page);
+    }
+  }
+  return groups.filter((group) => group.pages.length > 0);
 }
 
 export async function generateStaticParams() {
