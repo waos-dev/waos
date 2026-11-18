@@ -49,7 +49,7 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Tests of the engine and the command
         working-directory: waos
-        run: cargo test --no-fail-fast -p waos -p waos-cli
+        run: cargo test --no-fail-fast -p waos -p waos-cli --lib --bins --tests -- -Zunstable-options --report-time
 
   test-the-rest:
     runs-on: macos-15
@@ -67,7 +67,7 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Tests of the rest of the workspace
         working-directory: waos
-        run: cargo test --workspace --exclude waos --exclude waos-cli --no-fail-fast
+        run: cargo test --workspace --exclude waos --exclude waos-cli --no-fail-fast --lib --bins --tests -- -Zunstable-options --report-time
 
   # Windows and Linux run the engine, the command and the SDK today; the app's shell still waits
   # for the decisions of docs/proposals/2026-11-13-windows-and-linux.md (dmabufs, ConPTY,
