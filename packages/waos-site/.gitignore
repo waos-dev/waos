@@ -2,6 +2,8 @@
 /.next/
 /.source/
 /out/
+# The docs' archive, which scripts/write-docs-bundle.mjs writes
+/dist/
 next-env.d.ts
 *.tsbuildinfo
 # The reference's WIT pages, which scripts/write-reference.mjs writes at each build

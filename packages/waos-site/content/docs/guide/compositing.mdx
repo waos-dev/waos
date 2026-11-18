@@ -27,6 +27,9 @@ view.set_layers(&[PlacedLayer { layer: &layer, placement }]);
 ## With Waft
 
 ```rust
+use waft::ui::HardwareBufferUsage;
+use waft::ui::image_codecs::PixelFormat;
+
 let platform = app.platform();
 let (compositor, allocator) = (platform.compositor()?, platform.hardware_buffer_allocator()?);
 let usage = HardwareBufferUsage {
