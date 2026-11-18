@@ -27,7 +27,7 @@ use wasdk::http::types::{
     self, ErrorCode, FieldSizePayload, Fields, Method as WitMethod, Request as WitRequest,
     RequestOptions, Scheme, Trailers,
 };
-use wasdk::{FutureReader, StreamReader, StreamResult, wit_future, wit_stream};
+use wasdk::{FutureReader, FutureWriter, StreamReader, StreamResult, wit_future, wit_stream};
 
 /// Waft's HTTP client, as a value: every request is WASI's own, so the client keeps nothing.
 pub(crate) struct WasdkHttp;
@@ -76,7 +76,10 @@ async fn send_once(
 ) -> Result<Response<Body>, HttpError> {
     let fields = fields_of(headers)?;
     let contents = contents_of(body);
-    let (_no_trailers, trailers) = wit_future::new(|| Ok(None));
+    let (no_trailers, trailers) = wit_future::new(|| Ok(None));
+    // Dropped before the send, which reads it as it goes: a trailer writer held across it would
+    // leave the request closed only once this call answered.
+    drop(no_trailers);
     let (request, _sent) =
         WitRequest::new(fields, contents, trailers, Some(request_options(options)?));
     set_method(&request, method)?;
@@ -263,13 +266,15 @@ fn response_of(response: types::Response) -> Result<Response<Body>, HttpError> {
         .get(http::header::CONTENT_LENGTH)
         .and_then(|length| length.to_str().ok())
         .and_then(|length| length.parse().ok());
-    let (_consumed, done) = wit_future::new(|| Ok(()));
+    let (consumed, done) = wit_future::new(|| Ok(()));
     let (stream, trailers) = types::Response::consume_body(response, done);
     let body = Body::from_stream(WasdkBody {
         stream,
         trailers: Some(trailers),
         ended: None,
         length,
+        // Held while the body is read, so WASI knows the body is wanted; dropped with the body.
+        _consumed: Some(consumed),
     });
     let mut answer = Response::new(body);
     *answer.status_mut() = status;
@@ -366,6 +371,8 @@ struct WasdkBody {
     /// How the body ended, once it has: its trailers, or why it stopped.
     ended: Option<Result<Option<HeaderMap>, HttpError>>,
     length: Option<u64>,
+    /// The app's word that it is done with the body, which WASI reads: held until the body goes.
+    _consumed: Option<FutureWriter<Result<(), ErrorCode>>>,
 }
 
 impl WasdkBody {
