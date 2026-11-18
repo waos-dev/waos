@@ -71,8 +71,8 @@ jobs:
 
   # Windows and Linux run the engine, the command and the SDK today; the app's shell still waits
   # for the decisions of docs/proposals/2026-11-13-windows-and-linux.md (dmabufs, ConPTY,
-  # DirectComposition), so only the crates that are meant to run there are tested, and of those
-  # only the ones whose code depends on the system (`.github/platform-test-packages.sh`): macOS
+  # DirectComposition), so only the crates that name the system in their `[package.metadata.waos]
+  # systems` are tested, and of those only the ones whose code depends on the system (`.github/platform-test-packages.sh`): macOS
   # runs the others' tests, which no system can change. The workspace still has to lint whole, to
   # catch what is apparent before the real machines arrive; clippy compiles every crate for the
   # system, so it is `cargo check` and more, and there is no check of its own.
@@ -107,7 +107,7 @@ jobs:
         run: |
           # An answer of none must stop the step, which `cargo test $(...)` would not: it would
           # test the workspace's default members.
-          packages=$(.github/platform-test-packages.sh)
+          packages=$(.github/platform-test-packages.sh linux)
           cargo test --no-fail-fast $packages
 
   test-windows:
@@ -133,5 +133,5 @@ jobs:
         run: |
           # An answer of none must stop the step, which `cargo test $(...)` would not: it would
           # test the workspace's default members.
-          packages=$(.github/platform-test-packages.sh)
+          packages=$(.github/platform-test-packages.sh windows)
           cargo test --no-fail-fast $packages
