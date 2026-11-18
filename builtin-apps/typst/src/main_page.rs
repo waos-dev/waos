@@ -8,7 +8,7 @@ use waft::{
     App, BuildContext, ColoredBox, Column, CrossAxisAlignment, Expanded, IntoWidget, LayoutBuilder,
     Row, SizedBox, StatelessWidget, WidgetRef,
 };
-use waft_winui::{Brush, Page, ThemeResources};
+use waft_winui::{Brush, FluentPage, ThemeResources};
 
 use crate::command_bar::CommandBar;
 use crate::documents_app::DocumentsApp;
@@ -37,7 +37,7 @@ impl StatelessWidget for MainPage {
             let only = (constraints.max_width < BOTH_FROM_WIDTH).then_some(side);
             laid_out(app, context, &documents, only)
         });
-        Page::new()
+        FluentPage::new()
             .background(Brush::Solid(background))
             .content(page.into_widget())
             .into_widget()

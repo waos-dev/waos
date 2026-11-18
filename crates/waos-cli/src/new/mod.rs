@@ -298,7 +298,7 @@ waft = "0.6"
             manifest["dependencies"]["wasdk"]["workspace"].as_bool(),
             Some(true)
         );
-        assert_eq!(manifest["dependencies"]["waft-winui"].as_str(), Some("0.7"));
+        assert_eq!(manifest["dependencies"]["waft-winui"].as_str(), Some("0.8"));
         assert!(!created.folder.join("rust-toolchain.toml").exists());
         assert!(workspace_problem(&created.folder).is_none());
         let metadata = MetadataCommand::new()

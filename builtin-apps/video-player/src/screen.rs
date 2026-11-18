@@ -9,7 +9,7 @@ use waft_widgets::{
     BuildContext, Center, IntoWidget, KeyedSubtree, ListenableBuilder, Player, Stack, StackFit,
     StatelessWidget, WidgetRef,
 };
-use waft_winui::{Brush, Page, TextBlockStyle, ThemeResources};
+use waft_winui::{Brush, FluentPage, TextBlockStyle, ThemeResources};
 
 use crate::controls::Controls;
 use crate::keys::BackOnEscape;
@@ -65,7 +65,7 @@ impl StatelessWidget for Screen {
 /// clear of them and of the keyboard.
 fn on_page(app: &mut App, context: BuildContext, content: WidgetRef) -> WidgetRef {
     let background = ThemeResources::of(app, context).solid_background_fill_color_base;
-    Page::new()
+    FluentPage::new()
         .background(Brush::Solid(background))
         .content(content)
         .into_widget()

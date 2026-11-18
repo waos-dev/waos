@@ -23,14 +23,14 @@ view.set_overlay_style(OverlayStyle {
 
 ## With Waft
 
-Nothing to write for the style: Waft works it out after each frame from what its widgets put under each bar, an `AnnotatedRegion<SystemUiOverlayStyle>`, as Cupertino's navigation bar puts one, and says it on the view. The bars and the keyboard are `MediaQuery`'s `padding` and `view_insets`, as in Flutter, which `SafeArea` keeps clear of. In WinUI's kit a window's content goes on a `Page`, which paints its background under the bars and keeps its content clear of them and of the keyboard; with `extends_content_into_system_bars(true)` its content runs under the bars too and keeps its own controls clear, as a `NavigationView` does.
+Nothing to write for the style: Waft works it out after each frame from what its widgets put under each bar, an `AnnotatedRegion<SystemUiOverlayStyle>`, as Cupertino's navigation bar puts one, and says it on the view. The bars and the keyboard are `MediaQuery`'s `padding` and `view_insets`, as in Flutter, which `SafeArea` keeps clear of. In WinUI's kit a window's content goes on a `FluentPage`, which paints its background under the bars and keeps its content clear of them and of the keyboard; with `extends_content_into_system_bars(true)` its content runs under the bars too and keeps its own controls clear, as a `NavigationView` does.
 
 ```rust
-waft_winui::Page::new()
+waft_winui::FluentPage::new()
     .background(Brush::Solid(resources.solid_background_fill_color_base))
     .content(home)
 ```
-> `waft` has a `Page` of its own, the `Navigator`'s, so with both `use waft::*` and `use waft_winui::*` a bare `Page` is ambiguous: name WinUI's as `waft_winui::Page`.
+> `FluentPage` is WinUI's; `waft`'s `Page` is the `Navigator`'s, so a bare `Page` beside `use waft::*` is that one.
 
 ## Where it's missing
 

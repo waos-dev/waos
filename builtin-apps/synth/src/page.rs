@@ -1,4 +1,4 @@
-//! The app's one page, on Fluent's `Page`, clear of a phone's bars: the preset, the sustain switch and the octave above the scope, the tone's sliders under it,
+//! The app's one page, on Fluent's `FluentPage`, clear of a phone's bars: the preset, the sustain switch and the octave above the scope, the tone's sliders under it,
 //! and the keyboard along the bottom. At a phone's
 //! width the sliders stand one under another and the keyboard is lower.
 
@@ -54,7 +54,7 @@ impl StatelessWidget for Page {
             let narrow = constraints.max_width < WIDEST_NARROW;
             laid_out(&instrument, &resources, narrow)
         });
-        waft_winui::Page::new()
+        waft_winui::FluentPage::new()
             .background(Brush::Solid(background))
             .content(parts.into_widget())
             .into_widget()

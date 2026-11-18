@@ -7,18 +7,24 @@
 //! rules, which a browser's client and so Waft's on the web follow: a redirect with a location is
 //! sent again at that URI, resolved against the request's, up to the limit. A 303 of anything but
 //! a `GET` or a `HEAD`, and a 301 or a 302 of a `POST`, become a `GET` without the body and its
-//! headers; every other redirect keeps the method and the body, which a body already streamed
-//! cannot do, so it fails unless the body was empty. A redirect to another origin drops the
-//! credentials the request carried.
+//! headers; every other redirect keeps the method and the body, which is sent again only when
+//! [`Body::try_clone`] answered `Some` before the first hop, since a stream already read cannot be
+//! read again. A redirect whose body cannot be sent again is answered to the app, as Waft's
+//! `RedirectPolicy::Follow` says. A redirect to another origin drops the credentials the request
+//! carried.
+//!
+//! A request body's trailers go to WASI's outgoing trailers future once its bytes have ended, read
+//! through [`Body::trailers`]; a response's trailers are read from WASI's future once its body has
+//! ended, and asking again answers the same fields. HTTP/1.1 sends a chunked request's trailers
+//! only when its header names them in `Trailer`, so a request whose body carries them sets that
+//! header, as the test program does.
 //!
 //! The invariant a later editor will break: never await the transmission future `Request::new`
 //! answers, nor write or await the trailers future, before `client::send`: both report on a send
 //! that has not begun, and waiting for them waits forever. The body's task writes the trailers
 //! once the body has ended, which the host reads only as it sends.
 
-use std::cell::Cell;
 use std::fmt;
-use std::rc::Rc;
 use std::time::Duration;
 
 use http::header::{self, HeaderName, HeaderValue, LOCATION};
@@ -46,9 +52,6 @@ impl HttpClient for WasdkHttp {
     }
 }
 
-/// How many bytes a request's body carried, once its task has streamed all of it.
-type Streamed = Rc<Cell<Option<u64>>>;
-
 /// The headers that describe a body, which a redirect that drops the body drops with it: fetch's
 /// request-body headers and the length.
 const BODY_HEADERS: [HeaderName; 5] = [
@@ -74,7 +77,13 @@ async fn send(request: Request<Body>, options: SendOptions) -> Result<Response<B
     let (mut method, mut uri, mut headers) = (parts.method, parts.uri, parts.headers);
     let mut followed = 0;
     loop {
-        let (response, streamed) = send_once(&method, &uri, &headers, body, &options).await?;
+        // A redirect that keeps the method sends the body again, which only a body held in memory
+        // can do: keep that copy before this hop streams the body away.
+        let resend = match options.redirects {
+            RedirectPolicy::Follow { .. } => body.try_clone(),
+            RedirectPolicy::Never => None,
+        };
+        let response = send_once(&method, &uri, &headers, body, &options).await?;
         let Some(location) = redirect(&response) else {
             return Ok(response);
         };
@@ -85,37 +94,58 @@ async fn send(request: Request<Body>, options: SendOptions) -> Result<Response<B
         if followed >= max {
             return Err(HttpError::TooManyRedirects);
         }
+        let Some(next) = next_hop(response.status(), &method, resend) else {
+            return Ok(response);
+        };
         let target = location_target(&uri, &location)?;
-        let status = response.status();
         drop(response);
-        body = match redirected(status, &method) {
-            Redirected::AsGet => {
+        if !same_origin(&uri, &target) {
+            drop_headers(&mut headers, &CREDENTIAL_HEADERS);
+        }
+        body = match next {
+            Next::AsGet => {
                 method = Method::GET;
                 drop_headers(&mut headers, &BODY_HEADERS);
                 Body::empty()
             }
-            Redirected::Same => replayed(streamed.get())?,
+            Next::Same(resend) => resend,
         };
-        if !same_origin(&uri, &target) {
-            drop_headers(&mut headers, &CREDENTIAL_HEADERS);
-        }
         uri = target;
         followed += 1;
     }
 }
 
-/// Sends one hop of a request, its body streamed, and answers the response with its body and how
-/// much of the request's body was streamed.
+/// What the next hop of a followed redirect sends.
+#[derive(Debug)]
+enum Next {
+    /// A `GET` without the body.
+    AsGet,
+    /// The same method and this body.
+    Same(Body),
+}
+
+/// What the hop after a redirect of `status` sends, from `resend`, the copy of the body kept to
+/// send again: `None` where the body cannot be sent again, so the redirect is the app's to answer.
+fn next_hop(status: StatusCode, method: &Method, resend: Option<Body>) -> Option<Next> {
+    match redirected(status, method) {
+        Redirected::AsGet => Some(Next::AsGet),
+        Redirected::Same => resend.map(Next::Same),
+    }
+}
+
+/// Sends one hop of a request, its body streamed, and answers the response with its body.
 async fn send_once(
     method: &Method,
     uri: &Uri,
     headers: &HeaderMap,
     body: Body,
     options: &SendOptions,
-) -> Result<(Response<Body>, Streamed), HttpError> {
+) -> Result<Response<Body>, HttpError> {
     let fields = fields_of(headers)?;
+    // RFC 9110 §8.6: no `Content-Length: 0` on a request that carries no content.
     if !headers.contains_key(header::CONTENT_LENGTH)
         && let Some(length) = body.length()
+        && !(length == 0 && method == Method::GET)
     {
         fields
             .append(
@@ -124,7 +154,7 @@ async fn send_once(
             )
             .map_err(header_error)?;
     }
-    let (contents, trailers, streamed) = contents_of(body);
+    let (contents, trailers) = contents_of(body);
     let (request, _sent) = WitRequest::new(
         fields,
         Some(contents),
@@ -134,7 +164,7 @@ async fn send_once(
     set_method(&request, method)?;
     set_uri(&request, uri)?;
     let response = client::send(request).await.map_err(http_error)?;
-    Ok((response_of(response)?, streamed))
+    response_of(response)
 }
 
 /// What a redirect does to a request's method and body.
@@ -155,17 +185,6 @@ fn redirected(status: StatusCode, method: &Method) -> Redirected {
         303 if !get_or_head => Redirected::AsGet,
         301 | 302 if method == Method::POST => Redirected::AsGet,
         _ => Redirected::Same,
-    }
-}
-
-/// The body a redirect that keeps it sends again: none where the body was empty, and a failure
-/// where it carried bytes, or had not ended, since a stream already read cannot be read again.
-fn replayed(streamed: Option<u64>) -> Result<Body, HttpError> {
-    match streamed {
-        Some(0) => Ok(Body::empty()),
-        _ => Err(HttpError::Internal(Some(
-            "a redirect asks for the request's body again, which was streamed".to_owned(),
-        ))),
     }
 }
 
@@ -297,54 +316,63 @@ fn header_error(error: impl fmt::Display) -> HttpError {
 type TrailersReader = FutureReader<Result<Option<Trailers>, ErrorCode>>;
 
 /// The body of a request as WASI's stream and trailers, which a task writes from Waft's body as it
-/// reads it, and how many bytes it carried once the task has streamed all of it.
-fn contents_of(body: Body) -> (StreamReader<u8>, TrailersReader, Streamed) {
+/// reads it.
+fn contents_of(body: Body) -> (StreamReader<u8>, TrailersReader) {
     let (contents, reader) = wit_stream::new::<u8>();
     let (trailers, trailers_reader) = wit_future::new(|| Ok(None));
-    let streamed = Streamed::default();
-    wasdk::spawn(stream_body(body, contents, trailers, Rc::clone(&streamed)));
-    (reader, trailers_reader, streamed)
+    wasdk::spawn(stream_body(body, contents, trailers));
+    (reader, trailers_reader)
 }
 
-/// Streams `body` into `contents`, then ends it: the stream closed and the trailers written, none
-/// once the whole body went, or the body's failure, which has the host abort the request rather
-/// than send a body cut short as if whole.
+/// Streams `body` into `contents`, then ends it: the stream closed and the trailers written, the
+/// body's own once its bytes have ended, or the body's failure, which has the host abort the
+/// request rather than send a body cut short as if whole.
 async fn stream_body(
     mut body: Body,
     mut contents: StreamWriter<u8>,
     trailers: FutureWriter<Result<Option<Trailers>, ErrorCode>>,
-    streamed: Streamed,
 ) {
     let written = write_contents(&mut body, &mut contents).await;
     drop(contents);
     let ending = match written {
-        Ok(length) => {
-            streamed.set(Some(length));
-            Ok(None)
-        }
+        Ok(()) => match body.trailers().await {
+            Ok(trailers) => sent_trailers(trailers),
+            Err(error) => Err(ErrorCode::InternalError(Some(format!(
+                "the request body's trailers: {error}"
+            )))),
+        },
         Err(error) => Err(ErrorCode::InternalError(Some(error))),
     };
     // The host reads the trailers only once it has sent the body, and is gone if it stopped.
     let _ = trailers.write(ending).await;
 }
 
-/// Writes all of `body` into `contents`, answering how many bytes it carried, or why it stopped.
-async fn write_contents(body: &mut Body, contents: &mut StreamWriter<u8>) -> Result<u64, String> {
+/// Writes all of `body` into `contents`, or says why it stopped.
+async fn write_contents(body: &mut Body, contents: &mut StreamWriter<u8>) -> Result<(), String> {
     let mut chunk = vec![0; 64 * 1024];
-    let mut length = 0;
     loop {
         let read = body
             .read(&mut chunk)
             .await
             .map_err(|error| format!("the request body failed: {error}"))?;
         if read == 0 {
-            return Ok(length);
+            return Ok(());
         }
         if !contents.write_all(chunk[..read].to_vec()).await.is_empty() {
             return Err("the host stopped reading the request body".to_owned());
         }
-        length += read as u64;
     }
+}
+
+/// A request body's trailers as WASI's, or the failure that aborts the request.
+fn sent_trailers(trailers: Option<HeaderMap>) -> Result<Option<Trailers>, ErrorCode> {
+    trailers
+        .map(|trailers| {
+            fields_of(&trailers).map_err(|error| {
+                ErrorCode::InternalError(Some(format!("the request body's trailers: {error}")))
+            })
+        })
+        .transpose()
 }
 
 /// WASI's request options for `options`, each timeout set only where `options` has one, so that
@@ -625,16 +653,50 @@ mod tests {
         );
     }
 
+    /// A body that streams, so it cannot be sent again: the copy a redirect that keeps the body
+    /// needs.
+    struct Stream;
+
+    impl BodyStream for Stream {
+        fn read<'a>(&'a mut self, _buf: &'a mut [u8]) -> BodyReadFuture<'a> {
+            Box::pin(std::future::ready(Ok(0)))
+        }
+
+        fn trailers(&mut self) -> BodyTrailersFuture<'_> {
+            Box::pin(std::future::ready(Ok(None)))
+        }
+
+        fn length(&self) -> Option<u64> {
+            None
+        }
+    }
+
     #[test]
-    fn a_body_is_sent_again_only_where_it_was_empty() {
-        assert!(replayed(Some(0)).is_ok());
+    fn a_redirect_that_keeps_the_body_needs_one_held_in_memory() {
+        let held = Body::from(b"a body".to_vec());
+        assert!(matches!(
+            next_hop(
+                StatusCode::TEMPORARY_REDIRECT,
+                &Method::POST,
+                held.try_clone()
+            ),
+            Some(Next::Same(_))
+        ));
         assert!(
-            replayed(Some(5)).is_err(),
-            "a body read cannot be read again"
+            next_hop(
+                StatusCode::PERMANENT_REDIRECT,
+                &Method::POST,
+                Body::from_stream(Stream).try_clone()
+            )
+            .is_none(),
+            "a streamed body is gone, so the redirect is the app's"
         );
         assert!(
-            replayed(None).is_err(),
-            "a body not yet ended cannot be read again"
+            matches!(
+                next_hop(StatusCode::SEE_OTHER, &Method::POST, None),
+                Some(Next::AsGet)
+            ),
+            "a GET needs no body"
         );
     }
 
