@@ -1,0 +1,18 @@
+---
+title: Testing
+description: Test the logic and the state with cargo test, and see the app with cargo waos.
+---
+The logic and state layers ([Waft](/docs/waft#logic-state-and-ui)) are tested with `cargo test` on this computer, with no display: the logic as plain Rust, and the state under an `AppCell`, which holds an `App`. `cell.checkpoint()` runs the tasks and posts that are ready, and `cell.elapse(duration)` moves the app's clock on, firing the timers that come due and running what they start:
+
+```rust
+#[test]
+fn a_timer_adds_one() {
+    let cell = AppCell::new();
+    let tally = cell.borrow_mut().new_entity(|_cx| Tally::default());
+    let adding = tally.clone();
+    Timer::new(&mut cell.borrow_mut(), Duration::from_secs(3), Listener::new(move |app| adding.update(app, |tally, _cx| tally.add())));
+    cell.elapse(Duration::from_secs(3));
+    assert_eq!(tally.read(&cell.borrow()).count, 1);
+}
+```
+To see the app itself, `cargo waos run` it, and use it with `cargo waos screenshot`, the input commands and `cargo waos resize` ([The tools](/docs/tools)).

@@ -29,6 +29,8 @@ A session gives two turns, as Apple's rotation coordinator does: the preview's, 
 ## With Waft
 
 ```rust
+use waft::ui::CameraOutputs;
+
 let listing = available_cameras(app);
 app.spawn(async move |cx| {
     let Some(camera) = listing.await.into_iter().next() else { return };

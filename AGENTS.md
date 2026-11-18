@@ -60,4 +60,5 @@ Neighbouring repositories:
 
 - Commit each finished, checked step on a branch of its own, adding only the paths it changed, once its design has been settled with the lead, and open a pull request for the lead to merge; never push to `main`.
 - When a change does not fit the code's shape, reshape the code first, in a commit of its own, then make the change.
+- An API or mechanism agents use often explains itself in its docs and its shape. When an agent has to read source to use one, that is a bug to fix, in the docs or in the API; finding and fixing such bugs is ongoing work.
 - A design decision that matters goes to the lead, with the options and a recommendation. An implementation question with a measurable answer goes to an experiment under the maintainers' experiments folder (`../experiments/<date>-<question>/`), self-contained, with a README of the question, the commands, the numbers and the conclusion.

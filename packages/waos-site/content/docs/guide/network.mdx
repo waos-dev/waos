@@ -7,19 +7,46 @@ The network as WASI gives it: an HTTP client, `wasdk::http`, WASI 0.3's, whose r
 
 ## With wasdk
 
-```rust
-// wasdk::http: a request, sent and awaited; its body read as a stream
-let (_no_trailers, trailers) = wit_future::new(|| Ok(None));
-let (request, sent) = Request::new(Fields::new(), None, trailers, None);
-request.set_scheme(Some(&Scheme::Https)).unwrap();
-request.set_authority(Some("example.com")).unwrap();
-request.set_path_with_query(Some("/")).unwrap();
-let response = client::send(request).await?;
-let _ = sent.await; // the request has gone; drop `sent` instead to follow nothing
-let (_done, read) = wit_future::new(|| Ok(()));
-let (body, _trailers) = Response::consume_body(response, read);
-let page = body.collect().await;
+A GET, its status, a header and its body:
 
+```rust
+use wasdk::http::client;
+use wasdk::http::types::{ErrorCode, Fields, Request, Response, Scheme};
+use wasdk::wit_future;
+
+/// Asks `host` for `path` over HTTPS: the status, the content type, and the body.
+async fn get(host: &str, path: &str) -> Result<(u16, Option<String>, Vec<u8>), ErrorCode> {
+    let headers = Fields::new();
+    headers.append("accept", b"application/json").unwrap();
+    // The request sends no trailers: the future answers Ok(None) once its writer is dropped.
+    let (_, no_trailers) = wit_future::new(|| Ok(None));
+    // `_sent` resolves once the request has gone, which is after `send`: never await it first.
+    let (request, _sent) = Request::new(headers, None, no_trailers, None);
+    request.set_scheme(Some(&Scheme::Https)).unwrap();
+    request.set_authority(Some(host)).unwrap();
+    request.set_path_with_query(Some(path)).unwrap();
+
+    let response = client::send(request).await?;
+    let status = response.get_status_code();
+    let content_type = response.get_headers().get("content-type").into_iter().next();
+    let content_type = content_type.map(|value| String::from_utf8_lossy(&value).into_owned());
+    let (_, read) = wit_future::new(|| Ok(()));
+    let (body, trailers) = Response::consume_body(response, read);
+    let bytes = body.collect().await;
+    // The body came whole, or the server broke off.
+    trailers.await?;
+    Ok((status, content_type, bytes))
+}
+```
+> Neither future of `Request::new` is the request's answer: `_sent` resolves only after `client::send` has sent the request, and the trailers' writer is never written, only dropped. Awaiting or writing either one first waits forever, with no error.
+
+> This is `wasi:http` 0.3. `outgoing_handler`, `OutgoingRequest`, `IncomingBody` and the `0.2` names are WASI 0.2's, and are not in `wasdk`: a request is `Request::new`, sent with `client::send`, and its body is `Response::consume_body`'s stream.
+
+A request whose future is dropped before it resolves is cancelled, its connection closed; to give up after a time, race `client::send` against `monotonic_clock::wait_for`. A body the program sends is a stream it writes, as `wit_stream::new` makes one; once a write comes back with something unwritten, the server is no longer reading, and a further write traps.
+
+Sockets, awaited through `wasdk::sockets`, or blocking through `std::net`:
+
+```rust
 // wasdk::sockets: a connection, awaited
 let socket = TcpSocket::create(IpAddressFamily::Ipv4)?;
 socket.connect(address).await?;
@@ -29,13 +56,21 @@ let (mut received, _) = socket.receive();
 let mut stream = TcpStream::connect(("example.com", 80))?;
 ```
 
-`Request::new` answers the request and a future of its transmission, and takes a future of its trailers. Both report on a request in flight, so neither completes before `client::send` sends it: the transmission future resolves once the request, body and all, has gone, and the host reads the trailers future only as it sends. Send first and await the transmission after, or drop it where nothing follows the transmission; a request with no body leaves its trailers future at `wit_future::new`'s default, its writer dropped, and never writes it. Awaiting the transmission, or writing and awaiting the trailers, before `send` waits for a send that has not begun: it hangs, with no error.
-
-A request whose future is dropped before it resolves is cancelled, its connection closed; to give up after a time, race `client::send` against `monotonic_clock::wait_for`. A body the program sends is a stream it writes, as `wit_stream::new` makes one; once a write comes back with something unwritten, the server is no longer reading, and a further write traps.
-
 ## With Waft
 
-Waft has no API for the network; use `wasdk::http` or `wasdk::sockets` from a task, as above, so the window keeps drawing while a request is out.
+Make the request from a task, so the window goes on drawing while it is out, and hand the answer to an entity:
+
+```rust
+let forecast = self.forecast.clone();
+app.spawn(async move |cx| {
+    let answer = get("api.example.com", "/forecast").await;
+    cx.update(|app| forecast.update(app, |forecast, cx| {
+        forecast.answer = Some(answer.map(|(_, _, body)| body));
+        cx.notify();
+    }));
+});
+```
+Waft has an HTTP client of its own, `app.platform().http()`, which WaOS does not serve yet; once it does, Waft apps will use it, and `NetworkImage` with it.
 
 ## Where it's missing
 

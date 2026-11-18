@@ -10,7 +10,8 @@
     "check": "next typegen && tsc --noEmit",
     "test": "node tests/smoke.mjs",
     "reference": "node scripts/write-reference.mjs",
-    "icons": "node scripts/write-app-icons.mjs"
+    "icons": "node scripts/write-app-icons.mjs",
+    "docs-bundle": "node scripts/write-docs-bundle.mjs"
   },
   "dependencies": {
     "fumadocs-core": "^16.14.4",
