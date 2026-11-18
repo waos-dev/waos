@@ -2,8 +2,7 @@
 //! settings page's rows (`setting_changes`), each by the key `waos-dev-protocol` names it with, a
 //! set made as the page makes the same change, so the command and the page are one rule. A set
 //! answer is the program's setting, used by every run of it, installed or not (decision 11 of the
-//! permissions proposal), and a set made while the program waits for that question answers it now
-//! (`asking_now`).
+//! permissions proposal).
 //!
 //! The invariant: only a program a run of `cargo waos run` on this machine runs or has run, whose
 //! component one sent is among the components kept (`sent_components`), or one the store does not
@@ -13,14 +12,13 @@
 use std::sync::Arc;
 
 use waos_dev_protocol::{
-    ASK, AUDIO_OUTPUT, Answer, Asked, Connection, FileDialog, FromWaOS, LINK_SCHEME, MACHINE,
-    Offered, Question, Role, Row, SIMULATED_MICROPHONE, ServerStream, SettingRow, SimulatedSound,
-    Switch, Unreached,
+    ASK, AUDIO_OUTPUT, Answer, Connection, FileDialog, FromWaOS, LINK_SCHEME, MACHINE, Offered,
+    Question, Role, Row, SIMULATED_MICROPHONE, ServerStream, SettingRow, SimulatedSound, Switch,
+    Unreached,
 };
 use waos_package::ProgramId;
 use waos_store::{ProgramSettings, Store, StoreError};
 
-use super::asking_now::AskingNow;
 use super::environments::ProgramEnvironments;
 use super::runs::Runs;
 use super::sent_components::SentComponents;
@@ -34,33 +32,28 @@ pub(crate) struct SettingsContext {
     pub(crate) components: Arc<SentComponents>,
     pub(crate) store: Store,
     pub(crate) environments: Arc<ProgramEnvironments>,
-    /// Where a setting made while a question waits answers it.
-    pub(crate) asking: Arc<AskingNow>,
 }
 
-/// Answers a connection's `Settings`, with `set` none, its `Set`, or its `Cancel` of the question
-/// `cancel` names: the rows of the program `id`'s settings, after the change where one is.
+/// Answers a connection's `Settings`, with `set` none, or its `Set`: the rows of the program
+/// `id`'s settings, after the change where one is.
 pub(crate) async fn answer(
     mut connection: Connection<ServerStream>,
     context: &SettingsContext,
     id: &ProgramId,
     set: Option<Row>,
-    cancel: Option<Asked>,
 ) {
-    let answer = rows_after(context, id, set, cancel)
+    let answer = rows_after(context, id, set)
         .await
         .unwrap_or_else(|answer| answer);
     // A client gone meanwhile has nobody to tell.
     let _ = connection.send(&answer).await;
 }
 
-/// The rows of the program `id`'s settings after `set` or the cancel of a question, or what
-/// refuses it.
+/// The rows of the program `id`'s settings after `set`, or what refuses it.
 async fn rows_after(
     context: &SettingsContext,
     id: &ProgramId,
     set: Option<Row>,
-    cancel: Option<Asked>,
 ) -> Result<FromWaOS, FromWaOS> {
     if !is_a_development_program(context, id).await {
         return Err(FromWaOS::Unreached(Unreached::NeverRunByCargoWaos));
@@ -73,12 +66,7 @@ async fn rows_after(
     if let Some(row) = set {
         let change = change_of(row, &offered).map_err(FromWaOS::Refused)?;
         tracing::info!(%id, ?change, "cargo waos sets a program's setting");
-        set_program(&context.store, id, change.clone()).map_err(FromWaOS::Refused)?;
-        context.asking.answer(id.as_str(), change);
-    }
-    if let Some(asked) = cancel {
-        tracing::info!(%id, ?asked, "cargo waos cancels a question waiting");
-        context.asking.cancel(id.as_str(), asked);
+        set_program(&context.store, id, change).map_err(FromWaOS::Refused)?;
     }
     let global = context.store.global_settings().map_err(refused)?;
     let own = match context.store.program_settings(id) {

@@ -96,15 +96,6 @@ pub(crate) enum Reply {
 }
 
 impl Asking {
-    /// What is asked, as a run of `cargo waos run` is told it is asked.
-    pub(crate) fn asked_now(&self) -> AskedNow {
-        match self {
-            Asking::Question { question, .. } => question.asked_now(),
-            Asking::Output { .. } => AskedNow::AudioOutput,
-            Asking::Machine { .. } => AskedNow::Machine,
-        }
-    }
-
     /// Sends `reply` to the program, or none when the user gave none, or a reply of the other
     /// kind. A program gone meanwhile hears nothing.
     pub(crate) fn reply(self, reply: Option<Reply>) {

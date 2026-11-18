@@ -204,7 +204,6 @@ fn connection_context(context: &ServerContext) -> ConnectionContext {
             components: Arc::clone(&context.components),
             store: context.store.clone(),
             environments: Arc::clone(&context.installed.environments),
-            asking: Arc::clone(&context.asking),
         },
     }
 }
@@ -240,13 +239,10 @@ async fn serve_connection(mut connection: Connection<ServerStream>, context: Con
             dev_input::answer(connection, runs, asking, &id, window, input).await;
         }
         Ok(Some(ToWaOS::Settings { id })) => {
-            dev_settings::answer(connection, &context.settings, &id, None, None).await;
+            dev_settings::answer(connection, &context.settings, &id, None).await;
         }
         Ok(Some(ToWaOS::Set { id, row })) => {
-            dev_settings::answer(connection, &context.settings, &id, Some(row), None).await;
-        }
-        Ok(Some(ToWaOS::Cancel { id, asked })) => {
-            dev_settings::answer(connection, &context.settings, &id, None, Some(asked)).await;
+            dev_settings::answer(connection, &context.settings, &id, Some(row)).await;
         }
         Ok(Some(ToWaOS::Inspect { id, asked })) => {
             let inspection = InspectionContext {

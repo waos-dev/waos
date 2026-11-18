@@ -160,8 +160,7 @@ impl LibraryDesktop {
         let runs = Arc::new(Runs::default());
         let store = Store::open(&folder.path().join("store"), SourceProxy::None).expect("a store");
         let (placement, requests) = WindowsOnRequest::new(ProgramFaces::new(store.clone(), None));
-        let asking = crate::logic::asking_now::AskingNow::new();
-        let (prompts, prompted) = PromptsOnRequest::new(Arc::clone(&asking));
+        let (prompts, prompted) = PromptsOnRequest::new(crate::logic::asking_now::AskingNow::new());
         let output_picker = Arc::new(prompts.output_picker());
         let machine_picker = Arc::new(prompts.machine_picker());
         let (recording_indicator, recording_changes) = RecordingIndicatorOnRequest::new();
@@ -196,7 +195,6 @@ impl LibraryDesktop {
             Questions::listen(
                 app,
                 prompted.questions,
-                asking.answers(),
                 prompt_windows.clone(),
                 store.clone(),
             );

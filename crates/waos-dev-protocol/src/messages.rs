@@ -58,10 +58,8 @@ pub enum ToWaOS {
     /// connection ends.
     Settings { id: ProgramId },
     /// Sets `row` among the settings of the program `id` names, as its user would on its settings
-    /// page, for the same programs, and answers a question of that row waiting now, as its user
-    /// would in the prompt: a file dialog waiting is answered with the row's paths. Answered
-    /// `Settings`, the rows after the change, `Refused` with why the row's value names nothing now,
-    /// or `Unreached`, after which the connection ends.
+    /// page, for the same programs. Answered `Settings`, the rows after the change, `Refused` with
+    /// why the row's value names nothing now, or `Unreached`, after which the connection ends.
     Set { id: ProgramId, row: Row },
     /// Sizes the window numbered `window` of the program `id` names, as `Input` numbers it, so the
     /// view in it is `width` by `height` logical points, its top-left where it is: as the
@@ -80,11 +78,6 @@ pub enum ToWaOS {
     /// each change; and for a trace with each event as it comes; the last two until the
     /// connection closes or the program ends; or `Unreached`.
     Inspect { id: ProgramId, asked: Inspection },
-    /// Answers no question of the program `id` waiting now, as its user would cancel the prompt or
-    /// dialog: `asked` names it, a question, a link scheme, a picker or a file dialog, and the
-    /// question is left as it was, so a program asks it again at its next use. Answered `Settings`,
-    /// the rows as they are, or `Unreached`, after which the connection ends.
-    Cancel { id: ProgramId, asked: Asked },
 }
 
 /// What an inspection asks of a program.
@@ -337,11 +330,6 @@ impl fmt::Debug for ToWaOS {
                 .field("id", &format_args!("{id}"))
                 .field("row", row)
                 .finish(),
-            ToWaOS::Cancel { id, asked } => f
-                .debug_struct("Cancel")
-                .field("id", &format_args!("{id}"))
-                .field("asked", asked)
-                .finish(),
             ToWaOS::Resize {
                 id,
                 window,
@@ -518,20 +506,6 @@ mod tests {
             format!("{run:?}"),
             "Run { id: dev.example.triangle, component: 1024 bytes, variables: [\"RUST_LOG\", \"API_TOKEN\"] }",
             "a variable's value may be a secret, so only its name is said"
-        );
-    }
-
-    #[test]
-    fn a_cancel_reads_back_as_written_and_prints_what_it_cancels() {
-        let cancel = ToWaOS::Cancel {
-            id: "dev.example.notes".parse().unwrap(),
-            asked: Asked::LinkScheme("zoommtg".into()),
-        };
-        let encoded = postcard::to_allocvec(&cancel).unwrap();
-        assert_eq!(postcard::from_bytes::<ToWaOS>(&encoded).unwrap(), cancel);
-        assert_eq!(
-            format!("{cancel:?}"),
-            "Cancel { id: dev.example.notes, asked: LinkScheme(\"zoommtg\") }"
         );
     }
 

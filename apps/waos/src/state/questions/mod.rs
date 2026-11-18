@@ -17,18 +17,14 @@ use std::rc::Rc;
 
 use futures::StreamExt;
 use futures::channel::mpsc::UnboundedReceiver;
-use tokio::sync::broadcast;
-use tokio::sync::broadcast::error::RecvError;
 use waft::{App, Context, Entity, IntoWidget, WeakEntity};
 use waos::RunningProgram;
 use waos_program_window::{PromptPlacement, PromptWindows, ShownPrompt};
 use waos_store::Store;
 
-use crate::logic::asking_now::AnswerNow;
 use crate::logic::program_faces::ProgramFaces;
 use crate::logic::program_name::program_name;
 use crate::logic::prompts::{Asked, Asking, Reply};
-use crate::logic::setting_answers;
 use crate::state::ViewWindows;
 use crate::ui::question_sheet::QuestionSheet;
 
@@ -54,12 +50,11 @@ pub(crate) struct Pending {
 
 impl Questions {
     /// The questions, which take each one arriving on `asked` for as long as questions can
-    /// arrive, each program's prompt shown by `placement`, and each answered now when a setting
-    /// arrives on `answers`; an installed program's name is read from `store`.
+    /// arrive, each program's prompt shown by `placement`; an installed program's name is read
+    /// from `store`.
     pub(crate) fn listen(
         app: &mut App,
         asked: UnboundedReceiver<Asked>,
-        answers: broadcast::Receiver<AnswerNow>,
         placement: Rc<dyn PromptPlacement>,
         store: Store,
     ) {
@@ -69,8 +64,7 @@ impl Questions {
             shown: Vec::new(),
             store,
         });
-        take_questions(app, questions.clone(), asked);
-        take_answers(app, questions.downgrade(), answers);
+        take_questions(app, questions, asked);
     }
 
     /// The question `program`'s user is asked now: its first one waiting.
@@ -88,37 +82,6 @@ impl Questions {
         cx: &mut Context<Questions>,
     ) {
         self.take_first_of(program, reply, cx);
-    }
-
-    /// A setting made while a question waits answers that question, as its user would in the
-    /// prompt; a cancelled one, or one set back to ask, is left waiting.
-    fn answer_now(&mut self, answer: AnswerNow, cx: &mut Context<Questions>) {
-        let (program, asked, reply) = match answer {
-            AnswerNow::Set { program, change } => {
-                let Some((asked, reply)) = setting_answers::question(&change) else {
-                    return;
-                };
-                (program, asked, Some(reply))
-            }
-            AnswerNow::Cancel { program, asked } => (program, asked, None),
-        };
-        let Some(index) = self.asked.iter().position(|pending| {
-            pending.program.name() == program && pending.asking.asked_now() == asked
-        }) else {
-            return;
-        };
-        let pending = self.asked.remove(index);
-        tracing::info!(program, ?asked, ?reply, "answered by a setting");
-        pending.asking.reply(reply);
-        if self
-            .asked
-            .iter()
-            .all(|pending| pending.program.name() != program)
-        {
-            self.shown
-                .retain(|(shown_for, _)| shown_for.name() != program);
-        }
-        cx.notify();
     }
 
     /// A question arrived: it waits its turn in its program's prompt, shown now if the program
@@ -203,30 +166,6 @@ fn take_questions(
                 questions.update(app, |questions, cx| questions.arrived(question, cx));
                 close_when_ended(app, &program, questions.downgrade());
             });
-        }
-    });
-}
-
-/// One task answers the questions settings made while they wait, on the main thread.
-fn take_answers(
-    app: &mut App,
-    questions: WeakEntity<Questions>,
-    mut answers: broadcast::Receiver<AnswerNow>,
-) {
-    app.spawn(async move |cx| {
-        loop {
-            match answers.recv().await {
-                Ok(answer) => {
-                    let Some(questions) = questions.upgrade() else {
-                        return;
-                    };
-                    cx.update(|app| {
-                        questions.update(app, |questions, cx| questions.answer_now(answer, cx));
-                    });
-                }
-                Err(RecvError::Lagged(_)) => continue,
-                Err(RecvError::Closed) => return,
-            }
         }
     });
 }

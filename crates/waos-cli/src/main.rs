@@ -190,10 +190,6 @@ enum Command {
     /// A path is made whole against this directory, and must be one the dialog could have
     /// chosen: a file to open that exists, a folder that exists, a file to save in a folder that
     /// exists. A machine or an output is named by its id, as `cargo waos settings` lists them.
-    ///
-    /// A row set while the program waits for that question answers it at once, as its user would
-    /// in the prompt or the file dialog; --cancel leaves it unanswered, as cancelling the prompt
-    /// does, and changes no setting.
     Set(SetArgs),
     /// Prints what WaOS knows of what the program does with what it was allowed, as JSON lines of
     /// wasdk:inspect's values, one value a line: `summary`, its audit summary, a day a line,
@@ -240,12 +236,8 @@ struct SetArgs {
     #[command(flatten)]
     program: Program,
     /// The row, then its value: `camera allow`, `save-file /tmp/out.pdf`, `machine ask`.
-    #[arg(required = true, num_args = 1..)]
+    #[arg(required = true, num_args = 2..)]
     row: Vec<String>,
-    /// Leaves the question that row names, waiting now, unanswered, as cancelling its prompt
-    /// does; no setting changes.
-    #[arg(long)]
-    cancel: bool,
 }
 
 /// What a new program is called, and the widget kit it starts with.
@@ -440,8 +432,9 @@ fn main() -> ExitCode {
         Command::Settings(program) => {
             program_id(&program).and_then(|id| on_this_thread(settings::show(id)))
         }
-        Command::Set(set) => program_id(&set.program)
-            .and_then(|id| on_this_thread(settings::set(id, &set.row, set.cancel))),
+        Command::Set(set) => {
+            program_id(&set.program).and_then(|id| on_this_thread(settings::set(id, &set.row)))
+        }
         Command::Inspect(inspect) => inspect::inspection_of(&inspect.what, inspect.days)
             .and_then(|asked| Ok((program_id(&inspect.program)?, asked)))
             .and_then(|(id, asked)| on_this_thread(inspect::inspect(id, asked))),
@@ -718,22 +711,17 @@ mod tests {
     }
 
     #[test]
-    fn a_set_names_its_row_then_its_value_or_values_or_cancels_the_row() {
+    fn a_set_names_its_row_then_its_value_or_values() {
         let Command::Set(set) = parsed(&["set", "camera", "allow"]) else {
             panic!("a set");
         };
         assert_eq!(set.row, ["camera", "allow"]);
-        assert!(!set.cancel);
         let Command::Set(set) = parsed(&["set", "open-files", "/a", "/b", "-p", "notes"]) else {
             panic!("a set");
         };
         assert_eq!(set.row, ["open-files", "/a", "/b"]);
         assert_eq!(set.program.package.as_deref(), Some("notes"));
-        let Command::Set(set) = parsed(&["set", "camera", "--cancel"]) else {
-            panic!("a set");
-        };
-        assert_eq!(set.row, ["camera"]);
-        assert!(set.cancel);
+        assert!(refused(&["set", "camera"]), "a row needs its value");
         assert!(matches!(parsed(&["settings"]), Command::Settings(_)));
     }
 

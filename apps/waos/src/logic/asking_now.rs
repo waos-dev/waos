@@ -15,25 +15,8 @@ use tokio::sync::broadcast;
 use waos::RunningProgram;
 use waos_dev_protocol::Asked;
 
-use super::setting_changes::SettingChange;
-
 /// How many askings a run that is slow to read may fall behind by before it misses some.
 const TOLD_BACKLOG: usize = 64;
-
-/// A setting `cargo waos set` made while a program's questions wait, or a cancel, for the main
-/// thread to answer the question with: the change the set resolved and checked, or the question
-/// whose prompt is to be left unanswered.
-#[derive(Clone, Debug)]
-pub(crate) enum AnswerNow {
-    Set {
-        program: String,
-        change: SettingChange,
-    },
-    Cancel {
-        program: String,
-        asked: Asked,
-    },
-}
 
 /// What WaOS asks each program's user now. Every clone of the `Arc` is the same.
 pub(crate) struct AskingNow {
@@ -42,8 +25,6 @@ pub(crate) struct AskingNow {
     serials: AtomicU64,
     /// Each asking as it starts, with its program's name.
     told: broadcast::Sender<(String, Asked)>,
-    /// Each setting made while a question waits, for whoever answers it now.
-    answers: broadcast::Sender<AnswerNow>,
 }
 
 /// One asking noted, until dropped.
@@ -59,31 +40,7 @@ impl AskingNow {
             asked: Mutex::default(),
             serials: AtomicU64::new(0),
             told: broadcast::channel(TOLD_BACKLOG).0,
-            answers: broadcast::channel(TOLD_BACKLOG).0,
         })
-    }
-
-    /// Each setting made while a question waits, from now on, for the main thread to answer it.
-    pub(crate) fn answers(&self) -> broadcast::Receiver<AnswerNow> {
-        self.answers.subscribe()
-    }
-
-    /// A change was made for the program `program`: a question it answers, waiting now, is
-    /// answered with it.
-    pub(crate) fn answer(&self, program: &str, change: SettingChange) {
-        // Nobody answering means the next question is answered from the setting, as before.
-        let _ = self.answers.send(AnswerNow::Set {
-            program: program.to_owned(),
-            change,
-        });
-    }
-
-    /// The question `asked` names, waiting now, is left unanswered, as a user cancels it.
-    pub(crate) fn cancel(&self, program: &str, asked: Asked) {
-        let _ = self.answers.send(AnswerNow::Cancel {
-            program: program.to_owned(),
-            asked,
-        });
     }
 
     /// Waits for `answer`, which `program`'s user gives to `asked`, noting it as asked meanwhile.
