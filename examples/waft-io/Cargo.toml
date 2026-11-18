@@ -1,0 +1,26 @@
+[package]
+name = "waft-io"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "A Waft app that uses Waft's file system and HTTP client, over wasdk-adapter-waft: a page fetched and printed, a picture shown from its URL, files written, read and listed in /data, and a picked file read. `cargo build -p waft-io --target wasm32-wasip3`."
+
+[dependencies]
+# The request and response the app hands Waft's client.
+http.workspace = true
+waft.workspace = true
+waft-embedder.workspace = true
+waft-foundation.workspace = true
+waft-painting.workspace = true
+waft-widgets.workspace = true
+waft-winui.workspace = true
+wasdk.workspace = true
+wasdk-adapter-waft.workspace = true
+
+[lints]
+workspace = true
+
+# The id `cargo waos run` runs this program as, with that program's settings and folders.
+[package.metadata.waos]
+id = "dev.waos.examples.waftio"

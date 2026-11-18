@@ -1,7 +1,7 @@
 //! Waft over wasdk: Waft's embedder for a program, the platform it sees over the SDK's `views`,
 //! `screens`, `system`, `windows`, `lifecycle`, `fonts`, `clipboard`, `menus`, `file_dialogs`,
-//! `opener`, `notifications`, `media_players`, `media_assets`, `image_codecs` and `cameras`, drawn
-//! with valo over `wasdk-wgpu`. [`run`] is the body of a program's `main`.
+//! `opener`, `notifications`, `media_players`, `media_assets`, `image_codecs`, `cameras`, `http`
+//! and `files`, drawn with valo over `wasdk-wgpu`. [`run`] is the body of a program's `main`.
 //!
 //! It maps Waft's model one to one (the design's decision 4): the views the shell gave and the
 //! ones that arrive later, each carrying its request's id and initial data; each view's events,
@@ -14,7 +14,8 @@
 //! end; the clipboard, its items, writes and changes, flushed as the program ends, and the user's
 //! copy, cut and paste and Edit's other commands, which a view hears; the menu bar, context menus
 //! and tray icons
-//! ([`menus`]); the file dialogs ([`file_dialogs`]); the system's opener ([`opener`]) and what the
+//! ([`menus`]); the file dialogs ([`file_dialogs`]); the program's file system ([`files`]) and HTTP
+//! ([`http`]); the system's opener ([`opener`]) and what the
 //! user opens with the program ([`open_requests`]); the system's notifications and the clicks on
 //! them ([`notifications`]); the system's players, their pictures on the program's composition
 //! layers ([`players`]); the system's reading of media without playing it ([`media_assets`]); the
@@ -31,7 +32,8 @@
 //! [`composition`] the compositor its layers are made on, and [`placements`] where a frame places
 //! each, as the WIT carries it, [`windows`] the windows around views, [`screens`] the screens,
 //! [`fonts`] the program's fonts and their glyphs, [`clipboard`] the clipboard, [`menus`] the
-//! menus, [`file_dialogs`] the file dialogs, [`opener`] the opener, [`open_requests`] what the user
+//! menus, [`file_dialogs`] the file dialogs, [`files`] the program's file system, [`http`] its HTTP,
+//! [`opener`] the opener, [`open_requests`] what the user
 //! opens with the program, [`notifications`] the notifications, [`players`] the players,
 //! [`media_assets`] the reading of media, [`image_codecs`] the image codecs, [`image_decoding`]
 //! the decoding of Waft's own images, [`cameras`] the cameras,
@@ -54,11 +56,13 @@ mod dispatcher;
 mod event_loop;
 mod events;
 mod file_dialogs;
+mod files;
 mod focus;
 mod fonts;
 mod frame_drawing;
 mod gpu_interop;
 mod hardware_buffers;
+mod http;
 mod image_codecs;
 mod image_decoding;
 mod keys;
