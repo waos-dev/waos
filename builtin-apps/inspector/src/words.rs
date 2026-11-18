@@ -150,11 +150,11 @@ pub(crate) fn marks(seen: &Seen) -> String {
 }
 
 /// The days the report counts, from six days ago to today: `Last 7 days, Tue to Mon`.
-pub(crate) fn last_seven_days() -> String {
+pub(crate) fn last_seven_days(app: &waft::App) -> String {
     format!(
         "Last 7 days, {} to {}",
-        crate::clock::weekday(6),
-        crate::clock::weekday(0)
+        crate::clock::weekday(app, 6),
+        crate::clock::weekday(app, 0)
     )
 }
 

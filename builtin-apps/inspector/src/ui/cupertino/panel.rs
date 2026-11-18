@@ -75,7 +75,7 @@ fn sections_of<L: Log>(app: &App, panel: &Entity<LivePanel<L>>, seen: &Seen) -> 
     } else if shown.is_empty() {
         tiles.push(note(<L::Row as PanelRow>::NOTHING_YET));
     }
-    tiles.extend(shown.iter().map(|row| tile(&row.tile())));
+    tiles.extend(shown.iter().map(|row| tile(&row.tile(), app)));
     let all: Vec<&L::Row> = read.all(app).collect();
     let refused = all.iter().filter(|row| row.refused()).count();
     let mut footer = words::heard(all.len(), <L::Row as PanelRow>::COUNTED_AS, refused);
@@ -162,8 +162,13 @@ fn start_buttons(page: &Entity<ProgramPage>, running: bool) -> WidgetRef {
 }
 
 /// One row: what it was, titled; when and how it was decided beneath, and why it was refused.
-fn tile(tile: &Tile) -> WidgetRef {
-    let mut lines = vec![Text::new(tile.details.join(" · ")).into_widget()];
+fn tile(tile: &Tile, app: &App) -> WidgetRef {
+    let details: Vec<String> = tile
+        .details
+        .iter()
+        .map(|said| crate::ui::said(said, app))
+        .collect();
+    let mut lines = vec![Text::new(details.join(" · ")).into_widget()];
     lines.extend((tile.beneath.iter()).map(|line| {
         Text::new(line.clone())
             .max_lines(BENEATH_LINES)

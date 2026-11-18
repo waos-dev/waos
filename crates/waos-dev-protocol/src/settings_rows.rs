@@ -239,7 +239,7 @@ impl std::error::Error for RowError {}
 impl Row {
     /// The row `words` name, its key first and its values after: `camera allow`,
     /// `link-scheme zoommtg deny`, `open-files /a.txt /b.txt`. Paths are taken as given; whoever
-    /// reads them from a person makes them whole first.
+    /// reads them from a person makes them whole first, and resolves them.
     pub fn parse(words: &[String]) -> Result<Row, RowError> {
         let (key, values) = words
             .split_first()

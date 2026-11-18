@@ -82,6 +82,8 @@ async fn give_up(authority: &str) -> String {
 
 /// A request for `path` at `authority` over HTTP, with `contents` as its body.
 fn request(authority: &str, path: &str, contents: Option<StreamReader<u8>>) -> Request {
+    // The transmission future is dropped: it resolves only once `client::send` has sent the
+    // request, body and all, and nothing here follows the transmission.
     let (request, _sent) = Request::new(Fields::new(), contents, no_trailers(), None);
     request.set_scheme(Some(&Scheme::Http)).unwrap();
     request.set_authority(Some(authority)).unwrap();

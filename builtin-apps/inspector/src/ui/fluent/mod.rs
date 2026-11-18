@@ -139,7 +139,7 @@ impl StatelessWidget for ProgramPane {
         let tab = self.page.read(app).tab;
         let content = match (tab, self.page.read(app).panels()) {
             (Tab::Report, _) | (_, None) => {
-                let report = Report::of(&seen.days, clock::today());
+                let report = Report::of(&seen.days, clock::today(app));
                 report::report(app, &self.page, &report, &resources)
             }
             (Tab::Storage, _) => storage::storage(app, &self.page, &resources),

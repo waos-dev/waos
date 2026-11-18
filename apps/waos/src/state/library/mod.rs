@@ -65,7 +65,7 @@ use crate::logic::installed_runs::InstalledRuns;
 use crate::logic::offers::{Offer, offer_of};
 use crate::logic::opened_package::OpenedPackage;
 use crate::logic::opening;
-use crate::logic::package_copies::{PackageCopies, document_name, read_document};
+use crate::logic::package_copies::{PackageCopies, document_name};
 use crate::logic::preferences::{KeptPreferences, Preferences, PreferencesFile};
 use crate::logic::program_places::ProgramPlace;
 use crate::logic::program_shortcuts::SystemShortcuts;
@@ -662,10 +662,21 @@ impl Library {
         for document in documents {
             let name = document_name(&document).unwrap_or_default();
             tracing::info!(name, "the system opened a document with WaOS");
+            let reading = match document {
+                // A document with a path is a file opened with WaOS like any other.
+                PickedFile::Path(path) => {
+                    self.open_files(vec![path], cx);
+                    continue;
+                }
+                PickedFile::Handle(handle) => handle.read_all(),
+                PickedFile::Stream(stream) => stream.read_all(),
+            };
             let library = cx.weak_entity();
             // The task runs to its end whether or not its handle is kept.
             let _reading = cx.spawn(async move |cx| {
-                let read = read_document(document).await;
+                let read = reading
+                    .await
+                    .with_context(|| format!("{name} could not be read"));
                 cx.update(|app: &mut App| {
                     if let Some(library) = library.upgrade() {
                         library.update(app, |library, cx| library.document_read(name, read, cx));
