@@ -239,6 +239,9 @@ waft-embedder-android = { version = "0.6.0", path = "../waft/crates/waft-embedde
 # One instance of WaOS: a later launch on Windows or Linux hands the files it was started with to
 # the WaOS running, as macOS does itself.
 waft-single-instance = { version = "0.6.0", path = "../waft/crates/waft-single-instance" }
+# Waft's painting: its image providers, `NetworkImage` above all, which a program shows with
+# Waft's `Image` widget over the platform's HTTP client.
+waft-painting = { version = "0.6.0", path = "../waft/crates/waft-painting" }
 # Waft's Cupertino gallery, a library as well as its own binary, which `examples/gallery` runs.
 cupertino-gallery = { path = "../waft/examples/cupertino_gallery" }
 # valo, Waft's renderer, which a program's views are drawn with: its context, its fonts and

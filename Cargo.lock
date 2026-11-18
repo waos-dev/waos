@@ -10318,6 +10318,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "waft-io"
+version = "0.2.0"
+dependencies = [
+ "http",
+ "waft",
+ "waft-embedder",
+ "waft-foundation",
+ "waft-painting",
+ "waft-widgets",
+ "waft-winui",
+ "wasdk",
+ "wasdk-adapter-waft",
+]
+
+[[package]]
 name = "waft-macros"
 version = "0.6.0"
 dependencies = [
@@ -10874,6 +10889,7 @@ name = "wasdk-adapter-waft"
 version = "0.2.0"
 dependencies = [
  "futures",
+ "http",
  "tracing",
  "url",
  "valo",

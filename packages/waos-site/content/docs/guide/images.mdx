@@ -30,7 +30,7 @@ Image::memory(bytes.clone()).fit(BoxFit::Cover)
 ```
 Waft decodes it through the system's codecs, and an animated image plays. `Image::memory_static(include_bytes!("logo.png"))` shows one built into the program. An image decodes once for each `Arc`, so keep the bytes, in an entity, and hand `Image::memory` a clone of the same `Arc` at each build.
 
-> Waft's `FileImage` and `NetworkImage` read through Waft's own file system and HTTP client, which WaOS does not serve yet, so they fail: read the bytes with `std::fs::read`, or fetch them ([Network](/docs/guide/network)), and show them with `Image::memory`.
+Waft's `NetworkImage::new(url)` and `FileImage::new(path)`, from the `waft-painting` crate, fetch or read the picture themselves, through Waft's own HTTP client and file system, which WaOS serves over `wasi:http` and `wasi:filesystem`: `Image::new(Rc::new(NetworkImage::new(url)) as ImageProviderRef)`.
 
 To paint shapes of its own, a widget is a `CustomPaint` whose painter implements `CustomPainter`, as in Flutter. `CustomPainter` is in the `waft-rendering` crate, which the program adds to its dependencies. Its `paint` is given a `Canvas`; `Canvas`, `Paint` and `Path` are `waft::ui`'s, valo's types under Flutter's names, with valo's methods:
 
