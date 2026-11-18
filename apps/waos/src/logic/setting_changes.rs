@@ -12,11 +12,10 @@
 //! The invariant: a change to a program's setting that follows the global one starts from the
 //! global value, so what the user sees before the change is what the change is made to.
 
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use waos::SimulatedSound;
 use waos::{AudioOutput, FileDialog, MachineChoice, file_dialog_answer_refusal, machine_paths};
-use waos_dev_protocol::resolved_lexically;
 use waos_package::ProgramId;
 use waos_store::{
     Answer, AnswerWith, Domain, DomainRule, FileSystemGrant, GlobalSettings, Mount, NetworkGrant,
@@ -424,6 +423,24 @@ fn answer_paths(dialog: FileDialog, typed: &[String]) -> Result<Vec<PathBuf>, St
         .collect()
 }
 
+/// `path` as a person typed it, with every `.` dropped and every `..` taken back one folder, never
+/// above its root: read as written, without the machine, since a file to save need not exist yet
+/// and no symlink is followed, so a set answer names the folder its `..` leads to, which a
+/// program's mount can be named by.
+fn resolved_lexically(path: &Path) -> PathBuf {
+    let mut resolved = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                resolved.pop();
+            }
+            component => resolved.push(component.as_os_str()),
+        }
+    }
+    resolved
+}
+
 /// The program's own value of a setting, `own` or else `global`, as `change` changes it.
 fn own_changed<T: Clone>(
     own: &Setting<T>,
@@ -744,6 +761,20 @@ mod tests {
 
         change_program(&mut own, &global, SettingChange::MachineAnswer(None)).unwrap();
         assert_eq!(own.answer_with.machine, None, "asks again");
+    }
+
+    #[test]
+    fn a_path_is_resolved_as_its_person_wrote_it() {
+        assert_eq!(
+            resolved_lexically(Path::new("/a/./b/../c.txt")),
+            Path::new("/a/c.txt"),
+            "a `.` dropped and a `..` taken back one folder"
+        );
+        assert_eq!(
+            resolved_lexically(Path::new("/../c.txt")),
+            Path::new("/c.txt"),
+            "never above its root"
+        );
     }
 
     #[test]

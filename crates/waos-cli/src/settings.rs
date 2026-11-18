@@ -6,14 +6,14 @@
 //! the run that needs them.
 //!
 //! The invariant: a path set is whole before it is sent, made so against this directory, as
-//! `waos open` makes the files it opens, with `.` dropped and `..` resolved as written: a program
-//! names each mount by its parts, so a path holding `..` would name no mount of it.
+//! `waos open` makes the files it opens; WaOS resolves it as it was written before keeping it,
+//! since a program names each mount by its parts and one holding `..` would name no mount of it.
 
-use std::path::{self, Path, PathBuf};
+use std::path::{self, PathBuf};
 use std::process::ExitCode;
 
 use anyhow::{Context, Result, bail};
-use waos_dev_protocol::{ASK, FromWaOS, Row, SettingRow, ToWaOS, resolved_lexically};
+use waos_dev_protocol::{ASK, FromWaOS, Row, SettingRow, ToWaOS};
 use waos_package::ProgramId;
 
 use crate::asking::ask_on;
@@ -78,16 +78,11 @@ fn whole_paths(row: Row) -> Result<Row> {
     };
     let whole = paths
         .iter()
-        .map(|path| whole_path(path))
+        .map(|path| {
+            path::absolute(path).with_context(|| format!("making {} whole", path.display()))
+        })
         .collect::<Result<Vec<PathBuf>>>()?;
     Ok(Row::FileDialog(dialog, whole))
-}
-
-/// `path` made whole against this directory, with `.` and `..` resolved as written.
-fn whole_path(path: &Path) -> Result<PathBuf> {
-    let absolute =
-        path::absolute(path).with_context(|| format!("making {} whole", path.display()))?;
-    Ok(resolved_lexically(&absolute))
 }
 
 /// One row as `settings` prints it: its key, what holds, whether it follows the setting for every
@@ -168,23 +163,5 @@ mod tests {
             panic!("a dialog's row");
         };
         assert_eq!(paths, [std::env::current_dir().unwrap().join("out.pdf")]);
-    }
-
-    #[test]
-    fn a_path_set_with_dots_is_resolved_as_written() {
-        let scratch = tempfile::tempdir().unwrap();
-        let folder = scratch.path().join("photos");
-        std::fs::create_dir(&folder).unwrap();
-        let typed = folder.join("..").join("out.pdf");
-        let row = Row::FileDialog(FileDialog::SaveFile, vec![typed]);
-        let Row::FileDialog(_, paths) = whole_paths(row).unwrap() else {
-            panic!("a dialog's row");
-        };
-        assert_eq!(paths, [scratch.path().join("out.pdf")]);
-        assert_eq!(
-            whole_path(Path::new("/a/./b/../c.txt")).unwrap(),
-            Path::new("/a/c.txt"),
-            "a `.` dropped and a `..` taken back one folder"
-        );
     }
 }
