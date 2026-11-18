@@ -10115,6 +10115,7 @@ dependencies = [
 name = "waft-embedder"
 version = "0.6.0"
 dependencies = [
+ "http",
  "indexmap",
  "pollster",
  "raw-window-handle",
@@ -10141,6 +10142,7 @@ dependencies = [
  "valo",
  "valo-codec",
  "valo-codec-software",
+ "valo-system-fonts",
  "waft-embedder",
  "wgpu",
 ]
@@ -10151,6 +10153,7 @@ version = "0.6.0"
 dependencies = [
  "block2",
  "dispatch2",
+ "http",
  "libc",
  "objc2",
  "objc2-av-foundation",
@@ -10203,6 +10206,7 @@ dependencies = [
  "valo",
  "valo-codec",
  "valo-codec-software",
+ "valo-system-fonts",
  "waft-embedder",
  "waft-embedder-apple",
  "wgpu",
@@ -10214,6 +10218,7 @@ version = "0.6.0"
 dependencies = [
  "console_error_panic_hook",
  "getrandom 0.3.4",
+ "http",
  "js-sys",
  "valo",
  "waft-embedder",
@@ -10245,6 +10250,7 @@ dependencies = [
  "valo-codec",
  "valo-codec-software",
  "valo-geometry",
+ "valo-system-fonts",
  "waft-embedder",
  "waft-embedder-apple",
  "wayland-backend",
@@ -10317,6 +10323,7 @@ dependencies = [
 name = "waft-painting"
 version = "0.6.0"
 dependencies = [
+ "http",
  "indexmap",
  "waft-embedder",
  "waft-foundation",
@@ -10393,6 +10400,7 @@ dependencies = [
 name = "waft-test"
 version = "0.6.0"
 dependencies = [
+ "http",
  "waft-embedder",
  "waft-foundation",
  "wgpu",
@@ -10566,6 +10574,7 @@ dependencies = [
  "toml 1.1.8+spec-1.1.0",
  "tracing",
  "tracing-subscriber",
+ "valo-fontmgr",
  "waft",
  "waft-cupertino",
  "waft-embedder-android",

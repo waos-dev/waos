@@ -86,15 +86,6 @@ pub(crate) fn document_name(document: &PickedFile) -> Option<String> {
     }
 }
 
-/// The whole of `document`, read from its start to its end.
-pub(crate) async fn read_document(mut document: PickedFile) -> Result<Vec<u8>> {
-    let name = document_name(&document).unwrap_or_default();
-    document
-        .read_all()
-        .await
-        .with_context(|| format!("{name} could not be read"))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
