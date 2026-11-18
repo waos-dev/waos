@@ -4,9 +4,9 @@
 //! one case this client adds (the design's decisions 9 to 11).
 //!
 //! WASI follows no redirect, so one is followed here as `SendOptions::redirects` asks: a redirect
-//! with a location is sent again at that URI, up to the limit. A request with no body follows
-//! every kind; one with a body follows 303, 301 and 302 as a bodyless request, and 307 and 308
-//! fail, since a stream already read cannot be sent again.
+//! with a location is sent again at that URI, up to the limit. A `GET` or a `HEAD`, which carries
+//! no body here, follows every kind; another method follows 303, 301 and 302 as a `GET` without
+//! its body, and 307 and 308 fail, since a body already streamed cannot be sent again.
 //!
 //! The invariant a later editor will break: never await the transmission future `Request::new`
 //! answers, nor write or await the trailers future, before `client::send`: both report on a send
