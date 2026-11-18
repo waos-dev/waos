@@ -25,7 +25,6 @@ What stands between today and a first stable release, in the order it blocks one
 
 ## A developer, or an agent, succeeding alone
 The trials' ranked list: `../experiments/2026-11-17-app-trials/RANKED.md` (the maintainers' experiments folder).
-- [ ] Pixiv moved onto Waft's HTTP and files, as the real-app check.
 - [ ] `wasdk-adapter-waft`'s HTTP client on Waft's `Body` trailers and `try_clone`, once Waft has them (waos-dev/waft, in progress).
 - [ ] A setting answers a question a program is waiting on: the engine re-checks waiting questions when a setting changes, and the program's dialog closes as Waft's dropped dialog future already does (waos-dev/waft#101).
 - [ ] A stack for a hung program (`cargo waos inspect`).
