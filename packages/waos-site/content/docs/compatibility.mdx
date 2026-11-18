@@ -32,6 +32,8 @@ A break is a new version of the package, such as `wasdk:platform@2.0.0`. WaOS se
 
 These promises are about programs once built. Your source building against a newer `wasdk` follows Cargo's semver: within one `0.x` release of the crate, updating needs no change to your code.
 
+A release of `cargo waos` pairs with one `wasdk` and one Waft, and `cargo waos new` writes those versions: `waos-cli` 0.2 with `wasdk` and `wasdk-adapter-waft` 0.2, and Waft 0.6. `wasdk-adapter-waft` is built on one Waft, so an app keeps every `waft` crate at that version; two Wafts in one build fail with mismatched types between them.
+
 ## How it is kept
 
 Every change to the interface is checked against each released version. At each release, the built components of real programs, WaOS's own apps and examples among them, are kept, and every later WaOS is tested on them: each must start, draw and take input as it did.

@@ -23,7 +23,9 @@ let mut requests = source.requests();
 ## With Waft
 
 ```rust
-// waft-services' Clipboard, Flutter's
+// Flutter's Clipboard, in the waft-services crate, which the program adds to its dependencies
+use waft_services::{Clipboard, ClipboardData};
+
 Clipboard::set_data(app, ClipboardData::new("copied"));
 // a task: the clipboard's text, if any
 let read = Clipboard::get_data(app, Clipboard::K_TEXT_PLAIN);

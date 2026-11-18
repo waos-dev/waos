@@ -9,8 +9,15 @@ const config = {
   // AGENTS.md at the root is the one that holds.
   agentRules: false,
   async redirects() {
-    // The docs have no page of their own: they open on their first.
-    return [{ source: '/docs', destination: '/docs/concepts', permanent: false }];
+    // The docs have no page of their own: they open on their first. Waft's pages were under
+    // /docs/frameworks before the docs were arranged by what an app does.
+    return [
+      { source: '/docs', destination: '/docs/concepts', permanent: false },
+      { source: '/docs/frameworks/waft', destination: '/docs/waft', permanent: true },
+      { source: '/docs/frameworks/waft.md', destination: '/docs/waft.md', permanent: true },
+      { source: '/docs/frameworks', destination: '/docs/waft', permanent: true },
+      { source: '/docs/frameworks.md', destination: '/docs/waft.md', permanent: true },
+    ];
   },
   async rewrites() {
     return [{ source: '/docs/:path*.md', destination: '/llms.mdx/docs/:path*' }];

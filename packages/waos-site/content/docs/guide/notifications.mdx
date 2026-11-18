@@ -22,6 +22,8 @@ let mut activations = notifications.activations();
 ## With Waft
 
 ```rust
+use waft::ui::{Notification, NotificationActivation};
+
 let platform = app.platform();
 app.spawn(async move |_cx| {
     let Some(notifications) = platform.notifications() else { return };

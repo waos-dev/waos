@@ -28,20 +28,34 @@ const GUIDE_TOPICS = [
   ['back', 'Back'],
   ['system-bars', 'System bars'],
   ['keys', 'Keys'],
-  ['system', 'System'],
+  ['images', 'Images'],
   ['webgpu', 'WebGPU'],
   ['compositing', 'Compositing'],
   ['fonts', 'Fonts'],
+  ['file-dialogs', 'File dialogs'],
+  ['file-watching', 'File watching'],
+  ['clipboard', 'Clipboard'],
+  ['network', 'Network'],
   ['media-players', 'Media players'],
   ['cameras', 'Cameras'],
   ['audio', 'Audio'],
+  ['system', 'System settings'],
   ['menus', 'Menus'],
-  ['file-dialogs', 'File dialogs'],
   ['notifications', 'Notifications'],
-  ['clipboard', 'Clipboard'],
   ['processes', 'Processes'],
-  ['network', 'Network'],
   ['workers', 'Workers'],
+];
+
+/** Waft's pages under its own, in the sidebar's order. */
+const WAFT_PAGES = [
+  ['state', 'State'],
+  ['handles', 'Handles and ownership'],
+  ['layout', 'Layout'],
+  ['text-input', 'Text input'],
+  ['kits', 'The kits'],
+  ['pages', 'Pages'],
+  ['shortcuts', 'Keys and shortcuts'],
+  ['testing', 'Testing'],
 ];
 
 /**
@@ -73,10 +87,12 @@ const SET_MIN_SIZE = 'set-min-size: func(size: option<size>);';
 const DOCS_PAGES = [
   ['/docs/concepts', 'Concepts'],
   ['/docs/start', 'Start'],
-  ['/docs/guide', 'Guide'],
+  ['/docs/guide', 'Building the app'],
   ...GUIDE_TOPICS.map(([slug, title]) => [`/docs/guide/${slug}`, title]),
-  ['/docs/frameworks', 'Frameworks'],
-  ['/docs/frameworks/waft', 'Waft'],
+  ['/docs/waft', 'Waft'],
+  ...WAFT_PAGES.map(([slug, title]) => [`/docs/waft/${slug}`, title]),
+  ['/docs/tools', 'The tools'],
+  ['/docs/compatibility', 'Compatibility'],
   ['/docs/icons', 'Icons'],
   ['/docs/reference', 'Reference'],
   ...REFERENCE_PACKAGES.flatMap(({ slug, name, interfaces }) => [
@@ -185,6 +201,8 @@ async function checkSiteRoutes() {
   check('search finds a guide', results.some((result) => result.url === '/docs/guide/cameras'));
   const docs = await fetch(`${BASE}/docs`, { redirect: 'manual' });
   check('/docs opens on its first page', docs.headers.get('location') === '/docs/concepts');
+  const moved = await fetch(`${BASE}/docs/frameworks/waft`, { redirect: 'manual' });
+  check("Waft's old address leads to its page", moved.headers.get('location') === '/docs/waft');
 }
 
 /** Loads `path` in the browser and checks it answers with `title` as its heading. */
