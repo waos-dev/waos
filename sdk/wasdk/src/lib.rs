@@ -83,6 +83,28 @@ pub use bindings::wasdk::platform::{
 pub use bindings::wasi::clocks::{monotonic_clock, system_clock};
 pub use bindings::wasi::filesystem::preopens;
 pub use bindings::wasi::filesystem::types as filesystem;
+/// WASI 0.3's HTTP client, `wasi:http/client`, with its `types`: a `Request` built by
+/// `Request::new`, `client::send` awaited for the `Response`, and the response's body a stream
+/// read with `Response::consume_body`.
+///
+/// `Request::new` answers the request and a future of its transmission, and takes a future of its
+/// trailers. Both report on a request in flight, so neither completes before `client::send` has
+/// sent it: the transmission future resolves once the request, body and all, has gone, and the
+/// host reads the trailers future only as it sends. So send first and await the transmission
+/// after it, or drop it where nothing follows the transmission; a request with no body leaves its
+/// trailers future at `wit_future::new`'s default, its writer dropped, and never writes it.
+/// Awaiting the transmission, or writing and awaiting the trailers, before `send` waits for a
+/// send that has not begun: it never completes, and no error comes.
+///
+/// ```ignore
+/// let (_no_trailers, trailers) = wit_future::new(|| Ok(None));
+/// let (request, sent) = Request::new(Fields::new(), None, trailers, None);
+/// request.set_scheme(Some(&Scheme::Https)).unwrap();
+/// request.set_authority(Some("example.com")).unwrap();
+/// request.set_path_with_query(Some("/")).unwrap();
+/// let response = client::send(request).await?;
+/// let _ = sent.await; // the request has gone; drop `sent` instead to follow nothing
+/// ```
 pub use bindings::wasi::http;
 pub use bindings::wasi::sockets;
 pub use bindings::wasi::webgpu::webgpu;

@@ -1,4 +1,5 @@
-// WaOS's docs, for this version: `cargo waos docs` prints their map, `cargo waos docs waft` how an app is put together.
+//! A new WaOS app in WinUI's look, which `cargo waos run` runs. The docs and guides are at
+//! https://waos.app/docs.
 // Waft's `StatefulWidget::State` takes `self: Handle<Self>`.
 #![feature(arbitrary_self_types)]
 

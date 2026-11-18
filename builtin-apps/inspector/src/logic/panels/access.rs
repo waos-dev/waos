@@ -15,8 +15,7 @@ use wasdk::inspect::trace::{
 };
 use wasdk::system_clock::Instant;
 
-use super::{Cell, Column, Decided, PanelRow, RowKind, Rows, Tile, Tone, found_in};
-use crate::clock;
+use super::{Cell, Column, Decided, PanelRow, RowKind, Rows, Said, Tile, Tone, Wording, found_in};
 use crate::logic::detail::{self, Detail, Field, Glyph, Refusal, Section};
 use crate::words;
 
@@ -56,7 +55,7 @@ impl AccessLog {
             DeviceUse::CaptureStarted => (format!("{name} capture started"), None),
             DeviceUse::CaptureEnded(took) => (format!("{name} capture ended"), Some(*took)),
         };
-        let said = Said {
+        let said = Summary {
             kind: AccessKind::Capture,
             glyph,
             what,
@@ -80,7 +79,7 @@ impl AccessLog {
             ClipboardUse::Read(read) => format!("Clipboard read without a paste: {}", read.form),
             ClipboardUse::Write(forms) => format!("Clipboard written: {}", forms.join(", ")),
         };
-        let said = Said::new(AccessKind::Clipboard, Glyph::Clipboard, what);
+        let said = Summary::new(AccessKind::Clipboard, Glyph::Clipboard, what);
         rows.append(AccessRow::of(
             event.at,
             event.instance,
@@ -90,7 +89,7 @@ impl AccessLog {
     }
 
     pub(crate) fn add_link(&mut self, rows: &mut impl Rows<AccessRow>, event: &LinkEvent) {
-        let said = Said::new(
+        let said = Summary::new(
             AccessKind::Link,
             Glyph::Link,
             format!("Link opened: {}", event.link),
@@ -108,7 +107,7 @@ impl AccessLog {
         rows: &mut impl Rows<AccessRow>,
         event: &NotificationEvent,
     ) {
-        let said = Said::new(
+        let said = Summary::new(
             AccessKind::Notification,
             Glyph::Notification,
             words::A_NOTIFICATION.to_owned(),
@@ -140,7 +139,7 @@ impl AccessLog {
             }
             PermissionUse::PickMounted(path) => format!("Pick mounted: {path}"),
         };
-        let said = Said::new(AccessKind::Question, Glyph::Question, what);
+        let said = Summary::new(AccessKind::Question, Glyph::Question, what);
         rows.append(AccessRow::of(event.at, event.instance, said, None));
     }
 
@@ -160,7 +159,7 @@ impl AccessLog {
             }
             MachineUse::CommandEnded(took) => (words::A_COMMAND_ENDED.to_owned(), Some(*took)),
         };
-        let said = Said {
+        let said = Summary {
             kind: AccessKind::Machine,
             glyph: Glyph::Machine,
             what,
@@ -209,16 +208,16 @@ impl RowKind for AccessKind {
 }
 
 /// What an event says, before when and how it was decided.
-struct Said {
+struct Summary {
     kind: AccessKind,
     glyph: Glyph,
     what: String,
     lasted: Option<u64>,
 }
 
-impl Said {
-    fn new(kind: AccessKind, glyph: Glyph, what: String) -> Said {
-        Said {
+impl Summary {
+    fn new(kind: AccessKind, glyph: Glyph, what: String) -> Summary {
+        Summary {
             kind,
             glyph,
             what,
@@ -241,7 +240,7 @@ pub(crate) struct AccessRow {
 }
 
 impl AccessRow {
-    fn of(at: Instant, instance: u32, said: Said, verdict: Option<&Verdict>) -> AccessRow {
+    fn of(at: Instant, instance: u32, said: Summary, verdict: Option<&Verdict>) -> AccessRow {
         AccessRow {
             at,
             instance,
@@ -287,7 +286,7 @@ impl PanelRow for AccessRow {
                 Some(decided) => decided.cell(),
                 None => Cell::plain(words::NOT_DECIDED).toned(Tone::Quiet),
             },
-            _ => Cell::code(clock::precise(self.at)).toned(Tone::Quiet),
+            _ => Cell::code(Said::moment(self.at, Wording::Precise)).toned(Tone::Quiet),
         }
     }
 
@@ -300,9 +299,9 @@ impl PanelRow for AccessRow {
     }
 
     fn tile(&self) -> Tile {
-        let mut details = vec![clock::time_of_day(self.at.seconds)];
-        details.extend(self.lasted.map(words::took));
-        details.extend((self.decided.iter()).map(|decided| words::decided(decided).to_owned()));
+        let mut details = vec![Said::moment(self.at, Wording::TimeOfDay)];
+        details.extend(self.lasted.map(|lasted| Said::text(words::took(lasted))));
+        details.extend((self.decided.iter()).map(|decided| Said::text(words::decided(decided))));
         Tile {
             code: false,
             title: self.what.clone(),
@@ -314,7 +313,7 @@ impl PanelRow for AccessRow {
     fn detail(&self) -> Detail {
         let mut fields = vec![
             Field::plain(words::INSTANCE, words::instance(self.instance)),
-            Field::code(words::AT, clock::precise(self.at)),
+            Field::code(words::AT, Said::moment(self.at, Wording::Precise)),
         ];
         if let Some(lasted) = self.lasted {
             fields.push(Field::code(words::LASTED, words::took(lasted)));

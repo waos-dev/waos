@@ -275,7 +275,7 @@ impl TestPhone {
         let mut platform = TestPlatform::new()
             .with_view(Rc::clone(&screen) as ViewRef)
             .with_compositor(Arc::new(compositor.clone()))
-            .with_font_source(|| Box::new(SystemFontSource::platform()));
+            .with_font_source(|| Box::new(SystemFontSource::new(valo_fontmgr::platform())));
         if kind == PhoneKind::Tasks {
             platform = platform
                 .on(TargetPlatform::Android)

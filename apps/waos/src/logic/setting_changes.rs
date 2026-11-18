@@ -12,7 +12,7 @@
 //! The invariant: a change to a program's setting that follows the global one starts from the
 //! global value, so what the user sees before the change is what the change is made to.
 
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use waos::SimulatedSound;
 use waos::{AudioOutput, FileDialog, MachineChoice, file_dialog_answer_refusal, machine_paths};
@@ -404,8 +404,9 @@ fn set_link_scheme(own: &mut ProgramSettings, scheme: String, answer: Option<Ans
     }
 }
 
-/// The paths `typed` as `dialog` answers them: each a whole path of this computer that the dialog
-/// could choose now, one alone for a dialog that answers one; else why not.
+/// The paths `typed` as `dialog` answers them: each resolved as its person wrote it, then a whole
+/// path of this computer that the dialog could choose now, one alone for a dialog that answers
+/// one; else why not.
 fn answer_paths(dialog: FileDialog, typed: &[String]) -> Result<Vec<PathBuf>, String> {
     if dialog != FileDialog::OpenFiles && typed.len() > 1 {
         return Err("this dialog answers one path".to_owned());
@@ -413,13 +414,31 @@ fn answer_paths(dialog: FileDialog, typed: &[String]) -> Result<Vec<PathBuf>, St
     typed
         .iter()
         .map(|text| {
-            let path = Path::new(text.trim());
-            match file_dialog_answer_refusal(dialog, path) {
+            let path = resolved_lexically(Path::new(text.trim()));
+            match file_dialog_answer_refusal(dialog, &path) {
                 Some(why) => Err(format!("{} {why}", path.display())),
-                None => Ok(path.to_path_buf()),
+                None => Ok(path),
             }
         })
         .collect()
+}
+
+/// `path` as a person typed it, with every `.` dropped and every `..` taken back one folder, never
+/// above its root: read as written, without the machine, since a file to save need not exist yet
+/// and no symlink is followed, so a set answer names the folder its `..` leads to, which a
+/// program's mount can be named by.
+fn resolved_lexically(path: &Path) -> PathBuf {
+    let mut resolved = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                resolved.pop();
+            }
+            component => resolved.push(component.as_os_str()),
+        }
+    }
+    resolved
 }
 
 /// The program's own value of a setting, `own` or else `global`, as `change` changes it.
@@ -745,6 +764,20 @@ mod tests {
     }
 
     #[test]
+    fn a_path_is_resolved_as_its_person_wrote_it() {
+        assert_eq!(
+            resolved_lexically(Path::new("/a/./b/../c.txt")),
+            Path::new("/a/c.txt"),
+            "a `.` dropped and a `..` taken back one folder"
+        );
+        assert_eq!(
+            resolved_lexically(Path::new("/../c.txt")),
+            Path::new("/c.txt"),
+            "never above its root"
+        );
+    }
+
+    #[test]
     fn a_dialogs_answer_is_a_path_it_could_have_chosen_and_one_that_is_not_is_refused() {
         let scratch = tempfile::tempdir().unwrap();
         let model = scratch.path().join("model.glb");
@@ -755,6 +788,15 @@ mod tests {
         let open = SettingChange::FileDialogAnswer(FileDialog::OpenFile, vec![typed(&model)]);
         change_program(&mut own, &global, open).unwrap();
         assert_eq!(own.answer_with.open_file.as_deref(), Some(model.as_path()));
+
+        let climbing = scratch.path().join("photos").join("..").join("model.glb");
+        let climbed = SettingChange::FileDialogAnswer(FileDialog::OpenFile, vec![typed(&climbing)]);
+        change_program(&mut own, &global, climbed).unwrap();
+        assert_eq!(
+            own.answer_with.open_file.as_deref(),
+            Some(model.as_path()),
+            "a typed `..` is resolved before it is kept"
+        );
 
         let missing = scratch.path().join("missing.glb");
         let refused = SettingChange::FileDialogAnswer(FileDialog::OpenFile, vec![typed(&missing)]);

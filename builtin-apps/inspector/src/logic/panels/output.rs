@@ -10,8 +10,7 @@ use std::collections::HashMap;
 use wasdk::inspect::trace::{OutputChunk, OutputStream};
 use wasdk::system_clock::Instant;
 
-use super::{Cell, Column, PanelRow, RowKind, Rows, Tile, Tone, found_in};
-use crate::clock;
+use super::{Cell, Column, PanelRow, RowKind, Rows, Said, Tile, Tone, Wording, found_in};
 use crate::logic::detail::{Detail, Field, Glyph, Section};
 use crate::words;
 
@@ -119,8 +118,8 @@ pub(crate) struct OutputLine {
 }
 
 impl OutputLine {
-    fn time(&self) -> String {
-        self.at.map(clock::precise).unwrap_or_default()
+    fn time(&self) -> Option<Said> {
+        self.at.map(|at| Said::moment(at, Wording::Precise))
     }
 
     fn stream(&self) -> String {
@@ -156,7 +155,10 @@ impl PanelRow for OutputLine {
 
     fn cell(&self, index: usize) -> Cell {
         match index {
-            0 => Cell::code(self.time()).toned(Tone::Quiet),
+            0 => self
+                .time()
+                .map(|said| Cell::code(said).toned(Tone::Quiet))
+                .unwrap_or_else(|| Cell::plain(String::new()).toned(Tone::Quiet)),
             1 => Cell::plain(self.stream()).toned(Tone::Quiet),
             _ if self.writer.1 => Cell::code(self.text.clone()).toned(Tone::Refused),
             _ => Cell::code(self.text.clone()),
@@ -175,9 +177,11 @@ impl PanelRow for OutputLine {
         Tile {
             code: true,
             title: self.text.clone(),
-            details: [self.time(), self.stream()]
+            details: self
+                .time()
                 .into_iter()
-                .filter(|said| !said.is_empty())
+                .chain([Said::text(self.stream())])
+                .filter(|said| !matches!(said, Said::Text(text) if text.is_empty()))
                 .collect(),
             beneath: Vec::new(),
         }
@@ -185,8 +189,8 @@ impl PanelRow for OutputLine {
 
     fn detail(&self) -> Detail {
         let mut fields = vec![Field::plain(words::STREAM, self.stream())];
-        if self.at.is_some() {
-            fields.push(Field::code(words::AT, self.time()));
+        if let Some(time) = self.time() {
+            fields.push(Field::code(words::AT, time));
         }
         Detail {
             glyph: Glyph::Output,

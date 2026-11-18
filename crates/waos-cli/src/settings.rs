@@ -7,7 +7,8 @@
 //! needs them.
 //!
 //! The invariant: a path set is whole before it is sent, made so against this directory, as
-//! `waos open` makes the files it opens.
+//! `waos open` makes the files it opens; WaOS resolves it as it was written before keeping it,
+//! since a program names each mount by its parts and one holding `..` would name no mount of it.
 
 use std::path::{self, PathBuf};
 use std::process::ExitCode;
