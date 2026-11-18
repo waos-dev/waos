@@ -86,13 +86,21 @@ pub(crate) fn document_name(document: &PickedFile) -> Option<String> {
     }
 }
 
-/// The whole of `document`, read from its start to its end.
-pub(crate) async fn read_document(mut document: PickedFile) -> Result<Vec<u8>> {
+/// The whole of a document handed without a path, read from its start to its end; a file handed
+/// by its path is opened as the file it is, not read here.
+pub(crate) async fn read_document(document: PickedFile) -> Result<Vec<u8>> {
     let name = document_name(&document).unwrap_or_default();
-    document
-        .read_all()
-        .await
-        .with_context(|| format!("{name} could not be read"))
+    let read = match document {
+        PickedFile::Handle(handle) => handle.read_all().await,
+        PickedFile::Stream(stream) => stream.read_all().await,
+        PickedFile::Path(path) => {
+            bail!(
+                "{} came by its path, and is opened as the file it is",
+                path.display()
+            )
+        }
+    };
+    read.with_context(|| format!("{name} could not be read"))
 }
 
 #[cfg(test)]

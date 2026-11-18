@@ -147,6 +147,9 @@ tempfile.workspace = true
 sha2.workspace = true
 # Web Audio's context and stream, as the tests' own sound devices name them.
 waos-capabilities.workspace = true
+# The system's fonts, which the test platforms shape text against: the same manager Waft's hosts
+# hand their font sources.
+valo-fontmgr.workspace = true
 
 # Image I/O's codecs without the event loop, which a program's real photo is decoded through.
 [target.'cfg(target_os = "macos")'.dev-dependencies]
