@@ -212,20 +212,20 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn only_the_user_may_read_the_key_file() {
-        use crate::os::windows::{owner_and_access_text, this_users_sid};
+        use crate::os::windows::{as_the_system_writes_it, owner_and_access_text, this_users_sid};
 
         let scratch = tempfile::tempdir().unwrap();
         let path = key_file_in(scratch.path());
         make_key(&path).unwrap();
         let user = this_users_sid();
         // `FA`, every right a file has, for the user alone, through a list that inherits nothing.
-        assert_eq!(
-            owner_and_access_text(&path).unwrap(),
-            format!("O:{user}D:P(A;;FA;;;{user})")
-        );
+        let given = |inheritance: &str| {
+            as_the_system_writes_it(&format!("O:{user}D:P(A;{inheritance};FA;;;{user})")).unwrap()
+        };
+        assert_eq!(owner_and_access_text(&path).unwrap(), given(""));
         assert_eq!(
             owner_and_access_text(path.parent().unwrap()).unwrap(),
-            format!("O:{user}D:P(A;OICI;FA;;;{user})")
+            given("OICI")
         );
     }
 

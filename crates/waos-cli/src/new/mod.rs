@@ -172,7 +172,15 @@ mod tests {
             (Template::Cupertino, "CupertinoApp"),
         ] {
             let main_rs = template.main_rs();
-            assert!(main_rs.contains("#[wasdk::main]\nasync fn main()"));
+            // Line by line, as a checkout on Windows writes them with `\r\n`.
+            let lines: Vec<&str> = main_rs.lines().collect();
+            assert!(
+                lines
+                    .windows(2)
+                    .any(|pair| pair[0] == "#[wasdk::main]"
+                        && pair[1].starts_with("async fn main()")),
+                "{template:?}"
+            );
             assert!(main_rs.contains("wasdk_adapter_waft::run("));
             assert!(main_rs.contains(app), "{template:?}");
             assert!(main_rs.contains(&template.kit().replace('-', "_")));

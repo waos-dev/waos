@@ -85,7 +85,7 @@ mod tests {
     }
 
     #[test]
-    fn a_folder_held_is_at_the_path_the_system_gives_until_it_moves() {
+    fn a_folder_held_is_at_the_path_the_system_gives() {
         let scratch = tempfile::tempdir().unwrap();
         let folder = scratch.path().join("watched");
         fs::create_dir(&folder).unwrap();
@@ -97,6 +97,40 @@ mod tests {
             fs::canonicalize(&folder).unwrap()
         );
         assert!(found.is_at_its_path());
+    }
+
+    /// Windows opens a folder held without `FILE_SHARE_DELETE`, so it cannot be renamed or
+    /// removed while a program holds it, as the paths beneath it go through it.
+    #[cfg(windows)]
+    #[test]
+    fn a_folder_held_cannot_be_renamed_or_removed() {
+        let scratch = tempfile::tempdir().unwrap();
+        let folder = scratch.path().join("watched");
+        fs::create_dir(&folder).unwrap();
+        let descriptor = held(&folder);
+        let found = HeldFolder::of(&descriptor).unwrap();
+
+        assert!(
+            fs::rename(&folder, scratch.path().join("moved")).is_err(),
+            "a held folder is not renamed"
+        );
+        assert!(
+            fs::remove_dir(&folder).is_err(),
+            "a held folder is not removed"
+        );
+        assert!(found.is_at_its_path(), "the folder is where it was");
+    }
+
+    /// Unix moves a folder whatever holds it: the path it was held at comes to name nothing, or
+    /// another folder, and the handle still names the folder it holds.
+    #[cfg(unix)]
+    #[test]
+    fn a_folder_held_moves_with_its_folder_and_is_no_longer_at_its_path_when_another_is() {
+        let scratch = tempfile::tempdir().unwrap();
+        let folder = scratch.path().join("watched");
+        fs::create_dir(&folder).unwrap();
+        let descriptor = held(&folder);
+        let found = HeldFolder::of(&descriptor).unwrap();
 
         fs::rename(&folder, scratch.path().join("moved")).unwrap();
         fs::create_dir(&folder).unwrap();

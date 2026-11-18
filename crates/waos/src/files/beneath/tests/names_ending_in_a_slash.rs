@@ -87,7 +87,7 @@ impl Tree {
 }
 
 /// A call that names `link/`.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Call {
     RenameFrom,
     RenameAFolderOnto,
@@ -146,7 +146,11 @@ fn no_call_through_a_symlink_named_with_a_slash_reaches_out_of_the_folder() {
         let tree = Tree::new();
         let before = tree.state();
         let result = make(call, &tree.mount(), "link-out");
-        assert!(result.is_err(), "{call:?} was made");
+        // Windows opens a nofollow name as the link itself even with a `/` after it, where Unix
+        // names the folder it leads to and refuses it out of the folder; the state below says
+        // either way that nothing the link leads to changed.
+        let names_the_link_alone = cfg!(windows) && call == Call::SetTimesOfTheLink;
+        assert!(names_the_link_alone || result.is_err(), "{call:?} was made");
         assert_eq!(
             tree.state(),
             before,

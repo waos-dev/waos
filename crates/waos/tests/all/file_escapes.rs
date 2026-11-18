@@ -25,6 +25,19 @@ use crate::shell::Lines;
 /// What the program prints, in order: each escape refused, by `..` or a symlink out of its mount as
 /// leaving it, `not-permitted`, and each call through a symlink named with a `/` after it as the
 /// system answers it where nothing is followed out, `/` asking for a folder.
+/// What removing a folder named by a symlink to it with a `/` after it answers with: Linux refuses
+/// with EISDIR, `is-directory`; the other Unix systems with EPERM, `not-permitted`.
+#[cfg(any(target_os = "linux", target_os = "android"))]
+const UNLINKING_A_FOLDER: &str = "is-directory";
+#[cfg(not(any(target_os = "linux", target_os = "android")))]
+const UNLINKING_A_FOLDER: &str = "not-permitted";
+
+/// `std`'s name for the same refusal.
+#[cfg(any(target_os = "linux", target_os = "android"))]
+const STD_UNLINKING_A_FOLDER: &str = "IsADirectory";
+#[cfg(not(any(target_os = "linux", target_os = "android")))]
+const STD_UNLINKING_A_FOLDER: &str = "PermissionDenied";
+
 const PRINTED: [&str; 61] = [
     "make link-out: done",
     "make link-in: done",
@@ -105,7 +118,20 @@ fn a_program_leaves_its_mounts_by_no_name_ending_in_a_slash_and_by_no_mount_besi
     let (running, _views) = engine.run(&program, environment, Vec::new()).unwrap();
     let end = block_on(running.ended());
     assert!(matches!(end, ProgramEnd::Returned(Ok(()))), "{end:?}");
-    assert_eq!(lines.all(), PRINTED);
+    // The way a system refuses to remove a folder is its own, so the two lines that say it are.
+    let expected: Vec<String> = PRINTED
+        .iter()
+        .map(|line| match *line {
+            "unlink-file link-in/: not-permitted" => {
+                format!("unlink-file link-in/: {UNLINKING_A_FOLDER}")
+            }
+            "std remove the file /data/link-in/: PermissionDenied" => {
+                format!("std remove the file /data/link-in/: {STD_UNLINKING_A_FOLDER}")
+            }
+            line => line.to_owned(),
+        })
+        .collect();
+    assert_eq!(lines.all(), expected);
     machine.assert_unchanged_outside_data_and_in_docs();
 }
 

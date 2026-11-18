@@ -457,10 +457,11 @@ fn a_path_inside_a_mount_is_found_on_the_machine_and_one_leading_out_is_not() {
     }
     let table = machine.table(&[("docs", "/mnt/docs")]);
     let note = fs::canonicalize(machine.folder("docs").join("note.txt")).unwrap();
-    assert_eq!(
-        table.machine_path(Path::new("/mnt/docs/note.txt")).ok(),
-        Some(note)
-    );
+    // The system's own writing of the same file's path: on Windows with the `\\?\` prefix.
+    let found = table
+        .machine_path(Path::new("/mnt/docs/note.txt"))
+        .map(|path| fs::canonicalize(path).unwrap());
+    assert_eq!(found.ok(), Some(note));
     assert_eq!(
         table.machine_path(Path::new("/mnt/docs/missing.txt")).ok(),
         None

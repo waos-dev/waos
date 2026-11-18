@@ -2,7 +2,8 @@
 //! each, so its bytes are counted as its sockets' are. Straight to its host ([`Way::Direct`]): an
 //! address as itself, a host pinned to what the program's lookup answered as that answer
 //! (`pins`), any other name through the program's checked lookup, which answers only the
-//! addresses it may reach; each tried in turn. Through the proxy in effect for it
+//! addresses it may reach; the first tried at once and each next beside it after RFC 8305's
+//! connection attempt delay, the first to connect winning. Through the proxy in effect for it
 //! ([`Way::Proxied`]): the proxy's host resolved unchecked, since WaOS chose it rather than the
 //! program; then an HTTPS request tunnelled through an HTTP proxy with `CONNECT`, any request
 //! through a SOCKS 5 proxy asked for its host by name, and a plain HTTP request sent to an HTTP
@@ -19,7 +20,9 @@ use std::net::{IpAddr, SocketAddr};
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
+use std::time::{Duration, Instant};
 
+use futures::stream::{FuturesUnordered, StreamExt};
 use http::Uri;
 use hyper_util::client::legacy::connect::proxy::{SocksV5, Tunnel};
 use hyper_util::rt::TokioIo;
@@ -200,6 +203,10 @@ async fn addresses_of(
     spawn_blocking(move || network.reachable(&name, Cause::HttpRequest)).await
 }
 
+/// RFC 8305's "Connection Attempt Delay": how long an attempt has alone before the next is made
+/// beside it.
+const ATTEMPT_DELAY: Duration = Duration::from_millis(250);
+
 /// A connection of the program whose network is `network` to the first of `addresses` that
 /// answers at `port`; the last one's failure where none does.
 async fn dial(
@@ -207,14 +214,42 @@ async fn dial(
     port: u16,
     network: &ProgramNetwork,
 ) -> std::io::Result<Connection> {
+    first_connected(addresses, |address| {
+        Connection::dial(SocketAddr::new(address, port), network)
+    })
+    .await
+}
+
+/// The first of `addresses` that `connect` answers for, each next tried beside the last after
+/// [`ATTEMPT_DELAY`] rather than once it fails, as every client tries a name's IPv6 and IPv4
+/// addresses (RFC 8305, "Happy Eyeballs v2"); the last failure where none answers.
+async fn first_connected<T, F, Fut>(addresses: &[IpAddr], connect: F) -> std::io::Result<T>
+where
+    F: Fn(IpAddr) -> Fut,
+    Fut: Future<Output = std::io::Result<T>>,
+{
+    let mut connecting = FuturesUnordered::new();
+    let mut next = 0;
+    let mut started = Instant::now();
     let mut failed = std::io::Error::from(std::io::ErrorKind::AddrNotAvailable);
-    for address in addresses {
-        match Connection::dial(SocketAddr::new(*address, port), network).await {
-            Ok(connection) => return Ok(connection),
-            Err(error) => failed = error,
+    loop {
+        if next < addresses.len() {
+            connecting.push(connect(addresses[next]));
+            next += 1;
+            started = Instant::now();
+        }
+        if connecting.is_empty() {
+            return Err(failed);
+        }
+        let until_next = ATTEMPT_DELAY.saturating_sub(started.elapsed());
+        tokio::select! {
+            Some(result) = connecting.next() => match result {
+                Ok(connected) => return Ok(connected),
+                Err(error) => failed = error,
+            },
+            () = tokio::time::sleep(until_next), if next < addresses.len() => {}
         }
     }
-    Err(failed)
 }
 
 /// `stream`, in TLS with `uri`'s host where `uri` is HTTPS's.
@@ -275,4 +310,41 @@ fn with_port(uri: &Uri) -> Result<Uri, http::Error> {
         "{scheme}://{host}:{}",
         port_of(uri)
     ))?)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::net::Ipv4Addr;
+
+    use super::*;
+
+    /// The second address is reached while the first is still trying, not after it fails.
+    #[tokio::test]
+    async fn an_address_that_never_answers_does_not_hold_the_next_back() {
+        let addresses = [
+            IpAddr::from(Ipv4Addr::new(192, 0, 2, 1)),
+            IpAddr::from(Ipv4Addr::LOCALHOST),
+        ];
+        let started = Instant::now();
+        let connected = first_connected(&addresses, |address| async move {
+            if address.is_loopback() {
+                Ok(address)
+            } else {
+                std::future::pending().await
+            }
+        })
+        .await
+        .expect("this computer answers");
+        assert_eq!(connected, IpAddr::from(Ipv4Addr::LOCALHOST));
+        assert!(
+            started.elapsed() >= ATTEMPT_DELAY,
+            "the next waited its turn: {:?}",
+            started.elapsed()
+        );
+        assert!(
+            started.elapsed() < ATTEMPT_DELAY * 4,
+            "the next did not wait for the first to fail: {:?}",
+            started.elapsed()
+        );
+    }
 }

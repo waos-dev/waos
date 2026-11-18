@@ -18,6 +18,9 @@ serde_bytes.workspace = true
 # `io-util` for reading and writing frames on any stream; `net` for the Unix socket and the named
 # pipe.
 tokio = { workspace = true, features = ["io-util", "net"] }
+
+# The Unix socket, which logs replacing a file a WaOS that died left.
+[target.'cfg(unix)'.dependencies]
 tracing.workspace = true
 
 # The named pipe's security: the user's SID from the process's token, the descriptor that gives

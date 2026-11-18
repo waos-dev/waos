@@ -8,7 +8,8 @@
 use std::sync::Arc;
 
 use rcgen::{
-    BasicConstraints, CertificateParams, CertifiedIssuer, ExtendedKeyUsagePurpose, IsCa, KeyPair,
+    BasicConstraints, CertificateParams, CertifiedIssuer, DnType, ExtendedKeyUsagePurpose, IsCa,
+    KeyPair,
 };
 use rustls::pki_types::CertificateDer;
 use rustls_platform_verifier::Verifier;
@@ -55,9 +56,14 @@ fn what_is_no_chain_or_no_name_fails_to_be_checked() {
     );
 }
 
-/// An authority of the test's own, which signs servers' certificates.
+/// An authority of the test's own, which signs servers' certificates. Its name is its own, not
+/// rcgen's default the leaf also has: a certificate whose issuer is its own name is self-signed
+/// to Windows, which checks its signature against its own key and refuses it.
 fn authority() -> CertifiedIssuer<'static, KeyPair> {
     let mut params = CertificateParams::new(Vec::<String>::new()).unwrap();
+    params
+        .distinguished_name
+        .push(DnType::CommonName, "WaOS test authority");
     params.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
     CertifiedIssuer::self_signed(params, KeyPair::generate().unwrap()).unwrap()
 }
