@@ -343,9 +343,33 @@ pub(crate) mod tests {
             TestServer::over(test, test_engine::drawing::deck_engine)
         }
 
+        /// A server whose engine uses `PromptsOnRequest` wired to `asking`, returning the server
+        /// and the prompt requests receiver.
+        fn asking_prompts(test: &str) -> (TestServer, crate::logic::prompts::PromptRequests) {
+            let asking = AskingNow::new();
+            let (prompts, requests) =
+                crate::logic::prompts::PromptsOnRequest::new(Arc::clone(&asking));
+            let server = TestServer::over_with(test, asking, |code| {
+                Arc::new(test_engine::engine_asking(
+                    Arc::new(NoWindows),
+                    Arc::new(prompts),
+                    code,
+                ))
+            });
+            (server, requests)
+        }
+
         /// A server of the test's own over the engine `engine` makes, keeping its compiled
         /// programs where it is given.
         fn over(test: &str, engine: impl FnOnce(&Path) -> Arc<WaOS>) -> TestServer {
+            Self::over_with(test, AskingNow::new(), engine)
+        }
+
+        fn over_with(
+            test: &str,
+            asking: Arc<AskingNow>,
+            engine: impl FnOnce(&Path) -> Arc<WaOS>,
+        ) -> TestServer {
             let folder =
                 std::env::temp_dir().join(format!("waos-app-{}-{test}", std::process::id()));
             let _ = fs::remove_dir_all(&folder);
@@ -361,7 +385,6 @@ pub(crate) mod tests {
                 Arc::clone(&runs),
                 ProgramPlaces::new(ProgramPlace::Windows),
             );
-            let asking = AskingNow::new();
             let server = DevServer::start(
                 installed,
                 store.clone(),
@@ -806,6 +829,59 @@ pub(crate) mod tests {
             FromWaOS::Unreached(Unreached::Asking(camera))
         );
         asked.abort();
+    }
+
+    #[tokio::test]
+    async fn cargo_waos_set_answers_a_waiting_question_and_drops_its_prompt() {
+        use futures::StreamExt;
+
+        const PERMISSIONS: &str = "dev.waos.examples.permissions";
+        let (server, mut requests) = TestServer::asking_prompts("set-answers-waiting");
+        let mut client = server
+            .run(PERMISSIONS, Path::new(waos_test_programs::PERMISSIONS))
+            .await;
+        started(&mut client).await;
+
+        let frames = frames_until(&mut client, |frame| matches!(frame, FromWaOS::Asking(_))).await;
+        assert_eq!(
+            frames.last(),
+            Some(&FromWaOS::Asking(Asked::Question(Question::Notifications)))
+        );
+        let pending_question = requests.questions.next().await;
+        assert!(matches!(
+            pending_question,
+            Some(crate::logic::prompts::QuestionEvent::Asked(_))
+        ));
+        assert_eq!(
+            server.asking.of(PERMISSIONS),
+            Some(Asked::Question(Question::Notifications))
+        );
+
+        let set = ToWaOS::Set {
+            id: PERMISSIONS.parse().unwrap(),
+            row: Row::Question(Question::Notifications, Some(Answer::Allow)),
+        };
+        assert!(matches!(server.ask(&set).await, FromWaOS::Settings(_)));
+
+        let mut output = String::new();
+        while !output.contains("notifications asked: granted") {
+            let frame = next(&mut client).await;
+            if let FromWaOS::Output {
+                stream: OutputStream::Stdout,
+                bytes,
+            } = frame
+            {
+                output.push_str(&String::from_utf8_lossy(&bytes));
+            }
+        }
+        assert!(matches!(
+            requests.questions.next().await,
+            Some(crate::logic::prompts::QuestionEvent::Cancelled(_))
+        ));
+        assert_ne!(
+            server.asking.of(PERMISSIONS),
+            Some(Asked::Question(Question::Notifications))
+        );
     }
 
     #[tokio::test]

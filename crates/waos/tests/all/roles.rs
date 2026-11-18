@@ -6,6 +6,7 @@
 
 use std::sync::{Arc, Mutex};
 
+use futures::channel::oneshot;
 use futures::executor::block_on;
 use futures::future::{self, BoxFuture};
 use futures::stream::{self, BoxStream};
@@ -24,6 +25,16 @@ use crate::shell;
 #[derive(Default)]
 struct RoleGrants {
     inspector: Mutex<Option<Answer>>,
+    waiting: Mutex<Vec<oneshot::Sender<()>>>,
+}
+
+impl RoleGrants {
+    fn set(&self, answer: Answer) {
+        *self.inspector.lock().unwrap() = Some(answer);
+        for waiter in self.waiting.lock().unwrap().drain(..) {
+            let _ = waiter.send(());
+        }
+    }
 }
 
 impl ProgramGrants for RoleGrants {
@@ -77,7 +88,9 @@ impl ProgramGrants for RoleGrants {
     }
 
     fn changed(&self) -> ChangedFuture {
-        Box::pin(std::future::pending())
+        let (tx, rx) = oneshot::channel();
+        self.waiting.lock().unwrap().push(tx);
+        Box::pin(rx.map(|_| ()))
     }
 }
 
@@ -173,6 +186,7 @@ fn a_program_granted_its_role_sees_the_programs_and_traces_one() {
     let inspect = shell::load(&engine, waos_test_programs::INSPECT);
     let grants = Arc::new(RoleGrants {
         inspector: Mutex::new(Some(Answer::Granted)),
+        ..RoleGrants::default()
     });
     let said = Arc::new(Said::default());
     let environment = ProgramEnvironment {
@@ -266,4 +280,21 @@ fn a_program_importing_no_role_is_asked_about_none() {
     let end = block_on(running.ended());
     assert_eq!(not_granted(&end), None, "{end:?}");
     assert!(shell.roles_asked().is_empty());
+}
+
+#[test]
+fn a_waiting_role_question_is_answered_by_setting_its_row_and_drops_its_prompt() {
+    let (engine, shell, _arrivals) = shell::engine();
+    let inspector = shell::load(&engine, waos_test_programs::IMPORTS_INSPECT);
+    let grants = Arc::new(RoleGrants::default());
+    let (running, _given) = engine.run(&inspector, with(&grants), Vec::new()).unwrap();
+    shell::wait_until("the role asked about", || !shell.roles_asked().is_empty());
+    assert!(!shell.role_cancelled(0));
+
+    grants.set(Answer::Denied);
+    shell::wait_until("the role prompt future is dropped", || {
+        shell.role_cancelled(0)
+    });
+    let end = block_on(running.ended());
+    assert_eq!(not_granted(&end), Some(Role::Inspector), "{end:?}");
 }

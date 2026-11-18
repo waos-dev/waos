@@ -46,12 +46,27 @@ impl FileDialogs {
         app.spawn(async move |cx| {
             while let Some(call) = arriving.next().await {
                 let parent = call.parent_of();
-                let DialogCall { dialog, chosen, .. } = call;
+                let DialogCall {
+                    dialog, mut chosen, ..
+                } = call;
+                if chosen.is_canceled() {
+                    continue;
+                }
                 let shown = cx.update(|app| show(app, &view_windows, parent, dialog));
                 cx.update(|app| {
                     app.spawn(async move |_cx| {
-                        // A program that ended meanwhile hears nothing.
-                        let _ = chosen.send(shown.await);
+                        let mut shown = std::pin::pin!(shown);
+                        let outcome =
+                            match futures::future::select(shown.as_mut(), chosen.cancellation())
+                                .await
+                            {
+                                futures::future::Either::Left((picked, _)) => Some(picked),
+                                futures::future::Either::Right(((), _)) => None,
+                            };
+                        if let Some(picked) = outcome {
+                            // A program that ended meanwhile hears nothing.
+                            let _ = chosen.send(picked);
+                        }
                     })
                 });
             }
@@ -94,5 +109,123 @@ fn show(
             return Err(DialogError::Failed("no file dialogs".to_owned()));
         };
         shown.await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::cell::RefCell;
+    use std::path::Path;
+    use std::rc::Rc;
+    use std::time::Duration;
+
+    use futures::FutureExt;
+    use futures::channel::oneshot;
+    use waft::Shell;
+    use waft::ui::{
+        EmbedderClient, FileDialogFuture as WaftDialogFuture, FileDialogs as WaftFileDialogs,
+        FolderOptions as WaftFolderOptions, OpenOptions as WaftOpenOptions, PickedFile,
+        PickedFolder, SaveOptions as WaftSaveOptions,
+    };
+    use waft_test::TestPlatform;
+    use waos::OpenOptions;
+    use waos_test_programs::CODE_CACHE;
+
+    use super::*;
+    use crate::logic::placement::WindowsOnRequest;
+    use crate::logic::program_faces::ProgramFaces;
+    use crate::logic::test_engine;
+
+    #[derive(Clone, Default)]
+    struct PendingWaftDialogs {
+        held: Rc<RefCell<Vec<oneshot::Sender<Option<PickedFile>>>>>,
+    }
+
+    impl PendingWaftDialogs {
+        fn cancelled(&self, index: usize) -> bool {
+            self.held
+                .borrow()
+                .get(index)
+                .is_some_and(oneshot::Sender::is_canceled)
+        }
+    }
+
+    impl WaftFileDialogs for PendingWaftDialogs {
+        fn open_file(
+            &self,
+            _parent: Option<ViewId>,
+            _options: WaftOpenOptions,
+        ) -> WaftDialogFuture<Option<PickedFile>> {
+            let (tx, rx) = oneshot::channel();
+            self.held.borrow_mut().push(tx);
+            Box::pin(rx.map(|picked| Ok(picked.unwrap_or(None))))
+        }
+
+        fn open_files(
+            &self,
+            _parent: Option<ViewId>,
+            _options: WaftOpenOptions,
+        ) -> WaftDialogFuture<Vec<PickedFile>> {
+            Box::pin(std::future::ready(Ok(Vec::new())))
+        }
+
+        fn open_folder(
+            &self,
+            _parent: Option<ViewId>,
+            _options: WaftFolderOptions,
+        ) -> WaftDialogFuture<Option<PickedFolder>> {
+            Box::pin(std::future::ready(Ok(None)))
+        }
+
+        fn save_file(
+            &self,
+            _parent: Option<ViewId>,
+            _options: WaftSaveOptions,
+        ) -> WaftDialogFuture<Option<PickedFile>> {
+            Box::pin(std::future::ready(Ok(None)))
+        }
+    }
+
+    #[test]
+    fn dropping_a_file_dialogs_future_drops_wafts_dialog_future() {
+        let waft_dialogs = PendingWaftDialogs::default();
+        let platform =
+            Rc::new(TestPlatform::new().with_file_dialogs(Rc::new(waft_dialogs.clone())));
+        let folder = tempfile::tempdir().unwrap();
+        let store = waos_store::Store::open(folder.path(), waos_store::SourceProxy::None).unwrap();
+        let (placement, requests) = WindowsOnRequest::new(ProgramFaces::new(store, None));
+        let engine = test_engine::engine(Arc::new(placement), Path::new(CODE_CACHE));
+        let program = engine
+            .load(Path::new(waos_test_programs::FOREVER))
+            .expect("forever loads");
+        let (running, _) = engine
+            .run(&program, Default::default(), Vec::new())
+            .expect("forever runs");
+
+        let served = Rc::new(RefCell::new(None));
+        let kept = Rc::clone(&served);
+        let mut shell = Shell::new(platform, move |app| {
+            let dialogs = FileDialogs::of(&*app.platform()).expect("waft file dialogs");
+            let windows = ViewWindows::listen(app, requests);
+            *kept.borrow_mut() = Some(dialogs.shell());
+            dialogs.serve(app, windows);
+        });
+        let dialogs_shell = served.borrow_mut().take().unwrap();
+        let future = dialogs_shell.open_file(&running, None, OpenOptions::default());
+        for _ in 0..10 {
+            shell.wake(Duration::ZERO);
+        }
+        assert_eq!(waft_dialogs.held.borrow().len(), 1);
+        assert!(!waft_dialogs.cancelled(0));
+
+        drop(future);
+        for _ in 0..10 {
+            shell.wake(Duration::ZERO);
+        }
+        assert!(
+            waft_dialogs.cancelled(0),
+            "dropping FileDialogFuture drops Waft's dialog future"
+        );
+        running.stop();
     }
 }

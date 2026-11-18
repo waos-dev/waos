@@ -5,6 +5,8 @@
 
 use std::sync::Mutex;
 
+use futures::FutureExt;
+use futures::channel::oneshot;
 use futures::future::ready;
 use waos::{
     AudioDeviceError, AudioDevices, AudioOutput, AudioOutputPickedFuture, RecordingDevice,
@@ -91,6 +93,9 @@ impl AudioDevices for TestDevices {
 pub struct TestSound {
     /// The output the user picks; none to dismiss the picker.
     pick: Mutex<Option<String>>,
+    /// When true, holds picker requests waiting until dropped.
+    hold_pick: Mutex<bool>,
+    held: Mutex<Vec<oneshot::Sender<Option<String>>>>,
     /// The outputs each picker showed, in order.
     shown: Mutex<Vec<Vec<String>>>,
     /// What the indicator was told, in order: which program, with what, and whether it records.
@@ -101,6 +106,8 @@ impl Default for TestSound {
     fn default() -> TestSound {
         TestSound {
             pick: Mutex::new(Some(HEADPHONES.to_owned())),
+            hold_pick: Mutex::default(),
+            held: Mutex::default(),
             shown: Mutex::default(),
             recording: Mutex::default(),
         }
@@ -111,6 +118,20 @@ impl TestSound {
     /// The user picks `output` in each picker from now on; none dismisses it.
     pub fn set_pick(&self, output: Option<&str>) {
         *self.pick.lock().unwrap() = output.map(str::to_owned);
+    }
+
+    /// Holds picker requests from now on until their futures are dropped.
+    pub fn hold_picks(&self) {
+        *self.hold_pick.lock().unwrap() = true;
+    }
+
+    /// Whether the `index`th held picker's future was dropped without answering it.
+    pub fn held_cancelled(&self, index: usize) -> bool {
+        self.held
+            .lock()
+            .unwrap()
+            .get(index)
+            .is_some_and(oneshot::Sender::is_canceled)
     }
 
     /// The outputs each picker showed, by their ids, in order.
@@ -132,6 +153,11 @@ impl ShellAudioOutputPicker for TestSound {
     ) -> AudioOutputPickedFuture {
         let ids = outputs.into_iter().map(|output| output.id).collect();
         self.shown.lock().unwrap().push(ids);
+        if *self.hold_pick.lock().unwrap() {
+            let (tx, rx) = oneshot::channel();
+            self.held.lock().unwrap().push(tx);
+            return Box::pin(rx.map(|picked| picked.unwrap_or(None)));
+        }
         Box::pin(ready(self.pick.lock().unwrap().clone()))
     }
 }

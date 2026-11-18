@@ -140,6 +140,50 @@ fn a_program_given_no_grants_is_granted_nothing_and_asks_nobody() {
     block_on(running.ended());
 }
 
+#[test]
+fn a_waiting_permission_question_is_answered_by_setting_its_row_and_drops_its_prompt() {
+    for (set_to, expected_line) in [
+        (Answer::Granted, "notifications asked: granted"),
+        (Answer::Denied, "notifications asked: denied"),
+    ] {
+        let (engine, shell, _arrivals) = shell::engine();
+        let program = shell::load(&engine, waos_test_programs::PERMISSIONS);
+        let grants = Arc::new(TestGrants::new());
+        let lines = Arc::new(Lines::default());
+        let environment = ProgramEnvironment {
+            output: Some(Arc::clone(&lines) as Arc<dyn ProgramOutput>),
+            grants: Some(Arc::clone(&grants) as Arc<dyn ProgramGrants>),
+            ..ProgramEnvironment::default()
+        };
+        let (running, _views) = engine.run(&program, environment, Vec::new()).unwrap();
+        wait_until("the question is put", || !shell.questions().is_empty());
+        assert!(!shell.question_cancelled(0));
+
+        // Unrelated setting changes leave the question waiting and its prompt intact.
+        grants.set_network(false);
+        grants.set_camera(Answer::Granted);
+        thread::sleep(Duration::from_millis(50));
+        assert!(
+            !shell.question_cancelled(0),
+            "unrelated setting change left prompt waiting"
+        );
+        assert!(
+            !lines.has("notifications asked: granted") && !lines.has("notifications asked: denied"),
+            "still waiting"
+        );
+
+        grants.set_notifications(set_to);
+        wait_until("the prompt future is dropped", || {
+            shell.question_cancelled(0)
+        });
+        lines.wait_for(expected_line);
+        assert_eq!(lines.count(expected_line), 2, "{:#?}", lines.all());
+
+        running.stop();
+        block_on(running.ended());
+    }
+}
+
 /// Waits until `done`, failing after [`WITHIN`].
 fn wait_until(what: &str, done: impl Fn() -> bool) {
     let deadline = Instant::now() + WITHIN;
@@ -160,6 +204,7 @@ struct Values {
     network: bool,
     clipboard_write: bool,
     notifications: Option<Answer>,
+    camera: Option<Answer>,
 }
 
 impl TestGrants {
@@ -169,6 +214,7 @@ impl TestGrants {
                 network: true,
                 clipboard_write: true,
                 notifications: None,
+                camera: None,
             }),
             waiting: Mutex::default(),
         }
@@ -177,6 +223,18 @@ impl TestGrants {
     /// The user turns the network on or off.
     fn set_network(&self, on: bool) {
         self.values.lock().unwrap().network = on;
+        self.changed_now();
+    }
+
+    /// The user sets the notifications row.
+    fn set_notifications(&self, answer: Answer) {
+        self.values.lock().unwrap().notifications = Some(answer);
+        self.changed_now();
+    }
+
+    /// The user sets the camera row.
+    fn set_camera(&self, answer: Answer) {
+        self.values.lock().unwrap().camera = Some(answer);
         self.changed_now();
     }
 
@@ -218,9 +276,11 @@ impl ProgramGrants for TestGrants {
     }
 
     fn answer(&self, question: Question) -> Option<Answer> {
+        let values = self.values.lock().unwrap();
         match question {
-            Question::Notifications => self.values.lock().unwrap().notifications,
-            Question::Camera | Question::Microphone => None,
+            Question::Notifications => values.notifications,
+            Question::Camera => values.camera,
+            Question::Microphone => None,
         }
     }
 

@@ -27,7 +27,7 @@ use waos_capabilities::{
 };
 
 use crate::access::{Happened, ProgramAccess, Prompt};
-use crate::asking::{Asked, Asking};
+use crate::asking::{Asked, Asking, ask_or_setting};
 use crate::bindings::wasdk::platform::permissions::State;
 use crate::running::RunningProgram;
 use crate::shell::{Prompts, ShellNotifications};
@@ -163,20 +163,19 @@ impl ProgramPermissions {
     }
 
     /// Puts `question` to the user, unless it is being put already, and resolves to the answer,
-    /// kept through the grants once it comes.
+    /// kept through the grants once it comes from the prompt, or read from grants if set while
+    /// waiting.
     fn ask(&self, question: Question) -> Asked {
         let access = &self.decisions.access;
-        let kept = access.clone();
-        self.asking.ask(
-            question,
-            || {
-                access.put_question(
-                    Prompt::Question(question),
-                    self.prompts.ask(&self.program, question),
-                )
-            },
-            move |answer| kept.grants().set_answer(question, answer),
-        )
+        self.asking.ask(question, || {
+            ask_or_setting(
+                access,
+                Prompt::Question(question),
+                move |grants| grants.answer(question),
+                || self.prompts.ask(&self.program, question),
+                move |grants, answer| grants.set_answer(question, answer),
+            )
+        })
     }
 }
 

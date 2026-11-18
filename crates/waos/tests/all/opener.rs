@@ -14,11 +14,12 @@
 
 use std::collections::HashMap;
 use std::fs;
-use std::future::pending;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use futures::FutureExt;
+use futures::channel::oneshot;
 use waos::{
     Answer, FreezePolicy, ManualTime, OpenRequest, ProgramEnd, ProgramEnvironment, ProgramGrants,
     ProgramOutput, Question, RunningProgram, WaOS,
@@ -209,6 +210,32 @@ fn an_open_request_thaws_a_frozen_program_until_it_has_read_it() {
     shell::wait_for_end(&running);
 }
 
+#[test]
+fn a_waiting_link_scheme_question_is_answered_by_setting_its_row_and_drops_its_prompt() {
+    let (engine, shell, _arrivals) = shell::engine();
+    let scratch = tempfile::tempdir().unwrap();
+    let grants = Arc::new(LinkGrants::default());
+    let lines = Arc::new(Lines::default());
+    let (running, _own) = run(&engine, scratch.path(), &grants, &lines);
+
+    wait_until("the program asks about zoommtg", || {
+        !shell.link_schemes_asked().is_empty()
+    });
+    assert!(!shell.link_scheme_cancelled(0));
+
+    grants.set_link_scheme_answer("tel", Answer::Denied);
+    std::thread::sleep(Duration::from_millis(50));
+    assert!(!shell.link_scheme_cancelled(0));
+
+    grants.set_link_scheme_answer("zoommtg", Answer::Granted);
+    wait_until("the link scheme prompt future is dropped", || {
+        shell.link_scheme_cancelled(0)
+    });
+    lines.wait_for("open zoommtg://zoom.us/join: ok");
+    running.stop();
+    shell::wait_for_end(&running);
+}
+
 /// Runs `examples/opener` with its own folders beneath `scratch`, `grants` and its output into
 /// `lines`.
 fn run(
@@ -271,6 +298,7 @@ const SCHEMES: [(&str, Answer); 3] = [
 struct LinkGrants {
     schemes: Mutex<HashMap<String, Answer>>,
     picked: Mutex<Vec<Mount>>,
+    waiting: Mutex<Vec<oneshot::Sender<()>>>,
 }
 
 impl LinkGrants {
@@ -328,6 +356,9 @@ impl ProgramGrants for LinkGrants {
             .lock()
             .unwrap()
             .insert(scheme.to_owned(), answer);
+        for waiter in self.waiting.lock().unwrap().drain(..) {
+            let _ = waiter.send(());
+        }
     }
 
     fn keep_picked(&self, mount: Mount) {
@@ -335,6 +366,8 @@ impl ProgramGrants for LinkGrants {
     }
 
     fn changed(&self) -> ChangedFuture {
-        Box::pin(pending())
+        let (tx, rx) = oneshot::channel();
+        self.waiting.lock().unwrap().push(tx);
+        Box::pin(rx.map(|_| ()))
     }
 }

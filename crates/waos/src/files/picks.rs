@@ -8,8 +8,9 @@
 //! pick's path as a program names it (`machine_paths`), never the machine's where they differ.
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
-use waos_capabilities::{FileDialog, Mount};
+use waos_capabilities::{FileDialog, Mount, ProgramGrants};
 
 use super::{HandedFiles, machine_paths};
 use crate::access::{Happened, ProgramAccess};
@@ -47,8 +48,14 @@ impl Picks {
 
     /// The paths on the machine the user set as the answer to `dialog`, as the grants hold them
     /// now; none to show the dialog.
+    #[allow(dead_code)]
     pub(crate) fn set_answer(&self, dialog: FileDialog) -> Option<Vec<PathBuf>> {
         self.access.grants().file_dialog_answer(dialog)
+    }
+
+    /// A shared handle on the program's grants, for waiting dialogs to re-check stored answers.
+    pub(crate) fn grants(&self) -> Arc<dyn ProgramGrants> {
+        self.access.clone_grants()
     }
 }
 

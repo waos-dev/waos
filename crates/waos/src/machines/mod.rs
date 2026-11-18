@@ -33,6 +33,7 @@ use waos_capabilities::{
 };
 
 use crate::access::{ActiveUseKind, Asked, Happened, ProgramAccess, Refusal};
+use crate::asking::{self, Outcome};
 use crate::running::RunningProgram;
 use crate::shell::ShellMachinePicker;
 use crate::sync::locked;
@@ -136,12 +137,31 @@ impl ProgramMachines {
 
     /// Asks the user to pick one of the machines the providers offer, or takes the one the user
     /// set as the answer, and resolves to it, kept among the program's grants; to none when the
-    /// user cancels, nobody can ask, or no provider offers the one set.
+    /// user cancels, nobody can ask, or no provider offers the one set. If the user sets the
+    /// answer while the picker waits, the picker's future is dropped and the stored answer wins.
     pub(crate) fn pick(&self) -> impl Future<Output = Option<Machine>> + Send + 'static + use<> {
+        let grants = self.access.clone_grants();
+        let changed = grants.changed();
         let picked: BoxFuture<'static, Option<String>> =
-            match (self.access.grants().machine_answer(), &self.picker) {
+            match (grants.machine_answer(), &self.picker) {
                 (Some(set), _) => ready(Some(set)).boxed(),
-                (None, Some(picker)) => picker.pick(&self.program, self.offered()),
+                (None, Some(picker)) => {
+                    let shown = picker.pick(&self.program, self.offered());
+                    async move {
+                        match asking::or_setting(
+                            grants,
+                            changed,
+                            |grants| grants.machine_answer(),
+                            shown,
+                        )
+                        .await
+                        {
+                            Outcome::Prompt(picked) => picked,
+                            Outcome::Setting(set) => Some(set),
+                        }
+                    }
+                    .boxed()
+                }
                 (None, None) => ready(None).boxed(),
             };
         let (providers, access) = (self.providers.clone(), self.access.clone());

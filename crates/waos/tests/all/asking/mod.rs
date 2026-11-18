@@ -3,9 +3,10 @@
 //! and the picker of outputs asked unless a test set its answer.
 
 use std::collections::HashMap;
-use std::future::pending;
 use std::sync::Mutex;
 
+use futures::FutureExt;
+use futures::channel::oneshot;
 use waos::{Answer, ProgramGrants, Question};
 use waos_capabilities::{ChangedFuture, DomainRule, FileSystemGrant, NetworkGrant, SimulatedSound};
 
@@ -14,9 +15,10 @@ use waos_capabilities::{ChangedFuture, DomainRule, FileSystemGrant, NetworkGrant
 pub struct QuestionsAsked {
     answers: Mutex<HashMap<Question, Answer>>,
     /// The output, by its id, set as the picker of outputs' answer.
-    audio_output: Option<String>,
+    audio_output: Mutex<Option<String>>,
     /// What a simulated microphone records.
     simulated_microphone: SimulatedSound,
+    waiting: Mutex<Vec<oneshot::Sender<()>>>,
 }
 
 impl QuestionsAsked {
@@ -33,8 +35,16 @@ impl QuestionsAsked {
     /// The same grants, with `output` set as the picker of outputs' answer.
     pub fn answering_the_output_picker_with(output: &str) -> QuestionsAsked {
         QuestionsAsked {
-            audio_output: Some(output.to_owned()),
+            audio_output: Mutex::new(Some(output.to_owned())),
             ..QuestionsAsked::default()
+        }
+    }
+
+    /// Sets the picker of outputs' answer and notifies waiters.
+    pub fn set_audio_output_answer(&self, output: &str) {
+        *self.audio_output.lock().unwrap() = Some(output.to_owned());
+        for waiter in self.waiting.lock().unwrap().drain(..) {
+            let _ = waiter.send(());
         }
     }
 }
@@ -78,7 +88,7 @@ impl ProgramGrants for QuestionsAsked {
     fn set_link_scheme_answer(&self, _scheme: &str, _answer: Answer) {}
 
     fn audio_output_answer(&self) -> Option<String> {
-        self.audio_output.clone()
+        self.audio_output.lock().unwrap().clone()
     }
 
     fn simulated_microphone(&self) -> SimulatedSound {
@@ -86,6 +96,8 @@ impl ProgramGrants for QuestionsAsked {
     }
 
     fn changed(&self) -> ChangedFuture {
-        Box::pin(pending())
+        let (tx, rx) = oneshot::channel();
+        self.waiting.lock().unwrap().push(tx);
+        Box::pin(rx.map(|_| ()))
     }
 }

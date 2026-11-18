@@ -380,7 +380,12 @@ impl ProgramAccess {
 
     /// Registers `file`, open in a mount of `mount` as `mode` says, among what the program uses
     /// until the [`ActiveUse`] answered goes with the last copy of its handle.
-    pub(crate) fn opened(&self, file: &Arc<fs::File>, mount: MountKind, mode: OpenMode) -> ActiveUse {
+    pub(crate) fn opened(
+        &self,
+        file: &Arc<fs::File>,
+        mount: MountKind,
+        mode: OpenMode,
+    ) -> ActiveUse {
         self.hold(ActiveUseKind::OpenFile {
             file: Arc::downgrade(file),
             mount,
@@ -398,7 +403,8 @@ impl ProgramAccess {
     pub(crate) fn put_question(&self, prompt: Prompt, answer: AnswerFuture) -> AnswerFuture {
         self.tell(Happened::QuestionAsked(prompt.clone()));
         let access = self.clone();
-        let told = move |answer: &Option<Answer>| access.tell(Happened::QuestionAnswered(prompt, *answer));
+        let told =
+            move |answer: &Option<Answer>| access.tell(Happened::QuestionAnswered(prompt, *answer));
         Box::pin(answer.inspect(told))
     }
 
@@ -439,6 +445,11 @@ impl ProgramAccess {
     pub(crate) fn grants(&self) -> &dyn ProgramGrants {
         self.parts.grants.as_ref()
     }
+
+    /// A shared handle on the grants, for async waits that outlive a borrow.
+    pub(crate) fn clone_grants(&self) -> Arc<dyn ProgramGrants> {
+        Arc::clone(&self.parts.grants)
+    }
     /// What the program uses now but its open files, oldest first, for a test to read.
     #[cfg(test)]
     pub(crate) fn uses_but_open_files(&self) -> Vec<ActiveUseKind> {
@@ -453,7 +464,9 @@ impl ProgramAccess {
     pub(crate) fn open_files(&self) -> Vec<(Option<std::path::PathBuf>, MountKind, OpenMode)> {
         let uses = self.parts.active_uses.now().into_iter();
         uses.filter_map(|now| match now.kind {
-            ActiveUseKind::OpenFile { file, mount, mode, .. } => {
+            ActiveUseKind::OpenFile {
+                file, mount, mode, ..
+            } => {
                 let at = file
                     .upgrade()
                     .and_then(|file| crate::files::path_of(&file).ok());
@@ -604,7 +617,9 @@ mod tests {
     fn a_use_is_told_with_its_verdict() {
         let access = access();
         let allowed = access.decide(Asked::PostNotification, |_| Ok::<_, Refusal>(()));
-        let refused = access.decide(Asked::PostNotification, |_| Err::<(), _>(Refusal::by("notifications")));
+        let refused = access.decide(Asked::PostNotification, |_| {
+            Err::<(), _>(Refusal::by("notifications"))
+        });
         assert_eq!(allowed, Ok(()));
         assert_eq!(refused, Err(Refusal::by("notifications")));
         assert_eq!(
@@ -640,10 +655,13 @@ mod tests {
     fn a_question_put_is_told_asked_then_answered() {
         let access = access();
         let prompt = Prompt::LinkScheme("zoommtg".to_owned());
-        let answer = access.put_question(prompt, Box::pin(std::future::ready(Some(Answer::Granted))));
+        let answer =
+            access.put_question(prompt, Box::pin(std::future::ready(Some(Answer::Granted))));
         assert_eq!(
             access.told(),
-            [Told::Happened("QuestionAsked(LinkScheme(\"zoommtg\"))".to_owned())]
+            [Told::Happened(
+                "QuestionAsked(LinkScheme(\"zoommtg\"))".to_owned()
+            )]
         );
         assert_eq!(answer.now_or_never(), Some(Some(Answer::Granted)));
         assert_eq!(
@@ -674,7 +692,9 @@ mod tests {
         };
         let refused = worker.decide(read, |_| Err::<(), _>(Refusal::by("clipboard-read")));
         assert!(refused.is_err());
-        let event = futures::StreamExt::next(&mut clipboard).now_or_never().flatten();
+        let event = futures::StreamExt::next(&mut clipboard)
+            .now_or_never()
+            .flatten();
         let json = serde_json::to_value(event.expect("the read is sent")).unwrap();
         assert_eq!(json["instance"], 3);
         assert_eq!(json["verdict"]["refused"], "clipboard-read");

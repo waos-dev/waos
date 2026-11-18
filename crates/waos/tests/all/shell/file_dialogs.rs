@@ -6,16 +6,24 @@ use std::future::ready;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
+use futures::FutureExt;
+use futures::channel::oneshot;
 use waos::bindings::wasdk::platform::views::ViewId;
 use waos::{
     FileDialogFuture, FolderOptions, OpenOptions, RunningProgram, SaveOptions, ShellFileDialogs,
 };
 
+enum NextAnswer {
+    Ready(Vec<PathBuf>),
+    Hold,
+}
+
 /// The dialogs asked for, and the answers to give the next ones.
 #[derive(Default)]
 pub struct TestFileDialogs {
-    answers: Mutex<VecDeque<Vec<PathBuf>>>,
+    answers: Mutex<VecDeque<NextAnswer>>,
     asked: Mutex<Vec<AskedDialog>>,
+    held: Mutex<Vec<oneshot::Sender<Vec<PathBuf>>>>,
 }
 
 /// One dialog as a program asked for it.
@@ -31,7 +39,24 @@ pub struct AskedDialog {
 impl TestFileDialogs {
     /// The user chooses `paths` in the next dialog; none cancels it.
     pub fn answer_next(&self, paths: Vec<PathBuf>) {
-        self.answers.lock().unwrap().push_back(paths);
+        self.answers
+            .lock()
+            .unwrap()
+            .push_back(NextAnswer::Ready(paths));
+    }
+
+    /// Keeps the next dialog waiting until its future is dropped (or answered via `held_cancelled`).
+    pub fn hold_next(&self) {
+        self.answers.lock().unwrap().push_back(NextAnswer::Hold);
+    }
+
+    /// Whether the `index`th held dialog's future was dropped without answering it.
+    pub fn held_cancelled(&self, index: usize) -> bool {
+        self.held
+            .lock()
+            .unwrap()
+            .get(index)
+            .is_some_and(oneshot::Sender::is_canceled)
     }
 
     /// Each dialog asked for, in order.
@@ -39,10 +64,18 @@ impl TestFileDialogs {
         self.asked.lock().unwrap().clone()
     }
 
-    /// Keeps the dialog `asked`, and answers it with the next paths given.
-    fn answer(&self, asked: AskedDialog) -> Vec<PathBuf> {
+    /// Keeps `asked`, and returns the next future for it.
+    fn answer(&self, asked: AskedDialog) -> FileDialogFuture<Vec<PathBuf>> {
         self.asked.lock().unwrap().push(asked);
-        self.answers.lock().unwrap().pop_front().unwrap_or_default()
+        match self.answers.lock().unwrap().pop_front() {
+            Some(NextAnswer::Ready(paths)) => Box::pin(ready(Ok(paths))),
+            Some(NextAnswer::Hold) => {
+                let (tx, rx) = oneshot::channel();
+                self.held.lock().unwrap().push(tx);
+                Box::pin(rx.map(|paths| Ok(paths.unwrap_or_default())))
+            }
+            None => Box::pin(ready(Ok(Vec::new()))),
+        }
     }
 }
 
@@ -54,7 +87,8 @@ impl ShellFileDialogs for TestFileDialogs {
         options: OpenOptions,
     ) -> FileDialogFuture<Option<PathBuf>> {
         let asked = asked("open-file", parent, options.initial_folder, None);
-        Box::pin(ready(Ok(self.answer(asked).into_iter().next())))
+        let future = self.answer(asked);
+        Box::pin(future.map(|res| Ok(res?.into_iter().next())))
     }
 
     fn open_files(
@@ -64,7 +98,7 @@ impl ShellFileDialogs for TestFileDialogs {
         options: OpenOptions,
     ) -> FileDialogFuture<Vec<PathBuf>> {
         let asked = asked("open-files", parent, options.initial_folder, None);
-        Box::pin(ready(Ok(self.answer(asked))))
+        self.answer(asked)
     }
 
     fn open_folder(
@@ -74,7 +108,8 @@ impl ShellFileDialogs for TestFileDialogs {
         options: FolderOptions,
     ) -> FileDialogFuture<Option<PathBuf>> {
         let asked = asked("open-folder", parent, options.initial_folder, None);
-        Box::pin(ready(Ok(self.answer(asked).into_iter().next())))
+        let future = self.answer(asked);
+        Box::pin(future.map(|res| Ok(res?.into_iter().next())))
     }
 
     fn save_file(
@@ -89,7 +124,8 @@ impl ShellFileDialogs for TestFileDialogs {
             options.initial_folder,
             options.suggested_name,
         );
-        Box::pin(ready(Ok(self.answer(asked).into_iter().next())))
+        let future = self.answer(asked);
+        Box::pin(future.map(|res| Ok(res?.into_iter().next())))
     }
 }
 

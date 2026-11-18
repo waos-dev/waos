@@ -24,7 +24,7 @@ use waos_store::Store;
 
 use crate::logic::program_faces::ProgramFaces;
 use crate::logic::program_name::program_name;
-use crate::logic::prompts::{Asked, Asking, Reply};
+use crate::logic::prompts::{Asked, Asking, QuestionEvent, Reply};
 use crate::state::ViewWindows;
 use crate::ui::question_sheet::QuestionSheet;
 
@@ -41,6 +41,7 @@ pub(crate) struct Questions {
 
 /// A question waiting for its reply.
 pub(crate) struct Pending {
+    pub(crate) id: u64,
     pub(crate) program: RunningProgram,
     /// The program's name, as its user knows it.
     pub(crate) name: String,
@@ -49,12 +50,12 @@ pub(crate) struct Pending {
 }
 
 impl Questions {
-    /// The questions, which take each one arriving on `asked` for as long as questions can
+    /// The questions, which take each event arriving on `asked` for as long as questions can
     /// arrive, each program's prompt shown by `placement`; an installed program's name is read
     /// from `store`.
     pub(crate) fn listen(
         app: &mut App,
-        asked: UnboundedReceiver<Asked>,
+        asked: UnboundedReceiver<QuestionEvent>,
         placement: Rc<dyn PromptPlacement>,
         store: Store,
     ) {
@@ -85,19 +86,46 @@ impl Questions {
     }
 
     /// A question arrived: it waits its turn in its program's prompt, shown now if the program
-    /// had no question waiting.
+    /// had no question waiting, unless the caller already dropped its wait.
     fn arrived(&mut self, asked: Asked, cx: &mut Context<Questions>) {
-        let Asked { program, asking } = asked;
+        let Asked {
+            id,
+            program,
+            asking,
+        } = asked;
+        if asking.is_canceled() {
+            return;
+        }
         tracing::info!(program = program.name(), ?asking, "a program asks its user");
         if self.asked_of(&program).is_none() {
             self.show_prompt(&program, cx);
         }
         let name = program_name(&self.store, &program);
         self.asked.push(Pending {
+            id,
             program,
             name,
             asking,
         });
+        cx.notify();
+    }
+
+    /// The engine dropped its wait on question `id` (for instance, because a setting answered it):
+    /// remove it and hide the program's prompt if no question remains for it.
+    fn cancelled(&mut self, id: u64, cx: &mut Context<Questions>) {
+        let Some(index) = self.asked.iter().position(|pending| pending.id == id) else {
+            return;
+        };
+        let pending = self.asked.remove(index);
+        tracing::info!(
+            program = pending.program.name(),
+            asking = ?pending.asking,
+            "cancelled"
+        );
+        if self.asked_of(&pending.program).is_none() {
+            self.shown
+                .retain(|(shown_for, _)| shown_for != &pending.program);
+        }
         cx.notify();
     }
 
@@ -152,19 +180,24 @@ impl Questions {
     }
 }
 
-/// One task takes every question the programs ask, on the main thread, and keeps the questions
+/// One task takes every question event, on the main thread, and keeps the questions
 /// for as long as one can arrive; each question's program ending drops what it still asks.
 fn take_questions(
     app: &mut App,
     questions: Entity<Questions>,
-    mut asked: UnboundedReceiver<Asked>,
+    mut asked: UnboundedReceiver<QuestionEvent>,
 ) {
     app.spawn(async move |cx| {
-        while let Some(question) = asked.next().await {
-            cx.update(|app| {
-                let program = question.program.clone();
-                questions.update(app, |questions, cx| questions.arrived(question, cx));
-                close_when_ended(app, &program, questions.downgrade());
+        while let Some(event) = asked.next().await {
+            cx.update(|app| match event {
+                QuestionEvent::Asked(question) => {
+                    let program = question.program.clone();
+                    questions.update(app, |questions, cx| questions.arrived(question, cx));
+                    close_when_ended(app, &program, questions.downgrade());
+                }
+                QuestionEvent::Cancelled(id) => {
+                    questions.update(app, |questions, cx| questions.cancelled(id, cx));
+                }
             });
         }
     });

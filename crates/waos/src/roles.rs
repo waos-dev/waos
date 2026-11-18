@@ -16,6 +16,7 @@ use wasmtime::Engine;
 use wasmtime::component::Component;
 
 use crate::access::{ProgramAccess, Prompt};
+use crate::asking::ask_or_setting;
 use crate::running::RunningProgram;
 use crate::shell::Prompts;
 use waos_capabilities::{Answer, Role};
@@ -64,15 +65,15 @@ pub(crate) async fn check(
         let not_granted = RoleNotGranted { role };
         let answer = match access.grants().role(role) {
             Some(answer) => answer,
-            None => {
-                let asked = prompts.ask_for_role(program, role);
-                let answer = access
-                    .put_question(Prompt::Role(role), asked)
-                    .await
-                    .ok_or(not_granted)?;
-                access.grants().set_role(role, answer);
-                answer
-            }
+            None => ask_or_setting(
+                access,
+                Prompt::Role(role),
+                move |grants| grants.role(role),
+                || prompts.ask_for_role(program, role),
+                move |grants, answer| grants.set_role(role, answer),
+            )
+            .await
+            .ok_or(not_granted)?,
         };
         if answer != Answer::Granted {
             return Err(not_granted);

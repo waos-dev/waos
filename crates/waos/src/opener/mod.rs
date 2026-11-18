@@ -20,7 +20,7 @@ use futures::future::BoxFuture;
 use waos_capabilities::{Answer, ProgramGrants};
 
 use crate::access::{Asked, ProgramAccess, Prompt, Refusal};
-use crate::asking::Asking;
+use crate::asking::{Asking, ask_or_setting};
 use crate::running::RunningProgram;
 use crate::shell::{Prompts, ShellOpener};
 
@@ -74,16 +74,20 @@ impl LinkSchemes {
     }
 
     /// Asks the user about `scheme`, unless it is being asked already, and resolves to the answer,
-    /// kept through the grants once it comes.
+    /// kept through the grants once it comes from the prompt, or read from grants if set while
+    /// waiting.
     fn ask(&self, scheme: &str) -> impl Future<Output = Option<Answer>> + Send + 'static {
-        let (access, kept) = (self.access.clone(), scheme.to_owned());
-        let prompt = || {
-            let asked = self.prompts.ask_to_open_links(&self.program, scheme);
-            self.access
-                .put_question(Prompt::LinkScheme(scheme.to_owned()), asked)
-        };
-        self.asking.ask(scheme.to_owned(), prompt, move |answer| {
-            access.grants().set_link_scheme_answer(&kept, answer)
+        let owned = scheme.to_owned();
+        let read_scheme = owned.clone();
+        let keep_scheme = owned.clone();
+        self.asking.ask(owned.clone(), || {
+            ask_or_setting(
+                &self.access,
+                Prompt::LinkScheme(owned),
+                move |grants| grants.link_scheme_answer(&read_scheme),
+                || self.prompts.ask_to_open_links(&self.program, scheme),
+                move |grants, answer| grants.set_link_scheme_answer(&keep_scheme, answer),
+            )
         })
     }
 }

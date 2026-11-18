@@ -11,8 +11,11 @@
 //! none was picked where the host has no file dialogs, so the program's call returns; and nothing
 //! waits on WaOS.
 
+use std::cell::RefCell;
+use std::collections::HashMap;
 use std::rc::Rc;
 
+use futures::channel::oneshot;
 use waft::ui::ViewId;
 use waft::{App, Entity};
 use waos::bindings::wasdk::platform::file_dialogs::DialogError;
@@ -26,6 +29,29 @@ use waos_window_messages::{FileDialog, FileDialogId, FromWindow};
 use crate::connection::Connection;
 use crate::os::come_forward;
 use crate::program_link::WaosProgram;
+
+/// The file dialogs currently open in the window process, so WaOS can close one if its wait is
+/// dropped (e.g. a setting answers it).
+#[derive(Clone, Default)]
+pub(crate) struct OpenFileDialogs(Rc<RefCell<HashMap<FileDialogId, oneshot::Sender<()>>>>);
+
+impl OpenFileDialogs {
+    fn insert(&self, dialog: FileDialogId, cancel: oneshot::Sender<()>) {
+        self.0.borrow_mut().insert(dialog, cancel);
+    }
+
+    fn remove(&self, dialog: FileDialogId) {
+        self.0.borrow_mut().remove(&dialog);
+    }
+
+    /// Closes `dialog` if it is still open, dropping its Waft dialog future without sending
+    /// `FileDialogClosed`.
+    pub(crate) fn close(&self, dialog: FileDialogId) {
+        if let Some(cancel) = self.0.borrow_mut().remove(&dialog) {
+            let _ = cancel.send(());
+        }
+    }
+}
 
 /// A file dialog WaOS asks the window process to open.
 pub(crate) struct AskedFileDialog {
@@ -41,6 +67,7 @@ pub(crate) struct AskedFileDialog {
 pub(crate) fn open_file_dialog(
     app: &mut App,
     view_windows: &Entity<ViewWindows<WaosProgram>>,
+    open_dialogs: &OpenFileDialogs,
     connection: Rc<Connection>,
     asked: AskedFileDialog,
 ) {
@@ -49,7 +76,7 @@ pub(crate) fn open_file_dialog(
     if shown.is_ok() {
         come_forward();
     }
-    answer_when_closed(app, connection, asked.dialog, shown);
+    answer_when_closed(app, open_dialogs, connection, asked.dialog, shown);
 }
 
 /// Waft's view in the window made for `window` among `view_windows`, which a dialog is a sheet
@@ -90,9 +117,11 @@ fn show(app: &App, parent: Option<ViewId>, kind: FileDialog) -> Result<PickedPat
 }
 
 /// Answers WaOS, through `connection`, the paths picked in the dialog `dialog` once `shown`
-/// closes; at once with why when none was shown.
+/// closes; at once with why when none was shown; or drops `shown` without answering if
+/// `open_dialogs` closes it first.
 fn answer_when_closed(
     app: &mut App,
+    open_dialogs: &OpenFileDialogs,
     connection: Rc<Connection>,
     dialog: FileDialogId,
     shown: Result<PickedPaths, DialogError>,
@@ -105,9 +134,19 @@ fn answer_when_closed(
             return;
         }
     };
+    let (cancel, cancelled) = oneshot::channel();
+    open_dialogs.insert(dialog, cancel);
+    let open_dialogs = open_dialogs.clone();
     app.spawn(async move |_cx| {
-        let picked = shown.await;
-        connection.send(FromWindow::FileDialogClosed { dialog, picked });
+        let mut shown = std::pin::pin!(shown);
+        let picked = match futures::future::select(shown.as_mut(), cancelled).await {
+            futures::future::Either::Left((picked, _)) => Some(picked),
+            futures::future::Either::Right((_, _)) => None,
+        };
+        open_dialogs.remove(dialog);
+        if let Some(picked) = picked {
+            connection.send(FromWindow::FileDialogClosed { dialog, picked });
+        }
     });
 }
 

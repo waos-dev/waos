@@ -63,6 +63,11 @@ impl<T> AwaitedAnswers<T> {
         }
     }
 
+    /// Cancels `asked` if it is still awaited; answers whether it was still waiting.
+    pub(crate) fn cancel(&self, asked: u64) -> bool {
+        self.awaited().waiting.remove(&asked).is_some()
+    }
+
     /// Whether an answer is still awaited.
     pub(crate) fn any(&self) -> bool {
         !self.awaited().waiting.is_empty()
