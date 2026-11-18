@@ -23,7 +23,7 @@ use waft_widgets::{
     AnimatedOpacity, BuildContext, IgnorePointer, IntoWidget, KeyRef, MouseRegion, Player,
     Positioned, Stack, StackFit, State, StateData, StatefulWidget, WidgetRef,
 };
-use waft_winui::Page;
+use waft_winui::FluentPage;
 
 use crate::commands;
 
@@ -199,7 +199,7 @@ impl State for ControlsState {
 /// The page has no background, so the picture shows around them and takes the taps they miss.
 fn clear_of_the_bars(controls: [WidgetRef; 2]) -> WidgetRef {
     let over = Stack::new().fit(StackFit::Expand).children(controls);
-    Page::new().content(over).into_widget()
+    FluentPage::new().content(over).into_widget()
 }
 
 /// `child`, shown or faded out, and passed through by the pointer while faded.

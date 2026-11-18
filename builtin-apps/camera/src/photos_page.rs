@@ -17,7 +17,7 @@ use waft::{
 use waft_services::LogicalKeyboardKey;
 use waft_winui::{
     Brush, Button, ButtonStyle, ContentDialog, ContentDialogButton, ContentDialogResult,
-    InfoBarSeverity, Page, TextBlockStyle, ThemeResources, ToolTip, ToolTipService,
+    FluentPage, InfoBarSeverity, TextBlockStyle, ThemeResources, ToolTip, ToolTipService,
 };
 
 use crate::camera_app::CameraApp;
@@ -324,7 +324,7 @@ impl State for PhotosPageState {
                 Expanded::new(self.picture(app)).into_widget(),
                 self.strip(app, context),
             ]);
-        let page = Page::new()
+        let page = FluentPage::new()
             .background(Brush::Solid(background))
             .content(page);
         CallbackShortcuts::new(self.shortcuts(), Focus::new(page).autofocus(true)).into_widget()
