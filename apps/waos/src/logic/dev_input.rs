@@ -35,7 +35,8 @@ use super::runs::{DevRun, Runs};
 pub(crate) const PICTURE_WAIT: Duration = Duration::from_secs(2);
 
 /// Answers a connection's `Input`: `input` given to the window numbered `window` of the program
-/// `id`, then `InputDone`, or `Unreached` with why it reached none.
+/// `id`, then `InputDone` with whether the window was in sight and drew a new picture, or
+/// `Unreached` with why it reached none.
 pub(crate) async fn answer(
     mut connection: Connection<ServerStream>,
     runs: &Runs,
@@ -45,7 +46,10 @@ pub(crate) async fn answer(
     input: Input,
 ) {
     let answer = match give(runs, asking, id, window, input).await {
-        Ok(new_picture) => FromWaOS::InputDone { new_picture },
+        Ok(given) => FromWaOS::InputDone {
+            in_sight: given.in_sight,
+            new_picture: given.new_picture,
+        },
         Err(unreached) => {
             tracing::info!(%id, window, ?unreached, "an input reached no window");
             FromWaOS::Unreached(unreached)
@@ -55,23 +59,35 @@ pub(crate) async fn answer(
     let _ = connection.send(&answer).await;
 }
 
-/// Gives `input` to the window numbered `window` of the program `id`; answers whether the window
-/// then showed a picture drawn after it.
+/// What giving an input came to: whether the window was in sight when it was given, and whether
+/// it then showed a picture the program drew after it.
+struct Given {
+    in_sight: bool,
+    new_picture: bool,
+}
+
+/// Gives `input` to the window numbered `window` of the program `id`.
 async fn give(
     runs: &Runs,
     asking: &AskingNow,
     id: &ProgramId,
     window: u32,
     input: Input,
-) -> Result<bool, Unreached> {
+) -> Result<Given, Unreached> {
     let run = runs.dev_run(id).await.ok_or(Unreached::NotRunByCargoWaos)?;
     if let Some(asked) = asking.of(id.as_str()) {
         return Err(Unreached::Asking(asked));
     }
     let view = run.window(window)?;
     tracing::info!(%id, window, ?input, "an input from cargo waos");
+    // The answer says how it stood when the input was given, not how it stands after the wait.
+    let in_sight = view.in_sight();
     deliver(&run, &view, &input).await?;
-    Ok(new_picture_after(&view).await)
+    let new_picture = in_sight && new_picture_after(&view).await;
+    Ok(Given {
+        in_sight,
+        new_picture,
+    })
 }
 
 /// Gives `input` to `view`, one of `run`'s program's windows, over the time it takes.
@@ -123,6 +139,9 @@ fn within(view: &ProgramView, x: f64, y: f64) -> Result<(), Unreached> {
     Err(Unreached::OutsideWindow {
         width: metrics.width,
         height: metrics.height,
+        x,
+        y,
+        scale: metrics.device_pixel_ratio,
     })
 }
 

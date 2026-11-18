@@ -152,8 +152,14 @@ fn every_from_waos() -> Vec<FromWaOS> {
                 asking: Some(Asked::Question(Question::Camera)),
             },
         ]),
-        FromWaOS::InputDone { new_picture: true },
-        FromWaOS::InputDone { new_picture: false },
+        FromWaOS::InputDone {
+            in_sight: true,
+            new_picture: true,
+        },
+        FromWaOS::InputDone {
+            in_sight: false,
+            new_picture: false,
+        },
         FromWaOS::Unreached(Unreached::NotRunByCargoWaos),
         FromWaOS::Unreached(Unreached::NoWindow {
             window: 3,
@@ -162,6 +168,9 @@ fn every_from_waos() -> Vec<FromWaOS> {
         FromWaOS::Unreached(Unreached::OutsideWindow {
             width: 1600,
             height: 1200,
+            x: 1600.0,
+            y: 0.0,
+            scale: 2.0,
         }),
         FromWaOS::Unreached(Unreached::NotEditing),
         FromWaOS::Unreached(Unreached::UnknownKey("hyper+q".into())),
