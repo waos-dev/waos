@@ -45,3 +45,59 @@ jobs:
       - name: Tests
         working-directory: waos
         run: cargo test --workspace --no-fail-fast
+
+  # Windows and Linux run the engine, the command and the SDK today; the app's shell still waits
+  # for the decisions of docs/proposals/2026-11-13-windows-and-linux.md (dmabufs, ConPTY,
+  # DirectComposition), so only the crates that are meant to run there are tested. The workspace
+  # still has to check and lint whole, to catch what is apparent before the real machines arrive.
+  test-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: waos
+      - uses: actions/checkout@v4
+        with:
+          repository: waos-dev/waft
+          path: waft
+      - name: The system packages the build's probes ask for
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config libasound2-dev libwayland-dev libxkbcommon-dev \
+            libx11-dev libxcursor-dev libxrandr-dev libxi-dev libxinerama-dev
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: waos
+      - name: Check
+        working-directory: waos
+        run: cargo check --workspace --all-targets
+      - name: Clippy
+        working-directory: waos
+        run: cargo clippy --workspace --all-targets
+      - name: Tests of what runs on Linux today
+        working-directory: waos
+        run: cargo test --no-fail-fast -p waos -p waos-cli -p waos-dev-protocol -p waos-package -p waos-store -p wasdk -p wasdk-macros -p wasdk-wgpu
+
+  test-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: waos
+      - uses: actions/checkout@v4
+        with:
+          repository: waos-dev/waft
+          path: waft
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: waos
+      - name: Check
+        working-directory: waos
+        run: cargo check --workspace --all-targets
+      - name: Clippy
+        working-directory: waos
+        run: cargo clippy --workspace --all-targets
+      - name: Tests of what runs on Windows today
+        working-directory: waos
+        run: cargo test --no-fail-fast -p waos -p waos-cli -p waos-dev-protocol -p waos-package -p waos-store -p wasdk -p wasdk-macros -p wasdk-wgpu
