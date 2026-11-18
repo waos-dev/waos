@@ -253,7 +253,7 @@ unsafe_code = "forbid"
 
 [workspace.dependencies]
 wasdk = "0.2"
-waft = "0.5"
+waft = "0.6"
 "#;
         fs::write(root.join("Cargo.toml"), manifest).unwrap();
         fs::create_dir(root.join("apps")).unwrap();
@@ -290,7 +290,7 @@ waft = "0.5"
             manifest["dependencies"]["wasdk"]["workspace"].as_bool(),
             Some(true)
         );
-        assert_eq!(manifest["dependencies"]["waft-winui"].as_str(), Some("0.5"));
+        assert_eq!(manifest["dependencies"]["waft-winui"].as_str(), Some("0.6"));
         assert!(!created.folder.join("rust-toolchain.toml").exists());
         assert!(workspace_problem(&created.folder).is_none());
         let metadata = MetadataCommand::new()
