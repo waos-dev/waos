@@ -7,6 +7,7 @@ What stands between today and a first stable release, in the order it blocks one
 - [ ] waos.app's Download points at the release (`packages/waos-site/lib/shared.ts`, `downloadUrl`).
 - [ ] WaOS updating itself (for example Sparkle on macOS): decide whether 1.0 has it.
 - [ ] `cargo waos docs` serving a version's docs from its release: the release workflow writes them on a tag, and no release carries one yet.
+- [ ] `cargo waos` and WaOS of different releases: the dev protocol refuses any other number, and its messages are encoded by place, so every change to one needs both updated. Decide before 1.0: keep the strict match and say which to update, only ever add messages, or encode fields by tag.
 - [x] The SDK, `cargo waos` and the engine published from a tag by CI (decision 67).
 - [x] The `wasdk:*` interface at 1.0.0, and CI refusing a changed package under the same version.
 
@@ -22,9 +23,9 @@ What stands between today and a first stable release, in the order it blocks one
 - [ ] iOS: developer builds (the App Store refuses downloaded code).
 - [ ] Windows, then Linux (`docs/proposals/2026-11-13-windows-and-linux.md`).
 - [ ] Remote machines over SSH (work order step 12).
+- [ ] A run not resending a component WaOS already holds: its `Run` carries the component's digest, so WaOS can answer that it has it. Matters for phones, where a debug build is half a minute over Wi-Fi.
 
 ## A developer, or an agent, succeeding alone
-The trials' ranked list: `../experiments/2026-11-17-app-trials/RANKED.md` (the maintainers' experiments folder).
 - [ ] `wasdk-adapter-waft`'s HTTP client on Waft's `Body` trailers and `try_clone`, once Waft has them (waos-dev/waft, in progress).
 - [ ] A setting answers a question a program is waiting on: the engine re-checks waiting questions when a setting changes, and the program's dialog closes as Waft's dropped dialog future already does (waos-dev/waft#101).
 - [ ] A stack for a hung program (`cargo waos inspect`).
