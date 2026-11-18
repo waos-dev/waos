@@ -7,6 +7,7 @@
 
 use std::process::ExitCode;
 
+use xtask::folder_copy::FolderCopy;
 use xtask::wit_copies::COPIES;
 use xtask::wit_versions;
 
@@ -14,7 +15,7 @@ const USAGE: &str = "usage: cargo xtask sync-wit | check-wit-versions";
 
 fn main() -> ExitCode {
     match std::env::args().nth(1).as_deref() {
-        Some("sync-wit") => sync_wit(),
+        Some("sync-wit") => sync(&COPIES),
         Some("check-wit-versions") => check_wit_versions(),
         _ => {
             eprintln!("{USAGE}");
@@ -23,10 +24,10 @@ fn main() -> ExitCode {
     }
 }
 
-/// Copies `wit/` again into every crate that carries a copy, saying each copy made.
-fn sync_wit() -> ExitCode {
+/// Makes each of `copies` again from its source, saying each copy made.
+fn sync(copies: &[FolderCopy]) -> ExitCode {
     let root = xtask::workspace_root();
-    for copy in &COPIES {
+    for copy in copies {
         if let Err(error) = copy.sync(&root) {
             eprintln!("copying {} to {}: {error}", copy.source, copy.destination);
             return ExitCode::FAILURE;

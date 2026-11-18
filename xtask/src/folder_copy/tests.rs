@@ -1,11 +1,12 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use super::{Drift, WitCopy, system_path};
+use super::{Drift, FolderCopy, system_path};
 
-const COPY: WitCopy = WitCopy {
+const COPY: FolderCopy = FolderCopy {
     source: "wit",
     destination: "crate/wit",
+    left_out: &[],
 };
 
 /// A workspace's root holding `wit/` with a world and a dependency.
@@ -91,4 +92,17 @@ fn syncing_again_leaves_nothing_of_the_copy_before() {
     COPY.sync(root.path()).unwrap();
     assert_eq!(COPY.drift(root.path()).unwrap(), []);
     assert!(!root.path().join("crate/wit/program.wit").exists());
+}
+
+#[test]
+fn a_path_left_out_is_neither_copied_nor_drift() {
+    let root = root_with_wit();
+    let copy = FolderCopy {
+        left_out: &["deps/b"],
+        ..COPY
+    };
+    copy.sync(root.path()).unwrap();
+    assert!(!root.path().join("crate/wit/deps/b/package.wit").exists());
+    assert!(root.path().join("crate/wit/program.wit").exists());
+    assert_eq!(copy.drift(root.path()).unwrap(), []);
 }
