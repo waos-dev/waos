@@ -10,7 +10,7 @@ use waos_dev_protocol::{
     Asked, CHUNK_BYTES, ClientStream, Connection, Hello, Input, InputAnswer, InputDone,
     InspectAnswer, Listener, MAJOR, MAX_FRAME_BYTES, Mismatch, OpenAnswer, OutputStream, Question,
     Request, ResizeAnswer, Resized, Run, RunEnd, RunEvent, ScreenshotAnswer, ServerStream,
-    SettingRow, SettingsAnswer, WindowId, WindowPicture, component_digest,
+    SettingRow, SettingsAnswer, Upload, WindowId, WindowPicture, component_digest,
 };
 
 /// Where this test's WaOS listens, apart from every other test's and from the user's own WaOS: a
@@ -126,6 +126,7 @@ fn every_request() -> Vec<Request> {
     vec![
         Request::Run(Run {
             id: id.clone(),
+            args: vec!["--flag".to_owned()],
             variables: vec![("RUST_LOG".to_owned(), "debug".to_owned())],
             length: 3 << 20,
             digest: [0xab; 32],
@@ -238,6 +239,9 @@ async fn every_answer_comes_back_as_sent() {
         client.receive::<OpenAnswer>()
     );
     opened.0.unwrap();
+    let have = tokio::join!(server.send(&Upload::Have), client.receive::<Upload>());
+    have.0.unwrap();
+    assert_eq!(have.1.unwrap(), Some(Upload::Have));
     let event = RunEvent::Output {
         stream: OutputStream::Stderr,
         bytes: b"a warning\n".to_vec(),
@@ -249,6 +253,30 @@ async fn every_answer_comes_back_as_sent() {
     let (sent, received) = tokio::join!(server.send(&ended), client.receive::<RunEvent>());
     sent.unwrap();
     assert_eq!(received.unwrap(), Some(ended));
+}
+
+#[tokio::test]
+async fn an_unknown_answer_from_a_newer_waos_reads_as_unknown_and_leaves_the_connection_whole() {
+    #[derive(serde::Serialize)]
+    #[serde(tag = "event", content = "data")]
+    enum NewerRunEvent {
+        Progress { percent: u8 },
+    }
+
+    let place = TestPlace::new("newer-event");
+    let (_listener, mut client, mut server) = connected(&place.path).await;
+    let (sent, received) = tokio::join!(
+        server.send(&NewerRunEvent::Progress { percent: 42 }),
+        client.receive::<RunEvent>()
+    );
+    sent.unwrap();
+    assert_eq!(received.unwrap(), Some(RunEvent::Unknown));
+    let (sent, received) = tokio::join!(
+        server.send(&RunEvent::Started),
+        client.receive::<RunEvent>()
+    );
+    sent.unwrap();
+    assert_eq!(received.unwrap(), Some(RunEvent::Started));
 }
 
 #[tokio::test]
@@ -326,6 +354,7 @@ async fn a_component_larger_than_one_frame_round_trips() {
         let component: Vec<u8> = (0..=255u8).cycle().take(MAX_FRAME_BYTES + 1).collect();
         let run = Run {
             id,
+            args: Vec::new(),
             variables: Vec::new(),
             length: component.len() as u64,
             digest: component_digest(&component),

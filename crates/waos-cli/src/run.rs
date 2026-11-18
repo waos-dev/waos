@@ -1,8 +1,9 @@
 //! A run: the program sent to the WaOS on this machine over `waos-dev-protocol`'s connection, which is the
 //! run (the design's decision 29), as the program its id names, which runs with that program's
-//! settings and folders in WaOS and the variables `--env` gave for it alone (decision 68). The
-//! component goes over in parts, so a component of any size runs; the run says how much it is
-//! sending when that takes noticeable time. What
+//! settings and folders in WaOS, the variables `--env` gave for it alone (decision 68) and the
+//! arguments after `--` as its own. The component goes over in parts when WaOS does not hold it
+//! already, so a component of any size runs; the run says how much it is sending when that takes
+//! noticeable time. What
 //! the program writes comes to this process's stdout and stderr as it writes it, each line after
 //! the program's name, so two runs' output read apart; what WaOS asks its user while the program
 //! waits for the answer is said, with the row that answers it ahead; how it ended is said and
@@ -15,7 +16,10 @@ use std::io::{self, Write};
 use std::process::ExitCode;
 
 use anyhow::{Context, Result, bail};
-use waos_dev_protocol::{OutputStream, Request, Run, RunEnd, RunEvent, component_digest};
+use waos_dev_protocol::{
+    ClientStream, Connection, OutputStream, Request, Run, RunEnd, RunEvent, Upload,
+    component_digest,
+};
 use waos_package::ProgramId;
 
 use crate::asked;
@@ -30,37 +34,73 @@ const INTERRUPTED: u8 = 130;
 /// is sending. A debug build is hundreds of megabytes; a release one is under this.
 const SAID_OVER_BYTES: usize = 64 << 20;
 
-/// Runs `program` in WaOS, as the program `id` names, with `variables` added to its environment,
-/// until it ends, or until Ctrl-C.
+/// Runs `program` in WaOS, as the program `id` names, with `variables` added to its environment
+/// and `args` as its arguments, until it ends, or until Ctrl-C.
 pub async fn run(
     id: ProgramId,
     program: &BuiltProgram,
     variables: &[(String, String)],
+    args: &[String],
 ) -> Result<ExitCode> {
     let component = std::fs::read(&program.component)
         .with_context(|| format!("reading {}", program.component.display()))?;
+    run_on(
+        connect_or_start().await?,
+        id,
+        &program.name,
+        &component,
+        variables,
+        args,
+    )
+    .await
+}
+
+/// Runs `component` over `connection` as the program `id` (`name`), after saying its hello.
+async fn run_on(
+    connection: Connection<ClientStream>,
+    id: ProgramId,
+    name: &str,
+    component: &[u8],
+    variables: &[(String, String)],
+    args: &[String],
+) -> Result<ExitCode> {
     let request = Request::Run(Run {
-        id: id.clone(),
+        id,
+        args: args.to_vec(),
         variables: variables.to_vec(),
         length: component.len() as u64,
-        digest: component_digest(&component),
+        digest: component_digest(component),
     });
-    let mut connection = asking::greeted(connect_or_start().await?, &request).await?;
-    let name = &program.name;
-    if component.len() > SAID_OVER_BYTES {
-        eprintln!(
-            "cargo waos: sending {name} to WaOS, {} MiB",
-            component.len() >> 20
-        );
-    }
+    let mut connection = asking::greeted(connection, &request).await?;
     connection
         .send(&request)
         .await
         .with_context(|| format!("sending {name} to WaOS"))?;
-    connection
-        .send_component(&component)
+    match connection
+        .receive::<Upload>()
         .await
-        .with_context(|| format!("sending {name} to WaOS"))?;
+        .context("reading from WaOS")?
+    {
+        Some(Upload::Send) => {
+            if component.len() > SAID_OVER_BYTES {
+                eprintln!(
+                    "cargo waos: sending {name} to WaOS, {} MiB",
+                    component.len() >> 20
+                );
+            }
+            connection
+                .send_component(component)
+                .await
+                .with_context(|| format!("sending {name} to WaOS"))?;
+        }
+        // WaOS holds this component already: nothing is sent, and the run starts from it.
+        Some(Upload::Have) => {}
+        Some(Upload::Refused(refusal)) => bail!("WaOS refused {name}: {}", refusal.message),
+        Some(Upload::Unknown) => bail!(
+            "WaOS answered the upload in a way this cargo waos does not know: update cargo waos with `cargo install cargo-waos`"
+        ),
+        None => bail!("WaOS closed the connection before {name} was sent"),
+    }
     let interrupted = tokio::signal::ctrl_c();
     tokio::pin!(interrupted);
     let mut output = Output {
@@ -168,6 +208,8 @@ fn ended(name: &str, end: &RunEnd) -> ExitCode {
 
 #[cfg(test)]
 mod tests {
+    use waos_dev_protocol::{Component, Hello, Listener};
+
     use super::*;
 
     #[test]
@@ -179,5 +221,95 @@ mod tests {
         assert_eq!(prefixed("notes", false, b"!\n"), (b"!\n".to_vec(), true));
         assert_eq!(prefixed("notes", false, b"\n"), (b"\n".to_vec(), true));
         assert_eq!(prefixed("notes", true, b""), (Vec::new(), true));
+    }
+
+    #[tokio::test]
+    async fn have_skips_the_upload_and_unknown_events_are_skipped() {
+        #[derive(serde::Serialize)]
+        #[serde(tag = "event", content = "data")]
+        enum NewerRunEvent {
+            Progress { percent: u8 },
+        }
+
+        let folder = tempfile::tempdir().unwrap();
+        let socket = folder.path().join("dev.sock");
+        let mut listener = Listener::bind(&socket).await.unwrap();
+        let component = b"component bytes".to_vec();
+        let expected_digest = component_digest(&component);
+        let expected_length = component.len() as u64;
+        let served = tokio::spawn(async move {
+            let mut server = listener.accept().await.unwrap();
+            server.hello(&Hello::waos("WaOS 0.3.0")).await.unwrap();
+            let Some(Request::Run(run)) = server.receive::<Request>().await.unwrap() else {
+                panic!("a run");
+            };
+            assert_eq!(run.args, ["--port", "8080"]);
+            assert_eq!((run.length, run.digest), (expected_length, expected_digest));
+            server.send(&Upload::Have).await.unwrap();
+            server.send(&RunEvent::Started).await.unwrap();
+            server
+                .send(&NewerRunEvent::Progress { percent: 50 })
+                .await
+                .unwrap();
+            server
+                .send(&RunEvent::Ended(RunEnd::Returned { success: true }))
+                .await
+                .unwrap();
+            // Nothing was uploaded after `Upload::Have`.
+            server.receive::<Component>().await.unwrap()
+        });
+        let client = Connection::connect(&socket).await.unwrap();
+        let status = run_on(
+            client,
+            "dev.example.notes".parse().unwrap(),
+            "notes",
+            &component,
+            &[],
+            &["--port".to_owned(), "8080".to_owned()],
+        )
+        .await
+        .unwrap();
+        assert_eq!(status, ExitCode::SUCCESS);
+        assert_eq!(served.await.unwrap(), None, "no component frame sent");
+    }
+
+    #[tokio::test]
+    async fn send_uploads_the_component_and_ended_failure_sets_exit_status() {
+        let folder = tempfile::tempdir().unwrap();
+        let socket = folder.path().join("dev.sock");
+        let mut listener = Listener::bind(&socket).await.unwrap();
+        let component = b"component bytes".to_vec();
+        let expected = component.clone();
+        let served = tokio::spawn(async move {
+            let mut server = listener.accept().await.unwrap();
+            server.hello(&Hello::waos("WaOS 0.3.0")).await.unwrap();
+            let Some(Request::Run(run)) = server.receive::<Request>().await.unwrap() else {
+                panic!("a run");
+            };
+            server.send(&Upload::Send).await.unwrap();
+            let received = server
+                .receive_component(run.length, &run.digest)
+                .await
+                .unwrap();
+            assert_eq!(received, expected);
+            server.send(&RunEvent::Started).await.unwrap();
+            server
+                .send(&RunEvent::Ended(RunEnd::Returned { success: false }))
+                .await
+                .unwrap();
+        });
+        let client = Connection::connect(&socket).await.unwrap();
+        let status = run_on(
+            client,
+            "dev.example.notes".parse().unwrap(),
+            "notes",
+            &component,
+            &[],
+            &[],
+        )
+        .await
+        .unwrap();
+        assert_eq!(status, ExitCode::FAILURE);
+        served.await.unwrap();
     }
 }

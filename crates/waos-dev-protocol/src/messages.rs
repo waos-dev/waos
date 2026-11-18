@@ -15,9 +15,10 @@ use std::path::PathBuf;
 use std::str::FromStr;
 use std::time::Duration;
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use waos_package::ProgramId;
 
+use crate::adjacent::{self, Adjacent};
 use crate::refusal::Refusal;
 use crate::settings_rows::{Asked, Row, SettingRow};
 
@@ -101,19 +102,72 @@ impl Request {
     }
 }
 
-/// A run: the program, the variables this run alone adds to its environment (the design's decision
-/// 68), and the component's length and SHA-256 (`component_digest`), which the parts that follow
-/// carry. The program running under the id is stopped first. Nothing of the client's own
-/// environment is sent, and WaOS's own variables win where both name one.
+/// A run: the program, its arguments, the variables this run alone adds to its environment (the
+/// design's decision 68), and the component's length and SHA-256 (`component_digest`), which the
+/// parts that follow carry. The program running under the id is stopped first. Nothing of the
+/// client's own environment is sent, and WaOS's own variables win where both name one.
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct Run {
     pub id: ProgramId,
+    /// Its arguments, after `cargo waos run --`, which the program reads as its own.
+    #[serde(default)]
+    pub args: Vec<String>,
     /// The variables the program reads besides the engine's own, each its name and value.
     pub variables: Vec<(String, String)>,
     /// The component's bytes, which the parts that follow carry together.
     pub length: u64,
     /// The component's SHA-256, checked once its bytes are all there.
     pub digest: [u8; 32],
+}
+
+/// What WaOS answers a `Run` with before any component arrives: whether to send it, whether WaOS
+/// holds it already, or why not.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(tag = "upload", content = "data")]
+pub enum Upload {
+    /// The parts follow.
+    Send,
+    /// WaOS holds that component already, by its length and digest: nothing is sent, and the run
+    /// starts from it.
+    Have,
+    /// The run is refused before anything is uploaded.
+    Refused(Refusal),
+    Unknown,
+}
+
+impl Adjacent for Upload {
+    const TAG: &'static str = "upload";
+    const CONTENT: &'static str = "data";
+
+    fn unknown() -> Self {
+        Upload::Unknown
+    }
+
+    fn is_known(tag: &str) -> bool {
+        matches!(tag, "Send" | "Have" | "Refused" | "Unknown")
+    }
+
+    fn unit(tag: &str) -> Option<Self> {
+        match tag {
+            "Send" => Some(Upload::Send),
+            "Have" => Some(Upload::Have),
+            "Unknown" => Some(Upload::Unknown),
+            _ => None,
+        }
+    }
+
+    fn payload<'de, D: Deserializer<'de>>(tag: &str, deserializer: D) -> Result<Self, D::Error> {
+        match tag {
+            "Refused" => Deserialize::deserialize(deserializer).map(Upload::Refused),
+            _ => unreachable!(),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for Upload {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        adjacent::deserialize(deserializer)
+    }
 }
 
 /// A component is megabytes and a variable's value may be a secret: an event that prints the run
@@ -127,6 +181,7 @@ impl fmt::Debug for Run {
             .collect();
         f.debug_struct("Run")
             .field("id", &format_args!("{}", self.id))
+            .field("args", &self.args)
             .field("component", &format_args!("{} bytes", self.length))
             .field("digest", &format_args!("{}", said_digest(&self.digest)))
             .field("variables", &format_args!("{names:?}"))
@@ -239,23 +294,21 @@ pub enum Input {
 
 /// What a screenshot answers: the pictures, in the order the windows opened; or why none was
 /// taken. An answer this build does not know is `Unknown`, skipped, never a broken connection.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(tag = "answer", content = "data")]
 pub enum ScreenshotAnswer {
     Pictures(Vec<WindowPicture>),
     Refused(Refusal),
-    #[serde(other)]
     Unknown,
 }
 
 /// What an input answers: `InputDone` once the window shows its next picture, or why it reached
 /// none.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(tag = "answer", content = "data")]
 pub enum InputAnswer {
     Done(InputDone),
     Refused(Refusal),
-    #[serde(other)]
     Unknown,
 }
 
@@ -272,12 +325,11 @@ pub struct InputDone {
 }
 
 /// What a resize answers: the size the view reported, or why it reached no window.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(tag = "answer", content = "data")]
 pub enum ResizeAnswer {
     Done(Resized),
     Refused(Refusal),
-    #[serde(other)]
     Unknown,
 }
 
@@ -295,38 +347,117 @@ pub struct Resized {
 
 /// What reading or setting a program's settings answers: the rows after the request, as its
 /// settings page shows them, or why not.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(tag = "answer", content = "data")]
 pub enum SettingsAnswer {
     Rows(Vec<SettingRow>),
     Refused(Refusal),
-    #[serde(other)]
     Unknown,
 }
 
 /// What an inspection answers: its lines as they come, or why not.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(tag = "answer", content = "data")]
 pub enum InspectAnswer {
     Inspected(Vec<String>),
     Refused(Refusal),
-    #[serde(other)]
     Unknown,
 }
 
 /// What an opening answers: the files were handed to the program, or why not.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(tag = "answer", content = "data")]
 pub enum OpenAnswer {
     Opened,
     Refused(Refusal),
-    #[serde(other)]
     Unknown,
+}
+
+/// Implements adjacent-tag deserialization for an answer enum with one data variant, `Refused`,
+/// and `Unknown`.
+macro_rules! impl_answer {
+    ($name:ident, $variant:ident) => {
+        impl Adjacent for $name {
+            const TAG: &'static str = "answer";
+            const CONTENT: &'static str = "data";
+
+            fn unknown() -> Self {
+                $name::Unknown
+            }
+
+            fn is_known(tag: &str) -> bool {
+                matches!(tag, stringify!($variant) | "Refused" | "Unknown")
+            }
+
+            fn unit(tag: &str) -> Option<Self> {
+                (tag == "Unknown").then_some($name::Unknown)
+            }
+
+            fn payload<'de, D: Deserializer<'de>>(
+                tag: &str,
+                deserializer: D,
+            ) -> Result<Self, D::Error> {
+                match tag {
+                    stringify!($variant) => {
+                        Deserialize::deserialize(deserializer).map($name::$variant)
+                    }
+                    "Refused" => Deserialize::deserialize(deserializer).map($name::Refused),
+                    _ => unreachable!(),
+                }
+            }
+        }
+
+        impl<'de> Deserialize<'de> for $name {
+            fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+                adjacent::deserialize(deserializer)
+            }
+        }
+    };
+}
+
+impl_answer!(ScreenshotAnswer, Pictures);
+impl_answer!(InputAnswer, Done);
+impl_answer!(ResizeAnswer, Done);
+impl_answer!(SettingsAnswer, Rows);
+impl_answer!(InspectAnswer, Inspected);
+
+impl Adjacent for OpenAnswer {
+    const TAG: &'static str = "answer";
+    const CONTENT: &'static str = "data";
+
+    fn unknown() -> Self {
+        OpenAnswer::Unknown
+    }
+
+    fn is_known(tag: &str) -> bool {
+        matches!(tag, "Opened" | "Refused" | "Unknown")
+    }
+
+    fn unit(tag: &str) -> Option<Self> {
+        match tag {
+            "Opened" => Some(OpenAnswer::Opened),
+            "Unknown" => Some(OpenAnswer::Unknown),
+            _ => None,
+        }
+    }
+
+    fn payload<'de, D: Deserializer<'de>>(tag: &str, deserializer: D) -> Result<Self, D::Error> {
+        match tag {
+            "Refused" => Deserialize::deserialize(deserializer).map(OpenAnswer::Refused),
+            _ => unreachable!(),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for OpenAnswer {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        adjacent::deserialize(deserializer)
+    }
 }
 
 /// What a run's connection hears, from `Compiling` to `Ended`; an event this build does not know
 /// is `Unknown`, skipped, never a broken connection.
-#[derive(Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Serialize)]
 #[serde(tag = "event", content = "data")]
 pub enum RunEvent {
     /// WaOS compiles the component of the run, which it does before it starts it: `Started` or
@@ -345,8 +476,57 @@ pub enum RunEvent {
     /// The component could not be loaded or run, or the run could not start, and why.
     Refused(Refusal),
     Ended(RunEnd),
-    #[serde(other)]
     Unknown,
+}
+
+impl Adjacent for RunEvent {
+    const TAG: &'static str = "event";
+    const CONTENT: &'static str = "data";
+
+    fn unknown() -> Self {
+        RunEvent::Unknown
+    }
+
+    fn is_known(tag: &str) -> bool {
+        matches!(
+            tag,
+            "Compiling" | "Started" | "Output" | "Asking" | "Refused" | "Ended" | "Unknown"
+        )
+    }
+
+    fn unit(tag: &str) -> Option<Self> {
+        match tag {
+            "Compiling" => Some(RunEvent::Compiling),
+            "Started" => Some(RunEvent::Started),
+            "Unknown" => Some(RunEvent::Unknown),
+            _ => None,
+        }
+    }
+
+    fn payload<'de, D: Deserializer<'de>>(tag: &str, deserializer: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        struct OutputData {
+            stream: OutputStream,
+            #[serde(with = "serde_bytes")]
+            bytes: Vec<u8>,
+        }
+        match tag {
+            "Output" => {
+                let OutputData { stream, bytes } = Deserialize::deserialize(deserializer)?;
+                Ok(RunEvent::Output { stream, bytes })
+            }
+            "Asking" => Deserialize::deserialize(deserializer).map(RunEvent::Asking),
+            "Refused" => Deserialize::deserialize(deserializer).map(RunEvent::Refused),
+            "Ended" => Deserialize::deserialize(deserializer).map(RunEvent::Ended),
+            _ => unreachable!(),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for RunEvent {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        adjacent::deserialize(deserializer)
+    }
 }
 
 /// A program's output is bytes: an event that prints it says how many.
@@ -500,6 +680,7 @@ mod tests {
         let requests = [
             Request::Run(Run {
                 id: id.clone(),
+                args: vec!["--flag".to_owned()],
                 variables: vec![("RUST_LOG".to_owned(), "debug".to_owned())],
                 length: 1024,
                 digest: [0xab; 32],
@@ -587,33 +768,114 @@ mod tests {
 
     #[test]
     fn a_kind_or_an_answer_this_build_does_not_know_is_unknown() {
-        // A newer WaOS's refusals and answers: CBOR maps for adjacent tags this build has not.
-        let newer_refusal = vec![
-            (0xa2, "kind"), // placeholder to keep rustfmt from collapsing
-        ];
-        let _ = newer_refusal;
-        let kind: RefusalKind = ciborium::from_reader(
-            [
-                0xa1, 0x64, b'k', b'i', b'n', b'd', 0x65, b'N', b'e', b'w', b'e', b'r',
-            ]
-            .as_slice(),
-        )
-        .unwrap();
+        /// A newer WaOS's refusal kind, encoded with the same tag as `RefusalKind`.
+        #[derive(Serialize)]
+        #[serde(tag = "kind", content = "details")]
+        enum NewerRefusalKind {
+            NewerReason { code: u32 },
+        }
+
+        /// A newer WaOS's answer, encoded with the same tag as every answer enum.
+        #[derive(Serialize)]
+        #[serde(tag = "answer", content = "data")]
+        enum NewerAnswer {
+            NewerVariant { flag: bool },
+        }
+
+        /// A newer WaOS's upload answer.
+        #[derive(Serialize)]
+        #[serde(tag = "upload", content = "data")]
+        enum NewerUpload {
+            Resume { offset: u64 },
+        }
+
+        /// A newer WaOS's run event.
+        #[derive(Serialize)]
+        #[serde(tag = "event", content = "data")]
+        enum NewerRunEvent {
+            Progress { percent: u8 },
+        }
+
+        fn encode(value: &impl Serialize) -> Vec<u8> {
+            let mut bytes = Vec::new();
+            ciborium::into_writer(value, &mut bytes).unwrap();
+            bytes
+        }
+
+        fn decode<T: serde::de::DeserializeOwned>(bytes: &[u8]) -> T {
+            ciborium::from_reader(bytes).unwrap()
+        }
+
+        let kind: RefusalKind = decode(&encode(&NewerRefusalKind::NewerReason { code: 7 }));
         assert_eq!(kind, RefusalKind::Unknown);
-        let answer: InputAnswer = ciborium::from_reader(
-            [
-                0xa1, 0x66, b'a', b'n', b's', b'w', b'e', b'r', 0x65, b'N', b'e', b'w', b'e', b'r',
-            ]
-            .as_slice(),
-        )
-        .unwrap();
-        assert_eq!(answer, InputAnswer::Unknown);
+
+        let upload: Upload = decode(&encode(&NewerUpload::Resume { offset: 4096 }));
+        assert_eq!(upload, Upload::Unknown);
+
+        let event: RunEvent = decode(&encode(&NewerRunEvent::Progress { percent: 50 }));
+        assert_eq!(event, RunEvent::Unknown);
+
+        let newer_answer = encode(&NewerAnswer::NewerVariant { flag: true });
+        assert_eq!(
+            decode::<ScreenshotAnswer>(&newer_answer),
+            ScreenshotAnswer::Unknown
+        );
+        assert_eq!(decode::<InputAnswer>(&newer_answer), InputAnswer::Unknown);
+        assert_eq!(decode::<ResizeAnswer>(&newer_answer), ResizeAnswer::Unknown);
+        assert_eq!(
+            decode::<SettingsAnswer>(&newer_answer),
+            SettingsAnswer::Unknown
+        );
+        assert_eq!(
+            decode::<InspectAnswer>(&newer_answer),
+            InspectAnswer::Unknown
+        );
+        assert_eq!(decode::<OpenAnswer>(&newer_answer), OpenAnswer::Unknown);
+
+        // An unknown unit variant (with no `data` field) and out-of-order keys (`data` before
+        // `answer`) both work as CBOR allows.
+        let unit_unknown = encode(&ciborium::Value::Map(vec![(
+            ciborium::Value::Text("answer".into()),
+            ciborium::Value::Text("NewerUnit".into()),
+        )]));
+        assert_eq!(decode::<OpenAnswer>(&unit_unknown), OpenAnswer::Unknown);
+
+        let data_first_unknown = encode(&ciborium::Value::Map(vec![
+            (
+                ciborium::Value::Text("data".into()),
+                ciborium::Value::Integer(99.into()),
+            ),
+            (
+                ciborium::Value::Text("answer".into()),
+                ciborium::Value::Text("NewerDataFirst".into()),
+            ),
+        ]));
+        assert_eq!(
+            decode::<InputAnswer>(&data_first_unknown),
+            InputAnswer::Unknown
+        );
+
+        let data_first_known = encode(&ciborium::Value::Map(vec![
+            (
+                ciborium::Value::Text("data".into()),
+                ciborium::Value::Array(vec![ciborium::Value::Text("line".into())]),
+            ),
+            (
+                ciborium::Value::Text("answer".into()),
+                ciborium::Value::Text("Inspected".into()),
+            ),
+        ]));
+        assert_eq!(
+            decode::<InspectAnswer>(&data_first_known),
+            InspectAnswer::Inspected(vec!["line".into()])
+        );
     }
 
     #[test]
     fn a_run_prints_its_component_as_a_count_and_its_digest_shortened() {
         let run = Run {
             id: "dev.example.triangle".parse().unwrap(),
+            args: vec!["--flag".to_owned()],
             variables: vec![
                 ("RUST_LOG".to_owned(), "debug".to_owned()),
                 ("API_TOKEN".to_owned(), "s3cret".to_owned()),
@@ -623,7 +885,7 @@ mod tests {
         };
         assert_eq!(
             format!("{run:?}"),
-            "Run { id: dev.example.triangle, component: 1024 bytes, digest: abababab…, variables: [\"RUST_LOG\", \"API_TOKEN\"] }",
+            "Run { id: dev.example.triangle, args: [\"--flag\"], component: 1024 bytes, digest: abababab…, variables: [\"RUST_LOG\", \"API_TOKEN\"] }",
             "a variable's value may be a secret, so only its name is said"
         );
     }

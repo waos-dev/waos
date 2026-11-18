@@ -17,6 +17,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 
 use anyhow::{Context, Result};
 use tokio::sync::OwnedMutexGuard;
+use waos_dev_protocol::component_digest;
 use waos_package::ProgramId;
 
 /// The files of the components sent, by the id each was sent as.
@@ -100,10 +101,17 @@ impl SentComponent {
         fs::write(&self.path, component).with_context(|| format!("writing {}", self.path.display()))
     }
 
+    /// Whether the file holds the component `length` bytes long whose SHA-256 is `digest`: the
+    /// one a run announced, so WaOS answers `Have` and nothing is sent.
+    pub(crate) fn holds_digest(&self, length: u64, digest: &[u8; 32]) -> bool {
+        fs::metadata(&self.path).is_ok_and(|metadata| metadata.len() == length)
+            && fs::read(&self.path).is_ok_and(|kept| &component_digest(&kept) == digest)
+    }
+
     /// Whether the file holds `component`, byte for byte: what was sent before, unchanged.
     fn holds(&self, component: &[u8]) -> bool {
-        let same_length = fs::metadata(&self.path)
-            .is_ok_and(|metadata| metadata.len() == component.len() as u64);
+        let same_length =
+            fs::metadata(&self.path).is_ok_and(|metadata| metadata.len() == component.len() as u64);
         same_length && fs::read(&self.path).is_ok_and(|kept| kept == component)
     }
 }

@@ -6,11 +6,13 @@
 //! WaOS's before it sends, so a different protocol's major or a request WaOS does not serve is
 //! refused with both builds named and which one to update, before anything is sent. Then one
 //! [`Request`], answered in its own terms: [`ScreenshotAnswer`], [`InputAnswer`],
-//! [`ResizeAnswer`], [`SettingsAnswer`], [`InspectAnswer`] or [`OpenAnswer`], or, for a run,
-//! [`RunEvent`]s from `Compiling` to `Ended`, with the program's output among them as it comes
-//! (the design's decision 29: the connection is the run). A component is megabytes, a debug build
-//! hundreds of them, so a [`Run`] carries its length and SHA-256 and the component follows in
-//! [`Component`] frames of 8 MiB at most (`component`), which WaOS assembles and checks. A
+//! [`ResizeAnswer`], [`SettingsAnswer`], [`InspectAnswer`] or [`OpenAnswer`], or, for a run, an
+//! [`Upload`] first — `Send`, and the component's parts follow; `Have`, WaOS holds it and nothing
+//! is sent; or `Refused` — then [`RunEvent`]s from `Compiling` to `Ended`, with the program's
+//! output among them as it comes (the design's decision 29: the connection is the run). A
+//! component is megabytes, a debug build hundreds of them, so a [`Run`] carries its length and
+//! SHA-256, its arguments and the run's variables, and the component follows in [`Component`]
+//! frames of 8 MiB at most (`component`), which WaOS assembles and checks. A
 //! request that cannot be carried out is answered with a [`Refusal`], a kind an agent acts on and
 //! a message for a person.
 //!
@@ -26,6 +28,7 @@
 //! - The frames' shape: a four-byte little-endian count, then the message as CBOR. The first
 //!   frame each way is the hello, before any request.
 
+mod adjacent;
 mod component;
 mod connection;
 mod hello;
@@ -44,7 +47,7 @@ pub use hello::{Hello, MAJOR, Mismatch, SERVED};
 pub use messages::{
     Component, Input, InputAnswer, InputDone, InspectAnswer, Inspection, OpenAnswer, OutputStream,
     Request, ResizeAnswer, Resized, Run, RunEnd, RunEvent, ScreenshotAnswer, SettingsAnswer,
-    TracedCapability, WindowId, WindowPicture,
+    TracedCapability, Upload, WindowId, WindowPicture,
 };
 #[cfg(windows)]
 pub use pipe::{ClientStream, Listener, ServerStream, listener_path};

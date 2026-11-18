@@ -22,6 +22,7 @@ use std::time::Duration;
 use super::asking_now::AskingNow;
 use super::dev_compiles::DevCompiles;
 use super::dev_inspect::{self, InspectionContext};
+use super::dev_refusal;
 use super::dev_run::{self, RunContext};
 use super::dev_settings::{self, SettingsContext};
 use super::installed_runs::InstalledRuns;
@@ -32,9 +33,7 @@ use tokio::sync::oneshot;
 use tokio::task::JoinSet;
 use waos::OpenRequest;
 use waos::bindings::wasdk::platform::windows::Size;
-use waos_dev_protocol::{
-    Connection, Hello, Listener, MAJOR, Refusal, RefusalKind, Request, RunEvent, ServerStream,
-};
+use waos_dev_protocol::{Connection, Hello, Listener, MAJOR, Request, ServerStream};
 use waos_store::Store;
 
 /// This build, as its hello names it: "WaOS 0.3.0".
@@ -234,24 +233,13 @@ async fn serve_connection(mut connection: Connection<ServerStream>, context: Con
     }
     match connection.receive::<Request>().await {
         Ok(Some(Request::Run(run))) => {
-            let component = match connection.receive_component(run.length, &run.digest).await {
-                Ok(component) => component,
-                // A wrong upload was whole frames, so the connection still speaks: the run is
-                // refused on it, as a component that cannot load is.
-                Err(error) if error.kind() == io::ErrorKind::InvalidData => {
-                    tracing::warn!(%error, "a run's component did not arrive as announced");
-                    let refusal = Refusal::new(RefusalKind::CannotLoad, error.to_string());
-                    let _ = connection.send(&RunEvent::Refused(refusal)).await;
-                    return;
-                }
-                Err(error) => {
-                    tracing::warn!(%error, "a run's component did not arrive");
-                    return;
-                }
-            };
-            dev_run::serve(connection, run.id, component, run.variables, context.run).await;
+            dev_run::serve(connection, run, context.run).await;
         }
         Ok(Some(Request::Open { id, files })) => {
+            if let Some(answer) = dev_refusal::elsewhere(connection.locality(), &id) {
+                let _ = connection.send(&answer).await;
+                return;
+            }
             let request = OpenRequest {
                 files,
                 links: Vec::new(),
@@ -305,8 +293,9 @@ pub(crate) mod tests {
     use waos::{RunningProgram, WaOS};
     use waos_dev_protocol::ClientStream;
     use waos_dev_protocol::{
-        Answer, Asked, Component, Connection, FileDialog, Hello, OutputStream, Question, Request,
-        Row, Run, RunEnd, RunEvent, component_digest,
+        Answer, Asked, Component, Connection, FileDialog, Hello, Locality, OpenAnswer,
+        OutputStream, Question, RefusalKind, Request, Row, Run, RunEnd, RunEvent, Upload,
+        component_digest,
     };
     use waos_package::ProgramId;
 
@@ -332,6 +321,8 @@ pub(crate) mod tests {
         pub(crate) store: waos_store::Store,
         /// What the server's programs' users are asked, which a test notes as the prompts do.
         pub(crate) asking: Arc<AskingNow>,
+        installed: InstalledRuns,
+        components: Arc<SentComponents>,
         server: Option<DevServer>,
     }
 
@@ -374,12 +365,13 @@ pub(crate) mod tests {
                 ProgramPlaces::new(ProgramPlace::Windows),
             );
             let asking = AskingNow::new();
+            let components = Arc::new(SentComponents::new(folder.join("dev")));
             let server = DevServer::start(
-                installed,
+                installed.clone(),
                 store.clone(),
                 Arc::clone(&asking),
                 &socket,
-                Arc::new(SentComponents::new(folder.join("dev"))),
+                Arc::clone(&components),
                 None,
             )
             .expect("the server binds");
@@ -389,6 +381,8 @@ pub(crate) mod tests {
                 runs,
                 store,
                 asking,
+                installed,
+                components,
                 server: Some(server),
             }
         }
@@ -421,18 +415,44 @@ pub(crate) mod tests {
             component: &Path,
             variables: Vec<(String, String)>,
         ) -> Connection<ClientStream> {
+            self.run_request(id, component, Vec::new(), variables).await
+        }
+
+        /// A client connected and agreed, its `Run` of `component` as the program `id` sent with
+        /// `args` as its arguments.
+        pub(crate) async fn run_with_args(
+            &self,
+            id: &str,
+            component: &Path,
+            args: Vec<String>,
+        ) -> Connection<ClientStream> {
+            self.run_request(id, component, args, Vec::new()).await
+        }
+
+        /// A client connected and agreed, its `Run` of `component` as the program `id` sent, with
+        /// `args` as its arguments and `variables` added to its environment.
+        async fn run_request(
+            &self,
+            id: &str,
+            component: &Path,
+            args: Vec<String>,
+            variables: Vec<(String, String)>,
+        ) -> Connection<ClientStream> {
             let component = fs::read(component).unwrap();
             let mut client = self.client().await;
             client
                 .send(&Request::Run(Run {
                     id: id.parse().unwrap(),
+                    args,
                     variables,
                     length: component.len() as u64,
                     digest: component_digest(&component),
                 }))
                 .await
                 .unwrap();
-            client.send_component(&component).await.unwrap();
+            if next::<Upload>(&mut client).await == Upload::Send {
+                client.send_component(&component).await.unwrap();
+            }
             client
         }
 
@@ -459,19 +479,22 @@ pub(crate) mod tests {
             client
                 .send(&Request::Run(Run {
                     id: id.parse().unwrap(),
+                    args: Vec::new(),
                     variables: Vec::new(),
                     length: component.len() as u64,
                     digest,
                 }))
                 .await
                 .unwrap();
-            for part in component.chunks(parts) {
-                client
-                    .send(&Component {
-                        bytes: part.to_vec(),
-                    })
-                    .await
-                    .unwrap();
+            if next::<Upload>(&mut client).await == Upload::Send {
+                for part in component.chunks(parts) {
+                    client
+                        .send(&Component {
+                            bytes: part.to_vec(),
+                        })
+                        .await
+                        .unwrap();
+                }
             }
             client
         }
@@ -481,6 +504,39 @@ pub(crate) mod tests {
             let mut client = self.client().await;
             client.send(request).await.unwrap();
             next(&mut client).await
+        }
+
+        /// A client connected over a network transport and agreed.
+        #[cfg(unix)]
+        async fn network_client(&self) -> Connection<ClientStream> {
+            let (client, server) = tokio::net::UnixStream::pair().unwrap();
+            let context = ConnectionContext {
+                run: RunContext {
+                    engine: Arc::clone(&self.installed.engine),
+                    environments: Arc::clone(&self.installed.environments),
+                    runs: Arc::clone(&self.installed.runs),
+                    components: Arc::clone(&self.components),
+                    dev_compiles: None,
+                    asking: Arc::clone(&self.asking),
+                },
+                installed: self.installed.clone(),
+                store: self.store.clone(),
+                settings: SettingsContext {
+                    runs: Arc::clone(&self.installed.runs),
+                    components: Arc::clone(&self.components),
+                    store: self.store.clone(),
+                    environments: Arc::clone(&self.installed.environments),
+                },
+            };
+            tokio::spawn(serve_connection(
+                Connection::over(server, Locality::Network),
+                context,
+            ));
+            let mut client = Connection::over(client, Locality::Network);
+            let ours = Hello::cargo_waos("cargo-waos 0.3.0");
+            let theirs = client.hello(&ours).await.unwrap();
+            assert_eq!(theirs.major, waos_dev_protocol::MAJOR);
+            client
         }
 
         /// Holds back the write of every component sent from now on, and so its load, until the
@@ -576,6 +632,9 @@ pub(crate) mod tests {
     /// The id forever runs as.
     const FOREVER: &str = "dev.waos.examples.forever";
 
+    /// The id arguments runs as.
+    const ARGUMENTS: &str = "dev.waos.examples.arguments";
+
     #[tokio::test]
     async fn a_runs_output_reaches_the_client_in_order_after_started() {
         let server = TestServer::start("output");
@@ -636,6 +695,32 @@ pub(crate) mod tests {
     }
 
     #[tokio::test]
+    async fn a_component_waos_holds_is_answered_have_and_nothing_is_sent() {
+        let server = TestServer::start("have");
+        let component = fs::read(waos_test_programs::FOREVER).unwrap();
+        let mut first = server
+            .run(FOREVER, Path::new(waos_test_programs::FOREVER))
+            .await;
+        started(&mut first).await;
+        drop(first);
+        server.wait_for_runs(&[]).await;
+        let mut again = server.client().await;
+        again
+            .send(&Request::Run(Run {
+                id: FOREVER.parse().unwrap(),
+                args: Vec::new(),
+                variables: Vec::new(),
+                length: component.len() as u64,
+                digest: component_digest(&component),
+            }))
+            .await
+            .unwrap();
+        assert_eq!(next::<Upload>(&mut again).await, Upload::Have);
+        // Nothing is sent for a component WaOS holds: the file is what this build compiled.
+        started_from_compiled_code(&mut again).await;
+    }
+
+    #[tokio::test]
     async fn a_component_sent_changed_is_compiled_again() {
         let server = TestServer::start("changed");
         let mut first = server
@@ -677,6 +762,21 @@ pub(crate) mod tests {
         );
         drop(held);
         started(&mut loading).await;
+    }
+
+    #[tokio::test]
+    async fn a_runs_arguments_reach_the_program() {
+        let server = TestServer::start("arguments");
+        let mut client = server
+            .run_with_args(
+                ARGUMENTS,
+                Path::new(waos_test_programs::ARGUMENTS),
+                vec!["one".to_owned(), "two words".to_owned()],
+            )
+            .await;
+        started(&mut client).await;
+        let frames = frames_until(&mut client, |frame| matches!(frame, RunEvent::Ended(_))).await;
+        assert_eq!(stdout_of(&frames), "argument: one\nargument: two words\n");
     }
 
     #[tokio::test]
@@ -1049,6 +1149,26 @@ pub(crate) mod tests {
             format!("{refused:#}").contains("neither installed nor running"),
             "{refused:#}"
         );
+        server.wait_for_runs(&[]).await;
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn opening_files_over_a_network_connection_is_refused_local_only() {
+        let server = TestServer::start("open-network");
+        let file = file_to_open(&server, "my notes");
+        let mut client = server.network_client().await;
+        client
+            .send(&Request::Open {
+                id: OPENER.parse().unwrap(),
+                files: vec![file],
+            })
+            .await
+            .unwrap();
+        let OpenAnswer::Refused(refusal) = next::<OpenAnswer>(&mut client).await else {
+            panic!("refused");
+        };
+        assert_eq!(refusal.kind, RefusalKind::LocalOnly);
         server.wait_for_runs(&[]).await;
     }
 

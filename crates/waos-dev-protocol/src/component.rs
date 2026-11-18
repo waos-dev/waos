@@ -110,6 +110,7 @@ mod tests {
     fn run(length: u64, digest: [u8; 32]) -> Run {
         Run {
             id: id(),
+            args: Vec::new(),
             variables: Vec::new(),
             length,
             digest,

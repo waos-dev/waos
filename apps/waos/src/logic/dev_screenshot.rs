@@ -12,8 +12,8 @@
 //!
 //! The invariant: only a run `cargo waos run` sent is read, never a program the library opened.
 
+use waos::ProgramView;
 use waos::bindings::wasdk::platform::hardware_buffers::PixelBuffer;
-use waos::{ProgramView, RunningProgram};
 use waos_dev_protocol::{
     Asked, Connection, Refusal, RefusalKind, ScreenshotAnswer, ServerStream, WindowId,
     WindowPicture,
@@ -22,7 +22,7 @@ use waos_package::ProgramId;
 
 use super::asking_now::AskingNow;
 use super::dev_refusal;
-use super::runs::Runs;
+use super::runs::{DevRun, Runs};
 
 /// Answers a connection's `Screenshot`: the pictures of the windows of the program `id`, or of
 /// `window` alone, or why neither was taken.
@@ -35,20 +35,17 @@ pub(crate) async fn answer(
 ) {
     let answer = match runs.dev_run(id).await {
         Some(run) => {
-            let program = run.program;
             let asked = asking.of(id.as_str());
             let id = id.clone();
             // Reading and encoding a picture takes a while; the server's thread serves others.
-            match tokio::task::spawn_blocking(move || {
-                pictures(&id, &program, asked.as_ref(), window)
-            })
-            .await
+            match tokio::task::spawn_blocking(move || pictures(&id, &run, asked.as_ref(), window))
+                .await
             {
                 Ok(Ok(pictures)) => ScreenshotAnswer::Pictures(pictures),
                 Ok(Err(refusal)) => ScreenshotAnswer::Refused(refusal),
-                // A panic while encoding is this build's own failure, which no kind names.
+                // A panic while encoding is this build's own failure.
                 Err(error) => ScreenshotAnswer::Refused(Refusal::new(
-                    RefusalKind::Unknown,
+                    RefusalKind::Failed,
                     format!("taking the screenshot: {error}"),
                 )),
             }
@@ -64,29 +61,26 @@ pub(crate) async fn answer(
 /// over it.
 fn pictures(
     id: &ProgramId,
-    program: &RunningProgram,
+    run: &DevRun,
     asked: Option<&Asked>,
     window: Option<WindowId>,
 ) -> Result<Vec<WindowPicture>, Refusal> {
-    let views = program.views();
-    let windows = views.len();
-    let windowed = views
-        .into_iter()
-        .enumerate()
-        .map(|(index, view)| (WindowId(index as u64 + 1), view));
+    let windows = run.windows();
+    let count = windows.len();
     match window {
         Some(window) => {
-            let wanted = windowed
+            let wanted = windows
                 .into_iter()
                 .find(|(each, _)| *each == window)
                 .map(|(_, view)| view)
-                .ok_or_else(|| dev_refusal::no_window(id, window, windows))?;
+                .ok_or_else(|| dev_refusal::no_window(id, window, count))?;
             Ok(vec![WindowPicture {
                 asking: asked.cloned(),
                 ..picture_of(window, &wanted)
             }])
         }
-        None => Ok(windowed
+        None => Ok(windows
+            .into_iter()
             .map(|(window, view)| WindowPicture {
                 asking: asked.cloned(),
                 ..picture_of(window, &view)
@@ -404,6 +398,106 @@ mod tests {
             assert!(
                 !view.in_sight(),
                 "once the run ended, covered is out of sight"
+            );
+        }
+
+        #[tokio::test]
+        async fn window_ids_survive_a_window_closing_and_screenshot_takes_one_window() {
+            const TWO_WINDOWS: &str = "dev.waos.examples.twowindows";
+            let server = TestServer::drawing("window-ids");
+            let _client = server
+                .run(TWO_WINDOWS, Path::new(waos_test_programs::TWO_WINDOWS))
+                .await;
+            let deadline = Instant::now() + WITHIN;
+            let both = loop {
+                if let ScreenshotAnswer::Pictures(pictures) = server
+                    .ask::<ScreenshotAnswer>(&screenshot(TWO_WINDOWS))
+                    .await
+                    && pictures.len() == 2
+                    && pictures.iter().all(|picture| picture.png.is_some())
+                {
+                    break pictures;
+                }
+                assert!(Instant::now() < deadline, "both windows never drew");
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            };
+            assert_eq!(
+                (both[0].window, both[0].title.as_str()),
+                (WindowId(1), "first")
+            );
+            assert_eq!(
+                (both[1].window, both[1].title.as_str()),
+                (WindowId(2), "second")
+            );
+
+            // Asking for one window returns that window alone.
+            let only_second = Request::Screenshot {
+                id: TWO_WINDOWS.parse().unwrap(),
+                window: Some(WindowId(2)),
+            };
+            let ScreenshotAnswer::Pictures(one) =
+                server.ask::<ScreenshotAnswer>(&only_second).await
+            else {
+                panic!("one window");
+            };
+            assert_eq!(one.len(), 1);
+            assert_eq!(
+                (one[0].window, one[0].title.as_str()),
+                (WindowId(2), "second")
+            );
+
+            // Closing the first window leaves the second with id 2, refuses id 1, and gives the
+            // next window id 3 rather than reusing 1.
+            let program = server.programs().await.remove(0);
+            let first_view = program.views()[0].id();
+            program.remove_view(first_view);
+            let ScreenshotAnswer::Pictures(after_close) = server
+                .ask::<ScreenshotAnswer>(&screenshot(TWO_WINDOWS))
+                .await
+            else {
+                panic!("the remaining window");
+            };
+            assert_eq!(after_close.len(), 1);
+            assert_eq!(
+                (after_close[0].window, after_close[0].title.as_str()),
+                (WindowId(2), "second")
+            );
+            let ScreenshotAnswer::Refused(refusal) = server
+                .ask::<ScreenshotAnswer>(&Request::Screenshot {
+                    id: TWO_WINDOWS.parse().unwrap(),
+                    window: Some(WindowId(1)),
+                })
+                .await
+            else {
+                panic!("a closed window is refused");
+            };
+            assert_eq!(
+                refusal.kind,
+                RefusalKind::NoWindow {
+                    window: WindowId(1)
+                }
+            );
+            let ScreenshotAnswer::Pictures(still_second) =
+                server.ask::<ScreenshotAnswer>(&only_second).await
+            else {
+                panic!("window 2 survives");
+            };
+            assert_eq!(still_second[0].window, WindowId(2));
+
+            let third = crate::logic::test_engine::drawing::add_window(&program, None);
+            assert_eq!(third.id(), 3);
+            let ScreenshotAnswer::Pictures(with_third) = server
+                .ask::<ScreenshotAnswer>(&screenshot(TWO_WINDOWS))
+                .await
+            else {
+                panic!("windows 2 and 3");
+            };
+            assert_eq!(
+                with_third
+                    .iter()
+                    .map(|picture| picture.window)
+                    .collect::<Vec<_>>(),
+                [WindowId(2), WindowId(3)]
             );
         }
     }

@@ -94,7 +94,8 @@ enum Command {
     ///
     /// Each --env NAME=VALUE adds a variable the program reads in this run alone, and nothing of
     /// this shell's environment is passed. Installed programs never get them, and TMPDIR, which
-    /// WaOS sets, wins over a variable of that name given here.
+    /// WaOS sets, wins over a variable of that name given here. Arguments after -- reach the
+    /// program as its own arguments, as `cargo run --` passes them.
     ///
     /// A question WaOS asks while the program runs, to allow something or to pick a file, has a
     /// row among the program's settings: `cargo waos settings` lists them, and `cargo waos set`
@@ -352,6 +353,9 @@ struct RunArgs {
     /// get these, and TMPDIR, which WaOS sets, wins over a variable of that name.
     #[arg(long, value_name = "NAME=VALUE", value_parser = variables::parse)]
     env: Vec<(String, String)>,
+    /// The program's arguments, after `--`: `cargo waos run -- --port 8080`.
+    #[arg(last = true, value_name = "ARG")]
+    args: Vec<String>,
 }
 
 /// Which program, and which of its windows.
@@ -565,7 +569,7 @@ fn build_and_run(args: &RunArgs) -> Result<ExitCode> {
     let package = workspace::chosen_package(&metadata, args.build.program.package.as_deref())?;
     let id = WaosMetadata::id_of(package)?;
     let built = build::build(&metadata, package, args.build.profile())?;
-    on_this_thread(run::run(id, &built, &args.env))
+    on_this_thread(run::run(id, &built, &args.env, &args.args))
 }
 
 /// Writes the pictures of the program's windows under target/waos/screenshots/<package>, or where
@@ -896,5 +900,33 @@ mod tests {
             panic!("a key");
         };
         assert_eq!(key.chord, "-");
+    }
+
+    #[test]
+    fn a_run_takes_variables_and_arguments_after_double_dash() {
+        let Command::Run(run) = parsed(&[
+            "run",
+            "-p",
+            "notes",
+            "--env",
+            "RUST_LOG=debug",
+            "--",
+            "--port",
+            "8080",
+        ]) else {
+            panic!("a run");
+        };
+        assert_eq!(run.build.program.package.as_deref(), Some("notes"));
+        assert_eq!(run.env, [("RUST_LOG".to_owned(), "debug".to_owned())]);
+        assert_eq!(run.args, ["--port", "8080"]);
+        let mut cargo = Cargo::command();
+        let waos = cargo.find_subcommand_mut("waos").expect("cargo waos");
+        let help = waos
+            .find_subcommand_mut("run")
+            .expect("run")
+            .render_long_help()
+            .to_string();
+        assert!(help.contains("[ARG]..."), "{help}");
+        assert!(help.contains("Arguments after --"), "{help}");
     }
 }

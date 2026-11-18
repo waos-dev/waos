@@ -1,9 +1,9 @@
 //! The refusals the dev server gives, each in words a person can act on, beside a kind an agent
 //! acts on: the program no run of `cargo waos run` runs, the window that is not there or is a tab
-//! in no window, the point outside it, the input that cannot be given, and the component that does
-//! not load.
+//! in no window, the point outside it, the input that cannot be given, the component that does not
+//! load, and the opening a connection not on this machine asks for, which only one here may have.
 
-use waos_dev_protocol::{Asked, Refusal, RefusalKind, WindowId};
+use waos_dev_protocol::{Asked, Locality, OpenAnswer, Refusal, RefusalKind, WindowId};
 use waos_package::ProgramId;
 
 /// No run of `cargo waos run` runs `id` now.
@@ -110,4 +110,65 @@ pub(crate) fn local_only(id: &ProgramId) -> Refusal {
             "opening {id}'s files names paths on this machine, and this connection is not on this machine"
         ),
     )
+}
+
+/// `Open`'s answer before its paths are looked at, on a connection of `locality`: `LocalOnly` for
+/// `id` on one that is not on this machine, whose paths a network peer does not mean; none on
+/// this machine, where the files are handed over.
+pub(crate) fn elsewhere(locality: Locality, id: &ProgramId) -> Option<OpenAnswer> {
+    (locality != Locality::ThisMachine).then(|| OpenAnswer::Refused(local_only(id)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn notes() -> ProgramId {
+        "dev.example.notes".parse().unwrap()
+    }
+
+    #[test]
+    fn each_refusal_says_what_to_do_next() {
+        let no_run = no_dev_run_now(&notes());
+        assert_eq!(no_run.kind, RefusalKind::NoDevRunNow);
+        assert!(no_run.message.contains("cargo waos run"));
+        let no_window = no_window(&notes(), WindowId(2), 1);
+        assert_eq!(
+            no_window.kind,
+            RefusalKind::NoWindow {
+                window: WindowId(2)
+            }
+        );
+        assert!(
+            no_window.message.contains("no window 2"),
+            "{}",
+            no_window.message
+        );
+        assert!(never_dev_run(&notes()).message.contains("has run"));
+        assert_eq!(
+            outside_window(&notes(), WindowId(1), 800, 600, 900.0, 700.0, 1.0).kind,
+            RefusalKind::OutsideWindow {
+                width: 800,
+                height: 600,
+                x: 900.0,
+                y: 700.0,
+                scale: 1.0,
+            }
+        );
+        assert_eq!(
+            bad_input(&notes(), WindowId(1), "no key").kind,
+            RefusalKind::BadInput
+        );
+    }
+
+    #[test]
+    fn opening_is_local_only() {
+        assert_eq!(elsewhere(Locality::ThisMachine, &notes()), None);
+        let refused = elsewhere(Locality::Network, &notes()).expect("a refusal");
+        let OpenAnswer::Refused(refusal) = refused else {
+            panic!("a refusal");
+        };
+        assert_eq!(refusal.kind, RefusalKind::LocalOnly);
+        assert!(refusal.message.contains("not on this machine"));
+    }
 }

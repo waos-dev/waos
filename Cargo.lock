@@ -339,6 +339,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "arguments"
+version = "0.3.0"
+dependencies = [
+ "wasdk",
+]
+
+[[package]]
 name = "arrayref"
 version = "0.3.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"

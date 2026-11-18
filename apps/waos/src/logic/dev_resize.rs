@@ -79,7 +79,6 @@ mod tests {
         Refusal, RefusalKind, Request, ResizeAnswer, Resized, ScreenshotAnswer, WindowId,
     };
 
-    use super::*;
     use crate::logic::dev_input::tests::{INPUT, run_input};
     use crate::logic::dev_server::tests::TestServer;
     use crate::logic::test_engine::drawing::{WINDOW_HEIGHT, WINDOW_WIDTH};

@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 /// The programs built, by package name.
-const PROGRAMS: [&str; 41] = [
+const PROGRAMS: [&str; 42] = [
     "survey",
     "forever",
     "trap",
@@ -54,6 +54,7 @@ const PROGRAMS: [&str; 41] = [
     "workers",
     "inspect",
     "environment",
+    "arguments",
 ];
 
 /// What a program is built for.

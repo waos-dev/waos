@@ -75,3 +75,69 @@ pub async fn connect() -> Result<Connection<ClientStream>> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use waos_dev_protocol::{Listener, MAJOR, ResizeAnswer, WindowId};
+
+    use super::*;
+
+    fn resize() -> Request {
+        Request::Resize {
+            id: "dev.example.notes".parse().unwrap(),
+            window: WindowId(1),
+            width: 390.0,
+            height: 844.0,
+        }
+    }
+
+    #[tokio::test]
+    async fn a_request_not_in_serves_is_refused_before_it_is_sent() {
+        let folder = tempfile::tempdir().unwrap();
+        let socket = folder.path().join("dev.sock");
+        let mut listener = Listener::bind(&socket).await.unwrap();
+        let served = tokio::spawn(async move {
+            let mut server = listener.accept().await.unwrap();
+            let older = Hello {
+                serves: vec!["run".to_owned()],
+                ..Hello::waos("WaOS 0.3.0")
+            };
+            server.hello(&older).await.unwrap();
+            server.receive::<Request>().await.unwrap()
+        });
+        let client = Connection::connect(&socket).await.unwrap();
+        let error = answer::<ResizeAnswer>(client, &resize()).await.unwrap_err();
+        let said = error.to_string();
+        assert!(said.contains("WaOS 0.3.0"), "{said}");
+        assert!(said.contains("resize"), "{said}");
+        assert!(said.contains("https://waos.app"), "{said}");
+        assert_eq!(
+            served.await.unwrap(),
+            None,
+            "the request was refused before anything was sent"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_different_major_is_refused_before_anything_is_sent() {
+        let folder = tempfile::tempdir().unwrap();
+        let socket = folder.path().join("dev.sock");
+        let mut listener = Listener::bind(&socket).await.unwrap();
+        let served = tokio::spawn(async move {
+            let mut server = listener.accept().await.unwrap();
+            let newer = Hello {
+                major: MAJOR + 1,
+                ..Hello::waos("WaOS 0.4.0")
+            };
+            server.hello(&newer).await.unwrap();
+            server.receive::<Request>().await.unwrap()
+        });
+        let client = Connection::connect(&socket).await.unwrap();
+        let error = answer::<ResizeAnswer>(client, &resize()).await.unwrap_err();
+        let said = error.to_string();
+        assert!(said.contains("WaOS 0.4.0"), "{said}");
+        assert!(said.contains(BUILD), "{said}");
+        assert!(said.contains("cargo install cargo-waos"), "{said}");
+        assert_eq!(served.await.unwrap(), None);
+    }
+}

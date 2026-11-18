@@ -99,6 +99,9 @@ pub struct ProgramEnvironment {
     /// whoever runs it gave them: a development run's `--env` (the design's decision 68). With
     /// none, it reads only the engine's own, `TMPDIR`, which wins where both name one.
     pub variables: Vec<(String, String)>,
+    /// The program's arguments, as whoever runs it gave them: a development run's after `--`.
+    /// With none, it has none.
+    pub arguments: Vec<String>,
 }
 
 /// A program's own folders on the machine, free of any grant: what it keeps, which it sees at

@@ -111,8 +111,8 @@ pub async fn take(
     Ok(ExitCode::SUCCESS)
 }
 
-/// Writes each of `pictures` that has a picture as `window-<n>.png` in `folder`, made where it is
-/// missing, after taking away the window pictures already there; answers where each went, none
+/// Writes each of `pictures` that has a picture as `window-<id>.png` in `folder`, made where it
+/// is missing, after taking away the window pictures already there; answers where each went, none
 /// for a window that has shown no picture yet.
 pub fn write(folder: &Path, pictures: &[WindowPicture]) -> Result<Vec<Option<PathBuf>>> {
     fs::create_dir_all(folder).with_context(|| format!("making {}", folder.display()))?;
@@ -179,8 +179,8 @@ fn is_window_picture(path: &Path) -> bool {
     number.is_some_and(|number| number.parse::<u64>().is_ok())
 }
 
-/// Prints where `picture` went with its window's number, title and size, and says on stderr what
-/// a reader of it needs to know: that the window showed no picture yet, or is out of sight.
+/// Prints where `picture` went with its window's id, title and size, and says on stderr what a
+/// reader of it needs to know: that the window showed no picture yet, or is out of sight.
 fn say(picture: &WindowPicture, path: Option<&Path>) {
     let window = picture.window;
     let title = if picture.title.is_empty() {

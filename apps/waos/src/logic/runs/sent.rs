@@ -63,19 +63,25 @@ pub(crate) struct DevRun {
 }
 
 impl DevRun {
-    /// The program's window `window`, by the id the run gave it as it opened.
-    pub(crate) fn window(&self, window: WindowId) -> Result<ProgramView, Refusal> {
-        let views = self.program.views();
-        let windows = views.len();
-        let index = window
-            .0
-            .checked_sub(1)
-            .and_then(|index| usize::try_from(index).ok())
-            .ok_or_else(|| dev_refusal::no_window(&self.id, window, windows))?;
-        views
+    /// The program's windows open now, each with the id the engine gave it as it opened (`ViewId`,
+    /// minted from 1 and never reused within the run).
+    pub(crate) fn windows(&self) -> Vec<(WindowId, ProgramView)> {
+        self.program
+            .views()
             .into_iter()
-            .nth(index)
-            .ok_or_else(|| dev_refusal::no_window(&self.id, window, windows))
+            .map(|view| (WindowId(view.id()), view))
+            .collect()
+    }
+
+    /// The program's window `window`, by the id it was given as it opened.
+    pub(crate) fn window(&self, window: WindowId) -> Result<ProgramView, Refusal> {
+        let windows = self.windows();
+        let count = windows.len();
+        windows
+            .into_iter()
+            .find(|(each, _)| *each == window)
+            .map(|(_, view)| view)
+            .ok_or_else(|| dev_refusal::no_window(&self.id, window, count))
     }
 }
 

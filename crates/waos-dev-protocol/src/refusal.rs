@@ -6,8 +6,9 @@
 
 use std::fmt;
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 
+use crate::adjacent::{self, Adjacent};
 use crate::messages::WindowId;
 use crate::settings_rows::Asked;
 
@@ -35,7 +36,7 @@ impl fmt::Display for Refusal {
 }
 
 /// What a refusal refuses, as an agent acts on it; the message says the rest.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(tag = "kind", content = "details")]
 pub enum RefusalKind {
     /// No run of `cargo waos run` runs the program now: nothing does, or the program running was
@@ -45,7 +46,9 @@ pub enum RefusalKind {
     /// are none of a tool's.
     NeverDevRun,
     /// The program has no window `window`.
-    NoWindow { window: WindowId },
+    NoWindow {
+        window: WindowId,
+    },
     /// The point `x`, `y` is outside the window, which is `width` by `height` physical pixels at
     /// `scale` physical pixels a logical point.
     OutsideWindow {
@@ -57,7 +60,9 @@ pub enum RefusalKind {
     },
     /// The program's view numbered `window` is in no window, as a phone's deck shows a tab: its
     /// size is the platform's, which no tool sets.
-    InNoWindow { window: WindowId },
+    InNoWindow {
+        window: WindowId,
+    },
     /// WaOS asks the program's user this over the program's windows, so the request was not
     /// carried out: the user's answer comes first.
     Asking(Asked),
@@ -71,6 +76,93 @@ pub enum RefusalKind {
     /// The request itself could not be carried out, as a store that cannot be read or a picture
     /// that cannot be taken: the message says what failed.
     Failed,
-    #[serde(other)]
     Unknown,
+}
+
+impl Adjacent for RefusalKind {
+    const TAG: &'static str = "kind";
+    const CONTENT: &'static str = "details";
+
+    fn unknown() -> Self {
+        RefusalKind::Unknown
+    }
+
+    fn is_known(tag: &str) -> bool {
+        matches!(
+            tag,
+            "NoDevRunNow"
+                | "NeverDevRun"
+                | "NoWindow"
+                | "OutsideWindow"
+                | "InNoWindow"
+                | "Asking"
+                | "BadInput"
+                | "CannotLoad"
+                | "LocalOnly"
+                | "Failed"
+                | "Unknown"
+        )
+    }
+
+    fn unit(tag: &str) -> Option<Self> {
+        match tag {
+            "NoDevRunNow" => Some(RefusalKind::NoDevRunNow),
+            "NeverDevRun" => Some(RefusalKind::NeverDevRun),
+            "BadInput" => Some(RefusalKind::BadInput),
+            "CannotLoad" => Some(RefusalKind::CannotLoad),
+            "LocalOnly" => Some(RefusalKind::LocalOnly),
+            "Failed" => Some(RefusalKind::Failed),
+            "Unknown" => Some(RefusalKind::Unknown),
+            _ => None,
+        }
+    }
+
+    fn payload<'de, D: Deserializer<'de>>(tag: &str, deserializer: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        struct WindowDetails {
+            window: WindowId,
+        }
+        #[derive(Deserialize)]
+        struct OutsideWindowDetails {
+            width: u32,
+            height: u32,
+            x: f64,
+            y: f64,
+            scale: f64,
+        }
+        match tag {
+            "NoWindow" => {
+                let WindowDetails { window } = Deserialize::deserialize(deserializer)?;
+                Ok(RefusalKind::NoWindow { window })
+            }
+            "OutsideWindow" => {
+                let OutsideWindowDetails {
+                    width,
+                    height,
+                    x,
+                    y,
+                    scale,
+                } = Deserialize::deserialize(deserializer)?;
+                Ok(RefusalKind::OutsideWindow {
+                    width,
+                    height,
+                    x,
+                    y,
+                    scale,
+                })
+            }
+            "InNoWindow" => {
+                let WindowDetails { window } = Deserialize::deserialize(deserializer)?;
+                Ok(RefusalKind::InNoWindow { window })
+            }
+            "Asking" => Deserialize::deserialize(deserializer).map(RefusalKind::Asking),
+            _ => unreachable!(),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for RefusalKind {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        adjacent::deserialize(deserializer)
+    }
 }

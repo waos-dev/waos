@@ -124,6 +124,7 @@ mod tests {
     fn run() -> Request {
         Request::Run(Run {
             id: "dev.example.triangle".parse().unwrap(),
+            args: Vec::new(),
             variables: Vec::new(),
             length: 0,
             digest: [0; 32],
