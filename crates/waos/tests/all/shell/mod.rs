@@ -36,13 +36,14 @@ pub mod sound;
 pub mod turns;
 pub mod video_frames;
 
+use std::collections::HashMap;
 use std::fmt;
 use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::pin::pin;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
-use std::sync::{Arc, Condvar, Mutex, OnceLock, Weak};
+use std::sync::{Arc, Condvar, Mutex, OnceLock, PoisonError, Weak};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -230,10 +231,28 @@ pub fn engine_of(
 }
 
 /// The program at `component`, one of `waos_test_programs`'.
+///
+/// The first load of a program compiles it into the cache every test's engine shares, which takes
+/// seconds for a debug build of Waft, and tests run side by side: each of those that loads it
+/// before the first is done would compile it again. So a program is loaded by one test at a time,
+/// and the tests after the first map what it compiled.
 pub fn load(engine: &WaOS, component: &str) -> Program {
+    let loading = loading_of(component);
+    let _one_load_at_a_time = loading.lock().unwrap_or_else(PoisonError::into_inner);
     engine
         .load(Path::new(component))
         .unwrap_or_else(|error| panic!("loading {component}: {error:#}"))
+}
+
+/// The lock each component's loads take, so that the loads of one component queue while those of
+/// the others go on.
+fn loading_of(component: &str) -> Arc<Mutex<()>> {
+    static LOADING: OnceLock<Mutex<HashMap<String, Arc<Mutex<()>>>>> = OnceLock::new();
+    let mut loading = LOADING
+        .get_or_init(Mutex::default)
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner);
+    Arc::clone(loading.entry(component.to_owned()).or_default())
 }
 
 /// The one screen: as large as a view, at 2x, with the menu bar along its top and the Dock along
