@@ -16,8 +16,9 @@
 //! a run of `cargo waos run` runs (the design's decision 60). `cargo waos settings` and `set`
 //! connect the same way and send one [`ToWaOS::Settings`] or [`ToWaOS::Set`], a program's rows of
 //! settings to read or one to set, which a WaOS answers once, for a program a run of `cargo waos
-//! run` on this machine runs or has run; and while WaOS asks a program's user something, the run's
-//! connection hears [`FromWaOS::Asking`]. `cargo waos inspect` connects the same way and sends
+//! run` on this machine runs or has run, or a development program whose settings are set before
+//! its first run; and while WaOS asks a program's user something, the run's connection hears
+//! [`FromWaOS::Asking`]. `cargo waos inspect` connects the same way and sends
 //! one [`ToWaOS::Inspect`], for a program's audit summary, what it holds or its live trace, which a
 //! WaOS answers as JSON lines of `wasdk:inspect`'s values, for a program a run of `cargo waos run`
 //! on this machine runs, or, for the summary, has run. There is no stop message. On this machine

@@ -1,10 +1,10 @@
 //! A run: the program sent to the WaOS on this machine over `waos-dev-protocol`'s connection, which is the
 //! run (the design's decision 29), as the program its id names, which runs with that program's
 //! settings and folders in WaOS and the variables `--env` gave for it alone (decision 68). What
-//! the program writes comes to this process's stdout and stderr as it writes it; what WaOS asks
-//! its user while the program waits for the answer is
-//! said, with the row that answers it ahead; how it ended is said and becomes the exit status;
-//! Ctrl-C closes the connection, which stops the program.
+//! the program writes comes to this process's stdout and stderr as it writes it, each line after
+//! the program's name, so two runs' output read apart; what WaOS asks its user while the program
+//! waits for the answer is said, with the row that answers it ahead; how it ended is said and
+//! becomes the exit status; Ctrl-C closes the connection, which stops the program.
 //!
 //! The invariant: nothing here runs a program. It runs in the WaOS app, and this process holds
 //! only the connection, so closing it is the one way to stop the run.
@@ -48,12 +48,17 @@ pub async fn run(
         .with_context(|| format!("sending {name} to WaOS"))?;
     let interrupted = tokio::signal::ctrl_c();
     tokio::pin!(interrupted);
+    let mut output = Output {
+        name,
+        stdout_at_line_start: true,
+        stderr_at_line_start: true,
+    };
     loop {
         tokio::select! {
             received = connection.receive::<FromWaOS>() => match received.context("reading from WaOS")? {
                 Some(FromWaOS::Compiling) => eprintln!("cargo waos: WaOS is compiling {name}"),
                 Some(FromWaOS::Started) => eprintln!("cargo waos: {name} is running in WaOS"),
-                Some(FromWaOS::Output { stream, bytes }) => write_output(stream, &bytes)?,
+                Some(FromWaOS::Output { stream, bytes }) => output.written(stream, &bytes)?,
                 Some(FromWaOS::Ended(end)) => return Ok(ended(name, &end)),
                 Some(FromWaOS::Refused(why)) => bail!("WaOS refused {name}: {why}"),
                 Some(FromWaOS::Asking(asked)) => {
@@ -79,19 +84,57 @@ pub async fn run(
     }
 }
 
-/// Writes `bytes` to this process's own stream of the same name, at once.
-fn write_output(stream: OutputStream, bytes: &[u8]) -> Result<()> {
-    let written = match stream {
-        OutputStream::Stdout => io::stdout()
-            .lock()
-            .write_all(bytes)
-            .and_then(|()| io::stdout().flush()),
-        OutputStream::Stderr => io::stderr()
-            .lock()
-            .write_all(bytes)
-            .and_then(|()| io::stderr().flush()),
-    };
-    written.context("writing the program's output")
+/// How a run's output reaches this terminal: each line of the program's, after the program's
+/// name, so two runs' output read apart.
+struct Output<'a> {
+    name: &'a str,
+    /// Whether the next byte of each stream starts a line.
+    stdout_at_line_start: bool,
+    stderr_at_line_start: bool,
+}
+
+impl Output<'_> {
+    /// Writes `bytes` to this process's own `stream` at once, each line after the program's name.
+    fn written(&mut self, stream: OutputStream, bytes: &[u8]) -> Result<()> {
+        let (prefixed, at_line_start) = match stream {
+            OutputStream::Stdout => prefixed(self.name, self.stdout_at_line_start, bytes),
+            OutputStream::Stderr => prefixed(self.name, self.stderr_at_line_start, bytes),
+        };
+        match stream {
+            OutputStream::Stdout => self.stdout_at_line_start = at_line_start,
+            OutputStream::Stderr => self.stderr_at_line_start = at_line_start,
+        }
+        let written = match stream {
+            OutputStream::Stdout => io::stdout()
+                .lock()
+                .write_all(&prefixed)
+                .and_then(|()| io::stdout().flush()),
+            OutputStream::Stderr => io::stderr()
+                .lock()
+                .write_all(&prefixed)
+                .and_then(|()| io::stderr().flush()),
+        };
+        written.context("writing the program's output")
+    }
+}
+
+/// `bytes` with `name` and `: ` before each line, and whether its last byte ended one; a piece of
+/// a line, as a program writes one, starts at `at_line_start` as the piece before it left it.
+fn prefixed(name: &str, at_line_start: bool, bytes: &[u8]) -> (Vec<u8>, bool) {
+    let mut prefixed = Vec::with_capacity(bytes.len());
+    let mut at_line_start = at_line_start;
+    for &byte in bytes {
+        if at_line_start {
+            prefixed.extend_from_slice(name.as_bytes());
+            prefixed.extend_from_slice(b": ");
+            at_line_start = false;
+        }
+        prefixed.push(byte);
+        if byte == b'\n' {
+            at_line_start = true;
+        }
+    }
+    (prefixed, at_line_start)
 }
 
 /// Says how `name` ended, and answers the exit status that says the same.
@@ -110,4 +153,20 @@ fn ended(name: &str, end: &RunEnd) -> ExitCode {
     };
     eprintln!("cargo waos: {said}");
     status
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn each_line_comes_after_the_programs_name_as_the_pieces_of_it_arrive() {
+        assert_eq!(
+            prefixed("notes", true, b"hello\nworld"),
+            (b"notes: hello\nnotes: world".to_vec(), false)
+        );
+        assert_eq!(prefixed("notes", false, b"!\n"), (b"!\n".to_vec(), true));
+        assert_eq!(prefixed("notes", false, b"\n"), (b"\n".to_vec(), true));
+        assert_eq!(prefixed("notes", true, b""), (Vec::new(), true));
+    }
 }

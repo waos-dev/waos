@@ -12,6 +12,7 @@ readme = "README.md"
 # Only a component has GPUI here, so the workspace's native build does not build GPUI.
 [target.'cfg(target_os = "wasi")'.dependencies]
 anyhow.workspace = true
+env_filter = { version = "2.0.0", default-features = false, features = ["std"] }
 futures.workspace = true
 gpui.workspace = true
 gpui_wgpu.workspace = true

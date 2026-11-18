@@ -1,15 +1,18 @@
 //! `cargo waos screenshot`: the last picture of each window of the program a run of `cargo waos
 //! run` runs, asked of the WaOS running it, written as `window-<n>.png` under
 //! `target/waos/screenshots/<package>`, each printed with its window's number, title and size, so
-//! an agent building the program sees it as its user does (the design's decision 60). The windows
-//! are numbered from 1 in the order they opened, as `--window` names them, and a point in a
-//! picture's pixels, from its top-left, is where `tap` and `scroll` reach.
+//! an agent building the program sees it as its user does (the design's decision 60). `--out`
+//! writes them in a folder instead, one named as a folder or one that exists, all the windows, or
+//! one window's picture at a file's path. The windows are numbered from 1 in the order they
+//! opened, as `--window` names them, and a point in a picture's pixels, from its top-left, is
+//! where `tap` and `scroll` reach.
 //!
 //! What WaOS asks the program's user over its windows is the program's prompt, not its picture:
 //! the screenshot says on stderr what is asked.
 //!
-//! The invariant: the folder holds this screenshot's pictures alone. The window pictures an earlier
-//! screenshot left there go first, so a window that closed since leaves no stale file behind.
+//! The invariant: a folder the pictures go in holds this screenshot's pictures alone. The window
+//! pictures an earlier screenshot left there go first, so a window that closed since leaves no
+//! stale file behind.
 
 use std::fs;
 use std::io;
@@ -28,9 +31,46 @@ use crate::unreached;
 const PREFIX: &str = "window-";
 const EXTENSION: &str = "png";
 
-/// Asks for the pictures of the windows of the program `id`, writes them in `folder`, and prints
-/// each.
-pub async fn take(id: ProgramId, folder: &Path) -> Result<ExitCode> {
+/// Where a screenshot's pictures go: each window's as `window-<n>.png` in a folder, or `window`'s
+/// alone at a file's path.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Where {
+    Folder(PathBuf),
+    File { path: PathBuf, window: u32 },
+}
+
+impl Where {
+    /// Where `out` asks for, or the folder `default` when it names none: a folder for a path that
+    /// is one or is written as one, else a file for `window`'s picture.
+    pub fn of(out: Option<&Path>, window: u32, default: &Path) -> Where {
+        match out {
+            None => Where::Folder(default.to_path_buf()),
+            Some(path) if names_folder(path) => Where::Folder(path.to_path_buf()),
+            Some(path) => Where::File {
+                path: path.to_path_buf(),
+                window,
+            },
+        }
+    }
+}
+
+/// Whether `path` names a folder: one that is there, or one written with a separator at its end.
+fn names_folder(path: &Path) -> bool {
+    if path.is_dir() {
+        return true;
+    }
+    let written = path.as_os_str().to_string_lossy();
+    written.ends_with('/') || written.ends_with('\\')
+}
+
+/// Asks for the pictures of the windows of the program `id`, writes them where `out` asks, or in
+/// `default` without it, and prints each.
+pub async fn take(
+    id: ProgramId,
+    out: Option<&Path>,
+    window: u32,
+    default: &Path,
+) -> Result<ExitCode> {
     let answer = ask(&ToWaOS::Screenshot { id: id.clone() }).await?;
     let pictures = match answer {
         FromWaOS::Screenshots(pictures) => pictures,
@@ -44,9 +84,20 @@ pub async fn take(id: ProgramId, folder: &Path) -> Result<ExitCode> {
     if pictures.is_empty() {
         eprintln!("cargo waos: {id} has no window open");
     }
-    let written = write(folder, &pictures)?;
-    for (picture, path) in pictures.iter().zip(written) {
-        say(picture, path.as_deref());
+    match Where::of(out, window, default) {
+        Where::Folder(folder) => {
+            for (picture, path) in pictures.iter().zip(write(&folder, &pictures)?) {
+                say(picture, path.as_deref());
+            }
+        }
+        Where::File { path, window } => match pictures.iter().find(|each| each.window == window) {
+            Some(picture) => say(picture, write_one(&path, picture)?.as_deref()),
+            None if !pictures.is_empty() => eprintln!(
+                "cargo waos: {id} has no window {window}: it has {}, numbered from 1",
+                pictures.len()
+            ),
+            None => {}
+        },
     }
     if let Some(asking) = pictures.iter().find_map(|picture| picture.asking.as_ref()) {
         eprintln!(
@@ -74,6 +125,22 @@ pub fn write(folder: &Path, pictures: &[WindowPicture]) -> Result<Vec<Option<Pat
             Ok(Some(path))
         })
         .collect()
+}
+
+/// Writes `picture`'s picture at `path`, made where it is missing; answers where it went, none for
+/// a window that has shown no picture yet.
+fn write_one(path: &Path, picture: &WindowPicture) -> Result<Option<PathBuf>> {
+    let Some(png) = &picture.png else {
+        return Ok(None);
+    };
+    if let Some(parent) = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+    {
+        fs::create_dir_all(parent).with_context(|| format!("making {}", parent.display()))?;
+    }
+    fs::write(path, png).with_context(|| format!("writing {}", path.display()))?;
+    Ok(Some(path.to_path_buf()))
 }
 
 /// The file the picture of the window numbered `window` is written to.
@@ -192,5 +259,39 @@ mod tests {
             .collect();
         left.sort();
         assert_eq!(left, ["notes.txt", "window-1.png", "window-a.png"]);
+    }
+
+    #[test]
+    fn out_names_a_folder_when_it_is_one_or_ends_as_one_and_a_file_otherwise() {
+        let folder = tempfile::tempdir().unwrap();
+        let default = folder.path().join("default");
+        let existing = folder.path().join("existing");
+        fs::create_dir(&existing).unwrap();
+        assert_eq!(Where::of(None, 1, &default), Where::Folder(default.clone()));
+        assert_eq!(
+            Where::of(Some(&existing), 1, &default),
+            Where::Folder(existing)
+        );
+        assert_eq!(
+            Where::of(Some(Path::new("later/")), 1, &default),
+            Where::Folder(PathBuf::from("later/"))
+        );
+        assert_eq!(
+            Where::of(Some(Path::new("notes.png")), 2, &default),
+            Where::File {
+                path: PathBuf::from("notes.png"),
+                window: 2
+            }
+        );
+    }
+
+    #[test]
+    fn a_picture_named_as_a_file_is_written_there_alone() {
+        let folder = tempfile::tempdir().unwrap();
+        let path = folder.path().join("pictures/notes.png");
+        let written = write_one(&path, &picture(1, Some(b"png"))).unwrap();
+        assert_eq!(written.as_deref(), Some(path.as_path()));
+        assert_eq!(fs::read(&path).unwrap(), b"png");
+        assert_eq!(write_one(&path, &picture(1, None)).unwrap(), None);
     }
 }

@@ -95,11 +95,27 @@ fn a_programs_settings_are_its_own_kept_beside_its_install_and_go_with_it() {
 }
 
 #[test]
-fn a_program_neither_installed_nor_run_has_no_settings_to_change() {
+fn a_read_of_a_program_not_installed_keeps_nothing_and_a_setting_keeps_its_folder() {
     let scratch = tempfile::tempdir().unwrap();
     let store = Store::open(&scratch.path().join("store"), SourceProxy::None).unwrap();
-    let changed = store.change_program_settings(&triangle(), |_| {});
-    assert!(matches!(changed, Err(StoreError::NotInstalled(_))));
+    let folder = scratch.path().join("store/programs").join(TRIANGLE);
+    let read = store.program_settings(&triangle());
+    assert!(matches!(read, Err(StoreError::NotInstalled(_))));
+    assert!(!folder.exists(), "reading keeps nothing");
+
+    store
+        .change_program_settings(&triangle(), |settings| {
+            settings.clipboard_read = Setting::Own(false);
+        })
+        .unwrap();
+    assert!(
+        folder.is_dir(),
+        "a setting set before its first run keeps one"
+    );
+    assert_eq!(
+        store.program_settings(&triangle()).unwrap().clipboard_read,
+        Setting::Own(false)
+    );
 }
 
 #[test]
