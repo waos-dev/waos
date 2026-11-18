@@ -81,7 +81,7 @@ impl StatelessWidget for Home {
         }
         ColoredBox::new(background)
             .child(
-                Padding::new(EdgeInsetsGeometry::all(24.0)).child(
+                Padding::new(EdgeInsets::all(24.0)).child(
                     Column::new()
                         .cross_axis_alignment(CrossAxisAlignment::Start)
                         .spacing(12.0)
