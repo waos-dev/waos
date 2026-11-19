@@ -78,7 +78,7 @@ pub async fn connect() -> Result<Connection<ClientStream>> {
 
 #[cfg(test)]
 mod tests {
-    use waos_dev_protocol::{Listener, MAJOR, ResizeAnswer};
+    use waos_dev_protocol::{Listener, MAJOR, ResizeAnswer, TestPlace};
 
     use super::*;
 
@@ -93,8 +93,8 @@ mod tests {
 
     #[tokio::test]
     async fn a_request_not_in_serves_is_refused_before_it_is_sent() {
-        let folder = tempfile::tempdir().unwrap();
-        let socket = folder.path().join("dev.sock");
+        let place = TestPlace::new("asking-1");
+        let socket = place.path().to_owned();
         let mut listener = Listener::bind(&socket).await.unwrap();
         let served = tokio::spawn(async move {
             let mut server = listener.accept().await.unwrap();
@@ -120,8 +120,8 @@ mod tests {
 
     #[tokio::test]
     async fn a_different_major_is_refused_before_anything_is_sent() {
-        let folder = tempfile::tempdir().unwrap();
-        let socket = folder.path().join("dev.sock");
+        let place = TestPlace::new("asking-2");
+        let socket = place.path().to_owned();
         let mut listener = Listener::bind(&socket).await.unwrap();
         let served = tokio::spawn(async move {
             let mut server = listener.accept().await.unwrap();

@@ -232,7 +232,7 @@ fn ended(name: &str, end: &RunEnd) -> ExitCode {
 
 #[cfg(test)]
 mod tests {
-    use waos_dev_protocol::{Component, Hello, Listener};
+    use waos_dev_protocol::{Component, Hello, Listener, TestPlace};
 
     use super::*;
 
@@ -281,8 +281,8 @@ mod tests {
             Cancelled,
         }
 
-        let folder = tempfile::tempdir().unwrap();
-        let socket = folder.path().join("dev.sock");
+        let place = TestPlace::new("run-1");
+        let socket = place.path().to_owned();
         let mut listener = Listener::bind(&socket).await.unwrap();
         let component = b"component bytes".to_vec();
         let expected_digest = component_digest(&component);
@@ -339,8 +339,8 @@ mod tests {
 
     #[tokio::test]
     async fn send_uploads_the_component_and_ended_failure_sets_exit_status() {
-        let folder = tempfile::tempdir().unwrap();
-        let socket = folder.path().join("dev.sock");
+        let place = TestPlace::new("run-2");
+        let socket = place.path().to_owned();
         let mut listener = Listener::bind(&socket).await.unwrap();
         let component = b"component bytes".to_vec();
         let expected = component.clone();

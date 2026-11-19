@@ -47,6 +47,7 @@ mod refusal;
 mod settings_rows;
 #[cfg(unix)]
 mod socket;
+mod test_place;
 
 pub use component::{CHUNK_BYTES, component_digest};
 pub use connection::{Connection, Locality, MAX_FRAME_BYTES};
@@ -65,3 +66,4 @@ pub use settings_rows::{
 };
 #[cfg(unix)]
 pub use socket::{ClientStream, Listener, ServerStream, listener_path};
+pub use test_place::TestPlace;

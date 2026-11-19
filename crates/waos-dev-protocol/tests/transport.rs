@@ -4,50 +4,14 @@
 //! answering once the listener is dropped. What only a socket file has is in `socket.rs`.
 
 use std::io::ErrorKind;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use waos_dev_protocol::{
     Asked, CHUNK_BYTES, ClientStream, Connection, Hello, Input, InputAnswer, InputDone,
     InspectAnswer, Listener, MAJOR, MAX_FRAME_BYTES, Mismatch, OpenAnswer, OutputStream, Question,
     Request, ResizeAnswer, Resized, Run, RunEnd, RunEvent, ScreenshotAnswer, ServerStream,
-    SettingRow, SettingsAnswer, Upload, WindowId, WindowPicture, component_digest,
+    SettingRow, SettingsAnswer, TestPlace, Upload, WindowId, WindowPicture, component_digest,
 };
-
-/// Where this test's WaOS listens, apart from every other test's and from the user's own WaOS: a
-/// socket in a folder of the test's own, removed with it, or a pipe of the test's own name.
-struct TestPlace {
-    path: PathBuf,
-}
-
-impl TestPlace {
-    #[cfg(unix)]
-    fn new(test: &str) -> TestPlace {
-        let folder = std::env::temp_dir().join(format!("waos-dev-{}-{test}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&folder);
-        TestPlace {
-            path: folder.join("dev.sock"),
-        }
-    }
-
-    #[cfg(windows)]
-    fn new(test: &str) -> TestPlace {
-        TestPlace {
-            path: PathBuf::from(format!(
-                r"\\.\pipe\waos-dev-test-{}-{test}",
-                std::process::id()
-            )),
-        }
-    }
-}
-
-#[cfg(unix)]
-impl Drop for TestPlace {
-    fn drop(&mut self) {
-        if let Some(folder) = self.path.parent() {
-            let _ = std::fs::remove_dir_all(folder);
-        }
-    }
-}
 
 /// A stream to the WaOS at `path` with nothing said on it, as a client of another build opens it.
 #[cfg(unix)]
@@ -88,8 +52,8 @@ async fn connected(path: &Path) -> (Listener, Connection<ClientStream>, Connecti
 #[tokio::test]
 async fn a_client_of_another_major_is_named_with_both_builds() {
     let place = TestPlace::new("other-major");
-    let mut listener = Listener::bind(&place.path).await.unwrap();
-    let (client, server) = tokio::join!(raw_client(&place.path), listener.accept());
+    let mut listener = Listener::bind(place.path()).await.unwrap();
+    let (client, server) = tokio::join!(raw_client(place.path()), listener.accept());
     let (mut client, mut server) = (Connection::new(client), server.unwrap());
     let mut newer = cargo_waos_hello();
     newer.major = MAJOR + 1;
@@ -166,7 +130,7 @@ fn every_request() -> Vec<Request> {
 #[tokio::test]
 async fn every_request_comes_back_as_sent() {
     let place = TestPlace::new("round-trip");
-    let (_listener, mut client, mut server) = connected(&place.path).await;
+    let (_listener, mut client, mut server) = connected(place.path()).await;
 
     for request in every_request() {
         let (sent, received) = tokio::join!(client.send(&request), server.receive::<Request>());
@@ -178,7 +142,7 @@ async fn every_request_comes_back_as_sent() {
 #[tokio::test]
 async fn every_answer_comes_back_as_sent() {
     let place = TestPlace::new("answers");
-    let (_listener, mut client, mut server) = connected(&place.path).await;
+    let (_listener, mut client, mut server) = connected(place.path()).await;
 
     let picture = WindowPicture {
         window: WindowId(1),
@@ -264,7 +228,7 @@ async fn an_unknown_answer_from_a_newer_waos_reads_as_unknown_and_leaves_the_con
     }
 
     let place = TestPlace::new("newer-event");
-    let (_listener, mut client, mut server) = connected(&place.path).await;
+    let (_listener, mut client, mut server) = connected(place.path()).await;
     let (sent, received) = tokio::join!(
         server.send(&NewerRunEvent::Progress { percent: 42 }),
         client.receive::<RunEvent>()
@@ -282,7 +246,7 @@ async fn an_unknown_answer_from_a_newer_waos_reads_as_unknown_and_leaves_the_con
 #[tokio::test]
 async fn the_halves_send_while_they_watch_for_the_close() {
     let place = TestPlace::new("halves");
-    let (_listener, mut client, server) = connected(&place.path).await;
+    let (_listener, mut client, server) = connected(place.path()).await;
     let (mut server_in, mut server_out) = server.into_split();
 
     let watching = tokio::spawn(async move { server_in.receive::<Request>().await });
@@ -298,7 +262,7 @@ async fn the_halves_send_while_they_watch_for_the_close() {
 #[tokio::test]
 async fn the_other_side_closing_is_none() {
     let place = TestPlace::new("closing");
-    let (_listener, client, mut server) = connected(&place.path).await;
+    let (_listener, client, mut server) = connected(place.path()).await;
     drop(client);
     assert_eq!(server.receive::<Request>().await.unwrap(), None);
 }
@@ -306,8 +270,9 @@ async fn the_other_side_closing_is_none() {
 #[tokio::test]
 async fn one_listener_serves_one_connection_after_another() {
     let place = TestPlace::new("one-after-another");
-    let (mut listener, mut first, mut first_served) = connected(&place.path).await;
-    let (second, second_served) = tokio::join!(Connection::connect(&place.path), listener.accept());
+    let (mut listener, mut first, mut first_served) = connected(place.path()).await;
+    let (second, second_served) =
+        tokio::join!(Connection::connect(place.path()), listener.accept());
     let (mut second, mut second_served) = (second.unwrap(), second_served.unwrap());
     let (ours, theirs) = (cargo_waos_hello(), waos_hello());
     let (theirs, theirs_too) =
@@ -327,17 +292,17 @@ async fn one_listener_serves_one_connection_after_another() {
 #[tokio::test]
 async fn a_second_waos_is_refused_while_the_first_listens() {
     let place = TestPlace::new("second");
-    let _first = Listener::bind(&place.path).await.unwrap();
-    let refused = Listener::bind(&place.path).await.unwrap_err();
+    let _first = Listener::bind(place.path()).await.unwrap();
+    let refused = Listener::bind(place.path()).await.unwrap_err();
     assert_eq!(refused.kind(), ErrorKind::AddrInUse);
 }
 
 #[tokio::test]
 async fn nobody_answers_once_the_listener_is_dropped() {
     let place = TestPlace::new("dropped");
-    drop(Listener::bind(&place.path).await.unwrap());
+    drop(Listener::bind(place.path()).await.unwrap());
     assert_eq!(
-        Connection::connect(&place.path).await.unwrap_err().kind(),
+        Connection::connect(place.path()).await.unwrap_err().kind(),
         ErrorKind::NotFound
     );
 }
@@ -348,7 +313,7 @@ async fn nobody_answers_once_the_listener_is_dropped() {
 #[tokio::test]
 async fn a_component_larger_than_one_frame_round_trips() {
     let place = TestPlace::new("big-component");
-    let (_listener, mut client, mut server) = connected(&place.path).await;
+    let (_listener, mut client, mut server) = connected(place.path()).await;
     let id: waos_package::ProgramId = "dev.example.triangle".parse().unwrap();
     let length = (MAX_FRAME_BYTES + 1) as u64;
     let sending = tokio::spawn(async move {
