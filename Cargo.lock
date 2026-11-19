@@ -1854,7 +1854,7 @@ dependencies = [
 
 [[package]]
 name = "cupertino-gallery"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "indexmap",
  "waft",
@@ -10095,7 +10095,7 @@ dependencies = [
 
 [[package]]
 name = "waft"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "waft-embedder",
  "waft-embedder-default",
@@ -10110,7 +10110,7 @@ dependencies = [
 
 [[package]]
 name = "waft-animation"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "waft-embedder",
  "waft-foundation",
@@ -10133,7 +10133,7 @@ dependencies = [
 
 [[package]]
 name = "waft-cupertino"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "indexmap",
  "waft-animation",
@@ -10150,7 +10150,7 @@ dependencies = [
 
 [[package]]
 name = "waft-embedder"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "bytes",
  "http",
@@ -10167,7 +10167,7 @@ dependencies = [
 
 [[package]]
 name = "waft-embedder-android"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "ash",
  "jni",
@@ -10187,7 +10187,7 @@ dependencies = [
 
 [[package]]
 name = "waft-embedder-apple"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "block2",
  "dispatch2",
@@ -10219,7 +10219,7 @@ dependencies = [
 
 [[package]]
 name = "waft-embedder-default"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "waft-embedder",
  "waft-embedder-android",
@@ -10230,7 +10230,7 @@ dependencies = [
 
 [[package]]
 name = "waft-embedder-ios"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "block2",
  "dispatch2",
@@ -10252,7 +10252,7 @@ dependencies = [
 
 [[package]]
 name = "waft-embedder-web"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "console_error_panic_hook",
  "getrandom 0.3.4",
@@ -10269,7 +10269,7 @@ dependencies = [
 
 [[package]]
 name = "waft-embedder-winit"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "arboard",
  "block2",
@@ -10306,7 +10306,7 @@ dependencies = [
 
 [[package]]
 name = "waft-foundation"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "async-task",
  "indexmap",
@@ -10317,7 +10317,7 @@ dependencies = [
 
 [[package]]
 name = "waft-gestures"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "indexmap",
  "waft-embedder",
@@ -10363,7 +10363,7 @@ dependencies = [
 
 [[package]]
 name = "waft-macros"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -10385,7 +10385,7 @@ dependencies = [
 
 [[package]]
 name = "waft-painting"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "http",
  "indexmap",
@@ -10398,14 +10398,14 @@ dependencies = [
 
 [[package]]
 name = "waft-physics"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "waft-embedder",
 ]
 
 [[package]]
 name = "waft-rendering"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "indexmap",
  "unicode-general-category",
@@ -10420,7 +10420,7 @@ dependencies = [
 
 [[package]]
 name = "waft-scheduler"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "indexmap",
  "waft-embedder",
@@ -10429,7 +10429,7 @@ dependencies = [
 
 [[package]]
 name = "waft-services"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "indexmap",
  "unicode-segmentation",
@@ -10441,7 +10441,7 @@ dependencies = [
 
 [[package]]
 name = "waft-shell"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "waft-embedder",
  "waft-foundation",
@@ -10454,7 +10454,7 @@ dependencies = [
 
 [[package]]
 name = "waft-single-instance"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "windows-sys 0.60.2",
  "zbus",
@@ -10462,7 +10462,7 @@ dependencies = [
 
 [[package]]
 name = "waft-test"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "http",
  "waft-embedder",
@@ -10483,7 +10483,7 @@ dependencies = [
 
 [[package]]
 name = "waft-widgets"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "indexmap",
  "waft-animation",
@@ -10499,7 +10499,7 @@ dependencies = [
 
 [[package]]
 name = "waft-winui"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "waft-animation",
  "waft-embedder",
