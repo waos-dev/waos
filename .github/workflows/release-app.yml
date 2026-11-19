@@ -70,8 +70,14 @@ jobs:
           security unlock-keychain -p "$password" "$keychain"
           echo "$APPLE_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/certificate.p12"
           security import "$RUNNER_TEMP/certificate.p12" -P "$APPLE_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$keychain"
-          security set-key-partition-list -S apple-tool:,apple: -k "$password" "$keychain"
+          security set-key-partition-list -S apple-tool:,apple: -k "$password" "$keychain" > /dev/null
           security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+          # A Developer ID certificate is a valid identity only with Apple's intermediate beside it,
+          # which a runner may not have.
+          curl -fsSL https://www.apple.com/certificateauthority/DeveloperIDG2CA.cer -o "$RUNNER_TEMP/DeveloperIDG2CA.cer"
+          security import "$RUNNER_TEMP/DeveloperIDG2CA.cer" -k "$keychain" || true
+          # Every identity the keychain holds, valid or not and why, so a mismatch says itself.
+          security find-identity -p codesigning "$keychain"
           if [ -n "$APPLE_API_KEY_P8" ]; then printf '%s' "$APPLE_API_KEY_P8" > "$RUNNER_TEMP/notary.p8"; fi
           echo "identity=${{ secrets.APPLE_SIGNING_IDENTITY }}" >> "$GITHUB_OUTPUT"
       - name: WaOS.app, as a disk image
