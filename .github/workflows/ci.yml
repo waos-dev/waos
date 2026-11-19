@@ -60,7 +60,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
       # A mirror once stalled on one package for 17 minutes in Waft's CI: a stuck download times
       # out after 30 seconds and is tried again, rather than waiting on apt's default.
       - name: The system packages the build's probes ask for
