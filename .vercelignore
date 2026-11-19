@@ -9,6 +9,14 @@
 /packages/waos-site/.next
 /packages/waos-site/.source
 /packages/waos-site/content/docs/reference/wasdk-*/
+!/Cargo.toml
+!/sdk
+/sdk/*
+!/sdk/wasdk
+/sdk/wasdk/*
+!/sdk/wasdk/src
+/sdk/wasdk/src/*
+!/sdk/wasdk/src/lib.rs
 !/wit
 !/examples
 /examples/*

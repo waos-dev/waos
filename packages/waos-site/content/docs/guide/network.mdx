@@ -3,16 +3,68 @@ title: Network
 description: Reach the network with sockets and HTTP, as the user allows.
 ---
 
-The network as WASI gives it: an HTTP client, `wasdk::http`, WASI 0.3's, whose requests a program awaits; sockets a program awaits, `wasdk::sockets`, WASI 0.3's; and the sockets of Rust's `std::net`, the same WASI 0.3 sockets, which block the program, its window with it, while they wait. What a program reaches is the user's to set in its settings in WaOS: the network, on for any domain unless the user limits it to some, and the local network (this computer, the local network and listening for connections), off unless the user turns it on. `localhost` and every name under it, such as `app.localhost`, are this computer on every system, as in a browser: WaOS answers them with `::1` and `127.0.0.1` without asking the system, so they fall under the local network, whatever domains the user limits the network to. WaOS sends HTTP through the system's proxy and checks a server's certificate as the system does; a program that brings its own TLS checks a server's chain with the system through `trust`.
+The network as WASI gives it: an HTTP client (`app.platform().http()` in Waft, `wasdk::http` directly over WASI 0.3), sockets a program awaits (`wasdk::sockets`, WASI 0.3's), and the sockets of Rust's `std::net`, the same WASI 0.3 sockets, which block the program, its window with it, while they wait. What a program reaches is the user's to set in its settings in WaOS: the network, on for any domain unless the user limits it to some, and the local network (this computer, the local network and listening for connections), off unless the user turns it on. `localhost` and every name under it, such as `app.localhost`, are this computer on every system, as in a browser: WaOS answers them with `::1` and `127.0.0.1` without asking the system, so they fall under the local network, whatever domains the user limits the network to. WaOS sends HTTP through the system's proxy and checks a server's certificate as the system does; a program that brings its own TLS checks a server's chain with the system through `trust`.
+
+## With Waft
+
+Start with Waft's HTTP client, `app.platform().http()`. WaOS serves it over `wasi:http` under the same network permissions and system TLS checks, it takes standard `http::Request<Body>` values, and it follows redirects by default (configure or disable that with `SendOptions::new().redirects(RedirectPolicy::…)`). Kick off the request from `app`, await it in `app.spawn`, and store the result in an entity through `cx.update`:
+
+```rust
+use http::{Method, Request};
+use waft::{Body, SendOptions};
+
+let Some(client) = app.platform().http() else { return };
+
+// GET (follows redirects by default)
+let get_future = client.send(
+    Request::builder()
+        .method(Method::GET)
+        .uri("https://api.example.com/forecast")
+        .header("accept", "application/json")
+        .body(Body::empty())
+        .unwrap(),
+    SendOptions::new(),
+);
+
+// POST with a JSON body held in memory
+let post_future = client.send(
+    Request::builder()
+        .method(Method::POST)
+        .uri("https://api.example.com/notes")
+        .header("content-type", "application/json")
+        .body(Body::from(br#"{"title":"Hello"}"#.to_vec()))
+        .unwrap(),
+    SendOptions::new(),
+);
+
+let forecast = self.forecast.clone();
+app.spawn(async move |cx| {
+    let answer = match get_future.await {
+        Ok(response) => response.into_body().read_all().await,
+        Err(error) => Err(error),
+    };
+    let _ = post_future.await;
+    cx.update(|app| {
+        forecast.update(app, |forecast, cx| {
+            forecast.answer = Some(answer);
+            cx.notify();
+        });
+    });
+});
+```
+
+`NetworkImage` fetches through this client as well.
 
 ## With wasdk
+
+When you are not using Waft (or need direct control over WASI 0.3 streams), call `wasdk::http` directly. Unlike Waft's client, raw `wasdk::http` does **not** follow redirects — it returns the 3xx response so the program can inspect `location` and send the next request itself.
 
 A GET, its status, a header and its body:
 
 ```rust
 use wasdk::http::client;
-use wasdk::http::types::{ErrorCode, Fields, Request, Response, Scheme};
-use wasdk::wit_future;
+use wasdk::http::types::{ErrorCode, Fields, Method, Request, Response, Scheme};
+use wasdk::{wit_future, wit_stream};
 
 /// Asks `host` for `path` over HTTPS: the status, the content type, and the body.
 async fn get(host: &str, path: &str) -> Result<(u16, Option<String>, Vec<u8>), ErrorCode> {
@@ -37,17 +89,40 @@ async fn get(host: &str, path: &str) -> Result<(u16, Option<String>, Vec<u8>), E
     trailers.await?;
     Ok((status, content_type, bytes))
 }
+
+/// Sends a POST request with a JSON body written into a WIT byte stream.
+async fn post_json(host: &str, path: &str, payload: Vec<u8>) -> Result<u16, ErrorCode> {
+    let headers = Fields::new();
+    headers.append("content-type", b"application/json").unwrap();
+    let (mut writer, body_reader) = wit_stream::new::<u8>();
+    wasdk::spawn(async move {
+        // Once a write leaves bytes unwritten the host stopped reading; writing again traps.
+        let _ = writer.write_all(payload).await;
+    });
+    let (_, no_trailers) = wit_future::new(|| Ok(None));
+    let (request, _sent) = Request::new(headers, Some(body_reader), no_trailers, None);
+    request.set_method(&Method::Post).unwrap();
+    request.set_scheme(Some(&Scheme::Https)).unwrap();
+    request.set_authority(Some(host)).unwrap();
+    request.set_path_with_query(Some(path)).unwrap();
+
+    let response = client::send(request).await?;
+    Ok(response.get_status_code())
+}
 ```
+
 > Neither future of `Request::new` is the request's answer: `_sent` resolves only after `client::send` has sent the request, and the trailers' writer is never written, only dropped. Awaiting or writing either one first waits forever, with no error.
+
+> **Forbidden headers.** `Fields::append` / `Fields::set` fail with `HeaderError::Forbidden` for framing and hop-by-hop headers that the host owns: `host`, `connection`, `keep-alive`, `transfer-encoding`, `upgrade`, `proxy-connection`, `proxy-authenticate`, `proxy-authorization` and `http2-settings`. Set the host with `request.set_authority(Some(host))` instead of adding a `Host` header.
 
 > This is `wasi:http` 0.3. `outgoing_handler`, `OutgoingRequest`, `IncomingBody` and the `0.2` names are WASI 0.2's, and are not in `wasdk`: a request is `Request::new`, sent with `client::send`, and its body is `Response::consume_body`'s stream.
 
-A request whose future is dropped before it resolves is cancelled, its connection closed; to give up after a time, race `client::send` against `monotonic_clock::wait_for`. A body the program sends is a stream it writes, as `wit_stream::new` makes one; once a write comes back with something unwritten, the server is no longer reading, and a further write traps.
+A request whose future is dropped before it resolves is cancelled, its connection closed; to give up after a time, race `client::send` against `monotonic_clock::wait_for`.
 
-Sockets, awaited through `wasdk::sockets`, or blocking through `std::net`:
+Raw sockets are awaited through `wasdk::sockets` or blocking through `std::net`. **Raw sockets are cleartext TCP and UDP — there is no platform TLS stream interface yet.** Use `app.platform().http()` or `wasdk::http` for HTTPS, or bring a pure-Rust TLS implementation over the socket and verify the server's certificate chain with `wasdk::trust`:
 
 ```rust
-// wasdk::sockets: a connection, awaited
+// wasdk::sockets: a cleartext TCP connection, awaited
 let socket = TcpSocket::create(IpAddressFamily::Ipv4)?;
 socket.connect(address).await?;
 let (mut received, _) = socket.receive();
@@ -56,25 +131,9 @@ let (mut received, _) = socket.receive();
 let mut stream = TcpStream::connect(("example.com", 80))?;
 ```
 
-## With Waft
-
-Make the request from a task, so the window goes on drawing while it is out, and hand the answer to an entity:
-
-```rust
-let forecast = self.forecast.clone();
-app.spawn(async move |cx| {
-    let answer = get("api.example.com", "/forecast").await;
-    cx.update(|app| forecast.update(app, |forecast, cx| {
-        forecast.answer = Some(answer.map(|(_, _, body)| body));
-        cx.notify();
-    }));
-});
-```
-Waft has an HTTP client of its own, `app.platform().http()`, which WaOS serves over the same `wasi:http`, under the same settings: `client.send(request, SendOptions::new())` takes an `http::Request<Body>` and answers the response once its head has come, its body read with `read_all()` or a piece at a time; it follows redirects as `SendOptions::redirects` says, and fails with WASI's errors. `NetworkImage` fetches through it.
-
 ## Where it's missing
 
-WaOS answers a redirect rather than following it: the program reads its `location` and asks again, if it wants to. A request the user's settings refuse fails with `HttpRequestDenied` before anything is sent, a server whose certificate the system does not trust with `TlsCertificateError`; a lookup or a connection they refuse fails with `AccessDenied` through `wasdk::sockets` and `PermissionDenied` through `std::net`. Under a rule of some domains, an address with no name is refused. A switch turned off refuses new connections and requests; one already open stays. `permissions::network().request()` opens the switch's page in WaOS's settings for the user.
+Raw `wasdk::http` answers a redirect rather than following it: the program reads its `location` and asks again, or uses Waft's `app.platform().http()`, which follows redirects by default. A request the user's settings refuse fails with `HttpRequestDenied` before anything is sent, a server whose certificate the system does not trust with `TlsCertificateError`; a lookup or a connection they refuse fails with `AccessDenied` through `wasdk::sockets` and `PermissionDenied` through `std::net`. Under a rule of some domains, an address with no name is refused. A switch turned off refuses new connections and requests; one already open stays. `permissions::network().request()` opens the switch's page in WaOS's settings for the user.
 
 ## Interface
 

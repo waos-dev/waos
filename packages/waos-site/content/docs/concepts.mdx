@@ -19,18 +19,24 @@ description: The ideas the rest of the docs use, and the crates an app is writte
 
 > When a frozen program thaws, its monotonic clock has jumped by the time it was frozen, so periodic work should not replay the periods it missed: Waft's `Timer::periodic` fires once and its `tick` jumps, as Dart's VM does; GPUI's timers are one-shot and fire once; Bevy caps a frame's delta; tokio's `interval` replays every missed tick unless given `MissedTickBehavior::Skip` (or `Delay`).
 
+## Reading WIT signatures in Rust
+
+`wasdk` re-exports the Rust bindings `wit-bindgen` generates directly from the WIT interfaces in the [reference](/docs/reference). One rule accounts for most parameter mismatches: **`async func` takes owned values (`String`, `Vec<T>`), while plain `func` borrows (`&str`, `&[T]`).** An async call produces a future that may outlive the caller's stack frame, so `wit-bindgen` generates owned arguments (`opener.open_link("https://example.com".into()).await`, `terminal.write(bytes).await`), whereas a synchronous call borrows its inputs (`config.set_title("Notes")`, `command.add_argument("status")`). A WIT `borrow<T>` resource parameter stays `&T` in both.
+
 ## The crates
+
 An app names a few crates; `cargo waos new` adds the first four and one kit.
 
 | Crate | What it holds |
 | --- | --- |
 | `wasdk` | The platform: a module for each interface of the [reference](/docs/reference), as `wasdk::file_dialogs`; WASI's HTTP, sockets, clocks and files, as `wasdk::http`; `#[wasdk::main]`, `#[wasdk::worker]`, `spawn` and `block_on`. |
 | `wasdk-adapter-waft` | `run`, which starts a Waft app on WaOS. |
-| `waft` | Waft for an app: the widgets, `App`, `Entity`, `Ref`, `Handle`, `Timer`, `Listener`, the painting and geometry types (`EdgeInsetsGeometry`, `Color`, `Size`, `TextStyle`), `WindowConfig` and `run_app_with`. `waft::ui` is the engine's layer under it, with the platform's own types: `OpenOptions`, `PickedFile`, `Notification`, `CameraOutputs`, `Canvas`, `Paint`, `Path`. |
+| `waft` | Waft for an app: the widgets, `App`, `Entity`, `Ref`, `Handle`, `Timer`, `Listener`, `CustomPainter`, `TextPainter`, `PaintingBinding`, the painting and geometry types (`EdgeInsetsGeometry`, `Color`, `Size`, `Rect`, `TextStyle`, `PaintingStyle`, `Stroke`), `WindowConfig`, `MultiViewApp` and `run_app_with`. `waft::ui` is the engine's layer under it, with the platform's own types: `OpenOptions`, `PickedFile`, `Notification`, `CameraOutputs`, `Canvas`, `Paint`, `Path`. |
 | `waft-widgets` | The widgets `waft` re-exports, named directly for what `waft` shadows: the pointer `Listener` widget is `waft_widgets::Listener`. |
 | `waft-winui`, `waft-cupertino`, `waft-material` | A kit's controls and theme ([The kits](/docs/waft/kits)): `waft_winui::Button`, not `waft::Button`. |
+| `waft-markdown` | Markdown parsing and rendering widgets (`Markdown`, `MarkdownBody`, `MarkdownStyleSheet`) for Waft. Added by hand. |
 | `waft-services` | Keys (`LogicalKeyboardKey`), the clipboard and text input's services. Added by hand. |
-| `waft-rendering` | The render objects, and `CustomPainter`. Added by hand. |
-| `wasdk-wgpu` | wgpu's backend in WaOS, for an app that draws with WebGPU itself ([WebGPU](/docs/guide/webgpu)). Added by hand. |
+| `waft-rendering` | Lower-level render objects beyond what `waft` re-exports (`CustomPainter` is already in `waft`). Added by hand. |
+| `wasdk-wgpu` | wgpu 30's backend in WaOS, for an app that draws with WebGPU itself ([WebGPU](/docs/guide/webgpu)). Added by hand. |
 
 `use waft::*;` and the kit's `use waft_winui::*;` bring in what most code names, as the template has them.

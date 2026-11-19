@@ -3,7 +3,7 @@ title: WebGPU
 description: Draw a view with wgpu, a frame at a time.
 ---
 
-A program draws on its views with WebGPU, through `wgpu` with `wasdk-wgpu` as its backend, so code written for wgpu draws unchanged. Frames are on demand: a program asks for one, and it arrives at the next refresh of the screen the view is on. The canvas is the size the program configures, whatever the view's, so a program configures it again at each `ViewEvent::Metrics`.
+A program draws on its views with WebGPU, through `wgpu` 30 with `wasdk-wgpu` as its backend, so code written for `wgpu` draws unchanged. Add `wasdk-wgpu` and `wgpu = { version = "30", default-features = false }` to `Cargo.toml` (matching `wasdk-wgpu`'s `wgpu` version). Frames are on demand: a program asks for one, and it arrives at the next refresh of the screen the view is on. The canvas is the size the program configures, whatever the view's, so a program configures it again at each `ViewEvent::Metrics`.
 
 ## With wasdk
 
@@ -24,7 +24,76 @@ view.request_frame();
 
 ## With Waft
 
-Waft draws every widget with WebGPU itself, through its renderer, valo, over `wasdk-wgpu`, and asks for each view's frames. It keeps its device to itself: an app that draws with WebGPU makes a device of its own, as above, and shows what it draws on a composition layer ([Compositing](/docs/guide/compositing)).
+Waft draws every widget with WebGPU itself, through its renderer, valo, over `wasdk-wgpu`, and asks for each view's frames. It keeps its device to itself: an app that draws with WebGPU makes a device of its own with `wasdk_wgpu::instance()`, draws each frame into a pooled `HardwareBuffer` imported via `platform.import_texture(&*buffer, &device)`, and presents it on a `CompositionLayer` placed by `CompositionLayerView` ([Compositing](/docs/guide/compositing)):
+
+```rust
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use waft::ui::image_codecs::{ImageErrorKind, PixelFormat};
+use waft::ui::{CompositionLayer, HardwareBuffer, HardwareBufferUsage, Platform};
+
+struct FrameSheet {
+    buffer: Arc<dyn HardwareBuffer>,
+    texture: wgpu::Texture,
+    free: Arc<AtomicBool>,
+}
+
+fn next_sheet(
+    pool: &mut Vec<FrameSheet>,
+    platform: &dyn Platform,
+    device: &wgpu::Device,
+    width: u32,
+    height: u32,
+) -> Option<&FrameSheet> {
+    pool.retain(|s| s.buffer.width() == width && s.buffer.height() == height);
+    if let Some(idx) = pool.iter().position(|s| s.free.load(Ordering::Acquire)) {
+        return Some(&pool[idx]);
+    }
+    let allocator = platform.hardware_buffer_allocator()?;
+    let usage = HardwareBufferUsage {
+        gpu_color_output: true,
+        gpu_sampled: true,
+        composer_overlay: true,
+        ..HardwareBufferUsage::default()
+    };
+    for format in [PixelFormat::Bgra8, PixelFormat::Rgba8] {
+        match allocator.allocate(width, height, format, usage) {
+            Ok(buffer) => {
+                let texture = platform.import_texture(buffer.as_ref(), device)?;
+                pool.push(FrameSheet { buffer, texture, free: Arc::new(AtomicBool::new(true)) });
+                return pool.last();
+            }
+            Err(err) if err.kind == ImageErrorKind::Unsupported => continue,
+            Err(_) => return None,
+        }
+    }
+    None
+}
+
+fn draw_and_present(
+    pool: &mut Vec<FrameSheet>,
+    platform: &dyn Platform,
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    layer: &dyn CompositionLayer,
+    width: u32,
+    height: u32,
+    encode_wgsl_pass: impl FnOnce(&wgpu::Texture, &mut wgpu::CommandEncoder),
+) {
+    let Some(sheet) = next_sheet(pool, platform, device, width, height) else { return };
+    let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+    encode_wgsl_pass(&sheet.texture, &mut encoder);
+    queue.submit([encoder.finish()]);
+    sheet.free.store(false, Ordering::Release);
+    let free = Arc::clone(&sheet.free);
+    layer.present(Arc::clone(&sheet.buffer), Vec::new(), Box::new(move || {
+        free.store(true, Ordering::Release);
+    }));
+}
+// In your widget's build: CompositionLayerView::new(Arc::clone(&layer))
+```
+
+To process live camera or video frames through a WGSL pass into the same `CompositionLayerView`, import the frame's `HardwareBuffer` as a sampled texture too (see [Cameras](/docs/guide/cameras#filtering-frames-with-webgpu)).
 
 ## Where it's missing
 

@@ -46,7 +46,68 @@ app.spawn(async move |cx| {
     let Ok(session) = starting.await else { return };
 });
 ```
+
 `CameraOutputs::upright_frames()` asks for upright frames, and `CameraSession::video_rotation_angle_for_horizon_level_capture(session, app)` reads the turn; a frame from a reader says its own with `rotation()` and `flip()`.
+
+### Filtering frames with WebGPU
+
+When you want to run a WGSL filter over live camera frames (using `wasdk-wgpu`, which targets `wgpu` 30), pass a `VideoFrameReader` in `CameraOutputs::frames` instead of a direct preview layer, import each frame's `HardwareBuffer` as a `wgpu::Texture`, render into a pooled output `HardwareBuffer`, and present it on a `CompositionLayer` displayed by `CompositionLayerView`:
+
+```rust
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use waft::ui::image_codecs::{ImageErrorKind, PixelFormat};
+use waft::ui::{CompositionLayer, HardwareBuffer, HardwareBufferUsage, Platform};
+
+struct PooledSheet {
+    buffer: Arc<dyn HardwareBuffer>,
+    texture: wgpu::Texture,
+    free: Arc<AtomicBool>,
+}
+
+/// Allocates a buffer for compositing: Apple allocates Bgra8, Android allocates Rgba8.
+fn allocate_sheet(platform: &dyn Platform, device: &wgpu::Device, width: u32, height: u32) -> Option<PooledSheet> {
+    let allocator = platform.hardware_buffer_allocator()?;
+    let usage = HardwareBufferUsage {
+        gpu_color_output: true,
+        gpu_sampled: true,
+        composer_overlay: true,
+        ..HardwareBufferUsage::default()
+    };
+    for format in [PixelFormat::Bgra8, PixelFormat::Rgba8] {
+        match allocator.allocate(width, height, format, usage) {
+            Ok(buffer) => {
+                let texture = platform.import_texture(buffer.as_ref(), device)?;
+                return Some(PooledSheet { buffer, texture, free: Arc::new(AtomicBool::new(true)) });
+            }
+            Err(err) if err.kind == ImageErrorKind::Unsupported => continue,
+            Err(_) => return None,
+        }
+    }
+    None
+}
+
+// On each frame tick: sample the camera frame, run your WGSL pass into a free pooled sheet, and present.
+fn present_filtered(
+    platform: &dyn Platform,
+    device: &wgpu::Device,
+    layer: &dyn CompositionLayer,
+    frame_buffer: &dyn HardwareBuffer,
+    sheet: &PooledSheet,
+    run_wgsl_pass: impl FnOnce(&wgpu::Texture, &wgpu::Texture),
+) {
+    let Some(input_texture) = platform.import_texture(frame_buffer, device) else { return };
+    run_wgsl_pass(&input_texture, &sheet.texture);
+    sheet.free.store(false, Ordering::Release);
+    let free = Arc::clone(&sheet.free);
+    layer.present(Arc::clone(&sheet.buffer), Vec::new(), Box::new(move || {
+        free.store(true, Ordering::Release);
+    }));
+}
+// Place `CompositionLayerView::new(Arc::clone(&layer))` in your widget tree.
+```
+
+Keep a small pool of `PooledSheet`s and pick one whose `free` flag is `true` (allocating another if none is free yet — never block waiting for `free`, as explained in [Compositing](/docs/guide/compositing#a-picture-that-changes)).
 
 ## On each system
 

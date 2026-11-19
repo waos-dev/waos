@@ -23,6 +23,8 @@
     "audio",
     "---The system---",
     "system",
+    "lifecycle",
+    "opener",
     "menus",
     "notifications",
     "processes",

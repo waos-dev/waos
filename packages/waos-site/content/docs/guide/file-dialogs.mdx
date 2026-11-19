@@ -20,29 +20,43 @@ if let Some(path) = dialogs.open_file(Some(&view), options).await? {
 ## With Waft
 
 ```rust
-use waft::ui::{FileType, OpenOptions, PickedFile};
+use waft::ui::{FileType, FolderOptions, OpenOptions, PickedFile, PickedFolder};
 
+let platform = app.platform();
+// a sheet on its window
+let parent = platform.views().first().map(|view| view.id());
+let Some(dialogs) = platform.file_dialogs() else { return };
+
+// Open a single file
 let text = FileType {
     label: "Text".into(),
     extensions: vec!["txt".into()],
     mime_types: vec!["text/plain".into()],
 };
-let options = OpenOptions { types: vec![text], ..OpenOptions::default() };
-let platform = app.platform();
-// a sheet on its window
-let parent = platform.views().first().map(|view| view.id());
-let Some(dialogs) = platform.file_dialogs() else { return };
-let picked = dialogs.open_file(parent, options);
+let picked_file = dialogs.open_file(parent, OpenOptions { types: vec![text], ..OpenOptions::default() });
 app.spawn(async move |_cx| {
-    if let Ok(Some(PickedFile::Path(path))) = picked.await {
+    if let Ok(Some(PickedFile::Path(path))) = picked_file.await {
         // mounted read-only at that path
-        let text = std::fs::read_to_string(&path);
+        let contents = std::fs::read_to_string(&path);
+    }
+});
+
+// Open a folder
+let folder_options = FolderOptions {
+    confirm_label: Some("Add".into()),
+    ..FolderOptions::default()
+};
+let picked_folder = dialogs.open_folder(parent, folder_options);
+app.spawn(async move |_cx| {
+    if let Ok(Some(PickedFolder::Path(folder))) = picked_folder.await {
+        // mounted read-only at that path; list entries with std::fs::read_dir(&folder)
     }
 });
 ```
-`save_file` answers a path to write in the same way, writable whether or not the file exists yet.
 
-> In WaOS a pick is always a `PickedFile::Path`, the file mounted at its own path: read and write it with `std::fs`. Waft reads a picked path through its own file service, `app.platform().files()`, with `files.read(&path)`, and a `PickedFile::Handle` or `PickedFile::Stream`, which other systems answer, reads itself with `read_all()`; WaOS serves Waft's file service over the same files `std::fs` reaches.
+`open_files` picks multiple files and `save_file` answers a path to write in the same way, writable whether or not the file exists yet.
+
+> In WaOS a pick is always a `PickedFile::Path` or `PickedFolder::Path`, mounted at its own path: read and write it with `std::fs`. Waft reads a picked path through its own file service, `app.platform().files()`, with `files.read(&path)`, and a `PickedFile::Handle` or `PickedFile::Stream`, which other systems answer, reads itself with `read_all()`; WaOS serves Waft's file service over the same files `std::fs` reaches.
 
 ## Where it's missing
 

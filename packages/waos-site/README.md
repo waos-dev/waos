@@ -18,13 +18,13 @@ npm run icons      # writes the built-in apps' icons into public/apps again; dev
 npm run docs-bundle [-- <out>]   # the docs of this version as one archive, dist/waos-docs-<version>.tar.gz, as a release attaches it
 ```
 
-The reference's page for each interface is made from the WIT each time the site is built, so it never drifts from it: `scripts/write-reference.mjs` reads each package with `scripts/read-wit.mjs`, a reader of the WIT's structure of our own, and writes a Markdown page per interface, its doc comment and then each item's doc comment and WIT as written, and one per package listing its interfaces, into `content/docs/reference/<package>/`, which is not committed. From there Fumadocs takes them as it takes the written pages, into the sidebar, the search, `llms-full.txt` and each page's Markdown. The reader stops on WIT it does not know rather than leave it out; `wasm-tools component wit` is what checks the WIT.
+The reference's page for each interface is made from the WIT each time the site is built, so it never drifts from it: `scripts/write-reference.mjs` reads each package with `scripts/read-wit.mjs`, a reader of the WIT's structure of our own, and writes a Markdown page per interface, its doc comment, a verified `docs.rs/wasdk/<version>/wasdk/<module>/` link checked against `sdk/wasdk/src/lib.rs`, and then each item's doc comment and WIT as written, and one per package listing its interfaces, into `content/docs/reference/<package>/`, which is not committed. From there Fumadocs takes them as it takes the written pages, into the sidebar, the search, `llms-full.txt` and each page's Markdown. The reader stops on WIT it does not know rather than leave it out; `wasm-tools component wit` is what checks the WIT.
 
 The built-in apps' icons are made the same way: `scripts/write-app-icons.mjs` takes each app's icon from `builtin-apps`, as its `[package.metadata.waos]` names it, and writes it at 512 pixels into `public/apps/`, which is not committed and which Next serves as it is. The icons page, `content/docs/icons.mdx`, which the playbook's Icon step links, lists them by name; the smoke test checks it shows every built-in app.
 
 The docs of a version are one archive too, `waos-docs-<version>.tar.gz`, which the release workflow attaches to the version's GitHub release and `cargo waos docs` downloads: `scripts/write-docs-bundle.mjs` writes the reference's pages as the build does, then every page as plain Markdown under `docs/` (`docs/guide/network.md`), its title as its heading and its description below, the playbook as `agents.md`, and `manifest.json`, the version, the workspace's, and the pages in the sidebar's order with their titles and descriptions, and tars them.
 
-The site's origin is `https://waos.app`, or `NEXT_PUBLIC_SITE_URL` when that is set; the metadata, the sitemap, `llms-full.txt`, each page's Markdown and the agent's prompt name it. The download link is `about:blank` until WaOS is released (decision 9); the GitHub link names `github.com/waos-dev/waos`.
+The site's origin is `https://waos.app`, or `NEXT_PUBLIC_SITE_URL` when that is set; the metadata, the sitemap, `llms-full.txt`, each page's Markdown and the agent's prompt name it. The download links point at the macOS Apple Silicon `.dmg` and Android `.apk` assets of the GitHub release (`macDownloadUrl` and `androidDownloadUrl` in `lib/shared.ts`); the GitHub link names `github.com/waos-dev/waos`.
 
 The smoke test uses Playwright's Chromium, which `npx playwright install chromium` fetches where it is missing. It keeps the gallery out, so it runs without the network.
 
@@ -32,7 +32,7 @@ The smoke test uses Playwright's Chromium, which `npx playwright install chromiu
 
 ## On Vercel
 
-The site deploys to Vercel from the repository's root, with the Vercel project's root directory set to `packages/waos-site`, so its build reads `wit/`, `examples/hello` and the built-in apps' icons where they are; `.vercelignore` at the root uploads only those and the site. Vercel builds it on its side, so a deploy uploads the sources alone. Once, from the repository's root:
+The site deploys to Vercel from the repository's root, with the Vercel project's root directory set to `packages/waos-site`, so its build reads `Cargo.toml`, `sdk/wasdk/src/lib.rs`, `wit/`, `examples/hello` and the built-in apps' icons where they are; `.vercelignore` at the root uploads only those and the site. Tag releases deploy automatically after uploading the docs bundle when `VERCEL_TOKEN`, `VERCEL_ORG_ID` and `VERCEL_PROJECT_ID` are set in GitHub Actions secrets. Vercel builds it on its side, so a deploy uploads the sources alone. Once, from the repository's root:
 
 ```sh
 vercel login

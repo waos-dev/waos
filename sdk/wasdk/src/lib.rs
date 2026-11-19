@@ -5,7 +5,9 @@
 //! Each module is the interface of that name in `wit/`, as wit-bindgen generates it: records and
 //! enums as the WIT names them, a resource as a struct with methods and its `constructor` as
 //! `new`, a plain function as a function of the module, a `borrow<T>` parameter as `&T`,
-//! `async func` as `async fn`, `stream<T>` as a [`StreamReader`], read item by item with
+//! `async func` as `async fn` — wit-bindgen generates owned parameters (`String`, `Vec<T>`) for
+//! every `async func` because its future may outlive the caller's borrows, while a plain
+//! synchronous `func` borrows (`&str`, `&[T]`) — `stream<T>` as a [`StreamReader`], read item by item with
 //! `next().await`, or many at once with `read(buffer).await`, which says with a [`StreamResult`]
 //! whether the writer is gone, a stream the program gives made with [`wit_stream::new`] and
 //! written through its [`StreamWriter`], and `future<T>` as a [`FutureReader`], awaited for its
