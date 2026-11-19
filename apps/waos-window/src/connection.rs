@@ -25,8 +25,8 @@ use waos::bindings::wasdk::platform::views::{KeyEvent, RequestId};
 use waos::{KeyHandledFuture, ViewRequest};
 use waos_window_messages::os::macos::SendRight;
 use waos_window_messages::{
-    FromWindow, HostedLayers, KeyId, PROTOCOL, PermissionRequestId, PromptCall, PromptId, ToWindow,
-    ViewCall, Welcome, encode,
+    FileDialogId, FromWindow, HostedLayers, KeyId, PROTOCOL, PermissionRequestId, PromptCall,
+    PromptId, ToWindow, ViewCall, Welcome, encode,
 };
 
 use crate::program_file_dialogs::AskedFileDialog;
@@ -62,6 +62,8 @@ pub(crate) enum Carried {
     QuitAnswered(AppExitResponse),
     /// The program opens a file dialog: the window process opens it, and answers once it closes.
     FileDialogAsked(AskedFileDialog),
+    /// WaOS no longer awaits this file dialog's answer: close it if still open.
+    CloseFileDialog(FileDialogId),
     /// The program posts or schedules a notification: the window process posts it, and answers
     /// once the system has it.
     NotificationAsked(AskedNotification),
@@ -249,6 +251,7 @@ impl Connection {
             // The connection's thread records it as it arrives, for a window waiting on the main
             // thread, and hands it on to nothing.
             ToWindow::PictureShown { .. } => {}
+            ToWindow::CloseFileDialog { dialog } => return Carried::CloseFileDialog(dialog),
             ToWindow::Welcome(_) | ToWindow::Refused(_) => {
                 tracing::warn!(?message, "WaOS answered a hello twice");
             }

@@ -233,6 +233,10 @@ impl RequestChange {
             ToWindow::HidePrompt { prompt } => {
                 RequestChange::Settled(AwaitedRequest::Prompt(prompt))
             }
+            // A file dialog answered by a setting no longer awaits the app.
+            ToWindow::CloseFileDialog { dialog } => {
+                RequestChange::Settled(AwaitedRequest::FileDialog(dialog))
+            }
             // One-way: the program awaits nothing of the app for them. A call on a view is its
             // cursor, focus, text input or window; a call on a prompt's dialog is its cursor or
             // focus; the menu bar is shown as it is set; a notification is taken away as asked;

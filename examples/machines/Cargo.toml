@@ -8,6 +8,7 @@ description = "A program that acts on a machine its user picked for it: runs com
 
 [dependencies]
 wasdk.workspace = true
+futures.workspace = true
 
 [lints]
 workspace = true

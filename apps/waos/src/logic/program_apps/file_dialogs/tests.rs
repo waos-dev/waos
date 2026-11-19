@@ -1,6 +1,7 @@
 use std::path::Path;
 use std::sync::Arc;
 
+use futures::StreamExt;
 use futures::channel::mpsc::UnboundedReceiver;
 use waos::bindings::wasdk::platform::views::RequestId;
 use waos::{
@@ -186,4 +187,31 @@ async fn a_file_dialog_on_a_view_no_window_shows_opens_on_its_own_and_fails_once
     printed
         .line("open writable: failed (the program's app is gone)")
         .await;
+}
+
+#[tokio::test]
+async fn dropping_a_file_dialogs_future_sends_close_file_dialog_to_the_window_process() {
+    let launches = Launches::default();
+    let reach = launches.reach();
+    let printed = Arc::new(Printed::default());
+    let program = file_dialogs_through(&reach, &printed);
+    launches.until(1).await;
+    let Served {
+        process, mut sent, ..
+    } = window_process(program);
+    reach.connected(&file_dialogs_id(), &process);
+    file_dialog_asked(&mut sent).await;
+
+    let open = process.open_file_dialog(None, FileDialog::OpenFiles(OpenOptions::default()));
+    let (dialog_id, _, _) = file_dialog_asked(&mut sent).await;
+    drop(open);
+    let close = tokio::time::timeout(WITHIN, sent.next())
+        .await
+        .expect("CloseFileDialog sent")
+        .expect("sent message");
+    assert!(
+        matches!(close, ToWindow::CloseFileDialog { dialog } if dialog == dialog_id),
+        "{close:?}"
+    );
+    process.gone();
 }

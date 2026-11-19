@@ -9,15 +9,18 @@
 use std::fs;
 use std::future::pending;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
+use std::thread;
+use std::time::{Duration, Instant};
 
+use tokio::sync::Notify;
 use waos::{Answer, ProgramEnd, ProgramEnvironment, ProgramGrants, ProgramOutput, Question};
 use waos_capabilities::{
     ChangedFuture, DomainRule, FileDialog, FileSystemGrant, NetworkGrant, ProgramFolders,
 };
 
-use crate::shell;
-use crate::shell::Lines;
+use crate::shell::{self, Lines, WITHIN};
 
 #[test]
 fn picks_are_mounted_as_asked_and_a_save_is_replaced_safely_from_the_programs_cache() {
@@ -144,6 +147,142 @@ fn a_set_answer_that_does_not_hold_fails_the_dialog_with_why_and_shows_nothing()
         shell.file_dialogs().asked().is_empty(),
         "no dialog shown in its place"
     );
+}
+
+#[test]
+fn a_waiting_file_dialog_is_answered_by_setting_its_path_and_drops_its_prompt() {
+    let (engine, shell, _arrivals) = shell::engine();
+    let scratch = tempfile::tempdir().unwrap();
+    let picks = fs::canonicalize(scratch.path()).unwrap().join("picks");
+    fs::create_dir_all(picks.join("pictures")).unwrap();
+    let read_me = picks.join("read-me.txt");
+    fs::write(&read_me, "a line to read").unwrap();
+
+    let dialogs = shell.file_dialogs();
+    dialogs.hold_next();
+    let grants = Arc::new(LiveFileDialogGrants::default());
+    let lines = Arc::new(Lines::default());
+    let environment = ProgramEnvironment {
+        output: Some(Arc::clone(&lines) as Arc<dyn ProgramOutput>),
+        folders: Some(own_folders(scratch.path())),
+        grants: Some(Arc::clone(&grants) as Arc<dyn ProgramGrants>),
+        ..ProgramEnvironment::default()
+    };
+    let program = shell::load(&engine, waos_test_programs::FILE_DIALOGS);
+    let (running, _given) = engine.run(&program, environment, Vec::new()).unwrap();
+
+    let deadline = Instant::now() + WITHIN;
+    while dialogs.asked().is_empty() {
+        assert!(Instant::now() < deadline, "open-file dialog never asked");
+        thread::sleep(Duration::from_millis(5));
+    }
+    assert!(!dialogs.held_cancelled(0));
+
+    // Setting an unrelated dialog's path leaves the waiting open-file dialog up.
+    let reads = grants.reads();
+    grants.set(FileDialog::OpenFolder, picks.join("pictures"));
+    let deadline = Instant::now() + WITHIN;
+    while grants.reads() <= reads {
+        assert!(
+            Instant::now() < deadline,
+            "open-file answer was not re-read"
+        );
+        thread::sleep(Duration::from_millis(5));
+    }
+    assert!(
+        !dialogs.held_cancelled(0),
+        "unrelated dialog setting left open-file waiting"
+    );
+    assert!(!lines.has("read: a line to read"));
+
+    // Setting open-file answers it and drops the shell's dialog future.
+    grants.set(FileDialog::OpenFile, read_me);
+    let deadline = Instant::now() + WITHIN;
+    while !dialogs.held_cancelled(0) {
+        assert!(
+            Instant::now() < deadline,
+            "the waiting dialog future was never dropped"
+        );
+        thread::sleep(Duration::from_millis(5));
+    }
+    lines.wait_for("read: a line to read");
+    running.stop();
+    shell::wait_for_end(&running);
+}
+
+#[derive(Default)]
+struct LiveFileDialogGrants {
+    open_file: Mutex<Option<PathBuf>>,
+    open_folder: Mutex<Option<PathBuf>>,
+    reads: AtomicUsize,
+    changed: Arc<Notify>,
+}
+
+impl LiveFileDialogGrants {
+    fn reads(&self) -> usize {
+        self.reads.load(Ordering::SeqCst)
+    }
+
+    fn set(&self, dialog: FileDialog, path: PathBuf) {
+        match dialog {
+            FileDialog::OpenFile => *self.open_file.lock().unwrap() = Some(path),
+            FileDialog::OpenFolder => *self.open_folder.lock().unwrap() = Some(path),
+            _ => {}
+        }
+        self.changed.notify_waiters();
+    }
+}
+
+impl ProgramGrants for LiveFileDialogGrants {
+    fn network(&self) -> NetworkGrant {
+        NetworkGrant {
+            on: false,
+            domains: DomainRule::Only(Vec::new()),
+        }
+    }
+
+    fn local_network(&self) -> bool {
+        false
+    }
+
+    fn clipboard_read(&self) -> bool {
+        false
+    }
+
+    fn clipboard_write(&self) -> bool {
+        false
+    }
+
+    fn file_system(&self) -> FileSystemGrant {
+        FileSystemGrant::default()
+    }
+
+    fn answer(&self, _question: Question) -> Option<Answer> {
+        Some(Answer::Denied)
+    }
+
+    fn set_answer(&self, _question: Question, _answer: Answer) {}
+
+    fn link_scheme_answer(&self, _scheme: &str) -> Option<Answer> {
+        Some(Answer::Denied)
+    }
+
+    fn set_link_scheme_answer(&self, _scheme: &str, _answer: Answer) {}
+
+    fn file_dialog_answer(&self, dialog: FileDialog) -> Option<Vec<PathBuf>> {
+        if dialog == FileDialog::OpenFile {
+            self.reads.fetch_add(1, Ordering::SeqCst);
+        }
+        match dialog {
+            FileDialog::OpenFile => self.open_file.lock().unwrap().clone().map(|p| vec![p]),
+            FileDialog::OpenFolder => self.open_folder.lock().unwrap().clone().map(|p| vec![p]),
+            _ => None,
+        }
+    }
+
+    fn changed(&self) -> ChangedFuture {
+        Box::pin(Arc::clone(&self.changed).notified_owned())
+    }
 }
 
 /// Runs `examples/file-dialogs` to its end with `grants`, its own folders beneath `scratch`.

@@ -117,6 +117,37 @@ fn an_output_set_as_the_pickers_answer_is_given_unasked_and_one_not_connected_is
 }
 
 #[test]
+fn a_waiting_output_picker_is_answered_by_setting_its_row_and_drops_its_prompt() {
+    let (engine, shell, _arrivals) = shell::engine();
+    shell.sound().hold_picks();
+    let grants = Arc::new(QuestionsAsked::default());
+    let program = shell::load(&engine, waos_test_programs::SOUND);
+    let lines = Arc::new(Lines::default());
+    let devices = Arc::new(TestDevices::default());
+    let environment = ProgramEnvironment {
+        output: Some(Arc::clone(&lines) as Arc<dyn ProgramOutput>),
+        grants: Some(Arc::clone(&grants) as Arc<dyn ProgramGrants>),
+        audio: Some(Arc::clone(&devices) as Arc<dyn AudioDevices>),
+        ..ProgramEnvironment::default()
+    };
+    let (running, _views) = engine.run(&program, environment, Vec::new()).unwrap();
+
+    wait_until("output picker is waiting", || {
+        !shell.sound().shown().is_empty()
+    });
+    assert!(!shell.sound().held_cancelled(0));
+
+    grants.set_audio_output_answer(HEADPHONES);
+    wait_until("output picker future is dropped", || {
+        shell.sound().held_cancelled(0)
+    });
+    lines.wait_for("picked: Headphones");
+    lines.wait_for("moved: headphones");
+    running.stop();
+    block_on(running.ended());
+}
+
+#[test]
 fn a_simulated_microphone_records_waoss_tone_unasked_on_devices_without_one_and_shows_simulated() {
     let (engine, shell, _arrivals) = shell::engine();
     let grants = QuestionsAsked::default();

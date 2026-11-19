@@ -224,6 +224,10 @@ fn a_file_dialog_is_left_for_the_window_process_to_open() {
         waos_window_messages::FileDialog::SaveFile(options)
             if options.suggested_name.as_deref() == Some("saved.txt")
     ));
+    assert!(matches!(
+        connection.received(ToWindow::CloseFileDialog { dialog: 6 }),
+        Carried::CloseFileDialog(6)
+    ));
 }
 
 #[test]

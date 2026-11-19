@@ -182,6 +182,8 @@ pub enum ToWindow {
     /// laid out at that size under the fence the new size came with (decision 55 of
     /// `docs/proposals/2026-10-17-the-waos-project.md`).
     PictureShown { window: RequestId, size: [u32; 2] },
+    /// Take the file dialog `dialog` away: WaOS no longer awaits its answer.
+    CloseFileDialog { dialog: FileDialogId },
 }
 
 /// A program's file dialog of each kind, with what it offers, as the engine's shell takes it.

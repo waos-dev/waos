@@ -8,11 +8,14 @@
 //! context made or moved onto any other is refused.
 
 use std::collections::HashSet;
+use std::future::ready;
 use std::sync::{Arc, Mutex};
 
+use futures::FutureExt;
 use waos_capabilities::AudioOutput;
 
 use crate::access::ProgramAccess;
+use crate::asking::{self, Outcome};
 use crate::bindings::wasdk::platform::audio::{AudioError, MediaDeviceInfo};
 use crate::running::RunningProgram;
 use crate::shell::ShellAudioOutputPicker;
@@ -55,14 +58,34 @@ impl ProgramOutputs {
 
     /// Answers the output among `outputs` the user set as the picker's answer, or else shows the
     /// user `outputs` in the shell's picker and answers the one picked: the program may play on it
-    /// from then on.
+    /// from then on. If the user sets an answer while the picker waits, the picker's future is
+    /// dropped and the stored answer wins.
     pub(super) async fn select(
         &self,
         outputs: Vec<AudioOutput>,
     ) -> Result<MediaDeviceInfo, AudioError> {
-        let output = match self.0.access.grants().audio_output_answer() {
-            Some(set) => self.set_answer(set, outputs)?,
-            None => self.picked(outputs).await?,
+        let grants = self.0.access.clone_grants();
+        let outcome = asking::stored_or_shown(
+            grants,
+            |grants| grants.audio_output_answer(),
+            || match &self.0.picker {
+                None => ready(Err(AudioError::NotSupported(
+                    "this platform has no picker of outputs".to_owned(),
+                )))
+                .boxed(),
+                Some(_) if outputs.is_empty() => ready(Err(AudioError::NotFound)).boxed(),
+                Some(picker) => {
+                    let shown = picker.pick(&self.0.program, outputs.clone());
+                    async move { Ok(shown.await) }.boxed()
+                }
+            },
+        )
+        .await;
+        let output = match outcome {
+            Outcome::Setting(set) => self.set_answer(set, outputs)?,
+            Outcome::Prompt(picked) => picked?
+                .and_then(|id| outputs.into_iter().find(|output| output.id == id))
+                .ok_or(AudioError::NotAllowed)?,
         };
         locked(&self.0.picked).insert(output.id.clone());
         Ok(MediaDeviceInfo {
@@ -88,21 +111,5 @@ impl ProgramOutputs {
             );
             AudioError::NotFound
         })
-    }
-
-    /// The output the user picks among `outputs` in the shell's picker.
-    async fn picked(&self, outputs: Vec<AudioOutput>) -> Result<AudioOutput, AudioError> {
-        let Some(picker) = &self.0.picker else {
-            return Err(AudioError::NotSupported(
-                "this platform has no picker of outputs".to_owned(),
-            ));
-        };
-        if outputs.is_empty() {
-            return Err(AudioError::NotFound);
-        }
-        let picked = picker.pick(&self.0.program, outputs.clone()).await;
-        picked
-            .and_then(|id| outputs.into_iter().find(|output| output.id == id))
-            .ok_or(AudioError::NotAllowed)
     }
 }

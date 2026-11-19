@@ -574,6 +574,16 @@ impl TestShell {
         }
     }
 
+    /// Whether the `index`th question's prompt future was dropped without answering it.
+    pub fn question_cancelled(&self, index: usize) -> bool {
+        self.questions
+            .lock()
+            .unwrap()
+            .get(index)
+            .and_then(|put| put.answer.as_ref())
+            .is_some_and(oneshot::Sender::is_canceled)
+    }
+
     /// Each link scheme a program asked its user to open so far, with the program, in order.
     pub fn link_schemes_asked(&self) -> Vec<(String, String)> {
         let asked = self.link_schemes_asked.lock().unwrap();
@@ -592,6 +602,16 @@ impl TestShell {
         }
     }
 
+    /// Whether the `index`th link scheme's prompt future was dropped without answering it.
+    pub fn link_scheme_cancelled(&self, index: usize) -> bool {
+        self.link_schemes_asked
+            .lock()
+            .unwrap()
+            .get(index)
+            .and_then(|put| put.answer.as_ref())
+            .is_some_and(oneshot::Sender::is_canceled)
+    }
+
     /// Each role a program asked its user for so far, with the program, in order.
     pub fn roles_asked(&self) -> Vec<(String, Role)> {
         let asked = self.roles_asked.lock().unwrap();
@@ -608,6 +628,16 @@ impl TestShell {
                 let _ = waiting.send(answer);
             }
         }
+    }
+
+    /// Whether the `index`th role's prompt future was dropped without answering it.
+    pub fn role_cancelled(&self, index: usize) -> bool {
+        self.roles_asked
+            .lock()
+            .unwrap()
+            .get(index)
+            .and_then(|put| put.answer.as_ref())
+            .is_some_and(oneshot::Sender::is_canceled)
     }
 
     /// Each settings page opened so far, with the program that opened it, in order.

@@ -13,9 +13,9 @@
 //! in its place; and a program given no grants and a shell with no
 //! picker holds no machine, nor one given no machines at all.
 
-use std::future::pending;
 use std::sync::{Arc, Mutex};
 
+use tokio::sync::Notify;
 use waos::{
     Answer, ProgramEnvironment, ProgramGrants, ProgramOutput, Question, RunningProgram, WaOS,
 };
@@ -211,6 +211,28 @@ fn a_program_given_no_machines_has_none() {
     assert!(shell.machine_picker().asked().is_empty());
 }
 
+#[test]
+fn a_waiting_machine_picker_is_answered_by_setting_its_row_and_drops_its_prompt() {
+    let (engine, shell, _arrivals) = shell::engine();
+    shell.machine_picker().hold_picks();
+    let grants = Arc::new(MachineGrants::default());
+    let lines = Arc::new(Lines::default());
+    let running = run(&engine, Some(&grants), vec![this_computer()], &lines);
+
+    shell::wait_until("machine picker is waiting", || {
+        !shell.machine_picker().asked().is_empty()
+    });
+    assert!(!shell.machine_picker().held_cancelled(0));
+
+    grants.set_machine_answer(THIS_COMPUTER);
+    shell::wait_until("machine picker future is dropped", || {
+        shell.machine_picker().held_cancelled(0)
+    });
+    lines.wait_for("picked: This computer");
+    running.stop();
+    shell::wait_for_end(&running);
+}
+
 /// This computer's machines, its commands run with `PATH` and `HOME` alone.
 fn this_computer() -> Arc<dyn Machines> {
     let home = std::env::temp_dir();
@@ -244,16 +266,22 @@ fn run(
 #[derive(Default)]
 struct MachineGrants {
     machines: Mutex<Vec<String>>,
-    answer: Option<String>,
+    answer: Mutex<Option<String>>,
+    changed: Arc<Notify>,
 }
 
 impl MachineGrants {
     /// Grants whose picker of machines answers `id`, unasked.
     fn answering_the_picker_with(id: &str) -> MachineGrants {
         MachineGrants {
-            answer: Some(id.to_owned()),
+            answer: Mutex::new(Some(id.to_owned())),
             ..MachineGrants::default()
         }
+    }
+
+    fn set_machine_answer(&self, id: &str) {
+        *self.answer.lock().unwrap() = Some(id.to_owned());
+        self.changed.notify_waiters();
     }
 }
 
@@ -305,10 +333,10 @@ impl ProgramGrants for MachineGrants {
     }
 
     fn machine_answer(&self) -> Option<String> {
-        self.answer.clone()
+        self.answer.lock().unwrap().clone()
     }
 
     fn changed(&self) -> ChangedFuture {
-        Box::pin(pending())
+        Box::pin(Arc::clone(&self.changed).notified_owned())
     }
 }

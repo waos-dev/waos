@@ -192,6 +192,51 @@ fn ask(desktop: &LibraryDesktop, question: Question) -> AnswerFuture {
 }
 
 #[test]
+fn a_waiting_question_is_answered_and_its_panel_closes_when_its_setting_changes() {
+    let mut desktop = desktop();
+    open_program(
+        &mut desktop,
+        PERMISSIONS,
+        "Permissions",
+        waos_test_programs::PERMISSIONS,
+    );
+    let asked = "Allow Permissions to show notifications?";
+    desktop.settle_until("the question", |desktop| desktop.shows(asked));
+
+    let id: ProgramId = PERMISSIONS.parse().unwrap();
+    desktop
+        .store
+        .change_program_settings(&id, |own| {
+            own.answers
+                .set(Question::Notifications, Setting::Own(Answer::Granted));
+        })
+        .unwrap();
+
+    desktop.settle_until("the panel closes", |desktop| !desktop.shows(asked));
+    futures::executor::block_on(desktop.runs.stop_all());
+}
+
+#[test]
+fn dropping_a_questions_answer_closes_its_prompt_window() {
+    let mut desktop = desktop();
+    open_program(
+        &mut desktop,
+        FOREVER,
+        "Forever",
+        waos_test_programs::FOREVER,
+    );
+    let answered = ask(&desktop, Question::Camera);
+    let asked = "Allow Forever to use the camera?";
+    desktop.settle_until("the question's window", |desktop| desktop.shows(asked));
+    let window = window_titled(&desktop, "Forever").expect("the question's window");
+    assert_eq!(window.closes(), 0);
+
+    drop(answered);
+    desktop.settle_until("the prompt window closes", |_| window.closes() == 1);
+    futures::executor::block_on(desktop.runs.stop_all());
+}
+
+#[test]
 fn a_picker_of_outputs_answers_the_output_tapped() {
     let mut desktop = desktop();
     open_program(

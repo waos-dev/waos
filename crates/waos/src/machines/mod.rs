@@ -26,13 +26,13 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 
 use futures::FutureExt;
-use futures::future::BoxFuture;
 use futures::stream::BoxStream;
 use waos_capabilities::{
     ChildInput, Command, ExecError, Machine as ProvidedMachine, MachineChoice, Machines as Provider,
 };
 
 use crate::access::{ActiveUseKind, Asked, Happened, ProgramAccess, Refusal};
+use crate::asking::{self, Outcome};
 use crate::running::RunningProgram;
 use crate::shell::ShellMachinePicker;
 use crate::sync::locked;
@@ -136,21 +136,28 @@ impl ProgramMachines {
 
     /// Asks the user to pick one of the machines the providers offer, or takes the one the user
     /// set as the answer, and resolves to it, kept among the program's grants; to none when the
-    /// user cancels, nobody can ask, or no provider offers the one set.
+    /// user cancels, nobody can ask, or no provider offers the one set. If the user sets the
+    /// answer while the picker waits, the picker's future is dropped and the stored answer wins.
     pub(crate) fn pick(&self) -> impl Future<Output = Option<Machine>> + Send + 'static + use<> {
-        let picked: BoxFuture<'static, Option<String>> =
-            match (self.access.grants().machine_answer(), &self.picker) {
-                (Some(set), _) => ready(Some(set)).boxed(),
-                (None, Some(picker)) => picker.pick(&self.program, self.offered()),
-                (None, None) => ready(None).boxed(),
-            };
+        let grants = self.access.clone_grants();
         let (providers, access) = (self.providers.clone(), self.access.clone());
-        let program = self.program.name().to_owned();
+        let program = self.program.clone();
+        let picker = self.picker.clone();
+        let offered = picker.as_ref().map(|_| self.offered());
         async move {
-            let id = picked.await?;
+            let show = || match (&picker, offered) {
+                (Some(picker), Some(offered)) => picker.pick(&program, offered),
+                _ => ready(None).boxed(),
+            };
+            let id = match asking::stored_or_shown(grants, |grants| grants.machine_answer(), show)
+                .await
+            {
+                Outcome::Prompt(picked) => picked?,
+                Outcome::Setting(set) => set,
+            };
             let Some(machine) = machine_of(&providers, &id) else {
                 tracing::warn!(
-                    program,
+                    program = program.name(),
                     machine = id,
                     "no provider offers the machine picked"
                 );
@@ -312,6 +319,7 @@ impl Terminal {
 
 #[cfg(test)]
 mod tests {
+    use futures::future::BoxFuture;
     use waos_capabilities::ExitStatus;
 
     use super::*;

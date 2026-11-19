@@ -6,12 +6,13 @@
 //! them, as the shell reports what the system says without a post. With no grants, nothing is
 //! granted and no question is put.
 
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use futures::channel::oneshot;
 use futures::executor::block_on;
+use tokio::sync::Notify;
 use waos::{
     Answer, ProgramEnd, ProgramEnvironment, ProgramGrants, ProgramOutput, Question, Switch,
 };
@@ -140,6 +141,53 @@ fn a_program_given_no_grants_is_granted_nothing_and_asks_nobody() {
     block_on(running.ended());
 }
 
+#[test]
+fn a_waiting_permission_question_is_answered_by_setting_its_row_and_drops_its_prompt() {
+    for (set_to, expected_line) in [
+        (Answer::Granted, "notifications asked: granted"),
+        (Answer::Denied, "notifications asked: denied"),
+    ] {
+        let (engine, shell, _arrivals) = shell::engine();
+        let program = shell::load(&engine, waos_test_programs::PERMISSIONS);
+        let grants = Arc::new(TestGrants::new());
+        let lines = Arc::new(Lines::default());
+        let environment = ProgramEnvironment {
+            output: Some(Arc::clone(&lines) as Arc<dyn ProgramOutput>),
+            grants: Some(Arc::clone(&grants) as Arc<dyn ProgramGrants>),
+            ..ProgramEnvironment::default()
+        };
+        let (running, _views) = engine.run(&program, environment, Vec::new()).unwrap();
+        wait_until("the question is put", || !shell.questions().is_empty());
+        assert!(!shell.question_cancelled(0));
+
+        // Unrelated setting changes leave the question waiting and its prompt intact.
+        grants.set_network(false);
+        let reads = grants.answer_reads();
+        grants.set_camera(Answer::Granted);
+        wait_until("notifications answer re-read", || {
+            grants.answer_reads() > reads
+        });
+        assert!(
+            !shell.question_cancelled(0),
+            "unrelated setting change left prompt waiting"
+        );
+        assert!(
+            !lines.has("notifications asked: granted") && !lines.has("notifications asked: denied"),
+            "still waiting"
+        );
+
+        grants.set_notifications(set_to);
+        wait_until("the prompt future is dropped", || {
+            shell.question_cancelled(0)
+        });
+        lines.wait_for(expected_line);
+        assert_eq!(lines.count(expected_line), 2, "{:#?}", lines.all());
+
+        running.stop();
+        block_on(running.ended());
+    }
+}
+
 /// Waits until `done`, failing after [`WITHIN`].
 fn wait_until(what: &str, done: impl Fn() -> bool) {
     let deadline = Instant::now() + WITHIN;
@@ -153,13 +201,15 @@ fn wait_until(what: &str, done: impl Fn() -> bool) {
 /// no question answered, each change heard by whoever waits for one.
 struct TestGrants {
     values: Mutex<Values>,
-    waiting: Mutex<Vec<oneshot::Sender<()>>>,
+    answer_reads: AtomicUsize,
+    changed: Arc<Notify>,
 }
 
 struct Values {
     network: bool,
     clipboard_write: bool,
     notifications: Option<Answer>,
+    camera: Option<Answer>,
 }
 
 impl TestGrants {
@@ -169,27 +219,39 @@ impl TestGrants {
                 network: true,
                 clipboard_write: true,
                 notifications: None,
+                camera: None,
             }),
-            waiting: Mutex::default(),
+            answer_reads: AtomicUsize::new(0),
+            changed: Arc::new(Notify::new()),
         }
+    }
+
+    fn answer_reads(&self) -> usize {
+        self.answer_reads.load(Ordering::SeqCst)
     }
 
     /// The user turns the network on or off.
     fn set_network(&self, on: bool) {
         self.values.lock().unwrap().network = on;
-        self.changed_now();
+        self.changed.notify_waiters();
+    }
+
+    /// The user sets the notifications row.
+    fn set_notifications(&self, answer: Answer) {
+        self.values.lock().unwrap().notifications = Some(answer);
+        self.changed.notify_waiters();
+    }
+
+    /// The user sets the camera row.
+    fn set_camera(&self, answer: Answer) {
+        self.values.lock().unwrap().camera = Some(answer);
+        self.changed.notify_waiters();
     }
 
     /// The user turns writing the clipboard on or off.
     fn set_clipboard_write(&self, on: bool) {
         self.values.lock().unwrap().clipboard_write = on;
-        self.changed_now();
-    }
-
-    fn changed_now(&self) {
-        for waiting in self.waiting.lock().unwrap().drain(..) {
-            let _ = waiting.send(());
-        }
+        self.changed.notify_waiters();
     }
 }
 
@@ -218,9 +280,14 @@ impl ProgramGrants for TestGrants {
     }
 
     fn answer(&self, question: Question) -> Option<Answer> {
+        if question == Question::Notifications {
+            self.answer_reads.fetch_add(1, Ordering::SeqCst);
+        }
+        let values = self.values.lock().unwrap();
         match question {
-            Question::Notifications => self.values.lock().unwrap().notifications,
-            Question::Camera | Question::Microphone => None,
+            Question::Notifications => values.notifications,
+            Question::Camera => values.camera,
+            Question::Microphone => None,
         }
     }
 
@@ -231,7 +298,7 @@ impl ProgramGrants for TestGrants {
             "the program asks only this"
         );
         self.values.lock().unwrap().notifications = Some(answer);
-        self.changed_now();
+        self.changed.notify_waiters();
     }
 
     fn link_scheme_answer(&self, _scheme: &str) -> Option<Answer> {
@@ -243,10 +310,6 @@ impl ProgramGrants for TestGrants {
     }
 
     fn changed(&self) -> ChangedFuture {
-        let (changed, heard) = oneshot::channel();
-        self.waiting.lock().unwrap().push(changed);
-        Box::pin(async move {
-            let _ = heard.await;
-        })
+        Box::pin(Arc::clone(&self.changed).notified_owned())
     }
 }

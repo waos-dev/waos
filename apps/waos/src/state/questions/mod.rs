@@ -17,6 +17,7 @@ use std::rc::Rc;
 
 use futures::StreamExt;
 use futures::channel::mpsc::UnboundedReceiver;
+use futures::channel::oneshot;
 use waft::{App, Context, Entity, IntoWidget, WeakEntity};
 use waos::RunningProgram;
 use waos_program_window::{PromptPlacement, PromptWindows, ShownPrompt};
@@ -31,6 +32,7 @@ use crate::ui::question_sheet::QuestionSheet;
 pub(crate) struct Questions {
     /// The questions waiting for an answer, in the order asked.
     asked: Vec<Pending>,
+    next_id: u64,
     /// Where each program's prompt is shown.
     placement: Rc<dyn PromptPlacement>,
     /// The prompt of each program with a question waiting.
@@ -41,6 +43,7 @@ pub(crate) struct Questions {
 
 /// A question waiting for its reply.
 pub(crate) struct Pending {
+    id: u64,
     pub(crate) program: RunningProgram,
     /// The program's name, as its user knows it.
     pub(crate) name: String,
@@ -49,7 +52,7 @@ pub(crate) struct Pending {
 }
 
 impl Questions {
-    /// The questions, which take each one arriving on `asked` for as long as questions can
+    /// The questions, which take each arriving on `asked` for as long as questions can
     /// arrive, each program's prompt shown by `placement`; an installed program's name is read
     /// from `store`.
     pub(crate) fn listen(
@@ -60,6 +63,7 @@ impl Questions {
     ) {
         let questions = app.new_entity(|_| Questions {
             asked: Vec::new(),
+            next_id: 1,
             placement,
             shown: Vec::new(),
             store,
@@ -85,19 +89,46 @@ impl Questions {
     }
 
     /// A question arrived: it waits its turn in its program's prompt, shown now if the program
-    /// had no question waiting.
-    fn arrived(&mut self, asked: Asked, cx: &mut Context<Questions>) {
-        let Asked { program, asking } = asked;
+    /// had no question waiting, and its id is answered so the caller can close it when cancelled.
+    fn arrived(
+        &mut self,
+        program: RunningProgram,
+        asking: Asking,
+        cx: &mut Context<Questions>,
+    ) -> u64 {
         tracing::info!(program = program.name(), ?asking, "a program asks its user");
         if self.asked_of(&program).is_none() {
             self.show_prompt(&program, cx);
         }
+        let id = self.next_id;
+        self.next_id += 1;
         let name = program_name(&self.store, &program);
         self.asked.push(Pending {
+            id,
             program,
             name,
             asking,
         });
+        cx.notify();
+        id
+    }
+
+    /// The engine dropped its wait on question `id` (for instance, because a setting answered it):
+    /// remove it and hide the program's prompt if no question remains for it.
+    fn cancelled(&mut self, id: u64, cx: &mut Context<Questions>) {
+        let Some(index) = self.asked.iter().position(|pending| pending.id == id) else {
+            return;
+        };
+        let pending = self.asked.remove(index);
+        tracing::info!(
+            program = pending.program.name(),
+            asking = ?pending.asking,
+            "cancelled"
+        );
+        if self.asked_of(&pending.program).is_none() {
+            self.shown
+                .retain(|(shown_for, _)| shown_for != &pending.program);
+        }
         cx.notify();
     }
 
@@ -152,8 +183,9 @@ impl Questions {
     }
 }
 
-/// One task takes every question the programs ask, on the main thread, and keeps the questions
-/// for as long as one can arrive; each question's program ending drops what it still asks.
+/// One task takes every question, on the main thread, and keeps the questions for as long as one
+/// can arrive; each question's program ending, or its caller dropping its wait, drops what it
+/// asks.
 fn take_questions(
     app: &mut App,
     questions: Entity<Questions>,
@@ -161,12 +193,36 @@ fn take_questions(
 ) {
     app.spawn(async move |cx| {
         while let Some(question) = asked.next().await {
+            let Asked {
+                program,
+                asking,
+                cancelled,
+            } = question;
             cx.update(|app| {
-                let program = question.program.clone();
-                questions.update(app, |questions, cx| questions.arrived(question, cx));
+                let id = questions.update(app, |questions, cx| {
+                    questions.arrived(program.clone(), asking, cx)
+                });
+                close_when_cancelled(app, id, cancelled, questions.downgrade());
                 close_when_ended(app, &program, questions.downgrade());
             });
         }
+    });
+}
+
+/// Removes `id` once the engine drops its wait on it.
+fn close_when_cancelled(
+    app: &mut App,
+    id: u64,
+    cancelled: oneshot::Receiver<()>,
+    questions: WeakEntity<Questions>,
+) {
+    app.spawn(async move |cx| {
+        let _ = cancelled.await;
+        cx.update(|app| {
+            if let Some(questions) = questions.upgrade() {
+                questions.update(app, |questions, cx| questions.cancelled(id, cx));
+            }
+        });
     });
 }
 

@@ -38,7 +38,7 @@ use waos_window_messages::{FromWindow, Hello, PROTOCOL, ToWindow, bootstrap_name
 use crate::connection::{Carried, Connection};
 use crate::finding_waos::{Launcher, find_or_start_waos};
 use crate::os::{BundleInfo, check_layer_hosts, come_forward};
-use crate::program_file_dialogs::open_file_dialog;
+use crate::program_file_dialogs::{OpenFileDialogs, open_file_dialog};
 use crate::program_link::WaosProgram;
 use crate::program_menus::{open_context_menu, send_menu_choices, show_menu_bar};
 use crate::program_notifications::{NotificationClicks, ProgramNotifications};
@@ -113,6 +113,7 @@ fn start(app: &mut App, bundle: BundleInfo, launcher: Launcher) {
         requests,
         view_windows,
         dialogs,
+        file_dialogs: OpenFileDialogs::default(),
         opened,
         clicks,
         connection: None,
@@ -256,6 +257,8 @@ struct WindowProcess {
     view_windows: Entity<ViewWindows<WaosProgram>>,
     /// The dialogs of WaOS's prompts for the program.
     dialogs: Entity<PromptDialogs>,
+    /// The file dialogs open in the app.
+    file_dialogs: OpenFileDialogs,
     opened: Rc<RefCell<Opened>>,
     /// The clicks on the program's notifications, the one that launched the app among them.
     clicks: NotificationClicks,
@@ -399,7 +402,17 @@ impl WindowProcess {
                 true
             }
             Carried::FileDialogAsked(asked) => {
-                open_file_dialog(app, &self.view_windows, Rc::clone(connection), asked);
+                open_file_dialog(
+                    app,
+                    &self.view_windows,
+                    &self.file_dialogs,
+                    Rc::clone(connection),
+                    asked,
+                );
+                true
+            }
+            Carried::CloseFileDialog(dialog) => {
+                self.file_dialogs.close(dialog);
                 true
             }
             Carried::NotificationAsked(asked) => {

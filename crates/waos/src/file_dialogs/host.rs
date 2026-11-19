@@ -2,8 +2,8 @@
 //! setters, each dialog shown through the shell or answered as its user set it, and each pick
 //! mounted before it is answered.
 
-use std::future::ready;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use waos_capabilities::FileDialog;
 
@@ -11,6 +11,7 @@ use wasmtime::component::{Accessor, HasData, Linker, Resource, ResourceTable};
 
 use super::{FileDialogs, FileType, FolderOptions, OpenOptions, SaveOptions, set_answers};
 use crate::access::Cause;
+use crate::asking::{self, Outcome};
 use crate::bindings::wasdk::platform::file_dialogs::{
     self, DialogError, HostFileDialogs, HostFileDialogsWithStore, HostFolderOptions,
     HostOpenOptions, HostSaveOptions,
@@ -226,9 +227,10 @@ impl<T: FileDialogsCtxView + 'static> HostFileDialogsWithStore<T> for HasFileDia
             let mut context = access.get();
             let (parent, options) = open_options(&mut context, parent.as_ref(), options)?;
             let writable = options.writable;
-            let shell = &context.table.get(&dialogs)?.0;
-            let shown = one(context.picks, FileDialog::OpenFile, || {
-                shell.open_file(context.program, parent, options)
+            let shell = Arc::clone(&context.table.get(&dialogs)?.0);
+            let program = context.program.clone();
+            let shown = one(context.picks, FileDialog::OpenFile, move || {
+                shell.open_file(&program, parent, options)
             });
             wasmtime::Result::<_>::Ok((shown, writable, context.picks.clone()))
         })?;
@@ -247,11 +249,14 @@ impl<T: FileDialogsCtxView + 'static> HostFileDialogsWithStore<T> for HasFileDia
             let mut context = access.get();
             let (parent, options) = open_options(&mut context, parent.as_ref(), options)?;
             let writable = options.writable;
-            let shell = &context.table.get(&dialogs)?.0;
-            let shown = match context.picks.set_answer(FileDialog::OpenFiles) {
-                Some(set) => Box::pin(ready(set_answers::checked(FileDialog::OpenFiles, set))),
-                None => shell.open_files(context.program, parent, options),
-            };
+            let shell = Arc::clone(&context.table.get(&dialogs)?.0);
+            let program = context.program.clone();
+            let shown = dialog_answer(
+                context.picks,
+                FileDialog::OpenFiles,
+                |paths| paths,
+                move || shell.open_files(&program, parent, options),
+            );
             wasmtime::Result::<_>::Ok((shown, writable, context.picks.clone()))
         })?;
         Ok(shown
@@ -271,9 +276,10 @@ impl<T: FileDialogsCtxView + 'static> HostFileDialogsWithStore<T> for HasFileDia
             let mut options = context.table.delete(options)?;
             options.initial_folder = context.machine_folder(options.initial_folder.take());
             let writable = options.writable;
-            let shell = &context.table.get(&dialogs)?.0;
-            let shown = one(context.picks, FileDialog::OpenFolder, || {
-                shell.open_folder(context.program, parent, options)
+            let shell = Arc::clone(&context.table.get(&dialogs)?.0);
+            let program = context.program.clone();
+            let shown = one(context.picks, FileDialog::OpenFolder, move || {
+                shell.open_folder(&program, parent, options)
             });
             wasmtime::Result::<_>::Ok((shown, writable, context.picks.clone()))
         })?;
@@ -294,9 +300,10 @@ impl<T: FileDialogsCtxView + 'static> HostFileDialogsWithStore<T> for HasFileDia
             let parent = context.parent_id(parent.as_ref())?;
             let mut options = context.table.delete(options)?;
             options.initial_folder = context.machine_folder(options.initial_folder.take());
-            let shell = &context.table.get(&dialogs)?.0;
-            let shown = one(context.picks, FileDialog::SaveFile, || {
-                shell.save_file(context.program, parent, options)
+            let shell = Arc::clone(&context.table.get(&dialogs)?.0);
+            let program = context.program.clone();
+            let shown = one(context.picks, FileDialog::SaveFile, move || {
+                shell.save_file(&program, parent, options)
             });
             wasmtime::Result::<_>::Ok((shown, context.picks.clone()))
         })?;
@@ -307,19 +314,37 @@ impl<T: FileDialogsCtxView + 'static> HostFileDialogsWithStore<T> for HasFileDia
 }
 
 /// What `dialog`, which answers one path, answers: the one its user set, checked, or else what
-/// `show` shows.
+/// `show` shows, re-checking the user's setting if grants change while waiting.
 fn one(
     picks: &Picks,
     dialog: FileDialog,
-    show: impl FnOnce() -> FileDialogFuture<Option<PathBuf>>,
+    show: impl FnOnce() -> FileDialogFuture<Option<PathBuf>> + Send + 'static,
 ) -> FileDialogFuture<Option<PathBuf>> {
-    match picks.set_answer(dialog) {
-        Some(set) => {
-            let checked = set_answers::checked(dialog, set).map(|paths| paths.into_iter().next());
-            Box::pin(ready(checked))
+    dialog_answer(picks, dialog, |paths| paths.into_iter().next(), show)
+}
+
+/// What `dialog` answers: the paths its user set, checked and shaped by `map_set`, or else what
+/// `show` shows; if grants change while waiting so `dialog` now has a stored answer, `show`'s
+/// future is dropped and the stored answer is returned.
+fn dialog_answer<T: Send + 'static>(
+    picks: &Picks,
+    dialog: FileDialog,
+    map_set: impl FnOnce(Vec<PathBuf>) -> T + Send + 'static,
+    show: impl FnOnce() -> FileDialogFuture<T> + Send + 'static,
+) -> FileDialogFuture<T> {
+    let grants = picks.grants();
+    Box::pin(async move {
+        match asking::stored_or_shown(
+            grants,
+            move |grants| grants.file_dialog_answer(dialog),
+            show,
+        )
+        .await
+        {
+            Outcome::Prompt(picked) => picked,
+            Outcome::Setting(set) => set_answers::checked(dialog, set).map(map_set),
         }
-        None => show(),
-    }
+    })
 }
 
 /// The open dialog's parent's id and its options, out of the program's store, the initial folder

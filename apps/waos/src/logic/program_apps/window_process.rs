@@ -39,8 +39,10 @@
 use std::collections::{HashMap, HashSet};
 use std::future::ready;
 use std::path::PathBuf;
+use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::task::{Context, Poll};
 use std::time::SystemTime;
 
 use futures::FutureExt;
@@ -59,12 +61,12 @@ use waos_package::ProgramId;
 use waos_program_window::{CanvasLayer, CanvasView, ViewCalls, WindowCalls};
 use waos_window_messages::os::macos::SendRight;
 use waos_window_messages::{
-    FileDialog, FromWindow, HostedLayers, KeyId, OpenedWindow, PromptCall, PromptId, PromptReport,
-    ToWindow, ViewReport,
+    FileDialog, FileDialogId, FromWindow, HostedLayers, KeyId, OpenedWindow, PromptCall, PromptId,
+    PromptReport, ToWindow, ViewReport,
 };
 
 use super::app_reach::app_id;
-use super::awaited_answers::{APP_GONE, AppGone, AwaitedAnswers};
+use super::awaited_answers::{APP_GONE, AppGone, AwaitedAnswer, AwaitedAnswers};
 use super::canvas_pictures::CanvasPictures;
 use super::canvases::{CanvasKey, CanvasesOnRequest};
 use super::file_dialogs::failed;
@@ -260,6 +262,7 @@ impl WindowProcess {
     /// Opens the file dialog `kind` in the app, a sheet on the window showing the program's view
     /// `parent`, or on its own where it names none or no window there shows it, and answers the
     /// paths the user picked once it closes; with why none were once the window process is gone.
+    /// Dropping the returned future before it closes tells the window process to close the dialog.
     pub(crate) fn open_file_dialog(
         &self,
         parent: Option<ViewId>,
@@ -274,7 +277,11 @@ impl WindowProcess {
             parent: parent.and_then(|view| self.window_showing(view)),
             kind,
         });
-        Box::pin(picked.map(|picked| picked.unwrap_or_else(|AppGone| Err(failed(APP_GONE)))))
+        Box::pin(WaitFileDialog {
+            dialog,
+            send: Arc::clone(&self.send),
+            picked,
+        })
     }
 
     /// Posts the program's `notification` in the app, under its bundle, now or at `at`, and
@@ -661,6 +668,32 @@ impl WindowProcess {
 
     fn prompts(&self) -> MutexGuard<'_, HashSet<PromptId>> {
         self.prompts.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+}
+
+struct WaitFileDialog {
+    dialog: FileDialogId,
+    send: SendToWindow,
+    picked: AwaitedAnswer<Result<Vec<PathBuf>, DialogError>>,
+}
+
+impl Future for WaitFileDialog {
+    type Output = Result<Vec<PathBuf>, DialogError>;
+
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        self.picked
+            .poll_unpin(cx)
+            .map(|picked| picked.unwrap_or_else(|AppGone| Err(failed(APP_GONE))))
+    }
+}
+
+impl Drop for WaitFileDialog {
+    fn drop(&mut self) {
+        if self.picked.cancel() {
+            (self.send)(ToWindow::CloseFileDialog {
+                dialog: self.dialog,
+            });
+        }
     }
 }
 

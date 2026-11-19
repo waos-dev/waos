@@ -12,6 +12,7 @@
 //! program waits for an answer that cannot come.
 
 use std::fmt;
+use std::future::Future;
 use std::sync::Arc;
 
 use futures::FutureExt;
@@ -30,6 +31,8 @@ use super::asking_now::AskingNow;
 pub(crate) struct Asked {
     pub(crate) program: RunningProgram,
     pub(crate) asking: Asking,
+    /// Fires when the engine drops its wait on this question before an answer returns.
+    pub(crate) cancelled: oneshot::Receiver<()>,
 }
 
 /// What a program asks its user, with where the reply goes.
@@ -182,10 +185,8 @@ impl PromptsOnRequest {
         let (answer, answered) = oneshot::channel();
         let noted = question.asked_now();
         let asking = Asking::Question { question, answer };
-        send_question(&self.questions, program, asking);
-        // A question dropped unanswered, here or on the main thread, answers none.
-        let answered = answered.map(|answer| answer.unwrap_or(None));
-        Box::pin(self.asking.while_asked(program, noted, answered))
+        let wait = send_and_wait(&self.questions, program, asking, answered);
+        Box::pin(self.asking.while_asked(program, noted, wait))
     }
 }
 
@@ -234,12 +235,10 @@ impl ShellAudioOutputPicker for OutputPickerOnRequest {
     fn pick(&self, program: &RunningProgram, outputs: Vec<AudioOutput>) -> AudioOutputPickedFuture {
         let (picked, picking) = oneshot::channel();
         let asking = Asking::Output { outputs, picked };
-        send_question(&self.questions, program, asking);
-        // A picker dropped unanswered, here or on the main thread, picks none.
-        let picked = picking.map(|picked| picked.unwrap_or(None));
+        let wait = send_and_wait(&self.questions, program, asking, picking);
         Box::pin(
             self.asking
-                .while_asked(program, AskedNow::AudioOutput, picked),
+                .while_asked(program, AskedNow::AudioOutput, wait),
         )
     }
 }
@@ -255,10 +254,8 @@ impl ShellMachinePicker for MachinePickerOnRequest {
     fn pick(&self, program: &RunningProgram, machines: Vec<MachineChoice>) -> MachinePickedFuture {
         let (picked, picking) = oneshot::channel();
         let asking = Asking::Machine { machines, picked };
-        send_question(&self.questions, program, asking);
-        // A pick dropped unanswered, here or on the main thread, picks none.
-        let picked = picking.map(|picked| picked.unwrap_or(None));
-        Box::pin(self.asking.while_asked(program, AskedNow::Machine, picked))
+        let wait = send_and_wait(&self.questions, program, asking, picking);
+        Box::pin(self.asking.while_asked(program, AskedNow::Machine, wait))
     }
 }
 
@@ -294,17 +291,32 @@ fn protocol_switch(switch: Switch) -> waos_dev_protocol::Switch {
     }
 }
 
-/// Sends what `program` asks to the main thread, unless WaOS is quitting, which drops it.
-fn send_question(questions: &UnboundedSender<Asked>, program: &RunningProgram, asking: Asking) {
+/// Sends `asking` of `program`'s to the main thread, unless WaOS is quitting, and waits on
+/// `received`; dropping the returned future before it resolves drops the sender of `cancelled`.
+fn send_and_wait<T: Send>(
+    questions: &UnboundedSender<Asked>,
+    program: &RunningProgram,
+    asking: Asking,
+    received: oneshot::Receiver<Option<T>>,
+) -> impl Future<Output = Option<T>> + Send + use<T> {
+    let (cancel, cancelled) = oneshot::channel();
     let asked = Asked {
         program: program.clone(),
         asking,
+        cancelled,
     };
     if let Err(unsent) = questions.unbounded_send(asked) {
+        let asked = unsent.into_inner();
         tracing::info!(
             program = program.name(),
-            asking = ?unsent.into_inner().asking,
+            asking = ?asked.asking,
             "WaOS is quitting: unanswered"
         );
+    }
+    async move {
+        // A question dropped unanswered, here or on the main thread, answers none.
+        let answer = received.await.unwrap_or(None);
+        drop(cancel);
+        answer
     }
 }

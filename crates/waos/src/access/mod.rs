@@ -439,6 +439,11 @@ impl ProgramAccess {
     pub(crate) fn grants(&self) -> &dyn ProgramGrants {
         self.parts.grants.as_ref()
     }
+
+    /// A shared handle on the grants, for async waits that outlive a borrow.
+    pub(crate) fn clone_grants(&self) -> Arc<dyn ProgramGrants> {
+        Arc::clone(&self.parts.grants)
+    }
     /// What the program uses now but its open files, oldest first, for a test to read.
     #[cfg(test)]
     pub(crate) fn uses_but_open_files(&self) -> Vec<ActiveUseKind> {
