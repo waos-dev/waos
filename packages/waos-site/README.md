@@ -32,7 +32,7 @@ The smoke test uses Playwright's Chromium, which `npx playwright install chromiu
 
 ## On Vercel
 
-The site deploys to Vercel from the repository's root, with the Vercel project's root directory set to `packages/waos-site`, so its build reads `Cargo.toml`, `sdk/wasdk/src/lib.rs`, `wit/`, `examples/hello` and the built-in apps' icons where they are; `.vercelignore` at the root uploads only those and the site. Tag releases deploy automatically after uploading the docs bundle when `VERCEL_TOKEN`, `VERCEL_ORG_ID` and `VERCEL_PROJECT_ID` are set in GitHub Actions secrets. Vercel builds it on its side, so a deploy uploads the sources alone. Once, from the repository's root:
+The site deploys to Vercel from the repository's root, with the Vercel project's root directory set to `packages/waos-site`, so its build reads `Cargo.toml`, `sdk/wasdk/src/lib.rs`, `wit/`, `examples/hello` and the built-in apps' icons where they are; `.vercelignore` at the root uploads only those and the site. Connecting the Vercel project to `waos-dev/waos` (`vercel git connect`) auto-deploys production on pushes to `main` and previews on pull requests. Vercel builds it on its side, so a deploy uploads the sources alone. Once, from the repository's root:
 
 ```sh
 vercel login

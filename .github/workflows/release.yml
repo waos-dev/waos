@@ -2,8 +2,7 @@
 # command and the engine are published together at the tag's version, so the SDK always matches
 # its WaOS, and a program written by the published `cargo waos new` builds from crates.io alone.
 # Waft's crates the SDK names must be on crates.io first, at the versions the workspace names. The
-# release on GitHub carries the docs of that version, which `cargo waos docs` downloads, and once
-# the release archive is uploaded, `waos.app` deploys to Vercel when Vercel secrets are configured.
+# release on GitHub carries the docs of that version, which `cargo waos docs` downloads.
 name: Release
 
 on:
@@ -44,23 +43,3 @@ jobs:
           archive=$(node scripts/write-docs-bundle.mjs "$RUNNER_TEMP/docs")
           gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || gh release create "$GITHUB_REF_NAME" --verify-tag --title "$GITHUB_REF_NAME" --notes "WaOS $GITHUB_REF_NAME"
           gh release upload "$GITHUB_REF_NAME" "$archive" --clobber
-
-  deploy-site:
-    needs: release
-    runs-on: ubuntu-latest
-    env:
-      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
-    steps:
-      - uses: actions/checkout@v4
-        if: ${{ env.VERCEL_TOKEN != '' && env.VERCEL_ORG_ID != '' && env.VERCEL_PROJECT_ID != '' }}
-      - uses: actions/setup-node@v4
-        if: ${{ env.VERCEL_TOKEN != '' && env.VERCEL_ORG_ID != '' && env.VERCEL_PROJECT_ID != '' }}
-        with:
-          node-version: '22'
-      # Deploys from the repository root so Vercel's Root Directory (`packages/waos-site`) can read
-      # `Cargo.toml`, `wit/`, `sdk/wasdk/src/lib.rs`, `examples/hello`, and `builtin-apps/` via `.vercelignore`.
-      - name: Deploy waos.app to Vercel production
-        if: ${{ env.VERCEL_TOKEN != '' && env.VERCEL_ORG_ID != '' && env.VERCEL_PROJECT_ID != '' }}
-        run: npx --yes vercel@latest deploy --prod --yes --token="$VERCEL_TOKEN"
