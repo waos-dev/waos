@@ -6,13 +6,25 @@
 #
 # Secrets: APPLE_CERTIFICATE (the Developer ID Application certificate and its key, a .p12, in
 # base64), APPLE_CERTIFICATE_PASSWORD, APPLE_SIGNING_IDENTITY (its name, "Developer ID Application:
-# …"), and an App Store Connect API key for notarization: APPLE_API_KEY (its id), APPLE_API_ISSUER,
-# APPLE_API_KEY_P8 (the .p8's text).
+# …"), and for notarization either an Apple ID (APPLE_ID, APPLE_PASSWORD, an app-specific one, and
+# APPLE_TEAM_ID) or an App Store Connect API key (APPLE_API_KEY, its id; APPLE_API_ISSUER;
+# APPLE_API_KEY_P8, the .p8's text), whichever is set, as `cargo waft build` reads them.
+#
+# Run by hand with a tag to make that release's image again, from the tag's sources with this
+# workflow: when the secrets came after the tag, or notarization failed.
 name: Release the app
 
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: The release tag whose app image to make again, e.g. v0.3.0
+        required: true
+
+env:
+  TAG: ${{ inputs.tag || github.ref_name }}
 
 jobs:
   macos:
@@ -22,6 +34,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ env.TAG }}
           path: waos
       - name: The Waft release the workspace names
         id: waft
@@ -59,15 +72,18 @@ jobs:
           security import "$RUNNER_TEMP/certificate.p12" -P "$APPLE_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$keychain"
           security set-key-partition-list -S apple-tool:,apple: -k "$password" "$keychain"
           security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
-          printf '%s' "$APPLE_API_KEY_P8" > "$RUNNER_TEMP/notary.p8"
+          if [ -n "$APPLE_API_KEY_P8" ]; then printf '%s' "$APPLE_API_KEY_P8" > "$RUNNER_TEMP/notary.p8"; fi
           echo "identity=${{ secrets.APPLE_SIGNING_IDENTITY }}" >> "$GITHUB_OUTPUT"
       - name: WaOS.app, as a disk image
         working-directory: waos
         env:
           APPLE_SIGNING_IDENTITY: ${{ steps.signing.outputs.identity }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
-          APPLE_API_KEY_PATH: ${{ runner.temp }}/notary.p8
+          APPLE_API_KEY_PATH: ${{ secrets.APPLE_API_KEY_P8 && format('{0}/notary.p8', runner.temp) || '' }}
         run: cargo waft build dmg -p waos-app
       - name: Attached to the release
         working-directory: waos
@@ -76,5 +92,5 @@ jobs:
         run: |
           image=$(find target/waft -name '*.dmg' -newer Cargo.toml | head -1)
           test -n "$image" || { echo "no disk image was made"; exit 1; }
-          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || gh release create "$GITHUB_REF_NAME" --title "WaOS ${GITHUB_REF_NAME#v}" --notes ""
-          gh release upload "$GITHUB_REF_NAME" "$image#WaOS-${GITHUB_REF_NAME#v}.dmg" --clobber
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --verify-tag --title "WaOS ${TAG#v}" --notes ""
+          gh release upload "$TAG" "$image#WaOS-${TAG#v}.dmg" --clobber
