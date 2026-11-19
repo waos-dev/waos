@@ -382,6 +382,17 @@ pub enum OpenAnswer {
 
 adjacent_unknown!(OpenAnswer);
 
+/// An answer carrying only `Refused(Refusal)`, matching the shared `{"kind": "Refused", "data": ...}`
+/// shape of every request's answer enum (`ScreenshotAnswer`, `InputAnswer`, `ResizeAnswer`,
+/// `SettingsAnswer`, `InspectAnswer`, `OpenAnswer`) as well as [`Upload::Refused`] and
+/// [`RunEvent::Refused`]. Used when WaOS reads [`Request::Unknown`] and cannot name a single
+/// request's answer enum.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(tag = "kind", content = "data")]
+pub enum RefusedAnswer {
+    Refused(Refusal),
+}
+
 /// What a run's connection hears, from `Compiling` to `Ended`; an event this build does not know
 /// is `Unknown`, skipped, never a broken connection.
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
@@ -731,7 +742,11 @@ mod tests {
         #[serde(tag = "kind", content = "data")]
         enum NewerRunEvent {
             Asking(NewerAsked),
-            Output { stream: Newer, bytes: Vec<u8> },
+            Output {
+                stream: Newer,
+                #[serde(with = "serde_bytes")]
+                bytes: Vec<u8>,
+            },
             Ended(Newer),
         }
         assert_eq!(
@@ -948,5 +963,25 @@ mod tests {
         let printed = format!("{picture:?}");
         assert!(printed.contains("png_bytes: Some(2048)"), "{printed}");
         assert!(!printed.contains("0, 0"), "{printed}");
+    }
+
+    #[test]
+    fn refused_answer_shares_the_wire_shape_of_every_answers_refused() {
+        fn encode(value: &impl Serialize) -> Vec<u8> {
+            let mut bytes = Vec::new();
+            ciborium::into_writer(value, &mut bytes).unwrap();
+            bytes
+        }
+
+        let refusal = Refusal::new(RefusalKind::NotServed, "upgrade WaOS");
+        let shared = encode(&RefusedAnswer::Refused(refusal.clone()));
+        assert_eq!(encode(&Upload::Refused(refusal.clone())), shared);
+        assert_eq!(encode(&ScreenshotAnswer::Refused(refusal.clone())), shared);
+        assert_eq!(encode(&InputAnswer::Refused(refusal.clone())), shared);
+        assert_eq!(encode(&ResizeAnswer::Refused(refusal.clone())), shared);
+        assert_eq!(encode(&SettingsAnswer::Refused(refusal.clone())), shared);
+        assert_eq!(encode(&InspectAnswer::Refused(refusal.clone())), shared);
+        assert_eq!(encode(&OpenAnswer::Refused(refusal.clone())), shared);
+        assert_eq!(encode(&RunEvent::Refused(refusal)), shared);
     }
 }

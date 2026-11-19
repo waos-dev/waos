@@ -29,6 +29,9 @@ pub const MAX_FRAME_BYTES: usize = 256 << 20;
 
 const PREFIX_BYTES: usize = 4;
 const LEGACY_PROTOCOL_BYTES: usize = 4;
+/// Number answered to a legacy 0.2 `cargo waos` (whose protocols stopped at 10) so its mismatch
+/// message reads this WaOS as newer and tells its user to update `cargo waos`.
+const LEGACY_REPLY_PROTOCOL: u32 = 11;
 
 /// Whether a connection's stream stays on this machine, as the socket and the pipe do, or crosses
 /// the network, where this machine's paths mean nothing, so `Open` is refused there.
@@ -121,10 +124,9 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Connection<S> {
             let mut number = [0; LEGACY_PROTOCOL_BYTES];
             self.stream.read_exact(&mut number).await?;
             let theirs = u32::from_le_bytes(number);
-            let reply = if theirs == MAJOR { 0 } else { MAJOR };
             let mut frame = Vec::with_capacity(PREFIX_BYTES + LEGACY_PROTOCOL_BYTES);
             frame.extend_from_slice(&(LEGACY_PROTOCOL_BYTES as u32).to_le_bytes());
-            frame.extend_from_slice(&reply.to_le_bytes());
+            frame.extend_from_slice(&LEGACY_REPLY_PROTOCOL.to_le_bytes());
             let _ = self.stream.write_all(&frame).await;
             return Err(io::Error::new(
                 ErrorKind::Unsupported,
@@ -283,7 +285,10 @@ mod tests {
         let mut reply = [0u8; 8];
         legacy_client.stream.read_exact(&mut reply).await.unwrap();
         assert_eq!(u32::from_le_bytes(reply[..4].try_into().unwrap()), 4);
-        assert_eq!(u32::from_le_bytes(reply[4..].try_into().unwrap()), MAJOR);
+        assert_eq!(
+            u32::from_le_bytes(reply[4..].try_into().unwrap()),
+            LEGACY_REPLY_PROTOCOL
+        );
     }
 
     #[tokio::test]

@@ -2,10 +2,12 @@
 //! are framed on a stream, and what carries them on this machine: a Unix socket, or a named pipe
 //! on Windows.
 //!
-//! One connection is one command. Each side says its [`Hello`] first, and a `cargo waos` reads
-//! WaOS's before it sends, so a different protocol's major or a request WaOS does not serve is
-//! refused with both builds named and which one to update, before anything is sent. Then one
-//! [`Request`], answered in its own terms: [`ScreenshotAnswer`], [`InputAnswer`],
+//! One connection is one command. The client speaks its [`Hello`] first and WaOS answers with its
+//! own; a `cargo waos` reads WaOS's before it sends any request, so a different protocol's major or
+//! a request WaOS's `serves` does not list is refused with both builds named and which one to
+//! update, before anything is sent. An older WaOS also answers any request or inner variant it
+//! cannot read (`Unknown`) with a [`Refusal`] naming its build rather than breaking the connection.
+//! Then one [`Request`], answered in its own terms: [`ScreenshotAnswer`], [`InputAnswer`],
 //! [`ResizeAnswer`], [`SettingsAnswer`], [`InspectAnswer`] or [`OpenAnswer`], or, for a run, an
 //! [`Upload`] first — `Send`, and the component's parts follow; `Have`, WaOS holds it and nothing
 //! is sent; or `Refused` — then [`RunEvent`]s from `Compiling` to `Ended`, with the program's
@@ -17,16 +19,21 @@
 //! a message for a person.
 //!
 //! The messages are CBOR (`ciborium`), so each variant and field is named in its encoding: a
-//! field added with `#[serde(default)]` or a variant added at an answer's end is read by a side
-//! that knows it, and an answer enum reads one it does not as `Unknown`, so an addition never
-//! breaks the other half. Only a real break raises [`MAJOR`].
+//! field added with `#[serde(default)]` or a variant added at any enum's end is read by a side
+//! that knows it, and either side reads a variant it does not know as `Unknown`, so an addition
+//! never breaks the connection. Only a real break raises [`MAJOR`].
 //!
 //! The invariants a later editor will break:
-//! - A field added is `#[serde(default)]`, and an answer enum's `Unknown` catches a variant a
-//!   newer WaOS sends; a request is gated by the hello's `serves`, so an older WaOS never meets
-//!   one it does not know.
-//! - The frames' shape: a four-byte little-endian count, then the message as CBOR. The first
-//!   frame each way is the hello, before any request.
+//! - Every enum inside a message uses `#[serde(remote = "Self", tag = "kind", content = "data")]`
+//!   and `#[serde(skip)] Unknown` through `adjacent_unknown!`, and any new struct field uses
+//!   `#[serde(default)]`: a plain `#[derive(Deserialize)]` or `#[serde(other)]` alone silently
+//!   breaks forward compatibility on unknown variants with content.
+//! - Every answer enum (and [`Upload`] and [`RunEvent`]) keeps a `Refused(Refusal)` variant of the
+//!   same `{"kind": "Refused", "data": ...}` shape as [`RefusedAnswer`], so WaOS can refuse an
+//!   unreadable request without naming one command's answer enum.
+//! - The frame format is a four-byte little-endian count then CBOR, and the client speaks first
+//!   before reading WaOS's [`Hello`], so WaOS can distinguish a legacy 4-byte 0.2 hello from a
+//!   CBOR [`Hello`] on the first frame.
 
 mod adjacent;
 mod component;
@@ -46,8 +53,8 @@ pub use connection::{Connection, Locality, MAX_FRAME_BYTES};
 pub use hello::{Hello, MAJOR, Mismatch, Peer, SERVED};
 pub use messages::{
     Component, Input, InputAnswer, InputDone, InspectAnswer, Inspection, OpenAnswer, OutputStream,
-    Request, ResizeAnswer, Resized, Run, RunEnd, RunEvent, ScreenshotAnswer, SettingsAnswer,
-    TracedCapability, Upload, WindowId, WindowPicture,
+    RefusedAnswer, Request, ResizeAnswer, Resized, Run, RunEnd, RunEvent, ScreenshotAnswer,
+    SettingsAnswer, TracedCapability, Upload, WindowId, WindowPicture,
 };
 #[cfg(windows)]
 pub use pipe::{ClientStream, Listener, ServerStream, listener_path};

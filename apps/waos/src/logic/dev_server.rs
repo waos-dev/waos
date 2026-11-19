@@ -33,7 +33,7 @@ use tokio::sync::oneshot;
 use tokio::task::JoinSet;
 use waos::OpenRequest;
 use waos::bindings::wasdk::platform::windows::Size;
-use waos_dev_protocol::{Connection, Hello, Listener, MAJOR, OpenAnswer, Request, ServerStream};
+use waos_dev_protocol::{Connection, Hello, Listener, MAJOR, RefusedAnswer, Request, ServerStream};
 use waos_store::Store;
 
 /// This build, as its hello names it: "WaOS 0.3.0".
@@ -284,7 +284,7 @@ async fn serve_connection(mut connection: Connection<ServerStream>, context: Con
         }
         Ok(Some(Request::Unknown)) => {
             let refusal = dev_refusal::unsupported(BUILD, "request");
-            let _ = connection.send(&OpenAnswer::Refused(refusal)).await;
+            let _ = connection.send(&RefusedAnswer::Refused(refusal)).await;
         }
         Ok(None) => {}
         Err(error) => tracing::warn!(%error, "a connection ended before it asked anything"),
@@ -1209,40 +1209,116 @@ pub(crate) mod tests {
             .await;
         started(&mut first).await;
 
-        let ticks_file = server
+        let data = server
             .folder
             .join("store/programs")
             .join(FLOOD)
-            .join("data/ticks");
-        let read_ticks = || -> u64 {
-            fs::read_to_string(&ticks_file)
+            .join("data");
+        let read_u64 = |name: &str| -> u64 {
+            fs::read_to_string(data.join(name))
                 .ok()
                 .and_then(|s| s.trim().parse().ok())
                 .unwrap_or(0)
         };
         let deadline = Instant::now() + WITHIN;
-        while read_ticks() == 0 {
-            assert!(Instant::now() < deadline, "timer task never wrote a tick");
+        while read_u64("wrote") < (1 << 20) || read_u64("ticks") == 0 {
+            assert!(Instant::now() < deadline, "flood never filled the queue");
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
-        // Let the flood fill the 1 MiB frame queue and socket buffer while nobody reads `first`.
-        tokio::time::sleep(Duration::from_millis(250)).await;
-        let ticks_before = read_ticks();
-        tokio::time::sleep(Duration::from_millis(150)).await;
-        let ticks_after = read_ticks();
+        let (wrote_before, ticks_before) = loop {
+            let wrote_a = read_u64("wrote");
+            let ticks_a = read_u64("ticks");
+            tokio::time::sleep(Duration::from_millis(150)).await;
+            let wrote_b = read_u64("wrote");
+            let ticks_b = read_u64("ticks");
+            if wrote_b == wrote_a {
+                break (wrote_a, (ticks_a, ticks_b));
+            }
+            assert!(
+                Instant::now() < deadline,
+                "output never stalled on full backpressure ({wrote_a} -> {wrote_b})"
+            );
+        };
+        assert!(wrote_before >= (1 << 20));
         assert!(
-            ticks_after > ticks_before,
-            "timer kept running while stdout waited ({ticks_before} -> {ticks_after})"
+            ticks_before.1 > ticks_before.0,
+            "timer kept running while stdout waited ({} -> {})",
+            ticks_before.0,
+            ticks_before.1
         );
 
-        let replacing = tokio::time::timeout(
-            Duration::from_secs(1),
-            server.run(FLOOD, Path::new(waos_test_programs::FLOOD)),
-        )
+        let frames = tokio::time::timeout(Duration::from_secs(1), async {
+            let mut replacing = server
+                .run(FLOOD, Path::new(waos_test_programs::FLOOD))
+                .await;
+            started_from_compiled_code(&mut replacing).await;
+            let frames =
+                frames_until(&mut first, |frame| matches!(frame, RunEvent::Ended(_))).await;
+            drop(replacing);
+            frames
+        })
         .await
         .expect("a replacing run stops the blocked writer within a second");
-        drop(replacing);
-        drop(first);
+        assert_eq!(frames.last(), Some(&RunEvent::Ended(RunEnd::Replaced)));
+        assert!(stdout_of(&frames).len() >= (1 << 20));
+    }
+
+    #[tokio::test]
+    async fn a_program_flooding_println_while_nobody_reads_is_stopped_in_time() {
+        const FLOOD: &str = "dev.waos.examples.flood";
+        let server = TestServer::start("flood-println");
+        let mut first = server
+            .run_with_args(
+                FLOOD,
+                Path::new(waos_test_programs::FLOOD),
+                vec!["--println".to_owned()],
+            )
+            .await;
+        started(&mut first).await;
+
+        let wrote_file = server
+            .folder
+            .join("store/programs")
+            .join(FLOOD)
+            .join("data/wrote");
+        let read_wrote = || -> u64 {
+            fs::read_to_string(&wrote_file)
+                .ok()
+                .and_then(|s| s.trim().parse().ok())
+                .unwrap_or(0)
+        };
+        let deadline = Instant::now() + WITHIN;
+        while read_wrote() < (1 << 20) {
+            assert!(Instant::now() < deadline, "println never filled the queue");
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        loop {
+            let wrote_a = read_wrote();
+            tokio::time::sleep(Duration::from_millis(150)).await;
+            let wrote_b = read_wrote();
+            if wrote_b == wrote_a {
+                break;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "println never stalled on full backpressure ({wrote_a} -> {wrote_b})"
+            );
+        }
+
+        let frames = tokio::time::timeout(Duration::from_secs(1), async {
+            let mut replacing = server
+                .run(FLOOD, Path::new(waos_test_programs::FLOOD))
+                .await;
+            started_from_compiled_code(&mut replacing).await;
+            let frames =
+                frames_until(&mut first, |frame| matches!(frame, RunEvent::Ended(_))).await;
+            drop(replacing);
+            frames
+        })
+        .await
+        .expect("a replacing run stops the println writer within a second");
+        assert_eq!(frames.last(), Some(&RunEvent::Ended(RunEnd::Replaced)));
+        assert!(stdout_of(&frames).len() >= (1 << 20));
     }
 
     #[tokio::test]
@@ -1292,7 +1368,7 @@ pub(crate) mod tests {
         let id: ProgramId = FOREVER.parse().unwrap();
 
         let assert_unsupported = |refusal: waos_dev_protocol::Refusal| {
-            assert_eq!(refusal.kind, RefusalKind::Failed);
+            assert_eq!(refusal.kind, RefusalKind::NotServed);
             assert!(refusal.message.contains(BUILD), "{}", refusal.message);
             assert!(
                 refusal.message.contains("https://waos.app"),
@@ -1415,10 +1491,7 @@ pub(crate) mod tests {
         let mut reply = [0u8; 8];
         client.read_exact(&mut reply).await.unwrap();
         assert_eq!(u32::from_le_bytes(reply[0..4].try_into().unwrap()), 4);
-        assert_eq!(
-            u32::from_le_bytes(reply[4..8].try_into().unwrap()),
-            waos_dev_protocol::MAJOR
-        );
+        assert_eq!(u32::from_le_bytes(reply[4..8].try_into().unwrap()), 11);
         let mut eof = [0u8; 1];
         assert_eq!(client.read(&mut eof).await.unwrap(), 0);
     }

@@ -249,11 +249,23 @@ mod tests {
 
     #[tokio::test]
     async fn have_skips_the_upload_and_unknown_events_are_skipped() {
+        struct CborBytes(&'static [u8]);
+        impl serde::Serialize for CborBytes {
+            fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+                serializer.serialize_bytes(self.0)
+            }
+        }
+
         #[derive(serde::Serialize)]
         #[serde(tag = "kind", content = "data")]
         enum NewerRunEvent {
-            Progress { percent: u8 },
-            Output { stream: NewerStream, bytes: Vec<u8> },
+            Progress {
+                percent: u8,
+            },
+            Output {
+                stream: NewerStream,
+                bytes: CborBytes,
+            },
             Ended(NewerEnd),
         }
 
@@ -295,7 +307,7 @@ mod tests {
             server
                 .send(&NewerRunEvent::Output {
                     stream: NewerStream::Trace,
-                    bytes: b"from future stream\n".to_vec(),
+                    bytes: CborBytes(b"from future stream\n"),
                 })
                 .await
                 .unwrap();

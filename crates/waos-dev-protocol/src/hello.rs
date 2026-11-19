@@ -218,7 +218,8 @@ mod tests {
                 files: Vec::<PathBuf>::new(),
             },
         ];
-        // Match exhaustively so adding a `Request` variant updates `SERVED` too.
+        // Match exhaustively so adding a `Request` variant fails to compile here until `all` and
+        // `SERVED` list it too.
         for request in &all {
             match request {
                 Request::Run(_)

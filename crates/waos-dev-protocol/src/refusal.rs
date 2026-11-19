@@ -70,6 +70,8 @@ pub enum RefusalKind {
     CannotLoad,
     /// `Open` names this machine's paths, and the connection is not on this machine.
     LocalOnly,
+    /// The request or an option inside it came from a newer client that this WaOS does not know.
+    NotServed,
     /// The request itself could not be carried out, as a store that cannot be read or a picture
     /// that cannot be taken: the message says what failed.
     Failed,

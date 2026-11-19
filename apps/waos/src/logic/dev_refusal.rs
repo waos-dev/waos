@@ -115,7 +115,7 @@ pub(crate) fn local_only(id: &ProgramId) -> Refusal {
 /// A request or one of its inner variants came from a newer client that `build` does not know.
 pub(crate) fn unsupported(build: &str, what: &str) -> Refusal {
     Refusal::new(
-        RefusalKind::Failed,
+        RefusalKind::NotServed,
         format!("{build} does not know this {what}: update WaOS from https://waos.app"),
     )
 }

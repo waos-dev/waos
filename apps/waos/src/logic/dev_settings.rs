@@ -7,7 +7,7 @@
 //! The invariant: only a program a run of `cargo waos run` on this machine runs or has run, whose
 //! component one sent is among the components kept (`sent_components`), or one the store does not
 //! have installed, which may be set before its first run, is read or set; one the library
-//! installed, which no run sent, is `Unreached`.
+//! installed, which no run sent, is `Refused(NeverDevRun)`.
 
 use std::sync::Arc;
 
