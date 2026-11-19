@@ -1,0 +1,50 @@
+---
+title: Opener
+description: Open links and files in the apps the system picks, or reveal a file in the file manager.
+---
+
+Hands a link or a file the program already holds to the system's chosen app, or highlights a file in Finder, Explorer or the system's file manager. Web links (`http` and `https`) open without asking; other URL schemes (such as `tel:` or `zoommtg:`) ask the user the first time and remember their answer. Files must be inside the program's own folders or mounts.
+
+## With wasdk
+
+```rust
+use wasdk::opener::{self, OpenError};
+
+let Some(opener) = opener::get_opener() else { return };
+
+// Async WIT methods take owned String values
+match opener.open_link("https://waos.app/".to_owned()).await {
+    Ok(()) => {}
+    Err(OpenError::Denied) => eprintln!("user declined this scheme"),
+    Err(OpenError::NoApp) => eprintln!("no app handles this link"),
+    Err(OpenError::Failed(why)) => eprintln!("could not open link: {why}"),
+}
+
+// Open or reveal a file the program holds (for example, in /data or a picked mount)
+opener.open_file("/data/report.pdf".to_owned()).await?;
+opener.reveal_file("/data/report.pdf".to_owned()).await?;
+```
+
+## With Waft
+
+Use `app.platform().opener()`, which wraps `wasdk::opener` and accepts `&str` / `&Path`:
+
+```rust
+use std::path::Path;
+
+let Some(opener) = app.platform().opener() else { return };
+let opening = opener.open_link("https://waos.app/");
+let revealing = opener.reveal_file(Path::new("/data/report.pdf"));
+app.spawn(async move |_cx| {
+    let _ = opening.await;
+    let _ = revealing.await;
+});
+```
+
+## Where it's missing
+
+`get-opener` is none where the platform cannot hand items to other apps, and in workers. `reveal-file` fails on platforms without a desktop file manager (such as Android). Opening a path outside the program's folders or mounts is refused.
+
+## Interface
+
+[`wasdk:platform/opener`](/docs/reference/wasdk-platform/opener)

@@ -3,14 +3,14 @@ title: Start
 description: From nothing to a running app, in five steps.
 ---
 
-1. **Download WaOS** and open it. [Download](about:blank)
-2. **Install the WaOS command:** `cargo install waos-cli`. It needs Rust from [rustup](https://rustup.rs), the latest stable (`rustup update stable`), 1.85 at least, the first to read the edition-2024 crates WaOS's are; a new program's toolchain file has rustup fetch the rest.
+1. **Download WaOS** and open it: [macOS (Apple Silicon)](https://github.com/waos-dev/waos/releases/download/v0.3.0/WaOS_0.3.0_aarch64.dmg) or [Android](https://github.com/waos-dev/waos/releases/download/v0.3.0/WaOS-0.3.0.apk).
+2. **Install the WaOS command:** `cargo install waos-cli`. WaOS uses a two-toolchain model: latest **stable** Rust (1.85 at least, via [rustup](https://rustup.rs) and `rustup update stable`) installs `waos-cli`, while each program's `rust-toolchain.toml` pins the **nightly** toolchain with the `wasm32-wasip3` target that rustup fetches automatically on the first build.
 3. **Make a program:** `cargo waos new hello`, a WinUI app, which works on a desktop and on a phone. For an app meant for phones alone, add `--template cupertino`. Its `icon.png` is a placeholder: draw one to sit beside [WaOS's own apps](/docs/icons).
 4. **Run it:** `cd hello && cargo waos run`, which shows what it prints; a program opened from WaOS prints into WaOS's log instead.
 5. **Package it:** `cargo waos package`, which writes a signed `.wapk`.
 
-A program with C code in it (SQLite, tree-sitter's grammars) builds that code with a [wasi-sdk](https://github.com/WebAssembly/wasi-sdk/releases) on LLVM 23, wasi-sdk 34 or later: set `CC_wasm32_wasip3` and `AR_wasm32_wasip3` to its `clang` and `llvm-ar`, and `CFLAGS_wasm32_wasip3` to `--sysroot=<wasi-sdk>/share/wasi-sysroot`. An older clang fails at the link with "object file uses globals for thread context, but --cooperative-threading was specified".
+A program that depends on C-compiling crates (such as `libsqlite3-sys`, `zstd-sys`, `onig`, `ring`, `psm`/`stacker`, or tree-sitter grammars) builds that C code with a [wasi-sdk](https://github.com/WebAssembly/wasi-sdk/releases) on LLVM 23, wasi-sdk 34 or later: set `CC_wasm32_wasip3` and `AR_wasm32_wasip3` to its `clang` and `llvm-ar`, and `CFLAGS_wasm32_wasip3` to `--sysroot=<wasi-sdk>/share/wasi-sysroot`. An older clang fails at the link with "object file uses globals for thread context, but --cooperative-threading was specified". Prefer pure-Rust crates where available to avoid needing a C cross-compiler.
 
 `cargo waos docs` prints these docs for the version your app builds with, downloaded once from that release and read offline after: their map, `cargo waos docs <page>` a page, and `cargo waos skill install` writes them as a skill for the agent that writes the app ([The tools](/docs/tools)).
 
-Next: [Concepts](/docs/concepts) · [Building the app](/docs/guide) · [Waft](/docs/waft)
+Next: [Concepts](/docs/concepts), [Building the app](/docs/guide), [Waft](/docs/waft)

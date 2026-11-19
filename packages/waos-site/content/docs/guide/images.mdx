@@ -28,27 +28,51 @@ use std::sync::Arc;
 let bytes: Arc<[u8]> = Arc::from(bytes);
 Image::memory(bytes.clone()).fit(BoxFit::Cover)
 ```
+
 Waft decodes it through the system's codecs, and an animated image plays. `Image::memory_static(include_bytes!("logo.png"))` shows one built into the program. An image decodes once for each `Arc`, so keep the bytes, in an entity, and hand `Image::memory` a clone of the same `Arc` at each build.
 
 Waft's `NetworkImage::new(url)` and `FileImage::new(path)`, from the `waft-painting` crate, fetch or read the picture themselves, through Waft's own HTTP client and file system, which WaOS serves over `wasi:http` and `wasi:filesystem`: `Image::new(Rc::new(NetworkImage::new(url)) as ImageProviderRef)`.
 
-To paint shapes of its own, a widget is a `CustomPaint` whose painter implements `CustomPainter`, as in Flutter. `CustomPainter` is in the `waft-rendering` crate, which the program adds to its dependencies. Its `paint` is given a `Canvas`; `Canvas`, `Paint` and `Path` are `waft::ui`'s, valo's types under Flutter's names, with valo's methods:
+To paint shapes and text of its own, a widget is a `CustomPaint` whose painter implements `CustomPainter`, re-exported by `waft` along with `Canvas`, `Paint`, `PaintingStyle`, `Stroke`, `StrokeCap`, `Rect`, `TextPainter` and `PaintingBinding`. `Canvas` is valo's display-list builder under Flutter's name: `waft::Color` converts with `.into()`, `waft::Rect` converts into valo's `f32` rect with `.into()` (which `draw_rect` accepts directly through `impl Into<valo::Rect>`), strokes are set with `PaintingStyle::Stroke(Stroke { … })`, and `TextPainter` shapes and paints against the font collection held by `PaintingBinding::instance(app).fonts(app)`:
 
 ```rust
 use std::any::Any;
-use waft::ui::{Canvas, Paint};
-use waft_rendering::CustomPainter;
+use std::rc::Rc;
 
-struct Dot;
+use waft::*;
 
-impl CustomPainter for Dot {
-    fn paint(&self, _app: &mut App, canvas: &mut Canvas, size: Size) {
-        let center = (size.width() as f32 / 2.0, size.height() as f32 / 2.0);
-        canvas.draw_circle(center, 8.0, &Paint::from_color(Color::new(0xFF0067C0).into()));
+struct Badge {
+    label: String,
+}
+
+impl CustomPainter for Badge {
+    fn paint(&self, app: &mut App, canvas: &mut Canvas, size: Size) {
+        let rect = Rect::from_ltwh(4.0, 4.0, size.width() - 8.0, size.height() - 8.0);
+        // `draw_rect` converts `waft::Rect` into valo's `f32` rect; pass `rect.into()` to valo APIs that take `valo::Rect` directly
+        canvas.draw_rect(rect, &Paint::from_color(Color::new(0x180067C0).into()));
+
+        let mut border = Paint::from_color(Color::new(0xFF0067C0).into());
+        border.style = PaintingStyle::Stroke(Stroke {
+            cap: StrokeCap::Round,
+            ..Stroke::new(2.0)
+        });
+        canvas.draw_rect(rect, &border);
+
+        let fonts = PaintingBinding::instance(app).fonts(app);
+        let mut text = TextPainter::new();
+        text.set_text(Some(Rc::new(
+            TextSpan::new()
+                .text(self.label.clone())
+                .style(TextStyle::new().font_size(14.0).color(Color::new(0xFF0067C0))),
+        )));
+        text.set_text_direction(Some(TextDirection::Ltr));
+        text.layout(app.get_mut(fonts), 0.0, size.width());
+        text.paint(app.get_mut(fonts), canvas, Offset::new(12.0, 10.0));
+        text.dispose();
     }
 
-    fn should_repaint(&self, _app: &App, _old: &dyn CustomPainter) -> bool {
-        false
+    fn should_repaint(&self, _app: &App, old: &dyn CustomPainter) -> bool {
+        old.as_any().downcast_ref::<Self>().is_none_or(|prev| prev.label != self.label)
     }
 
     fn as_any(&self) -> &dyn Any {
@@ -56,7 +80,9 @@ impl CustomPainter for Dot {
     }
 }
 
-CustomPaint::new().painter(Dot).size(Size::new(32.0, 32.0))
+CustomPaint::new()
+    .painter(Badge { label: "GPU".into() })
+    .size(Size::new(96.0, 40.0))
 ```
 
 ## Where it's missing

@@ -75,3 +75,6 @@ run_app(app, MaterialApp::new().theme(theme).home(home).into_widget());
 install_material_icon_font(app);
 ```
 **Its theme.** `Theme::of(app, context)` answers the `ThemeData`, and its `color_scheme` the colours. The eight base colours are fields, `scheme.primary`, `on_primary`, `secondary`, `on_secondary`, `error`, `on_error`, `surface` and `on_surface`; every other role is a method, which falls back as Flutter's does: `scheme.surface_container_high()`, `scheme.primary_container()`, `scheme.outline()`.
+
+## Markdown
+For rich formatted text, add [`waft-markdown`](https://docs.rs/waft-markdown) to the app's `Cargo.toml`. It parses Markdown with `pulldown-cmark` and renders it with `Markdown` (scrollable) or `MarkdownBody` (inline), styled with `MarkdownStyleSheet` or an inherited `DefaultMarkdownStyle` and supporting custom link handlers.

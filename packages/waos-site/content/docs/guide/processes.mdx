@@ -8,6 +8,9 @@ A program runs commands on a machine its user picked for it: this computer for n
 ## With wasdk
 
 ```rust
+use wasdk::StreamResult;
+use wasdk::machines::{self, Command};
+
 // machines: machines::get_machines()
 let machine = match machines.granted().into_iter().next() {
     Some(machine) => machine,
@@ -17,6 +20,7 @@ let machine = match machines.granted().into_iter().next() {
 let command = Command::new("git");
 command.add_argument("status");
 let (child, pipes) = machine.exec(&command).await?;
+// For a short command, collect all output at once:
 let output = pipes.output().ok_or("taken")?.collect().await;
 // exited(code), signaled(name) or unknown
 let status = child.exit_status().await;
@@ -27,11 +31,69 @@ let platform = machine.platform();
 let shell = machine.login_shell();
 ```
 
+For a long-running command or a terminal (`exec_in_terminal`), stream chunks incrementally with `StreamReader::read` instead of waiting for `collect()`. `read` takes an owned `Vec<u8>` buffer and returns `(StreamResult, Vec<u8>)`, so clear and pass the buffer back on the next iteration:
+
+```rust
+let mut output = pipes.output().ok_or("taken")?;
+let mut buf = Vec::with_capacity(4096);
+loop {
+    buf.clear();
+    let (result, chunk) = output.read(buf).await;
+    buf = chunk;
+    if !buf.is_empty() {
+        print!("{}", String::from_utf8_lossy(&buf));
+    }
+    if matches!(result, StreamResult::Dropped) {
+        break;
+    }
+}
+```
+
 To find a program on the machine, or the environment a shell has in a folder, run a command for it, as an editor does over SSH: `sh -c 'command -v git'`, or the login shell with `-l -i -c env` in that folder.
 
 ## With Waft
 
-Waft has no API for processes; use `wasdk::machines` directly, as above.
+Waft has no API for processes; call `wasdk::machines` inside `app.spawn` so the UI stays responsive while output streams in, and push chunks into an entity through `cx.update`:
+
+```rust
+use wasdk::StreamResult;
+use wasdk::machines::{self, Command};
+
+let log = self.log.clone();
+app.spawn(async move |cx| {
+    let Some(machines) = machines::get_machines() else { return };
+    let machine = match machines.granted().into_iter().next() {
+        Some(machine) => machine,
+        None => match machines.pick().await {
+            Some(machine) => machine,
+            None => return,
+        },
+    };
+    let command = Command::new("git");
+    command.add_argument("status");
+    let Ok((child, pipes)) = machine.exec(&command).await else { return };
+    let Some(mut output) = pipes.output() else { return };
+    let mut buf = Vec::with_capacity(4096);
+    loop {
+        buf.clear();
+        let (result, chunk) = output.read(buf).await;
+        buf = chunk;
+        if !buf.is_empty() {
+            let text = String::from_utf8_lossy(&buf).into_owned();
+            cx.update(|app| {
+                log.update(app, |log, cx| {
+                    log.push_str(&text);
+                    cx.notify();
+                });
+            });
+        }
+        if matches!(result, StreamResult::Dropped) {
+            break;
+        }
+    }
+    let _status = child.exit_status().await;
+});
+```
 
 ## Where it's missing
 

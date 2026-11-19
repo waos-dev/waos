@@ -1,8 +1,10 @@
 export const appName = 'WaOS';
 /** The first section's statement, in two lines. */
-export const headline = ['Apps on demand.', 'Secure. Fast. Efficient.'] as const;
+export const headline = ['Apps on demand.', 'Safe to run. Built in minutes.'] as const;
+export const subtitle =
+  'One lightweight runtime for real GPU apps—built by your agent or opened from a single .wapk file.';
 export const tagline = headline.join(' ');
-export const description = tagline;
+export const description = subtitle;
 
 export function siteOrigin(): string {
   return process.env.NEXT_PUBLIC_SITE_URL ?? 'https://waos.app';
@@ -10,14 +12,17 @@ export function siteOrigin(): string {
 
 export const docsRoute = '/docs';
 
-/** The download waits for WaOS's release (decision 9); the repository is public. */
-export const downloadUrl = 'about:blank';
+export const releaseVersion = '0.3.0';
+export const macDownloadUrl = `https://github.com/waos-dev/waos/releases/download/v${releaseVersion}/WaOS_${releaseVersion}_aarch64.dmg`;
+export const androidDownloadUrl = `https://github.com/waos-dev/waos/releases/download/v${releaseVersion}/WaOS-${releaseVersion}.apk`;
+export const downloadUrl = macDownloadUrl;
 export const repositoryUrl = 'https://github.com/waos-dev/waos';
 
 /** Waft's Cupertino gallery, deployed for Waft; it will move. */
 export const cupertinoGalleryUrl = 'https://cupertino-gallery.inset.rs';
 
-/** What the home page's second action copies: one line pointing an agent at its playbook. */
-export function agentPrompt(): string {
-  return `Read ${siteOrigin()}/agents.md and follow it to build an app on WaOS.`;
+/** One line pointing an agent at its playbook, optionally tailored to a specific app idea. */
+export function agentPrompt(idea?: string, origin = siteOrigin()): string {
+  const target = idea ? `a ${idea}` : 'an app';
+  return `Read ${origin}/agents.md and follow it to build ${target} on WaOS.`;
 }

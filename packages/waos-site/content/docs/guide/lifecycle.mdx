@@ -1,0 +1,86 @@
+---
+title: Lifecycle
+description: Follow foreground and background transitions, handle quit requests, and receive files or links opened with your app.
+---
+
+Tracks the program's life as a whole beyond any single view: transitions between `resumed`, `inactive`, `hidden` and `paused`, requests from the system asking whether the program may quit (such as Cmd-Q or closing the last window), and files or links the user opens with your app from the system. Save state to `/data` when transitioning to `hidden`, since the platform may freeze or stop a hidden program at any point.
+
+## With wasdk
+
+Open each stream before reading initial state so no transition or request between the two is missed:
+
+```rust
+use wasdk::lifecycle::{self, AppExitResponse, ExitRequest, LifecycleState};
+
+let mut states = lifecycle::state_changes();
+let mut exits = lifecycle::exit_requests();
+let mut opens = lifecycle::open_requests();
+
+println!("initial state: {:?}", lifecycle::state());
+
+wasdk::spawn(async move {
+    while let Some(state) = states.next().await {
+        if matches!(state, LifecycleState::Hidden) {
+            // Flush unsaved data to /data before the platform freezes the program
+        }
+    }
+});
+
+wasdk::spawn(async move {
+    while let Some(request) = exits.next().await {
+        // Answer Exit to quit or Cancel to stay open (for example, while prompting to save)
+        ExitRequest::respond(request, AppExitResponse::Exit);
+    }
+});
+
+wasdk::spawn(async move {
+    while let Some(request) = opens.next().await {
+        for path in request.files {
+            // Mounted writable at `path` for the program
+            let _text = std::fs::read_to_string(&path);
+        }
+        for link in request.links {
+            println!("opened link: {link}");
+        }
+    }
+});
+```
+
+## With Waft
+
+Waft forwards `state_changes` and `exit_requests` through `AppLifecycleListener`, and `open_requests` through `app.set_open_requested_handler`:
+
+```rust
+use std::rc::Rc;
+
+use waft::ui::{AppExitResponse, OpenRequest};
+use waft::{App, AppLifecycleListener};
+
+fn wire_lifecycle(app: &mut App) {
+    AppLifecycleListener::new(app)
+        .on_hide(app, Rc::new(|_app| {
+            // Save to /data
+        }))
+        .on_exit_requested(app, Rc::new(|app: &mut App| {
+            // Return AppExitResponse::Cancel if the user aborts quitting
+            app.spawn(async move |_cx| AppExitResponse::Exit)
+        }));
+
+    app.set_open_requested_handler(Some(Rc::new(|_app: &mut App, request: OpenRequest| {
+        for path in request.files {
+            let _text = std::fs::read_to_string(&path);
+        }
+        for link in request.links {
+            println!("opened link: {link}");
+        }
+    })));
+}
+```
+
+## Where it's missing
+
+On Android the system can terminate a background app without sending an `exit-request`. In workers, `exit-requests` and `open-requests` end immediately because those belong to the main instance. Every file delivered in `open-requests` is mounted for the program at the path reported in `request.files`.
+
+## Interface
+
+[`wasdk:platform/lifecycle`](/docs/reference/wasdk-platform/lifecycle)

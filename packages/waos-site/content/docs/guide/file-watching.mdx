@@ -32,11 +32,36 @@ while let Some(batch) = changes.next().await {
 // dropping `changes` ends the watch
 ```
 
-A machine's root, `machine.root()`, is watched the same way, as are the folders opened from it.
+A machine's root, `machine.root()`, is watched the same way, as are the folders opened from it. To read a large file from a descriptor without buffering it whole at once, stream its bytes with `file.read_via_stream(0)` and `StreamReader::read(buf)` in a loop (passing a `Vec<u8>` buffer and checking `StreamResult::Dropped`, as in [Processes](/docs/guide/processes)).
 
 ## With Waft
 
-Waft has no API for file watching; use `wasdk::file_watching` from a task, as above.
+Waft has no API for file watching; start the watch in `app.spawn`, and forward each batch into an entity with `cx.update`:
+
+```rust
+use wasdk::file_watching;
+use wasdk::filesystem::{DescriptorFlags, OpenFlags, PathFlags};
+
+let files = self.files.clone();
+app.spawn(async move |cx| {
+    let (root, _) = wasdk::preopens::get_directories().remove(0);
+    let Ok(project) = root
+        .open_at(PathFlags::empty(), "data/project".into(), OpenFlags::DIRECTORY, DescriptorFlags::READ)
+        .await
+    else {
+        return;
+    };
+    let Ok(mut changes) = file_watching::watch(&project, true, 100).await else { return };
+    while let Some(batch) = changes.next().await {
+        cx.update(|app| {
+            files.update(app, |files, cx| {
+                files.apply_changes(&batch);
+                cx.notify();
+            });
+        });
+    }
+});
+```
 
 ## Where it's missing
 

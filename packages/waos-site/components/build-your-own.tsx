@@ -7,17 +7,19 @@ import { buttonVariants } from 'fumadocs-ui/components/ui/button';
 import { useCopyButton } from 'fumadocs-ui/utils/use-copy-button';
 
 /**
- * The home page's second action (decision 7): a button naming, one after another, the agents a
- * reader may already use, which opens the three steps to an app of one's own, the middle one the
- * prompt an agent is given, which it copies.
+ * The home page's second action: a button naming, one after another, the agents a reader may
+ * already use, which opens the three steps to an app of one's own, the middle one the prompt an
+ * agent is given, which it copies.
  */
 export function BuildYourOwn({
   prompt,
   downloadUrl,
+  androidDownloadUrl,
   startUrl,
 }: {
   prompt: string;
   downloadUrl: string;
+  androidDownloadUrl: string;
   startUrl: string;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
@@ -62,9 +64,14 @@ export function BuildYourOwn({
           </div>
           <ol className="flex flex-col gap-6">
             <Step number={1} title="Get WaOS">
-              <a href={downloadUrl} className="font-medium underline underline-offset-4">
-                Download for macOS
-              </a>
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
+                <a href={downloadUrl} className="font-medium underline underline-offset-4">
+                  Download for macOS (Apple Silicon)
+                </a>
+                <a href={androidDownloadUrl} className="font-medium underline underline-offset-4">
+                  Download for Android
+                </a>
+              </div>
             </Step>
             <Step number={2} title="Give your coding agent this, then say what you want">
               <div className="flex items-center gap-2 rounded-xl border bg-fd-card p-2 pl-4">

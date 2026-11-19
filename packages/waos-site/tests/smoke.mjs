@@ -40,6 +40,8 @@ const GUIDE_TOPICS = [
   ['cameras', 'Cameras'],
   ['audio', 'Audio'],
   ['system', 'System settings'],
+  ['lifecycle', 'Lifecycle'],
+  ['opener', 'Opener'],
   ['menus', 'Menus'],
   ['notifications', 'Notifications'],
   ['processes', 'Processes'],
@@ -242,6 +244,17 @@ async function checkReference(page) {
   await page.goto(`${BASE}/docs/reference/wasdk-platform/windows`, { waitUntil: 'load' });
   const windows = await page.locator('article').innerText();
   check("windows' page shows set-min-size as the WIT has it", windows.includes(SET_MIN_SIZE));
+  const windowsLinks = await linksIn(page, 'article');
+  check(
+    "windows' page links its wasdk::windows module on docs.rs",
+    windowsLinks.some((href) => /^https:\/\/docs\.rs\/wasdk\/[^/]+\/wasdk\/windows\/$/.test(href ?? '')),
+  );
+  await page.goto(`${BASE}/docs/reference/wasdk-platform/worker-entry`, { waitUntil: 'load' });
+  const workerEntryLinks = await linksIn(page, 'article');
+  check(
+    "worker-entry does not link a nonexistent wasdk::worker_entry module",
+    !workerEntryLinks.some((href) => (href ?? '').includes('/wasdk/worker_entry/')),
+  );
 }
 
 /** The icons page shows each built-in app's icon above its name, each a PNG of 512 pixels. */
@@ -266,10 +279,20 @@ function pngSize(png) {
 }
 
 async function checkHome(page) {
-  await checkPage(page, '/', 'Apps on demand.\nSecure. Fast. Efficient.');
+  await checkPage(page, '/', 'Apps on demand.\nSafe to run. Built in minutes.');
   check("the home page's document is titled WaOS", (await page.title()) === 'WaOS');
+  const bodyText = await page.locator('#nd-home-layout').innerText();
+  check('the home page has no middot splits', !bodyText.includes('·'));
   const download = page.getByRole('link', { name: 'Download for macOS' });
-  check('the download waits for a release', (await download.getAttribute('href')) === 'about:blank');
+  check(
+    'the macOS download points at v0.3.0 DMG',
+    (await download.getAttribute('href')) === 'https://github.com/waos-dev/waos/releases/download/v0.3.0/WaOS_0.3.0_aarch64.dmg',
+  );
+  const androidDownload = page.getByRole('link', { name: 'Android' });
+  check(
+    'the Android download points at v0.3.0 APK',
+    (await androidDownload.getAttribute('href')) === 'https://github.com/waos-dev/waos/releases/download/v0.3.0/WaOS-0.3.0.apk',
+  );
   const topics = await page
     .locator('section h3 + ul a')
     .evaluateAll((links) => links.map((link) => [link.getAttribute('href'), link.textContent]));
@@ -280,10 +303,15 @@ async function checkHome(page) {
   const copied = await page.evaluate(() => navigator.clipboard.readText());
   check('the agent prompt points at the playbook', copied.includes(`${ORIGIN}/agents.md`), copied);
   await page.getByRole('button', { name: 'Close' }).click();
+  await page.getByRole('button', { name: 'Markdown reader' }).click();
+  await page.getByRole('button', { name: 'Copy prompt' }).click();
+  const starterCopied = await page.evaluate(() => navigator.clipboard.readText());
+  check('starter chip customizes the inline prompt', starterCopied.includes('markdown reader'), starterCopied);
   const commands = await page.locator('pre').first().innerText();
   check('the commands make an app and run it', commands.includes('cargo waos new hello'));
   const docsLinks = await page.locator('section ul a').evaluateAll((links) => links.map((link) => link.getAttribute('href')));
   check('the developers are pointed at Start', docsLinks.includes('/docs/start'));
+  check('Concepts remains reachable from the home page', docsLinks.includes('/docs/concepts'));
 }
 
 /** The art's pixels, as an image, `after` milliseconds from now. */

@@ -18,6 +18,8 @@ views::request_view(&config, None)?;
 
 ## With Waft
 
+For a single window, pass the root widget to `run_app_with`:
+
 ```rust
 let window = WindowConfig {
     title: "Notes".into(),
@@ -29,6 +31,39 @@ run_app_with(app, notes_app(), window);
 let window = View::maybe_of(app, context).and_then(|view| view.window());
 if let Some(limits) = window.as_ref().and_then(|window| window.size_limits()) {
     limits.set_min_size(Some(Size::new(320.0, 400.0)));
+}
+```
+
+> `run_app_with` builds its widget only in views whose `initial_data().is_none()`. If you open additional windows by calling `app.platform().request_view(config, Some(tag))`, those secondary views will stay blank under `run_app_with`.
+
+For two or more windows, ask for each window with `app.platform().request_view` and build every view from its `initial_data()` inside a `MultiViewApp` started with `run_widget`:
+
+```rust
+use std::rc::Rc;
+
+use waft::*;
+use waft_winui::*;
+
+fn start(app: &mut App) {
+    for (tag, title) in [("editor", "Notes"), ("preview", "Preview")] {
+        let config = WindowConfig {
+            title: title.into(),
+            size: [640.0, 480.0],
+            ..WindowConfig::default()
+        };
+        let _ = app.platform().request_view(config, Some(tag.into()));
+    }
+    let windows = MultiViewApp::new(|_app, view| match view.initial_data() {
+        Some("editor") => Some(FluentApp::new().debug_show_checked_mode_banner(false).home(Editor).into_widget()),
+        Some("preview") => Some(FluentApp::new().debug_show_checked_mode_banner(false).home(Preview).into_widget()),
+        _ => None,
+    })
+    .on_close_requested(Rc::new(|_app, view| {
+        if let Some(window) = view.window() {
+            window.close();
+        }
+    }));
+    run_widget(app, windows.into_widget());
 }
 ```
 
