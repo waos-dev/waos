@@ -1,11 +1,12 @@
 //! Where `cargo waos` and `waos open` reach this WaOS: a listener on the socket `waos-dev-protocol`
 //! names, on a thread of the app's own with a runtime of its own, and a task per connection,
-//! each, once the protocol is agreed, one run (`dev_run`), one opening of files with a program
-//! (`opening`), one screenshot of the windows of a program a run runs (`dev_screenshot`), one
-//! input to one of them (`dev_input`), a size for one of them (`dev_resize`), a program's
-//! settings read or one of them set (`dev_settings`), or an inspection of a program
-//! (`dev_inspect`). Stopping the server stops every run, waits for each connection to say so, and
-//! removes the socket file.
+//! each, once the hellos are exchanged, one request: a run (`dev_run`), one opening of files with
+//! a program (`opening`), one screenshot of the windows of a program a run runs
+//! (`dev_screenshot`), one input to one of them (`dev_input`), a size for one of them
+//! (`dev_resize`), a program's settings read or one of them set (`dev_settings`), or an inspection
+//! of a program (`dev_inspect`). A connection of another protocol's major, or with a hello this
+//! build cannot read, ends before it asks anything. Stopping the server stops every run, waits
+//! for each connection to say so, and removes the socket file.
 //!
 //! The invariant: the server's thread owns the listener, so the socket file goes with the
 //! thread, and dropping the server returns only once the thread has: a WaOS that quit leaves no
@@ -21,6 +22,7 @@ use std::time::Duration;
 use super::asking_now::AskingNow;
 use super::dev_compiles::DevCompiles;
 use super::dev_inspect::{self, InspectionContext};
+use super::dev_refusal;
 use super::dev_run::{self, RunContext};
 use super::dev_settings::{self, SettingsContext};
 use super::installed_runs::InstalledRuns;
@@ -31,8 +33,11 @@ use tokio::sync::oneshot;
 use tokio::task::JoinSet;
 use waos::OpenRequest;
 use waos::bindings::wasdk::platform::windows::Size;
-use waos_dev_protocol::{Connection, FromWaOS, Listener, ServerStream, ToWaOS};
+use waos_dev_protocol::{Connection, Hello, Listener, MAJOR, RefusedAnswer, Request, ServerStream};
 use waos_store::Store;
+
+/// This build, as its hello names it: "WaOS 0.3.0".
+pub(crate) const BUILD: &str = concat!("WaOS ", env!("CARGO_PKG_VERSION"));
 
 /// How long the connections may take to say their runs ended, once every program is stopped.
 const CLOSING_WAIT: Duration = Duration::from_secs(2);
@@ -208,40 +213,37 @@ fn connection_context(context: &ServerContext) -> ConnectionContext {
     }
 }
 
-/// Serves `connection` to its end, once the protocol is agreed: the run, the opening, the
-/// screenshot or the input its first message asks for, or nothing when it asks for none.
+/// Serves `connection` to its end: the request its first message asks for, or nothing when it
+/// asks for none, after the hellos say the two halves speak the same protocol.
 async fn serve_connection(mut connection: Connection<ServerStream>, context: ConnectionContext) {
-    if let Err(error) = connection.agree_on_protocol().await {
-        tracing::info!(%error, "a connection refused before it asked anything");
+    let theirs = match connection.accept_hello(&Hello::waos(BUILD)).await {
+        Ok(theirs) => theirs,
+        Err(error) if error.kind() == io::ErrorKind::Unsupported => {
+            tracing::info!("{error}");
+            return;
+        }
+        Err(error) => {
+            tracing::info!(%error, "a connection ended before it said its hello");
+            return;
+        }
+    };
+    if theirs.major != MAJOR {
+        tracing::info!(
+            build = %theirs.build,
+            major = theirs.major,
+            "a connection speaks another protocol's major"
+        );
         return;
     }
-    match connection.receive::<ToWaOS>().await {
-        Ok(Some(ToWaOS::Run {
-            id,
-            length,
-            digest,
-            variables,
-        })) => {
-            let component = match connection.receive_component(length, &digest).await {
-                Ok(component) => component,
-                // A wrong upload was whole frames, so the connection still speaks: the run is
-                // refused on it, as a component that cannot load is.
-                Err(error) if error.kind() == io::ErrorKind::InvalidData => {
-                    tracing::warn!(%error, "a run's component did not arrive as announced");
-                    let _ = connection.send(&FromWaOS::Refused(error.to_string())).await;
-                    return;
-                }
-                Err(error) => {
-                    tracing::warn!(%error, "a run's component did not arrive");
-                    return;
-                }
-            };
-            dev_run::serve(connection, id, component, variables, context.run).await;
+    match connection.receive::<Request>().await {
+        Ok(Some(Request::Run(run))) => {
+            dev_run::serve(connection, run, context.run).await;
         }
-        Ok(Some(ToWaOS::Component { .. })) => {
-            tracing::warn!("a component frame, where no run was asked for");
-        }
-        Ok(Some(ToWaOS::Open { id, files })) => {
+        Ok(Some(Request::Open { id, files })) => {
+            if let Some(answer) = dev_refusal::elsewhere(connection.locality(), &id) {
+                let _ = connection.send(&answer).await;
+                return;
+            }
             let request = OpenRequest {
                 files,
                 links: Vec::new(),
@@ -249,20 +251,21 @@ async fn serve_connection(mut connection: Connection<ServerStream>, context: Con
             let (installed, store) = (&context.installed, &context.store);
             opening::answer(connection, installed, store, &id, request).await;
         }
-        Ok(Some(ToWaOS::Screenshot { id })) => {
-            dev_screenshot::answer(connection, &context.run.runs, &context.run.asking, &id).await;
+        Ok(Some(Request::Screenshot { id, window })) => {
+            let (runs, asking) = (&context.run.runs, &context.run.asking);
+            dev_screenshot::answer(connection, runs, asking, &id, window).await;
         }
-        Ok(Some(ToWaOS::Input { id, window, input })) => {
+        Ok(Some(Request::Input { id, window, input })) => {
             let (runs, asking) = (&context.run.runs, &context.run.asking);
             dev_input::answer(connection, runs, asking, &id, window, input).await;
         }
-        Ok(Some(ToWaOS::Settings { id })) => {
+        Ok(Some(Request::Settings { id })) => {
             dev_settings::answer(connection, &context.settings, &id, None).await;
         }
-        Ok(Some(ToWaOS::Set { id, row })) => {
+        Ok(Some(Request::Set { id, row })) => {
             dev_settings::answer(connection, &context.settings, &id, Some(row)).await;
         }
-        Ok(Some(ToWaOS::Inspect { id, asked })) => {
+        Ok(Some(Request::Inspect { id, asked })) => {
             let inspection = InspectionContext {
                 runs: &context.run.runs,
                 components: &context.run.components,
@@ -270,7 +273,7 @@ async fn serve_connection(mut connection: Connection<ServerStream>, context: Con
             };
             dev_inspect::answer(connection, inspection, &id, asked).await;
         }
-        Ok(Some(ToWaOS::Resize {
+        Ok(Some(Request::Resize {
             id,
             window,
             width,
@@ -278,6 +281,10 @@ async fn serve_connection(mut connection: Connection<ServerStream>, context: Con
         })) => {
             let size = Size { width, height };
             dev_resize::answer(connection, &context.run.runs, &id, window, size).await;
+        }
+        Ok(Some(Request::Unknown)) => {
+            let refusal = dev_refusal::unsupported(BUILD, "request");
+            let _ = connection.send(&RefusedAnswer::Refused(refusal)).await;
         }
         Ok(None) => {}
         Err(error) => tracing::warn!(%error, "a connection ended before it asked anything"),
@@ -290,11 +297,13 @@ pub(crate) mod tests {
     use std::path::Path;
     use std::time::{Duration, Instant};
 
+    use serde::de::DeserializeOwned;
     use waos::{RunningProgram, WaOS};
     use waos_dev_protocol::ClientStream;
     use waos_dev_protocol::{
-        Answer, Asked, Connection, FileDialog, FromWaOS, OutputStream, Question, Row, RunEnd,
-        ToWaOS, Unreached, component_digest,
+        Answer, Asked, Component, Connection, FileDialog, Hello, Locality, OpenAnswer,
+        OutputStream, Question, RefusalKind, Request, Row, Run, RunEnd, RunEvent, Upload,
+        component_digest,
     };
     use waos_package::ProgramId;
 
@@ -320,6 +329,8 @@ pub(crate) mod tests {
         pub(crate) store: waos_store::Store,
         /// What the server's programs' users are asked, which a test notes as the prompts do.
         pub(crate) asking: Arc<AskingNow>,
+        installed: InstalledRuns,
+        components: Arc<SentComponents>,
         server: Option<DevServer>,
     }
 
@@ -362,12 +373,13 @@ pub(crate) mod tests {
                 ProgramPlaces::new(ProgramPlace::Windows),
             );
             let asking = AskingNow::new();
+            let components = Arc::new(SentComponents::new(folder.join("dev")));
             let server = DevServer::start(
-                installed,
+                installed.clone(),
                 store.clone(),
                 Arc::clone(&asking),
                 &socket,
-                Arc::new(SentComponents::new(folder.join("dev"))),
+                Arc::clone(&components),
                 None,
             )
             .expect("the server binds");
@@ -377,6 +389,8 @@ pub(crate) mod tests {
                 runs,
                 store,
                 asking,
+                installed,
+                components,
                 server: Some(server),
             }
         }
@@ -409,14 +423,52 @@ pub(crate) mod tests {
             component: &Path,
             variables: Vec<(String, String)>,
         ) -> Connection<ClientStream> {
-            let mut client = Connection::connect(&self.socket).await.unwrap();
-            client.agree_on_protocol().await.unwrap();
+            self.run_request(id, component, Vec::new(), variables).await
+        }
+
+        /// A client connected and agreed, its `Run` of `component` as the program `id` sent with
+        /// `args` as its arguments.
+        pub(crate) async fn run_with_args(
+            &self,
+            id: &str,
+            component: &Path,
+            args: Vec<String>,
+        ) -> Connection<ClientStream> {
+            self.run_request(id, component, args, Vec::new()).await
+        }
+
+        /// A client connected and agreed, its `Run` of `component` as the program `id` sent, with
+        /// `args` as its arguments and `variables` added to its environment.
+        async fn run_request(
+            &self,
+            id: &str,
+            component: &Path,
+            args: Vec<String>,
+            variables: Vec<(String, String)>,
+        ) -> Connection<ClientStream> {
+            let component = fs::read(component).unwrap();
+            let mut client = self.client().await;
             client
-                .send_run(
-                    &id.parse().unwrap(),
-                    &variables,
-                    &fs::read(component).unwrap(),
-                )
+                .send(&Request::Run(Run {
+                    id: id.parse().unwrap(),
+                    args,
+                    variables,
+                    length: component.len() as u64,
+                    digest: component_digest(&component),
+                }))
+                .await
+                .unwrap();
+            if next::<Upload>(&mut client).await == Upload::Send {
+                client.send_component(&component).await.unwrap();
+            }
+            client
+        }
+
+        /// A client connected, its hello and WaOS's exchanged.
+        async fn client(&self) -> Connection<ClientStream> {
+            let mut client = Connection::connect(&self.socket).await.unwrap();
+            client
+                .hello(&Hello::cargo_waos("cargo-waos test"))
                 .await
                 .unwrap();
             client
@@ -431,34 +483,68 @@ pub(crate) mod tests {
             parts: usize,
             digest: [u8; 32],
         ) -> Connection<ClientStream> {
-            let mut client = Connection::connect(&self.socket).await.unwrap();
-            client.agree_on_protocol().await.unwrap();
+            let mut client = self.client().await;
             client
-                .send(&ToWaOS::Run {
+                .send(&Request::Run(Run {
                     id: id.parse().unwrap(),
+                    args: Vec::new(),
+                    variables: Vec::new(),
                     length: component.len() as u64,
                     digest,
-                    variables: Vec::new(),
-                })
+                }))
                 .await
                 .unwrap();
-            for part in component.chunks(parts) {
-                client
-                    .send(&ToWaOS::Component {
-                        bytes: part.to_vec(),
-                    })
-                    .await
-                    .unwrap();
+            if next::<Upload>(&mut client).await == Upload::Send {
+                for part in component.chunks(parts) {
+                    client
+                        .send(&Component {
+                            bytes: part.to_vec(),
+                        })
+                        .await
+                        .unwrap();
+                }
             }
             client
         }
 
-        /// What WaOS answers `message`, sent on a connection of its own.
-        pub(crate) async fn ask(&self, message: &ToWaOS) -> FromWaOS {
-            let mut client = Connection::connect(&self.socket).await.unwrap();
-            client.agree_on_protocol().await.unwrap();
-            client.send(message).await.unwrap();
+        /// What WaOS answers `request`, sent on a connection of its own.
+        pub(crate) async fn ask<A: DeserializeOwned>(&self, request: &Request) -> A {
+            let mut client = self.client().await;
+            client.send(request).await.unwrap();
             next(&mut client).await
+        }
+
+        /// A client connected over a network transport and agreed.
+        #[cfg(unix)]
+        async fn network_client(&self) -> Connection<ClientStream> {
+            let (client, server) = tokio::net::UnixStream::pair().unwrap();
+            let context = ConnectionContext {
+                run: RunContext {
+                    engine: Arc::clone(&self.installed.engine),
+                    environments: Arc::clone(&self.installed.environments),
+                    runs: Arc::clone(&self.installed.runs),
+                    components: Arc::clone(&self.components),
+                    dev_compiles: None,
+                    asking: Arc::clone(&self.asking),
+                },
+                installed: self.installed.clone(),
+                store: self.store.clone(),
+                settings: SettingsContext {
+                    runs: Arc::clone(&self.installed.runs),
+                    components: Arc::clone(&self.components),
+                    store: self.store.clone(),
+                    environments: Arc::clone(&self.installed.environments),
+                },
+            };
+            tokio::spawn(serve_connection(
+                Connection::over(server, Locality::Network),
+                context,
+            ));
+            let mut client = Connection::over(client, Locality::Network);
+            let ours = Hello::cargo_waos("cargo-waos 0.3.0");
+            let theirs = client.hello(&ours).await.unwrap();
+            assert_eq!(theirs.major, waos_dev_protocol::MAJOR);
+            client
         }
 
         /// Holds back the write of every component sent from now on, and so its load, until the
@@ -496,8 +582,8 @@ pub(crate) mod tests {
     }
 
     /// The next frame, within the time a test waits; a connection closed is a failure.
-    pub(crate) async fn next(client: &mut Connection<ClientStream>) -> FromWaOS {
-        tokio::time::timeout(WITHIN, client.receive::<FromWaOS>())
+    pub(crate) async fn next<A: DeserializeOwned>(client: &mut Connection<ClientStream>) -> A {
+        tokio::time::timeout(WITHIN, client.receive::<A>())
             .await
             .expect("a frame in time")
             .expect("a frame, not an error")
@@ -506,23 +592,23 @@ pub(crate) mod tests {
 
     /// The first frames of a run that starts: its component is compiled, then it runs.
     pub(crate) async fn started(client: &mut Connection<ClientStream>) {
-        assert_eq!(next(client).await, FromWaOS::Compiling);
-        assert_eq!(next(client).await, FromWaOS::Started);
+        assert_eq!(next::<RunEvent>(client).await, RunEvent::Compiling);
+        assert_eq!(next::<RunEvent>(client).await, RunEvent::Started);
     }
 
     /// The first frame of a run whose component's code is compiled already: it runs.
     async fn started_from_compiled_code(client: &mut Connection<ClientStream>) {
-        assert_eq!(next(client).await, FromWaOS::Started);
+        assert_eq!(next::<RunEvent>(client).await, RunEvent::Started);
     }
 
     /// Every frame up to and including the first `wanted` accepts.
     async fn frames_until(
         client: &mut Connection<ClientStream>,
-        wanted: impl Fn(&FromWaOS) -> bool,
-    ) -> Vec<FromWaOS> {
+        wanted: impl Fn(&RunEvent) -> bool,
+    ) -> Vec<RunEvent> {
         let mut frames = Vec::new();
         loop {
-            let frame = next(client).await;
+            let frame = next::<RunEvent>(client).await;
             let done = wanted(&frame);
             frames.push(frame);
             if done {
@@ -532,11 +618,11 @@ pub(crate) mod tests {
     }
 
     /// What `frames` carry of the program's stdout, in order.
-    pub(crate) fn stdout_of(frames: &[FromWaOS]) -> String {
+    pub(crate) fn stdout_of(frames: &[RunEvent]) -> String {
         let bytes: Vec<u8> = frames
             .iter()
             .filter_map(|frame| match frame {
-                FromWaOS::Output {
+                RunEvent::Output {
                     stream: OutputStream::Stdout,
                     bytes,
                 } => Some(bytes.as_slice()),
@@ -554,6 +640,9 @@ pub(crate) mod tests {
     /// The id forever runs as.
     const FOREVER: &str = "dev.waos.examples.forever";
 
+    /// The id arguments runs as.
+    const ARGUMENTS: &str = "dev.waos.examples.arguments";
+
     #[tokio::test]
     async fn a_runs_output_reaches_the_client_in_order_after_started() {
         let server = TestServer::start("output");
@@ -564,11 +653,11 @@ pub(crate) mod tests {
         while !stdout_of(&frames).contains(FIRST_REPORTS) {
             frames.push(next(&mut client).await);
         }
-        assert_eq!(frames[..2], [FromWaOS::Compiling, FromWaOS::Started]);
+        assert_eq!(frames[..2], [RunEvent::Compiling, RunEvent::Started]);
         assert!(
             frames[2..]
                 .iter()
-                .all(|frame| matches!(frame, FromWaOS::Output { .. })),
+                .all(|frame| matches!(frame, RunEvent::Output { .. })),
             "{frames:?}"
         );
         assert!(stdout_of(&frames).starts_with(FIRST_REPORTS));
@@ -595,8 +684,8 @@ pub(crate) mod tests {
         let mut second = server
             .run(FOREVER, Path::new(waos_test_programs::FOREVER))
             .await;
-        let frames = frames_until(&mut first, |frame| matches!(frame, FromWaOS::Ended(_))).await;
-        assert_eq!(frames.last(), Some(&FromWaOS::Ended(RunEnd::Replaced)));
+        let frames = frames_until(&mut first, |frame| matches!(frame, RunEvent::Ended(_))).await;
+        assert_eq!(frames.last(), Some(&RunEvent::Ended(RunEnd::Replaced)));
         started_from_compiled_code(&mut second).await;
         server.wait_for_runs(&[FOREVER]).await;
     }
@@ -610,6 +699,32 @@ pub(crate) mod tests {
         drop(first);
         server.wait_for_runs(&[]).await;
         let mut again = server.run(FOREVER, component).await;
+        started_from_compiled_code(&mut again).await;
+    }
+
+    #[tokio::test]
+    async fn a_component_waos_holds_is_answered_have_and_nothing_is_sent() {
+        let server = TestServer::start("have");
+        let component = fs::read(waos_test_programs::FOREVER).unwrap();
+        let mut first = server
+            .run(FOREVER, Path::new(waos_test_programs::FOREVER))
+            .await;
+        started(&mut first).await;
+        drop(first);
+        server.wait_for_runs(&[]).await;
+        let mut again = server.client().await;
+        again
+            .send(&Request::Run(Run {
+                id: FOREVER.parse().unwrap(),
+                args: Vec::new(),
+                variables: Vec::new(),
+                length: component.len() as u64,
+                digest: component_digest(&component),
+            }))
+            .await
+            .unwrap();
+        assert_eq!(next::<Upload>(&mut again).await, Upload::Have);
+        // Nothing is sent for a component WaOS holds: the file is what this build compiled.
         started_from_compiled_code(&mut again).await;
     }
 
@@ -640,13 +755,39 @@ pub(crate) mod tests {
             .run(OPENER, Path::new(waos_test_programs::OPENER))
             .await;
         held.a_write_waits().await;
-        let screenshot = ToWaOS::Screenshot {
+        let screenshot = Request::Screenshot {
             id: FOREVER.parse().unwrap(),
+            window: None,
         };
-        let answer = tokio::time::timeout(Duration::from_secs(5), server.ask(&screenshot)).await;
-        assert_eq!(answer, Ok(FromWaOS::Screenshots(Vec::new())));
+        let answer = tokio::time::timeout(
+            Duration::from_secs(5),
+            server.ask::<waos_dev_protocol::ScreenshotAnswer>(&screenshot),
+        )
+        .await;
+        assert_eq!(
+            answer,
+            Ok(waos_dev_protocol::ScreenshotAnswer::Pictures(Vec::new()))
+        );
         drop(held);
         started(&mut loading).await;
+    }
+
+    #[tokio::test]
+    async fn a_runs_arguments_reach_the_program() {
+        let server = TestServer::start("arguments");
+        let mut client = server
+            .run_with_args(
+                ARGUMENTS,
+                Path::new(waos_test_programs::ARGUMENTS),
+                vec!["one".to_owned(), "two words".to_owned()],
+            )
+            .await;
+        started(&mut client).await;
+        let frames = frames_until(&mut client, |frame| matches!(frame, RunEvent::Ended(_))).await;
+        assert_eq!(
+            stdout_of(&frames),
+            "argument: dev.waos.examples.arguments\nargument: one\nargument: two words\n"
+        );
     }
 
     #[tokio::test]
@@ -667,8 +808,11 @@ pub(crate) mod tests {
     async fn a_programs_settings_are_read_before_its_first_run_and_set_at_any_time() {
         let server = TestServer::start("settings");
         let id: ProgramId = FOREVER.parse().unwrap();
-        let before = match server.ask(&ToWaOS::Settings { id: id.clone() }).await {
-            FromWaOS::Settings(rows) => rows,
+        let before = match server
+            .ask::<waos_dev_protocol::SettingsAnswer>(&Request::Settings { id: id.clone() })
+            .await
+        {
+            waos_dev_protocol::SettingsAnswer::Rows(rows) => rows,
             other => panic!("the rows before a run: {other:?}"),
         };
         assert!(
@@ -686,11 +830,13 @@ pub(crate) mod tests {
         drop(client);
         server.wait_for_runs(&[]).await;
 
-        let set = ToWaOS::Set {
+        let set = Request::Set {
             id: id.clone(),
             row: Row::Question(Question::Camera, Some(Answer::Allow)),
         };
-        let FromWaOS::Settings(rows) = server.ask(&set).await else {
+        let waos_dev_protocol::SettingsAnswer::Rows(rows) =
+            server.ask::<waos_dev_protocol::SettingsAnswer>(&set).await
+        else {
             panic!("the rows after the set");
         };
         let camera = rows.iter().find(|row| row.key == "camera").unwrap();
@@ -726,13 +872,18 @@ pub(crate) mod tests {
             Row::Question(Question::Camera, Some(Answer::Simulate)),
             Row::SimulatedMicrophone(Some(waos_dev_protocol::SimulatedSound::Silence)),
         ] {
-            let set = ToWaOS::Set {
+            let set = Request::Set {
                 id: id.clone(),
                 row,
             };
-            assert!(matches!(server.ask(&set).await, FromWaOS::Settings(_)));
+            assert!(matches!(
+                server.ask::<waos_dev_protocol::SettingsAnswer>(&set).await,
+                waos_dev_protocol::SettingsAnswer::Rows(_)
+            ));
         }
-        let FromWaOS::Settings(rows) = server.ask(&ToWaOS::Settings { id: id.clone() }).await
+        let waos_dev_protocol::SettingsAnswer::Rows(rows) = server
+            .ask::<waos_dev_protocol::SettingsAnswer>(&Request::Settings { id: id.clone() })
+            .await
         else {
             panic!("the rows");
         };
@@ -769,12 +920,15 @@ pub(crate) mod tests {
             Row::Machine(Some("build.example.com".to_owned())),
             Row::FileDialog(FileDialog::SaveFile, vec![nowhere]),
         ] {
-            let set = ToWaOS::Set {
+            let set = Request::Set {
                 id: id.clone(),
                 row,
             };
-            let answer = server.ask(&set).await;
-            assert!(matches!(answer, FromWaOS::Refused(_)), "{answer:?}");
+            let answer = server.ask::<waos_dev_protocol::SettingsAnswer>(&set).await;
+            assert!(
+                matches!(answer, waos_dev_protocol::SettingsAnswer::Refused(_)),
+                "{answer:?}"
+            );
         }
         let own = server.store.program_settings(&id).unwrap();
         assert_eq!(own.answer_with, waos_store::AnswerWith::default());
@@ -794,17 +948,19 @@ pub(crate) mod tests {
                 .asking
                 .while_asked(&program, camera.clone(), std::future::pending::<()>());
         let asked = tokio::spawn(waiting);
-        let frames = frames_until(&mut client, |frame| matches!(frame, FromWaOS::Asking(_))).await;
-        assert_eq!(frames.last(), Some(&FromWaOS::Asking(camera.clone())));
-        let input = ToWaOS::Input {
+        let frames = frames_until(&mut client, |frame| matches!(frame, RunEvent::Asking(_))).await;
+        assert_eq!(frames.last(), Some(&RunEvent::Asking(camera.clone())));
+        let input = Request::Input {
             id: FOREVER.parse().unwrap(),
-            window: 1,
+            window: Some(waos_dev_protocol::WindowId(1)),
             input: waos_dev_protocol::Input::Key("enter".to_owned()),
         };
-        assert_eq!(
-            server.ask(&input).await,
-            FromWaOS::Unreached(Unreached::Asking(camera))
-        );
+        let waos_dev_protocol::InputAnswer::Refused(refusal) =
+            server.ask::<waos_dev_protocol::InputAnswer>(&input).await
+        else {
+            panic!("the input refused");
+        };
+        assert_eq!(refusal.kind, waos_dev_protocol::RefusalKind::Asking(camera));
         asked.abort();
     }
 
@@ -818,23 +974,23 @@ pub(crate) mod tests {
             )
             .await;
         started(&mut client).await;
-        let frames = frames_until(&mut client, |frame| matches!(frame, FromWaOS::Ended(_))).await;
+        let frames = frames_until(&mut client, |frame| matches!(frame, RunEvent::Ended(_))).await;
         // Survey asks for a view, is refused with the reason, and returns the failure.
         assert_eq!(
             frames.last(),
-            Some(&FromWaOS::Ended(RunEnd::Returned { success: false }))
+            Some(&RunEvent::Ended(RunEnd::Returned { success: false }))
         );
         let stdout = stdout_of(&frames);
         assert!(stdout.starts_with("system: "), "{stdout}");
         let said = frames
             .iter()
             .filter_map(|frame| match frame {
-                FromWaOS::Output { bytes, .. } => Some(String::from_utf8_lossy(bytes)),
+                RunEvent::Output { bytes, .. } => Some(String::from_utf8_lossy(bytes)),
                 _ => None,
             })
             .collect::<String>();
         assert!(said.contains(REFUSAL), "{said}");
-        assert_eq!(client.receive::<FromWaOS>().await.unwrap(), None, "closed");
+        assert_eq!(client.receive::<RunEvent>().await.unwrap(), None, "closed");
     }
 
     #[tokio::test]
@@ -851,17 +1007,17 @@ pub(crate) mod tests {
             )
             .await;
         started(&mut client).await;
-        let frames = frames_until(&mut client, |frame| matches!(frame, FromWaOS::Ended(_))).await;
+        let frames = frames_until(&mut client, |frame| matches!(frame, RunEvent::Ended(_))).await;
         assert_eq!(
             frames.last(),
-            Some(&FromWaOS::Ended(RunEnd::Returned { success: true }))
+            Some(&RunEvent::Ended(RunEnd::Returned { success: true }))
         );
         assert_eq!(
             stdout_of(&frames),
             "RUST_LOG=debug\nTMPDIR=/tmp\n",
             "the run's variable, and WaOS's own TMPDIR over one of that name"
         );
-        assert_eq!(client.receive::<FromWaOS>().await.unwrap(), None, "closed");
+        assert_eq!(client.receive::<RunEvent>().await.unwrap(), None, "closed");
     }
 
     #[tokio::test]
@@ -889,12 +1045,12 @@ pub(crate) mod tests {
                 component_digest(b"not a component"),
             )
             .await;
-        assert_eq!(next(&mut client).await, FromWaOS::Compiling);
-        let FromWaOS::Refused(why) = next(&mut client).await else {
+        assert_eq!(next::<RunEvent>(&mut client).await, RunEvent::Compiling);
+        let RunEvent::Refused(refusal) = next::<RunEvent>(&mut client).await else {
             panic!("refused");
         };
-        assert!(why.contains("nonsense"), "{why}");
-        assert_eq!(client.receive::<FromWaOS>().await.unwrap(), None, "closed");
+        assert!(refusal.message.contains("nonsense"), "{refusal:?}");
+        assert_eq!(client.receive::<RunEvent>().await.unwrap(), None, "closed");
         server.wait_for_runs(&[]).await;
     }
 
@@ -917,30 +1073,23 @@ pub(crate) mod tests {
         let mut client = server
             .run_in_parts_of(FOREVER, &component, 100_000, [0xab; 32])
             .await;
-        let FromWaOS::Refused(why) = next(&mut client).await else {
+        let RunEvent::Refused(refusal) = next::<RunEvent>(&mut client).await else {
             panic!("refused");
         };
-        assert!(why.contains("digest"), "{why}");
-        assert_eq!(client.receive::<FromWaOS>().await.unwrap(), None, "closed");
+        assert!(refusal.message.contains("digest"), "{refusal:?}");
+        assert_eq!(client.receive::<RunEvent>().await.unwrap(), None, "closed");
         server.wait_for_runs(&[]).await;
     }
 
-    #[cfg(unix)]
     #[tokio::test]
-    async fn a_client_of_another_protocol_number_is_refused() {
-        use tokio::io::{AsyncReadExt, AsyncWriteExt};
-        use tokio::net::UnixStream;
-        use waos_dev_protocol::PROTOCOL;
-
+    async fn a_client_of_another_protocol_major_is_refused() {
         let server = TestServer::start("protocol");
-        let mut client = UnixStream::connect(&server.socket).await.unwrap();
-        let mut their_frame = 4u32.to_le_bytes().to_vec();
-        their_frame.extend_from_slice(&(PROTOCOL + 1).to_le_bytes());
-        client.write_all(&their_frame).await.unwrap();
-        let mut ours = [0; 8];
-        client.read_exact(&mut ours).await.unwrap();
-        assert_eq!(u32::from_le_bytes(ours[4..].try_into().unwrap()), PROTOCOL);
-        assert_eq!(client.read(&mut [0; 1]).await.unwrap(), 0, "closed");
+        let mut client = Connection::connect(&server.socket).await.unwrap();
+        let mut newer = Hello::cargo_waos("cargo-waos 0.4.0");
+        newer.major = waos_dev_protocol::MAJOR + 1;
+        let theirs = client.hello(&newer).await.unwrap();
+        assert_eq!(theirs.major, waos_dev_protocol::MAJOR);
+        assert_eq!(client.receive::<RunEvent>().await.unwrap(), None, "closed");
     }
 
     /// The id the opener runs as.
@@ -1014,6 +1163,26 @@ pub(crate) mod tests {
         server.wait_for_runs(&[]).await;
     }
 
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn opening_files_over_a_network_connection_is_refused_local_only() {
+        let server = TestServer::start("open-network");
+        let file = file_to_open(&server, "my notes");
+        let mut client = server.network_client().await;
+        client
+            .send(&Request::Open {
+                id: OPENER.parse().unwrap(),
+                files: vec![file],
+            })
+            .await
+            .unwrap();
+        let OpenAnswer::Refused(refusal) = next::<OpenAnswer>(&mut client).await else {
+            panic!("refused");
+        };
+        assert_eq!(refusal.kind, RefusalKind::LocalOnly);
+        server.wait_for_runs(&[]).await;
+    }
+
     #[tokio::test]
     async fn stopping_the_server_stops_every_run_and_removes_the_socket() {
         let mut server = TestServer::start("stopping");
@@ -1026,8 +1195,334 @@ pub(crate) mod tests {
         tokio::task::spawn_blocking(move || drop(stopping))
             .await
             .unwrap();
-        let frames = frames_until(&mut client, |frame| matches!(frame, FromWaOS::Ended(_))).await;
-        assert_eq!(frames.last(), Some(&FromWaOS::Ended(RunEnd::Stopped)));
+        let frames = frames_until(&mut client, |frame| matches!(frame, RunEvent::Ended(_))).await;
+        assert_eq!(frames.last(), Some(&RunEvent::Ended(RunEnd::Stopped)));
         assert!(!socket.exists(), "the socket file is gone");
+    }
+
+    #[tokio::test]
+    async fn a_program_writing_while_nobody_reads_keeps_running_and_is_stopped_in_time() {
+        const FLOOD: &str = "dev.waos.examples.flood";
+        let server = TestServer::start("flood");
+        let mut first = server
+            .run(FLOOD, Path::new(waos_test_programs::FLOOD))
+            .await;
+        started(&mut first).await;
+
+        let data = server
+            .folder
+            .join("store/programs")
+            .join(FLOOD)
+            .join("data");
+        let read_u64 = |name: &str| -> u64 {
+            fs::read_to_string(data.join(name))
+                .ok()
+                .and_then(|s| s.trim().parse().ok())
+                .unwrap_or(0)
+        };
+        let deadline = Instant::now() + WITHIN;
+        while read_u64("wrote") < (1 << 20) || read_u64("ticks") == 0 {
+            assert!(Instant::now() < deadline, "flood never filled the queue");
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        let (wrote_before, ticks_before) = loop {
+            let wrote_a = read_u64("wrote");
+            let ticks_a = read_u64("ticks");
+            tokio::time::sleep(Duration::from_millis(150)).await;
+            let wrote_b = read_u64("wrote");
+            let ticks_b = read_u64("ticks");
+            if wrote_b == wrote_a {
+                break (wrote_a, (ticks_a, ticks_b));
+            }
+            assert!(
+                Instant::now() < deadline,
+                "output never stalled on full backpressure ({wrote_a} -> {wrote_b})"
+            );
+        };
+        assert!(wrote_before >= (1 << 20));
+        assert!(
+            ticks_before.1 > ticks_before.0,
+            "timer kept running while stdout waited ({} -> {})",
+            ticks_before.0,
+            ticks_before.1
+        );
+
+        let frames = tokio::time::timeout(Duration::from_secs(1), async {
+            let mut replacing = server
+                .run(FLOOD, Path::new(waos_test_programs::FLOOD))
+                .await;
+            started_from_compiled_code(&mut replacing).await;
+            let frames =
+                frames_until(&mut first, |frame| matches!(frame, RunEvent::Ended(_))).await;
+            drop(replacing);
+            frames
+        })
+        .await
+        .expect("a replacing run stops the blocked writer within a second");
+        assert_eq!(frames.last(), Some(&RunEvent::Ended(RunEnd::Replaced)));
+        assert!(stdout_of(&frames).len() >= (1 << 20));
+    }
+
+    #[tokio::test]
+    async fn a_program_flooding_println_while_nobody_reads_is_stopped_in_time() {
+        const FLOOD: &str = "dev.waos.examples.flood";
+        let server = TestServer::start("flood-println");
+        let mut first = server
+            .run_with_args(
+                FLOOD,
+                Path::new(waos_test_programs::FLOOD),
+                vec!["--println".to_owned()],
+            )
+            .await;
+        started(&mut first).await;
+
+        let wrote_file = server
+            .folder
+            .join("store/programs")
+            .join(FLOOD)
+            .join("data/wrote");
+        let read_wrote = || -> u64 {
+            fs::read_to_string(&wrote_file)
+                .ok()
+                .and_then(|s| s.trim().parse().ok())
+                .unwrap_or(0)
+        };
+        let deadline = Instant::now() + WITHIN;
+        while read_wrote() < (1 << 20) {
+            assert!(Instant::now() < deadline, "println never filled the queue");
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        loop {
+            let wrote_a = read_wrote();
+            tokio::time::sleep(Duration::from_millis(150)).await;
+            let wrote_b = read_wrote();
+            if wrote_b == wrote_a {
+                break;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "println never stalled on full backpressure ({wrote_a} -> {wrote_b})"
+            );
+        }
+
+        let frames = tokio::time::timeout(Duration::from_secs(1), async {
+            let mut replacing = server
+                .run(FLOOD, Path::new(waos_test_programs::FLOOD))
+                .await;
+            started_from_compiled_code(&mut replacing).await;
+            let frames =
+                frames_until(&mut first, |frame| matches!(frame, RunEvent::Ended(_))).await;
+            drop(replacing);
+            frames
+        })
+        .await
+        .expect("a replacing run stops the println writer within a second");
+        assert_eq!(frames.last(), Some(&RunEvent::Ended(RunEnd::Replaced)));
+        assert!(stdout_of(&frames).len() >= (1 << 20));
+    }
+
+    #[tokio::test]
+    async fn an_unknown_request_or_inner_variant_is_refused_naming_this_build_and_leaves_the_connection_whole()
+     {
+        #[derive(serde::Serialize)]
+        #[serde(tag = "kind", content = "data")]
+        enum FutureOuter {
+            NewCommand { x: u32 },
+        }
+
+        #[derive(serde::Serialize)]
+        #[serde(tag = "kind", content = "data")]
+        enum FutureRequestInner {
+            Input {
+                id: ProgramId,
+                window: Option<waos_dev_protocol::WindowId>,
+                input: FutureVariant,
+            },
+            Set {
+                id: ProgramId,
+                row: FutureVariant,
+            },
+            Inspect {
+                id: ProgramId,
+                asked: FutureVariant,
+            },
+            InspectTrace {
+                id: ProgramId,
+                asked: FutureInspect,
+            },
+        }
+
+        #[derive(serde::Serialize)]
+        #[serde(tag = "kind", content = "data")]
+        enum FutureInspect {
+            Trace(Vec<FutureVariant>),
+        }
+
+        #[derive(serde::Serialize)]
+        #[serde(tag = "kind", content = "data")]
+        enum FutureVariant {
+            BrandNew { detail: String },
+        }
+
+        let server = TestServer::start("unknown-requests");
+        let id: ProgramId = FOREVER.parse().unwrap();
+
+        let assert_unsupported = |refusal: waos_dev_protocol::Refusal| {
+            assert_eq!(refusal.kind, RefusalKind::NotServed);
+            assert!(refusal.message.contains(BUILD), "{}", refusal.message);
+            assert!(
+                refusal.message.contains("https://waos.app"),
+                "{}",
+                refusal.message
+            );
+        };
+
+        let mut client = Connection::connect(&server.socket).await.unwrap();
+        client
+            .hello(&Hello::cargo_waos("cargo-waos 0.9.0"))
+            .await
+            .unwrap();
+        client
+            .send(&FutureOuter::NewCommand { x: 1 })
+            .await
+            .unwrap();
+        let OpenAnswer::Refused(refusal) = next::<OpenAnswer>(&mut client).await else {
+            panic!("refusal");
+        };
+        assert_unsupported(refusal);
+
+        let future = || FutureVariant::BrandNew {
+            detail: "v9".to_owned(),
+        };
+        let mut client = Connection::connect(&server.socket).await.unwrap();
+        client
+            .hello(&Hello::cargo_waos("cargo-waos 0.9.0"))
+            .await
+            .unwrap();
+        client
+            .send(&FutureRequestInner::Input {
+                id: id.clone(),
+                window: None,
+                input: future(),
+            })
+            .await
+            .unwrap();
+        let waos_dev_protocol::InputAnswer::Refused(refusal) =
+            next::<waos_dev_protocol::InputAnswer>(&mut client).await
+        else {
+            panic!("refusal");
+        };
+        assert_unsupported(refusal);
+
+        let mut client = Connection::connect(&server.socket).await.unwrap();
+        client
+            .hello(&Hello::cargo_waos("cargo-waos 0.9.0"))
+            .await
+            .unwrap();
+        client
+            .send(&FutureRequestInner::Set {
+                id: id.clone(),
+                row: future(),
+            })
+            .await
+            .unwrap();
+        let waos_dev_protocol::SettingsAnswer::Refused(refusal) =
+            next::<waos_dev_protocol::SettingsAnswer>(&mut client).await
+        else {
+            panic!("refusal");
+        };
+        assert_unsupported(refusal);
+
+        let mut client = Connection::connect(&server.socket).await.unwrap();
+        client
+            .hello(&Hello::cargo_waos("cargo-waos 0.9.0"))
+            .await
+            .unwrap();
+        client
+            .send(&FutureRequestInner::Inspect {
+                id: id.clone(),
+                asked: future(),
+            })
+            .await
+            .unwrap();
+        let waos_dev_protocol::InspectAnswer::Refused(refusal) =
+            next::<waos_dev_protocol::InspectAnswer>(&mut client).await
+        else {
+            panic!("refusal");
+        };
+        assert_unsupported(refusal);
+
+        let mut client = Connection::connect(&server.socket).await.unwrap();
+        client
+            .hello(&Hello::cargo_waos("cargo-waos 0.9.0"))
+            .await
+            .unwrap();
+        client
+            .send(&FutureRequestInner::InspectTrace {
+                id,
+                asked: FutureInspect::Trace(vec![future()]),
+            })
+            .await
+            .unwrap();
+        let waos_dev_protocol::InspectAnswer::Refused(refusal) =
+            next::<waos_dev_protocol::InspectAnswer>(&mut client).await
+        else {
+            panic!("refusal");
+        };
+        assert_unsupported(refusal);
+    }
+
+    // Writes the old client's raw bytes on the Unix socket itself; the framing it checks is the
+    // same over Windows's named pipe, which the protocol crate's own tests cover.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_legacy_0_2_client_receives_a_legacy_number_frame() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let server = TestServer::start("legacy-client");
+        let mut client = tokio::net::UnixStream::connect(&server.socket)
+            .await
+            .unwrap();
+        let mut legacy_hello = Vec::new();
+        legacy_hello.extend_from_slice(&4u32.to_le_bytes());
+        legacy_hello.extend_from_slice(&10u32.to_le_bytes());
+        client.write_all(&legacy_hello).await.unwrap();
+
+        let mut reply = [0u8; 8];
+        client.read_exact(&mut reply).await.unwrap();
+        assert_eq!(u32::from_le_bytes(reply[0..4].try_into().unwrap()), 4);
+        assert_eq!(u32::from_le_bytes(reply[4..8].try_into().unwrap()), 11);
+        let mut eof = [0u8; 1];
+        assert_eq!(client.read(&mut eof).await.unwrap(), 0);
+    }
+
+    #[tokio::test]
+    async fn a_run_whose_environment_fails_to_prepare_is_refused_before_upload() {
+        let server = TestServer::start("refuse-before-upload");
+        let broken = "dev.waos.examples.broken";
+        let blocker = server.folder.join("store/programs").join(broken);
+        fs::create_dir_all(blocker.parent().unwrap()).unwrap();
+        fs::write(&blocker, b"not a directory").unwrap();
+
+        let mut client = Connection::connect(&server.socket).await.unwrap();
+        client
+            .hello(&Hello::cargo_waos("cargo-waos 0.3.0"))
+            .await
+            .unwrap();
+        client
+            .send(&Request::Run(Run {
+                id: broken.parse().unwrap(),
+                args: Vec::new(),
+                variables: Vec::new(),
+                length: 16,
+                digest: [0x11; 32],
+            }))
+            .await
+            .unwrap();
+        let Upload::Refused(refusal) = next::<Upload>(&mut client).await else {
+            panic!("refused before upload");
+        };
+        assert_eq!(refusal.kind, RefusalKind::Failed);
+        assert!(refusal.message.contains(broken), "{}", refusal.message);
     }
 }

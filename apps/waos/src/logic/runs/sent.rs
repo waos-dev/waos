@@ -11,11 +11,12 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use anyhow::Result;
 use waos::{ProgramEnd, ProgramView, RunningProgram};
-use waos_dev_protocol::{RunEnd, Unreached};
+use waos_dev_protocol::{Refusal, RunEnd, WindowId};
 use waos_package::ProgramId;
 
 use super::{Run, Runs};
 use crate::logic::dev_input::DevMouse;
+use crate::logic::dev_refusal;
 
 /// What a run `cargo waos` sent has in the list beside its program.
 pub(super) struct Sent {
@@ -56,22 +57,40 @@ impl SentRun {
 /// drive: the program, and the mouse that input moves over its windows.
 #[derive(Clone)]
 pub(crate) struct DevRun {
+    pub(crate) id: ProgramId,
     pub(crate) program: RunningProgram,
     pub(crate) mouse: Arc<DevMouse>,
 }
 
 impl DevRun {
-    /// The program's window numbered `number`, from 1 in the order its views arrived, as `cargo
-    /// waos screenshot` lists them.
-    pub(crate) fn window(&self, number: u32) -> Result<ProgramView, Unreached> {
-        let views = self.program.views();
-        let no_window = Unreached::NoWindow {
-            window: number,
-            windows: u32::try_from(views.len()).unwrap_or(u32::MAX),
-        };
-        let index = usize::try_from(number.checked_sub(1).ok_or(no_window.clone())?)
-            .map_err(|_| no_window.clone())?;
-        views.into_iter().nth(index).ok_or(no_window)
+    /// The program's windows open now, each with the id the engine gave it as it opened (`ViewId`,
+    /// minted from 1 and never reused within the run).
+    pub(crate) fn windows(&self) -> Vec<(WindowId, ProgramView)> {
+        self.program
+            .views()
+            .into_iter()
+            .map(|view| (WindowId(view.id()), view))
+            .collect()
+    }
+
+    /// The program's window `window` by the id it was given as it opened, or its first open
+    /// window (lowest id) when `window` is `None`.
+    pub(crate) fn window(
+        &self,
+        window: Option<WindowId>,
+    ) -> Result<(WindowId, ProgramView), Refusal> {
+        let windows = self.windows();
+        let count = windows.len();
+        match window {
+            Some(window) => windows
+                .into_iter()
+                .find(|(each, _)| *each == window)
+                .ok_or_else(|| dev_refusal::no_window(&self.id, window, count)),
+            None => windows
+                .into_iter()
+                .min_by_key(|(each, _)| *each)
+                .ok_or_else(|| dev_refusal::no_window(&self.id, WindowId(1), 0)),
+        }
     }
 }
 
@@ -108,6 +127,7 @@ impl Runs {
         let running = self.listed();
         let current = running.get(id)?;
         Some(DevRun {
+            id: id.clone(),
             program: current.program.clone(),
             mouse: Arc::clone(&current.sent.as_ref()?.mouse),
         })

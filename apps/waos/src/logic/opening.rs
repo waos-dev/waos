@@ -12,7 +12,7 @@ use anyhow::{Context, Result};
 use waos::bindings::wasdk::platform::notifications::Activation;
 use waos::{OpenRequest, RunningProgram};
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
-use waos_dev_protocol::{Connection, FromWaOS, ServerStream};
+use waos_dev_protocol::{Connection, OpenAnswer, Refusal, RefusalKind, ServerStream};
 use waos_package::ProgramId;
 use waos_store::Store;
 
@@ -72,8 +72,8 @@ pub(crate) async fn program_named(
     }
 }
 
-/// Answers a connection's `Open`: the files handed to the program `id`, then `Opened`, or
-/// `Refused` with why not.
+/// Answers a connection's `Open`: the files handed to the program `id`, then `Opened`, or why
+/// not.
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(crate) async fn answer(
     mut connection: Connection<ServerStream>,
@@ -83,10 +83,10 @@ pub(crate) async fn answer(
     request: OpenRequest,
 ) {
     let answer = match open_with(installed, store, id, request).await {
-        Ok(()) => FromWaOS::Opened,
+        Ok(()) => OpenAnswer::Opened,
         Err(why) => {
             tracing::info!("an opening refused: {why:#}");
-            FromWaOS::Refused(format!("{why:#}"))
+            OpenAnswer::Refused(Refusal::new(RefusalKind::Failed, format!("{why:#}")))
         }
     };
     // A client gone meanwhile has nobody to tell.

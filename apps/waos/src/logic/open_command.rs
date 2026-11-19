@@ -9,7 +9,7 @@ use std::io::{self, ErrorKind};
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
-use waos_dev_protocol::{Connection, FromWaOS, ToWaOS};
+use waos_dev_protocol::{Connection, Hello, Mismatch, OpenAnswer, Request};
 use waos_package::ProgramId;
 
 /// What sending files to the WaOS on this machine came to.
@@ -41,20 +41,26 @@ pub(crate) async fn send_to(socket: &Path, id: &ProgramId, files: Vec<PathBuf>) 
                 .with_context(|| format!("connecting to WaOS at {}", socket.display()));
         }
     };
-    connection.agree_on_protocol().await?;
-    let open = ToWaOS::Open {
+    let ours = Hello::waos_open(concat!("waos ", env!("CARGO_PKG_VERSION")));
+    let theirs = connection.hello(&ours).await?;
+    let open = Request::Open {
         id: id.clone(),
         files,
     };
+    theirs
+        .accepts(&ours, &open)
+        .map_err(|mismatch: Mismatch| anyhow::anyhow!("{mismatch}"))?;
     connection.send(&open).await.context("sending to WaOS")?;
     match connection
-        .receive::<FromWaOS>()
+        .receive::<OpenAnswer>()
         .await
         .context("reading from WaOS")?
     {
-        Some(FromWaOS::Opened) => Ok(Sent::Opened),
-        Some(FromWaOS::Refused(why)) => bail!("WaOS refused: {why}"),
-        Some(other) => bail!("WaOS answered {other:?}, not whether it opened them"),
+        Some(OpenAnswer::Opened) => Ok(Sent::Opened),
+        Some(OpenAnswer::Refused(refusal)) => bail!("WaOS refused: {}", refusal.message),
+        Some(OpenAnswer::Unknown) => {
+            bail!("WaOS answered an opening in a way this build does not know")
+        }
         None => bail!("WaOS closed the connection without an answer"),
     }
 }

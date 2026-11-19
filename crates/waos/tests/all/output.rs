@@ -57,8 +57,14 @@ impl Recording {
 }
 
 impl ProgramOutput for Recording {
-    fn write(&self, stream: OutputStream, bytes: &[u8]) {
+    fn poll_write(
+        &self,
+        stream: OutputStream,
+        _cx: &mut std::task::Context<'_>,
+        bytes: &[u8],
+    ) -> std::task::Poll<usize> {
         self.writes.lock().unwrap().push((stream, bytes.to_vec()));
+        std::task::Poll::Ready(bytes.len())
     }
 }
 

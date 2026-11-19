@@ -33,17 +33,20 @@ pub(crate) fn add_to_linker<T: WasiView + 'static>(linker: &mut Linker<T>) -> wa
 }
 
 /// The WASI context the program `name` starts with: its standard streams to `output`, or to the
-/// log under its name, each write told through its `access`, the time on `clock`, the variables
-/// `variables` names, and, where it has a temporary folder, `TMPDIR` naming it, `/tmp`.
+/// log under its name, each write told through its `access`, the time on `clock`, its arguments
+/// `arguments`, the variables `variables` names, and, where it has a temporary folder, `TMPDIR`
+/// naming it, `/tmp`.
 pub(crate) fn context(
     name: &str,
     clock: Clock,
     output: Option<Arc<dyn ProgramOutput>>,
     access: &ProgramAccess,
     has_temporary_folder: bool,
+    arguments: &[String],
     variables: &[(String, String)],
 ) -> WasiCtx {
     let mut wasi = WasiCtxBuilder::new();
+    wasi.arg(name).args(arguments);
     set_variables(&mut wasi, variables, has_temporary_folder);
     wasi.stdout(StandardStream::new(
         name,

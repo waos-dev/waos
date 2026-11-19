@@ -750,10 +750,16 @@ impl ShellContextMenus for AppMenus {
 pub(crate) struct Printed(Mutex<Vec<u8>>);
 
 impl ProgramOutput for Printed {
-    fn write(&self, stream: OutputStream, bytes: &[u8]) {
+    fn poll_write(
+        &self,
+        stream: OutputStream,
+        _cx: &mut std::task::Context<'_>,
+        bytes: &[u8],
+    ) -> std::task::Poll<usize> {
         if matches!(stream, OutputStream::Stdout) {
             self.0.lock().unwrap().extend_from_slice(bytes);
         }
+        std::task::Poll::Ready(bytes.len())
     }
 }
 
