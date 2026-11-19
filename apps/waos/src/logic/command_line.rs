@@ -26,29 +26,8 @@ pub(crate) const USAGE: &str = "usage: `waos` shows WaOS's launcher, `waos --lau
 
 /// Reserved command words that are never interpreted as bare file paths.
 const RESERVED_COMMANDS: &[&str] = &[
-    "phone",
-    "open",
-    // Visible developer CLI commands
-    "new",
-    "build",
-    "run",
-    "package",
-    "ui",
-    "settings",
-    "inspect",
-    "docs",
-    "help",
-    // Hidden 0.3 transition aliases
-    "screenshot",
-    "resize",
-    "tap",
-    "press",
-    "drag",
-    "type",
-    "key",
-    "scroll",
-    "set",
-    "skill",
+    "phone", "open", // Developer CLI commands
+    "new", "build", "run", "package", "ui", "settings", "inspect", "docs", "help",
 ];
 
 /// Where WaOS shows its library.
@@ -294,7 +273,6 @@ mod tests {
         );
         assert_eq!(command_of(&["run"]), Err(USAGE));
         assert_eq!(command_of(&["ui"]), Err(USAGE));
-        assert_eq!(command_of(&["screenshot"]), Err(USAGE));
         assert_eq!(command_of(&["a.wapk", "--launcher-closed"]), Err(USAGE));
     }
 
@@ -361,7 +339,7 @@ mod tests {
         );
         assert_eq!(launch_of(&["waos", "--headless", "--bogus"]), Err(USAGE));
 
-        // Developer CLI commands (domain + hidden aliases + help/version)
+        // Developer CLI commands (domain + help/version)
         for cmd in [
             &["waos", "new", "hello"][..],
             &["waos", "build", "--release"],
@@ -371,10 +349,6 @@ mod tests {
             &["waos", "settings", "set", "camera", "allow"],
             &["waos", "inspect", "summary"],
             &["waos", "docs", "skill", "install"],
-            &["waos", "screenshot"],
-            &["waos", "resize", "--to", "390x844"],
-            &["waos", "set", "camera", "allow"],
-            &["waos", "skill", "install"],
             &["waos", "--help"],
             &["waos", "-V"],
         ] {

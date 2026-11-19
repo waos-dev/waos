@@ -58,28 +58,14 @@ use crate::resize::Points;
 
 pub use crate::connecting::{DefaultStarter, WaOSStarter};
 
-/// Visible top-level developer CLI subcommands.
+/// Top-level developer CLI subcommands.
 pub const CLI_COMMANDS: &[&str] = &[
     "new", "build", "run", "package", "ui", "settings", "inspect", "docs", "help",
 ];
 
-/// Hidden top-level aliases kept for one transition release so cached 0.3 skills continue working.
-pub const HIDDEN_ALIAS_COMMANDS: &[&str] = &[
-    "screenshot",
-    "resize",
-    "tap",
-    "press",
-    "drag",
-    "type",
-    "key",
-    "scroll",
-    "set",
-    "skill",
-];
-
-/// Whether `word` is a developer CLI subcommand (visible or hidden alias).
+/// Whether `word` is a developer CLI subcommand.
 pub fn is_cli_command(word: &str) -> bool {
-    CLI_COMMANDS.contains(&word) || HIDDEN_ALIAS_COMMANDS.contains(&word)
+    CLI_COMMANDS.contains(&word)
 }
 
 /// Whether `argv0`'s basename is `cargo-waos` (or `cargo-waos.exe`), meaning cargo invoked this
@@ -215,28 +201,6 @@ enum Command {
     /// Without a page, prints the map of WaOS's docs; with a page, prints that page as Markdown;
     /// with --search, prints every matching line as <page>:<line>: <text>.
     Docs(DocsArgs),
-
-    // Hidden transition aliases for 0.3 flat top-level commands.
-    #[command(hide = true)]
-    Screenshot(ScreenshotArgs),
-    #[command(hide = true)]
-    Resize(ResizeArgs),
-    #[command(hide = true)]
-    Tap(TapArgs),
-    #[command(hide = true)]
-    Press(PressArgs),
-    #[command(hide = true)]
-    Drag(DragArgs),
-    #[command(hide = true)]
-    Type(TypeArgs),
-    #[command(hide = true)]
-    Key(KeyArgs),
-    #[command(hide = true)]
-    Scroll(ScrollArgs),
-    #[command(hide = true)]
-    Set(SetArgs),
-    #[command(hide = true)]
-    Skill(SkillArgs),
 }
 
 #[derive(Args)]
@@ -370,9 +334,6 @@ enum InspectCommand {
     /// Streams live events for the named capabilities (network, files, clipboard, camera,
     /// microphone, machines, permissions, links, notifications, output, or `all`).
     Trace(InspectTraceArgs),
-    /// Transition support for 0.3 flat `inspect <capability>...` / `inspect all`.
-    #[command(external_subcommand)]
-    Legacy(Vec<String>),
 }
 
 #[derive(Args)]
@@ -640,20 +601,6 @@ fn dispatch(command: Command, bin_name: &str, starter: &dyn WaOSStarter) -> Resu
             })) => install_skill(dir, bin_name),
             None => show_docs(&docs),
         },
-        // Hidden transition aliases
-        Command::Screenshot(shot) => dispatch_ui(UiCommand::Screenshot(shot)),
-        Command::Resize(resize) => dispatch_ui(UiCommand::Resize(resize)),
-        Command::Tap(tap) => dispatch_ui(UiCommand::Tap(tap)),
-        Command::Press(press) => dispatch_ui(UiCommand::Press(press)),
-        Command::Drag(drag) => dispatch_ui(UiCommand::Drag(drag)),
-        Command::Type(typed) => dispatch_ui(UiCommand::Type(typed)),
-        Command::Key(key) => dispatch_ui(UiCommand::Key(key)),
-        Command::Scroll(scroll) => dispatch_ui(UiCommand::Scroll(scroll)),
-        Command::Set(set) => program_id(&set.program)
-            .and_then(|id| on_this_thread(settings::set(id, &set.row, starter))),
-        Command::Skill(SkillArgs {
-            command: SkillCommand::Install { dir },
-        }) => install_skill(dir, bin_name),
     }
 }
 
@@ -731,10 +678,6 @@ fn dispatch_inspect(args: InspectArgs) -> Result<ExitCode> {
             };
             let asked = inspect::inspection_of(&words, 7)?;
             (trace.program.or(&args.program), asked)
-        }
-        InspectCommand::Legacy(words) => {
-            let asked = inspect::inspection_of(&words, 7)?;
-            (args.program, asked)
         }
     };
     let id = program_id(&program)?;
@@ -922,7 +865,7 @@ mod tests {
     }
 
     #[test]
-    fn domain_ui_screenshot_and_hidden_alias_both_parse() {
+    fn domain_ui_screenshot_parses() {
         let Command::Ui(UiArgs {
             command: UiCommand::Screenshot(shot),
         }) = parsed(&[
@@ -942,14 +885,18 @@ mod tests {
         assert_eq!(shot.window, Some(WindowId(2)));
         assert_eq!(shot.out.as_deref(), Some(Path::new("shots/")));
 
-        let Command::Screenshot(alias) = parsed_cargo(&["screenshot", "--window", "3"]) else {
-            panic!("hidden screenshot alias");
+        let Command::Ui(UiArgs {
+            command: UiCommand::Screenshot(cargo_shot),
+        }) = parsed_cargo(&["ui", "screenshot", "--window", "3"])
+        else {
+            panic!("cargo waos ui screenshot");
         };
-        assert_eq!(alias.window, Some(WindowId(3)));
+        assert_eq!(cargo_shot.window, Some(WindowId(3)));
+        assert!(refused(&["screenshot", "--window", "3"]));
     }
 
     #[test]
-    fn domain_ui_inputs_and_resize_parse_under_ui_and_hidden_aliases() {
+    fn domain_ui_inputs_and_resize_parse_under_ui() {
         let Command::Ui(UiArgs {
             command: UiCommand::Tap(tap),
         }) = parsed(&[
@@ -966,10 +913,7 @@ mod tests {
         assert!(refused(&["ui", "tap"]));
         assert!(refused(&["ui", "tap", "--at", "120"]));
 
-        let Command::Tap(alias_tap) = parsed_cargo(&["tap", "--at", "1.5,2"]) else {
-            panic!("hidden tap");
-        };
-        assert_eq!(alias_tap.at, Pair(1.5, 2.0));
+        assert!(refused(&["tap", "--at", "1.5,2"]));
 
         let Command::Ui(UiArgs {
             command: UiCommand::Scroll(scroll),
@@ -1051,14 +995,11 @@ mod tests {
         );
         assert_eq!(resize.window.program.package.as_deref(), Some("notes"));
         assert!(refused(&["ui", "resize", "--to", "390,844"]));
-        assert!(matches!(
-            parsed_cargo(&["resize", "--to", "320x568"]),
-            Command::Resize(_)
-        ));
+        assert!(refused(&["resize", "--to", "320x568"]));
     }
 
     #[test]
-    fn settings_defaults_to_list_and_supports_list_set_and_hidden_set_alias() {
+    fn settings_defaults_to_list_and_supports_list_and_set() {
         let Command::Settings(args) = parsed(&["settings"]) else {
             panic!("settings");
         };
@@ -1101,15 +1042,11 @@ mod tests {
 
         assert!(refused(&["settings", "set", "camera"]));
 
-        // Hidden top-level `set` alias
-        let Command::Set(set) = parsed_cargo(&["set", "camera", "allow"]) else {
-            panic!("hidden set");
-        };
-        assert_eq!(set.row, ["camera", "allow"]);
+        assert!(refused(&["set", "camera", "allow"]));
     }
 
     #[test]
-    fn inspect_supports_summary_active_uses_trace_and_legacy_forms() {
+    fn inspect_supports_summary_active_uses_and_trace() {
         let Command::Inspect(InspectArgs {
             command: InspectCommand::Summary(summary),
             ..
@@ -1147,18 +1084,11 @@ mod tests {
         };
         assert!(trace.capabilities.is_empty());
 
-        let Command::Inspect(InspectArgs {
-            command: InspectCommand::Legacy(words),
-            ..
-        }) = parsed_cargo(&["inspect", "all"])
-        else {
-            panic!("legacy inspect all");
-        };
-        assert_eq!(words, ["all"]);
+        assert!(refused(&["inspect", "all"]));
     }
 
     #[test]
-    fn docs_supports_map_page_search_docs_skill_install_and_hidden_skill_alias() {
+    fn docs_supports_map_page_search_and_docs_skill_install() {
         let Command::Docs(docs) = parsed(&["docs"]) else {
             panic!("docs");
         };
@@ -1189,13 +1119,7 @@ mod tests {
         };
         assert_eq!(dir.as_deref(), Some(Path::new(".claude/skills")));
 
-        let Command::Skill(SkillArgs {
-            command: SkillCommand::Install { dir },
-        }) = parsed_cargo(&["skill", "install", "--dir", ".claude/skills"])
-        else {
-            panic!("hidden skill install");
-        };
-        assert_eq!(dir.as_deref(), Some(Path::new(".claude/skills")));
+        assert!(refused(&["skill", "install"]));
         assert!(refused(&["skill"]));
         assert!(refused(&["docs", "skill"]));
     }
@@ -1219,7 +1143,7 @@ mod tests {
     }
 
     #[test]
-    fn top_level_help_lists_domain_commands_and_hides_transition_aliases() {
+    fn top_level_help_lists_only_domain_commands() {
         let help = build_clap_command("waos").render_help().to_string();
         for visible in [
             "new", "build", "run", "package", "ui", "settings", "inspect", "docs",
@@ -1231,10 +1155,10 @@ mod tests {
             );
         }
         assert!(help.contains("`waos docs`"), "{help}");
-        // Hidden aliases should not appear as top-level command rows in help.
+        // Removed flat verbs must not appear as top-level commands.
         for line in help.lines() {
             let trimmed = line.trim_start();
-            for hidden in [
+            for removed in [
                 "screenshot ",
                 "resize ",
                 "tap ",
@@ -1244,8 +1168,8 @@ mod tests {
                 "skill ",
             ] {
                 assert!(
-                    !trimmed.starts_with(hidden),
-                    "hidden alias {hidden:?} leaked into top-level help:
+                    !trimmed.starts_with(removed),
+                    "removed flat command {removed:?} appeared in top-level help:
 {help}"
                 );
             }
