@@ -4,6 +4,7 @@
 # - macOS: signed with the publisher's Developer ID, notarized and stapled, as a disk image; built ad
 #   hoc, as the job says, until the Apple secrets below are set. iOS is built for the simulator on
 #   the same machine, after the image, as a check that it still builds.
+# - Linux: the unified `waos` binary for x86_64, packaged as `waos-<version>-linux-x86_64.tar.gz`.
 # - Android: an `.apk` for 64-bit ARM, on Linux, signed with the release key in the secrets below,
 #   which `cargo waft build apk` takes from WAFT_ANDROID_KEYSTORE and its variables.
 #
@@ -130,3 +131,32 @@ jobs:
           test -n "$apk" || { echo "no apk was made"; exit 1; }
           gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --verify-tag --title "WaOS ${TAG#v}" --notes ""
           gh release upload "$TAG" "$apk#WaOS-${TAG#v}.apk" --clobber
+
+  linux:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - name: The system packages the build's probes ask for
+        run: |
+          apt_net="-o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 -o Acquire::Retries=5"
+          sudo apt-get $apt_net update
+          sudo apt-get $apt_net install -y --no-install-recommends \
+            pkg-config libasound2-dev libwayland-dev libxkbcommon-dev \
+            libx11-dev libxcursor-dev libxrandr-dev libxi-dev libxinerama-dev
+      - uses: Swatinem/rust-cache@v2
+      - name: WaOS, as a Linux x86_64 tarball
+        run: |
+          cargo build --release -p waos-app --bin waos
+          tar -C target/release -czf "$RUNNER_TEMP/waos-${TAG#v}-linux-x86_64.tar.gz" waos
+      - name: Attached to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          archive="$RUNNER_TEMP/waos-${TAG#v}-linux-x86_64.tar.gz"
+          test -f "$archive" || { echo "no Linux tarball was made"; exit 1; }
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --verify-tag --title "WaOS ${TAG#v}" --notes ""
+          gh release upload "$TAG" "$archive#waos-${TAG#v}-linux-x86_64.tar.gz" --clobber

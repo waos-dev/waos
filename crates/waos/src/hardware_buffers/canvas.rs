@@ -19,6 +19,7 @@ use wasmtime::bail;
 
 use super::finisher::{FrameFinisher, Wait};
 use super::view_hardware_buffers::{Allocation, DrawnFrame, FrameTexture, ViewHardwareBuffers};
+use crate::HardwareBufferMode;
 use crate::bindings::wasdk::platform::views::ViewId;
 use crate::engine_time::{EngineClock, Timer};
 use crate::gpu::{GpuInstance, InFlight, submit_once_thawed, wgpu_core, wgpu_types};
@@ -67,9 +68,11 @@ impl ViewCanvas {
         lifecycle: Lifecycle,
         clock: EngineClock,
         in_flight: Arc<InFlight>,
+        hardware_buffers: HardwareBufferMode,
     ) -> Arc<ViewCanvas> {
         let id = view.id();
-        let buffers = ViewHardwareBuffers::new(view, stats, lifecycle, clock.now());
+        let buffers =
+            ViewHardwareBuffers::new(view, stats, lifecycle, hardware_buffers, clock.now());
         let quiet = Arc::downgrade(&buffers);
         let spares_timer: Arc<Timer> = Arc::new(move |now| {
             if let Some(buffers) = quiet.upgrade() {
@@ -106,8 +109,8 @@ impl ViewCanvas {
         else {
             return Ok(false);
         };
-        let submission = submit_once_thawed(&self.buffers.lifecycle, || {
-            os::hand_to_compositor(&self.gpu, &device, texture.id(), usage)
+        let hand_over_work = submit_once_thawed(&self.buffers.lifecycle, || {
+            os::hand_to_compositor(&self.gpu, &device, &memory, texture.id(), usage)
         })
         .await;
         drop(texture);
@@ -122,7 +125,8 @@ impl ViewCanvas {
             stats.frame_presented(view.clock().now());
         };
         self.finisher.finish(Wait {
-            submission,
+            submission: hand_over_work.submission,
+            finish: hand_over_work.finish,
             device,
             hand_over: Box::new(hand_over),
             in_flight: self.in_flight.begin(),
@@ -195,8 +199,13 @@ impl CanvasSurface for ViewCanvas {
             .max_texture_dimension_2d;
         check_size(configuration, largest)?;
         check_served(configuration)?;
-        let allocation = Allocation::new(configuration, device, &self.buffers.stats)
-            .map_err(wasmtime::Error::from_anyhow)?;
+        let allocation = Allocation::new(
+            configuration,
+            device,
+            &self.buffers.stats,
+            self.buffers.hardware_buffers,
+        )
+        .map_err(wasmtime::Error::from_anyhow)?;
         // The hardware buffers that were here belong to the old size. A frame the shell is still
         // showing keeps its own alive through the hardware buffer it holds.
         *self.buffers.allocation() = Some(allocation);

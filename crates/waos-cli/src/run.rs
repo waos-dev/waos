@@ -25,7 +25,7 @@ use waos_package::ProgramId;
 use crate::asked;
 use crate::asking;
 use crate::build::BuiltProgram;
-use crate::connecting::connect_or_start;
+use crate::connecting::{WaOSStarter, connect_or_start};
 
 /// The exit status of a run Ctrl-C stopped: the shell's for a command the interrupt ended.
 const INTERRUPTED: u8 = 130;
@@ -41,11 +41,12 @@ pub async fn run(
     program: &BuiltProgram,
     variables: &[(String, String)],
     args: &[String],
+    starter: &dyn WaOSStarter,
 ) -> Result<ExitCode> {
     let component = std::fs::read(&program.component)
         .with_context(|| format!("reading {}", program.component.display()))?;
     run_on(
-        connect_or_start().await?,
+        connect_or_start(starter).await?,
         id,
         &program.name,
         &component,

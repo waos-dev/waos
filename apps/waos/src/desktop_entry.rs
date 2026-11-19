@@ -1,19 +1,24 @@
-//! WaOS's entry on a desktop, from the command line and from WaOS.app alike: the command line
-//! read, one instance of WaOS kept where the system keeps none itself, and the library shown where
-//! the command line asks. WaOS tells the desktop who it is, `dev.waos.app`, which its own windows
-//! show as; a program's windows are an app of their own (`logic::program_identities`).
+//! WaOS's entry on a desktop, from the command line and from WaOS.app alike: CLI commands and
+//! `--headless` are dispatched BEFORE `claim_the_one_instance()` and `winit`; GUI launches read
+//! the command line, keep one instance of WaOS where the system keeps none itself, and show the
+//! library where the command line asks. WaOS tells the desktop who it is, `dev.waos.app`, which
+//! its own windows show as; a program's windows are an app of their own
+//! (`logic::program_identities`).
 //!
-//! The invariant: every launch's command line is read here by `logic::command_line`'s rules, and a
-//! launch that hands its files to the WaOS running starts no engine.
+//! The invariant: developer CLI subcommands and `--headless` never touch single-instance or
+//! `winit`, and every GUI launch's command line is read by `logic::command_line`'s rules.
 
 use std::path::PathBuf;
+use std::process::ExitCode;
 
 use waft::{DefaultEmbedder, LinuxSettings, Shell, WindowsSettings};
 use waft_single_instance::{LaterLaunches, SingleInstance, single_instance};
 use waos::OpenRequest;
+use waos_cli::{DefaultStarter, WaOSStarter};
 use waos_package::ProgramId;
 
-use crate::logic::command_line::{Command, LibraryPlace, command};
+use crate::headless_entry;
+use crate::logic::command_line::{Command, Launch, LibraryPlace, classify_launch};
 use crate::logic::folders;
 use crate::logic::open_command::{self, Sent};
 use crate::state::{self, OpenedAtStart};
@@ -24,22 +29,49 @@ use crate::write_traces;
 /// to the desktop, as `#[waft::main]` would give them.
 const APP_ID: &str = "dev.waos.app";
 
-/// WaOS's entry, from the command line and from WaOS.app alike: the engine started, the dev
-/// server listening and the library in its launcher until the app quits, with the files the command
-/// line opens with WaOS; or, for `waos open`, the files sent to the WaOS running on this machine,
-/// and WaOS started here only when none is; or, for `waos open --program`, the program opened,
-/// with the launch's activation token. A later launch, where WaOS keeps one instance itself, hands
-/// its command line to the WaOS running, with its activation token or its right to the front, so
-/// a program a pin opens comes forward.
-///
-/// Written out rather than emitted by `#[waft::main]`, whose entry opens the application's
-/// implicit window, an ordinary one: WaOS's own window is its launcher, which it asks for itself,
-/// a card with no border, hidden until it is summoned.
-pub fn main() {
+/// Starter injected into `waos-cli` by the unified `waos` binary: on headless Linux (when
+/// `WAYLAND_DISPLAY` and `DISPLAY` are unset, or no `.desktop` entry is installed), spawns this
+/// executable itself with `--headless --idle-timeout 300`; otherwise delegates to
+/// [`DefaultStarter`].
+struct UnifiedStarter;
+
+impl WaOSStarter for UnifiedStarter {
+    fn start(&self) -> anyhow::Result<PathBuf> {
+        #[cfg(target_os = "linux")]
+        {
+            if waos_cli::waos_app::is_headless_session() || !waos_cli::waos_app::has_desktop_entry()
+            {
+                let exe = std::env::current_exe()
+                    .map_err(|error| anyhow::anyhow!("locating the waos executable: {error}"))?;
+                return waos_cli::waos_app::start_headless(
+                    &exe,
+                    waos_cli::waos_app::HEADLESS_IDLE_TIMEOUT_SECS,
+                );
+            }
+        }
+        DefaultStarter.start()
+    }
+}
+
+/// WaOS's desktop entry: dispatches developer CLI commands and `--headless` before touching
+/// single-instance or `winit`; otherwise starts the GUI app or sends `waos open` to the running
+/// WaOS.
+pub fn main() -> ExitCode {
     // Before anything is written: on Windows, where WaOS is a GUI program, what it writes goes to
-    // the terminal it was run from, `waos open`'s answers among it.
+    // the terminal it was run from, CLI and `waos open` answers among it.
     DefaultEmbedder::attach_to_parent_console();
-    let command = command(std::env::args_os().skip(1)).unwrap_or_else(|usage| fail(usage));
+    let launch = classify_launch(std::env::args_os()).unwrap_or_else(|usage| fail(usage));
+    let command = match launch {
+        Launch::Cli(argv) => return waos_cli::run_from_args(argv, &UnifiedStarter),
+        Launch::Headless { idle_timeout } => {
+            if let Err(error) = headless_entry::run(idle_timeout) {
+                fail(&format!("{error:#}"));
+            }
+            return ExitCode::SUCCESS;
+        }
+        Launch::App(command) => command,
+    };
+
     write_traces(std::io::stderr, true);
     let (place, opened) = match command {
         Command::Show(place) => (place, None),
@@ -75,6 +107,7 @@ pub fn main() {
             }
         })
     });
+    ExitCode::SUCCESS
 }
 
 /// Sends `files` to the WaOS running on this machine to open with the program `id`, and exits

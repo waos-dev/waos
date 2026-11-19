@@ -92,43 +92,50 @@ pub(crate) fn engine_buffer(_buffer: &dyn ui::HardwareBuffer) -> Option<Hardware
 /// The engine's `buffer` as Waft's: Waft's surface buffer over the `IOSurface`, which holds it, for
 /// every use, as any surface is, and which Waft only reads.
 #[cfg(target_vendor = "apple")]
-pub(crate) fn waft_buffer(buffer: &HardwareBuffer) -> Arc<dyn ui::HardwareBuffer> {
-    Arc::new(waft_embedder_apple::hardware_buffers::SurfaceBuffer::new(
-        buffer.clone(),
+pub(crate) fn waft_buffer(buffer: &HardwareBuffer) -> Option<Arc<dyn ui::HardwareBuffer>> {
+    Some(Arc::new(
+        waft_embedder_apple::hardware_buffers::SurfaceBuffer::new(buffer.clone()),
     ))
 }
 
 /// The engine's `buffer` as Waft's: Waft's Android buffer over the `AHardwareBuffer`, a reference
 /// more on it, for what it was allocated for, and which Waft only reads.
 #[cfg(target_os = "android")]
-pub(crate) fn waft_buffer(buffer: &HardwareBuffer) -> Arc<dyn ui::HardwareBuffer> {
-    Arc::new(waft_embedder_android::AndroidHardwareBuffer::new(
+pub(crate) fn waft_buffer(buffer: &HardwareBuffer) -> Option<Arc<dyn ui::HardwareBuffer>> {
+    Some(Arc::new(waft_embedder_android::AndroidHardwareBuffer::new(
         buffer.buffer().clone(),
-    ))
+    )))
 }
 
 /// The engine's `buffer` as Waft's: Waft's dmabuf buffer over a duplicate of its fd, for every
 /// use, as linear memory is, made once for the dmabuf, so its `wl_buffer` is made once too.
+/// Returns `None` for offscreen buffers (no dmabuf fd).
 #[cfg(target_os = "linux")]
-pub(crate) fn waft_buffer(buffer: &HardwareBuffer) -> Arc<dyn ui::HardwareBuffer> {
+pub(crate) fn waft_buffer(buffer: &HardwareBuffer) -> Option<Arc<dyn ui::HardwareBuffer>> {
+    let (fd, stride, offset, modifier) = (
+        buffer.fd()?,
+        buffer.stride()?,
+        buffer.offset()?,
+        buffer.modifier()?,
+    );
     let made = buffer.shells(|| {
-        let fd = buffer.fd().try_clone().expect("duplicating a dmabuf's fd");
+        let fd = fd.try_clone().expect("duplicating a dmabuf's fd");
         waft_embedder_winit::DmabufBuffer::new(
             fd,
             buffer.size(),
-            buffer.stride(),
-            buffer.offset(),
-            buffer.modifier(),
+            stride,
+            offset,
+            modifier,
             ui::HardwareBufferUsage::ALL,
         )
     });
-    made.expect("the shell makes nothing else of a dmabuf")
+    made.map(|made| made as Arc<dyn ui::HardwareBuffer>)
 }
 
 /// The engine's `buffer` as Waft's: Waft's shared texture over a duplicate of its NT handle, for
 /// every GPU use, made once for the texture, so Waft opens it on its device once too.
 #[cfg(windows)]
-pub(crate) fn waft_buffer(buffer: &HardwareBuffer) -> Arc<dyn ui::HardwareBuffer> {
+pub(crate) fn waft_buffer(buffer: &HardwareBuffer) -> Option<Arc<dyn ui::HardwareBuffer>> {
     let made = buffer.shells(|| {
         let handle = buffer
             .handle()
@@ -140,7 +147,7 @@ pub(crate) fn waft_buffer(buffer: &HardwareBuffer) -> Arc<dyn ui::HardwareBuffer
         };
         waft_embedder_winit::SharedTexture::new(handle, buffer.size(), usage)
     });
-    made.expect("the shell makes nothing else of a shared texture")
+    made.map(|made| made as Arc<dyn ui::HardwareBuffer>)
 }
 
 /// A platform whose buffers the engine does not take yet: there is no buffer.
@@ -150,6 +157,6 @@ pub(crate) fn waft_buffer(buffer: &HardwareBuffer) -> Arc<dyn ui::HardwareBuffer
     target_os = "linux",
     windows
 )))]
-pub(crate) fn waft_buffer(buffer: &HardwareBuffer) -> Arc<dyn ui::HardwareBuffer> {
+pub(crate) fn waft_buffer(buffer: &HardwareBuffer) -> Option<Arc<dyn ui::HardwareBuffer>> {
     match *buffer {}
 }

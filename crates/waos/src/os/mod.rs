@@ -55,3 +55,33 @@ pub(crate) use linux::*;
 pub use windows::HardwareBuffer;
 #[cfg(windows)]
 pub(crate) use windows::*;
+
+/// Work run on the finisher/waiting thread after the GPU submission for a frame or hardware
+/// buffer handover completes: e.g. mapping and reading back an offscreen staging buffer on Linux.
+pub(crate) type FinishHandOver = Box<dyn FnOnce(&crate::gpu::wgpu_core::global::Global) + Send>;
+
+/// What `hand_to_compositor` returns: the GPU submission to wait for, and any post-wait work
+/// that finishes transferring pixels out of the GPU.
+pub(crate) struct HandOver {
+    pub(crate) submission: Option<crate::gpu::wgpu_core::SubmissionIndex>,
+    pub(crate) finish: Option<FinishHandOver>,
+}
+
+impl HandOver {
+    pub(crate) fn submission(submission: Option<crate::gpu::wgpu_core::SubmissionIndex>) -> Self {
+        Self {
+            submission,
+            finish: None,
+        }
+    }
+}
+
+/// Resolves the hardware buffer mode once at engine startup. On non-Linux systems this returns
+/// `requested` unchanged.
+#[cfg(not(target_os = "linux"))]
+pub(crate) fn resolve_buffer_mode(
+    _gpu: &crate::gpu::GpuInstance,
+    requested: crate::HardwareBufferMode,
+) -> crate::HardwareBufferMode {
+    requested
+}

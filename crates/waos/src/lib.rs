@@ -102,7 +102,7 @@ mod workers;
 pub use access::{TraceEvent, TraceKind, TraceStream};
 pub use cameras::{CameraOutputs, CaptureSessionReports};
 pub use clipboard::CopyOptions;
-pub use engine::{PlatformState, WaOS, WaOSConfig};
+pub use engine::{HardwareBufferMode, PlatformState, WaOS, WaOSConfig};
 pub use engine_time::{EngineTime, ManualTime};
 pub use file_dialogs::set_answers::refusal as file_dialog_answer_refusal;
 pub use file_dialogs::{FileType, FolderOptions, OpenOptions, SaveOptions};

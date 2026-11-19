@@ -64,7 +64,9 @@ impl AudioDevices for LocalAudio {
         }
         on_a_threads_own(|| {
             check_output(&options.sink_id)?;
-            AudioContext::try_new(options)
+            // web-audio-api can panic on headless hosts with no system audio backend.
+            panic::catch_unwind(AssertUnwindSafe(|| AudioContext::try_new(options)))
+                .map_err(|panic| AudioDeviceError::Failed(message_of(panic.as_ref())))?
                 .map_err(|error| AudioDeviceError::Failed(error.to_string()))
         })
     }
@@ -76,9 +78,11 @@ impl AudioDevices for LocalAudio {
     fn set_output(&self, context: &AudioContext, sink_id: &str) -> Result<(), AudioDeviceError> {
         on_a_threads_own(|| {
             check_output(sink_id)?;
-            context
-                .set_sink_id_sync(sink_id.to_owned())
-                .map_err(|error| AudioDeviceError::Failed(error.to_string()))
+            panic::catch_unwind(AssertUnwindSafe(|| {
+                context.set_sink_id_sync(sink_id.to_owned())
+            }))
+            .map_err(|panic| AudioDeviceError::Failed(message_of(panic.as_ref())))?
+            .map_err(|error| AudioDeviceError::Failed(error.to_string()))
         })
     }
 
@@ -128,9 +132,12 @@ fn open_default_microphone() -> Result<MediaStream, AudioDeviceError> {
     .map_err(|panic| AudioDeviceError::Failed(message_of(panic.as_ref())))
 }
 
-/// The system's devices of `kind`.
+/// The system's devices of `kind`; empty when the audio backend panics (such as on headless
+/// Linux machines with no ALSA devices).
 fn devices(kind: MediaDeviceInfoKind) -> impl Iterator<Item = MediaDeviceInfo> {
-    media_devices::enumerate_devices_sync()
+    let listed = panic::catch_unwind(AssertUnwindSafe(media_devices::enumerate_devices_sync))
+        .unwrap_or_default();
+    listed
         .into_iter()
         .filter(move |device| device.kind() == kind)
 }
@@ -142,7 +149,7 @@ fn message_of(panic: &(dyn Any + Send)) -> String {
         None => panic
             .downcast_ref::<String>()
             .cloned()
-            .unwrap_or_else(|| "the microphone failed to open".to_owned()),
+            .unwrap_or_else(|| "the audio device failed to open".to_owned()),
     }
 }
 

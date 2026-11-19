@@ -10676,6 +10676,7 @@ dependencies = [
  "waos",
  "waos-activity",
  "waos-capabilities",
+ "waos-cli",
  "waos-dev-protocol",
  "waos-local",
  "waos-package",

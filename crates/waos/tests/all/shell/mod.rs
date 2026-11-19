@@ -175,6 +175,7 @@ pub fn config() -> WaOSConfig {
         temporary_folders: std::env::temp_dir().join("waos-tests"),
         audit: None,
         inspected_programs: None,
+        hardware_buffers: waos::HardwareBufferMode::Auto,
     }
 }
 

@@ -63,8 +63,15 @@ impl Canvas for CanvasLayer {
             released();
             return;
         }
+        let Some(waft) = waft_buffer(buffer) else {
+            tracing::warn!(
+                "an offscreen hardware buffer cannot be presented to Waft's canvas layer"
+            );
+            released();
+            return;
+        };
         let children = children_of(layers);
-        self.layer.present(waft_buffer(buffer), children, released);
+        self.layer.present(waft, children, released);
     }
 }
 

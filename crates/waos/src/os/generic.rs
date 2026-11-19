@@ -8,11 +8,13 @@ use anyhow::{Result, bail};
 
 use waos_webgpu_host::Device;
 
+use crate::HardwareBufferMode;
 use crate::bindings::wasdk::platform::hardware_buffers::{
     HardwareBufferUsage, ImageError, ImageErrorKind, PixelBuffer, PixelFormat,
 };
 use crate::gpu::{GpuInstance, wgpu_core, wgpu_types};
 use crate::hardware_buffers::Released;
+use crate::os::{FinishHandOver, HandOver};
 use crate::shell::{HardwareBuffer, VideoPicture};
 
 /// The format a canvas would be configured with, were there a hardware buffer to draw into.
@@ -38,8 +40,9 @@ impl HardwareBufferMemory {
         width: u32,
         height: u32,
         usage: HardwareBufferUsage,
+        mode: HardwareBufferMode,
     ) -> Result<HardwareBufferMemory> {
-        let _ = (width, height, usage);
+        let _ = (width, height, usage, mode);
         bail!(
             "drawing is not built on this system yet: the engine makes hardware buffers on Apple's systems and Android"
         )
@@ -50,8 +53,9 @@ impl HardwareBufferMemory {
         height: u32,
         format: PixelFormat,
         usage: HardwareBufferUsage,
+        mode: HardwareBufferMode,
     ) -> Result<HardwareBufferMemory, ImageError> {
-        let _ = (width, height, format, usage);
+        let _ = (width, height, format, usage, mode);
         Err(ImageError {
             kind: ImageErrorKind::Unsupported,
             message: "the engine allocates hardware buffers on Apple's systems and Android only"
@@ -101,7 +105,18 @@ impl HardwareBufferMemory {
         &self,
         _gpu: &wgpu_core::global::Global,
         _device: wgpu_core::id::DeviceId,
+        _queue: wgpu_core::id::QueueId,
     ) -> Result<wgpu_core::id::TextureId> {
+        match self.0 {}
+    }
+
+    pub(crate) fn encode_readback(
+        &self,
+        _gpu: &GpuInstance,
+        _device: wgpu_core::id::DeviceId,
+        _encoder: wgpu_core::id::CommandEncoderId,
+        _texture: wgpu_core::id::TextureId,
+    ) -> Result<Option<FinishHandOver>> {
         match self.0 {}
     }
 
@@ -132,11 +147,12 @@ impl HardwareBufferMemory {
 pub(crate) fn hand_to_compositor(
     gpu: &GpuInstance,
     device: &Device,
+    _memory: &HardwareBufferMemory,
     texture: wgpu_core::id::TextureId,
     usage: wgpu_types::TextureUsages,
-) -> Option<wgpu_core::SubmissionIndex> {
+) -> HandOver {
     let _ = (gpu, texture, usage);
-    device.submit_pending_writes()
+    HandOver::submission(device.submit_pending_writes())
 }
 
 /// Takes a frame back from the compositor: there is never a frame here.

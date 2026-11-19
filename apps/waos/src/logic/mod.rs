@@ -137,4 +137,6 @@ pub(crate) mod test_outputs;
 pub(crate) mod test_pattern;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(crate) mod tray_image;
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+pub(crate) mod virtual_shell;
 pub(crate) mod vsync_waiter;

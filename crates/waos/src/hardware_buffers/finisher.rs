@@ -17,6 +17,7 @@ use std::thread;
 use waos_webgpu_host::Device;
 
 use crate::gpu::{Finishing, GpuInstance, wait_for, wgpu_core};
+use crate::os::FinishHandOver;
 use crate::views::FrameInFlight;
 
 /// The canvas's handle on its thread.
@@ -32,6 +33,9 @@ pub(super) struct Wait {
     /// that drew the frame; none, where wgpu-core refused it, waits for everything on the device
     /// so far.
     pub(super) submission: Option<wgpu_core::SubmissionIndex>,
+    /// Post-wait work that finishes transferring pixels out of the GPU (e.g. offscreen staging
+    /// readback on Linux), run before `hand_over`.
+    pub(super) finish: Option<FinishHandOver>,
     /// The frame's hand-over to the shell, run once the wait is over.
     pub(super) hand_over: Box<dyn FnOnce() + Send>,
     /// The program's GPU work in flight, which the frame counts in until its wait is over.
@@ -61,6 +65,9 @@ impl FrameFinisher {
 fn wait_for_each(gpu: &Arc<wgpu_core::global::Global>, waits: &Receiver<Wait>) {
     for wait in waits {
         wait_for(gpu, wait.device.device_id(), wait.submission);
+        if let Some(finish) = wait.finish {
+            finish(gpu);
+        }
         (wait.hand_over)();
         drop(wait.frame);
         drop(wait.in_flight);

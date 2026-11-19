@@ -95,6 +95,21 @@ fn can_import(instance: &wgpu_core::global::Global, adapter: AdapterId) -> bool 
             .all(|extension| capabilities.supports_extension(extension))
 }
 
+/// Whether the default adapter on `instance` is a Vulkan adapter capable of importing hardware
+/// buffers.
+#[cfg(target_os = "linux")]
+pub(crate) fn adapter_can_import(instance: &crate::gpu::GpuInstance) -> bool {
+    let Ok(adapter) = instance.request_adapter(
+        &wgpu_types::RequestAdapterOptions::default(),
+        wgpu_types::Backends::all(),
+        None,
+    ) else {
+        return false;
+    };
+    let adapter = waos_webgpu_host::GpuObject::new(adapter, instance);
+    can_import(instance, adapter.id())
+}
+
 /// Whether `device`, a hal device, was opened with the extensions that import a hardware
 /// buffer's memory.
 pub(crate) fn imports(device: &wgpu_hal::vulkan::Device) -> bool {
