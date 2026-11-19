@@ -212,20 +212,25 @@ mod tests {
         });
         let dialogs_shell = served.borrow_mut().take().unwrap();
         let future = dialogs_shell.open_file(&running, None, OpenOptions::default());
-        for _ in 0..10 {
-            shell.wake(Duration::ZERO);
-        }
-        assert_eq!(waft_dialogs.held.borrow().len(), 1);
+        wake_until("waft dialog opens", &mut shell, || {
+            waft_dialogs.held.borrow().len() == 1
+        });
         assert!(!waft_dialogs.cancelled(0));
 
         drop(future);
-        for _ in 0..10 {
+        wake_until("waft dialog future is dropped", &mut shell, || {
+            waft_dialogs.cancelled(0)
+        });
+        running.stop();
+    }
+
+    fn wake_until(what: &str, shell: &mut Shell, ready: impl Fn() -> bool) {
+        for _ in 0..100 {
+            if ready() {
+                return;
+            }
             shell.wake(Duration::ZERO);
         }
-        assert!(
-            waft_dialogs.cancelled(0),
-            "dropping FileDialogFuture drops Waft's dialog future"
-        );
-        running.stop();
+        panic!("{what} never happened");
     }
 }

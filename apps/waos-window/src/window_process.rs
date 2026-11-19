@@ -411,7 +411,7 @@ impl WindowProcess {
                 );
                 true
             }
-            Carried::FileDialogClosed(dialog) => {
+            Carried::CloseFileDialog(dialog) => {
                 self.file_dialogs.close(dialog);
                 true
             }

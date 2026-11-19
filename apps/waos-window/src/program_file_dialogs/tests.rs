@@ -213,9 +213,8 @@ fn closing_a_file_dialog_drops_wafts_dialog_future_without_answering_waos() {
     let dialogs = PendingDialogs::default();
     let platform = TestPlatform::new().with_file_dialogs(Rc::new(dialogs.clone()));
     let (connection, waos) = connection();
-    waos.notify_when_no_senders().unwrap();
     let connection = Rc::new(connection);
-    let connection_weak = Rc::downgrade(&connection);
+    let task_connection = Rc::clone(&connection);
     let open_dialogs = OpenFileDialogs::default();
     let open_dialogs_shell = open_dialogs.clone();
     let mut shell = Shell::new(Rc::new(platform), move |app| {
@@ -226,31 +225,32 @@ fn closing_a_file_dialog_drops_wafts_dialog_future_without_answering_waos() {
             parent: None,
             kind: text_file(),
         };
-        open_file_dialog(app, &view_windows, &open_dialogs_shell, connection, asked);
+        open_file_dialog(
+            app,
+            &view_windows,
+            &open_dialogs_shell,
+            task_connection,
+            asked,
+        );
     });
     shell.wake(Duration::ZERO);
     assert_eq!(dialogs.held.borrow().len(), 1);
     assert!(!dialogs.held.borrow()[0].is_canceled());
+    assert_eq!(Rc::strong_count(&connection), 2);
 
     open_dialogs.close(11);
     shell.wake(Duration::ZERO);
     assert!(dialogs.held.borrow()[0].is_canceled());
-    assert!(
-        connection_weak.upgrade().is_none(),
-        "the closed dialog task released the connection"
+    assert_eq!(
+        Rc::strong_count(&connection),
+        1,
+        "the task released the connection"
     );
-    drop(shell);
 
-    let (tx, rx) = std::sync::mpsc::channel();
-    std::thread::spawn(move || {
-        let _ = tx.send(waos.receive(waos_window_messages::PROTOCOL));
-    });
-    let arrival = rx
-        .recv_timeout(Duration::from_secs(5))
-        .expect("waos port did not report NoSenders in time")
-        .expect("receive");
+    // Send a marker on the same connection: its arriving first proves no FileDialogClosed was queued.
+    connection.send(FromWindow::WindowClosed { window: 99 });
     assert!(
-        matches!(arrival, waos_window_messages::os::macos::Arrival::NoSenders),
+        matches!(sent(&waos), FromWindow::WindowClosed { window: 99 }),
         "no FileDialogClosed sent when WaOS closed the dialog"
     );
 }

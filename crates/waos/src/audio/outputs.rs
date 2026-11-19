@@ -8,9 +8,11 @@
 //! context made or moved onto any other is refused.
 
 use std::collections::HashSet;
+use std::future::ready;
 use std::sync::{Arc, Mutex};
 
-use waos_capabilities::{AudioOutput, ChangedFuture, ProgramGrants};
+use futures::FutureExt;
+use waos_capabilities::AudioOutput;
 
 use crate::access::ProgramAccess;
 use crate::asking::{self, Outcome};
@@ -63,10 +65,27 @@ impl ProgramOutputs {
         outputs: Vec<AudioOutput>,
     ) -> Result<MediaDeviceInfo, AudioError> {
         let grants = self.0.access.clone_grants();
-        let changed = grants.changed();
-        let output = match grants.audio_output_answer() {
-            Some(set) => self.set_answer(set, outputs)?,
-            None => self.picked(grants, changed, outputs).await?,
+        let outcome = asking::stored_or_shown(
+            grants,
+            |grants| grants.audio_output_answer(),
+            || match &self.0.picker {
+                None => ready(Err(AudioError::NotSupported(
+                    "this platform has no picker of outputs".to_owned(),
+                )))
+                .boxed(),
+                Some(_) if outputs.is_empty() => ready(Err(AudioError::NotFound)).boxed(),
+                Some(picker) => {
+                    let shown = picker.pick(&self.0.program, outputs.clone());
+                    async move { Ok(shown.await) }.boxed()
+                }
+            },
+        )
+        .await;
+        let output = match outcome {
+            Outcome::Setting(set) => self.set_answer(set, outputs)?,
+            Outcome::Prompt(picked) => picked?
+                .and_then(|id| outputs.into_iter().find(|output| output.id == id))
+                .ok_or(AudioError::NotAllowed)?,
         };
         locked(&self.0.picked).insert(output.id.clone());
         Ok(MediaDeviceInfo {
@@ -92,37 +111,5 @@ impl ProgramOutputs {
             );
             AudioError::NotFound
         })
-    }
-
-    /// The output the user picks among `outputs` in the shell's picker, or the one set in
-    /// grants if changed while waiting.
-    async fn picked(
-        &self,
-        grants: Arc<dyn ProgramGrants>,
-        changed: ChangedFuture,
-        outputs: Vec<AudioOutput>,
-    ) -> Result<AudioOutput, AudioError> {
-        let Some(picker) = &self.0.picker else {
-            return Err(AudioError::NotSupported(
-                "this platform has no picker of outputs".to_owned(),
-            ));
-        };
-        if outputs.is_empty() {
-            return Err(AudioError::NotFound);
-        }
-        let shown = picker.pick(&self.0.program, outputs.clone());
-        match asking::or_setting(
-            grants,
-            changed,
-            |grants| grants.audio_output_answer(),
-            shown,
-        )
-        .await
-        {
-            Outcome::Prompt(picked) => picked
-                .and_then(|id| outputs.into_iter().find(|output| output.id == id))
-                .ok_or(AudioError::NotAllowed),
-            Outcome::Setting(set) => self.set_answer(set, outputs),
-        }
     }
 }

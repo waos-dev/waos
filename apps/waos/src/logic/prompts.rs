@@ -12,10 +12,8 @@
 //! program waits for an answer that cannot come.
 
 use std::fmt;
-use std::pin::Pin;
+use std::future::Future;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::task::{Context, Poll};
 
 use futures::FutureExt;
 use futures::channel::mpsc::{self, UnboundedReceiver, UnboundedSender};
@@ -29,18 +27,12 @@ use waos_dev_protocol::Asked as AskedNow;
 
 use super::asking_now::AskingNow;
 
-/// One event of the programs' questions on its way to the main thread.
-pub(crate) enum QuestionEvent {
-    Asked(Asked),
-    /// The future waiting on question `id` was dropped, so its prompt goes if still waiting.
-    Cancelled(u64),
-}
-
 /// One program's question, on its way to the main thread.
 pub(crate) struct Asked {
-    pub(crate) id: u64,
     pub(crate) program: RunningProgram,
     pub(crate) asking: Asking,
+    /// Fires when the engine drops its wait on this question before an answer returns.
+    pub(crate) cancelled: oneshot::Receiver<()>,
 }
 
 /// What a program asks its user, with where the reply goes.
@@ -126,14 +118,6 @@ impl Asking {
             }
         }
     }
-
-    /// Whether the caller waiting on this question has already dropped its future.
-    pub(crate) fn is_canceled(&self) -> bool {
-        match self {
-            Asking::Question { answer, .. } => answer.is_canceled(),
-            Asking::Output { picked, .. } | Asking::Machine { picked, .. } => picked.is_canceled(),
-        }
-    }
 }
 
 /// One program's request to open a switch's page in its settings, on its way to the main thread.
@@ -146,17 +130,16 @@ pub(crate) struct SettingsOpened {
 
 /// Where the prompts arrive on the main thread.
 pub(crate) struct PromptRequests {
-    pub(crate) questions: UnboundedReceiver<QuestionEvent>,
+    pub(crate) questions: UnboundedReceiver<Asked>,
     pub(crate) settings: UnboundedReceiver<SettingsOpened>,
 }
 
 /// The app's prompts, as the engine reaches them: every one goes to the main thread, noted in
 /// `asking` until it is answered.
 pub(crate) struct PromptsOnRequest {
-    questions: UnboundedSender<QuestionEvent>,
+    questions: UnboundedSender<Asked>,
     settings: UnboundedSender<SettingsOpened>,
     asking: Arc<AskingNow>,
-    next_id: Arc<AtomicU64>,
 }
 
 impl PromptsOnRequest {
@@ -174,7 +157,6 @@ impl PromptsOnRequest {
                 questions,
                 settings,
                 asking,
-                next_id: Arc::new(AtomicU64::new(1)),
             },
             requests,
         )
@@ -185,7 +167,6 @@ impl PromptsOnRequest {
         OutputPickerOnRequest {
             questions: self.questions.clone(),
             asking: Arc::clone(&self.asking),
-            next_id: Arc::clone(&self.next_id),
         }
     }
 
@@ -194,7 +175,6 @@ impl PromptsOnRequest {
         MachinePickerOnRequest {
             questions: self.questions.clone(),
             asking: Arc::clone(&self.asking),
-            next_id: Arc::clone(&self.next_id),
         }
     }
 }
@@ -205,7 +185,7 @@ impl PromptsOnRequest {
         let (answer, answered) = oneshot::channel();
         let noted = question.asked_now();
         let asking = Asking::Question { question, answer };
-        let wait = send_and_wait(&self.questions, &self.next_id, program, asking, answered);
+        let wait = send_and_wait(&self.questions, program, asking, answered);
         Box::pin(self.asking.while_asked(program, noted, wait))
     }
 }
@@ -247,16 +227,15 @@ impl Prompts for PromptsOnRequest {
 /// The app's picker of outputs, as the engine reaches it: each picker is a question, shown as the
 /// prompts' questions are.
 pub(crate) struct OutputPickerOnRequest {
-    questions: UnboundedSender<QuestionEvent>,
+    questions: UnboundedSender<Asked>,
     asking: Arc<AskingNow>,
-    next_id: Arc<AtomicU64>,
 }
 
 impl ShellAudioOutputPicker for OutputPickerOnRequest {
     fn pick(&self, program: &RunningProgram, outputs: Vec<AudioOutput>) -> AudioOutputPickedFuture {
         let (picked, picking) = oneshot::channel();
         let asking = Asking::Output { outputs, picked };
-        let wait = send_and_wait(&self.questions, &self.next_id, program, asking, picking);
+        let wait = send_and_wait(&self.questions, program, asking, picking);
         Box::pin(
             self.asking
                 .while_asked(program, AskedNow::AudioOutput, wait),
@@ -267,16 +246,15 @@ impl ShellAudioOutputPicker for OutputPickerOnRequest {
 /// The app's picker of machines, as the engine reaches it: each pick is a question, shown as the
 /// prompts' questions are.
 pub(crate) struct MachinePickerOnRequest {
-    questions: UnboundedSender<QuestionEvent>,
+    questions: UnboundedSender<Asked>,
     asking: Arc<AskingNow>,
-    next_id: Arc<AtomicU64>,
 }
 
 impl ShellMachinePicker for MachinePickerOnRequest {
     fn pick(&self, program: &RunningProgram, machines: Vec<MachineChoice>) -> MachinePickedFuture {
         let (picked, picking) = oneshot::channel();
         let asking = Asking::Machine { machines, picked };
-        let wait = send_and_wait(&self.questions, &self.next_id, program, asking, picking);
+        let wait = send_and_wait(&self.questions, program, asking, picking);
         Box::pin(self.asking.while_asked(program, AskedNow::Machine, wait))
     }
 }
@@ -314,71 +292,31 @@ fn protocol_switch(switch: Switch) -> waos_dev_protocol::Switch {
 }
 
 /// Sends `asking` of `program`'s to the main thread, unless WaOS is quitting, and waits on
-/// `received`; dropping the returned future before it resolves sends `Cancelled(id)` so any
-/// panel shown for it closes.
-fn send_and_wait<T>(
-    questions: &UnboundedSender<QuestionEvent>,
-    next_id: &AtomicU64,
+/// `received`; dropping the returned future before it resolves drops the sender of `cancelled`.
+fn send_and_wait<T: Send>(
+    questions: &UnboundedSender<Asked>,
     program: &RunningProgram,
     asking: Asking,
     received: oneshot::Receiver<Option<T>>,
-) -> WaitQuestion<T> {
-    let id = next_id.fetch_add(1, Ordering::Relaxed);
+) -> impl Future<Output = Option<T>> + Send + use<T> {
+    let (cancel, cancelled) = oneshot::channel();
     let asked = Asked {
-        id,
         program: program.clone(),
         asking,
+        cancelled,
     };
-    let sent = if let Err(unsent) = questions.unbounded_send(QuestionEvent::Asked(asked)) {
-        if let QuestionEvent::Asked(asked) = unsent.into_inner() {
-            tracing::info!(
-                program = program.name(),
-                asking = ?asked.asking,
-                "WaOS is quitting: unanswered"
-            );
-        }
-        false
-    } else {
-        true
-    };
-    WaitQuestion {
-        id,
-        questions: questions.clone(),
-        received,
-        done: !sent,
+    if let Err(unsent) = questions.unbounded_send(asked) {
+        let asked = unsent.into_inner();
+        tracing::info!(
+            program = program.name(),
+            asking = ?asked.asking,
+            "WaOS is quitting: unanswered"
+        );
     }
-}
-
-/// Waits for a question's `oneshot` reply, telling the main thread to close its prompt if
-/// dropped before a reply arrives.
-struct WaitQuestion<T> {
-    id: u64,
-    questions: UnboundedSender<QuestionEvent>,
-    received: oneshot::Receiver<Option<T>>,
-    done: bool,
-}
-
-impl<T> Future for WaitQuestion<T> {
-    type Output = Option<T>;
-
-    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        match self.received.poll_unpin(cx) {
-            Poll::Ready(answer) => {
-                self.done = true;
-                // A question dropped unanswered, here or on the main thread, answers none.
-                Poll::Ready(answer.unwrap_or(None))
-            }
-            Poll::Pending => Poll::Pending,
-        }
-    }
-}
-
-impl<T> Drop for WaitQuestion<T> {
-    fn drop(&mut self) {
-        if !self.done {
-            let _ = self
-                .questions
-                .unbounded_send(QuestionEvent::Cancelled(self.id));
-        }
+    async move {
+        // A question dropped unanswered, here or on the main thread, answers none.
+        let answer = received.await.unwrap_or(None);
+        drop(cancel);
+        answer
     }
 }

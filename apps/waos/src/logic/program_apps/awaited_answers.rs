@@ -11,7 +11,7 @@
 
 use std::collections::HashMap;
 use std::pin::Pin;
-use std::sync::{Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::task::{Context, Poll};
 
 use futures::FutureExt;
@@ -26,7 +26,7 @@ pub(crate) const APP_GONE: &str = "the program's app is gone";
 
 /// The answers awaited from one program's app, each a `T`.
 pub(crate) struct AwaitedAnswers<T> {
-    awaited: Mutex<Awaited<T>>,
+    awaited: Arc<Mutex<Awaited<T>>>,
 }
 
 struct Awaited<T> {
@@ -37,8 +37,31 @@ struct Awaited<T> {
     gone: bool,
 }
 
-/// One answer awaited from the app: the app's, or [`AppGone`] once it went first.
-pub(crate) struct AwaitedAnswer<T>(oneshot::Receiver<T>);
+/// One answer awaited from the app: the app's, or [`AppGone`] once it went first. Dropping it
+/// removes the entry from what is awaited so a dropped call never keeps the app owing answers.
+pub(crate) struct AwaitedAnswer<T> {
+    asked: u64,
+    awaited: Arc<Mutex<Awaited<T>>>,
+    answered: oneshot::Receiver<T>,
+}
+
+impl<T> AwaitedAnswer<T> {
+    /// Stops awaiting the answer now; answers whether the app had not answered or gone first.
+    pub(crate) fn cancel(&self) -> bool {
+        self.awaited
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .waiting
+            .remove(&self.asked)
+            .is_some()
+    }
+}
+
+impl<T> Drop for AwaitedAnswer<T> {
+    fn drop(&mut self) {
+        self.cancel();
+    }
+}
 
 impl<T> AwaitedAnswers<T> {
     /// Something about to be asked of the app: the id the app's answer names, and the answer; none
@@ -52,7 +75,14 @@ impl<T> AwaitedAnswers<T> {
         let asked = awaited.last;
         let (answer, answered) = oneshot::channel();
         awaited.waiting.insert(asked, answer);
-        Some((asked, AwaitedAnswer(answered)))
+        Some((
+            asked,
+            AwaitedAnswer {
+                asked,
+                awaited: Arc::clone(&self.awaited),
+                answered,
+            },
+        ))
     }
 
     /// The app answered `answer` to what `asked` names.
@@ -61,11 +91,6 @@ impl<T> AwaitedAnswers<T> {
             // A program that ended meanwhile hears nothing.
             let _ = waiting.send(answer);
         }
-    }
-
-    /// Cancels `asked` if it is still awaited; answers whether it was still waiting.
-    pub(crate) fn cancel(&self, asked: u64) -> bool {
-        self.awaited().waiting.remove(&asked).is_some()
     }
 
     /// Whether an answer is still awaited.
@@ -88,11 +113,11 @@ impl<T> AwaitedAnswers<T> {
 impl<T> Default for AwaitedAnswers<T> {
     fn default() -> AwaitedAnswers<T> {
         AwaitedAnswers {
-            awaited: Mutex::new(Awaited {
+            awaited: Arc::new(Mutex::new(Awaited {
                 last: 0,
                 waiting: HashMap::new(),
                 gone: false,
-            }),
+            })),
         }
     }
 }
@@ -101,7 +126,7 @@ impl<T> Future for AwaitedAnswer<T> {
     type Output = Result<T, AppGone>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        self.0
+        self.answered
             .poll_unpin(cx)
             .map(|answer| answer.map_err(|_| AppGone))
     }
@@ -133,5 +158,14 @@ mod tests {
             awaited.ask().is_none(),
             "nothing is asked of an app that is gone"
         );
+    }
+
+    #[test]
+    fn dropping_an_awaited_answer_stops_awaiting_it() {
+        let awaited = AwaitedAnswers::<u32>::default();
+        let (_id, answer) = awaited.ask().expect("asked");
+        assert!(awaited.any());
+        drop(answer);
+        assert!(!awaited.any());
     }
 }

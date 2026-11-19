@@ -3,10 +3,9 @@
 //! and the picker of outputs asked unless a test set its answer.
 
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
-use futures::FutureExt;
-use futures::channel::oneshot;
+use tokio::sync::Notify;
 use waos::{Answer, ProgramGrants, Question};
 use waos_capabilities::{ChangedFuture, DomainRule, FileSystemGrant, NetworkGrant, SimulatedSound};
 
@@ -18,7 +17,7 @@ pub struct QuestionsAsked {
     audio_output: Mutex<Option<String>>,
     /// What a simulated microphone records.
     simulated_microphone: SimulatedSound,
-    waiting: Mutex<Vec<oneshot::Sender<()>>>,
+    changed: Arc<Notify>,
 }
 
 impl QuestionsAsked {
@@ -43,9 +42,7 @@ impl QuestionsAsked {
     /// Sets the picker of outputs' answer and notifies waiters.
     pub fn set_audio_output_answer(&self, output: &str) {
         *self.audio_output.lock().unwrap() = Some(output.to_owned());
-        for waiter in self.waiting.lock().unwrap().drain(..) {
-            let _ = waiter.send(());
-        }
+        self.changed.notify_waiters();
     }
 }
 
@@ -96,8 +93,6 @@ impl ProgramGrants for QuestionsAsked {
     }
 
     fn changed(&self) -> ChangedFuture {
-        let (tx, rx) = oneshot::channel();
-        self.waiting.lock().unwrap().push(tx);
-        Box::pin(rx.map(|_| ()))
+        Box::pin(Arc::clone(&self.changed).notified_owned())
     }
 }

@@ -63,18 +63,15 @@ pub(crate) async fn check(
 ) -> Result<(), RoleNotGranted> {
     for role in asked.iter().copied() {
         let not_granted = RoleNotGranted { role };
-        let answer = match access.grants().role(role) {
-            Some(answer) => answer,
-            None => ask_or_setting(
-                access,
-                Prompt::Role(role),
-                move |grants| grants.role(role),
-                || prompts.ask_for_role(program, role),
-                move |grants, answer| grants.set_role(role, answer),
-            )
-            .await
-            .ok_or(not_granted)?,
-        };
+        let answer = ask_or_setting(
+            access,
+            Prompt::Role(role),
+            move |grants| grants.role(role),
+            || prompts.ask_for_role(program, role),
+            move |grants, answer| grants.set_role(role, answer),
+        )
+        .await
+        .ok_or(not_granted)?;
         if answer != Answer::Granted {
             return Err(not_granted);
         }

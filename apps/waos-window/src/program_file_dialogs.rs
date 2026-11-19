@@ -15,7 +15,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use futures::channel::oneshot;
+use futures::future::{AbortHandle, Abortable};
 use waft::ui::ViewId;
 use waft::{App, Entity};
 use waos::bindings::wasdk::platform::file_dialogs::DialogError;
@@ -33,22 +33,14 @@ use crate::program_link::WaosProgram;
 /// The file dialogs currently open in the window process, so WaOS can close one if its wait is
 /// dropped (e.g. a setting answers it).
 #[derive(Clone, Default)]
-pub(crate) struct OpenFileDialogs(Rc<RefCell<HashMap<FileDialogId, oneshot::Sender<()>>>>);
+pub(crate) struct OpenFileDialogs(Rc<RefCell<HashMap<FileDialogId, AbortHandle>>>);
 
 impl OpenFileDialogs {
-    fn insert(&self, dialog: FileDialogId, cancel: oneshot::Sender<()>) {
-        self.0.borrow_mut().insert(dialog, cancel);
-    }
-
-    fn remove(&self, dialog: FileDialogId) {
-        self.0.borrow_mut().remove(&dialog);
-    }
-
     /// Closes `dialog` if it is still open, dropping its Waft dialog future without sending
     /// `FileDialogClosed`.
     pub(crate) fn close(&self, dialog: FileDialogId) {
-        if let Some(cancel) = self.0.borrow_mut().remove(&dialog) {
-            let _ = cancel.send(());
+        if let Some(abort) = self.0.borrow_mut().remove(&dialog) {
+            abort.abort();
         }
     }
 }
@@ -134,17 +126,12 @@ fn answer_when_closed(
             return;
         }
     };
-    let (cancel, cancelled) = oneshot::channel();
-    open_dialogs.insert(dialog, cancel);
+    let (abort, registration) = AbortHandle::new_pair();
+    open_dialogs.0.borrow_mut().insert(dialog, abort);
     let open_dialogs = open_dialogs.clone();
     app.spawn(async move |_cx| {
-        let mut shown = std::pin::pin!(shown);
-        let picked = match futures::future::select(shown.as_mut(), cancelled).await {
-            futures::future::Either::Left((picked, _)) => Some(picked),
-            futures::future::Either::Right((_, _)) => None,
-        };
-        open_dialogs.remove(dialog);
-        if let Some(picked) = picked {
+        if let Ok(picked) = Abortable::new(shown, registration).await {
+            open_dialogs.0.borrow_mut().remove(&dialog);
             connection.send(FromWindow::FileDialogClosed { dialog, picked });
         }
     });

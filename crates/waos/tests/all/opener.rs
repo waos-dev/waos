@@ -18,8 +18,7 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use futures::FutureExt;
-use futures::channel::oneshot;
+use tokio::sync::Notify;
 use waos::{
     Answer, FreezePolicy, ManualTime, OpenRequest, ProgramEnd, ProgramEnvironment, ProgramGrants,
     ProgramOutput, Question, RunningProgram, WaOS,
@@ -298,7 +297,7 @@ const SCHEMES: [(&str, Answer); 3] = [
 struct LinkGrants {
     schemes: Mutex<HashMap<String, Answer>>,
     picked: Mutex<Vec<Mount>>,
-    waiting: Mutex<Vec<oneshot::Sender<()>>>,
+    changed: Arc<Notify>,
 }
 
 impl LinkGrants {
@@ -356,9 +355,7 @@ impl ProgramGrants for LinkGrants {
             .lock()
             .unwrap()
             .insert(scheme.to_owned(), answer);
-        for waiter in self.waiting.lock().unwrap().drain(..) {
-            let _ = waiter.send(());
-        }
+        self.changed.notify_waiters();
     }
 
     fn keep_picked(&self, mount: Mount) {
@@ -366,8 +363,6 @@ impl ProgramGrants for LinkGrants {
     }
 
     fn changed(&self) -> ChangedFuture {
-        let (tx, rx) = oneshot::channel();
-        self.waiting.lock().unwrap().push(tx);
-        Box::pin(rx.map(|_| ()))
+        Box::pin(Arc::clone(&self.changed).notified_owned())
     }
 }

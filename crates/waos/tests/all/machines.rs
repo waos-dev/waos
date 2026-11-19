@@ -15,8 +15,7 @@
 
 use std::sync::{Arc, Mutex};
 
-use futures::FutureExt;
-use futures::channel::oneshot;
+use tokio::sync::Notify;
 use waos::{
     Answer, ProgramEnvironment, ProgramGrants, ProgramOutput, Question, RunningProgram, WaOS,
 };
@@ -268,7 +267,7 @@ fn run(
 struct MachineGrants {
     machines: Mutex<Vec<String>>,
     answer: Mutex<Option<String>>,
-    waiting: Mutex<Vec<oneshot::Sender<()>>>,
+    changed: Arc<Notify>,
 }
 
 impl MachineGrants {
@@ -282,9 +281,7 @@ impl MachineGrants {
 
     fn set_machine_answer(&self, id: &str) {
         *self.answer.lock().unwrap() = Some(id.to_owned());
-        for waiter in self.waiting.lock().unwrap().drain(..) {
-            let _ = waiter.send(());
-        }
+        self.changed.notify_waiters();
     }
 }
 
@@ -340,8 +337,6 @@ impl ProgramGrants for MachineGrants {
     }
 
     fn changed(&self) -> ChangedFuture {
-        let (tx, rx) = oneshot::channel();
-        self.waiting.lock().unwrap().push(tx);
-        Box::pin(rx.map(|_| ()))
+        Box::pin(Arc::clone(&self.changed).notified_owned())
     }
 }

@@ -166,15 +166,20 @@ impl ProgramPermissions {
     /// kept through the grants once it comes from the prompt, or read from grants if set while
     /// waiting.
     fn ask(&self, question: Question) -> Asked {
-        let access = &self.decisions.access;
+        let access = self.decisions.access.clone();
+        let prompts = Arc::clone(&self.prompts);
+        let program = self.program.clone();
         self.asking.ask(question, || {
-            ask_or_setting(
-                access,
-                Prompt::Question(question),
-                move |grants| grants.answer(question),
-                || self.prompts.ask(&self.program, question),
-                move |grants, answer| grants.set_answer(question, answer),
-            )
+            Box::pin(async move {
+                ask_or_setting(
+                    &access,
+                    Prompt::Question(question),
+                    move |grants| grants.answer(question),
+                    move || prompts.ask(&program, question),
+                    move |grants, answer| grants.set_answer(question, answer),
+                )
+                .await
+            })
         })
     }
 }

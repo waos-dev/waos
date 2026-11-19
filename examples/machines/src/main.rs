@@ -13,11 +13,18 @@
 //! cargo build -p machines --target wasm32-wasip3
 //! ```
 
+use std::pin::pin;
+
+use futures::future::{Either, select};
 use wasdk::StreamReader;
 use wasdk::filesystem::{DescriptorFlags, OpenFlags, PathFlags};
 use wasdk::machines::{
     self, Architecture, Command, ExitStatus, Machine, OperatingSystem, Signal, TerminalSize,
 };
+use wasdk::monotonic_clock;
+
+/// How long [`read_until`] waits for text from the terminal before failing.
+const WAIT_NANOS: u64 = 15_000_000_000;
 
 /// What makes the file the program reads back, with a symlink to it holding its absolute path,
 /// and prints the folder they are in.
@@ -131,7 +138,7 @@ async fn type_in_a_terminal(machine: &Machine) {
         .expect("a shell runs in a terminal");
     let mut output = terminal.output().expect("its output");
     terminal
-        .write(b"echo $((6 * 7))\n".to_vec())
+        .write(b"echo $((6 * 7)); read x; stty size\n".to_vec())
         .await
         .expect("typed");
     read_until(&mut output, "42").await;
@@ -141,10 +148,7 @@ async fn type_in_a_terminal(machine: &Machine) {
         rows: 30,
         ..size
     });
-    terminal
-        .write(b"stty size\n".to_vec())
-        .await
-        .expect("typed");
+    terminal.write(b"\n".to_vec()).await.expect("typed");
     read_until(&mut output, "30 100").await;
     println!("terminal resized: 30 100");
     terminal.write(b"exit 4\n".to_vec()).await.expect("typed");
@@ -199,12 +203,24 @@ async fn output_of(machine: &Machine, command: Command) -> String {
     String::from_utf8_lossy(&printed).into_owned()
 }
 
-/// Reads `output` until what it gave holds `text`.
+/// Reads `output` until what it gave holds `text`, or fails after [`WAIT_NANOS`].
 async fn read_until(output: &mut StreamReader<u8>, text: &str) {
+    let mut timed_out = pin!(monotonic_clock::wait_for(WAIT_NANOS));
     let mut read = Vec::new();
     while !String::from_utf8_lossy(&read).contains(text) {
-        let (_result, chunk) = output.read(Vec::with_capacity(1024)).await;
-        assert!(!chunk.is_empty(), "the terminal closed before {text:?}");
+        let reading = pin!(output.read(Vec::with_capacity(1024)));
+        let chunk = match select(reading, timed_out.as_mut()).await {
+            Either::Left(((_result, chunk), _)) => chunk,
+            Either::Right(_) => panic!(
+                "timed out waiting for {text:?}; got {:?}",
+                String::from_utf8_lossy(&read)
+            ),
+        };
+        assert!(
+            !chunk.is_empty(),
+            "the terminal closed before {text:?}; got {:?}",
+            String::from_utf8_lossy(&read)
+        );
         read.extend(chunk);
     }
 }

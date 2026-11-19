@@ -8,15 +8,16 @@
 //! answer rather than putting the question a second time.
 
 use std::collections::HashMap;
-use std::future::{Future, ready};
+use std::future::Future;
 use std::hash::Hash;
 use std::pin::pin;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use futures::future::{BoxFuture, Either, FutureExt, Shared, select};
-use waos_capabilities::{Answer, ChangedFuture, ProgramGrants};
+use waos_capabilities::{Answer, ProgramGrants};
 
-use crate::access::{ProgramAccess, Prompt};
+use crate::access::{Happened, ProgramAccess, Prompt};
 use crate::shell::AnswerFuture;
 use crate::sync::locked;
 
@@ -70,56 +71,66 @@ impl<K: Clone + Eq + Hash + Send + 'static> Asking<K> {
 /// `access` (told as `prompt_kind`) and keeps a prompt answer with `keep`; if `grants` changes
 /// while waiting so `read` finds an answer, `prompt` is dropped and that stored answer is
 /// returned without calling `keep`.
-pub(crate) fn ask_or_setting(
+pub(crate) async fn ask_or_setting(
     access: &ProgramAccess,
     prompt_kind: Prompt,
-    mut read: impl FnMut(&dyn ProgramGrants) -> Option<Answer> + Send + 'static,
+    read: impl FnMut(&dyn ProgramGrants) -> Option<Answer>,
     prompt: impl FnOnce() -> AnswerFuture,
-    keep: impl FnOnce(&dyn ProgramGrants, Answer) + Send + 'static,
-) -> AnswerFuture {
+    keep: impl FnOnce(&dyn ProgramGrants, Answer),
+) -> Option<Answer> {
     let grants = access.clone_grants();
-    let changed = grants.changed();
-    if let Some(answer) = read(grants.as_ref()) {
-        return Box::pin(ready(Some(answer)));
-    }
-    let prompt_future = prompt();
-    let answered = async move {
-        match or_setting(Arc::clone(&grants), changed, read, prompt_future).await {
-            Outcome::Prompt(answer) => {
-                if let Some(answer) = answer {
-                    keep(grants.as_ref(), answer);
-                }
-                answer
+    let asked = AtomicBool::new(false);
+    let outcome = stored_or_shown(Arc::clone(&grants), read, || {
+        asked.store(true, Ordering::Relaxed);
+        access.put_question(prompt_kind.clone(), prompt())
+    })
+    .await;
+    match outcome {
+        Outcome::Prompt(answer) => {
+            if let Some(answer) = answer {
+                keep(grants.as_ref(), answer);
             }
-            Outcome::Setting(answer) => Some(answer),
+            answer
         }
-    };
-    access.put_question(prompt_kind, Box::pin(answered))
+        Outcome::Setting(answer) => {
+            if asked.load(Ordering::Relaxed) {
+                access.tell(Happened::QuestionAnswered(prompt_kind, Some(answer)));
+            }
+            Some(answer)
+        }
+    }
 }
 
-/// Waits for `prompt`, or for `grants` to hold an answer `read` finds, whichever comes first.
-///
-/// `changed` must have been asked of `grants` before `read` last returned `None`, so any change
-/// since then is heard. When `grants` changes and `read` returns `Some(answer)`, `prompt` is
-/// dropped and `Outcome::Setting(answer)` is returned.
-pub(crate) async fn or_setting<P, S, F: Future<Output = P>>(
+/// Resolves once `grants` holds an answer `read` finds, registering `grants.changed()` before
+/// each read so no change between a `None` read and waiting can be missed.
+async fn settled<S>(
     grants: Arc<dyn ProgramGrants>,
-    mut changed: ChangedFuture,
     mut read: impl FnMut(&dyn ProgramGrants) -> Option<S>,
-    prompt: F,
-) -> Outcome<P, S> {
-    let prompt = pin!(prompt);
-    let wait_setting = pin!(async {
-        loop {
-            changed.await;
-            changed = grants.changed();
-            if let Some(answer) = read(grants.as_ref()) {
-                return answer;
-            }
+) -> S {
+    loop {
+        let changed = grants.changed();
+        if let Some(answer) = read(&*grants) {
+            return answer;
         }
-    });
-    match select(wait_setting, prompt).await {
-        Either::Left((set, _)) => Outcome::Setting(set),
+        changed.await;
+    }
+}
+
+/// Answers what `read` already finds in `grants` without calling `show`, or else calls `show` and
+/// races it against `grants` changing to an answer `read` finds, dropping `show`'s future if a
+/// stored answer wins first.
+pub(crate) async fn stored_or_shown<P, S, F: Future<Output = P>>(
+    grants: Arc<dyn ProgramGrants>,
+    read: impl FnMut(&dyn ProgramGrants) -> Option<S>,
+    show: impl FnOnce() -> F,
+) -> Outcome<P, S> {
+    let mut setting = pin!(settled(grants, read));
+    if let Some(answer) = setting.as_mut().now_or_never() {
+        return Outcome::Setting(answer);
+    }
+    let shown = pin!(show());
+    match select(setting, shown).await {
+        Either::Left((answer, _)) => Outcome::Setting(answer),
         Either::Right((answered, _)) => Outcome::Prompt(answered),
     }
 }
@@ -130,29 +141,33 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     use futures::channel::oneshot;
-    use waos_capabilities::{DomainRule, FileSystemGrant, NetworkGrant, Question};
+    use tokio::sync::Notify;
+    use waos_capabilities::{ChangedFuture, DomainRule, FileSystemGrant, NetworkGrant, Question};
 
     use super::*;
 
     #[test]
     fn a_question_asked_twice_while_it_is_put_is_put_once_and_its_answer_kept_once() {
+        let grants = LiveTestGrants::new();
+        let access = ProgramAccess::new(grants.clone());
         let asking = Asking::default();
         let (answer, answered) = oneshot::channel();
         let mut answered = Some(answered);
-        let kept = Arc::new(AtomicUsize::new(0));
         let mut ask = || {
-            let kept = Arc::clone(&kept);
+            let access = access.clone();
             let prompt = answered
                 .take()
                 .map(|answered| Box::pin(answered.map(|answer| answer.ok())) as AnswerFuture);
-            asking.ask("zoommtg", || {
-                let prompt = prompt.expect("put once");
+            asking.ask(Question::Camera, || {
                 Box::pin(async move {
-                    let answer = prompt.await;
-                    if answer.is_some() {
-                        kept.fetch_add(1, Ordering::SeqCst);
-                    }
-                    answer
+                    ask_or_setting(
+                        &access,
+                        Prompt::Question(Question::Camera),
+                        |grants| grants.answer(Question::Camera),
+                        || prompt.expect("put once"),
+                        |grants, answer| grants.set_answer(Question::Camera, answer),
+                    )
+                    .await
                 })
             })
         };
@@ -160,14 +175,14 @@ mod tests {
         answer.send(Answer::Granted).unwrap();
         assert_eq!(first.now_or_never(), Some(Some(Answer::Granted)));
         assert_eq!(second.now_or_never(), Some(Some(Answer::Granted)));
-        assert_eq!(kept.load(Ordering::SeqCst), 1);
+        assert_eq!(grants.kept.load(Ordering::SeqCst), 1);
         assert!(locked(&asking.0).is_empty(), "no longer being put");
     }
 
     struct LiveTestGrants {
         camera: Mutex<Option<Answer>>,
         kept: AtomicUsize,
-        waiters: Mutex<Vec<oneshot::Sender<()>>>,
+        notify: Arc<Notify>,
     }
 
     impl LiveTestGrants {
@@ -175,19 +190,13 @@ mod tests {
             Arc::new(LiveTestGrants {
                 camera: Mutex::default(),
                 kept: AtomicUsize::new(0),
-                waiters: Mutex::default(),
+                notify: Arc::new(Notify::new()),
             })
-        }
-
-        fn notify(&self) {
-            for waiter in self.waiters.lock().unwrap().drain(..) {
-                let _ = waiter.send(());
-            }
         }
 
         fn set_camera(&self, answer: Answer) {
             *self.camera.lock().unwrap() = Some(answer);
-            self.notify();
+            self.notify.notify_waiters();
         }
     }
 
@@ -234,9 +243,7 @@ mod tests {
         fn set_link_scheme_answer(&self, _scheme: &str, _answer: Answer) {}
 
         fn changed(&self) -> ChangedFuture {
-            let (tx, rx) = oneshot::channel();
-            self.waiters.lock().unwrap().push(tx);
-            Box::pin(rx.map(|_| ()))
+            Box::pin(Arc::clone(&self.notify).notified_owned())
         }
     }
 
@@ -245,18 +252,18 @@ mod tests {
         let grants = LiveTestGrants::new();
         let access = ProgramAccess::new(grants.clone());
         let (prompt_tx, prompt_rx) = oneshot::channel::<Option<Answer>>();
-        let mut asked = ask_or_setting(
+        let mut asked = Box::pin(ask_or_setting(
             &access,
             Prompt::Question(Question::Camera),
             |grants| grants.answer(Question::Camera),
             || Box::pin(prompt_rx.map(|answer| answer.unwrap_or(None))),
             |grants, answer| grants.set_answer(Question::Camera, answer),
-        );
+        ));
         assert_eq!((&mut asked).now_or_never(), None);
         assert!(!prompt_tx.is_canceled());
 
         // An unrelated change leaves the question waiting and its prompt intact.
-        grants.notify();
+        grants.notify.notify_waiters();
         assert_eq!((&mut asked).now_or_never(), None);
         assert!(!prompt_tx.is_canceled());
 
@@ -267,7 +274,7 @@ mod tests {
         assert_eq!(grants.kept.load(Ordering::SeqCst), 0);
 
         // And a fresh ask reads the stored answer without calling prompt at all.
-        let mut second = ask_or_setting(
+        let mut second = Box::pin(ask_or_setting(
             &access,
             Prompt::Question(Question::Camera),
             |grants| grants.answer(Question::Camera),
@@ -277,7 +284,7 @@ mod tests {
                 Box::pin(pending())
             },
             |grants, answer| grants.set_answer(Question::Camera, answer),
-        );
+        ));
         assert_eq!((&mut second).now_or_never(), Some(Some(Answer::Granted)));
     }
 }

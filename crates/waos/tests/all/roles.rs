@@ -6,11 +6,11 @@
 
 use std::sync::{Arc, Mutex};
 
-use futures::channel::oneshot;
 use futures::executor::block_on;
 use futures::future::{self, BoxFuture};
 use futures::stream::{self, BoxStream};
 use futures::{FutureExt, StreamExt};
+use tokio::sync::Notify;
 use waos::inspection::bindings::wasdk::inspect::devices::{Program, ProgramChange, StartError};
 use waos::inspection::{InspectedPrograms, ProgramStorage};
 use waos::{
@@ -25,15 +25,13 @@ use crate::shell;
 #[derive(Default)]
 struct RoleGrants {
     inspector: Mutex<Option<Answer>>,
-    waiting: Mutex<Vec<oneshot::Sender<()>>>,
+    changed: Arc<Notify>,
 }
 
 impl RoleGrants {
     fn set(&self, answer: Answer) {
         *self.inspector.lock().unwrap() = Some(answer);
-        for waiter in self.waiting.lock().unwrap().drain(..) {
-            let _ = waiter.send(());
-        }
+        self.changed.notify_waiters();
     }
 }
 
@@ -88,9 +86,7 @@ impl ProgramGrants for RoleGrants {
     }
 
     fn changed(&self) -> ChangedFuture {
-        let (tx, rx) = oneshot::channel();
-        self.waiting.lock().unwrap().push(tx);
-        Box::pin(rx.map(|_| ()))
+        Box::pin(Arc::clone(&self.changed).notified_owned())
     }
 }
 

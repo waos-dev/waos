@@ -2,8 +2,8 @@
 //! setters, each dialog shown through the shell or answered as its user set it, and each pick
 //! mounted before it is answered.
 
-use std::future::ready;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use waos_capabilities::FileDialog;
 
@@ -227,9 +227,10 @@ impl<T: FileDialogsCtxView + 'static> HostFileDialogsWithStore<T> for HasFileDia
             let mut context = access.get();
             let (parent, options) = open_options(&mut context, parent.as_ref(), options)?;
             let writable = options.writable;
-            let shell = &context.table.get(&dialogs)?.0;
-            let shown = one(context.picks, FileDialog::OpenFile, || {
-                shell.open_file(context.program, parent, options)
+            let shell = Arc::clone(&context.table.get(&dialogs)?.0);
+            let program = context.program.clone();
+            let shown = one(context.picks, FileDialog::OpenFile, move || {
+                shell.open_file(&program, parent, options)
             });
             wasmtime::Result::<_>::Ok((shown, writable, context.picks.clone()))
         })?;
@@ -248,12 +249,13 @@ impl<T: FileDialogsCtxView + 'static> HostFileDialogsWithStore<T> for HasFileDia
             let mut context = access.get();
             let (parent, options) = open_options(&mut context, parent.as_ref(), options)?;
             let writable = options.writable;
-            let shell = &context.table.get(&dialogs)?.0;
+            let shell = Arc::clone(&context.table.get(&dialogs)?.0);
+            let program = context.program.clone();
             let shown = dialog_answer(
                 context.picks,
                 FileDialog::OpenFiles,
                 |paths| paths,
-                || shell.open_files(context.program, parent, options),
+                move || shell.open_files(&program, parent, options),
             );
             wasmtime::Result::<_>::Ok((shown, writable, context.picks.clone()))
         })?;
@@ -274,9 +276,10 @@ impl<T: FileDialogsCtxView + 'static> HostFileDialogsWithStore<T> for HasFileDia
             let mut options = context.table.delete(options)?;
             options.initial_folder = context.machine_folder(options.initial_folder.take());
             let writable = options.writable;
-            let shell = &context.table.get(&dialogs)?.0;
-            let shown = one(context.picks, FileDialog::OpenFolder, || {
-                shell.open_folder(context.program, parent, options)
+            let shell = Arc::clone(&context.table.get(&dialogs)?.0);
+            let program = context.program.clone();
+            let shown = one(context.picks, FileDialog::OpenFolder, move || {
+                shell.open_folder(&program, parent, options)
             });
             wasmtime::Result::<_>::Ok((shown, writable, context.picks.clone()))
         })?;
@@ -297,9 +300,10 @@ impl<T: FileDialogsCtxView + 'static> HostFileDialogsWithStore<T> for HasFileDia
             let parent = context.parent_id(parent.as_ref())?;
             let mut options = context.table.delete(options)?;
             options.initial_folder = context.machine_folder(options.initial_folder.take());
-            let shell = &context.table.get(&dialogs)?.0;
-            let shown = one(context.picks, FileDialog::SaveFile, || {
-                shell.save_file(context.program, parent, options)
+            let shell = Arc::clone(&context.table.get(&dialogs)?.0);
+            let program = context.program.clone();
+            let shown = one(context.picks, FileDialog::SaveFile, move || {
+                shell.save_file(&program, parent, options)
             });
             wasmtime::Result::<_>::Ok((shown, context.picks.clone()))
         })?;
@@ -314,7 +318,7 @@ impl<T: FileDialogsCtxView + 'static> HostFileDialogsWithStore<T> for HasFileDia
 fn one(
     picks: &Picks,
     dialog: FileDialog,
-    show: impl FnOnce() -> FileDialogFuture<Option<PathBuf>>,
+    show: impl FnOnce() -> FileDialogFuture<Option<PathBuf>> + Send + 'static,
 ) -> FileDialogFuture<Option<PathBuf>> {
     dialog_answer(picks, dialog, |paths| paths.into_iter().next(), show)
 }
@@ -326,20 +330,14 @@ fn dialog_answer<T: Send + 'static>(
     picks: &Picks,
     dialog: FileDialog,
     map_set: impl FnOnce(Vec<PathBuf>) -> T + Send + 'static,
-    show: impl FnOnce() -> FileDialogFuture<T>,
+    show: impl FnOnce() -> FileDialogFuture<T> + Send + 'static,
 ) -> FileDialogFuture<T> {
     let grants = picks.grants();
-    let changed = grants.changed();
-    if let Some(set) = grants.file_dialog_answer(dialog) {
-        return Box::pin(ready(set_answers::checked(dialog, set).map(map_set)));
-    }
-    let shown = show();
     Box::pin(async move {
-        match asking::or_setting(
+        match asking::stored_or_shown(
             grants,
-            changed,
             move |grants| grants.file_dialog_answer(dialog),
-            shown,
+            show,
         )
         .await
         {

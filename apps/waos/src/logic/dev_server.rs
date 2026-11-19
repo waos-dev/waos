@@ -847,11 +847,7 @@ pub(crate) mod tests {
             frames.last(),
             Some(&FromWaOS::Asking(Asked::Question(Question::Notifications)))
         );
-        let pending_question = requests.questions.next().await;
-        assert!(matches!(
-            pending_question,
-            Some(crate::logic::prompts::QuestionEvent::Asked(_))
-        ));
+        let pending_question = requests.questions.next().await.expect("waiting question");
         assert_eq!(
             server.asking.of(PERMISSIONS),
             Some(Asked::Question(Question::Notifications))
@@ -874,10 +870,7 @@ pub(crate) mod tests {
                 output.push_str(&String::from_utf8_lossy(&bytes));
             }
         }
-        assert!(matches!(
-            requests.questions.next().await,
-            Some(crate::logic::prompts::QuestionEvent::Cancelled(_))
-        ));
+        assert!(pending_question.cancelled.await.is_err());
         assert_ne!(
             server.asking.of(PERMISSIONS),
             Some(Asked::Question(Question::Notifications))

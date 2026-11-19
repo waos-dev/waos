@@ -9,12 +9,12 @@
 use std::fs;
 use std::future::pending;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use futures::FutureExt;
-use futures::channel::oneshot;
+use tokio::sync::Notify;
 use waos::{Answer, ProgramEnd, ProgramEnvironment, ProgramGrants, ProgramOutput, Question};
 use waos_capabilities::{
     ChangedFuture, DomainRule, FileDialog, FileSystemGrant, NetworkGrant, ProgramFolders,
@@ -179,8 +179,16 @@ fn a_waiting_file_dialog_is_answered_by_setting_its_path_and_drops_its_prompt() 
     assert!(!dialogs.held_cancelled(0));
 
     // Setting an unrelated dialog's path leaves the waiting open-file dialog up.
+    let reads = grants.reads();
     grants.set(FileDialog::OpenFolder, picks.join("pictures"));
-    thread::sleep(Duration::from_millis(50));
+    let deadline = Instant::now() + WITHIN;
+    while grants.reads() <= reads {
+        assert!(
+            Instant::now() < deadline,
+            "open-file answer was not re-read"
+        );
+        thread::sleep(Duration::from_millis(5));
+    }
     assert!(
         !dialogs.held_cancelled(0),
         "unrelated dialog setting left open-file waiting"
@@ -206,19 +214,22 @@ fn a_waiting_file_dialog_is_answered_by_setting_its_path_and_drops_its_prompt() 
 struct LiveFileDialogGrants {
     open_file: Mutex<Option<PathBuf>>,
     open_folder: Mutex<Option<PathBuf>>,
-    waiting: Mutex<Vec<oneshot::Sender<()>>>,
+    reads: AtomicUsize,
+    changed: Arc<Notify>,
 }
 
 impl LiveFileDialogGrants {
+    fn reads(&self) -> usize {
+        self.reads.load(Ordering::SeqCst)
+    }
+
     fn set(&self, dialog: FileDialog, path: PathBuf) {
         match dialog {
             FileDialog::OpenFile => *self.open_file.lock().unwrap() = Some(path),
             FileDialog::OpenFolder => *self.open_folder.lock().unwrap() = Some(path),
             _ => {}
         }
-        for waiter in self.waiting.lock().unwrap().drain(..) {
-            let _ = waiter.send(());
-        }
+        self.changed.notify_waiters();
     }
 }
 
@@ -259,6 +270,9 @@ impl ProgramGrants for LiveFileDialogGrants {
     fn set_link_scheme_answer(&self, _scheme: &str, _answer: Answer) {}
 
     fn file_dialog_answer(&self, dialog: FileDialog) -> Option<Vec<PathBuf>> {
+        if dialog == FileDialog::OpenFile {
+            self.reads.fetch_add(1, Ordering::SeqCst);
+        }
         match dialog {
             FileDialog::OpenFile => self.open_file.lock().unwrap().clone().map(|p| vec![p]),
             FileDialog::OpenFolder => self.open_folder.lock().unwrap().clone().map(|p| vec![p]),
@@ -267,9 +281,7 @@ impl ProgramGrants for LiveFileDialogGrants {
     }
 
     fn changed(&self) -> ChangedFuture {
-        let (tx, rx) = oneshot::channel();
-        self.waiting.lock().unwrap().push(tx);
-        Box::pin(rx.map(|_| ()))
+        Box::pin(Arc::clone(&self.changed).notified_owned())
     }
 }
 

@@ -63,7 +63,7 @@ pub(crate) enum Carried {
     /// The program opens a file dialog: the window process opens it, and answers once it closes.
     FileDialogAsked(AskedFileDialog),
     /// WaOS no longer awaits this file dialog's answer: close it if still open.
-    FileDialogClosed(FileDialogId),
+    CloseFileDialog(FileDialogId),
     /// The program posts or schedules a notification: the window process posts it, and answers
     /// once the system has it.
     NotificationAsked(AskedNotification),
@@ -251,7 +251,7 @@ impl Connection {
             // The connection's thread records it as it arrives, for a window waiting on the main
             // thread, and hands it on to nothing.
             ToWindow::PictureShown { .. } => {}
-            ToWindow::CloseFileDialog { dialog } => return Carried::FileDialogClosed(dialog),
+            ToWindow::CloseFileDialog { dialog } => return Carried::CloseFileDialog(dialog),
             ToWindow::Welcome(_) | ToWindow::Refused(_) => {
                 tracing::warn!(?message, "WaOS answered a hello twice");
             }

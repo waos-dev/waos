@@ -78,16 +78,23 @@ impl LinkSchemes {
     /// waiting.
     fn ask(&self, scheme: &str) -> impl Future<Output = Option<Answer>> + Send + 'static {
         let owned = scheme.to_owned();
+        let access = self.access.clone();
+        let prompts = Arc::clone(&self.prompts);
+        let program = self.program.clone();
         let read_scheme = owned.clone();
+        let ask_scheme = owned.clone();
         let keep_scheme = owned.clone();
         self.asking.ask(owned.clone(), || {
-            ask_or_setting(
-                &self.access,
-                Prompt::LinkScheme(owned),
-                move |grants| grants.link_scheme_answer(&read_scheme),
-                || self.prompts.ask_to_open_links(&self.program, scheme),
-                move |grants, answer| grants.set_link_scheme_answer(&keep_scheme, answer),
-            )
+            Box::pin(async move {
+                ask_or_setting(
+                    &access,
+                    Prompt::LinkScheme(owned),
+                    move |grants| grants.link_scheme_answer(&read_scheme),
+                    move || prompts.ask_to_open_links(&program, &ask_scheme),
+                    move |grants, answer| grants.set_link_scheme_answer(&keep_scheme, answer),
+                )
+                .await
+            })
         })
     }
 }
