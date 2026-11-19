@@ -56,7 +56,9 @@ impl WasdkImageCodecs {
 
     /// The WIT's hardware codecs, where the system has them.
     pub(crate) fn wit_hardware_codecs(&self) -> Option<Rc<platform::HardwareImageCodecs>> {
-        self.hardware.as_ref().map(|hardware| Rc::clone(&hardware.0))
+        self.hardware
+            .as_ref()
+            .map(|hardware| Rc::clone(&hardware.0))
     }
 }
 
