@@ -11,11 +11,11 @@
 use futures::StreamExt;
 use futures::stream::{self, BoxStream};
 use waos::{RunningProgram, TraceKind, WaOS};
-use waos_dev_protocol::{
-    Connection, FromWaOS, Inspection, ServerStream, TracedCapability, Unreached,
-};
+use waos_dev_protocol::{Connection, InspectAnswer, Inspection, ServerStream, TracedCapability};
 use waos_package::ProgramId;
 
+use super::dev_refusal;
+use super::dev_server::BUILD;
 use super::runs::Runs;
 use super::sent_components::SentComponents;
 
@@ -40,7 +40,7 @@ pub(crate) async fn answer(
             if was_run {
                 Ok(summary(context.engine, id, days))
             } else {
-                Err(Unreached::NeverRunByCargoWaos)
+                Err(dev_refusal::never_dev_run(id))
             }
         }
         Inspection::ActiveUses => match running.as_ref().and_then(RunningProgram::active_uses) {
@@ -49,19 +49,31 @@ pub(crate) async fn answer(
                 send_lines(connection, vec![json(&now)], changes).await;
                 return;
             }
-            None => Err(Unreached::NotRunByCargoWaos),
+            None => Err(dev_refusal::no_dev_run_now(id)),
         },
-        Inspection::Trace(traced) => match running {
-            Some(program) => {
-                trace(connection, &program, &traced).await;
+        Inspection::Trace(traced) => {
+            let Some(kinds) = traced
+                .iter()
+                .map(|each| kind_of(*each))
+                .collect::<Option<Vec<_>>>()
+            else {
+                let refusal = dev_refusal::unsupported(BUILD, "inspection");
+                let _ = connection.send(&InspectAnswer::Refused(refusal)).await;
                 return;
+            };
+            match running {
+                Some(program) => {
+                    trace(connection, &program, &kinds).await;
+                    return;
+                }
+                None => Err(dev_refusal::no_dev_run_now(id)),
             }
-            None => Err(Unreached::NotRunByCargoWaos),
-        },
+        }
+        Inspection::Unknown => Err(dev_refusal::unsupported(BUILD, "inspection")),
     };
     let answer = match answered {
-        Ok(lines) => FromWaOS::Inspected(lines),
-        Err(why) => FromWaOS::Unreached(why),
+        Ok(lines) => InspectAnswer::Inspected(lines),
+        Err(refusal) => InspectAnswer::Refused(refusal),
     };
     // A client gone meanwhile has nobody to tell.
     let _ = connection.send(&answer).await;
@@ -77,16 +89,16 @@ fn summary(engine: &WaOS, id: &ProgramId, days: u32) -> Vec<String> {
         .collect()
 }
 
-/// Sends each event of `program`'s uses of `traced` as it comes, until the connection closes or
+/// Sends each event of `program`'s uses of `kinds` as it comes, until the connection closes or
 /// the program ends.
 async fn trace(
     connection: Connection<ServerStream>,
     program: &RunningProgram,
-    traced: &[TracedCapability],
+    kinds: &[TraceKind],
 ) {
-    let streams: Vec<BoxStream<'static, waos::TraceEvent>> = traced
+    let streams: Vec<BoxStream<'static, waos::TraceEvent>> = kinds
         .iter()
-        .filter_map(|traced| program.trace(kind_of(*traced)))
+        .filter_map(|kind| program.trace(*kind))
         .map(StreamExt::boxed)
         .collect();
     let events = stream::select_all(streams).map(|event| json(&event));
@@ -101,17 +113,22 @@ async fn send_lines(
     mut lines: BoxStream<'static, String>,
 ) {
     let (mut reading, mut writing) = connection.into_split();
-    if !first.is_empty() && writing.send(&FromWaOS::Inspected(first)).await.is_err() {
+    if !first.is_empty()
+        && writing
+            .send(&InspectAnswer::Inspected(first))
+            .await
+            .is_err()
+    {
         return;
     }
     // The client says nothing more: anything it sends, or its closing, ends what is sent.
-    let closed = reading.receive::<waos_dev_protocol::ToWaOS>();
+    let closed = reading.receive::<waos_dev_protocol::Request>();
     tokio::pin!(closed);
     loop {
         tokio::select! {
             line = lines.next() => {
                 let Some(line) = line else { return };
-                if writing.send(&FromWaOS::Inspected(vec![line])).await.is_err() {
+                if writing.send(&InspectAnswer::Inspected(vec![line])).await.is_err() {
                     return;
                 }
             }
@@ -120,8 +137,8 @@ async fn send_lines(
     }
 }
 
-fn kind_of(traced: TracedCapability) -> TraceKind {
-    match traced {
+fn kind_of(traced: TracedCapability) -> Option<TraceKind> {
+    Some(match traced {
         TracedCapability::Network => TraceKind::Network,
         TracedCapability::Files => TraceKind::Files,
         TracedCapability::Clipboard => TraceKind::Clipboard,
@@ -132,7 +149,8 @@ fn kind_of(traced: TracedCapability) -> TraceKind {
         TracedCapability::Links => TraceKind::Links,
         TracedCapability::Notifications => TraceKind::Notifications,
         TracedCapability::Output => TraceKind::Output,
-    }
+        TracedCapability::Unknown => return None,
+    })
 }
 
 /// `value` as one line of JSON.

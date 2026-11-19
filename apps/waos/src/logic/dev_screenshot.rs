@@ -1,7 +1,7 @@
 //! A screenshot `cargo waos screenshot` asks for: the last picture of each window of a program a
-//! run of `cargo waos run` runs, in the order its views arrived, which numbers them from 1, with
-//! the window's title, its size, whether it is in sight, and the picture as a PNG (the design's
-//! decision 60). A picture is what the window shows, at its view's size (`ProgramView::picture`,
+//! run of `cargo waos run` runs, or of the one window asked for, each with the id the run gave it
+//! as it opened, its title, its size, whether it is in sight, and the picture as a PNG (the
+//! design's decision 60). A picture is what the window shows, at its view's size (`ProgramView::picture`,
 //! decision 62): the program's drawing over what each composition layer beneath it shows now, a
 //! buffer it presented, a player's video or a camera's picture, drawn together by the engine on
 //! the GPU; BGRA with its alpha premultiplied, as the compositor shows it, made a PNG's RGBA with
@@ -12,56 +12,89 @@
 //!
 //! The invariant: only a run `cargo waos run` sent is read, never a program the library opened.
 
+use waos::ProgramView;
 use waos::bindings::wasdk::platform::hardware_buffers::PixelBuffer;
-use waos::{ProgramView, RunningProgram};
-use waos_dev_protocol::{Asked, Connection, FromWaOS, ServerStream, Unreached, WindowPicture};
+use waos_dev_protocol::{
+    Asked, Connection, Refusal, RefusalKind, ScreenshotAnswer, ServerStream, WindowId,
+    WindowPicture,
+};
 use waos_package::ProgramId;
 
 use super::asking_now::AskingNow;
-use super::runs::Runs;
+use super::dev_refusal;
+use super::runs::{DevRun, Runs};
 
-/// Answers a connection's `Screenshot`: the pictures of the windows of the program `id`, or
-/// `Unreached` for one no run of `cargo waos run` runs.
+/// Answers a connection's `Screenshot`: the pictures of the windows of the program `id`, or of
+/// `window` alone, or why neither was taken.
 pub(crate) async fn answer(
     mut connection: Connection<ServerStream>,
     runs: &Runs,
     asking: &AskingNow,
     id: &ProgramId,
+    window: Option<WindowId>,
 ) {
     let answer = match runs.dev_run(id).await {
         Some(run) => {
-            let program = run.program;
             let asked = asking.of(id.as_str());
+            let id = id.clone();
             // Reading and encoding a picture takes a while; the server's thread serves others.
-            match tokio::task::spawn_blocking(move || pictures(&program, asked.as_ref())).await {
-                Ok(pictures) => FromWaOS::Screenshots(pictures),
-                Err(error) => FromWaOS::Refused(format!("taking the screenshot: {error}")),
+            match tokio::task::spawn_blocking(move || pictures(&id, &run, asked.as_ref(), window))
+                .await
+            {
+                Ok(Ok(pictures)) => ScreenshotAnswer::Pictures(pictures),
+                Ok(Err(refusal)) => ScreenshotAnswer::Refused(refusal),
+                // A panic while encoding is this build's own failure.
+                Err(error) => ScreenshotAnswer::Refused(Refusal::new(
+                    RefusalKind::Failed,
+                    format!("taking the screenshot: {error}"),
+                )),
             }
         }
-        None => FromWaOS::Unreached(Unreached::NotRunByCargoWaos),
+        None => ScreenshotAnswer::Refused(dev_refusal::no_dev_run_now(id)),
     };
     // A client gone meanwhile has nobody to tell.
     let _ = connection.send(&answer).await;
 }
 
-/// The picture of each of `program`'s windows, numbered from 1 in the order they arrived, each
-/// with what WaOS `asked` the program's user over it.
-fn pictures(program: &RunningProgram, asked: Option<&Asked>) -> Vec<WindowPicture> {
-    (1..)
-        .zip(program.views())
-        .map(|(window, view)| WindowPicture {
-            asking: asked.cloned(),
-            ..picture_of(window, &view)
-        })
-        .collect()
+/// The picture of each of `program`'s windows, each with the id the run gave it as it opened; or
+/// of `window` alone, or why it has no such window. Each says what WaOS `asked` the program's user
+/// over it.
+fn pictures(
+    id: &ProgramId,
+    run: &DevRun,
+    asked: Option<&Asked>,
+    window: Option<WindowId>,
+) -> Result<Vec<WindowPicture>, Refusal> {
+    let windows = run.windows();
+    let count = windows.len();
+    match window {
+        Some(window) => {
+            let wanted = windows
+                .into_iter()
+                .find(|(each, _)| *each == window)
+                .map(|(_, view)| view)
+                .ok_or_else(|| dev_refusal::no_window(id, window, count))?;
+            Ok(vec![WindowPicture {
+                asking: asked.cloned(),
+                ..picture_of(window, &wanted)
+            }])
+        }
+        None => Ok(windows
+            .into_iter()
+            .map(|(window, view)| WindowPicture {
+                asking: asked.cloned(),
+                ..picture_of(window, &view)
+            })
+            .collect()),
+    }
 }
 
-/// The window numbered `window`, showing `view`, as `cargo waos screenshot` writes it.
-fn picture_of(window: u32, view: &ProgramView) -> WindowPicture {
+/// The window `window`, showing `view`, as `cargo waos screenshot` writes it.
+fn picture_of(window: WindowId, view: &ProgramView) -> WindowPicture {
     let pixels = match view.picture() {
         Ok(pixels) => pixels,
         Err(error) => {
-            tracing::warn!(window, ?error, "a window's picture could not be read");
+            tracing::warn!(%window, ?error, "a window's picture could not be read");
             None
         }
     };
@@ -128,7 +161,7 @@ mod tests {
     use std::fs;
 
     use waos::bindings::wasdk::platform::hardware_buffers::{AlphaType, PixelFormat};
-    use waos_dev_protocol::ToWaOS;
+    use waos_dev_protocol::{RefusalKind, Request, ScreenshotAnswer, WindowId};
 
     use super::*;
     use crate::logic::dev_server::tests::TestServer;
@@ -138,20 +171,22 @@ mod tests {
     /// The id `examples/opener` runs as.
     const OPENER: &str = "dev.waos.examples.opener";
 
-    fn screenshot(id: &str) -> ToWaOS {
-        ToWaOS::Screenshot {
+    fn screenshot(id: &str) -> Request {
+        Request::Screenshot {
             id: id.parse().unwrap(),
+            window: None,
         }
     }
 
     #[tokio::test]
     async fn only_a_run_cargo_waos_sent_is_read() {
         let server = TestServer::start("screenshot-library");
-        assert_eq!(
-            server.ask(&screenshot(OPENER)).await,
-            FromWaOS::Unreached(Unreached::NotRunByCargoWaos),
-            "nothing runs"
-        );
+        let ScreenshotAnswer::Refused(refusal) =
+            server.ask::<ScreenshotAnswer>(&screenshot(OPENER)).await
+        else {
+            panic!("nothing runs");
+        };
+        assert_eq!(refusal.kind, RefusalKind::NoDevRunNow);
         let packages = server.folder.join("packages");
         fs::create_dir_all(&packages).unwrap();
         let component = fs::read(waos_test_programs::OPENER).unwrap();
@@ -167,11 +202,12 @@ mod tests {
         let sent = open_command::send_to(&server.socket, &id, vec![file]).await;
         assert_eq!(sent.unwrap(), Sent::Opened);
         server.wait_for_runs(&[OPENER]).await;
-        assert_eq!(
-            server.ask(&screenshot(OPENER)).await,
-            FromWaOS::Unreached(Unreached::NotRunByCargoWaos),
-            "the library opened it"
-        );
+        let ScreenshotAnswer::Refused(refusal) =
+            server.ask::<ScreenshotAnswer>(&screenshot(OPENER)).await
+        else {
+            panic!("the library opened it");
+        };
+        assert_eq!(refusal.kind, RefusalKind::NoDevRunNow);
     }
 
     /// Two pixels on each of two rows, each row padded to 12 bytes.
@@ -249,7 +285,8 @@ mod tests {
         async fn pictures_once_shown(server: &TestServer, id: &str) -> Vec<WindowPicture> {
             let deadline = Instant::now() + WITHIN;
             loop {
-                if let FromWaOS::Screenshots(pictures) = server.ask(&screenshot(id)).await
+                if let ScreenshotAnswer::Pictures(pictures) =
+                    server.ask::<ScreenshotAnswer>(&screenshot(id)).await
                     && pictures
                         .first()
                         .is_some_and(|picture| picture.png.is_some())
@@ -299,7 +336,7 @@ mod tests {
             };
             assert_eq!(
                 (picture.window, picture.title.as_str(), picture.in_sight),
-                (1, "Input", true)
+                (WindowId(1), "Input", true)
             );
             assert_eq!(
                 (picture.width, picture.height),
@@ -309,17 +346,17 @@ mod tests {
             assert_eq!(size, (WINDOW_WIDTH, WINDOW_HEIGHT));
             assert_colour(middle, FIRST);
 
-            let tap = ToWaOS::Input {
+            let tap = Request::Input {
                 id: INPUT.parse().unwrap(),
-                window: 1,
+                window: Some(WindowId(1)),
                 input: Input::Tap { x: 1.0, y: 1.0 },
             };
             assert_eq!(
-                server.ask(&tap).await,
-                FromWaOS::InputDone {
+                server.ask::<waos_dev_protocol::InputAnswer>(&tap).await,
+                waos_dev_protocol::InputAnswer::Done(waos_dev_protocol::InputDone {
                     in_sight: true,
                     new_picture: true,
-                }
+                })
             );
             let pictures = pictures_once_shown(&server, INPUT).await;
             assert_colour(middle_of(pictures[0].png.as_ref().unwrap()).0, SECOND);
@@ -342,17 +379,17 @@ mod tests {
             assert!(view.in_sight(), "covered, but watched");
             let pictures = pictures_once_shown(&server, INPUT).await;
             assert!(pictures[0].in_sight);
-            let tap = ToWaOS::Input {
+            let tap = Request::Input {
                 id: INPUT.parse().unwrap(),
-                window: 1,
+                window: Some(WindowId(1)),
                 input: Input::Tap { x: 1.0, y: 1.0 },
             };
             assert_eq!(
-                server.ask(&tap).await,
-                FromWaOS::InputDone {
+                server.ask::<waos_dev_protocol::InputAnswer>(&tap).await,
+                waos_dev_protocol::InputAnswer::Done(waos_dev_protocol::InputDone {
                     in_sight: true,
                     new_picture: true,
-                },
+                }),
                 "a covered window draws what the input changed"
             );
 
@@ -361,6 +398,131 @@ mod tests {
             assert!(
                 !view.in_sight(),
                 "once the run ended, covered is out of sight"
+            );
+        }
+
+        #[tokio::test]
+        async fn window_ids_survive_a_window_closing_and_screenshot_takes_one_window() {
+            const TWO_WINDOWS: &str = "dev.waos.examples.twowindows";
+            let server = TestServer::drawing("window-ids");
+            let _client = server
+                .run(TWO_WINDOWS, Path::new(waos_test_programs::TWO_WINDOWS))
+                .await;
+            let deadline = Instant::now() + WITHIN;
+            let both = loop {
+                if let ScreenshotAnswer::Pictures(pictures) = server
+                    .ask::<ScreenshotAnswer>(&screenshot(TWO_WINDOWS))
+                    .await
+                    && pictures.len() == 2
+                    && pictures.iter().all(|picture| picture.png.is_some())
+                {
+                    break pictures;
+                }
+                assert!(Instant::now() < deadline, "both windows never drew");
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            };
+            assert_eq!(
+                (both[0].window, both[0].title.as_str()),
+                (WindowId(1), "first")
+            );
+            assert_eq!(
+                (both[1].window, both[1].title.as_str()),
+                (WindowId(2), "second")
+            );
+
+            // Asking for one window returns that window alone.
+            let only_second = Request::Screenshot {
+                id: TWO_WINDOWS.parse().unwrap(),
+                window: Some(WindowId(2)),
+            };
+            let ScreenshotAnswer::Pictures(one) =
+                server.ask::<ScreenshotAnswer>(&only_second).await
+            else {
+                panic!("one window");
+            };
+            assert_eq!(one.len(), 1);
+            assert_eq!(
+                (one[0].window, one[0].title.as_str()),
+                (WindowId(2), "second")
+            );
+
+            // Closing the first window leaves the second with id 2, refuses id 1, and gives the
+            // next window id 3 rather than reusing 1.
+            let program = server.programs().await.remove(0);
+            let first_view = program.views()[0].id();
+            program.remove_view(first_view);
+            let ScreenshotAnswer::Pictures(after_close) = server
+                .ask::<ScreenshotAnswer>(&screenshot(TWO_WINDOWS))
+                .await
+            else {
+                panic!("the remaining window");
+            };
+            assert_eq!(after_close.len(), 1);
+            assert_eq!(
+                (after_close[0].window, after_close[0].title.as_str()),
+                (WindowId(2), "second")
+            );
+            let ScreenshotAnswer::Refused(refusal) = server
+                .ask::<ScreenshotAnswer>(&Request::Screenshot {
+                    id: TWO_WINDOWS.parse().unwrap(),
+                    window: Some(WindowId(1)),
+                })
+                .await
+            else {
+                panic!("a closed window is refused");
+            };
+            assert_eq!(
+                refusal.kind,
+                RefusalKind::NoWindow {
+                    window: WindowId(1)
+                }
+            );
+            let ScreenshotAnswer::Pictures(still_second) =
+                server.ask::<ScreenshotAnswer>(&only_second).await
+            else {
+                panic!("window 2 survives");
+            };
+            assert_eq!(still_second[0].window, WindowId(2));
+
+            // With window 1 closed, input and resize without `--window` reach window 2.
+            let default_input = server
+                .ask::<waos_dev_protocol::InputAnswer>(&Request::Input {
+                    id: TWO_WINDOWS.parse().unwrap(),
+                    window: None,
+                    input: Input::Tap { x: 1.0, y: 1.0 },
+                })
+                .await;
+            assert!(
+                matches!(default_input, waos_dev_protocol::InputAnswer::Done(_)),
+                "input without --window reached window 2: {default_input:?}"
+            );
+            let default_resize = server
+                .ask::<waos_dev_protocol::ResizeAnswer>(&Request::Resize {
+                    id: TWO_WINDOWS.parse().unwrap(),
+                    window: None,
+                    width: 320.0,
+                    height: 240.0,
+                })
+                .await;
+            assert!(
+                matches!(default_resize, waos_dev_protocol::ResizeAnswer::Done(_)),
+                "resize without --window reached window 2: {default_resize:?}"
+            );
+
+            let third = crate::logic::test_engine::drawing::add_window(&program, None);
+            assert_eq!(third.id(), 3);
+            let ScreenshotAnswer::Pictures(with_third) = server
+                .ask::<ScreenshotAnswer>(&screenshot(TWO_WINDOWS))
+                .await
+            else {
+                panic!("windows 2 and 3");
+            };
+            assert_eq!(
+                with_third
+                    .iter()
+                    .map(|picture| picture.window)
+                    .collect::<Vec<_>>(),
+                [WindowId(2), WindowId(3)]
             );
         }
     }

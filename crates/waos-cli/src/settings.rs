@@ -14,47 +14,39 @@ use std::path::{self, PathBuf};
 use std::process::ExitCode;
 
 use anyhow::{Context, Result, bail};
-use waos_dev_protocol::{ASK, FromWaOS, Row, SettingRow, ToWaOS};
+use waos_dev_protocol::{ASK, Request, Row, SettingRow, SettingsAnswer};
 use waos_package::ProgramId;
 
-use crate::asking::ask_on;
-use crate::connecting::connect_or_start;
-use crate::unreached;
+use crate::asking::ask_starting;
 
 /// Prints the rows of the program `id`'s settings.
 pub async fn show(id: ProgramId) -> Result<ExitCode> {
-    let answer = ask_on(
-        connect_or_start().await?,
-        &ToWaOS::Settings { id: id.clone() },
-    )
-    .await?;
-    answered(&id, answer, None)
+    let answer = ask_starting(&Request::Settings { id: id.clone() }).await?;
+    answered(answer, None)
 }
 
 /// Sets the row `words` name among the program `id`'s settings, and prints the rows after it.
 pub async fn set(id: ProgramId, words: &[String]) -> Result<ExitCode> {
     let row = whole_paths(Row::parse(words)?)?;
-    let set = ToWaOS::Set {
+    let answer = ask_starting(&Request::Set {
         id: id.clone(),
         row: row.clone(),
-    };
-    let answer = ask_on(connect_or_start().await?, &set).await?;
-    answered(&id, answer, Some(&row))
+    })
+    .await?;
+    answered(answer, Some(&row))
 }
 
 /// Prints what WaOS answered of the program `id`'s settings, after `set` where one was set.
-fn answered(id: &ProgramId, answer: FromWaOS, set: Option<&Row>) -> Result<ExitCode> {
+fn answered(answer: SettingsAnswer, set: Option<&Row>) -> Result<ExitCode> {
     let rows = match answer {
-        FromWaOS::Settings(rows) => rows,
-        FromWaOS::Unreached(why) => {
-            eprintln!("cargo waos: {}", unreached::said(&why, id, 1));
+        SettingsAnswer::Rows(rows) => rows,
+        SettingsAnswer::Refused(refusal) => {
+            eprintln!("cargo waos: {}", refusal.message);
             return Ok(ExitCode::FAILURE);
         }
-        FromWaOS::Refused(why) => {
-            eprintln!("cargo waos: WaOS refused it: {why}");
-            return Ok(ExitCode::FAILURE);
-        }
-        other => bail!("WaOS answered {other:?}, not the program's settings"),
+        SettingsAnswer::Unknown => bail!(
+            "WaOS answered the settings in a way this cargo waos does not know: update cargo waos with `cargo install cargo-waos`"
+        ),
     };
     for row in &rows {
         println!("{}", printed(row));

@@ -11,7 +11,10 @@ use std::path::Path;
 use std::time::{Duration, Instant};
 
 use waos::Presence;
-use waos_dev_protocol::{ClientStream, Connection, FromWaOS, Input, ToWaOS, Unreached};
+use waos_dev_protocol::{
+    ClientStream, Connection, Input, InputAnswer, InputDone, Refusal, RefusalKind, Request,
+    RunEvent, ScreenshotAnswer, WindowId,
+};
 
 use super::mouse::DEVICE;
 use crate::logic::dev_server::tests::{TestServer, WITHIN, next, stdout_of};
@@ -22,7 +25,7 @@ pub(crate) const INPUT: &str = "dev.waos.examples.input";
 
 /// `examples/input` running under `server`, its window showing its first picture; its run's
 /// connection, and what came on it so far.
-pub(crate) async fn run_input(server: &TestServer) -> (Connection<ClientStream>, Vec<FromWaOS>) {
+pub(crate) async fn run_input(server: &TestServer) -> (Connection<ClientStream>, Vec<RunEvent>) {
     let mut client = server
         .run(INPUT, Path::new(waos_test_programs::INPUT))
         .await;
@@ -35,11 +38,13 @@ pub(crate) async fn run_input(server: &TestServer) -> (Connection<ClientStream>,
 /// Waits until the program's window shows a picture.
 async fn wait_for_first_picture(server: &TestServer) {
     let deadline = Instant::now() + WITHIN;
-    let screenshot = ToWaOS::Screenshot {
+    let screenshot = Request::Screenshot {
         id: INPUT.parse().unwrap(),
+        window: None,
     };
     loop {
-        if let FromWaOS::Screenshots(pictures) = server.ask(&screenshot).await
+        if let ScreenshotAnswer::Pictures(pictures) =
+            server.ask::<ScreenshotAnswer>(&screenshot).await
             && pictures
                 .first()
                 .is_some_and(|picture| picture.png.is_some())
@@ -57,7 +62,7 @@ async fn wait_for_first_picture(server: &TestServer) {
 /// Reads the run's connection until the program has written `line`.
 async fn wait_for_line(
     client: &mut Connection<ClientStream>,
-    frames: &mut Vec<FromWaOS>,
+    frames: &mut Vec<RunEvent>,
     line: &str,
 ) {
     while !stdout_of(frames).lines().any(|written| written == line) {
@@ -65,11 +70,28 @@ async fn wait_for_line(
     }
 }
 
-fn input(window: u32, input: Input) -> ToWaOS {
-    ToWaOS::Input {
+/// An input to the window `window` of `examples/input`.
+fn input(window: WindowId, input: Input) -> Request {
+    Request::Input {
         id: INPUT.parse().unwrap(),
-        window,
+        window: Some(window),
         input,
+    }
+}
+
+/// What WaOS answers an input, which every input here expects to be given.
+async fn done(server: &TestServer, window: WindowId, given: Input) -> InputDone {
+    match server.ask::<InputAnswer>(&input(window, given)).await {
+        InputAnswer::Done(done) => done,
+        other => panic!("the input given: {other:?}"),
+    }
+}
+
+/// What WaOS refuses an input with.
+async fn refused(server: &TestServer, window: WindowId, given: Input) -> Refusal {
+    match server.ask::<InputAnswer>(&input(window, given)).await {
+        InputAnswer::Refused(refusal) => refusal,
+        other => panic!("the input refused: {other:?}"),
     }
 }
 
@@ -87,8 +109,8 @@ async fn a_tap_reaches_the_program_as_a_mouse_of_the_runs_own_done_once_its_next
     let (mut client, mut frames) = run_input(&server).await;
     let tap = Input::Tap { x: 40.0, y: 30.0 };
     assert_eq!(
-        server.ask(&input(1, tap.clone())).await,
-        FromWaOS::InputDone {
+        done(&server, WindowId(1), tap.clone()).await,
+        InputDone {
             in_sight: true,
             new_picture: true,
         }
@@ -98,8 +120,8 @@ async fn a_tap_reaches_the_program_as_a_mouse_of_the_runs_own_done_once_its_next
         wait_for_line(&mut client, &mut frames, &line).await;
     }
     assert_eq!(
-        server.ask(&input(1, tap)).await,
-        FromWaOS::InputDone {
+        done(&server, WindowId(1), tap).await,
+        InputDone {
             in_sight: true,
             new_picture: true,
         }
@@ -126,16 +148,17 @@ async fn a_tap_reaches_the_program_as_a_mouse_of_the_runs_own_done_once_its_next
 async fn text_is_committed_into_what_the_window_edits_once_it_edits() {
     let server = TestServer::drawing("text");
     let (mut client, mut frames) = run_input(&server).await;
+    let rejection = refused(&server, WindowId(1), Input::Text("milk".into())).await;
     assert_eq!(
-        server.ask(&input(1, Input::Text("milk".into()))).await,
-        FromWaOS::Unreached(Unreached::NotEditing),
+        rejection.kind,
+        RefusalKind::BadInput,
         "nothing edited before its first press"
     );
-    server.ask(&input(1, Input::Tap { x: 1.0, y: 1.0 })).await;
+    done(&server, WindowId(1), Input::Tap { x: 1.0, y: 1.0 }).await;
     wait_for_line(&mut client, &mut frames, "text: editing").await;
     assert_eq!(
-        server.ask(&input(1, Input::Text("milk".into()))).await,
-        FromWaOS::InputDone {
+        done(&server, WindowId(1), Input::Text("milk".into())).await,
+        InputDone {
             in_sight: true,
             new_picture: true,
         }
@@ -146,7 +169,7 @@ async fn text_is_committed_into_what_the_window_edits_once_it_edits() {
         "text: \"milk\" selection Some(\"4..4\")",
     )
     .await;
-    server.ask(&input(1, Input::Text(", eggs".into()))).await;
+    done(&server, WindowId(1), Input::Text(", eggs".into())).await;
     wait_for_line(
         &mut client,
         &mut frames,
@@ -160,8 +183,8 @@ async fn a_chord_reaches_the_program_as_its_keys_done_without_a_picture_when_non
     let server = TestServer::drawing("chord");
     let (mut client, mut frames) = run_input(&server).await;
     assert_eq!(
-        server.ask(&input(1, Input::Key("cmd+s".into()))).await,
-        FromWaOS::InputDone {
+        done(&server, WindowId(1), Input::Key("cmd+s".into())).await,
+        InputDone {
             in_sight: true,
             new_picture: false,
         },
@@ -175,10 +198,9 @@ async fn a_chord_reaches_the_program_as_its_keys_done_without_a_picture_when_non
     ] {
         wait_for_line(&mut client, &mut frames, line).await;
     }
-    assert_eq!(
-        server.ask(&input(1, Input::Key("hyper+q".into()))).await,
-        FromWaOS::Unreached(Unreached::UnknownKey("hyper+q".into()))
-    );
+    let rejection = refused(&server, WindowId(1), Input::Key("hyper+q".into())).await;
+    assert_eq!(rejection.kind, RefusalKind::BadInput);
+    assert!(rejection.message.contains("hyper+q"), "{rejection}");
 }
 
 #[tokio::test]
@@ -192,8 +214,8 @@ async fn a_scroll_reaches_the_program_where_the_mouse_came() {
         dy: 120.0,
     };
     assert_eq!(
-        server.ask(&input(1, scroll)).await,
-        FromWaOS::InputDone {
+        done(&server, WindowId(1), scroll).await,
+        InputDone {
             in_sight: true,
             new_picture: true,
         }
@@ -218,10 +240,7 @@ async fn a_press_holds_the_button_down_for_its_time_then_releases_it() {
         duration: held,
     };
     let started = Instant::now();
-    assert!(matches!(
-        server.ask(&input(1, press)).await,
-        FromWaOS::InputDone { .. }
-    ));
+    done(&server, WindowId(1), press).await;
     assert!(started.elapsed() >= held, "answered before the release");
     for (change, buttons) in [("Add", 0), ("Hover", 0), ("Down", 1), ("Up", 0)] {
         let line = mouse_line(change, "None", (40.0, 30.0), buttons, "0,0");
@@ -241,10 +260,7 @@ async fn a_drag_moves_with_the_button_held_in_its_steps_and_releases_at_its_end(
         duration: Duration::from_millis(200),
     };
     let started = Instant::now();
-    assert!(matches!(
-        server.ask(&input(1, drag)).await,
-        FromWaOS::InputDone { .. }
-    ));
+    done(&server, WindowId(1), drag).await;
     assert!(
         started.elapsed() >= Duration::from_millis(300),
         "answered before the drag's time"
@@ -271,25 +287,24 @@ async fn an_input_to_a_window_or_a_point_not_there_reaches_nothing() {
     let server = TestServer::drawing("not-there");
     let (_client, _frames) = run_input(&server).await;
     let tap = Input::Tap { x: 1.0, y: 1.0 };
-    for window in [0, 2] {
-        assert_eq!(
-            server.ask(&input(window, tap.clone())).await,
-            FromWaOS::Unreached(Unreached::NoWindow { window, windows: 1 })
-        );
+    for window in [WindowId(0), WindowId(2)] {
+        let rejection = refused(&server, window, tap.clone()).await;
+        assert_eq!(rejection.kind, RefusalKind::NoWindow { window });
     }
     let outside = Input::Tap {
         x: f64::from(WINDOW_WIDTH),
         y: 0.0,
     };
+    let rejection = refused(&server, WindowId(1), outside).await;
     assert_eq!(
-        server.ask(&input(1, outside)).await,
-        FromWaOS::Unreached(Unreached::OutsideWindow {
+        rejection.kind,
+        RefusalKind::OutsideWindow {
             width: WINDOW_WIDTH,
             height: WINDOW_HEIGHT,
             x: f64::from(WINDOW_WIDTH),
             y: 0.0,
             scale: 2.0,
-        })
+        }
     );
     let drag_out = Input::Drag {
         from: (1.0, 1.0),
@@ -299,14 +314,14 @@ async fn an_input_to_a_window_or_a_point_not_there_reaches_nothing() {
         duration: Duration::ZERO,
     };
     assert_eq!(
-        server.ask(&input(1, drag_out)).await,
-        FromWaOS::Unreached(Unreached::OutsideWindow {
+        refused(&server, WindowId(1), drag_out).await.kind,
+        RefusalKind::OutsideWindow {
             width: WINDOW_WIDTH,
             height: WINDOW_HEIGHT,
             x: 1.0,
             y: f64::from(WINDOW_HEIGHT),
             scale: 2.0,
-        }),
+        },
         "a drag ends in the window"
     );
 }
@@ -323,8 +338,8 @@ async fn an_input_to_a_window_out_of_sight_says_it_was_out_of_sight() {
     });
     assert!(!view.in_sight());
     assert_eq!(
-        server.ask(&input(1, Input::Tap { x: 1.0, y: 1.0 })).await,
-        FromWaOS::InputDone {
+        done(&server, WindowId(1), Input::Tap { x: 1.0, y: 1.0 }).await,
+        InputDone {
             in_sight: false,
             new_picture: false,
         },
@@ -335,8 +350,6 @@ async fn an_input_to_a_window_out_of_sight_says_it_was_out_of_sight() {
 #[tokio::test]
 async fn an_input_to_a_program_no_run_runs_reaches_nothing() {
     let server = TestServer::start("no-run");
-    assert_eq!(
-        server.ask(&input(1, Input::Tap { x: 1.0, y: 1.0 })).await,
-        FromWaOS::Unreached(Unreached::NotRunByCargoWaos)
-    );
+    let rejection = refused(&server, WindowId(1), Input::Tap { x: 1.0, y: 1.0 }).await;
+    assert_eq!(rejection.kind, RefusalKind::NoDevRunNow);
 }

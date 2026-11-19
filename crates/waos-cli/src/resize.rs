@@ -12,11 +12,10 @@ use std::process::ExitCode;
 use std::str::FromStr;
 
 use anyhow::{Result, bail};
-use waos_dev_protocol::{FromWaOS, ToWaOS};
+use waos_dev_protocol::{Request, ResizeAnswer, WindowId};
 use waos_package::ProgramId;
 
 use crate::asking::ask;
-use crate::unreached;
 
 /// A size in logical points, written `<width>x<height>`.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -59,46 +58,49 @@ impl fmt::Display for Points {
     }
 }
 
-/// Sizes the window numbered `window` of the program `id` so its view is `size`, waits for WaOS's
+/// Sizes the window `window` of the program `id` so its view is `size`, waits for WaOS's
 /// answer, and says the size the window took.
-pub async fn resize(id: ProgramId, window: u32, size: Points) -> Result<ExitCode> {
-    let answer = ask(&ToWaOS::Resize {
-        id: id.clone(),
+pub async fn resize(id: ProgramId, window: Option<WindowId>, size: Points) -> Result<ExitCode> {
+    let answer = ask(&Request::Resize {
+        id,
         window,
         width: size.width,
         height: size.height,
     })
     .await?;
     match answer {
-        FromWaOS::Resized {
+        ResizeAnswer::Done(waos_dev_protocol::Resized {
             width,
             height,
             scale,
             new_picture,
-        } => {
+        }) => {
             let taken = Points {
                 width: f64::from(width) / scale,
                 height: f64::from(height) / scale,
             };
-            println!("window {window}: {taken} points at scale {scale}, {width}x{height} pixels");
+            let named = match window {
+                Some(window) => format!("window {window}"),
+                None => "the window".to_owned(),
+            };
+            println!("{named}: {taken} points at scale {scale}, {width}x{height} pixels");
             if !size.is_in_pixels(width, height, scale) {
-                eprintln!(
-                    "cargo waos: the window system gave window {window} {taken} points, not {size}"
-                );
+                eprintln!("cargo waos: the window system gave {named} {taken} points, not {size}");
             }
             if !new_picture {
                 eprintln!(
-                    "cargo waos: window {window} showed no new picture at its size: the program drew nothing after it, or the window is out of sight"
+                    "cargo waos: {named} showed no new picture at its size: the program drew nothing after it, or the window is out of sight"
                 );
             }
             Ok(ExitCode::SUCCESS)
         }
-        FromWaOS::Unreached(why) => {
-            eprintln!("cargo waos: {}", unreached::said(&why, &id, window));
+        ResizeAnswer::Refused(refusal) => {
+            eprintln!("cargo waos: {}", refusal.message);
             Ok(ExitCode::FAILURE)
         }
-        FromWaOS::Refused(why) => bail!("WaOS refused the size: {why}"),
-        other => bail!("WaOS answered {other:?}, not the size the window took"),
+        ResizeAnswer::Unknown => bail!(
+            "WaOS answered the size in a way this cargo waos does not know: update cargo waos with `cargo install cargo-waos`"
+        ),
     }
 }
 

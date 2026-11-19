@@ -331,6 +331,7 @@ fn store_data(
             environment.output.clone(),
             network.access(),
             instances.temporary_folder.is_some(),
+            &environment.arguments,
             &environment.variables,
         ),
         gpu: Arc::clone(&instances.gpu),

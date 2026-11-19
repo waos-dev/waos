@@ -1,4 +1,5 @@
-//! A size `cargo waos resize` asks for one window of a program a run of `cargo waos run` runs, so
+//! A size `cargo waos resize` asks for one window of a program a run of `cargo waos run` runs, by
+//! the id the run gave it, so
 //! a test sees the program's layout at a phone's width or a narrow window's (the design's decision
 //! 60): through the engine's view, which sizes its window through the shell as the program's own
 //! `set-frame` does (`ProgramView::resize_window`), so each placement answers as it answers the
@@ -13,53 +14,57 @@
 //! never to a window of the app's own reached around the engine.
 
 use waos::bindings::wasdk::platform::windows::Size;
-use waos_dev_protocol::{Connection, FromWaOS, ServerStream, Unreached};
+use waos_dev_protocol::{Connection, Refusal, ResizeAnswer, Resized, ServerStream, WindowId};
 use waos_package::ProgramId;
 
 use super::dev_input::{PICTURE_WAIT, new_picture_after};
+use super::dev_refusal;
 use super::runs::Runs;
 
-/// Answers a connection's `Resize`: the window numbered `window` of the program `id` sized so
-/// its view is `size` logical points, then `Resized` with the size it took, or `Unreached` with
-/// why it reached none.
+/// Answers a connection's `Resize`: the window `window` of the program `id` sized so its view is
+/// `size` logical points, then `Resized` with the size it took, or why it reached none.
 pub(crate) async fn answer(
     mut connection: Connection<ServerStream>,
     runs: &Runs,
     id: &ProgramId,
-    window: u32,
+    window: Option<WindowId>,
     size: Size,
 ) {
     let answer = match resize(runs, id, window, size).await {
-        Ok(resized) => resized,
-        Err(unreached) => {
-            tracing::info!(%id, window, ?unreached, "a resize reached no window");
-            FromWaOS::Unreached(unreached)
+        Ok(resized) => ResizeAnswer::Done(resized),
+        Err(refusal) => {
+            tracing::info!(%id, ?window, ?refusal, "a resize reached no window");
+            ResizeAnswer::Refused(refusal)
         }
     };
     // A client gone meanwhile has nobody to tell.
     let _ = connection.send(&answer).await;
 }
 
-/// Sizes the window numbered `window` of the program `id` so its view is `size`; answers the size
-/// the view then reports, and whether the program drew a picture at it.
+/// Sizes the window `window` (or the program's first open window) of the program `id` so its
+/// view is `size`; answers the size the view then reports, and whether the program drew a picture
+/// at it.
 async fn resize(
     runs: &Runs,
     id: &ProgramId,
-    window: u32,
+    window: Option<WindowId>,
     size: Size,
-) -> Result<FromWaOS, Unreached> {
-    let run = runs.dev_run(id).await.ok_or(Unreached::NotRunByCargoWaos)?;
-    let view = run.window(window)?;
-    tracing::info!(%id, window, size.width, size.height, "a resize from cargo waos");
+) -> Result<Resized, Refusal> {
+    let run = runs
+        .dev_run(id)
+        .await
+        .ok_or_else(|| dev_refusal::no_dev_run_now(id))?;
+    let (window, view) = run.window(window)?;
+    tracing::info!(%id, %window, size.width, size.height, "a resize from cargo waos");
     let reported = view
         .resize_window(size)
-        .ok_or(Unreached::InNoWindow { window })?;
+        .ok_or_else(|| dev_refusal::in_no_window(id, window))?;
     let metrics = tokio::time::timeout(PICTURE_WAIT, reported)
         .await
         .ok()
         .flatten()
         .unwrap_or_else(|| view.metrics());
-    Ok(FromWaOS::Resized {
+    Ok(Resized {
         width: metrics.width,
         height: metrics.height,
         scale: metrics.device_pixel_ratio,
@@ -71,19 +76,42 @@ async fn resize(
 /// systems.
 #[cfg(all(test, target_vendor = "apple"))]
 mod tests {
-    use waos_dev_protocol::ToWaOS;
+    use waos_dev_protocol::{
+        Refusal, RefusalKind, Request, ResizeAnswer, Resized, ScreenshotAnswer, WindowId,
+    };
 
-    use super::*;
     use crate::logic::dev_input::tests::{INPUT, run_input};
     use crate::logic::dev_server::tests::TestServer;
     use crate::logic::test_engine::drawing::{WINDOW_HEIGHT, WINDOW_WIDTH};
 
-    fn resize(window: u32, width: f64, height: f64) -> ToWaOS {
-        ToWaOS::Resize {
+    fn resize(window: WindowId, width: f64, height: f64) -> Request {
+        Request::Resize {
             id: INPUT.parse().unwrap(),
-            window,
+            window: Some(window),
             width,
             height,
+        }
+    }
+
+    /// What WaOS answers a resize, which the tests here expect to size the window.
+    async fn done(server: &TestServer, window: WindowId, width: f64, height: f64) -> Resized {
+        match server
+            .ask::<ResizeAnswer>(&resize(window, width, height))
+            .await
+        {
+            ResizeAnswer::Done(resized) => resized,
+            other => panic!("the window sized: {other:?}"),
+        }
+    }
+
+    /// What WaOS refuses a resize with.
+    async fn refused(server: &TestServer, window: WindowId, width: f64, height: f64) -> Refusal {
+        match server
+            .ask::<ResizeAnswer>(&resize(window, width, height))
+            .await
+        {
+            ResizeAnswer::Refused(refusal) => refusal,
+            other => panic!("the resize refused: {other:?}"),
         }
     }
 
@@ -92,18 +120,21 @@ mod tests {
         let server = TestServer::drawing("resize");
         let (_client, _frames) = run_input(&server).await;
         assert_eq!(
-            server.ask(&resize(1, 100.0, 80.0)).await,
-            FromWaOS::Resized {
+            done(&server, WindowId(1), 100.0, 80.0).await,
+            Resized {
                 width: 200,
                 height: 160,
                 scale: 2.0,
                 new_picture: true,
             }
         );
-        let screenshot = ToWaOS::Screenshot {
+        let screenshot = Request::Screenshot {
             id: INPUT.parse().unwrap(),
+            window: None,
         };
-        let FromWaOS::Screenshots(pictures) = server.ask(&screenshot).await else {
+        let ScreenshotAnswer::Pictures(pictures) =
+            server.ask::<ScreenshotAnswer>(&screenshot).await
+        else {
             panic!("a screenshot");
         };
         assert_eq!((pictures[0].width, pictures[0].height), (200, 160));
@@ -114,13 +145,18 @@ mod tests {
         let server = TestServer::drawing_in_no_window("resize-deck");
         let (_client, _frames) = run_input(&server).await;
         assert_eq!(
-            server.ask(&resize(1, 100.0, 80.0)).await,
-            FromWaOS::Unreached(Unreached::InNoWindow { window: 1 })
+            refused(&server, WindowId(1), 100.0, 80.0).await.kind,
+            RefusalKind::InNoWindow {
+                window: WindowId(1)
+            }
         );
-        let screenshot = ToWaOS::Screenshot {
+        let screenshot = Request::Screenshot {
             id: INPUT.parse().unwrap(),
+            window: None,
         };
-        let FromWaOS::Screenshots(pictures) = server.ask(&screenshot).await else {
+        let ScreenshotAnswer::Pictures(pictures) =
+            server.ask::<ScreenshotAnswer>(&screenshot).await
+        else {
             panic!("a screenshot");
         };
         assert_eq!(
@@ -133,14 +169,14 @@ mod tests {
     async fn a_resize_of_a_window_not_there_or_of_a_program_no_run_runs_reaches_nothing() {
         let server = TestServer::drawing("resize-not-there");
         assert_eq!(
-            server.ask(&resize(1, 100.0, 80.0)).await,
-            FromWaOS::Unreached(Unreached::NotRunByCargoWaos)
+            refused(&server, WindowId(1), 100.0, 80.0).await.kind,
+            RefusalKind::NoDevRunNow
         );
         let (_client, _frames) = run_input(&server).await;
-        for window in [0, 2] {
+        for window in [WindowId(0), WindowId(2)] {
             assert_eq!(
-                server.ask(&resize(window, 100.0, 80.0)).await,
-                FromWaOS::Unreached(Unreached::NoWindow { window, windows: 1 })
+                refused(&server, window, 100.0, 80.0).await.kind,
+                RefusalKind::NoWindow { window }
             );
         }
     }

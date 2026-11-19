@@ -12,7 +12,8 @@ readme = "README.md"
 [dependencies]
 # A program's id, which a run names its program by.
 waos-package.workspace = true
-postcard.workspace = true
+# The messages' encoding: CBOR names each variant and field, so an addition breaks no other half.
+ciborium.workspace = true
 serde.workspace = true
 serde_bytes.workspace = true
 # A run's component's digest, which its run announces and its receiver checks.
@@ -35,3 +36,8 @@ windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Securit
 # no `unsafe`.
 [lints.rust]
 unsafe_code = "deny"
+
+# The systems this crate's tests run on in CI (`.github/platform-test-packages.sh`): macOS runs every
+# crate's, and Linux and Windows those of the crates that name them and whose code depends on the system.
+[package.metadata.waos]
+systems = ["macos", "linux", "windows"]

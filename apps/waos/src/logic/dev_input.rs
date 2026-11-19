@@ -21,38 +21,42 @@ mod text_commit;
 use std::time::Duration;
 
 use waos::ProgramView;
-use waos_dev_protocol::{Connection, FromWaOS, Input, ServerStream, Unreached};
+use waos_dev_protocol::{
+    Connection, Input, InputAnswer, InputDone, Refusal, ServerStream, WindowId,
+};
 use waos_package::ProgramId;
 
 pub(crate) use mouse::DevMouse;
 use mouse::DragPath;
 
 use super::asking_now::AskingNow;
+use super::dev_refusal;
+use super::dev_server::BUILD;
 use super::runs::{DevRun, Runs};
 
 /// How long WaOS waits for the window's picture after an input: many frames of a program that
 /// redraws what the input changed, debug builds among them.
 pub(crate) const PICTURE_WAIT: Duration = Duration::from_secs(2);
 
-/// Answers a connection's `Input`: `input` given to the window numbered `window` of the program
-/// `id`, then `InputDone` with whether the window was in sight and drew a new picture, or
-/// `Unreached` with why it reached none.
+/// Answers a connection's `Input`: `input` given to the window `window` of the program `id`, then
+/// `InputDone` with whether the window was in sight and drew a new picture, or why it reached
+/// none.
 pub(crate) async fn answer(
     mut connection: Connection<ServerStream>,
     runs: &Runs,
     asking: &AskingNow,
     id: &ProgramId,
-    window: u32,
+    window: Option<WindowId>,
     input: Input,
 ) {
     let answer = match give(runs, asking, id, window, input).await {
-        Ok(given) => FromWaOS::InputDone {
+        Ok(given) => InputAnswer::Done(InputDone {
             in_sight: given.in_sight,
             new_picture: given.new_picture,
-        },
-        Err(unreached) => {
-            tracing::info!(%id, window, ?unreached, "an input reached no window");
-            FromWaOS::Unreached(unreached)
+        }),
+        Err(refusal) => {
+            tracing::info!(%id, ?window, ?refusal, "an input reached no window");
+            InputAnswer::Refused(refusal)
         }
     };
     // A client gone meanwhile has nobody to tell.
@@ -66,23 +70,29 @@ struct Given {
     new_picture: bool,
 }
 
-/// Gives `input` to the window numbered `window` of the program `id`.
+/// Gives `input` to the window `window` (or the program's first open window) of the program `id`.
 async fn give(
     runs: &Runs,
     asking: &AskingNow,
     id: &ProgramId,
-    window: u32,
+    window: Option<WindowId>,
     input: Input,
-) -> Result<Given, Unreached> {
-    let run = runs.dev_run(id).await.ok_or(Unreached::NotRunByCargoWaos)?;
-    if let Some(asked) = asking.of(id.as_str()) {
-        return Err(Unreached::Asking(asked));
+) -> Result<Given, Refusal> {
+    if matches!(input, Input::Unknown) {
+        return Err(dev_refusal::unsupported(BUILD, "input"));
     }
-    let view = run.window(window)?;
-    tracing::info!(%id, window, ?input, "an input from cargo waos");
+    let run = runs
+        .dev_run(id)
+        .await
+        .ok_or_else(|| dev_refusal::no_dev_run_now(id))?;
+    if let Some(asked) = asking.of(id.as_str()) {
+        return Err(dev_refusal::asking(id, &asked, "the input was not given"));
+    }
+    let (window, view) = run.window(window)?;
+    tracing::info!(%id, %window, ?input, "an input from cargo waos");
     // The answer says how it stood when the input was given, not how it stands after the wait.
     let in_sight = view.in_sight();
-    deliver(&run, &view, &input).await?;
+    deliver(id, window, &run, &view, &input).await?;
     let new_picture = in_sight && new_picture_after(&view).await;
     Ok(Given {
         in_sight,
@@ -91,14 +101,20 @@ async fn give(
 }
 
 /// Gives `input` to `view`, one of `run`'s program's windows, over the time it takes.
-async fn deliver(run: &DevRun, view: &ProgramView, input: &Input) -> Result<(), Unreached> {
+async fn deliver(
+    id: &ProgramId,
+    window: WindowId,
+    run: &DevRun,
+    view: &ProgramView,
+    input: &Input,
+) -> Result<(), Refusal> {
     match *input {
         Input::Tap { x, y } => {
-            within(view, x, y)?;
+            within(id, window, view, x, y)?;
             run.mouse.tap(&run.program, view, x, y);
         }
         Input::Press { x, y, duration } => {
-            within(view, x, y)?;
+            within(id, window, view, x, y)?;
             run.mouse.press(&run.program, view, (x, y), duration).await;
         }
         Input::Drag {
@@ -108,8 +124,8 @@ async fn deliver(run: &DevRun, view: &ProgramView, input: &Input) -> Result<(), 
             steps,
             duration,
         } => {
-            within(view, from.0, from.1)?;
-            within(view, to.0, to.1)?;
+            within(id, window, view, from.0, from.1)?;
+            within(id, window, view, to.0, to.1)?;
             let path = DragPath {
                 from,
                 to,
@@ -120,36 +136,52 @@ async fn deliver(run: &DevRun, view: &ProgramView, input: &Input) -> Result<(), 
             run.mouse.drag(&run.program, view, &path).await;
         }
         Input::Scroll { x, y, dx, dy } => {
-            within(view, x, y)?;
+            within(id, window, view, x, y)?;
             run.mouse.scroll(&run.program, view, (x, y), (dx, dy));
         }
-        Input::Key(ref chord) => press(view, chord)?,
-        Input::Text(ref text) => commit(view, text)?,
+        Input::Key(ref chord) => press(id, window, view, chord)?,
+        Input::Text(ref text) => commit(id, window, view, text)?,
+        Input::Unknown => return Err(dev_refusal::unsupported(BUILD, "input")),
     }
     Ok(())
 }
 
 /// Refuses a point outside `view`, which no mouse over the window is at.
-fn within(view: &ProgramView, x: f64, y: f64) -> Result<(), Unreached> {
+fn within(
+    id: &ProgramId,
+    window: WindowId,
+    view: &ProgramView,
+    x: f64,
+    y: f64,
+) -> Result<(), Refusal> {
     let metrics = view.metrics();
     let (width, height) = (f64::from(metrics.width), f64::from(metrics.height));
     if (0.0..width).contains(&x) && (0.0..height).contains(&y) {
         return Ok(());
     }
-    Err(Unreached::OutsideWindow {
-        width: metrics.width,
-        height: metrics.height,
+    Err(dev_refusal::outside_window(
+        id,
+        window,
+        metrics.width,
+        metrics.height,
         x,
         y,
-        scale: metrics.device_pixel_ratio,
-    })
+        metrics.device_pixel_ratio,
+    ))
 }
 
 /// Presses the key or the chord `chord` names in `view`. The program's replies are not awaited:
 /// a key it leaves goes no further.
-fn press(view: &ProgramView, chord: &str) -> Result<(), Unreached> {
-    let events = key_chords::key_events(chord, view.now())
-        .ok_or_else(|| Unreached::UnknownKey(chord.to_owned()))?;
+fn press(id: &ProgramId, window: WindowId, view: &ProgramView, chord: &str) -> Result<(), Refusal> {
+    let Some(events) = key_chords::key_events(chord, view.now()) else {
+        return Err(dev_refusal::bad_input(
+            id,
+            window,
+            &format!(
+                "no key is named {chord:?}: name a letter, a digit, one of - = [ ] \\ ; ' ` , . /, or enter, escape, tab, space, backspace, delete, up, down, left, right, home, end, pageup, pagedown or f1 to f12, after any of cmd+, ctrl+, alt+ and shift+"
+            ),
+        ));
+    };
     for event in events {
         drop(view.key(event));
     }
@@ -157,8 +189,14 @@ fn press(view: &ProgramView, chord: &str) -> Result<(), Unreached> {
 }
 
 /// Commits `text` into what `view` edits, as an input method commits its text.
-fn commit(view: &ProgramView, text: &str) -> Result<(), Unreached> {
-    let editing = view.editing_value().ok_or(Unreached::NotEditing)?;
+fn commit(id: &ProgramId, window: WindowId, view: &ProgramView, text: &str) -> Result<(), Refusal> {
+    let Some(editing) = view.editing_value() else {
+        return Err(dev_refusal::bad_input(
+            id,
+            window,
+            "nothing in it is being edited: tap a text field first, or send keys with `cargo waos key`",
+        ));
+    };
     view.text_input_editing_value(text_commit::committed(&editing, text));
     Ok(())
 }

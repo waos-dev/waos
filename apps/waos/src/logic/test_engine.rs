@@ -145,7 +145,7 @@ pub(crate) mod drawing {
     use waos::bindings::wasdk::platform::screens::PixelSize;
     use waos::bindings::wasdk::platform::system::Brightness;
     use waos::bindings::wasdk::platform::views::{
-        Cursor, Insets, Metrics, OverlayStyle, PixelRect, Placement, TextEditingValue,
+        Cursor, Insets, Metrics, OverlayStyle, PixelRect, Placement, RequestId, TextEditingValue,
         TextInputConfiguration, ViewError, ViewFocusDirection, ViewFocusState,
     };
     use waos::bindings::wasdk::platform::windows::{Point, Rect, Size};
@@ -237,47 +237,68 @@ pub(crate) mod drawing {
         InNoWindow,
     }
 
+    /// Opens a view for `program` in a window of its own, filling the test screen.
+    pub(crate) fn add_window(program: &RunningProgram, request: Option<RequestId>) -> ProgramView {
+        add_view(program, request, true)
+    }
+
+    /// Opens a view for `program`, either in a window filling the test screen or windowless.
+    fn add_view(
+        program: &RunningProgram,
+        request: Option<RequestId>,
+        in_window: bool,
+    ) -> ProgramView {
+        let none = Insets {
+            left: 0.0,
+            top: 0.0,
+            right: 0.0,
+            bottom: 0.0,
+        };
+        let window = in_window.then(|| Arc::new(FilledWindow::default()));
+        let view = program.add_view(PlacedView {
+            view: Arc::new(KeptPicture::default()),
+            text_input: Some(Arc::new(NoInputMethods)),
+            window: window.as_ref().map(|window| PlacedWindow {
+                window: Arc::clone(window) as Arc<dyn ShellWindow>,
+                frame: screen().frame,
+                maximized: false,
+                title_bar_double_click_action: None,
+            }),
+            metrics: Metrics {
+                width: WINDOW_WIDTH,
+                height: WINDOW_HEIGHT,
+                device_pixel_ratio: 2.0,
+                padding: none,
+                view_padding: none,
+                view_insets: none,
+            },
+            screen: Some(SCREEN),
+            presence: Presence {
+                on_screen: true,
+                occluded: false,
+                focused: true,
+            },
+            request,
+        });
+        if let Some(window) = window {
+            *window.0.lock().unwrap() = Some(view.clone());
+        }
+        view
+    }
+
     impl ViewPlacement for GivenViews {
         fn view_requested(
             &self,
             program: &RunningProgram,
             request: ViewRequest,
         ) -> Result<(), ViewError> {
-            let none = Insets {
-                left: 0.0,
-                top: 0.0,
-                right: 0.0,
-                bottom: 0.0,
-            };
-            let window =
-                matches!(self, GivenViews::InWindows).then(|| Arc::new(FilledWindow::default()));
-            let view = program.add_view(PlacedView {
-                view: Arc::new(KeptPicture::default()),
-                text_input: Some(Arc::new(NoInputMethods)),
-                window: window.as_ref().map(|window| PlacedWindow {
-                    window: Arc::clone(window) as Arc<dyn ShellWindow>,
-                    frame: screen().frame,
-                    maximized: false,
-                    title_bar_double_click_action: None,
-                }),
-                metrics: Metrics {
-                    width: WINDOW_WIDTH,
-                    height: WINDOW_HEIGHT,
-                    device_pixel_ratio: 2.0,
-                    padding: none,
-                    view_padding: none,
-                    view_insets: none,
-                },
-                screen: Some(SCREEN),
-                presence: Presence {
-                    on_screen: true,
-                    occluded: false,
-                    focused: true,
-                },
-                request: Some(request.id),
-            });
-            if let Some(window) = window {
-                *window.0.lock().unwrap() = Some(view);
+            match self {
+                GivenViews::InWindows => {
+                    add_view(program, Some(request.id), true);
+                }
+                GivenViews::InNoWindow => {
+                    add_view(program, Some(request.id), false);
+                }
             }
             Ok(())
         }

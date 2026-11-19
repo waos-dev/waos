@@ -150,11 +150,14 @@ futures = "0.3"
 # What a program does, as events a subscriber reads: its frames' steps.
 tracing = "0.1"
 # What `cargo waos` and a WaOS say to each other, as `waos-dev-protocol` frames it: serde for the
-# messages' shape, postcard for their bytes, with `std` so a message may hold a `Vec`.
+# messages' shape, and their bytes as CBOR, which names each variant and field, so an addition
+# breaks no other half, with `std` so a message may hold a `Vec`.
 serde = { version = "1", features = ["derive"] }
+ciborium = "0.2"
+# The window process's messages, which stay postcard: its two halves are one build.
 postcard = { version = "1", default-features = false, features = ["use-std"] }
-# A message's bytes, a component or a program's output, encoded as one string of bytes rather
-# than a sequence of numbers: postcard writes the two alike, and reads the first at once.
+# A message's bytes, a component or a program's output, as CBOR's own byte string rather than a
+# sequence of numbers, read in one copy.
 serde_bytes = "0.11"
 # The `.wapk` format, as the experiment proved it: a zip whose entries are deflated and nothing
 # else, a TOML manifest, a semver version; and the JSON of a source's `index.json`.

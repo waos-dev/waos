@@ -8,7 +8,7 @@ use std::fs;
 use std::io::ErrorKind;
 use std::path::PathBuf;
 
-use waos_dev_protocol::{Connection, FromWaOS, Listener, ToWaOS};
+use waos_dev_protocol::{Connection, Hello, Listener, Request, RunEvent};
 
 /// A folder of this test's own, with its socket's path inside; removed with the folder.
 struct TestFolder(PathBuf);
@@ -44,9 +44,12 @@ async fn a_socket_file_a_dead_waos_left_is_replaced() {
     let mut listener = Listener::bind(&socket).await.unwrap();
     let (client, server) = tokio::join!(Connection::connect(&socket), listener.accept());
     let (mut client, mut server) = (client.unwrap(), server.unwrap());
-    let (sent, received) = tokio::join!(server.send(&FromWaOS::Started), client.receive());
+    let (sent, received) = tokio::join!(
+        server.send(&RunEvent::Started),
+        client.receive::<RunEvent>()
+    );
     sent.unwrap();
-    assert_eq!(received.unwrap(), Some(FromWaOS::Started));
+    assert_eq!(received.unwrap(), Some(RunEvent::Started));
 }
 
 #[tokio::test]
@@ -57,8 +60,9 @@ async fn a_second_waos_probes_the_first_with_a_connection_that_asks_nothing() {
     let (refused, probe) = tokio::join!(Listener::bind(&socket), first.accept());
     assert_eq!(refused.unwrap_err().kind(), ErrorKind::AddrInUse);
     let mut probe = probe.unwrap();
+    let _ = probe.hello(&Hello::waos("WaOS 0.3.0")).await;
     assert_eq!(
-        probe.receive::<ToWaOS>().await.unwrap(),
+        probe.receive::<Request>().await.unwrap(),
         None,
         "the probe is a connection that asked nothing"
     );
