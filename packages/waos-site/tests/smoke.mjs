@@ -48,18 +48,6 @@ const GUIDE_TOPICS = [
   ['workers', 'Workers'],
 ];
 
-/** Waft's pages under its own, in the sidebar's order. */
-const WAFT_PAGES = [
-  ['state', 'State'],
-  ['handles', 'Handles and ownership'],
-  ['layout', 'Layout'],
-  ['text-input', 'Text input'],
-  ['kits', 'The kits'],
-  ['pages', 'Pages'],
-  ['shortcuts', 'Keys and shortcuts'],
-  ['testing', 'Testing'],
-];
-
 /**
  * The WIT packages the reference shows, each with its interfaces and the lines of code each
  * declares, read from `wit/deps` apart from the site's own reader, so a page that leaves
@@ -92,7 +80,6 @@ const DOCS_PAGES = [
   ['/docs/guide', 'Building the app'],
   ...GUIDE_TOPICS.map(([slug, title]) => [`/docs/guide/${slug}`, title]),
   ['/docs/waft', 'Waft'],
-  ...WAFT_PAGES.map(([slug, title]) => [`/docs/waft/${slug}`, title]),
   ['/docs/tools', 'The tools'],
   ['/docs/compatibility', 'Compatibility'],
   ['/docs/icons', 'Icons'],
@@ -205,6 +192,8 @@ async function checkSiteRoutes() {
   check('/docs opens on its first page', docs.headers.get('location') === '/docs/concepts');
   const moved = await fetch(`${BASE}/docs/frameworks/waft`, { redirect: 'manual' });
   check("Waft's old address leads to its page", moved.headers.get('location') === '/docs/waft');
+  const waftSubpage = await fetch(`${BASE}/docs/waft/state`, { redirect: 'manual' });
+  check("Waft's framework subpages redirect to waft.rs", waftSubpage.headers.get('location') === 'https://waft.rs/docs/state');
 }
 
 /** Loads `path` in the browser and checks it answers with `title` as its heading. */

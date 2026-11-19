@@ -33,7 +33,7 @@ An app names a few crates; `cargo waos new` adds the first four and one kit.
 | `wasdk-adapter-waft` | `run`, which starts a Waft app on WaOS. |
 | `waft` | Waft for an app: the widgets, `App`, `Entity`, `Ref`, `Handle`, `Timer`, `Listener`, `CustomPainter`, `TextPainter`, `PaintingBinding`, the painting and geometry types (`EdgeInsetsGeometry`, `Color`, `Size`, `Rect`, `TextStyle`, `PaintingStyle`, `Stroke`), `WindowConfig`, `MultiViewApp` and `run_app_with`. `waft::ui` is the engine's layer under it, with the platform's own types: `OpenOptions`, `PickedFile`, `Notification`, `CameraOutputs`, `Canvas`, `Paint`, `Path`. |
 | `waft-widgets` | The widgets `waft` re-exports, named directly for what `waft` shadows: the pointer `Listener` widget is `waft_widgets::Listener`. |
-| `waft-winui`, `waft-cupertino`, `waft-material` | A kit's controls and theme ([The kits](/docs/waft/kits)): `waft_winui::Button`, not `waft::Button`. |
+| `waft-winui`, `waft-cupertino`, `waft-material` | A kit's controls and theme ([The kits](https://waft.rs/docs/kits)): `waft_winui::Button`, not `waft::Button`. |
 | `waft-markdown` | Markdown parsing and rendering widgets (`Markdown`, `MarkdownBody`, `MarkdownStyleSheet`) for Waft. Added by hand. |
 | `waft-services` | Keys (`LogicalKeyboardKey`), the clipboard and text input's services. Added by hand. |
 | `waft-rendering` | Lower-level render objects beyond what `waft` re-exports (`CustomPainter` is already in `waft`). Added by hand. |
