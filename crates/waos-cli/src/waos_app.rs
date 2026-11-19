@@ -80,7 +80,7 @@ pub fn is_headless_session() -> bool {
 /// Whether a `dev.waos.app.desktop` entry is installed on this Linux machine.
 #[cfg(target_os = "linux")]
 pub fn has_desktop_entry() -> bool {
-    crate::desktop_entries::find(BUNDLE_IDENTIFIER).is_ok()
+    crate::desktop_entries::find(BUNDLE_IDENTIFIER).is_some()
 }
 
 /// Spawns `executable --headless --idle-timeout <idle_timeout_secs>` in its own process group,
@@ -161,18 +161,13 @@ pub fn start() -> Result<PathBuf> {
         return start_headless(&binary, HEADLESS_IDLE_TIMEOUT_SECS);
     }
 
-    let entry = match desktop_entries::find(BUNDLE_IDENTIFIER) {
-        Ok(entry) => entry,
-        Err(error) => {
-            if let Some(binary) = find_waos_binary() {
-                return start_headless(&binary, HEADLESS_IDLE_TIMEOUT_SECS);
-            }
-            return Err(error).with_context(|| {
-                format!(
-                    "WaOS is not installed: no {BUNDLE_IDENTIFIER}.desktop among the desktop's applications and no `waos` binary on PATH"
-                )
-            });
+    let Some(entry) = desktop_entries::find(BUNDLE_IDENTIFIER) else {
+        if let Some(binary) = find_waos_binary() {
+            return start_headless(&binary, HEADLESS_IDLE_TIMEOUT_SECS);
         }
+        bail!(
+            "WaOS is not installed: no {BUNDLE_IDENTIFIER}.desktop among the desktop's applications and no `waos` binary on PATH"
+        );
     };
     let command = desktop_entries::command(&entry)?;
     let log = log_path()?;
