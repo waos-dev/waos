@@ -7,6 +7,7 @@ import { BuildYourOwn } from '@/components/build-your-own';
 import { WaosIcon } from '@/components/waos-icon';
 import { WapkStory } from '@/components/wapk-story';
 import { WaveStrip } from '@/components/wave-strip';
+import { WhyWaos } from '@/components/why-waos';
 import { helloCommands } from '@/lib/sample';
 import {
   agentPrompt,
@@ -21,14 +22,16 @@ import { guideTopics } from '@/lib/source';
 import { topicIcon } from '@/lib/topic-icons';
 
 /**
- * Three sections, each with one job: catch the reader in the Hero, walk through one `.wapk` file
- * moving from prompt to desktop and phone, and put agent-first authoring ahead of manual dev docs.
+ * Four sections, each with one job: catch the reader in the Hero, walk through one `.wapk` file
+ * moving from prompt to desktop and phone, say why an app made for WaOS is worth making, and put
+ * agent-first authoring ahead of manual dev docs.
  */
 export default function HomePage() {
   return (
     <main className="flex flex-1 flex-col">
       <Hero />
       <WapkStory />
+      <WhyWaos />
       <BuildSection />
     </main>
   );
