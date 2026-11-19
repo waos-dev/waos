@@ -21,6 +21,8 @@
 //! the programs' apps send (`logic::program_apps`), the presence of each of their windows among
 //! it, and what the compiles' lists say (`logic::installed_code`, `logic::dev_compiles`).
 
+#[cfg(any(target_os = "macos", test))]
+pub(crate) mod app_nap_exemption;
 pub(crate) mod cameras;
 pub(crate) mod clipboard;
 mod days_kept;
@@ -51,8 +53,6 @@ pub(crate) mod recordings;
 pub(crate) mod test_system;
 #[cfg(test)]
 mod tests;
-#[cfg(any(target_os = "macos", test))]
-pub(crate) mod app_nap_exemption;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(crate) mod waos_tray;
 

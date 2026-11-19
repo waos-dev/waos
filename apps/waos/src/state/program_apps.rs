@@ -70,10 +70,10 @@ mod macos {
     };
     use crate::logic::runs::Runs;
     use crate::os::LayerContext;
+    use crate::state::app_nap_exemption::{self, AppNapExemption};
     use crate::state::desktop_host::with_macos;
     use crate::state::library::{InstalledChanged, Library};
     use crate::state::prompt_dialogs::PromptDialogs;
-    use crate::state::app_nap_exemption::{self, AppNapExemption};
     use crate::ui::every_window::ViewContent;
 
     /// The programs' apps, or why there can be none, with their notifications; and where the

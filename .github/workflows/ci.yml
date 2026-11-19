@@ -28,6 +28,10 @@ jobs:
       - name: Every WIT package changed since the last release has a new version
         working-directory: waos
         run: cargo xtask check-wit-versions
+      # Formatting builds nothing, so it runs with the other quick check.
+      - name: Formatting
+        working-directory: waos
+        run: cargo fmt --all -- --check
 
   # macOS runs every test of the workspace, in two jobs that run side by side: the engine and the
   # command (the engine's tests start programs, which take most of its time), and everything else

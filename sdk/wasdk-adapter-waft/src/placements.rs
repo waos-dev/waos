@@ -154,7 +154,8 @@ mod tests {
     fn a_path_clip_crosses_as_its_bounds() {
         let mut path = PathBuilder::new();
         path.rrect(Rect::from_ltwh(10.0, 20.0, 200.0, 40.0).into(), 4.0);
-        let views::Mutator::ClipRect(bounds) = mutator_of(&Mutator::ClipPath(path.build().into())) else {
+        let views::Mutator::ClipRect(bounds) = mutator_of(&Mutator::ClipPath(path.build().into()))
+        else {
             panic!("a path clip crosses as a rectangle clip");
         };
         assert_eq!(format!("{bounds:?}"), wit_rect(10.0, 20.0, 200.0, 40.0));
