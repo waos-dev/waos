@@ -1,6 +1,9 @@
 #!/usr/bin/env sh
 # Install the unified `waos` binary (and its `cargo-waos` symlink) into ~/.local/bin.
 #
+# Usage:
+#   curl -fsSL https://waos.app/install.sh | sh
+#
 # Environment variables:
 #   WAOS_INSTALL_DIR  Destination directory (default: "$HOME/.local/bin")
 #   WAOS_VERSION      Release version to install, e.g. 0.4.0 or v0.4.0 (default: latest)
