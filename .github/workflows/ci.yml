@@ -1,6 +1,5 @@
 # Every change: the WIT keeps its versions honest and the workspace's tests pass (the design's
-# decision 67). The workspace builds Waft from source, so Waft's main is checked out beside it as
-# `../waft`, as the README's Building section says.
+# decision 67). Waft comes from crates.io, as the README's Contribute section says.
 name: CI
 
 on:
@@ -19,18 +18,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          path: waos
           fetch-depth: 0
-      - uses: actions/checkout@v4
-        with:
-          repository: waos-dev/waft
-          path: waft
       - name: Every WIT package changed since the last release has a new version
-        working-directory: waos
         run: cargo xtask check-wit-versions
       # Formatting builds nothing, so it runs with the other quick check.
       - name: Formatting
-        working-directory: waos
         run: cargo fmt --all -- --check
 
   # macOS runs every test of the workspace, in two jobs that run side by side: the engine and the
@@ -41,36 +33,20 @@ jobs:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
-        with:
-          path: waos
-      - uses: actions/checkout@v4
-        with:
-          repository: waos-dev/waft
-          path: waft
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: waos
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Tests of the engine and the command
-        working-directory: waos
         run: cargo test --no-fail-fast -p waos -p waos-cli
 
   test-the-rest:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
-        with:
-          path: waos
-      - uses: actions/checkout@v4
-        with:
-          repository: waos-dev/waft
-          path: waft
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: waos
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Tests of the rest of the workspace
-        working-directory: waos
         run: cargo test --workspace --exclude waos --exclude waos-cli --no-fail-fast
 
   # Windows and Linux run the engine, the command and the SDK today; the app's shell still waits
@@ -85,11 +61,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          path: waos
-      - uses: actions/checkout@v4
-        with:
-          repository: waos-dev/waft
-          path: waft
       # A mirror once stalled on one package for 17 minutes in Waft's CI: a stuck download times
       # out after 30 seconds and is tried again, rather than waiting on apt's default.
       - name: The system packages the build's probes ask for
@@ -101,13 +72,10 @@ jobs:
             libx11-dev libxcursor-dev libxrandr-dev libxi-dev libxinerama-dev
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: waos
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Clippy
-        working-directory: waos
         run: cargo clippy --workspace --all-targets
       - name: Tests of what runs on Linux today and depends on the system
-        working-directory: waos
         run: |
           # An answer of none must stop the step, which `cargo test $(...)` would not: it would
           # test the workspace's default members.
@@ -118,21 +86,12 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          path: waos
-      - uses: actions/checkout@v4
-        with:
-          repository: waos-dev/waft
-          path: waft
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: waos
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Clippy
-        working-directory: waos
         run: cargo clippy --workspace --all-targets
       - name: Tests of what runs on Windows today and depends on the system
-        working-directory: waos
         shell: bash
         run: |
           # An answer of none must stop the step, which `cargo test $(...)` would not: it would

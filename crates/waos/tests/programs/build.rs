@@ -12,14 +12,13 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 /// The programs built, by package name.
-const PROGRAMS: [&str; 44] = [
+const PROGRAMS: [&str; 43] = [
     "survey",
     "forever",
     "trap",
     "triangle",
     "composition-layers",
     "fonts",
-    "gallery",
     "two-windows",
     "permissions",
     "files",
@@ -63,18 +62,8 @@ const PROGRAMS: [&str; 44] = [
 const TARGET: &str = "wasm32-wasip3";
 
 /// What the programs are built from, from the workspace's root: its programs, the SDK and the
-/// WIT, the versions of what they depend on, and the crates of Waft's checkout beside it, which
-/// the gallery, two-windows, copy-paste, waft-menus, waft-back, waft-image, waft-time, notes and
-/// video-player are built from.
-const WATCHED: [&str; 7] = [
-    "builtin-apps",
-    "examples",
-    "sdk",
-    "wit",
-    "Cargo.lock",
-    "../waft/crates",
-    "../waft/examples",
-];
+/// WIT, and the versions of what they depend on, Waft's among them.
+const WATCHED: [&str; 5] = ["builtin-apps", "examples", "sdk", "wit", "Cargo.lock"];
 
 fn main() {
     let workspace = workspace_root();
@@ -120,7 +109,7 @@ fn build_programs(workspace: &Path, target_dir: &Path) {
         .env_remove("RUSTFLAGS")
         // Line tables are what a trap's backtrace names files and lines from; the rest of the
         // debug information, which nothing in a test reads, was half of forever's component and
-        // three quarters of the gallery's.
+        // most of a Waft app's.
         .env("CARGO_PROFILE_DEV_DEBUG", "line-tables-only");
     // Cargo tells this script its own target's cfgs (`CARGO_CFG_WINDOWS`, …) and sets only those of
     // a target that has them for the build scripts of the programs' build, so a Windows host's would

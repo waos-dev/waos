@@ -9,7 +9,7 @@
 //! program's turn (`shell::turns`). A test that reads what every engine in the process records,
 //! with nothing to tell its own from another's, as the frames the engine hands over and the glyph
 //! calls it draws are, is a binary of its own beside this one: `frames_in_flight`, `two_windows`
-//! and `gallery`.
+//! and `waft_app`.
 
 // Proving the test shell crosses threads walks from a program's handle into wgpu-core's
 // registries, deeper than the default limit allows; an app embedding the engine needs the same.

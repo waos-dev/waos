@@ -40,20 +40,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ env.TAG }}
-          path: waos
-      - name: The Waft release the workspace names
-        id: waft
-        working-directory: waos
-        # Read from the manifest: cargo cannot resolve the workspace before Waft is beside it.
-        run: echo "version=$(sed -n 's/^waft = { version = "\([^"]*\)".*/\1/p' Cargo.toml)" >> "$GITHUB_OUTPUT"
-      - uses: actions/checkout@v4
-        with:
-          repository: waos-dev/waft
-          ref: v${{ steps.waft.outputs.version }}
-          path: waft
       - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: waos
       - name: Waft's command, its newest release
         run: cargo install --locked waft-cli
       - name: The signing identity, in a keychain of the job's own
@@ -86,7 +73,6 @@ jobs:
           if [ -n "$APPLE_API_KEY_P8" ]; then printf '%s' "$APPLE_API_KEY_P8" > "$RUNNER_TEMP/notary.p8"; fi
           echo "identity=${{ secrets.APPLE_SIGNING_IDENTITY }}" >> "$GITHUB_OUTPUT"
       - name: WaOS.app, as a disk image
-        working-directory: waos
         env:
           APPLE_SIGNING_IDENTITY: ${{ steps.signing.outputs.identity }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
@@ -97,7 +83,6 @@ jobs:
           APPLE_API_KEY_PATH: ${{ secrets.APPLE_API_KEY_P8 && format('{0}/notary.p8', runner.temp) || '' }}
         run: cargo waft build dmg -p waos-app
       - name: Attached to the release
-        working-directory: waos
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -106,7 +91,6 @@ jobs:
           gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --verify-tag --title "WaOS ${TAG#v}" --notes ""
           gh release upload "$TAG" "$image#WaOS-${TAG#v}.dmg" --clobber
       - name: iOS, for the simulator, as a check that it builds
-        working-directory: waos
         run: |
           rustup target add aarch64-apple-ios-sim
           cargo waft build ios --simulator -p waos-app
@@ -119,21 +103,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ env.TAG }}
-          path: waos
-      - name: The Waft release the workspace names
-        id: waft
-        working-directory: waos
-        run: echo "version=$(sed -n 's/^waft = { version = "\([^"]*\)".*/\1/p' Cargo.toml)" >> "$GITHUB_OUTPUT"
-      - uses: actions/checkout@v4
-        with:
-          repository: waos-dev/waft
-          ref: v${{ steps.waft.outputs.version }}
-          path: waft
       - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: waos
       - name: Waft's command, its newest release, and Android's target
-        working-directory: waos
         run: |
           cargo install --locked waft-cli
           rustup target add aarch64-linux-android
@@ -146,14 +117,12 @@ jobs:
           echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/release.jks"
           printf '%s' "$ANDROID_KEYSTORE_PASSWORD" > "$RUNNER_TEMP/release-password"
       - name: WaOS, as an apk
-        working-directory: waos
         env:
           WAFT_ANDROID_KEYSTORE: ${{ runner.temp }}/release.jks
           WAFT_ANDROID_KEY_ALIAS: waos
           WAFT_ANDROID_STORE_PASSWORD_FILE: ${{ runner.temp }}/release-password
         run: cargo waft build apk -p waos-app
       - name: Attached to the release
-        working-directory: waos
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
