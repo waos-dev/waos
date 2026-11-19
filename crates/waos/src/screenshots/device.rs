@@ -13,6 +13,7 @@ use anyhow::{Context, Result, anyhow};
 use waos_webgpu_host::{GpuObject, GpuObjectId};
 
 use super::quads::{Quad, bytes_of};
+use crate::HardwareBufferMode;
 use crate::gpu::{GpuInstance, open_device, wgpu_core, wgpu_types};
 use crate::os::{FORMAT, HardwareBufferMemory};
 
@@ -53,7 +54,10 @@ struct PictureDraw {
 
 impl ScreenshotDevice {
     /// A device on `gpu`'s default adapter, opened as a program's is, with the pipeline made.
-    pub(super) fn open(gpu: &GpuInstance) -> Result<ScreenshotDevice> {
+    pub(super) fn open(
+        gpu: &GpuInstance,
+        hardware_buffers: HardwareBufferMode,
+    ) -> Result<ScreenshotDevice> {
         let adapter = gpu
             .request_adapter(
                 &wgpu_types::RequestAdapterOptions::default(),
@@ -62,9 +66,13 @@ impl ScreenshotDevice {
             )
             .context("no GPU adapter for screenshots")?;
         let adapter = GpuObject::new(adapter, gpu);
-        let (device, queue) =
-            open_device(gpu, adapter.id(), &wgpu_types::DeviceDescriptor::default())
-                .context("no GPU device for screenshots")?;
+        let (device, queue) = open_device(
+            gpu,
+            adapter.id(),
+            &wgpu_types::DeviceDescriptor::default(),
+            hardware_buffers,
+        )
+        .context("no GPU device for screenshots")?;
         let (device, queue) = (GpuObject::new(device, gpu), GpuObject::new(queue, gpu));
         let shader = made(
             gpu,
@@ -117,14 +125,14 @@ impl ScreenshotDevice {
         pictures: &[(Quad, &HardwareBufferMemory)],
     ) -> Result<()> {
         let size = [target.width(), target.height()];
-        let target = target.texture_over(
+        let target_texture = target.texture_over(
             gpu,
             self.device.id(),
             wgpu_types::TextureUsages::RENDER_ATTACHMENT,
             &[],
         )?;
-        let target = GpuObject::new(target, gpu);
-        let target_view = self.view_of(gpu, &target)?;
+        let target_texture = GpuObject::new(target_texture, gpu);
+        let target_view = self.view_of(gpu, &target_texture)?;
         let draws = pictures
             .iter()
             .map(|(quad, memory)| self.picture_draw(gpu, quad, memory, size))
@@ -138,6 +146,8 @@ impl ScreenshotDevice {
             ),
         )?;
         self.encode(gpu, encoder.id(), target_view.id(), &draws)?;
+        let readback =
+            target.encode_readback(gpu, self.device.id(), encoder.id(), target_texture.id())?;
         let (commands, error) = gpu.command_encoder_finish(
             encoder.id(),
             &wgpu_types::CommandBufferDescriptor { label: LABEL },
@@ -159,6 +169,9 @@ impl ScreenshotDevice {
             },
         )
         .context("waiting for a screenshot to be drawn")?;
+        if let Some(finish) = readback {
+            finish(gpu);
+        }
         Ok(())
     }
 
@@ -223,7 +236,10 @@ impl ScreenshotDevice {
             ),
         )?;
         gpu.queue_write_buffer(self.queue.id(), buffer.id(), 0, &bytes)?;
-        let texture = GpuObject::new(memory.sampled_texture(gpu, self.device.id())?, gpu);
+        let texture = GpuObject::new(
+            memory.sampled_texture(gpu, self.device.id(), self.queue.id())?,
+            gpu,
+        );
         let view = self.view_of(gpu, &texture)?;
         let entries = [
             BindGroupEntry {

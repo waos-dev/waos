@@ -133,6 +133,7 @@ impl ViewsCtx<'_> {
                 self.program.lifecycle().clone(),
                 self.program.engine_clock().clone(),
                 Arc::clone(self.program.in_flight()),
+                self.program.hardware_buffers(),
             )
         })
     }

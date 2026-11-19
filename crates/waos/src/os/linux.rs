@@ -1,19 +1,21 @@
-//! A dmabuf a program's WebGPU device draws into and the compositor shows, with the same bytes
-//! under both, and the texture over it on the program's wgpu-core device: GBM allocates it on the
-//! first render node, linear and exported read-write (`dmabuf`), Vulkan imports its memory into an
-//! image in its modifier and plane layout (`imported_image`), on a device opened to import it
-//! (`vulkan::device_opener`), and wgpu-core takes the image as a texture of its own. As on Android,
-//! the compositor reads the buffer outside Vulkan, so a frame's image is released to the foreign
-//! queue family once the work that drew it is submitted and acquired back before it is drawn into
-//! again (`vulkan::queue_ownership`); and before that acquire, the program's thread waits for the
-//! fence the compositor's reads left on the dmabuf, which a compositor may still hold when it gives
-//! the buffer back (measured: a few of 187 buffers came back with a fence still pending).
-//! Linear memory serves every use, so a buffer answers every usage, as Apple's do; the CPU reads it
-//! between `DMA_BUF_IOCTL_SYNC`'s start and end.
+//! A hardware buffer on Linux: either a dmabuf a program's WebGPU device draws into and the
+//! compositor shows with no copy between them, or an offscreen GPU texture with staging-buffer
+//! readback when headless is requested or no usable DRM/dmabuf GPU path is available.
 //!
-//! A dmabuf is what crosses between the program's device and the shell's: the engine makes a
-//! texture on the program's device over it, and the shell hands Waft a duplicate of its fd, which
-//! Waft makes a `wl_buffer` of for a subsurface.
+//! For the dmabuf path: GBM allocates it on the first render node, linear and exported read-write
+//! (`dmabuf`), Vulkan imports its memory into an image in its modifier and plane layout
+//! (`imported_image`), on a device opened to import it (`vulkan::device_opener`), and wgpu-core
+//! takes the image as a texture of its own. As on Android, the compositor reads the buffer outside
+//! Vulkan, so a frame's image is released to the foreign queue family once the work that drew it
+//! is submitted and acquired back before it is drawn into again (`vulkan::queue_ownership`); and
+//! before that acquire, the program's thread waits for the fence the compositor's reads left on
+//! the dmabuf.
+//!
+//! For the offscreen path: plain `wgpu` BGRA8 textures are created on the program's device (no
+//! `VK_EXT_external_memory_dma_buf` or `VK_EXT_queue_family_foreign` required, so Mesa lavapipe
+//! and headless Linux hosts work without `/dev/dri/renderD*`). On handover, the texture is copied
+//! into a staging buffer inside the freeze gate and read back into the buffer's CPU pixel store on
+//! the finisher thread before handing the buffer to the shell.
 
 // Wrapping the system's allocation into a texture, and handing its image between queue families,
 // is what this module is for; the rest of the crate has no `unsafe` but where `code_cache` maps
@@ -23,26 +25,31 @@
 mod dmabuf;
 mod imported_image;
 
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::convert::Infallible;
 use std::os::fd::{AsRawFd, OwnedFd};
-use std::sync::{Arc, LazyLock, Mutex};
+use std::sync::{Arc, LazyLock, Mutex, OnceLock};
 
-use anyhow::Result;
+use anyhow::{Context, Result, anyhow, bail};
 use waos_webgpu_host::wasi::webgpu::webgpu::{
     GpuTextureDimension, GpuTextureFormat, GpuTextureUsage,
 };
 use waos_webgpu_host::{Device, GpuObject, TextureAttributes};
 
+use crate::HardwareBufferMode;
 use crate::bindings::wasdk::platform::hardware_buffers::{
     AlphaType, HardwareBufferUsage, ImageError, ImageErrorKind, PixelBuffer, PixelFormat,
 };
+use crate::gpu::wgpu_types::error::{ErrorType, WebGpuError};
 use crate::gpu::{GpuInstance, wgpu_core, wgpu_types};
 use crate::hardware_buffers::Released;
+use crate::os::{FinishHandOver, HandOver};
 use crate::shell::VideoPicture;
 use crate::sync::locked;
 
 pub(crate) use super::vulkan::device_opener::HardwareBufferImports;
+use super::vulkan::device_opener::adapter_can_import;
 use super::vulkan::queue_ownership::{Transfer, handed_state, submit_transfer};
 use dmabuf::Dmabuf;
 use imported_image::ImportedTexture;
@@ -66,21 +73,59 @@ pub(crate) const ALLOCATES: bool = true;
 /// `maxImageDimension2D`.
 pub(crate) const LARGEST_SIDE: u32 = 4096;
 
-/// Whether a texture over a hardware buffer is handed to the compositor and back: on Linux its
-/// image is released to the foreign queue family and acquired back (`vulkan::queue_ownership`).
+/// Whether a texture over a hardware buffer is handed to the compositor and back: on Linux a
+/// dmabuf's image is released to the foreign queue family and acquired back, and an offscreen
+/// texture's pixels are copied into its CPU backing on handover.
 pub(crate) const HANDS_TEXTURES_OVER: bool = true;
 
-/// GPU memory the system's compositor can show, as the shell hands it and is handed it: a
-/// dmabuf, which Waft's Linux host shows. Cloning it is a hold more on the same dmabuf.
+/// Row alignment required by WebGPU texture-to-buffer copies.
+const COPY_ALIGN: u32 = wgpu_types::COPY_BYTES_PER_ROW_ALIGNMENT;
+
+/// Decides once at engine startup whether Linux hardware buffers use dmabufs (`Auto`) or offscreen
+/// textures (`Offscreen`).
+pub(crate) fn resolve_buffer_mode(
+    gpu: &GpuInstance,
+    requested: HardwareBufferMode,
+) -> HardwareBufferMode {
+    match requested {
+        HardwareBufferMode::Offscreen => HardwareBufferMode::Offscreen,
+        HardwareBufferMode::Auto => {
+            if Dmabuf::can_allocate() && adapter_can_import(gpu) {
+                HardwareBufferMode::Auto
+            } else {
+                tracing::info!(
+                    "Linux hardware buffers using offscreen textures (no usable DRM/dmabuf GPU path)"
+                );
+                HardwareBufferMode::Offscreen
+            }
+        }
+    }
+}
+
+/// GPU memory the system's compositor or headless shell holds: either a dmabuf (which Waft's
+/// Linux host shows) or an offscreen pixel buffer (for headless runs and machines without a DRM
+/// render node or dmabuf-capable Vulkan adapter). Cloning it is a hold more on the same backing.
 #[derive(Clone)]
-pub struct HardwareBuffer(Arc<ShellsDmabuf>);
+pub struct HardwareBuffer(Arc<LinuxBuffer>);
+
+enum LinuxBuffer {
+    Dmabuf(ShellsDmabuf),
+    Offscreen(OffscreenBuffer),
+}
 
 /// A dmabuf, and what the shell made of it once, which lives as long as the dmabuf: Waft's buffer
 /// over it, which keeps the `wl_buffer` the compositor made of it, so a pool's buffer presented
 /// every frame is made a `wl_buffer` once.
 struct ShellsDmabuf {
     dmabuf: Dmabuf,
-    shells: std::sync::OnceLock<Arc<dyn std::any::Any + Send + Sync>>,
+    shells: OnceLock<Arc<dyn std::any::Any + Send + Sync>>,
+}
+
+/// CPU-side BGRA8 premultiplied pixel backing for an offscreen Linux buffer.
+struct OffscreenBuffer {
+    width: u32,
+    height: u32,
+    pixels: Mutex<Vec<u8>>,
 }
 
 impl HardwareBuffer {
@@ -97,65 +142,100 @@ impl HardwareBuffer {
     }
 
     fn over(dmabuf: Dmabuf) -> HardwareBuffer {
-        HardwareBuffer(Arc::new(ShellsDmabuf {
+        HardwareBuffer(Arc::new(LinuxBuffer::Dmabuf(ShellsDmabuf {
             dmabuf,
-            shells: std::sync::OnceLock::new(),
-        }))
+            shells: OnceLock::new(),
+        })))
+    }
+
+    fn offscreen(width: u32, height: u32) -> HardwareBuffer {
+        let len = width as usize * height as usize * 4;
+        HardwareBuffer(Arc::new(LinuxBuffer::Offscreen(OffscreenBuffer {
+            width,
+            height,
+            pixels: Mutex::new(vec![0; len]),
+        })))
+    }
+
+    /// Whether this buffer is backed by offscreen memory rather than a dmabuf.
+    pub fn is_offscreen(&self) -> bool {
+        matches!(self.0.as_ref(), LinuxBuffer::Offscreen(_))
     }
 
     /// What the shell makes of the buffer, `make`'s answer, made at the first call and kept as
-    /// long as the buffer is; `None` where an earlier call made something of another type.
+    /// long as the buffer is; `None` for an offscreen buffer or where an earlier call made
+    /// something of another type.
     pub fn shells<T: std::any::Any + Send + Sync>(
         &self,
         make: impl FnOnce() -> T,
     ) -> Option<Arc<T>> {
-        let made = self.0.shells.get_or_init(|| Arc::new(make()));
+        let LinuxBuffer::Dmabuf(shell_dmabuf) = self.0.as_ref() else {
+            return None;
+        };
+        let made = shell_dmabuf.shells.get_or_init(|| Arc::new(make()));
         Arc::clone(made).downcast::<T>().ok()
     }
 
-    /// The dmabuf's fd, which a reader duplicates rather than takes.
-    pub fn fd(&self) -> &OwnedFd {
-        &self.0.dmabuf.fd
+    /// The dmabuf's fd, which a reader duplicates rather than takes; `None` for an offscreen
+    /// buffer.
+    pub fn fd(&self) -> Option<&OwnedFd> {
+        Some(&self.dmabuf()?.fd)
     }
 
     /// Its width and height in pixels.
     pub fn size(&self) -> [u32; 2] {
-        [self.0.dmabuf.width, self.0.dmabuf.height]
+        match self.0.as_ref() {
+            LinuxBuffer::Dmabuf(shell_dmabuf) => {
+                [shell_dmabuf.dmabuf.width, shell_dmabuf.dmabuf.height]
+            }
+            LinuxBuffer::Offscreen(offscreen) => [offscreen.width, offscreen.height],
+        }
     }
 
-    /// The bytes from one row's start to the next's.
-    pub fn stride(&self) -> u32 {
-        self.0.dmabuf.stride
+    /// The bytes from one row's start to the next's; `None` for an offscreen buffer.
+    pub fn stride(&self) -> Option<u32> {
+        Some(self.dmabuf()?.stride)
     }
 
-    /// Where its first row starts in the dmabuf.
-    pub fn offset(&self) -> u32 {
-        self.0.dmabuf.offset
+    /// Where its first row starts in the dmabuf; `None` for an offscreen buffer.
+    pub fn offset(&self) -> Option<u32> {
+        Some(self.dmabuf()?.offset)
     }
 
-    /// The DRM format modifier its memory is laid out in.
-    pub fn modifier(&self) -> u64 {
-        self.0.dmabuf.modifier
+    /// The DRM format modifier its memory is laid out in; `None` for an offscreen buffer.
+    pub fn modifier(&self) -> Option<u64> {
+        Some(self.dmabuf()?.modifier)
     }
 
-    pub(crate) fn dmabuf(&self) -> &Dmabuf {
-        &self.0.dmabuf
+    pub(crate) fn dmabuf(&self) -> Option<&Dmabuf> {
+        match self.0.as_ref() {
+            LinuxBuffer::Dmabuf(shell_dmabuf) => Some(&shell_dmabuf.dmabuf),
+            LinuxBuffer::Offscreen(_) => None,
+        }
     }
 }
 
 impl std::fmt::Debug for HardwareBuffer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("HardwareBuffer")
-            .field("fd", &self.fd().as_raw_fd())
-            .field("size", &self.size())
-            .finish()
+        match self.0.as_ref() {
+            LinuxBuffer::Dmabuf(shell_dmabuf) => f
+                .debug_struct("HardwareBuffer")
+                .field("fd", &shell_dmabuf.dmabuf.fd.as_raw_fd())
+                .field("size", &self.size())
+                .finish(),
+            LinuxBuffer::Offscreen(_) => f
+                .debug_struct("HardwareBuffer")
+                .field("offscreen", &true)
+                .field("size", &self.size())
+                .finish(),
+        }
     }
 }
 
-/// One hardware buffer's memory, as the engine holds it: the dmabuf, which a program's device
-/// draws into through a texture made over it for each frame, and which the shell is handed as the
-/// [`HardwareBuffer`] it shows. Cloning it is a hold more: whoever still holds one keeps the
-/// pixels alive.
+/// One hardware buffer's memory, as the engine holds it: either a dmabuf or an offscreen pixel
+/// buffer, which a program's device draws into through a texture made over it for each frame, and
+/// which the shell is handed as the [`HardwareBuffer`] it shows. Cloning it is a hold more:
+/// whoever still holds one keeps the pixels alive.
 #[derive(Clone)]
 pub(crate) struct HardwareBufferMemory {
     buffer: HardwareBuffer,
@@ -164,17 +244,21 @@ pub(crate) struct HardwareBufferMemory {
 }
 
 impl HardwareBufferMemory {
-    /// Allocates a BGRA8 buffer of `width` by `height` physical pixels; linear memory serves every
-    /// `usage`.
+    /// Allocates a BGRA8 buffer of `width` by `height` physical pixels in `mode`; linear memory
+    /// and offscreen buffers serve every `usage`.
     pub(crate) fn new(
         width: u32,
         height: u32,
         usage: HardwareBufferUsage,
+        mode: HardwareBufferMode,
     ) -> Result<HardwareBufferMemory> {
         let _ = usage;
-        let dmabuf = Dmabuf::allocate(width, height)?;
+        let buffer = match mode {
+            HardwareBufferMode::Auto => HardwareBuffer::over(Dmabuf::allocate(width, height)?),
+            HardwareBufferMode::Offscreen => HardwareBuffer::offscreen(width, height),
+        };
         Ok(HardwareBufferMemory {
-            buffer: HardwareBuffer::over(dmabuf),
+            buffer,
             width,
             height,
         })
@@ -188,6 +272,7 @@ impl HardwareBufferMemory {
         height: u32,
         format: PixelFormat,
         usage: HardwareBufferUsage,
+        mode: HardwareBufferMode,
     ) -> Result<HardwareBufferMemory, ImageError> {
         if format != PixelFormat::Bgra8 {
             return Err(ImageError {
@@ -195,7 +280,7 @@ impl HardwareBufferMemory {
                 message: "Linux allocates hardware buffers in BGRA".to_owned(),
             });
         }
-        HardwareBufferMemory::new(width, height, usage).map_err(|error| ImageError {
+        HardwareBufferMemory::new(width, height, usage, mode).map_err(|error| ImageError {
             kind: ImageErrorKind::OutOfMemory,
             message: format!("{error:#}"),
         })
@@ -224,27 +309,33 @@ impl HardwareBufferMemory {
         self.height
     }
 
-    /// What the buffer can be used for: every use, linear memory serving all.
+    /// What the buffer can be used for: every use, linear memory and offscreen buffers serving
+    /// all.
     pub(crate) fn usage(&self) -> HardwareBufferUsage {
         HardwareBufferUsage::all()
     }
 
     /// The bytes the buffer's rows take: what a program is counted for holding it.
     pub(crate) fn bytes(&self) -> u64 {
-        u64::from(self.buffer.stride()) * u64::from(self.height)
+        let row_bytes = self.buffer.stride().unwrap_or(self.width * 4);
+        u64::from(row_bytes) * u64::from(self.height)
     }
 
     /// The buffer's pixels copied into the program's memory, rows `width * 4` bytes, BGRA and
     /// premultiplied, read by the CPU.
     pub(crate) fn read_pixels(&self) -> Result<PixelBuffer, ImageError> {
-        let bytes = self
-            .buffer
-            .dmabuf()
-            .read_rows()
-            .map_err(|error| ImageError {
-                kind: ImageErrorKind::Other,
-                message: format!("{error:#}"),
-            })?;
+        let bytes = match self.buffer.0.as_ref() {
+            LinuxBuffer::Dmabuf(shell_dmabuf) => {
+                shell_dmabuf
+                    .dmabuf
+                    .read_rows()
+                    .map_err(|error| ImageError {
+                        kind: ImageErrorKind::Other,
+                        message: format!("{error:#}"),
+                    })?
+            }
+            LinuxBuffer::Offscreen(offscreen) => locked(&offscreen.pixels).clone(),
+        };
         Ok(PixelBuffer {
             width: self.width,
             height: self.height,
@@ -268,14 +359,38 @@ impl HardwareBufferMemory {
         usage: wgpu_types::TextureUsages,
         release: wgpu_hal::DropCallback,
     ) -> Result<(Arc<GpuObject<wgpu_core::id::TextureId>>, TextureAttributes)> {
-        let imported = ImportedTexture {
-            label: "waos program hardware buffer",
-            usage,
-            view_formats: &[],
-            arrives: arriving_state(usage),
-        };
         let size = [self.width, self.height];
-        let texture = imported.over(&self.buffer, size, gpu, device.device_id(), Some(release))?;
+        let texture = match self.buffer.0.as_ref() {
+            LinuxBuffer::Dmabuf(_) => {
+                let imported = ImportedTexture {
+                    label: "waos program hardware buffer",
+                    usage,
+                    view_formats: &[],
+                    arrives: arriving_state(usage),
+                };
+                imported.over(&self.buffer, size, gpu, device.device_id(), Some(release))?
+            }
+            LinuxBuffer::Offscreen(offscreen) => {
+                // Plain wgpu textures own their own GPU memory rather than referencing external
+                // memory, so no external drop callback is needed once the texture is created.
+                drop(release);
+                let actual_usage = usage
+                    | wgpu_types::TextureUsages::COPY_SRC
+                    | wgpu_types::TextureUsages::COPY_DST;
+                let texture = create_offscreen_texture(
+                    gpu,
+                    device.device_id(),
+                    size,
+                    "waos program hardware buffer",
+                    actual_usage,
+                    &[],
+                )?;
+                if !device.is_lost() {
+                    upload_offscreen_pixels(gpu, device.queue_id(), texture, offscreen)?;
+                }
+                texture
+            }
+        };
         let attributes = TextureAttributes {
             size: wgpu_types::Extent3d {
                 width: size[0],
@@ -299,14 +414,32 @@ impl HardwareBufferMemory {
         &self,
         gpu: &wgpu_core::global::Global,
         device: wgpu_core::id::DeviceId,
+        queue: wgpu_core::id::QueueId,
     ) -> Result<wgpu_core::id::TextureId> {
-        let sampled = ImportedTexture {
-            label: "waos screenshot picture",
-            usage: wgpu_types::TextureUsages::TEXTURE_BINDING,
-            view_formats: &[],
-            arrives: wgpu_types::TextureUses::RESOURCE,
-        };
-        sampled.over(&self.buffer, [self.width, self.height], gpu, device, None)
+        match self.buffer.0.as_ref() {
+            LinuxBuffer::Dmabuf(_) => {
+                let sampled = ImportedTexture {
+                    label: "waos screenshot picture",
+                    usage: wgpu_types::TextureUsages::TEXTURE_BINDING,
+                    view_formats: &[],
+                    arrives: wgpu_types::TextureUses::RESOURCE,
+                };
+                sampled.over(&self.buffer, [self.width, self.height], gpu, device, None)
+            }
+            LinuxBuffer::Offscreen(offscreen) => {
+                let texture = create_offscreen_texture(
+                    gpu,
+                    device,
+                    [self.width, self.height],
+                    "waos screenshot picture",
+                    wgpu_types::TextureUsages::TEXTURE_BINDING
+                        | wgpu_types::TextureUsages::COPY_DST,
+                    &[],
+                )?;
+                upload_offscreen_pixels(gpu, queue, texture, offscreen)?;
+                Ok(texture)
+            }
+        }
     }
 
     /// The buffer marked as read by a screenshot until what is answered goes: a release the engine
@@ -317,8 +450,7 @@ impl HardwareBufferMemory {
     }
 
     /// `released`, a release the engine hands the shell with the buffer, run once no screenshot
-    /// reads the buffer: at once where none does, or as the last of them is done. Android's
-    /// release comes from the compositor's fence, which knows nothing of the engine's readers.
+    /// reads the buffer: at once where none does, or as the last of them is done.
     pub(crate) fn after_reads(&self, released: Released) -> Released {
         let key = self.key();
         Box::new(move || {
@@ -347,18 +479,94 @@ impl HardwareBufferMemory {
         usage: wgpu_types::TextureUsages,
         view_formats: &[wgpu_types::TextureFormat],
     ) -> Result<wgpu_core::id::TextureId> {
-        let drawn = ImportedTexture {
-            label: "waos hardware buffer",
-            usage,
-            view_formats,
-            // A new image over the buffer, holding the last frame's pixels, which nothing reads:
-            // the program draws the whole canvas.
-            arrives: wgpu_types::TextureUses::UNINITIALIZED,
-        };
-        drawn.over(&self.buffer, [self.width, self.height], gpu, device, None)
+        match self.buffer.0.as_ref() {
+            LinuxBuffer::Dmabuf(_) => {
+                let drawn = ImportedTexture {
+                    label: "waos hardware buffer",
+                    usage,
+                    view_formats,
+                    // A new image over the buffer, holding the last frame's pixels, which nothing
+                    // reads: the program draws the whole canvas.
+                    arrives: wgpu_types::TextureUses::UNINITIALIZED,
+                };
+                drawn.over(&self.buffer, [self.width, self.height], gpu, device, None)
+            }
+            LinuxBuffer::Offscreen(_) => create_offscreen_texture(
+                gpu,
+                device,
+                [self.width, self.height],
+                "waos hardware buffer",
+                usage | wgpu_types::TextureUsages::COPY_SRC,
+                view_formats,
+            ),
+        }
     }
 
-    /// What tells this buffer's screenshots apart from another's: its `AHardwareBuffer`, unique
+    /// Encodes a copy from `texture` into a staging buffer on `encoder` when this buffer is
+    /// offscreen, returning the post-wait closure that maps the staging buffer and updates the
+    /// offscreen pixel backing. Returns `Ok(None)` for dmabufs.
+    pub(crate) fn encode_readback(
+        &self,
+        gpu: &GpuInstance,
+        device: wgpu_core::id::DeviceId,
+        encoder: wgpu_core::id::CommandEncoderId,
+        texture: wgpu_core::id::TextureId,
+    ) -> Result<Option<FinishHandOver>> {
+        if !self.buffer.is_offscreen() {
+            return Ok(None);
+        }
+        let width = self.width;
+        let height = self.height;
+        if width == 0 || height == 0 {
+            return Ok(None);
+        }
+        let padded_row = padded_bytes_per_row(width);
+        let total_bytes = u64::from(padded_row) * u64::from(height);
+        let (staging_id, error) = gpu.device_create_buffer(
+            device,
+            &wgpu_types::BufferDescriptor {
+                label: Some(Cow::Borrowed("waos offscreen readback")),
+                size: total_bytes,
+                usage: wgpu_types::BufferUsages::COPY_DST | wgpu_types::BufferUsages::MAP_READ,
+                mapped_at_creation: false,
+            },
+            None,
+        );
+        let staging = GpuObject::new(staging_id, gpu);
+        if let Some(error) = error {
+            return Err(anyhow!("{error}")).context("creating offscreen readback staging buffer");
+        }
+        gpu.command_encoder_copy_texture_to_buffer(
+            encoder,
+            &wgpu_types::TexelCopyTextureInfo {
+                texture,
+                mip_level: 0,
+                origin: wgpu_types::Origin3d::ZERO,
+                aspect: wgpu_types::TextureAspect::All,
+            },
+            &wgpu_types::TexelCopyBufferInfo {
+                buffer: staging.id(),
+                layout: wgpu_types::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(padded_row),
+                    rows_per_image: Some(height),
+                },
+            },
+            &wgpu_types::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+        )
+        .context("copying offscreen texture to staging buffer")?;
+        let buffer = self.buffer.clone();
+        let finish: FinishHandOver = Box::new(move |gpu| {
+            finish_offscreen_readback(gpu, device, staging, &buffer, width, height, padded_row);
+        });
+        Ok(Some(finish))
+    }
+
+    /// What tells this buffer's screenshots apart from another's: its backing pointer, unique
     /// while anyone holds a reference on it, as a reader and a release waiting for one do.
     fn key(&self) -> usize {
         Arc::as_ptr(&self.buffer.0) as usize
@@ -366,30 +574,50 @@ impl HardwareBufferMemory {
 }
 
 /// Hands a frame the program drew into `texture`, over a hardware buffer, to the compositor once
-/// its work is done: what the program wrote on `device`'s queue and no submission carried is
-/// submitted, with the release of the texture's image to the compositor's queue family, in the
-/// layout its state of `usage` gives. Answers that submission, after every one that drew the
-/// frame, for the wait before the hand-over; none where wgpu-core refused it, as on a lost
-/// device, said so. GPU work, submitted only where the program's freeze allows it.
+/// its work is done. For dmabufs, releases the image to the foreign queue family; for offscreen
+/// buffers, encodes and submits the staging-buffer copy inside the freeze gate and returns the
+/// post-wait readback closure.
 pub(crate) fn hand_to_compositor(
     gpu: &GpuInstance,
     device: &Device,
+    memory: &HardwareBufferMemory,
     texture: wgpu_core::id::TextureId,
     usage: wgpu_types::TextureUsages,
-) -> Option<wgpu_core::SubmissionIndex> {
-    submit_transfer(gpu, device, texture, handed_state(usage), Transfer::Release)
-        .inspect_err(|error| {
-            if !device.is_lost() {
-                tracing::warn!("a frame is handed to the compositor unreleased: {error:#}");
+) -> HandOver {
+    match memory.buffer.0.as_ref() {
+        LinuxBuffer::Dmabuf(_) => {
+            let submission =
+                submit_transfer(gpu, device, texture, handed_state(usage), Transfer::Release)
+                    .inspect_err(|error| {
+                        if !device.is_lost() {
+                            tracing::warn!(
+                                "a frame is handed to the compositor unreleased: {error:#}"
+                            );
+                        }
+                    })
+                    .ok();
+            HandOver::submission(submission)
+        }
+        LinuxBuffer::Offscreen(_) => {
+            if device.is_lost() {
+                return HandOver::submission(None);
             }
-        })
-        .ok()
+            match submit_offscreen_readback(gpu, device, memory, texture) {
+                Ok(hand_over) => hand_over,
+                Err(error) => {
+                    if !device.is_lost() {
+                        tracing::warn!("an offscreen frame was not read back: {error:#}");
+                    }
+                    HandOver::submission(device.submit_pending_writes())
+                }
+            }
+        }
+    }
 }
 
 /// Takes `texture`, a frame's over a hardware buffer, back from the compositor before the program
-/// draws into it: its image is acquired from the compositor's queue family, and moved to the
-/// state of `usage` a frame is handed over in. A failure, as on a lost device, is said, and the
-/// frame drawn without it. GPU work, submitted only where the program's freeze allows it.
+/// draws into it: acquires from the foreign queue family for dmabufs, and is a no-op for offscreen
+/// buffers.
 pub(crate) fn take_from_compositor(
     gpu: &GpuInstance,
     device: &Device,
@@ -397,6 +625,9 @@ pub(crate) fn take_from_compositor(
     texture: wgpu_core::id::TextureId,
     usage: wgpu_types::TextureUsages,
 ) {
+    if memory.buffer.is_offscreen() {
+        return;
+    }
     wait_for_readers(memory);
     let taken = submit_transfer(gpu, device, texture, handed_state(usage), Transfer::Acquire);
     if let Err(error) = taken
@@ -406,11 +637,9 @@ pub(crate) fn take_from_compositor(
     }
 }
 
-/// Takes `texture`, a program's over its own hardware buffer, which `hand_to_compositor` released,
-/// back for the program's device once the compositor, the CPU or the codecs are done with the
-/// buffer: its image is acquired from their queue family in the layout it was released in, its
-/// pixels kept. A failure, as on a lost device, is said. GPU work, submitted only where the
-/// program's freeze allows it.
+/// Takes `texture`, a program's over its own hardware buffer, back for the program's device once
+/// the compositor, the CPU or the codecs are done with the buffer: acquires back for dmabufs, and
+/// is a no-op for offscreen buffers.
 pub(crate) fn take_back_from_compositor(
     gpu: &GpuInstance,
     device: &Device,
@@ -418,6 +647,9 @@ pub(crate) fn take_back_from_compositor(
     texture: wgpu_core::id::TextureId,
     usage: wgpu_types::TextureUsages,
 ) {
+    if memory.buffer.is_offscreen() {
+        return;
+    }
     wait_for_readers(memory);
     let taken = submit_transfer(
         gpu,
@@ -433,13 +665,185 @@ pub(crate) fn take_back_from_compositor(
     }
 }
 
+/// Encodes and submits an offscreen texture-to-staging-buffer copy on `device`'s queue.
+fn submit_offscreen_readback(
+    gpu: &GpuInstance,
+    device: &Device,
+    memory: &HardwareBufferMemory,
+    texture: wgpu_core::id::TextureId,
+) -> Result<HandOver> {
+    let label = Some(Cow::Borrowed("waos offscreen handover"));
+    let (encoder_id, error) = gpu.device_create_command_encoder(
+        device.device_id(),
+        &wgpu_types::CommandEncoderDescriptor {
+            label: label.clone(),
+        },
+        None,
+    );
+    let encoder = GpuObject::new(encoder_id, gpu);
+    if let Some(error) = error {
+        return Err(anyhow!("{error}")).context("creating offscreen handover command encoder");
+    }
+    let finish = memory.encode_readback(gpu, device.device_id(), encoder.id(), texture)?;
+    let (commands_id, error) = gpu.command_encoder_finish(
+        encoder.id(),
+        &wgpu_types::CommandBufferDescriptor { label },
+        None,
+    );
+    let commands = GpuObject::new(commands_id, gpu);
+    if let Some((_, error)) = error {
+        return Err(anyhow!("{error}")).context("finishing offscreen handover command buffer");
+    }
+    let submission = gpu
+        .queue_submit(device.queue_id(), &[commands.id()])
+        .map_err(|(_, error)| anyhow!("{error}"))
+        .context("submitting offscreen handover copy")?;
+    Ok(HandOver {
+        submission: Some(submission),
+        finish,
+    })
+}
+
+/// Maps `staging` after its copy submission has completed and copies its rows into `buffer`'s
+/// offscreen pixel backing, stripping WebGPU row padding.
+fn finish_offscreen_readback(
+    gpu: &wgpu_core::global::Global,
+    device: wgpu_core::id::DeviceId,
+    staging: GpuObject<wgpu_core::id::BufferId>,
+    buffer: &HardwareBuffer,
+    width: u32,
+    height: u32,
+    padded_row: u32,
+) {
+    let LinuxBuffer::Offscreen(offscreen) = buffer.0.as_ref() else {
+        return;
+    };
+    let total_bytes = u64::from(padded_row) * u64::from(height);
+    let mapped = Arc::new(Mutex::new(None));
+    let mapped_cb = Arc::clone(&mapped);
+    let op = wgpu_core::resource::BufferMapOperation {
+        host: wgpu_core::device::HostMap::Read,
+        callback: Some(Box::new(move |result| {
+            *locked(&mapped_cb) = Some(result);
+        })),
+    };
+    if let Err(error) = gpu.buffer_map_async(staging.id(), 0, Some(total_bytes), op) {
+        tracing::warn!("mapping offscreen readback buffer: {error}");
+        return;
+    }
+    if let Err(error) = gpu.device_poll(device, wgpu_types::PollType::wait_indefinitely()) {
+        tracing::warn!("polling offscreen readback buffer: {error:?}");
+        return;
+    }
+    match locked(&mapped).take() {
+        Some(Ok(())) => {
+            match gpu.buffer_get_mapped_range(staging.id(), 0, Some(total_bytes)) {
+                Ok((ptr, len)) => {
+                    let unpadded_row = width as usize * 4;
+                    let padded_row = padded_row as usize;
+                    let needed = padded_row * height as usize;
+                    if len as usize >= needed {
+                        // SAFETY: `buffer_get_mapped_range` succeeded for `len >= needed` bytes
+                        // and the buffer stays mapped until `buffer_unmap` below.
+                        let src = unsafe { std::slice::from_raw_parts(ptr.as_ptr(), len as usize) };
+                        let mut pixels = locked(&offscreen.pixels);
+                        pixels.resize(unpadded_row * height as usize, 0);
+                        for row in 0..height as usize {
+                            let src_start = row * padded_row;
+                            let dst_start = row * unpadded_row;
+                            pixels[dst_start..dst_start + unpadded_row]
+                                .copy_from_slice(&src[src_start..src_start + unpadded_row]);
+                        }
+                    }
+                    let _ = gpu.buffer_unmap(staging.id());
+                }
+                Err(error) => {
+                    tracing::warn!("reading mapped offscreen buffer: {error}");
+                }
+            }
+        }
+        Some(Err(error)) => {
+            tracing::warn!("offscreen readback map failed: {error}");
+        }
+        None => {
+            tracing::warn!("offscreen readback map callback did not fire");
+        }
+    }
+    drop(staging);
+}
+
+fn padded_bytes_per_row(width: u32) -> u32 {
+    let unpadded = width * 4;
+    unpadded.div_ceil(COPY_ALIGN) * COPY_ALIGN
+}
+
+fn create_offscreen_texture(
+    gpu: &wgpu_core::global::Global,
+    device: wgpu_core::id::DeviceId,
+    [width, height]: [u32; 2],
+    label: &'static str,
+    usage: wgpu_types::TextureUsages,
+    view_formats: &[wgpu_types::TextureFormat],
+) -> Result<wgpu_core::id::TextureId> {
+    let descriptor = wgpu_types::TextureDescriptor {
+        label: Some(Cow::Borrowed(label)),
+        size: wgpu_types::Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu_types::TextureDimension::D2,
+        format: FORMAT,
+        usage,
+        view_formats: view_formats.to_vec(),
+    };
+    let (texture, error) = gpu.device_create_texture(device, &descriptor, None);
+    match error {
+        Some(error) if error.webgpu_error_type() != ErrorType::DeviceLost => {
+            bail!("{error:#?}")
+        }
+        _ => Ok(texture),
+    }
+}
+
+fn upload_offscreen_pixels(
+    gpu: &wgpu_core::global::Global,
+    queue: wgpu_core::id::QueueId,
+    texture: wgpu_core::id::TextureId,
+    offscreen: &OffscreenBuffer,
+) -> Result<()> {
+    let pixels = locked(&offscreen.pixels).clone();
+    let expected = offscreen.width as usize * offscreen.height as usize * 4;
+    if pixels.len() < expected || expected == 0 {
+        return Ok(());
+    }
+    gpu.queue_write_texture(
+        queue,
+        &wgpu_types::TexelCopyTextureInfo {
+            texture,
+            mip_level: 0,
+            origin: wgpu_types::Origin3d::ZERO,
+            aspect: wgpu_types::TextureAspect::All,
+        },
+        &pixels[..expected],
+        &wgpu_types::TexelCopyBufferLayout {
+            offset: 0,
+            bytes_per_row: Some(offscreen.width * 4),
+            rows_per_image: Some(offscreen.height),
+        },
+        &wgpu_types::Extent3d {
+            width: offscreen.width,
+            height: offscreen.height,
+            depth_or_array_layers: 1,
+        },
+    )
+    .map_err(|error| anyhow!("uploading offscreen pixels: {error}"))
+}
+
 /// Waits until the fence the dmabuf's readers left, the compositor's among them, has signalled:
 /// the sync file `DMA_BUF_IOCTL_EXPORT_SYNC_FILE` exports, polled for at most [`READERS_WAIT`].
-/// The wait is on the CPU, on the program's thread: a semaphore imported from the sync file and
-/// waited on by the next submission, the GPU's wait, crashes lavapipe's `vkQueueSubmit`, and the
-/// fence has nearly always signalled by the time a buffer comes back (measured: usually signalled
-/// before the wait, a few of 187 buffers with it still pending). Where it cannot be waited for,
-/// it is said, and the buffer is drawn into without it.
 fn wait_for_readers(memory: &HardwareBufferMemory) {
     if let Err(error) = readers_done(memory) {
         tracing::warn!("a buffer is drawn into without waiting for its readers: {error:#}");
@@ -450,7 +854,10 @@ fn wait_for_readers(memory: &HardwareBufferMemory) {
 const READERS_WAIT: std::time::Duration = std::time::Duration::from_millis(100);
 
 fn readers_done(memory: &HardwareBufferMemory) -> Result<()> {
-    let fence = memory.buffer.dmabuf().writers_fence()?;
+    let Some(dmabuf) = memory.buffer.dmabuf() else {
+        return Ok(());
+    };
+    let fence = dmabuf.writers_fence()?;
     let mut poll = libc::pollfd {
         fd: fence.as_raw_fd(),
         events: libc::POLLIN,
@@ -465,8 +872,36 @@ fn readers_done(memory: &HardwareBufferMemory) -> Result<()> {
     Ok(())
 }
 
+/// A buffer of `width` by `height` pixels, each the bytes `pixel` answers for its column and row
+/// as they lie in memory, BGRA: a picture a test knows.
+#[cfg(test)]
+pub(crate) fn filled(
+    width: u32,
+    height: u32,
+    pixel: impl Fn(u32, u32) -> [u8; 4],
+) -> HardwareBufferMemory {
+    let memory = HardwareBufferMemory::new(
+        width,
+        height,
+        HardwareBufferUsage::empty(),
+        HardwareBufferMode::Offscreen,
+    )
+    .expect("an offscreen buffer for a test");
+    if let LinuxBuffer::Offscreen(offscreen) = memory.buffer.0.as_ref() {
+        let mut pixels = locked(&offscreen.pixels);
+        pixels.clear();
+        pixels.reserve(width as usize * height as usize * 4);
+        for row in 0..height {
+            for column in 0..width {
+                pixels.extend_from_slice(&pixel(column, row));
+            }
+        }
+    }
+    memory
+}
+
 /// The screenshots reading each hardware buffer now, by its key, and the releases waiting for
-/// them: the use count Android does not keep.
+/// them: the use count Linux does not keep.
 static READS: LazyLock<Mutex<HashMap<usize, Reads>>> = LazyLock::new(Mutex::default);
 
 /// One buffer's readers, and the releases that wait for the last of them.
@@ -476,8 +911,7 @@ struct Reads {
     waiting: Vec<Released>,
 }
 
-/// A hardware buffer read by a screenshot, until this goes. Android has no use count the
-/// compositor and the engine share, as `IOSurface`'s, so the engine keeps its own.
+/// A hardware buffer read by a screenshot, until this goes.
 pub(crate) struct InUse(HardwareBufferMemory);
 
 impl Drop for InUse {
@@ -504,7 +938,7 @@ impl Drop for InUse {
     }
 }
 
-/// A video's frame as the engine holds it. Android hands out none yet, so here the type has no
+/// A video's frame as the engine holds it. Linux hands out none yet, so here the type has no
 /// values.
 #[derive(Clone)]
 pub(crate) struct FrameMemory(Infallible);
@@ -519,6 +953,7 @@ impl FrameMemory {
     }
 }
 
+/// The state a program's texture of `usage` arrives in, which its usage allows; its pixels are
 /// taken as written, whoever wrote them: the program's earlier work.
 fn arriving_state(usage: wgpu_types::TextureUsages) -> wgpu_types::TextureUses {
     if usage.contains(wgpu_types::TextureUsages::TEXTURE_BINDING) {

@@ -163,7 +163,9 @@ impl ImportedImage {
         mutable: bool,
     ) -> Result<ImportedImage> {
         let raw = device.raw_device();
-        let dmabuf = buffer.dmabuf();
+        let Some(dmabuf) = buffer.dmabuf() else {
+            bail!("an offscreen hardware buffer has no dmabuf")
+        };
         let image = create_image(raw, dmabuf, usage, mutable)?;
         // SAFETY: a live device and the image just made on it.
         let requirements = unsafe { raw.get_image_memory_requirements(image) };

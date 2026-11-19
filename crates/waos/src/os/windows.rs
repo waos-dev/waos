@@ -32,11 +32,13 @@ use waos_webgpu_host::wasi::webgpu::webgpu::{
 };
 use waos_webgpu_host::{Device, GpuObject, TextureAttributes};
 
+use crate::HardwareBufferMode;
 use crate::bindings::wasdk::platform::hardware_buffers::{
     HardwareBufferUsage, ImageError, ImageErrorKind, PixelBuffer, PixelFormat,
 };
 use crate::gpu::{GpuInstance, wgpu_core, wgpu_types};
 use crate::hardware_buffers::Released;
+use crate::os::{FinishHandOver, HandOver};
 use crate::shell::VideoPicture;
 use crate::sync::locked;
 
@@ -129,8 +131,9 @@ impl HardwareBufferMemory {
         width: u32,
         height: u32,
         usage: HardwareBufferUsage,
+        mode: HardwareBufferMode,
     ) -> Result<HardwareBufferMemory> {
-        let _ = usage;
+        let _ = (usage, mode);
         let handle = shared_texture::make([width, height])?;
         Ok(HardwareBufferMemory {
             buffer: HardwareBuffer::new(handle, [width, height]),
@@ -145,6 +148,7 @@ impl HardwareBufferMemory {
         height: u32,
         format: PixelFormat,
         usage: HardwareBufferUsage,
+        mode: HardwareBufferMode,
     ) -> Result<HardwareBufferMemory, ImageError> {
         if format != PixelFormat::Bgra8 {
             return Err(ImageError {
@@ -158,7 +162,7 @@ impl HardwareBufferMemory {
                 message: "a hardware buffer on Windows is not read by the CPU".to_owned(),
             });
         }
-        HardwareBufferMemory::new(width, height, usage).map_err(|error| ImageError {
+        HardwareBufferMemory::new(width, height, usage, mode).map_err(|error| ImageError {
             kind: ImageErrorKind::OutOfMemory,
             message: format!("{error:#}"),
         })
@@ -246,6 +250,7 @@ impl HardwareBufferMemory {
         &self,
         gpu: &wgpu_core::global::Global,
         device: wgpu_core::id::DeviceId,
+        _queue: wgpu_core::id::QueueId,
     ) -> Result<wgpu_core::id::TextureId> {
         let sampled = Opened {
             label: "waos screenshot picture",
@@ -301,6 +306,16 @@ impl HardwareBufferMemory {
         drawn.over(&self.buffer, gpu, device, None)
     }
 
+    pub(crate) fn encode_readback(
+        &self,
+        _gpu: &GpuInstance,
+        _device: wgpu_core::id::DeviceId,
+        _encoder: wgpu_core::id::CommandEncoderId,
+        _texture: wgpu_core::id::TextureId,
+    ) -> Result<Option<FinishHandOver>> {
+        Ok(None)
+    }
+
     /// What tells this buffer's screenshots apart from another's: its shared handle, unique while
     /// anyone holds it, as a reader and a release waiting for one do.
     fn key(&self) -> usize {
@@ -317,17 +332,19 @@ impl HardwareBufferMemory {
 pub(crate) fn hand_to_compositor(
     gpu: &GpuInstance,
     device: &Device,
+    _memory: &HardwareBufferMemory,
     texture: wgpu_core::id::TextureId,
     usage: wgpu_types::TextureUsages,
-) -> Option<wgpu_core::SubmissionIndex> {
+) -> HandOver {
     let _ = usage;
-    submit_move_to_common(gpu, device, texture)
+    let submission = submit_move_to_common(gpu, device, texture)
         .inspect_err(|error| {
             if !device.is_lost() {
                 tracing::warn!("a frame is handed to the compositor in its last state: {error:#}");
             }
         })
-        .ok()
+        .ok();
+    HandOver::submission(submission)
 }
 
 /// Takes a frame's `texture` back from the compositor: nothing to do, as a frame's texture is new

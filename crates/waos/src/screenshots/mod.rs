@@ -19,6 +19,7 @@ mod quads;
 
 use std::sync::Mutex;
 
+use crate::HardwareBufferMode;
 use crate::bindings::wasdk::platform::hardware_buffers::{
     HardwareBufferUsage, ImageError, ImageErrorKind, PixelBuffer,
 };
@@ -36,6 +37,7 @@ use quads::{Fit, Quad, Turn};
 /// once one is taken.
 pub(crate) struct Screenshots {
     gpu: GpuInstance,
+    hardware_buffers: HardwareBufferMode,
     /// None before the first screenshot, and after a draw that failed, which opens it again.
     device: Mutex<Option<ScreenshotDevice>>,
 }
@@ -59,9 +61,10 @@ enum Held {
 }
 
 impl Screenshots {
-    pub(crate) fn new(gpu: GpuInstance) -> Screenshots {
+    pub(crate) fn new(gpu: GpuInstance, hardware_buffers: HardwareBufferMode) -> Screenshots {
         Screenshots {
             gpu,
+            hardware_buffers,
             device: Mutex::new(None),
         }
     }
@@ -77,7 +80,9 @@ impl Screenshots {
     ) -> Result<PixelBuffer, ImageError> {
         let pictures = pictures_of(layers);
         let quads = quads_of(&pictures, drawing);
-        let target = HardwareBufferMemory::new(size[0], size[1], target_usage()).map_err(failed)?;
+        let target =
+            HardwareBufferMemory::new(size[0], size[1], target_usage(), self.hardware_buffers)
+                .map_err(failed)?;
         self.draw(&target, &quads).map_err(failed)?;
         target.read_pixels()
     }
@@ -91,7 +96,7 @@ impl Screenshots {
         let mut device = locked(&self.device);
         let opened = match device.take() {
             Some(opened) => opened,
-            None => ScreenshotDevice::open(&self.gpu)?,
+            None => ScreenshotDevice::open(&self.gpu, self.hardware_buffers)?,
         };
         opened.draw(&self.gpu, target, quads)?;
         // Kept only once it drew, so a device that failed, lost among them, is opened again.
@@ -184,11 +189,16 @@ pub(crate) mod tests {
     /// What draws screenshots on an instance of its own, which opens no device until one is
     /// taken: for a test's views.
     pub(crate) fn screenshots() -> Arc<Screenshots> {
-        Arc::new(Screenshots::new(crate::gpu::instance()))
+        let mode = if cfg!(target_os = "linux") {
+            super::HardwareBufferMode::Offscreen
+        } else {
+            super::HardwareBufferMode::Auto
+        };
+        Arc::new(Screenshots::new(crate::gpu::instance(), mode))
     }
 
     /// Screenshots drawn of pictures the tests know, where the engine makes hardware buffers.
-    #[cfg(target_vendor = "apple")]
+    #[cfg(any(target_vendor = "apple", target_os = "linux"))]
     mod drawn {
         use super::*;
         use crate::bindings::wasdk::platform::hardware_buffers::PixelBuffer;

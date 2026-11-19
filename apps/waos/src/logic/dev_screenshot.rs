@@ -262,7 +262,7 @@ mod tests {
 
     /// `examples/input`'s pictures, which it draws where the engine makes hardware buffers, on
     /// Apple's systems.
-    #[cfg(target_vendor = "apple")]
+    #[cfg(any(target_vendor = "apple", target_os = "linux"))]
     mod drawn {
         use std::path::Path;
         use std::time::{Duration, Instant};

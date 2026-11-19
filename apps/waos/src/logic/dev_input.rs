@@ -215,5 +215,5 @@ pub(crate) async fn new_picture_after(view: &ProgramView) -> bool {
 
 /// Run with `examples/input`, which draws where the engine makes hardware buffers, on Apple's
 /// systems.
-#[cfg(all(test, target_vendor = "apple"))]
+#[cfg(all(test, any(target_vendor = "apple", target_os = "linux")))]
 pub(crate) mod tests;

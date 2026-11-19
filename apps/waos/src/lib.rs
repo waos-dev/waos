@@ -34,6 +34,8 @@
 mod android_entry;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 mod desktop_entry;
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+mod headless_entry;
 #[cfg(target_os = "ios")]
 mod ios_entry;
 mod logic;

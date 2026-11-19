@@ -4,6 +4,8 @@
 //! (decision 2 of `docs/proposals/2026-11-12-phone-programs-and-library.md`). iOS keeps one
 //! instance of an app itself and gives it no command line, so nothing here reads one.
 
+use std::process::ExitCode;
+
 use waft::{DefaultEmbedder, Shell};
 
 use crate::logic::command_line::LibraryPlace;
@@ -11,7 +13,7 @@ use crate::logic::folders;
 use crate::{state, write_traces};
 
 /// Runs WaOS until the system ends it.
-pub fn main() {
+pub fn main() -> ExitCode {
     write_traces(std::io::stderr, false);
     let folders = folders::app_folders();
     DefaultEmbedder::default().run(move |platform| {
@@ -21,6 +23,7 @@ pub fn main() {
             }
         })
     });
+    ExitCode::SUCCESS
 }
 
 /// Ends WaOS with `error` on its standard error, which the simulator's console and Xcode's show.

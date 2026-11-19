@@ -56,7 +56,7 @@ indexmap.workspace = true
 waft-single-instance.workspace = true
 # The dev server's thread: the socket and its frames, a task per connection, and a load off
 # the thread; and the library's runtime, which reads sources, downloads and loads programs.
-tokio = { workspace = true, features = ["net", "io-util", "rt-multi-thread"] }
+tokio = { workspace = true, features = ["net", "io-util", "rt-multi-thread", "signal"] }
 tracing.workspace = true
 tracing-subscriber.workspace = true
 # A program's app written beside its place before it is moved in, and its icon's sizes made in a
@@ -79,6 +79,7 @@ image = { version = "0.25", default-features = false, features = ["png"] }
 # `waft-embedder-default` picks it: every system but the web, Android and iOS.
 [target.'cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))'.dependencies]
 waft-embedder-winit.workspace = true
+waos-cli.workspace = true
 
 # Waft's buffer over an `IOSurface` and its Core Video frame, which a program's hardware buffers
 # and its readers' frames go between Waft and the engine as on macOS and iOS.

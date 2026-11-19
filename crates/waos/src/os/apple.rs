@@ -37,12 +37,14 @@ use waos_webgpu_host::wasi::webgpu::webgpu::{
 };
 use waos_webgpu_host::{Device, GpuObject, TextureAttributes};
 
+use crate::HardwareBufferMode;
 use crate::bindings::wasdk::platform::hardware_buffers::{
     AlphaType, HardwareBufferUsage, ImageError, ImageErrorKind, PixelBuffer, PixelFormat,
 };
 use crate::gpu::wgpu_types::error::{ErrorType, WebGpuError};
 use crate::gpu::{GpuInstance, wgpu_core, wgpu_types};
 use crate::hardware_buffers::Released;
+use crate::os::{FinishHandOver, HandOver};
 use crate::shell::{HardwareBuffer, VideoPicture};
 
 /// The format a hardware buffer is allocated in, and so the only one a canvas can be configured
@@ -102,8 +104,9 @@ impl HardwareBufferMemory {
         width: u32,
         height: u32,
         usage: HardwareBufferUsage,
+        mode: HardwareBufferMode,
     ) -> Result<HardwareBufferMemory> {
-        let _ = usage;
+        let _ = (usage, mode);
         let surface = allocate(width as usize, height as usize)?;
         Ok(HardwareBufferMemory {
             surface,
@@ -122,6 +125,7 @@ impl HardwareBufferMemory {
         height: u32,
         format: PixelFormat,
         usage: HardwareBufferUsage,
+        mode: HardwareBufferMode,
     ) -> Result<HardwareBufferMemory, ImageError> {
         if format != PixelFormat::Bgra8 {
             return Err(ImageError {
@@ -129,7 +133,7 @@ impl HardwareBufferMemory {
                 message: "Apple's systems allocate hardware buffers in BGRA".to_owned(),
             });
         }
-        HardwareBufferMemory::new(width, height, usage).map_err(|error| ImageError {
+        HardwareBufferMemory::new(width, height, usage, mode).map_err(|error| ImageError {
             kind: ImageErrorKind::OutOfMemory,
             message: format!("{error:#}"),
         })
@@ -264,6 +268,7 @@ impl HardwareBufferMemory {
         &self,
         gpu: &wgpu_core::global::Global,
         device: wgpu_core::id::DeviceId,
+        _queue: wgpu_core::id::QueueId,
     ) -> Result<wgpu_core::id::TextureId> {
         let format = self.surface.pixel_format();
         if format != BGRA_OS_TYPE as u32 {
@@ -324,6 +329,16 @@ impl HardwareBufferMemory {
         };
         drawn.over(&self.surface, [self.width, self.height], gpu, device, None)
     }
+
+    pub(crate) fn encode_readback(
+        &self,
+        _gpu: &GpuInstance,
+        _device: wgpu_core::id::DeviceId,
+        _encoder: wgpu_core::id::CommandEncoderId,
+        _texture: wgpu_core::id::TextureId,
+    ) -> Result<Option<FinishHandOver>> {
+        Ok(None)
+    }
 }
 
 /// Hands a frame the program drew into `texture`, over a hardware buffer, to the compositor's
@@ -335,11 +350,12 @@ impl HardwareBufferMemory {
 pub(crate) fn hand_to_compositor(
     gpu: &GpuInstance,
     device: &Device,
+    _memory: &HardwareBufferMemory,
     texture: wgpu_core::id::TextureId,
     usage: wgpu_types::TextureUsages,
-) -> Option<wgpu_core::SubmissionIndex> {
+) -> HandOver {
     let _ = (gpu, texture, usage);
-    device.submit_pending_writes()
+    HandOver::submission(device.submit_pending_writes())
 }
 
 /// Takes `texture`, a frame's over a hardware buffer, back from the compositor before the program
@@ -375,8 +391,13 @@ pub(crate) fn filled(
     height: u32,
     pixel: impl Fn(u32, u32) -> [u8; 4],
 ) -> HardwareBufferMemory {
-    let memory = HardwareBufferMemory::new(width, height, HardwareBufferUsage::empty())
-        .expect("a surface for a test");
+    let memory = HardwareBufferMemory::new(
+        width,
+        height,
+        HardwareBufferUsage::empty(),
+        HardwareBufferMode::Auto,
+    )
+    .expect("a surface for a test");
     let surface = &*memory.surface;
     // SAFETY: a lock for writing with no seed, released below; the base address is written only
     // between the two, `height` rows of `bytes_per_row`, of which each pixel's 4 bytes.

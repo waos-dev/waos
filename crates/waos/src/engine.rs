@@ -44,6 +44,18 @@ use crate::system::SystemSettings;
 use crate::temporary_folders::TemporaryFolders;
 use crate::views::{ProgramView, Refresh, ScreenRefreshes};
 
+/// How hardware buffers are backed on Linux. Ignored on other platforms.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum HardwareBufferMode {
+    /// Use zero-copy dmabufs when a DRM render node and a dmabuf-capable Vulkan adapter are
+    /// available; fall back to offscreen textures otherwise.
+    #[default]
+    Auto,
+    /// Use offscreen GPU textures with staging-buffer readback on Linux without opening a DRM
+    /// render node or requiring dmabuf Vulkan extensions.
+    Offscreen,
+}
+
 /// How the engine is set up.
 #[derive(Clone)]
 pub struct WaOSConfig {
@@ -77,6 +89,9 @@ pub struct WaOSConfig {
     /// The programs a program holding the inspector role sees: the store's and the runs', for
     /// the WaOS app; none for an engine given none, whose inspectors see no device.
     pub inspected_programs: Option<Arc<dyn InspectedPrograms>>,
+    /// How hardware buffers are backed on Linux: automatic (dmabuf with offscreen fallback) or
+    /// offscreen. Decided once at engine startup.
+    pub hardware_buffers: HardwareBufferMode,
 }
 
 /// What the platform reports about the machine when the engine starts; the setters keep it
@@ -98,6 +113,8 @@ pub struct PlatformState {
 pub struct WaOS {
     engine: Arc<Engine>,
     gpu: GpuInstance,
+    /// The resolved hardware buffer backing mode for this engine.
+    hardware_buffers: HardwareBufferMode,
     /// What draws the screenshots of every program's views, on the same instance.
     screenshots: Arc<Screenshots>,
     shell: Shell,
@@ -133,6 +150,7 @@ impl WaOS {
         let programs = Programs::default();
         let clock = config.time.start(&engine, &programs)?;
         let gpu = gpu::instance();
+        let hardware_buffers = crate::os::resolve_buffer_mode(&gpu, config.hardware_buffers);
         let screens = Screens::new(platform.screens);
         let days = config
             .audit
@@ -141,8 +159,9 @@ impl WaOS {
             .context("the thread that keeps the programs' days")?;
         Ok(WaOS {
             engine,
-            screenshots: Arc::new(Screenshots::new(Arc::clone(&gpu))),
+            screenshots: Arc::new(Screenshots::new(Arc::clone(&gpu), hardware_buffers)),
             gpu,
+            hardware_buffers,
             refreshes: ScreenRefreshes::new(Arc::clone(&shell.vsync), screens.clone()),
             clipboard: PlatformClipboard::new(shell.clipboard.clone()),
             shell,
@@ -303,6 +322,7 @@ impl WaOS {
         let start = ProgramStart {
             engine: Engine::clone(&self.engine),
             gpu: Arc::clone(&self.gpu),
+            hardware_buffers: self.hardware_buffers,
             screenshots: Arc::clone(&self.screenshots),
             component: program.component().clone(),
             name: program.name().to_owned(),
@@ -550,6 +570,7 @@ mod tests {
             temporary_folders: std::env::temp_dir().join("waos-tests"),
             audit: None,
             inspected_programs: None,
+            hardware_buffers: HardwareBufferMode::Auto,
         };
         let platform = PlatformState {
             screens: Vec::new(),

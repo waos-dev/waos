@@ -79,7 +79,8 @@ impl HostHardwareBufferAllocator for HardwareBuffersCtx<'_> {
             )
         }
         let stats = self.program.shared_stats();
-        match ProgramHardwareBuffer::allocate(stats, width, height, format, usage) {
+        let mode = self.program.hardware_buffers();
+        match ProgramHardwareBuffer::allocate(stats, width, height, format, usage, mode) {
             Ok(buffer) => Ok(Ok(self.table.push(buffer)?)),
             Err(error) => Ok(Err(error)),
         }

@@ -35,6 +35,7 @@ use waos_capabilities::ProgramEnvironment;
 use wasmtime::Engine;
 use wasmtime::component::Component;
 
+use crate::HardwareBufferMode;
 use crate::access::{Days, ProgramAccess, TraceKind, TraceStream, WeakAccess};
 use crate::bindings::wasdk::platform::lifecycle::AppExitResponse;
 use crate::bindings::wasdk::platform::menus::MenuEntry;
@@ -128,6 +129,8 @@ struct Running {
     sources: ProgramSources,
     /// What of its GPU work is in flight.
     in_flight: Arc<InFlight>,
+    /// The resolved hardware buffer backing mode for the engine this program runs on.
+    hardware_buffers: HardwareBufferMode,
     /// Whether it has been warned of reading a hardware buffer it did not ask to read.
     unasked_read: UnaskedRead,
     /// Taken by the first `stop`.
@@ -152,6 +155,8 @@ type Ended =
 pub(crate) struct ProgramStart {
     pub(crate) engine: Engine,
     pub(crate) gpu: GpuInstance,
+    /// The resolved hardware buffer backing mode.
+    pub(crate) hardware_buffers: HardwareBufferMode,
     /// What draws the screenshots of the program's views.
     pub(crate) screenshots: Arc<Screenshots>,
     pub(crate) component: Component,
@@ -267,6 +272,7 @@ impl RunningProgram {
             devices: OpenedDevices::new(Arc::clone(&start.gpu)),
             sources: ProgramSources::default(),
             in_flight: InFlight::new(),
+            hardware_buffers: start.hardware_buffers,
             unasked_read: UnaskedRead::default(),
             stop: Mutex::new(Some(stop)),
             ended: ended.map(end_of_thread as fn(_) -> _).shared(),
@@ -426,6 +432,11 @@ impl RunningProgram {
             now,
             changes.map(crate::inspection::active_use_change_of).boxed(),
         ))
+    }
+
+    /// The resolved hardware buffer backing mode for the engine this program runs on.
+    pub(crate) fn hardware_buffers(&self) -> HardwareBufferMode {
+        self.0.hardware_buffers
     }
 
     /// Its access, from its instances' link on.

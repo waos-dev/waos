@@ -6,6 +6,6 @@
 #![windows_subsystem = "windows"]
 
 #[cfg(not(target_os = "android"))]
-fn main() {
-    waos_app::main();
+fn main() -> std::process::ExitCode {
+    waos_app::main()
 }

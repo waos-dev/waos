@@ -32,6 +32,7 @@ use waos_webgpu_host::{Device, GpuObject, Texture, WeakDevice};
 
 use super::Released;
 use super::counted_bytes::CountedBytes;
+use crate::HardwareBufferMode;
 use crate::bindings::wasdk::platform::hardware_buffers::{
     HardwareBufferUsage, ImageError, ImageErrorKind, PixelBuffer, PixelFormat,
 };
@@ -97,6 +98,7 @@ impl ProgramHardwareBuffer {
         height: u32,
         format: PixelFormat,
         usage: HardwareBufferUsage,
+        mode: HardwareBufferMode,
     ) -> Result<ProgramHardwareBuffer, ImageError> {
         if width.max(height) > LARGEST_SIDE {
             return Err(ImageError {
@@ -106,7 +108,7 @@ impl ProgramHardwareBuffer {
                 ),
             });
         }
-        let memory = HardwareBufferMemory::allocate(width, height, format, usage)?;
+        let memory = HardwareBufferMemory::allocate(width, height, format, usage, mode)?;
         let counted = CountedBytes::new(stats, memory.bytes());
         Ok(ProgramHardwareBuffer::held(
             memory,
@@ -244,7 +246,12 @@ impl ProgramHardwareBuffer {
                 Vec::new()
             };
             let devices = locked(&self.0.devices).clone();
-            work.extend(devices.iter().filter_map(WeakDevice::submit_pending_writes));
+            work.extend(
+                devices
+                    .iter()
+                    .filter_map(WeakDevice::submit_pending_writes)
+                    .map(|(device, submission)| (device, os::HandOver::submission(submission))),
+            );
             SubmittedWork(work)
         })
         .await
@@ -277,16 +284,19 @@ impl ProgramHardwareBuffer {
     fn hand_textures_over(
         &self,
         gpu: &GpuInstance,
-    ) -> Vec<(
-        Arc<GpuObject<wgpu_core::id::DeviceId>>,
-        Option<wgpu_core::SubmissionIndex>,
-    )> {
+    ) -> Vec<(Arc<GpuObject<wgpu_core::id::DeviceId>>, os::HandOver)> {
         let handed = self
             .live_textures()
             .into_iter()
             .filter_map(|(texture, device, usage)| {
-                let submission = os::hand_to_compositor(gpu, &device, texture.id(), usage);
-                Some((device.downgrade().upgrade()?, submission))
+                let hand_over = os::hand_to_compositor(
+                    gpu,
+                    &device,
+                    &self.0.pixels.memory,
+                    texture.id(),
+                    usage,
+                );
+                Some((device.downgrade().upgrade()?, hand_over))
             })
             .collect();
         locked(&self.0.textures).retain(|made| Arc::strong_count(&made.texture) > 1);
@@ -325,12 +335,7 @@ fn refusal_to_read(usage: HardwareBufferUsage) -> Option<ImageError> {
 /// What a program submitted and wrote on some of its devices, to wait for before the buffer it
 /// drew into is read: each device, held for the wait, with the submission that carried what it
 /// wrote, the last there; none where it was refused, which waits for the last submission.
-pub(crate) struct SubmittedWork(
-    Vec<(
-        Arc<GpuObject<wgpu_core::id::DeviceId>>,
-        Option<wgpu_core::SubmissionIndex>,
-    )>,
-);
+pub(crate) struct SubmittedWork(Vec<(Arc<GpuObject<wgpu_core::id::DeviceId>>, os::HandOver)>);
 
 impl SubmittedWork {
     /// Whether there is nothing to wait for: no texture of the buffer was ever made.
@@ -338,10 +343,13 @@ impl SubmittedWork {
         self.0.is_empty()
     }
 
-    /// Waits, blocking, until the GPU has finished it.
-    pub(crate) fn wait(&self, gpu: &wgpu_core::global::Global) {
-        for (device, submission) in &self.0 {
-            wait_for(gpu, device.id(), *submission);
+    /// Waits, blocking, until the GPU has finished it and any post-wait pixel transfer has run.
+    pub(crate) fn wait(self, gpu: &wgpu_core::global::Global) {
+        for (device, hand_over) in self.0 {
+            wait_for(gpu, device.id(), hand_over.submission);
+            if let Some(finish) = hand_over.finish {
+                finish(gpu);
+            }
         }
     }
 }

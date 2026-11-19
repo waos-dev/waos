@@ -29,7 +29,7 @@ use super::installed_runs::InstalledRuns;
 use super::opening;
 use super::sent_components::SentComponents;
 use super::{dev_input, dev_resize, dev_screenshot};
-use tokio::sync::oneshot;
+use tokio::sync::{oneshot, watch};
 use tokio::task::JoinSet;
 use waos::OpenRequest;
 use waos::bindings::wasdk::platform::windows::Size;
@@ -47,6 +47,9 @@ const CLOSING_WAIT: Duration = Duration::from_secs(2);
 pub(crate) struct DevServer {
     stop: Option<oneshot::Sender<()>>,
     thread: Option<JoinHandle<()>>,
+    /// How many connections are open now; changes on each accept and close so headless idle
+    /// shutdown knows when the server is quiet.
+    active_connections: watch::Receiver<usize>,
     /// The components sent, whose writes a test holds back.
     #[cfg(test)]
     components: Arc<SentComponents>,
@@ -70,6 +73,7 @@ impl DevServer {
     ) -> io::Result<DevServer> {
         let (stop, stopped) = oneshot::channel();
         let (bound, binding) = mpsc::channel();
+        let (connections_tx, active_connections) = watch::channel(0usize);
         let context = ServerContext {
             installed,
             store,
@@ -77,6 +81,7 @@ impl DevServer {
             socket: socket.to_owned(),
             components: Arc::clone(&components),
             dev_compiles,
+            connections: Arc::new(connections_tx),
         };
         let thread = thread::Builder::new()
             .name("dev server".into())
@@ -85,6 +90,7 @@ impl DevServer {
             Ok(Ok(())) => Ok(DevServer {
                 stop: Some(stop),
                 thread: Some(thread),
+                active_connections,
                 #[cfg(test)]
                 components,
             }),
@@ -99,6 +105,11 @@ impl DevServer {
                 ))
             }
         }
+    }
+
+    /// How many client connections are currently open, changing on each accept and close.
+    pub(crate) fn active_connections(&self) -> watch::Receiver<usize> {
+        self.active_connections.clone()
     }
 }
 
@@ -127,6 +138,8 @@ struct ServerContext {
     /// Which programs' code the runs' compiles are making, for the activity that keeps macOS from
     /// throttling WaOS; none where nothing follows them.
     dev_compiles: Option<Arc<DevCompiles>>,
+    /// Number of currently open client connections.
+    connections: Arc<watch::Sender<usize>>,
 }
 
 /// The server's thread: binds, reports whether it could, and serves until told to stop.
@@ -166,7 +179,12 @@ async fn serve(mut listener: Listener, context: ServerContext, mut stopped: ones
         tokio::select! {
             accepted = listener.accept() => match accepted {
                 Ok(connection) => {
-                    connections.spawn(serve_connection(connection, connection_context(&context)));
+                    let guard = ActiveConnection::enter(Arc::clone(&context.connections));
+                    let conn_ctx = connection_context(&context);
+                    connections.spawn(async move {
+                        let _guard = guard;
+                        serve_connection(connection, conn_ctx).await;
+                    });
                 }
                 Err(error) => {
                     tracing::warn!(%error, "accepting a connection");
@@ -182,6 +200,22 @@ async fn serve(mut listener: Listener, context: ServerContext, mut stopped: ones
         tracing::warn!("some connections did not close in time");
     }
     drop(listener);
+}
+
+/// Counts one active connection in `connections` until dropped.
+struct ActiveConnection(Arc<watch::Sender<usize>>);
+
+impl ActiveConnection {
+    fn enter(connections: Arc<watch::Sender<usize>>) -> ActiveConnection {
+        connections.send_modify(|count| *count += 1);
+        ActiveConnection(connections)
+    }
+}
+
+impl Drop for ActiveConnection {
+    fn drop(&mut self) {
+        self.0.send_modify(|count| *count = count.saturating_sub(1));
+    }
 }
 
 /// What one connection is served with: a run's, an opening's, or a program's settings'.
@@ -343,13 +377,13 @@ pub(crate) mod tests {
         }
 
         /// A server whose programs' windows draw.
-        #[cfg(target_vendor = "apple")]
+        #[cfg(any(target_vendor = "apple", target_os = "linux"))]
         pub(crate) fn drawing(test: &str) -> TestServer {
             TestServer::over(test, test_engine::drawing::engine)
         }
 
         /// A server whose programs' views draw in no window, as a phone's deck shows a tab.
-        #[cfg(target_vendor = "apple")]
+        #[cfg(any(target_vendor = "apple", target_os = "linux"))]
         pub(crate) fn drawing_in_no_window(test: &str) -> TestServer {
             TestServer::over(test, test_engine::drawing::deck_engine)
         }

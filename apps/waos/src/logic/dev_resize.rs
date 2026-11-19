@@ -74,7 +74,7 @@ async fn resize(
 
 /// Run with `examples/input`, which draws where the engine makes hardware buffers, on Apple's
 /// systems.
-#[cfg(all(test, target_vendor = "apple"))]
+#[cfg(all(test, any(target_vendor = "apple", target_os = "linux")))]
 mod tests {
     use waos_dev_protocol::{
         Refusal, RefusalKind, Request, ResizeAnswer, Resized, ScreenshotAnswer, WindowId,

@@ -183,9 +183,14 @@ mod tests {
 
     /// A picture's hardware buffer, two pixels wide.
     fn buffer() -> HardwareBuffer {
-        HardwareBufferMemory::new(2, 1, HardwareBufferUsage::empty())
-            .unwrap()
-            .buffer()
+        HardwareBufferMemory::new(
+            2,
+            1,
+            HardwareBufferUsage::empty(),
+            crate::engine::HardwareBufferMode::Offscreen,
+        )
+        .unwrap()
+        .buffer()
     }
 
     /// A pool's release that counts how often it ran.

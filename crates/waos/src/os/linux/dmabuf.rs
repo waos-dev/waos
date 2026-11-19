@@ -52,6 +52,11 @@ impl Dmabuf {
         }
     }
 
+    /// Whether GBM can open a DRM render node on this machine.
+    pub(crate) fn can_allocate() -> bool {
+        Gbm::get().is_some()
+    }
+
     /// A linear dmabuf of `width` by `height` pixels made by GBM on the first render node.
     pub(crate) fn allocate(width: u32, height: u32) -> Result<Dmabuf> {
         let gbm = Gbm::get().ok_or_else(|| anyhow!("GBM makes no buffers on this machine"))?;
@@ -193,9 +198,7 @@ impl Gbm {
         static GBM: OnceLock<Option<Gbm>> = OnceLock::new();
         GBM.get_or_init(|| {
             Gbm::load()
-                .inspect_err(|error| {
-                    tracing::warn!("no hardware buffers on this machine: {error:#}")
-                })
+                .inspect_err(|error| tracing::debug!("GBM render node unavailable: {error:#}"))
                 .ok()
         })
         .as_ref()

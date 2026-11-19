@@ -226,11 +226,13 @@ impl ShellHardwareImageCodecs for HardwareOnRequest {
         format: &str,
         quality: Option<f32>,
     ) -> ImageFuture<Vec<u8>> {
-        self.0.encode(
-            Encoding::HardwareBuffer(waft_buffer(buffer)),
-            format,
-            quality,
-        )
+        let Some(waft) = waft_buffer(buffer) else {
+            return Box::pin(std::future::ready(Err(unsupported(
+                "offscreen hardware buffers cannot be encoded by the platform hardware codec",
+            ))));
+        };
+        self.0
+            .encode(Encoding::HardwareBuffer(waft), format, quality)
     }
 }
 

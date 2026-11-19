@@ -68,7 +68,8 @@ jobs:
           sudo apt-get $apt_net update
           sudo apt-get $apt_net install -y --no-install-recommends \
             pkg-config libasound2-dev libwayland-dev libxkbcommon-dev \
-            libx11-dev libxcursor-dev libxrandr-dev libxi-dev libxinerama-dev
+            libx11-dev libxcursor-dev libxrandr-dev libxi-dev libxinerama-dev \
+            mesa-vulkan-drivers
       - uses: Swatinem/rust-cache@v2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
@@ -80,6 +81,14 @@ jobs:
           # test the workspace's default members.
           packages=$(.github/platform-test-packages.sh linux)
           cargo test --no-fail-fast $packages
+      - name: Headless Linux app tests (virtual shell, dev protocol, and CLI routing)
+        run: |
+          cargo test --no-fail-fast -p waos-app --lib \
+            headless_entry \
+            logic::dev_screenshot \
+            logic::dev_resize \
+            logic::dev_input \
+            logic::command_line
 
   test-windows:
     runs-on: windows-latest

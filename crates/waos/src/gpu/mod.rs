@@ -22,6 +22,7 @@ use waos_webgpu_host::{DeviceOpener, SubmissionGate};
 pub(crate) use devices::OpenedDevices;
 pub(crate) use in_flight::{Finishing, InFlight};
 
+use crate::HardwareBufferMode;
 use crate::lifecycle::Lifecycle;
 
 /// The instance a program's device is opened on: wgpu-core's, over every backend this machine
@@ -117,19 +118,29 @@ pub(crate) async fn submit_once_thawed<R>(
     }
 }
 
-/// How the WebGPU host opens a program's device: on Android and Linux with the extensions that
-/// import a hardware buffer and hand it to the compositor, which only the system's opener enables
-/// (`os::HardwareBufferImports`).
-#[cfg(any(target_os = "android", target_os = "linux"))]
-pub(crate) fn device_opener() -> Option<&'static dyn DeviceOpener> {
+/// How the WebGPU host opens a program's device: on Android with the extensions that import an
+/// `AHardwareBuffer` and hand it to the compositor (`os::HardwareBufferImports`).
+#[cfg(target_os = "android")]
+pub(crate) fn device_opener(_mode: HardwareBufferMode) -> Option<&'static dyn DeviceOpener> {
     Some(&crate::os::HardwareBufferImports)
+}
+
+/// How the WebGPU host opens a program's device on Linux: with dmabuf import extensions in `Auto`
+/// mode, and plain wgpu-core devices in `Offscreen` mode so software Vulkan (lavapipe) works
+/// without `VK_EXT_external_memory_dma_buf` or `VK_EXT_queue_family_foreign`.
+#[cfg(target_os = "linux")]
+pub(crate) fn device_opener(mode: HardwareBufferMode) -> Option<&'static dyn DeviceOpener> {
+    match mode {
+        HardwareBufferMode::Auto => Some(&crate::os::HardwareBufferImports),
+        HardwareBufferMode::Offscreen => None,
+    }
 }
 
 /// How the WebGPU host opens a program's device: as wgpu-core opens one. That serves wherever the
 /// system's compositor reads a hardware buffer without an extension on the device that drew it,
 /// which on Apple's systems an `IOSurface` does.
 #[cfg(not(any(target_os = "android", target_os = "linux")))]
-pub(crate) fn device_opener() -> Option<&'static dyn DeviceOpener> {
+pub(crate) fn device_opener(_mode: HardwareBufferMode) -> Option<&'static dyn DeviceOpener> {
     None
 }
 
@@ -139,11 +150,12 @@ pub(crate) fn open_device(
     gpu: &wgpu_core::global::Global,
     adapter: wgpu_core::id::AdapterId,
     descriptor: &wgpu_types::DeviceDescriptor<wgpu_core::Label<'static>>,
+    mode: HardwareBufferMode,
 ) -> Result<
     (wgpu_core::id::DeviceId, wgpu_core::id::QueueId),
     wgpu_core::instance::RequestDeviceError,
 > {
-    match device_opener() {
+    match device_opener(mode) {
         Some(opener) => opener.open(gpu, adapter, descriptor),
         None => gpu.adapter_request_device(adapter, descriptor, None, None),
     }

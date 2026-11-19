@@ -35,6 +35,7 @@ waos = { version = "0.3.0", path = "crates/waos" }
 waos-capabilities = { version = "0.3.0", path = "crates/waos-capabilities" }
 waos-package = { version = "0.3.0", path = "crates/waos-package" }
 waos-dev-protocol = { version = "0.3.0", path = "crates/waos-dev-protocol" }
+waos-cli = { version = "0.3.0", path = "crates/waos-cli" }
 waos-wit-serialize = { version = "0.3.0", path = "crates/waos-wit-serialize" }
 waos-activity = { version = "0.3.0", path = "crates/waos-activity" }
 waos-store = { path = "crates/waos-store" }

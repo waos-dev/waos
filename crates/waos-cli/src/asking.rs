@@ -11,7 +11,7 @@ use anyhow::{Context, Result, anyhow, bail};
 use serde::de::DeserializeOwned;
 use waos_dev_protocol::{ClientStream, Connection, Hello, Request};
 
-use crate::connecting::nobody_answers;
+use crate::connecting::{WaOSStarter, nobody_answers};
 
 /// This build, as its hello names it: "cargo-waos 0.3.0".
 pub const BUILD: &str = concat!("cargo-waos ", env!("CARGO_PKG_VERSION"));
@@ -23,8 +23,11 @@ pub async fn ask<A: DeserializeOwned>(request: &Request) -> Result<A> {
 
 /// What the WaOS running, or the one started when none answers, answers `request`, its hello read
 /// and checked first: the settings are set before the run that needs them.
-pub async fn ask_starting<A: DeserializeOwned>(request: &Request) -> Result<A> {
-    answer(crate::connecting::connect_or_start().await?, request).await
+pub async fn ask_starting<A: DeserializeOwned>(
+    request: &Request,
+    starter: &dyn WaOSStarter,
+) -> Result<A> {
+    answer(crate::connecting::connect_or_start(starter).await?, request).await
 }
 
 /// What the WaOS at the other end of `connection` answers `request`, its hello read and checked
