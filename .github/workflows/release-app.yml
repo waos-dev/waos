@@ -1,14 +1,19 @@
-# The WaOS app of a release, on the same tag as the crates (`release.yml`): built in release from
-# the tag and the Waft release it names, signed with the publisher's Developer ID, notarized and
-# stapled, as a disk image attached to the tag's GitHub release, where waos.app's Download points.
-# `cargo waft build dmg` signs and notarizes when the environment names an identity and an account;
-# until the Apple secrets below are set, the image is built ad hoc and the job says so.
+# The WaOS app of a release, on the same tag as the crates (`release.yml`), built in release from
+# the tag and the Waft release it names, packaged by Waft's newest command, and attached to the
+# tag's GitHub release, where waos.app's Download points:
+# - macOS: signed with the publisher's Developer ID, notarized and stapled, as a disk image; built ad
+#   hoc, as the job says, until the Apple secrets below are set. iOS is built for the simulator on
+#   the same machine, after the image, as a check that it still builds.
+# - Android: an `.apk` for 64-bit ARM, on Linux, signed with the release key in the secrets below,
+#   which `cargo waft build apk` takes from WAFT_ANDROID_KEYSTORE and its variables.
 #
 # Secrets: APPLE_CERTIFICATE (the Developer ID Application certificate and its key, a .p12, in
 # base64), APPLE_CERTIFICATE_PASSWORD, APPLE_SIGNING_IDENTITY (its name, "Developer ID Application:
 # …"), and for notarization either an Apple ID (APPLE_ID, APPLE_PASSWORD, an app-specific one, and
 # APPLE_TEAM_ID) or an App Store Connect API key (APPLE_API_KEY, its id; APPLE_API_ISSUER;
-# APPLE_API_KEY_P8, the .p8's text), whichever is set, as `cargo waft build` reads them.
+# APPLE_API_KEY_P8, the .p8's text), whichever is set, as `cargo waft build` reads them;
+# ANDROID_KEYSTORE_BASE64 (the release keystore, its alias `waos`, in base64) and
+# ANDROID_KEYSTORE_PASSWORD.
 #
 # Run by hand with a tag to make that release's image again, from the tag's sources with this
 # workflow: when the secrets came after the tag, or notarization failed.
@@ -35,22 +40,9 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ env.TAG }}
-          path: waos
-      - name: The Waft release the workspace names
-        id: waft
-        working-directory: waos
-        # Read from the manifest: cargo cannot resolve the workspace before Waft is beside it.
-        run: echo "version=$(sed -n 's/^waft = { version = "\([^"]*\)".*/\1/p' Cargo.toml)" >> "$GITHUB_OUTPUT"
-      - uses: actions/checkout@v4
-        with:
-          repository: waos-dev/waft
-          ref: v${{ steps.waft.outputs.version }}
-          path: waft
       - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: waos
-      - name: Waft's command
-        run: cargo install --locked --path waft/crates/waft-cli
+      - name: Waft's command, its newest release
+        run: cargo install --locked waft-cli
       - name: The signing identity, in a keychain of the job's own
         id: signing
         env:
@@ -81,7 +73,6 @@ jobs:
           if [ -n "$APPLE_API_KEY_P8" ]; then printf '%s' "$APPLE_API_KEY_P8" > "$RUNNER_TEMP/notary.p8"; fi
           echo "identity=${{ secrets.APPLE_SIGNING_IDENTITY }}" >> "$GITHUB_OUTPUT"
       - name: WaOS.app, as a disk image
-        working-directory: waos
         env:
           APPLE_SIGNING_IDENTITY: ${{ steps.signing.outputs.identity }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
@@ -92,7 +83,6 @@ jobs:
           APPLE_API_KEY_PATH: ${{ secrets.APPLE_API_KEY_P8 && format('{0}/notary.p8', runner.temp) || '' }}
         run: cargo waft build dmg -p waos-app
       - name: Attached to the release
-        working-directory: waos
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -100,3 +90,43 @@ jobs:
           test -n "$image" || { echo "no disk image was made"; exit 1; }
           gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --verify-tag --title "WaOS ${TAG#v}" --notes ""
           gh release upload "$TAG" "$image#WaOS-${TAG#v}.dmg" --clobber
+      - name: iOS, for the simulator, as a check that it builds
+        run: |
+          rustup target add aarch64-apple-ios-sim
+          cargo waft build ios --simulator -p waos-app
+
+  android:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - uses: Swatinem/rust-cache@v2
+      - name: Waft's command, its newest release, and Android's target
+        run: |
+          cargo install --locked waft-cli
+          rustup target add aarch64-linux-android
+      # The runner has the SDK, the NDK and Java, in ANDROID_HOME, ANDROID_NDK_HOME and JAVA_HOME.
+      - name: The release key, in the job's own folder
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/release.jks"
+          printf '%s' "$ANDROID_KEYSTORE_PASSWORD" > "$RUNNER_TEMP/release-password"
+      - name: WaOS, as an apk
+        env:
+          WAFT_ANDROID_KEYSTORE: ${{ runner.temp }}/release.jks
+          WAFT_ANDROID_KEY_ALIAS: waos
+          WAFT_ANDROID_STORE_PASSWORD_FILE: ${{ runner.temp }}/release-password
+        run: cargo waft build apk -p waos-app
+      - name: Attached to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          apk=$(find target/waft -name '*.apk' -newer Cargo.toml | head -1)
+          test -n "$apk" || { echo "no apk was made"; exit 1; }
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --verify-tag --title "WaOS ${TAG#v}" --notes ""
+          gh release upload "$TAG" "$apk#WaOS-${TAG#v}.apk" --clobber

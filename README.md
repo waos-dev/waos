@@ -27,13 +27,17 @@ The docs are at [waos.app/docs](https://waos.app/docs): concepts, a guide per fe
 
 ## Contribute
 
-Check out [Waft](https://github.com/waos-dev/waft) beside this repository as `../waft`; the toolchain is pinned in `rust-toolchain.toml`.
+The toolchain is pinned in `rust-toolchain.toml`, and [Waft](https://github.com/waos-dev/waft), the framework the app is built on, comes from crates.io.
 
 ```bash
 cargo test --workspace
-cargo install --path ../waft/crates/waft-cli    # cargo waft, which runs Waft apps
-cargo waft run -p waos-app                      # the WaOS app
+cargo install waft-cli          # cargo waft, which runs Waft apps
+cargo waft run -p waos-app      # the WaOS app
 ```
+
+### Working on Waft and WaOS together
+
+WaOS builds on released Waft: a Waft change WaOS needs is released first. To try one before it is, point the build at your Waft checkout with Cargo's [`[patch.crates-io]`](https://doc.rust-lang.org/cargo/reference/overriding-dependencies.html), outside this repository.
 
 What each folder is:
 

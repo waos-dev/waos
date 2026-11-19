@@ -17,31 +17,14 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
-        with:
-          path: waos
-      - name: The Waft release the workspace names
-        id: waft
-        working-directory: waos
-        # Read from the manifest: cargo cannot resolve the workspace before Waft is beside it.
-        run: echo "version=$(sed -n 's/^waft = { version = "\([^"]*\)".*/\1/p' Cargo.toml)" >> "$GITHUB_OUTPUT"
-      - uses: actions/checkout@v4
-        with:
-          repository: waos-dev/waft
-          ref: v${{ steps.waft.outputs.version }}
-          path: waft
       - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: waos
       - name: The tag names the workspace's version
-        working-directory: waos
         run: |
           version=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "waos") | .version')
           test "${GITHUB_REF_NAME#v}" = "$version" || { echo "tag $GITHUB_REF_NAME, workspace $version"; exit 1; }
       - name: Tests
-        working-directory: waos
         run: cargo test --workspace
       - name: Publish the SDK, the command and the engine
-        working-directory: waos
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: cargo publish --workspace
@@ -53,7 +36,7 @@ jobs:
           cd release-check
           cargo waos build
       - name: The docs of this version, on the GitHub release
-        working-directory: waos/packages/waos-site
+        working-directory: packages/waos-site
         env:
           GH_TOKEN: ${{ github.token }}
         run: |

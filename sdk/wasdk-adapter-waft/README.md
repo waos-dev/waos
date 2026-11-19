@@ -4,9 +4,9 @@ Waft over wasdk: Waft's embedder for a program, the platform an Waft app sees ov
 
 The docs and guides are at [waos.app/docs](https://waos.app/docs).
 
-- **Takes:** `wasdk`, the generated bindings; `wasdk-wgpu` and `wgpu`, what the program's one device is; Waft's `waft-embedder` (the host traits), `waft-shell` (the client a host drives) and `waft-foundation` (the app), from Waft's checkout beside this workspace; valo, Waft's renderer, and `valo-fontmgr`'s `assemble`; `http`, the request and response values Waft's client takes; and `url`, which reads a picked file's `file:` URL back as its path inside the program.
+- **Takes:** `wasdk`, the generated bindings; `wasdk-wgpu` and `wgpu`, what the program's one device is; Waft's `waft-embedder` (the host traits), `waft-shell` (the client a host drives) and `waft-foundation` (the app), from crates.io; valo, Waft's renderer, and `valo-fontmgr`'s `assemble`; `http`, the request and response values Waft's client takes; and `url`, which reads a picked file's `file:` URL back as its path inside the program.
 - **Provides:** `run`, which runs an Waft app until it quits, itself or because the platform took its last view away, as a card swiped away in Android's Recents does; and `targets`, the `tracing` targets it records its work under, each frame of a video it draws among them, which a subscriber of the program's own reads.
-- **Used by:** programs written as Waft apps, such as `examples/gallery`, `examples/copy-paste`, `examples/waft-menus`, `examples/waft-back`, `examples/waft-image`, `examples/waft-time`, `examples/waft-io`, `examples/player`, `builtin-apps/video-player` and `examples/camera`.
+- **Used by:** programs written as Waft apps, such as `examples/copy-paste`, `examples/waft-menus`, `examples/waft-back`, `examples/waft-image`, `examples/waft-time`, `examples/waft-io`, `examples/player`, `builtin-apps/video-player` and `examples/camera`.
 
 ```rust
 use waft::{IntoWidget, run_app};

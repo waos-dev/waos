@@ -53,7 +53,7 @@ git clone https://github.com/tauri-apps/plugins-workspace.git .reference/tauri-p
 
 Neighbouring repositories:
 - `../wasdk`: the wasdk experiment, this project's private predecessor, frozen (not `sdk/wasdk`, the SDK that kept its name). Its code is ported where it is proven, piece by piece with a review, never copied whole; its decisions are precedent, not rules, and where this project's design differs, this project wins. Its `docs/proposals/` and the maintainers' experiments folder (`../experiments/`) hold what it learned.
-- `../waft`: Waft (github.com/waos-dev/waft), the framework the WaOS app and `wasdk-adapter-waft` are built on. Changes go there as a branch and a pull request, never on its `main`.
+- `../waft`: Waft (github.com/waos-dev/waft), the framework the WaOS app and `wasdk-adapter-waft` are built on, which this workspace takes from crates.io: a change WaOS needs is released in Waft first, or tried through the README's `[patch.crates-io]`. Changes go there as a branch and a pull request, never on its `main`.
 - `../valo`: Valo, Waft's renderer (github.com/seedeai/valo). Changes go there as a branch and a pull request, never on its `main`.
 
 ## Workflow

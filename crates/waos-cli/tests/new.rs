@@ -67,14 +67,17 @@ fn cargo_waos(folder: &Path, arguments: &[&str]) -> String {
     stdout
 }
 
-/// Patches crates.io, for the programs in `folder`, with this workspace's path of each crate
-/// `program`'s manifest names, and gives `program` the workspace's `Cargo.lock`.
+/// Patches crates.io, for the programs in `folder`, with this workspace's path of each of its own
+/// crates `program`'s manifest names, and gives `program` the workspace's `Cargo.lock`. Waft comes
+/// from crates.io, as the workspace's does.
 fn build_against_the_workspace(folder: &Path, program: &Path) {
     let workspace = workspace_root();
     let manifest = read_toml(&program.join("Cargo.toml"));
     let mut patches = toml::Table::new();
     for name in manifest["dependencies"].as_table().unwrap().keys() {
-        let path = workspace_path(&workspace, name);
+        let Some(path) = workspace_path(&workspace, name) else {
+            continue;
+        };
         let patch =
             toml::Table::from_iter([("path".to_owned(), path.display().to_string().into())]);
         patches.insert(name.clone(), patch.into());
@@ -86,15 +89,15 @@ fn build_against_the_workspace(folder: &Path, program: &Path) {
     fs::copy(workspace.join("Cargo.lock"), program.join("Cargo.lock")).unwrap();
 }
 
-/// The path the workspace's `[workspace.dependencies]` gives the crate `name`.
-fn workspace_path(workspace: &Path, name: &str) -> PathBuf {
+/// The path the workspace's `[workspace.dependencies]` gives the crate `name`, one of its own;
+/// none for a crate it takes from crates.io.
+fn workspace_path(workspace: &Path, name: &str) -> Option<PathBuf> {
     let manifest = read_toml(&workspace.join("Cargo.toml"));
     let path = manifest["workspace"]["dependencies"]
-        .get(name)
-        .and_then(|dependency| dependency.get("path"))
-        .and_then(|path| path.as_str())
-        .unwrap_or_else(|| panic!("the workspace has no path for {name}"));
-    workspace.join(path).canonicalize().unwrap()
+        .get(name)?
+        .get("path")?
+        .as_str()?;
+    Some(workspace.join(path).canonicalize().unwrap())
 }
 
 /// The `src/main.rs` that `template` writes, from this crate's `templates/`.
