@@ -9,8 +9,9 @@ package wasdk:platform@1.0.0;
 /// **A change names a path relative to the watched folder**, its names joined by `/`, the folder
 /// itself being `.`. A watch reports what the system reports, coalesced as the system coalesces
 /// it: a file written and closed may be one change or several, and an editor's save may be a file
-/// made and renamed onto the one it replaces. A program that needs to know what is there now
-/// reads it.
+/// made and renamed onto the one it replaces. A change made shortly before the watch began may
+/// still be reported, as FSEvents delivers one late; never the folder's own creation, since the
+/// folder was there to be watched. A program that needs to know what is there now reads it.
 ///
 /// **Changes come in batches**, each at most `latency-ms` after the first change in it, so a
 /// burst of changes is one batch. A batch the program has not read grows until the system's

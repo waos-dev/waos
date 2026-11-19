@@ -10,8 +10,11 @@
 //! follows says whether it is paired; a `From` nothing pairs is the path's removal, a `To` nothing
 //! pairs its creation.
 //!
-//! The invariant: no change names a path outside the watched folder; an end of a rename outside
-//! it is a removal or a creation inside it.
+//! The invariants: no change names a path outside the watched folder; an end of a rename outside
+//! it is a removal or a creation inside it. And no change says the folder itself was created: a
+//! program watches a folder it holds, so it was there before the watch, and such an event is one
+//! the system made before the watch began and delivered after (FSEvents does, as `fseventsd`
+//! stamps an event when it flushes it).
 
 use std::path::{Component, Path, PathBuf};
 
@@ -126,10 +129,12 @@ impl Translation {
     }
 
     /// What an event of `kind` at `path` is, but for a rename's ends; none for a read, which
-    /// changes nothing, and a path outside the folder.
+    /// changes nothing, the folder's own creation, from before the watch, and a path outside the
+    /// folder.
     fn change(&self, kind: &EventKind, path: &Path) -> Option<Change> {
         let change: fn(String) -> Change = match kind {
             EventKind::Access(_) => return None,
+            EventKind::Create(_) if path == self.folder => return None,
             EventKind::Create(_) => Change::Created,
             EventKind::Remove(_) => Change::Removed,
             EventKind::Modify(ModifyKind::Name(RenameMode::Any)) => Change::Moved,
@@ -224,6 +229,17 @@ mod tests {
             Some(cookie) => event.set_tracker(cookie),
             None => event,
         })
+    }
+
+    #[test]
+    fn the_folder_s_own_creation_is_not_a_change_and_what_is_made_in_it_is() {
+        assert_eq!(
+            translated(vec![
+                event(EventKind::Create(CreateKind::Folder), &[""]),
+                event(EventKind::Create(CreateKind::File), &["a.txt"]),
+            ]),
+            vec![Change::Created("a.txt".to_owned())]
+        );
     }
 
     fn translated(events: Vec<notify::Result<Event>>) -> Vec<Change> {
