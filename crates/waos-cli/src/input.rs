@@ -1,4 +1,4 @@
-//! `cargo waos tap`, `press`, `drag`, `type`, `key` and `scroll`: input to a window of the program
+//! `cargo waos ui tap`, `press`, `drag`, `type`, `key` and `scroll`: input to a window of the program
 //! a run of `cargo waos run` runs, sent to the WaOS running it, which gives it to the program as
 //! its user would give it and answers once the window shows the picture after it, or once it
 //! knows the window was out of sight or drew nothing new, so a screenshot taken next shows what

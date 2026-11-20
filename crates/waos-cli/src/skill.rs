@@ -1,4 +1,4 @@
-//! The skill `cargo waos skill install` writes: a folder an agent loads when it builds a WaOS
+//! The skill `cargo waos docs skill install` writes: a folder an agent loads when it builds a WaOS
 //! app, holding `SKILL.md`, the playbook under the front matter that says when to use it, and
 //! `docs/`, every page of this version's docs as `cargo waos docs <page>` prints it, with
 //! `docs/index.md` the map.

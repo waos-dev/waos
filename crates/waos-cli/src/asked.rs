@@ -1,7 +1,7 @@
 //! What `cargo waos` says WaOS asks a program's user: the question in plain words, and the row of
 //! the program's settings that answers it ahead, so the next run does not wait for a person.
 //!
-//! The invariant: the row named is the one `cargo waos set` takes, by `waos-dev-protocol`'s keys.
+//! The invariant: the row named is the one `cargo waos settings set` takes, by `waos-dev-protocol`'s keys.
 
 use waos_dev_protocol::{Asked, FileDialog, Question, Role, Switch};
 
@@ -42,7 +42,7 @@ fn question(asked: &Asked, name: &str) -> String {
 fn answered_ahead(asked: &Asked) -> String {
     let command = match asked {
         Asked::Question(question @ (Question::Camera | Question::Microphone)) => {
-            format!("cargo waos set {} allow|deny|simulated", question.key())
+            format!("cargo waos settings set {} allow|deny|simulated", question.key())
         }
         Asked::Question(Question::Unknown)
         | Asked::Switch(Switch::Unknown)
@@ -51,21 +51,21 @@ fn answered_ahead(asked: &Asked) -> String {
         | Asked::Unknown => {
             return "update cargo waos with `cargo install cargo-waos` to see it".to_owned();
         }
-        Asked::Question(question) => format!("cargo waos set {} allow|deny", question.key()),
-        Asked::LinkScheme(scheme) => format!("cargo waos set link-scheme {scheme} allow|deny"),
-        Asked::Switch(switch) => format!("cargo waos set {} on|off", switch.key()),
+        Asked::Question(question) => format!("cargo waos settings set {} allow|deny", question.key()),
+        Asked::LinkScheme(scheme) => format!("cargo waos settings set link-scheme {scheme} allow|deny"),
+        Asked::Switch(switch) => format!("cargo waos settings set {} on|off", switch.key()),
         Asked::Machine => {
-            "cargo waos set machine <id>, the ids as `cargo waos settings` lists them".to_owned()
+            "cargo waos settings set machine <id>, the ids as `cargo waos settings` lists them".to_owned()
         }
         Asked::AudioOutput => {
-            "cargo waos set audio-output <id>, the ids as `cargo waos settings` lists them"
+            "cargo waos settings set audio-output <id>, the ids as `cargo waos settings` lists them"
                 .to_owned()
         }
         Asked::FileDialog(FileDialog::OpenFiles) => {
-            "cargo waos set open-files <path>...".to_owned()
+            "cargo waos settings set open-files <path>...".to_owned()
         }
-        Asked::FileDialog(dialog) => format!("cargo waos set {} <path>", dialog.key()),
-        Asked::Role(role) => format!("cargo waos set {} allow|deny", role.key()),
+        Asked::FileDialog(dialog) => format!("cargo waos settings set {} <path>", dialog.key()),
+        Asked::Role(role) => format!("cargo waos settings set {} allow|deny", role.key()),
     };
     format!("`{command}` answers it without asking from then on")
 }
@@ -78,7 +78,7 @@ mod tests {
     fn a_question_is_said_as_its_user_reads_it_with_the_row_that_answers_it_ahead() {
         assert_eq!(
             said(&Asked::Question(Question::Camera), "Camera"),
-            "may Camera use the camera?; `cargo waos set camera allow|deny|simulated` answers it without asking from then on"
+            "may Camera use the camera?; `cargo waos settings set camera allow|deny|simulated` answers it without asking from then on"
         );
         let saving = said(&Asked::FileDialog(FileDialog::SaveFile), "Reader");
         assert!(
@@ -86,12 +86,12 @@ mod tests {
             "{saving}"
         );
         assert!(
-            saving.contains("cargo waos set save-file <path>"),
+            saving.contains("cargo waos settings set save-file <path>"),
             "{saving}"
         );
         assert_eq!(
             said(&Asked::Role(Role::Inspector), "Inspector"),
-            "may Inspector see what your other programs do?; `cargo waos set role.inspector allow|deny` answers it without asking from then on"
+            "may Inspector see what your other programs do?; `cargo waos settings set role.inspector allow|deny` answers it without asking from then on"
         );
     }
 
