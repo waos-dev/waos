@@ -42,7 +42,10 @@ fn question(asked: &Asked, name: &str) -> String {
 fn answered_ahead(asked: &Asked) -> String {
     let command = match asked {
         Asked::Question(question @ (Question::Camera | Question::Microphone)) => {
-            format!("cargo waos settings set {} allow|deny|simulated", question.key())
+            format!(
+                "cargo waos settings set {} allow|deny|simulated",
+                question.key()
+            )
         }
         Asked::Question(Question::Unknown)
         | Asked::Switch(Switch::Unknown)
@@ -51,11 +54,16 @@ fn answered_ahead(asked: &Asked) -> String {
         | Asked::Unknown => {
             return "update cargo waos with `cargo install cargo-waos` to see it".to_owned();
         }
-        Asked::Question(question) => format!("cargo waos settings set {} allow|deny", question.key()),
-        Asked::LinkScheme(scheme) => format!("cargo waos settings set link-scheme {scheme} allow|deny"),
+        Asked::Question(question) => {
+            format!("cargo waos settings set {} allow|deny", question.key())
+        }
+        Asked::LinkScheme(scheme) => {
+            format!("cargo waos settings set link-scheme {scheme} allow|deny")
+        }
         Asked::Switch(switch) => format!("cargo waos settings set {} on|off", switch.key()),
         Asked::Machine => {
-            "cargo waos settings set machine <id>, the ids as `cargo waos settings` lists them".to_owned()
+            "cargo waos settings set machine <id>, the ids as `cargo waos settings` lists them"
+                .to_owned()
         }
         Asked::AudioOutput => {
             "cargo waos settings set audio-output <id>, the ids as `cargo waos settings` lists them"
