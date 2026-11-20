@@ -10,13 +10,15 @@ const config = {
   agentRules: false,
   async redirects() {
     // The docs have no page of their own: they open on their first. Waft's pages were under
-    // /docs/frameworks before the docs were arranged by what an app does.
+    // /docs/frameworks before the docs were arranged by what an app does, and Waft's full framework
+    // guides now live on waft.rs/docs.
     return [
       { source: '/docs', destination: '/docs/concepts', permanent: false },
       { source: '/docs/frameworks/waft', destination: '/docs/waft', permanent: true },
       { source: '/docs/frameworks/waft.md', destination: '/docs/waft.md', permanent: true },
       { source: '/docs/frameworks', destination: '/docs/waft', permanent: true },
       { source: '/docs/frameworks.md', destination: '/docs/waft.md', permanent: true },
+      { source: '/docs/waft/:slug', destination: 'https://waft.rs/docs/:slug', permanent: true },
     ];
   },
   async rewrites() {

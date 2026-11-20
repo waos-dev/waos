@@ -294,8 +294,8 @@ fn the_bundle_scripts_archive_serves_the_sites_hierarchy() {
     );
     for name in [
         "guide/network",
-        "waft/state",
-        "waft/text-input",
+        "waft",
+        "guide/keys",
         "network",
         "reference/wasdk-platform/windows",
         "reference/wasdk-media/cameras",
