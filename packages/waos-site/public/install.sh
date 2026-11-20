@@ -1,26 +1,23 @@
 #!/usr/bin/env sh
-# Install the unified `waos` binary (and its `cargo-waos` symlink) into ~/.local/bin.
+# Installs the newest WaOS and puts `waos` and `cargo-waos` (one binary under two names) on the
+# PATH, in one step:
+# - macOS (Apple Silicon): WaOS.app into /Applications, or ~/Applications where that can't be
+#   written, and the two names linked to the binary inside it.
+# - Linux (x86_64): the `waos` binary, which also runs WaOS without a display.
 #
 # Usage:
 #   curl -fsSL https://waos.app/install.sh | sh
 #
 # Environment variables:
-#   WAOS_INSTALL_DIR  Destination directory (default: "$HOME/.local/bin")
-#   WAOS_VERSION      Release version to install, e.g. 0.4.0 or v0.4.0 (default: latest)
-#   WAOS_REPO         GitHub repository (default: waos-dev/waos)
+#   WAOS_INSTALL_DIR  Where `waos` and `cargo-waos` go (default: "$HOME/.local/bin")
+#   WAOS_SITE         Where the newest release is read from (default: https://waos.app)
 set -eu
 
-REPO="${WAOS_REPO:-waos-dev/waos}"
+SITE="${WAOS_SITE:-https://waos.app}"
 INSTALL_DIR="${WAOS_INSTALL_DIR:-$HOME/.local/bin}"
-VERSION="${WAOS_VERSION:-}"
 
 while [ "$#" -gt 0 ]; do
     case "$1" in
-        -v|--version)
-            [ "$#" -ge 2 ] || { echo "install.sh: missing value for $1" >&2; exit 2; }
-            VERSION="$2"
-            shift 2
-            ;;
         --dir)
             [ "$#" -ge 2 ] || { echo "install.sh: missing value for $1" >&2; exit 2; }
             INSTALL_DIR="$2"
@@ -28,10 +25,10 @@ while [ "$#" -gt 0 ]; do
             ;;
         -h|--help)
             cat <<'EOF'
-Usage: install.sh [--version <version>] [--dir <install-dir>]
+Usage: install.sh [--dir <install-dir>]
 
-Installs the unified `waos` CLI/runtime binary and creates a `cargo-waos`
-symlink beside it (default: ~/.local/bin).
+Installs the newest WaOS and puts `waos` and `cargo-waos` in <install-dir>
+(default: ~/.local/bin).
 EOF
             exit 0
             ;;
@@ -41,6 +38,8 @@ EOF
             ;;
     esac
 done
+
+command -v curl >/dev/null 2>&1 || { echo "install.sh: curl is required" >&2; exit 1; }
 
 note_path() {
     case ":${PATH:-}:" in
@@ -57,128 +56,78 @@ has_vulkan_icd() {
         return 0
     fi
     for dir in /usr/share/vulkan/icd.d /etc/vulkan/icd.d /usr/local/share/vulkan/icd.d; do
-        if [ -d "$dir" ]; then
-            for icd in "$dir"/*.json; do
-                if [ -f "$icd" ]; then
-                    return 0
-                fi
-            done
-        fi
+        for icd in "$dir"/*.json; do
+            [ -f "$icd" ] && return 0
+        done
     done
     return 1
 }
 
-resolve_latest_version() {
-    url=$(curl -fsSLI -o /dev/null -w '%{url_effective}' "https://github.com/$REPO/releases/latest" || true)
-    tag="${url##*/tag/}"
-    if [ -n "$tag" ] && [ "$tag" != "$url" ]; then
-        printf '%s' "${tag#v}"
-        return 0
-    fi
-    tag=$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" \
-        | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
-        | head -n 1)
-    if [ -n "$tag" ]; then
-        printf '%s' "${tag#v}"
-        return 0
-    fi
-    return 1
+# The newest release's version, from the site's reading of GitHub.
+newest_version() {
+    curl -fsSL "$SITE/api/latest" | sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p'
 }
 
-OS="$(uname -s)"
-ARCH="$(uname -m)"
+# Downloads the newest release's file for $1 (macos, linux) into $2.
+download() {
+    printf 'Downloading WaOS %s for %s...\n' "$VERSION" "$1"
+    curl -fL --progress-bar "$SITE/download/$1" -o "$2"
+}
 
-case "$OS" in
-    Linux)
-        case "$ARCH" in
-            x86_64|amd64)
-                ASSET_ARCH="x86_64"
-                ;;
-            *)
-                echo "install.sh: prebuilt Linux tarballs are currently published for x86_64 (found $ARCH)." >&2
-                echo "Build from source with: cargo build --release -p waos-app --bin waos" >&2
-                exit 1
-                ;;
-        esac
+link_into_install_dir() {
+    mkdir -p "$INSTALL_DIR"
+    ln -sf "$1" "$INSTALL_DIR/waos"
+    ln -sf "$1" "$INSTALL_DIR/cargo-waos"
+}
 
-        command -v curl >/dev/null 2>&1 || { echo "install.sh: curl is required" >&2; exit 1; }
+VERSION="$(newest_version)"
+[ -n "$VERSION" ] || { echo "install.sh: could not read the newest WaOS from $SITE/api/latest" >&2; exit 1; }
+WORK="$(mktemp -d)"
+trap 'rm -rf "$WORK"' EXIT
+
+case "$(uname -s)/$(uname -m)" in
+    Darwin/arm64)
+        download macos "$WORK/WaOS.dmg"
+        if [ -w /Applications ]; then APPLICATIONS=/Applications; else APPLICATIONS="$HOME/Applications"; fi
+        mkdir -p "$APPLICATIONS"
+        # A running WaOS keeps its old binary: ask it to quit before it is replaced.
+        if pgrep -xq waos; then
+            osascript -e 'quit app id "dev.waos.app"' >/dev/null 2>&1 || true
+            sleep 2
+        fi
+        MOUNT="$WORK/mount"
+        mkdir -p "$MOUNT"
+        hdiutil attach -quiet -nobrowse -readonly -mountpoint "$MOUNT" "$WORK/WaOS.dmg"
+        rm -rf "$APPLICATIONS/WaOS.app"
+        cp -R "$MOUNT/WaOS.app" "$APPLICATIONS/WaOS.app"
+        hdiutil detach -quiet "$MOUNT"
+        link_into_install_dir "$APPLICATIONS/WaOS.app/Contents/MacOS/waos"
+        printf 'Installed WaOS %s in %s, with %s and %s.\n' \
+            "$VERSION" "$APPLICATIONS" "$INSTALL_DIR/waos" "$INSTALL_DIR/cargo-waos"
+        ;;
+    Linux/x86_64|Linux/amd64)
         command -v tar >/dev/null 2>&1 || { echo "install.sh: tar is required" >&2; exit 1; }
-
-        if [ -z "$VERSION" ]; then
-            VERSION="$(resolve_latest_version)" || {
-                echo "install.sh: could not determine the latest WaOS release from GitHub" >&2
-                exit 1
-            }
-        else
-            VERSION="${VERSION#v}"
-        fi
-
-        TAG="v$VERSION"
-        ARCHIVE="waos-${VERSION}-linux-${ASSET_ARCH}.tar.gz"
-        URL="https://github.com/${REPO}/releases/download/${TAG}/${ARCHIVE}"
-
-        TMPDIR_INSTALL="$(mktemp -d)"
-        trap 'rm -rf "$TMPDIR_INSTALL"' EXIT
-
-        printf 'Downloading %s...\n' "$URL"
-        curl -fsSL "$URL" -o "$TMPDIR_INSTALL/$ARCHIVE"
-        tar -xzf "$TMPDIR_INSTALL/$ARCHIVE" -C "$TMPDIR_INSTALL"
-
-        if [ ! -f "$TMPDIR_INSTALL/waos" ]; then
-            echo "install.sh: archive $ARCHIVE did not contain a waos binary" >&2
-            exit 1
-        fi
-
+        download linux "$WORK/waos.tar.gz"
+        tar -xzf "$WORK/waos.tar.gz" -C "$WORK"
+        [ -f "$WORK/waos" ] || { echo "install.sh: the download held no waos binary" >&2; exit 1; }
         mkdir -p "$INSTALL_DIR"
-        install -m 755 "$TMPDIR_INSTALL/waos" "$INSTALL_DIR/waos"
+        install -m 755 "$WORK/waos" "$INSTALL_DIR/waos"
         ln -sf waos "$INSTALL_DIR/cargo-waos"
-
-        printf 'Installed %s and %s (WaOS %s).\n' "$INSTALL_DIR/waos" "$INSTALL_DIR/cargo-waos" "$VERSION"
-
+        printf 'Installed WaOS %s as %s and %s.\n' "$VERSION" "$INSTALL_DIR/waos" "$INSTALL_DIR/cargo-waos"
         if ! has_vulkan_icd; then
             cat <<'EOF'
-
-Note: no Vulkan ICD was found in /usr/share/vulkan/icd.d or /etc/vulkan/icd.d.
-Headless Linux rendering needs a Vulkan driver (Mesa lavapipe works without a GPU):
+Note: no Vulkan driver was found. WaOS without a display draws through Vulkan; Mesa's lavapipe
+works without a GPU:
   sudo apt-get install -y mesa-vulkan-drivers
 EOF
         fi
-
-        note_path
         ;;
-
-    Darwin)
-        APP_BIN=""
-        for candidate in \
-            "/Applications/WaOS.app/Contents/MacOS/waos" \
-            "$HOME/Applications/WaOS.app/Contents/MacOS/waos"
-        do
-            if [ -x "$candidate" ]; then
-                APP_BIN="$candidate"
-                break
-            fi
-        done
-
-        if [ -n "$APP_BIN" ]; then
-            mkdir -p "$INSTALL_DIR"
-            ln -sf "$APP_BIN" "$INSTALL_DIR/waos"
-            ln -sf "$APP_BIN" "$INSTALL_DIR/cargo-waos"
-            printf 'Linked %s and %s -> %s.\n' "$INSTALL_DIR/waos" "$INSTALL_DIR/cargo-waos" "$APP_BIN"
-            note_path
-        else
-            cat <<EOF
-WaOS.app was not found in /Applications or ~/Applications.
-
-Download WaOS.dmg from https://waos.app or https://github.com/${REPO}/releases/latest,
-drag WaOS.app into /Applications, and re-run this script to link \`waos\` and \`cargo-waos\`.
-EOF
-            exit 1
-        fi
-        ;;
-
     *)
-        echo "install.sh: unsupported operating system: $OS" >&2
-        echo "Download WaOS from https://waos.app." >&2
+        cat >&2 <<EOF
+install.sh: WaOS is released for macOS on Apple Silicon and Linux on x86_64 (this is $(uname -s) on $(uname -m)).
+Elsewhere, the command alone, for building and packaging:  cargo install waos-cli
+EOF
         exit 1
         ;;
 esac
+note_path

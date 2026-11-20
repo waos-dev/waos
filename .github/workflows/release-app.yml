@@ -1,10 +1,13 @@
 # The WaOS app of a release, on the same tag as the crates (`release.yml`), built in release from
 # the tag and the Waft release it names, packaged by Waft's newest command, and attached to the
-# tag's GitHub release, where waos.app's Download points:
+# tag's GitHub release, where waos.app's Download points, each named
+# `WaOS-<version>-<system>-<arch>` (the name is the file's; `gh release upload`'s `#` only labels it):
 # - macOS: signed with the publisher's Developer ID, notarized and stapled, as a disk image; built ad
 #   hoc, as the job says, until the Apple secrets below are set. iOS is built for the simulator on
 #   the same machine, after the image, as a check that it still builds.
-# - Linux: the unified `waos` binary for x86_64, packaged as `waos-<version>-linux-x86_64.tar.gz`.
+# - Linux: the unified `waos` binary for x86_64, packaged as `WaOS-<version>-linux-x86_64.tar.gz`.
+# - Windows: an x64 NSIS installer, `WaOS-<version>-windows-x64-setup.exe`, installing for the user
+#   alone, which waos.app's install.ps1 runs silently; unsigned for now.
 # - Android: an `.apk` for 64-bit ARM, on Linux, signed with the release key in the secrets below,
 #   which `cargo waft build apk` takes from WAFT_ANDROID_KEYSTORE and its variables.
 #
@@ -90,7 +93,9 @@ jobs:
           image=$(find target/waft -name '*.dmg' -newer Cargo.toml | head -1)
           test -n "$image" || { echo "no disk image was made"; exit 1; }
           gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --verify-tag --title "WaOS ${TAG#v}" --notes ""
-          gh release upload "$TAG" "$image#WaOS-${TAG#v}.dmg" --clobber
+          named="$RUNNER_TEMP/WaOS-${TAG#v}-macos-arm64.dmg"
+          cp "$image" "$named"
+          gh release upload "$TAG" "$named" --clobber
       - name: iOS, for the simulator, as a check that it builds
         run: |
           rustup target add aarch64-apple-ios-sim
@@ -130,7 +135,9 @@ jobs:
           apk=$(find target/waft -name '*.apk' -newer Cargo.toml | head -1)
           test -n "$apk" || { echo "no apk was made"; exit 1; }
           gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --verify-tag --title "WaOS ${TAG#v}" --notes ""
-          gh release upload "$TAG" "$apk#WaOS-${TAG#v}.apk" --clobber
+          named="$RUNNER_TEMP/WaOS-${TAG#v}-android-arm64.apk"
+          cp "$apk" "$named"
+          gh release upload "$TAG" "$named" --clobber
 
   linux:
     runs-on: ubuntu-latest
@@ -151,12 +158,37 @@ jobs:
       - name: WaOS, as a Linux x86_64 tarball
         run: |
           cargo build --release -p waos-app --bin waos
-          tar -C target/release -czf "$RUNNER_TEMP/waos-${TAG#v}-linux-x86_64.tar.gz" waos
+          tar -C target/release -czf "$RUNNER_TEMP/WaOS-${TAG#v}-linux-x86_64.tar.gz" waos
       - name: Attached to the release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          archive="$RUNNER_TEMP/waos-${TAG#v}-linux-x86_64.tar.gz"
+          archive="$RUNNER_TEMP/WaOS-${TAG#v}-linux-x86_64.tar.gz"
           test -f "$archive" || { echo "no Linux tarball was made"; exit 1; }
           gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --verify-tag --title "WaOS ${TAG#v}" --notes ""
-          gh release upload "$TAG" "$archive#waos-${TAG#v}-linux-x86_64.tar.gz" --clobber
+          gh release upload "$TAG" "$archive" --clobber
+
+  windows:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - uses: Swatinem/rust-cache@v2
+      - name: Waft's command, its newest release
+        run: cargo install --locked waft-cli
+      - name: WaOS, as an installer
+        run: cargo waft build nsis -p waos-app
+      - name: Attached to the release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          setup=$(find target/waft -name '*setup*.exe' -newer Cargo.toml | head -1)
+          test -n "$setup" || { echo "no installer was made"; exit 1; }
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --verify-tag --title "WaOS ${TAG#v}" --notes ""
+          named="$RUNNER_TEMP/WaOS-${TAG#v}-windows-x64-setup.exe"
+          cp "$setup" "$named"
+          gh release upload "$TAG" "$named" --clobber

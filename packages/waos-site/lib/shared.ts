@@ -12,10 +12,6 @@ export function siteOrigin(): string {
 
 export const docsRoute = '/docs';
 
-export const releaseVersion = '0.3.0';
-export const macDownloadUrl = `https://github.com/waos-dev/waos/releases/download/v${releaseVersion}/WaOS_${releaseVersion}_aarch64.dmg`;
-export const androidDownloadUrl = `https://github.com/waos-dev/waos/releases/download/v${releaseVersion}/WaOS-${releaseVersion}.apk`;
-export const downloadUrl = macDownloadUrl;
 export const repositoryUrl = 'https://github.com/waos-dev/waos';
 
 /** Waft's Cupertino gallery, deployed for Waft; it will move. */

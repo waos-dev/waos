@@ -1,0 +1,40 @@
+# Copies a release's files to Cloudflare R2 (bucket `waos-releases`, served at download.waos.app as
+# `<tag>/<file>`), where waos.app's /download/<platform> sends people: GitHub serves release files
+# slowly in places, R2 quickly and with no charge for the download. A copy is made each time one of
+# the release workflows ends, so it holds every file once the last job has attached its own, and
+# by hand for a tag (`gh workflow run mirror-release.yml -f tag=v0.4.0`).
+#
+# Secrets: CLOUDFLARE_API_TOKEN (R2 write) and CLOUDFLARE_ACCOUNT_ID.
+name: Mirror a release to R2
+
+on:
+  workflow_run:
+    workflows: ['Release', 'Release the app']
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: The release tag whose files to copy, e.g. v0.4.0
+        required: true
+
+concurrency:
+  group: mirror-${{ inputs.tag || github.event.workflow_run.head_branch }}
+  cancel-in-progress: false
+
+jobs:
+  mirror:
+    if: ${{ github.event_name == 'workflow_dispatch' || startsWith(github.event.workflow_run.head_branch, 'v') }}
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ inputs.tag || github.event.workflow_run.head_branch }}
+      GH_TOKEN: ${{ github.token }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - name: The release's files, from GitHub
+        run: gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --dir files
+      - name: Each file to R2, as <tag>/<file>
+        run: |
+          for file in files/*; do
+            npx --yes wrangler@4 r2 object put "waos-releases/$TAG/$(basename "$file")" --file "$file" --remote
+          done

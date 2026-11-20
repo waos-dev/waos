@@ -15,7 +15,7 @@ WaOS is at [waos.app](https://waos.app).
 ## Write an app
 
 ```bash
-cargo install waos-cli        # the cargo waos command; Rust from rustup.rs
+curl -fsSL https://waos.app/install.sh | sh   # waos and cargo waos, with WaOS; Rust from rustup.rs
 cargo waos new hello          # a Waft app; --template cupertino for one meant for phones
 cd hello && cargo waos run    # build it and run it in WaOS
 cargo waos package            # a signed .wapk to share
