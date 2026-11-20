@@ -125,7 +125,6 @@ EOF
     *)
         cat >&2 <<EOF
 install.sh: WaOS is released for macOS on Apple Silicon and Linux on x86_64 (this is $(uname -s) on $(uname -m)).
-On Windows, run in PowerShell:  irm $SITE/install.ps1 | iex
 Elsewhere, the command alone, for building and packaging:  cargo install waos-cli
 EOF
         exit 1

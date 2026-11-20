@@ -3,7 +3,7 @@ title: Start
 description: From nothing to a running app, in five steps.
 ---
 
-1. **Install WaOS and its command,** in one step: `curl -fsSL https://waos.app/install.sh | sh` on macOS (Apple Silicon) or Linux, `irm https://waos.app/install.ps1 | iex` in PowerShell on Windows. It installs the newest WaOS and puts `waos` and `cargo waos` (the same command) on the PATH; on Linux WaOS also runs without a display. For a phone, [download WaOS for Android](/download/android). `cargo install waos-cli` installs the command alone, for building and packaging where WaOS isn't needed.
+1. **Install WaOS and its command,** in one step: `curl -fsSL https://waos.app/install.sh | sh` on macOS (Apple Silicon) or Linux (x86_64). It installs the newest WaOS and puts `waos` and `cargo waos` (the same command) on the PATH; on Linux WaOS also runs without a display. For a phone, [download WaOS for Android](/download/android). `cargo install waos-cli` installs the command alone, for building and packaging where WaOS isn't needed.
 2. **Rust:** latest **stable** Rust (1.85 at least, via [rustup](https://rustup.rs) and `rustup update stable`) builds with the command, while each program's `rust-toolchain.toml` pins the **nightly** toolchain with the `wasm32-wasip3` target that rustup fetches automatically on the first build.
 3. **Make a program:** `cargo waos new hello`, a WinUI app, which works on a desktop and on a phone. For an app meant for phones alone, add `--template cupertino`. Its `icon.png` is a placeholder: draw one to sit beside [WaOS's own apps](/docs/icons).
 4. **Run it:** `cd hello && cargo waos run`, which shows what it prints; a program opened from WaOS prints into WaOS's log instead.
