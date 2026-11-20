@@ -2,10 +2,10 @@ import { repositoryUrl } from '@/lib/shared';
 
 /** What a release is downloaded as on each system, by the name its release job gives the file. */
 export const platforms = {
-  macos: /^WaOS_.+_aarch64\.dmg$/,
+  macos: /^WaOS-.+-macos-arm64\.dmg$/,
   windows: /^WaOS-.+-windows-x64-setup\.exe$/,
-  linux: /^waos-.+-linux-x86_64\.tar\.gz$/,
-  android: /^WaOS-.+\.apk$/,
+  linux: /^WaOS-.+-linux-x86_64\.tar\.gz$/,
+  android: /^WaOS-.+-android-arm64\.apk$/,
 } as const;
 
 export type Platform = keyof typeof platforms;
