@@ -18,9 +18,15 @@ export function isPlatform(name: string): name is Platform {
 export interface Download {
   name: string;
   size: number;
-  /** GitHub's address of the file, which waos.app/download/<platform> sends to. */
+  /** Where waos.app/download/<platform> sends: the copy on download.waos.app once the release's
+   * files are mirrored there, GitHub's file until then. */
   url: string;
+  /** GitHub's address of the file. */
+  github: string;
 }
+
+/** Where release files are mirrored, as `<tag>/<file>` (`.github/workflows/mirror-release.yml`). */
+export const mirrorOrigin = 'https://download.waos.app';
 
 /** The newest release of WaOS, and its file for each system that has one. */
 export interface Latest {
@@ -59,18 +65,31 @@ export async function latestRelease(): Promise<Latest> {
   }
   const release = (await response.json()) as GitHubRelease;
   const downloads: Partial<Record<Platform, Download>> = {};
-  for (const [platform, pattern] of Object.entries(platforms) as [Platform, RegExp][]) {
-    const asset = release.assets.find((asset) => pattern.test(asset.name));
-    if (asset) {
-      downloads[platform] = { name: asset.name, size: asset.size, url: asset.browser_download_url };
-    }
-  }
+  await Promise.all(
+    (Object.entries(platforms) as [Platform, RegExp][]).map(async ([platform, pattern]) => {
+      const asset = release.assets.find((asset) => pattern.test(asset.name));
+      if (!asset) return;
+      const mirrored = `${mirrorOrigin}/${release.tag_name}/${asset.name}`;
+      const url = (await isMirrored(mirrored)) ? mirrored : asset.browser_download_url;
+      downloads[platform] = { name: asset.name, size: asset.size, url, github: asset.browser_download_url };
+    }),
+  );
   return {
     version: release.tag_name.replace(/^v/, ''),
     tag: release.tag_name,
     publishedAt: release.published_at,
     downloads,
   };
+}
+
+/** Whether the mirror has the file at `url`, asked as often as the release is read. */
+async function isMirrored(url: string): Promise<boolean> {
+  try {
+    const response = await fetch(url, { method: 'HEAD', next: { revalidate: latestMaxAge } });
+    return response.ok;
+  } catch {
+    return false;
+  }
 }
 
 /** waos.app's address of the newest release's file for `platform`. */

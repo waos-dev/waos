@@ -4,7 +4,8 @@ export const revalidate = 300;
 
 /**
  * `/download/macos`, `/download/windows`, `/download/linux`, `/download/android`: the newest
- * release's file for that system, by a redirect to it on GitHub. A link here never names a
+ * release's file for that system, by a redirect to its copy on download.waos.app, or to GitHub
+ * before the release is mirrored. A link here never names a
  * version, so it stays right across releases.
  */
 export async function GET(_request: Request, { params }: { params: Promise<{ platform: string }> }) {
