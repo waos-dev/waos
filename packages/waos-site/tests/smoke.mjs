@@ -273,15 +273,9 @@ async function checkHome(page) {
   const bodyText = await page.locator('#nd-home-layout').innerText();
   check('the home page has no middot splits', !bodyText.includes('·'));
   const download = page.getByRole('link', { name: 'Download for macOS' });
-  check(
-    'the macOS download points at v0.3.0 DMG',
-    (await download.getAttribute('href')) === 'https://github.com/waos-dev/waos/releases/download/v0.3.0/WaOS_0.3.0_aarch64.dmg',
-  );
+  check('the macOS download is the site\'s newest-release address', (await download.getAttribute('href')) === '/download/macos');
   const androidDownload = page.getByRole('link', { name: 'Android' });
-  check(
-    'the Android download points at v0.3.0 APK',
-    (await androidDownload.getAttribute('href')) === 'https://github.com/waos-dev/waos/releases/download/v0.3.0/WaOS-0.3.0.apk',
-  );
+  check('the Android download is the site\'s newest-release address', (await androidDownload.getAttribute('href')) === '/download/android');
   const topics = await page
     .locator('section h3 + ul a')
     .evaluateAll((links) => links.map((link) => [link.getAttribute('href'), link.textContent]));

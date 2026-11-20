@@ -9,15 +9,8 @@ import { WapkStory } from '@/components/wapk-story';
 import { WaveStrip } from '@/components/wave-strip';
 import { WhyWaos } from '@/components/why-waos';
 import { helloCommands } from '@/lib/sample';
-import {
-  agentPrompt,
-  androidDownloadUrl,
-  docsRoute,
-  headline,
-  macDownloadUrl,
-  siteOrigin,
-  subtitle,
-} from '@/lib/shared';
+import { downloadPath } from '@/lib/releases';
+import { agentPrompt, docsRoute, headline, siteOrigin, subtitle } from '@/lib/shared';
 import { guideTopics } from '@/lib/source';
 import { topicIcon } from '@/lib/topic-icons';
 
@@ -52,24 +45,24 @@ function Hero() {
         {subtitle}
       </p>
       <div className="relative mt-9 flex flex-wrap justify-center gap-3">
-        <a href={macDownloadUrl} className={buttonVariants({ color: 'primary', className: 'gap-2 px-6 py-3 text-base' })}>
+        <a href={downloadPath('macos')} className={buttonVariants({ color: 'primary', className: 'gap-2 px-6 py-3 text-base' })}>
           <Download aria-hidden className="size-5" strokeWidth={2} />
           Download for macOS
         </a>
         <BuildYourOwn
           prompt={agentPrompt()}
-          downloadUrl={macDownloadUrl}
-          androidDownloadUrl={androidDownloadUrl}
+          downloadUrl={downloadPath('macos')}
+          androidDownloadUrl={downloadPath('android')}
           startUrl={`${docsRoute}/start`}
         />
       </div>
       <p className="relative mt-6 text-sm text-fd-muted-foreground">
         Available for{' '}
-        <a href={macDownloadUrl} className="font-medium text-fd-foreground underline underline-offset-4">
+        <a href={downloadPath('macos')} className="font-medium text-fd-foreground underline underline-offset-4">
           macOS (Apple Silicon)
         </a>{' '}
         and{' '}
-        <a href={androidDownloadUrl} className="font-medium text-fd-foreground underline underline-offset-4">
+        <a href={downloadPath('android')} className="font-medium text-fd-foreground underline underline-offset-4">
           Android
         </a>
         . Other platforms coming soon.
