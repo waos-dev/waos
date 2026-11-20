@@ -1,4 +1,4 @@
-//! One request to the WaOS on this machine about a program: for `cargo waos screenshot`, `tap`,
+//! One request to the WaOS on this machine about a program: for `cargo waos ui screenshot`, `tap`,
 //! `press`, `drag`, `type`, `key` and `scroll`, connected to as it runs, never started, since only
 //! a program a run of `cargo waos run` runs is read or driven (the design's decision 60); for
 //! `cargo waos settings` and `set`, on a connection the caller made. Each side says its hello

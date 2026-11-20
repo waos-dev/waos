@@ -2,7 +2,7 @@
 title: The tools
 description: Every cargo waos command, and when to use it.
 ---
-`cargo waos` is the one tool: `cargo install waos-cli` installs it, and `cargo waos <command> --help` says everything about a command. Every command about a program runs in its package's folder, or names the package with `-p <package>`; elsewhere it stops with "could not find `Cargo.toml`".
+`cargo waos` is the one tool, and `waos` the same command by its own name. `curl -fsSL https://waos.app/install.sh | sh` installs it with WaOS (on a Mac, from an installed WaOS.app); `cargo install waos-cli` installs the command alone, for building and packaging where WaOS can't run. `cargo waos <command> --help` says everything about a command, and the commands are grouped: `ui` drives a running app's windows, `settings` its answers, `inspect` what it did, `docs` these pages. Every command about a program runs in its package's folder, or names the package with `-p <package>`; elsewhere it stops with "could not find `Cargo.toml`".
 
 ## Make, build, ship
 
@@ -15,12 +15,12 @@ description: Every cargo waos command, and when to use it.
 
 ## See it and use it
 
-These reach the app a `cargo waos run` is running; they never start WaOS. Each input is made by WaOS and handed to the app as its user's would be: the system never sees it, the real pointer does not move, and the command returns once the window has shown its next picture. Each window gets a number from 1 as it opens and keeps that id while open, even if earlier windows close; `cargo waos screenshot` lists each window's id, `--window <id>` picks one, and without `--window` input and resize act on the app's first open window.
+These reach the app a `cargo waos run` is running; they never start WaOS. Each input is made by WaOS and handed to the app as its user's would be: the system never sees it, the real pointer does not move, and the command returns once the window has shown its next picture. Each window gets a number from 1 as it opens and keeps that id while open, even if earlier windows close; `cargo waos ui screenshot` lists each window's id, `--window <id>` picks one, and without `--window` input and resize act on the app's first open window.
 
-- **`cargo waos screenshot`** writes each window's last picture as `target/waos/screenshots/<package>/window-<n>.png`, and prints each window's number, title and size in pixels; `--out <file>` writes one window's picture there, and `--out <folder>/` all of them. Read the PNG to see the app.
-- **`cargo waos tap --at x,y`** clicks there. **`press --at x,y`** holds the button a second, or `--duration <ms>`. **`drag --from x,y --to x,y`** moves in 10 steps over 300 ms (`--steps`, `--duration`, and `--hold <ms>` before the first move). **`scroll --at x,y --by dx,dy`** scrolls as a mouse wheel does, a positive `dy` towards the end.
-- **`cargo waos type "<text>"`** enters text where the app edits, as an input method does. **`cargo waos key <chord>`** presses a key or a chord: `enter`, `escape`, `tab`, `cmd+s`, `shift+tab`.
-- **`cargo waos resize --to 390x844`** sizes the window so the app draws that many points, to see the layout at a phone's width, and prints the size it took and the scale.
+- **`cargo waos ui screenshot`** writes each window's last picture as `target/waos/screenshots/<package>/window-<n>.png`, and prints each window's number, title and size in pixels; `--out <file>` writes one window's picture there, and `--out <folder>/` all of them. Read the PNG to see the app.
+- **`cargo waos ui tap --at x,y`** clicks there. **`ui press --at x,y`** holds the button a second, or `--duration <ms>`. **`ui drag --from x,y --to x,y`** moves in 10 steps over 300 ms (`--steps`, `--duration`, and `--hold <ms>` before the first move). **`ui scroll --at x,y --by dx,dy`** scrolls as a mouse wheel does, a positive `dy` towards the end.
+- **`cargo waos ui type "<text>"`** enters text where the app edits, as an input method does. **`cargo waos ui key <chord>`** presses a key or a chord: `enter`, `escape`, `tab`, `cmd+s`, `shift+tab`.
+- **`cargo waos ui resize --to 390x844`** sizes the window so the app draws that many points, to see the layout at a phone's width, and prints the size it took and the scale.
 
 > `tap`, `press`, `drag` and `scroll` take the screenshot's pixels; `resize` takes points, which are pixels over the window's scale, 2 on a Retina screen: `--to 390x844` gives a screenshot of 780 × 1688. The window system may keep a window within the screen, so a size larger than the screen can give a smaller window: the printed size says what it took.
 
@@ -31,7 +31,7 @@ These reach the app a `cargo waos run` is running; they never start WaOS. Each i
 WaOS asks its user before a program uses a camera, the microphone or notifications, and shows a dialog when it asks for a file or a machine. Each question is a row in the program's settings, and a row set ahead is answered without asking, so a run never waits for a person.
 
 - **`cargo waos settings`** lists the rows, with the machines and outputs they can be set to.
-- **`cargo waos set <row> <value>`** sets one: `camera allow`, `camera simulated` (a test pattern from WaOS, on macOS and Android), `microphone simulated` (a quiet beep), `notifications allow`, `network off`, `save-file /tmp/out.pdf`, `open-file /path/to/notes.md`, `machine this-computer`, and `ask` to ask again. `cargo waos set --help` lists every row and its values.
+- **`cargo waos settings set <row> <value>`** sets one: `camera allow`, `camera simulated` (a test pattern from WaOS, on macOS and Android), `microphone simulated` (a quiet beep), `notifications allow`, `network off`, `save-file /tmp/out.pdf`, `open-file /path/to/notes.md`, `machine this-computer`, and `ask` to ask again. `cargo waos settings set --help` lists every row and its values.
 
 > Set an answer before the app asks. While WaOS is asking, the input commands are refused, saying WaOS is asking over the app's windows, and a screenshot does not show the question; a `set` then changes the row without answering the question already open, so stop the run, set the row, and run again.
 
@@ -41,9 +41,9 @@ WaOS asks its user before a program uses a camera, the microphone or notificatio
 
 - **`cargo waos inspect summary`** prints what the app did with what it was allowed, a day a line as JSON, newest first (`--days <n>`, 7 by default).
 - **`cargo waos inspect active-uses`** prints what it uses now, then each change, until Ctrl-C or its end.
-- **`cargo waos inspect <capability>…`** traces `network`, `files`, `clipboard`, `camera`, `microphone`, `machines`, `permissions`, `links`, `notifications` or `output`, or `all`, an event a line, as they happen.
+- **`cargo waos inspect trace <capability>…`** traces `network`, `files`, `clipboard`, `camera`, `microphone`, `machines`, `permissions`, `links`, `notifications` or `output`, or `all`, an event a line, as they happen.
 
 ## The docs
 
 - **`cargo waos docs`** prints the map of these pages, a line a page, in the order to read them. **`cargo waos docs <page>`** prints one, as `cargo waos docs guide/network` or `cargo waos docs network`; a link `/docs/<page>` in a page is `cargo waos docs <page>`. **`cargo waos docs --search <text>`** prints each line that holds the text, as `<page>:<line>: <text>`. The docs are those of the version the app builds with, its `wasdk` in its `Cargo.lock` (outside an app, the command's own), downloaded the first time from that version's GitHub release into the user's cache folder and read offline after; where they cannot be downloaded, waos.app's latest docs stand in, and the command says so.
-- **`cargo waos skill install`** writes the docs as a skill an agent loads when it builds a WaOS app: a folder `waos`, with `SKILL.md`, the playbook, and `docs/`, in Claude Code's personal skills folder, `~/.claude/skills`, or in the skills folder `--dir` names. It prints where it wrote. Install it again after updating the app's `wasdk`, so the docs match it.
+- **`cargo waos docs skill install`** writes the docs as a skill an agent loads when it builds a WaOS app: a folder `waos`, with `SKILL.md`, the playbook, and `docs/`, in Claude Code's personal skills folder, `~/.claude/skills`, or in the skills folder `--dir` names. It prints where it wrote. Install it again after updating the app's `wasdk`, so the docs match it.

@@ -1,4 +1,4 @@
-//! `cargo waos settings` and `cargo waos set`: a program's settings, as its settings page in WaOS
+//! `cargo waos settings` and `cargo waos settings set`: a program's settings, as its settings page in WaOS
 //! shows them, one row each, read or set by the WaOS on this machine, which keeps them; a set
 //! answer is the program's setting, used by every run, installed or not (decision 11 of the
 //! permissions proposal). Only a program a run of `cargo waos run` on this machine runs or has run

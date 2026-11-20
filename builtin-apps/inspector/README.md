@@ -12,7 +12,7 @@ The app is in Waft's three layers. `logic` is plain Rust, tested alone: what the
 
 ```sh
 cargo waos run -p inspector
-cargo waos set role.inspector allow -p inspector   # answered ahead, from its next start
+cargo waos settings set role.inspector allow -p inspector   # answered ahead, from its next start
 ```
 
 What reads as code, URLs, paths, addresses, times, sizes and the Output panel's lines, is drawn in Cascadia Mono, Microsoft's fixed-width font, carried in `assets/fonts/CascadiaMono-Regular.ttf` under the SIL Open Font License 1.1 (`assets/fonts/OFL.txt`) and registered with Waft at start (`code_font`).

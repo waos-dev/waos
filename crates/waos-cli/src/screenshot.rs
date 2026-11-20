@@ -1,4 +1,4 @@
-//! `cargo waos screenshot`: the last picture of each window of the program a run of `cargo waos
+//! `cargo waos ui screenshot`: the last picture of each window of the program a run of `cargo waos
 //! run` runs, asked of the WaOS running it, written as `window-<id>.png` under
 //! `target/waos/screenshots/<package>`, each printed with its window's id, title and size, so
 //! an agent building the program sees it as its user does (the design's decision 60). `--out`
