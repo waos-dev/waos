@@ -52,7 +52,8 @@ pub use desktop_entry::main;
 pub use ios_entry::main;
 
 /// Writes what `RUST_LOG` picks of the app's and the engine's events to `writer`, coloured where
-/// `ansi`; without it, the app's own and what programs print at `info`, and warnings elsewhere.
+/// `ansi`; without it, the app's own, its programs' windows' and what programs print at `info`, and
+/// warnings elsewhere.
 /// Android gives an app no environment to set, so this default is all a phone's log shows: a
 /// program's own lines are in it so it can be debugged there.
 fn write_traces<W>(writer: W, ansi: bool)
@@ -61,7 +62,7 @@ where
 {
     let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_unset| {
         EnvFilter::new(format!(
-            "warn,waos_app=info,{}=info",
+            "warn,waos_app=info,waos_program_window=info,{}=info",
             waos::targets::PROGRAM
         ))
     });

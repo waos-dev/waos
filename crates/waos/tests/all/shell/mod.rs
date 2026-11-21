@@ -365,6 +365,9 @@ pub fn frame() -> Rect {
     }
 }
 
+/// What a test does to the next view the shell places, before the program has it.
+type PrepareView = Box<dyn FnOnce(&RecordingView) + Send>;
+
 /// The shell: answers every request with a view, at once, refreshes its screen a moment after it
 /// is asked, and keeps what it was asked.
 pub struct TestShell {
@@ -384,7 +387,7 @@ pub struct TestShell {
     /// Every view it placed, and every window.
     views: Mutex<Vec<Arc<RecordingView>>>,
     /// What is done to the next view it places, before the program has it.
-    next_view: Mutex<Option<Box<dyn FnOnce(&RecordingView) + Send>>>,
+    next_view: Mutex<Option<PrepareView>>,
     windows: Mutex<Vec<Arc<RecordingWindow>>>,
     /// Each question a program put to its user, which waits for the test's answer.
     questions: Mutex<Vec<PutQuestion>>,
