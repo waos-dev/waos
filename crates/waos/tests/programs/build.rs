@@ -90,14 +90,27 @@ fn main() {
     );
 }
 
-/// The target directory of the build running this script: the folder above `out_dir` that cargo
-/// marks as one with a `CACHEDIR.TAG`, whether the build names a target or not.
+/// The target directory of the build running this script, from where cargo puts `out_dir`:
+/// `<target>/[<triple>/]<profile>/build/<package>-<hash>/out`, the triple there when the build
+/// names one. Not a marker such as `CACHEDIR.TAG`, which cargo writes only into a target
+/// directory it makes itself, and CI restores `target/test-programs` before cargo runs.
 fn cargo_target_dir(out_dir: &Path) -> PathBuf {
-    out_dir
+    let profile = out_dir
         .ancestors()
-        .find(|folder| folder.join("CACHEDIR.TAG").is_file())
-        .expect("OUT_DIR is inside cargo's target directory")
-        .to_path_buf()
+        .nth(3)
+        .expect("OUT_DIR is <target>/<profile>/build/<package>/out");
+    let above_profile = profile
+        .parent()
+        .expect("a profile folder is inside the target directory");
+    let triple = env::var_os("TARGET").expect("cargo sets TARGET");
+    if above_profile.file_name() == Some(triple.as_os_str()) {
+        above_profile
+            .parent()
+            .expect("a triple folder is inside the target directory")
+            .to_path_buf()
+    } else {
+        above_profile.to_path_buf()
+    }
 }
 
 /// The workspace's root: four directories above this crate's.
