@@ -38,7 +38,7 @@ jobs:
             echo "== whole lib, run $i"
             out=$(gdb -q -batch -ex "set debuginfod enabled on" -ex run -ex "bt 12" -ex "info threads" --args "$bin" -q 2>&1)
             if echo "$out" | grep -q SIGSEGV; then
-              echo "$out" | grep -vE "^(test |Downloading|\[New Thread|\[Thread)" | head -120
+              echo "$out" | sed -n "/received signal/,\$p" | grep -v "^Downloading" | head -80
               break
             fi
           done
