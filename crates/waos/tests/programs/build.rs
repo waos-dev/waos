@@ -2,9 +2,15 @@
 //! each into `OUT_DIR/programs.rs` for the crate to include, with the folder beside them that the
 //! tests' engines keep their compiled code in.
 //!
-//! The invariant: the programs are built into a target directory of this crate's own, under its
-//! `OUT_DIR`, never the workspace's, which the build running this script holds locked. The
-//! workspace's `Cargo.lock` is shared, and the outer build has already brought it up to date.
+//! The invariants:
+//! - The programs are built into a target directory of their own, never the workspace's, which
+//!   the build running this script holds locked. The workspace's `Cargo.lock` is shared, and the
+//!   outer build has already brought it up to date.
+//! - That directory and the code cache are `<target>/test-programs/`, one place whatever build
+//!   runs this script (`cargo test`, `cargo clippy`, another profile), not its `OUT_DIR`, which
+//!   differs between them: so the programs are built once, and CI keeps the folder between runs.
+//!   `waos-cli`'s `tests/new.rs` builds its templates into the same target directory, with the
+//!   same profile settings, so they reuse the SDK and Waft built here.
 
 use std::env;
 use std::fs;
@@ -68,7 +74,8 @@ const WATCHED: [&str; 5] = ["builtin-apps", "examples", "sdk", "wit", "Cargo.loc
 fn main() {
     let workspace = workspace_root();
     let out_dir = PathBuf::from(env::var_os("OUT_DIR").expect("cargo sets OUT_DIR"));
-    let target_dir = out_dir.join("target");
+    let test_programs = cargo_target_dir(&out_dir).join("test-programs");
+    let target_dir = test_programs.join("target");
     for watched in WATCHED {
         println!(
             "cargo:rerun-if-changed={}",
@@ -79,8 +86,18 @@ fn main() {
     write_paths(
         &out_dir.join("programs.rs"),
         &target_dir,
-        &out_dir.join("code-cache"),
+        &test_programs.join("code-cache"),
     );
+}
+
+/// The target directory of the build running this script: the folder above `out_dir` that cargo
+/// marks as one with a `CACHEDIR.TAG`, whether the build names a target or not.
+fn cargo_target_dir(out_dir: &Path) -> PathBuf {
+    out_dir
+        .ancestors()
+        .find(|folder| folder.join("CACHEDIR.TAG").is_file())
+        .expect("OUT_DIR is inside cargo's target directory")
+        .to_path_buf()
 }
 
 /// The workspace's root: four directories above this crate's.
