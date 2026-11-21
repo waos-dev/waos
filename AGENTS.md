@@ -39,6 +39,8 @@ cargo xtask sync-wit                               # copy wit/ into the crates t
 
 Module docs say what a module is for and the invariant a later editor will break. Inline comments only what the next line does that the code cannot say. Do not hard-wrap Markdown. Use plain words, and define a term once.
 
+`docs/essentials.md` is the rules WaOS keeps, one line each with where each is kept: read it before changing how something behaves, and change a rule's line in the same commit as the code that changes the rule.
+
 `DESIGN.md` (once something is built), `docs/` and each crate's README describe what is, and change in the same commit as the code they describe. `docs/proposals/` keeps the designs written before something is built, each with the lead's decisions on top: what was planned on its date, not what is.
 
 ## References
