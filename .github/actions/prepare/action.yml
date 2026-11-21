@@ -1,0 +1,25 @@
+# What every job that builds the workspace does first, after its checkout (with `fetch-depth: 0`):
+# each file dated by its last commit, Rust's cache, and the test programs main last built.
+name: Prepare a build
+description: Dates the checkout's files by their commits, and restores Rust's cache and the test programs.
+runs:
+  using: composite
+  steps:
+    # Each file dated by its last commit, not the checkout: cargo rebuilds what is newer than what
+    # it built, so the test programs restored below are rebuilt only where a commit changed them,
+    # and their compiled code stays valid.
+    - uses: chetan/git-restore-mtime-action@v2
+    - uses: Swatinem/rust-cache@v2
+      with:
+        save-if: ${{ github.ref == 'refs/heads/main' }}
+    # The programs the engine's and the app's tests run, built for wasm32-wasip3 by
+    # `waos-test-programs` into target/test-programs with their compiled code: minutes to make,
+    # kept apart from rust-cache, which drops what the workspace's own build scripts make. Named by
+    # what they are built from (`crates/waos/tests/programs/build.rs`); a job that runs tests saves
+    # it on main (`save-test-programs`).
+    - name: The test programs, as main last built them
+      uses: actions/cache/restore@v4
+      with:
+        path: target/test-programs
+        key: test-programs-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', 'builtin-apps/**', 'examples/**', 'sdk/**', 'wit/**', 'crates/waos/tests/programs/**') }}
+        restore-keys: test-programs-${{ runner.os }}-
