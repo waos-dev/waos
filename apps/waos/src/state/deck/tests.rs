@@ -93,8 +93,8 @@ fn a_tab_says_how_its_program_ended_until_it_is_closed() {
         phone.labels()
     );
     assert!(
-        !phone.has::<ProgramPicture>() && !phone.has::<ProgramCanvas>(),
-        "it ended before it asked for a view, so there is no picture to keep"
+        phone.has::<ProgramPicture>() && !phone.has::<ProgramCanvas>(),
+        "its last picture, out of its reach"
     );
     phone.close(TRAP);
     assert_eq!(phone.stage(TRAP), None);

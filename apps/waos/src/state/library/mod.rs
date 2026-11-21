@@ -61,7 +61,7 @@ use waos_package::{ListedProgram, ProgramId};
 use waos_store::{InstalledProgram, Source, Store};
 
 use crate::logic::command_line::{Command, command};
-use crate::logic::installed_runs::InstalledRuns;
+use crate::logic::installed_runs::{InstalledRuns, Opening};
 use crate::logic::offers::{Offer, offer_of};
 use crate::logic::opened_package::OpenedPackage;
 use crate::logic::opening;
@@ -417,9 +417,15 @@ impl Library {
         let (runs, id) = (self.runs.clone(), id.clone());
         self.work_then(
             async move {
-                runs.open(&id, component, None, ProgramPlace::Windows)
-                    .await
-                    .map(drop)
+                runs.open(
+                    &id,
+                    component,
+                    None,
+                    ProgramPlace::Windows,
+                    Opening::ByTheUser,
+                )
+                .await
+                .map(drop)
             },
             Library::program_opened,
             cx,
@@ -445,8 +451,14 @@ impl Library {
         let opening = id.clone();
         self.work_then(
             async move {
-                runs.open(&opening, component, Some(view), ProgramPlace::Tab)
-                    .await
+                runs.open(
+                    &opening,
+                    component,
+                    Some(view),
+                    ProgramPlace::Tab,
+                    Opening::ByTheUser,
+                )
+                .await
             },
             move |library, opened, cx| {
                 let (started, opened) = match opened {

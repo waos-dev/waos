@@ -18,6 +18,7 @@ use waos_package::ProgramId;
 use waos_program_window::placed_view;
 
 use super::{Library, WantsToBeSeen};
+use crate::logic::installed_runs::Opening;
 use crate::logic::program_faces::program_face;
 use crate::logic::program_places::ProgramPlace;
 use crate::state::ViewWindows;
@@ -113,7 +114,13 @@ impl Library {
         self.work_then(
             async move {
                 let (program, reserved) = runs
-                    .open(&opening, component, Some(placed), ProgramPlace::Windows)
+                    .open(
+                        &opening,
+                        component,
+                        Some(placed),
+                        ProgramPlace::Windows,
+                        Opening::ByTheUser,
+                    )
                     .await?;
                 let taken = match reserved {
                     Some(reserved) => Taken::Waited(reserved.await),

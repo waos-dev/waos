@@ -43,7 +43,9 @@ Three things follow from this:
 
 6. **A request beyond the first opens another view wherever the platform can show one** (2026-11-21): in the deck, another tab for the program, as decision 10 of `2026-11-12-phone-programs-and-library.md` makes every request a task; `unsupported` only where the place can hold no more, such as an app bundling one program with its one view.
 
-7. **Until the terminal exists, a console program is refused when opened from an icon** (2026-11-21), with a message that it runs from a terminal. Run from a terminal, it works as it does today.
+7. **Until the terminal exists, a console program is refused when opened from an icon** (2026-11-21), with a message that it is a command-line program WaOS cannot show the terminal of yet. Run from a terminal, it works as it does today. Found while building it:
+   - The message can't send the user to `waos run`, which runs a package's source, not an installed program, so an installed command-line tool has no way to run until the terminal exists.
+   - A console program WaOS starts to hand it files (`waos open`) or a click on its notification is not refused. That is how a program with no window, such as one that only posts notifications, does its work, and its output goes to WaOS's log as before. The refusal is for the user's opening from an icon alone: the library, the launcher, the Dock, a home-screen shortcut and a card brought back from Recents (`Opening` in `apps/waos/src/logic/installed_runs.rs`).
 
 8. **A held screen waits for as long as its program runs** (2026-11-21), showing the launch picture, and the user closes it when they choose to, which ends the program as closing its window would. WaOS doesn't guess when a program is too slow: a program waiting on the network before its first window is as normal as one that hangs, and the user can tell them apart where WaOS can't.
 

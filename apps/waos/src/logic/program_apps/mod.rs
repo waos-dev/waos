@@ -71,7 +71,7 @@ use crate::os::{
     system_version, wait_for_exit,
 };
 
-use super::installed_runs::InstalledRuns;
+use super::installed_runs::{InstalledRuns, Opening};
 use super::program_places::ProgramPlace;
 pub(crate) use app_reach::LaunchAttempt;
 pub(crate) use app_reach::{AppReach, ReachedApp};
@@ -336,7 +336,13 @@ impl ProgramApps {
             .program(id)
             .ok_or_else(|| format!("{id} is not installed, and does not run"))?;
         let (program, _views) = runs
-            .open(id, component, None, ProgramPlace::Windows)
+            .open(
+                id,
+                component,
+                None,
+                ProgramPlace::Windows,
+                Opening::ByTheUser,
+            )
             .await
             .map_err(|error| format!("{error:#}"))?;
         Ok(program)

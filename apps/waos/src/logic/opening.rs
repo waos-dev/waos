@@ -16,7 +16,7 @@ use waos_dev_protocol::{Connection, OpenAnswer, Refusal, RefusalKind, ServerStre
 use waos_package::ProgramId;
 use waos_store::Store;
 
-use super::installed_runs::InstalledRuns;
+use super::installed_runs::{InstalledRuns, Opening};
 
 /// Hands `request` to the program `id`: the one running under it, or else the installed one,
 /// opened first; fails for an id neither installed nor running.
@@ -64,7 +64,13 @@ pub(crate) async fn program_named(
     match store.program(id) {
         Some(component) => {
             let (program, _views) = installed
-                .open(id, component, None, installed.places.usual())
+                .open(
+                    id,
+                    component,
+                    None,
+                    installed.places.usual(),
+                    Opening::ToHandOver,
+                )
                 .await?;
             Ok(Some(program))
         }
