@@ -52,6 +52,7 @@ use waft::{
     App, AppLifecycleState, Context, Entity, Subscription, WeakEntity, WidgetsBinding,
     WidgetsBindingObserver, WindowRef,
 };
+use waos::WindowConfig;
 use waos::bindings::wasdk::platform::views::{RequestId, ViewError as ProgramViewError};
 use waos::bindings::wasdk::platform::windows::{TitleBarAction, WindowBackground};
 use waos_window_messages::{ViewCall, WindowCall};
@@ -346,6 +347,30 @@ impl<P: ProgramLink> ViewWindows<P> {
             given.window.close();
         }
         given.is_some()
+    }
+
+    /// Asks Waft for the first window of the program `program`, which is about to start, as the
+    /// platform's ordinary window named and shown as `face` says, so the program shows from its
+    /// launch (decision 10 of `docs/proposals/2026-11-21-views-a-program-asks-for.md`). It is
+    /// asked for no running program: it arrives as a program's first window the platform gives,
+    /// as a card brought back from Recents does, which whoever hears of the platform's views
+    /// opens here (`open_given`) and reserves for the program's first request. Why not, where
+    /// Waft refuses it at once.
+    pub fn open_first_window(
+        &mut self,
+        program: &str,
+        face: &ProgramFace,
+        cx: &mut Context<ViewWindows<P>>,
+    ) -> Result<(), ViewError> {
+        let activation_token = self.activation_tokens.remove(program);
+        let config = window_config_of(&WindowConfig::default(), face, activation_token);
+        let first = RestorableWindow {
+            program: program.to_owned(),
+            role: WindowRole::First,
+        };
+        cx.platform()
+            .request_view(config, Some(first.initial_data()))
+            .map(drop)
     }
 
     /// Asks Waft for the window `asked` wants; a request Waft refuses at once fails.

@@ -21,6 +21,9 @@ use crate::logic::preferences::PreferencesFile;
 /// How long a test gives a program to do what it would do were it to go wrong.
 const A_MOMENT: Duration = Duration::from_millis(500);
 
+/// An app that never asks for a view.
+const FOREVER: &str = "dev.example.forever";
+
 /// A phone of tasks with `programs` installed, each a test program's component under an id and a
 /// name.
 fn tasks_with(programs: &[(&str, &str, &str)]) -> TestPhone {
@@ -52,7 +55,7 @@ fn first_window_of(id: &str) -> String {
 }
 
 #[test]
-fn a_program_opened_asks_for_a_window_with_its_name_its_icon_and_what_names_it() {
+fn a_program_opened_gets_its_window_with_its_name_its_icon_and_what_names_it() {
     let mut phone = with_triangle_installed();
     open_in_a_window(&mut phone, TRIANGLE);
     let windows = phone.windows_of(TRIANGLE);
@@ -68,8 +71,24 @@ fn a_program_opened_asks_for_a_window_with_its_name_its_icon_and_what_names_it()
     );
     let views = phone.program_views(TRIANGLE);
     assert_eq!(views.len(), 1);
-    assert_eq!(views[0].request_id(), 1, "a window it asked for");
+    assert_eq!(views[0].request_id(), 1, "its first request took it");
     assert_eq!(phone.tab_kinds(), ["home"], "no tab of its own");
+}
+
+#[test]
+fn an_app_opened_has_its_window_from_its_launch_though_it_never_asks_for_one() {
+    let mut phone = TestPhone::of(PhoneKind::Tasks);
+    phone.install(waos_test_programs::FOREVER, FOREVER, "Forever");
+    phone.start_opening(FOREVER);
+    phone.settle_until("it runs, with its window", |phone| {
+        phone.runs(FOREVER) && phone.windows_of(FOREVER).len() == 1
+    });
+    phone.pump_for(A_MOMENT);
+    assert!(
+        phone.program_views(FOREVER).is_empty(),
+        "the window waits for its first request"
+    );
+    assert_eq!(phone.windows_of(FOREVER)[0].config().title, "Forever");
 }
 
 #[test]

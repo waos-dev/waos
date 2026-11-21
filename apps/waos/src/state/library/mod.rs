@@ -57,7 +57,7 @@ use waft::{App, Context, Entity, EventEmitter, OpenRequestedCallback, WeakEntity
 use waft_single_instance::{LaterLaunches, Launch};
 use waos::OpenRequest;
 use waos::bindings::wasdk::platform::notifications::Activation;
-use waos_package::{ListedProgram, ProgramId};
+use waos_package::{ListedProgram, ProgramId, ProgramKind};
 use waos_store::{InstalledProgram, Source, Store};
 
 use crate::logic::command_line::{Command, command};
@@ -67,6 +67,7 @@ use crate::logic::opened_package::OpenedPackage;
 use crate::logic::opening;
 use crate::logic::package_copies::{PackageCopies, document_name};
 use crate::logic::preferences::{KeptPreferences, Preferences, PreferencesFile};
+use crate::logic::program_faces::program_face;
 use crate::logic::program_places::ProgramPlace;
 use crate::logic::program_shortcuts::SystemShortcuts;
 use crate::logic::setting_changes::Offered;
@@ -76,6 +77,7 @@ pub(crate) use package_picker::picks_packages;
 pub(crate) use programs_open::ProgramsOpen;
 pub(crate) use settings::{LeftSettings, LibraryPage, SwitchAsked, open_settings_when_asked};
 use shortcuts::ShortcutsMatching;
+use waos_program_window::ProgramFace;
 
 pub(crate) struct Library {
     store: Store,
@@ -162,6 +164,17 @@ pub(crate) struct ProgramOpened {
 }
 
 impl EventEmitter<WantsToBeSeen> for Library {}
+
+/// The program `id`, about to start on Android as a task of its own, wants its first window opened
+/// now, showing it as `face` says, which arrives as a program's first window the platform gives
+/// and starts the program with it reserved (decision 10 of
+/// `docs/proposals/2026-11-21-views-a-program-asks-for.md`).
+pub(crate) struct FirstWindowWanted {
+    pub(crate) id: ProgramId,
+    pub(crate) face: ProgramFace,
+}
+
+impl EventEmitter<FirstWindowWanted> for Library {}
 
 /// The user changed WaOS's own preferences, which hold from now on.
 pub(crate) struct PreferencesChosen;
@@ -412,6 +425,18 @@ impl Library {
             && self.place_to_open(id) == ProgramPlace::Tab
         {
             self.open_in_tab(tabs, id, component, cx);
+            return;
+        }
+        let is_an_app = self
+            .store
+            .manifest(id)
+            .is_none_or(|manifest| manifest.kind() == ProgramKind::App);
+        if self.programs_open == ProgramsOpen::AsChosen && is_an_app && !self.is_running(id) {
+            let face = program_face(&self.store, id.as_str());
+            cx.emit(FirstWindowWanted {
+                id: id.clone(),
+                face,
+            });
             return;
         }
         let (runs, id) = (self.runs.clone(), id.clone());
@@ -920,6 +945,16 @@ impl Library {
             }
             Err(error) => self.failed(format!("{error:#}"), cx),
         }
+    }
+
+    /// No first window opened for the program `id`, which is not started: the library's problem.
+    pub(crate) fn first_window_refused(
+        &mut self,
+        id: &ProgramId,
+        why: &str,
+        cx: &mut Context<Library>,
+    ) {
+        self.failed(format!("{id} could not be opened: {why}"), cx);
     }
 
     fn failed(&mut self, why: String, cx: &mut Context<Library>) {

@@ -120,8 +120,9 @@ use image_codecs::ImageCodecs;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 use launcher::Launcher;
 use library::{
-    InstalledChanged, Library, ProgramOpened, ProgramsOpen, open_library, open_settings_when_asked,
-    request_to_open_with_waos, take_files_opened_with_waos, take_notification_clicks,
+    FirstWindowWanted, InstalledChanged, Library, ProgramOpened, ProgramsOpen, open_library,
+    open_settings_when_asked, request_to_open_with_waos, take_files_opened_with_waos,
+    take_notification_clicks,
 };
 use media_assets::MediaAssets;
 use media_players::MediaPlayers;
@@ -541,18 +542,36 @@ fn own_preferences(place: LibraryPlace, folders: &AppFolders) -> Option<Preferen
 
 /// A program opened from `library` that has windows of its own among `windows` brings its front
 /// one forward, as its task comes forward on Android, with the activation token of the launch that
-/// opened it, which a program with no window yet shows its next one with.
+/// opened it, which a program with no window yet shows its next one with; and one about to start
+/// as a task of its own has its first window opened among `windows` now, which starts it once it
+/// arrives, the library saying so where none opens.
 pub(crate) fn bring_opened_programs_forward(
     app: &mut App,
     library: &Entity<Library>,
     windows: &Entity<ViewWindows>,
 ) {
-    let windows = windows.downgrade();
+    let forward = windows.downgrade();
     app.subscribe(library, move |app, opened: &ProgramOpened| {
-        if let Some(windows) = windows.upgrade() {
+        if let Some(windows) = forward.upgrade() {
             let (id, token) = (opened.id.as_str(), opened.activation_token.clone());
             windows.update(app, |windows, cx| {
                 windows.bring_forward_for_launch(id, token, cx);
+            });
+        }
+    })
+    .detach();
+    let (first, refused) = (windows.downgrade(), library.downgrade());
+    app.subscribe(library, move |app, wanted: &FirstWindowWanted| {
+        let Some(windows) = first.upgrade() else {
+            return;
+        };
+        let opened = windows.update(app, |windows, cx| {
+            windows.open_first_window(wanted.id.as_str(), &wanted.face, cx)
+        });
+        if let (Err(error), Some(library)) = (opened, refused.upgrade()) {
+            let why = format!("no window opened for it: {error:?}");
+            library.update(app, |library, cx| {
+                library.first_window_refused(&wanted.id, &why, cx);
             });
         }
     })
