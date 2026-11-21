@@ -29,7 +29,8 @@ jobs:
       - run: sudo apt-get install -y gdb
       - name: Crash under gdb
         run: |
-          bin=$(cargo test -p waos --lib --no-run 2>&1 | sed -n 's/.*Executable unittests src\/lib.rs (\(.*\))/\1/p')
+          bin=$(cargo test -p waos --lib --no-run --message-format=json | jq -r 'select(.executable != null and .target.kind == ["lib"]) | .executable' | head -1)
+          test -x "$bin"
           echo "binary: $bin"
           for i in $(seq 1 15); do
             echo "== whole lib, run $i"
