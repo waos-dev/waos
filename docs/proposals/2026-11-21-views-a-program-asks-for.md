@@ -86,12 +86,12 @@ variant view-error {
 
 That changes the type, which decision 67 of `2026-10-17-the-waos-project.md` says moves the interface's version; it is changed now, since no program outside this repository depends on it yet (decision 9).
 
-On the shell's side, a held screen is kept by the engine, so every shell gets it the same way. A shell that shows a screen before the program asks starts the program with `WaOS::run_reserving(program, environment, screen)`, where `WaOS::run` starts one with nothing held. The program's first `request-view` takes the screen without reaching `ViewPlacement::view_requested`. The shell waits on the `ReservedView` it was handed, which resolves with the `ProgramView` the screen became, or with none once the program ends without asking. Every later request goes to `view_requested`, which answers with `program.add_view(request, view)`. In the code, a held screen is called a *reserved* one, since `run_held` already names a program held before its first instruction.
+On the shell's side, a held screen is the placement's own (2026-11-21, replacing a first build that kept it in the engine, `WaOS::run_reserving`, which handed the shell a future to wait on beside its own record of the same screen). The engine passes every `request-view` to `ViewPlacement::view_requested`, and the placement that showed a screen for the program before it asked answers its first request with it: the deck's tabs keep each tab's screen until then (`Tabs::view_requested`), and on Android `ViewWindows` keeps each program's first window, opened at its launch or brought back from Recents (`prepare_window`, `adopt_window`), and shows the program's first request in it as in any window made for a request.
 
 ## The work, in order
 
 1. In the WaOS app, the deck's tab, a home-screen shortcut's activity and a restored card hold their screen and give it to the first request. They no longer give a view at start (`apps/waos/src/state/deck/tab_view.rs`, `apps/waos/src/state/given_views.rs`, `crates/waos-program-window/src/state/view_windows.rs`'s `open_given`, `given_started`, `given_not_started`).
-2. The engine reads whether a component imports `views` beside its roles, and WaOS reads that before choosing what to show for a launch.
+2. Whether a program is an app or a tool comes from its manifest (decision 3), which `waos package` writes and `waos run` sends, and WaOS reads before choosing what to show for a launch.
 3. The views WIT as above, under a new version of `wasdk:platform` (2.0.0, since a type changes), which CI asks for; the `views` docs in `sdk/wasdk`; a second request in a tab opening another tab (decision 6); and a console program refused from an icon (decision 7).
 4. `wasdk-adapter-waft` drops its loop over given views and asks for its first view as on a desktop. `wasdk-adapter-gpui` needs no change for this.
 5. Zed, rebuilt and run on the phone from the library and from a shortcut.
