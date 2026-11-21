@@ -256,8 +256,11 @@ fn the_version_is_the_wasdk_an_apps_lock_file_names() {
     assert_eq!(version::wasdk_in(lock).as_deref(), Some("0.3.1"));
     assert_eq!(version::wasdk_in("version = 4\n"), None);
     assert_eq!(
-        download::archive_url("0.3.1"),
-        "https://github.com/waos-dev/waos/releases/download/v0.3.1/waos-docs-0.3.1.tar.gz"
+        download::archive_urls("0.3.1"),
+        [
+            "https://download.waos.app/v0.3.1/waos-docs-0.3.1.tar.gz",
+            "https://github.com/waos-dev/waos/releases/download/v0.3.1/waos-docs-0.3.1.tar.gz",
+        ]
     );
 }
 
