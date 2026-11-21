@@ -1,4 +1,5 @@
-//! A program's manifest: its id, the name the user sees, and its version, as TOML.
+//! A program's manifest: its id, the name the user sees, its version, and whether it is an app or
+//! a tool, as TOML. An app writes no `kind`, so a manifest from before kinds reads as an app.
 
 use std::fmt;
 
@@ -8,12 +9,47 @@ use serde::{Deserialize, Serialize};
 use crate::{IdError, ProgramId};
 
 /// A program's identity: what an installer files it under, shows the user, and compares to
-/// tell an update from the version installed.
+/// tell an update from the version installed; and what kind of program it is.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Manifest {
     id: ProgramId,
     name: String,
     version: Version,
+    kind: ProgramKind,
+}
+
+/// What a program is to its user, as its author declares it (decision 3 of
+/// `docs/proposals/2026-11-21-views-a-program-asks-for.md`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ProgramKind {
+    /// A program with a UI, which WaOS gives a screen as it launches on a phone.
+    #[default]
+    App,
+    /// A program with no UI, a command-line program, whose input and output are a terminal's.
+    Tool,
+}
+
+impl ProgramKind {
+    /// The kind as a manifest spells it.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ProgramKind::App => "app",
+            ProgramKind::Tool => "tool",
+        }
+    }
+}
+
+impl std::str::FromStr for ProgramKind {
+    type Err = ManifestError;
+
+    fn from_str(kind: &str) -> Result<ProgramKind, ManifestError> {
+        match kind {
+            "app" => Ok(ProgramKind::App),
+            "tool" => Ok(ProgramKind::Tool),
+            other => Err(ManifestError::UnknownKind(other.to_owned())),
+        }
+    }
 }
 
 impl Manifest {
@@ -28,7 +64,17 @@ impl Manifest {
         if name.trim().is_empty() {
             return Err(ManifestError::EmptyName);
         }
-        Ok(Manifest { id, name, version })
+        Ok(Manifest {
+            id,
+            name,
+            version,
+            kind: ProgramKind::App,
+        })
+    }
+
+    /// The same manifest, of `kind`.
+    pub fn with_kind(self, kind: ProgramKind) -> Manifest {
+        Manifest { kind, ..self }
     }
 
     /// Reads a manifest from its TOML. Fields this version does not know are ignored, so a
@@ -38,7 +84,11 @@ impl Manifest {
             toml::from_str(text).map_err(|error| ManifestError::NotAManifest(error.to_string()))?;
         let id = fields.id.parse().map_err(ManifestError::InvalidId)?;
         let version = parse_version(&fields.version)?;
-        Manifest::new(id, fields.name, version)
+        let kind = match fields.kind {
+            Some(kind) => kind.parse()?,
+            None => ProgramKind::App,
+        };
+        Ok(Manifest::new(id, fields.name, version)?.with_kind(kind))
     }
 
     /// The manifest as TOML, as a package holds it.
@@ -47,8 +97,9 @@ impl Manifest {
             id: self.id.to_string(),
             name: self.name.clone(),
             version: self.version.to_string(),
+            kind: (self.kind != ProgramKind::App).then(|| self.kind.as_str().to_owned()),
         };
-        toml::to_string(&fields).expect("a table of three strings is TOML")
+        toml::to_string(&fields).expect("a table of strings is TOML")
     }
 
     pub fn id(&self) -> &ProgramId {
@@ -63,6 +114,10 @@ impl Manifest {
     pub fn version(&self) -> &Version {
         &self.version
     }
+
+    pub fn kind(&self) -> ProgramKind {
+        self.kind
+    }
 }
 
 /// A manifest as TOML spells it, before its fields are checked.
@@ -71,6 +126,9 @@ struct ManifestFields {
     id: String,
     name: String,
     version: String,
+    /// None for an app.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    kind: Option<String>,
 }
 
 fn parse_version(version: &str) -> Result<Version, ManifestError> {
@@ -93,6 +151,8 @@ pub enum ManifestError {
         version: String,
         reason: String,
     },
+    /// The kind is neither `app` nor `tool`.
+    UnknownKind(String),
 }
 
 impl fmt::Display for ManifestError {
@@ -114,6 +174,9 @@ impl fmt::Display for ManifestError {
                     "the version {version:?} is not a semver version: {reason}"
                 )
             }
+            ManifestError::UnknownKind(kind) => {
+                write!(f, "the kind {kind:?} is neither \"app\" nor \"tool\"")
+            }
         }
     }
 }
@@ -134,6 +197,31 @@ mod tests {
         assert_eq!(manifest.name(), "Triangle");
         assert_eq!(manifest.version(), &Version::new(0, 1, 0));
         assert_eq!(Manifest::from_toml(&manifest.to_toml()).unwrap(), manifest);
+    }
+
+    #[test]
+    fn a_manifest_with_no_kind_is_an_app_and_an_app_writes_none() {
+        let manifest = Manifest::from_toml(TRIANGLE).unwrap();
+        assert_eq!(manifest.kind(), ProgramKind::App);
+        assert_eq!(manifest.to_toml(), TRIANGLE);
+    }
+
+    #[test]
+    fn a_tool_reads_back_as_one() {
+        let tool = Manifest::from_toml(TRIANGLE)
+            .unwrap()
+            .with_kind(ProgramKind::Tool);
+        assert!(tool.to_toml().contains("kind = \"tool\""));
+        assert_eq!(Manifest::from_toml(&tool.to_toml()).unwrap(), tool);
+    }
+
+    #[test]
+    fn an_unknown_kind_is_refused() {
+        let gadget = format!("{TRIANGLE}kind = \"gadget\"\n");
+        assert_eq!(
+            Manifest::from_toml(&gadget),
+            Err(ManifestError::UnknownKind("gadget".to_owned()))
+        );
     }
 
     #[test]

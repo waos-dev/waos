@@ -20,12 +20,12 @@ use waos_dev_protocol::{
     ClientStream, Connection, OutputStream, Request, Run, RunEnd, RunEvent, Upload,
     component_digest,
 };
-use waos_package::ProgramId;
 
 use crate::asked;
 use crate::asking;
 use crate::build::BuiltProgram;
 use crate::connecting::{WaOSStarter, connect_or_start};
+use crate::metadata::RunIdentity;
 
 /// The exit status of a run Ctrl-C stopped: the shell's for a command the interrupt ended.
 const INTERRUPTED: u8 = 130;
@@ -34,10 +34,10 @@ const INTERRUPTED: u8 = 130;
 /// is sending. A debug build is hundreds of megabytes; a release one is under this.
 const SAID_OVER_BYTES: usize = 64 << 20;
 
-/// Runs `program` in WaOS, as the program `id` names, with `variables` added to its environment
-/// and `args` as its arguments, until it ends, or until Ctrl-C.
+/// Runs `program` in WaOS, as the program `identity` names, of its kind, with `variables` added
+/// to its environment and `args` as its arguments, until it ends, or until Ctrl-C.
 pub async fn run(
-    id: ProgramId,
+    identity: RunIdentity,
     program: &BuiltProgram,
     variables: &[(String, String)],
     args: &[String],
@@ -47,7 +47,7 @@ pub async fn run(
         .with_context(|| format!("reading {}", program.component.display()))?;
     run_on(
         connect_or_start(starter).await?,
-        id,
+        identity,
         &program.name,
         &component,
         variables,
@@ -56,17 +56,19 @@ pub async fn run(
     .await
 }
 
-/// Runs `component` over `connection` as the program `id` (`name`), after saying its hello.
+/// Runs `component` over `connection` as the program `identity` names (`name`), after saying its
+/// hello.
 async fn run_on(
     connection: Connection<ClientStream>,
-    id: ProgramId,
+    identity: RunIdentity,
     name: &str,
     component: &[u8],
     variables: &[(String, String)],
     args: &[String],
 ) -> Result<ExitCode> {
     let request = Request::Run(Run {
-        id,
+        id: identity.id,
+        kind: identity.kind,
         args: args.to_vec(),
         variables: variables.to_vec(),
         length: component.len() as u64,
@@ -236,6 +238,7 @@ mod tests {
     use waos_dev_protocol::{Component, Hello, Listener, TestPlace};
 
     use super::*;
+    use waos_package::ProgramKind;
 
     #[test]
     fn each_line_comes_after_the_programs_name_as_the_pieces_of_it_arrive() {
@@ -322,7 +325,10 @@ mod tests {
         let client = Connection::connect(&socket).await.unwrap();
         let status = run_on(
             client,
-            "dev.example.notes".parse().unwrap(),
+            RunIdentity {
+                id: "dev.example.notes".parse().unwrap(),
+                kind: ProgramKind::App,
+            },
             "notes",
             &component,
             &[],
@@ -369,7 +375,10 @@ mod tests {
         let client = Connection::connect(&socket).await.unwrap();
         let status = run_on(
             client,
-            "dev.example.notes".parse().unwrap(),
+            RunIdentity {
+                id: "dev.example.notes".parse().unwrap(),
+                kind: ProgramKind::App,
+            },
             "notes",
             &component,
             &[],

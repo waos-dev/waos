@@ -355,6 +355,7 @@ mod tests {
         let mut conn = connect(socket).await;
         conn.send(&Request::Run(Run {
             id,
+            kind: waos_package::ProgramKind::App,
             args: Vec::new(),
             variables: Vec::new(),
             length: component.len() as u64,

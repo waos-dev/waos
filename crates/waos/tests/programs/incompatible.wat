@@ -1,7 +1,6 @@
 ;; A program built for another version of the interface: it imports `wasdk:platform/system` as it
 ;; would have been before `operating-system` had its `other` case, so the engine, which serves the
-;; enum with it, cannot link it. It imports the views of that version too, as a program with a UI
-;; built then does, so WaOS takes it for one. It imports and does nothing else: the link fails before anything
+;; enum with it, cannot link it. It imports and does nothing else: the link fails before anything
 ;; of a program runs, its exports with it. Text, which wasmtime compiles as it does a component's
 ;; binary.
 (component
@@ -11,5 +10,4 @@
     (type (func (result 1)))
     (export "os" (func (type 2)))
   ))
-  (import "wasdk:platform/views@1.0.0" (instance))
 )

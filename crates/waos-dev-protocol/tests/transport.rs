@@ -89,6 +89,7 @@ fn every_request() -> Vec<Request> {
     vec![
         Request::Run(Run {
             id: id.clone(),
+            kind: waos_package::ProgramKind::App,
             args: vec!["--flag".to_owned()],
             variables: vec![("RUST_LOG".to_owned(), "debug".to_owned())],
             length: 3 << 20,
@@ -319,6 +320,7 @@ async fn a_component_larger_than_one_frame_round_trips() {
         let component: Vec<u8> = (0..=255u8).cycle().take(MAX_FRAME_BYTES + 1).collect();
         let run = Run {
             id,
+            kind: waos_package::ProgramKind::App,
             args: Vec::new(),
             variables: Vec::new(),
             length: component.len() as u64,

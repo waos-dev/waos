@@ -19,14 +19,14 @@ use std::time::{Duration, Instant};
 
 use tempfile::TempDir;
 use waft::{AppCell, Subscription};
-use waos_package::SigningKey;
+use waos_package::{Manifest, ProgramKind, SigningKey};
 use waos_store::SourceProxy;
 
 use super::test_server::Server;
 use super::*;
 use crate::logic::environments::ProgramEnvironments;
 use crate::logic::installed_code::HeldCompiles;
-use crate::logic::opened_package::tests::write_package;
+use crate::logic::opened_package::tests::{write_package, write_package_of};
 use crate::logic::package_copies::PackageCopies;
 use crate::logic::program_places::{ProgramPlace, ProgramPlaces};
 use crate::logic::program_shortcuts::{
@@ -114,6 +114,16 @@ impl TestLibrary {
         let packages = self.folder.path().join("packages");
         std::fs::create_dir_all(&packages).unwrap();
         write_package(&packages, id, "Triangle", version, component, &self.key)
+    }
+
+    /// `component` packaged as the tool `id`, at `version`.
+    fn tool_package(&self, id: &str, version: &str, component: &[u8]) -> PathBuf {
+        let packages = self.folder.path().join("packages");
+        std::fs::create_dir_all(&packages).unwrap();
+        let manifest = Manifest::new(id.parse().unwrap(), "Grep", version.parse().unwrap())
+            .unwrap()
+            .with_kind(ProgramKind::Tool);
+        write_package_of(&packages, &manifest, component, &self.key)
     }
 
     fn update(&self, f: impl FnOnce(&mut Library, &mut Context<Library>)) {
@@ -462,10 +472,10 @@ fn an_installed_program_opens_in_waos_once_however_often_it_is_opened() {
 }
 
 #[test]
-fn a_console_program_opened_from_the_library_is_refused_and_never_runs() {
+fn a_tool_opened_from_the_library_is_refused_and_never_runs() {
     let library = TestLibrary::new();
     let forever = std::fs::read(waos_test_programs::FOREVER).unwrap();
-    library.installs_after_yes(library.package(TRIANGLE, "1.0.0", &forever));
+    library.installs_after_yes(library.tool_package(TRIANGLE, "1.0.0", &forever));
     let triangle: ProgramId = TRIANGLE.parse().unwrap();
     library.update(|library, cx| library.open(&triangle, cx));
     library.wait_until("the open's answer", |library| library.problem().is_some());

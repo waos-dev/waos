@@ -6,9 +6,9 @@
 //! Android restored, where its views go set before it starts (`program_places`). It is named by its
 //! id, which names it among the runs, so a quit asks it while it runs, in WaOS's log, where its
 //! output goes under the `program` target, and to the questions it puts to its user. A program
-//! running already is left as it is, and the screen reserved for it goes unused. A console
-//! program, one with no UI, opened by the user from an icon is refused: no opening here has a
-//! terminal for its input and output, and WaOS shows none of its own yet (decision 7 of
+//! running already is left as it is, and the screen reserved for it goes unused. A tool, a program
+//! its manifest declares has no UI, opened by the user from an icon is refused: no opening here has
+//! a terminal for its input and output, and WaOS shows none of its own yet (decisions 3 and 7 of
 //! `docs/proposals/2026-11-21-views-a-program-asks-for.md`). One started to be handed files or a
 //! click on its notification runs as any program does, which it may answer with no window.
 //!
@@ -20,14 +20,14 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result, ensure};
 use waos::{PlacedView, ReservedView, RunningProgram, WaOS};
-use waos_package::ProgramId;
+use waos_package::{ProgramId, ProgramKind};
 
 use super::environments::ProgramEnvironments;
 use super::installed_code::InstalledCode;
 use super::program_places::{ProgramPlace, ProgramPlaces};
 use super::runs::{Runs, Started};
 
-/// Why a console program does not open: there is nowhere for its input and output to go.
+/// Why a tool the user opens does not open: there is nowhere for its input and output to go.
 const NO_TERMINAL: &str = "it is a command-line program, with no window of its own, and WaOS cannot show its terminal yet";
 
 /// Why an installed program is opened.
@@ -74,8 +74,8 @@ impl InstalledRuns {
 
     /// Runs the installed program `id`, whose component is at `component`, with `reserved` kept for
     /// its first request where WaOS shows a screen for it already, and its views going to `place`,
-    /// unless it runs already, which keeps its place, for `opening`, which refuses a console
-    /// program the user opened; answers the program once it has started,
+    /// unless it runs already, which keeps its place, for `opening`, which refuses a tool the user
+    /// opened; answers the program once it has started,
     /// with what resolves with the view `reserved` becomes, or the one running, with none, or why
     /// it could not start. Its end is waited for on a task of the runtime this runs on.
     pub(crate) async fn open(
@@ -98,7 +98,8 @@ impl InstalledRuns {
                 let loading = tokio::task::spawn_blocking(move || engine.load(&component));
                 let program = loading.await.context("the load's thread")??.named(name);
                 ensure!(
-                    opening != Opening::ByTheUser || !program.is_console_program(),
+                    opening != Opening::ByTheUser
+                        || self.environments.kind_of(id) == ProgramKind::App,
                     NO_TERMINAL
                 );
                 let environment = self.environments.of(id)?;

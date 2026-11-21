@@ -166,6 +166,7 @@ mod tests {
     fn run() -> Request {
         Request::Run(Run {
             id: "dev.example.triangle".parse().unwrap(),
+            kind: waos_package::ProgramKind::App,
             args: Vec::new(),
             variables: Vec::new(),
             length: 0,
@@ -186,6 +187,7 @@ mod tests {
         let all = [
             Request::Run(Run {
                 id: id.clone(),
+                kind: waos_package::ProgramKind::App,
                 args: Vec::new(),
                 variables: Vec::new(),
                 length: 0,

@@ -23,21 +23,14 @@ Three things follow from this:
 
    A restored card fits here with nothing added. Decision 18 of `2026-11-12-phone-programs-and-library.md` restores only a program's main card, which starts the program fresh, and closes a restored card for an extra view. So a restored main card is a held screen for a fresh launch, like any other, and the platform giving WaOS that card (Waft's side, decision 19 there) stays as it is.
 
-3. **Whether a program has a UI is read from its imports: a component that imports `wasdk:platform/views` has one, and one that doesn't is a console program** (2026-11-21). The rule is read the way roles are (`crates/waos/src/roles.rs`, decision 9 of `2026-11-15-inspector-roles-and-compatibility.md`): from the component alone, the same for an installed package and a development run, with nothing the program declares. Why this signal and no other:
-   - Not `.wapk` against a bare `.wasm`. The dev loop sends GUI programs to a phone as bare components, and a packaged command-line tool wants what a package gives (an id, updates, its grants kept between runs).
-   - Not wasdk as a whole. A command-line tool may use the clipboard, notifications, file dialogs or machines without ever drawing.
-   - Not `wasi:cli`. Almost every Rust program imports stdin and stdout through `std`, GUI programs included.
-
-   wasdk is built so that a component imports only what it calls, so importing `views` means the code reaches for a view. Every framework adapter imports it, so every program built on one is a GUI program.
+3. **Whether a program is an app or a tool is declared in its manifest** (2026-11-21, replacing the same day's first decision, which read it from the component's imports). A program is anything written against wasdk that runs in WaOS. An *app* is a program with a UI; a *tool* is one without, a command-line program. A program is an app unless its `[package.metadata.waos]` says `kind = "tool"`, which `waos package` writes into the `.wapk`'s manifest and `waos run` sends with a development run, so a bare `.wasm` and a package are told apart the same way. Being an app is not being a `.wapk`: a package can be a tool, which wants an id, updates and its grants kept as an app does, and a development run sends an app as a bare component. `waos package` warns about an app whose component never imports `wasdk:platform/views`, likely a mistake, and says nothing of a tool that does, which may open a window now and then. Why declared: every system makes it the author's statement, not something read off the code (macOS's `Info.plist` and `LSUIElement`/`LSBackgroundOnly`, Android's launcher activity, iOS's launch screen, Windows' console or GUI subsystem). The lead weighed the imports, which a dependency could add by accident, making a tool an app for good; and where the program is opened from, which would give any tool on the home screen a screen. Roles stay read from the imports (decision 9 of `2026-11-15-inspector-roles-and-compatibility.md`): a role is a capability the program uses, being an app is how it presents itself.
 
 4. **Where the program is opened from decides what WaOS shows for it**:
 
    | | Opened from an icon | Run from a terminal (`cargo waos run`, `waos run`) |
    |---|---|---|
-   | Imports `views` | A held screen (decision 2) | Nothing held; any view it asks for opens normally; its input and output are the terminal's |
-   | Doesn't import `views` | A terminal of WaOS's own for its input and output (decision 5) | The terminal it runs in |
-
-   The case this rule gets wrong is a command-line tool that sometimes opens a window. Opened from an icon, it gets a held screen instead of a terminal, and its text output goes only to the log. That is accepted until a real program needs more.
+   | An app | A held screen (decision 2) | Nothing held on a desktop, any view it asks for opening normally; a held screen on a phone, which has no other place to show it (decision 10); its input and output are the terminal's |
+   | A tool | A terminal of WaOS's own for its input and output (decision 5) | The terminal it runs in |
 
 5. **The terminal is a widget in Waft, so other apps can use it, and it comes after this work** (2026-11-21). WaOS shows it for a console program opened from an icon: in a tab on a phone, in a window of its own on a desktop. Its design is shown to the lead on its own. Until it exists, decision 7 says what happens.
 
@@ -50,6 +43,12 @@ Three things follow from this:
 8. **A held screen waits for as long as its program runs** (2026-11-21), showing the launch picture, and the user closes it when they choose to, which ends the program as closing its window would. WaOS doesn't guess when a program is too slow: a program waiting on the network before its first window is as normal as one that hangs, and the user can tell them apart where WaOS can't.
 
 9. **The interface changes now, without keeping the old shape** (2026-11-21): no program outside this repository depends on it yet.
+
+10. **Every app launched on a phone gets a held screen** (2026-11-21), opened from WaOS's library in task mode too, where its task opens at once with its launch picture, and a development run sent to a phone as well. Before, only a tab, a shortcut and a restored card held one, and an app opened from the library in task mode had no screen until it asked. One card shows the app from its launch.
+
+11. **A dialog is shown over the program's own screen, or over one opened for it** (2026-11-21): over the window the program asked for, or the screen held for it before it asks, which the same screen becomes; and where a system shows a dialog only over a screen, Android's and iOS's, a program with none (a tool started for a click on its notification, say) gets a screen opened for that dialog, closed once it is answered. WaOS's own questions to the user (a permission, a machine) are dialogs too. Nothing is shown over a screen WaOS guesses, the one in front. Why: Zed picked a folder before its first window, on Android, right after answering which machine it runs on; the picker was shown over the question's screen, which was in front, and that screen closed once answered, so Android dropped the picker's answer and Zed waited for good. On a desktop a dialog with no window floats on its own, as macOS's open panel does, and nothing changes. The lead weighed refusing a dialog of a program with no screen, which would make a tool's question fail where a desktop would show it.
+
+12. **A picker whose screen goes before it answers fails, never waits for good** (2026-11-21), in Waft's Android host: Android drops a result meant for a screen that closed, so a pick started from it is answered with a failure once it goes. Decision 11 keeps a dialog's screen there while it is shown; this is what keeps a mistake from hanging a program.
 
 ## The interface
 

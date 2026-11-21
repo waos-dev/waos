@@ -36,49 +36,11 @@ impl Program {
         }
     }
 
-    /// Whether the program has no UI, a console program: its component imports no
-    /// `wasdk:platform/views`, read from the component alone, as its roles are (decision 3 of
-    /// `docs/proposals/2026-11-21-views-a-program-asks-for.md`). wasdk imports only what a program
-    /// calls, so a program that imports `views` reaches for a view, and every framework's adapter
-    /// does; `wasi:cli` tells nothing, since `std` imports it for every program.
-    pub fn is_console_program(&self) -> bool {
-        !self
-            .component
-            .component_type()
-            .imports(self.component.engine())
-            .any(|(name, _)| is_views_interface(name))
-    }
-
     pub(crate) fn component(&self) -> &Component {
         &self.component
     }
 
     pub(crate) fn file(&self) -> &ComponentFile {
         &self.file
-    }
-}
-
-/// Whether the import `name`, `wasdk:platform/views@2.0.0`, is the views interface at any version.
-fn is_views_interface(name: &str) -> bool {
-    name.split_once('@')
-        .map_or(name, |(interface, _)| interface)
-        == VIEWS
-}
-
-/// The interface a program draws through, which a program with a UI imports.
-const VIEWS: &str = "wasdk:platform/views";
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn the_views_interface_is_known_at_any_version_and_no_other_is() {
-        assert!(is_views_interface("wasdk:platform/views@2.0.0"));
-        assert!(is_views_interface("wasdk:platform/views@1.0.0"));
-        assert!(is_views_interface("wasdk:platform/views"));
-        assert!(!is_views_interface("wasdk:platform/windows@2.0.0"));
-        assert!(!is_views_interface("wasdk:platform/views-extra@2.0.0"));
-        assert!(!is_views_interface("wasi:cli/stdout@0.3.0"));
     }
 }
