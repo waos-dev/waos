@@ -202,10 +202,8 @@ pub trait VsyncWaiter: Send + Sync {
 }
 
 /// Where a program's views go: what answers a program's `request-view`. A desktop's shell makes
-/// a window for each request, and Android a task. A screen the shell showed before the program
-/// asked, such as a phone's tab, is reserved when the program starts
-/// ([`WaOS::run_reserving`](crate::WaOS::run_reserving)) and answers its first request without
-/// reaching this.
+/// a window for each request, and Android a task; a shell that showed a screen for the program
+/// before it asked, such as a phone's tab, answers its first request with that screen.
 pub trait ViewPlacement: Send + Sync {
     /// `program` asks for a view as `request` says. `Ok` promises exactly one later answer:
     /// `program.add_view` with `request.id`, or `program.view_request_failed` with it. `Err` refuses at once, and nothing follows. Called from the program's thread.

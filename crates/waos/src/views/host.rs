@@ -196,9 +196,7 @@ impl views::Host for ViewsCtx<'_> {
     }
 
     /// The request is given its id and what it attached before the shell is asked, so a view
-    /// the shell adds at once finds them; a request the shell refuses is forgotten again. The
-    /// first request takes the screen the shell reserved for the program, where it did, and
-    /// reaches no placement.
+    /// the shell adds at once finds them; a request the shell refuses is forgotten again.
     fn request_view(
         &mut self,
         config: Resource<WindowConfig>,
@@ -212,9 +210,6 @@ impl views::Host for ViewsCtx<'_> {
             .program
             .program_views()
             .new_request(initial_data, config.title.clone());
-        if self.program.program_views().take_reserved(id) {
-            return Ok(Ok(id));
-        }
         let asked = placement.view_requested(self.program, ViewRequest { id, config });
         Ok(match asked {
             Ok(()) => Ok(id),

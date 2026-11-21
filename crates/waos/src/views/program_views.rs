@@ -19,7 +19,7 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 
-use futures::channel::{mpsc, oneshot};
+use futures::channel::mpsc;
 use tokio::sync::watch;
 
 use crate::bindings::wasdk::platform::screens::ScreenId;
@@ -35,7 +35,6 @@ use crate::sync::locked;
 
 use super::modifiers::ToldModifiers;
 use super::program_view::{ProgramView, Shared, frame_of};
-use super::reserved_view::Reserved;
 use super::screen_refreshes::{Refresh, ScreenRefreshes};
 use super::view_layers::ViewLayers;
 
@@ -64,8 +63,6 @@ pub(super) struct ViewsState {
     /// What each request still unanswered attached, and its window's title, for the view that
     /// arrives for it.
     requests: Mutex<HashMap<RequestId, Requested>>,
-    /// The screen the shell showed before the program asked, until its first request takes it.
-    reserved: Mutex<Option<Reserved>>,
     /// What changes among the views, a view's going holding the program thawed until it has
     /// handled it on each stream.
     changes: Channel<MaybeThawing<ViewChange>>,
@@ -122,7 +119,6 @@ impl ProgramViews {
             next_view_id: AtomicU64::new(FIRST_ID),
             next_request_id: AtomicU64::new(FIRST_ID),
             requests: Mutex::default(),
-            reserved: Mutex::default(),
             changes: Channel::default(),
             focused: watch::Sender::new(false),
             layers,
@@ -269,28 +265,6 @@ impl ProgramViews {
             view.hand_over(frame.clone());
         }
         self.0.refreshes.frame_served(screen);
-    }
-
-    /// Keeps `placed`, a screen the shell shows already, for the program's first request, before
-    /// the program runs; answers what the shell waits on for it.
-    pub(crate) fn reserve(&self, placed: PlacedView) -> oneshot::Receiver<ProgramView> {
-        let (reserved, taken) = Reserved::new(placed);
-        *locked(&self.0.reserved) = Some(reserved);
-        taken
-    }
-
-    /// Answers `request` with the reserved screen, where one is still kept: the program has it
-    /// from now on, and the shell hears which view it became. False where none is kept, and the
-    /// request goes to the shell's placement.
-    pub(crate) fn take_reserved(&self, request: RequestId) -> bool {
-        let Some(reserved) = locked(&self.0.reserved).take() else {
-            return false;
-        };
-        let (placed, taken) = reserved.into_parts();
-        let view = self.add(request, placed);
-        // A shell that stopped waiting for the screen has nothing to show it in.
-        let _ = taken.send(view);
-        true
     }
 
     /// The shell did not take the request `request`: the program hears so from the call it
@@ -593,44 +567,6 @@ mod tests {
             "what it attached was given once"
         );
         assert!(locked(&views.0.requests).is_empty());
-    }
-
-    #[test]
-    fn the_first_request_takes_the_reserved_screen_and_the_shell_hears_the_view_it_became() {
-        let (views, _) = program();
-        let mut changes = views.changes();
-        let mut taken = views.reserve(on_screen_1(ON_SCREEN));
-        assert!(views.views().is_empty(), "a reserved screen is no view yet");
-        assert!(taken.try_recv().unwrap().is_none());
-
-        let request = views.new_request(Some("hello".into()), String::new());
-        assert!(views.take_reserved(request));
-        let view = taken.try_recv().unwrap().expect("the shell hears the view");
-        assert_eq!(view.request_id(), request);
-        assert_eq!(view.initial_data(), Some("hello"));
-        assert_eq!(views.views().len(), 1);
-        assert!(
-            matches!(changes.try_recv().unwrap(), (ViewChange::Added(heard), _) if heard.id() == view.id())
-        );
-    }
-
-    #[test]
-    fn a_reserved_screen_answers_one_request_only() {
-        let (views, _) = program();
-        let _taken = views.reserve(on_screen_1(ON_SCREEN));
-        assert!(views.take_reserved(views.new_request(None, String::new())));
-        assert!(
-            !views.take_reserved(views.new_request(None, String::new())),
-            "a later request goes to the shell's placement"
-        );
-        assert_eq!(views.views().len(), 1);
-    }
-
-    #[test]
-    fn with_no_screen_reserved_a_request_goes_to_the_placement() {
-        let (views, _) = program();
-        assert!(!views.take_reserved(views.new_request(None, String::new())));
-        assert!(views.views().is_empty());
     }
 
     #[test]

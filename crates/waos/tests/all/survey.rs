@@ -207,10 +207,10 @@ fn closes_its_window_when_asked_and_ends_once_the_shell_takes_the_view_away() {
     let _survey = shell::turns::take("survey");
     let output = output();
     let mark = output.mark();
-    let (engine, shell, _arrivals) = shell::engine();
+    let (engine, shell, arrivals) = shell::engine();
     let survey = shell::load(&engine, waos_test_programs::SURVEY);
     let (running, view) =
-        shell::run_on_reserved(&engine, &shell, &survey, ProgramEnvironment::default());
+        shell::run_shown(&engine, &arrivals, &survey, ProgramEnvironment::default());
     let view = &view;
     assert_eq!(
         view.request_id(),
@@ -233,10 +233,10 @@ fn answers_a_request_to_end() {
     let _survey = shell::turns::take("survey");
     let output = output();
     let mark = output.mark();
-    let (engine, shell, _arrivals) = shell::engine();
+    let (engine, _shell, arrivals) = shell::engine();
     let survey = shell::load(&engine, waos_test_programs::SURVEY);
     let (running, _view) =
-        shell::run_on_reserved(&engine, &shell, &survey, ProgramEnvironment::default());
+        shell::run_shown(&engine, &arrivals, &survey, ProgramEnvironment::default());
     output.wait_for(mark, "survey", |line| line.starts_with("view 1: 1600x1000"));
 
     // A request before the program listens is answered exit by nobody: asked again until the

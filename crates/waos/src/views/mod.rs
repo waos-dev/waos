@@ -12,9 +12,8 @@
 //! hardware buffers are `LayerPresents`; the picture a view shows, with the layers beneath it,
 //! kept for a tool that looks at the program's window and takes its screenshot, is `ShownPicture`;
 //! a view's text input, with the engine's copy of what is edited, which a tool types into, is
-//! `ViewTextInput`; a tool's watch of a program, which keeps its views in sight though
-//! covered, is [`Watching`]; and a screen the shell showed before the program asked, kept for its
-//! first request, is what the shell waits on as a [`ReservedView`]. The interface is served to a program by [`host`].
+//! `ViewTextInput`; and a tool's watch of a program, which keeps its views in sight though
+//! covered, is [`Watching`]. The interface is served to a program by [`host`].
 
 mod event_queue;
 mod frames_in_flight;
@@ -24,7 +23,6 @@ mod layer_presents;
 mod modifiers;
 mod program_view;
 mod program_views;
-mod reserved_view;
 mod screen_refreshes;
 mod shown_picture;
 mod view_layers;
@@ -38,6 +36,5 @@ pub use modifiers::HeldModifiers;
 pub use program_view::ProgramView;
 pub use program_views::Watching;
 pub(crate) use program_views::{ProgramViews, ViewChange};
-pub use reserved_view::ReservedView;
 pub(crate) use screen_refreshes::{Refresh, ScreenRefreshes};
 pub(crate) use view_layers::{PlacedShellLayer, ViewLayers};

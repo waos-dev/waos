@@ -238,7 +238,7 @@ fn a_program_is_thawed_while_it_plays_frozen_while_its_tone_waits_and_trapped_st
     let policy = FreezePolicy {
         after_hidden: Some(AFTER_HIDDEN),
     };
-    let (engine, shell, _arrivals) = shell::engine_on(&time, policy);
+    let (engine, _shell, arrivals) = shell::engine_on(&time, policy);
     let program = shell::load(&engine, waos_test_programs::TONE);
     let lines = Arc::new(Lines::default());
     let environment = ProgramEnvironment {
@@ -246,7 +246,7 @@ fn a_program_is_thawed_while_it_plays_frozen_while_its_tone_waits_and_trapped_st
         audio: Some(Arc::new(TestDevices::default()) as Arc<dyn AudioDevices>),
         ..ProgramEnvironment::default()
     };
-    let (running, view) = shell::run_on_reserved(&engine, &shell, &program, environment);
+    let (running, view) = shell::run_shown(&engine, &arrivals, &program, environment);
     let view = &view;
     lines.wait_for("playing");
 

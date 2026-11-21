@@ -17,7 +17,7 @@
 //! would print alike, so a test takes the turn of each program it runs (`shell::turns`).
 
 use std::sync::Arc;
-use std::sync::mpsc;
+use std::sync::mpsc::{self, Receiver};
 use std::time::Duration;
 
 use waos::bindings::wasdk::platform::lifecycle::AppExitResponse;
@@ -56,8 +56,8 @@ const FOCUSED: Presence = Presence {
 fn a_program_hidden_past_the_delay_stops_counting_and_goes_on_from_the_same_count_when_shown() {
     let _forever = shell::turns::take("forever-shown");
     let output = output();
-    let (engine, shell, _arrivals, time) = engine();
-    let (running, view) = run_forever_shown(&engine, &shell);
+    let (engine, _shell, arrivals, time) = engine();
+    let (running, view) = run_forever_shown(&engine, &arrivals);
     let start = output.mark();
     first_report(output, start);
 
@@ -91,8 +91,8 @@ fn a_program_hidden_past_the_delay_stops_counting_and_goes_on_from_the_same_coun
 fn a_program_shown_again_before_the_delay_is_over_is_not_frozen() {
     let _forever = shell::turns::take("forever-shown");
     let output = output();
-    let (engine, shell, _arrivals, time) = engine();
-    let (running, view) = run_forever_shown(&engine, &shell);
+    let (engine, _shell, arrivals, time) = engine();
+    let (running, view) = run_forever_shown(&engine, &arrivals);
     first_report(output, output.mark());
 
     view.presence_changed(OFF_SCREEN);
@@ -108,8 +108,8 @@ fn a_program_shown_again_before_the_delay_is_over_is_not_frozen() {
 fn a_watched_program_covered_past_the_delay_counts_on_and_freezes_once_minimized() {
     let _forever = shell::turns::take("forever-shown");
     let output = output();
-    let (engine, shell, _arrivals, time) = engine();
-    let (running, view) = run_forever_shown(&engine, &shell);
+    let (engine, _shell, arrivals, time) = engine();
+    let (running, view) = run_forever_shown(&engine, &arrivals);
     first_report(output, output.mark());
 
     let watching = running.watch();
@@ -129,8 +129,8 @@ fn a_watched_program_covered_past_the_delay_counts_on_and_freezes_once_minimized
 fn a_covered_program_freezes_once_its_watch_ends() {
     let _forever = shell::turns::take("forever-shown");
     let output = output();
-    let (engine, shell, _arrivals, time) = engine();
-    let (running, view) = run_forever_shown(&engine, &shell);
+    let (engine, _shell, arrivals, time) = engine();
+    let (running, view) = run_forever_shown(&engine, &arrivals);
     first_report(output, output.mark());
 
     let watching = running.watch();
@@ -150,11 +150,11 @@ fn the_app_suspending_resolves_once_every_program_has_stopped_and_resuming_lets_
     let _forever = shell::turns::take("forever-shown");
     let _survey = shell::turns::take("survey");
     let output = output();
-    let (engine, shell, _arrivals, time) = engine();
-    let (forever, _) = run_forever_shown(&engine, &shell);
+    let (engine, _shell, arrivals, time) = engine();
+    let (forever, _) = run_forever_shown(&engine, &arrivals);
     let survey = shell::load(&engine, waos_test_programs::SURVEY);
     let (survey, _view) =
-        shell::run_on_reserved(&engine, &shell, &survey, ProgramEnvironment::default());
+        shell::run_shown(&engine, &arrivals, &survey, ProgramEnvironment::default());
     let mark = output.mark();
     first_report(output, mark);
     output.wait_for(mark, "survey", |line| line.starts_with("view 1: 1600x1000"));
@@ -199,9 +199,9 @@ fn the_app_suspending_resolves_once_every_program_has_stopped_and_resuming_lets_
 fn a_program_started_while_the_app_is_suspended_starts_frozen() {
     let _forever = shell::turns::take("forever-shown");
     let output = output();
-    let (engine, shell, _arrivals, time) = engine();
+    let (engine, _shell, arrivals, time) = engine();
     resolved(engine.app_suspending());
-    let (running, _view) = run_forever_shown(&engine, &shell);
+    let (running, _view) = run_forever_shown(&engine, &arrivals);
     // Frozen before its code runs, it runs until its first tick, which comes once it counts.
     first_report(output, output.mark());
     time.elapse(TICK);
@@ -220,10 +220,10 @@ fn a_program_started_while_the_app_is_suspended_starts_frozen() {
 fn a_program_asked_to_exit_while_frozen_answers_and_is_frozen_again_once_it_has() {
     let _survey = shell::turns::take("survey");
     let output = output();
-    let (engine, shell, _arrivals, time) = engine();
+    let (engine, _shell, arrivals, time) = engine();
     let survey = shell::load(&engine, waos_test_programs::SURVEY);
     let (running, view) =
-        shell::run_on_reserved(&engine, &shell, &survey, ProgramEnvironment::default());
+        shell::run_shown(&engine, &arrivals, &survey, ProgramEnvironment::default());
     let view = &view;
     let mark = output.mark();
     output.wait_for(mark, "survey", |line| line.starts_with("view 1: 1600x1000"));
@@ -269,8 +269,8 @@ fn a_program_asked_to_exit_while_frozen_answers_and_is_frozen_again_once_it_has(
 fn a_frozen_program_whose_last_view_is_taken_away_hears_it_and_ends() {
     let _survey = shell::turns::take("survey");
     let output = output();
-    let (engine, shell, _arrivals, _time) = engine();
-    let (running, view) = run_survey_shown(&engine, &shell, output);
+    let (engine, _shell, arrivals, _time) = engine();
+    let (running, view) = run_survey_shown(&engine, &arrivals, output);
     resolved(engine.app_suspending());
     wait_until_stopped_at_freeze(&running);
 
@@ -291,8 +291,8 @@ fn a_frozen_program_whose_last_view_is_taken_away_hears_it_and_ends() {
 fn a_frozen_program_asked_to_close_its_view_hears_it_and_is_frozen_again_once_it_has() {
     let _survey = shell::turns::take("survey");
     let output = output();
-    let (engine, shell, _arrivals, _time) = engine();
-    let (running, view) = run_survey_shown(&engine, &shell, output);
+    let (engine, _shell, arrivals, _time) = engine();
+    let (running, view) = run_survey_shown(&engine, &arrivals, output);
     resolved(engine.app_suspending());
     wait_until_stopped_at_freeze(&running);
 
@@ -309,8 +309,8 @@ fn a_frozen_program_asked_to_close_its_view_hears_it_and_is_frozen_again_once_it
 fn stop_ends_a_frozen_program() {
     let _forever = shell::turns::take("forever-shown");
     let output = output();
-    let (engine, shell, _arrivals, time) = engine();
-    let (running, view) = run_forever_shown(&engine, &shell);
+    let (engine, _shell, arrivals, time) = engine();
+    let (running, view) = run_forever_shown(&engine, &arrivals);
     first_report(output, output.mark());
     view.presence_changed(OFF_SCREEN);
     time.elapse(AFTER_HIDDEN);
@@ -340,21 +340,26 @@ fn engine() -> (
     (engine, shell, arrivals, time)
 }
 
-/// Forever-shown, running with one view the shell reserved for it, on screen and focused.
-fn run_forever_shown(engine: &WaOS, shell: &TestShell) -> (RunningProgram, ProgramView) {
+/// Forever-shown, running with the one view it asks for, which `arrivals` hears, on screen and
+/// focused.
+fn run_forever_shown(
+    engine: &WaOS,
+    arrivals: &Receiver<ProgramView>,
+) -> (RunningProgram, ProgramView) {
     let forever = shell::load(engine, waos_test_programs::FOREVER_SHOWN);
-    shell::run_on_reserved(engine, shell, &forever, ProgramEnvironment::default())
+    shell::run_shown(engine, arrivals, &forever, ProgramEnvironment::default())
 }
 
-/// Survey, running with one view the shell reserved for it, once it has described the view.
+/// Survey, running with the one view it asks for, which `arrivals` hears, once it has described
+/// the view.
 fn run_survey_shown(
     engine: &WaOS,
-    shell: &TestShell,
+    arrivals: &Receiver<ProgramView>,
     output: &Output,
 ) -> (RunningProgram, ProgramView) {
     let survey = shell::load(engine, waos_test_programs::SURVEY);
     let mark = output.mark();
-    let shown = shell::run_on_reserved(engine, shell, &survey, ProgramEnvironment::default());
+    let shown = shell::run_shown(engine, arrivals, &survey, ProgramEnvironment::default());
     output.wait_for(mark, "survey", |line| line.starts_with("view 1: 1600x1000"));
     shown
 }

@@ -335,17 +335,11 @@ impl ProgramApps {
             .store
             .program(id)
             .ok_or_else(|| format!("{id} is not installed, and does not run"))?;
-        let (program, _views) = runs
-            .open(
-                id,
-                component,
-                None,
-                ProgramPlace::Windows,
-                Opening::ByTheUser,
-            )
+        let opened = runs
+            .open(id, component, ProgramPlace::Windows, Opening::ByTheUser)
             .await
             .map_err(|error| format!("{error:#}"))?;
-        Ok(program)
+        Ok(opened.program().clone())
     }
 
     /// `program`'s app is connected: its window process serves the program, and is handed to what

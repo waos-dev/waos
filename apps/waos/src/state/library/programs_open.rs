@@ -138,15 +138,14 @@ impl Library {
                 runs.open(
                     &opening,
                     component,
-                    None,
                     ProgramPlace::Windows,
                     Opening::ByTheUser,
                 )
                 .await
             },
             move |library, started, cx| match started {
-                Ok((program, _)) => windows.update(cx, |windows, cx| {
-                    windows.prepared_started(program, cx);
+                Ok(opened) => windows.update(cx, |windows, cx| {
+                    windows.prepared_started(opened.program().clone(), cx);
                 }),
                 Err(error) => {
                     windows.update(cx, |windows, _| windows.prepared_unused(&name));

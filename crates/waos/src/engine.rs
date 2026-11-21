@@ -38,11 +38,11 @@ use crate::program::Program;
 use crate::running::{HeldProgram, Hold, ProgramStart, Programs, RunningProgram};
 use crate::screens::{Screen, Screens};
 use crate::screenshots::Screenshots;
-use crate::shell::{PlacedView, Shell, ShellClipboardItem};
+use crate::shell::{Shell, ShellClipboardItem};
 use crate::source_lines::ComponentFile;
 use crate::system::SystemSettings;
 use crate::temporary_folders::TemporaryFolders;
-use crate::views::{Refresh, ReservedView, ScreenRefreshes};
+use crate::views::{Refresh, ScreenRefreshes};
 
 /// How hardware buffers are backed on Linux. Ignored on other platforms.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -289,22 +289,7 @@ impl WaOS {
         program: &Program,
         environment: ProgramEnvironment,
     ) -> Result<RunningProgram> {
-        let (running, _) = self.start(program, environment, None, None)?;
-        Ok(running)
-    }
-
-    /// Starts `program` as [`WaOS::run`] does, with `reserved`, a screen the shell shows already,
-    /// such as a phone's tab the user opened it into, kept for its first `request-view`; answers
-    /// the handle on it and what resolves with the view the screen becomes, or with none once the
-    /// program ends without asking. Every later request goes to the shell's placement.
-    pub fn run_reserving(
-        &self,
-        program: &Program,
-        environment: ProgramEnvironment,
-        reserved: PlacedView,
-    ) -> Result<(RunningProgram, ReservedView)> {
-        let (running, reserved) = self.start(program, environment, Some(reserved), None)?;
-        Ok((running, reserved.expect("a screen reserved is waited on")))
+        self.start(program, environment, None)
     }
 
     /// Starts `program` as [`WaOS::run`] does, but held before its first instruction until the
@@ -316,7 +301,7 @@ impl WaOS {
         environment: ProgramEnvironment,
     ) -> Result<(RunningProgram, HeldProgram)> {
         let (held, hold) = crate::running::hold();
-        let (running, _) = self.start(program, environment, None, Some(hold))?;
+        let running = self.start(program, environment, Some(hold))?;
         Ok((running, held))
     }
 
@@ -324,9 +309,8 @@ impl WaOS {
         &self,
         program: &Program,
         environment: ProgramEnvironment,
-        reserved: Option<PlacedView>,
         hold: Option<Hold>,
-    ) -> Result<(RunningProgram, Option<ReservedView>)> {
+    ) -> Result<RunningProgram> {
         ensure!(
             Engine::same(&self.engine, program.component().engine()),
             "{} was loaded by another engine",
@@ -373,7 +357,7 @@ impl WaOS {
             view_layers: Arc::default(),
             hold,
         };
-        RunningProgram::start(start, reserved, temporary)
+        RunningProgram::start(start, temporary)
     }
 
     /// The platform sent the whole app to the background (iOS's `didEnterBackground`, Android's
@@ -490,7 +474,8 @@ mod tests {
     use crate::lifecycle::Presence;
     use crate::running::ProgramEnd;
     use crate::shell::{
-        HardwareBuffer, ShellCompositionLayer, ShellView, ViewPlacement, ViewRequest, VsyncWaiter,
+        HardwareBuffer, PlacedView, ShellCompositionLayer, ShellView, ViewPlacement, ViewRequest,
+        VsyncWaiter,
     };
 
     /// How long a program may take to draw its first frames.
@@ -562,13 +547,17 @@ mod tests {
         }
     }
 
-    impl ViewPlacement for Refreshing {
+    /// Where the views go on `Refreshing`: each request answered at once with a view of its own.
+    struct PlacedOn(Arc<Refreshing>);
+
+    impl ViewPlacement for PlacedOn {
         fn view_requested(
             &self,
-            _program: &RunningProgram,
-            _request: ViewRequest,
+            program: &RunningProgram,
+            request: ViewRequest,
         ) -> Result<(), ViewError> {
-            Err(ViewError::Unsupported)
+            program.add_view(request.id, placed_view(&self.0));
+            Ok(())
         }
     }
 
@@ -594,7 +583,7 @@ mod tests {
             time_zone: None,
         };
         let shell_parts = Shell {
-            views: Arc::clone(shell) as Arc<dyn ViewPlacement>,
+            views: Arc::new(PlacedOn(Arc::clone(shell))) as Arc<dyn ViewPlacement>,
             vsync: Arc::clone(shell) as Arc<dyn VsyncWaiter>,
             compositor: None,
             prompts: Arc::new(crate::shell::NoPrompts),
@@ -726,8 +715,8 @@ mod tests {
         let [first, second] = runs.map(|(run, checked)| {
             let before = GpuHoldings::read(&engine, &metal);
             let presented = shell.presents.load(Ordering::SeqCst);
-            let (running, _reserved) = engine
-                .run_reserving(&triangle, ProgramEnvironment::default(), placed_view(&shell))
+            let running = engine
+                .run(&triangle, ProgramEnvironment::default())
                 .expect("triangle runs");
             shell.wait_for_presents(presented + 10);
             let drawing = GpuHoldings::read(&engine, &metal);

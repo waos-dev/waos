@@ -245,20 +245,18 @@ pub fn load(engine: &WaOS, component: &str) -> Program {
         .unwrap_or_else(|error| panic!("loading {component}: {error:#}"))
 }
 
-/// Runs `program` with `environment` on a screen `shell` shows before it asks, as a phone's tab
-/// does, and answers it once its first request has taken the screen, with the view the screen
-/// became.
-pub fn run_on_reserved(
+/// Runs `program` with `environment`, and answers it once the view it asks for first has arrived,
+/// as `arrivals`, the test shell's, hears it.
+pub fn run_shown(
     engine: &WaOS,
-    shell: &TestShell,
+    arrivals: &Receiver<ProgramView>,
     program: &Program,
     environment: ProgramEnvironment,
 ) -> (RunningProgram, ProgramView) {
-    let (running, reserved) = engine
-        .run_reserving(program, environment, shell.placed_view())
-        .unwrap();
-    let view = futures::executor::block_on(reserved)
-        .unwrap_or_else(|| panic!("{} ended without asking for a view", program.name()));
+    let running = engine.run(program, environment).unwrap();
+    let view = arrivals
+        .recv_timeout(Duration::from_secs(60))
+        .unwrap_or_else(|_| panic!("{} asks for a view", program.name()));
     (running, view)
 }
 
@@ -385,6 +383,8 @@ pub struct TestShell {
     requests: Mutex<Vec<WindowConfig>>,
     /// Every view it placed, and every window.
     views: Mutex<Vec<Arc<RecordingView>>>,
+    /// What is done to the next view it places, before the program has it.
+    next_view: Mutex<Option<Box<dyn FnOnce(&RecordingView) + Send>>>,
     windows: Mutex<Vec<Arc<RecordingWindow>>>,
     /// Each question a program put to its user, which waits for the test's answer.
     questions: Mutex<Vec<PutQuestion>>,
@@ -452,6 +452,7 @@ impl TestShell {
             arrivals,
             requests: Mutex::default(),
             views: Mutex::default(),
+            next_view: Mutex::default(),
             windows: Mutex::default(),
             questions: Mutex::default(),
             link_schemes_asked: Mutex::default(),
@@ -697,9 +698,17 @@ impl TestShell {
         self.windows.lock().unwrap().clone()
     }
 
+    /// Does `prepare` to the next view the shell places, before the program has it.
+    pub fn prepare_next_view(&self, prepare: impl FnOnce(&RecordingView) + Send + 'static) {
+        *self.next_view.lock().unwrap() = Some(Box::new(prepare));
+    }
+
     /// A view as the shell places it: focused, on the one screen, in a window.
     pub fn placed_view(&self) -> PlacedView {
         let view = Arc::new(RecordingView::default());
+        if let Some(prepare) = self.next_view.lock().unwrap().take() {
+            prepare(&view);
+        }
         self.views.lock().unwrap().push(Arc::clone(&view));
         let window = Arc::new(RecordingWindow::default());
         self.windows.lock().unwrap().push(Arc::clone(&window));

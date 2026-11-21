@@ -442,15 +442,9 @@ impl Library {
         let (runs, id) = (self.runs.clone(), id.clone());
         self.work_then(
             async move {
-                runs.open(
-                    &id,
-                    component,
-                    None,
-                    ProgramPlace::Windows,
-                    Opening::ByTheUser,
-                )
-                .await
-                .map(drop)
+                runs.open(&id, component, ProgramPlace::Windows, Opening::ByTheUser)
+                    .await
+                    .map(drop)
             },
             Library::program_opened,
             cx,
@@ -458,8 +452,7 @@ impl Library {
     }
 
     /// Opens the program `id`, whose component is at `component`, in a tab of `tabs`, whose screen
-    /// is reserved for its first request and shows it once it asks; where it has a tab already,
-    /// that tab comes into sight.
+    /// its first request takes; where it has a tab already, that tab comes into sight.
     fn open_in_tab(
         &mut self,
         tabs: Entity<Tabs>,
@@ -467,30 +460,24 @@ impl Library {
         component: PathBuf,
         cx: &mut Context<Library>,
     ) {
-        let (tab_view, view) = match tabs.update(cx, |tabs, cx| tabs.open(id, cx)) {
-            Ok(Some(starting)) => starting,
-            Ok(None) => return,
+        match tabs.update(cx, |tabs, cx| tabs.open(id, cx)) {
+            Ok(true) => {}
+            Ok(false) => return,
             Err(why) => return self.failed(format!("{id} could not be opened: {why}"), cx),
-        };
+        }
         let (runs, id) = (self.runs.clone(), id.clone());
         let opening = id.clone();
         self.work_then(
             async move {
-                runs.open(
-                    &opening,
-                    component,
-                    Some(view),
-                    ProgramPlace::Tab,
-                    Opening::ByTheUser,
-                )
-                .await
+                runs.open(&opening, component, ProgramPlace::Tab, Opening::ByTheUser)
+                    .await
             },
             move |library, opened, cx| {
                 let (started, opened) = match opened {
                     Ok(started) => (Some(started), Ok(())),
                     Err(error) => (None, Err(error)),
                 };
-                tabs.update(cx, |tabs, cx| tabs.started(&id, tab_view, started, cx));
+                tabs.update(cx, |tabs, cx| tabs.started(&id, started, cx));
                 library.program_opened(opened, cx);
             },
             cx,

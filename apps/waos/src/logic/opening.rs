@@ -63,16 +63,10 @@ pub(crate) async fn program_named(
 ) -> Result<Option<RunningProgram>> {
     match store.program(id) {
         Some(component) => {
-            let (program, _views) = installed
-                .open(
-                    id,
-                    component,
-                    None,
-                    installed.places.usual(),
-                    Opening::ToHandOver,
-                )
+            let opened = installed
+                .open(id, component, installed.places.usual(), Opening::ToHandOver)
                 .await?;
-            Ok(Some(program))
+            Ok(Some(opened.program().clone()))
         }
         None => Ok(installed.runs.running(id).await),
     }

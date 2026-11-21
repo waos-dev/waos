@@ -38,13 +38,12 @@ use waft::{
     WidgetsBindingObserver,
 };
 use waos::bindings::wasdk::platform::views::ViewError;
-use waos::{
-    PlacedView, Presence, ProgramEnd, ProgramView, ReservedView, RunningProgram, ViewRequest,
-};
+use waos::{PlacedView, Presence, ProgramEnd, ProgramView, RunningProgram, ViewRequest};
 use waos_package::ProgramId;
 use waos_program_window::ShownView;
 
 use super::tab_view::TabView;
+use crate::logic::installed_runs::OpenedRun;
 use crate::logic::program_places::TabRequest;
 use crate::logic::runs::Runs;
 use crate::logic::tab_list::{TabId, TabKind, TabList};
@@ -60,6 +59,9 @@ pub(crate) struct Tabs {
     focused: bool,
     /// The view each running tab shows, which closing the tab takes away from its program.
     views: HashMap<TabId, ProgramView>,
+    /// The screen of each tab whose program has not asked for its first view yet, which that
+    /// request takes.
+    screens: HashMap<TabId, (TabView, PlacedView)>,
     /// The programs running, which a tab closed stops.
     runs: Arc<Runs>,
 }
@@ -111,6 +113,7 @@ impl Tabs {
             view: None,
             focused: true,
             views: HashMap::new(),
+            screens: HashMap::new(),
             runs,
         });
         let reports = Rc::new(DeckViewReports {
@@ -121,18 +124,26 @@ impl Tabs {
         tabs
     }
 
-    /// `program` asked for another view: a tab of its own beside its others, which the deck
-    /// heads to; the request fails where the program has no tab, or the deck can show none.
+    /// `program` asked for a view: its first takes the screen of the tab it was opened in, and each
+    /// later one is a tab of its own beside its others, which the deck heads to; the request fails
+    /// where the program has no tab, or the deck can show none.
     fn view_requested(
         &mut self,
         program: RunningProgram,
         request: ViewRequest,
         cx: &mut Context<Tabs>,
     ) {
-        let opened = program
-            .name()
-            .parse::<ProgramId>()
-            .ok()
+        let id = program.name().parse::<ProgramId>().ok();
+        let waiting = id.as_ref().and_then(|id| self.list.tab_of(id));
+        if let Some(tab) = waiting
+            && let Some((tab_view, placed)) = self.screens.remove(&tab)
+        {
+            let view = program.add_view(request.id, placed);
+            tracing::info!(program = program.name(), ?tab, "its first view, in its tab");
+            self.show(tab, tab_view, program, view, cx);
+            return;
+        }
+        let opened = id
             .and_then(|id| self.list.open_another_view(&id))
             .ok_or("the program has no tab to open another beside")
             .and_then(|tab| match self.tab_view(tab, cx) {
@@ -203,18 +214,14 @@ impl Tabs {
         &self.list
     }
 
-    /// Opens the program `id` in a tab, which the deck heads to, and answers the tab's screen, with
-    /// the view as the engine is handed it, to reserve for the program's first request; none where
-    /// `id` has a tab already, which the deck heads to. Why not, where the deck has no view yet or the
-    /// system no compositor to make the tab's canvas on.
-    pub(crate) fn open(
-        &mut self,
-        id: &ProgramId,
-        cx: &mut Context<Tabs>,
-    ) -> Result<Option<(TabView, PlacedView)>, String> {
+    /// Opens the program `id` in a tab, which the deck heads to, its screen waiting for the
+    /// program's first request; answers whether it opened one, not where `id` has a tab already,
+    /// which the deck heads to. Why not, where the deck has no view yet or the system no compositor
+    /// to make the tab's canvas on.
+    pub(crate) fn open(&mut self, id: &ProgramId, cx: &mut Context<Tabs>) -> Result<bool, String> {
         if let Some(tab) = self.list.tab_of(id) {
             self.show_page(tab, cx);
-            return Ok(None);
+            return Ok(false);
         }
         let tab = self.list.open_program(id).tab();
         let starting = match self.tab_view(tab, cx) {
@@ -225,8 +232,9 @@ impl Tabs {
             }
         };
         self.stages.insert(tab, TabStage::Starting);
+        self.screens.insert(tab, starting);
         self.changed(cx);
-        Ok(Some(starting))
+        Ok(true)
     }
 
     /// The screen of `tab`, measured as a page of the deck's view, with the view as the engine is
@@ -249,56 +257,40 @@ impl Tabs {
         Ok(TabView::make(&*compositor, &metrics, self.presence(tab)))
     }
 
-    /// What starting the program of `id`'s tab came to: the program, with what resolves once its
-    /// first request takes `tab_view`, or none where it could not start, and the tab is the home's
-    /// again, or goes where a home is open. A program whose tab was closed meanwhile is stopped.
-    /// A program that ran already started with nothing of this tab's reserved: a tab still
-    /// starting is treated as one that could not start, and a tab that shows the program, opened
-    /// again while an earlier opening of it was still starting, is left showing it.
+    /// What starting the program of `id`'s tab came to: the program, or none where it could not
+    /// start, and the tab is the home's again, or goes where a home is open. A program whose tab
+    /// was closed meanwhile is stopped; one whose first request took its tab already shows there;
+    /// otherwise its tab waits for that request, and says how it ended where it ends without one.
+    /// A program that ran already is not this tab's: a tab still starting is treated as one that
+    /// could not start.
     pub(crate) fn started(
         &mut self,
         id: &ProgramId,
-        tab_view: TabView,
-        started: Option<(RunningProgram, Option<ReservedView>)>,
+        started: Option<OpenedRun>,
         cx: &mut Context<Tabs>,
     ) {
         let starting = self.starting(id);
-        let Some((program, reserved)) = started else {
-            self.did_not_start(starting, cx);
-            return;
-        };
-        let Some(reserved) = reserved else {
-            if starting.is_some() {
-                tracing::warn!(%id, "it was running already, without its tab's view: the tab goes");
+        let program = match started {
+            Some(OpenedRun::Started(program)) => program,
+            Some(OpenedRun::RunningAlready(_)) | None => {
+                if starting.is_some() {
+                    tracing::info!(%id, "it did not start in its tab: the tab goes");
+                }
                 self.did_not_start(starting, cx);
+                return;
             }
-            return;
         };
-        let Some(tab) = starting else {
+        let Some(tab) = self.list.tab_of(id) else {
             tracing::info!(%id, "its tab was closed as it started: stopped");
             program.stop();
             return;
         };
-        tracing::info!(%id, "the program runs, its tab waiting for its first request");
-        self.stages.insert(tab, TabStage::Waiting);
-        show_once_taken(cx, tab, tab_view, program, reserved);
-        cx.notify();
-    }
-
-    /// The first request of `program`, in `tab`, took the tab's screen as `view`: the tab shows
-    /// it from now on, unless the tab was closed meanwhile, which stopped the program.
-    fn taken(
-        &mut self,
-        tab: TabId,
-        tab_view: TabView,
-        program: RunningProgram,
-        view: ProgramView,
-        cx: &mut Context<Tabs>,
-    ) {
-        if !matches!(self.stages.get(&tab), Some(TabStage::Waiting)) {
-            return;
+        if starting == Some(tab) {
+            tracing::info!(%id, "the program runs, its tab waiting for its first request");
+            self.stages.insert(tab, TabStage::Waiting);
+            end_while_waiting(cx, tab, &program);
+            cx.notify();
         }
-        self.show(tab, tab_view, program, view, cx);
     }
 
     /// `tab` shows `view` of `program` on `tab_view`, its screen, from now on.
@@ -388,6 +380,7 @@ impl Tabs {
         };
         let stage = self.stages.remove(&tab);
         let view = self.views.remove(&tab);
+        self.screens.remove(&tab);
         if let Some(TabStage::Running(shown)) = &stage {
             shown.read(cx).gone();
         }
@@ -432,6 +425,7 @@ impl Tabs {
             return;
         };
         self.stages.remove(&tab);
+        self.screens.remove(&tab);
         self.list.program_did_not_start(tab);
         self.changed(cx);
     }
@@ -546,32 +540,19 @@ fn answer_requests(
     });
 }
 
-/// Shows `program` in `tab` once its first request takes `tab_view`, the tab's screen, as
-/// `reserved` resolves; marks the tab ended where the program ends without asking.
-fn show_once_taken(
-    cx: &mut Context<Tabs>,
-    tab: TabId,
-    tab_view: TabView,
-    program: RunningProgram,
-    reserved: ReservedView,
-) {
+/// Marks `tab` ended, with no picture, once `program` ends on its own while the tab waits for its
+/// first request.
+fn end_while_waiting(cx: &mut Context<Tabs>, tab: TabId, program: &RunningProgram) {
+    let ended = program.ended();
     let tabs = cx.weak_entity();
     cx.spawn(async move |cx| {
-        let Some(view) = reserved.await else {
-            let end = program.ended().await;
-            cx.update(|app| {
-                if let Some(tabs) = tabs.upgrade() {
-                    tabs.update(app, |tabs, cx| {
-                        tabs.ended_without_a_view(tab, end);
-                        cx.notify();
-                    });
-                }
-            });
-            return;
-        };
+        let end = ended.await;
         cx.update(|app| {
             if let Some(tabs) = tabs.upgrade() {
-                tabs.update(app, |tabs, cx| tabs.taken(tab, tab_view, program, view, cx));
+                tabs.update(app, |tabs, cx| {
+                    tabs.ended_without_a_view(tab, end);
+                    cx.notify();
+                });
             }
         });
     });

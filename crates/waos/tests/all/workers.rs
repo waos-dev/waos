@@ -131,16 +131,16 @@ fn a_program_stopped_with_a_worker_running_is_told_stopped_once_the_worker_has_e
 #[test]
 fn a_frozen_programs_worker_stops_counting_until_the_thaw() {
     let time = ManualTime::new();
-    let (engine, shell, _arrivals) = shell::engine_on(
+    let (engine, _shell, arrivals) = shell::engine_on(
         &time,
         FreezePolicy {
             after_hidden: Some(AFTER_HIDDEN),
         },
     );
     let lines = Arc::new(Lines::default());
-    let (running, view) = shell::run_on_reserved(
+    let (running, view) = shell::run_shown(
         &engine,
-        &shell,
+        &arrivals,
         &shell::load(&engine, waos_test_programs::WORKERS),
         environment(&lines),
     );
