@@ -1,21 +1,36 @@
-//! The docs fetched over HTTP: a version's archive from its GitHub release, and waos.app's latest
-//! docs where there is none.
+//! The docs fetched over HTTP: a version's archive from where its release's files are, and
+//! waos.app's latest docs where there is none.
 
 use anyhow::{Context, Result};
 
 use super::page::SITE;
 
-/// Where each release's files are, by its tag, `v<version>`.
-const RELEASES: &str = "https://github.com/waos-dev/waos/releases/download";
+/// Where each release's files are, by its tag, `v<version>`, in the order they are asked: the copy
+/// on download.waos.app, which `mirror-release.yml` makes and which is quick everywhere, then
+/// GitHub's own, which can be slow in places.
+const RELEASES: [&str; 2] = [
+    "https://download.waos.app",
+    "https://github.com/waos-dev/waos/releases/download",
+];
 
-/// Where `version`'s archive is.
-pub fn archive_url(version: &str) -> String {
-    format!("{RELEASES}/v{version}/waos-docs-{version}.tar.gz")
+/// Where `version`'s archive is, in the order to ask.
+pub fn archive_urls(version: &str) -> Vec<String> {
+    RELEASES
+        .iter()
+        .map(|releases| format!("{releases}/v{version}/waos-docs-{version}.tar.gz"))
+        .collect()
 }
 
-/// `version`'s archive, as its release carries it.
+/// `version`'s archive, as its release carries it: from the first place that has it.
 pub async fn archive(version: &str) -> Result<Vec<u8>> {
-    fetched(&archive_url(version)).await
+    let mut failures = Vec::new();
+    for url in archive_urls(version) {
+        match fetched(&url).await {
+            Ok(bytes) => return Ok(bytes),
+            Err(failure) => failures.push(format!("{failure:#}")),
+        }
+    }
+    anyhow::bail!("{}", failures.join("; "))
 }
 
 /// waos.app's docs, every page, and its playbook.

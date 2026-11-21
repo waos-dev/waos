@@ -1,5 +1,6 @@
 //! The docs `cargo waos docs` and `cargo waos docs skill install` serve: those of the version the app
-//! builds with, from the archive its GitHub release carries (`waos-docs-<version>.tar.gz`, which
+//! builds with, from the archive its release carries (`waos-docs-<version>.tar.gz`, from
+//! download.waos.app or else GitHub, which
 //! the site's `write-docs-bundle.mjs` makes at the release's tag), downloaded once into the user's
 //! cache and read from there offline afterwards; or, where none could be downloaded, waos.app's
 //! latest, said to be so.
