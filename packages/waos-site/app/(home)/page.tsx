@@ -60,12 +60,16 @@ function Hero() {
         Available for{' '}
         <a href={downloadPath('macos')} className="font-medium text-fd-foreground underline underline-offset-4">
           macOS (Apple Silicon)
+        </a>
+        ,{' '}
+        <a href={downloadPath('windows')} className="font-medium text-fd-foreground underline underline-offset-4">
+          Windows
         </a>{' '}
         and{' '}
         <a href={downloadPath('android')} className="font-medium text-fd-foreground underline underline-offset-4">
           Android
         </a>
-        . Other platforms coming soon.
+        , and for Linux through <code>install.sh</code>.
       </p>
     </section>
   );
