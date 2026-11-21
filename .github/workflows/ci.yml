@@ -18,72 +18,7 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  wit-versions:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - name: Every WIT package changed since the last release has a new version
-        run: cargo xtask check-wit-versions
-      # Formatting builds nothing, so it runs with the other quick check.
-      - name: Formatting
-        run: cargo fmt --all -- --check
-
-  # macOS runs every test of the workspace, in three jobs: the engine and the command (whose tests
-  # start programs), the app (whose deck tests start programs of their own), and everything else.
-  # Between them they are `cargo test --workspace`; a package added to the workspace lands in
-  # `test-the-rest`.
-  test-engine:
-    runs-on: macos-15
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - uses: ./.github/actions/prepare
-      - name: Tests of the engine and the command
-        run: cargo test --no-fail-fast -p waos -p waos-cli
-      - name: The test programs, for later runs
-        if: github.ref == 'refs/heads/main'
-        uses: actions/cache/save@v4
-        with:
-          path: target/test-programs
-          key: test-programs-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', 'builtin-apps/**', 'examples/**', 'sdk/**', 'wit/**', 'crates/waos/tests/programs/**') }}
-
-  test-app:
-    runs-on: macos-15
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - uses: ./.github/actions/prepare
-      - name: Tests of the app
-        run: cargo test --no-fail-fast -p waos-app
-
-  test-the-rest:
-    runs-on: macos-15
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - uses: ./.github/actions/prepare
-      # The examples are programs, built for wasm32-wasip3 by the test programs' build and linted
-      # on Linux and Windows; they have no tests, so linking them for macOS here buys nothing.
-      - name: Tests of the rest of the workspace
-        run: |
-          examples=$(cargo metadata --no-deps --format-version 1 \
-            | jq -r '.packages[] | select(.manifest_path | contains("/examples/")) | "--exclude " + .name')
-          cargo test --workspace --exclude waos --exclude waos-cli --exclude waos-app $examples --no-fail-fast
-
-  # Windows and Linux run the engine, the command and the SDK today; the app's shell still waits
-  # for the decisions of docs/proposals/2026-11-13-windows-and-linux.md (dmabufs, ConPTY,
-  # DirectComposition), so only the crates that name the system in their `[package.metadata.waos]
-  # systems` are tested, and of those only the ones whose code depends on the system
-  # (`.github/platform-test-packages.sh`): macOS runs the others' tests, which no system can change.
-  # The workspace still lints whole on each, in a job of its own beside the tests, to catch what is
-  # apparent before the real machines arrive; clippy compiles every crate for the system, so it is
-  # `cargo check` and more, and there is no check of its own.
-  clippy-linux:
+  debug-segv:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -91,62 +26,20 @@ jobs:
           fetch-depth: 0
       - uses: ./.github/actions/linux-packages
       - uses: ./.github/actions/prepare
-      - name: Clippy
-        run: cargo clippy --workspace --all-targets
-
-  test-linux:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - uses: ./.github/actions/linux-packages
-      - uses: ./.github/actions/prepare
-      - name: Tests of what runs on Linux today and depends on the system
+      - run: sudo apt-get install -y gdb
+      - name: Crash under gdb
         run: |
-          # An answer of none must stop the step, which `cargo test $(...)` would not: it would
-          # test the workspace's default members.
-          packages=$(.github/platform-test-packages.sh linux)
-          cargo test --no-fail-fast $packages
-      # One run with every filter: libtest takes several, and one build of the app serves them.
-      - name: Headless Linux app tests (virtual shell, dev protocol, and CLI routing)
-        run: |
-          cargo test --no-fail-fast -p waos-app --lib -- \
-            headless_entry logic::dev_screenshot logic::dev_resize logic::dev_input logic::command_line
-      - name: The test programs, for later runs
-        if: github.ref == 'refs/heads/main'
-        uses: actions/cache/save@v4
-        with:
-          path: target/test-programs
-          key: test-programs-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', 'builtin-apps/**', 'examples/**', 'sdk/**', 'wit/**', 'crates/waos/tests/programs/**') }}
-
-  clippy-windows:
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - uses: ./.github/actions/prepare
-      - name: Clippy
-        run: cargo clippy --workspace --all-targets
-
-  test-windows:
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - uses: ./.github/actions/prepare
-      - name: Tests of what runs on Windows today and depends on the system
-        shell: bash
-        run: |
-          # An answer of none must stop the step, which `cargo test $(...)` would not: it would
-          # test the workspace's default members.
-          packages=$(.github/platform-test-packages.sh windows)
-          cargo test --no-fail-fast $packages
-      - name: The test programs, for later runs
-        if: github.ref == 'refs/heads/main'
-        uses: actions/cache/save@v4
-        with:
-          path: target/test-programs
-          key: test-programs-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', 'builtin-apps/**', 'examples/**', 'sdk/**', 'wit/**', 'crates/waos/tests/programs/**') }}
+          bin=$(cargo test -p waos --lib --no-run 2>&1 | sed -n 's/.*Executable unittests src\/lib.rs (\(.*\))/\1/p')
+          echo "binary: $bin"
+          for i in $(seq 1 15); do
+            echo "== whole lib, run $i"
+            gdb -q -batch -ex run -ex "thread apply all bt 25" --args "$bin" -q 2>&1 | grep -E "SIGSEGV|^Thread|^#|test result" | head -150
+          done
+          for i in $(seq 1 10); do
+            echo "== screenshots one thread, run $i"
+            "$bin" -q screenshots --test-threads=1 2>&1 | tail -2
+          done
+          for i in $(seq 1 10); do
+            echo "== screenshots parallel, run $i"
+            "$bin" -q screenshots 2>&1 | tail -2
+          done
