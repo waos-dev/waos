@@ -25,6 +25,7 @@ cargo xtask sync-wit                               # copy wit/ into the crates t
 - **Show the interface before writing it.** Every interface, and every capability's details, is shown to the lead as WIT and Rust types with its mental model, and settled, before code is written. `docs/proposals/2026-10-17-waos-v1-interface.md` holds rough designs only.
 - **One job per type, and per shell trait.** A type that needs "and" to describe, or a wrapper that only forwards, means the shape is off.
 - **Raise what does not fit.** A design that turns out unnatural on some platform, or that needs layers of indirection where the thing should pass through, is raised to the lead with options, never built quietly.
+- **Doubt a decision that doesn't make sense.** A recorded decision is the lead's reasoning on its date, not a law. When following one leads somewhere awkward (a workaround, a layer that only forwards, a bug it causes), check whether its reasons still hold for this case, and bring the doubt to the lead with what you found. Don't build around it, and don't quietly override it.
 - **Every crate's README says what it takes, what it provides, and who uses it.** A change to either updates it.
 - **`unsafe` only where an unsafe API is wrapped**: an `os/` module over a system's API, an implementation of a trait whose owner declares its methods `unsafe`, or a window handle made for a type of ours (`wasdk-wgpu`'s `SharedView`), as winit makes its own. A crate that needs it denies rather than forbids it, and its lint comment says where.
 
