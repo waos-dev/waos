@@ -5,7 +5,7 @@
 # - macOS: signed with the publisher's Developer ID, notarized and stapled, as a disk image; built ad
 #   hoc, as the job says, until the Apple secrets below are set. iOS is built for the simulator on
 #   the same machine, after the image, as a check that it still builds.
-# - Linux: the unified `waos` binary for x86_64, packaged as `WaOS-<version>-linux-x86_64.tar.gz`.
+# - Linux: the unified `waos` binary for x86_64, built against glibc 2.35, packaged as `WaOS-<version>-linux-x86_64.tar.gz`.
 # - Windows: an x64 NSIS installer, `WaOS-<version>-windows-x64-setup.exe`, installing for the user
 #   alone, which waos.app's install.ps1 runs silently; unsigned for now.
 # - Android: an `.apk` for 64-bit ARM, on Linux, signed with the release key in the secrets below,
@@ -139,8 +139,11 @@ jobs:
           cp "$apk" "$named"
           gh release upload "$TAG" "$named" --clobber
 
+  # Built on the oldest Ubuntu GitHub runs, whose glibc (2.35) is the newest the binary may ask
+  # for: a binary built on a newer one asks for that one's, and stops at its start on Debian 12,
+  # Ubuntu 22.04 and 24.04 and most clouds' images.
   linux:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     permissions:
       contents: write
     steps:
@@ -159,6 +162,11 @@ jobs:
         run: |
           cargo build --release -p waos-app --bin waos
           tar -C target/release -czf "$RUNNER_TEMP/WaOS-${TAG#v}-linux-x86_64.tar.gz" waos
+      - name: The binary asks for no glibc newer than 2.35
+        run: |
+          newest=$(objdump -T target/release/waos | grep -oE 'GLIBC_[0-9]+\.[0-9]+' | sed 's/GLIBC_//' | sort -V | tail -1)
+          echo "newest glibc asked for: $newest"
+          test "$(printf '%s\n' "$newest" 2.35 | sort -V | tail -1)" = 2.35
       - name: Attached to the release
         env:
           GH_TOKEN: ${{ github.token }}
