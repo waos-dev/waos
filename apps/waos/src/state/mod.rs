@@ -422,6 +422,7 @@ pub(crate) fn start(
     // Once the library opens programs in the deck's tabs, where a shortcut's tap may open one.
     keep_program_shortcuts(app, &library);
     let program_windows = program_windows(&view_windows, &prompt_windows);
+    let prompt_windows_for_dialogs = Rc::clone(&prompt_windows);
     let windows = every_window(
         Some(library_window),
         program_windows,
@@ -433,7 +434,10 @@ pub(crate) fn start(
     install_icon_font(app);
     install_cupertino_icon_font(app);
     if let Some(file_dialogs) = file_dialogs {
-        file_dialogs.serve(app, view_windows.clone());
+        // A phone shows a dialog only over a screen; a desktop's floats where its program has none.
+        let screens_of_their_own = cfg!(any(target_os = "android", target_os = "ios"))
+            .then(|| Rc::clone(&prompt_windows_for_dialogs));
+        file_dialogs.serve(app, view_windows.clone(), screens_of_their_own);
     }
     if let Some(opener) = opener {
         opener.serve(app);

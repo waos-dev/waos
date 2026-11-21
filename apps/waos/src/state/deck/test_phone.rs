@@ -56,13 +56,14 @@ use crate::logic::placement::WindowsOnRequest;
 use crate::logic::preferences::PreferencesFile;
 use crate::logic::program_faces::ProgramFaces;
 use crate::logic::program_places::{PlacedWhereOpened, ProgramPlace, ProgramPlaces, TabsOnRequest};
+use crate::logic::prompts::PromptsOnRequest;
 use crate::logic::recording_indicator::RecordingIndicatorOnRequest;
 use crate::logic::runs::Runs;
 use crate::logic::test_engine::{self, NoWindows};
 use crate::state::ViewWindows;
 use crate::state::library::test_desktop::label_of;
 use crate::state::library::{Library, ProgramsOpen, open_library};
-use crate::state::questions;
+use crate::state::questions::{self, Questions};
 use crate::state::recordings::Recordings;
 use crate::state::{bring_opened_programs_forward, phone_deck};
 use crate::ui::every_window::{every_window, program_windows};
@@ -214,7 +215,11 @@ pub(crate) struct TestPhone {
     compositor: MockCompositor,
     pub(crate) library: Entity<Library>,
     pub(crate) tabs: Entity<Tabs>,
+    /// The programs' windows, on a phone of tasks.
+    pub(crate) view_windows: Entity<ViewWindows>,
     pub(crate) runs: Arc<Runs>,
+    /// Where the programs' questions to their user are put.
+    pub(crate) prompts: Arc<PromptsOnRequest>,
     pub(crate) folder: TempDir,
     pub(crate) key: SigningKey,
     /// The time of the frame drawn last.
@@ -263,9 +268,12 @@ impl TestPhone {
             tabs: tabs_on_request,
             windows,
         };
+        let (prompts, prompted) = PromptsOnRequest::new(crate::logic::asking_now::AskingNow::new());
+        let prompts = Arc::new(prompts);
         let installed_runs = InstalledRuns::new(
-            Arc::new(test_engine::engine(
+            Arc::new(test_engine::engine_asking(
                 Arc::new(placement),
+                Arc::clone(&prompts) as Arc<dyn waos::Prompts>,
                 &folder.path().join("code"),
             )),
             ProgramEnvironments::new(waos_local::LocalCapabilities::new(), store.clone()),
@@ -296,6 +304,12 @@ impl TestPhone {
                 view_windows.clone(),
                 ProgramFaces::new(served.clone(), None),
             );
+            Questions::listen(
+                app,
+                prompted.questions,
+                prompt_windows.clone(),
+                served.clone(),
+            );
             let recordings = Recordings::listen(app, recording_changes, served.clone());
             let library = open_library(
                 app,
@@ -322,9 +336,9 @@ impl TestPhone {
             );
             install_icon_font(app);
             install_cupertino_icon_font(app);
-            *kept.borrow_mut() = Some((library, tabs));
+            *kept.borrow_mut() = Some((library, tabs, view_windows));
         });
-        let (library, tabs) = started.borrow_mut().take().expect("the app started");
+        let (library, tabs, view_windows) = started.borrow_mut().take().expect("the app started");
         let mut phone = TestPhone {
             shell,
             platform,
@@ -334,7 +348,9 @@ impl TestPhone {
             compositor,
             library,
             tabs,
+            view_windows,
             runs,
+            prompts,
             folder,
             key: SigningKey::generate(),
             elapsed: Duration::ZERO,

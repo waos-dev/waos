@@ -11,9 +11,9 @@
 //! The invariant: what the user chose is kept in WaOS's preferences before it holds
 //! (`logic::preferences`), so a WaOS started again opens programs as the user last saw it do.
 
-use waft::ui::ViewRef;
+use waft::ui::{ViewId, ViewRef};
 use waft::{Context, Entity};
-use waos::{ProgramView, RunningProgram};
+use waos::{ReservedView, RunningProgram};
 use waos_package::ProgramId;
 use waos_program_window::placed_view;
 
@@ -113,33 +113,23 @@ impl Library {
         let windows = windows.clone();
         self.work_then(
             async move {
-                let (program, reserved) = runs
-                    .open(
-                        &opening,
-                        component,
-                        Some(placed),
-                        ProgramPlace::Windows,
-                        Opening::ByTheUser,
-                    )
-                    .await?;
-                let taken = match reserved {
-                    Some(reserved) => Taken::Waited(reserved.await),
-                    None => Taken::RunningAlready,
-                };
-                anyhow::Ok((program, taken))
+                runs.open(
+                    &opening,
+                    component,
+                    Some(placed),
+                    ProgramPlace::Windows,
+                    Opening::ByTheUser,
+                )
+                .await
             },
             move |library, started, cx| match started {
-                Ok((program, Taken::Waited(Some(view)))) => windows.update(cx, |windows, cx| {
-                    windows.given_taken(view_id, program, view, cx);
-                }),
-                Ok((program, Taken::Waited(None))) => {
-                    tracing::info!(
-                        program = program.name(),
-                        "it ended without asking for a window"
-                    );
-                    windows.update(cx, |windows, _| windows.given_not_taken(view_id));
+                Ok((program, Some(reserved))) => {
+                    windows.update(cx, |windows, cx| {
+                        windows.given_started(view_id, program.clone(), cx);
+                    });
+                    library.show_once_taken(program, reserved, view_id, windows, cx);
                 }
-                Ok((program, Taken::RunningAlready)) => windows.update(cx, |windows, _| {
+                Ok((program, None)) => windows.update(cx, |windows, _| {
                     windows.given_not_taken(view_id);
                     windows.bring_forward(|running: &RunningProgram| *running == program);
                 }),
@@ -151,13 +141,33 @@ impl Library {
             cx,
         );
     }
-}
 
-/// What came of the window a restored program's run had reserved for it.
-enum Taken {
-    /// The program started: the view its first request took the window as, or none where it
-    /// ended without asking.
-    Waited(Option<ProgramView>),
-    /// The program was running already, so nothing was reserved.
-    RunningAlready,
+    /// Once the first request of `program` takes the window `view` of `windows`, reserved for it
+    /// as `reserved` says, the window shows the program; where it ends without asking, the window
+    /// closes.
+    fn show_once_taken(
+        &self,
+        program: RunningProgram,
+        reserved: ReservedView,
+        view: ViewId,
+        windows: Entity<ViewWindows>,
+        cx: &mut Context<Library>,
+    ) {
+        self.work_then(
+            reserved,
+            move |_library, taken, cx| match taken {
+                Some(program_view) => windows.update(cx, |windows, cx| {
+                    windows.given_taken(view, program, program_view, cx);
+                }),
+                None => {
+                    tracing::info!(
+                        program = program.name(),
+                        "it ended without asking for a window"
+                    );
+                    windows.update(cx, |windows, _| windows.given_not_taken(view));
+                }
+            },
+            cx,
+        );
+    }
 }

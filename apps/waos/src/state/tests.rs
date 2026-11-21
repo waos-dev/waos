@@ -169,7 +169,7 @@ impl Desktop {
                 every_window(None, program_windows, prompt_windows, None),
             );
             menus.serve(app, windows.clone());
-            file_dialogs.serve(app, windows.clone());
+            file_dialogs.serve(app, windows.clone(), None);
             *kept.borrow_mut() = Some(windows);
         });
         let view_windows = view_windows.borrow_mut().take().expect("the app started");

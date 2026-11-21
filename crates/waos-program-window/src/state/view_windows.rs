@@ -71,7 +71,7 @@ pub struct ViewWindows<P: ProgramLink> {
     /// The windows Waft is making, in the order they were asked for.
     awaiting: Vec<AwaitingWindow<P>>,
     /// The windows the platform gave, each waiting for the program starting with it.
-    given: Vec<GivenWindow>,
+    given: Vec<GivenWindow<P>>,
     /// Each window shown, in the order they arrived.
     shown: Vec<ShownWindow<P>>,
     /// The activation token of a launch that asked for a program with no window, by the name it
@@ -80,9 +80,13 @@ pub struct ViewWindows<P: ProgramLink> {
 }
 
 /// A window the platform gave, opened for a program about to start with it.
-struct GivenWindow {
+struct GivenWindow<P> {
     view: ViewRef,
     window: WindowRef,
+    /// The program's name and icon, which the window shows until the program's view does.
+    face: ProgramFace,
+    /// The program it is reserved for, once that has started.
+    program: Option<P>,
     canvas: Arc<CanvasLayer>,
     /// Where the program's calls on the view arrive, waiting until the program runs.
     calls: UnboundedReceiver<ViewCall>,
@@ -158,6 +162,42 @@ impl<P: ProgramLink> ViewWindows<P> {
     /// Whether `program` has a window shown.
     pub fn has_windows(&self, program: &P) -> bool {
         self.shown.iter().any(|window| window.program == *program)
+    }
+
+    /// Whether `program` has a screen of its own: a window shown for it, or one reserved for its
+    /// first request.
+    pub fn has_a_screen(&self, program: &P) -> bool {
+        self.has_windows(program) || self.given_for(program).is_some()
+    }
+
+    /// The Waft view of `program`'s screen a dialog is shown over: its front window, its focused
+    /// one or else the one that arrived last, or else the window reserved for its first request;
+    /// none where it has neither (decision 11 of
+    /// `docs/proposals/2026-11-21-views-a-program-asks-for.md`).
+    pub fn screen_of(&self, program: &P) -> Option<ViewId> {
+        let windows = self
+            .shown
+            .iter()
+            .filter(|window| window.program == *program);
+        front_of(windows)
+            .map(|window| window.waft_view.id())
+            .or_else(|| self.given_for(program).map(|given| given.view.id()))
+    }
+
+    /// The window the platform gave that is reserved for `program`'s first request.
+    fn given_for(&self, program: &P) -> Option<&GivenWindow<P>> {
+        self.given
+            .iter()
+            .find(|given| given.program.as_ref() == Some(program))
+    }
+
+    /// The face and, once started, the program of the window the platform gave as `view`, while
+    /// it waits for the program's first request.
+    pub(crate) fn given_in(&self, view: ViewId) -> Option<(&ProgramFace, Option<&P>)> {
+        self.given
+            .iter()
+            .find(|given| given.view.id() == view)
+            .map(|given| (&given.face, given.program.as_ref()))
     }
 
     /// The window shown that has the focus, or else the one that arrived last; none while none is
@@ -238,12 +278,24 @@ impl<P: ProgramLink> ViewWindows<P> {
         self.given.push(GivenWindow {
             view,
             window,
+            face: face.clone(),
+            program: None,
             canvas,
             calls: arriving,
             standing,
             metrics,
         });
         Ok(opened)
+    }
+
+    /// The program `program` started with the window the platform gave as `view` reserved for its
+    /// first request: the window shows its questions and parents its dialogs until the request
+    /// takes it (decision 11 of `docs/proposals/2026-11-21-views-a-program-asks-for.md`).
+    pub fn given_started(&mut self, view: ViewId, program: P, cx: &mut Context<ViewWindows<P>>) {
+        if let Some(given) = self.given.iter_mut().find(|given| given.view.id() == view) {
+            given.program = Some(program);
+            cx.notify();
+        }
     }
 
     /// The first request of `program` took the window the platform gave as `view`, which it has

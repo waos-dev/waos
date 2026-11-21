@@ -1,20 +1,25 @@
 //! The programs' file dialogs on the main thread, over Waft's: each shown as a sheet on the
-//! window of the program's view it names, and answered with the paths the user chose, which the
-//! engine mounts. The dialogs are the engine's shell's only where Waft's platform has them.
+//! window of the program's view it names, or, where it names none, over the program's own screen,
+//! its front window or the window reserved for its first request (decision 11 of
+//! `docs/proposals/2026-11-21-views-a-program-asks-for.md`), never over a screen Waft would pick;
+//! and answered with the paths the user chose, which the engine mounts. The dialogs are the
+//! engine's shell's only where Waft's platform has them.
 //!
 //! The invariant: every dialog arriving is answered, with the paths chosen or with why none were,
 //! so no program waits for an answer that cannot come.
 
 use std::path::PathBuf;
+use std::rc::Rc;
 use std::sync::Arc;
 
 use futures::StreamExt;
 use futures::channel::mpsc::UnboundedReceiver;
+use futures::channel::oneshot;
 use waft::ui::{Platform, ViewId};
-use waft::{App, Entity};
+use waft::{App, Center, Directionality, Entity, IntoWidget, Text, TextDirection};
 use waos::ShellFileDialogs;
 use waos::bindings::wasdk::platform::file_dialogs::DialogError;
-use waos_program_window::{picked_file_paths, picked_folder_path};
+use waos_program_window::{PromptWindows, ShownPrompt, picked_file_paths, picked_folder_path};
 
 use crate::logic::file_dialog_calls::{Dialog, DialogCall, FileDialogsOnRequest};
 use crate::state::ViewWindows;
@@ -40,19 +45,36 @@ impl FileDialogs {
     }
 
     /// From now on, each dialog a program asks for is shown through Waft's, on the window of
-    /// the program's view in `view_windows` it names.
-    pub(crate) fn serve(self, app: &mut App, view_windows: Entity<ViewWindows>) {
+    /// the program's view in `view_windows` it names, or over the program's own screen; and, where
+    /// `screens_of_their_own` places prompts in windows of their own, a phone's, over a screen
+    /// opened for the dialog where the program has none, closed once the dialog is answered.
+    pub(crate) fn serve(
+        self,
+        app: &mut App,
+        view_windows: Entity<ViewWindows>,
+        screens_of_their_own: Option<Rc<PromptWindows>>,
+    ) {
         let mut arriving = self.arriving;
         app.spawn(async move |cx| {
             while let Some(call) = arriving.next().await {
                 let parent = call.parent_of();
+                let program = call.program.clone();
                 let DialogCall {
                     dialog, mut chosen, ..
                 } = call;
                 if chosen.is_canceled() {
                     continue;
                 }
-                let shown = cx.update(|app| show(app, &view_windows, parent, dialog));
+                let over = cx.update(|app| parent_view(app, &view_windows, &program, parent));
+                let (over, screen_of_its_own) = match (over, &screens_of_their_own) {
+                    (None, Some(prompt_windows)) => {
+                        let (shown, arrived) =
+                            cx.update(|app| screen_of_its_own(app, prompt_windows, &program));
+                        (arrived.await.ok(), Some(shown))
+                    }
+                    (over, _) => (over, None),
+                };
+                let shown = cx.update(|app| show(app, over, dialog));
                 cx.update(|app| {
                     app.spawn(async move |_cx| {
                         let mut shown = std::pin::pin!(shown);
@@ -63,6 +85,8 @@ impl FileDialogs {
                                 futures::future::Either::Left((picked, _)) => Some(picked),
                                 futures::future::Either::Right(((), _)) => None,
                             };
+                        // The screen opened for the dialog closes once it is answered.
+                        drop(screen_of_its_own);
                         if let Some(picked) = outcome {
                             // A program that ended meanwhile hears nothing.
                             let _ = chosen.send(picked);
@@ -81,22 +105,43 @@ impl DialogCall {
     }
 }
 
-/// Shows `dialog` through Waft's, on the window of the program's view `parent`, and answers the
-/// paths chosen.
-fn show(
-    app: &mut App,
+/// The Waft view a dialog of `program` is shown over: the window of its view `parent` names, or
+/// else its own screen; none where it has neither.
+fn parent_view(
+    app: &App,
     view_windows: &Entity<ViewWindows>,
+    program: &waos::RunningProgram,
     parent: Option<(waos::RunningProgram, u64)>,
-    dialog: Dialog,
-) -> impl Future<Output = Result<Vec<PathBuf>, DialogError>> + use<> {
-    let parent: Option<ViewId> = parent.and_then(|(program, view)| {
-        let (waft_view, _ratio) = view_windows
-            .read(app)
-            .waft_view_of(app, |shown, shown_view| {
-                *shown == program && shown_view.id() == view
-            })?;
+) -> Option<ViewId> {
+    let windows = view_windows.read(app);
+    let named = parent.and_then(|(program, view)| {
+        let (waft_view, _ratio) = windows.waft_view_of(app, |shown, shown_view| {
+            *shown == program && shown_view.id() == view
+        })?;
         Some(waft_view)
     });
+    named.or_else(|| windows.screen_of(program))
+}
+
+/// A screen opened for a dialog of `program`, which has none of its own: a window of its own
+/// saying whose dialog it is, and what resolves with its view once it arrives.
+fn screen_of_its_own(
+    app: &mut App,
+    prompt_windows: &PromptWindows,
+    program: &waos::RunningProgram,
+) -> (ShownPrompt, oneshot::Receiver<ViewId>) {
+    let name = Center::new().child(Text::new(program.name().to_owned()));
+    // A window of its own has no app's reading direction; a name reads the same either way.
+    let words = Directionality::new(TextDirection::Ltr, name).into_widget();
+    prompt_windows.show_on_a_screen_of_its_own(app, program, words, Rc::new(|_app| {}))
+}
+
+/// Shows `dialog` through Waft's, over the view `parent`, and answers the paths chosen.
+fn show(
+    app: &mut App,
+    parent: Option<ViewId>,
+    dialog: Dialog,
+) -> impl Future<Output = Result<Vec<PathBuf>, DialogError>> + use<> {
     let platform = app.platform();
     let shown = platform.file_dialogs().map(|dialogs| match dialog {
         Dialog::OpenFile(options) => picked_file_paths(dialogs.open_file(parent, options)),
@@ -208,7 +253,7 @@ mod tests {
             let dialogs = FileDialogs::of(&*app.platform()).expect("waft file dialogs");
             let windows = ViewWindows::listen(app, requests);
             *kept.borrow_mut() = Some(dialogs.shell());
-            dialogs.serve(app, windows);
+            dialogs.serve(app, windows, None);
         });
         let dialogs_shell = served.borrow_mut().take().unwrap();
         let future = dialogs_shell.open_file(&running, None, OpenOptions::default());

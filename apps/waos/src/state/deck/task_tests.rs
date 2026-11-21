@@ -12,6 +12,7 @@ use std::time::Duration;
 
 use waft::Offset;
 use waft::ui::{HostWindow, View, ViewFocusState};
+use waos::{Prompts, Question};
 use waos_program_window::{RestorableWindow, WindowRole};
 
 use super::test_phone::{BACK, PhoneKind, SURVEY, TRIANGLE, TestPhone};
@@ -73,6 +74,33 @@ fn a_program_opened_gets_its_window_with_its_name_its_icon_and_what_names_it() {
     assert_eq!(views.len(), 1);
     assert_eq!(views[0].request_id(), 1, "its first request took it");
     assert_eq!(phone.tab_kinds(), ["home"], "no tab of its own");
+}
+
+#[test]
+fn a_question_of_an_app_before_its_first_window_is_put_over_the_window_held_for_it() {
+    let mut phone = TestPhone::of(PhoneKind::Tasks);
+    phone.install(waos_test_programs::FOREVER, FOREVER, "Forever");
+    phone.start_opening(FOREVER);
+    phone.settle_until("it runs, with its window", |phone| {
+        phone.runs(FOREVER) && phone.windows_of(FOREVER).len() == 1
+    });
+    let id = FOREVER.parse().unwrap();
+    let program = futures::executor::block_on(phone.runs.running(&id)).expect("it runs");
+    let _answer = phone.prompts.ask(&program, Question::Camera);
+    phone.settle_until("the question is put", |phone| {
+        phone.shows("Allow Forever to use the camera?")
+    });
+    assert_eq!(
+        phone.windows.made().len(),
+        1,
+        "no window of the question's own: it is over the app's"
+    );
+    let held = phone.windows_of(FOREVER)[0].test_view().id();
+    let screen = phone
+        .view_windows
+        .read(&phone.shell.app())
+        .screen_of(&program);
+    assert_eq!(screen, Some(held), "its dialogs are shown over it too");
 }
 
 #[test]
