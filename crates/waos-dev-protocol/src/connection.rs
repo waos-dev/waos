@@ -227,7 +227,7 @@ mod tests {
     }
 
     fn hello() -> Hello {
-        Hello::cargo_waos("cargo-waos 0.3.0")
+        Hello::command("waos 0.3.0")
     }
 
     #[tokio::test]

@@ -335,7 +335,7 @@ pub(crate) fn start(
     ))]
     let dev_compiles: Option<Arc<DevCompiles>> = None;
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
-    listen_for_cargo_waos(
+    listen_for_the_command(
         app,
         installed_runs.clone(),
         &store,
@@ -455,7 +455,7 @@ pub(crate) fn start(
 /// engine's days once they agree. Not on
 /// a phone: `waos` reaches none yet, and the system ends an app there without asking it.
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
-fn listen_for_cargo_waos(
+fn listen_for_the_command(
     app: &mut App,
     installed: InstalledRuns,
     store: &Store,

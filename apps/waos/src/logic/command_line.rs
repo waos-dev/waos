@@ -272,7 +272,7 @@ mod tests {
 
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     #[test]
-    fn classify_launch_routes_cli_headless_cargo_waos_and_gui_correctly() {
+    fn classify_launch_routes_cli_headless_and_gui_correctly() {
         // GUI & open preserved
         assert_eq!(
             launch_of(&["waos"]),

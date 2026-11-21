@@ -524,10 +524,7 @@ pub(crate) mod tests {
         /// A client connected, its hello and WaOS's exchanged.
         async fn client(&self) -> Connection<ClientStream> {
             let mut client = Connection::connect(&self.socket).await.unwrap();
-            client
-                .hello(&Hello::cargo_waos("cargo-waos test"))
-                .await
-                .unwrap();
+            client.hello(&Hello::command("waos test")).await.unwrap();
             client
         }
 
@@ -598,7 +595,7 @@ pub(crate) mod tests {
                 context,
             ));
             let mut client = Connection::over(client, Locality::Network);
-            let ours = Hello::cargo_waos("cargo-waos 0.3.0");
+            let ours = Hello::command("waos 0.3.0");
             let theirs = client.hello(&ours).await.unwrap();
             assert_eq!(theirs.major, waos_dev_protocol::MAJOR);
             client
@@ -1022,7 +1019,7 @@ pub(crate) mod tests {
     }
 
     #[tokio::test]
-    async fn cargo_waos_set_answers_a_waiting_question_and_drops_its_prompt() {
+    async fn settings_set_answers_a_waiting_question_and_drops_its_prompt() {
         use futures::StreamExt;
 
         const PERMISSIONS: &str = "dev.waos.examples.permissions";
@@ -1191,7 +1188,7 @@ pub(crate) mod tests {
     async fn a_client_of_another_protocol_major_is_refused() {
         let server = TestServer::start("protocol");
         let mut client = Connection::connect(&server.socket).await.unwrap();
-        let mut newer = Hello::cargo_waos("cargo-waos 0.4.0");
+        let mut newer = Hello::command("waos 0.4.0");
         newer.major = waos_dev_protocol::MAJOR + 1;
         let theirs = client.hello(&newer).await.unwrap();
         assert_eq!(theirs.major, waos_dev_protocol::MAJOR);
@@ -1484,10 +1481,7 @@ pub(crate) mod tests {
         };
 
         let mut client = Connection::connect(&server.socket).await.unwrap();
-        client
-            .hello(&Hello::cargo_waos("cargo-waos 0.9.0"))
-            .await
-            .unwrap();
+        client.hello(&Hello::command("waos 0.9.0")).await.unwrap();
         client
             .send(&FutureOuter::NewCommand { x: 1 })
             .await
@@ -1501,10 +1495,7 @@ pub(crate) mod tests {
             detail: "v9".to_owned(),
         };
         let mut client = Connection::connect(&server.socket).await.unwrap();
-        client
-            .hello(&Hello::cargo_waos("cargo-waos 0.9.0"))
-            .await
-            .unwrap();
+        client.hello(&Hello::command("waos 0.9.0")).await.unwrap();
         client
             .send(&FutureRequestInner::Input {
                 id: id.clone(),
@@ -1521,10 +1512,7 @@ pub(crate) mod tests {
         assert_unsupported(refusal);
 
         let mut client = Connection::connect(&server.socket).await.unwrap();
-        client
-            .hello(&Hello::cargo_waos("cargo-waos 0.9.0"))
-            .await
-            .unwrap();
+        client.hello(&Hello::command("waos 0.9.0")).await.unwrap();
         client
             .send(&FutureRequestInner::Set {
                 id: id.clone(),
@@ -1540,10 +1528,7 @@ pub(crate) mod tests {
         assert_unsupported(refusal);
 
         let mut client = Connection::connect(&server.socket).await.unwrap();
-        client
-            .hello(&Hello::cargo_waos("cargo-waos 0.9.0"))
-            .await
-            .unwrap();
+        client.hello(&Hello::command("waos 0.9.0")).await.unwrap();
         client
             .send(&FutureRequestInner::Inspect {
                 id: id.clone(),
@@ -1559,10 +1544,7 @@ pub(crate) mod tests {
         assert_unsupported(refusal);
 
         let mut client = Connection::connect(&server.socket).await.unwrap();
-        client
-            .hello(&Hello::cargo_waos("cargo-waos 0.9.0"))
-            .await
-            .unwrap();
+        client.hello(&Hello::command("waos 0.9.0")).await.unwrap();
         client
             .send(&FutureRequestInner::InspectTrace {
                 id,
@@ -1611,10 +1593,7 @@ pub(crate) mod tests {
         fs::write(&blocker, b"not a directory").unwrap();
 
         let mut client = Connection::connect(&server.socket).await.unwrap();
-        client
-            .hello(&Hello::cargo_waos("cargo-waos 0.3.0"))
-            .await
-            .unwrap();
+        client.hello(&Hello::command("waos 0.3.0")).await.unwrap();
         client
             .send(&Request::Run(Run {
                 id: broken.parse().unwrap(),

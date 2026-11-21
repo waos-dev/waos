@@ -267,7 +267,7 @@ mod tests {
     }
 
     #[test]
-    fn a_compile_cargo_waos_sent_holds_it_too() {
+    fn a_compile_waos_sent_holds_it_too() {
         let (mut activity, begun, ended) = activity();
         let sent: ProgramId = "dev.example.sent".parse().unwrap();
         activity.sent_compiling_changed([sent.clone()].into());

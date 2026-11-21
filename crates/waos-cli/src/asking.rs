@@ -51,7 +51,7 @@ pub async fn greeted(
     mut connection: Connection<ClientStream>,
     request: &Request,
 ) -> Result<Connection<ClientStream>> {
-    let ours = Hello::cargo_waos(BUILD);
+    let ours = Hello::command(BUILD);
     let theirs = connection
         .hello(&ours)
         .await

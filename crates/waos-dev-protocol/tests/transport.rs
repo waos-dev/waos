@@ -26,8 +26,8 @@ async fn raw_client(path: &Path) -> ClientStream {
         .unwrap()
 }
 
-fn cargo_waos_hello() -> Hello {
-    Hello::cargo_waos("cargo-waos 0.3.0")
+fn command_hello() -> Hello {
+    Hello::command("waos 0.3.0")
 }
 
 fn waos_hello() -> Hello {
@@ -40,7 +40,7 @@ async fn connected(path: &Path) -> (Listener, Connection<ClientStream>, Connecti
     let mut listener = Listener::bind(path).await.unwrap();
     let (client, server) = tokio::join!(Connection::connect(path), listener.accept());
     let (mut client, mut server) = (client.unwrap(), server.unwrap());
-    let (ours, theirs) = (cargo_waos_hello(), waos_hello());
+    let (ours, theirs) = (command_hello(), waos_hello());
     let (theirs, theirs_too) = tokio::join!(client.hello(&ours), server.accept_hello(&theirs));
     theirs.unwrap();
     theirs_too.unwrap();
@@ -55,9 +55,9 @@ async fn a_client_of_another_major_is_named_with_both_builds() {
     let mut listener = Listener::bind(place.path()).await.unwrap();
     let (client, server) = tokio::join!(raw_client(place.path()), listener.accept());
     let (mut client, mut server) = (Connection::new(client), server.unwrap());
-    let mut newer = cargo_waos_hello();
+    let mut newer = command_hello();
     newer.major = MAJOR + 1;
-    newer.build = "cargo-waos 0.4.0".to_owned();
+    newer.build = "waos 0.4.0".to_owned();
     let ours = waos_hello();
     let (theirs, theirs_too) = tokio::join!(client.hello(&newer), server.accept_hello(&ours));
     let theirs = theirs.unwrap();
@@ -66,8 +66,7 @@ async fn a_client_of_another_major_is_named_with_both_builds() {
     let mismatch = theirs.accepts(&newer, &screenshot()).unwrap_err();
     assert!(matches!(mismatch, Mismatch::Major { .. }));
     assert!(
-        mismatch.to_string().contains("cargo-waos 0.4.0")
-            && mismatch.to_string().contains("WaOS 0.3.0"),
+        mismatch.to_string().contains("waos 0.4.0") && mismatch.to_string().contains("WaOS 0.3.0"),
         "{mismatch}"
     );
     drop(server);
@@ -274,7 +273,7 @@ async fn one_listener_serves_one_connection_after_another() {
     let (second, second_served) =
         tokio::join!(Connection::connect(place.path()), listener.accept());
     let (mut second, mut second_served) = (second.unwrap(), second_served.unwrap());
-    let (ours, theirs) = (cargo_waos_hello(), waos_hello());
+    let (ours, theirs) = (command_hello(), waos_hello());
     let (theirs, theirs_too) =
         tokio::join!(second.hello(&ours), second_served.accept_hello(&theirs));
     theirs.unwrap();

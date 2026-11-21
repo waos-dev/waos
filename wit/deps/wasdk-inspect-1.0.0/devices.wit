@@ -54,8 +54,8 @@ interface devices {
     icon: async func(id: string) -> option<list<u8>>;
     /// Starts the program `id` names, held before its first instruction until the answer is
     /// dropped, so a listener hears it from its start. One that runs now is ended first, as a
-    /// later `cargo waos run` of it ends the one before. A program run in development starts again
-    /// from the component its last `cargo waos run` sent, with its settings and folders.
+    /// later `waos run` of it ends the one before. A program run in development starts again
+    /// from the component its last `waos run` sent, with its settings and folders.
     start-held: async func(id: string) -> result<held-program, start-error>;
     /// Ends the program `id` names where it runs, with a stop, as a start in its place ends it;
     /// answers once it has ended. Nothing for one that does not run.

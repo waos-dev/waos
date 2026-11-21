@@ -340,7 +340,7 @@ mod tests {
 
     async fn connect(socket: &Path) -> Connection<ClientStream> {
         let mut conn = Connection::connect(socket).await.expect("connect");
-        conn.hello(&Hello::cargo_waos("headless-test"))
+        conn.hello(&Hello::command("headless-test"))
             .await
             .expect("hello");
         conn

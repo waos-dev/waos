@@ -179,7 +179,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn only_a_run_cargo_waos_sent_is_read() {
+    async fn only_a_run_waos_sent_is_read() {
         let server = TestServer::start("screenshot-library");
         let ScreenshotAnswer::Refused(refusal) =
             server.ask::<ScreenshotAnswer>(&screenshot(OPENER)).await
