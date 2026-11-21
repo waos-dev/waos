@@ -92,8 +92,9 @@ impl<P: ProgramLink> ProgramWindow<P> {
             .windows
             .view_windows
             .read(app)
-            .given_in(self.view)
-            .and_then(|(_face, program)| program.cloned());
+            .prepared_in(self.view)
+            .flatten()
+            .cloned();
         match program {
             Some(program) => (self.windows.over_each)(app, &program),
             None => SizedBox::expand().into_widget(),

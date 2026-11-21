@@ -564,20 +564,21 @@ pub(crate) fn bring_opened_programs_forward(
         }
     })
     .detach();
-    let (first, refused) = (windows.downgrade(), library.downgrade());
+    let (first, starting) = (windows.downgrade(), library.downgrade());
     app.subscribe(library, move |app, wanted: &FirstWindowWanted| {
-        let Some(windows) = first.upgrade() else {
+        let (Some(windows), Some(library)) = (first.upgrade(), starting.upgrade()) else {
             return;
         };
         let opened = windows.update(app, |windows, cx| {
-            windows.open_first_window(wanted.id.as_str(), &wanted.face, cx)
+            windows.prepare_window(wanted.id.as_str(), &wanted.face, cx)
         });
-        if let (Err(error), Some(library)) = (opened, refused.upgrade()) {
-            let why = format!("no window opened for it: {error:?}");
-            library.update(app, |library, cx| {
+        library.update(app, |library, cx| match opened {
+            Ok(()) => library.start_in_its_window(&wanted.id, windows, cx),
+            Err(error) => {
+                let why = format!("no window opened for it: {error:?}");
                 library.first_window_refused(&wanted.id, &why, cx);
-            });
-        }
+            }
+        });
     })
     .detach();
 }

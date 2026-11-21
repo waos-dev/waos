@@ -18,20 +18,23 @@
 //! launch's activation token on Linux, where a desktop lets a window take the focus only for the
 //! launch it meant it for; a program with no window yet shows its next one with the token.
 //!
-//! Each window asked for carries, as its view's initial data, the program it shows and whether it
-//! is the program's first window or an extra one (`logic::restoration`), so a window the system
-//! restores to a process started afresh, as Android does a task from Recents, says what goes in it.
-//! Such a window arrives as every view does, answering no request of this process, and whoever
-//! hears of the platform's views hands it here as it arrives, reserved for the first request of the
-//! program it starts (`open_given`); it is followed and shown as a window asked for is from then
-//! on. The user's Back
+//! A program's first window may be open before the program asks for it (decision 10 of
+//! `docs/proposals/2026-11-21-views-a-program-asks-for.md`): opened here at its launch
+//! (`prepare_window`), or brought back by the system and handed here (`adopt_window`). Such a
+//! prepared window waits for the program's first request, and that request is shown in it exactly
+//! as in a window made for it; until then it shows the program's questions, and its dialogs are
+//! shown over it (`screen_of`). Each window asked for carries, as its view's initial data, the
+//! program it shows and whether it is the program's first window or an extra one
+//! (`logic::restoration`), so a window the system restores to a process started afresh, as Android
+//! does a task from Recents, says what goes in it. The user's Back
 //! in a window goes to its program where the program handles Back, and otherwise sends the window
 //! to the background, as Android sends an app's first screen there (decision 14 of
 //! `docs/proposals/2026-11-12-phone-programs-and-library.md`); a desktop sends no Back.
 //!
 //! The invariant: every request taken is answered exactly once while its program runs, by
-//! `add_view` or by `view_request_failed`, and every view added, asked for or given, is taken
-//! away once with `remove_view` when Waft removes its view. The windows notify when one comes or
+//! `add_view` or by `view_request_failed`, and every view added is taken away once with
+//! `remove_view` when Waft removes its view; a program's first request goes to its prepared
+//! window where it has one, and to Waft otherwise. The windows notify when one comes or
 //! goes, so the content of each rebuilds then. A window's change reaches here from its content,
 //! which rebuilds only while Waft builds frames, so every window is read again as the app's
 //! lifecycle changes, its windows hidden with it. Whether a window is maximized is read only when
@@ -70,8 +73,8 @@ use crate::state::shown_view::ShownView;
 pub struct ViewWindows<P: ProgramLink> {
     /// The windows Waft is making, in the order they were asked for.
     awaiting: Vec<AwaitingWindow<P>>,
-    /// The windows the platform gave, each waiting for the program starting with it.
-    given: Vec<GivenWindow<P>>,
+    /// Each program's first window, open before the program asked for it.
+    prepared: Vec<PreparedWindow<P>>,
     /// Each window shown, in the order they arrived.
     shown: Vec<ShownWindow<P>>,
     /// The activation token of a launch that asked for a program with no window, by the name it
@@ -79,26 +82,25 @@ pub struct ViewWindows<P: ProgramLink> {
     activation_tokens: HashMap<String, String>,
 }
 
-/// A window the platform gave, opened for a program about to start with it.
-struct GivenWindow<P> {
-    view: ViewRef,
-    window: WindowRef,
-    /// The program's name and icon, as its window has them.
-    face: ProgramFace,
-    /// The program it is reserved for, once that has started.
+/// A program's first window, open before the program asks for it, waiting for its first request.
+struct PreparedWindow<P> {
+    /// The name the program runs as, which its first request comes from.
+    name: String,
+    /// What Waft answered the request for the window with, where it was asked for here; none for
+    /// one the system brought back.
+    asked: Option<waft::ui::RequestId>,
+    /// The window's view, once it arrived.
+    view: Option<ViewRef>,
+    /// The program, once it has started.
     program: Option<P>,
-    canvas: Arc<CanvasLayer>,
-    /// Where the program's calls on the view arrive, waiting until the program runs.
-    calls: UnboundedReceiver<ViewCall>,
-    standing: WindowStanding,
-    /// What the program starts being told of the view.
-    metrics: ViewMetrics,
+    /// Whether the program will never ask for it, which closes it once it arrives.
+    unused: bool,
 }
 
 /// A window Waft is making for a program's request.
 struct AwaitingWindow<P> {
     /// What Waft answered the request for the window with, which its view arrives carrying.
-    asked: waft::ui::RequestId,
+    asked: Option<waft::ui::RequestId>,
     program: P,
     request: RequestId,
     /// What is behind the window shows through where the program draws nothing, but for a solid
@@ -142,7 +144,7 @@ impl<P: ProgramLink> ViewWindows<P> {
     ) -> Entity<ViewWindows<P>> {
         let windows = app.new_entity(|_| ViewWindows {
             awaiting: Vec::new(),
-            given: Vec::new(),
+            prepared: Vec::new(),
             shown: Vec::new(),
             activation_tokens: HashMap::new(),
         });
@@ -164,14 +166,14 @@ impl<P: ProgramLink> ViewWindows<P> {
         self.shown.iter().any(|window| window.program == *program)
     }
 
-    /// Whether `program` has a screen of its own: a window shown for it, or one reserved for its
-    /// first request.
+    /// Whether `program` has a screen of its own: a window shown for it, or its first window open
+    /// before it asked for it.
     pub fn has_a_screen(&self, program: &P) -> bool {
-        self.has_windows(program) || self.given_for(program).is_some()
+        self.screen_of(program).is_some()
     }
 
     /// The Waft view of `program`'s screen a dialog is shown over: its front window, its focused
-    /// one or else the one that arrived last, or else the window reserved for its first request;
+    /// one or else the one that arrived last, or else its first window open before it asked for it;
     /// none where it has neither (decision 11 of
     /// `docs/proposals/2026-11-21-views-a-program-asks-for.md`).
     pub fn screen_of(&self, program: &P) -> Option<ViewId> {
@@ -181,23 +183,26 @@ impl<P: ProgramLink> ViewWindows<P> {
             .filter(|window| window.program == *program);
         front_of(windows)
             .map(|window| window.waft_view.id())
-            .or_else(|| self.given_for(program).map(|given| given.view.id()))
+            .or_else(|| {
+                let prepared = self.prepared_for(program.name())?;
+                prepared.view.as_ref().map(|view| view.id())
+            })
     }
 
-    /// The window the platform gave that is reserved for `program`'s first request.
-    fn given_for(&self, program: &P) -> Option<&GivenWindow<P>> {
-        self.given
+    /// The first window of the program running as `name`, open before it asked for it.
+    fn prepared_for(&self, name: &str) -> Option<&PreparedWindow<P>> {
+        self.prepared
             .iter()
-            .find(|given| given.program.as_ref() == Some(program))
+            .find(|prepared| prepared.name == name && !prepared.unused)
     }
 
-    /// The face and, once started, the program of the window the platform gave as `view`, while
-    /// it waits for the program's first request.
-    pub(crate) fn given_in(&self, view: ViewId) -> Option<(&ProgramFace, Option<&P>)> {
-        self.given
+    /// The program of the window of `view`, where that is a program's first window open before
+    /// it asked for it: the program once it has started, or none before.
+    pub(crate) fn prepared_in(&self, view: ViewId) -> Option<Option<&P>> {
+        self.prepared
             .iter()
-            .find(|given| given.view.id() == view)
-            .map(|given| (&given.face, given.program.as_ref()))
+            .find(|prepared| prepared.view.as_ref().is_some_and(|own| own.id() == view))
+            .map(|prepared| prepared.program.as_ref())
     }
 
     /// The window shown that has the focus, or else the one that arrived last; none while none is
@@ -240,102 +245,55 @@ impl<P: ProgramLink> ViewWindows<P> {
         }
     }
 
-    /// Opens the window the platform gave as `view`, as one it restored, for a program about to
-    /// start, whose name and icon `face` shows on it, reserved for its first request: the window
-    /// gets its canvas, and the queue the program's calls on it wait in until the request takes
-    /// it. Answers what is reserved, or why there is nothing to reserve, the window then closed.
-    pub fn open_given(
-        &mut self,
-        view: ViewRef,
-        face: &ProgramFace,
-        cx: &mut Context<ViewWindows<P>>,
-    ) -> Result<OpenedView, &'static str> {
-        let (window, canvas) = match window_and_canvas(&view, WindowBackground::Solid, cx) {
-            Ok(found) => found,
-            Err(reason) => {
-                close_window_of(&view);
-                return Err(reason);
-            }
-        };
-        window.set_title(&face.name);
-        window.set_icon(face.icon.as_ref());
-        let (calls, arriving) = view_call_queue();
-        let standing = WindowStanding::opened(true, true, &*window);
-        let metrics = view.metrics();
-        let opened = OpenedView {
-            canvas: Arc::clone(&canvas),
-            calls,
-            metrics: metrics_of(&metrics),
-            screen: metrics.screen.map(|screen| screen.0),
-            presence: standing.presence(),
-            frame: rect_of(window.frame()),
-            size_limits: window.size_limits().is_some(),
-            maximized: window.is_maximized(),
-            title_bar_double_click_action: title_bar_action_of(
-                window.title_bar_double_click_action(),
-            ),
-        };
-        self.given.push(GivenWindow {
-            view,
-            window,
-            face: face.clone(),
-            program: None,
-            canvas,
-            calls: arriving,
-            standing,
-            metrics,
-        });
-        Ok(opened)
-    }
-
-    /// The program `program` started with the window the platform gave as `view` reserved for its
-    /// first request: the window shows its questions and parents its dialogs until the request
-    /// takes it (decision 11 of `docs/proposals/2026-11-21-views-a-program-asks-for.md`).
-    pub fn given_started(&mut self, view: ViewId, program: P, cx: &mut Context<ViewWindows<P>>) {
-        if let Some(given) = self.given.iter_mut().find(|given| given.view.id() == view) {
-            given.program = Some(program);
-            cx.notify();
+    /// Takes `view`, which the system brought back as the first window of the program running as
+    /// `name`, about to start, named and shown as `face` says, as that program's first window,
+    /// waiting for its first request.
+    pub fn adopt_window(&mut self, view: ViewRef, name: &str, face: &ProgramFace) {
+        if let Some(window) = view.window() {
+            window.set_title(&face.name);
+            window.set_icon(face.icon.as_ref());
         }
+        self.prepared.push(PreparedWindow {
+            name: name.to_owned(),
+            asked: None,
+            view: Some(view),
+            program: None,
+            unused: false,
+        });
     }
 
-    /// The first request of `program` took the window the platform gave as `view`, which it has
-    /// as `program_view`: the window shows it from now on. Where the window went meanwhile, the
-    /// program hears that its view did.
-    pub fn given_taken(
-        &mut self,
-        view: ViewId,
-        program: P,
-        program_view: P::View,
-        cx: &mut Context<ViewWindows<P>>,
-    ) {
-        let Some(index) = self.given.iter().position(|given| given.view.id() == view) else {
-            program.remove_view(&program_view);
+    /// `program` started with its first window open: the window shows its questions until its
+    /// first request takes it, and closes where it ends without asking.
+    pub fn prepared_started(&mut self, program: P, cx: &mut Context<ViewWindows<P>>) {
+        let name = program.name().to_owned();
+        let Some(prepared) = self
+            .prepared
+            .iter_mut()
+            .find(|prepared| prepared.name == name)
+        else {
             return;
         };
-        let given = self.given.remove(index);
-        tracing::info!(
-            program = program.name(),
-            view = view.0,
-            "a window the platform gave shows the program whose request took it"
-        );
-        self.show_window(
-            None,
-            program,
-            program_view,
-            given.view,
-            given.window,
-            given.canvas,
-            given.standing,
-            given.metrics,
-            given.calls,
-            cx,
-        );
+        prepared.program = Some(program.clone());
+        close_unused_when_ended(cx, &program);
+        cx.notify();
     }
 
-    /// No program's request took the window the platform gave as `view`: it closes.
-    pub fn given_not_taken(&mut self, view: ViewId) {
-        if let Some(index) = self.given.iter().position(|given| given.view.id() == view) {
-            close_window_of(&self.given.remove(index).view);
+    /// The program running as `name` will not ask for the first window opened for it: it closes,
+    /// now or once it arrives.
+    pub fn prepared_unused(&mut self, name: &str) {
+        let Some(index) = self
+            .prepared
+            .iter()
+            .position(|prepared| prepared.name == name)
+        else {
+            return;
+        };
+        match self.prepared[index].view.take() {
+            Some(view) => {
+                self.prepared.remove(index);
+                close_window_of(&view);
+            }
+            None => self.prepared[index].unused = true,
         }
     }
 
@@ -355,14 +313,19 @@ impl<P: ProgramLink> ViewWindows<P> {
     }
 
     /// Whether `view` is a program's window here: one a program asked for, waiting for its view or
-    /// shown, or one the platform gave, its program starting.
+    /// shown, or a program's first window open before it asked for it.
     pub fn knows(&self, view: &ViewRef) -> bool {
         let id = view.id();
         let asked = view.request_id();
+        let is_asked = |of: Option<waft::ui::RequestId>| asked.is_some() && of == asked;
         self.shown.iter().any(|window| window.waft_view.id() == id)
-            || self.given.iter().any(|given| given.view.id() == id)
-            || asked
-                .is_some_and(|asked| self.awaiting.iter().any(|awaiting| awaiting.asked == asked))
+            || self.prepared.iter().any(|prepared| {
+                prepared.view.as_ref().is_some_and(|own| own.id() == id) || is_asked(prepared.asked)
+            })
+            || self
+                .awaiting
+                .iter()
+                .any(|awaiting| is_asked(awaiting.asked))
     }
 
     /// The program's view shown in the window of `view`, while there is one.
@@ -375,9 +338,7 @@ impl<P: ProgramLink> ViewWindows<P> {
     /// Something of the window of `view` changed, as its content heard: it was minimized or
     /// restored, became occluded or shown, or moved. How it stands is read again.
     pub fn window_changed(&mut self, view: ViewId, cx: &mut Context<ViewWindows<P>>) {
-        if let Some(given) = self.given.iter_mut().find(|given| given.view.id() == view) {
-            given.standing.read_window(&*given.window);
-        } else if let Some(window) = self
+        if let Some(window) = self
             .shown
             .iter_mut()
             .find(|window| window.waft_view.id() == view)
@@ -387,28 +348,29 @@ impl<P: ProgramLink> ViewWindows<P> {
     }
 
     /// The user asked to close the window of `view`: a program's window passes it on to the
-    /// program, which decides; one whose program is still starting closes. Answers whether it was
-    /// a program's window.
+    /// program, which decides; a first window its program has not asked for yet closes. Answers
+    /// whether it was a program's window.
     pub fn close_requested(&self, view: ViewId, app: &App) -> bool {
         if let Some(window) = self.shown_in(view) {
             window.shown.read(app).view().close_requested();
             return true;
         }
-        let given = self.given.iter().find(|given| given.view.id() == view);
-        if let Some(given) = given {
-            given.window.close();
+        let prepared = self
+            .prepared
+            .iter()
+            .find_map(|prepared| prepared.view.as_ref().filter(|own| own.id() == view));
+        if let Some(prepared) = prepared {
+            close_window_of(prepared);
         }
-        given.is_some()
+        prepared.is_some()
     }
 
-    /// Asks Waft for the first window of the program `program`, which is about to start, as the
+    /// Opens the first window of the program running as `program`, about to start, as the
     /// platform's ordinary window named and shown as `face` says, so the program shows from its
-    /// launch (decision 10 of `docs/proposals/2026-11-21-views-a-program-asks-for.md`). It is
-    /// asked for no running program: it arrives as a program's first window the platform gives,
-    /// as a card brought back from Recents does, which whoever hears of the platform's views
-    /// opens here (`open_given`) and reserves for the program's first request. Why not, where
-    /// Waft refuses it at once.
-    pub fn open_first_window(
+    /// launch; it waits for the program's first request (decision 10 of
+    /// `docs/proposals/2026-11-21-views-a-program-asks-for.md`). Why not, where Waft refuses it at
+    /// once.
+    pub fn prepare_window(
         &mut self,
         program: &str,
         face: &ProgramFace,
@@ -420,9 +382,17 @@ impl<P: ProgramLink> ViewWindows<P> {
             program: program.to_owned(),
             role: WindowRole::First,
         };
-        cx.platform()
-            .request_view(config, Some(first.initial_data()))
-            .map(drop)
+        let asked = cx
+            .platform()
+            .request_view(config, Some(first.initial_data()))?;
+        self.prepared.push(PreparedWindow {
+            name: program.to_owned(),
+            asked: Some(asked),
+            view: None,
+            program: None,
+            unused: false,
+        });
+        Ok(())
     }
 
     /// Asks Waft for the window `asked` wants; a request Waft refuses at once fails.
@@ -434,6 +404,27 @@ impl<P: ProgramLink> ViewWindows<P> {
         } = asked;
         if has_ended(&program) {
             tracing::info!(program = program.name(), "a request outlived its program");
+            return;
+        }
+        if let Some(index) = self
+            .prepared
+            .iter()
+            .position(|prepared| prepared.name == program.name() && !prepared.unused)
+        {
+            let prepared = self.prepared.remove(index);
+            let platform = waft::WindowConfig::default();
+            let awaiting = AwaitingWindow {
+                asked: prepared.asked,
+                program,
+                request: request.id,
+                background: request.config.background,
+                visible: platform.visible,
+                activating: platform.activating,
+            };
+            match prepared.view {
+                Some(view) => self.show(awaiting, view, cx),
+                None => self.awaiting.push(awaiting),
+            }
             return;
         }
         let activation_token = self.activation_tokens.remove(program.name());
@@ -453,7 +444,7 @@ impl<P: ProgramLink> ViewWindows<P> {
             }
         };
         self.awaiting.push(AwaitingWindow {
-            asked,
+            asked: Some(asked),
             program,
             request: request.id,
             background: request.config.background,
@@ -463,12 +454,32 @@ impl<P: ProgramLink> ViewWindows<P> {
     }
 
     /// Waft added `view`: a window a program asked for is shown for it, or closed unseen where
-    /// the program ended meanwhile; any other view is not the windows' to show.
+    /// the program ended meanwhile; a program's first window opened before it asked waits for its
+    /// first request, or closes where it will not come; any other view is not the windows' to
+    /// show.
     fn view_added(&mut self, view: &ViewRef, cx: &mut Context<ViewWindows<P>>) {
+        let asked = view.request_id();
+        if asked.is_none() {
+            return;
+        }
+        if let Some(index) = self
+            .prepared
+            .iter()
+            .position(|prepared| prepared.asked == asked)
+        {
+            if self.prepared[index].unused {
+                self.prepared.remove(index);
+                close_window_of(view);
+            } else {
+                self.prepared[index].view = Some(Rc::clone(view));
+                cx.notify();
+            }
+            return;
+        }
         let Some(index) = self
             .awaiting
             .iter()
-            .position(|awaiting| Some(awaiting.asked) == view.request_id())
+            .position(|awaiting| awaiting.asked == asked)
         else {
             return;
         };
@@ -485,12 +496,14 @@ impl<P: ProgramLink> ViewWindows<P> {
         if let Some(index) = self
             .awaiting
             .iter()
-            .position(|awaiting| awaiting.asked == asked)
+            .position(|awaiting| awaiting.asked == Some(asked))
         {
             self.awaiting
                 .remove(index)
                 .fail(program_error_of(error.clone()));
         }
+        self.prepared
+            .retain(|prepared| prepared.asked != Some(asked));
     }
 
     /// What the next window `program` asks for is: its first while it has none shown or coming,
@@ -632,7 +645,8 @@ impl<P: ProgramLink> ViewWindows<P> {
     /// Waft removed `view`, its window gone: a program's view in it is taken away, the program
     /// hearing so, and a window the platform gave is let go of.
     fn view_removed(&mut self, view: ViewId, cx: &mut Context<ViewWindows<P>>) {
-        self.given.retain(|given| given.view.id() != view);
+        self.prepared
+            .retain(|prepared| prepared.view.as_ref().is_none_or(|own| own.id() != view));
         let Some(index) = self
             .shown
             .iter()
@@ -649,9 +663,6 @@ impl<P: ProgramLink> ViewWindows<P> {
     /// The app's lifecycle changed, which may hide or show every window at once while their
     /// content builds nothing: each window is read again.
     fn lifecycle_changed(&mut self, cx: &mut Context<ViewWindows<P>>) {
-        for given in &mut self.given {
-            given.standing.read_window(&*given.window);
-        }
         for window in &mut self.shown {
             window.window_changed(cx);
         }
@@ -913,6 +924,22 @@ fn close_when_ended<P: ProgramLink>(cx: &mut Context<ViewWindows<P>>, program: &
             let mut shown = windows.shown.iter();
             if let Some(shown) = shown.find(|shown| shown.waft_view.id() == view) {
                 shown.window.close();
+            }
+        });
+    });
+}
+
+/// Closes the first window opened for `program` before it asked for it, where it ends without
+/// having asked.
+fn close_unused_when_ended<P: ProgramLink>(cx: &mut Context<ViewWindows<P>>, program: &P) {
+    let ended = program.ended();
+    let name = program.name().to_owned();
+    let windows = cx.weak_entity();
+    cx.spawn(async move |cx| {
+        ended.await;
+        cx.update(|app| {
+            if let Some(windows) = windows.upgrade() {
+                windows.update(app, |windows, _| windows.prepared_unused(&name));
             }
         });
     });

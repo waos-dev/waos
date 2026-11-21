@@ -11,11 +11,10 @@
 //! The invariant: what the user chose is kept in WaOS's preferences before it holds
 //! (`logic::preferences`), so a WaOS started again opens programs as the user last saw it do.
 
-use waft::ui::{ViewId, ViewRef};
+use waft::ui::ViewRef;
 use waft::{Context, Entity};
-use waos::{ReservedView, RunningProgram};
+use waos::RunningProgram;
 use waos_package::ProgramId;
-use waos_program_window::placed_view;
 
 use super::{Library, WantsToBeSeen};
 use crate::logic::installed_runs::Opening;
@@ -78,12 +77,11 @@ impl Library {
     }
 
     /// Starts the installed program `id` again with `view`, its first window, which the platform
-    /// restored to a WaOS started afresh, reserved for its first request: opened in `windows` for
-    /// it, and shown there once the program asks, however long that takes. Where it cannot start,
-    /// runs already with windows of its own, or ends without asking, the window closes, the
-    /// running program's coming forward; one that cannot start is the library's problem. One no longer installed, as a tap on a removed program's home-screen
-    /// icon asks for before WaOS disabled it, also brings WaOS's own window forward to say so, and
-    /// disables the icon. A program that starts goes first among WaOS's recent programs.
+    /// brought back to a WaOS started afresh, as Android does a card from Recents: the window waits
+    /// in `windows` for the program's first request, however long that takes. Where the program
+    /// runs already, the window closes and the running program comes forward. One no longer
+    /// installed, as a tap on a removed program's home-screen icon asks for before WaOS disabled
+    /// it, closes the window, brings WaOS's own forward to say so, and disables the icon.
     pub(crate) fn open_restored(
         &mut self,
         id: &ProgramId,
@@ -91,17 +89,42 @@ impl Library {
         windows: &Entity<ViewWindows>,
         cx: &mut Context<Library>,
     ) {
-        let view_id = view.id();
-        let face = program_face(&self.store, id.as_str());
-        let opened = match windows.update(cx, |windows, cx| windows.open_given(view, &face, cx)) {
-            Ok(opened) => opened,
-            Err(why) => return self.failed(format!("{id} could not be opened: {why}"), cx),
-        };
-        let Some(component) = self.store.program(id) else {
+        if self.store.program(id).is_none() {
+            close_window_of(&view);
             // Brought forward while the window is in sight, which Android requires of an app.
             cx.emit(WantsToBeSeen);
-            windows.update(cx, |windows, _| windows.given_not_taken(view_id));
             self.match_shortcuts(cx);
+            return self.failed(
+                format!("{id} is not installed, or its files cannot be read"),
+                cx,
+            );
+        }
+        if self.is_running(id) {
+            close_window_of(&view);
+            let name = id.as_str().to_owned();
+            windows.update(cx, |windows, _| {
+                windows.bring_forward(|running: &RunningProgram| running.name() == name);
+            });
+            return;
+        }
+        let face = program_face(&self.store, id.as_str());
+        windows.update(cx, |windows, _| {
+            windows.adopt_window(view, id.as_str(), &face)
+        });
+        self.start_in_its_window(id, windows.clone(), cx);
+    }
+
+    /// Starts the installed program `id`, whose first window is open in `windows`, waiting for its
+    /// first request; where it cannot start, the window closes, and that is the library's problem.
+    /// A program that starts goes first among WaOS's recent programs.
+    pub(crate) fn start_in_its_window(
+        &mut self,
+        id: &ProgramId,
+        windows: Entity<ViewWindows>,
+        cx: &mut Context<Library>,
+    ) {
+        let Some(component) = self.store.program(id) else {
+            windows.update(cx, |windows, _| windows.prepared_unused(id.as_str()));
             return self.failed(
                 format!("{id} is not installed, or its files cannot be read"),
                 cx,
@@ -109,65 +132,35 @@ impl Library {
         };
         self.add_recent(id, cx);
         let (runs, opening) = (self.runs.clone(), id.clone());
-        let placed = placed_view(opened);
-        let windows = windows.clone();
+        let name = id.as_str().to_owned();
         self.work_then(
             async move {
                 runs.open(
                     &opening,
                     component,
-                    Some(placed),
+                    None,
                     ProgramPlace::Windows,
                     Opening::ByTheUser,
                 )
                 .await
             },
             move |library, started, cx| match started {
-                Ok((program, Some(reserved))) => {
-                    windows.update(cx, |windows, cx| {
-                        windows.given_started(view_id, program.clone(), cx);
-                    });
-                    library.show_once_taken(program, reserved, view_id, windows, cx);
-                }
-                Ok((program, None)) => windows.update(cx, |windows, _| {
-                    windows.given_not_taken(view_id);
-                    windows.bring_forward(|running: &RunningProgram| *running == program);
+                Ok((program, _)) => windows.update(cx, |windows, cx| {
+                    windows.prepared_started(program, cx);
                 }),
                 Err(error) => {
-                    windows.update(cx, |windows, _| windows.given_not_taken(view_id));
+                    windows.update(cx, |windows, _| windows.prepared_unused(&name));
                     library.failed(format!("{error:#}"), cx);
                 }
             },
             cx,
         );
     }
+}
 
-    /// Once the first request of `program` takes the window `view` of `windows`, reserved for it
-    /// as `reserved` says, the window shows the program; where it ends without asking, the window
-    /// closes.
-    fn show_once_taken(
-        &self,
-        program: RunningProgram,
-        reserved: ReservedView,
-        view: ViewId,
-        windows: Entity<ViewWindows>,
-        cx: &mut Context<Library>,
-    ) {
-        self.work_then(
-            reserved,
-            move |_library, taken, cx| match taken {
-                Some(program_view) => windows.update(cx, |windows, cx| {
-                    windows.given_taken(view, program, program_view, cx);
-                }),
-                None => {
-                    tracing::info!(
-                        program = program.name(),
-                        "it ended without asking for a window"
-                    );
-                    windows.update(cx, |windows, _| windows.given_not_taken(view));
-                }
-            },
-            cx,
-        );
+/// Closes the window `view` is in, where it is in one.
+fn close_window_of(view: &ViewRef) {
+    if let Some(window) = view.window() {
+        window.close();
     }
 }
