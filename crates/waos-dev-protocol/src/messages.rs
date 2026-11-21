@@ -1,4 +1,4 @@
-//! What `cargo waos` asks a WaOS, and what a WaOS answers, for each of its commands: one
+//! What `waos` asks a WaOS, and what a WaOS answers, for each of its commands: one
 //! connection is one request, and each request has its own answers rather than one enum every
 //! command must sort through.
 //!
@@ -43,7 +43,7 @@ impl FromStr for WindowId {
     }
 }
 
-/// What `cargo waos` asks a WaOS: one request a connection, each answered in its own terms.
+/// What `waos` asks a WaOS: one request a connection, each answered in its own terms.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(remote = "Self", tag = "kind", content = "data")]
 pub enum Request {
@@ -51,13 +51,13 @@ pub enum Request {
     /// installed or not: see [`Run`].
     Run(Run),
     /// The last picture of each window of the program `id` names, or of the one `window` names
-    /// alone, while a run of `cargo waos run` runs it.
+    /// alone, while a run of `waos run` runs it.
     Screenshot {
         id: ProgramId,
         window: Option<WindowId>,
     },
     /// `input` to the program `id` names, as its user would give it, in its window `window` or its
-    /// first open window when none is named, while a run of `cargo waos run` runs it.
+    /// first open window when none is named, while a run of `waos run` runs it.
     Input {
         id: ProgramId,
         window: Option<WindowId>,
@@ -65,7 +65,7 @@ pub enum Request {
     },
     /// Sizes the window `window` (or the program's first open window when none is named) of the
     /// program `id` names, so the view in it is `width` by `height` logical points, its top-left
-    /// where it is: as the program's own `set-frame` sizes it, while a run of `cargo waos run`
+    /// where it is: as the program's own `set-frame` sizes it, while a run of `waos run`
     /// runs it.
     Resize {
         id: ProgramId,
@@ -73,7 +73,7 @@ pub enum Request {
         width: f64,
         height: f64,
     },
-    /// The rows of the settings of the program `id` names, while a run of `cargo waos run` on this
+    /// The rows of the settings of the program `id` names, while a run of `waos run` on this
     /// machine runs it or once one has.
     Settings { id: ProgramId },
     /// Sets `row` among the settings of the program `id` names, as its user would on its settings
@@ -116,7 +116,7 @@ impl Request {
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct Run {
     pub id: ProgramId,
-    /// Its arguments, after `cargo waos run --`, which the program reads as its own.
+    /// Its arguments, after `waos run --`, which the program reads as its own.
     #[serde(default)]
     pub args: Vec<String>,
     /// The variables the program reads besides the engine's own, each its name and value.
@@ -231,7 +231,7 @@ impl TracedCapability {
         TracedCapability::Output,
     ];
 
-    /// Its name, as `cargo waos inspect` takes it.
+    /// Its name, as `waos inspect` takes it.
     pub fn key(self) -> &'static str {
         match self {
             TracedCapability::Network => "network",
@@ -312,7 +312,7 @@ adjacent_unknown!(InputAnswer);
 /// What the program heard, and what its window did.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InputDone {
-    /// Whether the window was in sight when the input was given, a run of `cargo waos run`
+    /// Whether the window was in sight when the input was given, a run of `waos run`
     /// counting its windows in sight while it is attached.
     pub in_sight: bool,
     /// Whether the window then showed a picture the program drew after it, within the time WaOS
@@ -409,7 +409,7 @@ pub enum RunEvent {
         bytes: Vec<u8>,
     },
     /// WaOS asks the run's program's user something now, and the program waits for the answer: a
-    /// row on Ask, which `cargo waos set` answers ahead next time.
+    /// row on Ask, which `waos set` answers ahead next time.
     Asking(Asked),
     /// The component could not be loaded or run, or the run could not start, and why.
     Refused(Refusal),
@@ -439,7 +439,7 @@ impl fmt::Debug for RunEvent {
     }
 }
 
-/// One of a program's windows, as its user sees it: what `cargo waos screenshot` writes.
+/// One of a program's windows, as its user sees it: what `waos screenshot` writes.
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WindowPicture {
     /// The window's id, as the run gave it when the window opened: what an input's `window` names.
@@ -453,7 +453,7 @@ pub struct WindowPicture {
     pub height: u32,
     /// Whether the window is in sight. One minimized or hidden shows no new picture until it is in
     /// sight again, and keeps showing its last; one other windows cover is in sight while a run of
-    /// `cargo waos run` runs its program.
+    /// `waos run` runs its program.
     pub in_sight: bool,
     /// What the window shows, as a PNG: the last picture the program presented in it over what
     /// each composition layer beneath it shows now, a player's video or a camera's picture among

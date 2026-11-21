@@ -1,7 +1,7 @@
-//! `cargo waos settings` and `cargo waos settings set`: a program's settings, as its settings page in WaOS
+//! `waos settings` and `waos settings set`: a program's settings, as its settings page in WaOS
 //! shows them, one row each, read or set by the WaOS on this machine, which keeps them; a set
 //! answer is the program's setting, used by every run, installed or not (decision 11 of the
-//! permissions proposal). Only a program a run of `cargo waos run` on this machine runs or has run
+//! permissions proposal). Only a program a run of `waos run` on this machine runs or has run
 //! is reached, or one the store does not have installed, which may be set before its first run.
 //! WaOS is started when none answers, since the settings are there to be set before the run that
 //! needs them.
@@ -45,11 +45,11 @@ fn answered(answer: SettingsAnswer, set: Option<&Row>) -> Result<ExitCode> {
     let rows = match answer {
         SettingsAnswer::Rows(rows) => rows,
         SettingsAnswer::Refused(refusal) => {
-            eprintln!("cargo waos: {}", refusal.message);
+            eprintln!("waos: {}", refusal.message);
             return Ok(ExitCode::FAILURE);
         }
         SettingsAnswer::Unknown => bail!(
-            "WaOS answered the settings in a way this cargo waos does not know: update cargo waos with `cargo install cargo-waos`"
+            "WaOS answered the settings in a way this waos does not know: update waos with `curl -fsSL https://waos.app/install.sh | sh`"
         ),
     };
     for row in &rows {
@@ -60,7 +60,7 @@ fn answered(answer: SettingsAnswer, set: Option<&Row>) -> Result<ExitCode> {
         && row.values != [ASK]
     {
         eprintln!(
-            "cargo waos: {} follows the answer for every program, {}, set on WaOS's settings page for every program; it is asked only once that is Ask",
+            "waos: {} follows the answer for every program, {}, set on WaOS's settings page for every program; it is asked only once that is Ask",
             row.key,
             row.values.join(" ")
         );

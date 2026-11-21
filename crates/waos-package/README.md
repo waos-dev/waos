@@ -4,7 +4,7 @@ The `.wapk` format, the form a program is distributed in, signed with its publis
 
 - **Takes:** a package file to open, verify or unpack; a manifest, a component file, an icon file and the publisher's signing key to write one from; an index's JSON to read.
 - **Provides:** `Package`, an open package whose signature verified and whose manifest and icon were checked, which answers its manifest, its icon and its publisher, unpacked to a directory with its component streamed to disk; `write`, which makes and signs a package; `ICON_MINIMUM_SIDE`, the smallest side an icon may have, 256 pixels; `Manifest`, and `ProgramId`, a reverse-DNS id in the form both an Apple bundle id and an Android application id accept; `PublisherKey`, the public key a package carries, with a short fingerprint for people, and `SigningKey`, the private key that signs, made from the system's random source and kept as PEM text; `Index` and `ListedProgram`, a source's `index.json`; and `PackageError`, `ManifestError`, `IdError`, `KeyError` and `IndexError`, which say what is wrong in plain words.
-- **Used by:** `waos-cli`, whose `cargo waos package` writes a package and lists it in an index; `waos-store`, which reads sources' indexes and installs packages; the WaOS app, whose library opens a `.wapk` opened with WaOS to say what it is before installing it, and shows what a source lists. It names no other crate of ours.
+- **Used by:** `waos-cli`, whose `waos package` writes a package and lists it in an index; `waos-store`, which reads sources' indexes and installs packages; the WaOS app, whose library opens a `.wapk` opened with WaOS to say what it is before installing it, and shows what a source lists. It names no other crate of ours.
 
 ## A package
 

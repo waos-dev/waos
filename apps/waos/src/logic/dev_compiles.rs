@@ -1,4 +1,4 @@
-//! The programs `cargo waos` is compiling now: a compile the dev server makes on a thread of its
+//! The programs `waos` is compiling now: a compile the dev server makes on a thread of its
 //! own, begun and ended around it, listed as the set whoever shows it reads. A dev program is not
 //! installed, so its compiles are apart from the library's (`InstalledCode`), and both are named
 //! by a program's id.
@@ -20,7 +20,7 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use tokio::sync::watch;
 use waos_package::ProgramId;
 
-/// The programs `cargo waos` is compiling, and each change of them.
+/// The programs `waos` is compiling, and each change of them.
 pub(crate) struct DevCompiles {
     /// How many compiles of each id run, so one ending leaves another still listed.
     running: Mutex<BTreeMap<ProgramId, usize>>,

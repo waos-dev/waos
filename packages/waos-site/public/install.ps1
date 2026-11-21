@@ -1,7 +1,5 @@
-# Installs the newest WaOS on Windows (x64) and puts `waos` and `cargo-waos` on the user's PATH, in
-# one step: the release's installer, run silently for this user alone, then `cargo-waos.exe`
-# beside `waos.exe` (the same binary, which acts as the cargo subcommand under that name), and the
-# install folder on the user's PATH.
+# Installs the newest WaOS on Windows (x64) and puts its command, `waos`, on the user's PATH, in one
+# step: the release's installer, run silently for this user alone, and its folder on the PATH.
 #
 # Usage, in PowerShell:
 #   irm https://waos.app/install.ps1 | iex
@@ -30,7 +28,7 @@ try {
     $installer = Start-Process $setup -ArgumentList '/S' -Wait -PassThru
     if ($installer.ExitCode -ne 0) { throw "the installer stopped with code $($installer.ExitCode)" }
 
-    # Where the installer put WaOS, as `cargo waos` reads it too.
+    # Where the installer put WaOS, as `waos` reads it too.
     $entry = 'Software\Microsoft\Windows\CurrentVersion\Uninstall\WaOS'
     $folder = $null
     foreach ($hive in 'HKCU:', 'HKLM:') {
@@ -40,7 +38,6 @@ try {
     if (-not $folder -or -not (Test-Path (Join-Path $folder 'waos.exe'))) {
         throw 'the installer ran, but WaOS is not listed among the installed apps'
     }
-    Copy-Item (Join-Path $folder 'waos.exe') (Join-Path $folder 'cargo-waos.exe') -Force
 
     $path = [Environment]::GetEnvironmentVariable('Path', 'User')
     if (-not (($path -split ';') -contains $folder)) {
@@ -49,7 +46,7 @@ try {
         $env:Path = "$env:Path;$folder"
         Write-Host "Added $folder to your PATH; open a new terminal for other shells to see it."
     }
-    Write-Host "Installed WaOS $version in $folder, with waos and cargo waos."
+    Write-Host "Installed WaOS $version in $folder, with its command, waos."
 }
 finally {
     Remove-Item -Recurse -Force $work -ErrorAction SilentlyContinue

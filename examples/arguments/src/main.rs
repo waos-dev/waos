@@ -1,5 +1,5 @@
 //! A program that says its arguments, one a line, starting with its own name, then what
-//! whoever ran it gave after `--`: `cargo waos run -- one two` (decision 68 of
+//! whoever ran it gave after `--`: `waos run -- one two` (decision 68 of
 //! `docs/proposals/2026-10-17-the-waos-project.md` gives a run its environment and arguments).
 //!
 //! ```text

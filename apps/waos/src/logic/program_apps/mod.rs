@@ -460,7 +460,11 @@ impl ViewPlacement for NoProgramApps {
 /// bundle (`Contents/Frameworks`, `Contents/Helpers`) or, run outside one, beside its executable,
 /// as a build leaves them; and WaOS to start, the bundle or the executable.
 fn waos_files(data_folder: &Path) -> Result<WaosFiles> {
-    let executable = std::env::current_exe().context("WaOS's own executable")?;
+    // Through a link (`~/.local/bin/waos`, which install.sh makes), `current_exe` is the link's
+    // path on macOS: its target is where the bundle is.
+    let executable = std::env::current_exe()
+        .and_then(std::fs::canonicalize)
+        .context("WaOS's own executable")?;
     let app = executable
         .ancestors()
         .nth(3)

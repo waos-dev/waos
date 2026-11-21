@@ -1,6 +1,6 @@
 //! Windows' security, as the named pipe needs it: the user this process runs as, by their SID; a
 //! security descriptor that gives that user alone access to a pipe, as its owner; and who owns a
-//! pipe `cargo waos` opened.
+//! pipe `waos` opened.
 //!
 //! The invariant: this module wraps the system's security calls and is the one place in the crate
 //! where `unsafe` is written; every buffer the system allocates for an answer is freed here, once.

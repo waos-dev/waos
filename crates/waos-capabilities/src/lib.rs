@@ -129,7 +129,7 @@ impl fmt::Debug for ProgramEnvironment {
 }
 
 /// Where a program's standard output and error go: whoever runs the program chooses, as
-/// `Command::stdout` does for a process. A run from `cargo waos` writes to its connection; the
+/// `Command::stdout` does for a process. A run from `waos` writes to its connection; the
 /// app's log window, later, is another.
 pub trait ProgramOutput: Send + Sync {
     /// Writes some or all of `bytes` to `stream`, returning how many bytes were taken, or

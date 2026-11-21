@@ -29,6 +29,10 @@ use crate::write_traces;
 /// to the desktop, as `#[waft::main]` would give them.
 const APP_ID: &str = "dev.waos.app";
 
+/// What this binary, being WaOS too, adds to the command's help: its own launches.
+const APP_HELP: &str = "App commands: `waos` opens the desktop launcher, `waos --headless [--idle-timeout <SECS>]` runs the headless daemon, `waos phone` opens in a phone-sized window, `waos open <FILE>... --program <ID>` opens files with a program, and `waos <FILE>...` opens packages or files with WaOS.
+The docs and guides are at https://waos.app/docs; `waos docs` prints this version's.";
+
 /// Starter injected into `waos-cli` by the unified `waos` binary: on headless Linux (when
 /// `WAYLAND_DISPLAY` and `DISPLAY` are unset, or no `.desktop` entry is installed), spawns this
 /// executable itself with `--headless --idle-timeout 300`; otherwise delegates to
@@ -62,7 +66,7 @@ pub fn main() -> ExitCode {
     DefaultEmbedder::attach_to_parent_console();
     let launch = classify_launch(std::env::args_os()).unwrap_or_else(|usage| fail(usage));
     let command = match launch {
-        Launch::Cli(argv) => return waos_cli::run_from_args(argv, &UnifiedStarter),
+        Launch::Cli(argv) => return waos_cli::run_from_args(argv, &UnifiedStarter, Some(APP_HELP)),
         Launch::Headless { idle_timeout } => {
             if let Err(error) = headless_entry::run(idle_timeout) {
                 fail(&format!("{error:#}"));

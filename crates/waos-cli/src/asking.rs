@@ -1,7 +1,7 @@
-//! One request to the WaOS on this machine about a program: for `cargo waos ui screenshot`, `tap`,
+//! One request to the WaOS on this machine about a program: for `waos ui screenshot`, `tap`,
 //! `press`, `drag`, `type`, `key` and `scroll`, connected to as it runs, never started, since only
-//! a program a run of `cargo waos run` runs is read or driven (the design's decision 60); for
-//! `cargo waos settings` and `set`, on a connection the caller made. Each side says its hello
+//! a program a run of `waos run` runs is read or driven (the design's decision 60); for
+//! `waos settings` and `set`, on a connection the caller made. Each side says its hello
 //! first: a different protocol's major, or a request WaOS does not serve, is refused before it is
 //! sent, with both builds named and which one to update.
 //!
@@ -13,8 +13,8 @@ use waos_dev_protocol::{ClientStream, Connection, Hello, Request};
 
 use crate::connecting::{WaOSStarter, nobody_answers};
 
-/// This build, as its hello names it: "cargo-waos 0.3.0".
-pub const BUILD: &str = concat!("cargo-waos ", env!("CARGO_PKG_VERSION"));
+/// This build, as its hello names it: "waos 0.4.1".
+pub const BUILD: &str = concat!("waos ", env!("CARGO_PKG_VERSION"));
 
 /// What the WaOS running answers `request`, its hello read and checked first.
 pub async fn ask<A: DeserializeOwned>(request: &Request) -> Result<A> {
@@ -51,7 +51,7 @@ pub async fn greeted(
     mut connection: Connection<ClientStream>,
     request: &Request,
 ) -> Result<Connection<ClientStream>> {
-    let ours = Hello::cargo_waos(BUILD);
+    let ours = Hello::command(BUILD);
     let theirs = connection
         .hello(&ours)
         .await
@@ -69,7 +69,7 @@ pub async fn connect() -> Result<Connection<ClientStream>> {
         Ok(connection) => Ok(connection),
         Err(error) if nobody_answers(&error) => {
             bail!(
-                "no WaOS answers at {}: run the program with `cargo waos run` first",
+                "no WaOS answers at {}: run the program with `waos run` first",
                 socket.display()
             )
         }
@@ -140,7 +140,7 @@ mod tests {
         let said = error.to_string();
         assert!(said.contains("WaOS 0.4.0"), "{said}");
         assert!(said.contains(BUILD), "{said}");
-        assert!(said.contains("cargo install cargo-waos"), "{said}");
+        assert!(said.contains("waos.app/install.sh"), "{said}");
         assert_eq!(served.await.unwrap(), None);
     }
 }

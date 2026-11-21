@@ -96,7 +96,7 @@ async fn send_run(
         Some(Upload::Send) => {
             if component.len() > SAID_OVER_BYTES {
                 eprintln!(
-                    "cargo waos: sending {name} to WaOS, {} MiB",
+                    "waos: sending {name} to WaOS, {} MiB",
                     component.len() >> 20
                 );
             }
@@ -109,7 +109,7 @@ async fn send_run(
         Some(Upload::Have) => Ok(()),
         Some(Upload::Refused(refusal)) => bail!("WaOS refused {name}: {}", refusal.message),
         Some(Upload::Unknown) => bail!(
-            "WaOS answered the upload in a way this cargo waos does not know: update cargo waos with `cargo install cargo-waos`"
+            "WaOS answered the upload in a way this waos does not know: update waos with `curl -fsSL https://waos.app/install.sh | sh`"
         ),
         None => bail!("WaOS closed the connection before {name} was sent"),
     }
@@ -127,15 +127,15 @@ async fn stream_events(mut connection: Connection<ClientStream>, name: &str) -> 
     loop {
         tokio::select! {
             received = connection.receive::<RunEvent>() => match received.context("reading from WaOS")? {
-                Some(RunEvent::Compiling) => eprintln!("cargo waos: WaOS is compiling {name}"),
-                Some(RunEvent::Started) => eprintln!("cargo waos: {name} is running in WaOS"),
+                Some(RunEvent::Compiling) => eprintln!("waos: WaOS is compiling {name}"),
+                Some(RunEvent::Started) => eprintln!("waos: {name} is running in WaOS"),
                 Some(RunEvent::Output { stream, bytes }) => output.written(stream, &bytes)?,
                 Some(RunEvent::Ended(end)) => return Ok(ended(name, &end)),
                 Some(RunEvent::Refused(refusal)) => {
                     bail!("WaOS refused {name}: {}", refusal.message)
                 }
                 Some(RunEvent::Asking(asked)) => {
-                    eprintln!("cargo waos: WaOS asks the user: {}", asked::said(&asked, name));
+                    eprintln!("waos: WaOS asks the user: {}", asked::said(&asked, name));
                 }
                 // An event of a newer WaOS's this build does not know: skipped, as the protocol
                 // promises, never breaking the run over it.
@@ -144,7 +144,7 @@ async fn stream_events(mut connection: Connection<ClientStream>, name: &str) -> 
             },
             _ = &mut interrupted => {
                 drop(connection);
-                eprintln!("cargo waos: {name} stopped");
+                eprintln!("waos: {name} stopped");
                 return Ok(ExitCode::from(INTERRUPTED));
             }
         }
@@ -223,11 +223,11 @@ fn ended(name: &str, end: &RunEnd) -> ExitCode {
             ExitCode::FAILURE,
         ),
         RunEnd::Unknown => (
-            format!("{name} ended in a way this cargo waos does not know; update cargo waos"),
+            format!("{name} ended in a way this waos does not know; update waos"),
             ExitCode::FAILURE,
         ),
     };
-    eprintln!("cargo waos: {said}");
+    eprintln!("waos: {said}");
     status
 }
 

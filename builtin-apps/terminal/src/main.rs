@@ -17,7 +17,7 @@
 //!   terminal ([`session_page`]), under the menu bar ([`menus`]).
 //!
 //! ```text
-//! cargo waos run -p terminal --release
+//! waos run -p terminal --release
 //! ```
 
 // Waft's bindings take `self: Handle<Self>`.

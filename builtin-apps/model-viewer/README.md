@@ -5,7 +5,7 @@ Model Viewer: a glTF viewer, and the built-in app that is not a Waft app. It sho
 A person opens a `.glb` or a self-contained `.gltf` with **Open…** (⌘O) or by opening the file with the app, and sees it lit and shaded; drags to orbit, Shift-drags or right-drags to pan, scrolls or pinches to zoom (the arrow keys and `+`/`-` do the same); picks one of the model's animations, pauses it and scrubs through it; and switches between shaded, wireframe and normals, with the ground's grid, the light, its direction and the exposure. The app opens with a sample model made in code (`src/model/sample.rs`), so the first launch shows something.
 
 ```sh
-cargo waos run -p model-viewer --release
+waos run -p model-viewer --release
 ```
 
 Release, because a debug build is 44 MB of wasm, which WaOS takes long to compile; the release build is 7 MB.
@@ -41,4 +41,4 @@ Release, because a debug build is 44 MB of wasm, which WaOS takes long to compil
 
 ## What was checked, and how
 
-In WaOS on macOS, with `cargo waos ui screenshot`, `tap`, `type`, `key` and `scroll`: the sample; five `.glb` files of up to 13 MB, with textures, blending and animations, and a small skinned `.gltf`, each opened from the app's `/data` by a hook since removed; a file refused for its compression and one for the files beside it; the panel's buttons, lists, sliders and a typed number; zoom by the wheel and orbit by the keys; the layout at 390 points wide; light and dark; and that no frame is drawn while nothing changes. Not checked, for want of a way to drive them: dragging, a trackpad's and a touch screen's gestures, copy and paste, an input method's composing, the open dialog beyond asking for it, and a file opened with the app.
+In WaOS on macOS, with `waos ui screenshot`, `tap`, `type`, `key` and `scroll`: the sample; five `.glb` files of up to 13 MB, with textures, blending and animations, and a small skinned `.gltf`, each opened from the app's `/data` by a hook since removed; a file refused for its compression and one for the files beside it; the panel's buttons, lists, sliders and a typed number; zoom by the wheel and orbit by the keys; the layout at 390 points wide; light and dark; and that no frame is drawn while nothing changes. Not checked, for want of a way to drive them: dragging, a trackpad's and a touch screen's gestures, copy and paste, an input method's composing, the open dialog beyond asking for it, and a file opened with the app.

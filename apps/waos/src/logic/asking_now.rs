@@ -1,6 +1,6 @@
 //! What WaOS asks each program's user now, by the program's name: a question, a link scheme, a
 //! switch's page, a picker or a file dialog, from the moment it is asked until it is answered or
-//! dropped. A run of `cargo waos run` hears each as it is asked, and says it on its terminal; a
+//! dropped. A run of `waos run` hears each as it is asked, and says it on its terminal; a
 //! screenshot and an input read what is asked over the program's windows, which no tool acts
 //! through (the dev server's `dev_run`, `dev_screenshot` and `dev_input`).
 //!

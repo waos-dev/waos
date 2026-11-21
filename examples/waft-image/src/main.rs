@@ -5,7 +5,7 @@
 //!
 //! ```text
 //! cargo build -p waft-image --target wasm32-wasip3
-//! cargo waos run -p waft-image
+//! waos run -p waft-image
 //! ```
 
 use waft_embedder::WindowConfig;

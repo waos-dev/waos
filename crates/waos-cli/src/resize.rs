@@ -1,4 +1,4 @@
-//! `cargo waos ui resize`: a size for a window of the program a run of `cargo waos run` runs, sent to
+//! `waos ui resize`: a size for a window of the program a run of `waos run` runs, sent to
 //! the WaOS running it, which sizes the window as the program's own `set-frame` would, so the
 //! program can be seen at a phone's width or a narrow window's (the design's decision 60). A size
 //! is in logical points, written `<width>x<height>`: a screenshot's pixels are points times the
@@ -85,21 +85,21 @@ pub async fn resize(id: ProgramId, window: Option<WindowId>, size: Points) -> Re
             };
             println!("{named}: {taken} points at scale {scale}, {width}x{height} pixels");
             if !size.is_in_pixels(width, height, scale) {
-                eprintln!("cargo waos: the window system gave {named} {taken} points, not {size}");
+                eprintln!("waos: the window system gave {named} {taken} points, not {size}");
             }
             if !new_picture {
                 eprintln!(
-                    "cargo waos: {named} showed no new picture at its size: the program drew nothing after it, or the window is out of sight"
+                    "waos: {named} showed no new picture at its size: the program drew nothing after it, or the window is out of sight"
                 );
             }
             Ok(ExitCode::SUCCESS)
         }
         ResizeAnswer::Refused(refusal) => {
-            eprintln!("cargo waos: {}", refusal.message);
+            eprintln!("waos: {}", refusal.message);
             Ok(ExitCode::FAILURE)
         }
         ResizeAnswer::Unknown => bail!(
-            "WaOS answered the size in a way this cargo waos does not know: update cargo waos with `cargo install cargo-waos`"
+            "WaOS answered the size in a way this waos does not know: update waos with `curl -fsSL https://waos.app/install.sh | sh`"
         ),
     }
 }

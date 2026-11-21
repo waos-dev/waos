@@ -10,15 +10,15 @@ members = [
     "xtask",
 ]
 # `cargo build` builds what runs on this machine: the engine, the capabilities, the SDK, the
-# app and `cargo waos`. A program is a component, built by name for its own target:
+# app and `waos`. A program is a component, built by name for its own target:
 # `cargo build -p <program> --target wasm32-wasip3`.
 default-members = ["crates/*", "capabilities/*", "sdk/*", "apps/*"]
 
 [workspace.package]
-version = "0.4.0"
+version = "0.4.1"
 edition = "2024"
 license = "MIT"
-# A crate is published only where its manifest says so: the SDK, `cargo waos` and the engine with
+# A crate is published only where its manifest says so: the SDK, `waos` and the engine with
 # what it needs (the design's decision 57).
 publish = false
 homepage = "https://waos.app"
@@ -31,24 +31,24 @@ repository = "https://github.com/waos-dev/waos"
 # leaves a dev-dependency on it out of what it publishes, as the engine's on this computer's
 # capabilities, which its tests use.
 [workspace.dependencies]
-waos = { version = "0.4.0", path = "crates/waos" }
-waos-capabilities = { version = "0.4.0", path = "crates/waos-capabilities" }
-waos-package = { version = "0.4.0", path = "crates/waos-package" }
-waos-dev-protocol = { version = "0.4.0", path = "crates/waos-dev-protocol" }
-waos-cli = { version = "0.4.0", path = "crates/waos-cli" }
-waos-wit-serialize = { version = "0.4.0", path = "crates/waos-wit-serialize" }
-waos-activity = { version = "0.4.0", path = "crates/waos-activity" }
+waos = { version = "0.4.1", path = "crates/waos" }
+waos-capabilities = { version = "0.4.1", path = "crates/waos-capabilities" }
+waos-package = { version = "0.4.1", path = "crates/waos-package" }
+waos-dev-protocol = { version = "0.4.1", path = "crates/waos-dev-protocol" }
+waos-cli = { version = "0.4.1", path = "crates/waos-cli" }
+waos-wit-serialize = { version = "0.4.1", path = "crates/waos-wit-serialize" }
+waos-activity = { version = "0.4.1", path = "crates/waos-activity" }
 waos-store = { path = "crates/waos-store" }
 waos-program-window = { path = "crates/waos-program-window" }
 waos-window-messages = { path = "crates/waos-window-messages" }
 waos-local = { path = "capabilities/local" }
 waos-local-processes = { path = "capabilities/local-processes" }
 waos-local-audio = { path = "capabilities/local-audio" }
-waos-webgpu-host = { version = "0.4.0", path = "crates/waos-webgpu-host" }
-wasdk = { version = "0.4.0", path = "sdk/wasdk" }
-wasdk-macros = { version = "0.4.0", path = "sdk/wasdk-macros" }
-wasdk-wgpu = { version = "0.4.0", path = "sdk/wasdk-wgpu" }
-wasdk-adapter-waft = { version = "0.4.0", path = "sdk/wasdk-adapter-waft" }
+waos-webgpu-host = { version = "0.4.1", path = "crates/waos-webgpu-host" }
+wasdk = { version = "0.4.1", path = "sdk/wasdk" }
+wasdk-macros = { version = "0.4.1", path = "sdk/wasdk-macros" }
+wasdk-wgpu = { version = "0.4.1", path = "sdk/wasdk-wgpu" }
+wasdk-adapter-waft = { version = "0.4.1", path = "sdk/wasdk-adapter-waft" }
 wasdk-adapter-gpui = { path = "sdk/wasdk-adapter-gpui" }
 
 # What we take from crates.io, one version for the workspace.
@@ -150,7 +150,7 @@ jiff = "0.2.43"
 futures = "0.3"
 # What a program does, as events a subscriber reads: its frames' steps.
 tracing = "0.1"
-# What `cargo waos` and a WaOS say to each other, as `waos-dev-protocol` frames it: serde for the
+# What `waos` and a WaOS say to each other, as `waos-dev-protocol` frames it: serde for the
 # messages' shape, and their bytes as CBOR, which names each variant and field, so an addition
 # breaks no other half, with `std` so a message may hold a `Vec`.
 serde = { version = "1", features = ["derive"] }
@@ -186,20 +186,20 @@ tempfile = "3"
 # checks a server's certificate with the platform's own verifier; and the URL a source is.
 reqwest = { version = "0.13", default-features = false, features = ["rustls"] }
 url = "2"
-# `cargo waos`'s command line, derived from its arguments' types.
+# `waos`'s command line, derived from its arguments' types.
 clap = { version = "4", features = ["derive"] }
 # What cargo knows of a workspace: its packages, its target directory, and what a build made.
 cargo_metadata = "0.23"
-# The workspace `cargo waos new` makes a program in, edited as `cargo new` edits it: TOML edited in
+# The workspace `waos new` makes a program in, edited as `cargo new` edits it: TOML edited in
 # place, keeping its comments and layout, at the version `toml` parses with; and the patterns of
 # its members, matched with the glob cargo matches them with.
 toml_edit = "0.25"
-# The docs' archive `cargo waos docs` downloads from a release: a tar, gzipped, read with the
+# The docs' archive `waos docs` downloads from a release: a tar, gzipped, read with the
 # zlib-rs backend `zip` already brings.
 flate2 = { version = "1", default-features = false, features = ["zlib-rs"] }
 tar = { version = "0.4", default-features = false }
 glob = "0.3"
-# The icon `cargo waos new` gives a new program, encoded as a PNG, at the version the workspace
+# The icon `waos new` gives a new program, encoded as a PNG, at the version the workspace
 # builds already, which `image` encodes with.
 png = "0.18"
 # Waft, the framework the WaOS app is built on, from crates.io: a Waft change WaOS needs is

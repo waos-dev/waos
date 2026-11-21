@@ -1,4 +1,4 @@
-//! A new WaOS app in WinUI's look, which `cargo waos run` runs. The docs and guides are at
+//! A new WaOS app in WinUI's look, which `waos run` runs. The docs and guides are at
 //! https://waos.app/docs.
 // Waft's `StatefulWidget::State` takes `self: Handle<Self>`.
 #![feature(arbitrary_self_types)]

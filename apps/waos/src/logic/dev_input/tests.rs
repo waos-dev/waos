@@ -1,4 +1,4 @@
-//! Input from `cargo waos` given to `examples/input` through the dev server, over an engine whose
+//! Input from `waos` given to `examples/input` through the dev server, over an engine whose
 //! windows draw: a tap and a scroll reach it as a mouse of the run's own, coming into the window
 //! once; a press holds the button down for its time, and a drag moves with it held; text is
 //! committed into what it edits, once it edits; a chord reaches it as its keys; each is done once

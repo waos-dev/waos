@@ -10,7 +10,7 @@
 //! `ios_entry`, which shows the library on the screen too. Built so far, the third and fourth parts of step 5a of the design's work order and the
 //! library of step 6: the app starts the engine with what Waft reports of the machine and keeps it
 //! current, shows each view a program asks for in an Waft window of its own, and listens for
-//! `cargo waos run` on the socket `waos-dev-protocol` names, running each program sent on a thread of its
+//! `waos run` on the socket `waos-dev-protocol` names, running each program sent on a thread of its
 //! own in this process with its output back on its connection; its own window is the library's
 //! panel above WaOS's Dock icon, where the programs installed open and are removed, sources are
 //! added and their programs installed, and a `.wapk` opened with WaOS is installed; quitting asks

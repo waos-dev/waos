@@ -1,8 +1,8 @@
-//! `cargo waos inspect`: what the WaOS on this machine knows of what a program does with what it
+//! `waos inspect`: what the WaOS on this machine knows of what a program does with what it
 //! was allowed (the inspector proposal's protocol), printed as JSON lines of `wasdk:inspect`'s
 //! values, one value a line, for a terminal or a coding agent to read: the program's audit summary,
 //! its days newest first; what it uses now, then each change to it; or its live trace of the
-//! capabilities named, each event as it comes; the last two until Ctrl-C or the program's end. Only a program a run of `cargo waos run`
+//! capabilities named, each event as it comes; the last two until Ctrl-C or the program's end. Only a program a run of `waos run`
 //! on this machine runs is inspected live, and one it runs or has run has its summary read.
 //!
 //! The invariant: what WaOS answers is printed as it came, so the command needs no types of its
@@ -66,7 +66,7 @@ pub async fn inspect(id: ProgramId, asked: Inspection) -> Result<ExitCode> {
                 stdout.flush()?;
             }
             InspectAnswer::Refused(refusal) => {
-                eprintln!("cargo waos: {}", refusal.message);
+                eprintln!("waos: {}", refusal.message);
                 return Ok(ExitCode::FAILURE);
             }
             // A line of a newer WaOS's this build does not know: skipped, as the protocol
@@ -75,7 +75,7 @@ pub async fn inspect(id: ProgramId, asked: Inspection) -> Result<ExitCode> {
         }
     }
     if summary && !printed {
-        eprintln!("cargo waos: {id} used nothing WaOS guards on any day kept");
+        eprintln!("waos: {id} used nothing WaOS guards on any day kept");
     }
     Ok(ExitCode::SUCCESS)
 }

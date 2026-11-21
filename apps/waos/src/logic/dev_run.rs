@@ -1,4 +1,4 @@
-//! One connection from `cargo waos`, which is one run (the design's decision 29), once its `Run`
+//! One connection from `waos`, which is one run (the design's decision 29), once its `Run`
 //! is read: the component's parts, which WaOS answers `Upload::Have` for when it holds that
 //! component already and `Upload::Send` when it must receive them, then the component kept in a
 //! file of the app's own (`sent_components`) and loaded off this thread, which compiles it unless

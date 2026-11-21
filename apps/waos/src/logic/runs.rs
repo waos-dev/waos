@@ -1,12 +1,12 @@
-//! The programs running in WaOS, by the id of the program each is, whether `cargo waos` sent it or
+//! The programs running in WaOS, by the id of the program each is, whether `waos` sent it or
 //! the library opened it (decision 11 of the permissions proposal). One per id: a later run
-//! `cargo waos` sends takes the place of the one before, which is stopped first and ends
+//! `waos` sends takes the place of the one before, which is stopped first and ends
 //! `Replaced` (the design's decision 29), as does a start an inspector asks for, while a program
 //! the library opens again is left running as it is. Every run of an id is ended before its program is removed or updated
 //! ([`Runs::stop`]), as a system ends an app it uninstalls or updates, so no run outlives the
-//! package it came from or the folders it was given. A run `cargo waos` sent is its own to read and drive, with a mouse of its own
+//! package it came from or the folders it was given. A run `waos` sent is its own to read and drive, with a mouse of its own
 //! over the program's windows; one the library opened is no tool's (the design's decision 60).
-//! What a sent run has beside its program is `sent`'s, which a phone, where `cargo waos` reaches
+//! What a sent run has beside its program is `sent`'s, which a phone, where `waos` reaches
 //! no WaOS yet, does not compile.
 //!
 //! The invariants: one start or stop of an id at a time. Each holds the id's turn from the moment
@@ -57,7 +57,7 @@ pub(crate) struct Runs {
 struct Running {
     serial: u64,
     program: RunningProgram,
-    /// What a run `cargo waos` sent has beside its program; none for one the library opened, which
+    /// What a run `waos` sent has beside its program; none for one the library opened, which
     /// no tool reads or drives.
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     sent: Option<sent::Sent>,
@@ -95,7 +95,7 @@ impl Runs {
     }
 
     /// Starts a run of the program `id` in place of the one running, if any, which is stopped
-    /// first, as a later run `cargo waos` sends takes the place of the one before (decision 18 of
+    /// first, as a later run `waos` sends takes the place of the one before (decision 18 of
     /// `docs/proposals/2026-11-15-inspector-roles-and-compatibility.md`); then `start` starts the
     /// program, and the run is in the list as one the library opened. An error from `start`
     /// leaves the id free. `start` waits for nothing: the program it starts is loaded already.
@@ -112,7 +112,7 @@ impl Runs {
     }
 
     /// Stops the program running as `id`, if any, and waits until it has ended, out of the list
-    /// first; one `cargo waos` sent ends `Replaced`. The caller holds the id's turn.
+    /// first; one `waos` sent ends `Replaced`. The caller holds the id's turn.
     async fn end_the_one_before(&self, id: &ProgramId) {
         let Some(before) = self.take_out(id) else {
             return;

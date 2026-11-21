@@ -10,11 +10,11 @@
 //! through; the adapter implements it over WASI 0.3's `wasi:http` and `wasi:filesystem`, which
 //! WaOS serves under the program's network and file settings.
 //!
-//! It prints each answer as `what: result`, so `cargo waos run -p waft-io` shows them.
+//! It prints each answer as `what: result`, so `waos run -p waft-io` shows them.
 //!
 //! ```text
 //! cargo build -p waft-io --target wasm32-wasip3
-//! cargo waos run -p waft-io
+//! waos run -p waft-io
 //! ```
 
 use std::path::Path;

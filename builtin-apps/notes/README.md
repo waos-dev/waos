@@ -18,9 +18,9 @@ To run it, start the WaOS built from this workspace, which gives a program's win
 
 ```sh
 cargo waft run -p waos-app      # builds WaOS.app from this workspace, and opens it
-cargo waos run -p notes          # builds the program, and runs it in that WaOS
+waos run -p notes          # builds the program, and runs it in that WaOS
 ```
 
 - **Takes:** `wasdk-adapter-waft`; Waft's `waft-widgets` (the window, the widgets app and its navigator, the menu bar, the lifecycle's listener, its exit requests and resume, and the text's controller), `waft-winui` (the navigation view, the text boxes, the buttons, the info bars and badges, the content dialog, the tooltips, the theme and its icon font, Fluent System Icons), `waft-embedder` (the file dialogs' options, the open requests, notifications and the editor's text), `waft-services` (quitting, and the menu's keys) and `waft-foundation` (the app and its entities), from crates.io; serde and `serde_json`, for a note's file and the list of files open; `tracing`, for what goes wrong out of the user's sight; `wasdk`, for the entry.
-- **Provides:** a component, `target/wasm32-wasip3/debug/notes.wasm`, from `cargo build -p notes --target wasm32-wasip3`, or `target/waos/debug/notes.wasm` from `cargo waos build -p notes`.
+- **Provides:** a component, `target/wasm32-wasip3/debug/notes.wasm`, from `cargo build -p notes --target wasm32-wasip3`, or `target/waos/debug/notes.wasm` from `waos build -p notes`.
 - **Used by:** the engine's tests (`crates/waos/tests/all/notes.rs`), through `crates/waos/tests/programs`; whoever runs it in WaOS.

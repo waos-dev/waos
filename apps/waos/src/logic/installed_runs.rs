@@ -1,6 +1,6 @@
 //! Opening an installed program: its component, from the store, its code waited for while it is
 //! compiled (`installed_code`), as at its install, or compiled where the cache holds none current,
-//! then loaded off the caller's thread and run in WaOS as `cargo waos run` runs what it sends,
+//! then loaded off the caller's thread and run in WaOS as `waos run` runs what it sends,
 //! with this computer's capabilities, the grants of its own settings and its own folders, and the
 //! views it starts with: none where it asks for its windows, and its tab's in a tab of the deck,
 //! where its views go set before it starts (`program_places`). It is named by its id, which names it among the runs, so a quit asks it while it runs,

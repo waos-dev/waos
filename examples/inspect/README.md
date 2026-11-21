@@ -8,5 +8,5 @@ A program with the inspector role, which it asks for by calling `wasdk::inspect`
 
 ```sh
 cargo build -p inspect --target wasm32-wasip3
-cargo waos run -p inspect
+waos run -p inspect
 ```

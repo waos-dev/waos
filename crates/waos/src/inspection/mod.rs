@@ -1,7 +1,7 @@
 //! `wasdk:inspect`, the one schema of what an inspector reads of a program, as the engine's Rust:
 //! the types wasmtime makes of the package, each serializable by the WIT's own names
 //! (`waos-wit-serialize`), so the development connection sends them as JSON of the WIT values,
-//! `dropped-before` and `stdout` as the WIT writes them, and `cargo waos inspect` prints them
+//! `dropped-before` and `stdout` as the WIT writes them, and `waos inspect` prints them
 //! without types of its own.
 //!
 //! The engine's own values are made `wasdk:inspect`'s in [`values`]: a day of a program's audit

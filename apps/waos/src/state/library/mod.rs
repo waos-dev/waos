@@ -364,7 +364,7 @@ impl Library {
         cx.notify();
     }
 
-    /// Opens the installed program `id`, as `cargo waos run` runs a program, from its component in
+    /// Opens the installed program `id`, as `waos run` runs a program, from its component in
     /// the store, where programs open: in a tab of its own, or in windows it asks for; one running
     /// already is left as it is, where it runs. Its windows come forward, or its tab, and one that
     /// cannot be opened is the library's problem, and asks to be seen.

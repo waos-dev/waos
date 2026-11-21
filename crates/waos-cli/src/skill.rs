@@ -1,6 +1,6 @@
-//! The skill `cargo waos docs skill install` writes: a folder an agent loads when it builds a WaOS
+//! The skill `waos docs skill install` writes: a folder an agent loads when it builds a WaOS
 //! app, holding `SKILL.md`, the playbook under the front matter that says when to use it, and
-//! `docs/`, every page of this version's docs as `cargo waos docs <page>` prints it, with
+//! `docs/`, every page of this version's docs as `waos docs <page>` prints it, with
 //! `docs/index.md` the map.
 //!
 //! The invariant: an install leaves the skill as this version has it. `SKILL.md` and `docs/`
@@ -19,7 +19,7 @@ use crate::docs::{self, Docs};
 pub const NAME: &str = "waos";
 
 /// When an agent uses the skill, as `SKILL.md`'s front matter says it.
-const DESCRIPTION: &str = "Build, run, try and package an app for WaOS with cargo waos, Waft and wasdk. Use when making a WaOS app or program, writing its UI with Waft, using a platform capability through wasdk, or running, screenshotting, giving input to or packaging it with cargo waos.";
+const DESCRIPTION: &str = "Build, run, try and package an app for WaOS with waos, Waft and wasdk. Use when making a WaOS app or program, writing its UI with Waft, using a platform capability through wasdk, or running, screenshotting, giving input to or packaging it with waos.";
 
 /// The skills folder an install writes into without `--dir`: Claude Code's personal one,
 /// `~/.claude/skills`, which every project of the user's sees, as every app they make wants it.

@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
-description = "Documents, a live document editor built on Typst, as a Waft app in WinUI's Fluent look over wasdk-adapter-waft: Typst's markup on one side, its typeset pages on the other, compiled in the program as it is typed. `cargo waos run -p documents`."
+description = "Documents, a live document editor built on Typst, as a Waft app in WinUI's Fluent look over wasdk-adapter-waft: Typst's markup on one side, its typeset pages on the other, compiled in the program as it is typed. `waos run -p documents`."
 
 [dependencies]
 waft.workspace = true

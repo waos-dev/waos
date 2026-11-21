@@ -1,27 +1,27 @@
 //! The refusals the dev server gives, each in words a person can act on, beside a kind an agent
-//! acts on: the program no run of `cargo waos run` runs, the window that is not there or is a tab
+//! acts on: the program no run of `waos run` runs, the window that is not there or is a tab
 //! in no window, the point outside it, the input that cannot be given, the component that does not
 //! load, and the opening a connection not on this machine asks for, which only one here may have.
 
 use waos_dev_protocol::{Asked, Locality, OpenAnswer, Refusal, RefusalKind, WindowId};
 use waos_package::ProgramId;
 
-/// No run of `cargo waos run` runs `id` now.
+/// No run of `waos run` runs `id` now.
 pub(crate) fn no_dev_run_now(id: &ProgramId) -> Refusal {
     Refusal::new(
         RefusalKind::NoDevRunNow,
         format!(
-            "{id} is not running from `cargo waos run`: run it with `cargo waos run` in another shell first; a program opened from WaOS's library is neither read nor driven"
+            "{id} is not running from `waos run`: run it with `waos run` in another shell first; a program opened from WaOS's library is neither read nor driven"
         ),
     )
 }
 
-/// No run of `cargo waos run` on this machine has run `id`, so it has no settings to read.
+/// No run of `waos run` on this machine has run `id`, so it has no settings to read.
 pub(crate) fn never_dev_run(id: &ProgramId) -> Refusal {
     Refusal::new(
         RefusalKind::NeverDevRun,
         format!(
-            "no `cargo waos run` on this machine has run {id}: run it once with `cargo waos run`; a program only installed from WaOS's library keeps its settings to its settings page"
+            "no `waos run` on this machine has run {id}: run it once with `waos run`; a program only installed from WaOS's library keeps its settings to its settings page"
         ),
     )
 }
@@ -139,7 +139,7 @@ mod tests {
     fn each_refusal_says_what_to_do_next() {
         let no_run = no_dev_run_now(&notes());
         assert_eq!(no_run.kind, RefusalKind::NoDevRunNow);
-        assert!(no_run.message.contains("cargo waos run"));
+        assert!(no_run.message.contains("waos run"));
         let no_window = no_window(&notes(), WindowId(2), 1);
         assert_eq!(
             no_window.kind,

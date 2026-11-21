@@ -164,12 +164,12 @@ fn create_private_file(path: &Path) -> io::Result<File> {
 /// be kept.
 fn say_made(key: &SigningKey, path: &Path) {
     eprintln!(
-        "cargo waos: made your signing key at {}; the packages it signs carry the publisher key {}",
+        "waos: made your signing key at {}; the packages it signs carry the publisher key {}",
         path.display(),
         key.publisher().fingerprint()
     );
     eprintln!(
-        "cargo waos: back it up: every update of a program you publish must be signed with it, and a program whose key is lost can be published again only under a new id"
+        "waos: back it up: every update of a program you publish must be signed with it, and a program whose key is lost can be published again only under a new id"
     );
 }
 

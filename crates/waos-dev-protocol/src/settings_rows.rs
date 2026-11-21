@@ -1,4 +1,4 @@
-//! A program's settings as `cargo waos set` and `cargo waos settings` name them, one row each, as
+//! A program's settings as `waos set` and `waos settings` name them, one row each, as
 //! its settings page shows them: a question's answer, a switch, the answer to opening links of a
 //! scheme, the answer to it holding a role, and the answers set for its pickers and file dialogs,
 //! given in place of asking; and
@@ -137,12 +137,12 @@ pub enum Row {
 
 adjacent_unknown!(Row);
 
-/// One row of a program's settings as they are, as `cargo waos settings` prints it.
+/// One row of a program's settings as they are, as `waos settings` prints it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SettingRow {
-    /// The row's name, as `cargo waos set` takes it: `camera`, `link-scheme zoommtg`, `save-file`.
+    /// The row's name, as `waos set` takes it: `camera`, `link-scheme zoommtg`, `save-file`.
     pub key: String,
-    /// What holds, as `cargo waos set` takes it: `allow`, `on`, a machine's id, paths; `ask`.
+    /// What holds, as `waos set` takes it: `allow`, `on`, a machine's id, paths; `ask`.
     pub values: Vec<String>,
     /// Whether it follows the setting for every program; never for a row that has none.
     pub follows_global: bool,

@@ -1,5 +1,5 @@
 //! The app's own folders on this machine: where compiled programs are kept for the engine's code
-//! cache, where the components `cargo waos` sends are kept while they run, and, on macOS, the apps
+//! cache, where the components `waos` sends are kept while they run, and, on macOS, the apps
 //! of the programs run in development, all caches the system may clear and the next run makes
 //! again, the copies of the packages handed without a path while they are asked about, and the
 //! running programs' `/tmp`, each emptied when its program ends; WaOS's data folder, with the store in it, the programs installed and the sources added, which the user
@@ -18,8 +18,8 @@ pub(crate) struct AppFolders {
     /// caches: on the volume of the user's home, where the store and the programs' `/data` are,
     /// so a program's file renamed from `/tmp` into `/data` is one rename.
     pub(crate) temporary_folders: PathBuf,
-    /// The components `cargo waos` sends, one file per program's name; none on a phone, which
-    /// `cargo waos` reaches not yet.
+    /// The components `waos` sends, one file per program's name; none on a phone, which
+    /// `waos` reaches not yet.
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     pub(crate) dev_components: PathBuf,
     /// The copies of the packages handed without a path while they are asked about

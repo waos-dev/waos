@@ -1,10 +1,10 @@
-//! A program's settings as `cargo waos settings` reads them and `cargo waos set` sets them: its
+//! A program's settings as `waos settings` reads them and `waos set` sets them: its
 //! settings page's rows (`setting_changes`), each by the key `waos-dev-protocol` names it with, a
 //! set made as the page makes the same change, so the command and the page are one rule. A set
 //! answer is the program's setting, used by every run of it, installed or not (decision 11 of the
 //! permissions proposal).
 //!
-//! The invariant: only a program a run of `cargo waos run` on this machine runs or has run, whose
+//! The invariant: only a program a run of `waos run` on this machine runs or has run, whose
 //! component one sent is among the components kept (`sent_components`), or one the store does not
 //! have installed, which may be set before its first run, is read or set; one the library
 //! installed, which no run sent, is `Refused(NeverDevRun)`.
@@ -68,7 +68,7 @@ async fn rows_after(
         .map_err(|error| failed(format!("reading what the pickers offer: {error}")))?;
     if let Some(row) = set {
         let change = change_of(row, &offered)?;
-        tracing::info!(%id, ?change, "cargo waos sets a program's setting");
+        tracing::info!(%id, ?change, "waos sets a program's setting");
         set_program(&context.store, id, change).map_err(failed)?;
     }
     let global = context.store.global_settings().map_err(failed)?;
@@ -87,7 +87,7 @@ fn failed(error: impl std::fmt::Display) -> Refusal {
     Refusal::new(RefusalKind::Failed, error.to_string())
 }
 
-/// Whether `id` is a development program: one a run of `cargo waos run` on this machine runs or
+/// Whether `id` is a development program: one a run of `waos run` on this machine runs or
 /// has run, or one the store does not have installed, which may be set before its first run. An
 /// installed program no run sent is not one.
 async fn is_a_development_program(context: &SettingsContext, id: &ProgramId) -> bool {
@@ -169,13 +169,13 @@ fn one_offered<'a>(
 ) -> Result<Option<String>, String> {
     match id {
         Some(id) if !offered.any(|each| each == id) => Err(format!(
-            "no {what} {id:?} is offered now: `cargo waos settings` lists those that are"
+            "no {what} {id:?} is offered now: `waos settings` lists those that are"
         )),
         id => Ok(id),
     }
 }
 
-/// The page's rows as `cargo waos settings` prints them, in the page's order.
+/// The page's rows as `waos settings` prints them, in the page's order.
 fn rows(page: &ShownSettings) -> Vec<SettingRow> {
     let mut rows = vec![
         switch_row(
@@ -365,7 +365,7 @@ fn sound_key(sound: waos::SimulatedSound) -> &'static str {
     }
 }
 
-/// `answer` as `cargo waos set` takes it.
+/// `answer` as `waos set` takes it.
 fn answer_key(answer: waos_store::Answer) -> &'static str {
     match answer {
         waos_store::Answer::Granted => Answer::Allow.key(),

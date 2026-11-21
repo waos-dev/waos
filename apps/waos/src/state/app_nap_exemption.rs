@@ -8,7 +8,7 @@
 //! The activity is the system's, behind the closure this state is made with, so its rule is tested
 //! without macOS. [`start`] makes it over Waft's macOS host; [`follow_installed_compiling`],
 //! [`follow_dev_compiling`] and [`follow_windows`] tell it what the library's compiles, the
-//! compiles `cargo waos`'s runs make and the programs' windows report. None of this is built on
+//! compiles `waos`'s runs make and the programs' windows report. None of this is built on
 //! another system, where there is nothing to keep.
 
 use std::any::Any;
@@ -35,7 +35,7 @@ pub(crate) struct AppNapExemption {
     held: Option<Box<dyn Any>>,
     /// The programs whose code the library compiles, being compiled now.
     installed_compiling: BTreeSet<ProgramId>,
-    /// The programs whose code `cargo waos` sent and WaOS is compiling now.
+    /// The programs whose code `waos` sent and WaOS is compiling now.
     sent_compiling: BTreeSet<ProgramId>,
     /// The programs' windows in sight now.
     in_sight: BTreeSet<WindowKey>,
@@ -59,7 +59,7 @@ impl AppNapExemption {
         self.keep_while_needed();
     }
 
-    /// The programs whose code `cargo waos` sent and WaOS is compiling are `compiling`.
+    /// The programs whose code `waos` sent and WaOS is compiling are `compiling`.
     pub(crate) fn sent_compiling_changed(&mut self, compiling: BTreeSet<ProgramId>) {
         self.sent_compiling = compiling;
         self.keep_while_needed();
@@ -149,7 +149,7 @@ mod host {
         });
     }
 
-    /// Keeps the activity while the programs `cargo waos` sent are being compiled.
+    /// Keeps the activity while the programs `waos` sent are being compiled.
     pub(crate) fn follow_dev_compiling(
         app: &mut App,
         activity: Entity<AppNapExemption>,
@@ -267,7 +267,7 @@ mod tests {
     }
 
     #[test]
-    fn a_compile_cargo_waos_sent_holds_it_too() {
+    fn a_compile_waos_sent_holds_it_too() {
         let (mut activity, begun, ended) = activity();
         let sent: ProgramId = "dev.example.sent".parse().unwrap();
         activity.sent_compiling_changed([sent.clone()].into());

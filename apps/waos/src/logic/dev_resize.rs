@@ -1,4 +1,4 @@
-//! A size `cargo waos resize` asks for one window of a program a run of `cargo waos run` runs, by
+//! A size `waos resize` asks for one window of a program a run of `waos run` runs, by
 //! the id the run gave it, so
 //! a test sees the program's layout at a phone's width or a narrow window's (the design's decision
 //! 60): through the engine's view, which sizes its window through the shell as the program's own
@@ -55,7 +55,7 @@ async fn resize(
         .await
         .ok_or_else(|| dev_refusal::no_dev_run_now(id))?;
     let (window, view) = run.window(window)?;
-    tracing::info!(%id, %window, size.width, size.height, "a resize from cargo waos");
+    tracing::info!(%id, %window, size.width, size.height, "a resize from waos");
     let reported = view
         .resize_window(size)
         .ok_or_else(|| dev_refusal::in_no_window(id, window))?;

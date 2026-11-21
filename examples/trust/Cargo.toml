@@ -12,8 +12,8 @@ wasdk.workspace = true
 [lints]
 workspace = true
 
-# What WaOS knows the program by: the id `cargo waos run` runs it as, with that program's
-# settings and folders, and the name and icon `cargo waos package` writes into its package.
+# What WaOS knows the program by: the id `waos run` runs it as, with that program's
+# settings and folders, and the name and icon `waos package` writes into its package.
 [package.metadata.waos]
 id = "dev.waos.examples.trust"
 name = "Trust"

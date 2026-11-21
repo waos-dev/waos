@@ -1,5 +1,5 @@
 //! `examples/environment` under the test shell: a run reads the variables whoever ran it gave it,
-//! as `cargo waos run --env NAME=VALUE` gives them, beside WaOS's own `TMPDIR`, which wins over a
+//! as `waos run --env NAME=VALUE` gives them, beside WaOS's own `TMPDIR`, which wins over a
 //! variable of that name (the design's decision 68).
 
 use std::sync::Arc;

@@ -1,5 +1,5 @@
-//! `cargo waos ui tap`, `press`, `drag`, `type`, `key` and `scroll`: input to a window of the program
-//! a run of `cargo waos run` runs, sent to the WaOS running it, which gives it to the program as
+//! `waos ui tap`, `press`, `drag`, `type`, `key` and `scroll`: input to a window of the program
+//! a run of `waos run` runs, sent to the WaOS running it, which gives it to the program as
 //! its user would give it and answers once the window shows the picture after it, or once it
 //! knows the window was out of sight or drew nothing new, so a screenshot taken next shows what
 //! it did (the design's decision 60). A point is in the window's pixels, a screenshot's, from its
@@ -43,16 +43,16 @@ pub async fn give(id: ProgramId, window: Option<WindowId>, input: Input) -> Resu
             new_picture,
         }) => {
             if let Some(said) = said(in_sight, new_picture, window) {
-                eprintln!("cargo waos: {said}");
+                eprintln!("waos: {said}");
             }
             Ok(ExitCode::SUCCESS)
         }
         InputAnswer::Refused(refusal) => {
-            eprintln!("cargo waos: {}", refusal.message);
+            eprintln!("waos: {}", refusal.message);
             Ok(ExitCode::FAILURE)
         }
         InputAnswer::Unknown => bail!(
-            "WaOS answered the input in a way this cargo waos does not know: update cargo waos with `cargo install cargo-waos`"
+            "WaOS answered the input in a way this waos does not know: update waos with `curl -fsSL https://waos.app/install.sh | sh`"
         ),
     }
 }

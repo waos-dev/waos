@@ -1,9 +1,9 @@
 //! Starting a program held for an inspector (decisions 18 and 19 of
 //! `docs/proposals/2026-11-15-inspector-roles-and-compatibility.md`): the program the id names,
 //! installed, by its component in the store, or else run in development, by the component its
-//! last `cargo waos run` sent; loaded off the caller's thread, which compiles it unless the code
+//! last `waos run` sent; loaded off the caller's thread, which compiles it unless the code
 //! cache holds its code; then started held in place of the one running, which is stopped first,
-//! as a later `cargo waos run` replaces a run, and kept among the runs as one the library opened,
+//! as a later `waos run` replaces a run, and kept among the runs as one the library opened,
 //! with its settings and folders and this computer's capabilities, its output going to WaOS's log
 //! and to an inspector that listens. Answered once it is linked, so the inspector can listen to it
 //! from its first instruction.
@@ -27,7 +27,7 @@ use super::sent_components::SentComponents;
 pub(crate) struct HeldStarts {
     pub(crate) installed: InstalledRuns,
     pub(crate) store: Store,
-    /// The components `cargo waos` sent, where a development run is started again from.
+    /// The components `waos` sent, where a development run is started again from.
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     pub(crate) sent: Arc<SentComponents>,
 }
@@ -42,7 +42,7 @@ impl HeldStarts {
         }
         #[cfg(not(any(target_os = "android", target_os = "ios")))]
         {
-            // Held until the run is among the runs, as a run `cargo waos` sends holds it.
+            // Held until the run is among the runs, as a run `waos` sends holds it.
             let sent = self.sent.hold(&id).await;
             if sent.path().is_file() {
                 return self.start_from(&id, sent.path().to_owned()).await;

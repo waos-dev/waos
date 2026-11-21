@@ -1,5 +1,6 @@
-//! The docs `cargo waos docs` and `cargo waos docs skill install` serve: those of the version the app
-//! builds with, from the archive its GitHub release carries (`waos-docs-<version>.tar.gz`, which
+//! The docs `waos docs` and `waos docs skill install` serve: those of the version the app
+//! builds with, from the archive its release carries (`waos-docs-<version>.tar.gz`, from
+//! download.waos.app or else GitHub, which
 //! the site's `write-docs-bundle.mjs` makes at the release's tag), downloaded once into the user's
 //! cache and read from there offline afterwards; or, where none could be downloaded, waos.app's
 //! latest, said to be so.
@@ -62,7 +63,7 @@ pub struct Hit {
     pub text: String,
 }
 
-/// The docs of the version this directory's app builds with, or this `cargo waos`'s outside an
+/// The docs of the version this directory's app builds with, or this `waos`'s outside an
 /// app: from the cache, downloaded into it the first time, or waos.app's latest where that fails,
 /// which it says on stderr.
 pub async fn load() -> Result<Docs> {
@@ -75,14 +76,14 @@ pub async fn load() -> Result<Docs> {
         Ok(archive) => {
             let folder = cache::install(&root, &version, &archive)?;
             eprintln!(
-                "cargo waos: downloaded the docs of version {version} into {}",
+                "waos: downloaded the docs of version {version} into {}",
                 folder.display()
             );
             Docs::from_bundle(&folder)
         }
         Err(error) => {
             eprintln!(
-                "cargo waos: the docs of version {version} could not be downloaded ({error:#}); these are waos.app's latest docs, which may not match version {version}"
+                "waos: the docs of version {version} could not be downloaded ({error:#}); these are waos.app's latest docs, which may not match version {version}"
             );
             let (pages, playbook) = download::latest().await?;
             Ok(Docs::from_latest(&version, &pages, &playbook))
@@ -149,10 +150,10 @@ impl Docs {
             .take(5)
             .collect();
         if close.is_empty() {
-            bail!("no page is named {asked}; `cargo waos docs` lists them");
+            bail!("no page is named {asked}; `waos docs` lists them");
         }
         bail!(
-            "no page is named {asked}; perhaps {}. `cargo waos docs` lists them",
+            "no page is named {asked}; perhaps {}. `waos docs` lists them",
             names(&close)
         )
     }

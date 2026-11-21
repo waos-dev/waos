@@ -1,10 +1,10 @@
-//! GPUI's and the program's `log` records, on the program's standard error, which `cargo waos run`
+//! GPUI's and the program's `log` records, on the program's standard error, which `waos run`
 //! shows and WaOS keeps in its log otherwise, filtered by `RUST_LOG` with `env_filter`, the crate
 //! env_logger filters with: `debug` for every target, `info,gpui=debug` for gpui's debug records
 //! among the rest, and a target alone for every level of it; Info for every target with none.
 //!
 //! The invariant: the filter is read once, at the program's start, from the environment WaOS gave
-//! the program, so `cargo waos run --env RUST_LOG=debug` reaches it.
+//! the program, so `waos run --env RUST_LOG=debug` reaches it.
 
 use std::env;
 use std::sync::OnceLock;

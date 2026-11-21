@@ -1,5 +1,5 @@
-//! A screenshot `cargo waos screenshot` asks for: the last picture of each window of a program a
-//! run of `cargo waos run` runs, or of the one window asked for, each with the id the run gave it
+//! A screenshot `waos screenshot` asks for: the last picture of each window of a program a
+//! run of `waos run` runs, or of the one window asked for, each with the id the run gave it
 //! as it opened, its title, its size, whether it is in sight, and the picture as a PNG (the
 //! design's decision 60). A picture is what the window shows, at its view's size (`ProgramView::picture`,
 //! decision 62): the program's drawing over what each composition layer beneath it shows now, a
@@ -10,7 +10,7 @@
 //! What WaOS asks the program's user over its windows is the shell's, not the program's picture:
 //! each window says what is asked (`asking_now`).
 //!
-//! The invariant: only a run `cargo waos run` sent is read, never a program the library opened.
+//! The invariant: only a run `waos run` sent is read, never a program the library opened.
 
 use waos::ProgramView;
 use waos::bindings::wasdk::platform::hardware_buffers::PixelBuffer;
@@ -89,7 +89,7 @@ fn pictures(
     }
 }
 
-/// The window `window`, showing `view`, as `cargo waos screenshot` writes it.
+/// The window `window`, showing `view`, as `waos screenshot` writes it.
 fn picture_of(window: WindowId, view: &ProgramView) -> WindowPicture {
     let pixels = match view.picture() {
         Ok(pixels) => pixels,
@@ -179,7 +179,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn only_a_run_cargo_waos_sent_is_read() {
+    async fn only_a_run_waos_sent_is_read() {
         let server = TestServer::start("screenshot-library");
         let ScreenshotAnswer::Refused(refusal) =
             server.ask::<ScreenshotAnswer>(&screenshot(OPENER)).await

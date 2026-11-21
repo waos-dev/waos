@@ -316,7 +316,7 @@ impl RunningProgram {
         self.0.views.request_failed(request, error);
     }
 
-    /// A tool watches the program, as `cargo waos run` does while it is attached (the design's
+    /// A tool watches the program, as `waos run` does while it is attached (the design's
     /// decision 63), until the answer is dropped: the program's views count as in sight though
     /// other windows cover them, so their frames are served and the program is neither hidden nor
     /// frozen for being covered, while a minimized or hidden window stays out of sight. Nothing is

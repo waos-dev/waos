@@ -2,7 +2,7 @@
 //! it. Windows has no folder of the user's own for it, so the pipe is named after the user and
 //! guarded as the Unix socket's folder guards it (the design's decision 30): the pipe's security
 //! descriptor makes the user its owner and gives the user alone access, so no other user may
-//! connect, or read what WaOS writes, as the default descriptor lets everyone; and `cargo waos`
+//! connect, or read what WaOS writes, as the default descriptor lets everyone; and `waos`
 //! talks only to a pipe the user owns, since any user may make a pipe of any free name, and one
 //! made before WaOS starts would otherwise receive the program.
 //!
@@ -11,7 +11,7 @@
 //!   never joins a pipe another process made under the name; while another WaOS has it, a second
 //!   one is refused. The pipe goes when its last instance closes: nothing is left to clear.
 //! - One instance always waits for the next connection: the next is made as soon as one connects,
-//!   before it is handed out, so a `cargo waos` finds the pipe busy for a moment at most.
+//!   before it is handed out, so a `waos` finds the pipe busy for a moment at most.
 //! - The pipe takes no client from another machine (`PIPE_REJECT_REMOTE_CLIENTS`, tokio's
 //!   default), and a client lets the server identify it but never act as it (tokio's default
 //!   `SECURITY_IDENTIFICATION`).
@@ -30,13 +30,13 @@ use windows_sys::Win32::Foundation::{ERROR_ACCESS_DENIED, ERROR_PIPE_BUSY};
 use crate::connection::Connection;
 use crate::os::windows::{UserOnly, owner_sid, user_sid};
 
-/// The stream of a connection `cargo waos` made: a named pipe's client end.
+/// The stream of a connection `waos` made: a named pipe's client end.
 pub type ClientStream = NamedPipeClient;
 
 /// The stream of a connection a WaOS accepted: an instance of its named pipe.
 pub type ServerStream = NamedPipeServer;
 
-/// How long a `cargo waos` waits for the pipe while every instance is busy, which is the moment
+/// How long a `waos` waits for the pipe while every instance is busy, which is the moment
 /// between a connection and the next instance at most.
 const BUSY_WAIT: Duration = Duration::from_secs(2);
 const RETRY_EVERY: Duration = Duration::from_millis(20);
@@ -90,7 +90,7 @@ fn refuse_another_users(pipe: &NamedPipeClient, path: &Path) -> io::Result<()> {
     ))
 }
 
-/// Where a WaOS accepts `cargo waos`'s connections: the pipe's instance waiting for the next one.
+/// Where a WaOS accepts `waos`'s connections: the pipe's instance waiting for the next one.
 /// Dropping it closes that instance; the pipe goes with the last one.
 pub struct Listener {
     waiting: NamedPipeServer,

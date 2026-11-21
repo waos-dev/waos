@@ -8,7 +8,7 @@
 //!
 //! ```text
 //! cargo build -p waft-time --target wasm32-wasip3
-//! cargo waos run -p waft-time
+//! waos run -p waft-time
 //! ```
 
 use std::cell::Cell;

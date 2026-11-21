@@ -3,7 +3,7 @@
 //! desktop, and on a phone each program in a tab of the deck, which refuses every request, Waft's
 //! clipboard as the programs' one, Waft's menus as theirs, a program's menu bar, context menus,
 //! file dialogs and notifications its app's on macOS, WaOS's own menu bar, Waft's opener,
-//! notifications elsewhere, players, reading of media and cameras as theirs, the dev server listening for `cargo waos`, the installed programs' shortcuts on Android, the library over the
+//! notifications elsewhere, players, reading of media and cameras as theirs, the dev server listening for `waos`, the installed programs' shortcuts on Android, the library over the
 //! store in the desktop's launcher or in a window of a phone's size, the questions
 //! programs put to their user, the picker of their sound's output among them, shown on macOS in
 //! dialogs of the programs' apps (`prompt_dialogs`), the programs recording, and the quit that
@@ -322,7 +322,7 @@ pub(crate) fn start(
     );
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     let sent = Arc::new(SentComponents::new(folders.dev_components));
-    // The compiles `cargo waos`'s runs make, for the same activity.
+    // The compiles `waos`'s runs make, for the same activity.
     #[cfg(target_os = "macos")]
     let dev_compiles = {
         let (compiles, compiling) = DevCompiles::new();
@@ -335,7 +335,7 @@ pub(crate) fn start(
     ))]
     let dev_compiles: Option<Arc<DevCompiles>> = None;
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
-    listen_for_cargo_waos(
+    listen_for_the_command(
         app,
         installed_runs.clone(),
         &store,
@@ -447,15 +447,15 @@ pub(crate) fn start(
     Ok(())
 }
 
-/// Listens for `cargo waos` on the socket `waos-dev-protocol` names, running what it sends on
+/// Listens for `waos` on the socket `waos-dev-protocol` names, running what it sends on
 /// `installed`'s engine with its environments, counted in its runs, the components kept in
 /// `sent`, reporting each compile a run makes to `dev_compiles`, and opening files with an
 /// installed program as `installed` opens it; and
 /// makes a quit ask every program in its runs first, stopping the server and keeping the
 /// engine's days once they agree. Not on
-/// a phone: `cargo waos` reaches none yet, and the system ends an app there without asking it.
+/// a phone: `waos` reaches none yet, and the system ends an app there without asking it.
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
-fn listen_for_cargo_waos(
+fn listen_for_the_command(
     app: &mut App,
     installed: InstalledRuns,
     store: &Store,
@@ -474,8 +474,8 @@ fn listen_for_cargo_waos(
         sent,
         dev_compiles,
     )
-    .with_context(|| format!("listening for cargo waos at {}", socket.display()))?;
-    tracing::info!(socket = %socket.display(), "WaOS listens for cargo waos");
+    .with_context(|| format!("listening for waos at {}", socket.display()))?;
+    tracing::info!(socket = %socket.display(), "WaOS listens for waos");
     quitting::ask_programs_before_quitting(app, runs, server, engine);
     Ok(())
 }

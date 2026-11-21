@@ -34,7 +34,7 @@ pub const SERVED: [&str; 8] = [
 pub enum Peer {
     WaOS,
     #[default]
-    CargoWaos,
+    Command,
     WaosOpen,
     #[serde(skip)]
     Unknown,
@@ -47,9 +47,9 @@ adjacent_unknown!(Peer);
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Hello {
     pub major: u32,
-    /// The build as people name it: "WaOS 0.3.0", "cargo-waos 0.3.0".
+    /// The build as people name it: "WaOS 0.4.1", "waos 0.4.1".
     pub build: String,
-    /// WaOS's: the requests it serves ([`SERVED`]); `cargo waos`'s: none.
+    /// WaOS's: the requests it serves ([`SERVED`]); `waos`'s: none.
     #[serde(default)]
     pub serves: Vec<String>,
     /// Which binary sent this hello.
@@ -68,13 +68,13 @@ impl Hello {
         }
     }
 
-    /// `cargo waos`'s hello, `build` naming it.
-    pub fn cargo_waos(build: impl Into<String>) -> Hello {
+    /// `waos`'s hello, `build` naming it.
+    pub fn command(build: impl Into<String>) -> Hello {
         Hello {
             major: MAJOR,
             build: build.into(),
             serves: Vec::new(),
-            peer: Peer::CargoWaos,
+            peer: Peer::Command,
         }
     }
 
@@ -129,7 +129,9 @@ impl fmt::Display for Mismatch {
                     theirs.peer
                 };
                 let action = match older {
-                    Peer::CargoWaos => "update cargo waos with `cargo install cargo-waos`",
+                    Peer::Command => {
+                        "update waos with `curl -fsSL https://waos.app/install.sh | sh`"
+                    }
                     Peer::WaOS | Peer::WaosOpen | Peer::Unknown => {
                         "update WaOS from https://waos.app"
                     }
@@ -236,7 +238,7 @@ mod tests {
         let names: Vec<&str> = all.iter().map(Request::name).collect();
         assert_eq!(names, SERVED);
         let waos = Hello::waos("WaOS 0.3.0");
-        let cli = Hello::cargo_waos("cargo-waos 0.3.0");
+        let cli = Hello::command("waos 0.3.0");
         for request in &all {
             assert_eq!(waos.accepts(&cli, request), Ok(()));
         }
@@ -256,7 +258,7 @@ mod tests {
             serves: vec!["run".to_owned()],
             ..Hello::waos("WaOS 0.3.0")
         };
-        let ours = Hello::cargo_waos("cargo-waos 0.3.0");
+        let ours = Hello::command("waos 0.3.0");
         assert_eq!(theirs.accepts(&ours, &run()), Ok(()));
         let refused = theirs.accepts(&ours, &screenshot()).unwrap_err();
         assert!(matches!(refused, Mismatch::NotServed { .. }));
@@ -269,16 +271,16 @@ mod tests {
 
     #[test]
     fn a_major_that_differs_names_both_builds_and_the_one_to_update() {
-        let ours = Hello::cargo_waos("cargo-waos 0.3.0");
+        let ours = Hello::command("waos 0.3.0");
         let newer = Hello {
             major: MAJOR + 1,
             ..Hello::waos("WaOS 0.4.0")
         };
         let refused = newer.accepts(&ours, &run()).unwrap_err();
         assert!(
-            refused.to_string().contains("update cargo waos")
+            refused.to_string().contains("update waos")
                 && refused.to_string().contains("WaOS 0.4.0")
-                && refused.to_string().contains("cargo-waos 0.3.0"),
+                && refused.to_string().contains("waos 0.3.0"),
             "{refused}"
         );
         let older = Hello {
@@ -324,6 +326,6 @@ mod tests {
         let hello: Hello = ciborium::from_reader(bytes.as_slice()).unwrap();
         assert_eq!(hello.build, "WaOS 0.4.0");
         assert_eq!(hello.major, MAJOR);
-        assert_eq!(hello.peer, Peer::CargoWaos);
+        assert_eq!(hello.peer, Peer::Command);
     }
 }

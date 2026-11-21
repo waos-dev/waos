@@ -291,7 +291,7 @@ async function checkHome(page) {
   const starterCopied = await page.evaluate(() => navigator.clipboard.readText());
   check('starter chip customizes the inline prompt', starterCopied.includes('markdown reader'), starterCopied);
   const commands = await page.locator('pre').first().innerText();
-  check('the commands make an app and run it', commands.includes('cargo waos new hello'));
+  check('the commands make an app and run it', commands.includes('waos new hello'));
   const docsLinks = await page.locator('section ul a').evaluateAll((links) => links.map((link) => link.getAttribute('href')));
   check('the developers are pointed at Start', docsLinks.includes('/docs/start'));
   check('Concepts remains reachable from the home page', docsLinks.includes('/docs/concepts'));

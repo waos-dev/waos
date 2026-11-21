@@ -15,10 +15,10 @@ WaOS is at [waos.app](https://waos.app).
 ## Write an app
 
 ```bash
-curl -fsSL https://waos.app/install.sh | sh   # waos and cargo waos, with WaOS; Rust from rustup.rs
-cargo waos new hello          # a Waft app; --template cupertino for one meant for phones
-cd hello && cargo waos run    # build it and run it in WaOS
-cargo waos package            # a signed .wapk to share
+curl -fsSL https://waos.app/install.sh | sh   # WaOS and its command, waos; Rust from rustup.rs
+waos new hello          # a Waft app; --template cupertino for one meant for phones
+cd hello && waos run    # build it and run it in WaOS
+waos package            # a signed .wapk to share
 ```
 
 Building with an agent? Point it at [waos.app/agents.md](https://waos.app/agents.md).
@@ -46,7 +46,7 @@ What each folder is:
 | `wit/` | The interface apps see, in WIT |
 | `sdk/` | `wasdk`, what apps are written with, and its adapters for Waft and GPUI |
 | `crates/waos` | The engine any app can embed to run WaOS apps |
-| `crates/waos-cli` | `cargo waos` |
+| `crates/waos-cli` | `waos` |
 | `apps/waos` | The WaOS app |
 | `builtin-apps/` | Apps that come with WaOS: Notes, Reader, Inspector, a video player and more |
 | `examples/` | Small apps, one per feature |

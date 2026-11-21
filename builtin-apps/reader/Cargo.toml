@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
-description = "Reader, a feed reader as a Waft app in WinUI's Fluent look over wasdk-adapter-waft: RSS and Atom feeds added by address, their newest items listed with pictures, an item's text laid out to read, read marks, and a notification when a refresh finds something new. `cargo waos run -p reader`."
+description = "Reader, a feed reader as a Waft app in WinUI's Fluent look over wasdk-adapter-waft: RSS and Atom feeds added by address, their newest items listed with pictures, an item's text laid out to read, read marks, and a notification when a refresh finds something new. `waos run -p reader`."
 
 [dependencies]
 waft.workspace = true
@@ -37,7 +37,7 @@ tempfile.workspace = true
 [lints]
 workspace = true
 
-# What WaOS knows the program by: the id `cargo waos run` runs it as, with that program's settings
+# What WaOS knows the program by: the id `waos run` runs it as, with that program's settings
 # and folders, and the name and icon it is packaged with.
 [package.metadata.waos]
 id = "dev.waos.reader"

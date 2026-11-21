@@ -1,7 +1,7 @@
-//! The runs `cargo waos` sends, among WaOS's runs: a later run of an id takes the place of the one
+//! The runs `waos` sends, among WaOS's runs: a later run of an id takes the place of the one
 //! before, which is stopped first and ends `Replaced` (the design's decision 29), and each is its
 //! own to read and drive, with a mouse of its own over the program's windows (decision 60). Not on
-//! a phone, which `cargo waos` reaches not yet.
+//! a phone, which `waos` reaches not yet.
 //!
 //! The invariant: a sent run's mark and mouse are in the list under the same lock as its program,
 //! so a screenshot or an input never finds the program without them, nor them without it.
@@ -18,11 +18,11 @@ use super::{Run, Runs};
 use crate::logic::dev_input::DevMouse;
 use crate::logic::dev_refusal;
 
-/// What a run `cargo waos` sent has in the list beside its program.
+/// What a run `waos` sent has in the list beside its program.
 pub(super) struct Sent {
     /// Set before the program is stopped for a later run of its id.
     replaced: Arc<AtomicBool>,
-    /// The mouse `cargo waos`'s input moves over the program's windows.
+    /// The mouse `waos`'s input moves over the program's windows.
     mouse: Arc<DevMouse>,
 }
 
@@ -33,7 +33,7 @@ impl Sent {
     }
 }
 
-/// One run `cargo waos` sent, as its connection holds it.
+/// One run `waos` sent, as its connection holds it.
 pub(crate) struct SentRun {
     pub(crate) run: Run,
     replaced: Arc<AtomicBool>,
@@ -53,7 +53,7 @@ impl SentRun {
     }
 }
 
-/// A program a run of `cargo waos run` runs, which `cargo waos`'s screenshots and input read and
+/// A program a run of `waos run` runs, which `waos`'s screenshots and input read and
 /// drive: the program, and the mouse that input moves over its windows.
 #[derive(Clone)]
 pub(crate) struct DevRun {
@@ -95,9 +95,9 @@ impl DevRun {
 }
 
 impl Runs {
-    /// Starts a run `cargo waos` sent of the program `id`: the one running, if any, is stopped
-    /// first, and ends `Replaced` where `cargo waos` sent it; then `start` starts the program, and
-    /// the run is in the list, with a mouse of its own for `cargo waos`'s input. An error from
+    /// Starts a run `waos` sent of the program `id`: the one running, if any, is stopped
+    /// first, and ends `Replaced` where `waos` sent it; then `start` starts the program, and
+    /// the run is in the list, with a mouse of its own for `waos`'s input. An error from
     /// `start` leaves the id free. `start` waits for nothing: the program it starts is loaded
     /// already.
     pub(crate) async fn start(
@@ -121,7 +121,7 @@ impl Runs {
         Ok(SentRun { run, replaced })
     }
 
-    /// The program `id` running now, if `cargo waos run` sent it; none for one the library
+    /// The program `id` running now, if `waos run` sent it; none for one the library
     /// opened.
     pub(crate) async fn dev_run(&self, id: &ProgramId) -> Option<DevRun> {
         let running = self.listed();

@@ -7,7 +7,7 @@
 //!
 //! ```text
 //! cargo build -p waft-back --target wasm32-wasip3
-//! cargo waos run -p waft-back
+//! waos run -p waft-back
 //! ```
 
 use std::rc::Rc;

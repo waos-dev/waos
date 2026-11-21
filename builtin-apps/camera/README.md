@@ -3,7 +3,7 @@
 A camera: the camera's picture live in the window, a look chosen for it, a photo taken, and the photos taken kept, viewed, exported and deleted. A Waft app in Fluent's dark look, Waft's WinUI controls, over `wasdk-adapter-waft`. Its package is `camera-app`, since `examples/camera` is the workspace's `camera`.
 
 ```sh
-cargo waos run -p camera-app --release     # builds the program, and runs it in the WaOS on this machine
+waos run -p camera-app --release     # builds the program, and runs it in the WaOS on this machine
 cargo test -p camera-app                   # the looks, the library, the format choice, on this computer
 ```
 
@@ -40,5 +40,5 @@ Cameras, frame readers, a compositor, a hardware buffer allocator and a WebGPU d
 - **A fallback through the program's memory** for a system with image codecs but no hardware codecs: nothing here could run it.
 
 - **Takes:** `waft`, `waft-winui`, `waft-services` (the keys) and `wasdk-adapter-waft`; `wasdk-wgpu` and `wgpu`, the app's own device; `wasdk`, for the entry and the camera's permission; `tracing`.
-- **Provides:** a component, from `cargo waos build -p camera-app`, and a package, `dev.waos.camera`, from `cargo waos package -p camera-app`.
+- **Provides:** a component, from `waos build -p camera-app`, and a package, `dev.waos.camera`, from `waos package -p camera-app`.
 - **Used by:** whoever opens it in WaOS.

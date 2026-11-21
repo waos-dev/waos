@@ -11,14 +11,14 @@ A feed reader, as a Waft app in WinUI's Fluent look over `wasdk-adapter-waft`: t
 
 What it does not do: folders of feeds, search, starring, OPML import or export, a menu bar and keyboard shortcuts of its own, a feed's own icon, video or audio enclosures, tables as grids, selecting an item's text. A refresh happens only while the program runs: nothing in WaOS wakes a program on a schedule.
 
-What was not tried: a notification posted and clicked (the permission's question cannot be answered from `cargo waos`), a phone's Back on a phone (the window was checked at a phone's width on a desktop), and the system's dark look.
+What was not tried: a notification posted and clicked (the permission's question cannot be answered from `waos`), a phone's Back on a phone (the window was checked at a phone's width on a desktop), and the system's dark look.
 
 - **Takes:** `waft` and `waft-winui`, with `waft-gestures` and `waft-services` for a link's tap and cursor; `wasdk-adapter-waft` and `wasdk`, whose `wasdk::http` every request goes through; `feed-rs` for a feed's document, `scraper` for an item's HTML, `url`, `chrono`, `serde` and `serde_json`.
-- **Provides:** a component, from `cargo waos build -p reader`, and a package, from `cargo waos package -p reader`.
+- **Provides:** a component, from `waos build -p reader`, and a package, from `waos package -p reader`.
 - **Used by:** people, from WaOS's library.
 
 ```bash
-cargo waos run -p reader
+waos run -p reader
 cargo test -p reader        # the logic, on this computer
 ```
 

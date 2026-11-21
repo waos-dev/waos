@@ -153,13 +153,13 @@ fn windows_argument(argument: &str) -> String {
 
 /// Where this WaOS is, which a pin starts: the AppImage it runs from on Linux, as the AppImage's
 /// runtime names it, since the executable inside is mounted only while it runs; its executable
-/// otherwise.
+/// otherwise, through any link it was started by.
 fn waos_executable() -> std::io::Result<PathBuf> {
     match std::env::var_os("APPIMAGE") {
         Some(app_image) if cfg!(target_os = "linux") && !app_image.is_empty() => {
             Ok(PathBuf::from(app_image))
         }
-        _ => std::env::current_exe(),
+        _ => std::env::current_exe().and_then(std::fs::canonicalize),
     }
 }
 

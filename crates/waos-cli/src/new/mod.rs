@@ -1,4 +1,4 @@
-//! `cargo waos new`: a new program in a folder of its name, a Waft app over
+//! `waos new`: a new program in a folder of its name, a Waft app over
 //! `wasdk-adapter-waft` in one widget kit's look, as `cargo waft new` writes a Waft app:
 //!
 //! ```text
@@ -14,7 +14,7 @@
 //! it inherits what the workspace gives, is added to its members unless a pattern there takes it
 //! in, and leaves the toolchain to the workspace when the workspace names one.
 //!
-//! The invariant: a new program is run by `cargo waos run` and packaged by `cargo waos package`
+//! The invariant: a new program is run by `waos run` and packaged by `waos package`
 //! as it is written, with no edits: its metadata holds every field `package` reads, its icon
 //! passes `waos-package`'s check, and its toolchain is WaOS's own; and it never makes a
 //! `[workspace]` of its own, which inside another workspace stops that workspace from loading.
@@ -206,7 +206,7 @@ mod tests {
         assert!(walk(scratch.path()).is_empty());
     }
 
-    /// What `cargo waos package` reads of a new program, through cargo as it reads it, makes a
+    /// What `waos package` reads of a new program, through cargo as it reads it, makes a
     /// package: its metadata and version give a manifest, and its icon passes the check.
     #[test]
     fn a_new_program_has_what_a_package_needs() {

@@ -1,4 +1,4 @@
-//! A page of the docs, as `cargo waos docs <page>` prints it.
+//! A page of the docs, as `waos docs <page>` prints it.
 
 /// The site's origin, which its addresses and the icons' pictures are at.
 pub const SITE: &str = "https://waos.app";

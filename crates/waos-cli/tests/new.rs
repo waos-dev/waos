@@ -1,6 +1,6 @@
-//! `cargo waos new`'s programs build as components, each template's, with the binary as a
-//! program's author runs it: `cargo waos new` in a folder, WinUI's without `--template`, then
-//! `cargo waos build` in the program.
+//! `waos new`'s programs build as components, each template's, with the binary as a
+//! program's author runs it: `waos new` in a folder, WinUI's without `--template`, then
+//! `waos build` in the program.
 //!
 //! A new program names the SDK and Waft by their crates.io versions, where it would build against
 //! the last release, so each is built against this workspace's crates instead, to test a change
@@ -32,24 +32,20 @@ fn a_new_cupertino_program_builds_as_a_component() {
 fn builds_as_a_component(template: &str, options: &[&str]) {
     let scratch = tempfile::tempdir().unwrap();
     let name = format!("new-{template}");
-    let said = cargo_waos(scratch.path(), &[&["new", name.as_str()], options].concat());
-    assert!(
-        said.contains(&format!("cd {name} && cargo waos run")),
-        "{said}"
-    );
+    let said = run_waos(scratch.path(), &[&["new", name.as_str()], options].concat());
+    assert!(said.contains(&format!("cd {name} && waos run")), "{said}");
     let program = scratch.path().join(&name);
     let main_rs = fs::read_to_string(program.join("src/main.rs")).unwrap();
     assert_eq!(main_rs, template_main_rs(template), "not {template}'s");
     build_against_the_workspace(scratch.path(), &program);
-    let component = cargo_waos(&program, &["build"]);
+    let component = run_waos(&program, &["build"]);
     let component = fs::read(component.trim()).unwrap();
     assert_eq!(component[..8], COMPONENT_PREAMBLE, "not a component");
 }
 
-/// Runs `cargo waos` with `arguments` in `folder`, and answers what it printed on stdout.
-fn cargo_waos(folder: &Path, arguments: &[&str]) -> String {
-    let output = Command::new(env!("CARGO_BIN_EXE_cargo-waos"))
-        .arg("waos")
+/// Runs `waos` with `arguments` in `folder`, and answers what it printed on stdout.
+fn run_waos(folder: &Path, arguments: &[&str]) -> String {
+    let output = Command::new(env!("CARGO_BIN_EXE_waos"))
         .args(arguments)
         .current_dir(folder)
         .env("CARGO", env!("CARGO"))
@@ -59,7 +55,7 @@ fn cargo_waos(folder: &Path, arguments: &[&str]) -> String {
     let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
     assert!(
         output.status.success(),
-        "cargo waos {}: {}\n{stdout}\n{}",
+        "waos {}: {}\n{stdout}\n{}",
         arguments.join(" "),
         output.status,
         String::from_utf8_lossy(&output.stderr)

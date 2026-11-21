@@ -97,12 +97,6 @@ pub(crate) fn classify_launch(
     argv: impl IntoIterator<Item = OsString>,
 ) -> Result<Launch, &'static str> {
     let argv: Vec<OsString> = argv.into_iter().collect();
-    if argv
-        .first()
-        .is_some_and(|argv0| waos_cli::is_cargo_subcommand_invocation(argv0))
-    {
-        return Ok(Launch::Cli(argv));
-    }
     let args = argv.get(1..).unwrap_or(&[]);
     let words: Vec<Option<&str>> = args.iter().map(|arg| arg.to_str()).collect();
 
@@ -278,7 +272,7 @@ mod tests {
 
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     #[test]
-    fn classify_launch_routes_cli_headless_cargo_waos_and_gui_correctly() {
+    fn classify_launch_routes_cli_headless_and_gui_correctly() {
         // GUI & open preserved
         assert_eq!(
             launch_of(&["waos"]),
@@ -356,25 +350,6 @@ mod tests {
                 matches!(launch_of(cmd), Ok(Launch::Cli(_))),
                 "expected Cli for {cmd:?}, got {:?}",
                 launch_of(cmd)
-            );
-        }
-
-        // cargo-waos symlink always routes to CLI (even with no args)
-        for cargo_argv in [
-            &["cargo-waos"][..],
-            &["cargo-waos", "waos", "run"],
-            &[
-                "/usr/local/bin/cargo-waos",
-                "waos",
-                "ui",
-                "tap",
-                "--at",
-                "1,2",
-            ],
-        ] {
-            assert!(
-                matches!(launch_of(cargo_argv), Ok(Launch::Cli(_))),
-                "expected Cli for {cargo_argv:?}"
             );
         }
     }

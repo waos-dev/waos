@@ -247,12 +247,12 @@ impl Resolved for Vec<IpAddr> {
 /// Why a rule did not let a use go on: the setting that refused it, or a failure no setting
 /// decides, which the program is answered as the capability answers it.
 pub(crate) trait Refused {
-    /// The setting that refused, by the key `cargo waos settings` names its row with; none for a
+    /// The setting that refused, by the key `waos settings` names its row with; none for a
     /// failure.
     fn setting(&self) -> Option<&'static str>;
 }
 
-/// What refused a use: the setting, by the key `cargo waos settings` names its row with
+/// What refused a use: the setting, by the key `waos settings` names its row with
 /// (`clipboard-read`, `camera`…, `link-scheme` for a scheme's row, `folders` for the mounts,
 /// `network`, `domains` and `local-network` for the network).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

@@ -9,7 +9,7 @@
 //! entities over it, one a feature (`state`), and thin widgets (`ui`).
 //!
 //! ```text
-//! cargo waos run -p inspector
+//! waos run -p inspector
 //! ```
 
 // Waft's bindings take `self: Handle<Self>`.

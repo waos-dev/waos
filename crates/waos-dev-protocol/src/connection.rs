@@ -29,8 +29,8 @@ pub const MAX_FRAME_BYTES: usize = 256 << 20;
 
 const PREFIX_BYTES: usize = 4;
 const LEGACY_PROTOCOL_BYTES: usize = 4;
-/// Number answered to a legacy 0.2 `cargo waos` (whose protocols stopped at 10) so its mismatch
-/// message reads this WaOS as newer and tells its user to update `cargo waos`.
+/// Number answered to a legacy 0.2 `waos` (whose protocols stopped at 10) so its mismatch
+/// message reads this WaOS as newer and tells its user to update `waos`.
 const LEGACY_REPLY_PROTOCOL: u32 = 11;
 
 /// Whether a connection's stream stays on this machine, as the socket and the pipe do, or crosses
@@ -110,7 +110,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Connection<S> {
     }
 
     /// WaOS's side of the hello: reads the client's first frame first, and answers with `ours`;
-    /// when a `cargo waos` of WaOS 0.2 sends its 4-byte protocol number, answers a 4-byte number
+    /// when a `waos` of WaOS 0.2 sends its 4-byte protocol number, answers a 4-byte number
     /// frame of our own so the old client prints its mismatch naming both numbers, and returns
     /// `Unsupported`.
     pub async fn accept_hello(&mut self, ours: &Hello) -> io::Result<Hello> {
@@ -131,7 +131,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Connection<S> {
             return Err(io::Error::new(
                 ErrorKind::Unsupported,
                 format!(
-                    "a cargo waos of WaOS 0.2 speaks legacy dev protocol {theirs}; this WaOS speaks {MAJOR}"
+                    "a waos of WaOS 0.2 speaks legacy dev protocol {theirs}; this WaOS speaks {MAJOR}"
                 ),
             ));
         }
@@ -227,7 +227,7 @@ mod tests {
     }
 
     fn hello() -> Hello {
-        Hello::cargo_waos("cargo-waos 0.3.0")
+        Hello::command("waos 0.3.0")
     }
 
     #[tokio::test]

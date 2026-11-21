@@ -16,7 +16,7 @@ export interface Showcase {
   name: string;
   /** Its id, as its manifest names it. */
   id: string;
-  /** Its package, as `cargo waos package` names it: `<id>-<version>.wapk`. */
+  /** Its package, as `waos package` names it: `<id>-<version>.wapk`. */
   file: string;
   size: string;
   /** What the reader's agent is asked. */

@@ -5,7 +5,7 @@
 //!
 //! ```text
 //! cargo build -p two-windows --target wasm32-wasip3
-//! cargo waos run -p two-windows
+//! waos run -p two-windows
 //! ```
 
 // Waft's bindings take `self: Handle<Self>`.

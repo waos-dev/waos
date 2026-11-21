@@ -1,6 +1,6 @@
 /**
  * Writes the docs of this version as one archive, `waos-docs-<version>.tar.gz`, which the release
- * attaches to its GitHub release and `cargo waos docs` downloads: every page of the site as plain
+ * attaches to its GitHub release and `waos docs` downloads: every page of the site as plain
  * Markdown, the reference's among them, made by `write-reference.mjs` as the site's build makes
  * them; the playbook, `agents.md`; and `manifest.json`, the version and the pages in the
  * sidebar's order, each with its title and one line.

@@ -64,10 +64,10 @@ tracing-subscriber.workspace = true
 tempfile.workspace = true
 serde.workspace = true
 toml.workspace = true
-# What `cargo waos inspect` reads: wasdk:inspect's values, as JSON.
+# What `waos inspect` reads: wasdk:inspect's values, as JSON.
 serde_json.workspace = true
 hex.workspace = true
-# The pictures of a program's windows `cargo waos screenshot` asks for, as PNGs.
+# The pictures of a program's windows `waos screenshot` asks for, as PNGs.
 png.workspace = true
 # A program's icon scaled to each size of the `.ico` its Start menu shortcut and its windows' pins
 # show on Windows, as Waft's CLI scales an executable's, and to its home-screen shortcut's on

@@ -1,4 +1,4 @@
-//! A key, or a chord of keys pressed together, as `cargo waos key` names it, and the key events a
+//! A key, or a chord of keys pressed together, as `waos key` names it, and the key events a
 //! keyboard sends for it, as the shell reports a user's keys, Waft's key events field for field:
 //! each modifier going down in the order named, the key going down and coming up, and the
 //! modifiers coming up in the opposite order. The keyboard is a US one, its keys the physical and

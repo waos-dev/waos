@@ -1,4 +1,4 @@
-//! The docs' map, in two forms: the terminal's, which `cargo waos docs` prints, a line a page by
+//! The docs' map, in two forms: the terminal's, which `waos docs` prints, a line a page by
 //! the name it takes, and the skill's `docs/index.md`, the same lines as links to the files.
 //!
 //! The invariant: both follow [`Docs::lines`], so the map and the skill's index list the same
@@ -6,7 +6,7 @@
 
 use super::{Docs, Line, Origin, PLAYBOOK, Page};
 
-/// The map `cargo waos docs` prints: how to read on, then a line for each page, indented under
+/// The map `waos docs` prints: how to read on, then a line for each page, indented under
 /// its section, with its name, its title and its description.
 pub fn terminal_map(docs: &Docs) -> String {
     let width = docs
@@ -19,7 +19,7 @@ pub fn terminal_map(docs: &Docs) -> String {
         .max()
         .unwrap_or(0);
     let mut text = format!(
-        "{}. `cargo waos docs <page>` prints a page, `cargo waos docs --search <text>` prints the lines that hold the text, and a link to /docs/<page> in a page is `cargo waos docs <page>`.\n\n",
+        "{}. `waos docs <page>` prints a page, `waos docs --search <text>` prints the lines that hold the text, and a link to /docs/<page> in a page is `waos docs <page>`.\n\n",
         whose(docs)
     );
     for line in docs.lines() {

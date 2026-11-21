@@ -24,7 +24,7 @@
 //!   [`quitting`] asks before changes are lost ([`question`]).
 //!
 //! ```text
-//! cargo waos run -p documents --release
+//! waos run -p documents --release
 //! ```
 
 // Waft's `State` methods take `self: Handle<Self>`.

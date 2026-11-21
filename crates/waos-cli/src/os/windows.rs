@@ -1,4 +1,4 @@
-//! Windows' calls `cargo waos` needs beyond the standard library: a folder and a file made for the
+//! Windows' calls `waos` needs beyond the standard library: a folder and a file made for the
 //! user alone, as a mode of `0700` and `0600` makes them on Unix, for the signing key; and a text
 //! value of the registry, where the installer recorded where WaOS is.
 //!

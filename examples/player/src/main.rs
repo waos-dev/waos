@@ -11,7 +11,7 @@
 //!
 //! ```text
 //! cargo build -p player --target wasm32-wasip3
-//! cargo waos run -p player
+//! waos run -p player
 //! ```
 
 // Waft's bindings take `self: Handle<Self>`.

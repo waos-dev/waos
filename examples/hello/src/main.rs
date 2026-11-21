@@ -3,8 +3,8 @@
 //! what it shows is what compiles.
 //!
 //! ```text
-//! cargo waos build -p hello
-//! cargo waos run -p hello
+//! waos build -p hello
+//! waos run -p hello
 //! ```
 
 use waft::{App, BuildContext, Center, IntoWidget, StatelessWidget, Text, WidgetRef, run_app};
