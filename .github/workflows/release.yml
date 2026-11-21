@@ -17,7 +17,6 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
-      - uses: Swatinem/rust-cache@v2
       - name: The tag names the workspace's version
         run: |
           version=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "waos") | .version')

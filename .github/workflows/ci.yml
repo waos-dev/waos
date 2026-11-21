@@ -33,21 +33,70 @@ jobs:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      # Each file dated by its last commit, not the checkout: cargo rebuilds what is newer than
+      # what it built, so the test programs kept below are rebuilt only where a commit changed
+      # them, and their compiled code is kept with them.
+      - uses: chetan/git-restore-mtime-action@v2
       - uses: Swatinem/rust-cache@v2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
+      # The programs the engine's tests run, built for wasm32-wasip3 by `waos-test-programs`, and
+      # their compiled code: minutes to make, kept apart from rust-cache, which drops what the
+      # workspace's own build scripts make. Restored by every run, saved by main's; named by what
+      # they are built from (`crates/waos/tests/programs/build.rs`).
+      - name: The test programs, as main last built them
+        uses: actions/cache/restore@v4
+        with:
+          path: target/test-programs
+          key: test-programs-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', 'builtin-apps/**', 'examples/**', 'sdk/**', 'wit/**', 'crates/waos/tests/programs/**') }}
+          restore-keys: test-programs-${{ runner.os }}-
       - name: Tests of the engine and the command
         run: cargo test --no-fail-fast -p waos -p waos-cli
+      - name: The test programs, for later runs
+        if: github.ref == 'refs/heads/main'
+        uses: actions/cache/save@v4
+        with:
+          path: target/test-programs
+          key: test-programs-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', 'builtin-apps/**', 'examples/**', 'sdk/**', 'wit/**', 'crates/waos/tests/programs/**') }}
 
   test-the-rest:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      # Each file dated by its last commit, not the checkout: cargo rebuilds what is newer than
+      # what it built, so the test programs kept below are rebuilt only where a commit changed
+      # them, and their compiled code is kept with them.
+      - uses: chetan/git-restore-mtime-action@v2
       - uses: Swatinem/rust-cache@v2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
+      # The programs the engine's tests run, built for wasm32-wasip3 by `waos-test-programs`, and
+      # their compiled code: minutes to make, kept apart from rust-cache, which drops what the
+      # workspace's own build scripts make. Restored by every run, saved by main's; named by what
+      # they are built from (`crates/waos/tests/programs/build.rs`).
+      - name: The test programs, as main last built them
+        uses: actions/cache/restore@v4
+        with:
+          path: target/test-programs
+          key: test-programs-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', 'builtin-apps/**', 'examples/**', 'sdk/**', 'wit/**', 'crates/waos/tests/programs/**') }}
+          restore-keys: test-programs-${{ runner.os }}-
+      # The examples are programs, built for wasm32-wasip3 by the test programs' build and linted
+      # on Linux and Windows; they have no tests, so linking them for macOS here buys nothing.
       - name: Tests of the rest of the workspace
-        run: cargo test --workspace --exclude waos --exclude waos-cli --no-fail-fast
+        run: |
+          examples=$(cargo metadata --no-deps --format-version 1 \
+            | jq -r '.packages[] | select(.manifest_path | contains("/examples/")) | "--exclude " + .name')
+          cargo test --workspace --exclude waos --exclude waos-cli $examples --no-fail-fast
+      - name: The test programs, for later runs
+        if: github.ref == 'refs/heads/main'
+        uses: actions/cache/save@v4
+        with:
+          path: target/test-programs
+          key: test-programs-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', 'builtin-apps/**', 'examples/**', 'sdk/**', 'wit/**', 'crates/waos/tests/programs/**') }}
 
   # Windows and Linux run the engine, the command and the SDK today; the app's shell still waits
   # for the decisions of docs/proposals/2026-11-13-windows-and-linux.md (dmabufs, ConPTY,
@@ -60,6 +109,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: chetan/git-restore-mtime-action@v2
       # A mirror once stalled on one package for 17 minutes in Waft's CI: a stuck download times
       # out after 30 seconds and is tried again, rather than waiting on apt's default.
       - name: The system packages the build's probes ask for
@@ -73,6 +125,16 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
+      # The programs the engine's tests run, built for wasm32-wasip3 by `waos-test-programs`, and
+      # their compiled code: minutes to make, kept apart from rust-cache, which drops what the
+      # workspace's own build scripts make. Restored by every run, saved by main's; named by what
+      # they are built from (`crates/waos/tests/programs/build.rs`).
+      - name: The test programs, as main last built them
+        uses: actions/cache/restore@v4
+        with:
+          path: target/test-programs
+          key: test-programs-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', 'builtin-apps/**', 'examples/**', 'sdk/**', 'wit/**', 'crates/waos/tests/programs/**') }}
+          restore-keys: test-programs-${{ runner.os }}-
       - name: Clippy
         run: cargo clippy --workspace --all-targets
       - name: Tests of what runs on Linux today and depends on the system
@@ -81,25 +143,41 @@ jobs:
           # test the workspace's default members.
           packages=$(.github/platform-test-packages.sh linux)
           cargo test --no-fail-fast $packages
+      # One run with every filter: libtest takes several, and one build of the app serves them.
       - name: Headless Linux app tests (virtual shell, dev protocol, and CLI routing)
         run: |
-          for filter in \
-            headless_entry \
-            logic::dev_screenshot \
-            logic::dev_resize \
-            logic::dev_input \
-            logic::command_line
-          do
-            cargo test --no-fail-fast -p waos-app --lib "$filter"
-          done
+          cargo test --no-fail-fast -p waos-app --lib -- \
+            headless_entry logic::dev_screenshot logic::dev_resize logic::dev_input logic::command_line
+      - name: The test programs, for later runs
+        if: github.ref == 'refs/heads/main'
+        uses: actions/cache/save@v4
+        with:
+          path: target/test-programs
+          key: test-programs-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', 'builtin-apps/**', 'examples/**', 'sdk/**', 'wit/**', 'crates/waos/tests/programs/**') }}
 
   test-windows:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      # Each file dated by its last commit, not the checkout: cargo rebuilds what is newer than
+      # what it built, so the test programs kept below are rebuilt only where a commit changed
+      # them, and their compiled code is kept with them.
+      - uses: chetan/git-restore-mtime-action@v2
       - uses: Swatinem/rust-cache@v2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
+      # The programs the engine's tests run, built for wasm32-wasip3 by `waos-test-programs`, and
+      # their compiled code: minutes to make, kept apart from rust-cache, which drops what the
+      # workspace's own build scripts make. Restored by every run, saved by main's; named by what
+      # they are built from (`crates/waos/tests/programs/build.rs`).
+      - name: The test programs, as main last built them
+        uses: actions/cache/restore@v4
+        with:
+          path: target/test-programs
+          key: test-programs-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', 'builtin-apps/**', 'examples/**', 'sdk/**', 'wit/**', 'crates/waos/tests/programs/**') }}
+          restore-keys: test-programs-${{ runner.os }}-
       - name: Clippy
         run: cargo clippy --workspace --all-targets
       - name: Tests of what runs on Windows today and depends on the system
@@ -109,3 +187,9 @@ jobs:
           # test the workspace's default members.
           packages=$(.github/platform-test-packages.sh windows)
           cargo test --no-fail-fast $packages
+      - name: The test programs, for later runs
+        if: github.ref == 'refs/heads/main'
+        uses: actions/cache/save@v4
+        with:
+          path: target/test-programs
+          key: test-programs-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', 'builtin-apps/**', 'examples/**', 'sdk/**', 'wit/**', 'crates/waos/tests/programs/**') }}

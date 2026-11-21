@@ -6,8 +6,9 @@
 //! the last release, so each is built against this workspace's crates instead, to test a change
 //! before it is published: a `.cargo/config.toml` in the folder above it patches crates.io with
 //! the workspace's path of every crate its manifest names, and it gets the workspace's
-//! `Cargo.lock`, so it builds with the versions the workspace is tested with. The written program itself is left as `new` wrote it. The programs share a target
-//! directory under `CARGO_TARGET_TMPDIR`, kept between runs, so only the first run builds Waft.
+//! `Cargo.lock`, so it builds with the versions the workspace is tested with. The written program itself is left as `new` wrote it. The programs are built in the
+//! target directory `waos`'s test programs are built in, `<target>/test-programs/target`, with
+//! their profile, so the SDK and Waft those built are reused.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -50,6 +51,9 @@ fn run_waos(folder: &Path, arguments: &[&str]) -> String {
         .current_dir(folder)
         .env("CARGO", env!("CARGO"))
         .env("CARGO_TARGET_DIR", target_directory())
+        // The profile `waos`'s test programs are built with (`crates/waos/tests/programs`), so the
+        // SDK and Waft they built are reused, not built again.
+        .env("CARGO_PROFILE_DEV_DEBUG", "line-tables-only")
         .output()
         .unwrap();
     let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
@@ -119,5 +123,8 @@ fn workspace_root() -> PathBuf {
 
 /// Where the programs are built, kept between runs.
 fn target_directory() -> PathBuf {
-    Path::new(env!("CARGO_TARGET_TMPDIR")).join("new-programs")
+    Path::new(env!("CARGO_TARGET_TMPDIR"))
+        .parent()
+        .expect("CARGO_TARGET_TMPDIR is <target>/tmp")
+        .join("test-programs/target")
 }
