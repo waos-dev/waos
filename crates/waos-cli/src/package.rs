@@ -56,7 +56,7 @@ fn warn_of_icon_breaches(icon: &Path) -> Result<()> {
     let png = fs::read(icon).with_context(|| format!("reading {}", icon.display()))?;
     for breach in icon_rule::breaches(&png) {
         eprintln!(
-            "cargo waos: warning: {}: {breach}; {}",
+            "waos: warning: {}: {breach}; {}",
             icon.display(),
             icon_rule::RULE
         );

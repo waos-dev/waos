@@ -16,6 +16,6 @@ wasdk-adapter-waft.workspace = true
 [lints]
 workspace = true
 
-# The id `cargo waos run` runs this program as, with that program's settings and folders.
+# The id `waos run` runs this program as, with that program's settings and folders.
 [package.metadata.waos]
 id = "dev.waos.examples.wafthttp"

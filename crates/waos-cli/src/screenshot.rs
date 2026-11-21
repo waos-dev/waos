@@ -1,4 +1,4 @@
-//! `cargo waos ui screenshot`: the last picture of each window of the program a run of `cargo waos
+//! `waos ui screenshot`: the last picture of each window of the program a run of `waos
 //! run` runs, asked of the WaOS running it, written as `window-<id>.png` under
 //! `target/waos/screenshots/<package>`, each printed with its window's id, title and size, so
 //! an agent building the program sees it as its user does (the design's decision 60). `--out`
@@ -76,15 +76,15 @@ pub async fn take(
     let pictures = match answer {
         ScreenshotAnswer::Pictures(pictures) => pictures,
         ScreenshotAnswer::Refused(refusal) => {
-            eprintln!("cargo waos: {}", refusal.message);
+            eprintln!("waos: {}", refusal.message);
             return Ok(ExitCode::FAILURE);
         }
         ScreenshotAnswer::Unknown => bail!(
-            "WaOS answered the screenshot in a way this cargo waos does not know: update cargo waos with `cargo install cargo-waos`"
+            "WaOS answered the screenshot in a way this waos does not know: update waos with `curl -fsSL https://waos.app/install.sh | sh`"
         ),
     };
     if pictures.is_empty() {
-        eprintln!("cargo waos: {id} has no window open");
+        eprintln!("waos: {id} has no window open");
     }
     match Where::of(out, default) {
         Where::Folder(folder) => {
@@ -104,7 +104,7 @@ pub async fn take(
     }
     if let Some(asking) = pictures.iter().find_map(|picture| picture.asking.as_ref()) {
         eprintln!(
-            "cargo waos: WaOS is asking over {id}'s windows, which the pictures do not show: {}",
+            "waos: WaOS is asking over {id}'s windows, which the pictures do not show: {}",
             asked::said(asking, id.as_str())
         );
     }
@@ -194,13 +194,13 @@ fn say(picture: &WindowPicture, path: Option<&Path>) {
             "{}  window {window} {title} {width}x{height}",
             path.display()
         ),
-        None => eprintln!(
-            "cargo waos: window {window} {title} {width}x{height} has shown no picture yet"
-        ),
+        None => {
+            eprintln!("waos: window {window} {title} {width}x{height} has shown no picture yet")
+        }
     }
     if !picture.in_sight {
         eprintln!(
-            "cargo waos: window {window} is out of sight, minimized or hidden: it shows its last picture, and draws nothing new until it is in sight"
+            "waos: window {window} is out of sight, minimized or hidden: it shows its last picture, and draws nothing new until it is in sight"
         );
     }
 }

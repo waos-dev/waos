@@ -1,5 +1,5 @@
 //! `waos open <file>... --program <id>` as a client of the WaOS on this machine: the files sent
-//! over `waos-dev-protocol`'s socket, as `cargo waos run` reaches it, to be opened with the program the id
+//! over `waos-dev-protocol`'s socket, as `waos run` reaches it, to be opened with the program the id
 //! names (`opening` answers there), and its answer waited for.
 //!
 //! The invariant: the command ends only once a WaOS has answered, or once it knows none listens,

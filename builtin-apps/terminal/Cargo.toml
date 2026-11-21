@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
-description = "Terminal, a terminal emulator as a Waft app over wasdk-adapter-waft: a shell on a machine its user picks, in a pseudo-terminal of the machines interface, its screen kept by alacritty_terminal and drawn as a grid of cells. `cargo waos run -p terminal`."
+description = "Terminal, a terminal emulator as a Waft app over wasdk-adapter-waft: a shell on a machine its user picks, in a pseudo-terminal of the machines interface, its screen kept by alacritty_terminal and drawn as a grid of cells. `waos run -p terminal`."
 
 [dependencies]
 waft-embedder.workspace = true

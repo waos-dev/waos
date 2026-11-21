@@ -32,9 +32,9 @@ jobs:
         working-directory: ${{ runner.temp }}
         run: |
           cargo install waos-cli --version "${GITHUB_REF_NAME#v}" --locked
-          cargo waos new release-check
+          waos new release-check
           cd release-check
-          cargo waos build
+          waos build
       - name: The docs of this version, on the GitHub release
         working-directory: packages/waos-site
         env:

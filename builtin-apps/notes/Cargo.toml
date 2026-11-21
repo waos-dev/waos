@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
-description = "Notes, a library of notes the app keeps itself, as an Waft app in WinUI's Fluent look over wasdk-adapter-waft: a sidebar of notes beside the note, or a pane over it at a phone's width, searched, deleted into Recently Deleted, imported and exported as text, with a reminder of a note. `cargo waos run -p notes`."
+description = "Notes, a library of notes the app keeps itself, as an Waft app in WinUI's Fluent look over wasdk-adapter-waft: a sidebar of notes beside the note, or a pane over it at a phone's width, searched, deleted into Recently Deleted, imported and exported as text, with a reminder of a note. `waos run -p notes`."
 
 [dependencies]
 waft-embedder.workspace = true
@@ -28,7 +28,7 @@ tempfile.workspace = true
 [lints]
 workspace = true
 
-# The id `cargo waos run` runs this program as, with that program's settings and folders.
+# The id `waos run` runs this program as, with that program's settings and folders.
 [package.metadata.waos]
 id = "dev.waos.notes"
 name = "Notes"

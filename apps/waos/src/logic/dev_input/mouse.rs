@@ -1,5 +1,5 @@
-//! The mouse `cargo waos`'s taps, presses, drags and scrolls move over the windows of a program a
-//! run of `cargo waos run` runs, as a user's mouse moves: in one of the program's views at a time,
+//! The mouse `waos`'s taps, presses, drags and scrolls move over the windows of a program a
+//! run of `waos run` runs, as a user's mouse moves: in one of the program's views at a time,
 //! where its last input left it, the program told of it as it comes into a view and as it leaves
 //! one. It is a pointer of its own, [`DEVICE`], apart from the mouse the shell reports, so the two
 //! never interleave in what the program hears; its events are a mouse's as the shell reports them,

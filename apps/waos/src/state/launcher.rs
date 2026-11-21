@@ -112,7 +112,7 @@ impl Launcher {
         self.order
     }
 
-    /// WaOS started with the launcher closed, as `cargo waos run` starts it: where a dismissed
+    /// WaOS started with the launcher closed, as `waos run` starts it: where a dismissed
     /// launcher is minimized, its window is made and minimized at once, so WaOS has its button in
     /// the taskbar from the start.
     pub(crate) fn started_closed(&mut self, cx: &mut Context<Launcher>) {

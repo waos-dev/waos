@@ -1,4 +1,4 @@
-//! Standalone `cargo-waos` binary: delegates to `waos_cli` with [`waos_cli::DefaultStarter`].
+//! The command alone, `waos` without WaOS: delegates to `waos_cli` with [`waos_cli::DefaultStarter`].
 
 use std::process::ExitCode;
 

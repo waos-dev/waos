@@ -15,7 +15,7 @@ WASI's packages a program imports (`wasi:http`, `wasi:sockets`, `wasi:clocks`, `
 
 ## What `@unstable` means
 
-A new API starts as `@unstable(feature = name)`: it may still change or go in any release. WaOS gives it to a program run with `cargo waos run`, and to a program whose package asks for it:
+A new API starts as `@unstable(feature = name)`: it may still change or go in any release. WaOS gives it to a program run with `waos run`, and to a program whose package asks for it:
 
 ```toml
 [package.metadata.waos]
@@ -26,13 +26,13 @@ In Rust, enable wasdk's `unstable` feature to see these APIs. WaOS's library tel
 
 ## When something must break
 
-A break is a new version of the package, such as `wasdk:platform@2.0.0`. WaOS serves it beside the old one, so programs built against either run. The old version is served for at least a year after the new one is released, and across at least two WaOS releases; `cargo waos build` warns while a program is built against a version on its way out.
+A break is a new version of the package, such as `wasdk:platform@2.0.0`. WaOS serves it beside the old one, so programs built against either run. The old version is served for at least a year after the new one is released, and across at least two WaOS releases; `waos build` warns while a program is built against a version on its way out.
 
 ## The SDK
 
 These promises are about programs once built. Your source building against a newer `wasdk` follows Cargo's semver: within one `0.x` release of the crate, updating needs no change to your code.
 
-A release of `cargo waos` pairs with one `wasdk` and one Waft, and `cargo waos new` writes those versions: `waos-cli` 0.3 with `wasdk` and `wasdk-adapter-waft` 0.3, and Waft 0.8. `wasdk-adapter-waft` is built on one Waft, so an app keeps every `waft` crate at that version; two Wafts in one build fail with mismatched types between them.
+A release of `waos` pairs with one `wasdk` and one Waft, and `waos new` writes those versions: `waos-cli` 0.3 with `wasdk` and `wasdk-adapter-waft` 0.3, and Waft 0.8. `wasdk-adapter-waft` is built on one Waft, so an app keeps every `waft` crate at that version; two Wafts in one build fail with mismatched types between them.
 
 ## How it is kept
 

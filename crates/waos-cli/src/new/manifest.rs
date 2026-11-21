@@ -1,5 +1,5 @@
 //! A new program's `Cargo.toml`: its package, its dependencies on the SDK and on Waft, and its
-//! `[package.metadata.waos]`, with every field `cargo waos package` reads. Made in a workspace, it
+//! `[package.metadata.waos]`, with every field `waos package` reads. Made in a workspace, it
 //! takes what the workspace gives, as `cargo new` and `cargo add` write it: each key of
 //! `[workspace.package]` and each dependency `[workspace.dependencies]` lists as
 //! `<key>.workspace = true`, and `[lints] workspace = true` for `[workspace.lints]`; whatever the

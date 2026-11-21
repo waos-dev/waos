@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish = true
-description = "cargo waos: writes a new program, builds a program as a component, runs it in the WaOS on this machine, packages it as a signed .wapk, and takes screenshots of its windows and gives them input while it runs."
+description = "waos: writes a new program, builds a program as a component, runs it in the WaOS on this machine, packages it as a signed .wapk, and takes screenshots of its windows and gives them input while it runs."
 homepage.workspace = true
 repository.workspace = true
 readme = "README.md"
@@ -13,14 +13,14 @@ readme = "README.md"
 exclude = ["/tests/new.rs"]
 
 [[bin]]
-name = "cargo-waos"
+name = "waos"
 path = "src/main.rs"
 
 [dependencies]
 waos-dev-protocol.workspace = true
 waos-package.workspace = true
 anyhow.workspace = true
-# The command line, as `cargo waos <command>`.
+# The command line, as `waos <command>`.
 clap.workspace = true
 # Which package a program is, where cargo put its component, and its `[package.metadata.waos]`.
 cargo_metadata.workspace = true

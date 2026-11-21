@@ -22,7 +22,7 @@
 //! - **Quitting** asks only where a note or a file could not be saved ([`quitting`]).
 //!
 //! ```text
-//! cargo waos run -p notes
+//! waos run -p notes
 //! ```
 
 // Waft's bindings take `self: Handle<Self>`.

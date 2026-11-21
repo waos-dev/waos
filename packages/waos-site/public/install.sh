@@ -1,6 +1,5 @@
 #!/usr/bin/env sh
-# Installs the newest WaOS and puts `waos` and `cargo-waos` (one binary under two names) on the
-# PATH, in one step:
+# Installs the newest WaOS and puts its command, `waos`, on the PATH, in one step:
 # - macOS (Apple Silicon): WaOS.app into /Applications, or ~/Applications where that can't be
 #   written, and the two names linked to the binary inside it.
 # - Linux (x86_64): the `waos` binary, which also runs WaOS without a display.
@@ -9,7 +8,7 @@
 #   curl -fsSL https://waos.app/install.sh | sh
 #
 # Environment variables:
-#   WAOS_INSTALL_DIR  Where `waos` and `cargo-waos` go (default: "$HOME/.local/bin")
+#   WAOS_INSTALL_DIR  Where `waos` goes (default: "$HOME/.local/bin")
 #   WAOS_SITE         Where the newest release is read from (default: https://waos.app)
 set -eu
 
@@ -27,7 +26,7 @@ while [ "$#" -gt 0 ]; do
             cat <<'EOF'
 Usage: install.sh [--dir <install-dir>]
 
-Installs the newest WaOS and puts `waos` and `cargo-waos` in <install-dir>
+Installs the newest WaOS and puts `waos` in <install-dir>
 (default: ~/.local/bin).
 EOF
             exit 0
@@ -45,7 +44,7 @@ note_path() {
     case ":${PATH:-}:" in
         *":$INSTALL_DIR:"*) ;;
         *)
-            printf '\nAdd %s to your PATH to run `waos` and `cargo waos`:\n' "$INSTALL_DIR"
+            printf '\nAdd %s to your PATH to run `waos`:\n' "$INSTALL_DIR"
             printf '  export PATH="%s:$PATH"\n' "$INSTALL_DIR"
             ;;
     esac
@@ -77,7 +76,6 @@ download() {
 link_into_install_dir() {
     mkdir -p "$INSTALL_DIR"
     ln -sf "$1" "$INSTALL_DIR/waos"
-    ln -sf "$1" "$INSTALL_DIR/cargo-waos"
 }
 
 VERSION="$(newest_version)"
@@ -102,8 +100,7 @@ case "$(uname -s)/$(uname -m)" in
         cp -R "$MOUNT/WaOS.app" "$APPLICATIONS/WaOS.app"
         hdiutil detach -quiet "$MOUNT"
         link_into_install_dir "$APPLICATIONS/WaOS.app/Contents/MacOS/waos"
-        printf 'Installed WaOS %s in %s, with %s and %s.\n' \
-            "$VERSION" "$APPLICATIONS" "$INSTALL_DIR/waos" "$INSTALL_DIR/cargo-waos"
+        printf 'Installed WaOS %s in %s, with %s.\n' "$VERSION" "$APPLICATIONS" "$INSTALL_DIR/waos"
         ;;
     Linux/x86_64|Linux/amd64)
         command -v tar >/dev/null 2>&1 || { echo "install.sh: tar is required" >&2; exit 1; }
@@ -112,8 +109,7 @@ case "$(uname -s)/$(uname -m)" in
         [ -f "$WORK/waos" ] || { echo "install.sh: the download held no waos binary" >&2; exit 1; }
         mkdir -p "$INSTALL_DIR"
         install -m 755 "$WORK/waos" "$INSTALL_DIR/waos"
-        ln -sf waos "$INSTALL_DIR/cargo-waos"
-        printf 'Installed WaOS %s as %s and %s.\n' "$VERSION" "$INSTALL_DIR/waos" "$INSTALL_DIR/cargo-waos"
+        printf 'Installed WaOS %s as %s.\n' "$VERSION" "$INSTALL_DIR/waos"
         if ! has_vulkan_icd; then
             cat <<'EOF'
 Note: no Vulkan driver was found. WaOS without a display draws through Vulkan; Mesa's lavapipe

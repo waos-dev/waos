@@ -47,7 +47,7 @@ async fn connected(path: &Path) -> (Listener, Connection<ClientStream>, Connecti
     (listener, client, server)
 }
 
-/// A `cargo waos` of another build, one whose hello says protocol `MAJOR + 1`: the two exchange
+/// A `waos` of another build, one whose hello says protocol `MAJOR + 1`: the two exchange
 /// hellos, and the mismatch names both builds.
 #[tokio::test]
 async fn a_client_of_another_major_is_named_with_both_builds() {

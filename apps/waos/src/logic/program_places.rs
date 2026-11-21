@@ -1,7 +1,7 @@
 //! Where each program's views go, by where it was opened: a program in a tab of the deck has the
 //! view its tab gave it as it started, and every request it makes is refused at once, as the views
 //! WIT says of a phone (`state::deck`); any other program's requests go to the windows, WaOS's own
-//! (`placement`) or, on macOS, its app's. A program opened without saying where, as `cargo waos`
+//! (`placement`) or, on macOS, its app's. A program opened without saying where, as `waos`
 //! runs one, goes where this WaOS puts programs unless told otherwise.
 //!
 //! The invariant: a program's place is set before its run starts (`InstalledRuns::open`), so its

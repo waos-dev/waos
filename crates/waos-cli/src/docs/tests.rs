@@ -187,9 +187,9 @@ fn an_unknown_page_names_close_ones_and_the_map() {
     let (_root, docs) = docs();
     let error = docs.find("guide/net").unwrap_err().to_string();
     assert!(error.contains("guide/network"), "{error}");
-    assert!(error.contains("`cargo waos docs`"), "{error}");
+    assert!(error.contains("`waos docs`"), "{error}");
     let error = docs.find("nothing-like-it").unwrap_err().to_string();
-    assert!(error.contains("`cargo waos docs` lists them"), "{error}");
+    assert!(error.contains("`waos docs` lists them"), "{error}");
 }
 
 #[test]

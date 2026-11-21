@@ -1,11 +1,11 @@
-//! `waos` / `cargo waos`: writes a new program, builds a program as a component, runs it in the
+//! `waos`, the command: writes a new program, builds a program as a component, runs it in the
 //! WaOS on this machine, and packages it as a signed `.wapk` for a package source; while it runs
 //! there, takes screenshots of its windows, gives them input and sizes them (`ui`), reads and sets
 //! its settings (`settings`), inspects what it does (`inspect`), and reads or installs WaOS's docs
 //! (`docs`).
 //!
-//! This crate is engine-free and builds on stable Rust. Both the standalone `cargo-waos` binary
-//! and the unified `waos` app binary call into [`run_from_args`] with their own [`WaOSStarter`].
+//! This crate is engine-free and builds on stable Rust. Both its own `waos` binary, the command
+//! alone, and the `waos` binary that also is WaOS call into [`run_from_args`] with their own [`WaOSStarter`].
 //!
 //! The invariant: every command is about a program and the WaOS it runs in. A run goes to the
 //! WaOS already running, starting one through the caller's [`WaOSStarter`] when none answers,
@@ -39,7 +39,7 @@ mod variables;
 pub mod waos_app;
 mod workspace;
 
-use std::ffi::{OsStr, OsString};
+use std::ffi::OsString;
 use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -68,45 +68,21 @@ pub fn is_cli_command(word: &str) -> bool {
     CLI_COMMANDS.contains(&word)
 }
 
-/// Whether `argv0`'s basename is `cargo-waos` (or `cargo-waos.exe`), meaning cargo invoked this
-/// binary as the `cargo waos` subcommand.
-pub fn is_cargo_subcommand_invocation(argv0: &OsStr) -> bool {
-    let Some(name) = Path::new(argv0).file_name().and_then(OsStr::to_str) else {
-        return false;
-    };
-    name == "cargo-waos" || name.eq_ignore_ascii_case("cargo-waos.exe")
-}
-
-/// Normalizes process `argv` for CLI parsing: strips a leading `waos` argument **only** when
-/// `argv[0]`'s basename is `cargo-waos` (so a `cargo-waos` symlink works for `cargo waos ...`
-/// without affecting `waos <file>`).
-pub fn normalize_argv(argv: impl IntoIterator<Item = OsString>) -> Vec<OsString> {
-    let mut args: Vec<OsString> = argv.into_iter().collect();
-    if args.len() >= 2 && is_cargo_subcommand_invocation(&args[0]) && args[1] == OsStr::new("waos")
-    {
-        args.remove(1);
-    }
-    args
-}
-
-/// Runs the developer CLI using `std::env::args_os()` and `starter`.
+/// Runs the command alone (no WaOS in this binary) on `std::env::args_os()`.
 pub fn run_from_env(starter: &dyn WaOSStarter) -> ExitCode {
-    run_from_args(std::env::args_os(), starter)
+    run_from_args(std::env::args_os(), starter, None)
 }
 
-/// Runs the developer CLI using the given full `argv` (including `argv[0]`) and `starter`.
+/// Runs the command on the full `argv` (including `argv[0]`), starting WaOS through `starter`;
+/// `app_help` is what the binary that also is WaOS adds to the help about its own launches.
 pub fn run_from_args(
     argv: impl IntoIterator<Item = OsString>,
     starter: &dyn WaOSStarter,
+    app_help: Option<&'static str>,
 ) -> ExitCode {
-    let raw: Vec<OsString> = argv.into_iter().collect();
-    let is_cargo = raw
-        .first()
-        .is_some_and(|argv0| is_cargo_subcommand_invocation(argv0));
-    let bin_name = if is_cargo { "cargo waos" } else { "waos" };
-    let normalized = normalize_argv(raw);
+    let argv: Vec<OsString> = argv.into_iter().collect();
 
-    let matches = match build_clap_command(bin_name).try_get_matches_from(&normalized) {
+    let matches = match build_clap_command(app_help).try_get_matches_from(&argv) {
         Ok(matches) => matches,
         Err(error) => {
             let _ = error.print();
@@ -124,28 +100,25 @@ pub fn run_from_args(
             return ExitCode::FAILURE;
         }
     };
-    dispatch(cli.command, bin_name, starter).unwrap_or_else(|error| {
-        eprintln!("{bin_name}: {error:#}");
+    dispatch(cli.command, starter).unwrap_or_else(|error| {
+        eprintln!("waos: {error:#}");
         ExitCode::FAILURE
     })
 }
 
-fn build_clap_command(bin_name: &str) -> clap::Command {
-    let mut cmd = Cli::command().bin_name(bin_name.to_owned());
-    if bin_name == "waos" {
-        cmd = cmd.after_help(
-            "App commands: `waos` opens the desktop launcher, `waos --headless [--idle-timeout <SECS>]` runs the headless daemon, `waos phone` opens in a phone-sized window, `waos open <FILE>... --program <ID>` opens files with a program, and `waos <FILE>...` opens packages or files with WaOS.
-The docs and guides are at https://waos.app/docs; `waos docs` prints this version's.",
-        );
+fn build_clap_command(app_help: Option<&'static str>) -> clap::Command {
+    let command = Cli::command().bin_name("waos");
+    match app_help {
+        Some(help) => command.after_help(help),
+        None => command,
     }
-    cmd
 }
 
 #[derive(Parser)]
 #[command(
     name = "waos",
-    about = "waos: writes a new program, builds a program as a component, runs it in WaOS, packages it, drives its UI, manages its settings, inspects its activity, and reads WaOS's docs. `waos docs` (`cargo waos docs`) is the map of WaOS's docs for writing an app.",
-    after_help = "The docs and guides are at https://waos.app/docs; `cargo waos docs` prints the app's version's.",
+    about = "waos: writes a new program, builds a program as a component, runs it in WaOS, packages it, drives its UI, manages its settings, inspects its activity, and reads WaOS's docs. `waos docs` is the map of WaOS's docs for writing an app.",
+    after_help = "The docs and guides are at https://waos.app/docs; `waos docs` prints the app's version's.",
     version
 )]
 struct Cli {
@@ -586,19 +559,19 @@ impl BuildArgs {
     }
 }
 
-fn dispatch(command: Command, bin_name: &str, starter: &dyn WaOSStarter) -> Result<ExitCode> {
+fn dispatch(command: Command, starter: &dyn WaOSStarter) -> Result<ExitCode> {
     match command {
-        Command::New(new) => new_program(&new, bin_name),
+        Command::New(new) => new_program(&new),
         Command::Build(build) => build_only(&build),
         Command::Run(run) => build_and_run(&run, starter),
-        Command::Package(program) => package(&program, bin_name),
+        Command::Package(program) => package(&program),
         Command::Ui(ui) => dispatch_ui(ui.command),
         Command::Settings(settings) => dispatch_settings(settings, starter),
         Command::Inspect(inspect) => dispatch_inspect(inspect),
         Command::Docs(docs) => match docs.command {
             Some(DocsCommand::Skill(SkillArgs {
                 command: SkillCommand::Install { dir },
-            })) => install_skill(dir, bin_name),
+            })) => install_skill(dir),
             None => show_docs(&docs),
         },
     }
@@ -687,22 +660,22 @@ fn dispatch_inspect(args: InspectArgs) -> Result<ExitCode> {
 /// Writes a new program in a folder of this directory's, says which workspace's members it was
 /// added to and, as `cargo new` warns, when its workspace cannot load with it, and says how to
 /// run it.
-fn new_program(args: &NewArgs, bin_name: &str) -> Result<ExitCode> {
+fn new_program(args: &NewArgs) -> Result<ExitCode> {
     let created = new::create(&args.name, args.template, Path::new("."))?;
     if let Some(root) = &created.added_to {
         eprintln!(
-            "{bin_name}: added `{}` as member of workspace at `{}`",
+            "waos: added `{}` as member of workspace at `{}`",
             args.name,
             root.display()
         );
     }
     if let Some(problem) = new::workspace_problem(&created.folder) {
         eprintln!(
-            "{bin_name}: warning: compiling this new program may not work due to invalid workspace configuration: {problem:#}"
+            "waos: warning: compiling this new program may not work due to invalid workspace configuration: {problem:#}"
         );
     }
     println!("created {}", created.folder.display());
-    println!("  cd {} && {bin_name} run", args.name);
+    println!("  cd {} && waos run", args.name);
     Ok(ExitCode::SUCCESS)
 }
 
@@ -770,9 +743,9 @@ fn on_this_thread<T>(work: impl Future<Output = Result<T>>) -> Result<T> {
 }
 
 /// Packages the program and says where its package is.
-fn package(program: &Program, bin_name: &str) -> Result<ExitCode> {
+fn package(program: &Program) -> Result<ExitCode> {
     let packaged = package::package(program.package.as_deref())?;
-    eprintln!("{bin_name}: listed in {}", packaged.index.display());
+    eprintln!("waos: listed in {}", packaged.index.display());
     println!("{}", packaged.package.display());
     Ok(ExitCode::SUCCESS)
 }
@@ -796,13 +769,13 @@ fn show_docs(args: &DocsArgs) -> Result<ExitCode> {
 }
 
 /// Writes the skill into `dir`, or the default skills folder, and says where.
-fn install_skill(dir: Option<PathBuf>, bin_name: &str) -> Result<ExitCode> {
+fn install_skill(dir: Option<PathBuf>) -> Result<ExitCode> {
     let skills = match dir {
         Some(dir) => dir,
         None => skill::default_skills_folder()?,
     };
     let folder = skill::install(&skills, &on_this_thread(docs::load())?)?;
-    eprintln!("{bin_name}: wrote the skill, SKILL.md and docs/");
+    eprintln!("waos: wrote the skill, SKILL.md and docs/");
     println!("{}", folder.display());
     Ok(ExitCode::SUCCESS)
 }
@@ -819,8 +792,7 @@ mod tests {
     use super::*;
 
     fn parse_argv(argv: &[&str]) -> Result<Command, clap::Error> {
-        let normalized = normalize_argv(argv.iter().map(OsString::from));
-        Cli::try_parse_from(&normalized).map(|cli| cli.command)
+        Cli::try_parse_from(argv).map(|cli| cli.command)
     }
 
     fn parsed(arguments: &[&str]) -> Command {
@@ -829,39 +801,10 @@ mod tests {
         parse_argv(&argv).unwrap_or_else(|error| panic!("{arguments:?}: {error}"))
     }
 
-    fn parsed_cargo(arguments: &[&str]) -> Command {
-        let mut argv = vec!["cargo-waos", "waos"];
-        argv.extend_from_slice(arguments);
-        parse_argv(&argv).unwrap_or_else(|error| panic!("{arguments:?}: {error}"))
-    }
-
     fn refused(arguments: &[&str]) -> bool {
         let mut argv = vec!["waos"];
         argv.extend_from_slice(arguments);
         parse_argv(&argv).is_err()
-    }
-
-    #[test]
-    fn normalize_argv_strips_leading_waos_only_for_cargo_waos() {
-        let norm = |args: &[&str]| -> Vec<String> {
-            normalize_argv(args.iter().map(OsString::from))
-                .into_iter()
-                .map(|s| s.to_string_lossy().into_owned())
-                .collect()
-        };
-        assert_eq!(norm(&["cargo-waos", "waos", "run"]), ["cargo-waos", "run"]);
-        assert_eq!(
-            norm(&["/usr/local/bin/cargo-waos", "waos", "ui", "screenshot"]),
-            ["/usr/local/bin/cargo-waos", "ui", "screenshot"]
-        );
-        assert_eq!(
-            norm(&["cargo-waos.exe", "waos", "build", "--release"]),
-            ["cargo-waos.exe", "build", "--release"]
-        );
-        assert_eq!(norm(&["cargo-waos", "run"]), ["cargo-waos", "run"]);
-        assert_eq!(norm(&["waos", "waos"]), ["waos", "waos"]);
-        assert_eq!(norm(&["/opt/bin/waos", "waos"]), ["/opt/bin/waos", "waos"]);
-        assert_eq!(norm(&["waos", "triangle.wapk"]), ["waos", "triangle.wapk"]);
     }
 
     #[test]
@@ -887,9 +830,9 @@ mod tests {
 
         let Command::Ui(UiArgs {
             command: UiCommand::Screenshot(cargo_shot),
-        }) = parsed_cargo(&["ui", "screenshot", "--window", "3"])
+        }) = parsed(&["ui", "screenshot", "--window", "3"])
         else {
-            panic!("cargo waos ui screenshot");
+            panic!("waos ui screenshot");
         };
         assert_eq!(cargo_shot.window, Some(WindowId(3)));
         assert!(refused(&["screenshot", "--window", "3"]));
@@ -1144,7 +1087,7 @@ mod tests {
 
     #[test]
     fn top_level_help_lists_only_domain_commands() {
-        let help = build_clap_command("waos").render_help().to_string();
+        let help = build_clap_command(None).render_help().to_string();
         for visible in [
             "new", "build", "run", "package", "ui", "settings", "inspect", "docs",
         ] {

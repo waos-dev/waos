@@ -1,7 +1,7 @@
 //! Handing a program what its user does to it from outside it: files opened with it, as `waos open
 //! <file> --program <id>` asks until programs register what opens them (decision 3 of the opening
 //! proposal), and a click on one of its notifications. Each goes to the program the id names
-//! (`program_named`), the one running under it, whether `cargo waos` sent it or the library opened
+//! (`program_named`), the one running under it, whether `waos` sent it or the library opened
 //! it, or else the installed program, opened as the library opens it; the program hears it once it
 //! listens (`RunningProgram::open_requested`, `RunningProgram::notification_activated`).
 //!
@@ -55,7 +55,7 @@ pub(crate) async fn notification_activated(
 }
 
 /// The program `id` names: the installed one, opened unless it runs already, or else the one
-/// running under it, as `cargo waos` runs one; none for an id neither installed nor running.
+/// running under it, as `waos` runs one; none for an id neither installed nor running.
 pub(crate) async fn program_named(
     installed: &InstalledRuns,
     store: &Store,

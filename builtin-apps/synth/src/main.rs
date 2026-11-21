@@ -11,7 +11,7 @@
 //! `keyboard_view`, `scope_view`, `controls_view`, `window`).
 //!
 //! ```text
-//! cargo waos run -p synth --release
+//! waos run -p synth --release
 //! ```
 
 // Waft's `StatefulWidget::State` takes `self: Handle<Self>`.

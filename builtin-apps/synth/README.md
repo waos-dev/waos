@@ -7,7 +7,7 @@ An instrument to play at once. A keyboard along the bottom of the window plays u
 - **Used by:** people; nothing depends on it.
 
 ```sh
-cargo waos run -p synth --release
+waos run -p synth --release
 ```
 
 Run it `--release`: the sound is computed in the program, and a debug build computes it too slowly to keep up.

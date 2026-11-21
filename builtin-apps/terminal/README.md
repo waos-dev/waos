@@ -16,7 +16,7 @@ It follows the system's light or dark look, with a palette for each.
 - **Used by:** whoever runs it in WaOS.
 
 ```sh
-cargo waos run -p terminal --release
+waos run -p terminal --release
 cargo test -p terminal        # the logic, on this computer
 ```
 

@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
-description = "A video player as an Waft app over wasdk-adapter-waft: a library of the videos in the folders its user adds, with thumbnails, lengths and how far each was watched; plays one, a file or a link under the familiar controls, shows the player's state, its subtitles and audio tracks, and resumes what was opened where it was left. `cargo waos run -p video-player`."
+description = "A video player as an Waft app over wasdk-adapter-waft: a library of the videos in the folders its user adds, with thumbnails, lengths and how far each was watched; plays one, a file or a link under the familiar controls, shows the player's state, its subtitles and audio tracks, and resumes what was opened where it was left. `waos run -p video-player`."
 
 [dependencies]
 waft-embedder.workspace = true
@@ -26,7 +26,7 @@ wasdk.workspace = true
 [lints]
 workspace = true
 
-# The id `cargo waos run` runs this program as, with that program's settings and folders.
+# The id `waos run` runs this program as, with that program's settings and folders.
 [package.metadata.waos]
 id = "dev.waos.videoplayer"
 name = "Video Player"

@@ -51,11 +51,11 @@ function Continued({ children }: { children: ReactNode }) {
 const lines: readonly Line[] = [
   { at: 0.04, spaced: true, body: <Tool name="Fetch" arg="https://waos.app/agents.md" /> },
   { at: 0.1, body: <Result>Received 9.6 KB (200 OK)</Result> },
-  { at: 0.18, body: <Tool name="Bash" arg="cargo waos new breeze" /> },
+  { at: 0.18, body: <Tool name="Bash" arg="waos new breeze" /> },
   { at: 0.24, body: <Result>created breeze</Result> },
   { at: 0.32, body: <Tool name="Update" arg="src/main.rs" /> },
   { at: 0.38, body: <Result>Added the forecast, the cities and the hourly strip</Result> },
-  { at: 0.46, body: <Tool name="Bash" arg="cargo waos package" /> },
+  { at: 0.46, body: <Tool name="Bash" arg="waos package" /> },
   {
     at: 0.54,
     body: (
@@ -80,7 +80,7 @@ const lines: readonly Line[] = [
       </Continued>
     ),
   },
-  { at: 0.7, body: <Continued>cargo waos: listed in target/waos/index.json</Continued> },
+  { at: 0.7, body: <Continued>waos: listed in target/waos/index.json</Continued> },
   {
     at: 0.74,
     body: (

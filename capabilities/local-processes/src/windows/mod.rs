@@ -9,7 +9,7 @@
 //! closes the pseudoconsole, which closes the command's console; anything else ends the job. A
 //! command ended by Ctrl-C (`STATUS_CONTROL_C_EXIT`) ends by the signal `INT`, as a POSIX shell on
 //! Windows reports it. A process started ignoring Ctrl-C, as one started in a process group of its
-//! own is, passes that on to the commands it starts, whose interrupt is then lost: `cargo waos`
+//! own is, passes that on to the commands it starts, whose interrupt is then lost: `waos`
 //! starts WaOS in none.
 //!
 //! The invariant: wrapping Windows' calls is what this module is for, and the one place in the

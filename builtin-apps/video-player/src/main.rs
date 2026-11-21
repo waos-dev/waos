@@ -10,7 +10,7 @@
 //! program.
 //!
 //! ```text
-//! cargo waos run -p video-player
+//! waos run -p video-player
 //! ```
 
 // Waft's bindings take `self: Handle<Self>`.

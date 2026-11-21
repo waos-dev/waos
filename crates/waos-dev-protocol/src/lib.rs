@@ -1,9 +1,9 @@
-//! What `cargo waos` and a running WaOS say to each other: the messages of one command, how they
+//! What `waos` and a running WaOS say to each other: the messages of one command, how they
 //! are framed on a stream, and what carries them on this machine: a Unix socket, or a named pipe
 //! on Windows.
 //!
 //! One connection is one command. The client speaks its [`Hello`] first and WaOS answers with its
-//! own; a `cargo waos` reads WaOS's before it sends any request, so a different protocol's major or
+//! own; a `waos` reads WaOS's before it sends any request, so a different protocol's major or
 //! a request WaOS's `serves` does not list is refused with both builds named and which one to
 //! update, before anything is sent. An older WaOS also answers any request or inner variant it
 //! cannot read (`Unknown`) with a [`Refusal`] naming its build rather than breaking the connection.

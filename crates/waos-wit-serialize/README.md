@@ -4,7 +4,7 @@
 
 - **Takes:** a record, variant or enum of wasmtime's `bindgen!`, given as one of its `additional_derives`.
 - **Provides:** `WitSerialize`, an implementation of `serde::Serialize`; the crate deriving needs `serde` among its dependencies.
-- **Used by:** `waos`, for `wasdk:inspect`, whose values `cargo waos inspect` prints as JSON lines.
+- **Used by:** `waos`, for `wasdk:inspect`, whose values `waos inspect` prints as JSON lines.
 
 ```rust
 wasmtime::component::bindgen!({

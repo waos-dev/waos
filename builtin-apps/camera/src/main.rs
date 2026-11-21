@@ -9,7 +9,7 @@
 //! WinUI controls, over `wasdk-adapter-waft`.
 //!
 //! ```text
-//! cargo waos run -p camera-app
+//! waos run -p camera-app
 //! ```
 
 // Waft's bindings take `self: Handle<Self>`.

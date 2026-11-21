@@ -42,7 +42,7 @@ pub async fn latest() -> Result<(String, String)> {
 
 async fn fetched(url: &str) -> Result<Vec<u8>> {
     let client = reqwest::Client::builder()
-        .user_agent(concat!("cargo-waos/", env!("CARGO_PKG_VERSION")))
+        .user_agent(concat!("waos/", env!("CARGO_PKG_VERSION")))
         .build()
         .context("an HTTP client")?;
     let response = client

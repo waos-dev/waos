@@ -17,7 +17,7 @@ use tokio::net::{UnixListener, UnixStream};
 
 use crate::connection::Connection;
 
-/// The stream of a connection `cargo waos` made: a Unix socket's.
+/// The stream of a connection `waos` made: a Unix socket's.
 pub type ClientStream = UnixStream;
 
 /// The stream of a connection a WaOS accepted: a Unix socket's, as the other end's.
@@ -60,7 +60,7 @@ impl Connection<ClientStream> {
     }
 }
 
-/// Where a WaOS accepts `cargo waos`'s connections. Dropping it removes its socket file, so a
+/// Where a WaOS accepts `waos`'s connections. Dropping it removes its socket file, so a
 /// WaOS that quit leaves none; one that died leaves a file the next WaOS replaces.
 #[derive(Debug)]
 pub struct Listener {

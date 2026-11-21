@@ -1,5 +1,5 @@
 //! A program's name as its user knows it: an installed program's name, which its package gives,
-//! else what it runs as, as a program `cargo waos` sends runs under its id.
+//! else what it runs as, as a program `waos` sends runs under its id.
 
 use waos::RunningProgram;
 use waos_package::ProgramId;

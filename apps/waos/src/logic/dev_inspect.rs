@@ -1,10 +1,10 @@
-//! An inspection `cargo waos inspect` asks for (the inspector proposal's protocol): a program's
+//! An inspection `waos inspect` asks for (the inspector proposal's protocol): a program's
 //! audit summary, the days kept with today's as the engine counts it now; what it uses
 //! now and each change to it; or its live trace, each event as it comes; the last two until the
 //! connection closes or the program ends.
 //! Each value goes as JSON of `wasdk:inspect`'s, one a line, so the command prints what it reads.
 //!
-//! The invariant: only a program a run of `cargo waos run` on this machine runs is inspected live,
+//! The invariant: only a program a run of `waos run` on this machine runs is inspected live,
 //! and only one it runs or has run has its summary read, as its settings are (`dev_settings`);
 //! never a program the library opened, whose record is its user's to read.
 

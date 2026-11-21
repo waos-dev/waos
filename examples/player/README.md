@@ -6,10 +6,10 @@ To run it, start the WaOS built from this workspace, then send the program to it
 
 ```sh
 cargo waft run -p waos-app      # builds WaOS.app with the players, and opens it
-cargo waos run -p player         # builds the program, and runs it in that WaOS
+waos run -p player         # builds the program, and runs it in that WaOS
 ```
 
-`cargo waos run` starts the installed WaOS.app only when no WaOS answers, and a WaOS built before the players cannot run the program, which imports `media-players`. The program reaches the stream's host, `devstreaming-cdn.apple.com`, under the network switch and its rule of domains, which WaOS checks before it hands the link to the system's player: the defaults, the network on for any domain, let it through; a rule of only some domains needs that host among them, and with the network off the player fails with `the program may not reach devstreaming-cdn.apple.com`. It asks no question of its user.
+`waos run` starts the installed WaOS.app only when no WaOS answers, and a WaOS built before the players cannot run the program, which imports `media-players`. The program reaches the stream's host, `devstreaming-cdn.apple.com`, under the network switch and its rule of domains, which WaOS checks before it hands the link to the system's player: the defaults, the network on for any domain, let it through; a rule of only some domains needs that host among them, and with the network off the player fails with `the program may not reach devstreaming-cdn.apple.com`. It asks no question of its user.
 
 - **Takes:** `wasdk-adapter-waft`; Waft's `waft-widgets` (the app, its window, `Player`, `PlayerView`, `VideoFrameView` and `SubtitleView`), `waft-cupertino` (the page and the buttons), `waft-embedder` (a player's state, its tracks and its output) and `waft-foundation`, from crates.io; `tracing`, which the frames drawn are counted through; `wasdk`, for the entry and the clock.
 - **Provides:** a component, `target/wasm32-wasip3/debug/player.wasm`, from `cargo build -p player --target wasm32-wasip3`.

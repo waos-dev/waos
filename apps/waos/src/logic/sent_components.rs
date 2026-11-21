@@ -1,4 +1,4 @@
-//! The components `cargo waos` sent, each kept in a file of the app's own named by its program's
+//! The components `waos` sent, each kept in a file of the app's own named by its program's
 //! id, where the engine compiles it and loads it from.
 //!
 //! The invariants a later editor will break:
@@ -61,7 +61,7 @@ impl SentComponents {
         }
     }
 
-    /// Whether a component was sent as the program `id` and is kept still: a run of `cargo waos
+    /// Whether a component was sent as the program `id` and is kept still: a run of `waos
     /// run` on this machine ran it.
     pub(crate) fn was_sent(&self, id: &ProgramId) -> bool {
         component_path(&self.folder, id).is_file()

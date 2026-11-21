@@ -1,5 +1,5 @@
 //! Plain Rust, tested without Waft's UI: WaOS's command line and where it shows its library
-//! (`command_line`); where the app keeps its files, the programs `cargo waos` has running and the
+//! (`command_line`); where the app keeps its files, the programs `waos` has running and the
 //! dev server that runs what each connection sends, or opens the files it sends with a program
 //! (`opening`), and `waos open`'s side of that (`open_command`), or answers its screenshot of a
 //! program's windows (`dev_screenshot`), gives them its input (`dev_input`) or sizes one
@@ -9,7 +9,7 @@
 //! (`noted_file_dialogs`); what each program
 //! runs with (`environments`): this computer's capabilities and the grants of the store's settings;
 //! the library's side of the store: a package opened with WaOS, what a source's listing offers
-//! against what is installed, an installed program run as `cargo waos run` runs one, its code
+//! against what is installed, an installed program run as `waos run` runs one, its code
 //! compiled at its install and removed with it (`installed_code`), each installed program's shortcut on Android's home screen and WaOS's
 //! icon's menu, made to match what is installed (`program_shortcuts`), and a settings
 //! page and what the user changes on it (`setting_changes`); when the desktop's launcher shows and

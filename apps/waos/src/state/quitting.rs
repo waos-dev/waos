@@ -5,7 +5,7 @@
 //! socket file is gone, and kept every program's day; cancel if any refused, and nothing closes.
 //! Every quit asks again, even while the programs decide an earlier one, and each is decided on
 //! its own. A program that never answers keeps WaOS open until it is stopped, which the run's
-//! `cargo waos` does when its user presses Ctrl-C; a program that ends while asked has answered
+//! `waos` does when its user presses Ctrl-C; a program that ends while asked has answered
 //! exit.
 //!
 //! The invariant: the server is stopped and the days kept before exit is answered, never after,

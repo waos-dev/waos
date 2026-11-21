@@ -8,7 +8,7 @@
 //!
 //! ```text
 //! cargo build -p copy-paste --target wasm32-wasip3
-//! cargo waos run -p copy-paste
+//! waos run -p copy-paste
 //! ```
 
 // Waft's bindings take `self: Handle<Self>`.

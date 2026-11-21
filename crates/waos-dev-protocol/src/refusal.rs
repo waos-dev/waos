@@ -1,7 +1,7 @@
 //! Why a request was not carried out: a kind an agent can act on, and a message for a person.
 //!
 //! The invariant: CBOR names each variant and field, so a kind added leaves the ones before it as
-//! they were, and a `cargo waos` older than the WaOS it reaches reads a kind it does not know as
+//! they were, and a `waos` older than the WaOS it reaches reads a kind it does not know as
 //! `Unknown`, never breaking the connection over a refusal it can still show.
 
 use std::fmt;
@@ -40,10 +40,10 @@ impl fmt::Display for Refusal {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(remote = "Self", tag = "kind", content = "data")]
 pub enum RefusalKind {
-    /// No run of `cargo waos run` runs the program now: nothing does, or the program running was
+    /// No run of `waos run` runs the program now: nothing does, or the program running was
     /// opened otherwise, from WaOS's library.
     NoDevRunNow,
-    /// No run of `cargo waos run` on this machine runs the program or has run it, so its settings
+    /// No run of `waos run` on this machine runs the program or has run it, so its settings
     /// are none of a tool's.
     NeverDevRun,
     /// The program has no window `window`.

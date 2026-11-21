@@ -1,5 +1,5 @@
-//! An input `cargo waos tap`, `press`, `drag`, `type`, `key` or `scroll` sends, given to a window
-//! of a program a run of `cargo waos run` runs, as its user would give it (the design's decision
+//! An input `waos tap`, `press`, `drag`, `type`, `key` or `scroll` sends, given to a window
+//! of a program a run of `waos run` runs, as its user would give it (the design's decision
 //! 60): through the engine's view, as the shell reports its user's input, so the program cannot
 //! tell the two apart. A tap, a press, a drag and a scroll are a mouse's, a mouse of the run's own
 //! (`mouse`), a press and a drag taking the time they say before the answer; a key or a chord is a
@@ -89,7 +89,7 @@ async fn give(
         return Err(dev_refusal::asking(id, &asked, "the input was not given"));
     }
     let (window, view) = run.window(window)?;
-    tracing::info!(%id, %window, ?input, "an input from cargo waos");
+    tracing::info!(%id, %window, ?input, "an input from waos");
     // The answer says how it stood when the input was given, not how it stands after the wait.
     let in_sight = view.in_sight();
     deliver(id, window, &run, &view, &input).await?;
@@ -194,7 +194,7 @@ fn commit(id: &ProgramId, window: WindowId, view: &ProgramView, text: &str) -> R
         return Err(dev_refusal::bad_input(
             id,
             window,
-            "nothing in it is being edited: tap a text field first, or send keys with `cargo waos key`",
+            "nothing in it is being edited: tap a text field first, or send keys with `waos key`",
         ));
     };
     view.text_input_editing_value(text_commit::committed(&editing, text));

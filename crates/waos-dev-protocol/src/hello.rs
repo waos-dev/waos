@@ -47,9 +47,9 @@ adjacent_unknown!(Peer);
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Hello {
     pub major: u32,
-    /// The build as people name it: "WaOS 0.3.0", "cargo-waos 0.3.0".
+    /// The build as people name it: "WaOS 0.4.1", "waos 0.4.1".
     pub build: String,
-    /// WaOS's: the requests it serves ([`SERVED`]); `cargo waos`'s: none.
+    /// WaOS's: the requests it serves ([`SERVED`]); `waos`'s: none.
     #[serde(default)]
     pub serves: Vec<String>,
     /// Which binary sent this hello.
@@ -68,7 +68,7 @@ impl Hello {
         }
     }
 
-    /// `cargo waos`'s hello, `build` naming it.
+    /// `waos`'s hello, `build` naming it.
     pub fn cargo_waos(build: impl Into<String>) -> Hello {
         Hello {
             major: MAJOR,
@@ -129,7 +129,9 @@ impl fmt::Display for Mismatch {
                     theirs.peer
                 };
                 let action = match older {
-                    Peer::CargoWaos => "update cargo waos with `cargo install cargo-waos`",
+                    Peer::CargoWaos => {
+                        "update waos with `curl -fsSL https://waos.app/install.sh | sh`"
+                    }
                     Peer::WaOS | Peer::WaosOpen | Peer::Unknown => {
                         "update WaOS from https://waos.app"
                     }
@@ -276,7 +278,7 @@ mod tests {
         };
         let refused = newer.accepts(&ours, &run()).unwrap_err();
         assert!(
-            refused.to_string().contains("update cargo waos")
+            refused.to_string().contains("update waos")
                 && refused.to_string().contains("WaOS 0.4.0")
                 && refused.to_string().contains("cargo-waos 0.3.0"),
             "{refused}"

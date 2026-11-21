@@ -22,7 +22,7 @@
 //!   user turned that on ([`new_item_notices`]).
 //!
 //! ```text
-//! cargo waos run -p reader
+//! waos run -p reader
 //! ```
 
 // Waft's `State` methods take `self: Handle<Self>`.

@@ -12,7 +12,7 @@
 //!
 //! ```text
 //! cargo build -p camera --target wasm32-wasip3
-//! cargo waos run -p camera
+//! waos run -p camera
 //! ```
 
 use waft_cupertino::{CupertinoApp, CupertinoButton, CupertinoPageScaffold};

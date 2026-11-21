@@ -1,6 +1,6 @@
 //! Which version's docs to serve: the `wasdk` the app in this directory builds with, as its
 //! `Cargo.lock` has it, since the docs describe the SDK and WaOS of that release; this
-//! `cargo waos`'s own outside an app, or in one that has not locked its `wasdk` yet.
+//! `waos`'s own outside an app, or in one that has not locked its `wasdk` yet.
 
 use std::env;
 use std::fs;

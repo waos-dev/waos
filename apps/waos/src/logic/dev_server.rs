@@ -1,4 +1,4 @@
-//! Where `cargo waos` and `waos open` reach this WaOS: a listener on the socket `waos-dev-protocol`
+//! Where `waos` and `waos open` reach this WaOS: a listener on the socket `waos-dev-protocol`
 //! names, on a thread of the app's own with a runtime of its own, and a task per connection,
 //! each, once the hellos are exchanged, one request: a run (`dev_run`), one opening of files with
 //! a program (`opening`), one screenshot of the windows of a program a run runs

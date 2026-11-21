@@ -15,7 +15,7 @@
 //!
 //! ```text
 //! cargo build -p waft-menus --target wasm32-wasip3
-//! cargo waos run -p waft-menus
+//! waos run -p waft-menus
 //! ```
 
 // Waft's bindings take `self: Handle<Self>`.
