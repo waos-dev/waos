@@ -505,20 +505,22 @@ impl WindowProcess {
         pictures.resize_at_once(opened.metrics, None);
         let send = Arc::clone(&self.send);
         let calls = ViewCalls::new(move |call| send(ToWindow::View { window, call }));
-        let view = self.program.add_view(PlacedView {
-            view: Arc::new(CanvasView::new(pictures, calls.clone())),
-            text_input: Some(Arc::new(calls.clone())),
-            window: Some(PlacedWindow {
-                window: Arc::new(WindowCalls::new(calls, opened.size_limits)),
-                frame: opened.frame,
-                maximized: opened.maximized,
-                title_bar_double_click_action: opened.title_bar_double_click_action,
-            }),
-            metrics: opened.metrics,
-            screen: opened.screen,
-            presence: opened.presence,
-            request: Some(window),
-        });
+        let view = self.program.add_view(
+            window,
+            PlacedView {
+                view: Arc::new(CanvasView::new(pictures, calls.clone())),
+                text_input: Some(Arc::new(calls.clone())),
+                window: Some(PlacedWindow {
+                    window: Arc::new(WindowCalls::new(calls, opened.size_limits)),
+                    frame: opened.frame,
+                    maximized: opened.maximized,
+                    title_bar_double_click_action: opened.title_bar_double_click_action,
+                }),
+                metrics: opened.metrics,
+                screen: opened.screen,
+                presence: opened.presence,
+            },
+        );
         tracing::info!(
             program = self.program.name(),
             window,

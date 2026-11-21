@@ -1,0 +1,39 @@
+package wasdk:platform@2.0.0;
+
+/// Opening what the program names in the app the system picks for it: a link, a file, and a file
+/// shown in the system's file manager, a function for each, as Electron's `shell` and Tauri's
+/// opener have them.
+///
+/// **Links.** A link of `http`, `https` or `mailto` opens freely. A link of any other scheme asks
+/// the user once for the program and the scheme, and the answer is kept: a scheme the user refused
+/// answers `denied`, without asking again. Whether some app opens a link is not asked beforehand:
+/// a program learns that none does when opening it fails with `no-app`.
+///
+/// **Files** are named by their path inside the program, as its files are reached (`std::fs`), and
+/// opened, or shown, where they are on the machine; a path outside the program's files fails.
+/// Nothing asks the user before a file opens: the program reaches the file already.
+interface opener {
+  /// Why nothing opened.
+  variant open-error {
+    /// The user refused the program links of this scheme.
+    denied,
+    /// No app on the system opens it.
+    no-app,
+    /// The system did not open it, or the program named nothing it can open; why.
+    failed(string),
+  }
+
+  /// The system's opener. Each call answers once the system has handed what it names to the app
+  /// that opens it.
+  resource opener {
+    /// Opens `link` in the app the system picks for its scheme.
+    open-link: async func(link: string) -> result<_, open-error>;
+    /// Opens the file at `path`, inside the program, in the app the system picks for its type.
+    open-file: async func(path: string) -> result<_, open-error>;
+    /// Shows the file at `path`, inside the program, in the system's file manager, selected.
+    reveal-file: async func(path: string) -> result<_, open-error>;
+  }
+
+  /// The system's opener, where it has one.
+  get-opener: func() -> option<opener>;
+}

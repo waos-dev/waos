@@ -87,10 +87,10 @@ pub(crate) mod tests {
         let survey = engine
             .load(Path::new(waos_test_programs::SURVEY))
             .expect("survey loads");
-        let (running, _given) = engine
-            .run(&survey, ProgramEnvironment::default(), Vec::new())
-            .expect("survey runs");
-        running
+
+        engine
+            .run(&survey, ProgramEnvironment::default())
+            .expect("survey runs")
     }
 
     #[tokio::test]

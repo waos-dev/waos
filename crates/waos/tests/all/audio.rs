@@ -130,7 +130,7 @@ fn a_waiting_output_picker_is_answered_by_setting_its_row_and_drops_its_prompt()
         audio: Some(Arc::clone(&devices) as Arc<dyn AudioDevices>),
         ..ProgramEnvironment::default()
     };
-    let (running, _views) = engine.run(&program, environment, Vec::new()).unwrap();
+    let running = engine.run(&program, environment).unwrap();
 
     wait_until("output picker is waiting", || {
         !shell.sound().shown().is_empty()
@@ -224,7 +224,7 @@ fn a_program_given_no_sound_devices_has_no_sound() {
         output: Some(Arc::clone(&lines) as Arc<dyn ProgramOutput>),
         ..ProgramEnvironment::default()
     };
-    let (running, _views) = engine.run(&program, environment, Vec::new()).unwrap();
+    let running = engine.run(&program, environment).unwrap();
     lines.wait_for("no sound");
     block_on(running.ended());
 }
@@ -246,10 +246,8 @@ fn a_program_is_thawed_while_it_plays_frozen_while_its_tone_waits_and_trapped_st
         audio: Some(Arc::new(TestDevices::default()) as Arc<dyn AudioDevices>),
         ..ProgramEnvironment::default()
     };
-    let (running, views) = engine
-        .run(&program, environment, vec![shell.placed_view(None)])
-        .unwrap();
-    let view = &views[0];
+    let (running, view) = shell::run_on_reserved(&engine, &shell, &program, environment);
+    let view = &view;
     lines.wait_for("playing");
 
     hide(view);
@@ -308,7 +306,7 @@ fn run_sound_with(
         audio: Some(Arc::clone(&devices) as Arc<dyn AudioDevices>),
         ..ProgramEnvironment::default()
     };
-    let (running, _views) = engine.run(&program, environment, Vec::new()).unwrap();
+    let running = engine.run(&program, environment).unwrap();
     (lines, devices, running)
 }
 

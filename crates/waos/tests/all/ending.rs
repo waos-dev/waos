@@ -21,9 +21,7 @@ fn stop_ends_a_program_that_never_returns() {
     let _forever = shell::turns::take("forever");
     let (engine, _shell, _arrivals) = shell::engine();
     let forever = shell::load(&engine, waos_test_programs::FOREVER);
-    let (running, _given) = engine
-        .run(&forever, ProgramEnvironment::default(), Vec::new())
-        .unwrap();
+    let running = engine.run(&forever, ProgramEnvironment::default()).unwrap();
     wait_for_fuel_read(&running);
     let still_running = running.ended();
     running.stop();
@@ -38,9 +36,7 @@ fn stop_ends_a_program_that_never_returns() {
 fn a_program_that_traps_ends_failed() {
     let (engine, _shell, _arrivals) = shell::engine();
     let trap = shell::load(&engine, waos_test_programs::TRAP);
-    let (running, _given) = engine
-        .run(&trap, ProgramEnvironment::default(), Vec::new())
-        .unwrap();
+    let running = engine.run(&trap, ProgramEnvironment::default()).unwrap();
     let ProgramEnd::Failed(error) = block_on(running.ended()) else {
         panic!("a trap is a failure");
     };
@@ -59,8 +55,8 @@ fn a_program_that_traps_ends_failed() {
 fn a_program_built_for_another_version_of_the_interface_ends_incompatible() {
     let (engine, _shell, _arrivals) = shell::engine();
     let incompatible = shell::load(&engine, waos_test_programs::INCOMPATIBLE);
-    let (running, _given) = engine
-        .run(&incompatible, ProgramEnvironment::default(), Vec::new())
+    let running = engine
+        .run(&incompatible, ProgramEnvironment::default())
         .unwrap();
     let ProgramEnd::Failed(error) = block_on(running.ended()) else {
         panic!("a program that cannot be linked fails");
@@ -81,9 +77,7 @@ fn a_program_built_for_another_version_of_the_interface_ends_incompatible() {
 fn a_trap_is_not_incompatible() {
     let (engine, _shell, _arrivals) = shell::engine();
     let trap = shell::load(&engine, waos_test_programs::TRAP);
-    let (running, _given) = engine
-        .run(&trap, ProgramEnvironment::default(), Vec::new())
-        .unwrap();
+    let running = engine.run(&trap, ProgramEnvironment::default()).unwrap();
     let ProgramEnd::Failed(error) = block_on(running.ended()) else {
         panic!("a trap is a failure");
     };
@@ -149,9 +143,7 @@ fn removing_a_programs_code_leaves_none_of_it_and_the_next_load_compiles() {
     assert_eq!(live_files(&cache.0, "trap"), Vec::<PathBuf>::new());
     assert!(!engine.is_compiled(trap).unwrap());
     engine.remove_compiled(trap).unwrap();
-    let (running, _given) = engine
-        .run(&loaded, ProgramEnvironment::default(), Vec::new())
-        .unwrap();
+    let running = engine.run(&loaded, ProgramEnvironment::default()).unwrap();
     assert!(
         matches!(block_on(running.ended()), ProgramEnd::Failed(_)),
         "a program loaded before keeps the code it mapped, and runs to its trap"

@@ -455,13 +455,10 @@ impl Gpu {
     }
 }
 
-/// The view the shell gave, or the one that arrives for a request when it gave none.
+/// The view that arrives for the program's request.
 async fn first_view() -> Result<View, String> {
-    // The stream is opened before the list is read, so a view between the two is not missed.
+    // The stream is opened before the request, so the view that arrives for it is not missed.
     let mut changes = views::view_changes();
-    if let Some(view) = views::views().into_iter().next() {
-        return Ok(view);
-    }
     let config = WindowConfig::new();
     config.set_title("Hardware buffers");
     views::request_view(&config, None)

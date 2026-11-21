@@ -67,7 +67,9 @@ use crate::sync::locked;
 use crate::system::SystemSettings;
 use crate::targets;
 use crate::temporary_folders::TemporaryFolder;
-use crate::views::{ProgramView, ProgramViews, ScreenRefreshes, ViewLayers, Watching};
+use crate::views::{
+    ProgramView, ProgramViews, ReservedView, ScreenRefreshes, ViewLayers, Watching,
+};
 use crate::workers::ProgramWorkers;
 use activity::Activity;
 pub use held::HeldProgram;
@@ -226,13 +228,15 @@ pub(crate) struct ProgramStart {
 }
 
 impl RunningProgram {
-    /// Starts the program on a thread of its own, with `views` given before its code runs;
-    /// `temporary`, its `/tmp`, goes once it and its workers have ended, before its end is told.
+    /// Starts the program on a thread of its own, with `reserved` kept for its first request
+    /// before its code runs, where the shell shows one already, answering what the shell waits on
+    /// for it; `temporary`, its `/tmp`, goes once it and its workers have ended, before its end is
+    /// told.
     pub(crate) fn start(
         start: ProgramStart,
-        views: Vec<PlacedView>,
+        reserved: Option<PlacedView>,
         temporary: Option<TemporaryFolder>,
-    ) -> Result<(RunningProgram, Vec<ProgramView>)> {
+    ) -> Result<(RunningProgram, Option<ReservedView>)> {
         let clock = Clock::start();
         let lifecycle = Lifecycle::new(start.freeze, start.clock.clone());
         let program_views = ProgramViews::new(
@@ -243,10 +247,7 @@ impl RunningProgram {
             Arc::clone(&start.screenshots),
             Arc::downgrade(&start.view_layers),
         );
-        let given = views
-            .into_iter()
-            .map(|placed| program_views.add(placed))
-            .collect();
+        let reserved = reserved.map(|placed| program_views.reserve(placed));
         let (stop, stopped) = oneshot::channel();
         let (end, ended) = oneshot::channel();
         let stats = Arc::new(Stats::default());
@@ -280,6 +281,7 @@ impl RunningProgram {
             handed,
             storage,
         }));
+        let reserved = reserved.map(|taken| ReservedView::new(taken, program.ended()));
         start.programs.add(&program);
         let on_thread = program.clone();
         let thread_name = format!("program {}", start.name);
@@ -297,13 +299,12 @@ impl RunningProgram {
                 let _ = end.send(ending);
             })
             .with_context(|| format!("a thread for {thread_name}"))?;
-        Ok((program, given))
+        Ok((program, reserved))
     }
 
-    /// Adds a view the shell gives, or one that arrives for a request: the program has it from
-    /// now on, and hears of it.
-    pub fn add_view(&self, view: PlacedView) -> ProgramView {
-        self.0.views.add(view)
+    /// Adds the view that arrives for `request`: the program has it from now on, and hears of it.
+    pub fn add_view(&self, request: RequestId, view: PlacedView) -> ProgramView {
+        self.0.views.add(request, view)
     }
 
     /// The shell took the view away: its events end, and the program hears of it.

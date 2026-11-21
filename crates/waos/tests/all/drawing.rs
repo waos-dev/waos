@@ -70,21 +70,22 @@ const STARTING_HARDWARE_BUFFERS: u64 = 3;
 /// How long a view draws nothing before its spare hardware buffers go.
 const SPARE_IDLE: Duration = Duration::from_secs(1);
 
-/// Triangle running on one view the shell gives it, and the shell's side of that view, with
-/// `before_run` done to it before the program starts.
+/// Triangle running on one view the shell reserved for it, and the shell's side of that view,
+/// with `before_run` done to it before the program starts.
 fn run_triangle(
     engine: &WaOS,
     shell: &TestShell,
     before_run: impl FnOnce(&RecordingView),
 ) -> (RunningProgram, ProgramView, Arc<RecordingView>) {
-    let placed = shell.placed_view(None);
+    let placed = shell.placed_view();
     let shell_view = shell.placed_views().pop().expect("the view was placed");
     before_run(&shell_view);
     let triangle = shell::load(engine, waos_test_programs::TRIANGLE);
-    let (running, mut given) = engine
-        .run(&triangle, ProgramEnvironment::default(), vec![placed])
+    let (running, reserved) = engine
+        .run_reserving(&triangle, ProgramEnvironment::default(), placed)
         .unwrap();
-    (running, given.remove(0), shell_view)
+    let view = block_on(reserved).expect("triangle asks for its view");
+    (running, view, shell_view)
 }
 
 /// Waits until no frame has been presented for [`QUIET`], and answers how many were.

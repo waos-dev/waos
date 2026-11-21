@@ -336,7 +336,7 @@ impl ProgramApps {
             .program(id)
             .ok_or_else(|| format!("{id} is not installed, and does not run"))?;
         let (program, _views) = runs
-            .open(id, component, Vec::new(), ProgramPlace::Windows)
+            .open(id, component, None, ProgramPlace::Windows)
             .await
             .map_err(|error| format!("{error:#}"))?;
         Ok(program)

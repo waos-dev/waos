@@ -48,7 +48,7 @@ fn run(
         output: Some(Arc::clone(lines) as Arc<dyn ProgramOutput>),
         ..ProgramEnvironment::default()
     };
-    let (running, _given) = engine.run(&program, environment, Vec::new()).unwrap();
+    let running = engine.run(&program, environment).unwrap();
     let view = arrivals
         .recv_timeout(WITHIN)
         .expect("the program asks for its window");

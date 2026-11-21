@@ -136,11 +136,8 @@ impl EventLoop {
     fn view_change(&mut self, change: ViewChange) {
         match change {
             ViewChange::Added(view) => {
-                let Some(window) = view
-                    .request_id()
-                    .and_then(|request| self.platform.take_pending_window(request))
-                else {
-                    log::warn!("a view WaOS gave matches no window GPUI opened");
+                let Some(window) = self.platform.take_pending_window(view.request_id()) else {
+                    log::warn!("a view arrived for no window GPUI opened");
                     return;
                 };
                 let id = view.id();

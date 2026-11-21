@@ -86,8 +86,8 @@ async fn survey() -> (RunningProgram, ViewRequest) {
         .load(Path::new(waos_test_programs::SURVEY))
         .expect("survey loads")
         .named("dev.example.survey");
-    let (program, _given) = engine
-        .run(&survey, ProgramEnvironment::default(), Vec::new())
+    let program = engine
+        .run(&survey, ProgramEnvironment::default())
         .expect("survey runs");
     let asked = tokio::time::timeout(WITHIN, requests.next())
         .await
@@ -799,9 +799,7 @@ async fn menus(app_menus: &AppMenus, printed: &Arc<Printed>) -> (RunningProgram,
         output: Some(Arc::clone(printed) as Arc<dyn ProgramOutput>),
         ..ProgramEnvironment::default()
     };
-    let (program, _given) = engine
-        .run(&menus, environment, Vec::new())
-        .expect("menus runs");
+    let program = engine.run(&menus, environment).expect("menus runs");
     let asked = tokio::time::timeout(WITHIN, requests.next())
         .await
         .expect("menus asks for a window in time")

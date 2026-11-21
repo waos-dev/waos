@@ -40,7 +40,11 @@ fn a_program_opened_gets_its_tabs_view_measured_as_the_page_and_its_tab_shows_it
         page.physical_size,
         "the page above the bar"
     );
-    assert_eq!(view.request_id(), None, "a view given, not asked for");
+    assert_eq!(
+        view.request_id(),
+        1,
+        "its first request took the tab's screen"
+    );
     assert!(
         view.presence().on_screen && view.in_sight(),
         "{:?}",
@@ -58,7 +62,7 @@ fn a_program_opened_gets_its_tabs_view_measured_as_the_page_and_its_tab_shows_it
 }
 
 #[test]
-fn a_program_that_asks_for_a_view_when_given_none_asks_for_none_in_a_tab() {
+fn a_program_asking_for_its_first_view_in_a_tab_gets_the_tabs_screen() {
     let mut phone = TestPhone::with_installed(&[(waos_test_programs::SURVEY, SURVEY, "Survey")]);
     phone.open(SURVEY);
     assert_eq!(
@@ -67,7 +71,7 @@ fn a_program_that_asks_for_a_view_when_given_none_asks_for_none_in_a_tab() {
         "{:?}",
         phone.end(SURVEY)
     );
-    assert_eq!(phone.program_view(SURVEY).request_id(), None);
+    assert_eq!(phone.program_view(SURVEY).request_id(), 1);
 }
 
 #[test]
@@ -89,8 +93,8 @@ fn a_tab_says_how_its_program_ended_until_it_is_closed() {
         phone.labels()
     );
     assert!(
-        phone.has::<ProgramPicture>() && !phone.has::<ProgramCanvas>(),
-        "its last picture, out of its reach"
+        !phone.has::<ProgramPicture>() && !phone.has::<ProgramCanvas>(),
+        "it ended before it asked for a view, so there is no picture to keep"
     );
     phone.close(TRAP);
     assert_eq!(phone.stage(TRAP), None);

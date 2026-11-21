@@ -1,11 +1,11 @@
-//! The view a tab gives its program as the program starts: a canvas's composition layer, made on
-//! Waft's compositor, and the queue the program's calls on the view arrive on, handed to the
-//! engine as a view with no window and answering no request; once the program runs, the same
-//! view shown, as `waos-program-window`'s `ShownView`, in the deck's view.
+//! The screen a tab reserves for its program's first request as the program starts: a canvas's
+//! composition layer, made on Waft's compositor, and the queue the program's calls on the view
+//! arrive on, handed to the engine as a view with no window; once the program's request takes it,
+//! the same view shown, as `waos-program-window`'s `ShownView`, in the deck's view.
 //!
-//! The invariant: what the program draws goes to the layer from the moment it starts, and the
-//! calls it makes before its tab shows it wait in the queue, carried out in their order once it
-//! does.
+//! The invariant: what the program draws goes to the layer from the moment its request takes the
+//! screen, and the calls it makes before its tab shows it wait in the queue, carried out in their
+//! order once it does.
 
 use std::rc::Rc;
 use std::sync::Arc;
@@ -18,8 +18,8 @@ use waos::{PlacedView, Presence, ProgramView};
 use waos_program_window::{CanvasLayer, CanvasView, ShownView, ViewCalls, ViewLink, metrics_of};
 use waos_window_messages::ViewCall;
 
-/// The view a tab gives its program as it starts: the canvas's layer, made on Waft's compositor,
-/// and the queue its calls arrive on.
+/// The screen a tab reserves for its program's first request: the canvas's layer, made on Waft's
+/// compositor, and the queue its calls arrive on.
 pub(crate) struct TabView {
     canvas: Arc<CanvasLayer>,
     calls: UnboundedReceiver<ViewCall>,
@@ -53,7 +53,6 @@ impl TabView {
             metrics: metrics_of(metrics),
             screen: metrics.screen.map(|screen| screen.0),
             presence,
-            request: None,
         };
         let tab_view = TabView {
             canvas,

@@ -37,7 +37,7 @@ impl ProgramLink for RunningProgram {
     /// The view, its hardware buffers presented to the canvas's surface and its calls queued for
     /// its window, carrying `request`.
     fn add_view(&self, request: RequestId, opened: OpenedView) -> ProgramView {
-        RunningProgram::add_view(self, placed_view(opened, Some(request)))
+        RunningProgram::add_view(self, request, placed_view(opened))
     }
 
     fn view_request_failed(&self, request: RequestId, error: ViewError) {
@@ -49,10 +49,10 @@ impl ProgramLink for RunningProgram {
     }
 }
 
-/// The view `opened` opened in a window, as the engine is handed it: its hardware buffers
-/// presented to the canvas's surface and its calls queued for its window, carrying `request`, or
-/// none for a window the platform gave, which a program starts with.
-pub fn placed_view(opened: OpenedView, request: Option<RequestId>) -> PlacedView {
+/// The view `opened` opened in a window, as the engine is handed it, for a request or reserved for
+/// one: its hardware buffers presented to the canvas's surface and its calls queued for its
+/// window.
+pub fn placed_view(opened: OpenedView) -> PlacedView {
     let calls = ViewCalls::queued(opened.calls);
     let canvas_view = CanvasView::new(opened.canvas, calls.clone());
     PlacedView {
@@ -67,7 +67,6 @@ pub fn placed_view(opened: OpenedView, request: Option<RequestId>) -> PlacedView
         metrics: opened.metrics,
         screen: opened.screen,
         presence: opened.presence,
-        request,
     }
 }
 

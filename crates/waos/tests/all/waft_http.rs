@@ -42,7 +42,7 @@ fn trailers_go_both_ways_and_a_307_keeps_a_held_body_but_not_a_streamed_one() {
         }),
         ..waos_local::LocalCapabilities::new().environment()
     };
-    let (running, _given) = engine.run(&program, environment, Vec::new()).unwrap();
+    let running = engine.run(&program, environment).unwrap();
     let view = arrivals
         .recv_timeout(WITHIN)
         .expect("waft-http asks for its window");

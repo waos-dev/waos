@@ -99,7 +99,7 @@ fn a_program_given_no_grants_is_denied_every_post_and_nobody_is_asked() {
         ..ProgramEnvironment::default()
     };
     let program = shell::load(&engine, waos_test_programs::NOTIFICATIONS);
-    let (running, _views) = engine.run(&program, environment, Vec::new()).unwrap();
+    let running = engine.run(&program, environment).unwrap();
     for line in [
         "permission: denied",
         "post greeting: denied",
@@ -377,8 +377,8 @@ fn run(
         ..ProgramEnvironment::default()
     };
     let program = shell::load(engine, waos_test_programs::NOTIFICATIONS).named(name);
-    let (running, _views) = engine.run(&program, environment, Vec::new()).unwrap();
-    running
+
+    engine.run(&program, environment).unwrap()
 }
 
 /// Waits until the program asks its user for notifications, and allows them.

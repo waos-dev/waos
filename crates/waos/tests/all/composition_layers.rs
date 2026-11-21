@@ -34,8 +34,8 @@ const BADGE: usize = 1;
 fn a_present_hands_the_shell_the_layers_the_view_holds_in_order_with_their_placements() {
     let (engine, shell, arrivals) = shell::engine();
     let program = shell::load(&engine, waos_test_programs::COMPOSITION_LAYERS);
-    let (running, _given) = engine
-        .run(&program, ProgramEnvironment::default(), Vec::new())
+    let running = engine
+        .run(&program, ProgramEnvironment::default())
         .expect("the program runs");
     let _view = arrivals.recv_timeout(WITHIN).expect("its view arrives");
     let placed = shell.placed_views()[0].clone();
@@ -90,8 +90,8 @@ const CLEAR: [u8; 4] = [0, 0, 0, 0];
 fn a_screenshot_shows_a_frame_on_a_layer_whole_where_the_last_picture_places_the_layer() {
     let (engine, shell, arrivals) = shell::engine();
     let program = shell::load(&engine, waos_test_programs::COMPOSITION_LAYERS);
-    let (running, _given) = engine
-        .run(&program, ProgramEnvironment::default(), Vec::new())
+    let running = engine
+        .run(&program, ProgramEnvironment::default())
         .expect("the program runs");
     let view = arrivals.recv_timeout(WITHIN).expect("its view arrives");
     shell.placed_views()[0].wait_for_presents(2);
@@ -187,9 +187,7 @@ fn under_a_shell_without_a_compositor_a_program_gets_none_and_presents_no_layers
         output: Some(Arc::clone(&output) as Arc<dyn ProgramOutput>),
         ..ProgramEnvironment::default()
     };
-    let (running, _given) = engine
-        .run(&program, environment, Vec::new())
-        .expect("the program runs");
+    let running = engine.run(&program, environment).expect("the program runs");
     let _view = arrivals.recv_timeout(WITHIN).expect("its view arrives");
     let placed = shell.placed_views()[0].clone();
     placed.wait_for_presents(2);

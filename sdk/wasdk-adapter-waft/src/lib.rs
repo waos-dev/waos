@@ -3,8 +3,8 @@
 //! `opener`, `notifications`, `media_players`, `media_assets`, `image_codecs`, `cameras`, `http`
 //! and `files`, drawn with valo over `wasdk-wgpu`. [`run`] is the body of a program's `main`.
 //!
-//! It maps Waft's model one to one (the design's decision 4): the views the shell gave and the
-//! ones that arrive later, each carrying its request's id and initial data; each view's events,
+//! It maps Waft's model one to one (the design's decision 4): the views that arrive for the
+//! program's requests, each carrying its request's id and initial data; each view's events,
 //! carried field for field into Waft's Flutter shapes; each view's frames through its own
 //! `request-frame` and `present`, a refresh serving several views drawn as one frame of them all,
 //! each view holding the composition layers its scene places as it presents, which Waft's
@@ -105,8 +105,8 @@ use crate::platform::WasdkPlatform;
 use crate::renderer::Renderer;
 
 /// Runs an Waft app until it quits, then flushes the clipboard: the body of a program's `main`.
-/// `setup` is where `run_app` is called, which builds the app in the views the shell gave, or asks
-/// for a window when it gave none.
+/// `setup` is where `run_app` is called, which asks for the app's first window: a program has no
+/// view until it asks.
 ///
 /// ```ignore
 /// #[wasdk::main]
@@ -120,14 +120,9 @@ use crate::renderer::Renderer;
 /// When the engine gives no WebGPU adapter or device.
 pub async fn run(setup: impl FnOnce(&mut App)) {
     let (notice_sender, notices) = mpsc::unbounded();
-    let mut events = Events::open(notices);
+    let events = Events::open(notices);
     let renderer = Rc::new(Renderer::new().await);
     let platform = Rc::new(WasdkPlatform::new(renderer, notice_sender, events.opener()));
-    for view in wasdk::views::views() {
-        if let Some(view) = platform.add_view(view) {
-            events.add_view(&view);
-        }
-    }
     let client = Shell::new(Rc::clone(&platform) as PlatformRef, setup);
     let mut event_loop = EventLoop::new(Rc::clone(&platform), client, events);
     event_loop.run().await;

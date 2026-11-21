@@ -234,7 +234,7 @@ fn start_copy_paste(engine: &WaOS, lines: &Arc<Lines>) -> RunningProgram {
         grants: Some(Switches::on() as Arc<dyn ProgramGrants>),
         ..waos_local::LocalCapabilities::new().environment()
     };
-    engine.run(&program, environment, Vec::new()).unwrap().0
+    engine.run(&program, environment).unwrap()
 }
 
 fn start(
@@ -250,7 +250,7 @@ fn start(
         folders: Some(folders.own()),
         ..ProgramEnvironment::default()
     };
-    engine.run(&program, environment, Vec::new()).unwrap().0
+    engine.run(&program, environment).unwrap()
 }
 
 /// The program's own folders, made for the test.

@@ -63,10 +63,10 @@ fn survey_through(reach: &Arc<AppReach>) -> RunningProgram {
         .load(Path::new(waos_test_programs::SURVEY))
         .expect("survey loads")
         .named(SURVEY);
-    let (program, _given) = engine
-        .run(&survey, ProgramEnvironment::default(), Vec::new())
-        .expect("survey runs");
-    program
+
+    engine
+        .run(&survey, ProgramEnvironment::default())
+        .expect("survey runs")
 }
 
 fn survey_id() -> ProgramId {

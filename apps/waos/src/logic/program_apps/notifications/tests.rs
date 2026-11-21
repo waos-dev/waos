@@ -57,10 +57,10 @@ fn notifications_through(
         grants: Some(grants as Arc<dyn ProgramGrants>),
         ..ProgramEnvironment::default()
     };
-    let (program, _given) = engine
-        .run(&notifications, environment, Vec::new())
-        .expect("notifications runs");
-    program
+
+    engine
+        .run(&notifications, environment)
+        .expect("notifications runs")
 }
 
 /// What the window process said macOS said of the program's notifications next.

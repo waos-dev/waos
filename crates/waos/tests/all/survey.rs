@@ -36,19 +36,16 @@ fn asks_for_a_view_sees_it_arrive_and_ends_when_it_is_taken_away() {
     let mark = output.mark();
     let (engine, shell, arrivals) = shell::engine();
     let survey = shell::load(&engine, waos_test_programs::SURVEY);
-    let (running, given) = engine
-        .run(&survey, ProgramEnvironment::default(), Vec::new())
-        .unwrap();
-    assert!(given.is_empty());
+    let running = engine.run(&survey, ProgramEnvironment::default()).unwrap();
 
     let view = arrivals
         .recv_timeout(WITHIN)
         .expect("survey asks for a view");
-    assert_eq!(view.request_id(), Some(1));
+    assert_eq!(view.request_id(), 1);
     assert_eq!(shell.requested_titles(), ["Survey"]);
     output.wait_for(mark, "survey", |line| line == "asked for a view: request 1");
     output.wait_for(mark, "survey", |line| {
-        line == "view 1: 1600x1000 at 2x, on screen Some(1), in a window: true, for request Some(1) with Some(\"opened at start\")"
+        line == "view 1: 1600x1000 at 2x, on screen Some(1), in a window: true, for request 1 with Some(\"opened at start\")"
     });
 
     output.wait_for(mark, "survey", |line| {
@@ -100,9 +97,7 @@ fn moves_maximizes_and_minimizes_its_window_from_the_band_it_treats_as_its_title
     let mark = output.mark();
     let (engine, shell, arrivals) = shell::engine();
     let survey = shell::load(&engine, waos_test_programs::SURVEY);
-    let (running, _given) = engine
-        .run(&survey, ProgramEnvironment::default(), Vec::new())
-        .unwrap();
+    let running = engine.run(&survey, ProgramEnvironment::default()).unwrap();
     let view = arrivals
         .recv_timeout(WITHIN)
         .expect("survey asks for a view");
@@ -214,15 +209,14 @@ fn closes_its_window_when_asked_and_ends_once_the_shell_takes_the_view_away() {
     let mark = output.mark();
     let (engine, shell, _arrivals) = shell::engine();
     let survey = shell::load(&engine, waos_test_programs::SURVEY);
-    let (running, given) = engine
-        .run(
-            &survey,
-            ProgramEnvironment::default(),
-            vec![shell.placed_view(None)],
-        )
-        .unwrap();
-    let view = &given[0];
-    assert_eq!(view.request_id(), None);
+    let (running, view) =
+        shell::run_on_reserved(&engine, &shell, &survey, ProgramEnvironment::default());
+    let view = &view;
+    assert_eq!(
+        view.request_id(),
+        1,
+        "the first request takes the reserved screen"
+    );
     output.wait_for(mark, "survey", |line| line.starts_with("view 1: 1600x1000"));
     let window = &shell.placed_windows()[0];
     shell::window_holds(window, &running, view.id());
@@ -241,13 +235,8 @@ fn answers_a_request_to_end() {
     let mark = output.mark();
     let (engine, shell, _arrivals) = shell::engine();
     let survey = shell::load(&engine, waos_test_programs::SURVEY);
-    let (running, _given) = engine
-        .run(
-            &survey,
-            ProgramEnvironment::default(),
-            vec![shell.placed_view(None)],
-        )
-        .unwrap();
+    let (running, _view) =
+        shell::run_on_reserved(&engine, &shell, &survey, ProgramEnvironment::default());
     output.wait_for(mark, "survey", |line| line.starts_with("view 1: 1600x1000"));
 
     // A request before the program listens is answered exit by nobody: asked again until the

@@ -223,9 +223,9 @@ impl TestSystem {
             folders: Some(self.store.folders(&id).expect("its folders")),
             ..ProgramEnvironment::default()
         };
-        let (running, _given) = self
+        let running = self
             .engine
-            .run(&program, environment, Vec::new())
+            .run(&program, environment)
             .expect("the program runs");
         let listed = running.clone();
         futures::executor::block_on(self.runs.start(&id, || Ok(listed))).expect("among the runs");

@@ -509,7 +509,8 @@ mod tests {
                 "resize without --window reached window 2: {default_resize:?}"
             );
 
-            let third = crate::logic::test_engine::drawing::add_window(&program, None);
+            // As a third request would be answered: the program made two.
+            let third = crate::logic::test_engine::drawing::add_window(&program, 3);
             assert_eq!(third.id(), 3);
             let ScreenshotAnswer::Pictures(with_third) = server
                 .ask::<ScreenshotAnswer>(&screenshot(TWO_WINDOWS))

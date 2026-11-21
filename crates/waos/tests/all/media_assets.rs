@@ -177,7 +177,7 @@ impl Run {
             ..ProgramEnvironment::default()
         };
         let program = shell::load(engine, waos_test_programs::MEDIA_ASSETS);
-        let (running, _given) = engine.run(&program, environment, Vec::new()).unwrap();
+        let running = engine.run(&program, environment).unwrap();
         Run {
             running,
             lines,

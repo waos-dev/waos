@@ -17,8 +17,8 @@ async fn where_there_can_be_no_apps_a_window_asked_for_fails_and_none_is_shown()
     let survey = engine
         .load(Path::new(waos_test_programs::SURVEY))
         .expect("survey loads");
-    let (program, _given) = engine
-        .run(&survey, ProgramEnvironment::default(), Vec::new())
+    let program = engine
+        .run(&survey, ProgramEnvironment::default())
         .expect("survey runs");
     let end = tokio::time::timeout(WITHIN, program.ended())
         .await

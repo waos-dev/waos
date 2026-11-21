@@ -197,11 +197,10 @@ impl Desktop {
             output: Some(Arc::clone(output) as Arc<dyn ProgramOutput>),
             ..ProgramEnvironment::default()
         };
-        let (running, _given) = self
-            .engine
-            .run(&program, environment, Vec::new())
-            .expect("the program runs");
-        running
+
+        self.engine
+            .run(&program, environment)
+            .expect("the program runs")
     }
 
     /// Runs the test program at `component` as the program `id`, with the store's settings for it,
@@ -218,11 +217,10 @@ impl Desktop {
             folders: Some(self.store.folders(&id).expect("its folders")),
             ..ProgramEnvironment::default()
         };
-        let (running, _given) = self
-            .engine
-            .run(&program, environment, Vec::new())
-            .expect("the program runs");
-        running
+
+        self.engine
+            .run(&program, environment)
+            .expect("the program runs")
     }
 
     /// Plays the host until `done`, failing after [`WITHIN`].
@@ -605,7 +603,7 @@ fn a_requested_view_arrives_in_its_window_hears_a_resize_and_goes_with_its_windo
     let survey = desktop.run(waos_test_programs::SURVEY, &output);
     desktop.pump_until("survey's view arriving", |_| {
         output.has(
-            "view 1: 900x600 at 1x, on screen Some(1), in a window: true, for request Some(1) \
+            "view 1: 900x600 at 1x, on screen Some(1), in a window: true, for request 1 \
              with Some(\"opened at start\")",
         )
     });

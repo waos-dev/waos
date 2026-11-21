@@ -48,7 +48,7 @@ fn links_open_as_their_schemes_allow_and_files_where_they_are_on_the_machine() {
         ..ProgramEnvironment::default()
     };
     let program = shell::load(&engine, waos_test_programs::OPENER);
-    let (running, _views) = engine.run(&program, environment, Vec::new()).unwrap();
+    let running = engine.run(&program, environment).unwrap();
 
     lines.wait_for("open https://example.com/: ok");
     answer_scheme(&shell, 0, "zoommtg", Answer::Granted);
@@ -111,7 +111,7 @@ fn a_program_given_no_grants_is_refused_links_of_its_own_schemes_without_asking(
         ..ProgramEnvironment::default()
     };
     let program = shell::load(&engine, waos_test_programs::OPENER);
-    let (running, _views) = engine.run(&program, environment, Vec::new()).unwrap();
+    let running = engine.run(&program, environment).unwrap();
     lines.wait_for("listening for open requests");
     running.stop();
     shell::wait_for_end(&running);
@@ -136,7 +136,7 @@ fn a_shell_without_an_opener_gives_the_program_none() {
         ..ProgramEnvironment::default()
     };
     let program = shell::load(&engine, waos_test_programs::OPENER);
-    let (running, _views) = engine.run(&program, environment, Vec::new()).unwrap();
+    let running = engine.run(&program, environment).unwrap();
     lines.wait_for("listening for open requests");
     running.stop();
     shell::wait_for_end(&running);
@@ -251,7 +251,7 @@ fn run(
         ..ProgramEnvironment::default()
     };
     let program = shell::load(engine, waos_test_programs::OPENER);
-    let (running, _views) = engine.run(&program, environment, Vec::new()).unwrap();
+    let running = engine.run(&program, environment).unwrap();
     (running, own)
 }
 

@@ -19,7 +19,7 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 
-use futures::channel::mpsc;
+use futures::channel::{mpsc, oneshot};
 use tokio::sync::watch;
 
 use crate::bindings::wasdk::platform::screens::ScreenId;
@@ -35,6 +35,7 @@ use crate::sync::locked;
 
 use super::modifiers::ToldModifiers;
 use super::program_view::{ProgramView, Shared, frame_of};
+use super::reserved_view::Reserved;
 use super::screen_refreshes::{Refresh, ScreenRefreshes};
 use super::view_layers::ViewLayers;
 
@@ -63,6 +64,8 @@ pub(super) struct ViewsState {
     /// What each request still unanswered attached, and its window's title, for the view that
     /// arrives for it.
     requests: Mutex<HashMap<RequestId, Requested>>,
+    /// The screen the shell showed before the program asked, until its first request takes it.
+    reserved: Mutex<Option<Reserved>>,
     /// What changes among the views, a view's going holding the program thawed until it has
     /// handled it on each stream.
     changes: Channel<MaybeThawing<ViewChange>>,
@@ -74,7 +77,7 @@ pub(super) struct ViewsState {
 }
 
 /// What the program asked a view for with: what its request attached, and the title of the window
-/// it asked for. A view the shell gives of its own accord was asked for with neither.
+/// it asked for.
 #[derive(Default)]
 pub(super) struct Requested {
     pub(super) initial_data: Option<String>,
@@ -85,7 +88,7 @@ pub(super) struct Requested {
 /// with the view itself in place of its handle, which the code serving the interface makes.
 #[derive(Clone)]
 pub(crate) enum ViewChange {
-    /// A view the program now has: one the shell gave, or one that arrived for a request.
+    /// A view the program now has, arrived for a request.
     Added(ProgramView),
     /// A view the program no longer has. Its events have ended.
     Removed(ViewId),
@@ -119,6 +122,7 @@ impl ProgramViews {
             next_view_id: AtomicU64::new(FIRST_ID),
             next_request_id: AtomicU64::new(FIRST_ID),
             requests: Mutex::default(),
+            reserved: Mutex::default(),
             changes: Channel::default(),
             focused: watch::Sender::new(false),
             layers,
@@ -148,13 +152,10 @@ impl ProgramViews {
         self.0.changes.subscribe()
     }
 
-    /// A view the shell adds, with a fresh id and what its request attached: the program has it
-    /// from now on, hears of it, and its state follows the views it has now.
-    pub(crate) fn add(&self, placed: PlacedView) -> ProgramView {
-        let requested = placed
-            .request
-            .and_then(|request| self.requested_with(request))
-            .unwrap_or_default();
+    /// A view the shell adds for `request`, with a fresh id and what the request attached: the
+    /// program has it from now on, hears of it, and its state follows the views it has now.
+    pub(crate) fn add(&self, request: RequestId, placed: PlacedView) -> ProgramView {
+        let requested = self.requested_with(request).unwrap_or_default();
         let id = self.0.next_view_id.fetch_add(1, Ordering::Relaxed);
         let shared = Shared {
             clock: self.0.clock,
@@ -165,7 +166,7 @@ impl ProgramViews {
             screenshots: Arc::clone(&self.0.screenshots),
             views: Arc::downgrade(&self.0),
         };
-        let view = ProgramView::new(id, placed, requested, shared);
+        let view = ProgramView::new(id, request, placed, requested, shared);
         let mut views = locked(&self.0.views);
         views.push(view.clone());
         self.0.changes.send((ViewChange::Added(view.clone()), None));
@@ -268,6 +269,28 @@ impl ProgramViews {
             view.hand_over(frame.clone());
         }
         self.0.refreshes.frame_served(screen);
+    }
+
+    /// Keeps `placed`, a screen the shell shows already, for the program's first request, before
+    /// the program runs; answers what the shell waits on for it.
+    pub(crate) fn reserve(&self, placed: PlacedView) -> oneshot::Receiver<ProgramView> {
+        let (reserved, taken) = Reserved::new(placed);
+        *locked(&self.0.reserved) = Some(reserved);
+        taken
+    }
+
+    /// Answers `request` with the reserved screen, where one is still kept: the program has it
+    /// from now on, and the shell hears which view it became. False where none is kept, and the
+    /// request goes to the shell's placement.
+    pub(crate) fn take_reserved(&self, request: RequestId) -> bool {
+        let Some(reserved) = locked(&self.0.reserved).take() else {
+            return false;
+        };
+        let (placed, taken) = reserved.into_parts();
+        let view = self.add(request, placed);
+        // A shell that stopped waiting for the screen has nothing to show it in.
+        let _ = taken.send(view);
+        true
     }
 
     /// The shell did not take the request `request`: the program hears so from the call it
@@ -424,24 +447,29 @@ mod tests {
         }
     }
 
-    /// A view the shell gives of its own accord, on screen 1, standing as `presence` says.
-    fn given(presence: Presence) -> PlacedView {
+    /// A view as the shell places it on screen 1, standing as `presence` says.
+    fn on_screen_1(presence: Presence) -> PlacedView {
         PlacedView {
             screen: Some(1),
             presence,
-            request: None,
             ..placed(&Arc::default())
         }
     }
 
+    /// `placed` added to `views` for a request the program made for it.
+    fn arrived(views: &ProgramViews, placed: PlacedView) -> ProgramView {
+        let request = views.new_request(None, String::new());
+        views.add(request, placed)
+    }
+
     #[test]
-    fn a_view_given_is_listed_and_announced_with_its_id() {
+    fn a_view_added_is_listed_and_announced_with_its_id() {
         let (views, _) = program();
         let mut changes = views.changes();
-        let view = views.add(given(ON_SCREEN));
+        let view = arrived(&views, on_screen_1(ON_SCREEN));
         assert_eq!(view.id(), FIRST_ID);
         assert_eq!(view.screen(), Some(1));
-        assert_eq!(view.request_id(), None);
+        assert_eq!(view.request_id(), FIRST_ID);
         assert_eq!(view.initial_data(), None);
         let listed = views.views();
         assert_eq!(listed.len(), 1);
@@ -455,9 +483,9 @@ mod tests {
     #[test]
     fn ids_are_never_reused() {
         let (views, _) = program();
-        let first = views.add(given(ON_SCREEN));
+        let first = arrived(&views, on_screen_1(ON_SCREEN));
         views.remove(first.id());
-        let second = views.add(given(ON_SCREEN));
+        let second = arrived(&views, on_screen_1(ON_SCREEN));
         assert_ne!(second.id(), first.id());
         assert_ne!(
             views.new_request(None, String::new()),
@@ -469,7 +497,7 @@ mod tests {
     fn a_view_removed_is_announced_and_its_events_end() {
         let (views, _) = program();
         let mut changes = views.changes();
-        let view = views.add(given(ON_SCREEN));
+        let view = arrived(&views, on_screen_1(ON_SCREEN));
         let mut events = view.events().unwrap();
         views.remove(view.id());
         assert!(views.views().is_empty());
@@ -501,8 +529,8 @@ mod tests {
     fn a_view_taken_away_lets_go_of_its_layers_while_the_program_runs() {
         let store_layers = Arc::new(ViewLayers::default());
         let (views, _) = program_holding(Arc::downgrade(&store_layers));
-        let first = views.add(given(ON_SCREEN));
-        let second = views.add(given(ON_SCREEN));
+        let first = arrived(&views, on_screen_1(ON_SCREEN));
+        let second = arrived(&views, on_screen_1(ON_SCREEN));
         let layer: Arc<dyn ShellCompositionLayer> = Arc::new(Layer);
         for view in [&first, &second] {
             let placement = Placement {
@@ -547,11 +575,8 @@ mod tests {
     fn a_view_that_arrives_for_a_request_carries_it_what_it_attached_and_its_windows_title() {
         let (views, _) = program();
         let request = views.new_request(Some("hello".into()), "Notes".into());
-        let view = views.add(PlacedView {
-            request: Some(request),
-            ..given(ON_SCREEN)
-        });
-        assert_eq!(view.request_id(), Some(request));
+        let view = views.add(request, on_screen_1(ON_SCREEN));
+        assert_eq!(view.request_id(), request);
         assert_eq!(view.initial_data(), Some("hello"));
         assert_eq!(view.window_title(), None, "a view in no window");
     }
@@ -560,20 +585,52 @@ mod tests {
     fn a_request_is_answered_once() {
         let (views, _) = program();
         let request = views.new_request(Some("hello".into()), String::new());
-        views.add(PlacedView {
-            request: Some(request),
-            ..given(ON_SCREEN)
-        });
-        let again = views.add(PlacedView {
-            request: Some(request),
-            ..given(ON_SCREEN)
-        });
+        views.add(request, on_screen_1(ON_SCREEN));
+        let again = views.add(request, on_screen_1(ON_SCREEN));
         assert_eq!(
             again.initial_data(),
             None,
             "what it attached was given once"
         );
         assert!(locked(&views.0.requests).is_empty());
+    }
+
+    #[test]
+    fn the_first_request_takes_the_reserved_screen_and_the_shell_hears_the_view_it_became() {
+        let (views, _) = program();
+        let mut changes = views.changes();
+        let mut taken = views.reserve(on_screen_1(ON_SCREEN));
+        assert!(views.views().is_empty(), "a reserved screen is no view yet");
+        assert!(taken.try_recv().unwrap().is_none());
+
+        let request = views.new_request(Some("hello".into()), String::new());
+        assert!(views.take_reserved(request));
+        let view = taken.try_recv().unwrap().expect("the shell hears the view");
+        assert_eq!(view.request_id(), request);
+        assert_eq!(view.initial_data(), Some("hello"));
+        assert_eq!(views.views().len(), 1);
+        assert!(
+            matches!(changes.try_recv().unwrap(), (ViewChange::Added(heard), _) if heard.id() == view.id())
+        );
+    }
+
+    #[test]
+    fn a_reserved_screen_answers_one_request_only() {
+        let (views, _) = program();
+        let _taken = views.reserve(on_screen_1(ON_SCREEN));
+        assert!(views.take_reserved(views.new_request(None, String::new())));
+        assert!(
+            !views.take_reserved(views.new_request(None, String::new())),
+            "a later request goes to the shell's placement"
+        );
+        assert_eq!(views.views().len(), 1);
+    }
+
+    #[test]
+    fn with_no_screen_reserved_a_request_goes_to_the_placement() {
+        let (views, _) = program();
+        assert!(!views.take_reserved(views.new_request(None, String::new())));
+        assert!(views.views().is_empty());
     }
 
     #[test]
@@ -589,13 +646,13 @@ mod tests {
     #[test]
     fn the_state_follows_the_views_presence() {
         let (views, lifecycle) = program();
-        let first = views.add(given(OFF_SCREEN));
+        let first = arrived(&views, on_screen_1(OFF_SCREEN));
         assert_eq!(
             lifecycle.state(),
             LifecycleState::Hidden,
             "a view arrives with how it stands"
         );
-        let second = views.add(given(ON_SCREEN));
+        let second = arrived(&views, on_screen_1(ON_SCREEN));
         assert_eq!(lifecycle.state(), LifecycleState::Inactive);
         first.presence_changed(FOCUSED);
         assert_eq!(lifecycle.state(), LifecycleState::Resumed);
@@ -620,7 +677,7 @@ mod tests {
             occluded: true,
             ..FOCUSED
         };
-        let view = views.add(given(covered));
+        let view = arrived(&views, on_screen_1(covered));
         assert_eq!(lifecycle.state(), LifecycleState::Hidden, "covered");
 
         let watching = views.watch();
@@ -661,7 +718,7 @@ mod tests {
             occluded: true,
             ..ON_SCREEN
         };
-        let view = views.add(given(covered));
+        let view = arrived(&views, on_screen_1(covered));
         view.request_frame();
         assert!(shell.refreshes_asked().is_empty(), "covered: no refresh");
 
@@ -686,7 +743,7 @@ mod tests {
     fn whether_a_view_has_the_focus_follows_the_views_presence() {
         let (views, _lifecycle) = program();
         let focus = views.focus();
-        let view = views.add(given(ON_SCREEN));
+        let view = arrived(&views, on_screen_1(ON_SCREEN));
         assert!(!*focus.borrow());
         view.presence_changed(FOCUSED);
         assert!(*focus.borrow());
@@ -700,7 +757,7 @@ mod tests {
     #[test]
     fn a_presence_reported_after_the_program_ended_goes_nowhere() {
         let (views, lifecycle) = program();
-        let view = views.add(given(ON_SCREEN));
+        let view = arrived(&views, on_screen_1(ON_SCREEN));
         drop(views);
         view.presence_changed(OFF_SCREEN);
         assert_eq!(lifecycle.state(), LifecycleState::Inactive);
@@ -709,7 +766,10 @@ mod tests {
     #[test]
     fn a_modifier_heard_through_one_view_counts_for_every_other() {
         let (views, _) = program();
-        let (typed_in, clicked) = (views.add(given(ON_SCREEN)), views.add(given(ON_SCREEN)));
+        let (typed_in, clicked) = (
+            arrived(&views, on_screen_1(ON_SCREEN)),
+            arrived(&views, on_screen_1(ON_SCREEN)),
+        );
         let mut heard = clicked.events().unwrap();
         let _handled = typed_in.key(key_event(KeyKind::Down, SHIFT));
         clicked.pointer(
@@ -734,11 +794,17 @@ mod tests {
     fn a_refresh_hands_each_view_on_its_screen_one_frame_naming_them_all() {
         let shell = Arc::new(Headless::default());
         let (views, refreshes) = program_on(&shell);
-        let (first, second) = (views.add(given(ON_SCREEN)), views.add(given(ON_SCREEN)));
-        let elsewhere = views.add(PlacedView {
-            screen: Some(2),
-            ..given(ON_SCREEN)
-        });
+        let (first, second) = (
+            arrived(&views, on_screen_1(ON_SCREEN)),
+            arrived(&views, on_screen_1(ON_SCREEN)),
+        );
+        let elsewhere = arrived(
+            &views,
+            PlacedView {
+                screen: Some(2),
+                ..on_screen_1(ON_SCREEN)
+            },
+        );
         for view in [&first, &second, &elsewhere] {
             view.request_frame();
         }
@@ -777,7 +843,10 @@ mod tests {
             screenshots(),
             Weak::new(),
         );
-        let (early, late) = (views.add(given(ON_SCREEN)), views.add(given(ON_SCREEN)));
+        let (early, late) = (
+            arrived(&views, on_screen_1(ON_SCREEN)),
+            arrived(&views, on_screen_1(ON_SCREEN)),
+        );
         early.request_frame();
         assert!(early.wants_frame(), "no refresh told yet: it waits for one");
 
@@ -813,7 +882,10 @@ mod tests {
     fn a_view_out_of_sight_is_left_out_and_served_once_it_is_seen() {
         let shell = Arc::new(Headless::default());
         let (views, refreshes) = program_on(&shell);
-        let (shown, hidden) = (views.add(given(ON_SCREEN)), views.add(given(OFF_SCREEN)));
+        let (shown, hidden) = (
+            arrived(&views, on_screen_1(ON_SCREEN)),
+            arrived(&views, on_screen_1(OFF_SCREEN)),
+        );
         shown.request_frame();
         hidden.request_frame();
         refresh(&views, &refreshes, 1, Instant::now());
@@ -834,10 +906,13 @@ mod tests {
     fn a_view_on_no_screen_waits_until_it_is_on_one() {
         let shell = Arc::new(Headless::default());
         let (views, refreshes) = program_on(&shell);
-        let view = views.add(PlacedView {
-            screen: None,
-            ..given(ON_SCREEN)
-        });
+        let view = arrived(
+            &views,
+            PlacedView {
+                screen: None,
+                ..on_screen_1(ON_SCREEN)
+            },
+        );
         view.request_frame();
         refresh(&views, &refreshes, 1, Instant::now());
         assert!(view.wants_frame(), "no screen's refresh serves it");
@@ -853,7 +928,10 @@ mod tests {
     fn a_view_with_two_frames_in_flight_is_left_out_until_one_lands_while_another_is_served() {
         let shell = Arc::new(Headless::default());
         let (views, refreshes) = program_on(&shell);
-        let (slow, other) = (views.add(given(ON_SCREEN)), views.add(given(ON_SCREEN)));
+        let (slow, other) = (
+            arrived(&views, on_screen_1(ON_SCREEN)),
+            arrived(&views, on_screen_1(ON_SCREEN)),
+        );
         let first = slow.frame_in_flight();
         let _second = slow.frame_in_flight();
         slow.request_frame();

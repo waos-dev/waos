@@ -198,8 +198,8 @@ mod tests {
         let program = engine
             .load(Path::new(waos_test_programs::FOREVER))
             .expect("forever loads");
-        let (running, _) = engine
-            .run(&program, Default::default(), Vec::new())
+        let running = engine
+            .run(&program, Default::default())
             .expect("forever runs");
 
         let served = Rc::new(RefCell::new(None));

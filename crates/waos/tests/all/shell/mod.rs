@@ -57,15 +57,15 @@ use waos::bindings::wasdk::platform::screens::{PixelSize, ScreenId};
 use waos::bindings::wasdk::platform::system::{Brightness, Locale};
 use waos::bindings::wasdk::platform::views::{
     Cursor, Insets, Metrics, OverlayStyle, PixelRect, Placement, PointerButtons, PointerChange,
-    PointerDeviceKind, PointerEvent, PointerSignalKind, RequestId, TextEditingValue,
-    TextInputConfiguration, TextInputType, ViewError, ViewFocusDirection, ViewFocusState, ViewId,
+    PointerDeviceKind, PointerEvent, PointerSignalKind, TextEditingValue, TextInputConfiguration,
+    TextInputType, ViewError, ViewFocusDirection, ViewFocusState, ViewId,
 };
 use waos::bindings::wasdk::platform::windows::{Point, Rect, Size, TitleBarAction};
 use waos::{
     Answer, AnswerFuture, EngineTime, FreezePolicy, HardwareBuffer, HttpProxy, ManualTime,
     OutputStream, PlacedView, PlacedWindow, PlatformState, Presence, Program, ProgramEnd,
-    ProgramOutput, ProgramView, Prompts, Question, Role, RunningProgram, Screen,
-    SettingsClosedFuture, Shell, ShellAudioOutputPicker, ShellCameras, ShellClipboard,
+    ProgramEnvironment, ProgramOutput, ProgramView, Prompts, Question, Role, RunningProgram,
+    Screen, SettingsClosedFuture, Shell, ShellAudioOutputPicker, ShellCameras, ShellClipboard,
     ShellCompositionLayer, ShellCompositor, ShellContextMenus, ShellFileDialogs, ShellImageCodecs,
     ShellMachinePicker, ShellMediaAssets, ShellMediaPlayers, ShellMenuBar, ShellNotifications,
     ShellOpener, ShellRecordingIndicator, ShellTextInput, ShellTrayIcons, ShellVideoFrameReaders,
@@ -243,6 +243,23 @@ pub fn load(engine: &WaOS, component: &str) -> Program {
     engine
         .load(Path::new(component))
         .unwrap_or_else(|error| panic!("loading {component}: {error:#}"))
+}
+
+/// Runs `program` with `environment` on a screen `shell` shows before it asks, as a phone's tab
+/// does, and answers it once its first request has taken the screen, with the view the screen
+/// became.
+pub fn run_on_reserved(
+    engine: &WaOS,
+    shell: &TestShell,
+    program: &Program,
+    environment: ProgramEnvironment,
+) -> (RunningProgram, ProgramView) {
+    let (running, reserved) = engine
+        .run_reserving(program, environment, shell.placed_view())
+        .unwrap();
+    let view = futures::executor::block_on(reserved)
+        .unwrap_or_else(|| panic!("{} ended without asking for a view", program.name()));
+    (running, view)
 }
 
 /// The lock each component's loads take, so that the loads of one component queue while those of
@@ -680,9 +697,8 @@ impl TestShell {
         self.windows.lock().unwrap().clone()
     }
 
-    /// A view as the shell places it: focused, on the one screen, in a window; for `request`
-    /// when it answers one.
-    pub fn placed_view(&self, request: Option<RequestId>) -> PlacedView {
+    /// A view as the shell places it: focused, on the one screen, in a window.
+    pub fn placed_view(&self) -> PlacedView {
         let view = Arc::new(RecordingView::default());
         self.views.lock().unwrap().push(Arc::clone(&view));
         let window = Arc::new(RecordingWindow::default());
@@ -704,7 +720,6 @@ impl TestShell {
                 occluded: false,
                 focused: true,
             },
-            request,
         }
     }
 }
@@ -783,7 +798,7 @@ impl ViewPlacement for TestShell {
         request: ViewRequest,
     ) -> Result<(), ViewError> {
         self.requests.lock().unwrap().push(request.config.clone());
-        let view = program.add_view(self.placed_view(Some(request.id)));
+        let view = program.add_view(request.id, self.placed_view());
         // A test that does not wait for arrivals has dropped the receiver.
         let _ = self.arrivals.send(view);
         Ok(())

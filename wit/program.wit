@@ -1,4 +1,4 @@
-package wasdk:program@1.0.0;
+package wasdk:program@2.0.0;
 
 /// A program the platform runs. Its world is a package of its own above the two it imports from:
 /// `wasdk:platform`, and `wasdk:media`, the media interfaces, versioned apart from the rest.
@@ -54,32 +54,32 @@ world program-base {
   include wasi:sockets/imports@0.3.0;
   import wasi:http/client@0.3.0;
   import wasi:filesystem/preopens@0.3.0;
-  import wasdk:platform/views@1.0.0;
-  import wasdk:platform/screens@1.0.0;
-  import wasdk:platform/windows@1.0.0;
-  import wasdk:platform/system@1.0.0;
-  import wasdk:platform/lifecycle@1.0.0;
-  import wasdk:platform/fonts@1.0.0;
-  import wasdk:platform/permissions@1.0.0;
-  import wasdk:platform/trust@1.0.0;
-  import wasdk:platform/clipboard@1.0.0;
-  import wasdk:platform/menus@1.0.0;
-  import wasdk:platform/audio@1.0.0;
-  import wasdk:platform/file-dialogs@1.0.0;
-  import wasdk:platform/opener@1.0.0;
-  import wasdk:platform/notifications@1.0.0;
-  import wasdk:platform/machines@1.0.0;
-  import wasdk:platform/file-watching@1.0.0;
-  import wasdk:platform/hardware-buffers@1.0.0;
-  import wasdk:platform/gpu-interop@1.0.0;
-  import wasdk:media/video-frames@1.0.0;
-  import wasdk:media/media-players@1.0.0;
-  import wasdk:media/media-assets@1.0.0;
-  import wasdk:media/image-codecs@1.0.0;
-  import wasdk:media/cameras@1.0.0;
-  import wasdk:media/caption-settings@1.0.0;
-  import wasdk:platform/workers@1.0.0;
-  export wasdk:platform/worker-entry@1.0.0;
+  import wasdk:platform/views@2.0.0;
+  import wasdk:platform/screens@2.0.0;
+  import wasdk:platform/windows@2.0.0;
+  import wasdk:platform/system@2.0.0;
+  import wasdk:platform/lifecycle@2.0.0;
+  import wasdk:platform/fonts@2.0.0;
+  import wasdk:platform/permissions@2.0.0;
+  import wasdk:platform/trust@2.0.0;
+  import wasdk:platform/clipboard@2.0.0;
+  import wasdk:platform/menus@2.0.0;
+  import wasdk:platform/audio@2.0.0;
+  import wasdk:platform/file-dialogs@2.0.0;
+  import wasdk:platform/opener@2.0.0;
+  import wasdk:platform/notifications@2.0.0;
+  import wasdk:platform/machines@2.0.0;
+  import wasdk:platform/file-watching@2.0.0;
+  import wasdk:platform/hardware-buffers@2.0.0;
+  import wasdk:platform/gpu-interop@2.0.0;
+  import wasdk:media/video-frames@2.0.0;
+  import wasdk:media/media-players@2.0.0;
+  import wasdk:media/media-assets@2.0.0;
+  import wasdk:media/image-codecs@2.0.0;
+  import wasdk:media/cameras@2.0.0;
+  import wasdk:media/caption-settings@2.0.0;
+  import wasdk:platform/workers@2.0.0;
+  export wasdk:platform/worker-entry@2.0.0;
 }
 
 /// A program as the engine runs it: `program-base` and its entry.

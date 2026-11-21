@@ -417,7 +417,7 @@ impl Library {
         let (runs, id) = (self.runs.clone(), id.clone());
         self.work_then(
             async move {
-                runs.open(&id, component, Vec::new(), ProgramPlace::Windows)
+                runs.open(&id, component, None, ProgramPlace::Windows)
                     .await
                     .map(drop)
             },
@@ -426,9 +426,9 @@ impl Library {
         );
     }
 
-    /// Opens the program `id`, whose component is at `component`, in a tab of `tabs`, which gives
-    /// it its view as it starts and shows it once it runs; where it has a tab already, that tab
-    /// comes into sight.
+    /// Opens the program `id`, whose component is at `component`, in a tab of `tabs`, whose screen
+    /// is reserved for its first request and shows it once it asks; where it has a tab already,
+    /// that tab comes into sight.
     fn open_in_tab(
         &mut self,
         tabs: Entity<Tabs>,
@@ -445,7 +445,7 @@ impl Library {
         let opening = id.clone();
         self.work_then(
             async move {
-                runs.open(&opening, component, vec![view], ProgramPlace::Tab)
+                runs.open(&opening, component, Some(view), ProgramPlace::Tab)
                     .await
             },
             move |library, opened, cx| {

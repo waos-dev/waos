@@ -54,7 +54,7 @@ const FOCUSED: Presence = Presence {
 
 #[test]
 fn a_program_hidden_past_the_delay_stops_counting_and_goes_on_from_the_same_count_when_shown() {
-    let _forever = shell::turns::take("forever");
+    let _forever = shell::turns::take("forever-shown");
     let output = output();
     let (engine, shell, _arrivals, time) = engine();
     let (running, view) = run_forever_shown(&engine, &shell);
@@ -89,7 +89,7 @@ fn a_program_hidden_past_the_delay_stops_counting_and_goes_on_from_the_same_coun
 
 #[test]
 fn a_program_shown_again_before_the_delay_is_over_is_not_frozen() {
-    let _forever = shell::turns::take("forever");
+    let _forever = shell::turns::take("forever-shown");
     let output = output();
     let (engine, shell, _arrivals, time) = engine();
     let (running, view) = run_forever_shown(&engine, &shell);
@@ -106,7 +106,7 @@ fn a_program_shown_again_before_the_delay_is_over_is_not_frozen() {
 
 #[test]
 fn a_watched_program_covered_past_the_delay_counts_on_and_freezes_once_minimized() {
-    let _forever = shell::turns::take("forever");
+    let _forever = shell::turns::take("forever-shown");
     let output = output();
     let (engine, shell, _arrivals, time) = engine();
     let (running, view) = run_forever_shown(&engine, &shell);
@@ -127,7 +127,7 @@ fn a_watched_program_covered_past_the_delay_counts_on_and_freezes_once_minimized
 
 #[test]
 fn a_covered_program_freezes_once_its_watch_ends() {
-    let _forever = shell::turns::take("forever");
+    let _forever = shell::turns::take("forever-shown");
     let output = output();
     let (engine, shell, _arrivals, time) = engine();
     let (running, view) = run_forever_shown(&engine, &shell);
@@ -147,19 +147,14 @@ fn a_covered_program_freezes_once_its_watch_ends() {
 
 #[test]
 fn the_app_suspending_resolves_once_every_program_has_stopped_and_resuming_lets_them_go_on() {
-    let _forever = shell::turns::take("forever");
+    let _forever = shell::turns::take("forever-shown");
     let _survey = shell::turns::take("survey");
     let output = output();
     let (engine, shell, _arrivals, time) = engine();
     let (forever, _) = run_forever_shown(&engine, &shell);
     let survey = shell::load(&engine, waos_test_programs::SURVEY);
-    let (survey, _given) = engine
-        .run(
-            &survey,
-            ProgramEnvironment::default(),
-            vec![shell.placed_view(None)],
-        )
-        .unwrap();
+    let (survey, _view) =
+        shell::run_on_reserved(&engine, &shell, &survey, ProgramEnvironment::default());
     let mark = output.mark();
     first_report(output, mark);
     output.wait_for(mark, "survey", |line| line.starts_with("view 1: 1600x1000"));
@@ -202,7 +197,7 @@ fn the_app_suspending_resolves_once_every_program_has_stopped_and_resuming_lets_
 
 #[test]
 fn a_program_started_while_the_app_is_suspended_starts_frozen() {
-    let _forever = shell::turns::take("forever");
+    let _forever = shell::turns::take("forever-shown");
     let output = output();
     let (engine, shell, _arrivals, time) = engine();
     resolved(engine.app_suspending());
@@ -227,14 +222,9 @@ fn a_program_asked_to_exit_while_frozen_answers_and_is_frozen_again_once_it_has(
     let output = output();
     let (engine, shell, _arrivals, time) = engine();
     let survey = shell::load(&engine, waos_test_programs::SURVEY);
-    let (running, given) = engine
-        .run(
-            &survey,
-            ProgramEnvironment::default(),
-            vec![shell.placed_view(None)],
-        )
-        .unwrap();
-    let view = &given[0];
+    let (running, view) =
+        shell::run_on_reserved(&engine, &shell, &survey, ProgramEnvironment::default());
+    let view = &view;
     let mark = output.mark();
     output.wait_for(mark, "survey", |line| line.starts_with("view 1: 1600x1000"));
 
@@ -317,7 +307,7 @@ fn a_frozen_program_asked_to_close_its_view_hears_it_and_is_frozen_again_once_it
 
 #[test]
 fn stop_ends_a_frozen_program() {
-    let _forever = shell::turns::take("forever");
+    let _forever = shell::turns::take("forever-shown");
     let output = output();
     let (engine, shell, _arrivals, time) = engine();
     let (running, view) = run_forever_shown(&engine, &shell);
@@ -350,20 +340,13 @@ fn engine() -> (
     (engine, shell, arrivals, time)
 }
 
-/// Forever, running with one view the shell gives it, on screen and focused.
+/// Forever-shown, running with one view the shell reserved for it, on screen and focused.
 fn run_forever_shown(engine: &WaOS, shell: &TestShell) -> (RunningProgram, ProgramView) {
-    let forever = shell::load(engine, waos_test_programs::FOREVER);
-    let (running, mut given) = engine
-        .run(
-            &forever,
-            ProgramEnvironment::default(),
-            vec![shell.placed_view(None)],
-        )
-        .unwrap();
-    (running, given.remove(0))
+    let forever = shell::load(engine, waos_test_programs::FOREVER_SHOWN);
+    shell::run_on_reserved(engine, shell, &forever, ProgramEnvironment::default())
 }
 
-/// Survey, running with one view the shell gives it, once it has described the view.
+/// Survey, running with one view the shell reserved for it, once it has described the view.
 fn run_survey_shown(
     engine: &WaOS,
     shell: &TestShell,
@@ -371,15 +354,9 @@ fn run_survey_shown(
 ) -> (RunningProgram, ProgramView) {
     let survey = shell::load(engine, waos_test_programs::SURVEY);
     let mark = output.mark();
-    let (running, mut given) = engine
-        .run(
-            &survey,
-            ProgramEnvironment::default(),
-            vec![shell.placed_view(None)],
-        )
-        .unwrap();
+    let shown = shell::run_on_reserved(engine, shell, &survey, ProgramEnvironment::default());
     output.wait_for(mark, "survey", |line| line.starts_with("view 1: 1600x1000"));
-    (running, given.remove(0))
+    shown
 }
 
 /// Moves time past the delay of survey, hidden and waiting for its events, which freezes it;
@@ -400,7 +377,7 @@ fn freeze_then_change(
 /// The counts forever reported since `mark`.
 fn reports_since(output: &Output, mark: usize) -> Vec<u64> {
     output
-        .lines_of(mark, "forever")
+        .lines_of(mark, "forever-shown")
         .iter()
         .map(|line| count_of(line))
         .collect()
@@ -415,7 +392,7 @@ fn count_of(report: &str) -> u64 {
 
 /// Waits for forever's first report since `mark`.
 fn first_report(output: &Output, mark: usize) -> u64 {
-    count_of(&output.wait_for(mark, "forever", |line| line.starts_with("count ")))
+    count_of(&output.wait_for(mark, "forever-shown", |line| line.starts_with("count ")))
 }
 
 /// Asks `program` whether it may end, and waits for the answer, which a program that cannot

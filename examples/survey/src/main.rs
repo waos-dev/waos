@@ -1,7 +1,6 @@
 //! A program that looks around, and what a reader learns the API from: it prints what the user
-//! set, its time zone with the time on the user's clock among it, and the screens, then its views,
-//! and each change of what the user sets; asks for one when it was given none, with no title bar of
-//! macOS's own; keeps each view's window between a smallest and a largest size where its user
+//! set, its time zone with the time on the user's clock among it, and the screens, and each change
+//! of what the user sets; asks for a view, with no title bar of macOS's own; keeps each view's window between a smallest and a largest size where its user
 //! resizes it; treats a band at the top of each view as its title bar, as a program that draws its
 //! own does, a press there moving the window and a double-click doing what the system's settings
 //! say; follows each view's events, closing its window when the user asks, and saying when its
@@ -58,20 +57,14 @@ async fn main() -> Result<(), String> {
     wasdk::spawn(log_state_changes(state_changes));
     wasdk::spawn(answer_exit_requests(exit_requests));
 
-    // The stream is opened before the list is read, so a change between the two is not missed.
+    // The stream is opened before the request, so the view that arrives for it is not missed.
     let mut changes = views::view_changes();
-    let given = views::views();
-    if given.is_empty() {
-        let config = WindowConfig::new();
-        config.set_title("Survey");
-        config.set_macos_title_bar(MacosTitleBar::Hidden(TITLE_BAR_HEIGHT));
-        let request = views::request_view(&config, Some("opened at start"))
-            .map_err(|error| format!("no view for this program: {error}"))?;
-        println!("asked for a view: request {request}");
-    }
-    for view in given {
-        follow(view);
-    }
+    let config = WindowConfig::new();
+    config.set_title("Survey");
+    config.set_macos_title_bar(MacosTitleBar::Hidden(TITLE_BAR_HEIGHT));
+    let request = views::request_view(&config, Some("opened at start"))
+        .map_err(|error| format!("no view for this program: {error}"))?;
+    println!("asked for a view: request {request}");
 
     while let Some(change) = changes.next().await {
         match change {
@@ -302,7 +295,7 @@ fn describe_rect(rect: Rect) -> String {
 fn describe_view(view: &View) {
     let metrics = view.metrics();
     println!(
-        "view {}: {}x{} at {}x, on screen {:?}, in a window: {}, for request {:?} with {:?}",
+        "view {}: {}x{} at {}x, on screen {:?}, in a window: {}, for request {} with {:?}",
         view.id(),
         metrics.width,
         metrics.height,

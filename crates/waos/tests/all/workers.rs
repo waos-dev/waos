@@ -14,8 +14,7 @@ use std::time::Duration;
 
 use waos::bindings::wasdk::platform::lifecycle::AppExitResponse;
 use waos::{
-    FreezePolicy, ManualTime, Presence, ProgramEnd, ProgramEnvironment, ProgramView,
-    RunningProgram, WaOS,
+    FreezePolicy, ManualTime, Presence, ProgramEnd, ProgramEnvironment, RunningProgram, WaOS,
 };
 
 use crate::shell::{self, Lines, resolved, wait_until, wait_until_stopped_at_freeze};
@@ -139,14 +138,12 @@ fn a_frozen_programs_worker_stops_counting_until_the_thaw() {
         },
     );
     let lines = Arc::new(Lines::default());
-    let (running, mut given) = engine
-        .run(
-            &shell::load(&engine, waos_test_programs::WORKERS),
-            environment(&lines),
-            vec![shell.placed_view(None)],
-        )
-        .unwrap();
-    let view: ProgramView = given.remove(0);
+    let (running, view) = shell::run_on_reserved(
+        &engine,
+        &shell,
+        &shell::load(&engine, waos_test_programs::WORKERS),
+        environment(&lines),
+    );
     lines.wait_for(COUNTING);
     let first_count = counts(&lines).len();
     wait_until("the worker counts", || counts(&lines).len() > first_count);
@@ -188,11 +185,10 @@ const FOCUSED: Presence = Presence {
 fn run_workers() -> (Arc<WaOS>, RunningProgram, Arc<Lines>) {
     let (engine, _shell, _arrivals) = shell::engine();
     let lines = Arc::new(Lines::default());
-    let (running, _given) = engine
+    let running = engine
         .run(
             &shell::load(&engine, waos_test_programs::WORKERS),
             environment(&lines),
-            Vec::new(),
         )
         .unwrap();
     (engine, running, lines)

@@ -42,7 +42,7 @@ use crate::shell::{PlacedView, Shell, ShellClipboardItem};
 use crate::source_lines::ComponentFile;
 use crate::system::SystemSettings;
 use crate::temporary_folders::TemporaryFolders;
-use crate::views::{ProgramView, Refresh, ScreenRefreshes};
+use crate::views::{Refresh, ReservedView, ScreenRefreshes};
 
 /// How hardware buffers are backed on Linux. Ignored on other platforms.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -281,28 +281,42 @@ impl WaOS {
         }
     }
 
-    /// Starts `program` on a thread of its own, with `environment` as its capabilities, a `/tmp`
-    /// of its own, and `views` as the views it has before its code runs; answers the handle on it
-    /// and each view as the shell reports into it, in the order given.
+    /// Starts `program` on a thread of its own, with `environment` as its capabilities and a
+    /// `/tmp` of its own. It has no view until it asks for one, and every request goes to the
+    /// shell's placement.
     pub fn run(
         &self,
         program: &Program,
         environment: ProgramEnvironment,
-        views: Vec<PlacedView>,
-    ) -> Result<(RunningProgram, Vec<ProgramView>)> {
-        self.start(program, environment, views, None)
+    ) -> Result<RunningProgram> {
+        let (running, _) = self.start(program, environment, None, None)?;
+        Ok(running)
     }
 
-    /// Starts `program` as [`WaOS::run`] does, with no views, but held before its first
-    /// instruction until the [`HeldProgram`] answered is dropped, so whoever listens to it once
-    /// [`HeldProgram::linked`] resolves hears it from its start.
+    /// Starts `program` as [`WaOS::run`] does, with `reserved`, a screen the shell shows already,
+    /// such as a phone's tab the user opened it into, kept for its first `request-view`; answers
+    /// the handle on it and what resolves with the view the screen becomes, or with none once the
+    /// program ends without asking. Every later request goes to the shell's placement.
+    pub fn run_reserving(
+        &self,
+        program: &Program,
+        environment: ProgramEnvironment,
+        reserved: PlacedView,
+    ) -> Result<(RunningProgram, ReservedView)> {
+        let (running, reserved) = self.start(program, environment, Some(reserved), None)?;
+        Ok((running, reserved.expect("a screen reserved is waited on")))
+    }
+
+    /// Starts `program` as [`WaOS::run`] does, but held before its first instruction until the
+    /// [`HeldProgram`] answered is dropped, so whoever listens to it once [`HeldProgram::linked`]
+    /// resolves hears it from its start.
     pub fn run_held(
         &self,
         program: &Program,
         environment: ProgramEnvironment,
     ) -> Result<(RunningProgram, HeldProgram)> {
         let (held, hold) = crate::running::hold();
-        let (running, _views) = self.start(program, environment, Vec::new(), Some(hold))?;
+        let (running, _) = self.start(program, environment, None, Some(hold))?;
         Ok((running, held))
     }
 
@@ -310,9 +324,9 @@ impl WaOS {
         &self,
         program: &Program,
         environment: ProgramEnvironment,
-        views: Vec<PlacedView>,
+        reserved: Option<PlacedView>,
         hold: Option<Hold>,
-    ) -> Result<(RunningProgram, Vec<ProgramView>)> {
+    ) -> Result<(RunningProgram, Option<ReservedView>)> {
         ensure!(
             Engine::same(&self.engine, program.component().engine()),
             "{} was loaded by another engine",
@@ -359,7 +373,7 @@ impl WaOS {
             view_layers: Arc::default(),
             hold,
         };
-        RunningProgram::start(start, views, temporary)
+        RunningProgram::start(start, reserved, temporary)
     }
 
     /// The platform sent the whole app to the background (iOS's `didEnterBackground`, Android's
@@ -470,7 +484,7 @@ mod tests {
 
     use super::*;
     use crate::bindings::wasdk::platform::views::{
-        Cursor, Insets, Metrics, OverlayStyle, Placement, RequestId, ViewError, ViewFocusDirection,
+        Cursor, Insets, Metrics, OverlayStyle, Placement, ViewError, ViewFocusDirection,
         ViewFocusState,
     };
     use crate::lifecycle::Presence;
@@ -632,7 +646,6 @@ mod tests {
                 occluded: false,
                 focused: true,
             },
-            request: None::<RequestId>,
         }
     }
 
@@ -713,12 +726,8 @@ mod tests {
         let [first, second] = runs.map(|(run, checked)| {
             let before = GpuHoldings::read(&engine, &metal);
             let presented = shell.presents.load(Ordering::SeqCst);
-            let (running, _given) = engine
-                .run(
-                    &triangle,
-                    ProgramEnvironment::default(),
-                    vec![placed_view(&shell)],
-                )
+            let (running, _reserved) = engine
+                .run_reserving(&triangle, ProgramEnvironment::default(), placed_view(&shell))
                 .expect("triangle runs");
             shell.wait_for_presents(presented + 10);
             let drawing = GpuHoldings::read(&engine, &metal);

@@ -13,7 +13,7 @@
 
 use waft::ui::ViewRef;
 use waft::{Context, Entity};
-use waos::RunningProgram;
+use waos::{ProgramView, RunningProgram};
 use waos_package::ProgramId;
 use waos_program_window::placed_view;
 
@@ -77,10 +77,10 @@ impl Library {
     }
 
     /// Starts the installed program `id` again with `view`, its first window, which the platform
-    /// restored to a WaOS started afresh, as its first: opened in `windows` for it, and shown
-    /// there once the program runs. Where it cannot start, or runs already with windows of its
-    /// own, the window closes, the running program's coming forward; one that cannot start is the
-    /// library's problem. One no longer installed, as a tap on a removed program's home-screen
+    /// restored to a WaOS started afresh, reserved for its first request: opened in `windows` for
+    /// it, and shown there once the program asks, however long that takes. Where it cannot start,
+    /// runs already with windows of its own, or ends without asking, the window closes, the
+    /// running program's coming forward; one that cannot start is the library's problem. One no longer installed, as a tap on a removed program's home-screen
     /// icon asks for before WaOS disabled it, also brings WaOS's own window forward to say so, and
     /// disables the icon. A program that starts goes first among WaOS's recent programs.
     pub(crate) fn open_restored(
@@ -99,7 +99,7 @@ impl Library {
         let Some(component) = self.store.program(id) else {
             // Brought forward while the window is in sight, which Android requires of an app.
             cx.emit(WantsToBeSeen);
-            windows.update(cx, |windows, _| windows.given_not_started(view_id));
+            windows.update(cx, |windows, _| windows.given_not_taken(view_id));
             self.match_shortcuts(cx);
             return self.failed(
                 format!("{id} is not installed, or its files cannot be read"),
@@ -108,29 +108,49 @@ impl Library {
         };
         self.add_recent(id, cx);
         let (runs, opening) = (self.runs.clone(), id.clone());
-        let placed = placed_view(opened, None);
+        let placed = placed_view(opened);
         let windows = windows.clone();
         self.work_then(
             async move {
-                runs.open(&opening, component, vec![placed], ProgramPlace::Windows)
-                    .await
+                let (program, reserved) = runs
+                    .open(&opening, component, Some(placed), ProgramPlace::Windows)
+                    .await?;
+                let taken = match reserved {
+                    Some(reserved) => Taken::Waited(reserved.await),
+                    None => Taken::RunningAlready,
+                };
+                anyhow::Ok((program, taken))
             },
             move |library, started, cx| match started {
-                Ok((program, views)) => match views.into_iter().next() {
-                    Some(view) => windows.update(cx, |windows, cx| {
-                        windows.given_started(view_id, program, view, cx);
-                    }),
-                    None => windows.update(cx, |windows, _| {
-                        windows.given_not_started(view_id);
-                        windows.bring_forward(|running: &RunningProgram| *running == program);
-                    }),
-                },
+                Ok((program, Taken::Waited(Some(view)))) => windows.update(cx, |windows, cx| {
+                    windows.given_taken(view_id, program, view, cx);
+                }),
+                Ok((program, Taken::Waited(None))) => {
+                    tracing::info!(
+                        program = program.name(),
+                        "it ended without asking for a window"
+                    );
+                    windows.update(cx, |windows, _| windows.given_not_taken(view_id));
+                }
+                Ok((program, Taken::RunningAlready)) => windows.update(cx, |windows, _| {
+                    windows.given_not_taken(view_id);
+                    windows.bring_forward(|running: &RunningProgram| *running == program);
+                }),
                 Err(error) => {
-                    windows.update(cx, |windows, _| windows.given_not_started(view_id));
+                    windows.update(cx, |windows, _| windows.given_not_taken(view_id));
                     library.failed(format!("{error:#}"), cx);
                 }
             },
             cx,
         );
     }
+}
+
+/// What came of the window a restored program's run had reserved for it.
+enum Taken {
+    /// The program started: the view its first request took the window as, or none where it
+    /// ended without asking.
+    Waited(Option<ProgramView>),
+    /// The program was running already, so nothing was reserved.
+    RunningAlready,
 }

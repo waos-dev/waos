@@ -50,7 +50,7 @@ fn picks_are_mounted_as_asked_and_a_save_is_replaced_safely_from_the_programs_ca
         ..ProgramEnvironment::default()
     };
     let program = shell::load(&engine, waos_test_programs::FILE_DIALOGS);
-    let (running, _given) = engine.run(&program, environment, Vec::new()).unwrap();
+    let running = engine.run(&program, environment).unwrap();
     let end = shell::wait_for_end(&running);
     assert!(
         matches!(end, ProgramEnd::Returned(Ok(()))),
@@ -169,7 +169,7 @@ fn a_waiting_file_dialog_is_answered_by_setting_its_path_and_drops_its_prompt() 
         ..ProgramEnvironment::default()
     };
     let program = shell::load(&engine, waos_test_programs::FILE_DIALOGS);
-    let (running, _given) = engine.run(&program, environment, Vec::new()).unwrap();
+    let running = engine.run(&program, environment).unwrap();
 
     let deadline = Instant::now() + WITHIN;
     while dialogs.asked().is_empty() {
@@ -299,7 +299,7 @@ fn run_file_dialogs(
         ..ProgramEnvironment::default()
     };
     let program = shell::load(engine, waos_test_programs::FILE_DIALOGS);
-    let (running, _given) = engine.run(&program, environment, Vec::new()).unwrap();
+    let running = engine.run(&program, environment).unwrap();
     let end = shell::wait_for_end(&running);
     (lines, end)
 }

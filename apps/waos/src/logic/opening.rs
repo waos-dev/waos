@@ -64,7 +64,7 @@ pub(crate) async fn program_named(
     match store.program(id) {
         Some(component) => {
             let (program, _views) = installed
-                .open(id, component, Vec::new(), installed.places.usual())
+                .open(id, component, None, installed.places.usual())
                 .await?;
             Ok(Some(program))
         }

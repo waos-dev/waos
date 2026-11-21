@@ -1,5 +1,6 @@
 //! A program that runs parts of its work on workers, other instances of its own code that share
-//! nothing with it, in order: it says how many threads the machine runs at once; starts a worker
+//! nothing with it. It asks for a view, which it draws nothing in, so it can be hidden, then in
+//! order: it says how many threads the machine runs at once; starts a worker
 //! at an entry it does not have; sends three words to a worker that reverses each, and reads the
 //! three back in order; counts primes on a worker while its main instance goes on waking every
 //! 10 ms, and says how often it woke before the answer came; starts a worker that traps, and says
@@ -35,6 +36,9 @@ const REPORT_EVERY: u64 = 1 << 20;
 
 #[wasdk::main]
 async fn main() {
+    if let Err(error) = views::request_view(&windows::WindowConfig::new(), None) {
+        println!("view: {error}");
+    }
     let Some(workers) = workers::get_workers() else {
         println!("workers: none");
         return;

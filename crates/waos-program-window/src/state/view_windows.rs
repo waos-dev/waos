@@ -22,8 +22,9 @@
 //! is the program's first window or an extra one (`logic::restoration`), so a window the system
 //! restores to a process started afresh, as Android does a task from Recents, says what goes in it.
 //! Such a window arrives as every view does, answering no request of this process, and whoever
-//! hears of the platform's views hands it here as it arrives for its program to start with
-//! (`open_given`); it is followed and shown as a window asked for is from then on. The user's Back
+//! hears of the platform's views hands it here as it arrives, reserved for the first request of the
+//! program it starts (`open_given`); it is followed and shown as a window asked for is from then
+//! on. The user's Back
 //! in a window goes to its program where the program handles Back, and otherwise sends the window
 //! to the background, as Android sends an app's first screen there (decision 14 of
 //! `docs/proposals/2026-11-12-phone-programs-and-library.md`); a desktop sends no Back.
@@ -199,9 +200,9 @@ impl<P: ProgramLink> ViewWindows<P> {
     }
 
     /// Opens the window the platform gave as `view`, as one it restored, for a program about to
-    /// start with it, whose name and icon `face` shows on it: the window gets its canvas, and the
-    /// queue the program's calls on it wait in until the program runs. Answers what the program
-    /// starts with, or why there is nothing to start with, the window then closed.
+    /// start, whose name and icon `face` shows on it, reserved for its first request: the window
+    /// gets its canvas, and the queue the program's calls on it wait in until the request takes
+    /// it. Answers what is reserved, or why there is nothing to reserve, the window then closed.
     pub fn open_given(
         &mut self,
         view: ViewRef,
@@ -244,10 +245,10 @@ impl<P: ProgramLink> ViewWindows<P> {
         Ok(opened)
     }
 
-    /// The program `program` started with the window the platform gave as `view`, which it has as
-    /// `program_view`: the window shows it from now on. Where the window went meanwhile, the
+    /// The first request of `program` took the window the platform gave as `view`, which it has
+    /// as `program_view`: the window shows it from now on. Where the window went meanwhile, the
     /// program hears that its view did.
-    pub fn given_started(
+    pub fn given_taken(
         &mut self,
         view: ViewId,
         program: P,
@@ -262,7 +263,7 @@ impl<P: ProgramLink> ViewWindows<P> {
         tracing::info!(
             program = program.name(),
             view = view.0,
-            "a window the platform gave shows the program it started"
+            "a window the platform gave shows the program whose request took it"
         );
         self.show_window(
             None,
@@ -278,8 +279,8 @@ impl<P: ProgramLink> ViewWindows<P> {
         );
     }
 
-    /// No program started with the window the platform gave as `view`: it closes.
-    pub fn given_not_started(&mut self, view: ViewId) {
+    /// No program's request took the window the platform gave as `view`: it closes.
+    pub fn given_not_taken(&mut self, view: ViewId) {
         if let Some(index) = self.given.iter().position(|given| given.view.id() == view) {
             close_window_of(&self.given.remove(index).view);
         }

@@ -433,6 +433,7 @@ impl TestPhone {
     pub(crate) fn stage(&self, id: &str) -> Option<&'static str> {
         self.read_stage(id, |stage| match stage {
             TabStage::Starting => "starting",
+            TabStage::Waiting => "waiting",
             TabStage::Running(_) => "running",
             TabStage::Ended { .. } => "ended",
         })

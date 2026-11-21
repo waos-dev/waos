@@ -1,0 +1,92 @@
+package wasdk:platform@2.0.0;
+
+/// The program's life as a whole, beyond any one view: how much of it its user can see and
+/// reach, the platform asking whether it may end, and what its user opens with it.
+///
+/// **States.** A program is always in one of four states: Flutter's `AppLifecycleState` without
+/// `detached`, which here is the program's run ending. It starts `resumed`, and hears each change
+/// on `state-changes` in the order they happened. A change may pass over the states between, as a
+/// window minimized goes from `resumed` to `hidden`.
+///
+/// **Ending.** A platform asks before it ends a program for a reason the program may refuse: its
+/// user chose Quit, or is logging out. This is Flutter's `System.requestAppExit`: the program
+/// answers `exit` or `cancel`, after asking its own user whatever it needs to, and the platform
+/// ends it only on `exit`. A program that listens for none of these requests is not asked: it
+/// answers `exit`, as a Flutter app whose framework overrides nothing does. A platform that ends
+/// programs without asking, as a phone's does, never sends one.
+///
+/// A program ends itself by returning from `wasi:cli/run`, which needs nothing of this interface.
+///
+/// **Being opened.** The user opens files and links with the program, from the system or from
+/// WaOS: each request reaches every stream of `open-requests`, each file mounted writable at its
+/// own path, since the user chose to open it in this program, and kept among the program's mounts
+/// as a file picked in a dialog is. A request made while the program has no such stream open waits
+/// for the next one it opens, so a program started to open something hears it once it listens. A
+/// request thaws a frozen program until it has read it.
+interface lifecycle {
+  /// Flutter's `AppLifecycleState`, without `detached`: how much of the program its user can see
+  /// and reach, and so what the program may keep.
+  enum lifecycle-state {
+    /// Shown, and taking input: the user works in the program.
+    resumed,
+    /// Shown, and taking no input: the user works in another program, or something of the
+    /// platform's is over this one. Nothing is asked of the program; it may stop what waits for
+    /// its user.
+    inactive,
+    /// Not shown. This is the moment to save to `/data` what the program must not lose, and to
+    /// let go of what it can make again: caches, scratch buffers and textures, pools. From here
+    /// on the platform may stop the program where it stands, without another word, and may end
+    /// it; a program ended starts again from `/data` when its user comes back. A stopped program
+    /// goes on from where it stopped, and its clock has gone on meanwhile.
+    hidden,
+    /// Not shown, and the platform itself is in the background: as `hidden`, and soon. A paused
+    /// program may be stopped, or ended, without another word.
+    paused,
+  }
+
+  /// Flutter's `AppExitResponse`: whether the program may end.
+  enum app-exit-response {
+    /// The platform may end the program. It may still keep it running, when something else it
+    /// asked at the same time refused.
+    exit,
+    /// The program keeps running, and so does whatever the platform asked with it.
+    cancel,
+  }
+
+  /// What the user opened with the program.
+  record open-request {
+    /// Each file's path inside the program, where it is mounted writable: its path on the machine.
+    files: list<string>,
+    links: list<string>,
+  }
+
+  /// One request to end the program, answered once. Dropped without an answer, it answers
+  /// `exit`: a program that lets go of the question has nothing to keep.
+  resource exit-request {
+    /// Answers the request: Flutter's reply to `System.requestAppExit`.
+    respond: static func(request: exit-request, response: app-exit-response);
+  }
+
+  /// The program's state now.
+  state: func() -> lifecycle-state;
+
+  /// Each change of the program's state from now on, in the order they happened. Each call
+  /// is a stream of its own.
+  state-changes: func() -> stream<lifecycle-state>;
+
+  /// The requests to end the program, from now on. Each call is a stream of its own, and each
+  /// stream open when the platform asks receives the request: the program may end only when
+  /// every one answers `exit`, and a `cancel` from any one keeps it. With no stream open, the
+  /// answer is `exit` at once.
+  ///
+  /// A request is decided once every stream has answered it, as Flutter's widgets binding asks
+  /// every observer before it answers: `cancel` if any stream answered `cancel`, `exit`
+  /// otherwise. Each request of the platform's reaches the streams, even while an earlier one is
+  /// undecided, and each is decided on its own: the program sees every time its user asks to
+  /// quit, as a second Quit while a dialog asks may mean the user wants out at once.
+  exit-requests: func() -> stream<exit-request>;
+
+  /// What the user opens with the program from now on, after what waited while no stream was
+  /// open. Each call is a stream of its own, and each stream open hears every request.
+  open-requests: func() -> stream<open-request>;
+}

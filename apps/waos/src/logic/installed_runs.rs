@@ -2,11 +2,11 @@
 //! compiled (`installed_code`), as at its install, or compiled where the cache holds none current,
 //! then loaded off the caller's thread and run in WaOS as `waos run` runs what it sends,
 //! with this computer's capabilities, the grants of its own settings and its own folders, and the
-//! views it starts with: none where it asks for its windows, and its tab's in a tab of the deck,
-//! where its views go set before it starts (`program_places`). It is named by its id, which names it among the runs, so a quit asks it while it runs,
-//! in WaOS's log, where its output goes under the `program` target, and to the questions it puts
-//! to its user. A program running
-//! already is left as it is, and the views given for it go unused.
+//! screen reserved for its first request where WaOS shows one already, a tab of the deck or a card
+//! Android restored, where its views go set before it starts (`program_places`). It is named by its
+//! id, which names it among the runs, so a quit asks it while it runs, in WaOS's log, where its
+//! output goes under the `program` target, and to the questions it puts to its user. A program
+//! running already is left as it is, and the screen reserved for it goes unused.
 //!
 //! The invariant: a run started here is taken out of the runs once it ends, by a task of the
 //! runtime it was started on, so the runs never hold an ended program of the library's.
@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
-use waos::{PlacedView, ProgramView, RunningProgram, WaOS};
+use waos::{PlacedView, ReservedView, RunningProgram, WaOS};
 use waos_package::ProgramId;
 
 use super::environments::ProgramEnvironments;
@@ -54,24 +54,23 @@ impl InstalledRuns {
         }
     }
 
-    /// Runs the installed program `id`, whose component is at `component`, with `views` as the
-    /// views it starts with and its later views going to `place`, unless it runs already, which
-    /// keeps its place; answers the program once it has started,
-    /// with each of `views` as the engine reports into it, in the order given, or the one running,
-    /// with none, or why it could not start. Its end is waited for on a task of the runtime this
-    /// runs on.
+    /// Runs the installed program `id`, whose component is at `component`, with `reserved` kept for
+    /// its first request where WaOS shows a screen for it already, and its views going to `place`,
+    /// unless it runs already, which keeps its place; answers the program once it has started,
+    /// with what resolves with the view `reserved` becomes, or the one running, with none, or why
+    /// it could not start. Its end is waited for on a task of the runtime this runs on.
     pub(crate) async fn open(
         &self,
         id: &ProgramId,
         component: PathBuf,
-        views: Vec<PlacedView>,
+        reserved: Option<PlacedView>,
         place: ProgramPlace,
-    ) -> Result<(RunningProgram, Vec<ProgramView>)> {
+    ) -> Result<(RunningProgram, Option<ReservedView>)> {
         let name = id.as_str();
         self.code_ready(id, &component)
             .await
             .with_context(|| format!("{id} could not be opened"))?;
-        let mut started_views = Vec::new();
+        let mut waiting = None;
         let started = self
             .runs
             .start_unless_running(id, async || {
@@ -80,9 +79,15 @@ impl InstalledRuns {
                 let program = loading.await.context("the load's thread")??.named(name);
                 let environment = self.environments.of(id)?;
                 self.places.set(id, place);
-                let (running, given) = self.engine.run(&program, environment, views)?;
-                started_views = given;
-                Ok(running)
+                Ok(match reserved {
+                    Some(reserved) => {
+                        let (running, taken) =
+                            self.engine.run_reserving(&program, environment, reserved)?;
+                        waiting = Some(taken);
+                        running
+                    }
+                    None => self.engine.run(&program, environment)?,
+                })
             })
             .await
             .with_context(|| format!("{id} could not be opened"))?;
@@ -90,13 +95,13 @@ impl InstalledRuns {
             Started::New(run) => run,
             Started::Running(program) => {
                 tracing::info!(%id, "opened again while it runs: left as it is");
-                return Ok((program, Vec::new()));
+                return Ok((program, None));
             }
         };
         tracing::info!(%id, "opened from the library");
         let program = run.program.clone();
         self.runs.take_out_once_ended(run);
-        Ok((program, started_views))
+        Ok((program, waiting))
     }
 
     /// Resolves once the code of the program `id`, whose component is at `component`, is in the

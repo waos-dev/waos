@@ -1,5 +1,6 @@
 //! A program that plays a tone while it is out of sight: what the platform keeps from freezing
-//! while it is audible, and only then. It starts a tone once it has a view, plays it while it is
+//! while it is audible, and only then. It asks for a view, which it draws nothing in, starts a
+//! tone, plays it while it is
 //! hidden, stops it once it is shown again and waits for its end, and schedules another an hour
 //! ahead, which leaves it silent until then; and once it is hidden and shown again, starts the
 //! first tone again, which the spec forbids, so it traps with the spec's name for the mistake.
@@ -13,6 +14,8 @@
 use wasdk::StreamReader;
 use wasdk::audio::{self, AudioContextOptions};
 use wasdk::lifecycle::{self, LifecycleState};
+use wasdk::views;
+use wasdk::windows::WindowConfig;
 
 /// The tone's pitch: A above middle C, in hertz.
 const PITCH: f32 = 440.0;
@@ -23,6 +26,10 @@ const AN_HOUR: f64 = 3600.0;
 #[wasdk::main]
 async fn main() {
     let mut states = lifecycle::state_changes();
+    if let Err(error) = views::request_view(&WindowConfig::new(), None) {
+        println!("no view: {error}");
+        return;
+    }
     let Some(audio) = audio::get_audio() else {
         println!("no sound");
         return;

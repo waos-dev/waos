@@ -68,7 +68,7 @@ fn a_program_opened_asks_for_a_window_with_its_name_its_icon_and_what_names_it()
     );
     let views = phone.program_views(TRIANGLE);
     assert_eq!(views.len(), 1);
-    assert!(views[0].request_id().is_some(), "a window it asked for");
+    assert_eq!(views[0].request_id(), 1, "a window it asked for");
     assert_eq!(phone.tab_kinds(), ["home"], "no tab of its own");
 }
 
@@ -101,7 +101,11 @@ fn a_first_window_brought_back_starts_its_program_in_it() {
     });
     let views = phone.program_views(TRIANGLE);
     assert_eq!(views.len(), 1);
-    assert_eq!(views[0].request_id(), None, "a view it was given");
+    assert_eq!(
+        views[0].request_id(),
+        1,
+        "its first request took the window brought back"
+    );
     assert!(views[0].presence().on_screen);
     assert!(phone.windows_of(TRIANGLE).is_empty(), "it asked for none");
     assert_eq!(restored.title(), "Triangle", "the card names it again");
@@ -209,5 +213,5 @@ fn with_programs_inside_waos_a_program_opened_takes_a_tab() {
     phone.open(TRIANGLE);
     assert_eq!(phone.tab_kinds(), [TRIANGLE]);
     assert!(phone.windows_of(TRIANGLE).is_empty(), "no window asked for");
-    assert_eq!(phone.program_views(TRIANGLE)[0].request_id(), None);
+    assert_eq!(phone.program_views(TRIANGLE)[0].request_id(), 1);
 }

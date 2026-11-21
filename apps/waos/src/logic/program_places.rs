@@ -119,10 +119,10 @@ mod tests {
             .load(Path::new(waos_test_programs::SURVEY))
             .expect("survey loads")
             .named(SURVEY);
-        let (running, _given) = engine
-            .run(&survey, ProgramEnvironment::default(), Vec::new())
-            .expect("survey runs");
-        running
+
+        engine
+            .run(&survey, ProgramEnvironment::default())
+            .expect("survey runs")
     }
 
     /// Survey asks for a view as it starts, and ends with a failure when it gets none.

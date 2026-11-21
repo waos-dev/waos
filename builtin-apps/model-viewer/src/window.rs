@@ -17,11 +17,8 @@ const SMALLEST: Size = Size {
 
 /// The view the app draws in.
 pub async fn open() -> Result<View, String> {
-    // Opened before the views are listed, so a view that arrives between the two is not missed.
+    // Opened before the request, so the view that arrives for it is not missed.
     let mut changes = views::view_changes();
-    if let Some(view) = views::views().into_iter().next() {
-        return Ok(view);
-    }
     let config = WindowConfig::new();
     config.set_title(TITLE);
     config.set_size(SIZE);

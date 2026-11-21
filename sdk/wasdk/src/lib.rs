@@ -33,16 +33,16 @@
 //!
 //! ```ignore
 //! use wasdk::views::{self, ViewChange};
+//! use wasdk::windows::WindowConfig;
 //!
 //! #[wasdk::main]
 //! async fn main() {
 //!     let mut changes = views::view_changes();
-//!     for view in views::views() {
-//!         println!("given view {}", view.id());
-//!     }
+//!     let request = views::request_view(&WindowConfig::new(), None).expect("a window");
 //!     while let Some(change) = changes.next().await {
 //!         if let ViewChange::Added(view) = change {
-//!             println!("view {} arrived for request {:?}", view.id(), view.request_id());
+//!             println!("view {} arrived for request {}", view.id(), view.request_id());
+//!             assert_eq!(view.request_id(), request);
 //!         }
 //!     }
 //! }

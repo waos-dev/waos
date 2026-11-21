@@ -2770,6 +2770,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "forever-shown"
+version = "0.4.2"
+dependencies = [
+ "wasdk",
+]
+
+[[package]]
 name = "form_urlencoded"
 version = "1.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"

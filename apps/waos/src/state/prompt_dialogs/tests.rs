@@ -30,10 +30,10 @@ fn forever(engine: &WaOS) -> RunningProgram {
         .load(Path::new(waos_test_programs::FOREVER))
         .expect("forever loads")
         .named(FOREVER);
-    let (program, _given) = engine
-        .run(&forever, ProgramEnvironment::default(), Vec::new())
-        .expect("forever runs");
-    program
+
+    engine
+        .run(&forever, ProgramEnvironment::default())
+        .expect("forever runs")
 }
 
 fn forever_id() -> ProgramId {

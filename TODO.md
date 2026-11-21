@@ -11,7 +11,7 @@ What stands between today and a first stable release, in the order it blocks one
 - [x] The `wasdk:*` interface at 1.0.0, and CI refusing a changed package under the same version.
 
 ## The interface
-- [ ] Programs with no window: command-line programs, desktop widgets, work that runs on a schedule or when a file changes.
+- [ ] Programs with no window: command-line programs, desktop widgets, work that runs on a schedule or when a file changes (`docs/proposals/2026-11-21-views-a-program-asks-for.md`: views only on request, held screens, console programs read from their imports; then Waft's terminal widget).
 - [ ] Fonts read whole into each program (78 MB for PingFang SC, the Zed port): let a program map a font file rather than copy it. Changes the WIT; shown to the lead first.
 - [ ] Threads that share memory, for parallel CPU work (Zed's background executor: parsing, wrapping, search over shared snapshots). Waits on the component model's shared-everything threads in wasmtime; workers cover message-shaped work meanwhile.
 - [ ] Accessibility: a program's semantics tree, which changes the views interface. Later.

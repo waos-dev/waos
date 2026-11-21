@@ -73,11 +73,7 @@ impl VirtualDisplay {
 
     /// Opens a view for `program` in a window of its own, filling this display.
     #[cfg(test)]
-    pub(crate) fn add_window(
-        self,
-        program: &RunningProgram,
-        request: Option<RequestId>,
-    ) -> ProgramView {
+    pub(crate) fn add_window(self, program: &RunningProgram, request: RequestId) -> ProgramView {
         self.add_view(program, request, true)
     }
 
@@ -85,7 +81,7 @@ impl VirtualDisplay {
     pub(crate) fn add_view(
         self,
         program: &RunningProgram,
-        request: Option<RequestId>,
+        request: RequestId,
         in_window: bool,
     ) -> ProgramView {
         let none = Insets {
@@ -95,31 +91,33 @@ impl VirtualDisplay {
             bottom: 0.0,
         };
         let window = in_window.then(|| Arc::new(FilledWindow::new(self.scale)));
-        let view = program.add_view(PlacedView {
-            view: Arc::new(KeptPicture::default()),
-            text_input: Some(Arc::new(NoInputMethods)),
-            window: window.as_ref().map(|window| PlacedWindow {
-                window: Arc::clone(window) as Arc<dyn ShellWindow>,
-                frame: self.screen().frame,
-                maximized: false,
-                title_bar_double_click_action: None,
-            }),
-            metrics: Metrics {
-                width: self.width,
-                height: self.height,
-                device_pixel_ratio: self.scale,
-                padding: none,
-                view_padding: none,
-                view_insets: none,
-            },
-            screen: Some(VIRTUAL_SCREEN),
-            presence: Presence {
-                on_screen: true,
-                occluded: false,
-                focused: true,
-            },
+        let view = program.add_view(
             request,
-        });
+            PlacedView {
+                view: Arc::new(KeptPicture::default()),
+                text_input: Some(Arc::new(NoInputMethods)),
+                window: window.as_ref().map(|window| PlacedWindow {
+                    window: Arc::clone(window) as Arc<dyn ShellWindow>,
+                    frame: self.screen().frame,
+                    maximized: false,
+                    title_bar_double_click_action: None,
+                }),
+                metrics: Metrics {
+                    width: self.width,
+                    height: self.height,
+                    device_pixel_ratio: self.scale,
+                    padding: none,
+                    view_padding: none,
+                    view_insets: none,
+                },
+                screen: Some(VIRTUAL_SCREEN),
+                presence: Presence {
+                    on_screen: true,
+                    occluded: false,
+                    focused: true,
+                },
+            },
+        );
         if let Some(window) = window {
             *window.view.lock().unwrap() = Some(view.clone());
         }
@@ -176,8 +174,7 @@ impl ViewPlacement for GivenViews {
         program: &RunningProgram,
         request: ViewRequest,
     ) -> Result<(), ViewError> {
-        self.display
-            .add_view(program, Some(request.id), self.in_windows);
+        self.display.add_view(program, request.id, self.in_windows);
         Ok(())
     }
 }

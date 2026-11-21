@@ -122,7 +122,8 @@ fn program(
         crate::screenshots::tests::screenshots(),
         Weak::new(),
     );
-    let view = views.add(placed_view());
+    let request = views.new_request(None, String::new());
+    let view = views.add(request, placed_view());
     let clipboard = ProgramClipboard::new(
         platform.clone(),
         ProgramAccess::new(switches),
@@ -154,7 +155,6 @@ fn placed_view() -> PlacedView {
         },
         screen: None,
         presence: ON_SCREEN,
-        request: None,
     }
 }
 
