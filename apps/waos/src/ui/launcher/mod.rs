@@ -3,8 +3,8 @@
 //! system's shadow. In it, the library in Fluent's controls, its home the launcher's own
 //! (`home`), a search row over the grid of programs, and its other pages, getting programs and
 //! the settings, each with Back to the grid; what the library asks or says, as a dialog over the
-//! card. Escape in it and the system's close command dismiss the launcher, and the window does
-//! what the launcher orders (`window_orders`).
+//! card. Escape in it and the system's close command dismiss the launcher, which shows and hides
+//! the window itself.
 //!
 //! The invariant: the card is all the window shows, so nothing but the card is drawn where the
 //! window is see-through.
@@ -12,7 +12,6 @@
 pub(crate) mod home;
 #[cfg(test)]
 pub(crate) mod tests;
-mod window_orders;
 
 use std::rc::Rc;
 
@@ -29,7 +28,6 @@ use crate::state::recordings::Recordings;
 use crate::ui::every_window::LibraryWindow;
 use crate::ui::library::fluent::FluentLibrary;
 use home::LauncherHome;
-use window_orders::WindowOrders;
 
 /// How round the card's corners are.
 const CORNER_RADIUS: f64 = 12.0;
@@ -54,12 +52,8 @@ pub(crate) fn launcher_window(
         questions_here: true,
         home: Some(home.into_widget()),
     };
-    let card = WindowOrders {
-        launcher: launcher.clone(),
-        child: Card {
-            child: library.into_widget(),
-        }
-        .into_widget(),
+    let card = Card {
+        child: library.into_widget(),
     };
     let closing = launcher.clone();
     LibraryWindow {
