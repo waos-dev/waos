@@ -511,6 +511,56 @@ async fn a_programs_window_opens_in_its_app_and_its_view_lives_there_until_it_cl
     assert!(matches!(end, ProgramEnd::Returned(Ok(()))), "{end:?}");
 }
 
+/// A window whose canvas is made once the app is gone is never asked of it: its canvas is let go
+/// and the program's request fails, which survey ends on.
+#[tokio::test]
+async fn a_window_made_once_the_app_is_gone_fails_its_request() {
+    let (program, request) = survey().await;
+    let Served {
+        process,
+        mut sent,
+        mut canvas_calls,
+        ..
+    } = window_process(program.clone());
+    process.open_window(request);
+    process.gone();
+    make_canvas(&mut canvas_calls).await;
+    assert!(
+        matches!(canvas_calls.next().await, Some(CanvasCall::Remove(_))),
+        "the canvas is let go"
+    );
+    let end = tokio::time::timeout(WITHIN, program.ended())
+        .await
+        .expect("survey ends as its request fails");
+    assert!(matches!(end, ProgramEnd::Returned(Err(()))), "{end:?}");
+    assert!(
+        sent.try_recv().is_err(),
+        "nothing is asked of an app that is gone"
+    );
+}
+
+/// A window asked of the app and not yet open as the app goes fails the program's request.
+#[tokio::test]
+async fn a_window_not_yet_open_as_the_app_goes_fails_its_request() {
+    let (program, request) = survey().await;
+    let Served {
+        process,
+        mut sent,
+        mut canvas_calls,
+        ..
+    } = window_process(program.clone());
+    process.open_window(request);
+    make_canvas(&mut canvas_calls).await;
+    let ToWindow::OpenWindow { .. } = next(&mut sent).await else {
+        panic!("the window is asked of the program's app");
+    };
+    process.gone();
+    let end = tokio::time::timeout(WITHIN, program.ended())
+        .await
+        .expect("survey ends as its request fails");
+    assert!(matches!(end, ProgramEnd::Returned(Err(()))), "{end:?}");
+}
+
 /// The window's new size, with the fence it waits with, as its app reports it.
 fn resized_to(process: &WindowProcess, window: RequestId, width: u32) {
     let mut metrics = opened().metrics;

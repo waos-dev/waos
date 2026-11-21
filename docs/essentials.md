@@ -23,6 +23,7 @@ The rules WaOS keeps, one line each, so they are not lost under the code. Each l
 - On a phone, an app's screen opens when it launches, and its first request gets that screen; until then the screen is empty. ([decisions 2 and 10](proposals/2026-11-21-views-a-program-asks-for.md); [`tabs.rs`](../apps/waos/src/state/deck/tabs.rs), [`view_windows.rs`](../crates/waos-program-window/src/state/view_windows.rs))
 - A screen waits for its app for as long as the app runs; the user closes it, and it closes when the app ends without asking. ([decision 8](proposals/2026-11-21-views-a-program-asks-for.md))
 - A request beyond the first opens another view wherever the platform can show one. In the deck each tab is a window: closing one takes its view away, and closing a program's last tab ends it. ([decision 6](proposals/2026-11-21-views-a-program-asks-for.md))
+- On macOS, once a program's app, its window process, is gone, nothing new is asked of it, and everything it was asked, a window the program requested among it, is answered exactly once. ([`window_process.rs`](../apps/waos/src/logic/program_apps/window_process.rs))
 
 ## Dialogs and questions
 
