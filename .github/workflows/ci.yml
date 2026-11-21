@@ -27,20 +27,18 @@ jobs:
       - uses: ./.github/actions/linux-packages
       - uses: ./.github/actions/prepare
       - run: sudo apt-get install -y gdb
-      - name: Crash under gdb
+      - name: Crash under gdb, with the system's symbols
+        env:
+          DEBUGINFOD_URLS: https://debuginfod.ubuntu.com
         run: |
+          dpkg -l libvulkan1 mesa-vulkan-drivers | tail -2
           bin=$(cargo test -p waos --lib --no-run --message-format=json | jq -r 'select(.executable != null and .target.kind == ["lib"]) | .executable' | head -1)
           test -x "$bin"
-          echo "binary: $bin"
-          for i in $(seq 1 15); do
+          for i in $(seq 1 40); do
             echo "== whole lib, run $i"
-            gdb -q -batch -ex run -ex "thread apply all bt 25" --args "$bin" -q 2>&1 | grep -E "SIGSEGV|^Thread|^#|test result" | head -150
-          done
-          for i in $(seq 1 10); do
-            echo "== screenshots one thread, run $i"
-            "$bin" -q screenshots --test-threads=1 2>&1 | tail -2
-          done
-          for i in $(seq 1 10); do
-            echo "== screenshots parallel, run $i"
-            "$bin" -q screenshots 2>&1 | tail -2
+            out=$(gdb -q -batch -ex "set debuginfod enabled on" -ex run -ex "bt 12" -ex "info threads" --args "$bin" -q 2>&1)
+            if echo "$out" | grep -q SIGSEGV; then
+              echo "$out" | grep -vE "^(test |Downloading|\[New Thread|\[Thread)" | head -120
+              break
+            fi
           done
