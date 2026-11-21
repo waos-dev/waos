@@ -14,7 +14,7 @@ The rules WaOS keeps, one line each, so they are not lost under the code. Each l
 - A program is anything written against wasdk that runs in WaOS. ([decision 3](proposals/2026-11-21-views-a-program-asks-for.md))
 - An app has a UI; a tool, a command-line program, has none. A program is an app unless its manifest says `kind = "tool"`. ([decision 3](proposals/2026-11-21-views-a-program-asks-for.md); [`manifest.rs`](../crates/waos-package/src/manifest.rs))
 - A `.wapk` is how a program is installed, whether it is an app or a tool. ([`waos-package`](../crates/waos-package/src/lib.rs))
-- A program's roles are what its component imports, never what it declares. ([`roles.rs`](../crates/waos/src/roles.rs))
+- A program has a role, such as the inspector's, when its component imports that role's interfaces, since that is what lets its code call them; its user grants each role by name. ([`roles.rs`](../crates/waos/src/roles.rs))
 
 ## Views and windows
 
@@ -33,8 +33,8 @@ The rules WaOS keeps, one line each, so they are not lost under the code. Each l
 
 ## Running
 
-- A program's state follows its views; nothing outside reports it. ([`lifecycle`](../crates/waos/src/lifecycle/mod.rs))
-- A program is frozen by the freeze rule alone, and never while it is shown, owes an answer, sounds or records. ([`freeze_rule.rs`](../crates/waos/src/lifecycle/freeze_rule.rs))
+- A program's lifecycle state comes only from how its views stand: resumed while one is on screen and focused, inactive while one is on screen, hidden once none is. WaOS going to the background pauses every program; nothing else sets the state. A program with no view keeps the state it had. ([`state_of_views.rs`](../crates/waos/src/lifecycle/state_of_views.rs), [`lifecycle`](../crates/waos/src/lifecycle/mod.rs))
+- A hidden program freezes after a delay, by the freeze rule alone, and never while it is shown, owes an answer, sounds or records. ([`freeze_rule.rs`](../crates/waos/src/lifecycle/freeze_rule.rs))
 
 ## Files
 
