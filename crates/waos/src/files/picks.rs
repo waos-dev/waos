@@ -1,11 +1,14 @@
-//! Where the files and folders the user picks for a program are mounted: each at its own path, for
-//! the program's run at once, and among its mounts through its grants, which keep it until the
-//! user removes it, each pick told through the program's access (`access`); and what the user
-//! picked ahead, the answer set for a dialog among the program's settings.
+//! Where the files and folders the user picks for a program, or opens it with, are mounted: each
+//! at its own path, kept among its grants, which mount it until the user removes it there, or,
+//! where the grants keep nothing, mounted for the program's run alone; each pick told through the
+//! program's access (`access`); and what the user picked ahead, the answer set for a dialog among
+//! the program's settings.
 //!
-//! The invariant: a pick is mounted before its path is answered to the program, so the program
-//! never has a path it cannot reach; and that path, like the mount kept among its grants, is the
-//! pick's path as a program names it (`machine_paths`), never the machine's where they differ.
+//! The invariant: a pick is mounted in one place, the grants where they keep it, so taking it back
+//! there unmounts it at the program's next call; and it is mounted before its path is answered to
+//! the program, so the program never has a path it cannot reach. That path, like the mount kept
+//! among its grants, is the pick's path as a program names it (`machine_paths`), never the
+//! machine's where they differ.
 
 use std::path::Path;
 use std::sync::Arc;
@@ -28,22 +31,26 @@ impl Picks {
         Picks { handed, access }
     }
 
-    /// Mounts `host`, which the user picked, at its own path, writable as `writable` says, and
-    /// answers the path the program sees it at; none, with a warning, for a path a program has no
-    /// name for, such as a share's on Windows.
+    /// Mounts `host`, which the user picked, at its own path, writable as `writable` says: among
+    /// the grants where they keep it, for the run otherwise. Answers the path the program sees it
+    /// at; none, with a warning, for a path a program has no name for, such as a share's on
+    /// Windows. Whether the grants keep it is read back from them once they are asked to.
     pub(crate) fn mount(&self, host: &Path, writable: bool) -> Option<String> {
         let Some(own) = machine_paths::in_program(host) else {
             tracing::warn!(host = %host.display(), "a pick has no path a program names; it is not mounted");
             return None;
         };
-        self.handed.hand_pick(host, writable);
-        self.access.tell(Happened::PickMounted { on_machine: host });
-        self.access.grants().keep_picked(Mount {
+        let pick = Mount {
             host: host.to_owned(),
-            at: own.clone(),
+            at: own,
             writable,
-        });
-        Some(own.to_string_lossy().into_owned())
+        };
+        let grants = self.access.grants();
+        grants.keep_picked(pick.clone());
+        let kept = grants.file_system().mounts.contains(&pick);
+        self.handed.hand_pick(&pick, kept);
+        self.access.tell(Happened::PickMounted { on_machine: host });
+        Some(pick.at.to_string_lossy().into_owned())
     }
 
     /// A shared handle on the program's grants, for waiting dialogs to re-check stored answers.

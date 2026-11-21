@@ -3,9 +3,10 @@
 //! longest mount containing it, then beneath that mount's folder on the machine. A folder above
 //! a mount lists only what is mounted under it, and a path outside every mount is not found, so a
 //! program cannot probe what the machine holds. The mounts are its own `/data` and `/cache`, its
-//! `/tmp`, emptied when it ends (`temporary_folders`), its grants' folders, read live, and the files the user handed it, each at its own path, what it
-//! picked kept among its grants as well ([`Picks`]): a mount added or removed applies at the
-//! program's next call, and a handle already open stays valid. A path stays beneath its mount's
+//! `/tmp`, emptied when it ends (`temporary_folders`), its grants' folders, read live, the files
+//! and folders the user picked, each at its own path, kept among its grants where they keep them
+//! and for the run otherwise ([`Picks`]), and what it pasted, at its own path for the run: a mount
+//! added or removed applies at the program's next call, and a handle already open stays valid. A path stays beneath its mount's
 //! folder by the system's one call where it has one, and by a walk of its folders elsewhere
 //! ([`beneath`]); every call is made on the program's own thread, and answers when the system
 //! does. On Windows they are served by the copy's Windows half, every path walked, and a status

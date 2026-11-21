@@ -39,6 +39,7 @@ The rules WaOS keeps, one line each, so they are not lost under the code. Each l
 ## Files
 
 - A program reaches no path on the machine outside its mounts, and what is read-only is decided in one table. ([`target.rs`](../crates/waos/src/files/target.rs), [`mounts.rs`](../crates/waos/src/files/mounts.rs))
+- A file or folder the user picks for a program, or opens it with, is mounted at its own path until the user takes it back: kept among its grants, which mount it while they hold it, or for its run alone where nothing keeps them. ([`picks.rs`](../crates/waos/src/files/picks.rs))
 
 ## The interface
 

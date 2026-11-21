@@ -3,8 +3,9 @@
 //! pasted read-only and what it picked as the dialog asked; where a path of the program leads
 //! through them, and where on the machine a path inside a mount is; and the table kept as the
 //! program's grants and the files the user handed it hold it now, with its own `/data`, `/cache`
-//! and `/tmp` beside them. A file mounted need not exist: a save's target is mounted before it is
-//! written.
+//! and `/tmp` beside them. A pick the grants keep is theirs alone, mounted while they hold it; only
+//! one they do not keep is mounted for the run among the files handed. A file picked need not
+//! exist: a save's target is mounted before it is written.
 //!
 //! A path is taken by its names, `.` and `..` included, only while it is above the mounts, where
 //! nothing is a symlink, until it is inside the longest mount containing it; the rest is the
@@ -28,7 +29,7 @@ use std::sync::{Arc, Mutex};
 use futures::FutureExt;
 use tracing::warn;
 pub(crate) use waos_capabilities::MountKind;
-use waos_capabilities::{ChangedFuture, FileSystemGrant, ProgramFolders, ProgramGrants};
+use waos_capabilities::{ChangedFuture, FileSystemGrant, Mount, ProgramFolders, ProgramGrants};
 
 use super::FilesRefusal;
 use super::descriptor::DirectoryEntry;
@@ -104,20 +105,15 @@ impl Mounted {
         Mounted::opened(host, at, (writable, kind), opened)
     }
 
-    /// `host`, a folder the user picked, or a file, which may not exist yet, opened at its own
-    /// path; none, with a warning, when it does not open.
-    fn open_picked(host: &Path, writable: bool) -> Option<Mounted> {
+    /// `host`, a folder the user picked, or a file, which may not exist yet, opened at `at` as a
+    /// mount of `kind`; none, with a warning, when it does not open.
+    fn open_picked(host: &Path, at: &Path, writable: bool, kind: MountKind) -> Option<Mounted> {
         let opened = if host.is_dir() {
             open_folder(host).map(|folder| (folder, None))
         } else {
             open_folder_of(host)
         };
-        Mounted::opened(
-            host,
-            &own_path(host)?,
-            (writable, MountKind::Picked),
-            opened,
-        )
+        Mounted::opened(host, at, (writable, kind), opened)
     }
 
     /// `host`, a folder or a file of the machine, opened read-only at its own path; none, with a
@@ -307,8 +303,7 @@ impl MountTable {
     ) -> MountTable {
         let own = own_mounts(folders, temporary);
         let granted = grants.file_system();
-        let (handed, _) = handed.mounts();
-        MountTable::new(&own, &granted, &handed)
+        MountTable::new(&own, &granted, &handed.now())
     }
 
     /// Each mount, as an inspector reads it.
@@ -383,15 +378,13 @@ impl MountTable {
         })
     }
 
-    /// `own`, then each of `granted`'s mounts that opens, then each of `handed`, but for one at a
-    /// path a mount is at already, which is left out, and one handed that the program reaches at
-    /// its path already, through a mount of the folder it is in, which keeps that mount's access:
-    /// a pick kept among the grants is the grants' from then on.
-    fn new(own: &[Mounted], granted: &FileSystemGrant, handed: &[Mounted]) -> MountTable {
+    /// `own`, then each of `granted`'s mounts that opens, a pick of the run's kept among them as a
+    /// pick opens, then each of the files `handed` for the run alone, but for one at a path a
+    /// mount is at already, which is left out, and one handed that the program reaches at its path
+    /// already, through a mount of the folder it is in, which keeps that mount's access.
+    fn new(own: &[Mounted], granted: &FileSystemGrant, handed: &Handed) -> MountTable {
         let mut mounts = own.to_vec();
-        let opened = granted.mounts.iter().filter_map(|mount| {
-            Mounted::open(&mount.host, &mount.at, mount.writable, MountKind::Granted)
-        });
+        let opened = (granted.mounts.iter()).filter_map(|mount| handed.open_granted(mount));
         for mount in opened {
             if mounts.iter().any(|mounted| mounted.at == mount.at) {
                 warn!(at = %mount.at.display(), "a mount is at a path another is at; it is left out");
@@ -399,7 +392,7 @@ impl MountTable {
             }
             mounts.push(mount);
         }
-        for mount in handed {
+        for mount in handed.for_the_run() {
             let reached = mounts
                 .iter()
                 .any(|mounted| mounted.at == mount.at || mounted.reaches(&mount.at));
@@ -562,7 +555,7 @@ pub(crate) struct LiveMounts {
     /// The program's own folders, opened once for its run.
     own: Vec<Mounted>,
     handed: HandedFiles,
-    /// What the table was built from: the grants, and the files handed by then.
+    /// What the table was built from: the grants, and how many handings made the files handed.
     granted: FileSystemGrant,
     handings: u64,
     table: MountTable,
@@ -582,50 +575,72 @@ impl LiveMounts {
         let own = own_mounts(folders, temporary);
         let changed = access.grants().changed();
         let granted = access.grants().file_system();
-        let (handed_now, handings) = handed.mounts();
+        let handed_now = handed.now();
         let table = MountTable::new(&own, &granted, &handed_now);
         LiveMounts {
             access,
             own,
             handed,
             granted,
-            handings,
+            handings: handed_now.handings,
             table,
             changed,
         }
     }
 
     /// The table as the grants and the files handed hold it now. The next change of the grants
-    /// is asked for before they are read, so a change between the two is heard at the next call.
+    /// is asked for before they are read, so a change between the two is heard at the next call;
+    /// and they are read again at a handing, which a pick they keep comes with.
     pub(crate) fn now(&mut self) -> &MountTable {
-        let mut granted = None;
-        if (&mut self.changed).now_or_never().is_some() {
+        let grants_changed = (&mut self.changed).now_or_never().is_some();
+        if grants_changed {
             self.changed = self.access.grants().changed();
-            granted = Some(self.access.grants().file_system()).filter(|now| *now != self.granted);
         }
-        let (handed, handings) = self.handed.mounts();
-        if granted.is_some() || handings != self.handings {
-            if let Some(granted) = granted {
+        let handed_changed = self.handed.handings() != self.handings;
+        if grants_changed || handed_changed {
+            let granted = self.access.grants().file_system();
+            if handed_changed || granted != self.granted {
+                let handed = self.handed.now();
+                self.table = MountTable::new(&self.own, &granted, &handed);
                 self.granted = granted;
+                self.handings = handed.handings;
             }
-            self.table = MountTable::new(&self.own, &self.granted, &handed);
-            self.handings = handings;
         }
         &self.table
     }
 }
 
-/// The files and folders the user handed a program, each mounted at its own path: what the user
-/// pasted, read-only, and what it picked in a dialog, writable where the dialog asked. They stay
-/// for the program's run. Every clone is the same.
+/// The files and folders the user handed a program for its run: what it pasted, read-only at its
+/// own path, and what it picked, which the grants keep where they can. They stay for the program's
+/// run. Every clone is the same.
 #[derive(Clone, Default)]
 pub(crate) struct HandedFiles(Arc<Mutex<Handed>>);
 
 /// The files handed, and how many handings made them, which a table built from them compares.
-#[derive(Default)]
+#[derive(Clone, Default)]
 struct Handed {
-    mounts: Vec<Mounted>,
+    pasted: Vec<Mounted>,
+    picked: Vec<Picked>,
     handings: u64,
+}
+
+/// A file or folder the user picked during the program's run.
+#[derive(Clone)]
+enum Picked {
+    /// Kept among the grants, which mount it while they hold it: where it is on the machine, a
+    /// file there perhaps not made yet.
+    Kept(PathBuf),
+    /// Mounted for the run alone, where the grants keep nothing.
+    ForTheRun(Mounted),
+}
+
+impl Picked {
+    fn host(&self) -> &Path {
+        match self {
+            Picked::Kept(host) => host,
+            Picked::ForTheRun(mounted) => &mounted.host,
+        }
+    }
 }
 
 impl HandedFiles {
@@ -633,27 +648,63 @@ impl HandedFiles {
     /// path; nothing for one mounted already, or that does not open.
     pub(crate) fn hand(&self, host: &Path) {
         let mut handed = locked(&self.0);
-        if handed.mounts.iter().any(|mounted| *mounted.host == *host) {
+        if handed.pasted.iter().any(|mounted| *mounted.host == *host) {
             return;
         }
-        handed.mounts.extend(Mounted::open_read_only(host));
+        handed.pasted.extend(Mounted::open_read_only(host));
         handed.handings += 1;
     }
 
-    /// Mounts `host`, a file or a folder the user picked, at its own path, writable as `writable`
-    /// says, in place of an earlier handing of it; a file need not exist yet. Nothing for one that
-    /// does not open.
-    pub(crate) fn hand_pick(&self, host: &Path, writable: bool) {
+    /// Takes `pick`, a file or a folder the user picked, at its own path, in place of an earlier
+    /// pick of it: one the grants keep, `kept`, for them to mount; any other mounted for the run,
+    /// a file that need not exist yet. Nothing for one that does not open.
+    pub(crate) fn hand_pick(&self, pick: &Mount, kept: bool) {
         let mut handed = locked(&self.0);
-        handed.mounts.retain(|mounted| *mounted.host != *host);
-        handed.mounts.extend(Mounted::open_picked(host, writable));
+        handed.picked.retain(|picked| picked.host() != pick.host);
+        let picked = if kept {
+            Some(Picked::Kept(pick.host.clone()))
+        } else {
+            Mounted::open_picked(&pick.host, &pick.at, pick.writable, MountKind::Picked)
+                .map(Picked::ForTheRun)
+        };
+        handed.picked.extend(picked);
         handed.handings += 1;
     }
 
-    /// The files handed now, and how many handings made them.
-    fn mounts(&self) -> (Vec<Mounted>, u64) {
-        let handed = locked(&self.0);
-        (handed.mounts.clone(), handed.handings)
+    /// The files handed now.
+    fn now(&self) -> Handed {
+        locked(&self.0).clone()
+    }
+
+    /// How many handings made the files handed now.
+    fn handings(&self) -> u64 {
+        locked(&self.0).handings
+    }
+}
+
+impl Handed {
+    /// `mount`, one of the grants', opened: as a pick of the run is, a file that need not exist
+    /// yet, where it is one the grants keep; none, with a warning, where it does not open.
+    fn open_granted(&self, mount: &Mount) -> Option<Mounted> {
+        let picked = self
+            .picked
+            .iter()
+            .any(|picked| matches!(picked, Picked::Kept(host) if *host == mount.host));
+        let open = if picked {
+            Mounted::open_picked
+        } else {
+            Mounted::open
+        };
+        open(&mount.host, &mount.at, mount.writable, MountKind::Granted)
+    }
+
+    /// The files mounted for the run alone: those pasted, and the picks the grants do not keep.
+    fn for_the_run(&self) -> impl Iterator<Item = &Mounted> {
+        let picked = self.picked.iter().filter_map(|picked| match picked {
+            Picked::ForTheRun(mounted) => Some(mounted),
+            Picked::Kept(_) => None,
+        });
+        self.pasted.iter().chain(picked)
     }
 }
 
