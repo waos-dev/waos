@@ -1,0 +1,17 @@
+# The system packages the Linux build's probes ask for. A mirror once stalled on one package for
+# 17 minutes in Waft's CI: a stuck download times out after 30 seconds and is tried again, rather
+# than waiting on apt's default.
+name: Linux build packages
+description: Installs the system packages the workspace's Linux build needs.
+runs:
+  using: composite
+  steps:
+    - name: The system packages the build's probes ask for
+      shell: bash
+      run: |
+        apt_net="-o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 -o Acquire::Retries=5"
+        sudo apt-get $apt_net update
+        sudo apt-get $apt_net install -y --no-install-recommends \
+          pkg-config libasound2-dev libwayland-dev libxkbcommon-dev \
+          libx11-dev libxcursor-dev libxrandr-dev libxi-dev libxinerama-dev \
+          mesa-vulkan-drivers

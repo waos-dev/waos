@@ -196,3 +196,11 @@ jobs:
           named="$RUNNER_TEMP/WaOS-${TAG#v}-windows-x64-setup.exe"
           cp "$setup" "$named"
           gh release upload "$TAG" "$named" --clobber
+
+  # The files just attached, copied to download.waos.app.
+  mirror:
+    needs: [macos, android, linux, windows]
+    uses: ./.github/workflows/mirror-release.yml
+    with:
+      tag: ${{ inputs.tag || github.ref_name }}
+    secrets: inherit
