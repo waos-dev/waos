@@ -27,6 +27,7 @@ Designs written for the project lead before something is built, each with the le
 - [A machine's facts, file watching and a per-program `/tmp`](2026-11-15-machine-facts-file-watching-tmp.md): what a machine runs and its user's login shell, the systems' watches of a folder the program holds as a stream of batches, and a `/tmp` of each program's own under WaOS's caches; written after they were built, with the lead's decisions and the choices made building them.
 - [The dev protocol's first stable shape](2026-11-18-dev-protocol-1.md): a hello that names each build and the requests it serves, CBOR so additions break neither half, an answer type and one refusal per request, a run that skips a component WaOS holds, windows by id; with the lead's decisions.
 - [Views a program asks for](2026-11-21-views-a-program-asks-for.md): `request-view` the one way to a view, a screen WaOS opens before the program asks held for its first request, restored cards among them; a program with a UI is one whose component imports `wasdk:platform/views`, and one without is a console program WaOS shows a terminal for, a widget of Waft's that comes after; with the lead's decisions.
+- [Projects on machines](2026-11-21-projects-on-machines.md): an editor's project on the machine the user picked for it, reached through the program's own file layer over the machine's root, watched as any folder; on Android, "This computer" reaching the phone's storage by All files access, asked for when the user picks it; with the lead's decisions.
 
 ## The experiment's, in wasdk (frozen)
 

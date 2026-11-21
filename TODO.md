@@ -22,9 +22,12 @@ What stands between today and a first stable release, in the order it blocks one
 - [ ] iOS: developer builds (the App Store refuses downloaded code).
 - [ ] Windows, then Linux (`docs/proposals/2026-11-13-windows-and-linux.md`).
 - [ ] Remote machines over SSH (work order step 12).
+- [ ] Termux on an Android phone as an SSH machine at `localhost` (Termux's `sshd`), so a phone has git, compilers and language servers: an idea, after SSH machines (`docs/proposals/2026-11-21-projects-on-machines.md`).
+- [ ] Putting tools on a machine: the language servers and debug adapters an editor downloads run on its machine, which cannot run them from the program's own data, nor a phone at all (`docs/proposals/2026-11-21-projects-on-machines.md`).
 
 ## A developer, or an agent, succeeding alone
 The trials' ranked list: `../experiments/2026-11-17-app-trials/RANKED.md` (the maintainers' experiments folder).
+- [ ] Waft's Android settings (`[package.metadata.waft.android]`: `permissions`, `dependencies`, the icon) are said only in `waft-cli`'s README, deep in long paragraphs, and were found faster in its source: a page of their own on Waft's site, or a short section at the top of that README.
 - [x] `wasdk-adapter-waft`'s HTTP client on Waft's `Body` trailers and `try_clone`, once Waft has them (waos-dev/waft, in progress).
 - [ ] A setting answers a question a program is waiting on: the engine re-checks waiting questions when a setting changes, and the program's dialog closes as Waft's dropped dialog future already does (waos-dev/waft#101).
 - [ ] A stack for a hung program (`waos inspect`).
