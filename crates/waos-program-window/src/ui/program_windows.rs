@@ -2,7 +2,7 @@
 //! windows are in shows over the program's window, as WaOS shows its questions over it, which
 //! whoever builds the process's views puts in the window ([`ProgramWindows::content_of`]). A
 //! window reserved for a program's first request, as one the platform restored or opened at the
-//! program's launch, shows the program's name until its view does, with what is shown over its
+//! program's launch, shows nothing of its own until its view does, only what is shown over its
 //! windows once it has started, so its questions are put there.
 //!
 //! The invariant: each window's content reports every change of its window to the windows, which
@@ -13,8 +13,8 @@ use std::rc::Rc;
 
 use waft::ui::{ViewId, ViewRef};
 use waft::{
-    AlignmentGeometry, App, BuildContext, Center, Directionality, Entity, IntoWidget, Listener,
-    SizedBox, Stack, StackFit, StatelessWidget, Text, TextDirection, TextStyle, WidgetRef,
+    AlignmentGeometry, App, BuildContext, Entity, IntoWidget, Listener, SizedBox, Stack, StackFit,
+    StatelessWidget, WidgetRef,
 };
 
 use crate::link::ProgramLink;
@@ -84,33 +84,20 @@ impl<P: ProgramLink> Debug for ProgramWindow<P> {
 }
 
 impl<P: ProgramLink> ProgramWindow<P> {
-    /// The window while it waits for its program's first request: the program's name, with what
-    /// is shown over the program's windows once it has started; nothing where it is no such
-    /// window.
+    /// The window while it waits for its program's first request: nothing of its own, with what
+    /// is shown over the program's windows once it has started; nothing at all where it is no
+    /// such window.
     fn reserved(&self, app: &mut App) -> WidgetRef {
-        let given = self
+        let program = self
             .windows
             .view_windows
             .read(app)
             .given_in(self.view)
-            .map(|(face, program)| (face.name.clone(), program.cloned()));
-        let Some((name, program)) = given else {
-            return SizedBox::expand().into_widget();
-        };
-        let name = Text::new(name).style(TextStyle::new().font_size(17.0));
-        // The window has no app's reading direction of its own; a name reads the same either way.
-        let launch =
-            Directionality::new(TextDirection::Ltr, Center::new().child(name)).into_widget();
-        let over = match program {
+            .and_then(|(_face, program)| program.cloned());
+        match program {
             Some(program) => (self.windows.over_each)(app, &program),
-            None => SizedBox::shrink().into_widget(),
-        };
-        // By the window's corners, as the program's canvas is placed.
-        Stack::new()
-            .alignment(AlignmentGeometry::TOP_LEFT)
-            .fit(StackFit::Expand)
-            .children([launch, over])
-            .into_widget()
+            None => SizedBox::expand().into_widget(),
+        }
     }
 }
 

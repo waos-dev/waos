@@ -83,7 +83,7 @@ pub struct ViewWindows<P: ProgramLink> {
 struct GivenWindow<P> {
     view: ViewRef,
     window: WindowRef,
-    /// The program's name and icon, which the window shows until the program's view does.
+    /// The program's name and icon, as its window has them.
     face: ProgramFace,
     /// The program it is reserved for, once that has started.
     program: Option<P>,
