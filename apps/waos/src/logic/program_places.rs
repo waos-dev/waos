@@ -1,15 +1,18 @@
-//! Where each program's views go, by where it was opened: a program in a tab of the deck has the
-//! view its tab gave it as it started, and every request it makes is refused at once, as the views
-//! WIT says of a phone (`state::deck`); any other program's requests go to the windows, WaOS's own
-//! (`placement`) or, on macOS, its app's. A program opened without saying where, as `waos`
-//! runs one, goes where this WaOS puts programs unless told otherwise.
+//! Where each program's views go, by where it was opened: a program in a tab of the deck has its
+//! tab's screen reserved for its first request, and each later request goes to the deck on the
+//! main thread, which opens another tab for it, each tab a window (`state::deck`, decision 6 of
+//! `docs/proposals/2026-11-21-views-a-program-asks-for.md`); any other program's requests go to
+//! the windows, WaOS's own (`placement`) or, on macOS, its app's. A program opened without saying
+//! where, as `waos` runs one, goes where this WaOS puts programs unless told otherwise.
 //!
 //! The invariant: a program's place is set before its run starts (`InstalledRuns::open`), so its
-//! first request already goes where its run is shown.
+//! first request already goes where its run is shown; and a request taken for a tab is on its way
+//! to the main thread, which answers it once, so every `Ok` is followed by one answer.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
+use futures::channel::mpsc::{self, UnboundedReceiver, UnboundedSender};
 use waos::bindings::wasdk::platform::views::ViewError;
 use waos::{RunningProgram, ViewPlacement, ViewRequest};
 use waos_package::ProgramId;
@@ -17,7 +20,8 @@ use waos_package::ProgramId;
 /// Where a program's views go.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ProgramPlace {
-    /// In its tab of the deck, which gave it its view.
+    /// In tabs of the deck: its first view the tab it was opened in, each later one a tab of its
+    /// own.
     Tab,
     /// In windows, made at its request: a desktop's, or a task each on Android.
     Windows,
@@ -67,9 +71,49 @@ impl ProgramPlaces {
     }
 }
 
-/// The engine's placement: each program's request refused in its tab, or handed to `windows`.
+/// One request of a program in the deck, for a tab of its own, on its way to the main thread.
+pub(crate) struct TabRequest {
+    pub(crate) program: RunningProgram,
+    pub(crate) request: ViewRequest,
+}
+
+/// The placement in the deck's tabs, as the engine reaches it: every request goes to the main
+/// thread.
+#[derive(Clone)]
+pub(crate) struct TabsOnRequest(UnboundedSender<TabRequest>);
+
+impl TabsOnRequest {
+    /// The placement, and where its requests arrive on the main thread; a WaOS with no deck drops
+    /// the receiver, and a request is refused.
+    pub(crate) fn new() -> (TabsOnRequest, UnboundedReceiver<TabRequest>) {
+        let (requests, arriving) = mpsc::unbounded();
+        (TabsOnRequest(requests), arriving)
+    }
+}
+
+impl ViewPlacement for TabsOnRequest {
+    fn view_requested(
+        &self,
+        program: &RunningProgram,
+        request: ViewRequest,
+    ) -> Result<(), ViewError> {
+        let program = program.clone();
+        let name = program.name().to_owned();
+        match self.0.unbounded_send(TabRequest { program, request }) {
+            Ok(()) => {
+                tracing::info!(program = name, "another tab was asked for");
+                Ok(())
+            }
+            Err(_) => Err(ViewError::Unsupported),
+        }
+    }
+}
+
+/// The engine's placement: each program's request handed to `tabs` or to `windows`, by where it
+/// was opened.
 pub(crate) struct PlacedWhereOpened {
     pub(crate) places: ProgramPlaces,
+    pub(crate) tabs: TabsOnRequest,
     pub(crate) windows: Arc<dyn ViewPlacement>,
 }
 
@@ -80,13 +124,7 @@ impl ViewPlacement for PlacedWhereOpened {
         request: ViewRequest,
     ) -> Result<(), ViewError> {
         match self.places.of(program.name()) {
-            ProgramPlace::Tab => {
-                tracing::info!(
-                    program = program.name(),
-                    "a view was asked for in a tab: refused"
-                );
-                Err(ViewError::Unsupported)
-            }
+            ProgramPlace::Tab => self.tabs.view_requested(program, request),
             ProgramPlace::Windows => self.windows.view_requested(program, request),
         }
     }
@@ -125,16 +163,44 @@ mod tests {
             .expect("survey runs")
     }
 
-    /// Survey asks for a view as it starts, and ends with a failure when it gets none.
+    /// A request of a program in a tab that its tab's screen did not take goes to the deck.
     #[tokio::test]
-    async fn a_program_in_a_tab_is_refused_at_once() {
+    async fn a_request_of_a_program_in_a_tab_goes_to_the_deck() {
         let folder = tempfile::tempdir().unwrap();
-        let (windows, _arriving) =
+        let (windows, _windows_asked) =
             WindowsOnRequest::new(ProgramFaces::new(store_in(folder.path()), None));
+        let (tabs, mut tabs_asked) = TabsOnRequest::new();
         let places = ProgramPlaces::new(ProgramPlace::Windows);
         places.set(&SURVEY.parse().unwrap(), ProgramPlace::Tab);
         let placement = PlacedWhereOpened {
             places,
+            tabs,
+            windows: Arc::new(windows),
+        };
+        let engine = test_engine::engine(Arc::new(placement), Path::new(CODE_CACHE));
+        let running = run_survey(&engine);
+        let arrived = tokio::time::timeout(WITHIN, tabs_asked.next())
+            .await
+            .expect("survey asks in time")
+            .expect("a request for a tab");
+        assert!(arrived.program == running);
+        running.view_request_failed(arrived.request.id, ViewError::Unsupported);
+        let end = tokio::time::timeout(WITHIN, running.ended()).await.unwrap();
+        assert!(matches!(end, ProgramEnd::Returned(Err(()))), "{end:?}");
+    }
+
+    /// A WaOS with no deck refuses a request for a tab at once.
+    #[tokio::test]
+    async fn with_no_deck_a_request_for_a_tab_is_refused_at_once() {
+        let folder = tempfile::tempdir().unwrap();
+        let (windows, _windows_asked) =
+            WindowsOnRequest::new(ProgramFaces::new(store_in(folder.path()), None));
+        let (tabs, no_deck) = TabsOnRequest::new();
+        drop(no_deck);
+        let places = ProgramPlaces::new(ProgramPlace::Tab);
+        let placement = PlacedWhereOpened {
+            places,
+            tabs,
             windows: Arc::new(windows),
         };
         let engine = test_engine::engine(Arc::new(placement), Path::new(CODE_CACHE));
@@ -150,6 +216,7 @@ mod tests {
             WindowsOnRequest::new(ProgramFaces::new(store_in(folder.path()), None));
         let placement = PlacedWhereOpened {
             places: ProgramPlaces::new(ProgramPlace::Windows),
+            tabs: TabsOnRequest::new().0,
             windows: Arc::new(windows),
         };
         let engine = test_engine::engine(Arc::new(placement), Path::new(CODE_CACHE));

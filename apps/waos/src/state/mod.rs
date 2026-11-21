@@ -61,6 +61,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
+use futures::channel::mpsc::UnboundedReceiver;
 use waft::{App, Entity, IntoWidget, run_widget};
 use waft_cupertino::install_cupertino_icon_font;
 use waft_single_instance::LaterLaunches;
@@ -95,7 +96,9 @@ use crate::logic::placement::WindowsOnRequest;
 use crate::logic::preferences::PreferencesFile;
 use crate::logic::program_faces::ProgramFaces;
 use crate::logic::program_identities::Identities;
-use crate::logic::program_places::{PlacedWhereOpened, ProgramPlace, ProgramPlaces};
+use crate::logic::program_places::{
+    PlacedWhereOpened, ProgramPlace, ProgramPlaces, TabRequest, TabsOnRequest,
+};
 use crate::logic::program_shortcuts::SystemShortcuts;
 use crate::logic::prompts::PromptsOnRequest;
 use crate::logic::recording_indicator::RecordingIndicatorOnRequest;
@@ -209,8 +212,10 @@ pub(crate) fn start(
     #[cfg(target_os = "macos")]
     let app_nap_exemption = app_nap_exemption::start(app);
     let places = ProgramPlaces::new(usual_place(place));
+    let (tabs_on_request, tab_requests) = TabsOnRequest::new();
     let placement = Arc::new(PlacedWhereOpened {
         places: places.clone(),
+        tabs: tabs_on_request,
         windows: program_apps::placement(&program_apps, own_windows),
     });
     let asking = AskingNow::new();
@@ -406,6 +411,7 @@ pub(crate) fn start(
         library.clone(),
         recordings,
         tabs_runs,
+        tab_requests,
         &view_windows,
     );
     // Once the panel follows the library: a click on a program's notification that started WaOS
@@ -607,6 +613,7 @@ fn library_window(
     library: Entity<Library>,
     recordings: Entity<Recordings>,
     runs: Arc<Runs>,
+    tab_requests: UnboundedReceiver<TabRequest>,
     view_windows: &Entity<ViewWindows>,
 ) -> LibraryWindow {
     match place {
@@ -626,11 +633,11 @@ fn library_window(
         // Android and iOS have no desktop, whose launcher WaOS is there: the library is a phone's.
         #[cfg(any(target_os = "android", target_os = "ios"))]
         LibraryPlace::Launcher | LibraryPlace::ClosedLauncher => {
-            let tabs = Tabs::listen(app, runs);
+            let tabs = Tabs::listen(app, runs, tab_requests);
             phone_deck(app, library, recordings, tabs, view_windows)
         }
         LibraryPlace::Phone => {
-            let tabs = Tabs::listen(app, runs);
+            let tabs = Tabs::listen(app, runs, tab_requests);
             phone_deck(app, library, recordings, tabs, view_windows)
         }
     }

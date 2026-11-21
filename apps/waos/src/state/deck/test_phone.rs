@@ -55,7 +55,7 @@ use crate::logic::package_copies::PackageCopies;
 use crate::logic::placement::WindowsOnRequest;
 use crate::logic::preferences::PreferencesFile;
 use crate::logic::program_faces::ProgramFaces;
-use crate::logic::program_places::{PlacedWhereOpened, ProgramPlace, ProgramPlaces};
+use crate::logic::program_places::{PlacedWhereOpened, ProgramPlace, ProgramPlaces, TabsOnRequest};
 use crate::logic::recording_indicator::RecordingIndicatorOnRequest;
 use crate::logic::runs::Runs;
 use crate::logic::test_engine::{self, NoWindows};
@@ -91,6 +91,7 @@ const PIXEL_RATIO: f64 = 3.0;
 pub(crate) const TRIANGLE: &str = "dev.example.triangle";
 pub(crate) const SURVEY: &str = "dev.example.survey";
 pub(crate) const TRAP: &str = "dev.example.trap";
+pub(crate) const TWO_WINDOWS: &str = "dev.example.twowindows";
 pub(crate) const BACK: &str = "dev.example.back";
 pub(crate) const INCOMPATIBLE: &str = "dev.example.incompatible";
 
@@ -256,8 +257,10 @@ impl TestPhone {
         };
         let preferences = PreferencesFile::at(folder.path().join("preferences.toml"));
         let places = ProgramPlaces::new(usual);
+        let (tabs_on_request, tab_requests) = TabsOnRequest::new();
         let placement = PlacedWhereOpened {
             places: places.clone(),
+            tabs: tabs_on_request,
             windows,
         };
         let installed_runs = InstalledRuns::new(
@@ -304,7 +307,7 @@ impl TestPhone {
             )
             .expect("a library");
             bring_opened_programs_forward(app, &library, &view_windows);
-            let tabs = Tabs::listen(app, deck_runs);
+            let tabs = Tabs::listen(app, deck_runs, tab_requests);
             let deck = phone_deck(
                 app,
                 library.clone(),
@@ -413,6 +416,16 @@ impl TestPhone {
         let id: ProgramId = id.parse().unwrap();
         self.tabs.update(&mut self.shell.app(), |tabs, cx| {
             tabs.close_program(&id, cx)
+        });
+        self.settle();
+    }
+
+    /// Closes the tab at `index`, as its card's close in the overview does, and lets the deck
+    /// settle.
+    pub(crate) fn close_tab(&mut self, index: usize) {
+        self.tabs.update(&mut self.shell.app(), |tabs, cx| {
+            let tab = tabs.list().tabs()[index].id;
+            tabs.close(tab, cx);
         });
         self.settle();
     }

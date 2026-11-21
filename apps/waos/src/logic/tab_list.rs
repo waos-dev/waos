@@ -3,7 +3,9 @@
 //! Plain values: it starts no program and knows nothing of how the deck moves.
 //!
 //! The rules. A tab is the home until a program is opened, and then that tab is the program's; a
-//! program that has a tab is brought into sight instead of opened again. There is one home at
+//! program that has a tab is brought into sight instead of opened again, its first. Each view a
+//! program asks for after its first is a tab of its own, beside its others, as each window is on a
+//! desktop. There is one home at
 //! most: going home goes to it where it exists and makes it at the end where it does not, so the
 //! home is the last tab whenever it is open. There is always a tab: closing the last one leaves a
 //! home, and the home alone cannot be closed.
@@ -14,8 +16,8 @@
 //! somewhere else. A page has the deck's attention only while the deck rests on it.
 //!
 //! The invariant: `current` always names a tab of the list, the list is never empty, and at most
-//! one tab is the home, the last: a tab is only ever added at the end, and a program's only where
-//! no home is open.
+//! one tab is the home, the last: a tab is only ever added at the end or beside its program's,
+//! and a program's first only where no home is open.
 
 use waos_package::ProgramId;
 
@@ -128,7 +130,7 @@ impl TabList {
             .map(|listed| listed.id)
     }
 
-    /// The tab of the program `program`, where it has one.
+    /// The first tab of the program `program`, where it has one.
     pub(crate) fn tab_of(&self, program: &ProgramId) -> Option<TabId> {
         self.tabs
             .iter()
@@ -160,6 +162,21 @@ impl TabList {
         };
         self.head_for(opened.tab(), false);
         opened
+    }
+
+    /// Another view of `program`, which has a tab: a tab of its own after the program's last, which
+    /// the deck heads to; none where the program has no tab.
+    pub(crate) fn open_another_view(&mut self, program: &ProgramId) -> Option<TabId> {
+        let last = self
+            .tabs
+            .iter()
+            .rposition(|listed| matches!(&listed.kind, TabKind::Program(id) if id == program))?;
+        let id = TabId(self.next_id);
+        self.next_id += 1;
+        let kind = TabKind::Program(program.clone());
+        self.tabs.insert(last + 1, ListedTab { id, kind });
+        self.head_for(id, false);
+        Some(id)
     }
 
     /// The program of `tab` could not start: the tab is the home again, or goes where a home is
@@ -274,6 +291,40 @@ mod tests {
         }
         list.arrived();
         list
+    }
+
+    #[test]
+    fn another_view_of_a_program_is_a_tab_beside_its_others_the_home_staying_last() {
+        let mut list = with_programs(&["notes", "survey"]);
+        list.go_home();
+        let notes = program("notes");
+        let first = list.tab_of(&notes).unwrap();
+        let second = list.open_another_view(&notes).expect("notes has a tab");
+        let third = list.open_another_view(&notes).expect("notes has a tab");
+        assert_eq!(
+            kinds(&list),
+            [
+                TabKind::Program(notes.clone()),
+                TabKind::Program(notes.clone()),
+                TabKind::Program(notes.clone()),
+                TabKind::Program(program("survey")),
+                TabKind::Home,
+            ]
+        );
+        assert_eq!(list.current(), third, "the deck heads to the view's tab");
+        assert_eq!(
+            list.tab_of(&notes),
+            Some(first),
+            "the program's first tab is its own"
+        );
+        assert_ne!(second, third);
+    }
+
+    #[test]
+    fn a_program_with_no_tab_gets_no_other_view() {
+        let mut list = with_programs(&["notes"]);
+        assert_eq!(list.open_another_view(&program("survey")), None);
+        assert_eq!(list.tabs().len(), 1);
     }
 
     #[test]
