@@ -33,8 +33,9 @@ use crate::clipboard::host::{ClipboardCtx, ClipboardCtxView};
 use crate::clock::Clock;
 use crate::file_dialogs::host::{FileDialogsCtx, FileDialogsCtxView};
 use crate::file_watching::host::{FileWatchingCtx, FileWatchingCtxView};
+use crate::files::mount_host::{MountsCtx, MountsCtxView};
 use crate::files::{FilesCtx, FilesCtxView};
-use crate::files::{Picks, ProgramFiles};
+use crate::files::{HandedFiles, Picks, ProgramFiles};
 use crate::fonts::ProgramFonts;
 use crate::fonts::host::{FontsCtx, FontsCtxView};
 use crate::gpu::{self, GpuInstance, OpenedDevices};
@@ -225,6 +226,7 @@ fn linker(engine: &Engine, held: &[Role]) -> wasmtime::Result<Linker<StoreData>>
     crate::notifications::host::add_to_linker(&mut linker)?;
     crate::machines::host::add_to_linker(&mut linker)?;
     crate::file_watching::host::add_to_linker(&mut linker)?;
+    crate::files::mount_host::add_to_linker(&mut linker)?;
     crate::hardware_buffers::host::add_to_linker(&mut linker)?;
     crate::gpu_interop::host::add_to_linker(&mut linker)?;
     crate::video_frames::host::add_to_linker(&mut linker)?;
@@ -274,6 +276,7 @@ fn store_data(
         .build();
     let access = &instances.access_of(role);
     let handed = instances.handed.clone();
+    let mounted = handed.clone();
     let picks = Picks::new(handed.clone(), access.clone());
     let files = ProgramFiles::new(
         environment.folders.as_ref(),
@@ -324,6 +327,7 @@ fn store_data(
         program.lifecycle().clone(),
     );
     StoreData {
+        handed: mounted,
         table: ResourceTable::new(),
         wasi: wasi::context(
             &instances.name,
@@ -423,6 +427,8 @@ pub(crate) struct StoreData {
     fonts: ProgramFonts,
     /// Its files: its own folders and its grants' mounts.
     files: ProgramFiles,
+    /// What it was handed for its run, and the folders it mounted itself, which its files mount.
+    handed: HandedFiles,
     /// What it may reach of the network, and the addresses its lookups answered, which serves
     /// its lookups and its sockets.
     network: ProgramNetwork,
@@ -677,6 +683,15 @@ impl MachinesCtxView for StoreData {
         MachinesCtx {
             table: &mut self.table,
             machines: &self.machines,
+        }
+    }
+}
+
+impl MountsCtxView for StoreData {
+    fn mounts_ctx(&mut self) -> MountsCtx<'_> {
+        MountsCtx {
+            table: &mut self.table,
+            handed: &self.handed,
         }
     }
 }

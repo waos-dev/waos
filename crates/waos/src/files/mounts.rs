@@ -381,7 +381,10 @@ impl MountTable {
     /// `own`, then each of `granted`'s mounts that opens, a pick of the run's kept among them as a
     /// pick opens, then each of the files `handed` for the run alone, but for one at a path a
     /// mount is at already, which is left out, and one handed that the program reaches at its path
-    /// already, through a mount of the folder it is in, which keeps that mount's access.
+    /// already, through a mount of the folder it is in, which keeps that mount's access; then each
+    /// folder the program mounted itself, but at a path a mount is at already. The longest mount
+    /// containing a path is the one it leads beneath, so the program's own folders stay over a
+    /// folder it mounted at `/`.
     fn new(own: &[Mounted], granted: &FileSystemGrant, handed: &Handed) -> MountTable {
         let mut mounts = own.to_vec();
         let opened = (granted.mounts.iter()).filter_map(|mount| handed.open_granted(mount));
@@ -397,6 +400,11 @@ impl MountTable {
                 .iter()
                 .any(|mounted| mounted.at == mount.at || mounted.reaches(&mount.at));
             if !reached {
+                mounts.push(mount.clone());
+            }
+        }
+        for (_, mount) in &handed.mounted {
+            if !mounts.iter().any(|mounted| mounted.at == mount.at) {
                 mounts.push(mount.clone());
             }
         }
@@ -621,6 +629,9 @@ pub(crate) struct HandedFiles(Arc<Mutex<Handed>>);
 struct Handed {
     pasted: Vec<Mounted>,
     picked: Vec<Picked>,
+    /// The folders the program mounted itself, by the number each was mounted as.
+    mounted: Vec<(u64, Mounted)>,
+    next_mount: u64,
     handings: u64,
 }
 
@@ -668,6 +679,43 @@ impl HandedFiles {
                 .map(Picked::ForTheRun)
         };
         handed.picked.extend(picked);
+        handed.handings += 1;
+    }
+
+    /// Mounts `host`, a folder the program holds, at `at` in its own files for its run, writable as
+    /// `writable` says and of the `kind` its folder is, and answers the number to unmount it by:
+    /// `invalid` for no absolute path of names, `not-permitted` inside the program's own folders,
+    /// which stay its own, `exist` where it mounted a folder already, and `no-entry` for one that
+    /// does not open (`wasdk:platform/mounts`).
+    pub(crate) fn mount(
+        &self,
+        host: &Path,
+        at: &Path,
+        writable: bool,
+        kind: MountKind,
+    ) -> Result<u64, ErrorCode> {
+        if !is_path_of_names(at) {
+            return Err(ErrorCode::Invalid);
+        }
+        if [DATA, CACHE, TMP].iter().any(|own| at.starts_with(own)) {
+            return Err(ErrorCode::NotPermitted);
+        }
+        let mut handed = locked(&self.0);
+        if handed.mounted.iter().any(|(_, mounted)| *mounted.at == *at) {
+            return Err(ErrorCode::Exist);
+        }
+        let mounted = Mounted::open(host, at, writable, kind).ok_or(ErrorCode::NoEntry)?;
+        let number = handed.next_mount;
+        handed.next_mount += 1;
+        handed.mounted.push((number, mounted));
+        handed.handings += 1;
+        Ok(number)
+    }
+
+    /// Takes away the folder the program mounted as `number`.
+    pub(crate) fn unmount(&self, number: u64) {
+        let mut handed = locked(&self.0);
+        handed.mounted.retain(|(mounted, _)| *mounted != number);
         handed.handings += 1;
     }
 

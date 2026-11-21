@@ -42,6 +42,8 @@ The rules WaOS keeps, one line each, so they are not lost under the code. Each l
 - A program reaches no path on the machine outside its mounts, and what is read-only is decided in one table. ([`target.rs`](../crates/waos/src/files/target.rs), [`mounts.rs`](../crates/waos/src/files/mounts.rs))
 - A file or folder the user picks for a program, or opens it with, is mounted at its own path until the user takes it back: kept among its grants, which mount it while they hold it, or for its run alone where nothing keeps them. ([`picks.rs`](../crates/waos/src/files/picks.rs))
 
+- A program mounts a folder it holds at a path of its own files, for as long as it keeps the mount; its own `/data`, `/cache` and `/tmp` stay over what it mounts. ([projects on machines](proposals/2026-11-21-projects-on-machines.md); [`mounts.wit`](../wit/deps/wasdk-platform-2.0.0/mounts.wit), [`mount_host.rs`](../crates/waos/src/files/mount_host.rs))
+
 ## The interface
 
 - The WIT is the contract programs are built against; a change a program built before cannot run against takes a new version. ([decision 67](proposals/2026-10-17-the-waos-project.md); `cargo xtask check-wit-versions`)

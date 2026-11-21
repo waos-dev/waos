@@ -49,6 +49,7 @@ mod errors;
 mod handle_path;
 mod held_folder;
 pub mod machine_paths;
+pub(crate) mod mount_host;
 mod mounts;
 mod names;
 pub(crate) mod p3;

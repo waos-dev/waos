@@ -70,6 +70,7 @@ world program-base {
   import wasdk:platform/notifications@2.0.0;
   import wasdk:platform/machines@2.0.0;
   import wasdk:platform/file-watching@2.0.0;
+  import wasdk:platform/mounts@2.0.0;
   import wasdk:platform/hardware-buffers@2.0.0;
   import wasdk:platform/gpu-interop@2.0.0;
   import wasdk:media/video-frames@2.0.0;

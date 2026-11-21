@@ -321,6 +321,66 @@ fn a_pick_is_mounted_for_the_run_where_the_grants_keep_nothing() {
 }
 
 /// Where a program with `grants` has its picks mounted, and its mounts.
+#[test]
+fn a_folder_the_program_mounts_at_the_root_is_under_its_own_folders_until_it_lets_go() {
+    let machine = Machine::new(&["data", "machine"]);
+    let folders = ProgramFolders {
+        data: machine.folder("data"),
+        cache: machine.root.path().join("no cache"),
+    };
+    let handed = HandedFiles::default();
+    let access = ProgramAccess::new(Arc::new(TestGrants::default()));
+    let mut mounts = LiveMounts::new(Some(&folders), None, access, handed.clone());
+    let number = handed
+        .mount(
+            &machine.folder("machine"),
+            Path::new("/"),
+            true,
+            MountKind::Machine,
+        )
+        .unwrap();
+    assert_eq!(
+        machine.leads(mounts.now(), "src/main.rs"),
+        "beneath machine: src/main.rs"
+    );
+    assert_eq!(
+        machine.leads(mounts.now(), "data/x"),
+        "beneath data: x",
+        "the program's own folder stays over it"
+    );
+
+    handed.unmount(number);
+    assert_eq!(
+        machine.leads(mounts.now(), "src"),
+        "outside, in a folder above"
+    );
+}
+
+#[test]
+fn a_folder_is_never_mounted_inside_the_programs_own_nor_twice_at_one_path() {
+    let machine = Machine::new(&["machine"]);
+    let handed = HandedFiles::default();
+    let folder = machine.folder("machine");
+    for own in ["/data", "/cache/x", "/tmp"] {
+        assert_eq!(
+            handed.mount(&folder, Path::new(own), true, MountKind::Machine),
+            Err(ErrorCode::NotPermitted),
+            "{own}"
+        );
+    }
+    assert_eq!(
+        handed.mount(&folder, Path::new("relative"), true, MountKind::Machine),
+        Err(ErrorCode::Invalid)
+    );
+    handed
+        .mount(&folder, Path::new("/m"), true, MountKind::Machine)
+        .unwrap();
+    assert_eq!(
+        handed.mount(&folder, Path::new("/m"), true, MountKind::Machine),
+        Err(ErrorCode::Exist)
+    );
+}
+
 fn picks_of(grants: Arc<dyn ProgramGrants>) -> (Picks, LiveMounts) {
     let access = ProgramAccess::new(grants);
     let handed = HandedFiles::default();
