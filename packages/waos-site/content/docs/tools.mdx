@@ -2,7 +2,7 @@
 title: The tools
 description: Every cargo waos command, and when to use it.
 ---
-`cargo waos` is the one tool, and `waos` the same command by its own name. `curl -fsSL https://waos.app/install.sh | sh` (macOS, Linux) installs it with WaOS; `cargo install waos-cli` installs the command alone, for building and packaging where WaOS can't run. `cargo waos <command> --help` says everything about a command, and the commands are grouped: `ui` drives a running app's windows, `settings` its answers, `inspect` what it did, `docs` these pages. Every command about a program runs in its package's folder, or names the package with `-p <package>`; elsewhere it stops with "could not find `Cargo.toml`".
+`cargo waos` is the one tool, and `waos` the same command by its own name. `curl -fsSL https://waos.app/install.sh | sh` (macOS, Linux) or `irm https://waos.app/install.ps1 | iex` (Windows) installs it with WaOS; `cargo install waos-cli` installs the command alone, for building and packaging where WaOS can't run. `cargo waos <command> --help` says everything about a command, and the commands are grouped: `ui` drives a running app's windows, `settings` its answers, `inspect` what it did, `docs` these pages. Every command about a program runs in its package's folder, or names the package with `-p <package>`; elsewhere it stops with "could not find `Cargo.toml`".
 
 ## Make, build, ship
 
