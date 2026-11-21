@@ -41,13 +41,27 @@ pub(crate) fn instance() -> GpuInstance {
         "waos",
         wgpu_types::InstanceDescriptor {
             backends,
-            flags: wgpu_types::InstanceFlags::from_build_config(),
+            flags: instance_flags(),
             backend_options: Default::default(),
             memory_budget_thresholds: Default::default(),
             display: None,
         },
         None,
     ))
+}
+
+/// wgpu's flags for this build, except that on Linux GPU objects get no debug names
+/// (`InstanceFlags::DEBUG`): the Vulkan loader names one by walking every device's list without a
+/// lock (`loader_get_icd_and_device`, loader 1.4.341), so a name set while another thread makes
+/// or drops a device crashes the process. Validation stays. Back to the build's flags once the
+/// loader locks that walk.
+fn instance_flags() -> wgpu_types::InstanceFlags {
+    let flags = wgpu_types::InstanceFlags::from_build_config();
+    if cfg!(target_os = "linux") {
+        flags - wgpu_types::InstanceFlags::DEBUG
+    } else {
+        flags
+    }
 }
 
 /// How many objects `gpu` holds now of each kind, over every program: wgpu-core's registries,
