@@ -1,5 +1,5 @@
-//! The mouse `waos`'s taps, presses, drags and scrolls move over the windows of a program a
-//! run of `waos run` runs, as a user's mouse moves: in one of the program's views at a time,
+//! The simulated user's mouse, which its taps, presses, drags and scrolls move over a program's
+//! views as a user's mouse moves: in one of the program's views at a time,
 //! where its last input left it, the program told of it as it comes into a view and as it leaves
 //! one. It is a pointer of its own, [`DEVICE`], apart from the mouse the shell reports, so the two
 //! never interleave in what the program hears; its events are a mouse's as the shell reports them,
@@ -15,18 +15,18 @@
 use std::sync::{Mutex, PoisonError};
 use std::time::Duration;
 
-use waos::bindings::wasdk::platform::views::{
+use crate::bindings::wasdk::platform::views::{
     PointerButtons, PointerChange, PointerDeviceKind, PointerEvent, PointerSignalKind, ViewId,
 };
-use waos::{HeldModifiers, ProgramView, RunningProgram};
+use crate::views::{HeldModifiers, ProgramView, ProgramViews};
 
 /// The mouse's device: a number no host gives a pointer, the mouse a window reports being 0, as
 /// Flutter's `kMousePointerDeviceId` is.
-pub(crate) const DEVICE: i64 = 1 << 40;
+pub(super) const DEVICE: i64 = 1 << 40;
 
 /// Where the mouse is: in no view yet, or in one, at a point.
 #[derive(Default)]
-pub(crate) struct DevMouse(Mutex<Option<MouseAt>>);
+pub(super) struct Mouse(Mutex<Option<MouseAt>>);
 
 /// A point in a view, in its physical pixels.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -47,10 +47,10 @@ struct Sent {
     scroll: (f64, f64),
 }
 
-impl DevMouse {
-    /// A press and release of the primary button at `(x, y)` in `view`, one of `program`'s
+impl Mouse {
+    /// A press and release of the primary button at `(x, y)` in `view`, one of `views`
     /// windows, the mouse coming there first.
-    pub(crate) fn tap(&self, program: &RunningProgram, view: &ProgramView, x: f64, y: f64) {
+    pub(super) fn tap(&self, views: &ProgramViews, view: &ProgramView, (x, y): (f64, f64)) {
         let to = MouseAt {
             view: view.id(),
             x,
@@ -58,14 +58,14 @@ impl DevMouse {
         };
         let mut sent = self.come_to(to);
         sent.extend(press_and_release(to));
-        deliver(program, view, &sent);
+        deliver(views, view, &sent);
     }
 
-    /// A wheel's scroll by `delta` at `at` in `view`, one of `program`'s windows, the mouse coming
+    /// A wheel's scroll by `delta` at `at` in `view`, one of `views` windows, the mouse coming
     /// there first.
-    pub(crate) fn scroll(
+    pub(super) fn scroll(
         &self,
-        program: &RunningProgram,
+        views: &ProgramViews,
         view: &ProgramView,
         (x, y): (f64, f64),
         delta: (f64, f64),
@@ -77,14 +77,14 @@ impl DevMouse {
         };
         let mut sent = self.come_to(to);
         sent.push(scrolled(to, delta));
-        deliver(program, view, &sent);
+        deliver(views, view, &sent);
     }
 
-    /// A press of the primary button at `(x, y)` in `view`, one of `program`'s windows, the mouse
+    /// A press of the primary button at `(x, y)` in `view`, one of `views` windows, the mouse
     /// coming there first, held for `duration`, then released.
-    pub(crate) async fn press(
+    pub(super) async fn press(
         &self,
-        program: &RunningProgram,
+        views: &ProgramViews,
         view: &ProgramView,
         (x, y): (f64, f64),
         duration: Duration,
@@ -96,26 +96,26 @@ impl DevMouse {
         };
         let mut sent = self.come_to(at);
         sent.push(pressed(at));
-        deliver(program, view, &sent);
+        deliver(views, view, &sent);
         tokio::time::sleep(duration).await;
-        deliver(program, view, &[released(at)]);
+        deliver(views, view, &[released(at)]);
     }
 
-    /// A drag of the primary button along `path` in `view`, one of `program`'s windows: the mouse
+    /// A drag of the primary button along `path` in `view`, one of `views` windows: the mouse
     /// coming to its start, pressed there, held, moved along it as its time comes, and released
     /// at its end.
-    pub(crate) async fn drag(&self, program: &RunningProgram, view: &ProgramView, path: &DragPath) {
+    pub(super) async fn drag(&self, views: &ProgramViews, view: &ProgramView, path: &DragPath) {
         let start = path.start(view.id());
         let mut sent = self.come_to(start);
         sent.push(pressed(start));
-        deliver(program, view, &sent);
+        deliver(views, view, &sent);
         tokio::time::sleep(path.hold).await;
         for point in path.moves(view.id()) {
             tokio::time::sleep(path.interval()).await;
             self.held_at(point);
-            deliver(program, view, &[dragged(point)]);
+            deliver(views, view, &[dragged(point)]);
         }
-        deliver(program, view, &[released(path.end(view.id()))]);
+        deliver(views, view, &[released(path.end(view.id()))]);
     }
 
     /// Notes that the mouse, its button held, is now at `at`.
@@ -134,12 +134,12 @@ impl DevMouse {
 /// A drag's path in a view: from where the button goes down to where it comes up, in `steps`
 /// equal moves over `duration`, after the button was held for `hold` at the start.
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub(crate) struct DragPath {
-    pub(crate) from: (f64, f64),
-    pub(crate) to: (f64, f64),
-    pub(crate) hold: Duration,
-    pub(crate) steps: u32,
-    pub(crate) duration: Duration,
+pub struct DragPath {
+    pub from: (f64, f64),
+    pub to: (f64, f64),
+    pub hold: Duration,
+    pub steps: u32,
+    pub duration: Duration,
 }
 
 impl DragPath {
@@ -240,15 +240,15 @@ fn sent(at: MouseAt, change: PointerChange) -> Sent {
     }
 }
 
-/// Hands each of `sent` to its view: `view`, or the one of `program`'s it left, which nothing
+/// Hands each of `sent` to its view: `view`, or the one of `views` it left, which nothing
 /// reaches once it is gone.
-fn deliver(program: &RunningProgram, view: &ProgramView, sent: &[Sent]) {
+fn deliver(views: &ProgramViews, view: &ProgramView, sent: &[Sent]) {
     let held = HeldModifiers::default();
     for sent in sent {
         let target = if sent.view == view.id() {
             Some(view.clone())
         } else {
-            program
+            views
                 .views()
                 .into_iter()
                 .find(|left| left.id() == sent.view)
@@ -305,7 +305,7 @@ mod tests {
 
     #[test]
     fn the_mouse_comes_into_its_first_view_before_it_moves_there() {
-        let mouse = DevMouse::default();
+        let mouse = Mouse::default();
         let sent = mouse.come_to(at(1, 10.0, 20.0));
         assert_eq!(
             changes(&sent),
@@ -316,7 +316,7 @@ mod tests {
 
     #[test]
     fn the_mouse_hovers_to_another_point_of_its_view_and_stays_where_it_is() {
-        let mouse = DevMouse::default();
+        let mouse = Mouse::default();
         mouse.come_to(at(1, 10.0, 20.0));
         let sent = mouse.come_to(at(1, 30.0, 40.0));
         assert_eq!(changes(&sent), [(1, PointerChange::Hover)]);
@@ -326,7 +326,7 @@ mod tests {
 
     #[test]
     fn the_mouse_leaves_one_view_where_it_was_before_it_comes_into_another() {
-        let mouse = DevMouse::default();
+        let mouse = Mouse::default();
         mouse.come_to(at(1, 10.0, 20.0));
         let sent = mouse.come_to(at(2, 5.0, 6.0));
         assert_eq!(

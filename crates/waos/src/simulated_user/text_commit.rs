@@ -4,12 +4,12 @@
 //! or else at the start; the caret after it, and nothing composed. Offsets count UTF-16 code
 //! units, as both sides of a text input do.
 
-use waos::bindings::wasdk::platform::views::{
+use crate::bindings::wasdk::platform::views::{
     TextAffinity, TextEditingValue, TextRange, TextSelection,
 };
 
 /// `value` with `text` committed into it.
-pub(crate) fn committed(value: &TextEditingValue, text: &str) -> TextEditingValue {
+pub(super) fn committed(value: &TextEditingValue, text: &str) -> TextEditingValue {
     let mut units: Vec<u16> = value.text.encode_utf16().collect();
     let (start, end) = replaced_range(value, units.len());
     let inserted: Vec<u16> = text.encode_utf16().collect();

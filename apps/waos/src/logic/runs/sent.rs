@@ -1,10 +1,10 @@
 //! The runs `waos` sends, among WaOS's runs: a later run of an id takes the place of the one
 //! before, which is stopped first and ends `Replaced` (the design's decision 29), and each is its
-//! own to read and drive, with a mouse of its own over the program's windows (decision 60). Not on
-//! a phone, which `waos` reaches not yet.
+//! own to read and drive (decision 60), its input given through the program's simulated user. Not
+//! on a phone, which `waos` reaches not yet.
 //!
-//! The invariant: a sent run's mark and mouse are in the list under the same lock as its program,
-//! so a screenshot or an input never finds the program without them, nor them without it.
+//! The invariant: a sent run's mark is in the list under the same lock as its program, so a
+//! screenshot or an input never finds the program without it, nor it without the program.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -15,15 +15,12 @@ use waos_dev_protocol::{Refusal, RunEnd, WindowId};
 use waos_package::ProgramId;
 
 use super::{Run, Runs};
-use crate::logic::dev_input::DevMouse;
 use crate::logic::dev_refusal;
 
 /// What a run `waos` sent has in the list beside its program.
 pub(super) struct Sent {
     /// Set before the program is stopped for a later run of its id.
     replaced: Arc<AtomicBool>,
-    /// The mouse `waos`'s input moves over the program's windows.
-    mouse: Arc<DevMouse>,
 }
 
 impl Sent {
@@ -54,12 +51,11 @@ impl SentRun {
 }
 
 /// A program a run of `waos run` runs, which `waos`'s screenshots and input read and
-/// drive: the program, and the mouse that input moves over its windows.
+/// drive.
 #[derive(Clone)]
 pub(crate) struct DevRun {
     pub(crate) id: ProgramId,
     pub(crate) program: RunningProgram,
-    pub(crate) mouse: Arc<DevMouse>,
 }
 
 impl DevRun {
@@ -97,7 +93,7 @@ impl DevRun {
 impl Runs {
     /// Starts a run `waos` sent of the program `id`: the one running, if any, is stopped
     /// first, and ends `Replaced` where `waos` sent it; then `start` starts the program, and
-    /// the run is in the list, with a mouse of its own for `waos`'s input. An error from
+    /// the run is in the list. An error from
     /// `start` leaves the id free. `start` waits for nothing: the program it starts is loaded
     /// already.
     pub(crate) async fn start(
@@ -108,14 +104,13 @@ impl Runs {
         let _turn = self.turn_of(id).await;
         self.end_the_one_before(id).await;
         let program = start()?;
-        // The run's mark and mouse join the list under the same lock as its program.
+        // The run's mark joins the list under the same lock as its program.
         let mut running = self.listed();
         let run = self.list_in(&mut running, id, program);
         let replaced = Arc::new(AtomicBool::new(false));
         if let Some(listed) = running.get_mut(id) {
             listed.sent = Some(Sent {
                 replaced: Arc::clone(&replaced),
-                mouse: Arc::default(),
             });
         }
         Ok(SentRun { run, replaced })
@@ -126,10 +121,10 @@ impl Runs {
     pub(crate) async fn dev_run(&self, id: &ProgramId) -> Option<DevRun> {
         let running = self.listed();
         let current = running.get(id)?;
+        current.sent.as_ref()?;
         Some(DevRun {
             id: id.clone(),
             program: current.program.clone(),
-            mouse: Arc::clone(&current.sent.as_ref()?.mouse),
         })
     }
 }
