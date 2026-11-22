@@ -14,7 +14,7 @@ use crate::messages::Request;
 
 /// The protocol's major, which each hello says: raised only by a real break in the messages'
 /// meaning, while a field or a message added leaves it as it is.
-pub const MAJOR: u32 = 1;
+pub const MAJOR: u32 = 2;
 
 /// Every request a WaOS serves, by [`Request::name`]: what its hello lists.
 pub const SERVED: [&str; 8] = [

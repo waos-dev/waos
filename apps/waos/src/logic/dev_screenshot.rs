@@ -301,6 +301,28 @@ mod tests {
             }
         }
 
+        /// The pictures `server` answers for the program `id` once its first window's middle is
+        /// `colour`, but for a rounding of the GPU's.
+        async fn pictures_once_middle_is(
+            server: &TestServer,
+            id: &str,
+            colour: [u8; 4],
+        ) -> Vec<WindowPicture> {
+            let deadline = Instant::now() + WITHIN;
+            loop {
+                let pictures = pictures_once_shown(server, id).await;
+                let (middle, _) = middle_of(pictures[0].png.as_ref().unwrap());
+                if is_colour(middle, colour) {
+                    return pictures;
+                }
+                assert!(
+                    Instant::now() < deadline,
+                    "the window never showed {colour:?}: {middle:?}"
+                );
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        }
+
         /// The middle pixel of `png`, as RGBA, and its size.
         fn middle_of(png: &[u8]) -> ([u8; 4], (u32, u32)) {
             let mut reader = png::Decoder::new(std::io::Cursor::new(png))
@@ -315,13 +337,17 @@ mod tests {
             )
         }
 
-        /// Fails unless `pixel` is `colour`, but for a rounding of the GPU's.
-        fn assert_colour(pixel: [u8; 4], colour: [u8; 4]) {
-            let close = pixel
+        /// Whether `pixel` is `colour`, but for a rounding of the GPU's.
+        fn is_colour(pixel: [u8; 4], colour: [u8; 4]) -> bool {
+            pixel
                 .iter()
                 .zip(colour)
-                .all(|(byte, expected)| byte.abs_diff(expected) <= 2);
-            assert!(close, "{pixel:?}, not {colour:?}");
+                .all(|(byte, expected)| byte.abs_diff(expected) <= 2)
+        }
+
+        /// Fails unless `pixel` is `colour`, but for a rounding of the GPU's.
+        fn assert_colour(pixel: [u8; 4], colour: [u8; 4]) {
+            assert!(is_colour(pixel, colour), "{pixel:?}, not {colour:?}");
         }
 
         #[tokio::test]
@@ -354,12 +380,10 @@ mod tests {
             assert_eq!(
                 server.ask::<waos_dev_protocol::InputAnswer>(&tap).await,
                 waos_dev_protocol::InputAnswer::Done(waos_dev_protocol::InputDone {
-                    in_sight: true,
-                    new_picture: true,
+                    in_sight: true
                 })
             );
-            let pictures = pictures_once_shown(&server, INPUT).await;
-            assert_colour(middle_of(pictures[0].png.as_ref().unwrap()).0, SECOND);
+            pictures_once_middle_is(&server, INPUT, SECOND).await;
         }
 
         /// The design's decision 63: a run is watched while its connection is open.
@@ -387,11 +411,11 @@ mod tests {
             assert_eq!(
                 server.ask::<waos_dev_protocol::InputAnswer>(&tap).await,
                 waos_dev_protocol::InputAnswer::Done(waos_dev_protocol::InputDone {
-                    in_sight: true,
-                    new_picture: true,
-                }),
-                "a covered window draws what the input changed"
+                    in_sight: true
+                })
             );
+            // A covered window draws what the input changed.
+            pictures_once_middle_is(&server, INPUT, SECOND).await;
 
             drop(client);
             server.wait_for_runs(&[]).await;

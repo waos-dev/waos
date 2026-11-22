@@ -1,8 +1,8 @@
 //! `waos ui tap`, `press`, `drag`, `type`, `key` and `scroll`: input to a window of the program
 //! a run of `waos run` runs, sent to the WaOS running it, which gives it to the program as
-//! its user would give it and answers once the window shows the picture after it, or once it
-//! knows the window was out of sight or drew nothing new, so a screenshot taken next shows what
-//! it did (the design's decision 60). A point is in the window's pixels, a screenshot's, from its
+//! its user would give it and answers once it has handed it over, saying whether the window was in
+//! sight (the design's decision 60). What the program draws in answer, a screenshot shows once it
+//! has drawn it. A point is in the window's pixels, a screenshot's, from its
 //! top-left, written `<x>,<y>`.
 //!
 //! The invariant: a command returns only once WaOS has answered, the input given or why not.
@@ -38,12 +38,9 @@ impl FromStr for Pair {
 pub async fn give(id: ProgramId, window: Option<WindowId>, input: Input) -> Result<ExitCode> {
     let answer = ask(&Request::Input { id, window, input }).await?;
     match answer {
-        InputAnswer::Done(InputDone {
-            in_sight,
-            new_picture,
-        }) => {
-            if let Some(said) = said(in_sight, new_picture, window) {
-                eprintln!("waos: {said}");
+        InputAnswer::Done(InputDone { in_sight }) => {
+            if !in_sight {
+                eprintln!("waos: {}", out_of_sight(window));
             }
             Ok(ExitCode::SUCCESS)
         }
@@ -57,25 +54,15 @@ pub async fn give(id: ProgramId, window: Option<WindowId>, input: Input) -> Resu
     }
 }
 
-/// What the answer to an input says, in words: none where the window drew its new picture; else
-/// whether the window was in sight and why no new picture came.
-fn said(in_sight: bool, new_picture: bool, window: Option<WindowId>) -> Option<String> {
+/// What an input to a window out of sight comes to, in words.
+fn out_of_sight(window: Option<WindowId>) -> String {
     let named = match window {
         Some(window) => format!("window {window}"),
         None => "the window".to_owned(),
     };
-    match (in_sight, new_picture) {
-        (true, true) => None,
-        (true, false) => Some(format!(
-            "{named} was in sight, and the program drew nothing new after the input"
-        )),
-        (false, true) => Some(format!(
-            "{named} was out of sight when the input was given, and showed the program's new picture after it"
-        )),
-        (false, false) => Some(format!(
-            "{named} was out of sight when the input was given, so it showed no new picture; bring it into sight to see what it drew"
-        )),
-    }
+    format!(
+        "{named} was out of sight when the input was given, so it draws nothing new until it is in sight"
+    )
 }
 
 #[cfg(test)]
@@ -83,27 +70,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn an_input_says_whether_its_window_was_in_sight_and_why_no_new_picture_came() {
+    fn an_input_to_a_window_out_of_sight_says_so() {
         assert_eq!(
-            said(true, true, Some(WindowId(1))),
-            None,
-            "its new picture says enough"
+            out_of_sight(Some(WindowId(3))),
+            "window 3 was out of sight when the input was given, so it draws nothing new until it is in sight"
         );
         assert_eq!(
-            said(true, false, Some(WindowId(2))).unwrap(),
-            "window 2 was in sight, and the program drew nothing new after the input"
-        );
-        assert_eq!(
-            said(false, false, Some(WindowId(3))).unwrap(),
-            "window 3 was out of sight when the input was given, so it showed no new picture; bring it into sight to see what it drew"
-        );
-        assert_eq!(
-            said(false, true, Some(WindowId(4))).unwrap(),
-            "window 4 was out of sight when the input was given, and showed the program's new picture after it"
-        );
-        assert_eq!(
-            said(true, false, None).unwrap(),
-            "the window was in sight, and the program drew nothing new after the input"
+            out_of_sight(None),
+            "the window was out of sight when the input was given, so it draws nothing new until it is in sight"
         );
     }
 
