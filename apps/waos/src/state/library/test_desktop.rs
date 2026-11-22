@@ -25,11 +25,11 @@ use waft::ui::{
     ViewFocusEvent, ViewFocusState, ViewId, ViewRef, WindowConfig,
 };
 use waft::{
-    AnyElement, App, Curves, Entity, Offstage, ScrollPositionAlignmentPolicy, Scrollable, Shell,
-    State as _, Text, WidgetsBinding, downcast_widget, run_widget,
+    AnyElement, App, AppLifecycleState, Curves, Entity, Offstage, ScrollPositionAlignmentPolicy,
+    Scrollable, Shell, State as _, Text, WidgetsBinding, downcast_widget, run_widget,
 };
 use waft_cupertino::install_cupertino_icon_font;
-use waft_services::{LogicalKeyboardKey, PhysicalKeyboardKey};
+use waft_services::{LogicalKeyboardKey, PhysicalKeyboardKey, ServicesBinding};
 #[cfg(target_os = "macos")]
 use waft_test::Opened;
 use waft_test::{
@@ -40,12 +40,13 @@ use waft_winui::install_icon_font;
 use waos_package::SigningKey;
 use waos_store::{SourceProxy, Store};
 
-use super::{Library, ProgramsOpen, open_library, open_settings_when_asked};
+use super::{Library, ProgramsOpen, open_library, open_settings_when_asked, show_phone_files};
 use crate::logic::environments::ProgramEnvironments;
 use crate::logic::installed_code::HeldCompiles;
 use crate::logic::installed_runs::InstalledRuns;
 use crate::logic::opened_package::tests::write_package;
 use crate::logic::package_copies::PackageCopies;
+use crate::logic::phone_files::PhoneFiles;
 use crate::logic::placement::WindowsOnRequest;
 use crate::logic::preferences::PreferencesFile;
 use crate::logic::program_faces::ProgramFaces;
@@ -104,20 +105,23 @@ pub(crate) struct LibraryDesktop {
     elapsed: Duration,
 }
 
-/// What a desktop of the tests' own is: the system it plays, and whether WaOS keeps its own
-/// preferences there, in the test's folder.
-#[derive(Clone, Copy, Debug)]
+/// What a desktop of the tests' own is: the system it plays, whether WaOS keeps its own
+/// preferences there, in the test's folder, and whether it reaches the phone's files only as the
+/// user allows, as on Android.
+#[derive(Clone)]
 pub(crate) struct DesktopKind {
     pub(crate) system: TargetPlatform,
     pub(crate) own_preferences: bool,
+    pub(crate) phone_files: Option<Arc<dyn PhoneFiles>>,
 }
 
 impl Default for DesktopKind {
-    /// macOS, with no preferences of WaOS's own.
+    /// macOS, with no preferences of WaOS's own, reaching what its user does.
     fn default() -> DesktopKind {
         DesktopKind {
             system: TargetPlatform::MacOS,
             own_preferences: false,
+            phone_files: None,
         }
     }
 }
@@ -182,6 +186,7 @@ impl LibraryDesktop {
             ProgramPlaces::new(ProgramPlace::Windows),
         );
         let platform = Rc::new(LibraryPlatform::new(kind.system));
+        let phone_files = kind.phone_files;
         let started = Rc::new(RefCell::new(None));
         let kept = Rc::clone(&started);
         let kept_store = store.clone();
@@ -197,6 +202,7 @@ impl LibraryDesktop {
                 prompted.questions,
                 prompt_windows.clone(),
                 store.clone(),
+                phone_files.clone(),
             );
             let recordings = Recordings::listen(app, recording_changes, store.clone());
             let library = open_library(
@@ -209,6 +215,9 @@ impl LibraryDesktop {
             )
             .expect("a library");
             open_settings_when_asked(app, &library, prompted.settings);
+            if let Some(phone_files) = phone_files {
+                show_phone_files(app, &library, phone_files);
+            }
             let (library_window, shown) = show(app, &library, &recordings, &view_windows);
             let program_windows = program_windows(&view_windows, &prompt_windows);
             run_widget(
@@ -252,6 +261,17 @@ impl LibraryDesktop {
         let packages = self.folder.path().join("packages");
         std::fs::create_dir_all(&packages).unwrap();
         write_package(&packages, id, name, version, component, &self.key)
+    }
+
+    /// WaOS goes to the background and comes back to the front, as the user leaving it for the
+    /// system's settings and coming back does, then the frames it asks for.
+    pub(crate) fn leave_and_come_back(&mut self) {
+        for state in [AppLifecycleState::Paused, AppLifecycleState::Resumed] {
+            let mut app = self.shell.app();
+            ServicesBinding::instance(&mut app).handle_lifecycle_message(&mut app, state);
+        }
+        self.shell.cell().checkpoint();
+        self.settle();
     }
 
     /// `act` on the library, then the frames it asks for.

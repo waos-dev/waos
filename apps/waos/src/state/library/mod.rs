@@ -11,7 +11,8 @@
 //! which gives it its view as it starts; a program running opens where it runs, its windows coming
 //! forward. On Android the user chooses between tasks and tabs, which holds for programs opened
 //! after, and the installed programs have shortcuts on the home screen and on WaOS's icon's menu
-//! (`shortcuts`).
+//! (`shortcuts`), and the global settings say whether WaOS may reach the phone's files
+//! (`phone_files`).
 //!
 //! What reads the network or the disk at length, a source's index, a download, a program's load,
 //! runs on the library's own tokio runtime, and its answer comes back to the main thread, where
@@ -31,6 +32,7 @@
 //! code is compiled is the compiles' own list, read as the library is shown.
 
 mod package_picker;
+mod phone_files;
 mod programs_open;
 mod settings;
 mod shortcuts;
@@ -66,6 +68,7 @@ use crate::logic::offers::{Offer, offer_of};
 use crate::logic::opened_package::OpenedPackage;
 use crate::logic::opening;
 use crate::logic::package_copies::{PackageCopies, document_name};
+use crate::logic::phone_files::PhoneFiles;
 use crate::logic::preferences::{KeptPreferences, Preferences, PreferencesFile};
 use crate::logic::program_faces::program_face;
 use crate::logic::program_places::ProgramPlace;
@@ -74,6 +77,7 @@ use crate::logic::setting_changes::Offered;
 use crate::logic::system_notifications::program_activation;
 use crate::state::deck::tabs::Tabs;
 pub(crate) use package_picker::picks_packages;
+pub(crate) use phone_files::show_phone_files;
 pub(crate) use programs_open::ProgramsOpen;
 pub(crate) use settings::{LeftSettings, LibraryPage, SwitchAsked, open_settings_when_asked};
 use shortcuts::ShortcutsMatching;
@@ -128,6 +132,8 @@ pub(crate) struct Library {
     shortcuts: Option<Rc<dyn SystemShortcuts>>,
     /// Whether they are being made to match what is installed.
     shortcuts_matching: ShortcutsMatching,
+    /// Whether WaOS may reach the phone's files, where it reaches them only as the user allows.
+    phone_files: Option<Arc<dyn PhoneFiles>>,
 }
 
 /// A source the user added, and what it lists.
@@ -260,6 +266,7 @@ impl Library {
             search: String::new(),
             shortcuts: None,
             shortcuts_matching: ShortcutsMatching::Idle,
+            phone_files: None,
         };
         library.read_sources(cx);
         library.follow_running(cx);

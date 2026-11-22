@@ -406,6 +406,7 @@ fn keeping_preferences_on(system: TargetPlatform) -> (LibraryDesktop, Entity<Lau
     let kind = DesktopKind {
         system,
         own_preferences: true,
+        ..DesktopKind::default()
     };
     launcher_desktop(kind, Start::Shown)
 }

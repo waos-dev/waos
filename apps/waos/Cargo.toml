@@ -165,7 +165,9 @@ icon = "assets/icon.png"
 # are read over and its programs' sockets open on. Android refuses a socket to an app whose manifest
 # does not name it.
 [package.metadata.waft.android]
-permissions = ["android.permission.INTERNET"]
+# All files access, which the user turns on for WaOS in Android's settings, so This computer's
+# files are the phone's shared storage at its real paths (`os/android/all_files_access.rs`).
+permissions = ["android.permission.INTERNET", "android.permission.MANAGE_EXTERNAL_STORAGE"]
 # The waves edge to edge on white, which the launcher cuts to its own shape, where the tile of
 # `icon` would show as a tile within it.
 adaptive_icon = { foreground = "assets/android-foreground.png", background = "#ffffff" }

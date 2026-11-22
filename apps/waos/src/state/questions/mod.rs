@@ -5,7 +5,9 @@
 //! own for a program with none; on macOS, in a dialog of the program's app). The reply goes back to
 //! the engine, which keeps a question's answer in the program's settings and lets the program play
 //! on the output picked; a question whose program ended, or whose prompt the user dismissed, goes
-//! unanswered.
+//! unanswered. Where WaOS reaches the phone's files only as the user allows, a pick of This computer
+//! while they are out of reach first offers the system's page for them, and is answered once the
+//! user goes on without it, or comes back to WaOS from the page (`logic::phone_files`).
 //!
 //! The invariant: every question taken is answered, or dropped unanswered, exactly once, and a
 //! program's prompt is shown exactly while it has a question waiting.
@@ -14,15 +16,17 @@
 mod tests;
 
 use std::rc::Rc;
+use std::sync::Arc;
 
 use futures::StreamExt;
 use futures::channel::mpsc::UnboundedReceiver;
 use futures::channel::oneshot;
-use waft::{App, Context, Entity, IntoWidget, WeakEntity};
+use waft::{App, AppLifecycleListener, Context, Entity, IntoWidget, WeakEntity};
 use waos::RunningProgram;
 use waos_program_window::{PromptPlacement, PromptWindows, ShownPrompt};
 use waos_store::Store;
 
+use crate::logic::phone_files::{PhoneFiles, asks_for_phone_files};
 use crate::logic::program_faces::ProgramFaces;
 use crate::logic::program_name::program_name;
 use crate::logic::prompts::{Asked, Asking, Reply};
@@ -39,6 +43,8 @@ pub(crate) struct Questions {
     shown: Vec<(RunningProgram, ShownPrompt)>,
     /// Where an installed program's name is read.
     store: Store,
+    /// Whether WaOS may reach the phone's files, where it reaches them only as the user allows.
+    phone_files: Option<Arc<dyn PhoneFiles>>,
 }
 
 /// A question waiting for its reply.
@@ -49,17 +55,32 @@ pub(crate) struct Pending {
     pub(crate) name: String,
     /// What it asks, with where the reply goes.
     pub(crate) asking: Asking,
+    /// Where its pick of This computer stands, while the system's page for the phone's files is
+    /// offered first.
+    pub(crate) phone_files: Option<PhoneFilesStep>,
+}
+
+/// Where a pick of This computer stands while the system's page for the phone's files is offered
+/// before it is answered.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum PhoneFilesStep {
+    /// The sheet offers the page, or going on without it.
+    Offered,
+    /// The page is open: the pick is answered once WaOS is back in front.
+    PageOpen,
 }
 
 impl Questions {
     /// The questions, which take each arriving on `asked` for as long as questions can
     /// arrive, each program's prompt shown by `placement`; an installed program's name is read
-    /// from `store`.
+    /// from `store`, and whether WaOS may reach the phone's files from `phone_files`, where it
+    /// reaches them only as the user allows.
     pub(crate) fn listen(
         app: &mut App,
         asked: UnboundedReceiver<Asked>,
         placement: Rc<dyn PromptPlacement>,
         store: Store,
+        phone_files: Option<Arc<dyn PhoneFiles>>,
     ) {
         let questions = app.new_entity(|_| Questions {
             asked: Vec::new(),
@@ -67,7 +88,9 @@ impl Questions {
             placement,
             shown: Vec::new(),
             store,
+            phone_files,
         });
+        answer_picks_back_in_front(app, questions.downgrade());
         take_questions(app, questions, asked);
     }
 
@@ -78,14 +101,87 @@ impl Questions {
             .find(|pending| &pending.program == program)
     }
 
-    /// `program`'s user replied to its question asked now, or dismissed it with no reply.
+    /// `program`'s user replied to its question asked now, or dismissed it with no reply. A pick
+    /// of This computer while the phone's files are out of reach waits while the system's page
+    /// for them is offered.
     pub(crate) fn reply(
         &mut self,
         program: &RunningProgram,
         reply: Option<Reply>,
         cx: &mut Context<Questions>,
     ) {
+        let offered = self
+            .phone_files
+            .as_ref()
+            .is_some_and(|phone_files| asks_for_phone_files(reply.as_ref(), phone_files.as_ref()));
+        if offered && self.set_phone_files_step(program, PhoneFilesStep::Offered) {
+            cx.notify();
+            return;
+        }
         self.take_first_of(program, reply, cx);
+    }
+
+    /// `program`'s user goes on with This computer without the phone's files.
+    pub(crate) fn go_on_without_phone_files(
+        &mut self,
+        program: &RunningProgram,
+        cx: &mut Context<Questions>,
+    ) {
+        self.take_first_of(program, Some(this_computer()), cx);
+    }
+
+    /// `program`'s user opens the system's page for the phone's files: its pick of This computer
+    /// is answered once WaOS is back in front, or at once if the page does not open.
+    pub(crate) fn open_phone_files_page(
+        &mut self,
+        program: &RunningProgram,
+        cx: &mut Context<Questions>,
+    ) {
+        let Some(phone_files) = &self.phone_files else {
+            return;
+        };
+        match phone_files.open_switch() {
+            Ok(()) => {
+                if self.set_phone_files_step(program, PhoneFilesStep::PageOpen) {
+                    cx.notify();
+                }
+            }
+            Err(why) => {
+                tracing::warn!(
+                    program = program.name(),
+                    why,
+                    "the phone's files' page did not open"
+                );
+                self.go_on_without_phone_files(program, cx);
+            }
+        }
+    }
+
+    /// WaOS is back in front: each pick of This computer waiting on the system's page for the
+    /// phone's files is answered, whatever the user chose there.
+    fn back_in_front(&mut self, cx: &mut Context<Questions>) {
+        let waiting: Vec<RunningProgram> = self
+            .asked
+            .iter()
+            .filter(|pending| pending.phone_files == Some(PhoneFilesStep::PageOpen))
+            .map(|pending| pending.program.clone())
+            .collect();
+        for program in waiting {
+            self.go_on_without_phone_files(&program, cx);
+        }
+    }
+
+    /// `program`'s question asked now stands at `step`; whether it has one.
+    fn set_phone_files_step(&mut self, program: &RunningProgram, step: PhoneFilesStep) -> bool {
+        let asked_now = self
+            .asked
+            .iter_mut()
+            .find(|pending| &pending.program == program);
+        let Some(pending) = asked_now else {
+            return false;
+        };
+        pending.phone_files = Some(step);
+        true
     }
 
     /// A question arrived: it waits its turn in its program's prompt, shown now if the program
@@ -108,6 +204,7 @@ impl Questions {
             program,
             name,
             asking,
+            phone_files: None,
         });
         cx.notify();
         id
@@ -207,6 +304,22 @@ fn take_questions(
             });
         }
     });
+}
+
+/// This computer, as a picker of machines is answered.
+fn this_computer() -> Reply {
+    Reply::Machine(waos_local::THIS_COMPUTER.to_owned())
+}
+
+/// From now on, each time WaOS comes back to the front, `questions` answers the picks waiting on
+/// the system's page for the phone's files, which the user leaves by coming back.
+fn answer_picks_back_in_front(app: &mut App, questions: WeakEntity<Questions>) {
+    let back_in_front = move |app: &mut App| {
+        if let Some(questions) = questions.upgrade() {
+            questions.update(app, |questions, cx| questions.back_in_front(cx));
+        }
+    };
+    AppLifecycleListener::new(app).on_resume(app, Rc::new(back_in_front));
 }
 
 /// Removes `id` once the engine drops its wait on it.

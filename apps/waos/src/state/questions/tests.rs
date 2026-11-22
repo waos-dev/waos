@@ -6,7 +6,9 @@
 //! which closes with it; a program's question about opening links of a scheme is put the same
 //! way; a question whose program ends goes unanswered; and the picker of a program's outputs, a
 //! question too, answers the output the user taps, or none when they cancel it, as the picker of a
-//! machine for it does.
+//! machine for it does; and This computer picked where WaOS may not reach the phone's files offers
+//! the system's page for them first, the pick answered as the user goes on without it, or comes
+//! back to WaOS from it.
 
 use std::rc::Rc;
 use std::sync::Arc;
@@ -22,7 +24,8 @@ use waos::{
 use waos_package::ProgramId;
 use waos_store::Setting;
 
-use crate::state::library::test_desktop::LibraryDesktop;
+use crate::logic::phone_files::TestPhone;
+use crate::state::library::test_desktop::{DesktopKind, LibraryDesktop};
 
 const PERMISSIONS: &str = "dev.example.permissions";
 const FOREVER: &str = "dev.example.forever";
@@ -330,6 +333,65 @@ fn a_picker_of_machines_answers_the_machine_tapped_or_none_when_cancelled() {
         desktop.tap(view_of(&window), tapped);
         desktop.settle_until("the pick", |_| true);
         assert_eq!(answered.as_mut().now_or_never(), Some(picked), "{tapped}");
+    }
+    futures::executor::block_on(desktop.runs.stop_all());
+}
+
+#[test]
+fn this_computer_picked_out_of_reach_of_the_phone_s_files_offers_their_page_first() {
+    let phone = Arc::new(TestPhone::reachable(false));
+    let kind = DesktopKind {
+        phone_files: Some(Arc::clone(&phone) as _),
+        ..DesktopKind::default()
+    };
+    let (mut desktop, ()) = LibraryDesktop::of(
+        kind,
+        Box::new(|_app, _library, _recordings, _views| (None, ())),
+    );
+    start_console_program(
+        &mut desktop,
+        FOREVER,
+        "Forever",
+        waos_test_programs::FOREVER,
+    );
+    let this_computer = MachineChoice {
+        id: "this-computer".to_owned(),
+        name: "This computer".to_owned(),
+    };
+    for (tapped, page_opened) in [("Not now", false), ("Open settings", true)] {
+        let mut answered = desktop
+            .machine_picker
+            .pick(&the_program(&desktop), vec![this_computer.clone()]);
+        desktop.settle_until("the machines to pick from", |desktop| {
+            desktop.shows("Pick a machine for Forever")
+        });
+        let window = window_titled(&desktop, "Forever").expect("the picker's window");
+        desktop.tap(view_of(&window), "This computer");
+        desktop.settle_until("the phone's files offered", |desktop| {
+            desktop.shows("Let WaOS reach this phone's files?")
+        });
+        assert_eq!(
+            answered.as_mut().now_or_never(),
+            None,
+            "answered before the offer"
+        );
+        desktop.tap(view_of(&window), tapped);
+        desktop.settle_until("the tap", |_| true);
+        if page_opened {
+            assert_eq!(phone.pages_opened(), 1);
+            assert_eq!(
+                answered.as_mut().now_or_never(),
+                None,
+                "answered with the page open"
+            );
+            desktop.leave_and_come_back();
+        }
+        let this_computer = Some("this-computer".to_owned());
+        assert_eq!(
+            answered.as_mut().now_or_never(),
+            Some(this_computer),
+            "{tapped}"
+        );
     }
     futures::executor::block_on(desktop.runs.stop_all());
 }

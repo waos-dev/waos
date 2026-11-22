@@ -122,6 +122,7 @@ impl State for FluentSettingsState {
         rows.extend(page.switch_asked(app));
         rows.extend(page.where_programs_open(app));
         rows.extend(page.where_waos_stays(app));
+        rows.extend(page.phone_files(app));
         match page.library.read(app).settings(&page.of) {
             Ok(shown) => {
                 let activity = page.library.read(app).activity(&page.of);
@@ -702,6 +703,33 @@ impl Page {
             .on_content(Text::new(words::ON))
             .off_content(Text::new(words::OFF))
             .into_widget(),
+        ]
+    }
+
+    /// On the global page, where WaOS reaches the phone's files only as the user allows, whether
+    /// it may, and a button that opens the system's page for it.
+    fn phone_files(&self, app: &App) -> Vec<WidgetRef> {
+        if self.of != SettingsOf::Global {
+            return Vec::new();
+        }
+        let Some(reachable) = self.library.read(app).phone_files_reachable() else {
+            return Vec::new();
+        };
+        let library = self.library.clone();
+        let open = Listener::new(move |app| {
+            library.update(app, |library, cx| library.open_phone_files_page(cx));
+        });
+        let said = if reachable {
+            words::PHONE_FILES_ON
+        } else {
+            words::PHONE_FILES_OFF
+        };
+        vec![
+            self.setting_name(words::PHONE_FILES),
+            caption(said, &self.resources),
+            Row::new()
+                .children([Button::text(words::OPEN_ANDROID_SETTINGS, open).into_widget()])
+                .into_widget(),
         ]
     }
 

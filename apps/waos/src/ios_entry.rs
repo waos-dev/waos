@@ -18,7 +18,7 @@ pub fn main() -> ExitCode {
     let folders = folders::app_folders();
     DefaultEmbedder::default().run(move |platform| {
         Shell::new(platform, move |app| {
-            if let Err(error) = state::start(app, folders, LibraryPlace::Phone, None, None) {
+            if let Err(error) = state::start(app, folders, LibraryPlace::Phone, None, None, None) {
                 fail(&error);
             }
         })

@@ -92,6 +92,7 @@ use crate::logic::installed_runs::InstalledRuns;
 use crate::logic::machine_facts::platform_state;
 use crate::logic::noted_file_dialogs::NotedFileDialogs;
 use crate::logic::package_copies::PackageCopies;
+use crate::logic::phone_files::PhoneFiles;
 use crate::logic::placement::WindowsOnRequest;
 use crate::logic::preferences::PreferencesFile;
 use crate::logic::program_faces::ProgramFaces;
@@ -121,8 +122,8 @@ use image_codecs::ImageCodecs;
 use launcher::Launcher;
 use library::{
     FirstWindowWanted, InstalledChanged, Library, ProgramOpened, ProgramsOpen, open_library,
-    open_settings_when_asked, request_to_open_with_waos, take_files_opened_with_waos,
-    take_notification_clicks,
+    open_settings_when_asked, request_to_open_with_waos, show_phone_files,
+    take_files_opened_with_waos, take_notification_clicks,
 };
 use media_assets::MediaAssets;
 use media_players::MediaPlayers;
@@ -185,13 +186,16 @@ pub(crate) enum OpenedAtStart {
 /// the clicks on the programs' notifications going to it, shows it in `place`, the programs'
 /// windows and their questions, makes a quit ask every program first, and opens what `opened`
 /// names, with WaOS or with their program. What `later_launches` of WaOS pass on is read by WaOS's
-/// command line and opened so, as the system's own requests are.
+/// command line and opened so, as the system's own requests are. Where WaOS reaches the phone's
+/// files only as the user allows, `phone_files` says whether it may, and This computer's home
+/// follows it; a pick of This computer asks for it, and the global settings say it.
 pub(crate) fn start(
     app: &mut App,
     folders: AppFolders,
     place: LibraryPlace,
     opened: Option<OpenedAtStart>,
     later_launches: Option<LaterLaunches>,
+    phone_files: Option<Arc<dyn PhoneFiles>>,
 ) -> Result<()> {
     let facts = platform_state(app.platform().as_ref());
     let programs_open = programs_open(place);
@@ -311,11 +315,7 @@ pub(crate) fn start(
     let view_windows = ViewWindows::listen(app, requests);
     let posted_as_programs =
         notifications.map(|notifications| notifications.serve(app, store.clone()));
-    let capabilities = if MICROPHONE_USAGE_DECLARED {
-        LocalCapabilities::new()
-    } else {
-        LocalCapabilities::without_microphone()
-    };
+    let capabilities = local_capabilities(phone_files.clone());
     let environments = ProgramEnvironments::new(capabilities, store.clone());
     // What a tab closed on a phone stops its program among.
     let tabs_runs = Arc::clone(&runs);
@@ -386,7 +386,13 @@ pub(crate) fn start(
         &library,
         Rc::clone(&prompt_windows),
     );
-    Questions::listen(app, prompted.questions, prompts.placement, questions_store);
+    Questions::listen(
+        app,
+        prompted.questions,
+        prompts.placement,
+        questions_store,
+        phone_files.clone(),
+    );
     match opened {
         Some(OpenedAtStart::WithProgram { id, request }) => {
             library.update(app, |library, cx| library.open_with(&id, request, cx));
@@ -406,6 +412,9 @@ pub(crate) fn start(
         None => {}
     }
     open_settings_when_asked(app, &library, prompted.settings);
+    if let Some(phone_files) = phone_files {
+        show_phone_files(app, &library, phone_files);
+    }
     let library_window = library_window(
         app,
         place,
@@ -594,6 +603,21 @@ fn tell_installs_to_inspectors(
         inspected.installed_changed();
     })
     .detach();
+}
+
+/// This computer's capabilities, its sound without the microphone where WaOS's bundle does not
+/// say why it records, and its home the phone's files' where WaOS reaches them only as the user
+/// allows.
+fn local_capabilities(phone_files: Option<Arc<dyn PhoneFiles>>) -> LocalCapabilities {
+    let capabilities = if MICROPHONE_USAGE_DECLARED {
+        LocalCapabilities::new()
+    } else {
+        LocalCapabilities::without_microphone()
+    };
+    match phone_files {
+        Some(phone_files) => capabilities.with_home(Arc::new(move || phone_files.home())),
+        None => capabilities,
+    }
 }
 
 /// The installed programs' shortcuts kept where the system keeps them, through `library`, on

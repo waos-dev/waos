@@ -162,6 +162,7 @@ impl Desktop {
                 prompted.questions,
                 prompt_windows.clone(),
                 questions_store,
+                None,
             );
             let program_windows = program_windows(&windows, &prompt_windows);
             run_widget(
