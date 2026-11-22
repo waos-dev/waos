@@ -84,13 +84,18 @@ jobs:
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
           APPLE_API_KEY_PATH: ${{ secrets.APPLE_API_KEY_P8 && format('{0}/notary.p8', runner.temp) || '' }}
-        run: cargo waft build dmg -p waos-app
+        # `cargo waft build` prints the path of what it made, the one file to attach.
+        id: dmg
+        run: |
+          set -o pipefail
+          built=$(cargo waft build dmg -p waos-app | tail -1)
+          echo "path=$built" >> "$GITHUB_OUTPUT"
       - name: Attached to the release
         env:
           GH_TOKEN: ${{ github.token }}
+          image: ${{ steps.dmg.outputs.path }}
         run: |
-          image=$(find target/waft -name '*.dmg' -newer Cargo.toml | head -1)
-          test -n "$image" || { echo "no disk image was made"; exit 1; }
+          test -f "$image" || { echo "no disk image was made"; exit 1; }
           gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --verify-tag --title "WaOS ${TAG#v}" --notes ""
           named="$RUNNER_TEMP/WaOS-${TAG#v}-macos-arm64.dmg"
           cp "$image" "$named"
@@ -125,13 +130,31 @@ jobs:
           WAFT_ANDROID_KEYSTORE: ${{ runner.temp }}/release.jks
           WAFT_ANDROID_KEY_ALIAS: waos
           WAFT_ANDROID_STORE_PASSWORD_FILE: ${{ runner.temp }}/release-password
-        run: cargo waft build apk -p waos-app
+        # `cargo waft build` prints the path of what it made: the signed .apk, beside the unsigned
+        # ones of its stage, which a search for any .apk can find first.
+        id: apk
+        run: |
+          set -o pipefail
+          built=$(cargo waft build apk -p waos-app | tail -1)
+          echo "path=$built" >> "$GITHUB_OUTPUT"
+      - name: Signed with the release key
+        env:
+          apk: ${{ steps.apk.outputs.path }}
+        run: |
+          apksigner=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)/apksigner
+          "$apksigner" verify --print-certs "$apk" > "$RUNNER_TEMP/certificates"
+          grep -v "^WARNING" "$RUNNER_TEMP/certificates"
+          # The debug key's certificate is Android's own: a release signed with it is no release.
+          if grep -q "CN=Android Debug" "$RUNNER_TEMP/certificates"; then
+            echo "the .apk is signed with the debug key"
+            exit 1
+          fi
       - name: Attached to the release
         env:
           GH_TOKEN: ${{ github.token }}
+          apk: ${{ steps.apk.outputs.path }}
         run: |
-          apk=$(find target/waft -name '*.apk' -newer Cargo.toml | head -1)
-          test -n "$apk" || { echo "no apk was made"; exit 1; }
+          test -f "$apk" || { echo "no apk was made"; exit 1; }
           gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --verify-tag --title "WaOS ${TAG#v}" --notes ""
           named="$RUNNER_TEMP/WaOS-${TAG#v}-android-arm64.apk"
           cp "$apk" "$named"
@@ -184,14 +207,21 @@ jobs:
       - name: Waft's command, its newest release
         run: cargo install --locked waft-cli
       - name: WaOS, as an installer
-        run: cargo waft build nsis -p waos-app
+        # `cargo waft build` prints the path of what it made, the one file to attach.
+        id: setup
+        shell: bash
+        run: |
+          set -o pipefail
+          built=$(cargo waft build nsis -p waos-app | tail -1)
+          echo "path=$built" >> "$GITHUB_OUTPUT"
       - name: Attached to the release
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+          setup: ${{ steps.setup.outputs.path }}
         run: |
-          setup=$(find target/waft -name '*setup*.exe' -newer Cargo.toml | head -1)
-          test -n "$setup" || { echo "no installer was made"; exit 1; }
+          setup=$(cygpath -u "$setup")
+          test -f "$setup" || { echo "no installer was made"; exit 1; }
           gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --verify-tag --title "WaOS ${TAG#v}" --notes ""
           named="$RUNNER_TEMP/WaOS-${TAG#v}-windows-x64-setup.exe"
           cp "$setup" "$named"
