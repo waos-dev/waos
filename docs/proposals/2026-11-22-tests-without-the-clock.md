@@ -24,9 +24,13 @@ Written 2026-11-22, after `main`'s CI went red on three tests that each passed o
 
 3. **The one way to drive a program is a crate over the engine, `waos-headless`, and the dev tools are a thin layer on it** (2026-11-22). Not the app driven through the dev protocol: the engine's tests would then depend on the app, the wrong way round, and every test would pay for a second process. Flutter's split is the model: `flutter_test` over the engine, `flutter drive` a thin layer on top. The dev server answers `waos tap` and `screenshot` through the crate's driving types, on the desktop app as well as headless, so there is one mouse.
 
+   Amended the same day: **the simulated input lives in the engine, and `waos-headless` is the screen alone.** A simulated click goes straight into the engine, as `view.pointer(event)`, the call a shell makes for a real one; it needs nothing of a shell, so it works on a real window as on a headless one, and a crate named for one shell would hold what every shell's tools use. It is a program's own mouse, `RunningProgram::mouse`, which remembers which of its views it is in, and `Keyboard`, which remembers nothing and needs only the view, named after Playwright's `page.mouse` and `page.keyboard`. The keyboard took about sixty key numbers from Waft, the USB HID usages and Flutter's logical ids a key event carries; the engine keeps them itself (`simulated_input::key_codes`) rather than depend on Waft.
+
 4. **One headless shell serves the tests and `waos --headless`** (2026-11-22), so what a program sees on a headless Linux server is what the tests check. It is made of the engine's shell parts, one per job (placement, vsync, compositor), and whoever builds the engine plugs in the rest: the tests their fakes, the daemon the real local capabilities, as the app does. The tests' screen refreshes as soon as a frame is asked for, the daemon's sixty times a second; the tests run on time that moves only when the test says (`EngineTime::Manual`).
 
 5. **The app's UI tests use Waft's tester** (2026-11-22): one `TestApp` over `WidgetTester`, its form factor a parameter, WaOS adding only what is its own, a store in a folder of the test's own and the engine under the app. What the tester lacks is fixed in Waft, for every Waft app: several views at once, and a finger's lift, which `TestPhone` works around today.
+
+6. **The fakes of the system's parts stay with the engine's tests** (2026-11-22). They check the engine against the shell, what it hands the platform, which only the engine's tests need. Whoever tests a program uses what WaOS ships for it instead: the simulated mouse and keyboard, answers set ahead (`waos settings set`), the simulated camera and microphone, and the inspect trace; an engine test that only needs a program past a question or a dialog does the same.
 
 ## The design
 
@@ -73,7 +77,7 @@ Each step a pull request that builds and passes.
 
 1. **PR #58**: the two flakes that marked a program's output late or announced a window before taking its events, fixed in the tests and the examples; `waos tap` answering once the input is handed over (decision 2); CI listing each system's test packages.
 2. **This proposal.** The rules go into a "Tests" section of `docs/essentials.md` with the step that makes each true: the dev tools' answer and CI's list with step 1, the tests' rules with step 5.
-3. **`waos-headless`**, built from the virtual shell, the engine's test shell and the dev mouse and keys, with tests of its own.
+3. **The simulated input in the engine** (decision 3, amended), the dev tools a thin layer on it; then **`waos-headless`**, the screen, built from the virtual shell and the engine's test shell, with tests of its own.
 4. **The daemon and the dev server on it**: `virtual_shell` goes, and Linux CI runs the app's dev tests without a filter.
 5. **The engine's tests on it**, file by file: the test shell, the shared log and the extra binaries go, and a test that only repeats a unit test is dropped.
 6. **Waft's tester's gaps fixed in Waft** (several views, the finger's lift), then the app's tests on `TestApp`, and the four harnesses go.

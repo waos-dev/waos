@@ -10,13 +10,12 @@
 use std::path::Path;
 use std::time::{Duration, Instant};
 
-use waos::Presence;
+use waos::{Mouse, Presence};
 use waos_dev_protocol::{
     ClientStream, Connection, Input, InputAnswer, InputDone, Refusal, RefusalKind, Request,
     RunEvent, ScreenshotAnswer, WindowId,
 };
 
-use super::mouse::DEVICE;
 use crate::logic::dev_server::tests::{TestServer, WITHIN, next, stdout_of};
 use crate::logic::test_engine::drawing::{WINDOW_HEIGHT, WINDOW_WIDTH};
 
@@ -99,7 +98,8 @@ async fn refused(server: &TestServer, window: WindowId, given: Input) -> Refusal
 /// scroll of `scroll`.
 fn mouse_line(change: &str, signal: &str, (x, y): (f64, f64), buttons: u8, scroll: &str) -> String {
     format!(
-        "pointer: PointerChange::{change} PointerDeviceKind::Mouse PointerSignalKind::{signal} device {DEVICE} at {x},{y} buttons {buttons} pressure 1 scroll {scroll}"
+        "pointer: PointerChange::{change} PointerDeviceKind::Mouse PointerSignalKind::{signal} device {} at {x},{y} buttons {buttons} pressure 1 scroll {scroll}",
+        Mouse::DEVICE
     )
 }
 

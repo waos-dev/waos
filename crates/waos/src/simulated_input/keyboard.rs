@@ -2,8 +2,7 @@
 //! keyboard sends for it, as the shell reports a user's keys, Waft's key events field for field:
 //! each modifier going down in the order named, the key going down and coming up, and the
 //! modifiers coming up in the opposite order. The keyboard is a US one, its keys the physical and
-//! logical keys Waft names (`PhysicalKeyboardKey`, `LogicalKeyboardKey`), the modifiers its left
-//! ones.
+//! logical keys a key event names (`key_codes`), the modifiers its left ones.
 //!
 //! A chord is names joined by `+`, the modifiers first, each in any case: `cmd` (or `command`,
 //! `meta`), `ctrl` (`control`), `alt` (`option`) and `shift`; then the key, a modifier itself, a
@@ -15,8 +14,43 @@
 //! a named key types none but `space`. A character key's logical key is its lower-case letter, or
 //! the symbol Shift picks, as Waft's host takes it from the system.
 
-use waft_services::{LogicalKeyboardKey, PhysicalKeyboardKey};
-use waos::bindings::wasdk::platform::views::{KeyDevice, KeyEvent, KeyKind};
+use crate::bindings::wasdk::platform::views::{KeyDevice, KeyEvent, KeyKind};
+use crate::views::ProgramView;
+
+use super::key_codes::{logical, physical};
+use super::text_commit;
+
+/// A US keyboard, which tools press keys on and enter text with in a program's views. It
+/// remembers nothing between presses: every chord is pressed and released whole.
+pub struct Keyboard;
+
+/// A chord whose names name no key, or whose keys before the last are not modifiers.
+#[derive(Debug)]
+pub struct NoSuchChord;
+
+/// Text to insert while nothing in the view is edited.
+#[derive(Debug)]
+pub struct NothingEdited;
+
+impl Keyboard {
+    /// The key or the chord `chord` names (`enter`, `a`, `cmd+s`) pressed and released in `view`.
+    /// The program's replies are not awaited: a key it leaves goes no further.
+    pub fn press(view: &ProgramView, chord: &str) -> Result<(), NoSuchChord> {
+        let events = key_events(chord, view.now()).ok_or(NoSuchChord)?;
+        for event in events {
+            drop(view.key(event));
+        }
+        Ok(())
+    }
+
+    /// `text` inserted into what `view` edits, as an input method commits its text, in place of
+    /// what is composed or selected, with no key pressed: Playwright's `keyboard.insertText`.
+    pub fn insert_text(view: &ProgramView, text: &str) -> Result<(), NothingEdited> {
+        let editing = view.editing_value().ok_or(NothingEdited)?;
+        view.text_input_editing_value(text_commit::committed(&editing, text));
+        Ok(())
+    }
+}
 
 /// A modifier's key, and whether it changes the character a key types.
 #[derive(Clone, Copy, PartialEq)]
@@ -38,7 +72,7 @@ struct Key {
 
 /// The events of `chord`, stamped `now` on the program's clock; none for a chord whose names name
 /// no key, or whose keys before the last are not modifiers.
-pub(crate) fn key_events(chord: &str, now: u64) -> Option<Vec<KeyEvent>> {
+fn key_events(chord: &str, now: u64) -> Option<Vec<KeyEvent>> {
     let names: Vec<String> = chord.split('+').map(str::to_lowercase).collect();
     let (key_name, modifier_names) = names.split_last()?;
     let modifiers = modifier_names
@@ -113,19 +147,10 @@ fn modifier_named(name: &str) -> Option<Modifier> {
 
 fn modifier_key(modifier: Modifier) -> Key {
     let (physical, logical) = match modifier {
-        Modifier::Meta => (
-            PhysicalKeyboardKey::META_LEFT,
-            LogicalKeyboardKey::META_LEFT,
-        ),
-        Modifier::Control => (
-            PhysicalKeyboardKey::CONTROL_LEFT,
-            LogicalKeyboardKey::CONTROL_LEFT,
-        ),
-        Modifier::Alt => (PhysicalKeyboardKey::ALT_LEFT, LogicalKeyboardKey::ALT_LEFT),
-        Modifier::Shift => (
-            PhysicalKeyboardKey::SHIFT_LEFT,
-            LogicalKeyboardKey::SHIFT_LEFT,
-        ),
+        Modifier::Meta => (physical::META_LEFT, logical::META_LEFT),
+        Modifier::Control => (physical::CONTROL_LEFT, logical::CONTROL_LEFT),
+        Modifier::Alt => (physical::ALT_LEFT, logical::ALT_LEFT),
+        Modifier::Shift => (physical::SHIFT_LEFT, logical::SHIFT_LEFT),
     };
     named(physical, logical)
 }
@@ -144,43 +169,43 @@ fn character_key(character: char) -> Option<Key> {
     if character.is_ascii_lowercase() {
         let offset = u64::from(character) - u64::from('a');
         return Some(Key {
-            physical: PhysicalKeyboardKey::KEY_A.usb_hid_usage + offset,
-            logical: LogicalKeyboardKey::KEY_A.key_id + offset,
+            physical: physical::KEY_A + offset,
+            logical: logical::KEY_A + offset,
             characters: Some((character, character.to_ascii_uppercase())),
         });
     }
     let (physical, shifted) = symbol_key(character)?;
     Some(Key {
-        physical: physical.usb_hid_usage,
+        physical,
         logical: u64::from(character),
         characters: Some((character, shifted)),
     })
 }
 
 /// The physical key of a digit or a symbol on a US keyboard, and what it types shifted.
-fn symbol_key(character: char) -> Option<(PhysicalKeyboardKey, char)> {
+fn symbol_key(character: char) -> Option<(u64, char)> {
     Some(match character {
-        '1' => (PhysicalKeyboardKey::DIGIT1, '!'),
-        '2' => (PhysicalKeyboardKey::DIGIT2, '@'),
-        '3' => (PhysicalKeyboardKey::DIGIT3, '#'),
-        '4' => (PhysicalKeyboardKey::DIGIT4, '$'),
-        '5' => (PhysicalKeyboardKey::DIGIT5, '%'),
-        '6' => (PhysicalKeyboardKey::DIGIT6, '^'),
-        '7' => (PhysicalKeyboardKey::DIGIT7, '&'),
-        '8' => (PhysicalKeyboardKey::DIGIT8, '*'),
-        '9' => (PhysicalKeyboardKey::DIGIT9, '('),
-        '0' => (PhysicalKeyboardKey::DIGIT0, ')'),
-        '-' => (PhysicalKeyboardKey::MINUS, '_'),
-        '=' => (PhysicalKeyboardKey::EQUAL, '+'),
-        '[' => (PhysicalKeyboardKey::BRACKET_LEFT, '{'),
-        ']' => (PhysicalKeyboardKey::BRACKET_RIGHT, '}'),
-        '\\' => (PhysicalKeyboardKey::BACKSLASH, '|'),
-        ';' => (PhysicalKeyboardKey::SEMICOLON, ':'),
-        '\'' => (PhysicalKeyboardKey::QUOTE, '"'),
-        '`' => (PhysicalKeyboardKey::BACKQUOTE, '~'),
-        ',' => (PhysicalKeyboardKey::COMMA, '<'),
-        '.' => (PhysicalKeyboardKey::PERIOD, '>'),
-        '/' => (PhysicalKeyboardKey::SLASH, '?'),
+        '1' => (physical::DIGIT1, '!'),
+        '2' => (physical::DIGIT2, '@'),
+        '3' => (physical::DIGIT3, '#'),
+        '4' => (physical::DIGIT4, '$'),
+        '5' => (physical::DIGIT5, '%'),
+        '6' => (physical::DIGIT6, '^'),
+        '7' => (physical::DIGIT7, '&'),
+        '8' => (physical::DIGIT8, '*'),
+        '9' => (physical::DIGIT9, '('),
+        '0' => (physical::DIGIT0, ')'),
+        '-' => (physical::MINUS, '_'),
+        '=' => (physical::EQUAL, '+'),
+        '[' => (physical::BRACKET_LEFT, '{'),
+        ']' => (physical::BRACKET_RIGHT, '}'),
+        '\\' => (physical::BACKSLASH, '|'),
+        ';' => (physical::SEMICOLON, ':'),
+        '\'' => (physical::QUOTE, '"'),
+        '`' => (physical::BACKQUOTE, '~'),
+        ',' => (physical::COMMA, '<'),
+        '.' => (physical::PERIOD, '>'),
+        '/' => (physical::SLASH, '?'),
         _ => return None,
     })
 }
@@ -191,40 +216,25 @@ fn named_key(name: &str) -> Option<Key> {
         return function_key(number.parse().ok()?);
     }
     let (physical, logical) = match name {
-        "enter" | "return" => (PhysicalKeyboardKey::ENTER, LogicalKeyboardKey::ENTER),
-        "escape" | "esc" => (PhysicalKeyboardKey::ESCAPE, LogicalKeyboardKey::ESCAPE),
-        "tab" => (PhysicalKeyboardKey::TAB, LogicalKeyboardKey::TAB),
+        "enter" | "return" => (physical::ENTER, logical::ENTER),
+        "escape" | "esc" => (physical::ESCAPE, logical::ESCAPE),
+        "tab" => (physical::TAB, logical::TAB),
         "space" => {
             return Some(Key {
                 characters: Some((' ', ' ')),
-                ..named(PhysicalKeyboardKey::SPACE, LogicalKeyboardKey::SPACE)
+                ..named(physical::SPACE, logical::SPACE)
             });
         }
-        "backspace" => (
-            PhysicalKeyboardKey::BACKSPACE,
-            LogicalKeyboardKey::BACKSPACE,
-        ),
-        "delete" => (PhysicalKeyboardKey::DELETE, LogicalKeyboardKey::DELETE),
-        "up" => (PhysicalKeyboardKey::ARROW_UP, LogicalKeyboardKey::ARROW_UP),
-        "down" => (
-            PhysicalKeyboardKey::ARROW_DOWN,
-            LogicalKeyboardKey::ARROW_DOWN,
-        ),
-        "left" => (
-            PhysicalKeyboardKey::ARROW_LEFT,
-            LogicalKeyboardKey::ARROW_LEFT,
-        ),
-        "right" => (
-            PhysicalKeyboardKey::ARROW_RIGHT,
-            LogicalKeyboardKey::ARROW_RIGHT,
-        ),
-        "home" => (PhysicalKeyboardKey::HOME, LogicalKeyboardKey::HOME),
-        "end" => (PhysicalKeyboardKey::END, LogicalKeyboardKey::END),
-        "pageup" => (PhysicalKeyboardKey::PAGE_UP, LogicalKeyboardKey::PAGE_UP),
-        "pagedown" => (
-            PhysicalKeyboardKey::PAGE_DOWN,
-            LogicalKeyboardKey::PAGE_DOWN,
-        ),
+        "backspace" => (physical::BACKSPACE, logical::BACKSPACE),
+        "delete" => (physical::DELETE, logical::DELETE),
+        "up" => (physical::ARROW_UP, logical::ARROW_UP),
+        "down" => (physical::ARROW_DOWN, logical::ARROW_DOWN),
+        "left" => (physical::ARROW_LEFT, logical::ARROW_LEFT),
+        "right" => (physical::ARROW_RIGHT, logical::ARROW_RIGHT),
+        "home" => (physical::HOME, logical::HOME),
+        "end" => (physical::END, logical::END),
+        "pageup" => (physical::PAGE_UP, logical::PAGE_UP),
+        "pagedown" => (physical::PAGE_DOWN, logical::PAGE_DOWN),
         _ => return None,
     };
     Some(named(physical, logical))
@@ -237,16 +247,16 @@ fn function_key(number: u64) -> Option<Key> {
     }
     let offset = number - 1;
     Some(Key {
-        physical: PhysicalKeyboardKey::F1.usb_hid_usage + offset,
-        logical: LogicalKeyboardKey::F1.key_id + offset,
+        physical: physical::F1 + offset,
+        logical: logical::F1 + offset,
         characters: None,
     })
 }
 
-fn named(physical: PhysicalKeyboardKey, logical: LogicalKeyboardKey) -> Key {
+fn named(physical: u64, logical: u64) -> Key {
     Key {
-        physical: physical.usb_hid_usage,
-        logical: logical.key_id,
+        physical,
+        logical,
         characters: None,
     }
 }
