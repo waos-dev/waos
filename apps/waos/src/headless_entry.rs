@@ -1,5 +1,5 @@
-//! Headless WaOS daemon: runs the engine, local capabilities, store, dev server, and virtual
-//! display shell with no `winit`, Wayland, X11, or `waft-single-instance`. Used on headless Linux
+//! Headless WaOS daemon: runs the engine, local capabilities, store, dev server, and a screen with
+//! no display (`waos_headless`) with no `winit`, Wayland, X11, or `waft-single-instance`. Used on headless Linux
 //! servers/CI and whenever `waos --headless` is invoked.
 //!
 //! The invariant: every `ask` permission prompt stays open through `PromptsOnRequest` + `AskingNow`
@@ -20,6 +20,7 @@ use waos::inspection::InspectedPrograms;
 use waos::{
     EngineTime, FreezePolicy, HardwareBufferMode, HttpProxy, PlatformState, WaOS, WaOSConfig,
 };
+use waos_headless::{Display, HeadlessScreen, Refreshes};
 use waos_local::LocalCapabilities;
 use waos_store::{SourceProxy, Store};
 
@@ -34,7 +35,6 @@ use crate::logic::program_places::{ProgramPlace, ProgramPlaces};
 use crate::logic::prompts::{PromptRequests, PromptsOnRequest};
 use crate::logic::runs::Runs;
 use crate::logic::sent_components::SentComponents;
-use crate::logic::virtual_shell::{self, VirtualDisplay};
 use crate::os;
 use crate::write_traces;
 
@@ -45,8 +45,20 @@ pub(crate) struct HeadlessConfig {
     /// Exits after this long with no active runs and no open dev-server connections; `None` or
     /// zero waits forever (until Ctrl-C / SIGTERM).
     pub(crate) idle_timeout: Option<Duration>,
-    pub(crate) display: VirtualDisplay,
+    pub(crate) display: Display,
 }
+
+/// The screen a headless WaOS shows its programs' windows on: 1280 by 800 pixels at a scale of 1,
+/// each view in a window of its own.
+const DISPLAY: Display = Display {
+    width: 1280,
+    height: 800,
+    scale: 1.0,
+    windows: true,
+};
+
+/// How long after the engine asks the headless screen refreshes, as a 60 Hz screen does.
+const REFRESH_INTERVAL: Duration = Duration::from_millis(16);
 
 /// Entry point for `waos --headless [--idle-timeout <secs>]`.
 pub(crate) fn run(idle_timeout: Option<Duration>) -> Result<()> {
@@ -55,7 +67,7 @@ pub(crate) fn run(idle_timeout: Option<Duration>) -> Result<()> {
         folders: folders::app_folders(),
         socket: waos_dev_protocol::listener_path(),
         idle_timeout: idle_timeout.filter(|duration| !duration.is_zero()),
-        display: VirtualDisplay::default(),
+        display: DISPLAY,
     };
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -105,7 +117,8 @@ impl HeadlessDaemon {
         let (prompts, prompted) = PromptsOnRequest::new(Arc::clone(&asking));
         let output_picker = prompts.output_picker();
         let machine_picker = prompts.machine_picker();
-        let (mut shell, refreshes) = virtual_shell::shell(config.display, true, Arc::new(prompts));
+        let screen = HeadlessScreen::new(config.display, Refreshes::Every(REFRESH_INTERVAL));
+        let mut shell = screen.shell(Arc::new(prompts));
         shell.audio_output_picker = Some(Arc::new(output_picker));
         shell.machine_picker = Some(Arc::new(machine_picker));
 
@@ -126,7 +139,7 @@ impl HeadlessDaemon {
             hardware_buffers: HardwareBufferMode::Offscreen,
         };
         let platform = PlatformState {
-            screens: vec![config.display.screen()],
+            screens: vec![screen.screen()],
             platform_brightness: Brightness::Light,
             caption_style: None,
             locales: system_locales(),
@@ -134,7 +147,7 @@ impl HeadlessDaemon {
         };
         let engine =
             Arc::new(WaOS::new(waos_config, shell, platform).context("starting the engine")?);
-        refreshes.attach(&engine);
+        screen.attach(&engine);
 
         let capabilities = LocalCapabilities::new();
         let environments = ProgramEnvironments::new(capabilities, store.clone());
@@ -389,16 +402,17 @@ mod tests {
             folders: test_folders(temp.path()),
             socket: socket.clone(),
             idle_timeout: Some(Duration::from_millis(150)),
-            display: VirtualDisplay {
+            display: Display {
                 width: 400,
                 height: 300,
                 scale: 2.0,
+                windows: true,
             },
         };
         let daemon =
             HeadlessDaemon::start(config, tokio::runtime::Handle::current()).expect("start daemon");
 
-        // 1. Run `examples/input` over waos-dev-protocol on the headless virtual shell.
+        // 1. Run `examples/input` over waos-dev-protocol on the headless screen.
         let id: ProgramId = INPUT_ID.parse().unwrap();
         let run_conn = start_run(&socket, id.clone(), Path::new(waos_test_programs::INPUT)).await;
 

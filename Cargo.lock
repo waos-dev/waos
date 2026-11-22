@@ -8587,6 +8587,7 @@ dependencies = [
  "waos-capabilities",
  "waos-cli",
  "waos-dev-protocol",
+ "waos-headless",
  "waos-local",
  "waos-package",
  "waos-program-window",
@@ -8646,6 +8647,13 @@ dependencies = [
  "tracing",
  "waos-package",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "waos-headless"
+version = "0.6.0"
+dependencies = [
+ "waos",
 ]
 
 [[package]]
