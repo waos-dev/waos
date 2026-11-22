@@ -13,20 +13,19 @@
 //! The graph renders on web-audio-api's thread in time, as on a device, so a step that listens
 //! to it waits for what it hears; the tests wait for what the programs print.
 
+use std::path::Path;
 use std::sync::Arc;
-use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use futures::FutureExt;
-use futures::executor::block_on;
 use waos::{
-    Answer, AudioDevices, FreezePolicy, ManualTime, ProgramEnd, ProgramEnvironment, ProgramGrants,
-    ProgramOutput, Question, RecordingDevice,
+    Answer, AudioDevices, EngineTime, FreezePolicy, ManualTime, Presence, ProgramEnd,
+    ProgramEnvironment, ProgramGrants, Question, RecordingDevice, RunningProgram, WaOS, WaOSConfig,
 };
 
 use crate::asking::QuestionsAsked;
 use crate::shell::sound::{HEADPHONES, TestDevices};
-use crate::shell::{self, Lines, WITHIN, hide, show, wait_until_frozen};
+use crate::test_shell::{RecordedOutput, TestShell, config, printing_to, wait_until, within};
 
 /// What `examples/sound` prints before it opens the microphone, in order.
 const BEFORE_THE_MICROPHONE: [&str; 11] = [
@@ -45,29 +44,30 @@ const BEFORE_THE_MICROPHONE: [&str; 11] = [
 
 #[test]
 fn a_program_plays_every_node_streams_picks_an_output_and_records_once_allowed() {
-    let (engine, shell, _arrivals) = shell::engine();
-    let (lines, devices, running) = run_sound(&engine);
+    let shell = TestShell::new();
+    let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
+    let (output, devices, running) = run_sound(&engine);
     for line in BEFORE_THE_MICROPHONE {
-        lines.wait_for(line);
+        output.wait_for(line);
     }
-    assert_eq!(shell.sound().shown(), [["speakers", HEADPHONES]]);
+    assert_eq!(shell.sound.shown(), [["speakers", HEADPHONES]]);
     assert_eq!(devices.moves(), [HEADPHONES]);
 
     wait_until("the microphone question is put", || {
-        !shell.questions().is_empty()
+        !shell.prompts.questions().is_empty()
     });
     assert_eq!(
-        shell.questions(),
+        shell.prompts.questions(),
         [("sound".to_owned(), Question::Microphone)]
     );
-    shell.answer_questions(Some(Answer::Granted));
-    lines.wait_for("microphone: heard");
-    lines.wait_for("microphone: let go");
-    lines.wait_for("closed: AudioContextState::Closed");
-    let end = block_on(running.ended());
+    shell.prompts.answer_questions(Some(Answer::Granted));
+    output.wait_for("microphone: heard");
+    output.wait_for("microphone: let go");
+    output.wait_for("closed: AudioContextState::Closed");
+    let end = within(running.ended());
     assert!(matches!(end, ProgramEnd::Returned(Ok(()))), "{end:?}");
     assert_eq!(
-        shell.sound().recording(),
+        shell.sound.recording(),
         [
             ("sound".to_owned(), RecordingDevice::Microphone, true),
             ("sound".to_owned(), RecordingDevice::Microphone, false)
@@ -78,39 +78,41 @@ fn a_program_plays_every_node_streams_picks_an_output_and_records_once_allowed()
 
 #[test]
 fn a_dismissed_picker_and_a_refused_microphone_say_why_and_nothing_records() {
-    let (engine, shell, _arrivals) = shell::engine();
-    shell.sound().set_pick(None);
-    let (lines, devices, running) = run_sound(&engine);
-    lines.wait_for("pick refused: not-allowed");
+    let shell = TestShell::new();
+    let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
+    shell.sound.set_pick(None);
+    let (output, devices, running) = run_sound(&engine);
+    output.wait_for("pick refused: not-allowed");
     wait_until("the microphone question is put", || {
-        !shell.questions().is_empty()
+        !shell.prompts.questions().is_empty()
     });
-    shell.answer_questions(Some(Answer::Denied));
-    lines.wait_for("microphone refused: not-allowed");
-    block_on(running.ended());
+    shell.prompts.answer_questions(Some(Answer::Denied));
+    output.wait_for("microphone refused: not-allowed");
+    within(running.ended());
     assert!(devices.moves().is_empty());
-    assert!(shell.sound().recording().is_empty());
+    assert!(shell.sound.recording().is_empty());
 }
 
 #[test]
 fn an_output_set_as_the_pickers_answer_is_given_unasked_and_one_not_connected_is_not_found() {
-    let (engine, shell, _arrivals) = shell::engine();
+    let shell = TestShell::new();
+    let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
     let grants = QuestionsAsked::answering_the_output_picker_with(HEADPHONES);
-    let (lines, devices, running) = run_sound_with(&engine, TestDevices::default(), grants);
-    lines.wait_for("picked: Headphones");
-    lines.wait_for("moved: headphones");
+    let (output, devices, running) = run_sound_with(&engine, TestDevices::default(), grants);
+    output.wait_for("picked: Headphones");
+    output.wait_for("moved: headphones");
     running.stop();
-    block_on(running.ended());
-    assert!(shell.sound().shown().is_empty(), "no picker shown");
+    within(running.ended());
+    assert!(shell.sound.shown().is_empty(), "no picker shown");
     assert_eq!(devices.moves(), [HEADPHONES]);
 
     let grants = QuestionsAsked::answering_the_output_picker_with("unplugged");
-    let (lines, devices, running) = run_sound_with(&engine, TestDevices::default(), grants);
-    lines.wait_for("pick refused: not-found");
+    let (output, devices, running) = run_sound_with(&engine, TestDevices::default(), grants);
+    output.wait_for("pick refused: not-found");
     running.stop();
-    block_on(running.ended());
+    within(running.ended());
     assert!(
-        shell.sound().shown().is_empty(),
+        shell.sound.shown().is_empty(),
         "no picker shown in its place"
     );
     assert!(devices.moves().is_empty());
@@ -118,48 +120,49 @@ fn an_output_set_as_the_pickers_answer_is_given_unasked_and_one_not_connected_is
 
 #[test]
 fn a_waiting_output_picker_is_answered_by_setting_its_row_and_drops_its_prompt() {
-    let (engine, shell, _arrivals) = shell::engine();
-    shell.sound().hold_picks();
+    let shell = TestShell::new();
+    let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
+    shell.sound.hold_picks();
     let grants = Arc::new(QuestionsAsked::default());
-    let program = shell::load(&engine, waos_test_programs::SOUND);
-    let lines = Arc::new(Lines::default());
+    let program = engine.load(Path::new(waos_test_programs::SOUND)).unwrap();
+    let output = Arc::new(RecordedOutput::default());
     let devices = Arc::new(TestDevices::default());
     let environment = ProgramEnvironment {
-        output: Some(Arc::clone(&lines) as Arc<dyn ProgramOutput>),
         grants: Some(Arc::clone(&grants) as Arc<dyn ProgramGrants>),
         audio: Some(Arc::clone(&devices) as Arc<dyn AudioDevices>),
-        ..ProgramEnvironment::default()
+        ..printing_to(&output)
     };
     let running = engine.run(&program, environment).unwrap();
 
     wait_until("output picker is waiting", || {
-        !shell.sound().shown().is_empty()
+        !shell.sound.shown().is_empty()
     });
-    assert!(!shell.sound().held_cancelled(0));
+    assert!(!shell.sound.held_cancelled(0));
 
     grants.set_audio_output_answer(HEADPHONES);
     wait_until("output picker future is dropped", || {
-        shell.sound().held_cancelled(0)
+        shell.sound.held_cancelled(0)
     });
-    lines.wait_for("picked: Headphones");
-    lines.wait_for("moved: headphones");
+    output.wait_for("picked: Headphones");
+    output.wait_for("moved: headphones");
     running.stop();
-    block_on(running.ended());
+    within(running.ended());
 }
 
 #[test]
 fn a_simulated_microphone_records_waoss_tone_unasked_on_devices_without_one_and_shows_simulated() {
-    let (engine, shell, _arrivals) = shell::engine();
+    let shell = TestShell::new();
+    let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
     let grants = QuestionsAsked::default();
     grants.set_answer(Question::Microphone, Answer::Simulated);
-    let (lines, _devices, running) =
+    let (output, _devices, running) =
         run_sound_with(&engine, TestDevices::without_microphone(), grants);
-    lines.wait_for("microphone: heard");
-    lines.wait_for("microphone: let go");
-    block_on(running.ended());
-    assert!(shell.questions().is_empty(), "nothing asked");
+    output.wait_for("microphone: heard");
+    output.wait_for("microphone: let go");
+    within(running.ended());
+    assert!(shell.prompts.questions().is_empty(), "nothing asked");
     assert_eq!(
-        shell.sound().recording(),
+        shell.sound.recording(),
         [
             (
                 "sound".to_owned(),
@@ -178,56 +181,73 @@ fn a_simulated_microphone_records_waoss_tone_unasked_on_devices_without_one_and_
 
 #[test]
 fn a_simulated_microphone_chosen_silent_is_heard_as_nothing() {
-    let (engine, _shell, _arrivals) = shell::engine();
+    let shell = TestShell::new();
+    let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
     let grants = QuestionsAsked::silent_simulated_microphone();
-    let (lines, _devices, running) = run_sound_with(&engine, TestDevices::default(), grants);
-    lines.wait_for("microphone: let go");
-    block_on(running.ended());
-    assert!(!lines.has("microphone: heard"), "{:#?}", lines.all());
+    let (output, _devices, running) = run_sound_with(&engine, TestDevices::default(), grants);
+    output.wait_for("microphone: let go");
+    within(running.ended());
+    assert!(!output.has("microphone: heard"), "{:#?}", output.lines());
 }
 
 #[test]
 fn a_shell_with_no_picker_and_no_indicator_offers_neither_and_asks_nothing() {
-    let (engine, shell, _arrivals) = shell::engine_of(shell::config(), |parts| {
-        parts.audio_output_picker = None;
-        parts.recording_indicator = None;
-    });
-    let (lines, _devices, running) = run_sound(&engine);
-    lines.wait_for("pick refused: not-supported");
-    lines.wait_for("microphone refused: not-supported");
-    block_on(running.ended());
+    let shell = TestShell::new();
+    let mut parts = shell.shell();
+    parts.audio_output_picker = None;
+    parts.recording_indicator = None;
+    let engine = WaOS::new(config(), parts, shell.platform()).unwrap();
+    let (output, _devices, running) = run_sound(&engine);
+    output.wait_for("pick refused: not-supported");
+    output.wait_for("microphone refused: not-supported");
+    within(running.ended());
     assert!(
-        shell.questions().is_empty(),
+        shell.prompts.questions().is_empty(),
         "nothing asked: nobody could see it record"
     );
 }
 
 #[test]
 fn devices_without_a_microphone_refuse_it_and_ask_nothing() {
-    let (engine, shell, _arrivals) = shell::engine();
-    let (lines, _devices, running) = run_sound_on(&engine, TestDevices::without_microphone());
-    lines.wait_for("microphone refused: not-supported");
-    block_on(running.ended());
+    let shell = TestShell::new();
+    let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
+    let (output, _devices, running) = run_sound_on(&engine, TestDevices::without_microphone());
+    output.wait_for("microphone refused: not-supported");
+    within(running.ended());
     assert!(
-        shell.questions().is_empty(),
+        shell.prompts.questions().is_empty(),
         "nothing asked: there is no microphone to give"
     );
-    assert!(shell.sound().recording().is_empty());
+    assert!(shell.sound.recording().is_empty());
 }
 
 #[test]
 fn a_program_given_no_sound_devices_has_no_sound() {
-    let (engine, _shell, _arrivals) = shell::engine();
-    let program = shell::load(&engine, waos_test_programs::SOUND);
-    let lines = Arc::new(Lines::default());
+    let shell = TestShell::new();
+    let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
+    let program = engine.load(Path::new(waos_test_programs::SOUND)).unwrap();
+    let output = Arc::new(RecordedOutput::default());
     let environment = ProgramEnvironment {
-        output: Some(Arc::clone(&lines) as Arc<dyn ProgramOutput>),
-        ..ProgramEnvironment::default()
+        ..printing_to(&output)
     };
     let running = engine.run(&program, environment).unwrap();
-    lines.wait_for("no sound");
-    block_on(running.ended());
+    output.wait_for("no sound");
+    within(running.ended());
 }
+
+/// A view taken off screen, as the user minimizing its window does.
+const HIDDEN: Presence = Presence {
+    on_screen: false,
+    occluded: false,
+    focused: false,
+};
+
+/// A view on screen again.
+const SHOWN: Presence = Presence {
+    on_screen: true,
+    occluded: false,
+    focused: false,
+};
 
 /// How long `examples/tone` stays hidden before the engine freezes it: three ticks.
 const AFTER_HIDDEN: Duration = Duration::from_millis(300);
@@ -238,35 +258,42 @@ fn a_program_is_thawed_while_it_plays_frozen_while_its_tone_waits_and_trapped_st
     let policy = FreezePolicy {
         after_hidden: Some(AFTER_HIDDEN),
     };
-    let (engine, _shell, arrivals) = shell::engine_on(&time, policy);
-    let program = shell::load(&engine, waos_test_programs::TONE);
-    let lines = Arc::new(Lines::default());
-    let environment = ProgramEnvironment {
-        output: Some(Arc::clone(&lines) as Arc<dyn ProgramOutput>),
-        audio: Some(Arc::new(TestDevices::default()) as Arc<dyn AudioDevices>),
-        ..ProgramEnvironment::default()
+    let shell = TestShell::new();
+    let config = WaOSConfig {
+        time: EngineTime::Manual(time.clone()),
+        freeze: policy,
+        ..config()
     };
-    let (running, view) = shell::run_shown(&engine, &arrivals, &program, environment);
-    let view = &view;
-    lines.wait_for("playing");
+    let engine = WaOS::new(config, shell.shell(), shell.platform()).unwrap();
+    let program = engine.load(Path::new(waos_test_programs::TONE)).unwrap();
+    let output = Arc::new(RecordedOutput::default());
+    let environment = ProgramEnvironment {
+        audio: Some(Arc::new(TestDevices::default()) as Arc<dyn AudioDevices>),
+        ..printing_to(&output)
+    };
+    let running = engine.run(&program, environment).unwrap();
+    let view = within(shell.headless.view(0))
+        .and_then(|shown| shown.view())
+        .expect("tone asks for a view");
+    output.wait_for("playing");
 
-    hide(view);
-    lines.wait_for("hidden, playing");
+    view.presence_changed(HIDDEN);
+    output.wait_for("hidden, playing");
     time.elapse(AFTER_HIDDEN * 3);
     assert!(
         running.frozen().now_or_never().is_none(),
         "audible, it is not frozen"
     );
 
-    show(view);
-    lines.wait_for("shown, ended, another an hour ahead");
-    hide(view);
-    lines.wait_for("hidden, silent until then");
+    view.presence_changed(SHOWN);
+    output.wait_for("shown, ended, another an hour ahead");
+    view.presence_changed(HIDDEN);
+    output.wait_for("hidden, silent until then");
     time.elapse(AFTER_HIDDEN);
-    wait_until_frozen(&running);
+    within(running.frozen());
 
-    show(view);
-    let end = block_on(running.ended());
+    view.presence_changed(SHOWN);
+    let end = within(running.ended());
     let ProgramEnd::Failed(trap) = end else {
         panic!("starting its tone twice traps it: {end:?}");
     };
@@ -274,47 +301,37 @@ fn a_program_is_thawed_while_it_plays_frozen_while_its_tone_waits_and_trapped_st
         format!("{trap:#}").contains("InvalidStateError - Cannot call `start` twice"),
         "{trap:#}"
     );
-    assert!(!lines.has("started twice"));
+    assert!(!output.has("started twice"));
 }
 
 /// Runs `examples/sound` on `engine` with devices of its own and grants that ask about the
 /// microphone, and answers what it prints, the devices and the program.
-fn run_sound(engine: &waos::WaOS) -> (Arc<Lines>, Arc<TestDevices>, waos::RunningProgram) {
+fn run_sound(engine: &WaOS) -> (Arc<RecordedOutput>, Arc<TestDevices>, RunningProgram) {
     run_sound_on(engine, TestDevices::default())
 }
 
 /// [`run_sound`], on `devices`.
 fn run_sound_on(
-    engine: &waos::WaOS,
+    engine: &WaOS,
     devices: TestDevices,
-) -> (Arc<Lines>, Arc<TestDevices>, waos::RunningProgram) {
+) -> (Arc<RecordedOutput>, Arc<TestDevices>, RunningProgram) {
     run_sound_with(engine, devices, QuestionsAsked::default())
 }
 
 /// [`run_sound`], on `devices`, with `grants`.
 fn run_sound_with(
-    engine: &waos::WaOS,
+    engine: &WaOS,
     devices: TestDevices,
     grants: QuestionsAsked,
-) -> (Arc<Lines>, Arc<TestDevices>, waos::RunningProgram) {
-    let program = shell::load(engine, waos_test_programs::SOUND);
-    let lines = Arc::new(Lines::default());
+) -> (Arc<RecordedOutput>, Arc<TestDevices>, RunningProgram) {
+    let program = engine.load(Path::new(waos_test_programs::SOUND)).unwrap();
+    let output = Arc::new(RecordedOutput::default());
     let devices = Arc::new(devices);
     let environment = ProgramEnvironment {
-        output: Some(Arc::clone(&lines) as Arc<dyn ProgramOutput>),
         grants: Some(Arc::new(grants) as Arc<dyn ProgramGrants>),
         audio: Some(Arc::clone(&devices) as Arc<dyn AudioDevices>),
-        ..ProgramEnvironment::default()
+        ..printing_to(&output)
     };
     let running = engine.run(&program, environment).unwrap();
-    (lines, devices, running)
-}
-
-/// Waits until `done`, failing after [`WITHIN`].
-fn wait_until(what: &str, done: impl Fn() -> bool) {
-    let deadline = Instant::now() + WITHIN;
-    while !done() {
-        assert!(Instant::now() < deadline, "{what} never happened");
-        thread::sleep(Duration::from_millis(5));
-    }
+    (output, devices, running)
 }
