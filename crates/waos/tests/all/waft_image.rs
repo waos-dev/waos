@@ -5,13 +5,13 @@
 //! decoded. It is a debug build of Waft, slow to start, and draws, so it runs where the engine
 //! makes hardware buffers, on Apple's systems.
 
+use std::path::Path;
 use std::sync::Arc;
-use std::sync::mpsc::Receiver;
 
 use waos::{ProgramEnd, ProgramEnvironment, ProgramOutput, ProgramView, RunningProgram, WaOS};
 
 use crate::shell::image_codecs::{Asked, ImageAnswers, ImageFacts, OpenedFrom, TestImageCodecs};
-use crate::shell::{self, Lines, VIEW_HEIGHT, VIEW_WIDTH, WITHIN, pixel_of, wait_until};
+use crate::test_shell::{DISPLAY, RecordedOutput, TestShell, config, pixel_of, wait_until, within};
 
 /// The length of the program's PNG, `examples/waft-image/src/red.png`.
 const PNG_BYTES: usize = 73;
@@ -24,13 +24,14 @@ const DECODED_BGRA: [u8; 4] = [90, 200, 40, 255];
 
 #[test]
 fn a_memory_image_decodes_by_the_hardware_codecs_and_draws() {
-    let (engine, shell, arrivals) = shell::engine();
-    shell.image_codecs().answer_with(answers());
-    let (running, view) = run(&engine, &arrivals);
+    let shell = TestShell::new();
+    let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
+    shell.image_codecs.answer_with(answers());
+    let (running, view) = run(&engine, &shell);
     wait_until("the window shows the decoded colour", || {
         middle_of(&view) == Some(DECODED_BGRA)
     });
-    assert_eq!(shell.image_codecs().asked(), decoded(true));
+    assert_eq!(shell.image_codecs.asked(), decoded(true));
     end(&running, &view);
 }
 
@@ -38,11 +39,11 @@ fn a_memory_image_decodes_by_the_hardware_codecs_and_draws() {
 fn a_memory_image_decodes_into_the_programs_memory_without_hardware_codecs_and_draws() {
     let codecs = Arc::new(TestImageCodecs::without_hardware());
     codecs.answer_with(answers());
-    let given = Arc::clone(&codecs);
-    let (engine, _shell, arrivals) = shell::engine_of(shell::config(), move |parts| {
-        parts.image_codecs = Some(given);
-    });
-    let (running, view) = run(&engine, &arrivals);
+    let shell = TestShell::new();
+    let mut parts = shell.shell();
+    parts.image_codecs = Some(Arc::clone(&codecs) as _);
+    let engine = WaOS::new(config(), parts, shell.platform()).unwrap();
+    let (running, view) = run(&engine, &shell);
     wait_until("the window shows the decoded colour", || {
         middle_of(&view) == Some(DECODED_BGRA)
     });
@@ -50,17 +51,19 @@ fn a_memory_image_decodes_into_the_programs_memory_without_hardware_codecs_and_d
     end(&running, &view);
 }
 
-/// Waft-image running, and its window's view, once it has arrived.
-fn run(engine: &WaOS, arrivals: &Receiver<ProgramView>) -> (RunningProgram, ProgramView) {
-    let lines = Arc::new(Lines::default());
-    let program = shell::load(engine, waos_test_programs::WAFT_IMAGE);
+/// Waft-image running on `engine`, over `shell`, and its window's view, once it has arrived.
+fn run(engine: &WaOS, shell: &TestShell) -> (RunningProgram, ProgramView) {
+    let program = engine
+        .load(Path::new(waos_test_programs::WAFT_IMAGE))
+        .unwrap();
+    let output = Arc::new(RecordedOutput::default());
     let environment = ProgramEnvironment {
-        output: Some(Arc::clone(&lines) as Arc<dyn ProgramOutput>),
+        output: Some(Arc::clone(&output) as Arc<dyn ProgramOutput>),
         ..waos_local::LocalCapabilities::new().environment()
     };
     let running = engine.run(&program, environment).unwrap();
-    let view = arrivals
-        .recv_timeout(WITHIN)
+    let view = within(shell.headless.view(0))
+        .and_then(|shown| shown.view())
         .expect("waft-image asks for its window");
     (running, view)
 }
@@ -91,20 +94,23 @@ fn decoded(hardware: bool) -> Vec<Asked> {
     ]
 }
 
-/// The middle pixel of what `view` shows, once it shows a picture of the shell's view size.
+/// The middle pixel of what `view` shows, once it shows a picture of the screen's size.
 fn middle_of(view: &ProgramView) -> Option<[u8; 4]> {
     let picture = view.picture().expect("the screenshot is drawn")?;
-    assert_eq!((picture.width, picture.height), (VIEW_WIDTH, VIEW_HEIGHT));
+    assert_eq!(
+        (picture.width, picture.height),
+        (DISPLAY.width, DISPLAY.height)
+    );
     Some(pixel_of(
         &picture,
-        VIEW_WIDTH as usize / 2,
-        VIEW_HEIGHT as usize / 2,
+        DISPLAY.width as usize / 2,
+        DISPLAY.height as usize / 2,
     ))
 }
 
 /// Closes the window, which ends the program.
 fn end(running: &RunningProgram, view: &ProgramView) {
     view.close_requested();
-    let end = shell::wait_for_end(running);
+    let end = within(running.ended());
     assert!(matches!(end, ProgramEnd::Returned(Ok(()))), "{end:?}");
 }

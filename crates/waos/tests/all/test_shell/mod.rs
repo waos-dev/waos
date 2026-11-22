@@ -20,6 +20,7 @@ use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
 
+use waos::bindings::wasdk::platform::hardware_buffers::PixelBuffer;
 use waos::bindings::wasdk::platform::system::{Brightness, Locale};
 use waos::{
     EngineTime, FreezePolicy, HttpProxy, PlatformState, ProgramEnvironment, ProgramOutput, Prompts,
@@ -195,4 +196,11 @@ pub fn printing_to(output: &Arc<RecordedOutput>) -> ProgramEnvironment {
         output: Some(Arc::clone(output) as Arc<dyn ProgramOutput>),
         ..ProgramEnvironment::default()
     }
+}
+
+/// The pixel of `picture` at (`x`, `y`), as its bytes lie: blue, green, red, alpha, as a view's
+/// picture (`ProgramView::picture`) holds them.
+pub fn pixel_of(picture: &PixelBuffer, x: usize, y: usize) -> [u8; 4] {
+    let at = y * picture.row_bytes as usize + x * 4;
+    picture.bytes[at..at + 4].try_into().unwrap()
 }
