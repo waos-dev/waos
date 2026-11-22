@@ -14,6 +14,8 @@ The rules WaOS keeps, one line each, so they are not lost under the code. Each l
 - A program is anything written against wasdk that runs in WaOS. ([decision 3](proposals/2026-11-21-views-a-program-asks-for.md))
 - An app has a UI; a tool, a command-line program, has none. A program is an app unless its manifest says `kind = "tool"`. ([decision 3](proposals/2026-11-21-views-a-program-asks-for.md); [`manifest.rs`](../crates/waos-package/src/manifest.rs))
 - A `.wapk` is how a program is installed, whether it is an app or a tool. ([`waos-package`](../crates/waos-package/src/lib.rs))
+- A package proves its publisher by the key that signed it; an update is signed with the key the program's first install was, from whatever source lists it, and a source only lists. ([decisions 43 to 46](proposals/2026-10-17-the-waos-project.md); [`store.rs`](../crates/waos-store/src/store.rs))
+- The official source is a catalog of apps their own repositories release, served at `list.waos.app`, which pins each app's publisher key. ([the official source](proposals/2026-11-22-official-source.md))
 - A program has a role, such as the inspector's, when its component imports that role's interfaces, since that is what lets its code call them; its user grants each role by name. ([`roles.rs`](../crates/waos/src/roles.rs))
 
 ## Views and windows
