@@ -25,7 +25,7 @@ What stands between today and a first stable release, in the order it blocks one
 - [ ] Android: a folder a program picks through the system's picker, which answers a document tree with no path, which WaOS cannot mount (a program on a machine opens its folders from the machine instead): a pick in the phone's own storage turned into its path while WaOS holds All files access, a cloud folder failing clearly. Designed with the lead on its own.
 - [x] Phones: the safe area over a program's view, as GPUI reads it (`wasdk-adapter-gpui` giving the view's padding and keyboard as GPUI's window insets, and Zed's port keeping its workspace clear of them).
 - [x] Phones: touch in `wasdk-adapter-gpui`, a finger given to GPUI as a touch, which it recognizes into taps and scrolls, not as a mouse, which drags a selection.
-- [ ] Phones: the soft keyboard types nothing into Zed's terminal, though it types into its editor (being researched).
+- [x] Phones: the soft keyboard types into Zed's terminal: `wasdk-adapter-gpui` gives an input with no document a buffer of its own, and Waft's Android host gives programs their keys (waos-dev/waft#138, which WaOS takes with its next Waft release).
 - [ ] iOS: developer builds (the App Store refuses downloaded code).
 - [ ] Windows, then Linux (`docs/proposals/2026-11-13-windows-and-linux.md`).
 - [ ] Remote machines over SSH (work order step 12).
