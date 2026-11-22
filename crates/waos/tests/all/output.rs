@@ -5,167 +5,122 @@
 //! A listener of the program's output, through its trace, hears each write from when it listens;
 //! one that listens to a program started held hears its first write.
 //!
-//! The tests read what forever logged, and two forevers at once would log alike, so each takes
-//! forever's turn (`shell::turns`).
+//! The tests that read the engine's log run forever under a name of their own, so the lines
+//! logged under it are their own run's.
 
-use std::sync::{Arc, Mutex};
-use std::thread;
-use std::time::{Duration, Instant};
+use std::path::Path;
+use std::sync::Arc;
 
-use futures::executor::block_on;
-use waos::{OutputStream, ProgramEnd, ProgramEnvironment, ProgramOutput, TraceKind};
+use futures::StreamExt;
+use waos::{ProgramEnd, ProgramEnvironment, TraceKind, TraceStream, WaOS};
 
-use crate::shell;
-use crate::shell::WITHIN;
+use crate::test_shell::{RecordedOutput, TestShell, config, printing_to, within};
 
 /// Forever's first two reports, in order.
-const FIRST_REPORTS: &str = "count 1048576\ncount 2097152\n";
-
-/// An output that keeps every write as it came, with its stream.
-#[derive(Default)]
-struct Recording {
-    writes: Mutex<Vec<(OutputStream, Vec<u8>)>>,
-}
-
-impl Recording {
-    /// Everything written to stdout so far, in order.
-    fn stdout(&self) -> Vec<u8> {
-        self.writes
-            .lock()
-            .unwrap()
-            .iter()
-            .filter(|(stream, _)| *stream == OutputStream::Stdout)
-            .flat_map(|(_, bytes)| bytes.iter().copied())
-            .collect()
-    }
-
-    /// Waits until stdout holds `wanted` bytes.
-    fn wait_for_stdout(&self, wanted: usize) -> Vec<u8> {
-        let deadline = Instant::now() + WITHIN;
-        loop {
-            let stdout = self.stdout();
-            if stdout.len() >= wanted {
-                return stdout;
-            }
-            assert!(
-                Instant::now() < deadline,
-                "the program never wrote {wanted} bytes; it wrote {stdout:?}"
-            );
-            thread::sleep(Duration::from_millis(10));
-        }
-    }
-}
-
-impl ProgramOutput for Recording {
-    fn poll_write(
-        &self,
-        stream: OutputStream,
-        _cx: &mut std::task::Context<'_>,
-        bytes: &[u8],
-    ) -> std::task::Poll<usize> {
-        self.writes.lock().unwrap().push((stream, bytes.to_vec()));
-        std::task::Poll::Ready(bytes.len())
-    }
-}
+const FIRST_REPORTS: [&str; 2] = ["count 1048576", "count 2097152"];
 
 #[test]
 fn a_chosen_output_gets_what_the_program_writes_in_order_and_the_log_nothing() {
-    let _forever = shell::turns::take("forever");
-    let log = shell::output();
-    let mark = log.mark();
-    let (engine, _shell, _arrivals) = shell::engine();
-    let forever = shell::load(&engine, waos_test_programs::FOREVER);
-    let recording = Arc::new(Recording::default());
-    let environment = ProgramEnvironment {
-        output: Some(Arc::clone(&recording) as Arc<dyn ProgramOutput>),
-        ..ProgramEnvironment::default()
-    };
-    let running = engine.run(&forever, environment).unwrap();
-    let stdout = recording.wait_for_stdout(FIRST_REPORTS.len());
+    let shell = TestShell::new();
+    let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
+    let name = "dev.test.output-to-a-chosen-output";
+    let forever = engine
+        .load(Path::new(waos_test_programs::FOREVER))
+        .unwrap()
+        .named(name);
+    let output = Arc::new(RecordedOutput::default());
+    let running = engine.run(&forever, printing_to(&output)).unwrap();
+    output.wait_for(FIRST_REPORTS[1]);
     running.stop();
-    assert!(matches!(block_on(running.ended()), ProgramEnd::Stopped));
-    assert_eq!(
-        String::from_utf8_lossy(&stdout[..FIRST_REPORTS.len()]),
-        FIRST_REPORTS
-    );
+    assert!(matches!(within(running.ended()), ProgramEnd::Stopped));
+    assert_eq!(output.lines()[..2], FIRST_REPORTS);
+    // TODO(tests-without-the-clock): the test shell has no reader of the engine's log, so this
+    // reads the old shell's, which records every program's lines by name.
+    let logged = crate::shell::output().lines_of(0, name);
     assert!(
-        log.lines_of(mark, "forever").is_empty(),
-        "the log got what the chosen output was for: {:?}",
-        log.lines_of(mark, "forever")
+        logged.is_empty(),
+        "the log got what the chosen output was for: {logged:?}"
     );
 }
 
 #[test]
 fn with_no_output_chosen_the_program_writes_to_the_log() {
-    let _forever = shell::turns::take("forever");
-    let log = shell::output();
-    let mark = log.mark();
-    let (engine, _shell, _arrivals) = shell::engine();
-    let forever = shell::load(&engine, waos_test_programs::FOREVER);
+    let shell = TestShell::new();
+    let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
+    let name = "dev.test.output-to-the-log";
+    let forever = engine
+        .load(Path::new(waos_test_programs::FOREVER))
+        .unwrap()
+        .named(name);
+    // TODO(tests-without-the-clock): the test shell has no reader of the engine's log, so this
+    // reads the old shell's, which records every program's lines by name.
+    let log = crate::shell::output();
     let running = engine.run(&forever, ProgramEnvironment::default()).unwrap();
-    log.wait_for(mark, "forever", |line| line == "count 2097152");
+    log.wait_for(0, name, |line| line == FIRST_REPORTS[1]);
     running.stop();
-    assert!(matches!(block_on(running.ended()), ProgramEnd::Stopped));
-    let lines = log.lines_of(mark, "forever");
-    assert_eq!(&lines[..2], ["count 1048576", "count 2097152"]);
+    assert!(matches!(within(running.ended()), ProgramEnd::Stopped));
+    assert_eq!(log.lines_of(0, name)[..2], FIRST_REPORTS);
 }
 
 #[test]
 fn a_listener_of_the_programs_output_hears_what_it_writes_from_then_on() {
-    let _forever = shell::turns::take("forever");
-    let (engine, _shell, _arrivals) = shell::engine();
-    let forever = shell::load(&engine, waos_test_programs::FOREVER);
-    let recording = Arc::new(Recording::default());
-    let environment = ProgramEnvironment {
-        output: Some(Arc::clone(&recording) as Arc<dyn ProgramOutput>),
-        ..ProgramEnvironment::default()
-    };
-    let running = engine.run(&forever, environment).unwrap();
-    let mut output = loop {
-        if let Some(output) = running.trace(TraceKind::Output) {
-            break output;
-        }
-        thread::sleep(Duration::from_millis(1));
-    };
-    let chunk = block_on(futures::StreamExt::next(&mut output)).expect("a write is heard");
-    let json = serde_json::to_value(&chunk).unwrap();
-    assert_eq!(json["channel"], "stdout");
-    assert_eq!(json["instance"], 0);
-    let bytes: Vec<u8> = serde_json::from_value(json["bytes"].clone()).unwrap();
+    let shell = TestShell::new();
+    let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
+    let forever = engine.load(Path::new(waos_test_programs::FOREVER)).unwrap();
+    let output = Arc::new(RecordedOutput::default());
+    let running = engine.run(&forever, printing_to(&output)).unwrap();
+    // Writing, it is linked, and so can be listened to.
+    output.wait_for(FIRST_REPORTS[0]);
+    let listened = running
+        .trace(TraceKind::Output)
+        .expect("linked, so it can be listened to");
+    let bytes = first_write(listened);
     assert!(
         String::from_utf8_lossy(&bytes).starts_with("count "),
         "{bytes:?}"
     );
     running.stop();
-    assert!(matches!(block_on(running.ended()), ProgramEnd::Stopped));
+    assert!(matches!(within(running.ended()), ProgramEnd::Stopped));
 }
 
 #[test]
 fn a_program_started_held_writes_nothing_until_let_go_and_a_listener_hears_its_first_write() {
-    let _forever = shell::turns::take("forever");
-    let (engine, _shell, _arrivals) = shell::engine();
-    let forever = shell::load(&engine, waos_test_programs::FOREVER);
-    let recording = Arc::new(Recording::default());
-    let environment = ProgramEnvironment {
-        output: Some(Arc::clone(&recording) as Arc<dyn ProgramOutput>),
-        ..ProgramEnvironment::default()
-    };
-    let (running, mut held) = engine.run_held(&forever, environment).unwrap();
-    block_on(held.linked());
-    let mut output = running
+    let shell = TestShell::new();
+    let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
+    let forever = engine.load(Path::new(waos_test_programs::FOREVER)).unwrap();
+    let output = Arc::new(RecordedOutput::default());
+    let (running, held) = engine.run_held(&forever, printing_to(&output)).unwrap();
+    let held = within(async move {
+        let mut held = held;
+        held.linked().await;
+        held
+    });
+    let listened = running
         .trace(TraceKind::Output)
         .expect("linked, so it can be listened to");
-    thread::sleep(Duration::from_millis(200));
-    assert!(recording.stdout().is_empty(), "held, it ran nothing");
     drop(held);
-    let chunk = block_on(futures::StreamExt::next(&mut output)).expect("a write is heard");
-    let json = serde_json::to_value(&chunk).unwrap();
-    let bytes: Vec<u8> = serde_json::from_value(json["bytes"].clone()).unwrap();
+    // Its first write heard by a listener from while it was held: it wrote nothing before.
+    let bytes = first_write(listened);
     assert_eq!(
         String::from_utf8_lossy(&bytes),
         "count 1048576\n",
         "its first write"
     );
+    assert_eq!(output.lines()[0], FIRST_REPORTS[0]);
     running.stop();
-    assert!(matches!(block_on(running.ended()), ProgramEnd::Stopped));
+    assert!(matches!(within(running.ended()), ProgramEnd::Stopped));
+}
+
+/// The bytes of the first write `listened` hears, on the program's standard output, from its
+/// first instance.
+fn first_write(listened: TraceStream) -> Vec<u8> {
+    let chunk = within(async move {
+        let mut listened = listened;
+        listened.next().await
+    })
+    .expect("a write is heard");
+    let json = serde_json::to_value(&chunk).unwrap();
+    assert_eq!(json["channel"], "stdout");
+    assert_eq!(json["instance"], 0);
+    serde_json::from_value(json["bytes"].clone()).unwrap()
 }
