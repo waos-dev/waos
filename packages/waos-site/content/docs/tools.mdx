@@ -7,7 +7,7 @@ description: Every waos command, and when to use it.
 ## Make, build, ship
 
 - **`waos new <name>`** writes a new app in a folder of its name: a WinUI app, for desktops and phones; `--template cupertino` for one meant for phones alone. Inside a cargo workspace, the app becomes one of its members, as `cargo new` makes one.
-- **`waos build`** builds the app as a component, for `wasm32-wasip3`, at `target/waos/<profile>/<package>.wasm`; `--release` optimizes it. Use it until the app compiles.
+- **`waos build`** builds the app as a component, for `wasm32-wasip3`, at `target/waos/<profile>/<package>.wasm`; `--release` optimizes it, and cargo's feature flags, `--features`, `--all-features` and `--no-default-features`, choose the app's features, as they do for `waos run` and `waos package`. Use it until the app compiles.
 - **`waos run`** builds the app and runs it in the WaOS on this machine, starting WaOS when none is running, as the program its id names, with that program's settings and folders. What the app prints, and its panics, come to this terminal; Ctrl-C stops it. `--env NAME=VALUE` gives the app a variable for this run alone, such as `--env RUST_LOG=debug`; nothing of the shell's environment is passed.
 - **`waos package`** builds the release component and writes it as a package signed with your key, at `target/waos/<id>-<version>.wapk`, listed in `target/waos/index.json`, from the id, name and icon of the package's `[package.metadata.waos]`.
 - **`waos package verify <file>`** checks a package as WaOS opens it, its signature, manifest and icon, and prints its id, version and publisher key, in full and as its fingerprint; `--publisher <key>`, the key's 64 hex digits, refuses it unless that key signed it.

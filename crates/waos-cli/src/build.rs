@@ -37,6 +37,35 @@ impl Profile {
     }
 }
 
+/// Which of a package's features a build turns on, as cargo's own flags say it.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Features {
+    /// The features turned on, as `--features` names them.
+    pub chosen: Vec<String>,
+    /// Every feature, as `--all-features`.
+    pub all: bool,
+    /// None of the default ones unless chosen, as `--no-default-features`.
+    pub without_default: bool,
+}
+
+impl Features {
+    /// Cargo's flags for these features.
+    fn cargo_args(&self) -> Vec<String> {
+        let mut args = Vec::new();
+        if !self.chosen.is_empty() {
+            args.push("--features".to_owned());
+            args.push(self.chosen.join(","));
+        }
+        if self.all {
+            args.push("--all-features".to_owned());
+        }
+        if self.without_default {
+            args.push("--no-default-features".to_owned());
+        }
+        args
+    }
+}
+
 /// A program built as a component.
 pub struct BuiltProgram {
     /// Its package's name, which names it in WaOS.
@@ -46,9 +75,14 @@ pub struct BuiltProgram {
 }
 
 /// Builds `package`, a package of the workspace `metadata` describes, as a component with
-/// `profile`.
-pub fn build(metadata: &Metadata, package: &Package, profile: Profile) -> Result<BuiltProgram> {
-    let built = cargo_build(metadata, package, profile)?;
+/// `profile` and `features`.
+pub fn build(
+    metadata: &Metadata,
+    package: &Package,
+    profile: Profile,
+    features: &Features,
+) -> Result<BuiltProgram> {
+    let built = cargo_build(metadata, package, profile, features)?;
     let component = workspace::waos_folder(metadata)
         .join(profile.folder())
         .join(format!("{}.wasm", package.name));
@@ -60,7 +94,12 @@ pub fn build(metadata: &Metadata, package: &Package, profile: Profile) -> Result
 }
 
 /// `cargo build` of `package` for the target, answering the component cargo made.
-fn cargo_build(metadata: &Metadata, package: &Package, profile: Profile) -> Result<PathBuf> {
+fn cargo_build(
+    metadata: &Metadata,
+    package: &Package,
+    profile: Profile,
+    features: &Features,
+) -> Result<PathBuf> {
     let mut cargo = Command::new(cargo_binary());
     cargo.current_dir(&metadata.workspace_root).args([
         "build",
@@ -73,6 +112,7 @@ fn cargo_build(metadata: &Metadata, package: &Package, profile: Profile) -> Resu
     if profile == Profile::Release {
         cargo.arg("--release");
     }
+    cargo.args(features.cargo_args());
     // A development build keeps function names and line tables, which trap backtraces read, and
     // leaves out the types and variables only a source-level debugger reads: a fifth of the size
     // (the gallery: 102 MB against 442). The program's own manifest is not touched.
@@ -138,4 +178,28 @@ fn place(built: &Path, component: &Path) -> Result<()> {
     fs::copy(built, component)
         .with_context(|| format!("copying {} to {}", built.display(), component.display()))?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn features_become_cargos_own_flags() {
+        assert!(Features::default().cargo_args().is_empty());
+        let features = Features {
+            chosen: vec!["online".to_owned(), "update".to_owned()],
+            all: true,
+            without_default: true,
+        };
+        assert_eq!(
+            features.cargo_args(),
+            [
+                "--features",
+                "online,update",
+                "--all-features",
+                "--no-default-features"
+            ]
+        );
+    }
 }
