@@ -84,7 +84,7 @@ mod running;
 mod screens;
 mod screenshots;
 mod shell;
-mod simulated_user;
+mod simulated_input;
 mod source_lines;
 mod stats;
 mod stream;
@@ -136,7 +136,7 @@ pub use shell::{
     StartedSession, SystemPermissionFuture, TrayIconAddFuture, VideoFrame, VideoOutput,
     VideoPicture, ViewPlacement, ViewRequest, VsyncWaiter,
 };
-pub use simulated_user::{DragPath, NoSuchChord, NothingEdited, SimulatedUser};
+pub use simulated_input::{DragPath, Keyboard, Mouse, NoSuchChord, NothingEdited};
 pub use stats::Stats;
 pub use views::{HeldModifiers, KeyHandledFuture, ProgramView, Watching};
 pub use waos_capabilities::MachineChoice;

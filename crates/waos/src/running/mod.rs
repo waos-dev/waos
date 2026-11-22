@@ -61,7 +61,7 @@ use crate::shell::{
     ShellImageCodecs, ShellMachinePicker, ShellMediaAssets, ShellMediaPlayers, ShellNotifications,
     ShellOpener, ShellRecordingIndicator, ShellVideoFrameReaders, ViewPlacement,
 };
-use crate::simulated_user::SimulatedUser;
+use crate::simulated_input::Mouse;
 use crate::source_lines::ComponentFile;
 use crate::stats::Stats;
 use crate::sync::locked;
@@ -108,8 +108,8 @@ impl Eq for RunningProgram {}
 struct Running {
     name: Arc<str>,
     views: ProgramViews,
-    /// What a tool does to the program's views as its user would.
-    simulated_user: SimulatedUser,
+    /// The mouse a tool moves over the program's views as its user would.
+    mouse: Mouse,
     lifecycle: Lifecycle,
     /// Its menu bar, as it set it last.
     menus: ProgramMenus,
@@ -257,7 +257,7 @@ impl RunningProgram {
         );
         let program = RunningProgram(Arc::new(Running {
             name: Arc::from(start.name.as_str()),
-            simulated_user: SimulatedUser::new(program_views.clone()),
+            mouse: Mouse::new(program_views.clone()),
             views: program_views,
             menus: ProgramMenus::new(lifecycle.clone()),
             notifications: ProgramNotifications::new(lifecycle.clone()),
@@ -466,10 +466,11 @@ impl RunningProgram {
         self.0.views.views()
     }
 
-    /// The program's simulated user, which a tool that drives the program gives its input
-    /// through, as the program's user gives theirs (the design's decision 64).
-    pub fn simulated_user(&self) -> &SimulatedUser {
-        &self.0.simulated_user
+    /// The program's own mouse, which a tool that drives the program moves over its views as the
+    /// program's user moves theirs (the design's decision 64); a tool's keys go through
+    /// [`Keyboard`](crate::Keyboard), which needs only the view.
+    pub fn mouse(&self) -> &Mouse {
+        &self.0.mouse
     }
 
     pub(crate) fn program_views(&self) -> &ProgramViews {

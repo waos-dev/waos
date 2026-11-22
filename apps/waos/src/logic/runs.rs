@@ -5,7 +5,7 @@
 //! the library opens again is left running as it is. Every run of an id is ended before its program is removed or updated
 //! ([`Runs::stop`]), as a system ends an app it uninstalls or updates, so no run outlives the
 //! package it came from or the folders it was given. A run `waos` sent is its own to read and drive, through
-//! its program's simulated user; one the library opened is no tool's (the design's decision 60).
+//! its program's own mouse and the keyboard; one the library opened is no tool's (the design's decision 60).
 //! What a sent run has beside its program is `sent`'s, which a phone, where `waos` reaches
 //! no WaOS yet, does not compile.
 //!

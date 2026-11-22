@@ -15,8 +15,42 @@
 //! the symbol Shift picks, as Waft's host takes it from the system.
 
 use crate::bindings::wasdk::platform::views::{KeyDevice, KeyEvent, KeyKind};
+use crate::views::ProgramView;
 
 use super::key_codes::{logical, physical};
+use super::text_commit;
+
+/// A US keyboard, which tools press keys on and enter text with in a program's views. It
+/// remembers nothing between presses: every chord is pressed and released whole.
+pub struct Keyboard;
+
+/// A chord whose names name no key, or whose keys before the last are not modifiers.
+#[derive(Debug)]
+pub struct NoSuchChord;
+
+/// Text to insert while nothing in the view is edited.
+#[derive(Debug)]
+pub struct NothingEdited;
+
+impl Keyboard {
+    /// The key or the chord `chord` names (`enter`, `a`, `cmd+s`) pressed and released in `view`.
+    /// The program's replies are not awaited: a key it leaves goes no further.
+    pub fn press(view: &ProgramView, chord: &str) -> Result<(), NoSuchChord> {
+        let events = key_events(chord, view.now()).ok_or(NoSuchChord)?;
+        for event in events {
+            drop(view.key(event));
+        }
+        Ok(())
+    }
+
+    /// `text` inserted into what `view` edits, as an input method commits its text, in place of
+    /// what is composed or selected, with no key pressed: Playwright's `keyboard.insertText`.
+    pub fn insert_text(view: &ProgramView, text: &str) -> Result<(), NothingEdited> {
+        let editing = view.editing_value().ok_or(NothingEdited)?;
+        view.text_input_editing_value(text_commit::committed(&editing, text));
+        Ok(())
+    }
+}
 
 /// A modifier's key, and whether it changes the character a key types.
 #[derive(Clone, Copy, PartialEq)]
@@ -38,7 +72,7 @@ struct Key {
 
 /// The events of `chord`, stamped `now` on the program's clock; none for a chord whose names name
 /// no key, or whose keys before the last are not modifiers.
-pub(super) fn key_events(chord: &str, now: u64) -> Option<Vec<KeyEvent>> {
+fn key_events(chord: &str, now: u64) -> Option<Vec<KeyEvent>> {
     let names: Vec<String> = chord.split('+').map(str::to_lowercase).collect();
     let (key_name, modifier_names) = names.split_last()?;
     let modifiers = modifier_names

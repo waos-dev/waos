@@ -1,16 +1,16 @@
 //! An input `waos tap`, `press`, `drag`, `type`, `key` or `scroll` sends, given to a window
 //! of a program a run of `waos run` runs, as its user would give it (the design's decision
 //! 60): through the engine's view, as the shell reports its user's input, so the program cannot
-//! tell the two apart: through the program's simulated user (`SimulatedUser`), its mouse, its US
-//! keyboard and its input method, a press and a drag taking the time they say before the answer.
-//! This is the protocol's side alone: the window the input goes to, what is refused, and the
-//! answer. The connection is answered once the input is handed
-//! over, saying whether the window was in sight; what the program draws in answer is its own to
-//! draw, and whoever expects a picture waits for it, as a test does. While WaOS
+//! tell the two apart: the program's own mouse (`RunningProgram::mouse`), a US keyboard and an
+//! input method's text (`Keyboard`), a press and a drag taking the time they say before the
+//! answer. This is the protocol's side alone: the window the input goes to, what is refused, and
+//! the answer. The connection is answered once the input is handed over, saying whether the window
+//! was in sight; what the program draws in answer is its own to draw, and whoever expects a
+//! picture waits for it, as a test does. While WaOS
 //! asks the program's user something over its windows (`asking_now`), the input is not given, as
 //! a person's click goes to the question first, and the answer says what is asked.
 
-use waos::{DragPath, ProgramView};
+use waos::{DragPath, Keyboard, ProgramView};
 use waos_dev_protocol::{
     Connection, Input, InputAnswer, InputDone, Refusal, ServerStream, WindowId,
 };
@@ -77,15 +77,15 @@ async fn deliver(
     view: &ProgramView,
     input: &Input,
 ) -> Result<(), Refusal> {
-    let user = run.program.simulated_user();
+    let mouse = run.program.mouse();
     match *input {
         Input::Tap { x, y } => {
             within(id, window, view, x, y)?;
-            user.tap(view, (x, y));
+            mouse.tap(view, (x, y));
         }
         Input::Press { x, y, duration } => {
             within(id, window, view, x, y)?;
-            user.press(view, (x, y), duration).await;
+            mouse.press(view, (x, y), duration).await;
         }
         Input::Drag {
             from,
@@ -103,13 +103,13 @@ async fn deliver(
                 steps,
                 duration,
             };
-            user.drag(view, &path).await;
+            mouse.drag(view, &path).await;
         }
         Input::Scroll { x, y, dx, dy } => {
             within(id, window, view, x, y)?;
-            user.scroll(view, (x, y), (dx, dy));
+            mouse.scroll(view, (x, y), (dx, dy));
         }
-        Input::Key(ref chord) => user.key(view, chord).map_err(|_| {
+        Input::Key(ref chord) => Keyboard::press(view, chord).map_err(|_| {
             dev_refusal::bad_input(
                 id,
                 window,
@@ -118,7 +118,7 @@ async fn deliver(
                 ),
             )
         })?,
-        Input::Text(ref text) => user.type_text(view, text).map_err(|_| {
+        Input::Text(ref text) => Keyboard::insert_text(view, text).map_err(|_| {
             dev_refusal::bad_input(
                 id,
                 window,

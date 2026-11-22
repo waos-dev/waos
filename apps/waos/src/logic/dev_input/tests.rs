@@ -10,7 +10,7 @@
 use std::path::Path;
 use std::time::{Duration, Instant};
 
-use waos::{Presence, SimulatedUser};
+use waos::{Mouse, Presence};
 use waos_dev_protocol::{
     ClientStream, Connection, Input, InputAnswer, InputDone, Refusal, RefusalKind, Request,
     RunEvent, ScreenshotAnswer, WindowId,
@@ -99,7 +99,7 @@ async fn refused(server: &TestServer, window: WindowId, given: Input) -> Refusal
 fn mouse_line(change: &str, signal: &str, (x, y): (f64, f64), buttons: u8, scroll: &str) -> String {
     format!(
         "pointer: PointerChange::{change} PointerDeviceKind::Mouse PointerSignalKind::{signal} device {} at {x},{y} buttons {buttons} pressure 1 scroll {scroll}",
-        SimulatedUser::MOUSE_DEVICE
+        Mouse::DEVICE
     )
 }
 

@@ -1,6 +1,6 @@
 //! The runs `waos` sends, among WaOS's runs: a later run of an id takes the place of the one
 //! before, which is stopped first and ends `Replaced` (the design's decision 29), and each is its
-//! own to read and drive (decision 60), its input given through the program's simulated user. Not
+//! own to read and drive (decision 60), its input given through the program's own mouse and the keyboard. Not
 //! on a phone, which `waos` reaches not yet.
 //!
 //! The invariant: a sent run's mark is in the list under the same lock as its program, so a
