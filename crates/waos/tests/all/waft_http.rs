@@ -9,32 +9,36 @@
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
+use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 
 use tempfile::TempDir;
 use waos::{
-    ProgramEnd, ProgramEnvironment, ProgramGrants, ProgramOutput, ProgramView, RunningProgram,
+    ProgramEnd, ProgramEnvironment, ProgramGrants, ProgramOutput, ProgramView, RunningProgram, WaOS,
 };
 use waos_capabilities::ProgramFolders;
 
 use crate::reaching::{TestGrants, any};
-use crate::shell::{self, Lines, WITHIN};
+use crate::test_shell::{RecordedOutput, TestShell, config, within};
 
 #[test]
 fn trailers_go_both_ways_and_a_307_keeps_a_held_body_but_not_a_streamed_one() {
-    let (engine, _shell, arrivals) = shell::engine();
+    let shell = TestShell::new();
+    let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
     let (port, _other, flags) = serve();
     let folders = TempDir::new().unwrap();
     let data = folders.path().join("data");
     std::fs::create_dir_all(&data).unwrap();
     std::fs::write(data.join("port"), port.to_string()).unwrap();
-    let lines = Arc::new(Lines::default());
+    let output = Arc::new(RecordedOutput::default());
     let grants = TestGrants::new(any(), true);
-    let program = shell::load(&engine, waos_test_programs::WAFT_HTTP);
+    let program = engine
+        .load(Path::new(waos_test_programs::WAFT_HTTP))
+        .unwrap();
     let environment = ProgramEnvironment {
-        output: Some(Arc::clone(&lines) as Arc<dyn ProgramOutput>),
+        output: Some(Arc::clone(&output) as Arc<dyn ProgramOutput>),
         grants: Some(Arc::clone(&grants) as Arc<dyn ProgramGrants>),
         folders: Some(ProgramFolders {
             data,
@@ -43,23 +47,23 @@ fn trailers_go_both_ways_and_a_307_keeps_a_held_body_but_not_a_streamed_one() {
         ..waos_local::LocalCapabilities::new().environment()
     };
     let running = engine.run(&program, environment).unwrap();
-    let view = arrivals
-        .recv_timeout(WITHIN)
+    let view = within(shell.headless.view(0))
+        .and_then(|shown| shown.view())
         .expect("waft-http asks for its window");
-    lines.wait_for("response trailers: x-checksum=7 after 5 bytes");
-    lines.wait_for("response trailers again: same");
-    lines.wait_for("request trailers: x-checksum=7");
-    lines.wait_for("held trailers: x-checksum=7");
-    lines.wait_for("redirect held trailers: x-checksum=7");
-    lines.wait_for("redirect in memory: payload");
-    lines.wait_for("redirect stream: 307 Temporary Redirect");
-    lines.wait_for("301 POST: GET 0");
-    lines.wait_for("302 POST: GET 0");
-    lines.wait_for("303 POST: GET 0");
-    lines.wait_for("too many: too many redirects");
-    lines.wait_for("limit stream: 307 Temporary Redirect");
-    lines.wait_for("credentials: authorization: none");
-    lines.wait_for("head: 200 OK");
+    output.wait_for("response trailers: x-checksum=7 after 5 bytes");
+    output.wait_for("response trailers again: same");
+    output.wait_for("request trailers: x-checksum=7");
+    output.wait_for("held trailers: x-checksum=7");
+    output.wait_for("redirect held trailers: x-checksum=7");
+    output.wait_for("redirect in memory: payload");
+    output.wait_for("redirect stream: 307 Temporary Redirect");
+    output.wait_for("301 POST: GET 0");
+    output.wait_for("302 POST: GET 0");
+    output.wait_for("303 POST: GET 0");
+    output.wait_for("too many: too many redirects");
+    output.wait_for("limit stream: 307 Temporary Redirect");
+    output.wait_for("credentials: authorization: none");
+    output.wait_for("head: 200 OK");
     assert!(
         !flags.content_length_on_get.load(Ordering::SeqCst),
         "a GET with no body sends no Content-Length: 0"
@@ -68,17 +72,17 @@ fn trailers_go_both_ways_and_a_307_keeps_a_held_body_but_not_a_streamed_one() {
         !flags.content_length_on_head.load(Ordering::SeqCst),
         "a HEAD with no body sends no Content-Length: 0"
     );
-    end(&running, &view, &lines);
+    end(&running, &view, &output);
 }
 
 /// Closes the window, which ends the program.
-fn end(running: &RunningProgram, view: &ProgramView, lines: &Lines) {
+fn end(running: &RunningProgram, view: &ProgramView, output: &RecordedOutput) {
     view.close_requested();
-    let end = shell::wait_for_end(running);
+    let end = within(running.ended());
     assert!(
         matches!(end, ProgramEnd::Returned(Ok(()))),
         "{end:?}: {:#?}",
-        lines.all()
+        output.lines()
     );
 }
 
