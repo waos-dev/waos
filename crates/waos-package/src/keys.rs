@@ -4,9 +4,12 @@
 //!
 //! The invariants a later editor will break: a signature is checked with dalek's
 //! `verify_strict`, which refuses the forms of a signature or key that would let one signature
-//! pass for another message; and a signing key never shows its secret through `Debug`.
+//! pass for another message; a signing key never shows its secret through `Debug`; and a
+//! publisher key's text is its 32 bytes in hex, which [`PublisherKey::to_hex`] writes and its
+//! `FromStr` reads, so the key a catalog pins reads back as written.
 
 use std::fmt;
+use std::str::FromStr;
 
 use ed25519_dalek::pkcs8::spki::der::pem::LineEnding;
 use ed25519_dalek::pkcs8::{DecodePrivateKey, EncodePrivateKey};
@@ -38,6 +41,13 @@ impl PublisherKey {
         self.0
     }
 
+    /// The key in full, as text: its 32 bytes as 64 lowercase hex digits, which is how a catalog
+    /// names the key it pins and what `parse` reads back. People tell keys apart by the
+    /// [`fingerprint`](Self::fingerprint).
+    pub fn to_hex(&self) -> String {
+        hex::encode(self.0)
+    }
+
     /// The key in a form short enough for people to tell keys apart by, in the library and in
     /// errors: the first 8 bytes of its SHA-256 as four groups of four hex digits, like
     /// `E744 C079 1320 C328`. Installers compare whole keys; this is only for showing.
@@ -56,6 +66,16 @@ impl PublisherKey {
             .expect("a publisher key is a point, checked when it was made");
         key.verify_strict(message, signature)
             .map_err(|_| PackageError::SignatureDoesNotMatch)
+    }
+}
+
+/// The key from its 64 hex digits, as [`PublisherKey::to_hex`] writes them, in either case.
+impl FromStr for PublisherKey {
+    type Err = KeyError;
+
+    fn from_str(text: &str) -> Result<PublisherKey, KeyError> {
+        let bytes = hex::decode(text).map_err(|_| KeyError::NotHexDigits)?;
+        PublisherKey::from_bytes(&bytes)
     }
 }
 
@@ -125,6 +145,8 @@ pub enum KeyError {
     PublicKeyLength(usize),
     /// 32 bytes that are no Ed25519 public key.
     NotAPublicKey,
+    /// Text that is not a key's bytes in hex.
+    NotHexDigits,
     /// Not an Ed25519 private key in PKCS#8's PEM, in the decoder's words.
     NotASigningKey(String),
 }
@@ -137,6 +159,11 @@ impl fmt::Display for KeyError {
                 "it is {length} bytes; an Ed25519 public key is {PUBLISHER_KEY_LENGTH}"
             ),
             KeyError::NotAPublicKey => f.write_str("it is not an Ed25519 public key"),
+            KeyError::NotHexDigits => write!(
+                f,
+                "it is not a publisher key's {PUBLISHER_KEY_LENGTH} bytes as {} hex digits",
+                PUBLISHER_KEY_LENGTH * 2
+            ),
             KeyError::NotASigningKey(reason) => write!(
                 f,
                 "it is not an Ed25519 private key in PKCS#8's PEM, which begins \"-----BEGIN PRIVATE KEY-----\": {reason}"
@@ -217,6 +244,37 @@ MC4CAQAwBQYDK2VwBCIEINTuctv5E1hK1bbY8fdp+K06/nwoy/HU++CXqI9EdVhC
         assert_eq!(
             PublisherKey::from_bytes(&[bytes.as_slice(), &[0]].concat()).unwrap_err(),
             KeyError::PublicKeyLength(33)
+        );
+    }
+
+    #[test]
+    fn a_public_key_reads_back_from_its_hex() {
+        let publisher = SigningKey::from_pem(RFC_8410_KEY).unwrap().publisher();
+        assert_eq!(publisher.to_hex(), RFC_8410_PUBLIC_KEY);
+        assert_eq!(
+            RFC_8410_PUBLIC_KEY.parse::<PublisherKey>().unwrap(),
+            publisher
+        );
+        assert_eq!(
+            RFC_8410_PUBLIC_KEY
+                .to_uppercase()
+                .parse::<PublisherKey>()
+                .unwrap(),
+            publisher
+        );
+    }
+
+    #[test]
+    fn text_that_is_not_a_public_keys_hex_is_refused() {
+        assert_eq!(
+            "not hex".parse::<PublisherKey>().unwrap_err(),
+            KeyError::NotHexDigits
+        );
+        assert_eq!(
+            RFC_8410_PUBLIC_KEY[..62]
+                .parse::<PublisherKey>()
+                .unwrap_err(),
+            KeyError::PublicKeyLength(31)
         );
     }
 

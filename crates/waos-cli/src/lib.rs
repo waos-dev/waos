@@ -37,6 +37,7 @@ mod settings;
 mod signing_key;
 mod skill;
 mod variables;
+mod verify;
 pub mod waos_app;
 mod workspace;
 
@@ -49,7 +50,7 @@ use std::time::Duration;
 use anyhow::{Context as _, Result};
 use clap::{Args, CommandFactory, FromArgMatches, Parser, Subcommand};
 use waos_dev_protocol::{Input, Inspection, WindowId};
-use waos_package::ProgramId;
+use waos_package::{ProgramId, PublisherKey};
 
 use crate::build::{BuiltProgram, Profile};
 use crate::input::Pair;
@@ -157,7 +158,9 @@ enum Command {
     /// Builds the program's release component and writes it as a package signed with your
     /// signing key, at target/waos/<id>-<version>.wapk, listed in target/waos/index.json.
     /// The id, name and icon are the package's [package.metadata.waos]; the version is its own.
-    Package(Program),
+    ///
+    /// `waos package verify <file>` verifies a package instead, as WaOS opens it.
+    Package(PackageArgs),
     /// Drives and captures a running program's windows: screenshot, resize, tap, press, drag,
     /// type, key, and scroll.
     Ui(UiArgs),
@@ -327,6 +330,33 @@ struct InspectTraceArgs {
     /// microphone, machines, permissions, links, notifications, output).
     #[arg(value_name = "CAPABILITY")]
     capabilities: Vec<String>,
+}
+
+#[derive(Args)]
+#[command(args_conflicts_with_subcommands = true)]
+struct PackageArgs {
+    #[command(flatten)]
+    program: Program,
+    #[command(subcommand)]
+    command: Option<PackageCommand>,
+}
+
+#[derive(Subcommand)]
+enum PackageCommand {
+    /// Verifies a package as WaOS opens it, its signature, manifest and icon, and prints its id,
+    /// its version, its publisher's key in full, 64 hex digits, and that key's fingerprint. The
+    /// exit status is 1 for a package that does not verify.
+    Verify(VerifyArgs),
+}
+
+#[derive(Args)]
+struct VerifyArgs {
+    /// The package, a .wapk.
+    file: PathBuf,
+    /// The publisher's key, as 64 hex digits, as this command prints it: the package is refused
+    /// unless it is signed with that key.
+    #[arg(long, value_name = "KEY")]
+    publisher: Option<PublisherKey>,
 }
 
 #[derive(Args)]
@@ -565,7 +595,10 @@ fn dispatch(command: Command, starter: &dyn WaOSStarter) -> Result<ExitCode> {
         Command::New(new) => new_program(&new),
         Command::Build(build) => build_only(&build),
         Command::Run(run) => build_and_run(&run, starter),
-        Command::Package(program) => package(&program),
+        Command::Package(args) => match args.command {
+            Some(PackageCommand::Verify(verify)) => verify_package(&verify),
+            None => package(&args.program),
+        },
         Command::Ui(ui) => dispatch_ui(ui.command),
         Command::Settings(settings) => dispatch_settings(settings, starter),
         Command::Inspect(inspect) => dispatch_inspect(inspect),
@@ -748,6 +781,13 @@ fn package(program: &Program) -> Result<ExitCode> {
     let packaged = package::package(program.package.as_deref())?;
     eprintln!("waos: listed in {}", packaged.index.display());
     println!("{}", packaged.package.display());
+    Ok(ExitCode::SUCCESS)
+}
+
+/// Verifies the package, against the publisher named where one is, and says what it is.
+fn verify_package(args: &VerifyArgs) -> Result<ExitCode> {
+    let package = verify::verify(&args.file, args.publisher.as_ref())?;
+    print!("{}", verify::description(&package));
     Ok(ExitCode::SUCCESS)
 }
 
@@ -1066,6 +1106,37 @@ mod tests {
         assert!(refused(&["skill", "install"]));
         assert!(refused(&["skill"]));
         assert!(refused(&["docs", "skill"]));
+    }
+
+    #[test]
+    fn package_packages_a_program_or_verifies_a_file() {
+        let Command::Package(args) = parsed(&["package", "-p", "notes"]) else {
+            panic!("package -p");
+        };
+        assert_eq!(args.program.package.as_deref(), Some("notes"));
+        assert!(args.command.is_none());
+
+        let key = waos_package::SigningKey::generate().publisher();
+        let hex = key.to_hex();
+        let Command::Package(PackageArgs {
+            command: Some(PackageCommand::Verify(verify)),
+            ..
+        }) = parsed(&["package", "verify", "notes.wapk", "--publisher", &hex])
+        else {
+            panic!("package verify");
+        };
+        assert_eq!(verify.file, Path::new("notes.wapk"));
+        assert_eq!(verify.publisher, Some(key));
+
+        assert!(refused(&["package", "verify"]));
+        assert!(refused(&[
+            "package",
+            "verify",
+            "notes.wapk",
+            "--publisher",
+            "E744 C079 1320 C328"
+        ]));
+        assert!(refused(&["package", "-p", "notes", "verify", "notes.wapk"]));
     }
 
     #[test]
