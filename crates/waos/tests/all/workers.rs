@@ -9,15 +9,16 @@
 //! The program runs its steps in order and prints each, and ends by starting a counting worker
 //! and waiting to be asked to exit; a test reads the step it is about, then ends it.
 
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
 use waos::bindings::wasdk::platform::lifecycle::AppExitResponse;
 use waos::{
-    FreezePolicy, ManualTime, Presence, ProgramEnd, ProgramEnvironment, RunningProgram, WaOS,
+    EngineTime, FreezePolicy, ManualTime, Presence, ProgramEnd, RunningProgram, WaOS, WaOSConfig,
 };
 
-use crate::shell::{self, Lines, resolved, wait_until, wait_until_stopped_at_freeze};
+use crate::test_shell::{RecordedOutput, TestShell, config, printing_to, wait_until, within};
 
 /// The primes below 200,000, which the program counts on a worker.
 const PRIMES_BELOW_200_000: u32 = 17_984;
@@ -28,28 +29,28 @@ const COUNTING: &str = "counting: until asked to exit";
 
 #[test]
 fn an_entry_the_program_does_not_have_is_refused_as_unknown() {
-    let (_engine, running, lines) = run_workers();
-    lines.wait_for("unknown entry: nothing");
+    let (_engine, running, output) = run_workers();
+    output.wait_for("unknown entry: nothing");
     end(&running);
 }
 
 #[test]
 fn messages_cross_to_a_worker_and_back_in_order() {
-    let (_engine, running, lines) = run_workers();
-    lines.wait_for("reversed: eno owt eerht");
-    lines.wait_for("reverse finished: ok");
+    let (_engine, running, output) = run_workers();
+    output.wait_for("reversed: eno owt eerht");
+    output.wait_for("reverse finished: ok");
     end(&running);
 }
 
 #[test]
 fn a_worker_computes_while_the_main_instance_goes_on() {
-    let (_engine, running, lines) = run_workers();
+    let (_engine, running, output) = run_workers();
     let prefix = "primes below 200000: ";
-    wait_until("the primes are counted", || {
-        lines.all().iter().any(|line| line.starts_with(prefix))
+    output.wait_until("the primes are counted", |lines| {
+        lines.iter().any(|line| line.starts_with(prefix))
     });
-    let line = lines
-        .all()
+    let line = output
+        .lines()
         .into_iter()
         .find(|line| line.starts_with(prefix))
         .unwrap();
@@ -64,10 +65,9 @@ fn a_worker_computes_while_the_main_instance_goes_on() {
 
 #[test]
 fn a_worker_that_traps_ends_failed() {
-    let (_engine, running, lines) = run_workers();
-    wait_until("the trap is told", || {
+    let (_engine, running, output) = run_workers();
+    output.wait_until("the trap is told", |lines| {
         lines
-            .all()
             .iter()
             .any(|line| line.starts_with("trap finished: failed"))
     });
@@ -76,16 +76,16 @@ fn a_worker_that_traps_ends_failed() {
 
 #[test]
 fn a_worker_starts_workers_of_its_own() {
-    let (_engine, running, lines) = run_workers();
-    lines.wait_for("relayed: relay");
-    lines.wait_for("relay finished: ok");
+    let (_engine, running, output) = run_workers();
+    output.wait_for("relayed: relay");
+    output.wait_for("relay finished: ok");
     end(&running);
 }
 
 #[test]
 fn a_worker_has_none_of_the_users_side() {
-    let (_engine, running, lines) = run_workers();
-    lines.wait_for(
+    let (_engine, running, output) = run_workers();
+    output.wait_for(
         "user's side in a worker: views 0, request unsupported, compositor none, clipboard none, \
          menu bar none, file dialogs none, notifications none, opener none, audio none, media \
          players none, cameras none, exit requests end",
@@ -95,9 +95,9 @@ fn a_worker_has_none_of_the_users_side() {
 
 #[test]
 fn a_worker_dropped_mid_work_ends() {
-    let (_engine, running, lines) = run_workers();
-    lines.wait_for("dropped: a counting worker");
-    lines.wait_for(COUNTING);
+    let (_engine, running, output) = run_workers();
+    output.wait_for("dropped: a counting worker");
+    output.wait_for(COUNTING);
     wait_until("only the last step's worker runs", || {
         running.stats().workers() == 1
     });
@@ -106,63 +106,65 @@ fn a_worker_dropped_mid_work_ends() {
 
 #[test]
 fn a_program_that_ends_with_a_worker_running_is_told_ended_once_the_worker_has() {
-    let (_engine, running, lines) = run_workers();
-    lines.wait_for(COUNTING);
+    let (_engine, running, output) = run_workers();
+    output.wait_for(COUNTING);
     assert_eq!(
-        resolved(running.request_exit()),
+        within(running.request_exit()),
         AppExitResponse::Exit,
         "the program answers exit"
     );
-    let end = resolved(running.ended());
+    let end = within(running.ended());
     assert!(matches!(end, ProgramEnd::Returned(Ok(()))), "{end:?}");
-    lines.wait_for("exit: with a worker counting");
+    output.wait_for("exit: with a worker counting");
     assert_eq!(running.stats().workers(), 0);
 }
 
 #[test]
 fn a_program_stopped_with_a_worker_running_is_told_stopped_once_the_worker_has_ended() {
-    let (_engine, running, lines) = run_workers();
-    lines.wait_for(COUNTING);
+    let (_engine, running, output) = run_workers();
+    output.wait_for(COUNTING);
     running.stop();
-    assert!(matches!(resolved(running.ended()), ProgramEnd::Stopped));
+    assert!(matches!(within(running.ended()), ProgramEnd::Stopped));
     assert_eq!(running.stats().workers(), 0);
 }
 
 #[test]
 fn a_frozen_programs_worker_stops_counting_until_the_thaw() {
     let time = ManualTime::new();
-    let (engine, _shell, arrivals) = shell::engine_on(
-        &time,
-        FreezePolicy {
+    let shell = TestShell::new();
+    let config = WaOSConfig {
+        time: EngineTime::Manual(time.clone()),
+        freeze: FreezePolicy {
             after_hidden: Some(AFTER_HIDDEN),
         },
-    );
-    let lines = Arc::new(Lines::default());
-    let (running, view) = shell::run_shown(
-        &engine,
-        &arrivals,
-        &shell::load(&engine, waos_test_programs::WORKERS),
-        environment(&lines),
-    );
-    lines.wait_for(COUNTING);
-    let first_count = counts(&lines).len();
-    wait_until("the worker counts", || counts(&lines).len() > first_count);
+        ..config()
+    };
+    let engine = WaOS::new(config, shell.shell(), shell.platform()).unwrap();
+    let workers = engine.load(Path::new(waos_test_programs::WORKERS)).unwrap();
+    let output = Arc::new(RecordedOutput::default());
+    let running = engine.run(&workers, printing_to(&output)).unwrap();
+    let view = within(shell.headless.view(0))
+        .and_then(|shown| shown.view())
+        .expect("workers asks for a view");
+    output.wait_for(COUNTING);
+    let first_count = counts(&output.lines());
+    output.wait_until("the worker counts", |lines| counts(lines) > first_count);
 
     view.presence_changed(OFF_SCREEN);
     time.elapse(AFTER_HIDDEN);
-    wait_until_stopped_at_freeze(&running);
-    let frozen_at = counts(&lines).len();
+    within(running.stopped_at_freeze());
+    let frozen_at = counts(&output.lines());
     time.elapse(AFTER_HIDDEN);
-    wait_until_stopped_at_freeze(&running);
+    within(running.stopped_at_freeze());
     assert_eq!(
-        counts(&lines).len(),
+        counts(&output.lines()),
         frozen_at,
         "frozen, the worker counts nothing"
     );
 
     view.presence_changed(FOCUSED);
-    wait_until("thawed, the worker counts on", || {
-        counts(&lines).len() > frozen_at
+    output.wait_until("thawed, the worker counts on", |lines| {
+        counts(lines) > frozen_at
     });
     end(&running);
 }
@@ -181,30 +183,20 @@ const FOCUSED: Presence = Presence {
     focused: true,
 };
 
-/// The workers program, running under an engine of its own with no view, its output its own.
-fn run_workers() -> (Arc<WaOS>, RunningProgram, Arc<Lines>) {
-    let (engine, _shell, _arrivals) = shell::engine();
-    let lines = Arc::new(Lines::default());
-    let running = engine
-        .run(
-            &shell::load(&engine, waos_test_programs::WORKERS),
-            environment(&lines),
-        )
-        .unwrap();
-    (engine, running, lines)
-}
-
-fn environment(lines: &Arc<Lines>) -> ProgramEnvironment {
-    ProgramEnvironment {
-        output: Some(Arc::clone(lines) as _),
-        ..ProgramEnvironment::default()
-    }
+/// The workers program, running under an engine and a shell of its own, its output its own.
+fn run_workers() -> (WaOS, RunningProgram, Arc<RecordedOutput>) {
+    let shell = TestShell::new();
+    let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
+    let workers = engine.load(Path::new(waos_test_programs::WORKERS)).unwrap();
+    let output = Arc::new(RecordedOutput::default());
+    let running = engine.run(&workers, printing_to(&output)).unwrap();
+    (engine, running, output)
 }
 
 /// Stops the program, and waits until it and its workers have ended.
 fn end(running: &RunningProgram) {
     running.stop();
-    resolved(running.ended());
+    within(running.ended());
     assert_eq!(
         running.stats().workers(),
         0,
@@ -212,13 +204,12 @@ fn end(running: &RunningProgram) {
     );
 }
 
-/// The counts a counting worker printed.
-fn counts(lines: &Lines) -> Vec<String> {
+/// How many counts the counting workers printed among `lines`.
+fn counts(lines: &[String]) -> usize {
     lines
-        .all()
-        .into_iter()
+        .iter()
         .filter(|line| line.starts_with("worker count "))
-        .collect()
+        .count()
 }
 
 /// The count and the wakes of `said`, `<count>, the main instance awake <wakes> times meanwhile`.

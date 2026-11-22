@@ -1,5 +1,5 @@
 //! A program's own output, which a test reads: the lines it printed to its standard output, as
-//! the engine hands them over, and a wait for a line that wakes as each is printed.
+//! the engine hands them over, and waits for what it prints that wake as each line is printed.
 
 use std::sync::{Condvar, Mutex, MutexGuard, PoisonError};
 use std::task::{Context, Poll};
@@ -38,11 +38,25 @@ impl RecordedOutput {
 
     /// Waits until the program printed `line`, failing after [`WITHIN`] with what it printed.
     pub fn wait_for(&self, line: &str) {
+        self.wait_until(&format!("{line:?} printed"), |printed| {
+            printed.iter().any(|printed| printed == line)
+        });
+    }
+
+    /// Waits until the lines the program printed so far are as `done` wants, failing after
+    /// [`WITHIN`] with `what` was awaited and what it printed: for a line printed a second time,
+    /// or one known only by how it starts. `done` is handed the lines, and must not read this
+    /// output itself, which is locked meanwhile.
+    pub fn wait_until(&self, what: &str, done: impl Fn(&[String]) -> bool) {
         let deadline = Instant::now() + WITHIN;
         let mut printed = self.printed();
-        while !lines_of(&printed).iter().any(|printed| printed == line) {
+        loop {
+            let lines = lines_of(&printed);
+            if done(&lines) {
+                return;
+            }
             let left = deadline.saturating_duration_since(Instant::now());
-            assert!(!left.is_zero(), "no {line:?} in {:#?}", lines_of(&printed));
+            assert!(!left.is_zero(), "never: {what}; it printed {lines:#?}");
             printed = self
                 .printing
                 .wait_timeout(printed, left)
