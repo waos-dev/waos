@@ -15,61 +15,63 @@
 use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use tokio::sync::Notify;
 use waos::{
-    Answer, FreezePolicy, ManualTime, OpenRequest, ProgramEnd, ProgramEnvironment, ProgramGrants,
-    ProgramOutput, Question, RunningProgram, WaOS,
+    Answer, EngineTime, FreezePolicy, ManualTime, OpenRequest, ProgramEnd, ProgramEnvironment,
+    ProgramGrants, Question, RunningProgram, WaOS, WaOSConfig,
 };
 use waos_capabilities::{
     ChangedFuture, DomainRule, FileSystemGrant, Mount, NetworkGrant, ProgramFolders,
 };
 
 use crate::shell::opener::Opened;
-use crate::shell::{self, Lines, TestShell, resolved, wait_until, wait_until_frozen};
+use crate::test_shell::{RecordedOutput, TestShell, config, printing_to, wait_until, within};
 
 /// The engine's tick, at which a freeze takes.
 const TICK: Duration = Duration::from_millis(100);
 
 #[test]
 fn links_open_as_their_schemes_allow_and_files_where_they_are_on_the_machine() {
-    let (engine, shell, _arrivals) = shell::engine();
-    shell.opener().without_app_for("nothing-opens:this");
+    let shell = TestShell::new();
+    let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
+    shell.opener.without_app_for("nothing-opens:this");
     let scratch = tempfile::tempdir().unwrap();
     let own = own_folders(scratch.path());
     let grants = Arc::new(LinkGrants::default());
-    let lines = Arc::new(Lines::default());
+    let output = Arc::new(RecordedOutput::default());
     let environment = ProgramEnvironment {
-        output: Some(Arc::clone(&lines) as Arc<dyn ProgramOutput>),
         grants: Some(Arc::clone(&grants) as Arc<dyn ProgramGrants>),
         folders: Some(own.clone()),
-        ..ProgramEnvironment::default()
+        ..printing_to(&output)
     };
-    let program = shell::load(&engine, waos_test_programs::OPENER);
+    let program = engine.load(Path::new(waos_test_programs::OPENER)).unwrap();
     let running = engine.run(&program, environment).unwrap();
 
-    lines.wait_for("open https://example.com/: ok");
+    output.wait_for("open https://example.com/: ok");
     answer_scheme(&shell, 0, "zoommtg", Answer::Granted);
-    lines.wait_for("open zoommtg://zoom.us/join: ok");
-    lines.wait_for("open zoommtg://zoom.us/again: ok");
+    output.wait_for("open zoommtg://zoom.us/join: ok");
+    output.wait_for("open zoommtg://zoom.us/again: ok");
     answer_scheme(&shell, 1, "tel", Answer::Denied);
-    lines.wait_for("open tel:+15550100: denied");
-    lines.wait_for("open tel:+15550101: denied");
+    output.wait_for("open tel:+15550100: denied");
+    output.wait_for("open tel:+15550101: denied");
     answer_scheme(&shell, 2, "nothing-opens", Answer::Granted);
-    lines.wait_for("open nothing-opens:this: no app");
-    lines.wait_for("open not a link: failed (\"not a link\" is not a link)");
-    lines.wait_for("open file /data/note.txt: ok");
-    lines.wait_for("reveal file /data/note.txt: ok");
-    lines.wait_for(
+    output.wait_for("open nothing-opens:this: no app");
+    output.wait_for("open not a link: failed (\"not a link\" is not a link)");
+    output.wait_for("open file /data/note.txt: ok");
+    output.wait_for("reveal file /data/note.txt: ok");
+    output.wait_for(
         "open file /data/missing.txt: failed (no file at /data/missing.txt among the program's)",
     );
-    lines.wait_for("listening for open requests");
+    output.wait_for("listening for open requests");
     running.stop();
-    assert!(matches!(shell::wait_for_end(&running), ProgramEnd::Stopped));
+    assert!(matches!(within(running.ended()), ProgramEnd::Stopped));
 
     let asked: Vec<String> = shell
+        .prompts
         .link_schemes_asked()
         .into_iter()
         .map(|(_program, scheme)| scheme)
@@ -83,7 +85,7 @@ fn links_open_as_their_schemes_allow_and_files_where_they_are_on_the_machine() {
         link: link.into(),
     };
     assert_eq!(
-        shell.opener().opened(),
+        shell.opener.opened(),
         [
             link("https://example.com/"),
             link("zoommtg://zoom.us/join"),
@@ -104,69 +106,72 @@ fn links_open_as_their_schemes_allow_and_files_where_they_are_on_the_machine() {
 
 #[test]
 fn a_program_given_no_grants_is_refused_links_of_its_own_schemes_without_asking() {
-    let (engine, shell, _arrivals) = shell::engine();
-    let lines = Arc::new(Lines::default());
-    let environment = ProgramEnvironment {
-        output: Some(Arc::clone(&lines) as Arc<dyn ProgramOutput>),
-        ..ProgramEnvironment::default()
-    };
-    let program = shell::load(&engine, waos_test_programs::OPENER);
+    let shell = TestShell::new();
+    let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
+    let output = Arc::new(RecordedOutput::default());
+    let environment = printing_to(&output);
+    let program = engine.load(Path::new(waos_test_programs::OPENER)).unwrap();
     let running = engine.run(&program, environment).unwrap();
-    lines.wait_for("listening for open requests");
+    output.wait_for("listening for open requests");
     running.stop();
-    shell::wait_for_end(&running);
+    within(running.ended());
     for line in [
         "open https://example.com/: ok",
         "open zoommtg://zoom.us/join: denied",
         "open tel:+15550100: denied",
     ] {
-        assert!(lines.has(line), "no {line:?} in {:#?}", lines.all());
+        assert!(output.has(line), "no {line:?} in {:#?}", output.lines());
     }
-    assert!(shell.link_schemes_asked().is_empty(), "nobody asked");
+    assert!(
+        shell.prompts.link_schemes_asked().is_empty(),
+        "nobody asked"
+    );
 }
 
 #[test]
 fn a_shell_without_an_opener_gives_the_program_none() {
-    let (engine, _shell, _arrivals) = shell::engine_of(shell::config(), |parts| {
-        parts.opener = None;
-    });
-    let lines = Arc::new(Lines::default());
-    let environment = ProgramEnvironment {
-        output: Some(Arc::clone(&lines) as Arc<dyn ProgramOutput>),
-        ..ProgramEnvironment::default()
-    };
-    let program = shell::load(&engine, waos_test_programs::OPENER);
+    let shell = TestShell::new();
+    let mut parts = shell.shell();
+    parts.opener = None;
+    let engine = WaOS::new(config(), parts, shell.platform()).unwrap();
+    let output = Arc::new(RecordedOutput::default());
+    let environment = printing_to(&output);
+    let program = engine.load(Path::new(waos_test_programs::OPENER)).unwrap();
     let running = engine.run(&program, environment).unwrap();
-    lines.wait_for("listening for open requests");
+    output.wait_for("listening for open requests");
     running.stop();
-    shell::wait_for_end(&running);
-    assert_eq!(lines.all(), ["opener: none", "listening for open requests"]);
+    within(running.ended());
+    assert_eq!(
+        output.lines(),
+        ["opener: none", "listening for open requests"]
+    );
 }
 
 #[test]
 fn a_request_made_before_the_program_listens_is_heard_once_it_does_its_files_mounted_writable() {
-    let (engine, shell, _arrivals) = shell::engine();
+    let shell = TestShell::new();
+    let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
     let scratch = tempfile::tempdir().unwrap();
     let grants = Arc::new(LinkGrants::default());
-    let lines = Arc::new(Lines::default());
-    let (running, _own) = run(&engine, scratch.path(), &grants, &lines);
+    let output = Arc::new(RecordedOutput::default());
+    let (running, _own) = run(&engine, scratch.path(), &grants, &output);
     let notes = fs::canonicalize(scratch.path()).unwrap().join("notes.md");
     fs::write(&notes, "my notes").unwrap();
 
     wait_until("the program asks about zoommtg, not listening yet", || {
-        !shell.link_schemes_asked().is_empty()
+        !shell.prompts.link_schemes_asked().is_empty()
     });
     running.open_requested(OpenRequest {
         files: vec![notes.clone()],
         links: vec!["notes://today".to_owned()],
     });
     answer_every_scheme(&shell);
-    lines.wait_for("listening for open requests");
+    output.wait_for("listening for open requests");
     let named = waos::machine_paths::in_program(&notes).unwrap();
     let shown = named.display();
-    lines.wait_for(&format!("opened file {shown}: my notes"));
-    lines.wait_for(&format!("opened file {shown} written to: yes"));
-    lines.wait_for("opened link: notes://today");
+    output.wait_for(&format!("opened file {shown}: my notes"));
+    output.wait_for(&format!("opened file {shown} written to: yes"));
+    output.wait_for("opened link: notes://today");
     assert_eq!(fs::read_to_string(&notes).unwrap(), "my notes, seen");
     assert_eq!(
         grants.picked(),
@@ -178,22 +183,28 @@ fn a_request_made_before_the_program_listens_is_heard_once_it_does_its_files_mou
         "kept as a pick is, where the program names it"
     );
     running.stop();
-    shell::wait_for_end(&running);
+    within(running.ended());
 }
 
 #[test]
 fn an_open_request_thaws_a_frozen_program_until_it_has_read_it() {
     let time = ManualTime::new();
     let only_when_suspended = FreezePolicy { after_hidden: None };
-    let (engine, _shell, _arrivals) = shell::engine_on(&time, only_when_suspended);
+    let shell = TestShell::new();
+    let config = WaOSConfig {
+        time: EngineTime::Manual(time.clone()),
+        freeze: only_when_suspended,
+        ..config()
+    };
+    let engine = WaOS::new(config, shell.shell(), shell.platform()).unwrap();
     let scratch = tempfile::tempdir().unwrap();
     let grants = Arc::new(LinkGrants::answered());
-    let lines = Arc::new(Lines::default());
-    let (running, _own) = run(&engine, scratch.path(), &grants, &lines);
-    lines.wait_for("listening for open requests");
+    let output = Arc::new(RecordedOutput::default());
+    let (running, _own) = run(&engine, scratch.path(), &grants, &output);
+    output.wait_for("listening for open requests");
 
-    resolved(engine.app_suspending());
-    wait_until_frozen(&running);
+    within(engine.app_suspending());
+    within(running.frozen());
     // A tick past the moment it last ran: woken without a thaw, it would stop at its next epoch
     // check, before it could say what it heard.
     time.elapse(TICK);
@@ -201,56 +212,61 @@ fn an_open_request_thaws_a_frozen_program_until_it_has_read_it() {
         files: Vec::new(),
         links: vec!["notes://while-frozen".to_owned()],
     });
-    lines.wait_for("opened link: notes://while-frozen");
-    wait_until_frozen(&running);
+    output.wait_for("opened link: notes://while-frozen");
+    within(running.frozen());
 
     engine.app_resumed();
     running.stop();
-    shell::wait_for_end(&running);
+    within(running.ended());
 }
 
 #[test]
 fn a_waiting_link_scheme_question_is_answered_by_setting_its_row_and_drops_its_prompt() {
-    let (engine, shell, _arrivals) = shell::engine();
+    let shell = TestShell::new();
+    let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
     let scratch = tempfile::tempdir().unwrap();
     let grants = Arc::new(LinkGrants::default());
-    let lines = Arc::new(Lines::default());
-    let (running, _own) = run(&engine, scratch.path(), &grants, &lines);
+    let output = Arc::new(RecordedOutput::default());
+    let (running, _own) = run(&engine, scratch.path(), &grants, &output);
 
     wait_until("the program asks about zoommtg", || {
-        !shell.link_schemes_asked().is_empty()
+        !shell.prompts.link_schemes_asked().is_empty()
     });
-    assert!(!shell.link_scheme_cancelled(0));
+    assert!(!shell.prompts.link_scheme_cancelled(0));
 
+    // An unrelated scheme's answer set leaves the question waiting, once the engine has read
+    // the waiting scheme's answer again.
+    let reads = grants.answer_reads();
     grants.set_link_scheme_answer("tel", Answer::Denied);
-    std::thread::sleep(Duration::from_millis(50));
-    assert!(!shell.link_scheme_cancelled(0));
+    wait_until("zoommtg's answer is read again", || {
+        grants.answer_reads() > reads
+    });
+    assert!(!shell.prompts.link_scheme_cancelled(0));
 
     grants.set_link_scheme_answer("zoommtg", Answer::Granted);
     wait_until("the link scheme prompt future is dropped", || {
-        shell.link_scheme_cancelled(0)
+        shell.prompts.link_scheme_cancelled(0)
     });
-    lines.wait_for("open zoommtg://zoom.us/join: ok");
+    output.wait_for("open zoommtg://zoom.us/join: ok");
     running.stop();
-    shell::wait_for_end(&running);
+    within(running.ended());
 }
 
 /// Runs `examples/opener` with its own folders beneath `scratch`, `grants` and its output into
-/// `lines`.
+/// `output`.
 fn run(
     engine: &WaOS,
     scratch: &Path,
     grants: &Arc<LinkGrants>,
-    lines: &Arc<Lines>,
+    output: &Arc<RecordedOutput>,
 ) -> (RunningProgram, ProgramFolders) {
     let own = own_folders(scratch);
     let environment = ProgramEnvironment {
-        output: Some(Arc::clone(lines) as Arc<dyn ProgramOutput>),
         grants: Some(Arc::clone(grants) as Arc<dyn ProgramGrants>),
         folders: Some(own.clone()),
-        ..ProgramEnvironment::default()
+        ..printing_to(output)
     };
-    let program = shell::load(engine, waos_test_programs::OPENER);
+    let program = engine.load(Path::new(waos_test_programs::OPENER)).unwrap();
     let running = engine.run(&program, environment).unwrap();
     (running, own)
 }
@@ -266,11 +282,11 @@ fn answer_every_scheme(shell: &TestShell) {
 /// `before` others, and answers `answer`.
 fn answer_scheme(shell: &TestShell, before: usize, scheme: &str, answer: Answer) {
     wait_until(&format!("{scheme} is asked about"), || {
-        shell.link_schemes_asked().len() > before
+        shell.prompts.link_schemes_asked().len() > before
     });
-    let asked = shell.link_schemes_asked();
+    let asked = shell.prompts.link_schemes_asked();
     assert_eq!(asked[before], ("opener".to_owned(), scheme.to_owned()));
-    shell.answer_link_schemes(Some(answer));
+    shell.prompts.answer_link_schemes(Some(answer));
 }
 
 /// The program's own `/data` and `/cache`, made beneath `scratch`.
@@ -296,6 +312,8 @@ const SCHEMES: [(&str, Answer); 3] = [
 #[derive(Default)]
 struct LinkGrants {
     schemes: Mutex<HashMap<String, Answer>>,
+    /// How many times a scheme's answer was read.
+    answer_reads: AtomicUsize,
     picked: Mutex<Vec<Mount>>,
     changed: Arc<Notify>,
 }
@@ -308,6 +326,10 @@ impl LinkGrants {
             grants.set_link_scheme_answer(scheme, answer);
         }
         grants
+    }
+
+    fn answer_reads(&self) -> usize {
+        self.answer_reads.load(Ordering::SeqCst)
     }
 
     /// Each file picked, as it was kept.
@@ -347,6 +369,7 @@ impl ProgramGrants for LinkGrants {
     fn set_answer(&self, _question: Question, _answer: Answer) {}
 
     fn link_scheme_answer(&self, scheme: &str) -> Option<Answer> {
+        self.answer_reads.fetch_add(1, Ordering::SeqCst);
         self.schemes.lock().unwrap().get(scheme).copied()
     }
 
