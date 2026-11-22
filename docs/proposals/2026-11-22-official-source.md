@@ -16,6 +16,10 @@ Written 2026-11-22, once Zed's port ran on a phone and there was no place to get
 
 6. **A program built for a newer interface is told when it is opened, as today** (2026-11-22): the engine cannot link it, and ends it saying it was built for another version of the interface and what does not match (`crates/waos/src/running/incompatible.rs`). Nothing is checked at install and nothing is added to the index, until a catalog needs to hide what a WaOS cannot run. Why: wasmtime's linker cannot list what it provides, so checking earlier means linking a stand-in for each import, compiling the whole program at install, or a list generated from `wit/` that follows wasmtime's version rules; each costs more than telling the user at open, which WaOS already does. The lead weighed the index listing each package's imports, which lets the library mark a program before it is downloaded, at the cost of a field to keep.
 
+7. **The catalog lists Inspector and Zed first** (2026-11-22). The other built-in apps are too rough to offer: Notes, Video Player and Camera stay in `builtin-apps/`, since WaOS's own tests run them, and the rest moved out of the repository, to be rebuilt (Reader, Synth, Terminal, Model Viewer, Documents). WaOS's release still attaches every built-in app; the catalog decides what is listed.
+
+8. **Zed's port lives in a fork in WaOS's organization, `waos-dev/zed`**, on its branch `waos`, which releases it from a `waos-v*` tag as a source, signed with the WaOS project's key (2026-11-22). Officially supported by whose it is and whose key signs it, not by where its code sits. The lead weighed a submodule in WaOS's repository, which brings Zed's size and its long build into every checkout and release of WaOS, and the port as patches over Zed in WaOS's repository, which are painful to carry onto each new Zed and to review.
+
 ## Choices made along the way
 
 - The index lists each app's latest version; an older package stays on R2, listed no more.
@@ -33,5 +37,4 @@ Written 2026-11-22, once Zed's port ran on a phone and there was no place to get
 ## Not in this proposal
 
 - "From waos.app" (decision 5).
-- Zed's port in the catalog: it needs its port committed where a workflow can build it, a branch of its fork.
 - The library's look, settings and getting programs, designed on their own.
