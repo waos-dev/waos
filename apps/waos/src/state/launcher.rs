@@ -5,10 +5,11 @@
 //!
 //! Its window is a view WaOS asks for like any other (decision 19): asked with `request_view` the
 //! first time the launcher is summoned, carrying [`LAUNCHER_VIEW`] as its initial data, which WaOS's
-//! one builder shows the launcher in (`ui::every_window`, `ui::launcher`). The launcher decides
-//! what its window is to do, each order numbered (`WindowOrder`), and the window's content carries
-//! each out once, on the window it reaches through Waft's `WindowScope`: shown in the middle of the
-//! screen and focused, minimized or hidden. What is the app's and not the window's is done here:
+//! one builder shows the launcher in (`ui::every_window`, `ui::launcher`). The launcher keeps the
+//! window as its view arrives and does to it what it decides (decision 21): shows it in the middle
+//! of the screen and focused, minimizes it or hides it; what it decides before the window comes is
+//! done as the window comes. Nothing of this waits for the window's content, which is not built while the
+//! window is out of sight. What is the app's and not the window's is done here as well:
 //! WaOS hidden to hand the focus back on macOS, unless a program's window is on screen to take it,
 //! and the library put away, back on its grid with nothing searched, a program waiting for the user
 //! to leave its settings page counting it as left.
@@ -21,20 +22,22 @@
 //! hidden otherwise, as the user's choice is from the next dismissal on. A minimized launcher the
 //! user restores from the taskbar takes the focus, and is summoned by that.
 //!
-//! The invariant: the window does only what the orders say, so whether the rules hold the
-//! launcher shown is whether it is on screen.
+//! The invariant: only the launcher shows, minimizes or hides its window, so whether the rules hold
+//! the launcher shown is whether it is on screen.
 
 use std::rc::Rc;
 
 use waft::ui::{
-    RequestId, TargetPlatform, ViewError, ViewFocusEvent, ViewFocusState, ViewId, ViewRef,
+    RequestId, TargetPlatform, ViewError, ViewFocusDirection, ViewFocusEvent, ViewFocusState,
+    ViewId, ViewRef,
 };
 use waft::{
-    App, Context, Entity, Size, WeakEntity, WidgetsBinding, WidgetsBindingObserver,
-    WindowBackground, WindowConfig, WindowLevel,
+    App, Context, Entity, EventEmitter, Size, WeakEntity, WidgetsBinding, WidgetsBindingObserver,
+    WindowBackground, WindowConfig, WindowLevel, WindowRef,
 };
 use waft_embedder_winit::MacOs;
 
+use crate::logic::launcher_placement::launcher_frame;
 use crate::logic::launcher_rules::{Dismissal, LauncherRules, LauncherStep, WhenDismissed};
 use crate::state::ViewWindows;
 use crate::state::desktop_host::with_macos;
@@ -46,18 +49,15 @@ use crate::state::library::{
 pub(crate) const LAUNCHER_VIEW: &str = "waos-launcher";
 
 /// The launcher's card, and so its window, in logical points.
-pub(crate) const LAUNCHER_SIZE: Size = Size::new(680.0, 460.0);
+const LAUNCHER_SIZE: Size = Size::new(680.0, 460.0);
 
-/// What the launcher's window is to do, numbered so its content carries out each once.
+/// The launcher came on screen: what shows in it takes the keyboard.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct WindowOrder {
-    pub(crate) number: u64,
-    pub(crate) step: WindowStep,
-}
+pub(crate) struct LauncherShown;
 
 /// What the launcher's window does.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum WindowStep {
+enum WindowStep {
     /// Shows, in the middle of the screen the user is on, restored where it was minimized, and
     /// takes the focus.
     Show,
@@ -69,10 +69,10 @@ pub(crate) struct Launcher {
     rules: LauncherRules,
     /// The request for the window, while it is on its way.
     asked: Option<RequestId>,
-    /// The window's view, once it has come.
-    view: Option<ViewId>,
-    /// What the window is to do, as last ordered.
-    order: Option<WindowOrder>,
+    /// The window, once it has come.
+    window: Option<WindowRef>,
+    /// What the window is to do as it comes, as last decided before it came.
+    waiting: Option<WindowStep>,
     /// The programs' windows, any of which takes the focus a hidden launcher hands back.
     view_windows: Entity<ViewWindows>,
     /// The library the launcher shows, put away as the launcher goes.
@@ -93,8 +93,8 @@ impl Launcher {
         let launcher = app.new_entity(|_| Launcher {
             rules: LauncherRules::new(when_dismissed),
             asked: None,
-            view: None,
-            order: None,
+            window: None,
+            waiting: None,
             view_windows,
             library: library.downgrade(),
         });
@@ -107,18 +107,13 @@ impl Launcher {
         launcher
     }
 
-    /// What the window is to do, as last ordered; none before the first order.
-    pub(crate) fn order(&self) -> Option<WindowOrder> {
-        self.order
-    }
-
     /// WaOS started with the launcher closed, as `waos run` starts it: where a dismissed
     /// launcher is minimized, its window is made and minimized at once, so WaOS has its button in
     /// the taskbar from the start.
     pub(crate) fn started_closed(&mut self, cx: &mut Context<Launcher>) {
         if self.rules.when_dismissed() == WhenDismissed::Minimized {
             self.ask_for_window(cx);
-            self.give_order(
+            self.take_step(
                 WindowStep::Go(Dismissal::Minimize),
                 "WaOS started with it closed",
                 cx,
@@ -146,7 +141,7 @@ impl Launcher {
 
     /// A window of the app gained or lost the focus: the launcher's counts.
     fn view_focus_changed(&mut self, event: ViewFocusEvent, cx: &mut Context<Launcher>) {
-        if self.view != Some(event.view_id) {
+        if self.view() != Some(event.view_id) {
             return;
         }
         let was_shown = self.rules.is_shown();
@@ -159,12 +154,11 @@ impl Launcher {
             .focus_changed(event.state == ViewFocusState::Focused, picking);
         if !was_shown && self.rules.is_shown() {
             tracing::info!("the launcher was restored by the user");
-            cx.notify();
         }
         self.carry_out(step, "it lost the focus", cx);
     }
 
-    /// Orders the window to do what `step` says, `cause` being why, and does what goes with it.
+    /// Has the window do what `step` says, `cause` being why, and does what goes with it.
     fn carry_out(&mut self, step: LauncherStep, cause: &str, cx: &mut Context<Launcher>) {
         let window_step = match step {
             LauncherStep::Keep => return,
@@ -184,15 +178,16 @@ impl Launcher {
                 WindowStep::Go(dismissal)
             }
         };
-        self.give_order(window_step, cause, cx);
+        self.take_step(window_step, cause, cx);
     }
 
-    /// Orders the window to do `step`, `cause` being why.
-    fn give_order(&mut self, step: WindowStep, cause: &str, cx: &mut Context<Launcher>) {
+    /// The window does `step` now, `cause` being why, or as it comes.
+    fn take_step(&mut self, step: WindowStep, cause: &str, cx: &mut Context<Launcher>) {
         tracing::info!(?step, cause, "the launcher");
-        let number = self.order.map_or(1, |order| order.number + 1);
-        self.order = Some(WindowOrder { number, step });
-        cx.notify();
+        match self.window.clone() {
+            Some(window) => do_step(&window, step, cx),
+            None => self.waiting = Some(step),
+        }
     }
 
     /// The library goes back to its grid with nothing searched, and hears it is out of sight.
@@ -216,9 +211,9 @@ impl Launcher {
     }
 
     /// Asks for the window, unless it was asked for already or has come. It arrives as every view
-    /// does, and carries out the last order once it is built.
+    /// does, and does what was decided for it as it comes.
     fn ask_for_window(&mut self, cx: &mut Context<Launcher>) {
-        if self.asked.is_some() || self.view.is_some() {
+        if self.asked.is_some() || self.window.is_some() {
             return;
         }
         match cx
@@ -232,18 +227,32 @@ impl Launcher {
         }
     }
 
-    /// The host added `view`: where it is the launcher's, it is the launcher's window from now on.
-    fn view_added(&mut self, view: &ViewRef) {
-        if view.initial_data().as_deref() == Some(LAUNCHER_VIEW) {
-            self.asked = None;
-            self.view = Some(view.id());
+    /// The view of the launcher's window, once it has come.
+    fn view(&self) -> Option<ViewId> {
+        self.window.as_ref().map(|window| window.view().id())
+    }
+
+    /// The host added `view`: where it is the launcher's, its window is the launcher's from now on,
+    /// and does what was decided for it.
+    fn view_added(&mut self, view: &ViewRef, cx: &mut Context<Launcher>) {
+        if view.initial_data().as_deref() != Some(LAUNCHER_VIEW) {
+            return;
         }
+        self.asked = None;
+        let Some(window) = view.window() else {
+            tracing::warn!("the launcher's view came in no window, so the launcher cannot show");
+            return;
+        };
+        if let Some(step) = self.waiting.take() {
+            do_step(&window, step, cx);
+        }
+        self.window = Some(window);
     }
 
     /// The host removed `view`: where it was the launcher's, the next summons asks for another.
     fn view_removed(&mut self, view: ViewId) {
-        if self.view == Some(view) {
-            self.view = None;
+        if self.view() == Some(view) {
+            self.window = None;
         }
     }
 
@@ -255,6 +264,44 @@ impl Launcher {
             self.asked = None;
         }
     }
+}
+
+impl EventEmitter<LauncherShown> for Launcher {}
+
+/// `window` does `step`; a launcher shown says so.
+fn do_step(window: &WindowRef, step: WindowStep, cx: &mut Context<Launcher>) {
+    match step {
+        WindowStep::Show => {
+            show_in_the_middle(cx, window);
+            cx.emit(LauncherShown);
+        }
+        WindowStep::Go(Dismissal::Minimize) => {
+            window.set_minimized(true);
+            window.show();
+        }
+        WindowStep::Go(Dismissal::Hide { .. }) => window.hide(),
+    }
+}
+
+/// Shows `window` in the middle of the screen the user is on, restored where it was minimized,
+/// and gives it the focus.
+fn show_in_the_middle(app: &App, window: &WindowRef) {
+    let frame = app.platform().screens().and_then(|screens| {
+        launcher_frame(
+            LAUNCHER_SIZE,
+            &screens.screens(),
+            screens.pointer_location(),
+        )
+    });
+    if let Some(frame) = frame {
+        window.set_frame(frame, None);
+    }
+    window.set_minimized(false);
+    window.show();
+    window
+        .view()
+        .host()
+        .request_focus_change(ViewFocusState::Focused, ViewFocusDirection::Undefined);
 }
 
 /// How the launcher goes on a desktop of `platform`, with WaOS kept in its Dock or taskbar where
@@ -350,7 +397,7 @@ impl WidgetsBindingObserver for LauncherViewWatcher {
 
     fn did_add_view(&self, app: &mut App, view: &ViewRef) {
         if let Some(launcher) = self.launcher.upgrade() {
-            launcher.update(app, |launcher, _| launcher.view_added(view));
+            launcher.update(app, |launcher, cx| launcher.view_added(view, cx));
         }
     }
 

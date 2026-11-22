@@ -6,7 +6,8 @@
 //! and a click elsewhere dismiss it; a running program has its dot and one a source lists newer
 //! its badge; "…" reaches getting programs and the settings, each with Back to the grid; a package
 //! opened with WaOS summons it with the question; on Windows and Linux a dismissed launcher is
-//! minimized, its button kept, restored as the user brings it back; and with WaOS no longer kept
+//! minimized, its button kept, restored as the user brings it back, its search field given the
+//! keyboard again; and with WaOS no longer kept
 //! in the Dock or the taskbar, which the settings page offers and WaOS's preferences keep, WaOS
 //! has an icon in the menu bar or the tray, whose click summons the launcher, and a dismissed
 //! launcher is hidden on every desktop.
@@ -375,6 +376,20 @@ fn a_minimized_launcher_the_user_restores_is_summoned() {
         launcher_window_of(&desktop).is_minimized(),
         "restored, it is the launcher shown, which Escape dismisses"
     );
+}
+
+/// The field has the keyboard again because the view's focus scope gives it back to what had it,
+/// as the view regains the focus: nothing of the launcher's is needed for it.
+#[test]
+fn a_minimized_launcher_the_user_restores_gives_its_search_field_the_keyboard() {
+    let (mut desktop, _launcher) = desktop_of(TargetPlatform::Windows);
+    let view = launcher_view(&desktop);
+    desktop.focus(view, true);
+    desktop.focus(view, false);
+    launcher_window_of(&desktop).set_minimized(false);
+    desktop.focus(view, true);
+    desktop.type_text(view, "tri");
+    assert_eq!(desktop.read(|library| library.search().to_owned()), "tri");
 }
 
 #[test]

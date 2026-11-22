@@ -24,7 +24,7 @@ use waft_winui::{
 };
 
 use crate::logic::setting_changes::SettingsOf;
-use crate::state::launcher::{Launcher, WindowStep};
+use crate::state::launcher::{Launcher, LauncherShown};
 use crate::state::library::{Library, LibraryPage};
 use crate::state::recordings::Recordings;
 use crate::ui::library::home::fluent::{FluentHomeBody, MARGIN, show};
@@ -52,7 +52,6 @@ impl StatefulWidget for LauncherHome {
             field: None,
             menu: None,
             followed: Vec::new(),
-            keyboard_given_for: 0,
         }
     }
 }
@@ -64,8 +63,6 @@ pub(crate) struct LauncherHomeState {
     menu: Option<Ref<MenuFlyout>>,
     /// The library's and the launcher's changes, heard while the home shows.
     followed: Vec<Subscription>,
-    /// The number of the launcher's last showing the field took the keyboard for.
-    keyboard_given_for: u64,
 }
 
 /// What is typed in the search field, and what gives it the keyboard.
@@ -94,7 +91,9 @@ impl State for LauncherHomeState {
         let menu = MenuFlyout::new(app, self.menu_items(app));
         let followed = vec![
             app.observe(&library, move |app| self.search_changed_elsewhere(app)),
-            app.observe(&launcher, move |app| self.launcher_ordered(app)),
+            app.subscribe(&launcher, move |app, _: &LauncherShown| {
+                self.give_the_keyboard_after_this_frame(app)
+            }),
         ];
         let state = app.get_mut(self);
         state.field = Some(field);
@@ -242,22 +241,6 @@ impl LauncherHomeState {
         let text = self.text(app);
         if text.text_value(app) != searched {
             text.set_text(app, searched);
-        }
-    }
-
-    /// The launcher gave its window an order: as it shows, the field takes the keyboard, once
-    /// for each showing.
-    fn launcher_ordered(self: Handle<Self>, app: &mut App) {
-        if !self.mounted(app) {
-            return;
-        }
-        let Some(order) = self.widget(app).launcher.read(app).order() else {
-            return;
-        };
-        let state = app.get_mut(self);
-        if order.step == WindowStep::Show && order.number > state.keyboard_given_for {
-            state.keyboard_given_for = order.number;
-            self.give_the_keyboard_after_this_frame(app);
         }
     }
 
