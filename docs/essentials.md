@@ -8,6 +8,7 @@ The rules WaOS keeps, one line each, so they are not lost under the code. Each l
 - [Running](#running): when a program runs, waits or freezes.
 - [Files](#files): what a program can reach.
 - [The interface](#the-interface): what programs are built against.
+- [Tests](#tests): what the dev tools answer, and what each system tests.
 
 ## Programs
 
@@ -52,3 +53,8 @@ The rules WaOS keeps, one line each, so they are not lost under the code. Each l
 ## The interface
 
 - The WIT is the contract programs are built against; a change a program built before cannot run against takes a new version. ([decision 67](proposals/2026-10-17-the-waos-project.md); `cargo xtask check-wit-versions`)
+
+## Tests
+
+- An input from the dev tools is answered once it is handed to the program, saying whether its window was in sight; whoever expects a picture waits for it. ([decision 2](proposals/2026-11-22-tests-without-the-clock.md); [`dev_input.rs`](../apps/waos/src/logic/dev_input.rs))
+- Each system tests what concerns it, listed in one place. ([`ci.yml`](../.github/workflows/ci.yml))

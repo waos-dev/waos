@@ -5,21 +5,25 @@
 //! `set-frame` does (`ProgramView::resize_window`), so each placement answers as it answers the
 //! program. A window in WaOS's process and a program's own app on macOS take the size, or what
 //! their window system clamps it to; a phone's deck shows a tab in no window, and is answered
-//! `InNoWindow`. The connection is answered with the size the view reports after it, once the
-//! window shows a picture the program drew at it, or once WaOS has waited [`PICTURE_WAIT`] for
-//! each; a window its system left as it was reports nothing, and is answered with its size after
-//! the wait.
+//! `InNoWindow`. The connection is answered with the size the view reports after it; a window its
+//! system left as it was reports nothing, and is answered with its size once WaOS has waited
+//! [`REPORT_WAIT`] for a report.
 //!
 //! The invariant: the size goes the way a program's request goes, through the shell's window,
 //! never to a window of the app's own reached around the engine.
+
+use std::time::Duration;
 
 use waos::bindings::wasdk::platform::windows::Size;
 use waos_dev_protocol::{Connection, Refusal, ResizeAnswer, Resized, ServerStream, WindowId};
 use waos_package::ProgramId;
 
-use super::dev_input::{PICTURE_WAIT, new_picture_after};
 use super::dev_refusal;
 use super::runs::Runs;
+
+/// How long WaOS waits for the view to report the size it took: a window its system leaves as it
+/// was reports nothing.
+const REPORT_WAIT: Duration = Duration::from_secs(2);
 
 /// Answers a connection's `Resize`: the window `window` of the program `id` sized so its view is
 /// `size` logical points, then `Resized` with the size it took, or why it reached none.
@@ -42,8 +46,7 @@ pub(crate) async fn answer(
 }
 
 /// Sizes the window `window` (or the program's first open window) of the program `id` so its
-/// view is `size`; answers the size the view then reports, and whether the program drew a picture
-/// at it.
+/// view is `size`; answers the size the view then reports.
 async fn resize(
     runs: &Runs,
     id: &ProgramId,
@@ -59,7 +62,7 @@ async fn resize(
     let reported = view
         .resize_window(size)
         .ok_or_else(|| dev_refusal::in_no_window(id, window))?;
-    let metrics = tokio::time::timeout(PICTURE_WAIT, reported)
+    let metrics = tokio::time::timeout(REPORT_WAIT, reported)
         .await
         .ok()
         .flatten()
@@ -68,7 +71,6 @@ async fn resize(
         width: metrics.width,
         height: metrics.height,
         scale: metrics.device_pixel_ratio,
-        new_picture: new_picture_after(&view).await,
     })
 }
 
@@ -116,7 +118,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_window_takes_the_size_and_answers_it_once_the_program_drew_at_it() {
+    async fn a_window_takes_the_size_and_answers_it() {
         let server = TestServer::drawing("resize");
         let (_client, _frames) = run_input(&server).await;
         assert_eq!(
@@ -125,7 +127,6 @@ mod tests {
                 width: 200,
                 height: 160,
                 scale: 2.0,
-                new_picture: true,
             }
         );
         let screenshot = Request::Screenshot {

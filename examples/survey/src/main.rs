@@ -106,11 +106,17 @@ async fn answer_exit_requests(mut requests: StreamReader<ExitRequest>) {
     }
 }
 
-/// Describes `view`, then logs what happens to it on a task of its own until it is gone.
+/// Opens `view`'s events, describes it, limits its window, then logs what happens to it on a task
+/// of its own until it is gone.
 fn follow(view: View) {
+    // Opened before anything is logged or spawned, as `main` opens its own, so a close request or
+    // freeze right after the view arrives already sees a reader on it.
+    let events = view.events();
     describe_view(&view);
     limit_window_size(&view);
-    wasdk::spawn(log_events(view));
+    if let Some(events) = events {
+        wasdk::spawn(log_events(view, events));
+    }
 }
 
 /// Keeps the window of `view` between `MIN_SIZE` and `MAX_SIZE`, where its user resizes it.
@@ -130,11 +136,8 @@ fn limit_window_size(view: &View) {
     );
 }
 
-async fn log_events(view: View) {
+async fn log_events(view: View, mut events: StreamReader<ViewEvent>) {
     let id = view.id();
-    let Some(mut events) = view.events() else {
-        return;
-    };
     let mut title_bar = TitleBar::default();
     let mut maximized = is_maximized(&view);
     while let Some(event) = events.next().await {

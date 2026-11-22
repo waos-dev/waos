@@ -198,14 +198,14 @@ enum UiCommand {
     /// that window alone.
     Screenshot(ScreenshotArgs),
     /// Sizes a window of the running program, so what the program draws in it is --to, its
-    /// top-left where it is, and prints the size it took and its scale. Returns once the window
-    /// has shown the program's picture at that size.
+    /// top-left where it is, and prints the size it took and its scale, once the window has
+    /// reported it.
     ///
     /// The size is in logical points, which the program lays out in: a screenshot's pixels, and
     /// the points tap and the other input commands take, are points times the window's scale.
     Resize(ResizeArgs),
     /// Taps a window of the running program: a press and release of the mouse there. Returns once
-    /// the window has shown its next picture.
+    /// it is handed to the program: take a screenshot to see what the program drew.
     ///
     /// The point is in the window's pixels, as `ui screenshot` writes them, not in its logical
     /// points.
@@ -215,8 +215,7 @@ enum UiCommand {
     /// never sees them, and the real pointer does not move.
     Tap(TapArgs),
     /// Presses a window of the running program at a point and holds it: the mouse's button down
-    /// there, held for --duration, then up. Returns once the window has shown its next picture
-    /// after the release.
+    /// there, held for --duration, then up. Returns once the release is handed to the program.
     ///
     /// The point is in the window's pixels, as `ui screenshot` writes them, not in its logical
     /// points.
@@ -227,7 +226,7 @@ enum UiCommand {
     Press(PressArgs),
     /// Drags in a window of the running program: the mouse's button down at --from, held there
     /// for --hold, moved to --to in --steps equal moves spread over --duration, and up at --to.
-    /// Returns once the window has shown its next picture after the release.
+    /// Returns once the release is handed to the program.
     ///
     /// Both points are in the window's pixels, as `ui screenshot` writes them, not in its logical
     /// points.
@@ -237,14 +236,14 @@ enum UiCommand {
     /// the system never sees them, and the real pointer does not move.
     Drag(DragArgs),
     /// Types text into what a window of the running program edits, as an input method enters it.
-    /// Returns once the window has shown its next picture.
+    /// Returns once it is handed to the program.
     ///
     /// The text is committed by WaOS, as an input method commits its text, and handed to the
     /// program as WaOS hands over its user's input, so the program hears it as a user's; the
     /// system never sees it.
     Type(TypeArgs),
     /// Presses a key, or a chord, in a window of the running program: enter, escape, tab, a,
-    /// cmd+s, shift+tab. Returns once the window has shown its next picture.
+    /// cmd+s, shift+tab. Returns once it is handed to the program.
     ///
     /// The key events are made by WaOS, a US keyboard's, and handed to the program as WaOS hands
     /// over its user's input, so the program hears them as a user's; the system and the window's
@@ -253,7 +252,7 @@ enum UiCommand {
     /// the program's): a gap known for now.
     Key(KeyArgs),
     /// Scrolls a window of the running program at a point, as a mouse wheel does. Returns once
-    /// the window has shown its next picture.
+    /// it is handed to the program.
     ///
     /// The point and the distance are in the window's pixels, as `ui screenshot` writes them, not
     /// in its logical points.

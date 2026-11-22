@@ -73,7 +73,6 @@ pub async fn resize(id: ProgramId, window: Option<WindowId>, size: Points) -> Re
             width,
             height,
             scale,
-            new_picture,
         }) => {
             let taken = Points {
                 width: f64::from(width) / scale,
@@ -86,11 +85,6 @@ pub async fn resize(id: ProgramId, window: Option<WindowId>, size: Points) -> Re
             println!("{named}: {taken} points at scale {scale}, {width}x{height} pixels");
             if !size.is_in_pixels(width, height, scale) {
                 eprintln!("waos: the window system gave {named} {taken} points, not {size}");
-            }
-            if !new_picture {
-                eprintln!(
-                    "waos: {named} showed no new picture at its size: the program drew nothing after it, or the window is out of sight"
-                );
             }
             Ok(ExitCode::SUCCESS)
         }

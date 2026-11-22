@@ -152,12 +152,8 @@ fn the_app_suspending_resolves_once_every_program_has_stopped_and_resuming_lets_
     let output = output();
     let (engine, _shell, arrivals, time) = engine();
     let (forever, _) = run_forever_shown(&engine, &arrivals);
-    let survey = shell::load(&engine, waos_test_programs::SURVEY);
-    let (survey, _view) =
-        shell::run_shown(&engine, &arrivals, &survey, ProgramEnvironment::default());
-    let mark = output.mark();
-    first_report(output, mark);
-    output.wait_for(mark, "survey", |line| line.starts_with("view 1: 1600x1000"));
+    let (survey, _view) = run_survey_shown(&engine, &arrivals, output);
+    first_report(output, output.mark());
 
     resolved(engine.app_suspending());
     // Survey hears it is paused, which wakes it, and stops at its epoch check.
@@ -221,12 +217,9 @@ fn a_program_asked_to_exit_while_frozen_answers_and_is_frozen_again_once_it_has(
     let _survey = shell::turns::take("survey");
     let output = output();
     let (engine, _shell, arrivals, time) = engine();
-    let survey = shell::load(&engine, waos_test_programs::SURVEY);
-    let (running, view) =
-        shell::run_shown(&engine, &arrivals, &survey, ProgramEnvironment::default());
+    let (running, view) = run_survey_shown(&engine, &arrivals, output);
     let view = &view;
     let mark = output.mark();
-    output.wait_for(mark, "survey", |line| line.starts_with("view 1: 1600x1000"));
 
     view.presence_changed(OFF_SCREEN);
     output.wait_for(mark, "survey", |line| {
@@ -350,8 +343,8 @@ fn run_forever_shown(
     shell::run_shown(engine, arrivals, &forever, ProgramEnvironment::default())
 }
 
-/// Survey, running with the one view it asks for, which `arrivals` hears, once it has described
-/// the view.
+/// Survey, running with the one view it asks for, which `arrivals` hears, once it has finished
+/// its startup lines.
 fn run_survey_shown(
     engine: &WaOS,
     arrivals: &Receiver<ProgramView>,
@@ -361,6 +354,9 @@ fn run_survey_shown(
     let mark = output.mark();
     let shown = shell::run_shown(engine, arrivals, &survey, ProgramEnvironment::default());
     output.wait_for(mark, "survey", |line| line.starts_with("view 1: 1600x1000"));
+    output.wait_for(mark, "survey", |line| {
+        line == "view 1: its window keeps between 320x240 and 1920x1200"
+    });
     shown
 }
 

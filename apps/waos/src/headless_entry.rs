@@ -451,7 +451,7 @@ mod tests {
         };
         assert_eq!((pictures[0].width, pictures[0].height), (600, 400));
 
-        // 3. Deliver tap input and confirm a new picture was drawn.
+        // 3. Deliver tap input and confirm it was given to a window in sight.
         let input_answer: InputAnswer = ask(
             &socket,
             &Request::Input {
@@ -463,10 +463,7 @@ mod tests {
         .await;
         assert_eq!(
             input_answer,
-            InputAnswer::Done(InputDone {
-                in_sight: true,
-                new_picture: true,
-            })
+            InputAnswer::Done(InputDone { in_sight: true })
         );
 
         // 4. Settings read & set on the running program.

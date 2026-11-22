@@ -161,26 +161,19 @@ async fn every_answer_comes_back_as_sent() {
     sent.unwrap();
     assert_eq!(received.unwrap(), Some(screenshots));
     let input = tokio::join!(
-        server.send(&InputAnswer::Done(InputDone {
-            in_sight: false,
-            new_picture: true,
-        })),
+        server.send(&InputAnswer::Done(InputDone { in_sight: false })),
         client.receive::<InputAnswer>()
     );
     input.0.unwrap();
     assert_eq!(
         input.1.unwrap(),
-        Some(InputAnswer::Done(InputDone {
-            in_sight: false,
-            new_picture: true,
-        }))
+        Some(InputAnswer::Done(InputDone { in_sight: false }))
     );
     let resize = tokio::join!(
         server.send(&ResizeAnswer::Done(Resized {
             width: 780,
             height: 1689,
             scale: 2.0,
-            new_picture: true,
         })),
         client.receive::<ResizeAnswer>()
     );

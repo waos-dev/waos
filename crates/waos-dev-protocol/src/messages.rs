@@ -301,7 +301,7 @@ pub enum ScreenshotAnswer {
 
 adjacent_unknown!(ScreenshotAnswer);
 
-/// What an input answers: `InputDone` once the window shows its next picture, or why it reached
+/// What an input answers: `InputDone` once WaOS has handed it to the program, or why it reached
 /// none.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(remote = "Self", tag = "kind", content = "data")]
@@ -314,16 +314,13 @@ pub enum InputAnswer {
 
 adjacent_unknown!(InputAnswer);
 
-/// What the program heard, and what its window did.
+/// The input was handed to the program. What it drew in answer is the program's to draw: a
+/// screenshot shows it once it has, a window out of sight drawing nothing until it is in sight.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InputDone {
     /// Whether the window was in sight when the input was given, a run of `waos run`
     /// counting its windows in sight while it is attached.
     pub in_sight: bool,
-    /// Whether the window then showed a picture the program drew after it, within the time WaOS
-    /// waits for one: none comes for an input that changed nothing, nor while the window is out of
-    /// sight.
-    pub new_picture: bool,
 }
 
 /// What a resize answers: the size the view reported, or why it reached no window.
@@ -340,14 +337,12 @@ adjacent_unknown!(ResizeAnswer);
 
 /// The window's view is `width` by `height` physical pixels at `scale` physical pixels a logical
 /// point, as it reported itself after the resize: the size asked for, or the one the window system
-/// clamped it to, or the size it had where the window system left it as it was. `new_picture` says
-/// whether the window then showed a picture the program drew at that size, as `InputDone`'s does.
+/// clamped it to, or the size it had where the window system left it as it was.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Resized {
     pub width: u32,
     pub height: u32,
     pub scale: f64,
-    pub new_picture: bool,
 }
 
 /// What reading or setting a program's settings answers: the rows after the request, as its
@@ -650,15 +645,11 @@ mod tests {
             png: Some(vec![0; 2048]),
             asking: None,
         }]));
-        cbor(InputAnswer::Done(InputDone {
-            in_sight: true,
-            new_picture: false,
-        }));
+        cbor(InputAnswer::Done(InputDone { in_sight: true }));
         cbor(ResizeAnswer::Done(Resized {
             width: 780,
             height: 1689,
             scale: 2.0,
-            new_picture: true,
         }));
         cbor(SettingsAnswer::Rows(vec![SettingRow {
             key: "machine".into(),

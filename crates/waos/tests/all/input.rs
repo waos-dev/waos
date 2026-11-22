@@ -51,8 +51,9 @@ fn a_press_reaches_it_and_the_picture_after_it_is_held_until_the_shell_takes_it(
 
     let shell_view = Arc::clone(&shell.placed_views()[0]);
     shell_view.hold_presents();
-    click(&window, 40.0, 30.0);
+    press(&window, 40.0, 30.0);
     let after_press = window.picture_after_events();
+    release(&window, 40.0, 30.0);
     lines.wait_for(
         "pointer: PointerChange::Down PointerDeviceKind::Mouse PointerSignalKind::None device 7 at 40,30 buttons 1 pressure 1 scroll 0,0",
     );
@@ -132,15 +133,26 @@ fn end(running: &RunningProgram, window: &ProgramView) {
 /// A mouse's press and release at `(x, y)` in `window`'s physical pixels, the mouse coming in
 /// there first.
 fn click(window: &ProgramView, x: f64, y: f64) {
+    press(window, x, y);
+    release(window, x, y);
+}
+
+/// The mouse coming to `(x, y)` in `window` and its button going down there.
+fn press(window: &ProgramView, x: f64, y: f64) {
     let held = HeldModifiers::default();
     for (change, buttons) in [
         (PointerChange::Add, PointerButtons::empty()),
         (PointerChange::Hover, PointerButtons::empty()),
         (PointerChange::Down, PointerButtons::PRIMARY),
-        (PointerChange::Up, PointerButtons::empty()),
     ] {
         window.pointer(mouse(change, buttons, x, y), &held);
     }
+}
+
+/// The mouse's button coming up at `(x, y)` in `window`.
+fn release(window: &ProgramView, x: f64, y: f64) {
+    let up = mouse(PointerChange::Up, PointerButtons::empty(), x, y);
+    window.pointer(up, &HeldModifiers::default());
 }
 
 fn mouse(change: PointerChange, buttons: PointerButtons, x: f64, y: f64) -> PointerEvent {

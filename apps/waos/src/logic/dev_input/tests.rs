@@ -2,7 +2,7 @@
 //! windows draw: a tap and a scroll reach it as a mouse of the run's own, coming into the window
 //! once; a press holds the button down for its time, and a drag moves with it held; text is
 //! committed into what it edits, once it edits; a chord reaches it as its keys; each is done once
-//! the window shows the picture after it, or after the wait when none comes; and an input to a
+//! it is handed over, saying whether the window was in sight; and an input to a
 //! program no run runs, to a window it has not, at a point outside it, or naming no key, reaches
 //! nothing. The program draws, so these run where the engine makes hardware buffers, on Apple's
 //! systems.
@@ -104,16 +104,13 @@ fn mouse_line(change: &str, signal: &str, (x, y): (f64, f64), buttons: u8, scrol
 }
 
 #[tokio::test]
-async fn a_tap_reaches_the_program_as_a_mouse_of_the_runs_own_done_once_its_next_picture_shows() {
+async fn a_tap_reaches_the_program_as_a_mouse_of_the_runs_own() {
     let server = TestServer::drawing("tap");
     let (mut client, mut frames) = run_input(&server).await;
     let tap = Input::Tap { x: 40.0, y: 30.0 };
     assert_eq!(
         done(&server, WindowId(1), tap.clone()).await,
-        InputDone {
-            in_sight: true,
-            new_picture: true,
-        }
+        InputDone { in_sight: true }
     );
     for (change, buttons) in [("Add", 0), ("Hover", 0), ("Down", 1), ("Up", 0)] {
         let line = mouse_line(change, "None", (40.0, 30.0), buttons, "0,0");
@@ -121,10 +118,7 @@ async fn a_tap_reaches_the_program_as_a_mouse_of_the_runs_own_done_once_its_next
     }
     assert_eq!(
         done(&server, WindowId(1), tap).await,
-        InputDone {
-            in_sight: true,
-            new_picture: true,
-        }
+        InputDone { in_sight: true }
     );
     let added = mouse_line("Add", "None", (40.0, 30.0), 0, "0,0");
     let pressed = mouse_line("Down", "None", (40.0, 30.0), 1, "0,0");
@@ -158,10 +152,7 @@ async fn text_is_committed_into_what_the_window_edits_once_it_edits() {
     wait_for_line(&mut client, &mut frames, "text: editing").await;
     assert_eq!(
         done(&server, WindowId(1), Input::Text("milk".into())).await,
-        InputDone {
-            in_sight: true,
-            new_picture: true,
-        }
+        InputDone { in_sight: true }
     );
     wait_for_line(
         &mut client,
@@ -179,16 +170,12 @@ async fn text_is_committed_into_what_the_window_edits_once_it_edits() {
 }
 
 #[tokio::test]
-async fn a_chord_reaches_the_program_as_its_keys_done_without_a_picture_when_none_comes() {
+async fn a_chord_reaches_the_program_as_its_keys() {
     let server = TestServer::drawing("chord");
     let (mut client, mut frames) = run_input(&server).await;
     assert_eq!(
         done(&server, WindowId(1), Input::Key("cmd+s".into())).await,
-        InputDone {
-            in_sight: true,
-            new_picture: false,
-        },
-        "the program draws nothing for a key"
+        InputDone { in_sight: true }
     );
     for line in [
         "key: KeyKind::Down physical 0x700e3 logical 0x200000106 character None",
@@ -215,10 +202,7 @@ async fn a_scroll_reaches_the_program_where_the_mouse_came() {
     };
     assert_eq!(
         done(&server, WindowId(1), scroll).await,
-        InputDone {
-            in_sight: true,
-            new_picture: true,
-        }
+        InputDone { in_sight: true }
     );
     for line in [
         mouse_line("Add", "None", (10.0, 20.0), 0, "0,0"),
@@ -339,11 +323,7 @@ async fn an_input_to_a_window_out_of_sight_says_it_was_out_of_sight() {
     assert!(!view.in_sight());
     assert_eq!(
         done(&server, WindowId(1), Input::Tap { x: 1.0, y: 1.0 }).await,
-        InputDone {
-            in_sight: false,
-            new_picture: false,
-        },
-        "answered at once, with why no picture came"
+        InputDone { in_sight: false }
     );
 }
 
