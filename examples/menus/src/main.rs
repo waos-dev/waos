@@ -29,7 +29,7 @@ use wasdk::{StreamReader, wit_stream};
 
 #[wasdk::main]
 async fn main() {
-    let Some(window) = open_window().await else {
+    let Some((window, mut events)) = open_window().await else {
         return;
     };
     set_menu_bar();
@@ -38,9 +38,6 @@ async fn main() {
     if context_menus.is_none() {
         println!("context menus: none");
     }
-    let Some(mut events) = window.events() else {
-        return;
-    };
     while let Some(event) = events.next().await {
         match event {
             ViewEvent::Key(key) if goes_down_at(&key, 'm') => {
@@ -61,8 +58,8 @@ async fn main() {
     }
 }
 
-/// Asks for a window and waits for it.
-async fn open_window() -> Option<View> {
+/// Asks for a window, takes its events before announcing it, and waits for it.
+async fn open_window() -> Option<(View, StreamReader<ViewEvent>)> {
     let mut changes = views::view_changes();
     let config = WindowConfig::new();
     config.set_title("Menus");
@@ -72,8 +69,11 @@ async fn open_window() -> Option<View> {
     }
     while let Some(change) = changes.next().await {
         if let ViewChange::Added(view) = change {
+            // Opened before announcing the window or setting up the tray icon, so a freeze or
+            // event right after already sees a reader on it.
+            let events = view.events()?;
             println!("a window");
-            return Some(view);
+            return Some((view, events));
         }
     }
     None
