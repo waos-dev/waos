@@ -15,6 +15,8 @@ use waos_capabilities::{AudioDevices, Machines, ProgramEnvironment};
 use waos_local_audio::LocalAudio;
 use waos_local_processes::{LocalMachines, LoginEnvironment};
 
+pub use waos_local_processes::{HomeFolder, THIS_COMPUTER};
+
 /// This computer's providers, made once and shared by every program they serve: an embedder keeps
 /// one and gives each program it runs an [`environment`](LocalCapabilities::environment).
 pub struct LocalCapabilities {
@@ -45,6 +47,14 @@ impl LocalCapabilities {
             audio: Arc::new(audio),
             machines: Arc::new(LocalMachines::new(LoginEnvironment::of_login_shell())),
         }
+    }
+
+    /// These providers, `home` the user's home on this computer, where the embedder knows it
+    /// better than the login environment, as on Android, which gives an app no home of its own.
+    pub fn with_home(mut self, home: HomeFolder) -> LocalCapabilities {
+        let login = LoginEnvironment::of_login_shell();
+        self.machines = Arc::new(LocalMachines::with_home(login, home));
+        self
     }
 
     /// A program's environment of this computer's providers, the same ones every program gets,
