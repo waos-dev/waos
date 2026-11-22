@@ -392,7 +392,8 @@ mod tests {
         fs::write(&component, "(component)").unwrap();
         let cache = folder.path().join("cache");
         fs::create_dir(&cache).unwrap();
-        let engine = Engine::default();
+        // The engine's own settings: every engine in a process catches traps alike.
+        let engine = Engine::new(&crate::engine::engine_config(false)).unwrap();
         let start = std::sync::Barrier::new(4);
         std::thread::scope(|scope| {
             for _ in 0..4 {
