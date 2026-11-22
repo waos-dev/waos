@@ -247,10 +247,12 @@ fn open_folder_of(host: &Path) -> io::Result<(fs::File, Option<OsString>)> {
 }
 
 /// The folder at `host`, opened for paths beneath it: on Windows as a folder, which it opens only
-/// so, and not to be renamed or deleted while it is held.
+/// so, and not to be renamed or deleted while it is held; on Linux and Android, where the system
+/// refuses WaOS reading it, as Android refuses an app reading `/`, held to pass through alone, so
+/// what is beneath it opens as the system allows and listing the folder itself is refused.
 pub(crate) fn open_folder(host: &Path) -> io::Result<fs::File> {
     #[cfg(unix)]
-    let folder = fs::File::open(host)?;
+    let folder = open_unix_folder(host)?;
     #[cfg(windows)]
     let folder = super::windows::open_folder(host)?;
     if folder.metadata()?.is_dir() {
@@ -258,6 +260,25 @@ pub(crate) fn open_folder(host: &Path) -> io::Result<fs::File> {
     } else {
         Err(io::ErrorKind::NotADirectory.into())
     }
+}
+
+/// The folder at `host`, opened to read; on Linux and Android, held to pass through alone where the
+/// system refuses reading it (`O_PATH`), which the walk beneath it takes as it takes any folder.
+#[cfg(unix)]
+fn open_unix_folder(host: &Path) -> io::Result<fs::File> {
+    let refused = match fs::File::open(host) {
+        Err(error) if error.kind() == io::ErrorKind::PermissionDenied => error,
+        opened => return opened,
+    };
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    {
+        use rustix::fs::{Mode, OFlags};
+        let flags = OFlags::PATH | OFlags::DIRECTORY | OFlags::CLOEXEC;
+        if let Ok(passed_through) = rustix::fs::open(host, flags, Mode::empty()) {
+            return Ok(fs::File::from(passed_through));
+        }
+    }
+    Err(refused)
 }
 
 /// Whether `path` is absolute and names only folders, with no `..`; `.` is dropped from a path's
