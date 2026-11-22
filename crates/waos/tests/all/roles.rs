@@ -110,7 +110,7 @@ fn a_program_importing_wasdk_inspect_is_asked_about_at_its_start_and_refused_wit
     let (engine, shell, _arrivals) = shell::engine();
     let inspector = shell::load(&engine, waos_test_programs::IMPORTS_INSPECT);
     let grants = Arc::new(RoleGrants::default());
-    let (running, _given) = engine.run(&inspector, with(&grants), Vec::new()).unwrap();
+    let running = engine.run(&inspector, with(&grants)).unwrap();
     shell::wait_until("the role asked about", || !shell.roles_asked().is_empty());
     assert_eq!(shell.roles_asked()[0].1, Role::Inspector);
     shell.answer_roles(Some(Answer::Denied));
@@ -122,7 +122,7 @@ fn a_program_importing_wasdk_inspect_is_asked_about_at_its_start_and_refused_wit
         "kept"
     );
 
-    let (running, _given) = engine.run(&inspector, with(&grants), Vec::new()).unwrap();
+    let running = engine.run(&inspector, with(&grants)).unwrap();
     let end = block_on(running.ended());
     assert_eq!(not_granted(&end), Some(Role::Inspector), "{end:?}");
     assert_eq!(
@@ -137,7 +137,7 @@ fn the_role_question_is_told_through_the_programs_access() {
     let (engine, shell, _arrivals) = shell::engine();
     let inspector = shell::load(&engine, waos_test_programs::IMPORTS_INSPECT);
     let grants = Arc::new(RoleGrants::default());
-    let (running, _given) = engine.run(&inspector, with(&grants), Vec::new()).unwrap();
+    let running = engine.run(&inspector, with(&grants)).unwrap();
     shell::wait_until("the role asked about", || !shell.roles_asked().is_empty());
     let mut permissions = running
         .trace(TraceKind::Permissions)
@@ -156,8 +156,8 @@ fn the_role_question_is_told_through_the_programs_access() {
 fn a_program_with_no_grants_holds_no_role() {
     let (engine, shell, _arrivals) = shell::engine();
     let inspector = shell::load(&engine, waos_test_programs::IMPORTS_INSPECT);
-    let (running, _given) = engine
-        .run(&inspector, ProgramEnvironment::default(), Vec::new())
+    let running = engine
+        .run(&inspector, ProgramEnvironment::default())
         .unwrap();
     let end = block_on(running.ended());
     assert_eq!(not_granted(&end), Some(Role::Inspector), "{end:?}");
@@ -176,9 +176,7 @@ fn a_program_granted_its_role_sees_the_programs_and_traces_one() {
         ..shell::config()
     });
     let forever = shell::load(&engine, waos_test_programs::FOREVER);
-    let (counting, _given) = engine
-        .run(&forever, ProgramEnvironment::default(), Vec::new())
-        .unwrap();
+    let counting = engine.run(&forever, ProgramEnvironment::default()).unwrap();
     let inspect = shell::load(&engine, waos_test_programs::INSPECT);
     let grants = Arc::new(RoleGrants {
         inspector: Mutex::new(Some(Answer::Granted)),
@@ -189,7 +187,7 @@ fn a_program_granted_its_role_sees_the_programs_and_traces_one() {
         output: Some(Arc::clone(&said) as Arc<dyn ProgramOutput>),
         ..with(&grants)
     };
-    let (inspecting, _given) = engine.run(&inspect, environment, Vec::new()).unwrap();
+    let inspecting = engine.run(&inspect, environment).unwrap();
     let end = block_on(inspecting.ended());
     assert!(matches!(end, ProgramEnd::Returned(Ok(()))), "{end:?}");
     let said = said.text();
@@ -276,8 +274,8 @@ impl ProgramOutput for Said {
 fn a_program_importing_no_role_is_asked_about_none() {
     let (engine, shell, _arrivals) = shell::engine();
     let incompatible = shell::load(&engine, waos_test_programs::INCOMPATIBLE);
-    let (running, _given) = engine
-        .run(&incompatible, ProgramEnvironment::default(), Vec::new())
+    let running = engine
+        .run(&incompatible, ProgramEnvironment::default())
         .unwrap();
     let end = block_on(running.ended());
     assert_eq!(not_granted(&end), None, "{end:?}");
@@ -289,7 +287,7 @@ fn a_waiting_role_question_is_answered_by_setting_its_row_and_drops_its_prompt()
     let (engine, shell, _arrivals) = shell::engine();
     let inspector = shell::load(&engine, waos_test_programs::IMPORTS_INSPECT);
     let grants = Arc::new(RoleGrants::default());
-    let (running, _given) = engine.run(&inspector, with(&grants), Vec::new()).unwrap();
+    let running = engine.run(&inspector, with(&grants)).unwrap();
     shell::wait_until("the role asked about", || !shell.roles_asked().is_empty());
     assert!(!shell.role_cancelled(0));
 

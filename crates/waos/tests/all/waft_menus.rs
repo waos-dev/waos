@@ -291,7 +291,7 @@ fn run_with(
         grants,
         ..waos_local::LocalCapabilities::new().environment()
     };
-    let (running, _given) = engine.run(&program, environment, Vec::new()).unwrap();
+    let running = engine.run(&program, environment).unwrap();
     let window = arrivals
         .recv_timeout(WITHIN)
         .expect("waft-menus asks for its window");

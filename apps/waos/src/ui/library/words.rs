@@ -144,6 +144,14 @@ pub(crate) const PROGRAMS_INSIDE_WAOS_DETAIL: &str =
     "Programs you open from now on show in WaOS's tabs, rather than each as an app of its own.";
 /// On the global page of a desktop's launcher, the choice of how WaOS stays on the desktop.
 pub(crate) const WHERE_WAOS_STAYS: &str = "Where WaOS stays";
+/// The global settings' line on the phone's files, where WaOS reaches them only as the user
+/// allows, and what it says while WaOS may reach them or not.
+pub(crate) const PHONE_FILES: &str = "This phone's files";
+pub(crate) const PHONE_FILES_ON: &str =
+    "All files access is on: a program working on This computer sees the files on this phone.";
+pub(crate) const PHONE_FILES_OFF: &str = "All files access is off: a program working on This computer sees only WaOS's own folder. Turn it on for WaOS in Android's settings.";
+/// The button that opens Android's page for WaOS's All files access.
+pub(crate) const OPEN_ANDROID_SETTINGS: &str = "Open Android's settings";
 
 /// The choice whether WaOS is kept in the Dock or the taskbar, named as the desktop of `platform`
 /// names the place: macOS's Dock, Windows' and Linux's taskbar.

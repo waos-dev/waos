@@ -115,7 +115,7 @@ fn a_program_leaves_its_mounts_by_no_name_ending_in_a_slash_and_by_no_mount_besi
         folders: Some(machine.own_folders()),
         ..ProgramEnvironment::default()
     };
-    let (running, _views) = engine.run(&program, environment, Vec::new()).unwrap();
+    let running = engine.run(&program, environment).unwrap();
     let end = block_on(running.ended());
     assert!(matches!(end, ProgramEnd::Returned(Ok(()))), "{end:?}");
     // The way a system refuses to remove a folder is its own, so the two lines that say it are.

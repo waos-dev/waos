@@ -478,7 +478,7 @@ impl Run {
             ..waos_local::LocalCapabilities::new().environment()
         };
         let program = shell::load(engine, waos_test_programs::VIDEO_PLAYER);
-        let (running, _given) = engine.run(&program, environment, Vec::new()).unwrap();
+        let running = engine.run(&program, environment).unwrap();
         let window = arrivals
             .recv_timeout(WITHIN)
             .expect("the video player asks for its window");

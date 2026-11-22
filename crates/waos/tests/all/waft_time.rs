@@ -20,7 +20,7 @@ fn a_local_date_time_reads_the_users_hour_and_zone_name() {
         output: Some(Arc::clone(&lines) as Arc<dyn ProgramOutput>),
         ..waos_local::LocalCapabilities::new().environment()
     };
-    let (running, _given) = engine.run(&program, environment, Vec::new()).unwrap();
+    let running = engine.run(&program, environment).unwrap();
     let view = arrivals
         .recv_timeout(WITHIN)
         .expect("waft-time asks for its window");

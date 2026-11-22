@@ -21,7 +21,7 @@ fn its_navigator_handles_back_while_it_can_pop() {
         output: Some(Arc::clone(&lines) as Arc<dyn ProgramOutput>),
         ..waos_local::LocalCapabilities::new().environment()
     };
-    let (running, _given) = engine.run(&program, environment, Vec::new()).unwrap();
+    let running = engine.run(&program, environment).unwrap();
     let view = arrivals
         .recv_timeout(WITHIN)
         .expect("waft-back asks for its window");

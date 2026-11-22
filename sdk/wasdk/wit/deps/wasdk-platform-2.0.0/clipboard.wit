@@ -1,0 +1,156 @@
+package wasdk:platform@2.0.0;
+
+/// The clipboard: what the user copied, in this program or another one, and copying.
+///
+/// **Items and types.** The clipboard holds items, each offered in several forms named by MIME
+/// types, the most faithful first: a picture as `image/png` and `image/tiff`, a link as
+/// `text/uri-list` and `text/plain`. A program lists the items with their types, which reads no
+/// content, then reads one item in one of its types. An item is the clipboard as it was listed:
+/// its read fails with `changed` once anything has replaced it, so a read never lands on another
+/// copy. Where the platform holds one item, as Windows and Linux do, it holds the first written.
+///
+/// **Content.** A program gives each form's content at once, or promises it: a promised form is
+/// produced only when someone pastes it, through the requests of the program's `source`, so a
+/// costly form is made only if it is wanted. A file travels as a reference: a program puts one by
+/// its path inside the program, and the platform writes the file's real path; one that exists
+/// only once pasted is named, and its content streamed on paste into the file where the receiver
+/// chose, which the program never learns. A paste of a promised form or file thaws a frozen
+/// program to answer it; a form not given whole in time fails the paste, as does a file whose
+/// answer is not begun in time, or an answer whose `done` does not say ok. A program learns when
+/// and in which form its copy was pasted, never by whom.
+///
+/// **Ending.** A program's promises end with it, so one that ends on its own first calls `flush`,
+/// as the frameworks over this interface do on their way out, and the platform asks the same
+/// before it stops a program: every form the program still promises is asked for, and what is
+/// given in time is kept for every later paste. A promised file is not asked for, as nobody has
+/// chosen where it goes, and ends with the program.
+///
+/// **Switches.** A read of the clipboard is the `clipboard-read` switch's, and a write the
+/// `clipboard-write` switch's (`permissions`): each is checked as it is made, so a switch the user
+/// turns off refuses the next one. The user's own commands are not: a `copy` or `cut` a view
+/// hears carries a `copy-request`, which writes whatever the write switch says, and a `paste` the
+/// clipboard as the user pasted it, which reads whatever the read switch says.
+///
+/// **Files.** A file on the clipboard is read as its path in `text/uri-list`: the path, which
+/// gives the program no access to the file, but for a file the user pasted, which is mounted
+/// read-only at that path as the paste's item is read in `text/uri-list`.
+///
+/// **Focus.** What is on the clipboard, and its changes, are seen only while one of the program's
+/// views has the focus, as types and no content: a program in the background cannot watch the
+/// user copy.
+interface clipboard {
+  use wasi:clocks/types@0.3.0.{duration};
+
+  /// One form's content, as a program writes it.
+  variant content {
+    /// The bytes, given at once.
+    data(stream<u8>),
+    /// Produced when someone pastes it, through the source's `requests`.
+    promise,
+    /// A file the program has, by its path inside the program.
+    file(string),
+    /// A file that exists only once pasted: its name. Its content is streamed on paste, through
+    /// the source's `requests`, into the file where the receiver chose.
+    file-promise(string),
+  }
+
+  /// Why the clipboard was not read or written.
+  variant clipboard-error {
+    /// The clipboard changed since the item was listed.
+    changed,
+    /// The item is not offered in that type, or the file written is not in the program's
+    /// folders.
+    not-found,
+    /// The user does not let the program read or write the clipboard: its switch is off.
+    denied,
+    /// A form or a type the platform cannot carry.
+    unsupported,
+    /// The platform failed, or a promised form was not produced.
+    failed(string),
+  }
+
+  /// How a copy is to be treated. New, it is treated as any other; each method sets one option,
+  /// which a platform that lacks it leaves out, but the expiry, which the platform keeps itself
+  /// where its system cannot.
+  resource copy-options {
+    constructor();
+    /// A password or a code: kept out of previews, clipboard history and sync.
+    sensitive: func();
+    /// Kept off other devices' clipboards.
+    this-device-only: func();
+    /// Cleared after `duration`, if still on the clipboard.
+    expires-after: func(duration: duration);
+  }
+
+  /// One item on the clipboard, as it was listed.
+  resource clipboard-item {
+    /// The types it is offered in, by MIME type, the most faithful first.
+    types: func() -> list<string>;
+    /// Its content in `type`, one of its types, if the `clipboard-read` switch is on. Fails if
+    /// the clipboard changed since the item was listed.
+    read: async func(%type: string) -> result<stream<u8>, clipboard-error>;
+  }
+
+  /// What a program put on the clipboard, while it is there: Wayland's `wl_data_source`.
+  resource source {
+    /// The requests for its promised forms and files, each made as someone pastes one, and for
+    /// its promised forms when the program flushes the clipboard or is stopped; the stream ends
+    /// when another copy replaces this one. One stream per source: the first call takes it, and
+    /// a later one answers a stream that has ended.
+    requests: func() -> stream<request>;
+  }
+
+  /// A paste of one promised form or file, to be answered once, in time.
+  resource request {
+    /// Which item, by its place in what was written.
+    item: func() -> u32;
+    /// Which of the item's forms, by the type it was written in.
+    %type: func() -> string;
+    /// Answers with the form's content, and how producing it ended, as wasi:http's body pairs
+    /// its contents with its trailers: the paste fails unless `done` says ok, so a producer
+    /// that breaks half-way never passes for a whole, short file. A request dropped without an
+    /// answer fails the paste.
+    provide: func(content: stream<u8>, done: future<result<_, string>>);
+  }
+
+  /// The user's copy or cut, through the platform's command, of what is selected in one of the
+  /// program's views.
+  resource copy-request {
+    /// Replaces the clipboard with `items` as `clipboard.write` does, whatever the
+    /// `clipboard-write` switch says, since the user asked for it. A request writes once: a
+    /// later write is refused with `denied`.
+    write: async func(items: list<list<tuple<string, content>>>, options: copy-options) -> result<source, clipboard-error>;
+  }
+
+  /// The clipboard as the user pasted it, through the platform's command, into one of the
+  /// program's views.
+  resource paste {
+    /// What was on the clipboard when the user pasted, each item in its types. Its reads are free
+    /// of the `clipboard-read` switch and of the focus; once anything replaces what was pasted, a
+    /// read fails with `changed`, as any item's does, so keeping the handle reveals nothing
+    /// beyond what the user pasted. Reading an item in `text/uri-list` mounts each file it names
+    /// read-only at its own path, where the program then opens it.
+    items: func() -> list<clipboard-item>;
+  }
+
+  /// The platform's clipboard.
+  resource clipboard {
+    /// What is on the clipboard now, each item in its types. Empty unless one of the program's
+    /// views has the focus.
+    items: func() -> list<clipboard-item>;
+    /// What is on the clipboard at each change, the program's own copies among them, while one
+    /// of the program's views has the focus; a change made while none has it arrives as one gains
+    /// it. Each call is a stream of its own.
+    changes: func() -> stream<list<clipboard-item>>;
+    /// Replaces the clipboard with `items`, each in its forms, treated as `options` says, if the
+    /// `clipboard-write` switch is on. The source answers the requests for its promised forms.
+    write: async func(items: list<list<tuple<string, content>>>, options: copy-options) -> result<source, clipboard-error>;
+    /// Asks for every form this program's copy still promises, files aside, through its source's
+    /// requests, so what it gives outlives the program; resolves once each is answered or its
+    /// time is up. Nothing is asked once another copy has replaced the program's.
+    flush: async func();
+  }
+
+  /// The platform's clipboard, where it has one.
+  get-clipboard: func() -> option<clipboard>;
+}

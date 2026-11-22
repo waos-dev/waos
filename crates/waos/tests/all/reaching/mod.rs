@@ -142,7 +142,7 @@ impl Run {
             }),
             ..ProgramEnvironment::default()
         };
-        let (running, _views) = engine.run(&program, environment, Vec::new()).unwrap();
+        let running = engine.run(&program, environment).unwrap();
         Run {
             running,
             lines,

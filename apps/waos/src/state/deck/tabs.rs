@@ -1,11 +1,16 @@
 //! The deck's tabs, on the main thread: the list of them (`logic::tab_list`, which has the rules
 //! of what a tab is, their order, the current one and the overview), how far each program's tab
 //! got, and what each program is told of its view. Opening a program gives it its tab, the home's
-//! where the home is open, and the view the tab gives it as it starts (`TabView`), measured as a
-//! tab's page in the deck's view (`logic::tab_page`); once the run answers the program's view, the
-//! tab shows it, and once the program ends on its own the tab keeps its view, which holds its last
-//! picture, and says how it ended, until the user closes it. Closing a tab stops its program
-//! without asking, as a phone's switcher ends an app.
+//! where the home is open, and reserves the tab's screen for its first request (`TabView`),
+//! measured as a tab's page in the deck's view (`logic::tab_page`); once the program's first
+//! request takes the screen, the tab shows the view it became, and once the program ends on its
+//! own the tab keeps its view, which holds its last picture, and says how it ended, until the user
+//! closes it. Until the program asks, however long it takes, the tab shows that it starts, and a
+//! program that ends without asking leaves only how it ended. Each view the program asks for after
+//! its first is a tab of its own, beside its others; each tab is a window (decision 6 of
+//! `docs/proposals/2026-11-21-views-a-program-asks-for.md`): closing one takes its view away, and
+//! closing a program's last tab stops the program without asking, as a phone's switcher ends an
+//! app.
 //!
 //! The tabs know nothing of how the deck moves: whoever moves it says where it heads
 //! (`show_page`, `set_overview_open`, `go_home`) and that it got there (`arrived`).
@@ -25,16 +30,21 @@ use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::Arc;
 
+use futures::StreamExt;
+use futures::channel::mpsc::UnboundedReceiver;
 use waft::ui::{ViewFocusDirection, ViewFocusEvent, ViewFocusState, ViewRef};
 use waft::{
     App, Context, Entity, FrameCallback, SchedulerBinding, WeakEntity, WidgetsBinding,
     WidgetsBindingObserver,
 };
-use waos::{PlacedView, Presence, ProgramEnd, ProgramView, RunningProgram};
+use waos::bindings::wasdk::platform::views::ViewError;
+use waos::{PlacedView, Presence, ProgramEnd, ProgramView, RunningProgram, ViewRequest};
 use waos_package::ProgramId;
 use waos_program_window::ShownView;
 
 use super::tab_view::TabView;
+use crate::logic::installed_runs::OpenedRun;
+use crate::logic::program_places::TabRequest;
 use crate::logic::runs::Runs;
 use crate::logic::tab_list::{TabId, TabKind, TabList};
 use crate::logic::tab_page::page_metrics;
@@ -47,6 +57,11 @@ pub(crate) struct Tabs {
     view: Option<ViewRef>,
     /// Whether the deck's view has the input focus, as Waft last said; so until it says.
     focused: bool,
+    /// The view each running tab shows, which closing the tab takes away from its program.
+    views: HashMap<TabId, ProgramView>,
+    /// The screen of each tab whose program has not asked for its first view yet, which that
+    /// request takes.
+    screens: HashMap<TabId, (TabView, PlacedView)>,
     /// The programs running, which a tab closed stops.
     runs: Arc<Runs>,
 }
@@ -71,32 +86,88 @@ pub(crate) enum TabContent<'a> {
 pub(crate) enum TabStage {
     /// The program is loading.
     Starting,
+    /// The program runs, and its tab's screen waits for its first request.
+    Waiting,
     /// The program runs, its view shown by the tab.
     Running(Entity<ShownView>),
     /// The program ended on its own, `end` saying how; the tab keeps its view, which holds its
-    /// last picture, until the user closes it.
+    /// last picture, until the user closes it, or none where it ended without asking for one.
     Ended {
-        shown: Entity<ShownView>,
+        shown: Option<Entity<ShownView>>,
         end: ProgramEnd,
     },
 }
 
 impl Tabs {
     /// The home alone, closing a tab's program among `runs`, following what Waft reports of the
-    /// deck's view from now on.
-    pub(crate) fn listen(app: &mut App, runs: Arc<Runs>) -> Entity<Tabs> {
+    /// deck's view from now on, and opening a tab for each of `requests`, a request of a program
+    /// in the deck after its first.
+    pub(crate) fn listen(
+        app: &mut App,
+        runs: Arc<Runs>,
+        requests: UnboundedReceiver<TabRequest>,
+    ) -> Entity<Tabs> {
         let tabs = app.new_entity(|_| Tabs {
             list: TabList::new(),
             stages: HashMap::new(),
             view: None,
             focused: true,
+            views: HashMap::new(),
+            screens: HashMap::new(),
             runs,
         });
         let reports = Rc::new(DeckViewReports {
             tabs: tabs.downgrade(),
         });
         WidgetsBinding::instance(app).add_observer(app, reports);
+        answer_requests(app, &tabs, requests);
         tabs
+    }
+
+    /// `program` asked for a view: its first takes the screen of the tab it was opened in, and each
+    /// later one is a tab of its own beside its others, which the deck heads to; the request fails
+    /// where the program has no tab, or the deck can show none.
+    fn view_requested(
+        &mut self,
+        program: RunningProgram,
+        request: ViewRequest,
+        cx: &mut Context<Tabs>,
+    ) {
+        let id = program.name().parse::<ProgramId>().ok();
+        let waiting = id.as_ref().and_then(|id| self.list.tab_of(id));
+        if let Some(tab) = waiting
+            && let Some((tab_view, placed)) = self.screens.remove(&tab)
+        {
+            let view = program.add_view(request.id, placed);
+            tracing::info!(program = program.name(), ?tab, "its first view, in its tab");
+            self.show(tab, tab_view, program, view, cx);
+            return;
+        }
+        let opened = id
+            .and_then(|id| self.list.open_another_view(&id))
+            .ok_or("the program has no tab to open another beside")
+            .and_then(|tab| match self.tab_view(tab, cx) {
+                Ok(starting) => Ok((tab, starting)),
+                Err(why) => {
+                    self.list.close(tab);
+                    Err(why)
+                }
+            });
+        let (tab, (tab_view, placed)) = match opened {
+            Ok(opened) => opened,
+            Err(why) => {
+                tracing::warn!(program = program.name(), why, "no tab for its view");
+                program.view_request_failed(request.id, ViewError::Failed(why.to_owned()));
+                return;
+            }
+        };
+        let view = program.add_view(request.id, placed);
+        tracing::info!(
+            program = program.name(),
+            ?tab,
+            "another view, in a tab of its own"
+        );
+        self.show(tab, tab_view, program, view, cx);
     }
 
     /// Brings the deck's window forward, as Android brings WaOS's own task forward while a
@@ -143,19 +214,37 @@ impl Tabs {
         &self.list
     }
 
-    /// Opens the program `id` in a tab, which the deck heads to, and answers the view the tab
-    /// gives the program as it starts, with the view as the engine is handed it; none where `id`
-    /// has a tab already, which the deck heads to. Why not, where the deck has no view yet or the
-    /// system no compositor to make the tab's canvas on.
-    pub(crate) fn open(
-        &mut self,
-        id: &ProgramId,
-        cx: &mut Context<Tabs>,
-    ) -> Result<Option<(TabView, PlacedView)>, String> {
+    /// Opens the program `id` in a tab, which the deck heads to, its screen waiting for the
+    /// program's first request; answers whether it opened one, not where `id` has a tab already,
+    /// which the deck heads to. Why not, where the deck has no view yet or the system no compositor
+    /// to make the tab's canvas on.
+    pub(crate) fn open(&mut self, id: &ProgramId, cx: &mut Context<Tabs>) -> Result<bool, String> {
         if let Some(tab) = self.list.tab_of(id) {
             self.show_page(tab, cx);
-            return Ok(None);
+            return Ok(false);
         }
+        let tab = self.list.open_program(id).tab();
+        let starting = match self.tab_view(tab, cx) {
+            Ok(starting) => starting,
+            Err(why) => {
+                self.list.program_did_not_start(tab);
+                return Err(why.to_owned());
+            }
+        };
+        self.stages.insert(tab, TabStage::Starting);
+        self.screens.insert(tab, starting);
+        self.changed(cx);
+        Ok(true)
+    }
+
+    /// The screen of `tab`, measured as a page of the deck's view, with the view as the engine is
+    /// handed it; why not, where the deck has no view yet or the system no compositor to make the
+    /// tab's canvas on.
+    fn tab_view(
+        &self,
+        tab: TabId,
+        cx: &mut Context<Tabs>,
+    ) -> Result<(TabView, PlacedView), &'static str> {
         let view = self
             .view
             .as_ref()
@@ -165,49 +254,64 @@ impl Tabs {
             .compositor()
             .ok_or("this system shows no composition layers, which a program's view is")?;
         let metrics = page_metrics(&view.metrics());
-        let tab = self.list.open_program(id).tab();
-        self.stages.insert(tab, TabStage::Starting);
-        let starting = TabView::make(&*compositor, &metrics, self.presence(tab));
-        self.changed(cx);
-        Ok(Some(starting))
+        Ok(TabView::make(&*compositor, &metrics, self.presence(tab)))
     }
 
-    /// What starting the program of `id`'s tab came to: the program, with the views it started
-    /// with, the first `tab_view`'s, or none where it could not start, and the tab is the home's
-    /// again, or goes where a home is open. A program whose tab was closed meanwhile is stopped.
-    /// A program that ran already started with no view of this tab's: a tab still starting is
-    /// treated as one that could not start, and a tab that shows the program, opened again while
-    /// an earlier opening of it was still starting, is left showing it.
+    /// What starting the program of `id`'s tab came to: the program, or none where it could not
+    /// start, and the tab is the home's again, or goes where a home is open. A program whose tab
+    /// was closed meanwhile is stopped; one whose first request took its tab already shows there;
+    /// otherwise its tab waits for that request, and says how it ended where it ends without one.
+    /// A program that ran already is not this tab's: a tab still starting is treated as one that
+    /// could not start.
     pub(crate) fn started(
         &mut self,
         id: &ProgramId,
-        tab_view: TabView,
-        started: Option<(RunningProgram, Vec<ProgramView>)>,
+        started: Option<OpenedRun>,
         cx: &mut Context<Tabs>,
     ) {
         let starting = self.starting(id);
-        let Some((program, views)) = started else {
-            self.did_not_start(starting, cx);
-            return;
-        };
-        let Some(view) = views.into_iter().next() else {
-            if starting.is_some() {
-                tracing::warn!(%id, "it was running already, without its tab's view: the tab goes");
+        let program = match started {
+            Some(OpenedRun::Started(program)) => program,
+            Some(OpenedRun::RunningAlready(_)) | None => {
+                if starting.is_some() {
+                    tracing::info!(%id, "it did not start in its tab: the tab goes");
+                }
                 self.did_not_start(starting, cx);
+                return;
             }
-            return;
         };
-        let Some(tab) = starting else {
+        let Some(tab) = self.list.tab_of(id) else {
             tracing::info!(%id, "its tab was closed as it started: stopped");
             program.stop();
             return;
         };
+        if starting == Some(tab) {
+            tracing::info!(%id, "the program runs, its tab waiting for its first request");
+            self.stages.insert(tab, TabStage::Waiting);
+            end_while_waiting(cx, tab, &program);
+            cx.notify();
+        }
+    }
+
+    /// `tab` shows `view` of `program` on `tab_view`, its screen, from now on.
+    fn show(
+        &mut self,
+        tab: TabId,
+        tab_view: TabView,
+        program: RunningProgram,
+        view: ProgramView,
+        cx: &mut Context<Tabs>,
+    ) {
         let Some(waft_view) = self.view.clone() else {
-            tracing::warn!(%id, "the deck lost its view as the program started: the tab goes");
+            tracing::warn!(
+                ?tab,
+                "the deck lost its view as the program asked: the tab goes"
+            );
             program.stop();
-            self.did_not_start(starting, cx);
+            self.did_not_start(Some(tab), cx);
             return;
         };
+        self.views.insert(tab, view.clone());
         let shown = tab_view.show(
             cx,
             view,
@@ -215,7 +319,7 @@ impl Tabs {
             page_metrics(&waft_view.metrics()),
             self.presence(tab),
         );
-        tracing::info!(%id, "the program runs in its tab");
+        tracing::info!(?tab, "the program shows in its tab");
         end_when_ended(cx, tab, &program, shown.downgrade());
         shown.update(cx, |shown, cx| shown.set_holds_keyboard(false, cx));
         self.stages.insert(tab, TabStage::Running(shown));
@@ -267,28 +371,44 @@ impl Tabs {
         }
     }
 
-    /// Closes `tab`, stopping its program without asking; the home alone stays.
+    /// Closes `tab`, as a window closes: its program's view goes, and its program, where this was
+    /// its last tab, is stopped without asking; the home alone stays.
     pub(crate) fn close(&mut self, tab: TabId, cx: &mut Context<Tabs>) {
         let Some(TabKind::Program(id)) = self.list.close(tab) else {
             self.changed(cx);
             return;
         };
-        if let Some(TabStage::Running(shown)) = self.stages.remove(&tab) {
+        let stage = self.stages.remove(&tab);
+        let view = self.views.remove(&tab);
+        self.screens.remove(&tab);
+        if let Some(TabStage::Running(shown)) = &stage {
             shown.read(cx).gone();
+        }
+        if let Some(TabStage::Running(_) | TabStage::Waiting) = stage {
+            let last = self.list.tab_of(&id).is_none();
             let runs = Arc::clone(&self.runs);
             cx.spawn(async move |_cx| {
-                if let Some(program) = runs.running(&id).await {
-                    tracing::info!(%id, "its tab was closed: stopped");
-                    program.stop();
+                let Some(program) = runs.running(&id).await else {
+                    return;
+                };
+                match view {
+                    Some(view) if !last => {
+                        tracing::info!(%id, "one of its tabs was closed: its view goes");
+                        program.remove_view(view.id());
+                    }
+                    _ => {
+                        tracing::info!(%id, "its last tab was closed: stopped");
+                        program.stop();
+                    }
                 }
             });
         }
         self.changed(cx);
     }
 
-    /// Closes the tab of the program `id`, where it has one.
+    /// Closes every tab of the program `id`, which stops it.
     pub(crate) fn close_program(&mut self, id: &ProgramId, cx: &mut Context<Tabs>) {
-        if let Some(tab) = self.list.tab_of(id) {
+        while let Some(tab) = self.list.tab_of(id) {
             self.close(tab, cx);
         }
     }
@@ -305,6 +425,7 @@ impl Tabs {
             return;
         };
         self.stages.remove(&tab);
+        self.screens.remove(&tab);
         self.list.program_did_not_start(tab);
         self.changed(cx);
     }
@@ -319,10 +440,24 @@ impl Tabs {
         self.stages.insert(
             tab,
             TabStage::Ended {
-                shown: shown.clone(),
+                shown: Some(shown.clone()),
                 end,
             },
         );
+    }
+
+    /// The program of `tab` ended on its own before it asked for a view, `end` saying how.
+    fn ended_without_a_view(&mut self, tab: TabId, end: ProgramEnd) {
+        if !matches!(self.stages.get(&tab), Some(TabStage::Waiting)) {
+            return;
+        }
+        tracing::info!(
+            ?tab,
+            ?end,
+            "the program in a tab ended without asking for a view"
+        );
+        self.stages
+            .insert(tab, TabStage::Ended { shown: None, end });
     }
 
     /// How the view of `tab`'s program stands now: the module's invariant.
@@ -380,6 +515,47 @@ impl Tabs {
         self.focused = event.state == ViewFocusState::Focused;
         self.restand(cx);
     }
+}
+
+/// From now on each of `requests` is answered with a tab of `tabs`, on the main thread.
+fn answer_requests(
+    app: &mut App,
+    tabs: &Entity<Tabs>,
+    mut requests: UnboundedReceiver<TabRequest>,
+) {
+    let tabs = tabs.downgrade();
+    app.spawn(async move |cx| {
+        while let Some(TabRequest { program, request }) = requests.next().await {
+            let answered = cx.update(|app| {
+                let Some(tabs) = tabs.upgrade() else {
+                    return false;
+                };
+                tabs.update(app, |tabs, cx| tabs.view_requested(program, request, cx));
+                true
+            });
+            if !answered {
+                return;
+            }
+        }
+    });
+}
+
+/// Marks `tab` ended, with no picture, once `program` ends on its own while the tab waits for its
+/// first request.
+fn end_while_waiting(cx: &mut Context<Tabs>, tab: TabId, program: &RunningProgram) {
+    let ended = program.ended();
+    let tabs = cx.weak_entity();
+    cx.spawn(async move |cx| {
+        let end = ended.await;
+        cx.update(|app| {
+            if let Some(tabs) = tabs.upgrade() {
+                tabs.update(app, |tabs, cx| {
+                    tabs.ended_without_a_view(tab, end);
+                    cx.notify();
+                });
+            }
+        });
+    });
 }
 
 /// Marks `tab` ended once `program` ends on its own, while the tab shows `shown`.

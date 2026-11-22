@@ -41,10 +41,10 @@ fn file_dialogs_through(reach: &Arc<AppReach>, printed: &Arc<Printed>) -> Runnin
         output: Some(Arc::clone(printed) as Arc<dyn ProgramOutput>),
         ..ProgramEnvironment::default()
     };
-    let (program, _given) = engine
-        .run(&file_dialogs, environment, Vec::new())
-        .expect("file-dialogs runs");
-    program
+
+    engine
+        .run(&file_dialogs, environment)
+        .expect("file-dialogs runs")
 }
 
 /// The file dialog the app is asked to open next: its id, the window it is a sheet on, and what

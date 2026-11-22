@@ -2770,6 +2770,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "forever-shown"
+version = "0.5.0"
+dependencies = [
+ "wasdk",
+]
+
+[[package]]
 name = "form_urlencoded"
 version = "1.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -10734,6 +10741,8 @@ dependencies = [
  "toml_edit 0.25.20+spec-1.1.0",
  "waos-dev-protocol",
  "waos-package",
+ "wasmparser 0.261.0",
+ "wat",
  "windows-sys 0.61.2",
 ]
 

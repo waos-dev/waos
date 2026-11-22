@@ -58,7 +58,7 @@ fn run(engine: &WaOS, arrivals: &Receiver<ProgramView>) -> (RunningProgram, Prog
         output: Some(Arc::clone(&lines) as Arc<dyn ProgramOutput>),
         ..waos_local::LocalCapabilities::new().environment()
     };
-    let (running, _given) = engine.run(&program, environment, Vec::new()).unwrap();
+    let running = engine.run(&program, environment).unwrap();
     let view = arrivals
         .recv_timeout(WITHIN)
         .expect("waft-image asks for its window");

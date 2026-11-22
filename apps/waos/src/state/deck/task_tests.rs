@@ -12,6 +12,7 @@ use std::time::Duration;
 
 use waft::Offset;
 use waft::ui::{HostWindow, View, ViewFocusState};
+use waos::{Prompts, Question};
 use waos_program_window::{RestorableWindow, WindowRole};
 
 use super::test_phone::{BACK, PhoneKind, SURVEY, TRIANGLE, TestPhone};
@@ -20,6 +21,9 @@ use crate::logic::preferences::PreferencesFile;
 
 /// How long a test gives a program to do what it would do were it to go wrong.
 const A_MOMENT: Duration = Duration::from_millis(500);
+
+/// An app that never asks for a view.
+const FOREVER: &str = "dev.example.forever";
 
 /// A phone of tasks with `programs` installed, each a test program's component under an id and a
 /// name.
@@ -52,7 +56,7 @@ fn first_window_of(id: &str) -> String {
 }
 
 #[test]
-fn a_program_opened_asks_for_a_window_with_its_name_its_icon_and_what_names_it() {
+fn a_program_opened_gets_its_window_with_its_name_its_icon_and_what_names_it() {
     let mut phone = with_triangle_installed();
     open_in_a_window(&mut phone, TRIANGLE);
     let windows = phone.windows_of(TRIANGLE);
@@ -68,8 +72,51 @@ fn a_program_opened_asks_for_a_window_with_its_name_its_icon_and_what_names_it()
     );
     let views = phone.program_views(TRIANGLE);
     assert_eq!(views.len(), 1);
-    assert!(views[0].request_id().is_some(), "a window it asked for");
+    assert_eq!(views[0].request_id(), 1, "its first request took it");
     assert_eq!(phone.tab_kinds(), ["home"], "no tab of its own");
+}
+
+#[test]
+fn a_question_of_an_app_before_its_first_window_is_put_over_the_window_held_for_it() {
+    let mut phone = TestPhone::of(PhoneKind::Tasks);
+    phone.install(waos_test_programs::FOREVER, FOREVER, "Forever");
+    phone.start_opening(FOREVER);
+    phone.settle_until("it runs, with its window", |phone| {
+        phone.runs(FOREVER) && phone.windows_of(FOREVER).len() == 1
+    });
+    let id = FOREVER.parse().unwrap();
+    let program = futures::executor::block_on(phone.runs.running(&id)).expect("it runs");
+    let _answer = phone.prompts.ask(&program, Question::Camera);
+    phone.settle_until("the question is put", |phone| {
+        phone.shows("Allow Forever to use the camera?")
+    });
+    assert_eq!(
+        phone.windows.made().len(),
+        1,
+        "no window of the question's own: it is over the app's"
+    );
+    let held = phone.windows_of(FOREVER)[0].test_view().id();
+    let screen = phone
+        .view_windows
+        .read(&phone.shell.app())
+        .screen_of(&program);
+    assert_eq!(screen, Some(held), "its dialogs are shown over it too");
+}
+
+#[test]
+fn an_app_opened_has_its_window_from_its_launch_though_it_never_asks_for_one() {
+    let mut phone = TestPhone::of(PhoneKind::Tasks);
+    phone.install(waos_test_programs::FOREVER, FOREVER, "Forever");
+    phone.start_opening(FOREVER);
+    phone.settle_until("it runs, with its window", |phone| {
+        phone.runs(FOREVER) && phone.windows_of(FOREVER).len() == 1
+    });
+    phone.pump_for(A_MOMENT);
+    assert!(
+        phone.program_views(FOREVER).is_empty(),
+        "the window waits for its first request"
+    );
+    assert_eq!(phone.windows_of(FOREVER)[0].config().title, "Forever");
 }
 
 #[test]
@@ -101,7 +148,11 @@ fn a_first_window_brought_back_starts_its_program_in_it() {
     });
     let views = phone.program_views(TRIANGLE);
     assert_eq!(views.len(), 1);
-    assert_eq!(views[0].request_id(), None, "a view it was given");
+    assert_eq!(
+        views[0].request_id(),
+        1,
+        "its first request took the window brought back"
+    );
     assert!(views[0].presence().on_screen);
     assert!(phone.windows_of(TRIANGLE).is_empty(), "it asked for none");
     assert_eq!(restored.title(), "Triangle", "the card names it again");
@@ -209,5 +260,5 @@ fn with_programs_inside_waos_a_program_opened_takes_a_tab() {
     phone.open(TRIANGLE);
     assert_eq!(phone.tab_kinds(), [TRIANGLE]);
     assert!(phone.windows_of(TRIANGLE).is_empty(), "no window asked for");
-    assert_eq!(phone.program_views(TRIANGLE)[0].request_id(), None);
+    assert_eq!(phone.program_views(TRIANGLE)[0].request_id(), 1);
 }

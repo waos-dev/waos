@@ -185,7 +185,7 @@ fn a_held_icon_offers_settings_and_remove_and_remove_asks_first() {
 #[test]
 fn a_tapped_icon_opens_its_program_which_is_marked_running() {
     let mut desktop = desktop();
-    let forever = std::fs::read(waos_test_programs::FOREVER).unwrap();
+    let forever = std::fs::read(waos_test_programs::FOREVER_SHOWN).unwrap();
     install_on_the_phone(&mut desktop, &forever);
     desktop.settle_until_code_is_ready();
     assert!(!desktop.has::<RunningDot>(), "nothing runs yet");
@@ -204,7 +204,7 @@ fn a_tapped_icon_opens_its_program_which_is_marked_running() {
 fn an_installing_program_says_so_and_a_tap_meanwhile_opens_it_once_its_code_is_ready() {
     let mut desktop = desktop();
     let held = desktop.hold_compiles();
-    let forever = std::fs::read(waos_test_programs::FOREVER).unwrap();
+    let forever = std::fs::read(waos_test_programs::FOREVER_SHOWN).unwrap();
     install_on_the_phone(&mut desktop, &forever);
     assert!(desktop.shows(words::INSTALLING), "{:?}", desktop.labels());
     assert!(!desktop.shows("Triangle"), "in place of its name");
@@ -230,7 +230,7 @@ fn an_installing_program_says_so_and_a_tap_meanwhile_opens_it_once_its_code_is_r
 fn an_installing_program_says_so_in_fluents_layout_too() {
     let mut desktop = desktop();
     let _held = desktop.hold_compiles();
-    let forever = std::fs::read(waos_test_programs::FOREVER).unwrap();
+    let forever = std::fs::read(waos_test_programs::FOREVER_SHOWN).unwrap();
     install_on_the_phone(&mut desktop, &forever);
     phone_window(&desktop)
         .test_view()
@@ -266,7 +266,7 @@ fn a_sources_program_installs_from_the_page_behind_the_plus() {
 #[test]
 fn the_get_page_says_installing_until_the_programs_code_is_ready() {
     let mut desktop = desktop();
-    let forever = std::fs::read(waos_test_programs::FOREVER).unwrap();
+    let forever = std::fs::read(waos_test_programs::FOREVER_SHOWN).unwrap();
     let package = desktop.package(TRIANGLE, "Triangle", "1.0.0", &forever);
     let server = Server::start();
     server.publish(TRIANGLE, &package, "1.0.0");

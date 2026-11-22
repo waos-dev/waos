@@ -508,6 +508,7 @@ pub(crate) mod tests {
             client
                 .send(&Request::Run(Run {
                     id: id.parse().unwrap(),
+                    kind: waos_package::ProgramKind::App,
                     args,
                     variables,
                     length: component.len() as u64,
@@ -541,6 +542,7 @@ pub(crate) mod tests {
             client
                 .send(&Request::Run(Run {
                     id: id.parse().unwrap(),
+                    kind: waos_package::ProgramKind::App,
                     args: Vec::new(),
                     variables: Vec::new(),
                     length: component.len() as u64,
@@ -770,6 +772,7 @@ pub(crate) mod tests {
         again
             .send(&Request::Run(Run {
                 id: FOREVER.parse().unwrap(),
+                kind: waos_package::ProgramKind::App,
                 args: Vec::new(),
                 variables: Vec::new(),
                 length: component.len() as u64,
@@ -1597,6 +1600,7 @@ pub(crate) mod tests {
         client
             .send(&Request::Run(Run {
                 id: broken.parse().unwrap(),
+                kind: waos_package::ProgramKind::App,
                 args: Vec::new(),
                 variables: Vec::new(),
                 length: 16,

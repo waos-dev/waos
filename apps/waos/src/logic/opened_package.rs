@@ -123,12 +123,23 @@ pub(crate) mod tests {
         key: &SigningKey,
     ) -> PathBuf {
         let manifest = Manifest::new(id.parse().unwrap(), name, version.parse().unwrap()).unwrap();
+        write_package_of(folder, &manifest, component, key)
+    }
+
+    /// `component` packaged under `manifest`, signed with `key`, in `folder`.
+    pub(crate) fn write_package_of(
+        folder: &Path,
+        manifest: &Manifest,
+        component: &[u8],
+        key: &SigningKey,
+    ) -> PathBuf {
+        let (id, version) = (manifest.id(), manifest.version());
         let component_file = folder.join(format!("{id}-{version}.wasm"));
         fs::write(&component_file, component).unwrap();
         let icon_file = folder.join("icon.png");
         fs::write(&icon_file, icon()).unwrap();
         let path = folder.join(format!("{id}-{version}.wapk"));
-        waos_package::write(&path, &manifest, &component_file, &icon_file, key).unwrap();
+        waos_package::write(&path, manifest, &component_file, &icon_file, key).unwrap();
         path
     }
 

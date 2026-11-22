@@ -40,7 +40,7 @@ pub use icon::MINIMUM_SIDE as ICON_MINIMUM_SIDE;
 pub use id::{IdError, ProgramId};
 pub use index::{Index, IndexError, ListedProgram};
 pub use keys::{KeyError, PublisherKey, SigningKey};
-pub use manifest::{Manifest, ManifestError};
+pub use manifest::{Manifest, ManifestError, ProgramKind};
 pub use package::Package;
 pub use semver::Version;
 pub use write::write;

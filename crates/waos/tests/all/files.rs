@@ -63,7 +63,7 @@ fn a_program_uses_its_mounts_and_nothing_outside_them() {
         folders: Some(machine.own_folders()),
         ..ProgramEnvironment::default()
     };
-    let (running, _views) = engine.run(&program, environment, Vec::new()).unwrap();
+    let running = engine.run(&program, environment).unwrap();
     lines.wait_for(BEFORE_LATER[BEFORE_LATER.len() - 1]);
     assert_eq!(lines.all(), BEFORE_LATER);
 

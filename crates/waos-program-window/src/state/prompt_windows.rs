@@ -1,6 +1,6 @@
 //! WaOS's prompts placed in WaOS's own windows: over each of the program's windows, dimming it,
-//! where WaOS shows the program's windows itself; and, for a program with none of them, in a window
-//! of its own, with the program's name, icon and identity, as its own windows have them, whose
+//! where WaOS shows the program's windows itself, the window reserved for its first request among
+//! them; and, for a program with none of them, in a window of its own, with the program's name, icon and identity, as its own windows have them, whose
 //! closing dismisses the prompt, which Waft is
 //! asked for, noted by what Waft answers, and which arrives as every view does, carrying
 //! [`PROMPT_WINDOW`] as its initial data. Whoever builds the process's views puts the prompt in it
@@ -16,6 +16,7 @@ use std::rc::Rc;
 
 use futures::StreamExt;
 use futures::channel::mpsc::{self, UnboundedSender};
+use futures::channel::oneshot;
 use waft::ui::{RequestId, ViewId, ViewRef};
 use waft::{
     App, Context, Entity, IntoWidget, LinuxWindowConfig, WeakEntity, WidgetRef, WidgetsBinding,
@@ -70,6 +71,8 @@ pub(crate) struct OwnWindow {
     view: Option<ViewRef>,
     /// What closing the window does: dismisses the prompt.
     dismissed: Rc<dyn Fn(&mut App)>,
+    /// Who waits for the window's view, until it arrives.
+    arrival: Option<oneshot::Sender<ViewId>>,
 }
 
 impl PromptWindows {
@@ -101,6 +104,30 @@ impl PromptWindows {
             }
         });
         PromptWindows { shown, hidden }
+    }
+
+    /// Shows `prompt` for `program`, as [`PromptPlacement::show`] does, and answers it with what
+    /// resolves with the Waft view of the window of its own it is shown in, once that arrives: the
+    /// screen a dialog of a program with none of its own is shown over, on a system that shows a
+    /// dialog only over a screen (decision 11 of
+    /// `docs/proposals/2026-11-21-views-a-program-asks-for.md`). It resolves with nothing where the
+    /// program has a screen after all, or Waft makes no window.
+    pub fn show_on_a_screen_of_its_own(
+        &self,
+        app: &mut App,
+        program: &RunningProgram,
+        prompt: WidgetRef,
+        dismissed: Rc<dyn Fn(&mut App)>,
+    ) -> (ShownPrompt, oneshot::Receiver<ViewId>) {
+        let (arrival, arrived) = oneshot::channel();
+        let id = self.shown.update(app, |shown, cx| {
+            shown.show_with(program, prompt, dismissed, Some(arrival), cx)
+        });
+        let hidden = self.hidden.clone();
+        let shown = ShownPrompt::new(move || {
+            let _ = hidden.unbounded_send(id);
+        });
+        (shown, arrived)
     }
 
     /// What `ProgramWindows` puts over each of a program's windows: its prompt shown, if any.
@@ -183,11 +210,24 @@ impl ShownPrompts {
         dismissed: Rc<dyn Fn(&mut App)>,
         cx: &mut Context<ShownPrompts>,
     ) -> PromptId {
+        self.show_with(program, prompt, dismissed, None, cx)
+    }
+
+    /// Shows `prompt` as `show` does, `arrival` hearing the view of its window of its own once it
+    /// arrives, where it has one.
+    fn show_with(
+        &mut self,
+        program: &RunningProgram,
+        prompt: WidgetRef,
+        dismissed: Rc<dyn Fn(&mut App)>,
+        arrival: Option<oneshot::Sender<ViewId>>,
+        cx: &mut Context<ShownPrompts>,
+    ) -> PromptId {
         self.last_id += 1;
-        let window = if self.view_windows.read(cx).has_windows(program) {
+        let window = if self.view_windows.read(cx).has_a_screen(program) {
             None
         } else {
-            self.open_window(program, dismissed, cx)
+            self.open_window(program, dismissed, arrival, cx)
         };
         self.prompts.push(Shown {
             id: self.last_id,
@@ -205,6 +245,7 @@ impl ShownPrompts {
         &self,
         program: &RunningProgram,
         dismissed: Rc<dyn Fn(&mut App)>,
+        arrival: Option<oneshot::Sender<ViewId>>,
         cx: &mut Context<ShownPrompts>,
     ) -> Option<OwnWindow> {
         let face = (self.face_of)(program);
@@ -229,6 +270,7 @@ impl ShownPrompts {
                 asked,
                 view: None,
                 dismissed,
+                arrival,
             }),
             Err(error) => {
                 tracing::warn!(%error, "a prompt's window of its own was refused");
@@ -252,6 +294,10 @@ impl ShownPrompts {
         match own {
             Some(own) => {
                 own.view = Some(Rc::clone(view));
+                if let Some(arrival) = own.arrival.take() {
+                    // Whoever waited may have stopped waiting.
+                    let _ = arrival.send(view.id());
+                }
                 cx.notify();
             }
             None => close_window_of(view),

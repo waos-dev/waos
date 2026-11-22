@@ -164,7 +164,7 @@ fn an_inspector_reads_a_programs_mounts_and_a_folders_entries_and_no_path_out_of
         grants: Some(Arc::new(Granted)),
         ..ProgramEnvironment::default()
     };
-    let (running, _given) = engine.run(&inspect, environment, Vec::new()).unwrap();
+    let running = engine.run(&inspect, environment).unwrap();
     let end = block_on(running.ended());
     assert!(matches!(end, ProgramEnd::Returned(Ok(()))), "{end:?}");
 

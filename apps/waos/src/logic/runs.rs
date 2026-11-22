@@ -336,10 +336,8 @@ mod tests {
                 .load(Path::new(waos_test_programs::FOREVER))
                 .unwrap()
                 .named(name);
-            let (running, _views) = engine
-                .run(&program, ProgramEnvironment::default(), Vec::new())
-                .unwrap();
-            running
+
+            engine.run(&program, ProgramEnvironment::default()).unwrap()
         };
         let runs = Arc::new(Runs::default());
         let slow: ProgramId = "dev.example.slow".parse().unwrap();

@@ -55,14 +55,15 @@ use crate::logic::package_copies::PackageCopies;
 use crate::logic::placement::WindowsOnRequest;
 use crate::logic::preferences::PreferencesFile;
 use crate::logic::program_faces::ProgramFaces;
-use crate::logic::program_places::{PlacedWhereOpened, ProgramPlace, ProgramPlaces};
+use crate::logic::program_places::{PlacedWhereOpened, ProgramPlace, ProgramPlaces, TabsOnRequest};
+use crate::logic::prompts::PromptsOnRequest;
 use crate::logic::recording_indicator::RecordingIndicatorOnRequest;
 use crate::logic::runs::Runs;
 use crate::logic::test_engine::{self, NoWindows};
 use crate::state::ViewWindows;
 use crate::state::library::test_desktop::label_of;
 use crate::state::library::{Library, ProgramsOpen, open_library};
-use crate::state::questions;
+use crate::state::questions::{self, Questions};
 use crate::state::recordings::Recordings;
 use crate::state::{bring_opened_programs_forward, phone_deck};
 use crate::ui::every_window::{every_window, program_windows};
@@ -91,6 +92,7 @@ const PIXEL_RATIO: f64 = 3.0;
 pub(crate) const TRIANGLE: &str = "dev.example.triangle";
 pub(crate) const SURVEY: &str = "dev.example.survey";
 pub(crate) const TRAP: &str = "dev.example.trap";
+pub(crate) const TWO_WINDOWS: &str = "dev.example.twowindows";
 pub(crate) const BACK: &str = "dev.example.back";
 pub(crate) const INCOMPATIBLE: &str = "dev.example.incompatible";
 
@@ -213,7 +215,11 @@ pub(crate) struct TestPhone {
     compositor: MockCompositor,
     pub(crate) library: Entity<Library>,
     pub(crate) tabs: Entity<Tabs>,
+    /// The programs' windows, on a phone of tasks.
+    pub(crate) view_windows: Entity<ViewWindows>,
     pub(crate) runs: Arc<Runs>,
+    /// Where the programs' questions to their user are put.
+    pub(crate) prompts: Arc<PromptsOnRequest>,
     pub(crate) folder: TempDir,
     pub(crate) key: SigningKey,
     /// The time of the frame drawn last.
@@ -256,13 +262,18 @@ impl TestPhone {
         };
         let preferences = PreferencesFile::at(folder.path().join("preferences.toml"));
         let places = ProgramPlaces::new(usual);
+        let (tabs_on_request, tab_requests) = TabsOnRequest::new();
         let placement = PlacedWhereOpened {
             places: places.clone(),
+            tabs: tabs_on_request,
             windows,
         };
+        let (prompts, prompted) = PromptsOnRequest::new(crate::logic::asking_now::AskingNow::new());
+        let prompts = Arc::new(prompts);
         let installed_runs = InstalledRuns::new(
-            Arc::new(test_engine::engine(
+            Arc::new(test_engine::engine_asking(
                 Arc::new(placement),
+                Arc::clone(&prompts) as Arc<dyn waos::Prompts>,
                 &folder.path().join("code"),
             )),
             ProgramEnvironments::new(waos_local::LocalCapabilities::new(), store.clone()),
@@ -293,6 +304,13 @@ impl TestPhone {
                 view_windows.clone(),
                 ProgramFaces::new(served.clone(), None),
             );
+            Questions::listen(
+                app,
+                prompted.questions,
+                prompt_windows.clone(),
+                served.clone(),
+                None,
+            );
             let recordings = Recordings::listen(app, recording_changes, served.clone());
             let library = open_library(
                 app,
@@ -304,7 +322,7 @@ impl TestPhone {
             )
             .expect("a library");
             bring_opened_programs_forward(app, &library, &view_windows);
-            let tabs = Tabs::listen(app, deck_runs);
+            let tabs = Tabs::listen(app, deck_runs, tab_requests);
             let deck = phone_deck(
                 app,
                 library.clone(),
@@ -319,9 +337,9 @@ impl TestPhone {
             );
             install_icon_font(app);
             install_cupertino_icon_font(app);
-            *kept.borrow_mut() = Some((library, tabs));
+            *kept.borrow_mut() = Some((library, tabs, view_windows));
         });
-        let (library, tabs) = started.borrow_mut().take().expect("the app started");
+        let (library, tabs, view_windows) = started.borrow_mut().take().expect("the app started");
         let mut phone = TestPhone {
             shell,
             platform,
@@ -331,7 +349,9 @@ impl TestPhone {
             compositor,
             library,
             tabs,
+            view_windows,
             runs,
+            prompts,
             folder,
             key: SigningKey::generate(),
             elapsed: Duration::ZERO,
@@ -417,6 +437,16 @@ impl TestPhone {
         self.settle();
     }
 
+    /// Closes the tab at `index`, as its card's close in the overview does, and lets the deck
+    /// settle.
+    pub(crate) fn close_tab(&mut self, index: usize) {
+        self.tabs.update(&mut self.shell.app(), |tabs, cx| {
+            let tab = tabs.list().tabs()[index].id;
+            tabs.close(tab, cx);
+        });
+        self.settle();
+    }
+
     /// What `read` answers of the stage of `id`'s tab; none without a tab.
     fn read_stage<R>(&self, id: &str, read: impl FnOnce(&TabStage) -> R) -> Option<R> {
         let app = self.shell.app();
@@ -433,6 +463,7 @@ impl TestPhone {
     pub(crate) fn stage(&self, id: &str) -> Option<&'static str> {
         self.read_stage(id, |stage| match stage {
             TabStage::Starting => "starting",
+            TabStage::Waiting => "waiting",
             TabStage::Running(_) => "running",
             TabStage::Ended { .. } => "ended",
         })

@@ -42,7 +42,7 @@ fn a_program_reads_its_permissions_asks_once_and_hears_each_change() {
         grants: Some(Arc::clone(&grants) as Arc<dyn ProgramGrants>),
         ..ProgramEnvironment::default()
     };
-    let (running, _views) = engine.run(&program, environment, Vec::new()).unwrap();
+    let running = engine.run(&program, environment).unwrap();
     for state in FIRST_STATES {
         lines.wait_for(state);
     }
@@ -115,7 +115,7 @@ fn a_program_given_no_grants_is_granted_nothing_and_asks_nobody() {
         output: Some(Arc::clone(&lines) as Arc<dyn ProgramOutput>),
         ..ProgramEnvironment::default()
     };
-    let (running, _views) = engine.run(&program, environment, Vec::new()).unwrap();
+    let running = engine.run(&program, environment).unwrap();
     for name in [
         "network",
         "local-network",
@@ -156,7 +156,7 @@ fn a_waiting_permission_question_is_answered_by_setting_its_row_and_drops_its_pr
             grants: Some(Arc::clone(&grants) as Arc<dyn ProgramGrants>),
             ..ProgramEnvironment::default()
         };
-        let (running, _views) = engine.run(&program, environment, Vec::new()).unwrap();
+        let running = engine.run(&program, environment).unwrap();
         wait_until("the question is put", || !shell.questions().is_empty());
         assert!(!shell.question_cancelled(0));
 

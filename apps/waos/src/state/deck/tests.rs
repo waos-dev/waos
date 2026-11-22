@@ -1,14 +1,13 @@
 //! The deck's tabs with real programs in them, on a phone of the tests' own (`test_phone`).
 //!
-//! A program opened from the home gets the home's tab and its view as it starts, measured as the
-//! tab's page, and its tab shows it, so one that asks for a view only when given none asks for
-//! none; a tab keeps the last picture of a program that ended and says how it ended until it is
-//! closed; only the page in sight is on screen, the home's taking a program's out of sight; a
-//! program opened again brings its tab back into sight; and closing a tab stops its program, the
-//! last one leaving the home. A running program's icon offers Close, which closes its tab, and a
-//! package opened while a tab is in sight is asked about in an alert over the tab. A request in a
-//! tab is refused (`logic::program_places`'s test). What fingers do to the deck is `ui::deck`'s
-//! tests'.
+//! A program opened from the home gets the home's tab, whose screen its first request takes,
+//! measured as the tab's page, and its tab shows it; each view it asks for after is a tab of its
+//! own, closed as a window is, its last tab's closing stopping it; a tab keeps the last picture of
+//! a program that ended and says how it ended until it is closed; only the page in sight is on
+//! screen, the home's taking a program's out of sight; a program opened again brings its tab back
+//! into sight; and closing a tab stops its program, the last one leaving the home. A running
+//! program's icon offers Close, which closes its tab, and a package opened while a tab is in sight
+//! is asked about in an alert over the tab. What fingers do to the deck is `ui::deck`'s tests'.
 
 use std::time::Duration;
 
@@ -19,7 +18,7 @@ use waos::ProgramEnd;
 use waos_package::ProgramId;
 use waos_program_window::{ProgramCanvas, ProgramPicture};
 
-use super::test_phone::{SURVEY, TRAP, TRIANGLE, TestPhone, with_triangle_running};
+use super::test_phone::{SURVEY, TRAP, TRIANGLE, TWO_WINDOWS, TestPhone, with_triangle_running};
 use crate::logic::opened_package::tests::write_package;
 use crate::logic::tab_page::page_metrics;
 use crate::ui::library::icon_actions::{IconAction, actions_offered};
@@ -40,7 +39,11 @@ fn a_program_opened_gets_its_tabs_view_measured_as_the_page_and_its_tab_shows_it
         page.physical_size,
         "the page above the bar"
     );
-    assert_eq!(view.request_id(), None, "a view given, not asked for");
+    assert_eq!(
+        view.request_id(),
+        1,
+        "its first request took the tab's screen"
+    );
     assert!(
         view.presence().on_screen && view.in_sight(),
         "{:?}",
@@ -58,7 +61,7 @@ fn a_program_opened_gets_its_tabs_view_measured_as_the_page_and_its_tab_shows_it
 }
 
 #[test]
-fn a_program_that_asks_for_a_view_when_given_none_asks_for_none_in_a_tab() {
+fn a_program_asking_for_its_first_view_in_a_tab_gets_the_tabs_screen() {
     let mut phone = TestPhone::with_installed(&[(waos_test_programs::SURVEY, SURVEY, "Survey")]);
     phone.open(SURVEY);
     assert_eq!(
@@ -67,7 +70,32 @@ fn a_program_that_asks_for_a_view_when_given_none_asks_for_none_in_a_tab() {
         "{:?}",
         phone.end(SURVEY)
     );
-    assert_eq!(phone.program_view(SURVEY).request_id(), None);
+    assert_eq!(phone.program_view(SURVEY).request_id(), 1);
+}
+
+#[test]
+fn each_view_a_program_asks_for_is_a_tab_closed_as_a_window_is() {
+    let mut phone =
+        TestPhone::with_installed(&[(waos_test_programs::TWO_WINDOWS, TWO_WINDOWS, "Two windows")]);
+    phone.open(TWO_WINDOWS);
+    phone.settle_until("its second view in a tab of its own", |phone| {
+        phone.tab_kinds() == [TWO_WINDOWS, TWO_WINDOWS]
+            && phone.program_views(TWO_WINDOWS).len() == 2
+    });
+    assert_eq!(phone.current_tab(), TWO_WINDOWS);
+
+    phone.close_tab(0);
+    phone.settle_until("its first view taken away", |phone| {
+        phone.program_views(TWO_WINDOWS).len() == 1
+    });
+    assert!(phone.runs(TWO_WINDOWS), "it runs on in its other tab");
+    assert_eq!(phone.tab_kinds(), [TWO_WINDOWS]);
+
+    phone.close_tab(0);
+    phone.settle_until("it is stopped with its last tab", |phone| {
+        !phone.runs(TWO_WINDOWS)
+    });
+    assert_eq!(phone.tab_kinds(), ["home"]);
 }
 
 #[test]

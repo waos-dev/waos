@@ -6,8 +6,9 @@
 //! resolves the call once the app gives it, or says the app went first.
 //!
 //! The invariant a later editor will break: everything asked is answered exactly once, by the
-//! app's answer or as the app goes, and nothing is asked once the app is gone, so no program waits
-//! on what nobody shows.
+//! app's answer or as the app goes ([`AwaitedAnswers::app_gone`]), so no program waits on what
+//! nobody shows. Nothing is asked once the app is gone because what asks is let go with the app
+//! (the window process's `Connected`).
 
 use std::collections::HashMap;
 use std::pin::Pin;
@@ -33,8 +34,6 @@ struct Awaited<T> {
     last: u64,
     /// Where each answer awaited resolves the program's call.
     waiting: HashMap<u64, oneshot::Sender<T>>,
-    /// Whether the app is gone, after which nothing is asked.
-    gone: bool,
 }
 
 /// One answer awaited from the app: the app's, or [`AppGone`] once it went first. Dropping it
@@ -64,25 +63,21 @@ impl<T> Drop for AwaitedAnswer<T> {
 }
 
 impl<T> AwaitedAnswers<T> {
-    /// Something about to be asked of the app: the id the app's answer names, and the answer; none
-    /// once the app is gone.
-    pub(crate) fn ask(&self) -> Option<(u64, AwaitedAnswer<T>)> {
+    /// Something about to be asked of the app: the id the app's answer names, and the answer.
+    pub(crate) fn ask(&self) -> (u64, AwaitedAnswer<T>) {
         let mut awaited = self.awaited();
-        if awaited.gone {
-            return None;
-        }
         awaited.last += 1;
         let asked = awaited.last;
         let (answer, answered) = oneshot::channel();
         awaited.waiting.insert(asked, answer);
-        Some((
+        (
             asked,
             AwaitedAnswer {
                 asked,
                 awaited: Arc::clone(&self.awaited),
                 answered,
             },
-        ))
+        )
     }
 
     /// The app answered `answer` to what `asked` names.
@@ -98,11 +93,9 @@ impl<T> AwaitedAnswers<T> {
         !self.awaited().waiting.is_empty()
     }
 
-    /// The app is gone: everything still awaited hears so, and nothing is asked from now on.
-    pub(crate) fn app_gone(&self) {
-        let mut awaited = self.awaited();
-        awaited.gone = true;
-        awaited.waiting.clear();
+    /// The app is gone: everything still awaited hears so.
+    pub(crate) fn app_gone(self) {
+        self.awaited().waiting.clear();
     }
 
     fn awaited(&self) -> MutexGuard<'_, Awaited<T>> {
@@ -116,7 +109,6 @@ impl<T> Default for AwaitedAnswers<T> {
             awaited: Arc::new(Mutex::new(Awaited {
                 last: 0,
                 waiting: HashMap::new(),
-                gone: false,
             })),
         }
     }
@@ -139,8 +131,8 @@ mod tests {
     #[test]
     fn each_answer_resolves_what_it_names() {
         let awaited = AwaitedAnswers::default();
-        let (first, first_answer) = awaited.ask().expect("asked");
-        let (second, second_answer) = awaited.ask().expect("asked again");
+        let (first, first_answer) = awaited.ask();
+        let (second, second_answer) = awaited.ask();
         assert_ne!(first, second);
         awaited.answered(second, 40);
         assert_eq!(second_answer.now_or_never(), Some(Ok(40)));
@@ -148,22 +140,17 @@ mod tests {
     }
 
     #[test]
-    fn once_the_app_is_gone_everything_awaited_hears_so_and_nothing_is_asked() {
-        let awaited = AwaitedAnswers::default();
-        let (asked, answer) = awaited.ask().expect("asked");
+    fn once_the_app_is_gone_everything_awaited_hears_so() {
+        let awaited = AwaitedAnswers::<u32>::default();
+        let (_asked, answer) = awaited.ask();
         awaited.app_gone();
         assert_eq!(answer.now_or_never(), Some(Err(AppGone)));
-        awaited.answered(asked, 40);
-        assert!(
-            awaited.ask().is_none(),
-            "nothing is asked of an app that is gone"
-        );
     }
 
     #[test]
     fn dropping_an_awaited_answer_stops_awaiting_it() {
         let awaited = AwaitedAnswers::<u32>::default();
-        let (_id, answer) = awaited.ask().expect("asked");
+        let (_id, answer) = awaited.ask();
         assert!(awaited.any());
         drop(answer);
         assert!(!awaited.any());

@@ -9,12 +9,13 @@ use waos_capabilities::{
     ProgramGrants, Question,
 };
 
-use super::{HandedFiles, LiveMounts, MountKind, MountTable, Mounted, open_folder};
+use super::{Handed, HandedFiles, LiveMounts, MountKind, MountTable, Mounted, open_folder};
 use crate::access::ProgramAccess;
 use crate::files::errors::ErrorCode;
-use crate::files::machine_paths;
 use crate::files::status::FileStat;
 use crate::files::target::Target;
+use crate::files::{Picks, machine_paths};
+use crate::permissions::NothingGranted;
 
 #[test]
 fn a_path_leads_beneath_the_longest_mount_containing_it() {
@@ -87,8 +88,9 @@ fn a_path_outside_every_mount_is_not_found() {
 fn a_paths_end_goes_beneath_the_mount_with_the_rest_of_it() {
     let machine = Machine::new(&["data", "docs"]);
     let note = machine.file("docs", "note.txt");
-    let handed = [Mounted::open_read_only(&note).unwrap()];
-    let table = MountTable::new(&[], &machine.grant(&[("data", "/data")]), &handed);
+    let handed = HandedFiles::default();
+    handed.hand(&note);
+    let table = MountTable::new(&[], &machine.grant(&[("data", "/data")]), &handed.now());
     assert_eq!(
         machine.leads(&table, "data/file.txt/"),
         "beneath data: file.txt/"
@@ -142,7 +144,7 @@ fn the_programs_own_folder_is_kept_over_a_grant_at_its_path() {
         .unwrap(),
     ];
     let granted = machine.grant(&[("granted", "/data")]);
-    let table = MountTable::new(&own, &granted, &[]);
+    let table = MountTable::new(&own, &granted, &Handed::default());
     assert_eq!(machine.leads(&table, "data/x"), "beneath own: x");
 }
 
@@ -156,7 +158,7 @@ fn a_mount_whose_folder_does_not_open_or_whose_path_is_not_of_names_is_left_out(
             mount(&machine.folder("data"), "/up/../data"),
         ],
     };
-    let table = MountTable::new(&[], &granted, &[]);
+    let table = MountTable::new(&[], &granted, &Handed::default());
     assert!(table.names_under(Path::new("/")).is_empty());
 }
 
@@ -193,8 +195,9 @@ fn a_file_handed_that_a_mount_reaches_at_its_path_keeps_that_mounts_access() {
     let machine = Machine::new(&["granted"]);
     let note = machine.file("granted", "note.txt");
     let granted = machine.grant_at_own_paths(&["granted"]);
-    let handed = [Mounted::open_read_only(&note).unwrap()];
-    let table = MountTable::new(&[], &granted, &handed);
+    let handed = HandedFiles::default();
+    handed.hand(&note);
+    let table = MountTable::new(&[], &granted, &handed.now());
     let Target::Beneath(beneath) = table.resolve(Path::new("/"), &from_root(&note)).unwrap() else {
         panic!("the file is beneath the folder granted");
     };
@@ -263,6 +266,128 @@ fn a_mount_added_or_removed_applies_at_the_next_call() {
     );
 }
 
+#[test]
+fn a_pick_the_grants_keep_is_mounted_once_and_unmounted_when_the_user_takes_it_back() {
+    let machine = Machine::new(&["picked"]);
+    let grants = Arc::new(TestGrants::default());
+    let (picks, mut mounts) = picks_of(grants.clone());
+    let picked = picks.mount(&machine.folder("picked"), true).unwrap();
+    let at_pick = |table: &MountTable| {
+        (table.mounts().into_iter())
+            .filter(|mount| mount.at == Path::new(&picked))
+            .count()
+    };
+    assert_eq!(at_pick(mounts.now()), 1);
+    assert_eq!(
+        machine.leads(mounts.now(), picked.trim_start_matches('/')),
+        "the mount picked"
+    );
+
+    grants.mount(FileSystemGrant::default());
+    assert_eq!(
+        at_pick(mounts.now()),
+        0,
+        "taken back while the program runs"
+    );
+}
+
+#[test]
+fn a_file_picked_to_be_made_is_mounted_where_the_grants_keep_it() {
+    let machine = Machine::new(&["docs"]);
+    let (picks, mut mounts) = picks_of(Arc::new(TestGrants::default()));
+    let target = machine.folder("docs").join("new.txt");
+    let picked = picks.mount(&target, true).unwrap();
+    assert_eq!(
+        machine.leads(mounts.now(), picked.trim_start_matches('/')),
+        "beneath docs: new.txt"
+    );
+}
+
+#[test]
+fn a_pick_is_mounted_for_the_run_where_the_grants_keep_nothing() {
+    let machine = Machine::new(&["picked"]);
+    let (picks, mut mounts) = picks_of(Arc::new(NothingGranted));
+    let picked = picks.mount(&machine.folder("picked"), false).unwrap();
+    let table = mounts.now();
+    assert_eq!(
+        machine.leads(table, picked.trim_start_matches('/')),
+        "the mount picked"
+    );
+    let kinds: Vec<MountKind> = (table.mounts().into_iter())
+        .filter(|mount| mount.at == Path::new(&picked))
+        .map(|mount| mount.kind)
+        .collect();
+    assert_eq!(kinds, [MountKind::Picked]);
+}
+
+/// Where a program with `grants` has its picks mounted, and its mounts.
+#[test]
+fn a_folder_the_program_mounts_at_the_root_is_under_its_own_folders_until_it_lets_go() {
+    let machine = Machine::new(&["data", "machine"]);
+    let folders = ProgramFolders {
+        data: machine.folder("data"),
+        cache: machine.root.path().join("no cache"),
+    };
+    let handed = HandedFiles::default();
+    let access = ProgramAccess::new(Arc::new(TestGrants::default()));
+    let mut mounts = LiveMounts::new(Some(&folders), None, access, handed.clone());
+    let number = handed
+        .mount(
+            &machine.folder("machine"),
+            Path::new("/"),
+            true,
+            MountKind::Machine,
+        )
+        .unwrap();
+    assert_eq!(
+        machine.leads(mounts.now(), "src/main.rs"),
+        "beneath machine: src/main.rs"
+    );
+    assert_eq!(
+        machine.leads(mounts.now(), "data/x"),
+        "beneath data: x",
+        "the program's own folder stays over it"
+    );
+
+    handed.unmount(number);
+    assert_eq!(
+        machine.leads(mounts.now(), "src"),
+        "outside, in a folder above"
+    );
+}
+
+#[test]
+fn a_folder_is_never_mounted_inside_the_programs_own_nor_twice_at_one_path() {
+    let machine = Machine::new(&["machine"]);
+    let handed = HandedFiles::default();
+    let folder = machine.folder("machine");
+    for own in ["/data", "/cache/x", "/tmp"] {
+        assert_eq!(
+            handed.mount(&folder, Path::new(own), true, MountKind::Machine),
+            Err(ErrorCode::NotPermitted),
+            "{own}"
+        );
+    }
+    assert_eq!(
+        handed.mount(&folder, Path::new("relative"), true, MountKind::Machine),
+        Err(ErrorCode::Invalid)
+    );
+    handed
+        .mount(&folder, Path::new("/m"), true, MountKind::Machine)
+        .unwrap();
+    assert_eq!(
+        handed.mount(&folder, Path::new("/m"), true, MountKind::Machine),
+        Err(ErrorCode::Exist)
+    );
+}
+
+fn picks_of(grants: Arc<dyn ProgramGrants>) -> (Picks, LiveMounts) {
+    let access = ProgramAccess::new(grants);
+    let handed = HandedFiles::default();
+    let mounts = LiveMounts::new(None, None, access.clone(), handed.clone());
+    (Picks::new(handed, access), mounts)
+}
+
 /// Folders on the machine, each under a name the tests tell them apart by.
 struct Machine {
     root: TempDir,
@@ -313,7 +438,7 @@ impl Machine {
     }
 
     fn table(&self, mounts: &[(&str, &str)]) -> MountTable {
-        MountTable::new(&[], &self.grant(mounts), &[])
+        MountTable::new(&[], &self.grant(mounts), &Handed::default())
     }
 
     fn leads(&self, table: &MountTable, path: &str) -> String {
@@ -375,7 +500,7 @@ fn mount(host: &Path, at: &str) -> Mount {
     }
 }
 
-/// Grants whose mounts the test sets, each change heard by whoever waits for one.
+/// Grants whose mounts the test sets, and each pick keeps, each change heard by whoever waits for one.
 #[derive(Default)]
 struct TestGrants {
     file_system: Mutex<FileSystemGrant>,
@@ -426,6 +551,14 @@ impl ProgramGrants for TestGrants {
     }
 
     fn set_link_scheme_answer(&self, _scheme: &str, _answer: Answer) {}
+
+    /// The pick joins the mounts, in place of one at its path, as the store keeps it.
+    fn keep_picked(&self, pick: Mount) {
+        let mut file_system = self.file_system();
+        file_system.mounts.retain(|mount| mount.at != pick.at);
+        file_system.mounts.push(pick);
+        self.mount(file_system);
+    }
 
     fn changed(&self) -> ChangedFuture {
         let (changed, heard) = oneshot::channel();

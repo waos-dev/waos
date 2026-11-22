@@ -76,11 +76,11 @@ fn desktop_of(system: TargetPlatform) -> (LibraryDesktop, Entity<Launcher>) {
     launcher_desktop(kind, Start::Shown)
 }
 
-/// The launcher's window: the one window made.
+/// The launcher's window: the first window made, before any program opened from it made its
+/// own.
 pub(crate) fn launcher_window_of(desktop: &LibraryDesktop) -> Rc<TestWindow> {
     let windows = desktop.windows();
-    assert_eq!(windows.len(), 1, "the launcher's window alone");
-    Rc::clone(&windows[0])
+    Rc::clone(windows.first().expect("the launcher's window"))
 }
 
 pub(crate) fn launcher_view(desktop: &LibraryDesktop) -> ViewId {
@@ -179,7 +179,7 @@ fn typing_filters_the_grid() {
 #[test]
 fn enter_opens_the_first_program_shown_and_dismisses_the_launcher() {
     let (mut desktop, _launcher) = desktop();
-    let forever = std::fs::read(waos_test_programs::FOREVER).unwrap();
+    let forever = std::fs::read(waos_test_programs::FOREVER_SHOWN).unwrap();
     install(&mut desktop, TRIANGLE, "Triangle", "1.0.0", &forever);
     install(&mut desktop, GALLERY, "Gallery", "1.0.0", b"\0asm");
     let view = launcher_view(&desktop);
@@ -201,7 +201,7 @@ fn enter_opens_the_first_program_shown_and_dismisses_the_launcher() {
 #[test]
 fn a_click_on_a_program_opens_it_and_dismisses_the_launcher() {
     let (mut desktop, _launcher) = desktop();
-    let forever = std::fs::read(waos_test_programs::FOREVER).unwrap();
+    let forever = std::fs::read(waos_test_programs::FOREVER_SHOWN).unwrap();
     install(&mut desktop, TRIANGLE, "Triangle", "1.0.0", &forever);
     let view = launcher_view(&desktop);
     desktop.tap(view, "Triangle");
@@ -248,7 +248,7 @@ fn a_click_elsewhere_dismisses_the_launcher_once_it_has_had_the_focus() {
 #[test]
 fn a_running_program_has_its_dot_and_one_a_source_lists_newer_its_badge() {
     let (mut desktop, _launcher) = desktop();
-    let forever = std::fs::read(waos_test_programs::FOREVER).unwrap();
+    let forever = std::fs::read(waos_test_programs::FOREVER_SHOWN).unwrap();
     install(&mut desktop, TRIANGLE, "Triangle", "1.0.0", &forever);
     assert_eq!(desktop.count::<RunningDot>(|_| true), 0);
     let server = Server::start();
@@ -406,6 +406,7 @@ fn keeping_preferences_on(system: TargetPlatform) -> (LibraryDesktop, Entity<Lau
     let kind = DesktopKind {
         system,
         own_preferences: true,
+        ..DesktopKind::default()
     };
     launcher_desktop(kind, Start::Shown)
 }

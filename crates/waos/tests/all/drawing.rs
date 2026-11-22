@@ -17,6 +17,7 @@
 //! comes after that.
 
 use std::sync::Arc;
+use std::sync::mpsc::Receiver;
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -70,21 +71,20 @@ const STARTING_HARDWARE_BUFFERS: u64 = 3;
 /// How long a view draws nothing before its spare hardware buffers go.
 const SPARE_IDLE: Duration = Duration::from_secs(1);
 
-/// Triangle running on one view the shell gives it, and the shell's side of that view, with
-/// `before_run` done to it before the program starts.
+/// Triangle running on the one view it asks for, which `arrivals` hears, and the shell's side of
+/// that view, with `before_run` done to it before the program has it.
 fn run_triangle(
     engine: &WaOS,
     shell: &TestShell,
-    before_run: impl FnOnce(&RecordingView),
+    arrivals: &Receiver<ProgramView>,
+    before_run: impl FnOnce(&RecordingView) + Send + 'static,
 ) -> (RunningProgram, ProgramView, Arc<RecordingView>) {
-    let placed = shell.placed_view(None);
-    let shell_view = shell.placed_views().pop().expect("the view was placed");
-    before_run(&shell_view);
+    shell.prepare_next_view(before_run);
     let triangle = shell::load(engine, waos_test_programs::TRIANGLE);
-    let (running, mut given) = engine
-        .run(&triangle, ProgramEnvironment::default(), vec![placed])
-        .unwrap();
-    (running, given.remove(0), shell_view)
+    let (running, view) =
+        shell::run_shown(engine, arrivals, &triangle, ProgramEnvironment::default());
+    let shell_view = shell.placed_views().pop().expect("the view was placed");
+    (running, view, shell_view)
 }
 
 /// Waits until no frame has been presented for [`QUIET`], and answers how many were.
@@ -113,9 +113,9 @@ fn assert_colour(what: &str, pixel: [u8; 4], colour: [u8; 4]) {
 
 #[test]
 fn triangle_presents_frames_the_shell_shows_and_releases() {
-    let (engine, shell, _arrivals) = shell::engine();
+    let (engine, shell, arrivals) = shell::engine();
     let started = Instant::now();
-    let (running, _view, shell_view) = run_triangle(&engine, &shell, |_| {});
+    let (running, _view, shell_view) = run_triangle(&engine, &shell, &arrivals, |_| {});
     shell_view.wait_for_presents(1);
     let first_frame = started.elapsed();
     let counted = Instant::now();
@@ -144,8 +144,8 @@ fn triangle_presents_frames_the_shell_shows_and_releases() {
 
 #[test]
 fn a_presented_hardware_buffer_holds_the_triangle_over_the_clear_colour() {
-    let (engine, shell, _arrivals) = shell::engine();
-    let (running, _view, shell_view) = run_triangle(&engine, &shell, |_| {});
+    let (engine, shell, arrivals) = shell::engine();
+    let (running, _view, shell_view) = run_triangle(&engine, &shell, &arrivals, |_| {});
     shell_view.wait_for_presents(4);
     // Once the refreshes stop and the frames in flight have landed, the hardware buffer
     // presented last is at rest with the GPU done with it.
@@ -167,9 +167,13 @@ fn a_presented_hardware_buffer_holds_the_triangle_over_the_clear_colour() {
 fn a_frame_due_while_the_shell_holds_every_hardware_buffer_gets_another_and_the_spares_go_once_the_view_is_idle()
  {
     let time = ManualTime::new();
-    let (engine, shell, _arrivals) = shell::engine_on(&time, FreezePolicy::default());
-    let (running, _view, shell_view) =
-        run_triangle(&engine, &shell, RecordingView::hold_every_hardware_buffer);
+    let (engine, shell, arrivals) = shell::engine_on(&time, FreezePolicy::default());
+    let (running, _view, shell_view) = run_triangle(
+        &engine,
+        &shell,
+        &arrivals,
+        RecordingView::hold_every_hardware_buffer,
+    );
     shell_view.wait_for_presents(FRAMES_HELD);
     shell.stop_refreshes();
     let presented = presents_before_quiet(&shell_view);
@@ -200,8 +204,8 @@ fn a_frame_due_while_the_shell_holds_every_hardware_buffer_gets_another_and_the_
 
 #[test]
 fn a_covered_triangle_draws_while_watched_and_not_minimized_nor_after_the_watch() {
-    let (engine, shell, _arrivals) = shell::engine();
-    let (running, view, shell_view) = run_triangle(&engine, &shell, |_| {});
+    let (engine, shell, arrivals) = shell::engine();
+    let (running, view, shell_view) = run_triangle(&engine, &shell, &arrivals, |_| {});
     shell_view.wait_for_presents(1);
 
     shell::cover(&view);
@@ -227,21 +231,21 @@ fn a_covered_triangle_draws_while_watched_and_not_minimized_nor_after_the_watch(
 }
 
 /// An engine freezing a program [`AFTER_HIDDEN`] out of sight, on time the test moves.
-fn freezing_engine() -> (Arc<WaOS>, Arc<TestShell>, ManualTime) {
+fn freezing_engine() -> (Arc<WaOS>, Arc<TestShell>, Receiver<ProgramView>, ManualTime) {
     let time = ManualTime::new();
-    let (engine, shell, _arrivals) = shell::engine_on(
+    let (engine, shell, arrivals) = shell::engine_on(
         &time,
         FreezePolicy {
             after_hidden: Some(AFTER_HIDDEN),
         },
     );
-    (engine, shell, time)
+    (engine, shell, arrivals, time)
 }
 
 #[test]
 fn a_frozen_triangle_keeps_one_hardware_buffer_and_draws_again_after_the_thaw() {
-    let (engine, shell, time) = freezing_engine();
-    let (running, view, shell_view) = run_triangle(&engine, &shell, |_| {});
+    let (engine, shell, arrivals, time) = freezing_engine();
+    let (running, view, shell_view) = run_triangle(&engine, &shell, &arrivals, |_| {});
     shell_view.wait_for_presents(30);
     let drawing = running.stats().hardware_buffer_bytes() / HARDWARE_BUFFER_BYTES;
 
@@ -276,8 +280,8 @@ fn a_frozen_triangle_keeps_one_hardware_buffer_and_draws_again_after_the_thaw() 
 
 #[test]
 fn app_suspending_with_triangle_drawing_resolves_with_no_gpu_work_in_flight() {
-    let (engine, shell, time) = freezing_engine();
-    let (running, _view, shell_view) = run_triangle(&engine, &shell, |_| {});
+    let (engine, shell, arrivals, time) = freezing_engine();
+    let (running, _view, shell_view) = run_triangle(&engine, &shell, &arrivals, |_| {});
     shell_view.wait_for_presents(30);
 
     block_on(engine.app_suspending());

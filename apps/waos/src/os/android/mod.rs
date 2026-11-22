@@ -1,10 +1,12 @@
 //! What only Android has: the entry its activity calls, the app's folders, which only the
-//! activity's Java context names, the system's certificate checker, which is reached through the
+//! activity's Java context names, WaOS's All files access, by which it reaches the phone's files
+//! (`all_files_access`), the system's certificate checker, which is reached through the
 //! application, the system's log, where an app's traces go, since Android gives an app's process
 //! no standard error, the frames of WaOS's simulated camera, as Android's camera frames are
 //! (`pattern_frames`), and the programs' shortcuts as Android keeps them, through Waft's Android
 //! host (`shortcuts`).
 
+mod all_files_access;
 mod certificates;
 mod entry;
 mod folders;
@@ -12,6 +14,7 @@ mod pattern_frames;
 mod shortcuts;
 mod system_log;
 
+pub(crate) use all_files_access::AllFilesAccess;
 pub(crate) use certificates::trust_the_system;
 pub(crate) use folders::app_folders;
 #[cfg(test)]

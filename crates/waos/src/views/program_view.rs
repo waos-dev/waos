@@ -80,7 +80,7 @@ pub struct ProgramView(Arc<ViewState>);
 
 struct ViewState {
     id: ViewId,
-    request_id: Option<RequestId>,
+    request_id: RequestId,
     initial_data: Option<String>,
     clock: Clock,
     /// The modifier keys the program has been told are held, by this view or another of its.
@@ -146,10 +146,11 @@ pub(super) struct Shared {
 }
 
 impl ProgramView {
-    /// The view `placed`, with the id `id` and what the program asked for it with, sharing
-    /// `shared` with the program's other views.
+    /// The view `placed`, with the id `id`, arrived for `request`, and what the program asked for
+    /// it with, sharing `shared` with the program's other views.
     pub(super) fn new(
         id: ViewId,
+        request: RequestId,
         placed: PlacedView,
         requested: Requested,
         shared: Shared,
@@ -157,7 +158,7 @@ impl ProgramView {
         let title = requested.title;
         ProgramView(Arc::new(ViewState {
             id,
-            request_id: placed.request,
+            request_id: request,
             initial_data: requested.initial_data,
             clock: shared.clock,
             told_modifiers: shared.told_modifiers,
@@ -188,13 +189,12 @@ impl ProgramView {
         self.0.id
     }
 
-    /// The request this view arrived for; none for a view the shell gave.
-    pub fn request_id(&self) -> Option<RequestId> {
+    /// The request this view arrived for.
+    pub fn request_id(&self) -> RequestId {
         self.0.request_id
     }
 
-    /// What the request this view arrived for attached; none for a view the shell gave, or a
-    /// request that attached nothing.
+    /// What the request this view arrived for attached; none for a request that attached nothing.
     pub(crate) fn initial_data(&self) -> Option<&str> {
         self.0.initial_data.as_deref()
     }
@@ -698,7 +698,10 @@ pub(super) mod tests {
         focused: false,
     };
 
-    /// A view placed by `shell`, with `metrics(1)`, on no screen, for the request 7.
+    /// The request the views of these tests arrive for.
+    const REQUEST: RequestId = 7;
+
+    /// A view placed by `shell`, with `metrics(1)`, on no screen.
     pub(in crate::views) fn placed(shell: &Arc<Headless>) -> PlacedView {
         PlacedView {
             view: Arc::clone(shell) as Arc<dyn ShellView>,
@@ -707,7 +710,6 @@ pub(super) mod tests {
             metrics: metrics(1),
             screen: None,
             presence: ON_SCREEN,
-            request: Some(7),
         }
     }
 
@@ -730,7 +732,7 @@ pub(super) mod tests {
             initial_data: Some("opened at start".into()),
             title: "Notes".into(),
         };
-        ProgramView::new(3, placed, requested, shared_with(shell))
+        ProgramView::new(3, REQUEST, placed, requested, shared_with(shell))
     }
 
     fn view_on(shell: &Arc<Headless>) -> ProgramView {
@@ -762,7 +764,7 @@ pub(super) mod tests {
     fn a_view_answers_what_it_arrived_with() {
         let view = view();
         assert_eq!(view.id(), 3);
-        assert_eq!(view.request_id(), Some(7));
+        assert_eq!(view.request_id(), REQUEST);
         assert_eq!(view.initial_data(), Some("opened at start"));
         assert_eq!(view.metrics().width, 1);
         assert_eq!(view.screen(), None);
@@ -826,7 +828,7 @@ pub(super) mod tests {
             refreshes: refreshes_a_second_apart(shell),
             ..shared_with(shell)
         };
-        ProgramView::new(3, placed, Requested::default(), shared)
+        ProgramView::new(3, REQUEST, placed, Requested::default(), shared)
     }
 
     /// The frames `view` was handed, once it is gone.

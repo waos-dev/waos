@@ -160,16 +160,12 @@ impl WasdkPlatform {
         &self.wake
     }
 
-    /// Makes `view` one of the program's, in its window where it has one, and answers the
-    /// framework's view of it; none when the program has it already, as a view given at the
-    /// start and reported again on `view-changes` is.
-    pub(crate) fn add_view(&self, view: views::View) -> Option<Rc<WasdkView>> {
+    /// Makes `view`, which arrived for one of the program's requests, one of the program's, in its
+    /// window where it has one, and answers the framework's view of it.
+    pub(crate) fn add_view(&self, view: views::View) -> Rc<WasdkView> {
         let id = ViewId(view.id());
-        if self.views.borrow().contains_key(&id) {
-            return None;
-        }
         let window = view.window();
-        let clear = self.clear_for(view.request_id().map(RequestId));
+        let clear = self.clear_for(RequestId(view.request_id()));
         // The host sends Edit's commands only where the program has a menu bar, with Edit's.
         let host_edit_commands = self.menu_bar.is_some();
         let view = Rc::new(WasdkView::new(
@@ -186,7 +182,7 @@ impl WasdkPlatform {
                 _window: window,
             },
         );
-        Some(view)
+        view
     }
 
     /// Takes the view away, answering whether it was still there.
@@ -242,10 +238,12 @@ impl WasdkPlatform {
     }
 
     /// What the frames of the view arriving for `request` start from: as its window's background
-    /// says, and white for a view the shell gave.
-    fn clear_for(&self, request: Option<RequestId>) -> valo::Color {
-        let background = request
-            .and_then(|request| self.requested_backgrounds.borrow_mut().remove(&request))
+    /// says, white where it set none.
+    fn clear_for(&self, request: RequestId) -> valo::Color {
+        let background = self
+            .requested_backgrounds
+            .borrow_mut()
+            .remove(&request)
             .unwrap_or_default();
         clear_of(background)
     }

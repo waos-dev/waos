@@ -57,8 +57,7 @@ mod waft_app {
         let app = shell::load(&engine, waos_test_programs::NOTES);
         let loaded_in = loading.elapsed();
         let starting = Instant::now();
-        let (running, given) = engine.run(&app, environment, Vec::new()).unwrap();
-        assert!(given.is_empty(), "the shell gave the app no view");
+        let running = engine.run(&app, environment).unwrap();
 
         let view = arrivals
             .recv_timeout(WITHIN)

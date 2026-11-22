@@ -11,7 +11,10 @@
 //! on or off is a switch on a row naming it, a tap on the switch or the row changing it, and a
 //! program's switch that follows the setting for every program says so; and a program whose
 //! notifications the system refuses, whose page says so, its answer kept, and opens System
-//! Settings at them, at a desktop's width in a window tall enough to show it and at a phone's.
+//! Settings at them, at a desktop's width in a window tall enough to show it and at a phone's; and,
+//! where WaOS reaches the phone's files only as the user allows, the global page saying whether it
+//! may, as the system says once WaOS is back in front, and opening Android's page for it, in both
+//! layouts.
 
 use std::sync::Arc;
 
@@ -25,6 +28,7 @@ use waos_store::{Answer, DomainRule, GlobalSettings, NetworkGrant, Setting};
 
 use super::home::fluent::FluentHome;
 use super::{LaidOutLibrary, words};
+use crate::logic::phone_files::TestPhone;
 use crate::logic::setting_changes::{SettingChange, SettingsOf};
 use crate::state::library::LibraryPage;
 use crate::state::library::test_desktop::{DesktopKind, LibraryDesktop};
@@ -37,21 +41,32 @@ const PERMISSIONS: &str = "dev.example.permissions";
 
 /// The desktop with the library in its launcher, shown.
 fn in_launcher() -> (LibraryDesktop, ViewId) {
-    let (desktop, _launcher) = launcher_desktop(DesktopKind::default(), Start::Shown);
+    in_launcher_of(DesktopKind::default())
+}
+
+/// The desktop of `kind` with the library in its launcher, shown.
+fn in_launcher_of(kind: DesktopKind) -> (LibraryDesktop, ViewId) {
+    let (desktop, _launcher) = launcher_desktop(kind, Start::Shown);
     let view = launcher_view(&desktop);
     (desktop, view)
 }
 
 /// The desktop with the library in a window of a phone's size.
 fn on_phone() -> (LibraryDesktop, ViewId) {
-    let (desktop, ()) = LibraryDesktop::new(|app, library, recordings, _view_windows| {
+    on_phone_of(DesktopKind::default())
+}
+
+/// The desktop of `kind` with the library in a window of a phone's size.
+fn on_phone_of(kind: DesktopKind) -> (LibraryDesktop, ViewId) {
+    let show = |app: &mut waft::App, library: &_, recordings: &_, _view_windows: &_| {
         let page = LaidOutLibrary {
-            library: library.clone(),
-            recordings: recordings.clone(),
+            library: Clone::clone(library),
+            recordings: Clone::clone(recordings),
             questions_here: true,
         };
         (Some(in_phone_window(app, page.into_widget())), ())
-    });
+    };
+    let (desktop, ()) = LibraryDesktop::of(kind, Box::new(show));
     let view = desktop.windows()[0].test_view().id();
     (desktop, view)
 }
@@ -777,4 +792,41 @@ mod system_refusals {
             "a program's alone"
         );
     }
+}
+
+#[test]
+fn the_global_page_says_whether_waos_reaches_the_phone_s_files_and_opens_android_s_page() {
+    let layouts: [fn(DesktopKind) -> (LibraryDesktop, ViewId); 2] = [in_launcher_of, on_phone_of];
+    for layout in layouts {
+        let phone = std::rc::Rc::new(TestPhone::reachable(false));
+        let kind = DesktopKind {
+            phone_files: Some(std::rc::Rc::clone(&phone) as _),
+            ..DesktopKind::default()
+        };
+        let (mut desktop, view) = layout(kind);
+        open_global_settings(&mut desktop, view);
+        assert!(
+            desktop.shows(words::PHONE_FILES_OFF),
+            "{:?}",
+            desktop.labels()
+        );
+        desktop.tap(view, words::OPEN_ANDROID_SETTINGS);
+        assert_eq!(phone.pages_opened(), 1);
+
+        phone.reachable.set(true);
+        desktop.leave_and_come_back();
+        assert!(
+            desktop.shows(words::PHONE_FILES_ON),
+            "read again back in front: {:?}",
+            desktop.labels()
+        );
+    }
+}
+
+#[test]
+fn the_global_page_says_nothing_of_the_phone_s_files_where_waos_reaches_what_its_user_does() {
+    let (mut desktop, view) = in_launcher();
+    open_global_settings(&mut desktop, view);
+    assert!(desktop.shows(words::NETWORK), "{:?}", desktop.labels());
+    assert!(!desktop.shows(words::PHONE_FILES));
 }

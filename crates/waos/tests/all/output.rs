@@ -80,7 +80,7 @@ fn a_chosen_output_gets_what_the_program_writes_in_order_and_the_log_nothing() {
         output: Some(Arc::clone(&recording) as Arc<dyn ProgramOutput>),
         ..ProgramEnvironment::default()
     };
-    let (running, _given) = engine.run(&forever, environment, Vec::new()).unwrap();
+    let running = engine.run(&forever, environment).unwrap();
     let stdout = recording.wait_for_stdout(FIRST_REPORTS.len());
     running.stop();
     assert!(matches!(block_on(running.ended()), ProgramEnd::Stopped));
@@ -102,9 +102,7 @@ fn with_no_output_chosen_the_program_writes_to_the_log() {
     let mark = log.mark();
     let (engine, _shell, _arrivals) = shell::engine();
     let forever = shell::load(&engine, waos_test_programs::FOREVER);
-    let (running, _given) = engine
-        .run(&forever, ProgramEnvironment::default(), Vec::new())
-        .unwrap();
+    let running = engine.run(&forever, ProgramEnvironment::default()).unwrap();
     log.wait_for(mark, "forever", |line| line == "count 2097152");
     running.stop();
     assert!(matches!(block_on(running.ended()), ProgramEnd::Stopped));
@@ -122,7 +120,7 @@ fn a_listener_of_the_programs_output_hears_what_it_writes_from_then_on() {
         output: Some(Arc::clone(&recording) as Arc<dyn ProgramOutput>),
         ..ProgramEnvironment::default()
     };
-    let (running, _given) = engine.run(&forever, environment, Vec::new()).unwrap();
+    let running = engine.run(&forever, environment).unwrap();
     let mut output = loop {
         if let Some(output) = running.trace(TraceKind::Output) {
             break output;

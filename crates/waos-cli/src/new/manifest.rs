@@ -46,7 +46,8 @@ name = "{name}"
 [dependencies]
 {dependencies}{lints}
 # What WaOS knows the program by. The id names it for good: every update is published under it.
-# The icon is a square PNG, at least 256 pixels on a side.
+# The icon is a square PNG, at least 256 pixels on a side. A program is an app, with a UI; one with
+# none, a command-line program, says `kind = "tool"`.
 [package.metadata.waos]
 id = "{id}"
 name = "{display_name}"

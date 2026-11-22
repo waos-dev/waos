@@ -57,15 +57,15 @@ use waos::bindings::wasdk::platform::screens::{PixelSize, ScreenId};
 use waos::bindings::wasdk::platform::system::{Brightness, Locale};
 use waos::bindings::wasdk::platform::views::{
     Cursor, Insets, Metrics, OverlayStyle, PixelRect, Placement, PointerButtons, PointerChange,
-    PointerDeviceKind, PointerEvent, PointerSignalKind, RequestId, TextEditingValue,
-    TextInputConfiguration, TextInputType, ViewError, ViewFocusDirection, ViewFocusState, ViewId,
+    PointerDeviceKind, PointerEvent, PointerSignalKind, TextEditingValue, TextInputConfiguration,
+    TextInputType, ViewError, ViewFocusDirection, ViewFocusState, ViewId,
 };
 use waos::bindings::wasdk::platform::windows::{Point, Rect, Size, TitleBarAction};
 use waos::{
     Answer, AnswerFuture, EngineTime, FreezePolicy, HardwareBuffer, HttpProxy, ManualTime,
     OutputStream, PlacedView, PlacedWindow, PlatformState, Presence, Program, ProgramEnd,
-    ProgramOutput, ProgramView, Prompts, Question, Role, RunningProgram, Screen,
-    SettingsClosedFuture, Shell, ShellAudioOutputPicker, ShellCameras, ShellClipboard,
+    ProgramEnvironment, ProgramOutput, ProgramView, Prompts, Question, Role, RunningProgram,
+    Screen, SettingsClosedFuture, Shell, ShellAudioOutputPicker, ShellCameras, ShellClipboard,
     ShellCompositionLayer, ShellCompositor, ShellContextMenus, ShellFileDialogs, ShellImageCodecs,
     ShellMachinePicker, ShellMediaAssets, ShellMediaPlayers, ShellMenuBar, ShellNotifications,
     ShellOpener, ShellRecordingIndicator, ShellTextInput, ShellTrayIcons, ShellVideoFrameReaders,
@@ -245,6 +245,21 @@ pub fn load(engine: &WaOS, component: &str) -> Program {
         .unwrap_or_else(|error| panic!("loading {component}: {error:#}"))
 }
 
+/// Runs `program` with `environment`, and answers it once the view it asks for first has arrived,
+/// as `arrivals`, the test shell's, hears it.
+pub fn run_shown(
+    engine: &WaOS,
+    arrivals: &Receiver<ProgramView>,
+    program: &Program,
+    environment: ProgramEnvironment,
+) -> (RunningProgram, ProgramView) {
+    let running = engine.run(program, environment).unwrap();
+    let view = arrivals
+        .recv_timeout(Duration::from_secs(60))
+        .unwrap_or_else(|_| panic!("{} asks for a view", program.name()));
+    (running, view)
+}
+
 /// The lock each component's loads take, so that the loads of one component queue while those of
 /// the others go on.
 fn loading_of(component: &str) -> Arc<Mutex<()>> {
@@ -350,6 +365,9 @@ pub fn frame() -> Rect {
     }
 }
 
+/// What a test does to the next view the shell places, before the program has it.
+type PrepareView = Box<dyn FnOnce(&RecordingView) + Send>;
+
 /// The shell: answers every request with a view, at once, refreshes its screen a moment after it
 /// is asked, and keeps what it was asked.
 pub struct TestShell {
@@ -368,6 +386,8 @@ pub struct TestShell {
     requests: Mutex<Vec<WindowConfig>>,
     /// Every view it placed, and every window.
     views: Mutex<Vec<Arc<RecordingView>>>,
+    /// What is done to the next view it places, before the program has it.
+    next_view: Mutex<Option<PrepareView>>,
     windows: Mutex<Vec<Arc<RecordingWindow>>>,
     /// Each question a program put to its user, which waits for the test's answer.
     questions: Mutex<Vec<PutQuestion>>,
@@ -435,6 +455,7 @@ impl TestShell {
             arrivals,
             requests: Mutex::default(),
             views: Mutex::default(),
+            next_view: Mutex::default(),
             windows: Mutex::default(),
             questions: Mutex::default(),
             link_schemes_asked: Mutex::default(),
@@ -680,10 +701,17 @@ impl TestShell {
         self.windows.lock().unwrap().clone()
     }
 
-    /// A view as the shell places it: focused, on the one screen, in a window; for `request`
-    /// when it answers one.
-    pub fn placed_view(&self, request: Option<RequestId>) -> PlacedView {
+    /// Does `prepare` to the next view the shell places, before the program has it.
+    pub fn prepare_next_view(&self, prepare: impl FnOnce(&RecordingView) + Send + 'static) {
+        *self.next_view.lock().unwrap() = Some(Box::new(prepare));
+    }
+
+    /// A view as the shell places it: focused, on the one screen, in a window.
+    pub fn placed_view(&self) -> PlacedView {
         let view = Arc::new(RecordingView::default());
+        if let Some(prepare) = self.next_view.lock().unwrap().take() {
+            prepare(&view);
+        }
         self.views.lock().unwrap().push(Arc::clone(&view));
         let window = Arc::new(RecordingWindow::default());
         self.windows.lock().unwrap().push(Arc::clone(&window));
@@ -704,7 +732,6 @@ impl TestShell {
                 occluded: false,
                 focused: true,
             },
-            request,
         }
     }
 }
@@ -783,7 +810,7 @@ impl ViewPlacement for TestShell {
         request: ViewRequest,
     ) -> Result<(), ViewError> {
         self.requests.lock().unwrap().push(request.config.clone());
-        let view = program.add_view(self.placed_view(Some(request.id)));
+        let view = program.add_view(request.id, self.placed_view());
         // A test that does not wait for arrivals has dropped the receiver.
         let _ = self.arrivals.send(view);
         Ok(())

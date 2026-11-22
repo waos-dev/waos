@@ -188,6 +188,18 @@ impl Store {
         }
     }
 
+    /// The manifest of the program `id` names; none when it is not installed, or its files cannot
+    /// be read, which is said to whoever subscribes.
+    pub fn manifest(&self, id: &ProgramId) -> Option<Manifest> {
+        match programs::read_installed(&self.program_folder(id)) {
+            Ok(installed) => installed.map(|installed| installed.manifest),
+            Err(error) => {
+                tracing::warn!("{id}'s manifest cannot be read: {error}");
+                None
+            }
+        }
+    }
+
     /// The icon of the program `id` names, a square PNG from its package; none when it is not
     /// installed, or its files cannot be read, which is said to whoever subscribes.
     pub fn icon(&self, id: &ProgramId) -> Option<PathBuf> {

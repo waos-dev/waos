@@ -441,7 +441,7 @@ fn launch(
         folders: Some(folders.own()),
         ..waos_local::LocalCapabilities::new().environment()
     };
-    let (running, _given) = engine.run(&program, environment, Vec::new()).unwrap();
+    let running = engine.run(&program, environment).unwrap();
     let window = arrivals
         .recv_timeout(WITHIN)
         .expect("notes asks for its window");

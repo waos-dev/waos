@@ -144,8 +144,8 @@ mod tests {
     fn end_of(path: &str) -> ProgramEnd {
         let engine = test_engine::engine(Arc::new(NoWindows), Path::new(CODE_CACHE));
         let program = engine.load(Path::new(path)).expect("it loads");
-        let (running, _given) = engine
-            .run(&program, ProgramEnvironment::default(), Vec::new())
+        let running = engine
+            .run(&program, ProgramEnvironment::default())
             .expect("it starts");
         futures::executor::block_on(running.ended())
     }

@@ -35,13 +35,10 @@ async fn main() -> Result<(), String> {
     Ok(())
 }
 
-/// The view the program was given, or else the one it asks for.
+/// The view that arrives for the program's request.
 async fn the_view() -> Result<View, String> {
-    // The stream is opened before the list is read, so a view added between the two is not missed.
+    // The stream is opened before the request, so the view that arrives for it is not missed.
     let mut changes = views::view_changes();
-    if let Some(given) = views::views().into_iter().next() {
-        return Ok(given);
-    }
     let config = WindowConfig::new();
     config.set_title("Back");
     views::request_view(&config, None).map_err(|error| format!("no view: {error}"))?;

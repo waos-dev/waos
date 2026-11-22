@@ -2530,7 +2530,10 @@ fn a_program_built_for_another_version_says_so_plainly_over_the_engines_words() 
     let detail = detail_beneath(&phone, said, |label| {
         label.starts_with("component imports instance `wasdk:platform/system@1.0.0`")
     });
-    assert!(detail.ends_with("found 6 names"), "whole: {detail}");
+    assert!(
+        detail.contains("not found in the linker"),
+        "whole: {detail}"
+    );
 }
 
 #[test]

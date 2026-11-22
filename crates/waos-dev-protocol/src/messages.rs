@@ -16,7 +16,7 @@ use std::str::FromStr;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
-use waos_package::ProgramId;
+use waos_package::{ProgramId, ProgramKind};
 
 use crate::adjacent::adjacent_unknown;
 use crate::refusal::Refusal;
@@ -109,13 +109,17 @@ impl Request {
     }
 }
 
-/// A run: the program, its arguments, the variables this run alone adds to its environment (the
-/// design's decision 68), and the component's length and SHA-256 (`component_digest`), which the
-/// parts that follow carry. The program running under the id is stopped first. Nothing of the
+/// A run: the program, whether it is an app or a tool, its arguments, the variables this run alone
+/// adds to its environment (the design's decision 68), and the component's length and SHA-256
+/// (`component_digest`), which the parts that follow carry. The program running under the id is stopped first. Nothing of the
 /// client's own environment is sent, and WaOS's own variables win where both name one.
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct Run {
     pub id: ProgramId,
+    /// What its `[package.metadata.waos]` declares it, an app where a client from before kinds
+    /// says nothing.
+    #[serde(default)]
+    pub kind: ProgramKind,
     /// Its arguments, after `waos run --`, which the program reads as its own.
     #[serde(default)]
     pub args: Vec<String>,
@@ -156,6 +160,7 @@ impl fmt::Debug for Run {
             .collect();
         f.debug_struct("Run")
             .field("id", &format_args!("{}", self.id))
+            .field("kind", &self.kind)
             .field("args", &self.args)
             .field("component", &format_args!("{} bytes", self.length))
             .field("digest", &format_args!("{}", said_digest(&self.digest)))
@@ -583,6 +588,7 @@ mod tests {
         let requests = [
             Request::Run(Run {
                 id: id.clone(),
+                kind: waos_package::ProgramKind::App,
                 args: vec!["--flag".to_owned()],
                 variables: vec![("RUST_LOG".to_owned(), "debug".to_owned())],
                 length: 1024,
@@ -917,6 +923,7 @@ mod tests {
     fn a_run_prints_its_component_as_a_count_and_its_digest_shortened() {
         let run = Run {
             id: "dev.example.triangle".parse().unwrap(),
+            kind: waos_package::ProgramKind::App,
             args: vec!["--flag".to_owned()],
             variables: vec![
                 ("RUST_LOG".to_owned(), "debug".to_owned()),
@@ -927,7 +934,7 @@ mod tests {
         };
         assert_eq!(
             format!("{run:?}"),
-            "Run { id: dev.example.triangle, args: [\"--flag\"], component: 1024 bytes, digest: abababab…, variables: [\"RUST_LOG\", \"API_TOKEN\"] }",
+            "Run { id: dev.example.triangle, kind: App, args: [\"--flag\"], component: 1024 bytes, digest: abababab…, variables: [\"RUST_LOG\", \"API_TOKEN\"] }",
             "a variable's value may be a secret, so only its name is said"
         );
     }

@@ -40,9 +40,7 @@ mod frames_in_flight {
         let frames = shell::frames_handed_over();
         let (engine, shell, arrivals) = shell::engine();
         let program = shell::load(&engine, waos_test_programs::TWO_WINDOWS);
-        let (running, _given) = engine
-            .run(&program, ProgramEnvironment::default(), Vec::new())
-            .unwrap();
+        let running = engine.run(&program, ProgramEnvironment::default()).unwrap();
         let views: Vec<ProgramView> = (0..2)
             .map(|_| {
                 arrivals

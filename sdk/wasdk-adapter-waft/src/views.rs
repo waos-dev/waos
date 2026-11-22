@@ -84,7 +84,7 @@ impl WasdkView {
         });
         WasdkView {
             id: ViewId(view.id()),
-            request_id: view.request_id().map(RequestId),
+            request_id: Some(RequestId(view.request_id())),
             initial_data: view.initial_data(),
             view,
             surface,

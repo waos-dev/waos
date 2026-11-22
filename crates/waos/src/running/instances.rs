@@ -67,7 +67,8 @@ pub(crate) struct ProgramInstances {
     /// What it sees of the programs while it holds the inspector role.
     pub(super) inspector_reach: InspectorReach,
     pub(super) http_proxy: HttpProxy,
-    /// The files the user pastes, picks and opens with the program, mounted for every instance.
+    /// The files the user pastes, picks and opens the program with during its run, mounted for
+    /// every instance: those picked through its grants where they keep them.
     pub(super) handed: HandedFiles,
     /// The commands every instance started, which end as the program does.
     pub(super) commands: StartedCommands,

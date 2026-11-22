@@ -42,6 +42,12 @@ pub(crate) fn starting(command: &Command, login: &Variables) -> Starting {
 /// The variable that names the user's home.
 const HOME: &str = if cfg!(windows) { "USERPROFILE" } else { "HOME" };
 
+/// `variables` with `home` as the user's home, in place of the one they named.
+pub(crate) fn set_home(variables: &mut Variables, home: PathBuf) {
+    variables.retain(|(name, _)| name != HOME);
+    variables.push((HOME.into(), home.into_os_string()));
+}
+
 /// The user's home folder, as `variables` name it.
 fn home_in(variables: &Variables) -> Option<PathBuf> {
     variables
@@ -78,5 +84,23 @@ mod tests {
 
         command.working_directory = Some("/tmp".to_owned());
         assert_eq!(starting(&command, &login).folder, PathBuf::from("/tmp"));
+    }
+
+    #[test]
+    fn a_home_given_takes_the_place_of_the_login_environment_s() {
+        let mut login: Variables = vec![
+            (HOME.into(), "/".into()),
+            ("PATH".into(), "/system/bin".into()),
+        ];
+        set_home(&mut login, PathBuf::from("/storage/emulated/0"));
+        assert_eq!(
+            login,
+            [
+                ("PATH".into(), "/system/bin".into()),
+                (HOME.into(), "/storage/emulated/0".into()),
+            ]
+        );
+        let started = starting(&Command::new("ls"), &login);
+        assert_eq!(started.folder, PathBuf::from("/storage/emulated/0"));
     }
 }

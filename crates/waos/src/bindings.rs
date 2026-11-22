@@ -146,6 +146,7 @@ wasmtime::component::bindgen!({
         "wasdk:platform/machines.pipes": crate::machines::Pipes,
         "wasdk:platform/machines.terminal": crate::machines::Terminal,
         "wasdk:platform/machines.machine": crate::machines::Machine,
+        "wasdk:platform/mounts.mounted": crate::files::mount_host::ProgramMount,
         "wasdk:platform/machines.machines": crate::machines::Machines,
         "wasdk:platform/hardware-buffers.hardware-buffer-allocator": crate::hardware_buffers::host::HardwareBufferAllocator,
         "wasdk:platform/hardware-buffers.hardware-buffer": crate::hardware_buffers::ProgramHardwareBuffer,

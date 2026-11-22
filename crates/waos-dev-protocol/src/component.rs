@@ -110,6 +110,7 @@ mod tests {
     fn run(length: u64, digest: [u8; 32]) -> Run {
         Run {
             id: id(),
+            kind: waos_package::ProgramKind::App,
             args: Vec::new(),
             variables: Vec::new(),
             length,

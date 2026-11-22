@@ -256,7 +256,7 @@ impl HostView for ViewsCtx<'_> {
         Ok(self.view(&view)?.id())
     }
 
-    fn request_id(&mut self, view: Resource<ProgramView>) -> wasmtime::Result<Option<RequestId>> {
+    fn request_id(&mut self, view: Resource<ProgramView>) -> wasmtime::Result<RequestId> {
         Ok(self.view(&view)?.request_id())
     }
 

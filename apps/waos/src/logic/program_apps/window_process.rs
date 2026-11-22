@@ -29,9 +29,15 @@
 //! is answered, goes to the program, whose permission reads it, and on to the main thread, where
 //! WaOS's settings page for the program says so ([`SystemPermission`]).
 //!
-//! The invariant a later editor will break: nothing here waits on the window process or on the
-//! main thread. A message is sent and the call returns, a canvas is made, placed and let go by a
-//! call to the main thread, a dialog's report and what macOS said are sent on to it, a key's reply
+//! Everything WaOS keeps of the window process while it is there, its windows, its prompts'
+//! dialogs and what it was asked and owes an answer to, is one [`Connected`], taken whole as it
+//! goes.
+//!
+//! The invariants a later editor will break: once the window process is gone nothing new is asked
+//! of it, and everything it owed is answered exactly once, a window the program asked for among
+//! it, since every ask is checked and kept under the one lock that taking `Connected` holds; and
+//! nothing here waits on the window process or on the main thread. A message is sent and the call
+//! returns, a canvas is made, placed and let go by a call to the main thread, a dialog's report and what macOS said are sent on to it, a key's reply
 //! is sent from the runtime the window process is served on, once the program answers, as the
 //! answer to a quit is, and the answer to a context menu, a file dialog, a notification's post or
 //! macOS's question resolves the program's call when it arrives.
@@ -40,7 +46,6 @@ use std::collections::{HashMap, HashSet};
 use std::future::ready;
 use std::path::PathBuf;
 use std::pin::Pin;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::task::{Context, Poll};
 use std::time::SystemTime;
@@ -112,17 +117,14 @@ pub(crate) struct WindowProcess {
     canvases: Arc<CanvasesOnRequest>,
     /// Where a key's reply is awaited.
     runtime: tokio::runtime::Handle,
-    /// Each window asked of the window process, by the request it was made for.
-    windows: Mutex<HashMap<RequestId, AppWindow>>,
-    /// Whether the window process is gone, after which a canvas made is let go at once and a
-    /// prompt shown is closed at once. Set while the prompts are held, so none is shown after.
-    gone: AtomicBool,
+    /// What WaOS keeps of the window process while it is there; none once it is gone, after which
+    /// a canvas made is let go at once, its request failed, a prompt shown is closed at once, and
+    /// whatever else is asked answers at once as an app that is gone.
+    connected: Mutex<Option<Connected>>,
     dialog_reports: DialogReports,
     system_permissions: SystemPermissions,
     /// Whether each of the program's windows is in sight, on its way to the main thread.
     window_presences: WindowPresences,
-    /// The prompts shown in dialogs there, until hidden or closed.
-    prompts: Mutex<HashSet<PromptId>>,
     /// Held while the program's menu bar is read and sent, so the bar sent last is the one it set
     /// last.
     menu_bar_sending: Mutex<()>,
@@ -130,6 +132,16 @@ pub(crate) struct WindowProcess {
     /// go first, and while it takes a new size a window waits at, so no resize is kept waiting
     /// behind such a request (`canvas_pictures`).
     asking: Mutex<()>,
+}
+
+/// What WaOS keeps of a window process while it is there: each window asked of it, each prompt
+/// shown in it, and each answer awaited from it.
+#[derive(Default)]
+struct Connected {
+    /// Each window asked of the window process, by the request it was made for.
+    windows: HashMap<RequestId, AppWindow>,
+    /// The prompts shown in dialogs there, until hidden or closed.
+    prompts: HashSet<PromptId>,
     /// The context menus open there, each answering the item chosen in it.
     context_menus: AwaitedAnswers<Option<u32>>,
     /// The file dialogs open there, each answering the paths picked in it, or why none were.
@@ -140,6 +152,21 @@ pub(crate) struct WindowProcess {
     /// macOS's questions for the program's notifications being put there, each answering whether
     /// macOS refuses them.
     notification_permissions: AwaitedAnswers<bool>,
+}
+
+impl Connected {
+    /// Whether the program awaits the app's answer to something WaOS asked of it, which the app
+    /// carries out on its main thread: a window asked for and not yet open, a prompt's dialog
+    /// shown, a context menu, a file dialog, a notification's post or macOS's question for the
+    /// program's notifications. The window process keeps the same list (its `resize_waits`).
+    fn owes_answers(&self) -> bool {
+        self.windows.values().any(|window| window.view.is_none())
+            || !self.prompts.is_empty()
+            || self.context_menus.any()
+            || self.file_dialogs.any()
+            || self.notifications.any()
+            || self.notification_permissions.any()
+    }
 }
 
 /// A window the program asked for in its app, as WaOS keeps it.
@@ -173,18 +200,12 @@ impl WindowProcess {
             send,
             canvases,
             runtime,
-            windows: Mutex::default(),
-            gone: AtomicBool::new(false),
+            connected: Mutex::new(Some(Connected::default())),
             dialog_reports,
             system_permissions,
             window_presences,
-            prompts: Mutex::default(),
             menu_bar_sending: Mutex::default(),
             asking: Mutex::default(),
-            context_menus: AwaitedAnswers::default(),
-            file_dialogs: AwaitedAnswers::default(),
-            notifications: AwaitedAnswers::default(),
-            notification_permissions: AwaitedAnswers::default(),
         })
     }
 
@@ -192,13 +213,13 @@ impl WindowProcess {
     /// showing the layer context `layers`; closed at once once the window process is gone.
     pub(crate) fn show_prompt(&self, prompt: PromptId, size: [f64; 2], layers: HostedLayers) {
         let _asking = self.asking_the_app();
-        let mut prompts = self.prompts();
-        if self.gone.load(Ordering::SeqCst) {
-            drop(prompts);
+        let mut kept = self.connected();
+        let Some(connected) = kept.as_mut() else {
+            drop(kept);
             self.dialog_reported(prompt, PromptReport::Closed);
             return;
-        }
-        prompts.insert(prompt);
+        };
+        connected.prompts.insert(prompt);
         (self.send)(ToWindow::ShowPrompt {
             prompt,
             size,
@@ -213,7 +234,7 @@ impl WindowProcess {
 
     /// Takes the dialog of `prompt` away, if it is still shown.
     pub(crate) fn hide_prompt(&self, prompt: PromptId) {
-        if self.prompts().remove(&prompt) {
+        if self.with_connected(|connected| connected.prompts.remove(&prompt)) == Some(true) {
             (self.send)(ToWindow::HidePrompt { prompt });
         }
     }
@@ -247,7 +268,8 @@ impl WindowProcess {
             return Box::pin(ready(None));
         };
         let _asking = self.asking_the_app();
-        let Some((menu, answered)) = self.context_menus.ask() else {
+        let Some((menu, answered)) = self.with_connected(|connected| connected.context_menus.ask())
+        else {
             return Box::pin(ready(None));
         };
         (self.send)(ToWindow::ShowContextMenu {
@@ -269,7 +291,8 @@ impl WindowProcess {
         kind: FileDialog,
     ) -> FileDialogFuture<Vec<PathBuf>> {
         let _asking = self.asking_the_app();
-        let Some((dialog, picked)) = self.file_dialogs.ask() else {
+        let Some((dialog, picked)) = self.with_connected(|connected| connected.file_dialogs.ask())
+        else {
             return Box::pin(ready(Err(failed(APP_GONE))));
         };
         (self.send)(ToWindow::OpenFileDialog {
@@ -293,7 +316,8 @@ impl WindowProcess {
     ) -> NotificationFuture {
         let app_gone = || NotificationError::Failed(APP_GONE.to_owned());
         let _asking = self.asking_the_app();
-        let Some((post, posted)) = self.notifications.ask() else {
+        let Some((post, posted)) = self.with_connected(|connected| connected.notifications.ask())
+        else {
             return Box::pin(ready(Err(app_gone())));
         };
         (self.send)(ToWindow::PostNotification {
@@ -314,7 +338,8 @@ impl WindowProcess {
     /// nothing once the window process is gone.
     pub(crate) fn request_notification_permission(&self) -> SystemPermissionFuture {
         let _asking = self.asking_the_app();
-        let Some((request, answered)) = self.notification_permissions.ask() else {
+        let asked = self.with_connected(|connected| connected.notification_permissions.ask());
+        let Some((request, answered)) = asked else {
             return Box::pin(ready(None));
         };
         (self.send)(ToWindow::RequestNotificationPermission { request });
@@ -334,7 +359,8 @@ impl WindowProcess {
     }
 
     /// The canvas of the window `request` asks for is made, under `key`, its layers where `layers`
-    /// says: the window process makes the window.
+    /// says: the window process makes the window; once it is gone, the canvas is let go and the
+    /// request fails.
     pub(crate) fn canvas_made(
         &self,
         key: CanvasKey,
@@ -342,10 +368,15 @@ impl WindowProcess {
         canvas: Arc<CanvasLayer>,
         layers: HostedLayers,
     ) {
-        if self.gone.load(Ordering::SeqCst) {
+        let _asking = self.asking_the_app();
+        let mut kept = self.connected();
+        let Some(connected) = kept.as_mut() else {
+            drop(kept);
             self.canvases.remove(key);
+            self.program
+                .view_request_failed(request.id, ViewError::Failed(APP_GONE.to_owned()));
             return;
-        }
+        };
         let pictures = CanvasPictures::new(
             request.id,
             canvas,
@@ -359,8 +390,8 @@ impl WindowProcess {
             view: None,
             in_sight: false,
         };
-        let _asking = self.asking_the_app();
-        self.windows().insert(request.id, window);
+        connected.windows.insert(request.id, window);
+        drop(kept);
         (self.send)(ToWindow::OpenWindow {
             window: request.id,
             config: request.config,
@@ -409,17 +440,17 @@ impl WindowProcess {
             FromWindow::Prompt { prompt, report } => self.dialog_reported(prompt, report),
             FromWindow::MenuBarChosen(id) => self.program.menu_chosen(id),
             FromWindow::ContextMenuClosed { menu, chosen } => {
-                self.context_menus.answered(menu, chosen);
+                self.with_connected(|connected| connected.context_menus.answered(menu, chosen));
             }
             FromWindow::QuitRequested => self.quit_requested(),
             FromWindow::FileDialogClosed { dialog, picked } => {
-                self.file_dialogs.answered(dialog, picked);
+                self.with_connected(|connected| connected.file_dialogs.answered(dialog, picked));
             }
             FromWindow::NotificationPosted { post, posted } => {
                 if let Some(refused) = system_refuses(&posted) {
                     self.system_said(refused);
                 }
-                self.notifications.answered(post, posted);
+                self.with_connected(|connected| connected.notifications.answered(post, posted));
             }
             FromWindow::NotificationActivated(activation) => {
                 self.program.notification_activated(activation);
@@ -427,7 +458,11 @@ impl WindowProcess {
             FromWindow::NotificationPermission { refused } => self.system_said(refused),
             FromWindow::NotificationPermissionAnswered { request, refused } => {
                 self.system_said(refused);
-                self.notification_permissions.answered(request, refused);
+                self.with_connected(|connected| {
+                    connected
+                        .notification_permissions
+                        .answered(request, refused);
+                });
             }
         }
     }
@@ -459,25 +494,37 @@ impl WindowProcess {
         });
     }
 
-    /// The window process is gone: every view shown there is taken away, every canvas let go, every
-    /// context menu answered none, every file dialog answered with why nothing was picked, every
-    /// notification being posted answered with why it was not, every question of macOS's answered
-    /// nothing, and every prompt's dialog closed.
+    /// The window process is gone: what WaOS kept of it is taken, so nothing is asked of it after,
+    /// and everything it owed is answered: every view shown there is taken away, every canvas let
+    /// go, every window asked for and not yet open failed, every context menu answered none, every
+    /// file dialog answered with why nothing was picked, every notification being posted answered
+    /// with why it was not, every question of macOS's answered nothing, and every prompt's dialog
+    /// closed.
     pub(crate) fn gone(&self) {
-        let shown: Vec<PromptId> = {
-            let mut prompts = self.prompts();
-            self.gone.store(true, Ordering::SeqCst);
-            prompts.drain().collect()
+        let Some(connected) = self.connected().take() else {
+            return;
         };
-        let windows: Vec<RequestId> = self.windows().keys().copied().collect();
-        for window in windows {
-            self.forget_window(window);
+        let Connected {
+            windows,
+            prompts,
+            context_menus,
+            file_dialogs,
+            notifications,
+            notification_permissions,
+        } = connected;
+        for (request, window) in windows {
+            let opened = window.view.is_some();
+            self.let_go(request, window);
+            if !opened {
+                self.program
+                    .view_request_failed(request, ViewError::Failed(APP_GONE.to_owned()));
+            }
         }
-        self.context_menus.app_gone();
-        self.file_dialogs.app_gone();
-        self.notifications.app_gone();
-        self.notification_permissions.app_gone();
-        for prompt in shown {
+        context_menus.app_gone();
+        file_dialogs.app_gone();
+        notifications.app_gone();
+        notification_permissions.app_gone();
+        for prompt in prompts {
             self.dialog_reported(prompt, PromptReport::Closed);
         }
     }
@@ -486,7 +533,7 @@ impl WindowProcess {
     /// is no longer shown.
     fn dialog_reported(&self, prompt: PromptId, report: PromptReport) {
         if matches!(report, PromptReport::Closed) {
-            self.prompts().remove(&prompt);
+            self.with_connected(|connected| connected.prompts.remove(&prompt));
         }
         let _ = self
             .dialog_reports
@@ -505,29 +552,33 @@ impl WindowProcess {
         pictures.resize_at_once(opened.metrics, None);
         let send = Arc::clone(&self.send);
         let calls = ViewCalls::new(move |call| send(ToWindow::View { window, call }));
-        let view = self.program.add_view(PlacedView {
-            view: Arc::new(CanvasView::new(pictures, calls.clone())),
-            text_input: Some(Arc::new(calls.clone())),
-            window: Some(PlacedWindow {
-                window: Arc::new(WindowCalls::new(calls, opened.size_limits)),
-                frame: opened.frame,
-                maximized: opened.maximized,
-                title_bar_double_click_action: opened.title_bar_double_click_action,
-            }),
-            metrics: opened.metrics,
-            screen: opened.screen,
-            presence: opened.presence,
-            request: Some(window),
-        });
+        let view = self.program.add_view(
+            window,
+            PlacedView {
+                view: Arc::new(CanvasView::new(pictures, calls.clone())),
+                text_input: Some(Arc::new(calls.clone())),
+                window: Some(PlacedWindow {
+                    window: Arc::new(WindowCalls::new(calls, opened.size_limits)),
+                    frame: opened.frame,
+                    maximized: opened.maximized,
+                    title_bar_double_click_action: opened.title_bar_double_click_action,
+                }),
+                metrics: opened.metrics,
+                screen: opened.screen,
+                presence: opened.presence,
+            },
+        );
         tracing::info!(
             program = self.program.name(),
             window,
             view = view.id(),
             "a window was opened in the program's app"
         );
-        if let Some(shown) = self.windows().get_mut(&window) {
-            shown.view = Some(view);
-        }
+        self.with_connected(|connected| {
+            if let Some(shown) = connected.windows.get_mut(&window) {
+                shown.view = Some(view);
+            }
+        });
         self.window_in_sight_changed(window, opened.presence.in_sight());
     }
 
@@ -556,17 +607,10 @@ impl WindowProcess {
         }
     }
 
-    /// Whether the program awaits the app's answer to something WaOS asked of it, which the app
-    /// carries out on its main thread: a window asked for and not yet open, a prompt's dialog
-    /// shown, a context menu, a file dialog, a notification's post or macOS's question for the
-    /// program's notifications. The window process keeps the same list (its `resize_waits`).
+    /// Whether the program awaits the app's answer to something WaOS asked of it
+    /// ([`Connected::owes_answers`]); nothing once the app is gone.
     fn owes_answers(&self) -> bool {
-        self.windows().values().any(|window| window.view.is_none())
-            || !self.prompts().is_empty()
-            || self.context_menus.any()
-            || self.file_dialogs.any()
-            || self.notifications.any()
-            || self.notification_permissions.any()
+        self.with_connected(|connected| connected.owes_answers()) == Some(true)
     }
 
     /// WaOS is about to ask the app for something the program awaits: every resize a window waits
@@ -575,10 +619,12 @@ impl WindowProcess {
     fn asking_the_app(&self) -> MutexGuard<'_, ()> {
         let asking = self.asking();
         let waiting: Vec<Arc<CanvasPictures>> = self
-            .windows()
-            .values()
-            .map(|window| Arc::clone(&window.pictures))
-            .collect();
+            .with_connected(|connected| {
+                (connected.windows.values())
+                    .map(|window| Arc::clone(&window.pictures))
+                    .collect()
+            })
+            .unwrap_or_default();
         for pictures in waiting {
             pictures.let_resize_go();
         }
@@ -589,12 +635,17 @@ impl WindowProcess {
         self.asking.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    /// The window `window` is gone, or never came: its view is taken away, and its canvas, which
-    /// nothing will show again, let go.
+    /// The window `window` is gone, or never came: it is let go ([`let_go`](Self::let_go)).
     fn forget_window(&self, window: RequestId) {
-        let Some(gone) = self.windows().remove(&window) else {
-            return;
-        };
+        let gone = self.with_connected(|connected| connected.windows.remove(&window));
+        if let Some(gone) = gone.flatten() {
+            self.let_go(window, gone);
+        }
+    }
+
+    /// `gone`, the window made for `window`, is no longer kept: its view is taken away, and its
+    /// canvas, which nothing will show again, let go.
+    fn let_go(&self, window: RequestId, gone: AppWindow) {
         if gone.in_sight {
             self.tell_in_sight(window, false);
         }
@@ -607,11 +658,11 @@ impl WindowProcess {
 
     /// Keeps whether the window `window` is in sight, telling the main thread when it changes.
     fn window_in_sight_changed(&self, window: RequestId, in_sight: bool) {
-        let changed = self
-            .windows()
-            .get_mut(&window)
-            .is_some_and(|shown| std::mem::replace(&mut shown.in_sight, in_sight) != in_sight);
-        if changed {
+        let changed = self.with_connected(|connected| {
+            (connected.windows.get_mut(&window))
+                .is_some_and(|shown| std::mem::replace(&mut shown.in_sight, in_sight) != in_sight)
+        });
+        if changed == Some(true) {
             self.tell_in_sight(window, in_sight);
         }
     }
@@ -647,27 +698,35 @@ impl WindowProcess {
     }
 
     fn view(&self, window: RequestId) -> Option<ProgramView> {
-        self.windows().get(&window)?.view.clone()
+        self.with_connected(|connected| connected.windows.get(&window)?.view.clone())?
     }
 
     /// The window that shows the program's view `view`, by the request it was made for.
     fn window_showing(&self, view: ViewId) -> Option<RequestId> {
-        self.windows().iter().find_map(|(window, shown)| {
-            let shows = shown.view.as_ref()?.id() == view;
-            shows.then_some(*window)
-        })
+        self.with_connected(|connected| {
+            connected.windows.iter().find_map(|(window, shown)| {
+                let shows = shown.view.as_ref()?.id() == view;
+                shows.then_some(*window)
+            })
+        })?
     }
 
     fn pictures_of(&self, window: RequestId) -> Option<Arc<CanvasPictures>> {
-        Some(Arc::clone(&self.windows().get(&window)?.pictures))
+        self.with_connected(|connected| {
+            Some(Arc::clone(&connected.windows.get(&window)?.pictures))
+        })?
     }
 
-    fn windows(&self) -> MutexGuard<'_, HashMap<RequestId, AppWindow>> {
-        self.windows.lock().unwrap_or_else(PoisonError::into_inner)
+    /// What `use_connected` answers of what WaOS keeps of the window process; none once it is
+    /// gone.
+    fn with_connected<R>(&self, use_connected: impl FnOnce(&mut Connected) -> R) -> Option<R> {
+        self.connected().as_mut().map(use_connected)
     }
 
-    fn prompts(&self) -> MutexGuard<'_, HashSet<PromptId>> {
-        self.prompts.lock().unwrap_or_else(PoisonError::into_inner)
+    fn connected(&self) -> MutexGuard<'_, Option<Connected>> {
+        self.connected
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
     }
 }
 

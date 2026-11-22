@@ -10,7 +10,9 @@
 //! asks every program first; and on macOS the activity that keeps App Nap from throttling WaOS
 //! while a program compiles or its window is in sight (`app_nap_exemption`).
 //!
-//! The invariant: nothing here is touched off the main thread. What reaches it from the programs'
+//! The invariant: nothing here is touched off the main thread, and the system is asked on it alone;
+//! what the programs' commands read of it, This computer's home, is kept for them
+//! (`logic::phone_files`). What reaches it from the programs'
 //! threads and the dev server's comes through a queue a task of the main thread's empties: the view
 //! requests (`logic::placement`), the questions (`logic::prompts`), who records
 //! (`logic::recording_indicator`), the clipboard's calls (`logic::clipboard_calls`), the menus'
@@ -41,6 +43,7 @@ pub(crate) mod media_players;
 pub(crate) mod menus;
 pub(crate) mod notifications;
 pub(crate) mod opener;
+pub(crate) mod phone_files;
 pub(crate) mod phone_window;
 pub(crate) mod program_apps;
 #[cfg(target_os = "macos")]
@@ -61,6 +64,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
+use futures::channel::mpsc::UnboundedReceiver;
 use waft::{App, Entity, IntoWidget, run_widget};
 use waft_cupertino::install_cupertino_icon_font;
 use waft_single_instance::LaterLaunches;
@@ -91,11 +95,14 @@ use crate::logic::installed_runs::InstalledRuns;
 use crate::logic::machine_facts::platform_state;
 use crate::logic::noted_file_dialogs::NotedFileDialogs;
 use crate::logic::package_copies::PackageCopies;
+use crate::logic::phone_files::{PhoneFilesAccess, ThisComputerHome};
 use crate::logic::placement::WindowsOnRequest;
 use crate::logic::preferences::PreferencesFile;
 use crate::logic::program_faces::ProgramFaces;
 use crate::logic::program_identities::Identities;
-use crate::logic::program_places::{PlacedWhereOpened, ProgramPlace, ProgramPlaces};
+use crate::logic::program_places::{
+    PlacedWhereOpened, ProgramPlace, ProgramPlaces, TabRequest, TabsOnRequest,
+};
 use crate::logic::program_shortcuts::SystemShortcuts;
 use crate::logic::prompts::PromptsOnRequest;
 use crate::logic::recording_indicator::RecordingIndicatorOnRequest;
@@ -117,14 +124,16 @@ use image_codecs::ImageCodecs;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 use launcher::Launcher;
 use library::{
-    InstalledChanged, Library, ProgramOpened, ProgramsOpen, open_library, open_settings_when_asked,
-    request_to_open_with_waos, take_files_opened_with_waos, take_notification_clicks,
+    FirstWindowWanted, InstalledChanged, Library, ProgramOpened, ProgramsOpen, open_library,
+    open_settings_when_asked, request_to_open_with_waos, show_phone_files,
+    take_files_opened_with_waos, take_notification_clicks,
 };
 use media_assets::MediaAssets;
 use media_players::MediaPlayers;
 use menus::Menus;
 use notifications::Notifications;
 use opener::Opener;
+use phone_files::follow_phone_files;
 use phone_window::in_phone_window;
 use questions::Questions;
 use recordings::Recordings;
@@ -181,13 +190,17 @@ pub(crate) enum OpenedAtStart {
 /// the clicks on the programs' notifications going to it, shows it in `place`, the programs'
 /// windows and their questions, makes a quit ask every program first, and opens what `opened`
 /// names, with WaOS or with their program. What `later_launches` of WaOS pass on is read by WaOS's
-/// command line and opened so, as the system's own requests are.
+/// command line and opened so, as the system's own requests are. Where WaOS reaches the phone's
+/// files only as the user allows, `phone_files` says whether it may, read on the main thread as
+/// WaOS starts and comes back to the front, and This computer's home follows it; a pick of This
+/// computer asks for it, and the global settings say it.
 pub(crate) fn start(
     app: &mut App,
     folders: AppFolders,
     place: LibraryPlace,
     opened: Option<OpenedAtStart>,
     later_launches: Option<LaterLaunches>,
+    phone_files: Option<Rc<dyn PhoneFilesAccess>>,
 ) -> Result<()> {
     let facts = platform_state(app.platform().as_ref());
     let programs_open = programs_open(place);
@@ -209,8 +222,10 @@ pub(crate) fn start(
     #[cfg(target_os = "macos")]
     let app_nap_exemption = app_nap_exemption::start(app);
     let places = ProgramPlaces::new(usual_place(place));
+    let (tabs_on_request, tab_requests) = TabsOnRequest::new();
     let placement = Arc::new(PlacedWhereOpened {
         places: places.clone(),
+        tabs: tabs_on_request,
         windows: program_apps::placement(&program_apps, own_windows),
     });
     let asking = AskingNow::new();
@@ -305,11 +320,11 @@ pub(crate) fn start(
     let view_windows = ViewWindows::listen(app, requests);
     let posted_as_programs =
         notifications.map(|notifications| notifications.serve(app, store.clone()));
-    let capabilities = if MICROPHONE_USAGE_DECLARED {
-        LocalCapabilities::new()
-    } else {
-        LocalCapabilities::without_microphone()
-    };
+    let phone_files = phone_files.map(|access| follow_phone_files(app, access));
+    let home = phone_files
+        .as_ref()
+        .map(|phone_files| phone_files.read(app).home());
+    let capabilities = local_capabilities(home);
     let environments = ProgramEnvironments::new(capabilities, store.clone());
     // What a tab closed on a phone stops its program among.
     let tabs_runs = Arc::clone(&runs);
@@ -380,7 +395,13 @@ pub(crate) fn start(
         &library,
         Rc::clone(&prompt_windows),
     );
-    Questions::listen(app, prompted.questions, prompts.placement, questions_store);
+    Questions::listen(
+        app,
+        prompted.questions,
+        prompts.placement,
+        questions_store,
+        phone_files.clone(),
+    );
     match opened {
         Some(OpenedAtStart::WithProgram { id, request }) => {
             library.update(app, |library, cx| library.open_with(&id, request, cx));
@@ -400,12 +421,16 @@ pub(crate) fn start(
         None => {}
     }
     open_settings_when_asked(app, &library, prompted.settings);
+    if let Some(phone_files) = phone_files {
+        show_phone_files(app, &library, phone_files);
+    }
     let library_window = library_window(
         app,
         place,
         library.clone(),
         recordings,
         tabs_runs,
+        tab_requests,
         &view_windows,
     );
     // Once the panel follows the library: a click on a program's notification that started WaOS
@@ -415,6 +440,7 @@ pub(crate) fn start(
     // Once the library opens programs in the deck's tabs, where a shortcut's tap may open one.
     keep_program_shortcuts(app, &library);
     let program_windows = program_windows(&view_windows, &prompt_windows);
+    let prompt_windows_for_dialogs = Rc::clone(&prompt_windows);
     let windows = every_window(
         Some(library_window),
         program_windows,
@@ -426,7 +452,10 @@ pub(crate) fn start(
     install_icon_font(app);
     install_cupertino_icon_font(app);
     if let Some(file_dialogs) = file_dialogs {
-        file_dialogs.serve(app, view_windows.clone());
+        // A phone shows a dialog only over a screen; a desktop's floats where its program has none.
+        let screens_of_their_own = cfg!(any(target_os = "android", target_os = "ios"))
+            .then(|| Rc::clone(&prompt_windows_for_dialogs));
+        file_dialogs.serve(app, view_windows.clone(), screens_of_their_own);
     }
     if let Some(opener) = opener {
         opener.serve(app);
@@ -535,20 +564,39 @@ fn own_preferences(place: LibraryPlace, folders: &AppFolders) -> Option<Preferen
 
 /// A program opened from `library` that has windows of its own among `windows` brings its front
 /// one forward, as its task comes forward on Android, with the activation token of the launch that
-/// opened it, which a program with no window yet shows its next one with.
+/// opened it, which a program with no window yet shows its next one with; and one about to start
+/// as a task of its own has its first window opened among `windows` now, which starts it once it
+/// arrives, the library saying so where none opens.
 pub(crate) fn bring_opened_programs_forward(
     app: &mut App,
     library: &Entity<Library>,
     windows: &Entity<ViewWindows>,
 ) {
-    let windows = windows.downgrade();
+    let forward = windows.downgrade();
     app.subscribe(library, move |app, opened: &ProgramOpened| {
-        if let Some(windows) = windows.upgrade() {
+        if let Some(windows) = forward.upgrade() {
             let (id, token) = (opened.id.as_str(), opened.activation_token.clone());
             windows.update(app, |windows, cx| {
                 windows.bring_forward_for_launch(id, token, cx);
             });
         }
+    })
+    .detach();
+    let (first, starting) = (windows.downgrade(), library.downgrade());
+    app.subscribe(library, move |app, wanted: &FirstWindowWanted| {
+        let (Some(windows), Some(library)) = (first.upgrade(), starting.upgrade()) else {
+            return;
+        };
+        let opened = windows.update(app, |windows, cx| {
+            windows.prepare_window(wanted.id.as_str(), &wanted.face, cx)
+        });
+        library.update(app, |library, cx| match opened {
+            Ok(()) => library.start_in_its_window(&wanted.id, windows, cx),
+            Err(error) => {
+                let why = format!("no window opened for it: {error:?}");
+                library.first_window_refused(&wanted.id, &why, cx);
+            }
+        });
     })
     .detach();
 }
@@ -564,6 +612,20 @@ fn tell_installs_to_inspectors(
         inspected.installed_changed();
     })
     .detach();
+}
+
+/// This computer's capabilities, its sound without the microphone where WaOS's bundle does not
+/// say why it records, and its home the one `home` keeps, where WaOS gives it.
+fn local_capabilities(home: Option<ThisComputerHome>) -> LocalCapabilities {
+    let capabilities = if MICROPHONE_USAGE_DECLARED {
+        LocalCapabilities::new()
+    } else {
+        LocalCapabilities::without_microphone()
+    };
+    match home {
+        Some(home) => capabilities.with_home(Arc::new(move || home.get())),
+        None => capabilities,
+    }
 }
 
 /// The installed programs' shortcuts kept where the system keeps them, through `library`, on
@@ -607,6 +669,7 @@ fn library_window(
     library: Entity<Library>,
     recordings: Entity<Recordings>,
     runs: Arc<Runs>,
+    tab_requests: UnboundedReceiver<TabRequest>,
     view_windows: &Entity<ViewWindows>,
 ) -> LibraryWindow {
     match place {
@@ -626,11 +689,11 @@ fn library_window(
         // Android and iOS have no desktop, whose launcher WaOS is there: the library is a phone's.
         #[cfg(any(target_os = "android", target_os = "ios"))]
         LibraryPlace::Launcher | LibraryPlace::ClosedLauncher => {
-            let tabs = Tabs::listen(app, runs);
+            let tabs = Tabs::listen(app, runs, tab_requests);
             phone_deck(app, library, recordings, tabs, view_windows)
         }
         LibraryPlace::Phone => {
-            let tabs = Tabs::listen(app, runs);
+            let tabs = Tabs::listen(app, runs, tab_requests);
             phone_deck(app, library, recordings, tabs, view_windows)
         }
     }

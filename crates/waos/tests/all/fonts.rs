@@ -116,7 +116,7 @@ fn run_fonts(environment: ProgramEnvironment) -> Vec<String> {
     let mark = output.mark();
     let (engine, _shell, _arrivals): (Arc<WaOS>, _, _) = shell::engine();
     let fonts = shell::load(&engine, waos_test_programs::FONTS);
-    let (running, _given) = engine.run(&fonts, environment, Vec::new()).unwrap();
+    let running = engine.run(&fonts, environment).unwrap();
     let end = block_on(running.ended());
     assert!(matches!(end, ProgramEnd::Returned(Ok(()))), "{end:?}");
     output.lines_of(mark, "fonts")

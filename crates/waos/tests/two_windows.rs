@@ -49,10 +49,7 @@ mod two_windows {
         let printed = || output.lines_of(mark, "two-windows");
         let (engine, shell, arrivals) = shell::engine();
         let program = shell::load(&engine, waos_test_programs::TWO_WINDOWS);
-        let (running, given) = engine
-            .run(&program, ProgramEnvironment::default(), Vec::new())
-            .unwrap();
-        assert!(given.is_empty(), "the shell gave two-windows no view");
+        let running = engine.run(&program, ProgramEnvironment::default()).unwrap();
         let views: Vec<ProgramView> = TITLES
             .iter()
             .map(|_| {

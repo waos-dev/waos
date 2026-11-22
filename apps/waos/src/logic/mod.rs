@@ -15,7 +15,8 @@
 //! page and what the user changes on it (`setting_changes`); when the desktop's launcher shows and
 //! goes (`launcher_rules`), and where it shows (`launcher_placement`); where the programs' prompts go (`prompts`), their questions
 //! and the picker of their sound's output among them, with a program's name as its user knows it
-//! (`program_name`), and where the engine's indicator of who records goes (`recording_indicator`);
+//! (`program_name`), and whether WaOS may reach the phone's files, which a pick of This computer
+//! asks for on Android (`phone_files`), and where the engine's indicator of who records goes (`recording_indicator`);
 //! their clipboard calls (`clipboard_calls`), with what goes between their clipboard and Waft's
 //! (`clipboard`); their menu calls (`menu_calls`), and WaOS's own menu bar (`menu_bar`); their
 //! openings (`opener_calls`); their notifications (`notification_calls`), as the system shows them
@@ -97,6 +98,7 @@ pub(crate) mod opened_package;
 pub(crate) mod opener_calls;
 pub(crate) mod opening;
 pub(crate) mod package_copies;
+pub(crate) mod phone_files;
 pub(crate) mod placement;
 pub(crate) mod player_states;
 pub(crate) mod preferences;

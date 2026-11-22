@@ -47,7 +47,7 @@ fn a_program_watches_a_folder_in_its_tmp_and_its_tmp_goes_when_it_returns() {
         output: Some(Arc::clone(&lines) as Arc<dyn ProgramOutput>),
         ..ProgramEnvironment::default()
     };
-    let (running, _views) = engine.run(&program, environment, Vec::new()).unwrap();
+    let running = engine.run(&program, environment).unwrap();
     for line in SAID {
         lines.wait_for(line);
     }
@@ -67,9 +67,7 @@ fn a_programs_tmp_goes_when_it_traps_and_when_it_is_stopped() {
     let (engine, _shell) = engine_with_temporary_folders(folders.path());
 
     let trap = shell::load(&engine, waos_test_programs::TRAP);
-    let (running, _views) = engine
-        .run(&trap, ProgramEnvironment::default(), Vec::new())
-        .unwrap();
+    let running = engine.run(&trap, ProgramEnvironment::default()).unwrap();
     assert!(matches!(block_on(running.ended()), ProgramEnd::Failed(_)));
     assert_eq!(
         left_in(folders.path()),
@@ -80,9 +78,7 @@ fn a_programs_tmp_goes_when_it_traps_and_when_it_is_stopped() {
     // Forever logs its count, which other tests read in the log.
     let _forever = shell::turns::take("forever");
     let forever = shell::load(&engine, waos_test_programs::FOREVER);
-    let (running, _views) = engine
-        .run(&forever, ProgramEnvironment::default(), Vec::new())
-        .unwrap();
+    let running = engine.run(&forever, ProgramEnvironment::default()).unwrap();
     let held = left_in(folders.path());
     assert_eq!(held.len(), 2, "its folder and the lock beside it: {held:?}");
     running.stop();

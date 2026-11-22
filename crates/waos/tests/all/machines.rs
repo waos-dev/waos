@@ -257,8 +257,8 @@ fn run(
         ..ProgramEnvironment::default()
     };
     let program = shell::load(engine, waos_test_programs::MACHINES);
-    let (running, _views) = engine.run(&program, environment, Vec::new()).unwrap();
-    running
+
+    engine.run(&program, environment).unwrap()
 }
 
 /// Grants that give nothing but the machines picked, kept as an app keeps them, and the

@@ -38,11 +38,11 @@ use crate::program::Program;
 use crate::running::{HeldProgram, Hold, ProgramStart, Programs, RunningProgram};
 use crate::screens::{Screen, Screens};
 use crate::screenshots::Screenshots;
-use crate::shell::{PlacedView, Shell, ShellClipboardItem};
+use crate::shell::{Shell, ShellClipboardItem};
 use crate::source_lines::ComponentFile;
 use crate::system::SystemSettings;
 use crate::temporary_folders::TemporaryFolders;
-use crate::views::{ProgramView, Refresh, ScreenRefreshes};
+use crate::views::{Refresh, ScreenRefreshes};
 
 /// How hardware buffers are backed on Linux. Ignored on other platforms.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -281,28 +281,27 @@ impl WaOS {
         }
     }
 
-    /// Starts `program` on a thread of its own, with `environment` as its capabilities, a `/tmp`
-    /// of its own, and `views` as the views it has before its code runs; answers the handle on it
-    /// and each view as the shell reports into it, in the order given.
+    /// Starts `program` on a thread of its own, with `environment` as its capabilities and a
+    /// `/tmp` of its own. It has no view until it asks for one, and every request goes to the
+    /// shell's placement.
     pub fn run(
         &self,
         program: &Program,
         environment: ProgramEnvironment,
-        views: Vec<PlacedView>,
-    ) -> Result<(RunningProgram, Vec<ProgramView>)> {
-        self.start(program, environment, views, None)
+    ) -> Result<RunningProgram> {
+        self.start(program, environment, None)
     }
 
-    /// Starts `program` as [`WaOS::run`] does, with no views, but held before its first
-    /// instruction until the [`HeldProgram`] answered is dropped, so whoever listens to it once
-    /// [`HeldProgram::linked`] resolves hears it from its start.
+    /// Starts `program` as [`WaOS::run`] does, but held before its first instruction until the
+    /// [`HeldProgram`] answered is dropped, so whoever listens to it once [`HeldProgram::linked`]
+    /// resolves hears it from its start.
     pub fn run_held(
         &self,
         program: &Program,
         environment: ProgramEnvironment,
     ) -> Result<(RunningProgram, HeldProgram)> {
         let (held, hold) = crate::running::hold();
-        let (running, _views) = self.start(program, environment, Vec::new(), Some(hold))?;
+        let running = self.start(program, environment, Some(hold))?;
         Ok((running, held))
     }
 
@@ -310,9 +309,8 @@ impl WaOS {
         &self,
         program: &Program,
         environment: ProgramEnvironment,
-        views: Vec<PlacedView>,
         hold: Option<Hold>,
-    ) -> Result<(RunningProgram, Vec<ProgramView>)> {
+    ) -> Result<RunningProgram> {
         ensure!(
             Engine::same(&self.engine, program.component().engine()),
             "{} was loaded by another engine",
@@ -359,7 +357,7 @@ impl WaOS {
             view_layers: Arc::default(),
             hold,
         };
-        RunningProgram::start(start, views, temporary)
+        RunningProgram::start(start, temporary)
     }
 
     /// The platform sent the whole app to the background (iOS's `didEnterBackground`, Android's
@@ -470,13 +468,14 @@ mod tests {
 
     use super::*;
     use crate::bindings::wasdk::platform::views::{
-        Cursor, Insets, Metrics, OverlayStyle, Placement, RequestId, ViewError, ViewFocusDirection,
+        Cursor, Insets, Metrics, OverlayStyle, Placement, ViewError, ViewFocusDirection,
         ViewFocusState,
     };
     use crate::lifecycle::Presence;
     use crate::running::ProgramEnd;
     use crate::shell::{
-        HardwareBuffer, ShellCompositionLayer, ShellView, ViewPlacement, ViewRequest, VsyncWaiter,
+        HardwareBuffer, PlacedView, ShellCompositionLayer, ShellView, ViewPlacement, ViewRequest,
+        VsyncWaiter,
     };
 
     /// How long a program may take to draw its first frames.
@@ -548,13 +547,17 @@ mod tests {
         }
     }
 
-    impl ViewPlacement for Refreshing {
+    /// Where the views go on `Refreshing`: each request answered at once with a view of its own.
+    struct PlacedOn(Arc<Refreshing>);
+
+    impl ViewPlacement for PlacedOn {
         fn view_requested(
             &self,
-            _program: &RunningProgram,
-            _request: ViewRequest,
+            program: &RunningProgram,
+            request: ViewRequest,
         ) -> Result<(), ViewError> {
-            Err(ViewError::Unsupported)
+            program.add_view(request.id, placed_view(&self.0));
+            Ok(())
         }
     }
 
@@ -580,7 +583,7 @@ mod tests {
             time_zone: None,
         };
         let shell_parts = Shell {
-            views: Arc::clone(shell) as Arc<dyn ViewPlacement>,
+            views: Arc::new(PlacedOn(Arc::clone(shell))) as Arc<dyn ViewPlacement>,
             vsync: Arc::clone(shell) as Arc<dyn VsyncWaiter>,
             compositor: None,
             prompts: Arc::new(crate::shell::NoPrompts),
@@ -632,7 +635,6 @@ mod tests {
                 occluded: false,
                 focused: true,
             },
-            request: None::<RequestId>,
         }
     }
 
@@ -713,12 +715,8 @@ mod tests {
         let [first, second] = runs.map(|(run, checked)| {
             let before = GpuHoldings::read(&engine, &metal);
             let presented = shell.presents.load(Ordering::SeqCst);
-            let (running, _given) = engine
-                .run(
-                    &triangle,
-                    ProgramEnvironment::default(),
-                    vec![placed_view(&shell)],
-                )
+            let running = engine
+                .run(&triangle, ProgramEnvironment::default())
                 .expect("triangle runs");
             shell.wait_for_presents(presented + 10);
             let drawing = GpuHoldings::read(&engine, &metal);

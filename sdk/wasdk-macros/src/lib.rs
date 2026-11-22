@@ -29,9 +29,7 @@ use syn::{Ident, ItemFn, ReturnType, Visibility};
 /// ```ignore
 /// #[wasdk::main]
 /// async fn main() {
-///     for view in wasdk::views::views() {
-///         // …
-///     }
+///     println!("hello from a program with no window");
 /// }
 /// ```
 ///

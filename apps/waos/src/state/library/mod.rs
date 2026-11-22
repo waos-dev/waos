@@ -11,7 +11,8 @@
 //! which gives it its view as it starts; a program running opens where it runs, its windows coming
 //! forward. On Android the user chooses between tasks and tabs, which holds for programs opened
 //! after, and the installed programs have shortcuts on the home screen and on WaOS's icon's menu
-//! (`shortcuts`).
+//! (`shortcuts`), and the global settings say whether WaOS may reach the phone's files
+//! (`phone_files`).
 //!
 //! What reads the network or the disk at length, a source's index, a download, a program's load,
 //! runs on the library's own tokio runtime, and its answer comes back to the main thread, where
@@ -31,6 +32,7 @@
 //! code is compiled is the compiles' own list, read as the library is shown.
 
 mod package_picker;
+mod phone_files;
 mod programs_open;
 mod settings;
 mod shortcuts;
@@ -57,25 +59,29 @@ use waft::{App, Context, Entity, EventEmitter, OpenRequestedCallback, WeakEntity
 use waft_single_instance::{LaterLaunches, Launch};
 use waos::OpenRequest;
 use waos::bindings::wasdk::platform::notifications::Activation;
-use waos_package::{ListedProgram, ProgramId};
+use waos_package::{ListedProgram, ProgramId, ProgramKind};
 use waos_store::{InstalledProgram, Source, Store};
 
 use crate::logic::command_line::{Command, command};
-use crate::logic::installed_runs::InstalledRuns;
+use crate::logic::installed_runs::{InstalledRuns, Opening};
 use crate::logic::offers::{Offer, offer_of};
 use crate::logic::opened_package::OpenedPackage;
 use crate::logic::opening;
 use crate::logic::package_copies::{PackageCopies, document_name};
 use crate::logic::preferences::{KeptPreferences, Preferences, PreferencesFile};
+use crate::logic::program_faces::program_face;
 use crate::logic::program_places::ProgramPlace;
 use crate::logic::program_shortcuts::SystemShortcuts;
 use crate::logic::setting_changes::Offered;
 use crate::logic::system_notifications::program_activation;
 use crate::state::deck::tabs::Tabs;
+use crate::state::phone_files::PhoneFiles;
 pub(crate) use package_picker::picks_packages;
+pub(crate) use phone_files::show_phone_files;
 pub(crate) use programs_open::ProgramsOpen;
 pub(crate) use settings::{LeftSettings, LibraryPage, SwitchAsked, open_settings_when_asked};
 use shortcuts::ShortcutsMatching;
+use waos_program_window::ProgramFace;
 
 pub(crate) struct Library {
     store: Store,
@@ -126,6 +132,8 @@ pub(crate) struct Library {
     shortcuts: Option<Rc<dyn SystemShortcuts>>,
     /// Whether they are being made to match what is installed.
     shortcuts_matching: ShortcutsMatching,
+    /// Whether WaOS may reach the phone's files, where it reaches them only as the user allows.
+    phone_files: Option<Entity<PhoneFiles>>,
 }
 
 /// A source the user added, and what it lists.
@@ -162,6 +170,17 @@ pub(crate) struct ProgramOpened {
 }
 
 impl EventEmitter<WantsToBeSeen> for Library {}
+
+/// The program `id`, about to start on Android as a task of its own, wants its first window opened
+/// now, showing it as `face` says, which arrives as a program's first window the platform gives
+/// and starts the program with it reserved (decision 10 of
+/// `docs/proposals/2026-11-21-views-a-program-asks-for.md`).
+pub(crate) struct FirstWindowWanted {
+    pub(crate) id: ProgramId,
+    pub(crate) face: ProgramFace,
+}
+
+impl EventEmitter<FirstWindowWanted> for Library {}
 
 /// The user changed WaOS's own preferences, which hold from now on.
 pub(crate) struct PreferencesChosen;
@@ -247,6 +266,7 @@ impl Library {
             search: String::new(),
             shortcuts: None,
             shortcuts_matching: ShortcutsMatching::Idle,
+            phone_files: None,
         };
         library.read_sources(cx);
         library.follow_running(cx);
@@ -414,10 +434,22 @@ impl Library {
             self.open_in_tab(tabs, id, component, cx);
             return;
         }
+        let is_an_app = self
+            .store
+            .manifest(id)
+            .is_none_or(|manifest| manifest.kind() == ProgramKind::App);
+        if self.programs_open == ProgramsOpen::AsChosen && is_an_app && !self.is_running(id) {
+            let face = program_face(&self.store, id.as_str());
+            cx.emit(FirstWindowWanted {
+                id: id.clone(),
+                face,
+            });
+            return;
+        }
         let (runs, id) = (self.runs.clone(), id.clone());
         self.work_then(
             async move {
-                runs.open(&id, component, Vec::new(), ProgramPlace::Windows)
+                runs.open(&id, component, ProgramPlace::Windows, Opening::ByTheUser)
                     .await
                     .map(drop)
             },
@@ -426,9 +458,8 @@ impl Library {
         );
     }
 
-    /// Opens the program `id`, whose component is at `component`, in a tab of `tabs`, which gives
-    /// it its view as it starts and shows it once it runs; where it has a tab already, that tab
-    /// comes into sight.
+    /// Opens the program `id`, whose component is at `component`, in a tab of `tabs`, whose screen
+    /// its first request takes; where it has a tab already, that tab comes into sight.
     fn open_in_tab(
         &mut self,
         tabs: Entity<Tabs>,
@@ -436,16 +467,16 @@ impl Library {
         component: PathBuf,
         cx: &mut Context<Library>,
     ) {
-        let (tab_view, view) = match tabs.update(cx, |tabs, cx| tabs.open(id, cx)) {
-            Ok(Some(starting)) => starting,
-            Ok(None) => return,
+        match tabs.update(cx, |tabs, cx| tabs.open(id, cx)) {
+            Ok(true) => {}
+            Ok(false) => return,
             Err(why) => return self.failed(format!("{id} could not be opened: {why}"), cx),
-        };
+        }
         let (runs, id) = (self.runs.clone(), id.clone());
         let opening = id.clone();
         self.work_then(
             async move {
-                runs.open(&opening, component, vec![view], ProgramPlace::Tab)
+                runs.open(&opening, component, ProgramPlace::Tab, Opening::ByTheUser)
                     .await
             },
             move |library, opened, cx| {
@@ -453,7 +484,7 @@ impl Library {
                     Ok(started) => (Some(started), Ok(())),
                     Err(error) => (None, Err(error)),
                 };
-                tabs.update(cx, |tabs, cx| tabs.started(&id, tab_view, started, cx));
+                tabs.update(cx, |tabs, cx| tabs.started(&id, started, cx));
                 library.program_opened(opened, cx);
             },
             cx,
@@ -908,6 +939,16 @@ impl Library {
             }
             Err(error) => self.failed(format!("{error:#}"), cx),
         }
+    }
+
+    /// No first window opened for the program `id`, which is not started: the library's problem.
+    pub(crate) fn first_window_refused(
+        &mut self,
+        id: &ProgramId,
+        why: &str,
+        cx: &mut Context<Library>,
+    ) {
+        self.failed(format!("{id} could not be opened: {why}"), cx);
     }
 
     fn failed(&mut self, why: String, cx: &mut Context<Library>) {

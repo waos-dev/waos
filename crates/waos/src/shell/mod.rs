@@ -202,12 +202,11 @@ pub trait VsyncWaiter: Send + Sync {
 }
 
 /// Where a program's views go: what answers a program's `request-view`. A desktop's shell makes
-/// a window for each request; a phone's refuses them, giving each program its tab's view at the
-/// start instead.
+/// a window for each request, and Android a task; a shell that showed a screen for the program
+/// before it asked, such as a phone's tab, answers its first request with that screen.
 pub trait ViewPlacement: Send + Sync {
     /// `program` asks for a view as `request` says. `Ok` promises exactly one later answer:
-    /// `program.add_view` with a view carrying `request.id`, or `program.view_request_failed`
-    /// with it. `Err` refuses at once, and nothing follows. Called from the program's thread.
+    /// `program.add_view` with `request.id`, or `program.view_request_failed` with it. `Err` refuses at once, and nothing follows. Called from the program's thread.
     fn view_requested(
         &self,
         program: &RunningProgram,
@@ -238,8 +237,6 @@ pub struct PlacedView {
     /// The screen the view is on; none while on no screen.
     pub screen: Option<ScreenId>,
     pub presence: Presence,
-    /// The request the view arrives for; none for a view the shell gives of its own accord.
-    pub request: Option<RequestId>,
 }
 
 /// A window as it is when its view is added: a starting value for everything the engine copies.

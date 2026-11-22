@@ -12,11 +12,11 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use sha2::{Digest, Sha256};
-use waos_package::{Index, ListedProgram, Manifest};
+use waos_package::{Index, ListedProgram, Manifest, ProgramKind};
 
 use crate::build::{self, Profile};
 use crate::metadata::WaosMetadata;
-use crate::{icon_rule, signing_key, workspace};
+use crate::{component_imports, icon_rule, signing_key, workspace};
 
 /// The index's name, in `target/waos`.
 const INDEX: &str = "index.json";
@@ -36,9 +36,11 @@ pub fn package(name: Option<&str>) -> Result<PackagedProgram> {
     let waos = WaosMetadata::of(package)?;
     warn_of_icon_breaches(&waos.icon)?;
     let manifest = Manifest::new(waos.id, waos.name, package.version.clone())
-        .with_context(|| format!("the manifest of {}", package.name))?;
+        .with_context(|| format!("the manifest of {}", package.name))?
+        .with_kind(waos.kind);
     let key = signing_key::signing_key()?;
     let built = build::build(&metadata, package, Profile::Release)?;
+    warn_of_an_app_with_no_view(&manifest, &built.component)?;
     let folder = workspace::waos_folder(&metadata);
     let written = folder.join(format!("{}-{}.wapk", manifest.id(), manifest.version()));
     waos_package::write(&written, &manifest, &built.component, &waos.icon, &key)
@@ -49,6 +51,23 @@ pub fn package(name: Option<&str>) -> Result<PackagedProgram> {
         package: written,
         index,
     })
+}
+
+/// Says on stderr that an app whose `component` never imports `wasdk:platform/views` can never
+/// show a window, likely a program that is a tool and does not say so; packaging goes on. A tool
+/// that imports it may open a window now and then, and nothing is said.
+fn warn_of_an_app_with_no_view(manifest: &Manifest, component: &Path) -> Result<()> {
+    if manifest.kind() != ProgramKind::App {
+        return Ok(());
+    }
+    let bytes = fs::read(component).with_context(|| format!("reading {}", component.display()))?;
+    if !component_imports::imports_views(&bytes)? {
+        eprintln!(
+            "waos: warning: {} is an app, but its component never asks for a view, so it can show no window; a program with no UI says `kind = \"tool\"` in its [package.metadata.waos]",
+            manifest.id()
+        );
+    }
+    Ok(())
 }
 
 /// Says on stderr what the icon at `icon` does against the rule of icons; packaging goes on.

@@ -230,10 +230,9 @@ impl EventLoop {
     fn view_change(&mut self, change: ViewChange) {
         match change {
             ViewChange::Added(view) => {
-                if let Some(view) = self.platform.add_view(view) {
-                    self.events.add_view(&view);
-                    self.client.view_added(view.id());
-                }
+                let view = self.platform.add_view(view);
+                self.events.add_view(&view);
+                self.client.view_added(view.id());
             }
             ViewChange::Removed(id) => self.view_removed(ViewId(id)),
             ViewChange::RequestFailed(failure) => {

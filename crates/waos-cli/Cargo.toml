@@ -18,6 +18,8 @@ path = "src/main.rs"
 
 [dependencies]
 waos-dev-protocol.workspace = true
+# Reads which interfaces a component imports, for what packaging warns of.
+wasmparser.workspace = true
 waos-package.workspace = true
 anyhow.workspace = true
 # The command line, as `waos <command>`.
@@ -50,6 +52,8 @@ windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Securit
 [dev-dependencies]
 hex.workspace = true
 tempfile.workspace = true
+# Components written as text, whose imports the tests read.
+wat.workspace = true
 # A new program's manifest and toolchain file as the tests read them, and the workspace's own.
 toml.workspace = true
 

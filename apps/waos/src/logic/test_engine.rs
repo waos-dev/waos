@@ -198,8 +198,8 @@ pub(crate) mod drawing {
         engine
     }
 
-    /// Opens a view for `program` in a window of its own, filling the test screen.
-    pub(crate) fn add_window(program: &RunningProgram, request: Option<RequestId>) -> ProgramView {
+    /// Opens a view for `program`'s `request` in a window of its own, filling the test screen.
+    pub(crate) fn add_window(program: &RunningProgram, request: RequestId) -> ProgramView {
         TEST_DISPLAY.add_window(program, request)
     }
 }

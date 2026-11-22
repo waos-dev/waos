@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use waos::{AudioDevices, AudioOutput, MachineChoice, ProgramEnvironment};
 use waos_local::LocalCapabilities;
-use waos_package::ProgramId;
+use waos_package::{ProgramId, ProgramKind};
 use waos_store::{Store, StoreError};
 
 use super::setting_changes::Offered;
@@ -51,6 +51,14 @@ impl ProgramEnvironments {
             audio: self.audio.clone(),
             ..self.capabilities.environment()
         })
+    }
+
+    /// What the installed program `id` declares it is, an app or a tool; an app where its manifest
+    /// cannot be read, which the store says.
+    pub(crate) fn kind_of(&self, id: &ProgramId) -> ProgramKind {
+        self.store
+            .manifest(id)
+            .map_or(ProgramKind::App, |manifest| manifest.kind())
     }
 
     /// What the programs' pickers offer now: the machines and the sound outputs.

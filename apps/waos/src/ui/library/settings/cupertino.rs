@@ -131,6 +131,7 @@ impl State for CupertinoSettingsState {
         sections.extend(page.switch_asked(app));
         sections.extend(page.where_programs_open(app));
         sections.extend(page.where_waos_stays(app));
+        sections.extend(page.phone_files(app));
         match page.library.read(app).settings(&page.of) {
             Ok(shown) => {
                 let activity = page.library.read(app).activity(&page.of);
@@ -230,6 +231,31 @@ impl Page {
             Some(words::keep_in_dock_detail(platform)),
             vec![row],
         ))
+    }
+
+    /// On the global page, where WaOS reaches the phone's files only as the user allows, whether
+    /// it may, and a button that opens the system's page for it.
+    fn phone_files(&self, app: &App) -> Option<WidgetRef> {
+        if self.of != SettingsOf::Global {
+            return None;
+        }
+        let reachable = self.library.read(app).phone_files_reachable(app)?;
+        let library = self.library.clone();
+        let open = Listener::new(move |app| {
+            library.update(app, |library, cx| library.open_phone_files_page(cx));
+        });
+        let said = if reachable {
+            words::PHONE_FILES_ON
+        } else {
+            words::PHONE_FILES_OFF
+        };
+        let row = CupertinoListTile::new(Text::new(""))
+            .trailing(CupertinoButton::new(
+                Text::new(words::OPEN_ANDROID_SETTINGS).into_widget(),
+                Some(open),
+            ))
+            .into_widget();
+        Some(section(Some(words::PHONE_FILES), Some(said), vec![row]))
     }
 
     /// Whether the system refuses the page's program its notifications; never on the global

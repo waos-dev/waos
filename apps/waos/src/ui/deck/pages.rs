@@ -43,8 +43,9 @@ pub(super) enum PageShown {
     Home,
     Starting(ProgramId),
     Running(Entity<ShownView>),
-    /// The program's view, which keeps its last picture, and how it ended, in words.
-    Ended(Entity<ShownView>, Ending),
+    /// The program's view, which keeps its last picture, where it asked for one, and how it
+    /// ended, in words.
+    Ended(Option<Entity<ShownView>>, Ending),
 }
 
 /// A program as its tab names it.
@@ -90,7 +91,7 @@ impl PageShown {
             return PageShown::Home;
         };
         match stage {
-            TabStage::Starting => PageShown::Starting((*id).clone()),
+            TabStage::Starting | TabStage::Waiting => PageShown::Starting((*id).clone()),
             TabStage::Running(shown) => PageShown::Running(shown.clone()),
             TabStage::Ended { shown, end } => {
                 let name = program.map_or("", |program| program.name.as_str());
@@ -145,23 +146,32 @@ impl TabPage {
             .into_widget()
     }
 
-    /// The program's last picture, dimmed, under its icon, its name and how it ended.
+    /// The program's last picture, dimmed, where it had one, under its icon, its name and how it
+    /// ended.
     fn ended(
         &self,
-        shown: &Entity<ShownView>,
+        shown: &Option<Entity<ShownView>>,
         ending: &Ending,
         app: &mut App,
         context: BuildContext,
     ) -> WidgetRef {
         let background = resolved(CupertinoColors::SYSTEM_BACKGROUND, app, context);
-        let dimming = background.with_values(Some(ENDED_DIMMING), None, None, None, None);
+        let picture = match shown {
+            Some(shown) => {
+                let dimming = background.with_values(Some(ENDED_DIMMING), None, None, None, None);
+                Stack::new()
+                    .fit(StackFit::Expand)
+                    .children([
+                        ProgramPicture::new(shown.clone()).into_widget(),
+                        ColoredBox::new(dimming).into_widget(),
+                    ])
+                    .into_widget()
+            }
+            None => ColoredBox::new(background).into_widget(),
+        };
         Stack::new()
             .fit(StackFit::Expand)
-            .children([
-                ProgramPicture::new(shown.clone()).into_widget(),
-                ColoredBox::new(dimming).into_widget(),
-                self.ending(ending, app, context),
-            ])
+            .children([picture, self.ending(ending, app, context)])
             .into_widget()
     }
 

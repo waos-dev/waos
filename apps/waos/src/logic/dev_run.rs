@@ -229,7 +229,7 @@ async fn start(
                 arguments: args,
                 ..environment
             };
-            let (running, _views) = context.engine.run(&program, environment, Vec::new())?;
+            let running = context.engine.run(&program, environment)?;
             // Before the shell can place a view, so none counts as covered while the run is open.
             watching = Some(running.watch());
             Ok(running)

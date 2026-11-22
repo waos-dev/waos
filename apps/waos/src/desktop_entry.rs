@@ -106,7 +106,7 @@ pub fn main() -> ExitCode {
     let embedder = DefaultEmbedder::default().linux(linux).windows(windows);
     embedder.run(move |platform| {
         Shell::new(platform, move |app| {
-            if let Err(error) = state::start(app, folders, place, opened, later_launches) {
+            if let Err(error) = state::start(app, folders, place, opened, later_launches, None) {
                 fail(&format!("{error:#}"));
             }
         })

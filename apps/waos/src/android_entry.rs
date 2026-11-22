@@ -1,13 +1,16 @@
 //! WaOS's entry on Android, which Waft's Android host calls once for the process
 //! (`os::android_main`): the system's certificate checker handed the application before anything
-//! connects, the engine started over the store in the app's own folders, and the library on the
-//! screen, laid out as a phone's, for as long as the process lives. Activities come and go under
+//! connects, the engine started over the store in the app's own folders, the phone's files reached
+//! as WaOS's All files access allows, and the library on the screen, laid out as a phone's, for as long as the process lives. Activities come and go under
 //! it as views of the one app. Android keeps one instance of an app itself and gives
 //! it no command line, so nothing here reads one.
+
+use std::rc::Rc;
 
 use waft::{AndroidApp, DefaultEmbedder, Shell};
 
 use crate::logic::command_line::LibraryPlace;
+use crate::logic::phone_files::PhoneFilesAccess;
 use crate::{os, state, write_traces};
 
 /// Runs WaOS in the process `app` is, for the process's life.
@@ -15,11 +18,15 @@ pub(crate) fn main(app: AndroidApp) {
     write_traces(os::SystemLog, false);
     os::trust_the_system(&app).unwrap_or_else(|error| fail(&error.into()));
     let folders = os::app_folders(&app).unwrap_or_else(|error| fail(&error));
+    let phone_files = os::AllFilesAccess::of(&app).unwrap_or_else(|error| fail(&error));
     DefaultEmbedder::default()
         .android_app(app)
         .run(move |platform| {
             Shell::new(platform, move |app| {
-                if let Err(error) = state::start(app, folders, LibraryPlace::Phone, None, None) {
+                let phone_files = Some(Rc::new(phone_files) as Rc<dyn PhoneFilesAccess>);
+                let started =
+                    state::start(app, folders, LibraryPlace::Phone, None, None, phone_files);
+                if let Err(error) = started {
                     fail(&error);
                 }
             })

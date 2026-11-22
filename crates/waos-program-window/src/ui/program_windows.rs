@@ -1,7 +1,9 @@
 //! The programs' windows: what goes in each, its view's canvas filling it and what the process the
 //! windows are in shows over the program's window, as WaOS shows its questions over it, which
 //! whoever builds the process's views puts in the window ([`ProgramWindows::content_of`]). A
-//! window the platform gave, as one it restored, shows nothing until its program has started.
+//! window reserved for a program's first request, as one the platform restored or opened at the
+//! program's launch, shows nothing of its own until its view does, only what is shown over its
+//! windows once it has started, so its questions are put there.
 //!
 //! The invariant: each window's content reports every change of its window to the windows, which
 //! hear of it from nowhere else while the app draws.
@@ -81,6 +83,25 @@ impl<P: ProgramLink> Debug for ProgramWindow<P> {
     }
 }
 
+impl<P: ProgramLink> ProgramWindow<P> {
+    /// The window while it waits for its program's first request: nothing of its own, with what
+    /// is shown over the program's windows once it has started; nothing at all where it is no
+    /// such window.
+    fn reserved(&self, app: &mut App) -> WidgetRef {
+        let program = self
+            .windows
+            .view_windows
+            .read(app)
+            .prepared_in(self.view)
+            .flatten()
+            .cloned();
+        match program {
+            Some(program) => (self.windows.over_each)(app, &program),
+            None => SizedBox::expand().into_widget(),
+        }
+    }
+}
+
 impl<P: ProgramLink> StatelessWidget for ProgramWindow<P> {
     fn build(&self, app: &mut App, _context: BuildContext) -> WidgetRef {
         let shown = self
@@ -99,7 +120,7 @@ impl<P: ProgramLink> StatelessWidget for ProgramWindow<P> {
                     .children([ProgramCanvas::new(shown).into_widget(), over])
                     .into_widget()
             }
-            None => SizedBox::expand().into_widget(),
+            None => self.reserved(app),
         };
         let (view_windows, view) = (self.windows.view_windows.clone(), self.view);
         let changed = Listener::new(move |app| {

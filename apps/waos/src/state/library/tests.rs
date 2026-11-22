@@ -19,14 +19,14 @@ use std::time::{Duration, Instant};
 
 use tempfile::TempDir;
 use waft::{AppCell, Subscription};
-use waos_package::SigningKey;
+use waos_package::{Manifest, ProgramKind, SigningKey};
 use waos_store::SourceProxy;
 
 use super::test_server::Server;
 use super::*;
 use crate::logic::environments::ProgramEnvironments;
 use crate::logic::installed_code::HeldCompiles;
-use crate::logic::opened_package::tests::write_package;
+use crate::logic::opened_package::tests::{write_package, write_package_of};
 use crate::logic::package_copies::PackageCopies;
 use crate::logic::program_places::{ProgramPlace, ProgramPlaces};
 use crate::logic::program_shortcuts::{
@@ -116,6 +116,16 @@ impl TestLibrary {
         write_package(&packages, id, "Triangle", version, component, &self.key)
     }
 
+    /// `component` packaged as the tool `id`, at `version`.
+    fn tool_package(&self, id: &str, version: &str, component: &[u8]) -> PathBuf {
+        let packages = self.folder.path().join("packages");
+        std::fs::create_dir_all(&packages).unwrap();
+        let manifest = Manifest::new(id.parse().unwrap(), "Grep", version.parse().unwrap())
+            .unwrap()
+            .with_kind(ProgramKind::Tool);
+        write_package_of(&packages, &manifest, component, &self.key)
+    }
+
     fn update(&self, f: impl FnOnce(&mut Library, &mut Context<Library>)) {
         self.library.update(&mut self.cell.borrow_mut(), f);
         self.cell.checkpoint();
@@ -173,7 +183,7 @@ impl TestLibrary {
 
     /// Installs forever, as triangle, from a package opened with WaOS.
     fn installs_forever(&self) {
-        let forever = std::fs::read(waos_test_programs::FOREVER).unwrap();
+        let forever = std::fs::read(waos_test_programs::FOREVER_SHOWN).unwrap();
         self.installs_after_yes(self.package(TRIANGLE, "1.0.0", &forever));
     }
 
@@ -442,7 +452,7 @@ fn a_removed_source_takes_its_listing_with_it() {
 #[test]
 fn an_installed_program_opens_in_waos_once_however_often_it_is_opened() {
     let library = TestLibrary::new();
-    let forever = std::fs::read(waos_test_programs::FOREVER).unwrap();
+    let forever = std::fs::read(waos_test_programs::FOREVER_SHOWN).unwrap();
     library.installs_after_yes(library.package(TRIANGLE, "1.0.0", &forever));
     let triangle: ProgramId = TRIANGLE.parse().unwrap();
     library.update(|library, cx| library.open(&triangle, cx));
@@ -462,9 +472,28 @@ fn an_installed_program_opens_in_waos_once_however_often_it_is_opened() {
 }
 
 #[test]
-fn a_launch_for_an_installed_program_opens_it_once() {
+fn a_tool_opened_from_the_library_is_refused_and_never_runs() {
     let library = TestLibrary::new();
     let forever = std::fs::read(waos_test_programs::FOREVER).unwrap();
+    library.installs_after_yes(library.tool_package(TRIANGLE, "1.0.0", &forever));
+    let triangle: ProgramId = TRIANGLE.parse().unwrap();
+    library.update(|library, cx| library.open(&triangle, cx));
+    library.wait_until("the open's answer", |library| library.problem().is_some());
+    let problem = library.read(|library| library.problem().map(str::to_owned));
+    assert_eq!(
+        problem.as_deref(),
+        Some(
+            "dev.example.triangle could not be opened: it is a command-line program, with no window \
+             of its own, and WaOS cannot show its terminal yet"
+        )
+    );
+    assert!(futures::executor::block_on(library.runs.programs()).is_empty());
+}
+
+#[test]
+fn a_launch_for_an_installed_program_opens_it_once() {
+    let library = TestLibrary::new();
+    let forever = std::fs::read(waos_test_programs::FOREVER_SHOWN).unwrap();
     library.installs_after_yes(library.package(TRIANGLE, "1.0.0", &forever));
     let triangle: ProgramId = TRIANGLE.parse().unwrap();
     let token = || Some("gnome-shell/Triangle/1".to_owned());
@@ -578,7 +607,7 @@ fn an_update_of_a_running_program_ends_the_old_run_first_and_leaves_the_new_vers
     library.wait_until("its code", |library| !library.is_compiling(&triangle));
     library.update(|library, cx| library.open(&triangle, cx));
     wait_for_runs(&library, &[TRIANGLE]);
-    let forever = std::fs::read(waos_test_programs::FOREVER).unwrap();
+    let forever = std::fs::read(waos_test_programs::FOREVER_SHOWN).unwrap();
     library.installs_after_yes(library.package(TRIANGLE, "1.1.0", &forever));
     library.wait_until("the update", |library| {
         library.installed()[0].manifest.version().to_string() == "1.1.0"
@@ -602,7 +631,7 @@ fn an_update_of_a_running_program_ends_the_old_run_first_and_leaves_the_new_vers
 fn an_update_from_a_source_ends_the_old_run_once_the_package_is_downloaded() {
     let library = TestLibrary::new();
     let server = Server::start();
-    let forever = std::fs::read(waos_test_programs::FOREVER).unwrap();
+    let forever = std::fs::read(waos_test_programs::FOREVER_SHOWN).unwrap();
     server.publish(
         TRIANGLE,
         &library.package(TRIANGLE, "1.0.0", &forever),

@@ -16,6 +16,7 @@
 mod asked;
 mod asking;
 mod build;
+mod component_imports;
 mod connecting;
 // Linux's alone; its tests run everywhere.
 #[cfg(any(target_os = "linux", test))]
@@ -691,9 +692,9 @@ fn build_only(args: &BuildArgs) -> Result<ExitCode> {
 fn build_and_run(args: &RunArgs, starter: &dyn WaOSStarter) -> Result<ExitCode> {
     let metadata = workspace::metadata()?;
     let package = workspace::chosen_package(&metadata, args.build.program.package.as_deref())?;
-    let id = WaosMetadata::id_of(package)?;
+    let identity = WaosMetadata::run_identity_of(package)?;
     let built = build::build(&metadata, package, args.build.profile())?;
-    on_this_thread(run::run(id, &built, &args.env, &args.args, starter))
+    on_this_thread(run::run(identity, &built, &args.env, &args.args, starter))
 }
 
 /// Writes the pictures of the program's windows under target/waos/screenshots/<package>, or where

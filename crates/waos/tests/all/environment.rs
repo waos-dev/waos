@@ -21,7 +21,7 @@ fn a_run_reads_the_variables_it_was_given_and_waos_s_own_win() {
         ],
         ..ProgramEnvironment::default()
     };
-    let (running, _views) = engine.run(&program, environment, Vec::new()).unwrap();
+    let running = engine.run(&program, environment).unwrap();
     lines.wait_for("RUST_LOG=debug");
     assert!(matches!(
         shell::wait_for_end(&running),
@@ -44,7 +44,7 @@ fn a_runs_arguments_start_with_the_programs_name() {
         arguments: vec!["--port".to_owned(), "8080".to_owned()],
         ..ProgramEnvironment::default()
     };
-    let (running, _views) = engine.run(&program, environment, Vec::new()).unwrap();
+    let running = engine.run(&program, environment).unwrap();
     assert!(matches!(
         shell::wait_for_end(&running),
         ProgramEnd::Returned(Ok(()))

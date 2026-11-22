@@ -1,7 +1,9 @@
 //! What a program asks its user, as a plain sheet in Fluent's controls: the question on Fluent's
 //! solid background, filling what its placement gives it, with its replies: a question's two
 //! answers, Allow and Don't allow; or the outputs its sound may play on, or the machines it may act
-//! on as the user, a button each, scrolling when there are many, and Cancel. It is the program's
+//! on as the user, a button each, scrolling when there are many, and Cancel; This computer picked
+//! while the phone's files are out of reach, the system's page for them offered, or going on
+//! without it (`logic::phone_files`). It is the program's
 //! prompt, one widget wherever its placement shows it (`state::questions`), which dims what it is
 //! shown over, if anything; nothing while the program asks nothing.
 
@@ -47,6 +49,7 @@ impl StatelessWidget for QuestionSheet {
         let parts = match &pending.asking {
             Asking::Question { question, .. } => self.question(&pending.name, question),
             Asking::Output { outputs, .. } => self.output_picker(&pending.name, outputs),
+            Asking::Machine { .. } if pending.phone_files.is_some() => self.phone_files_offer(),
             Asking::Machine { machines, .. } => self.machine_picker(&pending.name, machines),
         };
         let resources = ThemeResources::of(app, context);
@@ -142,6 +145,34 @@ impl QuestionSheet {
         }
     }
 
+    /// This computer was picked while the phone's files are out of reach: Not now, which goes on
+    /// without them, or Open settings, the system's page where the user lets WaOS reach them.
+    fn phone_files_offer(&self) -> SheetParts {
+        let (questions, program) = (self.questions.clone(), self.program.clone());
+        let not_now = Listener::new(move |app| {
+            questions.update(app, |questions, cx| {
+                questions.go_on_without_phone_files(&program, cx)
+            });
+        });
+        let (questions, program) = (self.questions.clone(), self.program.clone());
+        let open_page = Listener::new(move |app| {
+            questions.update(app, |questions, cx| {
+                questions.open_phone_files_page(&program, cx)
+            });
+        });
+        SheetParts {
+            title: PHONE_FILES_TITLE.to_owned(),
+            detail: PHONE_FILES_DETAIL,
+            choices: None,
+            answers: vec![
+                Button::text(NOT_NOW, not_now).into_widget(),
+                Button::text(OPEN_SETTINGS, open_page)
+                    .style(ButtonStyle::Accent)
+                    .into_widget(),
+            ],
+        }
+    }
+
     fn answer(&self, answer: Answer) -> Listener {
         self.reply(Some(Reply::Answer(answer)))
     }
@@ -170,6 +201,10 @@ fn choices(buttons: Vec<WidgetRef>) -> WidgetRef {
 const ALLOW: &str = "Allow";
 const DONT_ALLOW: &str = "Don't allow";
 const CANCEL: &str = "Cancel";
+const NOT_NOW: &str = "Not now";
+const OPEN_SETTINGS: &str = "Open settings";
+const PHONE_FILES_TITLE: &str = "Let WaOS reach this phone's files?";
+const PHONE_FILES_DETAIL: &str = "A program working on This computer sees the files on this phone once you turn on All files access for WaOS in Android's settings. Until then it sees only WaOS's own folder. You can change this in WaOS's settings.";
 const PICKED_DETAIL: &str = "It may play there until it quits.";
 const INSPECTOR_DETAIL: &str = "It sees the sites they reach, the files they open and change, when they use the camera and the microphone, and what they run, and it can start and end them. You can change this in its settings in WaOS's library.";
 const MACHINE_DETAIL: &str = "It acts on the machine you pick as you: it can run any command there and read and change any file you can, until you remove the machine in its settings in WaOS's library.";
