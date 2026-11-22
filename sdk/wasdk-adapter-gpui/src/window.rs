@@ -6,6 +6,10 @@
 //! nothing. When its view arrives ([`WindowShared::attach`]), it makes its renderer on the view's
 //! surface, tells GPUI its real size, and draws from its first frame.
 //!
+//! The view's metrics say where the platform's own UI covers it: the status bar, a notch, the
+//! navigation bar, and the keyboard. The window gives them to GPUI as its insets, its safe area and
+//! its keyboard, which GPUI leaves the app to keep clear of.
+//!
 //! Frames are on demand, wasdk's model and GPUI's: GPUI wakes the window when it is dirty, which
 //! asks the view for a frame, and the frame that arrives runs GPUI's frame callback, which draws.
 //!
@@ -18,15 +22,16 @@ use std::rc::{Rc, Weak};
 use std::sync::Arc;
 
 use gpui::{
-    AnyWindowHandle, Bounds, Capslock, DevicePixels, DispatchEventResult, FrameRequestSource,
-    GpuSpecs, KeyDownEvent, KeyUpEvent, Modifiers, ModifiersChangedEvent, Pixels, PlatformAtlas,
-    PlatformDisplay, PlatformInput, PlatformInputHandler, PlatformWindow, Point, PromptButton,
-    PromptLevel, RequestFrameOptions, Scene, Size, WindowAppearance, WindowBackgroundAppearance,
-    WindowBounds, WindowControlArea, WindowParams, WindowVisibility, px, size,
+    AnyWindowHandle, Bounds, Capslock, DevicePixels, DispatchEventResult, Edges,
+    FrameRequestSource, GpuSpecs, KeyDownEvent, KeyUpEvent, Keystroke, Modifiers,
+    ModifiersChangedEvent, Pixels, PlatformAtlas, PlatformDisplay, PlatformInput,
+    PlatformInputHandler, PlatformWindow, Point, PromptButton, PromptLevel, RequestFrameOptions,
+    Scene, Size, WindowAppearance, WindowBackgroundAppearance, WindowBounds, WindowControlArea,
+    WindowInsets, WindowParams, WindowVisibility, px, size,
 };
 use gpui_wgpu::{WgpuAtlas, WgpuContext, WgpuRenderer, WgpuSurfaceConfig};
 use raw_window_handle::{HandleError, HasDisplayHandle, HasWindowHandle};
-use wasdk::views::{KeyInput, KeyKind, View, ViewEvent, ViewFocusState};
+use wasdk::views::{Insets, KeyInput, KeyKind, Metrics, View, ViewEvent, ViewFocusState};
 use wasdk::windows::Window as SystemWindow;
 use wasdk_wgpu::SharedView;
 
@@ -34,7 +39,7 @@ use crate::display::bounds_of;
 use crate::keys::{HeldModifiers, KeyMeaning};
 use crate::pointer::{Hover, PointerState};
 use crate::slot::Slot;
-use crate::text_input::TextInputBridge;
+use crate::text_input::{TextInputBridge, Typing};
 
 /// The window GPUI holds.
 pub(crate) struct WasdkWindow {
@@ -70,6 +75,8 @@ struct WindowState {
     /// The window's content, in logical pixels, at its place on its screen.
     bounds: Bounds<Pixels>,
     scale: f32,
+    /// Where the platform's UI covers the window, in logical pixels.
+    insets: WindowInsets,
     title: String,
     active: bool,
     hovered: bool,
@@ -88,6 +95,7 @@ struct Callbacks {
     active_status_change: Slot<Box<dyn FnMut(bool)>>,
     hover_status_change: Slot<Box<dyn FnMut(bool)>>,
     resize: Slot<ResizeCallback>,
+    insets_changed: Slot<Box<dyn FnMut(WindowInsets)>>,
     should_close: Slot<Box<dyn FnMut() -> bool>>,
     close: Slot<Box<dyn FnOnce()>>,
     appearance_changed: Slot<Box<dyn FnMut()>>,
@@ -123,6 +131,7 @@ impl WasdkWindow {
             state: RefCell::new(WindowState {
                 bounds: params.bounds,
                 scale,
+                insets: WindowInsets::default(),
                 title,
                 active: false,
                 hovered: false,
@@ -184,11 +193,7 @@ impl WindowShared {
             renderer: RefCell::new(renderer),
             text_input,
         });
-        self.resized(
-            metrics.width,
-            metrics.height,
-            metrics.device_pixel_ratio as f32,
-        );
+        self.resized(&metrics);
         self.request_frame();
         Ok(())
     }
@@ -197,19 +202,21 @@ impl WindowShared {
     pub(crate) fn view_event(&self, event: ViewEvent) {
         match event {
             ViewEvent::Frame(_) => self.frame_arrived(),
-            ViewEvent::Metrics(metrics) => self.resized(
-                metrics.width,
-                metrics.height,
-                metrics.device_pixel_ratio as f32,
-            ),
+            ViewEvent::Metrics(metrics) => self.resized(&metrics),
             ViewEvent::Pointer(pointer) => self.pointer_event(&pointer),
             ViewEvent::Key(key) => self.key_event(key),
             ViewEvent::Focus(focus) => self.active_changed(focus.state == ViewFocusState::Focused),
-            ViewEvent::TextInputEditingValue(value) => self.with_text_input(|bridge, handler| {
-                if let Some(handler) = handler {
-                    bridge.apply(value, handler)
+            ViewEvent::TextInputEditingValue(value) => {
+                let mut typing = Vec::new();
+                self.with_text_input(|bridge, handler| {
+                    if let Some(handler) = handler {
+                        typing = bridge.apply(value, handler);
+                    }
+                });
+                for step in typing {
+                    self.type_step(step);
                 }
-            }),
+            }
             ViewEvent::TextInputClosed => {
                 self.with_text_input(|bridge, handler| bridge.closed(handler))
             }
@@ -258,13 +265,21 @@ impl WindowShared {
         self.sync_text_input();
     }
 
-    fn resized(&self, width: u32, height: u32, scale: f32) {
+    /// The view's size, scale and insets are `metrics`: GPUI hears of the size and scale, and of
+    /// the insets where they changed.
+    fn resized(&self, metrics: &Metrics) {
+        let (width, height) = (metrics.width, metrics.height);
+        let scale = metrics.device_pixel_ratio as f32;
         let logical = size(px(width as f32 / scale), px(height as f32 / scale));
-        {
+        let insets = insets_of(metrics, scale);
+        let insets_changed = {
             let mut state = self.state.borrow_mut();
             state.bounds.size = logical;
             state.scale = scale;
-        }
+            let changed = state.insets != insets;
+            state.insets = insets.clone();
+            changed
+        };
         if let Some(attached) = self.view.borrow().as_ref() {
             attached.renderer.borrow_mut().update_drawable_size(size(
                 DevicePixels(width as i32),
@@ -275,6 +290,11 @@ impl WindowShared {
         self.callbacks
             .resize
             .call(|callback| callback(logical, scale));
+        if insets_changed {
+            self.callbacks
+                .insets_changed
+                .call(|callback| callback(insets));
+        }
         self.request_frame();
     }
 
@@ -335,6 +355,37 @@ impl WindowShared {
             KeyMeaning::Unnamed => false,
         };
         reply.handled(handled);
+    }
+
+    /// Does `step` of an edit of an input with no document: types or shows its text in the
+    /// focused input, or presses the key it means, as a keyboard's key reaches GPUI.
+    fn type_step(&self, step: Typing) {
+        match step {
+            Typing::Text(text) => {
+                self.type_text(&text);
+            }
+            Typing::Preview(text) => {
+                self.with_input_handler(|handler| {
+                    handler.replace_and_mark_text_in_range(None, &text, None)
+                });
+            }
+            Typing::EndPreview => {
+                self.with_input_handler(|handler| handler.unmark_text());
+            }
+            Typing::Key(key) => {
+                let keystroke = Keystroke {
+                    modifiers: Modifiers::default(),
+                    key: key.to_owned(),
+                    key_char: None,
+                };
+                self.dispatch(PlatformInput::KeyDown(KeyDownEvent {
+                    keystroke: keystroke.clone(),
+                    is_held: false,
+                    prefer_character_input: false,
+                }));
+                self.dispatch(PlatformInput::KeyUp(KeyUpEvent { keystroke }));
+            }
+        }
     }
 
     /// Types `text` into the focused input; whether there was one.
@@ -631,6 +682,14 @@ impl PlatformWindow for WasdkWindow {
         self.shared.callbacks.resize.set(callback);
     }
 
+    fn insets(&self) -> WindowInsets {
+        self.shared.state.borrow().insets.clone()
+    }
+
+    fn on_insets_changed(&self, callback: Box<dyn FnMut(WindowInsets)>) {
+        self.shared.callbacks.insets_changed.set(callback);
+    }
+
     /// WaOS reports no move, so GPUI hears of none.
     fn on_moved(&self, _callback: Box<dyn FnMut()>) {}
 
@@ -686,5 +745,26 @@ impl PlatformWindow for WasdkWindow {
         {
             window.drag();
         }
+    }
+}
+
+/// Where the platform's UI covers a view of `metrics`, at `scale` physical pixels to a logical one:
+/// its safe area what covers it now, the status bar, a notch, the navigation bar (Flutter's
+/// `padding`), and its keyboard what covers it completely (`viewInsets`).
+fn insets_of(metrics: &Metrics, scale: f32) -> WindowInsets {
+    WindowInsets {
+        safe_area: edges_of(&metrics.padding, scale),
+        ime: edges_of(&metrics.view_insets, scale),
+        ..WindowInsets::default()
+    }
+}
+
+fn edges_of(insets: &Insets, scale: f32) -> Edges<Pixels> {
+    let logical = |physical: f64| px(physical as f32 / scale);
+    Edges {
+        top: logical(insets.top),
+        right: logical(insets.right),
+        bottom: logical(insets.bottom),
+        left: logical(insets.left),
     }
 }

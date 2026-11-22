@@ -1,5 +1,6 @@
 //! A view's pointer events, in Flutter's `PointerData` vocabulary, as GPUI's mouse, scroll and
-//! pinch input.
+//! pinch input; a finger's or a stylus's as GPUI's touches, which GPUI's own recognizer makes taps,
+//! long presses and scrolls of, with their momentum, as `gpui_ios` gives them.
 //!
 //! wasdk's events carry the buttons held, not the one that changed, no modifiers and no click
 //! count, in physical pixels. So this keeps the buttons seen last, to name the one pressed or
@@ -9,9 +10,11 @@
 use gpui::{
     Modifiers, MouseButton, MouseDownEvent, MouseExitEvent, MouseMoveEvent, MouseUpEvent,
     NavigationDirection, PinchEvent, Pixels, PlatformInput, Point, ScrollDelta, ScrollEvent,
-    ScrollSource, TouchPhase, point, px,
+    ScrollSource, TouchEvent, TouchId, TouchPhase, point, px,
 };
-use wasdk::views::{PointerButtons, PointerChange, PointerEvent, PointerSignalKind};
+use wasdk::views::{
+    PointerButtons, PointerChange, PointerDeviceKind, PointerEvent, PointerSignalKind,
+};
 
 /// Two presses this close in time and place are one click more: `gpui_web`'s numbers, since the
 /// platform does not say the system's double-click interval.
@@ -62,6 +65,10 @@ impl PointerState {
     ) -> (Option<PlatformInput>, Hover) {
         let position = point(px(event.x as f32 / scale), px(event.y as f32 / scale));
         self.position = position;
+        if touches(event.kind) {
+            let input = touch(event, position).map(PlatformInput::Touch);
+            return (input, Hover::Unchanged);
+        }
         if event.signal == PointerSignalKind::Scroll {
             let delta = ScrollDelta::Pixels(point(
                 px(-event.scroll_delta_x as f32 / scale),
@@ -168,6 +175,41 @@ impl PointerState {
         self.last_click = Some((time, position));
         self.click_count
     }
+}
+
+/// Whether a pointer of `kind` touches the screen: a finger, or a stylus, which iOS gives GPUI as a
+/// touch too.
+fn touches(kind: PointerDeviceKind) -> bool {
+    matches!(
+        kind,
+        PointerDeviceKind::Touch | PointerDeviceKind::Stylus | PointerDeviceKind::InvertedStylus
+    )
+}
+
+/// A touch's step, at `position`: its start, a move, its end, or its cancel, the system having
+/// taken it; none as it arrives on the view or leaves it, which its start and end already say.
+fn touch(event: &PointerEvent, position: Point<Pixels>) -> Option<TouchEvent> {
+    let phase = match event.change {
+        PointerChange::Down => TouchPhase::Started,
+        PointerChange::Move => TouchPhase::Moved,
+        PointerChange::Up => TouchPhase::Ended,
+        PointerChange::Cancel => TouchPhase::Cancelled,
+        _ => return None,
+    };
+    Some(TouchEvent {
+        id: TouchId(event.device as u64),
+        phase,
+        position,
+        predicted_position: None,
+        force: force_of(event),
+    })
+}
+
+/// The touch's pressure from 0 to 1, where the device measures it: one that does not gives the
+/// same bound for both ends.
+fn force_of(event: &PointerEvent) -> Option<f32> {
+    let range = event.pressure_max - event.pressure_min;
+    (range > 0.0).then(|| ((event.pressure - event.pressure_min) / range).clamp(0.0, 1.0) as f32)
 }
 
 fn scroll(

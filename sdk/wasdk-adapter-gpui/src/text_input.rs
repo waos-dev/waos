@@ -7,6 +7,11 @@
 //! that comes back into GPUI's edits, from its difference with the value pushed. Offsets are UTF-16
 //! on both sides.
 //!
+//! An input with no document to push, as a terminal has none (its `text_for_range` answers
+//! none), gets a buffer of its own instead, as terminals keep a hidden field (Termux, SwiftTerm,
+//! xterm.js): the input method composes in it, its finished text goes to the input as it arrives,
+//! what it deletes of that text is Backspace, and a new line is Enter ([`Scratch`]).
+//!
 //! The invariant: an edit is read against the value last pushed or received, never the document
 //! as it is now, since the input method edited that copy; so every value received becomes the
 //! copy before the next push.
@@ -23,6 +28,11 @@ use wasdk::views::{
 /// How many UTF-16 units of the document either side of the selection the input method sees:
 /// the document's length is not known, as Android's `getTextBeforeCursor` does not know it.
 const CONTEXT_UNITS: usize = 1000;
+
+/// How much finished text a buffer of an input with no document keeps before it is emptied, at a
+/// moment nothing is composed: what the input method may still edit, a Korean syllable it
+/// recomposes, or a word it deletes into.
+const SCRATCH_UNITS: usize = 256;
 
 /// The copy of the document the input method edits: a window of it, and where it starts.
 #[derive(Clone)]
@@ -53,10 +63,93 @@ impl Copy {
     }
 }
 
+/// What an edit of the buffer of an input with no document does to the input, in order.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum Typing {
+    /// Finished text, typed into the input.
+    Text(String),
+    /// What the input method is composing, shown in the input and not yet typed.
+    Preview(String),
+    /// The composition ended with nothing left to show.
+    EndPreview,
+    /// A key the edit means: Backspace for finished text it deleted, Enter for a new line.
+    Key(&'static str),
+}
+
+/// The buffer the input method edits for an input with no document: the finished text the input
+/// already took, and then what is being composed.
+struct Scratch {
+    /// The buffer as the input method last edited it, or as it was pushed.
+    value: TextEditingValue,
+    /// How much of the buffer's start, in UTF-16 units, the input took.
+    taken: usize,
+}
+
+impl Scratch {
+    fn empty() -> Scratch {
+        Scratch {
+            value: TextEditingValue {
+                text: String::new(),
+                selection: Some(caret_at(0)),
+                composing: None,
+            },
+            taken: 0,
+        }
+    }
+
+    /// Whether the buffer is to be emptied: it holds more finished text than it keeps, and
+    /// nothing is composed.
+    fn owes_emptying(&self) -> bool {
+        self.taken > SCRATCH_UNITS && composing_of(&self.value).is_none()
+    }
+
+    /// What `value`, the input method's edit of the buffer, does to the input: finished text
+    /// deleted, as Backspace for each character; finished text added, typed, each new line as
+    /// Enter; and what is composed now, shown.
+    fn edit(&mut self, value: TextEditingValue) -> Vec<Typing> {
+        let old = utf16(&self.value.text);
+        let new = utf16(&value.text);
+        let composing = composing_of(&value);
+        let finished = composing.as_ref().map_or(new.len(), |range| range.start);
+        let taken = self.taken.min(old.len());
+        let kept = old[..taken]
+            .iter()
+            .zip(&new[..finished])
+            .take_while(|(old, new)| old == new)
+            .count();
+        let mut typing = Vec::new();
+        let deleted = String::from_utf16_lossy(&old[kept..taken]).chars().count();
+        typing.extend(std::iter::repeat_n(Typing::Key(BACKSPACE), deleted));
+        let typed = String::from_utf16_lossy(&new[kept..finished]);
+        for (line, text) in typed.split('\n').enumerate() {
+            if line > 0 {
+                typing.push(Typing::Key(ENTER));
+            }
+            if !text.is_empty() {
+                typing.push(Typing::Text(text.to_owned()));
+            }
+        }
+        match composing {
+            Some(range) => typing.push(Typing::Preview(String::from_utf16_lossy(&new[range]))),
+            None if composing_of(&self.value).is_some() => typing.push(Typing::EndPreview),
+            None => {}
+        }
+        self.value = value;
+        self.taken = finished;
+        typing
+    }
+}
+
+/// GPUI's names of the keys an edit means.
+const BACKSPACE: &str = "backspace";
+const ENTER: &str = "enter";
+
 pub(crate) struct TextInputBridge {
     platform: TextInput,
     started: bool,
     copy: Option<Copy>,
+    /// The buffer of an input with no document, while one has the focus.
+    scratch: Option<Scratch>,
     /// The caret's rectangle pushed last, as x, y, width and height.
     caret: Option<(f64, f64, f64, f64)>,
 }
@@ -67,6 +160,7 @@ impl TextInputBridge {
             platform,
             started: false,
             copy: None,
+            scratch: None,
             caret: None,
         }
     }
@@ -87,6 +181,13 @@ impl TextInputBridge {
             self.platform.show();
             self.started = true;
         }
+        if !has_document(handler) {
+            self.copy = None;
+            self.sync_scratch();
+            self.sync_caret(handler, 0, scale);
+            return;
+        }
+        self.scratch = None;
         let Some(copy) = copy_of(handler) else {
             return;
         };
@@ -98,7 +199,34 @@ impl TextInputBridge {
             self.platform.set_editing_state(&copy.value);
             self.copy = Some(copy.clone());
         }
-        if let Some(caret) = caret_rect(handler, &copy, scale) {
+        let caret = copy
+            .value
+            .selection
+            .as_ref()
+            .map(|selection| copy.start + selection.extent_offset as usize);
+        if let Some(caret) = caret {
+            self.sync_caret(handler, caret, scale);
+        }
+    }
+
+    /// Pushes an empty buffer to the input method for an input with no document, where none was
+    /// pushed yet or the one it edits is to be emptied.
+    fn sync_scratch(&mut self) {
+        if self
+            .scratch
+            .as_ref()
+            .is_some_and(|scratch| !scratch.owes_emptying())
+        {
+            return;
+        }
+        let scratch = Scratch::empty();
+        self.platform.set_editing_state(&scratch.value);
+        self.scratch = Some(scratch);
+    }
+
+    /// Tells the input method where the caret is, at `caret` in the document, for its candidates.
+    fn sync_caret(&mut self, handler: &mut PlatformInputHandler, caret: usize, scale: f32) {
+        if let Some(caret) = caret_rect(handler, caret, scale) {
             let place = (caret.x, caret.y, caret.width, caret.height);
             if self.caret != Some(place) {
                 self.platform.set_caret_rect(caret);
@@ -107,10 +235,18 @@ impl TextInputBridge {
         }
     }
 
-    /// Applies the input method's `value` to `handler`, as GPUI's edits.
-    pub(crate) fn apply(&mut self, value: TextEditingValue, handler: &mut PlatformInputHandler) {
+    /// Applies the input method's `value` to `handler`, as GPUI's edits; for an input with no
+    /// document, answers what the edit does to it instead, for the window to do in order.
+    pub(crate) fn apply(
+        &mut self,
+        value: TextEditingValue,
+        handler: &mut PlatformInputHandler,
+    ) -> Vec<Typing> {
+        if let Some(scratch) = &mut self.scratch {
+            return scratch.edit(value);
+        }
         let Some(old) = self.copy.take() else {
-            return;
+            return Vec::new();
         };
         let start = old.start;
         let old_text = utf16(&old.value.text);
@@ -152,6 +288,7 @@ impl TextInputBridge {
             (None, None) => {}
         }
         self.copy = Some(Copy { start, value });
+        Vec::new()
     }
 
     /// The input method ended editing: what it composed stays as it is.
@@ -161,6 +298,7 @@ impl TextInputBridge {
         }
         self.started = false;
         self.copy = None;
+        self.scratch = None;
     }
 
     fn stop(&mut self) {
@@ -169,6 +307,7 @@ impl TextInputBridge {
             self.platform.hide();
             self.started = false;
             self.copy = None;
+            self.scratch = None;
             self.caret = None;
         }
     }
@@ -218,10 +357,32 @@ fn copy_of(handler: &mut PlatformInputHandler) -> Option<Copy> {
     })
 }
 
-/// Where the caret is, in the view's physical pixels, for the input method's candidates.
-fn caret_rect(handler: &mut PlatformInputHandler, copy: &Copy, scale: f32) -> Option<PixelRect> {
-    let selection = copy.value.selection.as_ref()?;
-    let caret = copy.start + selection.extent_offset as usize;
+/// Whether `handler`'s input has a document the input method can edit a copy of: a terminal has
+/// none.
+fn has_document(handler: &mut PlatformInputHandler) -> bool {
+    handler.text_for_range(0..0, &mut None).is_some()
+}
+
+/// The range `value` composes, where it composes anything, within its text.
+fn composing_of(value: &TextEditingValue) -> Option<Range<usize>> {
+    let length = value.text.encode_utf16().count();
+    let range = value.composing.as_ref()?;
+    let (start, end) = (range.start as usize, range.end as usize);
+    (start < end && end <= length).then_some(start..end)
+}
+
+fn caret_at(offset: u32) -> TextSelection {
+    TextSelection {
+        base_offset: offset,
+        extent_offset: offset,
+        affinity: TextAffinity::Downstream,
+        is_directional: false,
+    }
+}
+
+/// Where the caret is, at `caret` in the document, in the view's physical pixels, for the input
+/// method's candidates.
+fn caret_rect(handler: &mut PlatformInputHandler, caret: usize, scale: f32) -> Option<PixelRect> {
     let bounds: Bounds<Pixels> = handler.bounds_for_range(caret..caret)?;
     Some(PixelRect {
         x: f64::from(f32::from(bounds.origin.x) * scale),
@@ -253,4 +414,94 @@ fn changed_span(old: &[u16], new: &[u16], caret: usize) -> (usize, usize, usize)
         .take_while(|(old, new)| old == new)
         .count();
     (prefix, old.len() - suffix, new.len() - suffix)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The input method's buffer holding `text`, composing `composing` of it.
+    fn buffer(text: &str, composing: Option<Range<u32>>) -> TextEditingValue {
+        TextEditingValue {
+            selection: Some(caret_at(text.encode_utf16().count() as u32)),
+            composing: composing.map(|range| TextRange {
+                start: range.start,
+                end: range.end,
+            }),
+            text: text.to_owned(),
+        }
+    }
+
+    fn text(text: &str) -> Typing {
+        Typing::Text(text.to_owned())
+    }
+
+    #[test]
+    fn letters_typed_are_typed_and_a_new_line_is_enter() {
+        let mut scratch = Scratch::empty();
+        assert_eq!(scratch.edit(buffer("l", None)), [text("l")]);
+        assert_eq!(scratch.edit(buffer("ls", None)), [text("s")]);
+        assert_eq!(
+            scratch.edit(buffer("ls\npwd", None)),
+            [Typing::Key(ENTER), text("pwd")]
+        );
+    }
+
+    #[test]
+    fn a_composition_is_shown_then_typed_once_finished() {
+        let mut scratch = Scratch::empty();
+        assert_eq!(
+            scratch.edit(buffer("ni", Some(0..2))),
+            [Typing::Preview("ni".to_owned())]
+        );
+        assert_eq!(
+            scratch.edit(buffer("nihao", Some(0..5))),
+            [Typing::Preview("nihao".to_owned())]
+        );
+        assert_eq!(
+            scratch.edit(buffer("你好", None)),
+            [text("你好"), Typing::EndPreview]
+        );
+    }
+
+    #[test]
+    fn part_of_a_composition_finished_is_typed_while_the_rest_is_shown() {
+        let mut scratch = Scratch::empty();
+        scratch.edit(buffer("nihao", Some(0..5)));
+        assert_eq!(
+            scratch.edit(buffer("你hao", Some(1..4))),
+            [text("你"), Typing::Preview("hao".to_owned())]
+        );
+    }
+
+    #[test]
+    fn finished_text_deleted_is_backspace_for_each_character() {
+        let mut scratch = Scratch::empty();
+        scratch.edit(buffer("cd 你好", None));
+        assert_eq!(
+            scratch.edit(buffer("cd ", None)),
+            [Typing::Key(BACKSPACE), Typing::Key(BACKSPACE)]
+        );
+    }
+
+    #[test]
+    fn a_korean_syllable_recomposed_is_backspace_then_the_syllable() {
+        let mut scratch = Scratch::empty();
+        scratch.edit(buffer("하", None));
+        assert_eq!(
+            scratch.edit(buffer("한", None)),
+            [Typing::Key(BACKSPACE), text("한")]
+        );
+    }
+
+    #[test]
+    fn the_buffer_is_emptied_once_long_and_nothing_is_composed() {
+        let mut scratch = Scratch::empty();
+        scratch.edit(buffer(&"x".repeat(SCRATCH_UNITS), None));
+        assert!(!scratch.owes_emptying());
+        scratch.edit(buffer(&"x".repeat(SCRATCH_UNITS + 1), Some(0..1)));
+        assert!(!scratch.owes_emptying(), "not while composing");
+        scratch.edit(buffer(&"x".repeat(SCRATCH_UNITS + 1), None));
+        assert!(scratch.owes_emptying());
+    }
 }
