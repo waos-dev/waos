@@ -1,4 +1,4 @@
-//! `builtin-apps/video-player`, an Waft app over `wasdk-adapter-waft`, under the test shell, given
+//! `builtin-apps/video-player`, a Waft app over `wasdk-adapter-waft`, under the test shell, given
 //! this computer's fonts and folders of each test's own: it asks for its window, titled for the
 //! app, keeps it no smaller than 480 by 270, sets its menu bar, draws, and quits as its window
 //! closes. A video picked through File's Open… plays on a layer the app made, the window titled
@@ -10,67 +10,62 @@
 //! drawn, read with its length from the system's reading of media, and a bar along it for how far
 //! it was watched; a click on it plays it from where it was left, and Esc goes back to the
 //! library. A thumbnail is kept in `/cache`, encoded by the system's hardware codecs from the
-//! picture's own hardware buffer, and once drawn the window asks for no more refreshes; the next
-//! run draws it decoded by them into a hardware buffer, the video not read at all. It is a debug build of Waft, slow to start, and draws, so it runs where the engine
-//! makes hardware buffers, on Apple's systems.
+//! picture's own hardware buffer, and the next run draws it decoded by them into a hardware buffer,
+//! the video not read at all. It is a debug build of Waft, slow to start, and draws, so it runs
+//! where the engine makes hardware buffers, on Apple's systems.
 
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::sync::mpsc::Receiver;
 use std::time::Duration;
 
 use tempfile::TempDir;
 use url::Url;
-use waos::bindings::wasdk::media::media_players::{MediaMetadata, PlayerError, PlayerErrorKind};
 use waos::bindings::wasdk::media::media_players::{
-    MediaTrack, MediaTrackKind, PauseReason, PlayerActivity, PlayerState, PlayerStatus, TimeRange,
+    MediaMetadata, MediaTrack, MediaTrackKind, PauseReason, PlayerActivity, PlayerError,
+    PlayerErrorKind, PlayerState, PlayerStatus, TimeRange,
 };
+use waos::bindings::wasdk::platform::hardware_buffers::PixelBuffer;
 use waos::bindings::wasdk::platform::menus::{MenuEntry, MenuEntryKind, Submenu};
-use waos::bindings::wasdk::platform::views::{
-    KeyDevice, KeyEvent, KeyKind, PointerButtons, PointerChange,
-};
 use waos::bindings::wasdk::platform::windows::Size;
 use waos::{
-    HeldModifiers, ProgramEnd, ProgramEnvironment, ProgramOutput, ProgramView, RunningProgram, WaOS,
+    Keyboard, ProgramEnd, ProgramEnvironment, ProgramOutput, ProgramView, RunningProgram, WaOS,
 };
 use waos_capabilities::ProgramFolders;
+use waos_headless::HeadlessView;
 
-use crate::shell::hardware_buffer::{Picture, picture};
-use crate::shell::image_codecs::{Asked, ImageAnswers, ImageFacts, OpenedFrom};
-use crate::shell::media_assets::{AssetAnswers, FrameAsked};
-use crate::shell::media_players::{Destination, OpenedPlayer, PlayerCall};
-use crate::shell::menus::TestMenus;
-use crate::shell::{self, Lines, RecordingView, TestShell, WITHIN, mouse, resolved, wait_until};
+use crate::test_shell::image_codecs::{Asked, ImageAnswers, ImageFacts, OpenedFrom};
+use crate::test_shell::media_assets::{AssetAnswers, FrameAsked};
+use crate::test_shell::media_players::{Destination, OpenedPlayer, PlayerCall};
+use crate::test_shell::menus::TestMenus;
+use crate::test_shell::{RecordedOutput, TestShell, config, pixel_of, wait_until, within};
 
 /// How long the media the tests play is.
 const MINUTE: Duration = Duration::from_secs(60);
-
-/// Space, the right arrow and Esc, by their USB HID usages and Flutter's logical keys.
-const SPACE: (u64, u64) = (0x0007_002c, 0x20);
-const ARROW_RIGHT: (u64, u64) = (0x0007_004f, 0x0001_0000_0303);
-const ESCAPE: (u64, u64) = (0x0007_0029, 0x0001_0000_001b);
 
 /// The colour of the thumbnails the shell's reading of media answers: red, as BGRA.
 const THUMBNAIL_RED: [u8; 4] = [0, 0, 255, 255];
 
 #[test]
 fn it_shows_its_window_under_its_menu_bar_and_quits_as_the_window_closes() {
-    let (engine, shell, arrivals) = shell::engine();
-    let run = Run::start(&engine, &arrivals, "");
-    assert_eq!(shell.requested_titles(), ["Video Player"]);
-    let shell_view = shell.placed_views().pop().expect("the shell placed a view");
-    shell::wait_for_presents(&run.running, &shell_view, 1, || run.lines.all());
-    let window = shell
-        .placed_windows()
-        .pop()
-        .expect("the shell placed a window");
+    let shell = TestShell::new();
+    let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
+    let run = Run::start(&engine, &shell, "");
+    let window = run.shown.window().expect("the shell placed a window");
+    assert_eq!(window.config().title, "Video Player");
+    assert!(
+        within(run.window.picture_after_events()),
+        "the video player draws its window"
+    );
     wait_until("its window keeps a smallest size", || {
-        window.min_size().is_some()
+        window.size_limits().0.is_some()
     });
-    assert_eq!(window.min_size(), Some((480.0, 270.0)));
+    assert_eq!(
+        window.size_limits().0.map(|size| (size.width, size.height)),
+        Some((480.0, 270.0))
+    );
 
-    let bar = wait_for_bar(shell.menus(), |bar| has(bar, "File"));
+    let bar = wait_for_bar(&shell.menus, |bar| has(bar, "File"));
     let titles: Vec<_> = bar
         .iter()
         .filter(|entry| entry.parent.is_none())
@@ -85,17 +80,18 @@ fn it_shows_its_window_under_its_menu_bar_and_quits_as_the_window_closes() {
 
 #[test]
 fn a_video_picked_through_open_plays_and_its_keys_and_menus_reach_the_player() {
-    let (engine, shell, arrivals) = shell::engine();
+    let shell = TestShell::new();
+    let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
     let elsewhere = TempDir::new().unwrap();
     let video = fs::canonicalize(elsewhere.path()).unwrap().join("clip.mp4");
     fs::write(&video, "a clip").unwrap();
-    shell.file_dialogs().answer_next(vec![video.clone()]);
-    let run = Run::start(&engine, &arrivals, "");
-    let bar = wait_for_bar(shell.menus(), |bar| has(bar, "File"));
+    shell.file_dialogs.answer_next(vec![video.clone()]);
+    let run = Run::start(&engine, &shell, "");
+    let bar = wait_for_bar(&shell.menus, |bar| has(bar, "File"));
 
     run.running.menu_chosen(id_of(&bar, "Open…"));
     let player = opened(&shell, 0);
-    let asked = shell.file_dialogs().asked();
+    let asked = shell.file_dialogs.asked();
     assert_eq!(asked[0].kind, "open-file");
     assert_eq!(
         asked[0].parent,
@@ -113,21 +109,18 @@ fn a_video_picked_through_open_plays_and_its_keys_and_menus_reach_the_player() {
                 )
             })
     });
-    let window = shell.placed_windows().pop().unwrap();
+    let window = run.shown.window().expect("in a window");
     wait_until("the window is titled for the video", || {
-        window.titles().last().map(String::as_str) == Some("clip.mp4")
+        window.title() == "clip.mp4"
     });
 
     player.report_position(Duration::from_secs(3));
     player.report(ready(PlayerActivity::Paused(Some(PauseReason::Requested))));
-    let bar = wait_for_bar(shell.menus(), |bar| has(bar, "English"));
+    let bar = wait_for_bar(&shell.menus, |bar| has(bar, "English"));
 
-    assert!(
-        press(&run.window, SPACE, Some(" ")),
-        "the app handles Space"
-    );
+    Keyboard::press(&run.window, "space").unwrap();
     wait_for_call(&player, &PlayerCall::Play, 2);
-    assert!(press(&run.window, ARROW_RIGHT, None), "the app handles →");
+    Keyboard::press(&run.window, "right").unwrap();
     wait_for_call(
         &player,
         &PlayerCall::Seek {
@@ -160,10 +153,11 @@ fn a_video_picked_through_open_plays_and_its_keys_and_menus_reach_the_player() {
 
 #[test]
 fn a_recent_video_opens_where_it_was_left_and_is_kept_where_it_stands_as_the_app_ends() {
-    let (engine, shell, arrivals) = shell::engine();
-    let run = Run::start(&engine, &arrivals, "4000\tfile:///data/clip.mp4\n");
+    let shell = TestShell::new();
+    let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
+    let run = Run::start(&engine, &shell, "4000\tfile:///data/clip.mp4\n");
     fs::write(run.data().join("clip.mp4"), "a clip").unwrap();
-    let bar = wait_for_bar(shell.menus(), |bar| has(bar, "clip.mp4"));
+    let bar = wait_for_bar(&shell.menus, |bar| has(bar, "clip.mp4"));
 
     run.running.menu_chosen(id_of(&bar, "clip.mp4"));
     let player = opened(&shell, 0);
@@ -196,24 +190,25 @@ fn a_recent_video_opens_where_it_was_left_and_is_kept_where_it_stands_as_the_app
 
 #[test]
 fn a_folder_added_lists_its_video_which_a_click_plays_from_where_it_was_left_and_esc_leaves() {
-    let (engine, shell, arrivals) = shell::engine();
-    shell.media_assets().answer_with(minute_long_red_clip());
+    let shell = TestShell::new();
+    let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
+    shell.media_assets.answer_with(minute_long_red_clip());
     let elsewhere = TempDir::new().unwrap();
     let films = fs::canonicalize(elsewhere.path()).unwrap().join("Films");
     fs::create_dir_all(&films).unwrap();
     fs::write(films.join("clip.mp4"), "a clip").unwrap();
     fs::write(films.join("notes.txt"), "not a video").unwrap();
     let clip = Url::from_file_path(films.join("clip.mp4")).unwrap();
-    shell.file_dialogs().answer_next(vec![films.clone()]);
-    let run = Run::start(&engine, &arrivals, &format!("30000\t{clip}\n"));
-    let bar = wait_for_bar(shell.menus(), |bar| has(bar, "Add Folder…"));
+    shell.file_dialogs.answer_next(vec![films.clone()]);
+    let run = Run::start(&engine, &shell, &format!("30000\t{clip}\n"));
+    let bar = wait_for_bar(&shell.menus, |bar| has(bar, "Add Folder…"));
 
     run.running.menu_chosen(id_of(&bar, "Add Folder…"));
     wait_until("the library reads the folder's video", || {
-        shell.media_assets().opened().len() == 1
+        shell.media_assets.opened().len() == 1
     });
-    assert_eq!(shell.file_dialogs().asked()[0].kind, "open-folder");
-    let asset = &shell.media_assets().opened()[0];
+    assert_eq!(shell.file_dialogs.asked()[0].kind, "open-folder");
+    let asset = &shell.media_assets.opened()[0];
     assert_eq!(
         asset.url,
         clip.as_str(),
@@ -232,12 +227,11 @@ fn a_folder_added_lists_its_video_which_a_click_plays_from_where_it_was_left_and
         }],
         "a tenth of the way in, at the nearest keyframe, small"
     );
-    let window = shell.placed_views().pop().expect("the shell placed a view");
-    let (shown, thumbnail) = wait_for_thumbnail(&window);
+    let (shown, thumbnail) = wait_for_thumbnail(&run.window);
     let watched_at = |fraction: f64| {
         let x = thumbnail.left + ((thumbnail.right - thumbnail.left) as f64 * fraction) as usize;
         // Just beneath the red: the bar takes the thumbnail's bottom rows.
-        shown.at(x, thumbnail.bottom + 2)
+        pixel_of(&shown, x, thumbnail.bottom + 2)
     };
     assert!(
         is_white(watched_at(0.25)),
@@ -250,7 +244,7 @@ fn a_folder_added_lists_its_video_which_a_click_plays_from_where_it_was_left_and
         watched_at(0.75)
     );
 
-    click(&run.window, thumbnail.centre());
+    run.running.mouse().tap(&run.window, thumbnail.centre());
     let player = opened(&shell, 0);
     assert_eq!(player.url, clip.as_str());
     player.report(ready(PlayerActivity::Playing));
@@ -264,18 +258,19 @@ fn a_folder_added_lists_its_video_which_a_click_plays_from_where_it_was_left_and
         1,
     );
 
-    assert!(press(&run.window, ESCAPE, None), "the app handles Esc");
+    Keyboard::press(&run.window, "escape").unwrap();
     wait_until("Esc goes back to the library", || player.is_dropped());
-    wait_for_thumbnail(&window);
+    wait_for_thumbnail(&run.window);
     run.close();
 }
 
 #[test]
 fn a_thumbnail_is_kept_encoded_from_its_frame_and_the_next_run_draws_it_decoded_with_no_video_read()
 {
-    let (engine, shell, arrivals) = shell::engine();
-    shell.media_assets().answer_with(minute_long_red_clip());
-    shell.image_codecs().answer_with(ImageAnswers {
+    let shell = TestShell::new();
+    let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
+    shell.media_assets.answer_with(minute_long_red_clip());
+    shell.image_codecs.answer_with(ImageAnswers {
         decoded_formats: vec!["image/png".to_owned()],
         encoded_formats: vec!["image/png".to_owned()],
         opened: Ok(ImageFacts::still("image/png", 480.0, 270.0)),
@@ -288,16 +283,15 @@ fn a_thumbnail_is_kept_encoded_from_its_frame_and_the_next_run_draws_it_decoded_
     fs::create_dir_all(folders.path().join("cache")).unwrap();
     fs::write(folders.path().join("data/Films/clip.mp4"), "a clip").unwrap();
     fs::write(folders.path().join("data/folders"), "/data/Films\n").unwrap();
-    let first = Run::in_folders(&engine, &arrivals, folders);
-    let window = shell.placed_views().pop().expect("the shell placed a view");
-    wait_for_thumbnail(&window);
+    let first = Run::in_folders(&engine, &shell, 0, folders);
+    wait_for_thumbnail(&first.window);
     wait_until("the thumbnail is kept", || {
         first.kept_thumbnails().len() == 1
     });
     let kept = first.kept_thumbnails()[0].clone();
     assert_eq!(fs::read(&kept).unwrap(), b"a kept thumbnail");
     assert!(
-        shell.image_codecs().asked().contains(&Asked::Encode {
+        shell.image_codecs.asked().contains(&Asked::Encode {
             width: 64,
             height: 48,
             format: "image/png".to_owned(),
@@ -305,17 +299,15 @@ fn a_thumbnail_is_kept_encoded_from_its_frame_and_the_next_run_draws_it_decoded_
             hardware_first_pixel: Some(THUMBNAIL_RED),
         }),
         "the frame's own hardware buffer encoded: {:?}",
-        shell.image_codecs().asked()
+        shell.image_codecs.asked()
     );
-    refreshes_come_to_an_end(&shell);
     first.close();
 
-    let opened_before = shell.media_assets().opened().len();
-    let asked_before = shell.image_codecs().asked().len();
-    let again = Run::in_folders(&engine, &arrivals, first.folders);
-    let window = shell.placed_views().pop().expect("the shell placed a view");
-    wait_for_thumbnail(&window);
-    let asked = shell.image_codecs().asked()[asked_before..].to_vec();
+    let opened_before = shell.media_assets.opened().len();
+    let asked_before = shell.image_codecs.asked().len();
+    let again = Run::in_folders(&engine, &shell, 1, first.folders);
+    wait_for_thumbnail(&again.window);
+    let asked = shell.image_codecs.asked()[asked_before..].to_vec();
     let machine_path = fs::canonicalize(&kept).unwrap();
     assert_eq!(
         asked[..2],
@@ -333,22 +325,11 @@ fn a_thumbnail_is_kept_encoded_from_its_frame_and_the_next_run_draws_it_decoded_
         "decoded into a hardware buffer from where it was kept"
     );
     assert_eq!(
-        shell.media_assets().opened().len(),
+        shell.media_assets.opened().len(),
         opened_before,
         "its length and its thumbnail kept, the video is not read"
     );
     again.close();
-}
-
-/// Waits until the engine asks for no more of the screen's refreshes for half a second: a window
-/// whose drawing has settled, as one showing a still picture does, and not one showing a video's
-/// frames, which asks for each refresh.
-fn refreshes_come_to_an_end(shell: &TestShell) {
-    let asked = std::cell::Cell::new(shell.refreshes_asked());
-    wait_until("the refreshes come to an end", || {
-        std::thread::sleep(Duration::from_millis(500));
-        asked.replace(shell.refreshes_asked()) == asked.get()
-    });
 }
 
 /// What the shell's reading of media answers of every video: a minute long, with no title, and
@@ -391,13 +372,12 @@ impl Region {
 
 /// Waits until `window` shows a red thumbnail, and answers what it shows with where the thumbnail
 /// is.
-fn wait_for_thumbnail(window: &RecordingView) -> (Picture, Region) {
+fn wait_for_thumbnail(window: &ProgramView) -> (PixelBuffer, Region) {
     let found = std::cell::RefCell::new(None);
     wait_until("the window shows the video's thumbnail", || {
-        let Some(buffer) = window.latest_hardware_buffer() else {
+        let Some(shown) = window.picture().expect("the screenshot is drawn") else {
             return false;
         };
-        let shown = picture(&buffer);
         let region = red_region(&shown);
         *found.borrow_mut() = region.map(|region| (shown, region));
         region.is_some()
@@ -407,11 +387,11 @@ fn wait_for_thumbnail(window: &RecordingView) -> (Picture, Region) {
 
 /// Where `shown` is red, the thumbnails' colour, or about it, as drawing and scaling leave it; none
 /// where nothing is.
-fn red_region(shown: &Picture) -> Option<Region> {
+fn red_region(shown: &PixelBuffer) -> Option<Region> {
     let mut region: Option<Region> = None;
-    for y in 0..shown.height {
-        for x in 0..shown.width {
-            let [blue, green, red, _alpha] = shown.at(x, y);
+    for y in 0..shown.height as usize {
+        for x in 0..shown.width as usize {
+            let [blue, green, red, _alpha] = pixel_of(shown, x, y);
             if red > 200 && green < 60 && blue < 60 {
                 let grown = region.get_or_insert(Region {
                     left: x,
@@ -433,59 +413,50 @@ fn is_white([blue, green, red, _alpha]: [u8; 4]) -> bool {
     blue > 200 && green > 200 && red > 200
 }
 
-/// A mouse's click at `(x, y)` in `window`'s physical pixels.
-fn click(window: &ProgramView, (x, y): (f64, f64)) {
-    let held = HeldModifiers::default();
-    for (change, buttons) in [
-        (PointerChange::Add, PointerButtons::empty()),
-        (PointerChange::Hover, PointerButtons::empty()),
-        (PointerChange::Down, PointerButtons::PRIMARY),
-        (PointerChange::Up, PointerButtons::empty()),
-    ] {
-        window.pointer(mouse(change, buttons, (x, y), 0), &held);
-    }
-}
-
 /// `builtin-apps/video-player` running with this computer's fonts and folders of its own, its
 /// recent list `recents`; and its window, once it asked for it.
 struct Run {
     running: RunningProgram,
+    shown: Arc<HeadlessView>,
     window: ProgramView,
-    lines: Arc<Lines>,
+    output: Arc<RecordedOutput>,
     folders: TempDir,
 }
 
 impl Run {
-    fn start(engine: &WaOS, arrivals: &Receiver<ProgramView>, recents: &str) -> Run {
+    fn start(engine: &WaOS, shell: &TestShell, recents: &str) -> Run {
         let folders = TempDir::new().unwrap();
         fs::create_dir_all(folders.path().join("data")).unwrap();
         fs::create_dir_all(folders.path().join("cache")).unwrap();
         fs::write(folders.path().join("data/recents"), recents).unwrap();
-        Run::in_folders(engine, arrivals, folders)
+        Run::in_folders(engine, shell, 0, folders)
     }
 
     /// The app running in `folders`, its `/data` and `/cache`, with what the test or an earlier
     /// run put there.
-    fn in_folders(engine: &WaOS, arrivals: &Receiver<ProgramView>, folders: TempDir) -> Run {
+    fn in_folders(engine: &WaOS, shell: &TestShell, view_index: usize, folders: TempDir) -> Run {
         let own = ProgramFolders {
             data: folders.path().join("data"),
             cache: folders.path().join("cache"),
         };
-        let lines = Arc::new(Lines::default());
+        let output = Arc::new(RecordedOutput::default());
         let environment = ProgramEnvironment {
-            output: Some(Arc::clone(&lines) as Arc<dyn ProgramOutput>),
+            output: Some(Arc::clone(&output) as Arc<dyn ProgramOutput>),
             folders: Some(own),
             ..waos_local::LocalCapabilities::new().environment()
         };
-        let program = shell::load(engine, waos_test_programs::VIDEO_PLAYER);
+        let program = engine
+            .load(Path::new(waos_test_programs::VIDEO_PLAYER))
+            .unwrap();
         let running = engine.run(&program, environment).unwrap();
-        let window = arrivals
-            .recv_timeout(WITHIN)
-            .expect("the video player asks for its window");
+        let shown =
+            within(shell.headless.view(view_index)).expect("the video player asks for its window");
+        let window = shown.view().expect("the video player's view");
         Run {
             running,
+            shown,
             window,
-            lines,
+            output,
             folders,
         }
     }
@@ -505,11 +476,11 @@ impl Run {
     /// Asks the window to close, which quits the app, and waits for its end.
     fn close(&self) {
         self.window.close_requested();
-        let end = shell::wait_for_end(&self.running);
+        let end = within(self.running.ended());
         assert!(
             matches!(end, ProgramEnd::Returned(Ok(()))),
             "closing its window quits it, not {end:?}; it printed {:#?}",
-            self.lines.all()
+            self.output.lines()
         );
     }
 }
@@ -566,9 +537,9 @@ fn nanoseconds(duration: Duration) -> u64 {
 /// The player opened after `before` others, once the shell has it.
 fn opened(shell: &TestShell, before: usize) -> OpenedPlayer {
     wait_until("the shell opens a player", || {
-        shell.media_players().opened().len() > before
+        shell.media_players.opened().len() > before
     });
-    shell.media_players().opened()[before].clone()
+    shell.media_players.opened()[before].clone()
 }
 
 /// Waits until `player` has been asked `call` `count` times.
@@ -580,25 +551,6 @@ fn wait_for_call(player: &OpenedPlayer, call: &PlayerCall, count: usize) {
 
 fn calls_of(player: &OpenedPlayer, which: impl Fn(&PlayerCall) -> bool) -> usize {
     player.calls().iter().filter(|call| which(call)).count()
-}
-
-/// Presses `key` and lets it go; answers whether the app handled it going down.
-fn press(window: &ProgramView, key: (u64, u64), character: Option<&str>) -> bool {
-    let handled = resolved(window.key(key_event(KeyKind::Down, key, character)));
-    resolved(window.key(key_event(KeyKind::Up, key, None)));
-    handled
-}
-
-fn key_event(kind: KeyKind, (physical, logical): (u64, u64), character: Option<&str>) -> KeyEvent {
-    KeyEvent {
-        time: 0,
-        kind,
-        device: KeyDevice::Keyboard,
-        physical,
-        logical,
-        character: character.map(str::to_owned),
-        synthesized: false,
-    }
 }
 
 /// Waits until the program has set a menu bar `wanted` accepts, and answers it.

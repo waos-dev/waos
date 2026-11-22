@@ -1,30 +1,28 @@
 //! A program's composition layers under the test shell: `examples/composition-layers` makes an
 //! opaque layer and one that is not on the shell's compositor, sets its view's layers to both and
-//! presents its first frame, then to the second alone, moved, and presents its second. The shell's
-//! present gets the layers the view held as it presented, in the order set, each the layer the
-//! shell's compositor made for it, with its placement as the program gave it, every kind of
-//! mutator carried; a layer the view no longer holds is not passed with a later present; and once
-//! the program has ended, the engine holds none of the layers it made. A screenshot of its view
-//! shows a video's frame on its badge whole at the frame's shape, centred, where the badge's
-//! placement puts it, and nothing of a layer its last picture no longer holds (the design's
-//! decision 62). Under a shell with no compositor, the program's `get-compositor` answers none,
-//! and its presents carry no layers.
+//! presents its first frame, then to the second alone, moved, and presents its second. Once both
+//! frames are presented, the headless view holds the second frame's layer with its placement and
+//! transform (the video is no longer passed), and once the program has ended, the engine holds
+//! none of the layers it made. A screenshot of its view shows a video's frame on its badge whole
+//! at the frame's shape, centred, where the badge's placement puts it, and nothing of a layer its
+//! last picture no longer holds (the design's decision 62). Under a shell with no compositor, the
+//! program's `get-compositor` answers none, and its presents carry no layers.
 //!
 //! Presents carry hardware buffers, which are made on Apple's systems, where these tests run;
 //! elsewhere one test in their place, in `main.rs`, says so and passes.
 
+use std::path::Path;
 use std::sync::Arc;
-use std::thread;
-use std::time::{Duration, Instant};
 
-use futures::executor::block_on;
-use waos::bindings::wasdk::platform::views::{Mutator, Placement, RoundedRect};
+use waos::bindings::wasdk::platform::views::{Mutator, Placement};
 use waos::bindings::wasdk::platform::windows::{Point, Rect, Size};
-use waos::{ProgramEnvironment, ProgramOutput};
+use waos::{ProgramEnvironment, WaOS};
 
-use crate::shell::composition::PresentedLayer;
-use crate::shell::video_frames::{HeldFrame, frame_sized};
-use crate::shell::{self, Lines, WITHIN, pixel_of, screenshot_of};
+use crate::test_shell::composition::{self, PresentedLayer};
+use crate::test_shell::video_frames::{HeldFrame, frame_sized};
+use crate::test_shell::{
+    RecordedOutput, TestShell, config, pixel_of, printing_to, wait_until, within,
+};
 
 /// The program's first layer, made opaque, and its second.
 const VIDEO: usize = 0;
@@ -32,38 +30,22 @@ const BADGE: usize = 1;
 
 #[test]
 fn a_present_hands_the_shell_the_layers_the_view_holds_in_order_with_their_placements() {
-    let (engine, shell, arrivals) = shell::engine();
-    let program = shell::load(&engine, waos_test_programs::COMPOSITION_LAYERS);
+    let shell = TestShell::new();
+    let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
+    let program = engine
+        .load(Path::new(waos_test_programs::COMPOSITION_LAYERS))
+        .unwrap();
     let running = engine
         .run(&program, ProgramEnvironment::default())
         .expect("the program runs");
-    let _view = arrivals.recv_timeout(WITHIN).expect("its view arrives");
-    let placed = shell.placed_views()[0].clone();
-    placed.wait_for_presents(2);
+    let shown = within(shell.headless.view(0)).expect("its view arrives");
+    wait_until("two frames presented", || shown.pictures_shown() >= 2);
 
-    let made = shell.compositor().layers_made();
+    let made = shell.compositor.layers_made();
     let opaque: Vec<(usize, bool)> = made.iter().map(|l| (l.number, l.opaque)).collect();
     assert_eq!(opaque, [(VIDEO, true), (BADGE, false)]);
-    let presents = placed.presented_layers();
     assert_eq!(
-        described(&presents[0]),
-        described(&[
-            PresentedLayer {
-                number: VIDEO,
-                placement: video_placement(),
-            },
-            PresentedLayer {
-                number: BADGE,
-                placement: Placement {
-                    rect: rect(16.0, 16.0, 96.0, 48.0),
-                    mutators: Vec::new(),
-                },
-            },
-        ]),
-        "the first frame shows both, the video beneath"
-    );
-    assert_eq!(
-        described(&presents[1]),
+        described(&composition::presented(shown.layers())),
         described(&[PresentedLayer {
             number: BADGE,
             placement: Placement {
@@ -78,8 +60,11 @@ fn a_present_hands_the_shell_the_layers_the_view_holds_in_order_with_their_place
         "the engine holds each layer while the program does"
     );
     running.stop();
-    block_on(running.ended());
-    wait_until_held_by_the_compositor_alone(&made);
+    within(running.ended());
+    // One for the compositor's list, one for `made`.
+    wait_until("the engine holds no layer of the ended program", || {
+        made.iter().all(|layer| Arc::strong_count(layer) <= 2)
+    });
 }
 
 /// A video's frame, as its bytes lie: orange.
@@ -88,32 +73,26 @@ const CLEAR: [u8; 4] = [0, 0, 0, 0];
 
 #[test]
 fn a_screenshot_shows_a_frame_on_a_layer_whole_where_the_last_picture_places_the_layer() {
-    let (engine, shell, arrivals) = shell::engine();
-    let program = shell::load(&engine, waos_test_programs::COMPOSITION_LAYERS);
+    let shell = TestShell::new();
+    let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
+    let program = engine
+        .load(Path::new(waos_test_programs::COMPOSITION_LAYERS))
+        .unwrap();
     let running = engine
         .run(&program, ProgramEnvironment::default())
         .expect("the program runs");
-    let view = arrivals.recv_timeout(WITHIN).expect("its view arrives");
-    shell.placed_views()[0].wait_for_presents(2);
-    let made = shell.compositor().layers_made();
+    let shown = within(shell.headless.view(0)).expect("its view arrives");
+    let view = shown.view().expect("its view");
+    wait_until("two frames presented", || shown.pictures_shown() >= 2);
+    let made = shell.compositor.layers_made();
     // Square, where the badge is twice as wide as it is high.
     made[BADGE].show_frame(HeldFrame::new(frame_sized(48, 48, ORANGE)));
     made[VIDEO].show_frame(HeldFrame::new(frame_sized(64, 48, ORANGE)));
 
     // The badge lies at 32, 32, 96 by 48, scaled by 2: from 64, 64 to 256, 160; its frame from
     // 112 to 208 across.
-    let deadline = Instant::now() + WITHIN;
-    let screenshot = loop {
-        let screenshot = screenshot_of(&view);
-        if pixel_of(&screenshot, 160, 112) == ORANGE {
-            break screenshot;
-        }
-        assert!(
-            Instant::now() < deadline,
-            "the badge never showed its frame"
-        );
-        thread::sleep(Duration::from_millis(5));
-    };
+    let screenshot = view.picture().unwrap().expect("a picture");
+    assert_eq!(pixel_of(&screenshot, 160, 112), ORANGE);
     assert_eq!(pixel_of(&screenshot, 113, 65), ORANGE);
     assert_eq!(pixel_of(&screenshot, 206, 158), ORANGE);
     assert_eq!(
@@ -135,18 +114,8 @@ fn a_screenshot_shows_a_frame_on_a_layer_whole_where_the_last_picture_places_the
         ..frame_sized(64, 48, ORANGE)
     };
     made[BADGE].show_frame(HeldFrame::new(turned));
-    let deadline = Instant::now() + WITHIN;
-    let screenshot = loop {
-        let screenshot = screenshot_of(&view);
-        if pixel_of(&screenshot, 118, 112) == CLEAR {
-            break screenshot;
-        }
-        assert!(
-            Instant::now() < deadline,
-            "the badge never showed its frame turned"
-        );
-        thread::sleep(Duration::from_millis(5));
-    };
+    let screenshot = view.picture().unwrap().expect("a picture");
+    assert_eq!(pixel_of(&screenshot, 118, 112), CLEAR);
     assert_eq!(pixel_of(&screenshot, 160, 112), ORANGE);
     assert_eq!(
         pixel_of(&screenshot, 126, 66),
@@ -159,75 +128,36 @@ fn a_screenshot_shows_a_frame_on_a_layer_whole_where_the_last_picture_places_the
         "beside it, at its turned shape"
     );
     running.stop();
-    block_on(running.ended());
-}
-
-/// Waits until the test compositor's list is all that holds each of `layers`, failing after
-/// [`WITHIN`]: the engine holds a layer for as long as its program or one of its views does,
-/// and a present only until it reaches the shell.
-fn wait_until_held_by_the_compositor_alone(layers: &[Arc<shell::composition::TestLayer>]) {
-    let deadline = Instant::now() + WITHIN;
-    // One for the compositor's list, one for `layers`.
-    while layers.iter().any(|layer| Arc::strong_count(layer) > 2) {
-        assert!(
-            Instant::now() < deadline,
-            "the engine still holds a layer of the ended program"
-        );
-        thread::sleep(Duration::from_millis(5));
-    }
+    within(running.ended());
 }
 
 #[test]
 fn under_a_shell_without_a_compositor_a_program_gets_none_and_presents_no_layers() {
-    let (engine, shell, arrivals) =
-        shell::engine_of(shell::config(), |parts| parts.compositor = None);
-    let program = shell::load(&engine, waos_test_programs::COMPOSITION_LAYERS);
-    let output = Arc::new(Lines::default());
-    let environment = ProgramEnvironment {
-        output: Some(Arc::clone(&output) as Arc<dyn ProgramOutput>),
-        ..ProgramEnvironment::default()
-    };
-    let running = engine.run(&program, environment).expect("the program runs");
-    let _view = arrivals.recv_timeout(WITHIN).expect("its view arrives");
-    let placed = shell.placed_views()[0].clone();
-    placed.wait_for_presents(2);
+    let shell = TestShell::new();
+    let mut parts = shell.shell();
+    parts.compositor = None;
+    let engine = WaOS::new(config(), parts, shell.platform()).unwrap();
+    let program = engine
+        .load(Path::new(waos_test_programs::COMPOSITION_LAYERS))
+        .unwrap();
+    let output = Arc::new(RecordedOutput::default());
+    let running = engine
+        .run(&program, printing_to(&output))
+        .expect("the program runs");
+    let shown = within(shell.headless.view(0)).expect("its view arrives");
+    let view = shown.view().expect("its view");
     output.wait_for("no compositor");
-    assert!(shell.compositor().layers_made().is_empty());
-    assert!(
-        placed.presented_layers().iter().all(Vec::is_empty),
-        "{:#?}",
-        placed.presented_layers()
-    );
+    assert!(within(view.picture_after_events()), "its first picture");
+    assert!(shell.compositor.layers_made().is_empty());
+    assert!(shown.layers().is_empty());
     running.stop();
+    within(running.ended());
 }
 
 /// `layers` as text: the generated records have no `PartialEq` (the bindings' docs), so they
 /// are compared by what `Debug` writes, every field of every mutator.
 fn described(layers: &[PresentedLayer]) -> String {
     format!("{layers:#?}")
-}
-
-/// The placement the program gives its video in its first frame.
-fn video_placement() -> Placement {
-    let corner = Size {
-        width: 8.0,
-        height: 8.0,
-    };
-    Placement {
-        rect: rect(0.0, 0.0, 640.0, 360.0),
-        mutators: vec![
-            Mutator::Transform(scale(2.0)),
-            Mutator::ClipRect(rect(0.0, 0.0, 600.0, 300.0)),
-            Mutator::ClipRoundedRect(RoundedRect {
-                rect: rect(10.0, 10.0, 300.0, 200.0),
-                top_left: corner,
-                top_right: corner,
-                bottom_right: corner,
-                bottom_left: corner,
-            }),
-            Mutator::Opacity(128),
-        ],
-    }
 }
 
 fn rect(x: f64, y: f64, width: f64, height: f64) -> Rect {

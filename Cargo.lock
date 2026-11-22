@@ -8510,6 +8510,7 @@ dependencies = [
  "valo-geometry",
  "valo-text",
  "waos-capabilities",
+ "waos-headless",
  "waos-local",
  "waos-local-processes",
  "waos-test-programs",
@@ -8653,6 +8654,7 @@ dependencies = [
 name = "waos-headless"
 version = "0.6.0"
 dependencies = [
+ "tokio",
  "waos",
 ]
 

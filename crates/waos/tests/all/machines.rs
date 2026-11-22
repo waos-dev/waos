@@ -13,20 +13,18 @@
 //! in its place; and a program given no grants and a shell with no
 //! picker holds no machine, nor one given no machines at all.
 
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use tokio::sync::Notify;
-use waos::{
-    Answer, ProgramEnvironment, ProgramGrants, ProgramOutput, Question, RunningProgram, WaOS,
-};
+use waos::{Answer, ProgramEnvironment, ProgramGrants, Question, RunningProgram, WaOS};
 use waos_capabilities::{
     Architecture, ChangedFuture, DomainRule, FileSystemGrant, Machines, NetworkGrant,
     OperatingSystem,
 };
 use waos_local_processes::{LocalMachines, LoginEnvironment, THIS_COMPUTER};
 
-use crate::shell;
-use crate::shell::Lines;
+use crate::test_shell::{RecordedOutput, TestShell, config, printing_to, wait_until, within};
 
 /// What the program says of a machine picked and acted on, in order.
 #[cfg(unix)]
@@ -51,20 +49,21 @@ const ACTED_ON: [&str; 13] = [
 #[cfg(unix)]
 #[test]
 fn a_machine_picked_is_kept_and_acted_on_with_pipes_a_terminal_signals_and_its_root() {
-    let (engine, shell, _arrivals) = shell::engine();
-    shell.machine_picker().answer_with(Some(THIS_COMPUTER));
+    let shell = TestShell::new();
+    let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
+    shell.machine_picker.answer_with(Some(THIS_COMPUTER));
     let grants = Arc::new(MachineGrants::default());
-    let lines = Arc::new(Lines::default());
-    let running = run(&engine, Some(&grants), vec![this_computer()], &lines);
-    lines.wait_for("granted: []");
-    lines.wait_for("picked: This computer");
-    lines.wait_for(&what_this_computer_runs());
-    lines.wait_for(&this_computers_login_shell());
+    let output = Arc::new(RecordedOutput::default());
+    let running = run(&engine, Some(&grants), vec![this_computer()], &output);
+    output.wait_for("granted: []");
+    output.wait_for("picked: This computer");
+    output.wait_for(&what_this_computer_runs());
+    output.wait_for(&this_computers_login_shell());
     for line in ACTED_ON {
-        lines.wait_for(line);
+        output.wait_for(line);
     }
     assert_eq!(
-        shell.machine_picker().asked(),
+        shell.machine_picker.asked(),
         [(
             "machines".to_owned(),
             vec![waos::MachineChoice {
@@ -75,31 +74,22 @@ fn a_machine_picked_is_kept_and_acted_on_with_pipes_a_terminal_signals_and_its_r
         "the user was shown this computer, once"
     );
     assert_eq!(grants.machines(), [THIS_COMPUTER], "kept among its grants");
-    shell::wait_for_end(&running);
+    within(running.ended());
     for left_running in ["sleep 6011", "sleep 6012"] {
         until_gone(left_running);
     }
 }
 
-/// Waits until no process of this computer runs `command_line`, as its program's end ends it,
-/// within the grace a command has to end its own way and some; fails the test otherwise.
+/// Waits until no process of this computer runs `command_line`, as its program's end ends it.
 #[cfg(unix)]
 fn until_gone(command_line: &str) {
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
-    loop {
+    wait_until(&format!("{command_line} ends with its program"), || {
         let found = std::process::Command::new("pgrep")
             .args(["-f", command_line])
             .output()
             .expect("pgrep runs");
-        if found.stdout.is_empty() {
-            return;
-        }
-        assert!(
-            std::time::Instant::now() < deadline,
-            "{command_line} outlived the program that started it"
-        );
-        std::thread::sleep(std::time::Duration::from_millis(50));
-    }
+        found.stdout.is_empty()
+    });
 }
 
 // `examples/machines` runs Unix's commands, `/bin/echo` and `/bin/sh`; Windows' are tested in
@@ -107,27 +97,33 @@ fn until_gone(command_line: &str) {
 #[cfg(unix)]
 #[test]
 fn a_machine_granted_before_needs_no_pick() {
-    let (engine, shell, _arrivals) = shell::engine();
+    let shell = TestShell::new();
+    let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
     let grants = Arc::new(MachineGrants::default());
     grants.keep_machine(THIS_COMPUTER);
-    let lines = Arc::new(Lines::default());
-    let running = run(&engine, Some(&grants), vec![this_computer()], &lines);
-    lines.wait_for("granted: [This computer]");
-    lines.wait_for("done");
-    assert!(shell.machine_picker().asked().is_empty(), "nobody asked");
-    shell::wait_for_end(&running);
+    let output = Arc::new(RecordedOutput::default());
+    let running = run(&engine, Some(&grants), vec![this_computer()], &output);
+    output.wait_for("granted: [This computer]");
+    output.wait_for("done");
+    assert!(shell.machine_picker.asked().is_empty(), "nobody asked");
+    within(running.ended());
 }
 
 #[test]
 fn a_pick_cancelled_or_of_a_machine_not_offered_gives_nothing_and_keeps_nothing() {
     for answer in [None, Some("build.example.com")] {
-        let (engine, shell, _arrivals) = shell::engine();
-        shell.machine_picker().answer_with(answer);
+        let shell = TestShell::new();
+        let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
+        shell.machine_picker.answer_with(answer);
         let grants = Arc::new(MachineGrants::default());
-        let lines = Arc::new(Lines::default());
-        let running = run(&engine, Some(&grants), vec![this_computer()], &lines);
-        shell::wait_for_end(&running);
-        assert_eq!(lines.all(), ["granted: []", "picked: none"], "{answer:?}");
+        let output = Arc::new(RecordedOutput::default());
+        let running = run(&engine, Some(&grants), vec![this_computer()], &output);
+        within(running.ended());
+        assert_eq!(
+            output.lines(),
+            ["granted: []", "picked: none"],
+            "{answer:?}"
+        );
         assert!(grants.machines().is_empty(), "{answer:?}");
     }
 }
@@ -138,21 +134,22 @@ fn a_machine_set_as_the_pickers_answer_is_picked_and_kept_unasked_and_one_not_of
         (THIS_COMPUTER, vec![THIS_COMPUTER]),
         ("build.example.com", Vec::new()),
     ] {
-        let (engine, shell, _arrivals) = shell::engine();
-        shell.machine_picker().answer_with(Some(THIS_COMPUTER));
+        let shell = TestShell::new();
+        let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
+        shell.machine_picker.answer_with(Some(THIS_COMPUTER));
         let grants = Arc::new(MachineGrants::answering_the_picker_with(set));
-        let lines = Arc::new(Lines::default());
-        let running = run(&engine, Some(&grants), vec![this_computer()], &lines);
+        let output = Arc::new(RecordedOutput::default());
+        let running = run(&engine, Some(&grants), vec![this_computer()], &output);
         let picked = if kept.is_empty() {
             "picked: none"
         } else {
             "picked: This computer"
         };
-        lines.wait_for(picked);
+        output.wait_for(picked);
         running.stop();
-        shell::wait_for_end(&running);
+        within(running.ended());
         assert!(
-            shell.machine_picker().asked().is_empty(),
+            shell.machine_picker.asked().is_empty(),
             "nothing shown for {set}"
         );
         assert_eq!(grants.machines(), kept, "{set}");
@@ -190,47 +187,50 @@ fn this_computers_login_shell() -> String {
 
 #[test]
 fn a_program_given_no_grants_and_a_shell_with_no_picker_holds_no_machine() {
-    let (engine, _shell, _arrivals) = shell::engine_of(shell::config(), |parts| {
-        parts.machine_picker = None;
-    });
-    let lines = Arc::new(Lines::default());
-    let running = run(&engine, None, vec![this_computer()], &lines);
-    shell::wait_for_end(&running);
-    assert_eq!(lines.all(), ["granted: []", "picked: none"]);
+    let shell = TestShell::new();
+    let mut parts = shell.shell();
+    parts.machine_picker = None;
+    let engine = WaOS::new(config(), parts, shell.platform()).unwrap();
+    let output = Arc::new(RecordedOutput::default());
+    let running = run(&engine, None, vec![this_computer()], &output);
+    within(running.ended());
+    assert_eq!(output.lines(), ["granted: []", "picked: none"]);
 }
 
 #[test]
 fn a_program_given_no_machines_has_none() {
-    let (engine, shell, _arrivals) = shell::engine();
-    shell.machine_picker().answer_with(Some(THIS_COMPUTER));
-    let lines = Arc::new(Lines::default());
+    let shell = TestShell::new();
+    let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
+    shell.machine_picker.answer_with(Some(THIS_COMPUTER));
+    let output = Arc::new(RecordedOutput::default());
     let grants = Arc::new(MachineGrants::default());
-    let running = run(&engine, Some(&grants), Vec::new(), &lines);
-    shell::wait_for_end(&running);
-    assert_eq!(lines.all(), ["machines: none"]);
-    assert!(shell.machine_picker().asked().is_empty());
+    let running = run(&engine, Some(&grants), Vec::new(), &output);
+    within(running.ended());
+    assert_eq!(output.lines(), ["machines: none"]);
+    assert!(shell.machine_picker.asked().is_empty());
 }
 
 #[test]
 fn a_waiting_machine_picker_is_answered_by_setting_its_row_and_drops_its_prompt() {
-    let (engine, shell, _arrivals) = shell::engine();
-    shell.machine_picker().hold_picks();
+    let shell = TestShell::new();
+    let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
+    shell.machine_picker.hold_picks();
     let grants = Arc::new(MachineGrants::default());
-    let lines = Arc::new(Lines::default());
-    let running = run(&engine, Some(&grants), vec![this_computer()], &lines);
+    let output = Arc::new(RecordedOutput::default());
+    let running = run(&engine, Some(&grants), vec![this_computer()], &output);
 
-    shell::wait_until("machine picker is waiting", || {
-        !shell.machine_picker().asked().is_empty()
+    wait_until("machine picker is waiting", || {
+        !shell.machine_picker.asked().is_empty()
     });
-    assert!(!shell.machine_picker().held_cancelled(0));
+    assert!(!shell.machine_picker.held_cancelled(0));
 
     grants.set_machine_answer(THIS_COMPUTER);
-    shell::wait_until("machine picker future is dropped", || {
-        shell.machine_picker().held_cancelled(0)
+    wait_until("machine picker future is dropped", || {
+        shell.machine_picker.held_cancelled(0)
     });
-    lines.wait_for("picked: This computer");
+    output.wait_for("picked: This computer");
     running.stop();
-    shell::wait_for_end(&running);
+    within(running.ended());
 }
 
 /// This computer's machines, its commands run with `PATH` and `HOME` alone.
@@ -243,21 +243,21 @@ fn this_computer() -> Arc<dyn Machines> {
 }
 
 /// Runs `examples/machines` with `grants`, where it has any, and `machines`, its output into
-/// `lines`.
+/// `output`.
 fn run(
     engine: &WaOS,
     grants: Option<&Arc<MachineGrants>>,
     machines: Vec<Arc<dyn Machines>>,
-    lines: &Arc<Lines>,
+    output: &Arc<RecordedOutput>,
 ) -> RunningProgram {
     let environment = ProgramEnvironment {
-        output: Some(Arc::clone(lines) as Arc<dyn ProgramOutput>),
         grants: grants.map(|grants| Arc::clone(grants) as Arc<dyn ProgramGrants>),
         machines,
-        ..ProgramEnvironment::default()
+        ..printing_to(output)
     };
-    let program = shell::load(engine, waos_test_programs::MACHINES);
-
+    let program = engine
+        .load(Path::new(waos_test_programs::MACHINES))
+        .unwrap();
     engine.run(&program, environment).unwrap()
 }
 

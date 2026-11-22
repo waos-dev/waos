@@ -10,6 +10,7 @@
 //! Apple's systems, where the engine takes them.
 
 use std::fs;
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -18,32 +19,33 @@ use url::Url;
 use waos::bindings::wasdk::media::media_players::{
     MediaMetadata, MediaTrack, MediaTrackKind, PlayerError, PlayerErrorKind,
 };
-use waos::{ProgramEnd, ProgramEnvironment, ProgramGrants, ProgramOutput, RunningProgram, WaOS};
+use waos::{ProgramEnd, ProgramEnvironment, ProgramGrants, RunningProgram, WaOS};
 use waos_capabilities::ProgramFolders;
 
 use crate::reaching::{TestGrants, off};
-use crate::shell::media_assets::{AssetAnswers, FrameAsked};
-use crate::shell::video_frames::{FRAME_HEIGHT, FRAME_WIDTH};
-use crate::shell::{self, Lines, wait_until};
+use crate::test_shell::media_assets::{AssetAnswers, FrameAsked};
+use crate::test_shell::video_frames::{FRAME_HEIGHT, FRAME_WIDTH};
+use crate::test_shell::{RecordedOutput, TestShell, config, printing_to, wait_until, within};
 
 #[test]
 fn an_asset_of_a_file_reads_its_length_tracks_title_and_a_picture() {
-    let (engine, shell, _arrivals) = shell::engine();
-    shell.media_assets().answer_with(answers());
+    let shell = TestShell::new();
+    let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
+    shell.media_assets.answer_with(answers());
     let run = Run::start(&engine, &TestGrants::new(off(), false), "/data/clip.mp4\n");
-    run.lines.wait_for("/data/clip.mp4: length 60s");
-    run.lines
+    run.output.wait_for("/data/clip.mp4: length 60s");
+    run.output
         .wait_for("/data/clip.mp4: tracks video*, audio en*, text en");
-    run.lines.wait_for("/data/clip.mp4: title Bip Bop");
-    run.lines.wait_for(&format!(
+    run.output.wait_for("/data/clip.mp4: title Bip Bop");
+    run.output.wait_for(&format!(
         "/data/clip.mp4: picture {FRAME_WIDTH}x{FRAME_HEIGHT}"
     ));
     assert!(matches!(
-        shell::wait_for_end(&run.running),
+        within(run.running.ended()),
         ProgramEnd::Returned(Ok(()))
     ));
 
-    let opened = shell.media_assets().opened();
+    let opened = shell.media_assets.opened();
     assert_eq!(opened.len(), 1);
     let clip = fs::canonicalize(run.data()).unwrap().join("clip.mp4");
     assert_eq!(opened[0].program, "media-assets");
@@ -65,8 +67,9 @@ fn an_asset_of_a_file_reads_its_length_tracks_title_and_a_picture() {
 
 #[test]
 fn a_link_opens_once_its_host_passes_the_rules_and_refused_sources_reach_no_shell() {
-    let (engine, shell, _arrivals) = shell::engine();
-    shell.media_assets().answer_with(AssetAnswers {
+    let shell = TestShell::new();
+    let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
+    shell.media_assets.answer_with(AssetAnswers {
         duration: Ok(None),
         picture: Err(PlayerError {
             kind: PlayerErrorKind::Decode,
@@ -81,23 +84,23 @@ fn a_link_opens_once_its_host_passes_the_rules_and_refused_sources_reach_no_shel
         "http://localhost/a.mp4",
     ];
     let run = Run::start(&engine, &TestGrants::new(off(), true), &sources.join("\n"));
-    run.lines.wait_for(
+    run.output.wait_for(
         "/elsewhere/clip.mp4: length failed (refused: no file at /elsewhere/clip.mp4 among the program's)",
     );
-    run.lines.wait_for(
+    run.output.wait_for(
         "/elsewhere/clip.mp4: picture failed (refused: no file at /elsewhere/clip.mp4 among the program's)",
     );
-    run.lines.wait_for(
+    run.output.wait_for(
         "http://192.0.2.1/a.mp4: title failed (refused: the program may not reach 192.0.2.1)",
     );
-    run.lines.wait_for(
+    run.output.wait_for(
         "ftp://example.com/a.mp4: tracks failed (refused: \"ftp://example.com/a.mp4\" is neither a path inside the program nor an http or https link)",
     );
-    run.lines.wait_for("http://localhost/a.mp4: length none");
-    run.lines
+    run.output.wait_for("http://localhost/a.mp4: length none");
+    run.output
         .wait_for("http://localhost/a.mp4: picture failed (decode: a damaged frame)");
-    shell::wait_for_end(&run.running);
-    let opened = shell.media_assets().opened();
+    within(run.running.ended());
+    let opened = shell.media_assets.opened();
     assert_eq!(opened.len(), 1, "nothing refused reaches the shell");
     assert_eq!(opened[0].url, "http://localhost/a.mp4");
     assert_eq!(
@@ -109,15 +112,16 @@ fn a_link_opens_once_its_host_passes_the_rules_and_refused_sources_reach_no_shel
 
 #[test]
 fn a_shell_without_a_reading_of_media_gives_the_program_none() {
-    let (engine, _shell, _arrivals) = shell::engine_of(shell::config(), |parts| {
-        parts.media_assets = None;
-    });
+    let shell = TestShell::new();
+    let mut parts = shell.shell();
+    parts.media_assets = None;
+    let engine = WaOS::new(config(), parts, shell.platform()).unwrap();
     let run = Run::start(&engine, &TestGrants::new(off(), false), "/data/clip.mp4\n");
     assert!(matches!(
-        shell::wait_for_end(&run.running),
+        within(run.running.ended()),
         ProgramEnd::Returned(Ok(()))
     ));
-    assert_eq!(run.lines.all(), ["media assets: none"]);
+    assert_eq!(run.output.lines(), ["media assets: none"]);
 }
 
 /// What the shell's assets answer: a minute, a video track, an English audio track and an English
@@ -154,7 +158,7 @@ fn track(id: &str, kind: MediaTrackKind, language: &str, selected: bool) -> Medi
 /// `/data/sources`, beside a clip of its own, `/data/clip.mp4`.
 struct Run {
     running: RunningProgram,
-    lines: Arc<Lines>,
+    output: Arc<RecordedOutput>,
     folders: TempDir,
 }
 
@@ -169,18 +173,19 @@ impl Run {
         fs::create_dir_all(&own.cache).unwrap();
         fs::write(own.data.join("sources"), sources).unwrap();
         fs::write(own.data.join("clip.mp4"), "a clip").unwrap();
-        let lines = Arc::new(Lines::default());
+        let output = Arc::new(RecordedOutput::default());
         let environment = ProgramEnvironment {
-            output: Some(Arc::clone(&lines) as Arc<dyn ProgramOutput>),
             folders: Some(own),
             grants: Some(Arc::clone(grants) as Arc<dyn ProgramGrants>),
-            ..ProgramEnvironment::default()
+            ..printing_to(&output)
         };
-        let program = shell::load(engine, waos_test_programs::MEDIA_ASSETS);
+        let program = engine
+            .load(Path::new(waos_test_programs::MEDIA_ASSETS))
+            .unwrap();
         let running = engine.run(&program, environment).unwrap();
         Run {
             running,
-            lines,
+            output,
             folders,
         }
     }

@@ -314,7 +314,6 @@ pub(crate) fn start(
         tracing::info!("programs are compiled with native unwind information");
     }
     let engine = Arc::new(WaOS::new(config, shell, facts).context("starting the engine")?);
-    vsync.attach(&engine);
     machine_facts::keep_current(app, Arc::clone(&engine));
     days_kept::keep_every_day_when_paused(app, Arc::clone(&engine));
     if let Some(clipboard) = clipboard {

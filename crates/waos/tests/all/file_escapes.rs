@@ -13,14 +13,12 @@ use std::os::unix::fs::symlink;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use futures::executor::block_on;
 use tempfile::TempDir;
-use waos::{ProgramEnd, ProgramEnvironment, ProgramGrants, ProgramOutput};
+use waos::{ProgramEnd, ProgramEnvironment, ProgramGrants, WaOS};
 use waos_capabilities::{FileSystemGrant, ProgramFolders};
 
 use crate::files::{TestGrants, mount};
-use crate::shell;
-use crate::shell::Lines;
+use crate::test_shell::{RecordedOutput, TestShell, config, printing_to, within};
 
 /// What the program prints, in order: each escape refused, by `..` or a symlink out of its mount as
 /// leaving it, `not-permitted`, and each call through a symlink named with a `/` after it as the
@@ -105,18 +103,20 @@ const PRINTED: [&str; 61] = [
 #[test]
 fn a_program_leaves_its_mounts_by_no_name_ending_in_a_slash_and_by_no_mount_beside_another() {
     let machine = Machine::new();
-    let (engine, _shell, _arrivals) = shell::engine();
-    let program = shell::load(&engine, waos_test_programs::FILE_ESCAPES);
+    let shell = TestShell::new();
+    let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
+    let program = engine
+        .load(Path::new(waos_test_programs::FILE_ESCAPES))
+        .unwrap();
     let grants = Arc::new(TestGrants::new(machine.mounts()));
-    let lines = Arc::new(Lines::default());
+    let output = Arc::new(RecordedOutput::default());
     let environment = ProgramEnvironment {
-        output: Some(Arc::clone(&lines) as Arc<dyn ProgramOutput>),
         grants: Some(grants as Arc<dyn ProgramGrants>),
         folders: Some(machine.own_folders()),
-        ..ProgramEnvironment::default()
+        ..printing_to(&output)
     };
     let running = engine.run(&program, environment).unwrap();
-    let end = block_on(running.ended());
+    let end = within(running.ended());
     assert!(matches!(end, ProgramEnd::Returned(Ok(()))), "{end:?}");
     // The way a system refuses to remove a folder is its own, so the two lines that say it are.
     let expected: Vec<String> = PRINTED
@@ -131,7 +131,7 @@ fn a_program_leaves_its_mounts_by_no_name_ending_in_a_slash_and_by_no_mount_besi
             line => line.to_owned(),
         })
         .collect();
-    assert_eq!(lines.all(), expected);
+    assert_eq!(output.lines(), expected);
     machine.assert_unchanged_outside_data_and_in_docs();
 }
 

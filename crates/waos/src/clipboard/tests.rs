@@ -117,7 +117,11 @@ fn program(
     let views = ProgramViews::new(
         Clock::start(),
         Lifecycle::default(),
-        ScreenRefreshes::new(Arc::new(Headless::default()), Screens::new(Vec::new())),
+        ScreenRefreshes::new(
+            Arc::new(Headless::default()),
+            Screens::new(Vec::new()),
+            crate::running::Programs::default(),
+        ),
         platform.clone(),
         crate::screenshots::tests::screenshots(),
         Weak::new(),

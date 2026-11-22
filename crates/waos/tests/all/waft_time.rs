@@ -4,31 +4,35 @@
 //! It is a debug build of Waft, slow to start, and draws, so it runs where the engine makes
 //! hardware buffers, on Apple's systems.
 
+use std::path::Path;
 use std::sync::Arc;
 
-use waos::{ProgramEnd, ProgramEnvironment, ProgramOutput};
+use waos::{ProgramEnd, ProgramEnvironment, ProgramOutput, WaOS};
 
-use crate::shell::{self, Lines, WITHIN};
+use crate::test_shell::{RecordedOutput, TestShell, config, within};
 
 #[test]
 fn a_local_date_time_reads_the_users_hour_and_zone_name() {
-    let (engine, _shell, arrivals) = shell::engine();
+    let shell = TestShell::new();
+    let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
     engine.set_time_zone(Some("America/New_York".into()));
-    let lines = Arc::new(Lines::default());
-    let program = shell::load(&engine, waos_test_programs::WAFT_TIME);
+    let program = engine
+        .load(Path::new(waos_test_programs::WAFT_TIME))
+        .unwrap();
+    let output = Arc::new(RecordedOutput::default());
     let environment = ProgramEnvironment {
-        output: Some(Arc::clone(&lines) as Arc<dyn ProgramOutput>),
+        output: Some(Arc::clone(&output) as Arc<dyn ProgramOutput>),
         ..waos_local::LocalCapabilities::new().environment()
     };
     let running = engine.run(&program, environment).unwrap();
-    let view = arrivals
-        .recv_timeout(WITHIN)
+    let view = within(shell.headless.view(0))
+        .and_then(|shown| shown.view())
         .expect("waft-time asks for its window");
 
-    lines.wait_for("local: 0 EST");
-    lines.wait_for("utc: 5, offset -5 h");
+    output.wait_for("local: 0 EST");
+    output.wait_for("utc: 5, offset -5 h");
 
     view.close_requested();
-    let end = shell::wait_for_end(&running);
+    let end = within(running.ended());
     assert!(matches!(end, ProgramEnd::Returned(Ok(()))), "{end:?}");
 }

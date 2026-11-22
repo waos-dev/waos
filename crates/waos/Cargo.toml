@@ -70,6 +70,8 @@ symphonia.workspace = true
 # The example programs the tests run, built as components by that crate's build script.
 [dev-dependencies]
 waos-test-programs = { path = "tests/programs" }
+# The headless shell the engine's tests run programs on, its windowing parts.
+waos-headless.workspace = true
 # This computer's fonts, which `examples/fonts` is given as an app gives them.
 waos-local.workspace = true
 # This computer as a machine, which `examples/machines` acts on, in a login environment the tests

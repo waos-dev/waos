@@ -145,7 +145,6 @@ impl Desktop {
             machine_picker: None,
         };
         let engine = Arc::new(WaOS::new(config, shell, facts).expect("an engine"));
-        vsync.attach(&engine);
         let view_windows = Rc::new(RefCell::new(None));
         let kept = Rc::clone(&view_windows);
         let (served_to, questions_store) = (Arc::clone(&engine), store.clone());

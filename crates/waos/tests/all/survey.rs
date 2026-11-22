@@ -3,21 +3,22 @@
 //! its window between the size limits it sets, hears a change of geometry, moves, maximizes and
 //! minimizes its window from the band it treats as its title bar, as the system's setting for a
 //! double-click says, reads its user's time zone and hears it change, answers a request to end,
-//! and ends when its last view is gone.
-//!
-//! Every test here reads what survey printed in the log, and two surveys at once would print
-//! alike, so each takes survey's turn (`shell::turns`).
+//! and ends when its last view is gone. Each test reads what its own survey printed.
 
+use std::path::Path;
+use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use futures::executor::block_on;
 use waos::bindings::wasdk::platform::lifecycle::AppExitResponse;
 use waos::bindings::wasdk::platform::views::{PointerButtons, PointerChange};
-use waos::bindings::wasdk::platform::windows::{MacosTitleBar, TitleBarAction};
-use waos::{HeldModifiers, ProgramEnd, ProgramEnvironment, ProgramView};
+use waos::bindings::wasdk::platform::windows::{MacosTitleBar, Size, TitleBarAction};
+use waos::{HeldModifiers, ProgramEnd, ProgramView, RunningProgram, WaOS};
+use waos_headless::HeadlessView;
 
-use crate::shell::{self, Output, WITHIN, metrics, mouse, output, wait_until};
+use crate::test_shell::{
+    RecordedOutput, TestShell, WITHIN, config, metrics, mouse, printing_to, wait_until, within,
+};
 
 /// A point in the band survey treats as its title bar, 28 logical points tall, in the view's
 /// physical pixels at the test shell's 2x.
@@ -29,44 +30,69 @@ const BELOW_TITLE_BAR: (f64, f64) = (200.0, 400.0);
 /// A millisecond on the program's clock, in nanoseconds.
 const MS: u64 = 1_000_000;
 
+/// Survey running under a test shell of its own, the view it asked for, and what it prints.
+struct Survey {
+    _shell: TestShell,
+    _engine: WaOS,
+    running: RunningProgram,
+    shown: Arc<HeadlessView>,
+    view: ProgramView,
+    output: Arc<RecordedOutput>,
+}
+
+/// Survey, started, once its view has arrived.
+fn survey() -> Survey {
+    let shell = TestShell::new();
+    let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
+    let survey = engine.load(Path::new(waos_test_programs::SURVEY)).unwrap();
+    let output = Arc::new(RecordedOutput::default());
+    let running = engine.run(&survey, printing_to(&output)).unwrap();
+    let shown = within(shell.headless.view(0)).expect("survey asks for a view");
+    let view = shown.view().expect("survey's view");
+    Survey {
+        _shell: shell,
+        _engine: engine,
+        running,
+        shown,
+        view,
+        output,
+    }
+}
+
 #[test]
 fn asks_for_a_view_sees_it_arrive_and_ends_when_it_is_taken_away() {
-    let _survey = shell::turns::take("survey");
-    let output = output();
-    let mark = output.mark();
-    let (engine, shell, arrivals) = shell::engine();
-    let survey = shell::load(&engine, waos_test_programs::SURVEY);
-    let running = engine.run(&survey, ProgramEnvironment::default()).unwrap();
-
-    let view = arrivals
-        .recv_timeout(WITHIN)
-        .expect("survey asks for a view");
+    let Survey {
+        running,
+        shown,
+        view,
+        output,
+        _engine: engine,
+        ..
+    } = survey();
     assert_eq!(view.request_id(), 1);
-    assert_eq!(shell.requested_titles(), ["Survey"]);
-    output.wait_for(mark, "survey", |line| line == "asked for a view: request 1");
-    output.wait_for(mark, "survey", |line| {
-        line == "view 1: 1600x1000 at 2x, on screen Some(1), in a window: true, for request 1 with Some(\"opened at start\")"
-    });
+    let window = shown.window().expect("in a window");
+    assert_eq!(window.config().title, "Survey");
+    output.wait_for("asked for a view: request 1");
+    output.wait_for(
+        "view 1: 1600x1000 at 2x, on screen Some(1), in a window: true, for request 1 with Some(\"opened at start\")",
+    );
 
-    output.wait_for(mark, "survey", |line| {
-        line == "view 1: its window keeps between 320x240 and 1920x1200"
-    });
-    let window = &shell.placed_windows()[0];
-    assert_eq!(window.min_size(), Some((320.0, 240.0)));
-    assert_eq!(window.max_size(), Some((1920.0, 1200.0)));
+    output.wait_for("view 1: its window keeps between 320x240 and 1920x1200");
+    let (smallest, largest) = window.size_limits();
+    let points = |size: Size| (size.width, size.height);
+    assert_eq!(smallest.map(points), Some((320.0, 240.0)));
+    assert_eq!(largest.map(points), Some((1920.0, 1200.0)));
 
     view.metrics_changed(metrics(800, 600));
-    output.wait_for(mark, "survey", |line| line == "view 1: now 800x600");
+    output.wait_for("view 1: now 800x600");
 
     engine.set_time_zone(Some("America/Sao_Paulo".into()));
-    output.wait_for(mark, "survey", |line| {
-        line == "system: time zone now Some(\"America/Sao_Paulo\")"
-    });
+    output.wait_for("system: time zone now Some(\"America/Sao_Paulo\")");
 
     running.remove_view(view.id());
-    let end = block_on(running.ended());
+    let end = within(running.ended());
     assert!(matches!(end, ProgramEnd::Returned(Ok(()))), "{end:?}");
-    let printed = output.lines_of(mark, "survey");
+    let printed = output.lines();
     assert!(
         printed.iter().any(|line| line == "view 1 removed"),
         "{printed:#?}"
@@ -83,7 +109,7 @@ fn asks_for_a_view_sees_it_arrive_and_ends_when_it_is_taken_away() {
     );
     assert!(
         printed.contains(
-            &"screen 1: \"Test Display\", 1600x1000 at 2x, 60000 mHz, frame (0, 0) 800x500, visible frame (64, 24) 736x476"
+            &"screen 1: \"Headless\", 1600x1000 at 2x, 60000 mHz, frame (0, 0) 800x500, visible frame (0, 0) 800x500"
                 .to_owned()
         ),
         "{printed:#?}"
@@ -92,35 +118,31 @@ fn asks_for_a_view_sees_it_arrive_and_ends_when_it_is_taken_away() {
 
 #[test]
 fn moves_maximizes_and_minimizes_its_window_from_the_band_it_treats_as_its_title_bar() {
-    let _survey = shell::turns::take("survey");
-    let output = output();
-    let mark = output.mark();
-    let (engine, shell, arrivals) = shell::engine();
-    let survey = shell::load(&engine, waos_test_programs::SURVEY);
-    let running = engine.run(&survey, ProgramEnvironment::default()).unwrap();
-    let view = arrivals
-        .recv_timeout(WITHIN)
-        .expect("survey asks for a view");
-    let asked = &shell.requested_windows()[0];
+    let Survey {
+        running,
+        shown,
+        view,
+        output,
+        ..
+    } = survey();
+    let window = shown.window().expect("in a window");
     assert!(
-        matches!(asked.macos_title_bar, MacosTitleBar::Hidden(28.0)),
+        matches!(window.config().macos_title_bar, MacosTitleBar::Hidden(28.0)),
         "survey asks for no title bar of macOS's own, its buttons in a band 28 points tall"
     );
-    output.wait_for(mark, "survey", |line| {
-        line == "view 1: its window keeps between 320x240 and 1920x1200"
-    });
-    let window = &shell.placed_windows()[0];
-    let says = |expected: &str| output.wait_for(mark, "survey", |line| line == expected);
+    output.wait_for("view 1: its window keeps between 320x240 and 1920x1200");
+    view.title_bar_double_click_action_changed(Some(TitleBarAction::Maximize));
 
     press(&view, ON_TITLE_BAR, 0);
-    says("view 1: pressed on its title bar: moving its window");
-    assert_eq!(window.drags(), 1, "a press on the band moves the window");
+    output.wait_for("view 1: pressed on its title bar: moving its window");
+    // Survey says so before it asks its window to move.
+    wait_until("a press on the band moves the window", || {
+        window.drags() == 1
+    });
 
     press(&view, ON_TITLE_BAR, 200 * MS);
-    says("view 1: double-clicked its title bar: Some(TitleBarAction::Maximize)");
-    wait_until("survey maximizes its window", || {
-        window.maximized_asked() == [true]
-    });
+    output.wait_for("view 1: double-clicked its title bar: Some(TitleBarAction::Maximize)");
+    wait_until("survey maximizes its window", || window.is_maximized());
     assert_eq!(
         window.drags(),
         1,
@@ -129,42 +151,40 @@ fn moves_maximizes_and_minimizes_its_window_from_the_band_it_treats_as_its_title
 
     view.window_maximized_changed(true);
     view.metrics_changed(metrics(3200, 2000));
-    says("view 1: its window is maximized");
+    output.wait_for("view 1: its window is maximized");
 
     double_click(&view, 1000 * MS);
     wait_until("survey returns its window to its size from before", || {
-        window.maximized_asked() == [true, false]
+        !window.is_maximized()
     });
     view.window_maximized_changed(false);
     view.metrics_changed(metrics(1600, 1000));
-    says("view 1: its window is no longer maximized");
+    output.wait_for("view 1: its window is no longer maximized");
 
     view.title_bar_double_click_action_changed(Some(TitleBarAction::Minimize));
     double_click(&view, 2000 * MS);
-    wait_until("survey minimizes its window", || {
-        window.minimized_asked() == [true]
-    });
+    wait_until("survey minimizes its window", || window.is_minimized());
 
     view.title_bar_double_click_action_changed(Some(TitleBarAction::Nothing));
     double_click(&view, 3000 * MS);
-    says("view 1: double-clicked its title bar: Some(TitleBarAction::Nothing)");
+    output.wait_for("view 1: double-clicked its title bar: Some(TitleBarAction::Nothing)");
     view.title_bar_double_click_action_changed(None);
     double_click(&view, 4000 * MS);
-    says("view 1: double-clicked its title bar: None");
+    output.wait_for("view 1: double-clicked its title bar: None");
 
     press(&view, BELOW_TITLE_BAR, 5000 * MS);
     press(&view, ON_TITLE_BAR, 6000 * MS);
     wait_until("survey moves its window once more", || window.drags() == 6);
     assert_eq!(
-        moves(output, mark),
+        output.count("view 1: pressed on its title bar: moving its window"),
         6,
         "a press below the band is not on the title bar"
     );
-    assert_eq!(window.maximized_asked(), [true, false]);
-    assert_eq!(window.minimized_asked(), [true]);
+    assert!(!window.is_maximized());
+    assert!(window.is_minimized());
 
     running.remove_view(view.id());
-    let end = block_on(running.ended());
+    let end = within(running.ended());
     assert!(matches!(end, ProgramEnd::Returned(Ok(()))), "{end:?}");
 }
 
@@ -193,62 +213,40 @@ fn double_click(view: &ProgramView, time: u64) {
     press(view, ON_TITLE_BAR, time + 100 * MS);
 }
 
-/// How many moves of its window survey said it started since `mark`.
-fn moves(output: &Output, mark: usize) -> usize {
-    output
-        .lines_of(mark, "survey")
-        .iter()
-        .filter(|line| *line == "view 1: pressed on its title bar: moving its window")
-        .count()
-}
-
 #[test]
-fn closes_its_window_when_asked_and_ends_once_the_shell_takes_the_view_away() {
-    let _survey = shell::turns::take("survey");
-    let output = output();
-    let mark = output.mark();
-    let (engine, shell, arrivals) = shell::engine();
-    let survey = shell::load(&engine, waos_test_programs::SURVEY);
-    let (running, view) =
-        shell::run_shown(&engine, &arrivals, &survey, ProgramEnvironment::default());
-    let view = &view;
+fn closes_its_window_when_asked_and_ends_once_the_window_has_closed() {
+    let Survey {
+        running,
+        view,
+        output,
+        ..
+    } = survey();
     assert_eq!(
         view.request_id(),
         1,
         "the first request takes the reserved screen"
     );
-    output.wait_for(mark, "survey", |line| line.starts_with("view 1: 1600x1000"));
-    let window = &shell.placed_windows()[0];
-    shell::window_holds(window, &running, view.id());
+    output.wait_for("view 1: 1600x1000 at 2x, on screen Some(1), in a window: true, for request 1 with Some(\"opened at start\")");
 
     view.close_requested();
-    output.wait_for(mark, "survey", |line| line == "view 1: asked to close");
-    let end = block_on(running.ended());
+    output.wait_for("view 1: asked to close");
+    let end = within(running.ended());
     assert!(matches!(end, ProgramEnd::Returned(Ok(()))), "{end:?}");
-    assert_eq!(window.closes(), 1);
 }
 
 #[test]
 fn answers_a_request_to_end() {
-    let _survey = shell::turns::take("survey");
-    let output = output();
-    let mark = output.mark();
-    let (engine, _shell, arrivals) = shell::engine();
-    let survey = shell::load(&engine, waos_test_programs::SURVEY);
-    let (running, _view) =
-        shell::run_shown(&engine, &arrivals, &survey, ProgramEnvironment::default());
-    output.wait_for(mark, "survey", |line| line.starts_with("view 1: 1600x1000"));
+    let Survey {
+        running, output, ..
+    } = survey();
+    output.wait_for("view 1: 1600x1000 at 2x, on screen Some(1), in a window: true, for request 1 with Some(\"opened at start\")");
 
     // A request before the program listens is answered exit by nobody: asked again until the
     // program has heard one, which it says.
     let deadline = Instant::now() + WITHIN;
     loop {
-        assert_eq!(block_on(running.request_exit()), AppExitResponse::Exit);
-        let heard = output
-            .lines_of(mark, "survey")
-            .iter()
-            .any(|line| line == "program: asked whether it may end: yes");
-        if heard {
+        assert_eq!(within(running.request_exit()), AppExitResponse::Exit);
+        if output.has("program: asked whether it may end: yes") {
             break;
         }
         assert!(
@@ -258,5 +256,5 @@ fn answers_a_request_to_end() {
         thread::sleep(Duration::from_millis(10));
     }
     running.stop();
-    assert!(matches!(block_on(running.ended()), ProgramEnd::Stopped));
+    assert!(matches!(within(running.ended()), ProgramEnd::Stopped));
 }

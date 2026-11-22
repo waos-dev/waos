@@ -4,21 +4,21 @@
 //! first running program's mounts and reads one.
 
 use std::fs;
-use std::sync::{Arc, Mutex};
+use std::path::Path;
+use std::sync::Arc;
 
-use futures::executor::block_on;
 use futures::future::{self, BoxFuture};
 use futures::stream::{self, BoxStream};
 use futures::{FutureExt, StreamExt};
 use waos::inspection::bindings::wasdk::inspect::devices::{Program, ProgramChange, StartError};
 use waos::inspection::{InspectedPrograms, ProgramStorage};
 use waos::{
-    Answer, HeldProgram, OutputStream, ProgramEnd, ProgramEnvironment, ProgramGrants,
-    ProgramOutput, Question, Role, WaOSConfig,
+    Answer, HeldProgram, ProgramEnd, ProgramEnvironment, ProgramGrants, Question, Role, WaOS,
+    WaOSConfig,
 };
 use waos_capabilities::{ChangedFuture, DomainRule, FileSystemGrant, NetworkGrant, ProgramFolders};
 
-use crate::shell;
+use crate::test_shell::{RecordedOutput, TestShell, config, printing_to, within};
 
 /// Grants that answer the inspector role with yes and let nothing else.
 struct Granted;
@@ -117,28 +117,6 @@ impl InspectedPrograms for StoragePrograms {
     }
 }
 
-/// What the program wrote, kept.
-#[derive(Default)]
-struct Said(Mutex<Vec<u8>>);
-
-impl Said {
-    fn text(&self) -> String {
-        String::from_utf8_lossy(&self.0.lock().unwrap()).into_owned()
-    }
-}
-
-impl ProgramOutput for Said {
-    fn poll_write(
-        &self,
-        _stream: OutputStream,
-        _cx: &mut std::task::Context<'_>,
-        bytes: &[u8],
-    ) -> std::task::Poll<usize> {
-        self.0.lock().unwrap().extend_from_slice(bytes);
-        std::task::Poll::Ready(bytes.len())
-    }
-}
-
 #[test]
 fn an_inspector_reads_a_programs_mounts_and_a_folders_entries_and_no_path_out_of_one() {
     let folder = tempfile::tempdir().unwrap();
@@ -153,22 +131,23 @@ fn an_inspector_reads_a_programs_mounts_and_a_folders_entries_and_no_path_out_of
         cache: cache.clone(),
     };
 
-    let (engine, _shell, _arrivals) = shell::engine_with(WaOSConfig {
+    let shell = TestShell::new();
+    let config = WaOSConfig {
         inspected_programs: Some(Arc::new(StoragePrograms { folders })),
-        ..shell::config()
-    });
-    let inspect = shell::load(&engine, waos_test_programs::INSPECT);
-    let said = Arc::new(Said::default());
+        ..config()
+    };
+    let engine = WaOS::new(config, shell.shell(), shell.platform()).unwrap();
+    let inspect = engine.load(Path::new(waos_test_programs::INSPECT)).unwrap();
+    let output = Arc::new(RecordedOutput::default());
     let environment = ProgramEnvironment {
-        output: Some(Arc::clone(&said) as Arc<dyn ProgramOutput>),
         grants: Some(Arc::new(Granted)),
-        ..ProgramEnvironment::default()
+        ..printing_to(&output)
     };
     let running = engine.run(&inspect, environment).unwrap();
-    let end = block_on(running.ended());
+    let end = within(running.ended());
     assert!(matches!(end, ProgramEnd::Returned(Ok(()))), "{end:?}");
 
-    let said = said.text();
+    let said = output.lines().join("\n");
     assert!(
         said.contains(&format!(
             "mount /data MountKind::OwnData writable=true at {}",

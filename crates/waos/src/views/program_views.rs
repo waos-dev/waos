@@ -97,6 +97,11 @@ pub(crate) enum ViewChange {
 const FIRST_ID: u64 = 1;
 
 impl ProgramViews {
+    /// The views `state` is the state of.
+    pub(super) fn of(state: Arc<ViewsState>) -> ProgramViews {
+        ProgramViews(state)
+    }
+
     /// No views yet, for a program whose events are stamped on `clock`, whose state `lifecycle`
     /// holds, whose frames wait on `refreshes`, and whose views' layers are `layers`.
     pub(crate) fn new(

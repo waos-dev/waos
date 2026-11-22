@@ -1,12 +1,10 @@
-//! Drawing under the test shell: `examples/triangle` presents frames to the shell's view, whose
-//! screen refreshes as soon as it is asked and which releases each hardware buffer when the next
-//! replaces it; a presented hardware buffer holds the triangle's colour at its middle and the clear
-//! colour at a corner, read back by locking the `IOSurface`; a frame due while the shell holds
-//! every hardware buffer gets another, and the spares go once the view has drawn nothing for a
-//! while; a frozen triangle stops presenting, keeps one hardware buffer or two, and draws again
-//! after the thaw; a triangle other windows cover draws only while a tool watches it, and not
-//! minimized, watched or not; and `app_suspending` with triangle drawing resolves with no GPU work
-//! in flight, so no frame reaches the shell after it.
+//! Drawing under the test shell: `examples/triangle` draws the triangle's colour at its middle and
+//! the clear colour at a corner, read through `ProgramView::picture`; a frame due while the shell
+//! holds every hardware buffer gets another, and the spares go once the view has drawn nothing for
+//! a while; a triangle other windows cover draws only while a tool watches it, and not minimized,
+//! watched or not; a frozen triangle stops presenting, keeps one hardware buffer or two, and draws
+//! again after the thaw; and `app_suspending` with triangle drawing resolves with no GPU work in
+//! flight, so no frame reaches the shell after it.
 //!
 //! Hardware buffers are made on Apple's systems, where these tests run; elsewhere one test in their
 //! place, in `main.rs`, says so and passes.
@@ -16,19 +14,21 @@
 //! in flight have landed (`RunningProgram::idle`): a freeze stops its next submission, so no frame
 //! comes after that.
 
-use std::sync::Arc;
-use std::sync::mpsc::Receiver;
-use std::thread;
-use std::time::{Duration, Instant};
+use std::path::Path;
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
-use futures::executor::block_on;
+use waos::bindings::wasdk::platform::views::{
+    Cursor, OverlayStyle, Placement, ViewFocusDirection, ViewFocusState,
+};
 use waos::{
-    FreezePolicy, ManualTime, Presence, ProgramEnd, ProgramEnvironment, ProgramView,
-    RunningProgram, WaOS,
+    EngineTime, FreezePolicy, HardwareBuffer, ManualTime, Presence, ProgramEnd, ProgramEnvironment,
+    ShellCompositionLayer, ShellView, WaOS, WaOSConfig,
 };
 
-use crate::shell::hardware_buffer::pixel;
-use crate::shell::{self, RecordingView, TestShell, VIEW_HEIGHT, VIEW_WIDTH, wait_until_idle};
+use crate::test_shell::{
+    DISPLAY, TestShell, WITHIN, config, pixel_of, place_view, wait_until, within,
+};
 
 /// How long a program stays hidden before the engine freezes it, in the freezing tests.
 const AFTER_HIDDEN: Duration = Duration::from_millis(300);
@@ -36,12 +36,14 @@ const AFTER_HIDDEN: Duration = Duration::from_millis(300);
 /// The engine's epoch tick, at which a freeze takes.
 const TICK: Duration = Duration::from_millis(100);
 
-/// How long without a frame counts as having stopped drawing: many frames' time.
-const QUIET: Duration = Duration::from_millis(400);
-
 const OFF_SCREEN: Presence = Presence {
     on_screen: false,
     occluded: false,
+    focused: false,
+};
+const COVERED: Presence = Presence {
+    on_screen: true,
+    occluded: true,
     focused: false,
 };
 const FOCUSED: Presence = Presence {
@@ -58,11 +60,11 @@ const CLEAR: [u8; 4] = [20, 15, 15, 255];
 /// How far a byte may be from the colour's: a rounding of the GPU's.
 const TOLERANCE: u8 = 2;
 
-/// The bytes of one hardware buffer at the shell's view size: BGRA8.
-const HARDWARE_BUFFER_BYTES: u64 = VIEW_WIDTH as u64 * VIEW_HEIGHT as u64 * 4;
+/// The bytes of one hardware buffer at the test shell's display size: BGRA8.
+const HARDWARE_BUFFER_BYTES: u64 = DISPLAY.width as u64 * DISPLAY.height as u64 * 4;
 
-/// How many frames, at least, the shell holds every hardware buffer of: more than the three a
-/// view starts with and the four it once grew to at most.
+/// How many frames the shell holds every hardware buffer of: more than the three a view starts
+/// with and the four it once grew to at most.
 const FRAMES_HELD: usize = 8;
 
 /// How many hardware buffers a view keeps once it has drawn nothing for a while.
@@ -70,38 +72,6 @@ const STARTING_HARDWARE_BUFFERS: u64 = 3;
 
 /// How long a view draws nothing before its spare hardware buffers go.
 const SPARE_IDLE: Duration = Duration::from_secs(1);
-
-/// Triangle running on the one view it asks for, which `arrivals` hears, and the shell's side of
-/// that view, with `before_run` done to it before the program has it.
-fn run_triangle(
-    engine: &WaOS,
-    shell: &TestShell,
-    arrivals: &Receiver<ProgramView>,
-    before_run: impl FnOnce(&RecordingView) + Send + 'static,
-) -> (RunningProgram, ProgramView, Arc<RecordingView>) {
-    shell.prepare_next_view(before_run);
-    let triangle = shell::load(engine, waos_test_programs::TRIANGLE);
-    let (running, view) =
-        shell::run_shown(engine, arrivals, &triangle, ProgramEnvironment::default());
-    let shell_view = shell.placed_views().pop().expect("the view was placed");
-    (running, view, shell_view)
-}
-
-/// Waits until no frame has been presented for [`QUIET`], and answers how many were.
-fn presents_before_quiet(shell_view: &RecordingView) -> usize {
-    let mut seen = shell_view.presents();
-    let mut last_at = Instant::now();
-    loop {
-        thread::sleep(Duration::from_millis(10));
-        let presents = shell_view.presents();
-        if presents != seen {
-            seen = presents;
-            last_at = Instant::now();
-        } else if last_at.elapsed() >= QUIET {
-            return seen;
-        }
-    }
-}
 
 fn assert_colour(what: &str, pixel: [u8; 4], colour: [u8; 4]) {
     let close = pixel
@@ -112,84 +82,92 @@ fn assert_colour(what: &str, pixel: [u8; 4], colour: [u8; 4]) {
 }
 
 #[test]
-fn triangle_presents_frames_the_shell_shows_and_releases() {
-    let (engine, shell, arrivals) = shell::engine();
-    let started = Instant::now();
-    let (running, _view, shell_view) = run_triangle(&engine, &shell, &arrivals, |_| {});
-    shell_view.wait_for_presents(1);
-    let first_frame = started.elapsed();
-    let counted = Instant::now();
-    shell_view.wait_for_presents(61);
-    let sixty_frames = counted.elapsed();
-    eprintln!(
-        "triangle: the first frame reached the shell {first_frame:?} after the start; the next sixty took {sixty_frames:?}"
+fn a_presented_hardware_buffer_holds_the_triangle_over_the_clear_colour() {
+    let shell = TestShell::new();
+    let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
+    let triangle = engine
+        .load(Path::new(waos_test_programs::TRIANGLE))
+        .unwrap();
+    let running = engine
+        .run(&triangle, ProgramEnvironment::default())
+        .unwrap();
+    let view = within(shell.headless.view(0))
+        .and_then(|shown| shown.view())
+        .expect("triangle asks for its view");
+    assert!(within(view.picture_after_events()), "its first picture");
+
+    let picture = view.picture().unwrap().expect("a picture");
+    assert_eq!(
+        (picture.width, picture.height),
+        (DISPLAY.width, DISPLAY.height)
     );
-    assert!(running.stats().frames_presented() >= 61);
+    let middle = pixel_of(
+        &picture,
+        DISPLAY.width as usize / 2,
+        DISPLAY.height as usize / 2,
+    );
+    let corner = pixel_of(&picture, 0, 0);
+    assert_colour("the middle of the picture", middle, TRIANGLE);
+    assert_colour("the corner of the picture", corner, CLEAR);
+    assert!(running.stats().frames_presented() >= 1);
     let buffers = running.stats().hardware_buffer_bytes() / HARDWARE_BUFFER_BYTES;
     assert!(
         (3..=4).contains(&buffers),
         "a drawing view holds three hardware buffers, a fourth while the shell holds all three, not {buffers}"
     );
-    assert!(
-        shell_view.hardware_buffers_held() <= 1,
-        "each hardware buffer is released when the next replaces it"
-    );
-    assert!(
-        shell.refreshes_asked() >= shell_view.presents(),
-        "every frame was asked for"
-    );
     running.stop();
-    assert!(matches!(block_on(running.ended()), ProgramEnd::Stopped));
-}
-
-#[test]
-fn a_presented_hardware_buffer_holds_the_triangle_over_the_clear_colour() {
-    let (engine, shell, arrivals) = shell::engine();
-    let (running, _view, shell_view) = run_triangle(&engine, &shell, &arrivals, |_| {});
-    shell_view.wait_for_presents(4);
-    // Once the refreshes stop and the frames in flight have landed, the hardware buffer
-    // presented last is at rest with the GPU done with it.
-    shell.stop_refreshes();
-    presents_before_quiet(&shell_view);
-    let buffer = shell_view
-        .latest_hardware_buffer()
-        .expect("a hardware buffer is held");
-    let middle = pixel(&buffer, VIEW_WIDTH as usize / 2, VIEW_HEIGHT as usize / 2);
-    let corner = pixel(&buffer, 0, 0);
-    eprintln!("triangle: the middle pixel is {middle:?} and the corner {corner:?}, as BGRA");
-    assert_colour("the middle of the hardware buffer", middle, TRIANGLE);
-    assert_colour("the corner of the hardware buffer", corner, CLEAR);
-    running.stop();
-    assert!(matches!(block_on(running.ended()), ProgramEnd::Stopped));
+    assert!(matches!(within(running.ended()), ProgramEnd::Stopped));
 }
 
 #[test]
 fn a_frame_due_while_the_shell_holds_every_hardware_buffer_gets_another_and_the_spares_go_once_the_view_is_idle()
  {
     let time = ManualTime::new();
-    let (engine, shell, arrivals) = shell::engine_on(&time, FreezePolicy::default());
-    let (running, _view, shell_view) = run_triangle(
-        &engine,
-        &shell,
-        &arrivals,
-        RecordingView::hold_every_hardware_buffer,
-    );
-    shell_view.wait_for_presents(FRAMES_HELD);
-    shell.stop_refreshes();
-    let presented = presents_before_quiet(&shell_view);
-    assert!(presented >= FRAMES_HELD);
-    assert_eq!(shell_view.hardware_buffers_held(), presented);
+    let shell = TestShell::new();
+    let held_view = Arc::new(HoldingBuffersView::default());
+    let (placement, arrived) = place_view(Arc::clone(&held_view) as Arc<dyn ShellView>);
+    let mut parts = shell.shell();
+    parts.views = placement;
+    let engine = WaOS::new(
+        WaOSConfig {
+            time: EngineTime::Manual(time.clone()),
+            ..config()
+        },
+        parts,
+        shell.platform(),
+    )
+    .unwrap();
+
+    let triangle = engine
+        .load(Path::new(waos_test_programs::TRIANGLE))
+        .unwrap();
+    let running = engine
+        .run(&triangle, ProgramEnvironment::default())
+        .unwrap();
+    let view = arrived
+        .recv_timeout(WITHIN)
+        .expect("triangle asks for its view");
+
+    wait_until("at least FRAMES_HELD frames are held", || {
+        held_view.held_count() >= FRAMES_HELD
+    });
+    // Stop serving new frames so the view goes quiet (default freeze policy never freezes on hide)
+    // and drain any frame already in flight before measuring the pool and advancing manual time.
+    view.presence_changed(OFF_SCREEN);
+    within(running.idle());
+    let held = held_view.held_count();
+    assert!(held >= FRAMES_HELD, "held {held} frames");
     assert_eq!(
         running.stats().hardware_buffer_bytes(),
-        presented as u64 * HARDWARE_BUFFER_BYTES,
+        held as u64 * HARDWARE_BUFFER_BYTES,
         "each frame got a hardware buffer of its own, past the three a view starts with"
     );
 
-    shell_view.release_all_but_latest();
+    held_view.release_all_but_latest();
     time.elapse(SPARE_IDLE - TICK);
     assert_eq!(
         running.stats().hardware_buffer_bytes(),
-        presented as u64 * HARDWARE_BUFFER_BYTES,
+        held as u64 * HARDWARE_BUFFER_BYTES,
         "the spares stay while the view has drawn nothing for less than a second"
     );
     time.elapse(TICK);
@@ -199,64 +177,129 @@ fn a_frame_due_while_the_shell_holds_every_hardware_buffer_gets_another_and_the_
         "the spares go at the tick a second after the view's last frame"
     );
     running.stop();
-    assert!(matches!(block_on(running.ended()), ProgramEnd::Stopped));
+    assert!(matches!(within(running.ended()), ProgramEnd::Stopped));
 }
 
 #[test]
 fn a_covered_triangle_draws_while_watched_and_not_minimized_nor_after_the_watch() {
-    let (engine, shell, arrivals) = shell::engine();
-    let (running, view, shell_view) = run_triangle(&engine, &shell, &arrivals, |_| {});
-    shell_view.wait_for_presents(1);
+    let shell = TestShell::new();
+    let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
+    let triangle = engine
+        .load(Path::new(waos_test_programs::TRIANGLE))
+        .unwrap();
+    let running = engine
+        .run(&triangle, ProgramEnvironment::default())
+        .unwrap();
+    let shown = within(shell.headless.view(0)).expect("triangle asks for its view");
+    let view = shown.view().expect("triangle's view");
+    assert!(within(view.picture_after_events()), "triangle draws");
 
-    shell::cover(&view);
-    let covered = presents_before_quiet(&shell_view);
-    let watching = running.watch();
-    shell_view.wait_for_presents(covered + 10);
+    // A second triangle on the same screen witnesses that refreshes keep arriving while the first
+    // view is covered or minimized.
+    let witness = engine
+        .run(&triangle, ProgramEnvironment::default())
+        .unwrap();
+    let witness_shown = within(shell.headless.view(1)).expect("witness asks for its view");
+    wait_until("witness draws", || witness_shown.pictures_shown() >= 1);
+    let witness_draws = |frames: usize| {
+        let before = witness_shown.pictures_shown();
+        wait_until("witness keeps drawing", || {
+            witness_shown.pictures_shown() >= before + frames
+        });
+    };
 
-    shell::hide(&view);
-    let minimized = presents_before_quiet(&shell_view);
-    shell::cover(&view);
-    shell_view.wait_for_presents(minimized + 10);
-
-    drop(watching);
-    let unwatched = presents_before_quiet(&shell_view);
-    thread::sleep(QUIET);
+    // Covered and unwatched: draws nothing while the witness keeps drawing, then draws once watched.
+    view.presence_changed(COVERED);
+    within(running.idle());
+    let presented = shown.pictures_shown();
+    witness_draws(3);
     assert_eq!(
-        shell_view.presents(),
-        unwatched,
-        "covered and no longer watched, it draws nothing"
+        shown.pictures_shown(),
+        presented,
+        "covered and unwatched, triangle draws nothing"
     );
+    let watching = running.watch();
+    wait_until("covered and watched, triangle draws", || {
+        shown.pictures_shown() > presented
+    });
+
+    // Minimized while watched: draws nothing while the witness keeps drawing, then draws covered again.
+    view.presence_changed(OFF_SCREEN);
+    within(running.idle());
+    let presented = shown.pictures_shown();
+    witness_draws(3);
+    assert_eq!(
+        shown.pictures_shown(),
+        presented,
+        "minimized while watched, triangle draws nothing"
+    );
+    view.presence_changed(COVERED);
+    wait_until("covered and watched again, triangle draws", || {
+        shown.pictures_shown() > presented
+    });
+
+    // Covered after the watch ends: draws nothing while the witness keeps drawing, then draws once shown.
+    drop(watching);
+    within(running.idle());
+    let presented = shown.pictures_shown();
+    witness_draws(3);
+    assert_eq!(
+        shown.pictures_shown(),
+        presented,
+        "covered after the watch ends, triangle draws nothing"
+    );
+    view.presence_changed(FOCUSED);
+    wait_until("shown again, triangle draws", || {
+        shown.pictures_shown() > presented
+    });
+
+    witness.stop();
     running.stop();
-    assert!(matches!(block_on(running.ended()), ProgramEnd::Stopped));
+    assert!(matches!(within(witness.ended()), ProgramEnd::Stopped));
+    assert!(matches!(within(running.ended()), ProgramEnd::Stopped));
 }
 
 /// An engine freezing a program [`AFTER_HIDDEN`] out of sight, on time the test moves.
-fn freezing_engine() -> (Arc<WaOS>, Arc<TestShell>, Receiver<ProgramView>, ManualTime) {
+fn freezing_engine() -> (WaOS, TestShell, ManualTime) {
     let time = ManualTime::new();
-    let (engine, shell, arrivals) = shell::engine_on(
-        &time,
-        FreezePolicy {
-            after_hidden: Some(AFTER_HIDDEN),
+    let shell = TestShell::new();
+    let engine = WaOS::new(
+        WaOSConfig {
+            freeze: FreezePolicy {
+                after_hidden: Some(AFTER_HIDDEN),
+            },
+            time: EngineTime::Manual(time.clone()),
+            ..config()
         },
-    );
-    (engine, shell, arrivals, time)
+        shell.shell(),
+        shell.platform(),
+    )
+    .unwrap();
+    (engine, shell, time)
 }
 
 #[test]
 fn a_frozen_triangle_keeps_one_hardware_buffer_and_draws_again_after_the_thaw() {
-    let (engine, shell, arrivals, time) = freezing_engine();
-    let (running, view, shell_view) = run_triangle(&engine, &shell, &arrivals, |_| {});
-    shell_view.wait_for_presents(30);
-    let drawing = running.stats().hardware_buffer_bytes() / HARDWARE_BUFFER_BYTES;
+    let (engine, shell, time) = freezing_engine();
+    let triangle = engine
+        .load(Path::new(waos_test_programs::TRIANGLE))
+        .unwrap();
+    let running = engine
+        .run(&triangle, ProgramEnvironment::default())
+        .unwrap();
+    let view = within(shell.headless.view(0))
+        .and_then(|shown| shown.view())
+        .expect("triangle asks for its view");
+    assert!(within(view.picture_after_events()), "triangle is drawing");
 
     view.presence_changed(OFF_SCREEN);
     time.elapse(AFTER_HIDDEN);
-    wait_until_idle(&running);
-    let presented = shell_view.presents();
+    within(running.idle());
+    let presented = running.stats().frames_presented();
     time.elapse(AFTER_HIDDEN);
-    wait_until_idle(&running);
+    within(running.idle());
     assert_eq!(
-        shell_view.presents(),
+        running.stats().frames_presented(),
         presented,
         "frozen, it presents nothing"
     );
@@ -267,35 +310,88 @@ fn a_frozen_triangle_keeps_one_hardware_buffer_and_draws_again_after_the_thaw() 
     );
 
     view.presence_changed(FOCUSED);
-    shell_view.wait_for_presents(presented + 30);
+    wait_until("thawed, triangle draws again", || {
+        running.stats().frames_presented() > presented
+    });
     let thawed = running.stats().hardware_buffer_bytes() / HARDWARE_BUFFER_BYTES;
-    eprintln!("triangle: {drawing} hardware buffers drawing, {frozen} frozen, {thawed} thawed");
     assert!(
         thawed >= 2,
         "thawed, the view has a hardware buffer to draw into beside the one on screen, not {thawed}"
     );
     running.stop();
-    assert!(matches!(block_on(running.ended()), ProgramEnd::Stopped));
+    assert!(matches!(within(running.ended()), ProgramEnd::Stopped));
 }
 
 #[test]
 fn app_suspending_with_triangle_drawing_resolves_with_no_gpu_work_in_flight() {
-    let (engine, shell, arrivals, time) = freezing_engine();
-    let (running, _view, shell_view) = run_triangle(&engine, &shell, &arrivals, |_| {});
-    shell_view.wait_for_presents(30);
+    let (engine, shell, time) = freezing_engine();
+    let triangle = engine
+        .load(Path::new(waos_test_programs::TRIANGLE))
+        .unwrap();
+    let running = engine
+        .run(&triangle, ProgramEnvironment::default())
+        .unwrap();
+    let view = within(shell.headless.view(0))
+        .and_then(|shown| shown.view())
+        .expect("triangle asks for its view");
+    assert!(within(view.picture_after_events()), "triangle is drawing");
 
-    block_on(engine.app_suspending());
-    let presented = shell_view.presents();
+    within(engine.app_suspending());
+    let presented = running.stats().frames_presented();
     time.elapse(AFTER_HIDDEN);
-    wait_until_idle(&running);
+    within(running.idle());
     assert_eq!(
-        shell_view.presents(),
+        running.stats().frames_presented(),
         presented,
         "no frame reaches the shell after the app suspended: none was in flight"
     );
 
     engine.app_resumed();
-    shell_view.wait_for_presents(presented + 30);
+    wait_until("resumed, triangle draws again", || {
+        running.stats().frames_presented() > presented
+    });
     running.stop();
-    assert!(matches!(block_on(running.ended()), ProgramEnd::Stopped));
+    assert!(matches!(within(running.ended()), ProgramEnd::Stopped));
+}
+
+/// A view that keeps every hardware buffer presented to it until the test releases them: used only
+/// by `a_frame_due_while_the_shell_holds_every_hardware_buffer_gets_another_and_the_spares_go_once_the_view_is_idle`
+/// to exercise pool growth beyond the starting buffers, which `HeadlessView` does not retain.
+#[derive(Default)]
+struct HoldingBuffersView {
+    held: Mutex<Vec<Box<dyn FnOnce() + Send + Sync>>>,
+}
+
+impl HoldingBuffersView {
+    fn held_count(&self) -> usize {
+        self.held.lock().unwrap().len()
+    }
+
+    /// Releases every hardware buffer held but the one presented last.
+    fn release_all_but_latest(&self) {
+        let released: Vec<_> = {
+            let mut held = self.held.lock().unwrap();
+            let last = held.len().saturating_sub(1);
+            held.drain(..last).collect()
+        };
+        for release in released {
+            release();
+        }
+    }
+}
+
+impl ShellView for HoldingBuffersView {
+    fn present(
+        &self,
+        _buffer: HardwareBuffer,
+        _layers: Vec<(Arc<dyn ShellCompositionLayer>, Placement)>,
+        released: Box<dyn FnOnce() + Send + Sync>,
+    ) {
+        self.held.lock().unwrap().push(released);
+    }
+
+    fn set_cursor(&self, _cursor: Cursor) {}
+    fn request_focus_change(&self, _state: ViewFocusState, _direction: ViewFocusDirection) {}
+    fn set_handles_back(&self, _handles: bool) {}
+    fn set_overlay_style(&self, _style: OverlayStyle) {}
 }

@@ -3,25 +3,20 @@
 //! reads the system font's character map from the table the engine serves, opens the system
 //! font's file and finds the same glyph in it, and gets the coverage
 //! and the outline of the letter's glyph, drawn by the engine; given none, every answer is
-//! empty, a glyph of a font it names anyway among them.
-//!
-//! Every test here reads what the program printed in the log, and two runs at once would print
-//! alike, so each takes the program's turn (`shell::turns`). On a machine with no fonts installed
-//! the first says so and passes.
+//! empty, a glyph of a font it names anyway among them. Each test reads what its own run printed.
+//! On a machine with no fonts installed the first says so and passes.
 
+use std::path::Path;
 use std::sync::Arc;
 
-use futures::executor::block_on;
-use waos::{ProgramEnd, ProgramEnvironment, WaOS};
+use waos::{ProgramEnd, ProgramEnvironment, ProgramOutput, WaOS};
 use waos_capabilities::valo_fontmgr::Style;
 use waos_local::LocalCapabilities;
 
-use crate::shell;
-use crate::shell::output;
+use crate::test_shell::{RecordedOutput, TestShell, config, within};
 
 #[test]
 fn a_program_given_this_computers_fonts_draws_a_glyph_of_the_system_font() {
-    let _fonts = shell::turns::take("fonts");
     let environment = LocalCapabilities::new().environment();
     let installed = environment
         .fonts
@@ -96,7 +91,6 @@ fn a_program_given_this_computers_fonts_draws_a_glyph_of_the_system_font() {
 
 #[test]
 fn a_program_given_no_fonts_gets_empty_answers() {
-    let _fonts = shell::turns::take("fonts");
     let printed = run_fonts(ProgramEnvironment::default());
     assert_eq!(
         printed,
@@ -112,14 +106,18 @@ fn a_program_given_no_fonts_gets_empty_answers() {
 
 /// What `examples/fonts` printed, run in `environment` to its end.
 fn run_fonts(environment: ProgramEnvironment) -> Vec<String> {
-    let output = output();
-    let mark = output.mark();
-    let (engine, _shell, _arrivals): (Arc<WaOS>, _, _) = shell::engine();
-    let fonts = shell::load(&engine, waos_test_programs::FONTS);
+    let shell = TestShell::new();
+    let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
+    let fonts = engine.load(Path::new(waos_test_programs::FONTS)).unwrap();
+    let output = Arc::new(RecordedOutput::default());
+    let environment = ProgramEnvironment {
+        output: Some(Arc::clone(&output) as Arc<dyn ProgramOutput>),
+        ..environment
+    };
     let running = engine.run(&fonts, environment).unwrap();
-    let end = block_on(running.ended());
+    let end = within(running.ended());
     assert!(matches!(end, ProgramEnd::Returned(Ok(()))), "{end:?}");
-    output.lines_of(mark, "fonts")
+    output.lines()
 }
 
 /// What follows `start` on the line that begins with it.

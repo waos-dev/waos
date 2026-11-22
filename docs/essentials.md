@@ -8,7 +8,7 @@ The rules WaOS keeps, one line each, so they are not lost under the code. Each l
 - [Running](#running): when a program runs, waits or freezes.
 - [Files](#files): what a program can reach.
 - [The interface](#the-interface): what programs are built against.
-- [Tests](#tests): what the dev tools answer, and what each system tests.
+- [Tests](#tests): what a test waits for and reads, what the dev tools answer, and what each system tests.
 
 ## Programs
 
@@ -57,5 +57,8 @@ The rules WaOS keeps, one line each, so they are not lost under the code. Each l
 
 ## Tests
 
+- An engine test waits for what it expects, with one deadline that only a broken build reaches, never on the clock. ([decision 1](proposals/2026-11-22-tests-without-the-clock.md); [`test_shell`](../crates/waos/tests/all/test_shell/mod.rs))
+- An engine test reads only its own shell and its own programs' output, so the tests run side by side unseen by each other. ([decision 1](proposals/2026-11-22-tests-without-the-clock.md); [`test_shell`](../crates/waos/tests/all/test_shell/mod.rs))
+- "Nothing happened" is checked only after something later did, never after a sleep. ([decision 1](proposals/2026-11-22-tests-without-the-clock.md))
 - An input from the dev tools is answered once it is handed to the program, saying whether its window was in sight; whoever expects a picture waits for it. ([decision 2](proposals/2026-11-22-tests-without-the-clock.md); [`dev_input.rs`](../apps/waos/src/logic/dev_input.rs))
 - Each system tests what concerns it, listed in one place. ([`ci.yml`](../.github/workflows/ci.yml))

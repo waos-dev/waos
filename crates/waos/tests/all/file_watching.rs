@@ -9,11 +9,9 @@ use std::fs;
 use std::path::Path;
 use std::sync::Arc;
 
-use futures::executor::block_on;
-use waos::{ProgramEnd, ProgramEnvironment, ProgramOutput, WaOS, WaOSConfig};
+use waos::{ProgramEnd, WaOS, WaOSConfig};
 
-use crate::shell;
-use crate::shell::{Lines, TestShell};
+use crate::test_shell::{RecordedOutput, TestShell, config, printing_to, within};
 
 /// How the program's rename comes: paired by inotify and Windows, each end a `moved` by FSEvents.
 const RENAMED: &str = if cfg!(target_os = "macos") {
@@ -40,20 +38,16 @@ const SAID: [&str; 11] = [
 #[test]
 fn a_program_watches_a_folder_in_its_tmp_and_its_tmp_goes_when_it_returns() {
     let folders = tempfile::tempdir().unwrap();
-    let (engine, _shell) = engine_with_temporary_folders(folders.path());
-    let program = shell::load(&engine, waos_test_programs::FILE_WATCHING);
-    let lines = Arc::new(Lines::default());
-    let environment = ProgramEnvironment {
-        output: Some(Arc::clone(&lines) as Arc<dyn ProgramOutput>),
-        ..ProgramEnvironment::default()
-    };
-    let running = engine.run(&program, environment).unwrap();
-    for line in SAID {
-        lines.wait_for(line);
-    }
-    let end = block_on(running.ended());
+    let shell = TestShell::new();
+    let engine = engine_with_temporary_folders(&shell, folders.path());
+    let program = engine
+        .load(Path::new(waos_test_programs::FILE_WATCHING))
+        .unwrap();
+    let output = Arc::new(RecordedOutput::default());
+    let running = engine.run(&program, printing_to(&output)).unwrap();
+    let end = within(running.ended());
     assert!(matches!(end, ProgramEnd::Returned(Ok(()))), "{end:?}");
-    assert_eq!(lines.all(), SAID);
+    assert_eq!(output.lines(), SAID);
     assert_eq!(
         left_in(folders.path()),
         Vec::<String>::new(),
@@ -64,25 +58,25 @@ fn a_program_watches_a_folder_in_its_tmp_and_its_tmp_goes_when_it_returns() {
 #[test]
 fn a_programs_tmp_goes_when_it_traps_and_when_it_is_stopped() {
     let folders = tempfile::tempdir().unwrap();
-    let (engine, _shell) = engine_with_temporary_folders(folders.path());
+    let shell = TestShell::new();
+    let engine = engine_with_temporary_folders(&shell, folders.path());
+    let output = Arc::new(RecordedOutput::default());
 
-    let trap = shell::load(&engine, waos_test_programs::TRAP);
-    let running = engine.run(&trap, ProgramEnvironment::default()).unwrap();
-    assert!(matches!(block_on(running.ended()), ProgramEnd::Failed(_)));
+    let trap = engine.load(Path::new(waos_test_programs::TRAP)).unwrap();
+    let running = engine.run(&trap, printing_to(&output)).unwrap();
+    assert!(matches!(within(running.ended()), ProgramEnd::Failed(_)));
     assert_eq!(
         left_in(folders.path()),
         Vec::<String>::new(),
         "after a trap"
     );
 
-    // Forever logs its count, which other tests read in the log.
-    let _forever = shell::turns::take("forever");
-    let forever = shell::load(&engine, waos_test_programs::FOREVER);
-    let running = engine.run(&forever, ProgramEnvironment::default()).unwrap();
+    let forever = engine.load(Path::new(waos_test_programs::FOREVER)).unwrap();
+    let running = engine.run(&forever, printing_to(&output)).unwrap();
     let held = left_in(folders.path());
     assert_eq!(held.len(), 2, "its folder and the lock beside it: {held:?}");
     running.stop();
-    assert!(matches!(block_on(running.ended()), ProgramEnd::Stopped));
+    assert!(matches!(within(running.ended()), ProgramEnd::Stopped));
     assert_eq!(
         left_in(folders.path()),
         Vec::<String>::new(),
@@ -90,15 +84,13 @@ fn a_programs_tmp_goes_when_it_traps_and_when_it_is_stopped() {
     );
 }
 
-/// The tests' engine and its shell, its programs' `/tmp` made in `folders`.
-fn engine_with_temporary_folders(folders: &Path) -> (Arc<WaOS>, Arc<TestShell>) {
-    let (engine, shell, _arrivals) = shell::engine_with(WaOSConfig {
+/// An engine over `shell`, its programs' `/tmp` made in `folders`.
+fn engine_with_temporary_folders(shell: &TestShell, folders: &Path) -> WaOS {
+    let config = WaOSConfig {
         temporary_folders: folders.to_owned(),
-        audit: None,
-        inspected_programs: None,
-        ..shell::config()
-    });
-    (engine, shell)
+        ..config()
+    };
+    WaOS::new(config, shell.shell(), shell.platform()).unwrap()
 }
 
 /// What is in `folders`, by name.

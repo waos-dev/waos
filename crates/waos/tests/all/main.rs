@@ -4,12 +4,9 @@
 //! modules that draw, or that run a program that does, run on Apple's systems, where the engine
 //! makes hardware buffers; elsewhere a test in place of each of three says so and passes.
 //!
-//! The invariant: the tests run alongside each other in one process, so a test reads only what
-//! its own engine, shell and outputs record, or a program's lines in the log while it holds the
-//! program's turn (`shell::turns`). A test that reads what every engine in the process records,
-//! with nothing to tell its own from another's, as the frames the engine hands over and the glyph
-//! calls it draws are, is a binary of its own beside this one: `frames_in_flight`, `two_windows`
-//! and `waft_app`.
+//! The invariant: the tests run alongside each other in one process, and each test reads only its
+//! own shell and its own programs' outputs (or its own named program's lines in the engine's log,
+//! `test_shell::engine_log`). No test shares a log, a turn lock or a clock wait with another.
 
 // Proving the test shell crosses threads walks from a program's handle into wgpu-core's
 // registries, deeper than the default limit allows; an app embedding the engine needs the same.
@@ -19,7 +16,7 @@
 
 mod asking;
 mod reaching;
-mod shell;
+mod test_shell;
 
 mod audio;
 mod back;
@@ -67,9 +64,13 @@ mod storage;
 mod survey;
 mod threads;
 mod trust;
+#[cfg(target_vendor = "apple")]
+mod two_windows;
 mod video_frames;
 #[cfg(target_vendor = "apple")]
 mod video_player;
+#[cfg(target_vendor = "apple")]
+mod waft_app;
 #[cfg(target_vendor = "apple")]
 mod waft_back;
 #[cfg(target_vendor = "apple")]

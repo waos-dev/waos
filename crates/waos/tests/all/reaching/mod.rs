@@ -4,17 +4,15 @@
 
 use std::fs;
 use std::future::pending;
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use futures::channel::oneshot;
-use futures::executor::block_on;
 use tempfile::TempDir;
-use waos::{
-    Answer, ProgramEnd, ProgramEnvironment, ProgramGrants, ProgramOutput, Question, RunningProgram,
-};
+use waos::{Answer, ProgramEnd, ProgramEnvironment, ProgramGrants, Question, RunningProgram, WaOS};
 use waos_capabilities::{ChangedFuture, DomainRule, FileSystemGrant, NetworkGrant, ProgramFolders};
 
-use crate::shell::{self, Lines};
+use crate::test_shell::{RecordedOutput, TestShell, config, printing_to, within};
 
 pub fn any() -> NetworkGrant {
     NetworkGrant {
@@ -111,10 +109,10 @@ pub fn port_of(port: u16) -> [(&'static str, Vec<u8>); 1] {
     [("port", port.to_string().into_bytes())]
 }
 
-/// A program running with grants of the test's, and what it writes.
+/// A program running with grants of the test's, and what it prints.
 pub struct Run {
     running: RunningProgram,
-    pub lines: Arc<Lines>,
+    pub output: Arc<RecordedOutput>,
     /// Its own folders, gone with the run.
     _folders: TempDir,
 }
@@ -130,33 +128,33 @@ impl Run {
             fs::write(data_folder.join(name), contents).unwrap();
         }
         let data = data_folder;
-        let (engine, _shell, _arrivals) = shell::engine();
-        let program = shell::load(&engine, component);
-        let lines = Arc::new(Lines::default());
+        let shell = TestShell::new();
+        let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
+        let program = engine.load(Path::new(component)).unwrap();
+        let output = Arc::new(RecordedOutput::default());
         let environment = ProgramEnvironment {
-            output: Some(Arc::clone(&lines) as Arc<dyn ProgramOutput>),
             grants: Some(Arc::clone(grants) as Arc<dyn ProgramGrants>),
             folders: Some(ProgramFolders {
                 data,
                 cache: folders.path().join("cache"),
             }),
-            ..ProgramEnvironment::default()
+            ..printing_to(&output)
         };
         let running = engine.run(&program, environment).unwrap();
         Run {
             running,
-            lines,
+            output,
             _folders: folders,
         }
     }
 
     /// Waits until the program returned, failing when it ended otherwise.
     pub fn returned(&self) {
-        let end = block_on(self.running.ended());
+        let end = within(self.running.ended());
         assert!(
             matches!(end, ProgramEnd::Returned(Ok(()))),
             "{end:?}: {:#?}",
-            self.lines.all()
+            self.output.lines()
         );
     }
 }

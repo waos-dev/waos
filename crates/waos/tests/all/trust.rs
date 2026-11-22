@@ -30,7 +30,7 @@ fn a_self_signed_chain_is_untrusted_by_the_check_and_by_https() {
     let run = Run::start(waos_test_programs::TRUST, &grants, &data);
     run.returned();
     assert_eq!(
-        run.lines.all(),
+        run.output.lines(),
         [
             "verify the chain: untrusted",
             "verify no chain: failed",

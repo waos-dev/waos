@@ -4,12 +4,13 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
-description = "A screen with no display for the WaOS engine: each program's request given a window at once, its frames refreshed, its last picture kept."
+description = "A headless shell for the WaOS engine: each program's request given a window at once on one screen with no display, its frames refreshed, and what each window was told kept for whoever reads it."
 homepage.workspace = true
 repository.workspace = true
 readme = "README.md"
 
 [dependencies]
+tokio.workspace = true
 waos.workspace = true
 
 [lints]

@@ -12,7 +12,7 @@
 //! draws, so it runs where the engine makes hardware buffers, on Apple's systems.
 
 use std::future::pending;
-use std::sync::mpsc::Receiver;
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use waos::bindings::wasdk::platform::menus::{
@@ -27,10 +27,10 @@ use waos::{
 };
 use waos_capabilities::{ChangedFuture, DomainRule, FileSystemGrant, NetworkGrant};
 
-use crate::shell::clipboard::CopiedText;
-use crate::shell::menus::{OpenedAt, TestMenus};
-use crate::shell::opener::Opened;
-use crate::shell::{self, Lines, WITHIN, resolved, wait_until};
+use crate::test_shell::clipboard::CopiedText;
+use crate::test_shell::menus::{OpenedAt, TestMenus};
+use crate::test_shell::opener::Opened;
+use crate::test_shell::{RecordedOutput, TestShell, config, wait_until, within};
 
 /// The line the program's text field starts with.
 const LINE: &str = "a line of waft-menus";
@@ -40,10 +40,11 @@ const META_LEFT: (u64, u64) = (0x0007_00e3, 0x0002_0000_0106);
 
 #[test]
 fn the_menu_bar_reaches_the_shell_flat_and_a_choice_in_it_reaches_the_items_callback() {
-    let (engine, shell, arrivals) = shell::engine();
-    let lines = Arc::new(Lines::default());
-    let (running, window) = run(&engine, &arrivals, &lines);
-    let bar = wait_for_bar(shell.menus(), "Greet");
+    let shell = TestShell::new();
+    let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
+    let output = Arc::new(RecordedOutput::default());
+    let (running, window) = run(&engine, &shell, &output);
+    let bar = wait_for_bar(&shell.menus, "Greet");
 
     let titles: Vec<_> = bar
         .iter()
@@ -71,26 +72,27 @@ fn the_menu_bar_reaches_the_shell_flat_and_a_choice_in_it_reaches_the_items_call
     );
 
     running.menu_chosen(greet.id);
-    lines.wait_for("menu bar: greet");
+    output.wait_for("menu bar: greet");
     close(&running, &window);
 }
 
 #[test]
 fn its_file_dialog_goes_through_waos_whose_pick_it_reads() {
-    let (engine, shell, arrivals) = shell::engine();
+    let shell = TestShell::new();
+    let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
     let scratch = tempfile::tempdir().unwrap();
     let file = std::fs::canonicalize(scratch.path())
         .unwrap()
         .join("to-open.txt");
     std::fs::write(&file, "a line to open").unwrap();
-    shell.file_dialogs().answer_next(vec![file]);
-    let lines = Arc::new(Lines::default());
-    let (running, window) = run(&engine, &arrivals, &lines);
-    let bar = wait_for_bar(shell.menus(), "Open…");
+    shell.file_dialogs.answer_next(vec![file]);
+    let output = Arc::new(RecordedOutput::default());
+    let (running, window) = run(&engine, &shell, &output);
+    let bar = wait_for_bar(&shell.menus, "Open…");
 
     running.menu_chosen(id_of(&bar, "Open…"));
-    lines.wait_for("opened: a line to open");
-    let asked = shell.file_dialogs().asked();
+    output.wait_for("opened: a line to open");
+    let asked = shell.file_dialogs.asked();
     assert_eq!(asked[0].kind, "open-file");
     assert_eq!(asked[0].parent, Some(window.id()), "a sheet on its window");
     close(&running, &window);
@@ -99,16 +101,17 @@ fn its_file_dialog_goes_through_waos_whose_pick_it_reads() {
 #[test]
 fn it_opens_a_link_and_posts_a_notification_through_waos_and_hears_its_click_and_what_is_opened_with_it()
  {
-    let (engine, shell, arrivals) = shell::engine();
-    let lines = Arc::new(Lines::default());
+    let shell = TestShell::new();
+    let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
+    let output = Arc::new(RecordedOutput::default());
     let grants = Arc::new(NotificationsAsked::default());
-    let (running, window) = run_with(&engine, &arrivals, &lines, Some(grants));
-    let bar = wait_for_bar(shell.menus(), "Open Link");
+    let (running, window) = run_with(&engine, &shell, &output, Some(grants));
+    let bar = wait_for_bar(&shell.menus, "Open Link");
 
     running.menu_chosen(id_of(&bar, "Open Link"));
-    lines.wait_for("opened link: ok");
+    output.wait_for("opened link: ok");
     assert_eq!(
-        shell.opener().opened(),
+        shell.opener.opened(),
         [Opened::Link {
             program: "waft-menus".to_owned(),
             link: "https://example.com/".to_owned(),
@@ -116,12 +119,12 @@ fn it_opens_a_link_and_posts_a_notification_through_waos_and_hears_its_click_and
     );
 
     running.menu_chosen(id_of(&bar, "Notify"));
-    wait_until("the program asks", || !shell.questions().is_empty());
-    assert_eq!(shell.questions()[0].1, Question::Notifications);
-    shell.answer_questions(Some(Answer::Granted));
-    lines.wait_for("notifications allowed: Granted");
-    lines.wait_for("posted: ok");
-    let shown = shell.notifications().shown();
+    wait_until("the program asks", || !shell.prompts.questions().is_empty());
+    assert_eq!(shell.prompts.questions()[0].1, Question::Notifications);
+    shell.prompts.answer_questions(Some(Answer::Granted));
+    output.wait_for("notifications allowed: Granted");
+    output.wait_for("posted: ok");
+    let shown = shell.notifications.shown();
     assert_eq!(shown.len(), 1);
     assert_eq!(shown[0].1.id, "greeting");
     assert_eq!(shown[0].1.body.as_deref(), Some("From waft-menus"));
@@ -131,7 +134,7 @@ fn it_opens_a_link_and_posts_a_notification_through_waos_and_hears_its_click_and
         action: Some("later".to_owned()),
         reply: None,
     });
-    lines.wait_for(r#"notification: greeting Some("later") None"#);
+    output.wait_for(r#"notification: greeting Some("later") None"#);
 
     let scratch = tempfile::tempdir().unwrap();
     let file = std::fs::canonicalize(scratch.path())
@@ -142,95 +145,95 @@ fn it_opens_a_link_and_posts_a_notification_through_waos_and_hears_its_click_and
         files: vec![file.clone()],
         links: vec!["https://example.com/opened".to_owned()],
     });
-    lines.wait_for(&format!(
+    output.wait_for(&format!(
         "opened with it: {}: a line opened with it",
         file.display()
     ));
-    lines.wait_for("opened with it: https://example.com/opened");
+    output.wait_for("opened with it: https://example.com/opened");
     close(&running, &window);
 }
 
 #[test]
 fn its_text_field_leaves_command_c_to_the_host_and_acts_on_edits_commands() {
-    let (engine, shell, arrivals) = shell::engine();
-    let lines = Arc::new(Lines::default());
-    let (running, window) = run(&engine, &arrivals, &lines);
-    lines.wait_for("field: focused");
+    let shell = TestShell::new();
+    let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
+    let output = Arc::new(RecordedOutput::default());
+    let (running, window) = run(&engine, &shell, &output);
+    output.wait_for("field: focused");
 
     window.edit(EditCommand::SelectAll);
-    resolved(window.key(key(KeyKind::Down, META_LEFT, None)));
+    within(window.key(key(KeyKind::Down, META_LEFT, None)));
     let c = (0x0007_0006, u64::from('c'));
     assert!(
-        !resolved(window.key(key(KeyKind::Down, c, Some("c")))),
+        !within(window.key(key(KeyKind::Down, c, Some("c")))),
         "⌘C is left to the host"
     );
-    resolved(window.key(key(KeyKind::Up, c, None)));
-    resolved(window.key(key(KeyKind::Up, META_LEFT, None)));
-    assert!(
-        shell.clipboard().written_types().is_empty(),
-        "nothing copied"
-    );
+    within(window.key(key(KeyKind::Up, c, None)));
+    within(window.key(key(KeyKind::Up, META_LEFT, None)));
+    assert!(shell.clipboard.written_types().is_empty(), "nothing copied");
 
     window.copy();
     wait_until("the user's copy is written", || {
-        !shell.clipboard().written_types().is_empty()
+        !shell.clipboard.written_types().is_empty()
     });
     assert_eq!(
-        shell.clipboard().paste(0, "text/plain").as_deref(),
+        shell.clipboard.paste(0, "text/plain").as_deref(),
         Some(LINE.as_bytes()),
         "all of the field's line, selected"
     );
     engine.set_clipboard(vec![CopiedText::item("pasted by the user")]);
     window.paste();
-    lines.wait_for("field: pasted by the user");
+    output.wait_for("field: pasted by the user");
     close(&running, &window);
 }
 
 #[test]
 fn its_text_field_handles_command_c_itself_where_the_program_has_no_menu_bar() {
-    let (engine, shell, arrivals) = shell::engine_of(shell::config(), |parts| {
-        parts.menu_bar = None;
-    });
-    let lines = Arc::new(Lines::default());
-    let (running, window) = run(&engine, &arrivals, &lines);
-    lines.wait_for("field: focused");
+    let shell = TestShell::new();
+    let mut parts = shell.shell();
+    parts.menu_bar = None;
+    let engine = WaOS::new(config(), parts, shell.platform()).unwrap();
+    let output = Arc::new(RecordedOutput::default());
+    let (running, window) = run(&engine, &shell, &output);
+    output.wait_for("field: focused");
     window.edit(EditCommand::SelectAll);
     window.copy();
     wait_until("the user's copy is written", || {
-        !shell.clipboard().written_types().is_empty()
+        !shell.clipboard.written_types().is_empty()
     });
 
-    resolved(window.key(key(KeyKind::Down, META_LEFT, None)));
+    within(window.key(key(KeyKind::Down, META_LEFT, None)));
     let c = (0x0007_0006, u64::from('c'));
     assert!(
-        resolved(window.key(key(KeyKind::Down, c, Some("c")))),
+        within(window.key(key(KeyKind::Down, c, Some("c")))),
         "the field handles ⌘C"
     );
-    resolved(window.key(key(KeyKind::Up, c, None)));
-    resolved(window.key(key(KeyKind::Up, META_LEFT, None)));
+    within(window.key(key(KeyKind::Up, c, None)));
+    within(window.key(key(KeyKind::Up, META_LEFT, None)));
     close(&running, &window);
 }
 
 #[test]
 fn its_tray_icons_menu_is_the_attached_one_where_the_icon_has_one_and_a_choice_reaches_its_item() {
-    let (engine, shell, arrivals) = shell::engine();
-    let lines = Arc::new(Lines::default());
-    let (running, window) = run(&engine, &arrivals, &lines);
-    let icon = shell.menus().wait_for_icon(1);
+    let shell = TestShell::new();
+    let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
+    let output = Arc::new(RecordedOutput::default());
+    let (running, window) = run(&engine, &shell, &output);
+    let icon = shell.menus.wait_for_icon(1);
     assert_eq!(icon.tooltip().as_deref(), Some("Waft menus"));
     let menu = icon.wait_for_attached_menu();
     icon.choose_in_attached_menu(id_of(&menu, "Open"));
-    lines.wait_for("tray menu: open");
+    output.wait_for("tray menu: open");
 
     icon.report(TrayIconEvent::Activated(Point { x: 1.0, y: 2.0 }));
-    let (at, entries) = shell.menus().wait_for_opened(1);
+    let (at, entries) = shell.menus.wait_for_opened(1);
     assert!(
         matches!(at, OpenedAt::View { view, x, y, .. } if view == window.id() && (x, y) == (10.0, 14.0)),
         "at (5, 7) in the view's logical pixels: {at:?}"
     );
     assert_eq!(ids(&entries), [40]);
-    shell.menus().choose(1, None);
-    lines.wait_for("context menu chose: None");
+    shell.menus.choose(1, None);
+    output.wait_for("context menu chose: None");
     close(&running, &window);
     assert!(icon.is_removed(), "the icon goes with the program");
 }
@@ -238,11 +241,12 @@ fn its_tray_icons_menu_is_the_attached_one_where_the_icon_has_one_and_a_choice_r
 #[test]
 fn its_tray_icons_menu_opens_at_the_icon_where_it_has_no_attached_one_and_a_choice_reaches_its_item()
  {
-    let (engine, shell, arrivals) = shell::engine();
-    shell.menus().without_attached_menus();
-    let lines = Arc::new(Lines::default());
-    let (running, window) = run(&engine, &arrivals, &lines);
-    let icon = shell.menus().wait_for_icon(1);
+    let shell = TestShell::new();
+    let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
+    shell.menus.without_attached_menus();
+    let output = Arc::new(RecordedOutput::default());
+    let (running, window) = run(&engine, &shell, &output);
+    let icon = shell.menus.wait_for_icon(1);
     // Waft's embedder takes the menu at the icon once it hears the icon's events.
     icon.wait_for_menu_at_icon_taken();
 
@@ -250,50 +254,53 @@ fn its_tray_icons_menu_opens_at_the_icon_where_it_has_no_attached_one_and_a_choi
         x: 1.0,
         y: 2.0,
     }));
-    let (at, entries) = shell.menus().wait_for_opened(1);
+    let (at, entries) = shell.menus.wait_for_opened(1);
     assert_eq!(at, OpenedAt::TrayIcon);
-    shell.menus().choose(1, Some(id_of(&entries, "Open")));
-    lines.wait_for("tray menu: open");
+    shell.menus.choose(1, Some(id_of(&entries, "Open")));
+    output.wait_for("tray menu: open");
     close(&running, &window);
 }
 
 #[test]
 fn a_tray_icon_the_platform_refuses_leaves_the_app_running_without_it() {
-    let (engine, shell, arrivals) = shell::engine();
-    shell.menus().refusing("no tray here");
-    let lines = Arc::new(Lines::default());
-    let (running, window) = run(&engine, &arrivals, &lines);
-    shell.menus().wait_for_refused(1);
-    assert_eq!(shell.menus().icons_added(), 0);
+    let shell = TestShell::new();
+    let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
+    shell.menus.refusing("no tray here");
+    let output = Arc::new(RecordedOutput::default());
+    let (running, window) = run(&engine, &shell, &output);
+    shell.menus.wait_for_refused(1);
+    assert_eq!(shell.menus.icons_added(), 0);
     close(&running, &window);
 }
 
-/// Runs `examples/waft-menus` with this computer's fonts, as an app gives them, and no switch
-/// on, its output into `lines`; waits for its window.
+/// Runs `examples/waft-menus` on `engine`, over `shell`, with this computer's fonts, as an app
+/// gives them, and no switch on, its output into `output`; waits for its window.
 fn run(
     engine: &WaOS,
-    arrivals: &Receiver<ProgramView>,
-    lines: &Arc<Lines>,
+    shell: &TestShell,
+    output: &Arc<RecordedOutput>,
 ) -> (RunningProgram, ProgramView) {
-    run_with(engine, arrivals, lines, None)
+    run_with(engine, shell, output, None)
 }
 
 /// [`run`], with `grants`.
 fn run_with(
     engine: &WaOS,
-    arrivals: &Receiver<ProgramView>,
-    lines: &Arc<Lines>,
+    shell: &TestShell,
+    output: &Arc<RecordedOutput>,
     grants: Option<Arc<dyn ProgramGrants>>,
 ) -> (RunningProgram, ProgramView) {
-    let program = shell::load(engine, waos_test_programs::WAFT_MENUS);
+    let program = engine
+        .load(Path::new(waos_test_programs::WAFT_MENUS))
+        .unwrap();
     let environment = ProgramEnvironment {
-        output: Some(Arc::clone(lines) as Arc<dyn ProgramOutput>),
+        output: Some(Arc::clone(output) as Arc<dyn ProgramOutput>),
         grants,
         ..waos_local::LocalCapabilities::new().environment()
     };
     let running = engine.run(&program, environment).unwrap();
-    let window = arrivals
-        .recv_timeout(WITHIN)
+    let window = within(shell.headless.view(0))
+        .and_then(|shown| shown.view())
         .expect("waft-menus asks for its window");
     (running, window)
 }
@@ -301,7 +308,7 @@ fn run_with(
 /// Asks the window to close, which quits the app, and waits for its end.
 fn close(running: &RunningProgram, window: &ProgramView) {
     window.close_requested();
-    let end = shell::wait_for_end(running);
+    let end = within(running.ended());
     assert!(matches!(end, ProgramEnd::Returned(Ok(()))), "{end:?}");
 }
 

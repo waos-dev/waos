@@ -38,7 +38,7 @@ impl ViewPlacement for NoWindows {
 pub(crate) struct NoRefreshes;
 
 impl VsyncWaiter for NoRefreshes {
-    fn next_vsync(&self, _screen: u64) {}
+    fn next_vsync(&self, _screen: u64, _on_refresh: waos::OnRefresh) {}
 }
 
 /// An engine placing views with `views`, with nobody to ask, keeping compiled programs in
@@ -143,10 +143,10 @@ pub(crate) mod drawing {
     use waos::bindings::wasdk::platform::views::RequestId;
     use waos::{
         EngineTime, FreezePolicy, HardwareBufferMode, HttpProxy, NoPrompts, PlatformState,
-        ProgramView, RunningProgram, WaOS, WaOSConfig,
+        ProgramView, RunningProgram, ViewRequest, WaOS, WaOSConfig, WindowConfig,
     };
 
-    use waos_headless::{Display, HeadlessScreen, Refreshes};
+    use waos_headless::{Display, HeadlessShell, Refreshes};
 
     /// The size of a window [`engine`]'s shell gives, in physical pixels, at 2x.
     pub(crate) const WINDOW_WIDTH: u32 = 400;
@@ -177,8 +177,8 @@ pub(crate) mod drawing {
 
     /// An engine as [`engine`]'s, placing views in windows when `in_windows`.
     fn engine_giving(in_windows: bool, code_cache: &Path) -> Arc<WaOS> {
-        let screen = HeadlessScreen::new(display(in_windows), Refreshes::WhenAsked);
-        let shell = screen.shell(Arc::new(NoPrompts));
+        let headless = HeadlessShell::new(display(in_windows), Refreshes::WhenAsked);
+        let shell = headless.shell(Arc::new(NoPrompts));
         let config = WaOSConfig {
             code_cache: code_cache.to_owned(),
             freeze: FreezePolicy::default(),
@@ -191,19 +191,21 @@ pub(crate) mod drawing {
             hardware_buffers: HardwareBufferMode::Offscreen,
         };
         let platform = PlatformState {
-            screens: vec![screen.screen()],
+            screens: vec![headless.screen()],
             platform_brightness: Brightness::Light,
             caption_style: None,
             locales: Vec::new(),
             time_zone: None,
         };
-        let engine = Arc::new(WaOS::new(config, shell, platform).expect("an engine"));
-        screen.attach(&engine);
-        engine
+        Arc::new(WaOS::new(config, shell, platform).expect("an engine"))
     }
 
     /// Opens a view for `program`'s `request` in a window of its own, filling the test screen.
     pub(crate) fn add_window(program: &RunningProgram, request: RequestId) -> ProgramView {
-        HeadlessScreen::new(display(true), Refreshes::WhenAsked).add_view(program, request)
+        let request = ViewRequest {
+            id: request,
+            config: WindowConfig::default(),
+        };
+        HeadlessShell::new(display(true), Refreshes::WhenAsked).add_view(program, request)
     }
 }

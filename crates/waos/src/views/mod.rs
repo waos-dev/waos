@@ -33,7 +33,7 @@ pub(crate) use frames_in_flight::FrameInFlight;
 pub use key_reply::{KeyHandledFuture, KeyReply};
 pub(crate) use layer_presents::LayerPresents;
 pub use modifiers::HeldModifiers;
-pub use program_view::ProgramView;
+pub use program_view::{ProgramView, WeakProgramView};
 pub use program_views::Watching;
 pub(crate) use program_views::{ProgramViews, ViewChange};
 pub(crate) use screen_refreshes::{Refresh, ScreenRefreshes};
