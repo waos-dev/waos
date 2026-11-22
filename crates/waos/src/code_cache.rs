@@ -8,8 +8,10 @@
 //! - A file is never changed where it is, since a running program may have it mapped. Each compile
 //!   writes a file of its own under a name no other file had, written whole beside it and renamed
 //!   to it, so that a file of the cache is always whole; then the component's files compiled from
-//!   it as it was before go. Two compiles of the same component at once each leave a file, both
-//!   its code.
+//!   it as it was before go. In one process a component is compiled once at a time: a load or a
+//!   compile that finds it compiling waits for that compile and maps what it wrote, as programs
+//!   started together would otherwise each compile it again. Two processes compiling the same
+//!   component at once each leave a file, both its code.
 //!   A program mapping one keeps its pages: Unix's systems remove a mapped file's name and keep
 //!   its pages, and Windows, which refuses to remove a file wasmtime maps (it shares the file for
 //!   reading alone), lets its date change, so a file the system will not remove is dated
@@ -28,16 +30,20 @@
 //!   So the code of a component about to be removed is removed first, and a file written for a
 //!   component removed while it compiled is removed once written.
 
+use std::collections::HashMap;
 use std::fs::{self, File};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::io::{ErrorKind, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::SystemTime;
 
 use anyhow::{Context, Result};
 use wasmtime::Engine;
 use wasmtime::component::Component;
+
+use crate::sync::locked;
 
 /// The date of a file that is no component's code any longer but which the system would not
 /// remove, because a program maps it: no component is dated so, so it is never mapped again.
@@ -47,6 +53,11 @@ const RETIRED: SystemTime = SystemTime::UNIX_EPOCH;
 /// first when there is none compiled from it as it is now by an engine like `engine`.
 pub(crate) fn load(engine: &Engine, component: &Path, cache: &Path) -> Result<Component> {
     let files = ComponentFiles::of(cache, engine, component)?;
+    if let Some(current) = files.current(component) {
+        return map(engine, &current);
+    }
+    let turn = files.compiling();
+    let _turn = locked(&turn);
     if let Some(current) = files.current(component) {
         return map(engine, &current);
     }
@@ -63,6 +74,11 @@ pub(crate) fn load(engine: &Engine, component: &Path, cache: &Path) -> Result<Co
 /// holds its code already.
 pub(crate) fn compile(engine: &Engine, component: &Path, cache: &Path) -> Result<()> {
     let files = ComponentFiles::of(cache, engine, component)?;
+    if files.current(component).is_some() {
+        return Ok(());
+    }
+    let turn = files.compiling();
+    let _turn = locked(&turn);
     if files.current(component).is_some() {
         return Ok(());
     }
@@ -145,6 +161,14 @@ impl ComponentFiles {
             self.prefix,
             std::process::id()
         ))
+    }
+
+    /// The turn to compile the component in this process, which a compile holds while it runs.
+    fn compiling(&self) -> Arc<Mutex<()>> {
+        static COMPILING: OnceLock<Mutex<HashMap<PathBuf, Arc<Mutex<()>>>>> = OnceLock::new();
+        let mut compiling = locked(COMPILING.get_or_init(Mutex::default));
+        let turn = compiling.entry(self.cache.join(&self.prefix)).or_default();
+        Arc::clone(turn)
     }
 
     fn holds(&self, path: &Path) -> bool {
@@ -359,5 +383,26 @@ mod tests {
         drop(mapped);
         remove_retired(cache.path());
         assert!(!file.exists(), "gone once nothing maps it");
+    }
+
+    #[test]
+    fn programs_loading_one_component_at_once_compile_it_once() {
+        let folder = tempfile::tempdir().unwrap();
+        let component = folder.path().join("empty.wat");
+        fs::write(&component, "(component)").unwrap();
+        let cache = folder.path().join("cache");
+        fs::create_dir(&cache).unwrap();
+        let engine = Engine::default();
+        let start = std::sync::Barrier::new(4);
+        std::thread::scope(|scope| {
+            for _ in 0..4 {
+                scope.spawn(|| {
+                    start.wait();
+                    load(&engine, &component, &cache).unwrap();
+                });
+            }
+        });
+        let compiled = fs::read_dir(&cache).unwrap().count();
+        assert_eq!(compiled, 1, "one compile, which the other loads mapped");
     }
 }
