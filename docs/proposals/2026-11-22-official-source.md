@@ -14,7 +14,7 @@ Written 2026-11-22, once Zed's port ran on a phone and there was no place to get
 
 5. **Updates stay bound to the key** (2026-11-22). A publisher's website may later vouch for its key (`/.well-known/waos-publisher.json`), shown as "From waos.app" where WaOS is online, as Android's Digital Asset Links tie an app to a website; it labels, and never decides what installs or updates, so a website taken over cannot reach a device. Not built now. The lead weighed the website also vouching for a new key, so a key could change without a reinstall, which makes the website a way onto every device; and the old key signing the new one, as Android's v3 signatures do, which nobody needs yet.
 
-6. **WaOS tells it needs a newer version as it installs a package** (2026-11-22): from the interfaces the package's component imports, which name their versions, against what this WaOS provides, with which one is missing. Nothing is added to the index until a catalog needs to hide what a WaOS cannot run. The lead weighed the index listing each package's imports, which lets the library mark a program before it is downloaded, at the cost of a field to keep.
+6. **A program built for a newer interface is told when it is opened, as today** (2026-11-22): the engine cannot link it, and ends it saying it was built for another version of the interface and what does not match (`crates/waos/src/running/incompatible.rs`). Nothing is checked at install and nothing is added to the index, until a catalog needs to hide what a WaOS cannot run. Why: wasmtime's linker cannot list what it provides, so checking earlier means linking a stand-in for each import, compiling the whole program at install, or a list generated from `wit/` that follows wasmtime's version rules; each costs more than telling the user at open, which WaOS already does. The lead weighed the index listing each package's imports, which lets the library mark a program before it is downloaded, at the cost of a field to keep.
 
 ## Choices made along the way
 
@@ -25,7 +25,7 @@ Written 2026-11-22, once Zed's port ran on a phone and there was no place to get
 ## The work, in order
 
 1. This proposal.
-2. `waos package verify <file> --publisher <key>`, which verifies a package and that its publisher is the key named; and the store refusing a package whose component imports an interface this WaOS lacks, naming it.
+2. `waos package verify <file> --publisher <key>`, which verifies a package and that its publisher is the key named.
 3. WaOS's release packaging its built-in apps with `waos package`, signed with `WAOS_SIGNING_KEY`, their `index.json` and packages attached to the release, so `github.com/waos-dev/waos` is a source of them.
 4. `waos-dev/apps`: `catalog.toml`, the step that collects, verifies and copies, run hourly, on a push and by hand, and a README that is the guide to running a source.
 5. `list.waos.app` among WaOS's sources.
