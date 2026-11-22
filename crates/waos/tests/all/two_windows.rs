@@ -96,7 +96,10 @@ fn a_hidden_window_gets_no_frames_while_the_shown_one_keeps_drawing_and_draws_ag
     }
     let first_picture = views[0].picture().unwrap().expect("first window picture");
     let second_picture = views[1].picture().unwrap().expect("second window picture");
-    assert!(is_not_blank(&first_picture), "first window drew its spinner");
+    assert!(
+        is_not_blank(&first_picture),
+        "first window drew its spinner"
+    );
     assert!(
         is_not_blank(&second_picture),
         "second window drew its spinner"

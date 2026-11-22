@@ -29,7 +29,9 @@ use waos::{
 };
 use waos_headless::SCREEN;
 
-use crate::test_shell::{DISPLAY, TestShell, WITHIN, config, metrics, pixel_of, wait_until, within};
+use crate::test_shell::{
+    DISPLAY, TestShell, WITHIN, config, metrics, pixel_of, wait_until, within,
+};
 
 /// How long a program stays hidden before the engine freezes it, in the freezing tests.
 const AFTER_HIDDEN: Duration = Duration::from_millis(300);
@@ -89,7 +91,9 @@ fn a_presented_hardware_buffer_holds_the_triangle_over_the_clear_colour() {
     let triangle = engine
         .load(Path::new(waos_test_programs::TRIANGLE))
         .unwrap();
-    let running = engine.run(&triangle, ProgramEnvironment::default()).unwrap();
+    let running = engine
+        .run(&triangle, ProgramEnvironment::default())
+        .unwrap();
     let view = within(shell.headless.view(0))
         .and_then(|shown| shown.view())
         .expect("triangle asks for its view");
@@ -148,7 +152,9 @@ fn a_frame_due_while_the_shell_holds_every_hardware_buffer_gets_another_and_the_
     let triangle = engine
         .load(Path::new(waos_test_programs::TRIANGLE))
         .unwrap();
-    let running = engine.run(&triangle, ProgramEnvironment::default()).unwrap();
+    let running = engine
+        .run(&triangle, ProgramEnvironment::default())
+        .unwrap();
     let _view = arrived
         .recv_timeout(WITHIN)
         .expect("triangle asks for its view");
@@ -197,7 +203,9 @@ fn a_covered_triangle_draws_while_watched_and_not_minimized_nor_after_the_watch(
     let triangle = engine
         .load(Path::new(waos_test_programs::TRIANGLE))
         .unwrap();
-    let running = engine.run(&triangle, ProgramEnvironment::default()).unwrap();
+    let running = engine
+        .run(&triangle, ProgramEnvironment::default())
+        .unwrap();
     let view = within(shell.headless.view(0))
         .and_then(|shown| shown.view())
         .expect("triangle asks for its view");
@@ -267,7 +275,9 @@ fn a_frozen_triangle_keeps_one_hardware_buffer_and_draws_again_after_the_thaw() 
     let triangle = engine
         .load(Path::new(waos_test_programs::TRIANGLE))
         .unwrap();
-    let running = engine.run(&triangle, ProgramEnvironment::default()).unwrap();
+    let running = engine
+        .run(&triangle, ProgramEnvironment::default())
+        .unwrap();
     let view = within(shell.headless.view(0))
         .and_then(|shown| shown.view())
         .expect("triangle asks for its view");
@@ -309,7 +319,9 @@ fn app_suspending_with_triangle_drawing_resolves_with_no_gpu_work_in_flight() {
     let triangle = engine
         .load(Path::new(waos_test_programs::TRIANGLE))
         .unwrap();
-    let running = engine.run(&triangle, ProgramEnvironment::default()).unwrap();
+    let running = engine
+        .run(&triangle, ProgramEnvironment::default())
+        .unwrap();
     let view = within(shell.headless.view(0))
         .and_then(|shown| shown.view())
         .expect("triangle asks for its view");

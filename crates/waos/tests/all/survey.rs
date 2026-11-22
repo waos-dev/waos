@@ -32,7 +32,7 @@ const MS: u64 = 1_000_000;
 
 /// Survey running under a test shell of its own, the view it asked for, and what it prints.
 struct Survey {
-    shell: TestShell,
+    _shell: TestShell,
     _engine: WaOS,
     running: RunningProgram,
     shown: Arc<HeadlessView>,
@@ -50,7 +50,7 @@ fn survey() -> Survey {
     let shown = within(shell.headless.view(0)).expect("survey asks for a view");
     let view = shown.view().expect("survey's view");
     Survey {
-        shell,
+        _shell: shell,
         _engine: engine,
         running,
         shown,

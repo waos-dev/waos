@@ -94,7 +94,10 @@ fn a_press_reaches_it_and_the_picture_after_it_is_held_until_the_shell_takes_it(
         SECOND,
     );
     running.remove_view(window.id());
-    assert!(matches!(within(running.ended()), ProgramEnd::Returned(Ok(()))));
+    assert!(matches!(
+        within(running.ended()),
+        ProgramEnd::Returned(Ok(()))
+    ));
 }
 
 #[test]
@@ -128,7 +131,10 @@ fn once_its_window_is_gone_a_wait_ends_without_a_picture_and_there_is_none_to_re
     running.remove_view(window.id());
     assert!(!within(window.picture_after_events()));
     assert!(window.picture().unwrap().is_none());
-    assert!(matches!(within(running.ended()), ProgramEnd::Returned(Ok(()))));
+    assert!(matches!(
+        within(running.ended()),
+        ProgramEnd::Returned(Ok(()))
+    ));
 }
 
 /// The program, its output into `output`, and its window once it opened.

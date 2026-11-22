@@ -52,6 +52,8 @@ use waos_headless::{Display, HeadlessShell, Refreshes};
 use cameras::TestCameras;
 use clipboard::TestClipboard;
 use composition::TestCompositor;
+pub use engine_log::engine_log;
+pub use events::{metrics, mouse};
 use file_dialogs::TestFileDialogs;
 use image_codecs::TestImageCodecs;
 use machines::TestMachinePicker;
@@ -60,12 +62,10 @@ use media_players::TestMediaPlayers;
 use menus::TestMenus;
 use notifications::TestNotifications;
 use opener::TestOpener;
-use sound::TestSound;
-use video_frames::TestVideoFrameReaders;
-pub use engine_log::engine_log;
-pub use events::{metrics, mouse};
 pub use output::RecordedOutput;
 pub use prompts::TestPrompts;
+use sound::TestSound;
+use video_frames::TestVideoFrameReaders;
 
 /// How long a test waits for what it expects before it fails: long enough that only a broken
 /// build reaches it, a debug build of Waft starting on a busy machine among what does not.

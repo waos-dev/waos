@@ -449,8 +449,8 @@ impl Run {
             .load(Path::new(waos_test_programs::VIDEO_PLAYER))
             .unwrap();
         let running = engine.run(&program, environment).unwrap();
-        let shown = within(shell.headless.view(view_index))
-            .expect("the video player asks for its window");
+        let shown =
+            within(shell.headless.view(view_index)).expect("the video player asks for its window");
         let window = shown.view().expect("the video player's view");
         Run {
             running,

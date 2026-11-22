@@ -289,7 +289,9 @@ fn a_frozen_program_asked_to_close_its_view_hears_it_and_is_frozen_again_once_it
         .and_then(|shown| shown.view())
         .expect("survey asks for a view");
     output.wait_until("survey describes its view", |lines| {
-        lines.iter().any(|line| line.starts_with("view 1: 1600x1000"))
+        lines
+            .iter()
+            .any(|line| line.starts_with("view 1: 1600x1000"))
     });
     within(engine.app_suspending());
     within(running.stopped_at_freeze());
@@ -368,7 +370,9 @@ fn run_survey_shown(
         .and_then(|shown| shown.view())
         .expect("survey asks for a view");
     output.wait_until("survey describes its view", |lines| {
-        lines.iter().any(|line| line.starts_with("view 1: 1600x1000"))
+        lines
+            .iter()
+            .any(|line| line.starts_with("view 1: 1600x1000"))
     });
     output.wait_for("view 1: its window keeps between 320x240 and 1920x1200");
     (running, view, output)
