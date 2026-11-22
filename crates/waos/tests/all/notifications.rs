@@ -101,9 +101,7 @@ fn a_program_given_no_grants_is_denied_every_post_and_nobody_is_asked() {
     let shell = TestShell::new();
     let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
     let output = Arc::new(RecordedOutput::default());
-    let environment = ProgramEnvironment {
-        ..printing_to(&output)
-    };
+    let environment = printing_to(&output);
     let program = engine
         .load(Path::new(waos_test_programs::NOTIFICATIONS))
         .unwrap();

@@ -227,9 +227,7 @@ fn a_program_given_no_sound_devices_has_no_sound() {
     let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
     let program = engine.load(Path::new(waos_test_programs::SOUND)).unwrap();
     let output = Arc::new(RecordedOutput::default());
-    let environment = ProgramEnvironment {
-        ..printing_to(&output)
-    };
+    let environment = printing_to(&output);
     let running = engine.run(&program, environment).unwrap();
     output.wait_for("no sound");
     within(running.ended());
