@@ -16,33 +16,35 @@
 //! permission as the user set it, since the engine never reads a refusal from a post's answer.
 
 use std::future::pending;
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, UNIX_EPOCH};
 
 use waos::bindings::wasdk::platform::notifications::Activation;
 use waos::{
-    Answer, FreezePolicy, ManualTime, NotificationAction, ProgramEnvironment, ProgramGrants,
-    ProgramOutput, Question, RunningProgram, WaOS,
+    Answer, EngineTime, FreezePolicy, ManualTime, NotificationAction, ProgramEnvironment,
+    ProgramGrants, Question, RunningProgram, WaOS, WaOSConfig,
 };
 use waos_capabilities::{ChangedFuture, DomainRule, FileSystemGrant, NetworkGrant};
 
-use crate::shell::{self, Lines, TestShell, resolved, wait_until, wait_until_frozen};
+use crate::test_shell::{RecordedOutput, TestShell, config, printing_to, wait_until, within};
 
 /// The engine's tick, at which a freeze takes.
 const TICK: Duration = Duration::from_millis(100);
 
 #[test]
 fn a_post_is_denied_without_asking_until_the_user_allows_it_then_shown_scheduled_and_removed() {
-    let (engine, shell, _arrivals) = shell::engine();
-    let lines = Arc::new(Lines::default());
+    let shell = TestShell::new();
+    let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
+    let output = Arc::new(RecordedOutput::default());
     let running = run(
         &engine,
         "notifications",
         Arc::new(NotificationGrants::not_asked()),
-        &lines,
+        &output,
     );
-    lines.wait_for("permission: not asked");
-    lines.wait_for("post greeting: denied");
+    output.wait_for("permission: not asked");
+    output.wait_for("post greeting: denied");
     allow_when_asked(&shell);
     for line in [
         "permission asked: granted",
@@ -52,11 +54,15 @@ fn a_post_is_denied_without_asking_until_the_user_allows_it_then_shown_scheduled
         "remove old: done",
         "listening for activations",
     ] {
-        lines.wait_for(line);
+        output.wait_for(line);
     }
-    assert_eq!(shell.questions().len(), 1, "the denied post asked nothing");
+    assert_eq!(
+        shell.prompts.questions().len(),
+        1,
+        "the denied post asked nothing"
+    );
 
-    let shown = shell.notifications().shown();
+    let shown = shell.notifications.shown();
     assert_eq!(shown.len(), 1, "each post replaced the one before");
     let (program, greeting) = &shown[0];
     assert_eq!(program, "notifications");
@@ -75,7 +81,7 @@ fn a_post_is_denied_without_asking_until_the_user_allows_it_then_shown_scheduled
             action("answer", "Answer", Some("Say something")),
         ]
     );
-    let scheduled = shell.notifications().scheduled();
+    let scheduled = shell.notifications.scheduled();
     assert_eq!(scheduled.len(), 1);
     assert_eq!(scheduled[0].notification.id, "reminder");
     assert!(scheduled[0].notification.silent);
@@ -84,7 +90,7 @@ fn a_post_is_denied_without_asking_until_the_user_allows_it_then_shown_scheduled
         UNIX_EPOCH + Duration::from_secs(4_102_444_800)
     );
     assert_eq!(
-        shell.notifications().removed(),
+        shell.notifications.removed(),
         [("notifications".to_owned(), "old".to_owned())]
     );
     stop(&running);
@@ -92,13 +98,15 @@ fn a_post_is_denied_without_asking_until_the_user_allows_it_then_shown_scheduled
 
 #[test]
 fn a_program_given_no_grants_is_denied_every_post_and_nobody_is_asked() {
-    let (engine, shell, _arrivals) = shell::engine();
-    let lines = Arc::new(Lines::default());
+    let shell = TestShell::new();
+    let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
+    let output = Arc::new(RecordedOutput::default());
     let environment = ProgramEnvironment {
-        output: Some(Arc::clone(&lines) as Arc<dyn ProgramOutput>),
-        ..ProgramEnvironment::default()
+        ..printing_to(&output)
     };
-    let program = shell::load(&engine, waos_test_programs::NOTIFICATIONS);
+    let program = engine
+        .load(Path::new(waos_test_programs::NOTIFICATIONS))
+        .unwrap();
     let running = engine.run(&program, environment).unwrap();
     for line in [
         "permission: denied",
@@ -109,30 +117,31 @@ fn a_program_given_no_grants_is_denied_every_post_and_nobody_is_asked() {
         "schedule reminder: denied",
         "listening for activations",
     ] {
-        lines.wait_for(line);
+        output.wait_for(line);
     }
-    assert!(shell.questions().is_empty());
-    assert!(shell.notifications().shown().is_empty());
-    assert!(shell.notifications().scheduled().is_empty());
+    assert!(shell.prompts.questions().is_empty());
+    assert!(shell.notifications.shown().is_empty());
+    assert!(shell.notifications.scheduled().is_empty());
     stop(&running);
 }
 
 #[test]
 fn a_system_with_a_permission_per_program_is_asked_after_waos_and_its_refusal_reads_denied() {
-    let (engine, shell, _arrivals) = shell::engine();
-    shell.notifications().keep_permissions();
-    shell.notifications().refuse(true);
-    let lines = Arc::new(Lines::default());
+    let shell = TestShell::new();
+    let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
+    shell.notifications.keep_permissions();
+    shell.notifications.refuse(true);
+    let output = Arc::new(RecordedOutput::default());
     let grants = Arc::new(NotificationGrants::not_asked());
-    let running = run(&engine, "notifications", Arc::clone(&grants), &lines);
-    lines.wait_for("permission: not asked");
-    lines.wait_for("post greeting: denied");
-    wait_until("the program asks", || !shell.questions().is_empty());
+    let running = run(&engine, "notifications", Arc::clone(&grants), &output);
+    output.wait_for("permission: not asked");
+    output.wait_for("post greeting: denied");
+    wait_until("the program asks", || !shell.prompts.questions().is_empty());
     assert!(
-        shell.notifications().asked().is_empty(),
+        shell.notifications.asked().is_empty(),
         "the system is not asked before WaOS's question is answered"
     );
-    shell.answer_questions(Some(Answer::Granted));
+    shell.prompts.answer_questions(Some(Answer::Granted));
     for line in [
         "permission asked: denied",
         "post greeting again: denied",
@@ -140,10 +149,10 @@ fn a_system_with_a_permission_per_program_is_asked_after_waos_and_its_refusal_re
         "schedule reminder: denied",
         "listening for activations",
     ] {
-        lines.wait_for(line);
+        output.wait_for(line);
     }
     assert_eq!(
-        shell.notifications().asked(),
+        shell.notifications.asked(),
         ["notifications"],
         "asked once WaOS's answer was granted"
     );
@@ -162,12 +171,13 @@ fn a_system_with_a_permission_per_program_is_asked_after_waos_and_its_refusal_re
 
 #[test]
 fn a_system_that_refuses_the_program_reads_as_denied_and_the_users_answer_is_kept() {
-    let (engine, shell, _arrivals) = shell::engine();
-    shell.notifications().keep_permissions();
-    shell.notifications().refuse(true);
-    let lines = Arc::new(Lines::default());
+    let shell = TestShell::new();
+    let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
+    shell.notifications.keep_permissions();
+    shell.notifications.refuse(true);
+    let output = Arc::new(RecordedOutput::default());
     let grants = Arc::new(NotificationGrants::granted());
-    let running = run(&engine, "notifications", Arc::clone(&grants), &lines);
+    let running = run(&engine, "notifications", Arc::clone(&grants), &output);
     for line in [
         "permission: granted",
         "post greeting: denied",
@@ -177,7 +187,7 @@ fn a_system_that_refuses_the_program_reads_as_denied_and_the_users_answer_is_kep
         "schedule reminder: denied",
         "listening for activations",
     ] {
-        lines.wait_for(line);
+        output.wait_for(line);
     }
     assert_eq!(
         grants.answer(Question::Notifications),
@@ -185,11 +195,11 @@ fn a_system_that_refuses_the_program_reads_as_denied_and_the_users_answer_is_kep
         "the user's answer is kept"
     );
     assert!(
-        shell.questions().is_empty(),
+        shell.prompts.questions().is_empty(),
         "nobody was asked in WaOS again"
     );
     assert_eq!(
-        shell.notifications().asked(),
+        shell.notifications.asked(),
         ["notifications"],
         "the system is asked although WaOS's question was answered before"
     );
@@ -204,11 +214,12 @@ fn a_system_that_refuses_the_program_reads_as_denied_and_the_users_answer_is_kep
 #[test]
 fn a_post_a_system_without_a_permission_per_program_denies_leaves_the_permission_as_the_user_set_it()
  {
-    let (engine, shell, _arrivals) = shell::engine();
-    shell.notifications().refuse(true);
-    let lines = Arc::new(Lines::default());
+    let shell = TestShell::new();
+    let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
+    shell.notifications.refuse(true);
+    let output = Arc::new(RecordedOutput::default());
     let grants = Arc::new(NotificationGrants::granted());
-    let running = run(&engine, "notifications", Arc::clone(&grants), &lines);
+    let running = run(&engine, "notifications", Arc::clone(&grants), &output);
     for line in [
         "permission: granted",
         "post greeting: denied",
@@ -216,10 +227,10 @@ fn a_post_a_system_without_a_permission_per_program_denies_leaves_the_permission
         "post greeting again: denied",
         "listening for activations",
     ] {
-        lines.wait_for(line);
+        output.wait_for(line);
     }
     assert!(
-        shell.notifications().asked().is_empty(),
+        shell.notifications.asked().is_empty(),
         "a system with no permission per program has no question of its own"
     );
     stop(&running);
@@ -228,7 +239,7 @@ fn a_post_a_system_without_a_permission_per_program_denies_leaves_the_permission
 /// The ids of the posts and schedules the system refused, in order.
 fn refused_ids(shell: &TestShell) -> Vec<String> {
     shell
-        .notifications()
+        .notifications
         .refused()
         .into_iter()
         .map(|(_program, id)| id)
@@ -237,27 +248,28 @@ fn refused_ids(shell: &TestShell) -> Vec<String> {
 
 #[test]
 fn a_click_made_before_the_program_listens_reaches_its_first_stream_and_later_ones_every_stream() {
-    let (engine, shell, _arrivals) = shell::engine();
-    let lines = Arc::new(Lines::default());
+    let shell = TestShell::new();
+    let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
+    let output = Arc::new(RecordedOutput::default());
     let running = run(
         &engine,
         "notifications",
         Arc::new(NotificationGrants::not_asked()),
-        &lines,
+        &output,
     );
     wait_until("the program asks, not listening yet", || {
-        !shell.questions().is_empty()
+        !shell.prompts.questions().is_empty()
     });
     running.notification_activated(activation("later", None));
     allow_when_asked(&shell);
-    lines.wait_for("activated: greeting Some(\"later\") None");
+    output.wait_for("activated: greeting Some(\"later\") None");
 
     running.notification_activated(activation("answer", Some("on my way")));
-    lines.wait_for("activated: greeting Some(\"answer\") Some(\"on my way\")");
+    output.wait_for("activated: greeting Some(\"answer\") Some(\"on my way\")");
     // The second stream hears in order, so it says the click that waited before this, if at all.
-    lines.wait_for("heard again: greeting Some(\"answer\")");
+    output.wait_for("heard again: greeting Some(\"answer\")");
     assert!(
-        !lines.has("heard again: greeting Some(\"later\")"),
+        !output.has("heard again: greeting Some(\"later\")"),
         "the click that waited went to the first stream alone"
     );
     stop(&running);
@@ -267,25 +279,31 @@ fn a_click_made_before_the_program_listens_reaches_its_first_stream_and_later_on
 fn an_activation_thaws_a_frozen_program_until_it_has_read_it() {
     let time = ManualTime::new();
     let only_when_suspended = FreezePolicy { after_hidden: None };
-    let (engine, _shell, _arrivals) = shell::engine_on(&time, only_when_suspended);
-    let lines = Arc::new(Lines::default());
+    let shell = TestShell::new();
+    let config = WaOSConfig {
+        time: EngineTime::Manual(time.clone()),
+        freeze: only_when_suspended,
+        ..config()
+    };
+    let engine = WaOS::new(config, shell.shell(), shell.platform()).unwrap();
+    let output = Arc::new(RecordedOutput::default());
     let running = run(
         &engine,
         "notifications",
         Arc::new(NotificationGrants::granted()),
-        &lines,
+        &output,
     );
-    lines.wait_for("listening for activations");
+    output.wait_for("listening for activations");
 
-    resolved(engine.app_suspending());
-    wait_until_frozen(&running);
+    within(engine.app_suspending());
+    within(running.frozen());
     // A tick past the moment it last ran: woken without a thaw, it would stop at its next epoch
     // check, before it could say what it heard.
     time.elapse(TICK);
     running.notification_activated(activation("later", None));
-    lines.wait_for("activated: greeting Some(\"later\") None");
-    lines.wait_for("heard again: greeting Some(\"later\")");
-    wait_until_frozen(&running);
+    output.wait_for("activated: greeting Some(\"later\") None");
+    output.wait_for("heard again: greeting Some(\"later\")");
+    within(running.frozen());
 
     engine.app_resumed();
     stop(&running);
@@ -293,25 +311,29 @@ fn an_activation_thaws_a_frozen_program_until_it_has_read_it() {
 
 #[test]
 fn ids_are_each_programs_own() {
-    let (engine, shell, _arrivals) = shell::engine();
-    let (first_lines, second_lines) = (Arc::new(Lines::default()), Arc::new(Lines::default()));
+    let shell = TestShell::new();
+    let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
+    let (first_output, second_output) = (
+        Arc::new(RecordedOutput::default()),
+        Arc::new(RecordedOutput::default()),
+    );
     let first = run(
         &engine,
         "first",
         Arc::new(NotificationGrants::granted()),
-        &first_lines,
+        &first_output,
     );
     let second = run(
         &engine,
         "second",
         Arc::new(NotificationGrants::granted()),
-        &second_lines,
+        &second_output,
     );
-    first_lines.wait_for("listening for activations");
-    second_lines.wait_for("listening for activations");
+    first_output.wait_for("listening for activations");
+    second_output.wait_for("listening for activations");
 
     let mut shown: Vec<(String, String)> = shell
-        .notifications()
+        .notifications
         .shown()
         .into_iter()
         .map(|(program, notification)| (program, notification.id))
@@ -323,7 +345,7 @@ fn ids_are_each_programs_own() {
         [of("first", "greeting"), of("second", "greeting")],
         "two notifications of one id"
     );
-    let mut removed = shell.notifications().removed();
+    let mut removed = shell.notifications.removed();
     removed.sort();
     assert_eq!(removed, [of("first", "old"), of("second", "old")]);
     stop(&first);
@@ -332,63 +354,66 @@ fn ids_are_each_programs_own() {
 
 #[test]
 fn a_shell_without_replies_or_scheduling_offers_neither() {
-    let (engine, shell, _arrivals) = shell::engine();
-    shell.notifications().without_replies_or_scheduling();
-    let lines = Arc::new(Lines::default());
+    let shell = TestShell::new();
+    let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
+    shell.notifications.without_replies_or_scheduling();
+    let output = Arc::new(RecordedOutput::default());
     let running = run(
         &engine,
         "notifications",
         Arc::new(NotificationGrants::granted()),
-        &lines,
+        &output,
     );
-    lines.wait_for("replies: none");
-    lines.wait_for("scheduling: none");
-    lines.wait_for("listening for activations");
-    assert!(shell.notifications().scheduled().is_empty());
+    output.wait_for("replies: none");
+    output.wait_for("scheduling: none");
+    output.wait_for("listening for activations");
+    assert!(shell.notifications.scheduled().is_empty());
     stop(&running);
 }
 
 #[test]
 fn a_shell_without_notifications_gives_the_program_none() {
-    let (engine, _shell, _arrivals) = shell::engine_of(shell::config(), |parts| {
-        parts.notifications = None;
-    });
-    let lines = Arc::new(Lines::default());
+    let shell = TestShell::new();
+    let mut parts = shell.shell();
+    parts.notifications = None;
+    let engine = WaOS::new(config(), parts, shell.platform()).unwrap();
+    let output = Arc::new(RecordedOutput::default());
     let running = run(
         &engine,
         "notifications",
         Arc::new(NotificationGrants::granted()),
-        &lines,
+        &output,
     );
-    shell::wait_for_end(&running);
-    assert_eq!(lines.all(), ["notifications: none"]);
+    within(running.ended());
+    assert_eq!(output.lines(), ["notifications: none"]);
 }
 
-/// Runs `examples/notifications`, named `name`, with `grants`, its output into `lines`.
+/// Runs `examples/notifications`, named `name`, with `grants`, its output into `output`.
 fn run(
     engine: &WaOS,
     name: &str,
     grants: Arc<NotificationGrants>,
-    lines: &Arc<Lines>,
+    output: &Arc<RecordedOutput>,
 ) -> RunningProgram {
     let environment = ProgramEnvironment {
-        output: Some(Arc::clone(lines) as Arc<dyn ProgramOutput>),
         grants: Some(grants as Arc<dyn ProgramGrants>),
-        ..ProgramEnvironment::default()
+        ..printing_to(output)
     };
-    let program = shell::load(engine, waos_test_programs::NOTIFICATIONS).named(name);
-
+    let program = engine
+        .load(Path::new(waos_test_programs::NOTIFICATIONS))
+        .unwrap()
+        .named(name);
     engine.run(&program, environment).unwrap()
 }
 
 /// Waits until the program asks its user for notifications, and allows them.
 fn allow_when_asked(shell: &TestShell) {
-    wait_until("the program asks", || !shell.questions().is_empty());
+    wait_until("the program asks", || !shell.prompts.questions().is_empty());
     assert_eq!(
-        shell.questions(),
+        shell.prompts.questions(),
         [("notifications".to_owned(), Question::Notifications)]
     );
-    shell.answer_questions(Some(Answer::Granted));
+    shell.prompts.answer_questions(Some(Answer::Granted));
 }
 
 /// The user chose the greeting's `action`, typing `reply`.
@@ -410,7 +435,7 @@ fn action(id: &str, label: &str, reply_placeholder: Option<&str>) -> Notificatio
 
 fn stop(running: &RunningProgram) {
     running.stop();
-    shell::wait_for_end(running);
+    within(running.ended());
 }
 
 /// Grants that give nothing but notifications, as the user answered their question, kept as an
