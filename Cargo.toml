@@ -57,8 +57,10 @@ wasdk-adapter-gpui = { path = "sdk/wasdk-adapter-gpui" }
 # release (the design's decision 7). 0.63, whose `block_on`, which runs a program from its `main`,
 # goes on through a yield made before the program waits on anything; 0.62's aborts there.
 # `futures-stream` makes a WIT stream a `futures::Stream` too; `async-spawn` is the executor's
-# `spawn_local`.
-wit-bindgen = { version = "=0.63.0", features = ["futures-stream", "async-spawn"] }
+# `spawn_local`; `inter-task-wakeup` lets a waker another thread holds wake the executor, as a
+# program's threads do (`docs/proposals/2026-11-22-cooperative-threads.md`): without it, such a
+# wake panics.
+wit-bindgen = { version = "=0.63.0", features = ["futures-stream", "async-spawn", "inter-task-wakeup"] }
 # Where each `#[wasdk::worker]` of a program registers its entry, for the one `worker-entry.run`
 # the program exports to find: a static constructor per entry, which `wasm-ld` runs from
 # `__wasm_call_ctors` and wit-bindgen's exports call before anything else.
