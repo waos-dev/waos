@@ -23,11 +23,11 @@ use std::sync::Arc;
 
 use gpui::{
     AnyWindowHandle, Bounds, Capslock, DevicePixels, DispatchEventResult, Edges,
-    FrameRequestSource, GpuSpecs, KeyDownEvent, KeyUpEvent, Modifiers, ModifiersChangedEvent,
-    Pixels, PlatformAtlas, PlatformDisplay, PlatformInput, PlatformInputHandler, PlatformWindow,
-    Point, PromptButton, PromptLevel, RequestFrameOptions, Scene, Size, WindowAppearance,
-    WindowBackgroundAppearance, WindowBounds, WindowControlArea, WindowInsets, WindowParams,
-    WindowVisibility, px, size,
+    FrameRequestSource, GpuSpecs, KeyDownEvent, KeyUpEvent, Keystroke, Modifiers,
+    ModifiersChangedEvent, Pixels, PlatformAtlas, PlatformDisplay, PlatformInput,
+    PlatformInputHandler, PlatformWindow, Point, PromptButton, PromptLevel, RequestFrameOptions,
+    Scene, Size, WindowAppearance, WindowBackgroundAppearance, WindowBounds, WindowControlArea,
+    WindowInsets, WindowParams, WindowVisibility, px, size,
 };
 use gpui_wgpu::{WgpuAtlas, WgpuContext, WgpuRenderer, WgpuSurfaceConfig};
 use raw_window_handle::{HandleError, HasDisplayHandle, HasWindowHandle};
@@ -39,7 +39,7 @@ use crate::display::bounds_of;
 use crate::keys::{HeldModifiers, KeyMeaning};
 use crate::pointer::{Hover, PointerState};
 use crate::slot::Slot;
-use crate::text_input::TextInputBridge;
+use crate::text_input::{TextInputBridge, Typing};
 
 /// The window GPUI holds.
 pub(crate) struct WasdkWindow {
@@ -206,11 +206,17 @@ impl WindowShared {
             ViewEvent::Pointer(pointer) => self.pointer_event(&pointer),
             ViewEvent::Key(key) => self.key_event(key),
             ViewEvent::Focus(focus) => self.active_changed(focus.state == ViewFocusState::Focused),
-            ViewEvent::TextInputEditingValue(value) => self.with_text_input(|bridge, handler| {
-                if let Some(handler) = handler {
-                    bridge.apply(value, handler)
+            ViewEvent::TextInputEditingValue(value) => {
+                let mut typing = Vec::new();
+                self.with_text_input(|bridge, handler| {
+                    if let Some(handler) = handler {
+                        typing = bridge.apply(value, handler);
+                    }
+                });
+                for step in typing {
+                    self.type_step(step);
                 }
-            }),
+            }
             ViewEvent::TextInputClosed => {
                 self.with_text_input(|bridge, handler| bridge.closed(handler))
             }
@@ -349,6 +355,37 @@ impl WindowShared {
             KeyMeaning::Unnamed => false,
         };
         reply.handled(handled);
+    }
+
+    /// Does `step` of an edit of an input with no document: types or shows its text in the
+    /// focused input, or presses the key it means, as a keyboard's key reaches GPUI.
+    fn type_step(&self, step: Typing) {
+        match step {
+            Typing::Text(text) => {
+                self.type_text(&text);
+            }
+            Typing::Preview(text) => {
+                self.with_input_handler(|handler| {
+                    handler.replace_and_mark_text_in_range(None, &text, None)
+                });
+            }
+            Typing::EndPreview => {
+                self.with_input_handler(|handler| handler.unmark_text());
+            }
+            Typing::Key(key) => {
+                let keystroke = Keystroke {
+                    modifiers: Modifiers::default(),
+                    key: key.to_owned(),
+                    key_char: None,
+                };
+                self.dispatch(PlatformInput::KeyDown(KeyDownEvent {
+                    keystroke: keystroke.clone(),
+                    is_held: false,
+                    prefer_character_input: false,
+                }));
+                self.dispatch(PlatformInput::KeyUp(KeyUpEvent { keystroke }));
+            }
+        }
     }
 
     /// Types `text` into the focused input; whether there was one.
