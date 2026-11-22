@@ -10,6 +10,7 @@
 //! none.
 
 use std::fs;
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -20,19 +21,20 @@ use waos::bindings::wasdk::media::media_players::{
     MediaTrackKind, PauseReason, PlayerActivity, PlayerState, PlayerStatus,
 };
 use waos::bindings::wasdk::platform::windows::Size;
-use waos::{ProgramEnd, ProgramEnvironment, ProgramGrants, ProgramOutput, RunningProgram, WaOS};
+use waos::{ProgramEnd, ProgramEnvironment, ProgramGrants, RunningProgram, WaOS};
 use waos_capabilities::ProgramFolders;
 
 use crate::reaching::{TestGrants, off};
 use crate::shell::media_players::{Destination, OpenedPlayer, PlayerCall};
-use crate::shell::{self, Lines, TestShell, wait_until};
+use crate::test_shell::{RecordedOutput, TestShell, config, printing_to, wait_until, within};
 
 /// Where the program plays each source from.
 const TWO_SECONDS: Duration = Duration::from_secs(2);
 
 #[test]
 fn a_player_of_a_file_shows_on_the_programs_layer_and_its_state_reaches_the_program() {
-    let (engine, shell, _arrivals) = shell::engine();
+    let shell = TestShell::new();
+    let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
     let run = Run::start(&engine, &TestGrants::new(off(), false), "/data/clip.mp4\n");
     let player = opened(&shell, 0);
     let clip = fs::canonicalize(run.data()).unwrap().join("clip.mp4");
@@ -46,8 +48,9 @@ fn a_player_of_a_file_shows_on_the_programs_layer_and_its_state_reaches_the_prog
         ],
         ..ready(Some((640.0, 360.0)))
     });
-    run.lines.wait_for("/data/clip.mp4: ready 640x360, playing");
-    run.lines.wait_for("text track text-en on");
+    run.output
+        .wait_for("/data/clip.mp4: ready 640x360, playing");
+    run.output.wait_for("text track text-en on");
     assert_eq!(
         player.calls(),
         [
@@ -63,34 +66,32 @@ fn a_player_of_a_file_shows_on_the_programs_layer_and_its_state_reaches_the_prog
         "the picture on the layer the program made, played from where it moved to, the text \
          track it picked from the state's tracks shown"
     );
-    assert!(!shell.compositor().layers_made()[0].opaque);
-    run.lines.wait_for("cues: none");
+    assert!(!shell.compositor.layers_made()[0].opaque);
+    run.output.wait_for("cues: none");
     player.report_cues(vec![cue("Hello"), cue("again")]);
-    run.lines.wait_for("cues: Hello / again");
+    run.output.wait_for("cues: Hello / again");
     player.report_metadata(MediaMetadata {
         title: Some("Bip Bop".to_owned()),
         artist: None,
         album: None,
         artwork: None,
     });
-    run.lines.wait_for("title: Bip Bop");
+    run.output.wait_for("title: Bip Bop");
     player.report(PlayerState {
         activity: PlayerActivity::Paused(Some(PauseReason::Interrupted)),
         ..ready(Some((640.0, 360.0)))
     });
-    run.lines.wait_for("/data/clip.mp4: ready 640x360");
+    run.output.wait_for("/data/clip.mp4: ready 640x360");
 
     run.running.stop();
-    assert!(matches!(
-        shell::wait_for_end(&run.running),
-        ProgramEnd::Stopped
-    ));
+    assert!(matches!(within(run.running.ended()), ProgramEnd::Stopped));
     assert!(player.is_dropped(), "stopped as the program ends");
 }
 
 #[test]
 fn a_link_opens_once_its_host_passes_the_rules_and_refused_sources_reach_no_shell() {
-    let (engine, shell, _arrivals) = shell::engine();
+    let shell = TestShell::new();
+    let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
     let sources = [
         "/elsewhere/clip.mp4",
         "http://192.0.2.1/a.m3u8",
@@ -98,21 +99,21 @@ fn a_link_opens_once_its_host_passes_the_rules_and_refused_sources_reach_no_shel
         "http://localhost/a.m3u8",
     ];
     let run = Run::start(&engine, &TestGrants::new(off(), true), &sources.join("\n"));
-    run.lines.wait_for(
+    run.output.wait_for(
         "/elsewhere/clip.mp4: failed (no file at /elsewhere/clip.mp4 among the program's)",
     );
-    run.lines
+    run.output
         .wait_for("http://192.0.2.1/a.m3u8: failed (the program may not reach 192.0.2.1)");
-    run.lines.wait_for(
+    run.output.wait_for(
         "ftp://example.com/a.mp4: failed (\"ftp://example.com/a.mp4\" is neither a path inside the program nor an http or https link)",
     );
     let player = opened(&shell, 0);
     assert_eq!(player.url, "http://localhost/a.m3u8");
     player.report(ready(None));
-    run.lines
+    run.output
         .wait_for("http://localhost/a.m3u8: ready, playing");
     assert_eq!(
-        shell.media_players().opened().len(),
+        shell.media_players.opened().len(),
         1,
         "nothing refused reaches the shell"
     );
@@ -130,28 +131,29 @@ fn a_link_opens_once_its_host_passes_the_rules_and_refused_sources_reach_no_shel
         "what the program asked while the host was looked up, in order"
     );
     run.running.stop();
-    shell::wait_for_end(&run.running);
+    within(run.running.ended());
 }
 
 #[test]
 fn a_shell_without_players_gives_the_program_none() {
-    let (engine, _shell, _arrivals) = shell::engine_of(shell::config(), |parts| {
-        parts.media_players = None;
-    });
+    let shell = TestShell::new();
+    let mut parts = shell.shell();
+    parts.media_players = None;
+    let engine = WaOS::new(config(), parts, shell.platform()).unwrap();
     let run = Run::start(&engine, &TestGrants::new(off(), false), "/data/clip.mp4\n");
     assert!(matches!(
-        shell::wait_for_end(&run.running),
+        within(run.running.ended()),
         ProgramEnd::Returned(Ok(()))
     ));
-    assert_eq!(run.lines.all(), ["media players: none"]);
+    assert_eq!(run.output.lines(), ["media players: none"]);
 }
 
 /// The player opened after `before` others, once the shell has it.
 fn opened(shell: &TestShell, before: usize) -> OpenedPlayer {
     wait_until("the shell opens a player", || {
-        shell.media_players().opened().len() > before
+        shell.media_players.opened().len() > before
     });
-    shell.media_players().opened()[before].clone()
+    shell.media_players.opened()[before].clone()
 }
 
 /// A track of `kind`, in English, named `id`.
@@ -212,7 +214,7 @@ fn ready(size: Option<(f64, f64)>) -> PlayerState {
 /// its `/data/sources`, beside a clip of its own, `/data/clip.mp4`.
 struct Run {
     running: RunningProgram,
-    lines: Arc<Lines>,
+    output: Arc<RecordedOutput>,
     folders: TempDir,
 }
 
@@ -227,18 +229,19 @@ impl Run {
         fs::create_dir_all(&own.cache).unwrap();
         fs::write(own.data.join("sources"), sources).unwrap();
         fs::write(own.data.join("clip.mp4"), "a clip").unwrap();
-        let lines = Arc::new(Lines::default());
+        let output = Arc::new(RecordedOutput::default());
         let environment = ProgramEnvironment {
-            output: Some(Arc::clone(&lines) as Arc<dyn ProgramOutput>),
             grants: Some(Arc::clone(grants) as Arc<dyn ProgramGrants>),
             folders: Some(own),
-            ..ProgramEnvironment::default()
+            ..printing_to(&output)
         };
-        let program = shell::load(engine, waos_test_programs::MEDIA_PLAYERS);
+        let program = engine
+            .load(Path::new(waos_test_programs::MEDIA_PLAYERS))
+            .unwrap();
         let running = engine.run(&program, environment).unwrap();
         Run {
             running,
-            lines,
+            output,
             folders,
         }
     }
