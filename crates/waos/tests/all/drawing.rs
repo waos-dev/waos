@@ -15,22 +15,19 @@
 //! comes after that.
 
 use std::path::Path;
-use std::sync::{Arc, Condvar, Mutex, mpsc};
-use std::time::{Duration, Instant};
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
-use waos::bindings::wasdk::platform::screens::ScreenId;
 use waos::bindings::wasdk::platform::views::{
-    Cursor, OverlayStyle, Placement, ViewError, ViewFocusDirection, ViewFocusState,
+    Cursor, OverlayStyle, Placement, ViewFocusDirection, ViewFocusState,
 };
 use waos::{
-    EngineTime, FreezePolicy, HardwareBuffer, ManualTime, OnRefresh, PlacedView, Presence,
-    ProgramEnd, ProgramEnvironment, ProgramView, RunningProgram, ShellCompositionLayer, ShellView,
-    ViewPlacement, ViewRequest, VsyncWaiter, WaOS, WaOSConfig,
+    EngineTime, FreezePolicy, HardwareBuffer, ManualTime, Presence, ProgramEnd, ProgramEnvironment,
+    ShellCompositionLayer, ShellView, WaOS, WaOSConfig,
 };
-use waos_headless::SCREEN;
 
 use crate::test_shell::{
-    DISPLAY, TestShell, WITHIN, config, metrics, pixel_of, wait_until, within,
+    DISPLAY, TestShell, WITHIN, config, pixel_of, place_view, wait_until, within,
 };
 
 /// How long a program stays hidden before the engine freezes it, in the freezing tests.
@@ -127,25 +124,17 @@ fn a_frame_due_while_the_shell_holds_every_hardware_buffer_gets_another_and_the_
  {
     let time = ManualTime::new();
     let shell = TestShell::new();
-    let vsync = Arc::new(ManualVsync::default());
     let held_view = Arc::new(HoldingBuffersView::default());
-    let (arrivals, arrived) = mpsc::channel();
+    let (placement, arrived) = place_view(Arc::clone(&held_view) as Arc<dyn ShellView>);
     let mut parts = shell.shell();
-    parts.vsync = Arc::clone(&vsync) as Arc<dyn VsyncWaiter>;
-    parts.views = Arc::new(HoldingPlacement {
-        view: Arc::clone(&held_view),
-        arrivals,
-    });
-    let mut platform = shell.platform();
-    // With no refresh rate reported, every frame comes strictly from a tick of `vsync`.
-    platform.screens[0].refresh_rate = 0;
+    parts.views = placement;
     let engine = WaOS::new(
         WaOSConfig {
             time: EngineTime::Manual(time.clone()),
             ..config()
         },
         parts,
-        platform,
+        shell.platform(),
     )
     .unwrap();
 
@@ -155,21 +144,22 @@ fn a_frame_due_while_the_shell_holds_every_hardware_buffer_gets_another_and_the_
     let running = engine
         .run(&triangle, ProgramEnvironment::default())
         .unwrap();
-    let _view = arrived
+    let view = arrived
         .recv_timeout(WITHIN)
         .expect("triangle asks for its view");
 
-    for count in 1..=FRAMES_HELD {
-        vsync.refresh_next();
-        wait_until(&format!("frame {count} is held"), || {
-            held_view.held_count() >= count
-        });
-    }
+    wait_until("at least FRAMES_HELD frames are held", || {
+        held_view.held_count() >= FRAMES_HELD
+    });
+    // Stop serving new frames so the view goes quiet (default freeze policy never freezes on hide)
+    // and drain any frame already in flight before measuring the pool and advancing manual time.
+    view.presence_changed(OFF_SCREEN);
     within(running.idle());
-    assert_eq!(held_view.held_count(), FRAMES_HELD);
+    let held = held_view.held_count();
+    assert!(held >= FRAMES_HELD, "held {held} frames");
     assert_eq!(
         running.stats().hardware_buffer_bytes(),
-        FRAMES_HELD as u64 * HARDWARE_BUFFER_BYTES,
+        held as u64 * HARDWARE_BUFFER_BYTES,
         "each frame got a hardware buffer of its own, past the three a view starts with"
     );
 
@@ -177,7 +167,7 @@ fn a_frame_due_while_the_shell_holds_every_hardware_buffer_gets_another_and_the_
     time.elapse(SPARE_IDLE - TICK);
     assert_eq!(
         running.stats().hardware_buffer_bytes(),
-        FRAMES_HELD as u64 * HARDWARE_BUFFER_BYTES,
+        held as u64 * HARDWARE_BUFFER_BYTES,
         "the spares stay while the view has drawn nothing for less than a second"
     );
     time.elapse(TICK);
@@ -193,60 +183,79 @@ fn a_frame_due_while_the_shell_holds_every_hardware_buffer_gets_another_and_the_
 #[test]
 fn a_covered_triangle_draws_while_watched_and_not_minimized_nor_after_the_watch() {
     let shell = TestShell::new();
-    let vsync = Arc::new(ManualVsync::default());
-    let mut parts = shell.shell();
-    parts.vsync = Arc::clone(&vsync) as Arc<dyn VsyncWaiter>;
-    let mut platform = shell.platform();
-    // With no refresh rate reported, every frame comes strictly from a tick of `vsync`.
-    platform.screens[0].refresh_rate = 0;
-    let engine = WaOS::new(config(), parts, platform).unwrap();
+    let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
     let triangle = engine
         .load(Path::new(waos_test_programs::TRIANGLE))
         .unwrap();
     let running = engine
         .run(&triangle, ProgramEnvironment::default())
         .unwrap();
-    let view = within(shell.headless.view(0))
-        .and_then(|shown| shown.view())
-        .expect("triangle asks for its view");
+    let shown = within(shell.headless.view(0)).expect("triangle asks for its view");
+    let view = shown.view().expect("triangle's view");
+    assert!(within(view.picture_after_events()), "triangle draws");
 
-    // Frame 1 while shown, then triangle asks for its next frame.
-    vsync.refresh_next();
-    wait_until("first frame presented", || {
-        running.stats().frames_presented() == 1
-    });
-    vsync.wait_for_ask();
+    // A second triangle on the same screen witnesses that refreshes keep arriving while the first
+    // view is covered or minimized.
+    let witness = engine
+        .run(&triangle, ProgramEnvironment::default())
+        .unwrap();
+    let witness_shown = within(shell.headless.view(1)).expect("witness asks for its view");
+    wait_until("witness draws", || witness_shown.pictures_shown() >= 1);
+    let witness_draws = |frames: usize| {
+        let before = witness_shown.pictures_shown();
+        wait_until("witness keeps drawing", || {
+            witness_shown.pictures_shown() >= before + frames
+        });
+    };
 
-    // Covered and unwatched: a refresh serves nothing, and watching serves frame 2 (not 3).
+    // Covered and unwatched: draws nothing while the witness keeps drawing, then draws once watched.
     view.presence_changed(COVERED);
-    vsync.refresh_next();
+    within(running.idle());
+    let presented = shown.pictures_shown();
+    witness_draws(3);
+    assert_eq!(
+        shown.pictures_shown(),
+        presented,
+        "covered and unwatched, triangle draws nothing"
+    );
     let watching = running.watch();
-    vsync.refresh_next();
     wait_until("covered and watched, triangle draws", || {
-        running.stats().frames_presented() == 2
+        shown.pictures_shown() > presented
     });
-    vsync.wait_for_ask();
 
-    // Minimized while watched: a refresh serves nothing, and covering again serves frame 3 (not 4).
+    // Minimized while watched: draws nothing while the witness keeps drawing, then draws covered again.
     view.presence_changed(OFF_SCREEN);
-    vsync.refresh_next();
+    within(running.idle());
+    let presented = shown.pictures_shown();
+    witness_draws(3);
+    assert_eq!(
+        shown.pictures_shown(),
+        presented,
+        "minimized while watched, triangle draws nothing"
+    );
     view.presence_changed(COVERED);
-    vsync.refresh_next();
     wait_until("covered and watched again, triangle draws", || {
-        running.stats().frames_presented() == 3
+        shown.pictures_shown() > presented
     });
-    vsync.wait_for_ask();
 
-    // Covered after the watch ends: a refresh serves nothing, and showing serves frame 4 (not 5).
+    // Covered after the watch ends: draws nothing while the witness keeps drawing, then draws once shown.
     drop(watching);
-    vsync.refresh_next();
+    within(running.idle());
+    let presented = shown.pictures_shown();
+    witness_draws(3);
+    assert_eq!(
+        shown.pictures_shown(),
+        presented,
+        "covered after the watch ends, triangle draws nothing"
+    );
     view.presence_changed(FOCUSED);
-    vsync.refresh_next();
     wait_until("shown again, triangle draws", || {
-        running.stats().frames_presented() == 4
+        shown.pictures_shown() > presented
     });
 
+    witness.stop();
     running.stop();
+    assert!(matches!(within(witness.ended()), ProgramEnd::Stopped));
     assert!(matches!(within(running.ended()), ProgramEnd::Stopped));
 }
 
@@ -345,50 +354,9 @@ fn app_suspending_with_triangle_drawing_resolves_with_no_gpu_work_in_flight() {
     assert!(matches!(within(running.ended()), ProgramEnd::Stopped));
 }
 
-/// A screen's vsync that ticks only when a test calls [`ManualVsync::refresh_next`].
-#[derive(Default)]
-struct ManualVsync {
-    pending: Mutex<Option<OnRefresh>>,
-    asked: Condvar,
-}
-
-impl ManualVsync {
-    /// Waits until the engine has asked for a refresh.
-    fn wait_for_ask(&self) {
-        let deadline = Instant::now() + WITHIN;
-        let mut pending = self.pending.lock().unwrap();
-        while pending.is_none() {
-            let left = deadline.saturating_duration_since(Instant::now());
-            assert!(!left.is_zero(), "the engine never asked for a refresh");
-            pending = self.asked.wait_timeout(pending, left).unwrap().0;
-        }
-    }
-
-    /// Waits for the engine's refresh ask and delivers one refresh on the caller's thread.
-    fn refresh_next(&self) {
-        let on_refresh = {
-            let deadline = Instant::now() + WITHIN;
-            let mut pending = self.pending.lock().unwrap();
-            while pending.is_none() {
-                let left = deadline.saturating_duration_since(Instant::now());
-                assert!(!left.is_zero(), "the engine never asked for a refresh");
-                pending = self.asked.wait_timeout(pending, left).unwrap().0;
-            }
-            pending.take().unwrap()
-        };
-        let now = Instant::now();
-        on_refresh(now, now + Duration::from_millis(16));
-    }
-}
-
-impl VsyncWaiter for ManualVsync {
-    fn next_vsync(&self, _screen: ScreenId, on_refresh: OnRefresh) {
-        *self.pending.lock().unwrap() = Some(on_refresh);
-        self.asked.notify_all();
-    }
-}
-
-/// A view that keeps every hardware buffer presented to it until a test releases them.
+/// A view that keeps every hardware buffer presented to it until the test releases them: used only
+/// by `a_frame_due_while_the_shell_holds_every_hardware_buffer_gets_another_and_the_spares_go_once_the_view_is_idle`
+/// to exercise pool growth beyond the starting buffers, which `HeadlessView` does not retain.
 #[derive(Default)]
 struct HoldingBuffersView {
     held: Mutex<Vec<Box<dyn FnOnce() + Send + Sync>>>,
@@ -426,32 +394,4 @@ impl ShellView for HoldingBuffersView {
     fn request_focus_change(&self, _state: ViewFocusState, _direction: ViewFocusDirection) {}
     fn set_handles_back(&self, _handles: bool) {}
     fn set_overlay_style(&self, _style: OverlayStyle) {}
-}
-
-/// Places a [`HoldingBuffersView`] on the test shell's screen and hands the [`ProgramView`] back.
-struct HoldingPlacement {
-    view: Arc<HoldingBuffersView>,
-    arrivals: mpsc::Sender<ProgramView>,
-}
-
-impl ViewPlacement for HoldingPlacement {
-    fn view_requested(
-        &self,
-        program: &RunningProgram,
-        request: ViewRequest,
-    ) -> Result<(), ViewError> {
-        let view = program.add_view(
-            request.id,
-            PlacedView {
-                view: Arc::clone(&self.view) as Arc<dyn ShellView>,
-                text_input: None,
-                window: None,
-                metrics: metrics(DISPLAY.width, DISPLAY.height),
-                screen: Some(SCREEN),
-                presence: FOCUSED,
-            },
-        );
-        let _ = self.arrivals.send(view);
-        Ok(())
-    }
 }

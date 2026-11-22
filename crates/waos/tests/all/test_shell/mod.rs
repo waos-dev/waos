@@ -40,14 +40,16 @@ use std::time::{Duration, Instant};
 
 use waos::bindings::wasdk::platform::hardware_buffers::PixelBuffer;
 use waos::bindings::wasdk::platform::system::{Brightness, Locale};
+use waos::bindings::wasdk::platform::views::ViewError;
 use waos::{
-    EngineTime, FreezePolicy, HttpProxy, PlatformState, ProgramEnvironment, ProgramOutput, Prompts,
-    Shell, ShellAudioOutputPicker, ShellCameras, ShellClipboard, ShellCompositor,
-    ShellContextMenus, ShellFileDialogs, ShellImageCodecs, ShellMachinePicker, ShellMediaAssets,
-    ShellMediaPlayers, ShellMenuBar, ShellNotifications, ShellOpener, ShellRecordingIndicator,
-    ShellTrayIcons, ShellVideoFrameReaders, WaOSConfig,
+    EngineTime, FreezePolicy, HttpProxy, PlacedView, PlatformState, Presence, ProgramEnvironment,
+    ProgramOutput, ProgramView, Prompts, RunningProgram, Shell, ShellAudioOutputPicker,
+    ShellCameras, ShellClipboard, ShellCompositor, ShellContextMenus, ShellFileDialogs,
+    ShellImageCodecs, ShellMachinePicker, ShellMediaAssets, ShellMediaPlayers, ShellMenuBar,
+    ShellNotifications, ShellOpener, ShellRecordingIndicator, ShellTrayIcons,
+    ShellVideoFrameReaders, ShellView, ViewPlacement, ViewRequest, WaOSConfig,
 };
-use waos_headless::{Display, HeadlessShell, Refreshes};
+use waos_headless::{Display, HeadlessShell, Refreshes, SCREEN};
 
 use cameras::TestCameras;
 use clipboard::TestClipboard;
@@ -222,4 +224,45 @@ pub fn printing_to(output: &Arc<RecordedOutput>) -> ProgramEnvironment {
 pub fn pixel_of(picture: &PixelBuffer, x: usize, y: usize) -> [u8; 4] {
     let at = y * picture.row_bytes as usize + x * 4;
     picture.bytes[at..at + 4].try_into().unwrap()
+}
+
+/// Places `view` for a program's request on the test shell's screen, focused and in sight, and
+/// hands back its [`ProgramView`] through the returned receiver: for a test whose view holds
+/// hardware buffers back rather than replacing them as [`HeadlessShell`] does.
+pub fn place_view(
+    view: Arc<dyn ShellView>,
+) -> (Arc<dyn ViewPlacement>, mpsc::Receiver<ProgramView>) {
+    let (arrivals, arrived) = mpsc::channel();
+    (Arc::new(SingleView { view, arrivals }), arrived)
+}
+
+struct SingleView {
+    view: Arc<dyn ShellView>,
+    arrivals: mpsc::Sender<ProgramView>,
+}
+
+impl ViewPlacement for SingleView {
+    fn view_requested(
+        &self,
+        program: &RunningProgram,
+        request: ViewRequest,
+    ) -> Result<(), ViewError> {
+        let view = program.add_view(
+            request.id,
+            PlacedView {
+                view: Arc::clone(&self.view),
+                text_input: None,
+                window: None,
+                metrics: metrics(DISPLAY.width, DISPLAY.height),
+                screen: Some(SCREEN),
+                presence: Presence {
+                    on_screen: true,
+                    occluded: false,
+                    focused: true,
+                },
+            },
+        );
+        let _ = self.arrivals.send(view);
+        Ok(())
+    }
 }
