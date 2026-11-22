@@ -43,9 +43,7 @@ use waos_headless::HeadlessView;
 
 use crate::test_shell::clipboard::CopiedText;
 use crate::test_shell::menus::TestMenus;
-use crate::test_shell::{
-    DISPLAY, RecordedOutput, TestShell, config, metrics, wait_until, within,
-};
+use crate::test_shell::{DISPLAY, RecordedOutput, TestShell, config, metrics, wait_until, within};
 
 /// A note typed in, and its title.
 const SHOPPING: &str = "Shopping\nmilk, eggs";

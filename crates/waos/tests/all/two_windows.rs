@@ -39,9 +39,7 @@ fn a_hidden_window_gets_no_frames_while_the_shown_one_keeps_drawing_and_draws_ag
     let output = Arc::new(RecordedOutput::default());
     let running = engine.run(&program, printing_to(&output)).unwrap();
     let headless_views: Vec<Arc<HeadlessView>> = (0..TITLES.len())
-        .map(|index| {
-            within(shell.headless.view(index)).expect("two-windows asks for its windows")
-        })
+        .map(|index| within(shell.headless.view(index)).expect("two-windows asks for its windows"))
         .collect();
     let titles: Vec<String> = headless_views
         .iter()
@@ -77,9 +75,10 @@ fn a_hidden_window_gets_no_frames_while_the_shown_one_keeps_drawing_and_draws_ag
     });
     let hidden_presents = hidden.pictures_shown();
     let shown_presents = shown.pictures_shown();
-    wait_until("the shown window keeps drawing while the other is hidden", || {
-        shown.pictures_shown() >= shown_presents + 3
-    });
+    wait_until(
+        "the shown window keeps drawing while the other is hidden",
+        || shown.pictures_shown() >= shown_presents + 3,
+    );
     assert_eq!(
         hidden.pictures_shown(),
         hidden_presents,

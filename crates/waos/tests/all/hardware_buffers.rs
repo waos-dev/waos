@@ -22,10 +22,10 @@
 use std::path::Path;
 use std::sync::Arc;
 
+use waos::WaOS;
 use waos::bindings::wasdk::platform::hardware_buffers::{ImageError, ImageErrorKind};
 use waos::bindings::wasdk::platform::views::{Mutator, Placement};
 use waos::bindings::wasdk::platform::windows::{Point, Rect, Size};
-use waos::WaOS;
 
 use crate::test_shell::composition::{self, PresentedLayer};
 use crate::test_shell::hardware_buffer::pixel;
