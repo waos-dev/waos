@@ -23,8 +23,9 @@ What stands between today and a first stable release, in the order it blocks one
 - [ ] Android: a developer build that installs packages end to end; each program a task of its own.
 - [x] Android: This computer reaches the phone's files through All files access, asked as it is picked and said in WaOS's settings (`docs/proposals/2026-11-21-projects-on-machines.md`).
 - [ ] Android: a folder a program picks through the system's picker, which answers a document tree with no path, which WaOS cannot mount (a program on a machine opens its folders from the machine instead): a pick in the phone's own storage turned into its path while WaOS holds All files access, a cloud folder failing clearly. Designed with the lead on its own.
-- [ ] Phones: the safe area over a program's view, as GPUI reads it (`wasdk-adapter-gpui` giving the view's padding and keyboard as GPUI's window insets, and Zed's port keeping its workspace clear of them).
-- [ ] Phones: touch in `wasdk-adapter-gpui`, a finger given to GPUI as a touch, which it recognizes into taps and scrolls, not as a mouse, which drags a selection.
+- [x] Phones: the safe area over a program's view, as GPUI reads it (`wasdk-adapter-gpui` giving the view's padding and keyboard as GPUI's window insets, and Zed's port keeping its workspace clear of them).
+- [x] Phones: touch in `wasdk-adapter-gpui`, a finger given to GPUI as a touch, which it recognizes into taps and scrolls, not as a mouse, which drags a selection.
+- [ ] Phones: the soft keyboard types nothing into Zed's terminal, though it types into its editor (being researched).
 - [ ] iOS: developer builds (the App Store refuses downloaded code).
 - [ ] Windows, then Linux (`docs/proposals/2026-11-13-windows-and-linux.md`).
 - [ ] Remote machines over SSH (work order step 12).
