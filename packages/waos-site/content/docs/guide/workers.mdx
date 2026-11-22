@@ -31,7 +31,7 @@ let page = pages.next().await;
 
 ## With Waft
 
-Waft has no API for workers; start one from a task (`app.spawn`) and hand each reply to the app with `cx.update`, as Documents does: its window sends the text and asks for each page, and its worker sets the pages with Typst, draws them and writes the PDF.
+Waft has no API for workers; start one from a task (`app.spawn`) and hand each reply to the app with `cx.update`.
 
 ## Where it's missing
 

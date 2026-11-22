@@ -300,14 +300,14 @@ mod tests {
     fn a_program_whose_record_is_off_has_nothing_kept_and_what_was_is_removed() {
         let directory = tempfile::tempdir().unwrap();
         let store = Store::open(directory.path(), SourceProxy::None).unwrap();
-        let (notes, reader) = (
+        let (notes, camera) = (
             "dev.waos.notes".parse().unwrap(),
-            "dev.waos.reader".parse().unwrap(),
+            "dev.waos.camera".parse().unwrap(),
         );
         store.folders(&notes).unwrap();
-        store.folders(&reader).unwrap();
+        store.folders(&camera).unwrap();
         store.keep("dev.waos.notes", &day(20_400));
-        store.keep("dev.waos.reader", &day(20_400));
+        store.keep("dev.waos.camera", &day(20_400));
         store
             .change_program_settings(&notes, |own| own.record = Setting::Own(false))
             .unwrap();
@@ -320,7 +320,7 @@ mod tests {
             store.days("dev.waos.notes").is_empty(),
             "and nothing kept after"
         );
-        assert_eq!(store.days("dev.waos.reader").len(), 1, "another's stays");
+        assert_eq!(store.days("dev.waos.camera").len(), 1, "another's stays");
 
         store
             .change_program_settings(&notes, |own| own.record = Setting::Own(true))
@@ -329,7 +329,7 @@ mod tests {
             .change_global_settings(|global| global.record = false)
             .unwrap();
         assert!(
-            store.days("dev.waos.reader").is_empty(),
+            store.days("dev.waos.camera").is_empty(),
             "off for every program that follows"
         );
         store.keep("dev.waos.notes", &day(20_402));

@@ -48,7 +48,7 @@ What each folder is:
 | `crates/waos` | The engine any app can embed to run WaOS apps |
 | `crates/waos-cli` | `waos` |
 | `apps/waos` | The WaOS app |
-| `builtin-apps/` | Apps that come with WaOS: Notes, Reader, Inspector, a video player and more |
+| `builtin-apps/` | Apps that come with WaOS: Notes, Video Player, Camera and Inspector |
 | `examples/` | Small apps, one per feature |
 | `packages/waos-site` | waos.app |
 | `docs/proposals/` | The design and its decisions |

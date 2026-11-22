@@ -76,8 +76,8 @@ mod tests {
         let events = ProgramEvents::default();
         let unasked_read = UnaskedRead::default();
         tracing::subscriber::with_default(events.clone(), || {
-            unasked_read.warn_once("reader");
-            unasked_read.warn_once("reader");
+            unasked_read.warn_once("hardware-buffers");
+            unasked_read.warn_once("hardware-buffers");
         });
         assert_eq!(events.0.load(Ordering::Relaxed), 1);
     }
