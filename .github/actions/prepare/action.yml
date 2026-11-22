@@ -15,9 +15,12 @@ runs:
     # it built, so the test programs restored below are rebuilt only where a commit changed them,
     # and their compiled code stays valid.
     - uses: chetan/git-restore-mtime-action@v2
+    # Saved even when the job fails: what it compiled is good whatever a test found, and a job
+    # that failed on main would otherwise leave its cache behind main's code.
     - uses: Swatinem/rust-cache@v2
       with:
         save-if: ${{ github.ref == 'refs/heads/main' }}
+        cache-on-failure: true
     # The programs the engine's and the app's tests run, built for wasm32-wasip3 by
     # `waos-test-programs` into target/test-programs with their compiled code: minutes to make,
     # kept apart from rust-cache, which drops what the workspace's own build scripts make. Named by
