@@ -28,3 +28,4 @@ These flags go once Rust's own libc has threads, which Rust expects by the end o
 
 - `available_parallelism` answers 1, so a pool sized by it starts one thread.
 - tokio refuses its multi-threaded runtime (`rt-multi-thread`) on wasm when it compiles; its current-thread runtime builds.
+- tokio takes a wasm target without the `atomics` feature for one without threads: its timed park sleeps out the timeout with its lock held, so a thread that wakes it waits that long. Until tokio waits on its condvar there, a program using tokio's runtime with threads carries a copy of tokio patched so ([Porting an app](/docs/porting)).

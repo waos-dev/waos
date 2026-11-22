@@ -1,0 +1,25 @@
+---
+title: Zed
+description: "The first port, of Zed's editor and workspace: what WaOS lacked for a real app, and what porting one took."
+---
+
+[Zed](https://zed.dev) is the code editor GPUI was made for. Its port is the branch `waos` of [`github.com/waos-dev/zed`](https://github.com/waos-dev/zed), whose `WAOS.md` says how to build and release it, and which WaOS's official source lists as `dev.waos.zed`. Zed runs inside WaOS; its project, git, the terminal's shell and language servers are on a machine the user gives it, whose root the program mounts at `/`.
+
+It came before threads: every place Zed blocked or spawned a thread was rewritten to run in place, and what WaOS lacked for it was built into WaOS as it was found.
+
+## What the port is
+
+- **`crates/zed_waos`:** Zed's workspace as a program, with its panels, search, diagnostics and settings. Zed's own `zed` crate pulls in what a component cannot hold (WebRTC, a crash handler, wasmtime, the AWS SDK), so a port is Zed's `main` rewritten around the workspace.
+- **WASI paths in Zed's crates,** each marked `WaOS port:`: processes, the terminal and `which` on the machine, file watching over WaOS's `file-watching`, blocking work in place.
+- **GPUI's additions on the fork:** a wgpu renderer for a WASI component (`WgpuContext::new_wasi`), the browser's code kept to the browser's wasm, and two executor pieces a one-thread program needs (`scoped` awaiting in place, a zero-timeout `block_with_timeout`).
+- **Third-party copies** (`waos/patched/README.md`): alacritty without its PTY, `blocking` in place, smol without async-io's reactor, getrandom 0.3 on Preview 3, psm without its prebuilt object, tree-sitter's `Send` kept on WASI.
+
+## What it found
+
+- **WaOS gained what Zed needed:** a machine's platform and login shell, file watching (with `moved`, which git's rename-onto-file writes need), a program's own `/tmp`, projects mounted from a machine at `/`, and the GPUI adapter itself.
+- **A component has no OS of its own.** Zed picks its keymap and its language servers' downloads by `cfg(target_os)`, which on WASI is neither macOS nor Linux. A program asks `system` at run time what native code decides when it builds.
+- **Blocking on one thread hides deadlocks.** Of the four `block_on`s on the workspace's path, one could never finish: it waited for a read run by the executor on the thread it held. `wasdk::block_on` also took up every task spawned before it, two of which never end, so a font read right after making the GPU device never returned. The adapter awaits once after the device and runs its own work as GPUI's tasks.
+- **The C side needs LLVM 23.** `wasm32-wasip3` links with `--cooperative-threading`, which refuses objects built by an older clang, and psm's shipped object cannot link at all. wasi-sdk 34 builds tree-sitter's grammars, SQLite and aws-lc right.
+- **Fonts are copied whole into the program.** `gpui_wgpu` rasterizes inside the program, so a face the system has is read whole: 78 MB for PingFang SC, the first time a CJK character is drawn. WaOS can draw glyphs itself, but GPUI's text system has no seam for it.
+- **Iterating on a big program is the cost.** A release build is minutes, and WaOS's first compile of a 100 MB component was minutes more before it became seconds. The input tools (`tap`, `type`, `key`, `screenshot`) and `waos inspect` made most checks need no person.
+- **Licences travel with the port:** GPUI and what it pulls in are Apache-2.0, Zed's editor and workspace GPL-3.0-or-later, so the program is GPL-3.0.

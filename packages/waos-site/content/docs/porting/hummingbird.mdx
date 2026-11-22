@@ -1,0 +1,33 @@
+---
+title: Hummingbird
+description: "A GPUI music player, ported in a day on threads: what it took and what it found."
+---
+
+[Hummingbird](https://github.com/hummingbird-player/hummingbird) is a music player written with GPUI: a library in SQLite through sqlx, a playback thread that decodes with symphonia, tokio for its background work, cpal for its output. Its port is the branch `waos` of [`github.com/waos-dev/hummingbird`](https://github.com/waos-dev/hummingbird), whose `WAOS.md` says how to build it. It plays music from a folder the user picks, as the program `dev.waos.hummingbird`.
+
+It was the first port with threads: its playback thread, tokio's workers and sqlx's SQLite worker run as written, as WaOS's cooperative threads.
+
+## What the port is
+
+- **GPUI from WaOS's fork,** for every target, in place of the `gpui-unofficial` snapshot it used. The one difference that mattered: the newer GPUI already makes every element `IntoElement`, so the app's own ten impls went.
+- **`wasdk-adapter-gpui` as its platform,** its start split into a shared launch and two runners, the system's and WaOS's.
+- **A sound output over WaOS's audio graph** (`src/devices/builtin/waos.rs`), beside cpal's: the playback thread fills a ring, as for cpal, and a writer thread of the output's drains it into a `stream-input` node, whose `write` waits while it is ahead. Hummingbird's own output traits (`Device`, `OutputStream`) fit it with no change.
+- **Its folders:** the library and settings in `/data`, logs in `/cache/logs`.
+- **Gated on WaOS:** Discord presence (an IPC socket), the updater, mimalloc, and the Opus and HE-AAC decoders, whose C libraries are not built for WaOS yet. Last.fm and ListenBrainz are its default features, left out with `--no-default-features`: their reqwest's wasm build is the browser's.
+- **Three crates patched** (`waos/patched/README.md`): `cntp_i18n_core` on the fork's GPUI, getrandom 0.3 on Preview 3, and tokio's timed park.
+
+## What it found
+
+- **Threads made it a port of days, not weeks.** Before them, the playback thread, sqlx's worker (one thread per connection) and tokio's runtime would each have been rewritten around one thread. With them, the crates ran as written, and what remained was the platform's own code.
+- **A wasm build is not always a browser's or a single thread's.** Two crates decided by `target_family = "wasm"`: reqwest took the browser's backend, and tokio took a target without `atomics` for one without threads. tokio's park then slept out each timer while holding its lock, so a wake from sqlx's worker waited minutes and the app hung opening its database. Found by narrowing a 40-line reproduction under plain wasmtime, so it was neither WaOS's nor wasi-libc's; the experiment `2026-11-22-std-threads-on-wasip3` has the reproduction and a draft issue for tokio.
+- **A thread's wake must reach the main thread's executor.** A tokio worker waking a GPUI task panicked until wasdk's wit-bindgen had `inter-task-wakeup`, which wasdk now turns on for every program.
+- **GPUI apps read their menus back.** Hummingbird draws its own menu bar in its window, as GPUI apps do on Linux and Windows, from the menus it set; the adapter now keeps them and answers `get_menus`, though WaOS's menus do not show them yet.
+- **"No platform support" fallbacks can mean "nothing works".** Hummingbird decides a library folder is available from the mount it is on, and on a platform with no mount monitor it knew no mount, so every track was unavailable and play stayed grey. On WaOS a program's files are one tree, each pick mounted at its own path, so `/` as the one mount was the right answer, and the fix helps any such platform.
+- **`waos run` needed cargo's feature flags,** to build an app whose default features are for its other platforms without changing its defaults.
+- **The folder picker needed nothing.** GPUI's `prompt_for_paths` is WaOS's dialog through the adapter, and the pick stays mounted across runs, so the library survives a restart as natively.
+
+## Not done yet
+
+- Pause suspends nothing: the audio context keeps running, so WaOS never freezes a paused Hummingbird out of sight.
+- Choosing an output: WaOS lists none, the user picks one through `select-audio-output`, which Hummingbird's output menu does not open yet.
+- Watching the library for changes, and media keys.

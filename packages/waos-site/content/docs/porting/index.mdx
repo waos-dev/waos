@@ -1,0 +1,42 @@
+---
+title: Porting an app
+description: "Bringing an existing Rust app to WaOS, the steps every port so far has taken."
+---
+
+A port builds an app that already exists for `wasm32-wasip3` and runs it as a WaOS program. The app keeps its own code; what changes is its entry, what it asks of the system, and a few crates that assume a system a program does not have. Each port so far is a page beside this one, with what it found: [Zed](/docs/porting/zed) and [Hummingbird](/docs/porting/hummingbird).
+
+## What fits
+
+An app ports well when its UI is drawn by a framework WaOS has a platform for, and what it needs of the system is something WaOS gives:
+
+- **GPUI** apps run over `wasdk-adapter-gpui`, on WaOS's fork of Zed's GPUI. **Waft** apps run over `wasdk-adapter-waft`.
+- **Files** the user picks are mounted at their own paths, so `std::fs` reads them as on a desktop ([File dialogs](/docs/guide/file-dialogs)); the program's own folders are `/data`, `/cache` and `/tmp`.
+- **Processes**, a terminal, git and language servers run on a machine the user gives the program ([Processes](/docs/guide/processes)).
+- **Sound** is Web Audio's graph, and samples the program makes go through a stream input ([Audio](/docs/guide/audio)).
+- **Threads** run, taking turns on one core ([Threads](/docs/guide/threads)); parallel work is [workers](/docs/guide/workers).
+
+What a program cannot have: the browser's APIs (web-sys, js-sys), a process of its own to spawn, raw access to devices, and anything that reads the computer outside what the user gave it.
+
+## The steps
+
+1. **Fork it, and port on a branch.** The ports live in `github.com/waos-dev`, the upstream's default branch following upstream and the port on a branch named `waos`. Mark each change `WaOS port:` in a comment, so a merge from upstream finds them, and write a `WAOS.md` that says what is on top of upstream, how to build, and how to keep up.
+2. **Build for WaOS.** Give the program WaOS's `rust-toolchain.toml` (its nightly, with `wasm32-wasip3`), and its id in `[package.metadata.waos]`. `cargo check --target wasm32-wasip3` lists what does not build; `waos run --release` runs it. Default features meant for other platforms are turned off with `--no-default-features`, which `waos build`, `run` and `package` take as cargo does.
+3. **Give it WaOS's entry.** `#[wasdk::main] async fn main()` is the program's entry. A GPUI app's start becomes `wasdk_adapter_gpui::run_with(|application| application.with_assets(...), on_launch).await` where it was `Application::run`; the app's own launch code is shared by both.
+4. **Gate what has no WASI backend,** with `cfg(target_os = "wasi")`. Prefer a WASI path that does what the platform does to one that does nothing: the program's folders for `directories`, GPUI's `open_url` for `open`.
+5. **Build its C code with wasi-sdk 34 or newer** ([Start](/docs/start) gives the variables). A crate that ships a prebuilt wasm object touching `__stack_pointer` (psm) cannot link, and needs a copy without it.
+6. **Patch the crates that refuse WASI 0.3,** each as a copy under `waos/patched/`, `[patch]`ed in the manifest, with a README saying what changed and from which version. Most ports need the ones in the table below.
+7. **Run it, and read what it says.** `waos run --release --env RUST_LOG=debug` shows the app's log; `waos ui screenshot`, `tap`, `type` and `key` drive it without a person ([The tools](/docs/tools)); `waos inspect` shows each file, machine command and watch it used.
+
+## What every port meets
+
+| What | Why | What ports do |
+|---|---|---|
+| `std::env::temp_dir()` and `std::process::id()` panic | std has no answer on WASI | Read `TMPDIR` (WaOS sets it to `/tmp`); leave the process id out |
+| Every file's permissions read as read-only | wasi-libc fills `st_mode` with the file's type alone | Don't refuse to write a file for its permissions |
+| `directories`, `dirs` answer nothing | A program has no home folder of its own | `/data` for what it keeps, `/cache` for what it can lose |
+| getrandom 0.3 does not build | It knows WASI Preview 1 and 2 only | A copy that forwards Preview 3 to getrandom 0.4 (Zed's and Hummingbird's `waos/patched/getrandom-0.3`) |
+| tokio's `rt-multi-thread`, `fs`, `net` don't build | tokio refuses them on wasm | `--cfg tokio_unstable` builds them; the I/O driver has no WASI 0.3 backend, so a runtime enables time alone |
+| tokio's timers hold up other threads | tokio takes a wasm target without `atomics` for one without threads, and sleeps out each timed park with its lock held | A copy whose `park_timeout` waits on its condvar on `wasm32-wasip3` (Hummingbird's `waos/patched/tokio`) |
+| A thread that blocks for another (`block_on` on the main thread, an in-place `blocking` pool) never returns | Before threads, everything ran on one thread | With [threads](/docs/guide/threads), the crate's own threads run; without, the work runs in place |
+| A platform's own crates (`cpal`, `mimalloc`, Discord's IPC, `rfd`, `open`) | No backend for WASI | Gate them, and give the app WaOS's own: [audio](/docs/guide/audio), [dialogs](/docs/guide/file-dialogs), [opener](/docs/guide/opener) |
+| A crate's wasm build is the browser's (reqwest, `gpui_web`) | `target_family = "wasm"` taken for the browser | Gate the feature off, or use WASI's own (`wasi:http` through `wasdk`) |

@@ -46,6 +46,7 @@ const GUIDE_TOPICS = [
   ['notifications', 'Notifications'],
   ['processes', 'Processes'],
   ['workers', 'Workers'],
+  ['threads', 'Threads'],
 ];
 
 /**
