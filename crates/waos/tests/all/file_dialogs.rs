@@ -11,20 +11,19 @@ use std::future::pending;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
-use std::thread;
-use std::time::{Duration, Instant};
 
 use tokio::sync::Notify;
-use waos::{Answer, ProgramEnd, ProgramEnvironment, ProgramGrants, ProgramOutput, Question};
+use waos::{Answer, ProgramEnd, ProgramEnvironment, ProgramGrants, Question, WaOS};
 use waos_capabilities::{
     ChangedFuture, DomainRule, FileDialog, FileSystemGrant, NetworkGrant, ProgramFolders,
 };
 
-use crate::shell::{self, Lines, WITHIN};
+use crate::test_shell::{RecordedOutput, TestShell, config, printing_to, wait_until, within};
 
 #[test]
 fn picks_are_mounted_as_asked_and_a_save_is_replaced_safely_from_the_programs_cache() {
-    let (engine, shell, _arrivals) = shell::engine();
+    let shell = TestShell::new();
+    let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
     let scratch = tempfile::tempdir().unwrap();
     let picks = fs::canonicalize(scratch.path()).unwrap().join("picks");
     let pictures = picks.join("pictures");
@@ -38,24 +37,25 @@ fn picks_are_mounted_as_asked_and_a_save_is_replaced_safely_from_the_programs_ca
     for name in ["one.png", "two.png"] {
         fs::write(pictures.join(name), "PNG").unwrap();
     }
-    let dialogs = shell.file_dialogs();
+    let dialogs = &shell.file_dialogs;
     for pick in ["read-me.txt", "change-me.txt", "saved.txt", "pictures"] {
         dialogs.answer_next(vec![picks.join(pick)]);
     }
     let own = own_folders(scratch.path());
-    let lines = Arc::new(Lines::default());
+    let output = Arc::new(RecordedOutput::default());
     let environment = ProgramEnvironment {
-        output: Some(Arc::clone(&lines) as Arc<dyn ProgramOutput>),
         folders: Some(own.clone()),
-        ..ProgramEnvironment::default()
+        ..printing_to(&output)
     };
-    let program = shell::load(&engine, waos_test_programs::FILE_DIALOGS);
+    let program = engine
+        .load(Path::new(waos_test_programs::FILE_DIALOGS))
+        .unwrap();
     let running = engine.run(&program, environment).unwrap();
-    let end = shell::wait_for_end(&running);
+    let end = within(running.ended());
     assert!(
         matches!(end, ProgramEnd::Returned(Ok(()))),
         "{:#?}",
-        lines.all()
+        output.lines()
     );
 
     for line in [
@@ -67,7 +67,7 @@ fn picks_are_mounted_as_asked_and_a_save_is_replaced_safely_from_the_programs_ca
         "saved safely: yes",
         "folder entries: 2",
     ] {
-        assert!(lines.has(line), "no {line:?} in {:#?}", lines.all());
+        assert!(output.has(line), "no {line:?} in {:#?}", output.lines());
     }
     let read = |name: &str| fs::read_to_string(picks.join(name)).unwrap();
     assert_eq!(read("read-me.txt"), "a line to read");
@@ -87,7 +87,8 @@ fn picks_are_mounted_as_asked_and_a_save_is_replaced_safely_from_the_programs_ca
 
 #[test]
 fn dialogs_whose_answers_are_set_are_answered_with_them_and_show_nothing() {
-    let (engine, shell, _arrivals) = shell::engine();
+    let shell = TestShell::new();
+    let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
     let scratch = tempfile::tempdir().unwrap();
     let picks = fs::canonicalize(scratch.path()).unwrap().join("picks");
     fs::create_dir_all(picks.join("pictures")).unwrap();
@@ -98,11 +99,11 @@ fn dialogs_whose_answers_are_set_are_answered_with_them_and_show_nothing() {
         save_file: picks.join("saved.txt"),
         open_folder: picks.join("pictures"),
     };
-    let (lines, end) = run_file_dialogs(&engine, scratch.path(), grants);
+    let (output, end) = run_file_dialogs(&engine, scratch.path(), grants);
     assert!(
         matches!(end, ProgramEnd::Returned(Ok(()))),
         "{:#?}",
-        lines.all()
+        output.lines()
     );
     for line in [
         "read: a line to read",
@@ -111,19 +112,20 @@ fn dialogs_whose_answers_are_set_are_answered_with_them_and_show_nothing() {
         "saved: yes",
         "folder entries: 1",
     ] {
-        assert!(lines.has(line), "no {line:?} in {:#?}", lines.all());
+        assert!(output.has(line), "no {line:?} in {:#?}", output.lines());
     }
     assert_eq!(
         fs::read_to_string(picks.join("read-me.txt")).unwrap(),
         "a line to read, changed",
         "answered again to the open asked writable, mounted writable"
     );
-    assert!(shell.file_dialogs().asked().is_empty(), "no dialog shown");
+    assert!(shell.file_dialogs.asked().is_empty(), "no dialog shown");
 }
 
 #[test]
 fn a_set_answer_that_does_not_hold_fails_the_dialog_with_why_and_shows_nothing() {
-    let (engine, shell, _arrivals) = shell::engine();
+    let shell = TestShell::new();
+    let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
     let scratch = tempfile::tempdir().unwrap();
     let missing = fs::canonicalize(scratch.path())
         .unwrap()
@@ -133,81 +135,71 @@ fn a_set_answer_that_does_not_hold_fails_the_dialog_with_why_and_shows_nothing()
         save_file: missing.join("saved.txt"),
         open_folder: missing.clone(),
     };
-    let (lines, _end) = run_file_dialogs(&engine, scratch.path(), grants);
+    let (output, _end) = run_file_dialogs(&engine, scratch.path(), grants);
     let said = format!(
         "open: failed (WaOS answers this dialog with {}, as the program's settings say, but it does not exist)",
         missing.display()
     );
-    assert!(lines.has(&said), "no {said:?} in {:#?}", lines.all());
-    let folder_failed = lines.all().iter().any(|line| {
+    assert!(output.has(&said), "no {said:?} in {:#?}", output.lines());
+    let folder_failed = output.lines().iter().any(|line| {
         line.starts_with("folder: failed") && line.ends_with("but it is not a folder)")
     });
-    assert!(folder_failed, "{:#?}", lines.all());
+    assert!(folder_failed, "{:#?}", output.lines());
     assert!(
-        shell.file_dialogs().asked().is_empty(),
+        shell.file_dialogs.asked().is_empty(),
         "no dialog shown in its place"
     );
 }
 
 #[test]
 fn a_waiting_file_dialog_is_answered_by_setting_its_path_and_drops_its_prompt() {
-    let (engine, shell, _arrivals) = shell::engine();
+    let shell = TestShell::new();
+    let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
     let scratch = tempfile::tempdir().unwrap();
     let picks = fs::canonicalize(scratch.path()).unwrap().join("picks");
     fs::create_dir_all(picks.join("pictures")).unwrap();
     let read_me = picks.join("read-me.txt");
     fs::write(&read_me, "a line to read").unwrap();
 
-    let dialogs = shell.file_dialogs();
+    let dialogs = &shell.file_dialogs;
     dialogs.hold_next();
     let grants = Arc::new(LiveFileDialogGrants::default());
-    let lines = Arc::new(Lines::default());
+    let output = Arc::new(RecordedOutput::default());
     let environment = ProgramEnvironment {
-        output: Some(Arc::clone(&lines) as Arc<dyn ProgramOutput>),
         folders: Some(own_folders(scratch.path())),
         grants: Some(Arc::clone(&grants) as Arc<dyn ProgramGrants>),
-        ..ProgramEnvironment::default()
+        ..printing_to(&output)
     };
-    let program = shell::load(&engine, waos_test_programs::FILE_DIALOGS);
+    let program = engine
+        .load(Path::new(waos_test_programs::FILE_DIALOGS))
+        .unwrap();
     let running = engine.run(&program, environment).unwrap();
 
-    let deadline = Instant::now() + WITHIN;
-    while dialogs.asked().is_empty() {
-        assert!(Instant::now() < deadline, "open-file dialog never asked");
-        thread::sleep(Duration::from_millis(5));
-    }
+    wait_until("the open-file dialog is asked", || {
+        !dialogs.asked().is_empty()
+    });
     assert!(!dialogs.held_cancelled(0));
 
     // Setting an unrelated dialog's path leaves the waiting open-file dialog up.
     let reads = grants.reads();
     grants.set(FileDialog::OpenFolder, picks.join("pictures"));
-    let deadline = Instant::now() + WITHIN;
-    while grants.reads() <= reads {
-        assert!(
-            Instant::now() < deadline,
-            "open-file answer was not re-read"
-        );
-        thread::sleep(Duration::from_millis(5));
-    }
+    wait_until("the open-file answer is read again", || {
+        grants.reads() > reads
+    });
     assert!(
         !dialogs.held_cancelled(0),
         "unrelated dialog setting left open-file waiting"
     );
-    assert!(!lines.has("read: a line to read"));
+    assert!(!output.has("read: a line to read"));
 
     // Setting open-file answers it and drops the shell's dialog future.
     grants.set(FileDialog::OpenFile, read_me);
-    let deadline = Instant::now() + WITHIN;
-    while !dialogs.held_cancelled(0) {
-        assert!(
-            Instant::now() < deadline,
-            "the waiting dialog future was never dropped"
-        );
-        thread::sleep(Duration::from_millis(5));
-    }
-    lines.wait_for("read: a line to read");
+    wait_until("the waiting dialog future is dropped", || {
+        dialogs.held_cancelled(0)
+    });
+    output.wait_for("read: a line to read");
     running.stop();
-    shell::wait_for_end(&running);
+    within(running.ended());
 }
 
 #[derive(Default)]
@@ -287,21 +279,22 @@ impl ProgramGrants for LiveFileDialogGrants {
 
 /// Runs `examples/file-dialogs` to its end with `grants`, its own folders beneath `scratch`.
 fn run_file_dialogs(
-    engine: &waos::WaOS,
+    engine: &WaOS,
     scratch: &Path,
     grants: SetAnswers,
-) -> (Arc<Lines>, ProgramEnd) {
-    let lines = Arc::new(Lines::default());
+) -> (Arc<RecordedOutput>, ProgramEnd) {
+    let output = Arc::new(RecordedOutput::default());
     let environment = ProgramEnvironment {
-        output: Some(Arc::clone(&lines) as Arc<dyn ProgramOutput>),
         folders: Some(own_folders(scratch)),
         grants: Some(Arc::new(grants) as Arc<dyn ProgramGrants>),
-        ..ProgramEnvironment::default()
+        ..printing_to(&output)
     };
-    let program = shell::load(engine, waos_test_programs::FILE_DIALOGS);
+    let program = engine
+        .load(Path::new(waos_test_programs::FILE_DIALOGS))
+        .unwrap();
     let running = engine.run(&program, environment).unwrap();
-    let end = shell::wait_for_end(&running);
-    (lines, end)
+    let end = within(running.ended());
+    (output, end)
 }
 
 /// Grants that switch nothing on and answer each dialog with the path set for it.
