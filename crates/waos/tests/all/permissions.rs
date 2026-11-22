@@ -6,19 +6,15 @@
 //! them, as the shell reports what the system says without a post. With no grants, nothing is
 //! granted and no question is put.
 
+use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
-use std::thread;
-use std::time::{Duration, Instant};
 
-use futures::executor::block_on;
 use tokio::sync::Notify;
-use waos::{
-    Answer, ProgramEnd, ProgramEnvironment, ProgramGrants, ProgramOutput, Question, Switch,
-};
+use waos::{Answer, ProgramEnd, ProgramEnvironment, ProgramGrants, Question, Switch, WaOS};
 use waos_capabilities::{ChangedFuture, DomainRule, FileSystemGrant, NetworkGrant};
 
-use crate::shell::{self, Lines, WITHIN};
+use crate::test_shell::{RecordedOutput, TestShell, config, printing_to, wait_until, within};
 
 /// What the program prints first: where each permission stands under [`TestGrants::new`].
 const FIRST_STATES: [&str; 7] = [
@@ -33,38 +29,41 @@ const FIRST_STATES: [&str; 7] = [
 
 #[test]
 fn a_program_reads_its_permissions_asks_once_and_hears_each_change() {
-    let (engine, shell, _arrivals) = shell::engine();
-    let program = shell::load(&engine, waos_test_programs::PERMISSIONS);
+    let shell = TestShell::new();
+    let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
+    let program = engine
+        .load(Path::new(waos_test_programs::PERMISSIONS))
+        .unwrap();
     let grants = Arc::new(TestGrants::new());
-    let lines = Arc::new(Lines::default());
+    let output = Arc::new(RecordedOutput::default());
     let environment = ProgramEnvironment {
-        output: Some(Arc::clone(&lines) as Arc<dyn ProgramOutput>),
         grants: Some(Arc::clone(&grants) as Arc<dyn ProgramGrants>),
-        ..ProgramEnvironment::default()
+        ..printing_to(&output)
     };
     let running = engine.run(&program, environment).unwrap();
     for state in FIRST_STATES {
-        lines.wait_for(state);
+        output.wait_for(state);
     }
     assert!(
-        !lines.all().iter().any(|line| line.starts_with("processes")),
+        !output
+            .lines()
+            .iter()
+            .any(|line| line.starts_with("processes")),
         "no permission for processes: machines are picked"
     );
 
-    wait_until("the question is put", || !shell.questions().is_empty());
-    thread::sleep(Duration::from_millis(100));
+    wait_until("the question is put", || {
+        !shell.prompts.questions().is_empty()
+    });
+    shell.prompts.answer_questions(Some(Answer::Granted));
+    output.wait_for("notifications changed: granted");
+    output.wait_until("both asks answered", |lines| {
+        count(lines, "notifications asked: granted") == 2
+    });
     assert_eq!(
-        shell.questions(),
+        shell.prompts.questions(),
         [("permissions".to_owned(), Question::Notifications)],
         "put once, though asked twice"
-    );
-    shell.answer_questions(Some(Answer::Granted));
-    lines.wait_for("notifications changed: granted");
-    assert_eq!(
-        lines.count("notifications asked: granted"),
-        2,
-        "{:#?}",
-        lines.all()
     );
     assert_eq!(
         grants.answer(Question::Notifications),
@@ -73,72 +72,71 @@ fn a_program_reads_its_permissions_asks_once_and_hears_each_change() {
     );
 
     running.system_notifications_refused(true);
-    lines.wait_for("notifications changed: denied");
+    output.wait_for("notifications changed: denied");
     assert_eq!(
         grants.answer(Question::Notifications),
         Some(Answer::Granted),
         "the user's answer is kept while the system refuses"
     );
     running.system_notifications_refused(false);
-    wait_until("the system lets them again", || {
-        lines.count("notifications changed: granted") == 2
+    output.wait_until("the system lets them again", |lines| {
+        count(lines, "notifications changed: granted") == 2
     });
 
     wait_until("the network page opens", || {
-        !shell.settings_opened().is_empty()
+        !shell.prompts.settings_opened().is_empty()
     });
     assert_eq!(
-        shell.settings_opened(),
+        shell.prompts.settings_opened(),
         [("permissions".to_owned(), Switch::Network)]
     );
     grants.set_network(false);
-    lines.wait_for("network changed: denied");
+    output.wait_for("network changed: denied");
     assert!(
-        !lines.has("network after its settings: denied"),
+        !output.has("network after its settings: denied"),
         "not before the user leaves"
     );
-    shell.leave_settings();
-    lines.wait_for("network after its settings: denied");
+    shell.prompts.leave_settings();
+    output.wait_for("network after its settings: denied");
 
     grants.set_clipboard_write(false);
-    lines.wait_for("clipboard-write changed: denied");
-    let end = block_on(running.ended());
+    output.wait_for("clipboard-write changed: denied");
+    let end = within(running.ended());
     assert!(matches!(end, ProgramEnd::Returned(Ok(()))), "{end:?}");
 }
 
 #[test]
 fn a_program_given_no_grants_is_granted_nothing_and_asks_nobody() {
-    let (engine, shell, _arrivals) = shell::engine();
-    let program = shell::load(&engine, waos_test_programs::PERMISSIONS);
-    let lines = Arc::new(Lines::default());
-    let environment = ProgramEnvironment {
-        output: Some(Arc::clone(&lines) as Arc<dyn ProgramOutput>),
-        ..ProgramEnvironment::default()
-    };
-    let running = engine.run(&program, environment).unwrap();
+    let shell = TestShell::new();
+    let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
+    let program = engine
+        .load(Path::new(waos_test_programs::PERMISSIONS))
+        .unwrap();
+    let output = Arc::new(RecordedOutput::default());
+    let running = engine.run(&program, printing_to(&output)).unwrap();
     for name in [
         "network",
         "local-network",
         "clipboard-read",
         "clipboard-write",
     ] {
-        lines.wait_for(&format!("{name}: denied"));
+        output.wait_for(&format!("{name}: denied"));
     }
     for name in ["notifications", "camera", "microphone"] {
-        lines.wait_for(&format!("{name}: denied"));
+        output.wait_for(&format!("{name}: denied"));
     }
-    lines.wait_for("notifications asked: denied");
+    output.wait_for("notifications asked: denied");
     wait_until("the network page opens", || {
-        !shell.settings_opened().is_empty()
+        !shell.prompts.settings_opened().is_empty()
     });
-    shell.leave_settings();
-    lines.wait_for("network after its settings: denied");
+    shell.prompts.leave_settings();
+    output.wait_for("network after its settings: denied");
     assert!(
-        shell.questions().is_empty(),
+        shell.prompts.questions().is_empty(),
         "nothing to ask: nothing can be granted"
     );
     running.stop();
-    block_on(running.ended());
+    within(running.ended());
 }
 
 #[test]
@@ -147,18 +145,22 @@ fn a_waiting_permission_question_is_answered_by_setting_its_row_and_drops_its_pr
         (Answer::Granted, "notifications asked: granted"),
         (Answer::Denied, "notifications asked: denied"),
     ] {
-        let (engine, shell, _arrivals) = shell::engine();
-        let program = shell::load(&engine, waos_test_programs::PERMISSIONS);
+        let shell = TestShell::new();
+        let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
+        let program = engine
+            .load(Path::new(waos_test_programs::PERMISSIONS))
+            .unwrap();
         let grants = Arc::new(TestGrants::new());
-        let lines = Arc::new(Lines::default());
+        let output = Arc::new(RecordedOutput::default());
         let environment = ProgramEnvironment {
-            output: Some(Arc::clone(&lines) as Arc<dyn ProgramOutput>),
             grants: Some(Arc::clone(&grants) as Arc<dyn ProgramGrants>),
-            ..ProgramEnvironment::default()
+            ..printing_to(&output)
         };
         let running = engine.run(&program, environment).unwrap();
-        wait_until("the question is put", || !shell.questions().is_empty());
-        assert!(!shell.question_cancelled(0));
+        wait_until("the question is put", || {
+            !shell.prompts.questions().is_empty()
+        });
+        assert!(!shell.prompts.question_cancelled(0));
 
         // Unrelated setting changes leave the question waiting and its prompt intact.
         grants.set_network(false);
@@ -168,33 +170,31 @@ fn a_waiting_permission_question_is_answered_by_setting_its_row_and_drops_its_pr
             grants.answer_reads() > reads
         });
         assert!(
-            !shell.question_cancelled(0),
+            !shell.prompts.question_cancelled(0),
             "unrelated setting change left prompt waiting"
         );
         assert!(
-            !lines.has("notifications asked: granted") && !lines.has("notifications asked: denied"),
+            !output.has("notifications asked: granted")
+                && !output.has("notifications asked: denied"),
             "still waiting"
         );
 
         grants.set_notifications(set_to);
         wait_until("the prompt future is dropped", || {
-            shell.question_cancelled(0)
+            shell.prompts.question_cancelled(0)
         });
-        lines.wait_for(expected_line);
-        assert_eq!(lines.count(expected_line), 2, "{:#?}", lines.all());
+        output.wait_until("both asks answered", |lines| {
+            count(lines, expected_line) == 2
+        });
 
         running.stop();
-        block_on(running.ended());
+        within(running.ended());
     }
 }
 
-/// Waits until `done`, failing after [`WITHIN`].
-fn wait_until(what: &str, done: impl Fn() -> bool) {
-    let deadline = Instant::now() + WITHIN;
-    while !done() {
-        assert!(Instant::now() < deadline, "{what} never happened");
-        thread::sleep(Duration::from_millis(5));
-    }
+/// How many of `lines` are `line`.
+fn count(lines: &[String], line: &str) -> usize {
+    lines.iter().filter(|printed| *printed == line).count()
 }
 
 /// Grants of the test's own: the network and the clipboard on, nothing mounted,
