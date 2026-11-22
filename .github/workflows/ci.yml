@@ -4,7 +4,8 @@
 # The jobs run side by side, each as short as the slowest piece it holds: on macOS the engine and
 # the command, the app, and the rest of the workspace; on Linux and Windows clippy apart from the
 # tests. Each prepares with `.github/actions/prepare` (files dated by their commits, Rust's cache,
-# the test programs); main's runs save the caches, a pull request's only read them.
+# the test programs); main's runs save the caches, even when a test fails, and a pull request's
+# only read them.
 name: CI
 
 on:
@@ -45,8 +46,10 @@ jobs:
           test-programs: "true"
       - name: Tests of the engine and the command
         run: cargo test --no-fail-fast -p waos -p waos-cli
+      # Saved even when a test failed, as actions/cache's "Always save cache" does: the programs
+      # were built all the same.
       - name: The test programs, for later runs
-        if: github.ref == 'refs/heads/main'
+        if: always() && github.ref == 'refs/heads/main'
         uses: actions/cache/save@v4
         with:
           path: target/test-programs
@@ -132,8 +135,10 @@ jobs:
         run: |
           cargo test --no-fail-fast -p waos-app --lib -- \
             headless_entry logic::dev_screenshot logic::dev_resize logic::dev_input logic::command_line
+      # Saved even when a test failed, as actions/cache's "Always save cache" does: the programs
+      # were built all the same.
       - name: The test programs, for later runs
-        if: github.ref == 'refs/heads/main'
+        if: always() && github.ref == 'refs/heads/main'
         uses: actions/cache/save@v4
         with:
           path: target/test-programs
@@ -172,8 +177,10 @@ jobs:
             -p waos-store \
             -p wasdk \
             -p wasdk-wgpu
+      # Saved even when a test failed, as actions/cache's "Always save cache" does: the programs
+      # were built all the same.
       - name: The test programs, for later runs
-        if: github.ref == 'refs/heads/main'
+        if: always() && github.ref == 'refs/heads/main'
         uses: actions/cache/save@v4
         with:
           path: target/test-programs
