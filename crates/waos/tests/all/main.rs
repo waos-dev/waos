@@ -65,6 +65,7 @@ mod permissions;
 mod roles;
 mod storage;
 mod survey;
+mod threads;
 mod trust;
 mod video_frames;
 #[cfg(target_vendor = "apple")]
