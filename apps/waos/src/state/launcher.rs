@@ -6,9 +6,9 @@
 //! Its window is a view WaOS asks for like any other (decision 19): asked with `request_view` the
 //! first time the launcher is summoned, carrying [`LAUNCHER_VIEW`] as its initial data, which WaOS's
 //! one builder shows the launcher in (`ui::every_window`, `ui::launcher`). The launcher keeps the
-//! window as its view arrives and does to it what it decides: shows it in the middle of the screen
-//! and focused, minimizes it or hides it; what it decides before the window comes is done as the
-//! window comes. Nothing of this waits for the window's content, which is not built while the
+//! window as its view arrives and does to it what it decides (decision 21): shows it in the middle
+//! of the screen and focused, minimizes it or hides it; what it decides before the window comes is
+//! done as the window comes. Nothing of this waits for the window's content, which is not built while the
 //! window is out of sight. What is the app's and not the window's is done here as well:
 //! WaOS hidden to hand the focus back on macOS, unless a program's window is on screen to take it,
 //! and the library put away, back on its grid with nothing searched, a program waiting for the user
@@ -49,7 +49,7 @@ use crate::state::library::{
 pub(crate) const LAUNCHER_VIEW: &str = "waos-launcher";
 
 /// The launcher's card, and so its window, in logical points.
-pub(crate) const LAUNCHER_SIZE: Size = Size::new(680.0, 460.0);
+const LAUNCHER_SIZE: Size = Size::new(680.0, 460.0);
 
 /// The launcher came on screen: what shows in it takes the keyboard.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -154,7 +154,6 @@ impl Launcher {
             .focus_changed(event.state == ViewFocusState::Focused, picking);
         if !was_shown && self.rules.is_shown() {
             tracing::info!("the launcher was restored by the user");
-            cx.notify();
         }
         self.carry_out(step, "it lost the focus", cx);
     }
