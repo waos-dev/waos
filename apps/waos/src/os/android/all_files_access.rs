@@ -3,7 +3,7 @@
 //! each time it is asked; the page of Android's settings where the user turns it on for WaOS,
 //! `Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION` at WaOS's package; and This computer's
 //! home, the shared storage, `Environment.getExternalStorageDirectory`, while WaOS may reach it, and
-//! WaOS's files folder before.
+//! WaOS's files folder before. Asked on the main thread alone (`state::phone_files`).
 
 // The VM and the application reach the app as raw pointers, which JNI takes back as its own
 // handles; that is the `unsafe` here.
@@ -17,7 +17,7 @@ use jni::refs::Global;
 use jni::{Env, JavaVM, jni_sig, jni_str};
 use waft::AndroidApp;
 
-use crate::logic::phone_files::PhoneFiles;
+use crate::logic::phone_files::PhoneFilesAccess;
 
 /// The action of Android's page for one app's All files access.
 const SWITCH_PAGE: &str = "android.settings.MANAGE_APP_ALL_FILES_ACCESS_PERMISSION";
@@ -137,7 +137,7 @@ impl AllFilesAccess {
     }
 }
 
-impl PhoneFiles for AllFilesAccess {
+impl PhoneFilesAccess for AllFilesAccess {
     fn reachable(&self) -> bool {
         self.storage_manager().unwrap_or_else(|error| {
             tracing::warn!("Android did not say whether WaOS has All files access: {error}");

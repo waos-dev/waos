@@ -712,7 +712,7 @@ impl Page {
         if self.of != SettingsOf::Global {
             return Vec::new();
         }
-        let Some(reachable) = self.library.read(app).phone_files_reachable() else {
+        let Some(reachable) = self.library.read(app).phone_files_reachable(app) else {
             return Vec::new();
         };
         let library = self.library.clone();

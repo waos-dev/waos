@@ -7,7 +7,8 @@
 //! on the output picked; a question whose program ended, or whose prompt the user dismissed, goes
 //! unanswered. Where WaOS reaches the phone's files only as the user allows, a pick of This computer
 //! while they are out of reach first offers the system's page for them, and is answered once the
-//! user goes on without it, or comes back to WaOS from the page (`logic::phone_files`).
+//! user goes on without it, or comes back to WaOS from the page, once the phone's files are read
+//! again (`state::phone_files`).
 //!
 //! The invariant: every question taken is answered, or dropped unanswered, exactly once, and a
 //! program's prompt is shown exactly while it has a question waiting.
@@ -16,21 +17,21 @@
 mod tests;
 
 use std::rc::Rc;
-use std::sync::Arc;
 
 use futures::StreamExt;
 use futures::channel::mpsc::UnboundedReceiver;
 use futures::channel::oneshot;
-use waft::{App, AppLifecycleListener, Context, Entity, IntoWidget, WeakEntity};
+use waft::{App, Context, Entity, IntoWidget, WeakEntity};
 use waos::RunningProgram;
 use waos_program_window::{PromptPlacement, PromptWindows, ShownPrompt};
 use waos_store::Store;
 
-use crate::logic::phone_files::{PhoneFiles, asks_for_phone_files};
+use crate::logic::phone_files::asks_for_phone_files;
 use crate::logic::program_faces::ProgramFaces;
 use crate::logic::program_name::program_name;
 use crate::logic::prompts::{Asked, Asking, Reply};
 use crate::state::ViewWindows;
+use crate::state::phone_files::{PhoneFiles, ReadAgain};
 use crate::ui::question_sheet::QuestionSheet;
 
 pub(crate) struct Questions {
@@ -44,7 +45,7 @@ pub(crate) struct Questions {
     /// Where an installed program's name is read.
     store: Store,
     /// Whether WaOS may reach the phone's files, where it reaches them only as the user allows.
-    phone_files: Option<Arc<dyn PhoneFiles>>,
+    phone_files: Option<Entity<PhoneFiles>>,
 }
 
 /// A question waiting for its reply.
@@ -80,17 +81,27 @@ impl Questions {
         asked: UnboundedReceiver<Asked>,
         placement: Rc<dyn PromptPlacement>,
         store: Store,
-        phone_files: Option<Arc<dyn PhoneFiles>>,
+        phone_files: Option<Entity<PhoneFiles>>,
     ) {
-        let questions = app.new_entity(|_| Questions {
-            asked: Vec::new(),
-            next_id: 1,
-            placement,
-            shown: Vec::new(),
-            store,
-            phone_files,
+        let questions = app.new_entity(|cx| {
+            if let Some(phone_files) = &phone_files {
+                cx.subscribe(
+                    phone_files,
+                    |questions: &mut Questions, _, _: &ReadAgain, cx| {
+                        questions.phone_files_read_again(cx)
+                    },
+                )
+                .detach();
+            }
+            Questions {
+                asked: Vec::new(),
+                next_id: 1,
+                placement,
+                shown: Vec::new(),
+                store,
+                phone_files,
+            }
         });
-        answer_picks_back_in_front(app, questions.downgrade());
         take_questions(app, questions, asked);
     }
 
@@ -110,10 +121,9 @@ impl Questions {
         reply: Option<Reply>,
         cx: &mut Context<Questions>,
     ) {
-        let offered = self
-            .phone_files
-            .as_ref()
-            .is_some_and(|phone_files| asks_for_phone_files(reply.as_ref(), phone_files.as_ref()));
+        let offered = self.phone_files.as_ref().is_some_and(|phone_files| {
+            asks_for_phone_files(reply.as_ref(), phone_files.read(cx).reachable())
+        });
         if offered && self.set_phone_files_step(program, PhoneFilesStep::Offered) {
             cx.notify();
             return;
@@ -140,7 +150,7 @@ impl Questions {
         let Some(phone_files) = &self.phone_files else {
             return;
         };
-        match phone_files.open_switch() {
+        match phone_files.read(cx).open_switch() {
             Ok(()) => {
                 if self.set_phone_files_step(program, PhoneFilesStep::PageOpen) {
                     cx.notify();
@@ -157,9 +167,10 @@ impl Questions {
         }
     }
 
-    /// WaOS is back in front: each pick of This computer waiting on the system's page for the
-    /// phone's files is answered, whatever the user chose there.
-    fn back_in_front(&mut self, cx: &mut Context<Questions>) {
+    /// The phone's files were read again, as WaOS came back to the front from the system's page
+    /// for them: each pick of This computer waiting on it is answered, whatever the user chose
+    /// there, its commands starting in the home just read.
+    fn phone_files_read_again(&mut self, cx: &mut Context<Questions>) {
         let waiting: Vec<RunningProgram> = self
             .asked
             .iter()
@@ -309,17 +320,6 @@ fn take_questions(
 /// This computer, as a picker of machines is answered.
 fn this_computer() -> Reply {
     Reply::Machine(waos_local::THIS_COMPUTER.to_owned())
-}
-
-/// From now on, each time WaOS comes back to the front, `questions` answers the picks waiting on
-/// the system's page for the phone's files, which the user leaves by coming back.
-fn answer_picks_back_in_front(app: &mut App, questions: WeakEntity<Questions>) {
-    let back_in_front = move |app: &mut App| {
-        if let Some(questions) = questions.upgrade() {
-            questions.update(app, |questions, cx| questions.back_in_front(cx));
-        }
-    };
-    AppLifecycleListener::new(app).on_resume(app, Rc::new(back_in_front));
 }
 
 /// Removes `id` once the engine drops its wait on it.

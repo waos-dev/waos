@@ -339,9 +339,9 @@ fn a_picker_of_machines_answers_the_machine_tapped_or_none_when_cancelled() {
 
 #[test]
 fn this_computer_picked_out_of_reach_of_the_phone_s_files_offers_their_page_first() {
-    let phone = Arc::new(TestPhone::reachable(false));
+    let phone = std::rc::Rc::new(TestPhone::reachable(false));
     let kind = DesktopKind {
-        phone_files: Some(Arc::clone(&phone) as _),
+        phone_files: Some(std::rc::Rc::clone(&phone) as _),
         ..DesktopKind::default()
     };
     let (mut desktop, ()) = LibraryDesktop::of(

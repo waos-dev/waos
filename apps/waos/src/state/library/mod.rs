@@ -68,7 +68,6 @@ use crate::logic::offers::{Offer, offer_of};
 use crate::logic::opened_package::OpenedPackage;
 use crate::logic::opening;
 use crate::logic::package_copies::{PackageCopies, document_name};
-use crate::logic::phone_files::PhoneFiles;
 use crate::logic::preferences::{KeptPreferences, Preferences, PreferencesFile};
 use crate::logic::program_faces::program_face;
 use crate::logic::program_places::ProgramPlace;
@@ -76,6 +75,7 @@ use crate::logic::program_shortcuts::SystemShortcuts;
 use crate::logic::setting_changes::Offered;
 use crate::logic::system_notifications::program_activation;
 use crate::state::deck::tabs::Tabs;
+use crate::state::phone_files::PhoneFiles;
 pub(crate) use package_picker::picks_packages;
 pub(crate) use phone_files::show_phone_files;
 pub(crate) use programs_open::ProgramsOpen;
@@ -133,7 +133,7 @@ pub(crate) struct Library {
     /// Whether they are being made to match what is installed.
     shortcuts_matching: ShortcutsMatching,
     /// Whether WaOS may reach the phone's files, where it reaches them only as the user allows.
-    phone_files: Option<Arc<dyn PhoneFiles>>,
+    phone_files: Option<Entity<PhoneFiles>>,
 }
 
 /// A source the user added, and what it lists.

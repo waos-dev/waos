@@ -239,7 +239,7 @@ impl Page {
         if self.of != SettingsOf::Global {
             return None;
         }
-        let reachable = self.library.read(app).phone_files_reachable()?;
+        let reachable = self.library.read(app).phone_files_reachable(app)?;
         let library = self.library.clone();
         let open = Listener::new(move |app| {
             library.update(app, |library, cx| library.open_phone_files_page(cx));

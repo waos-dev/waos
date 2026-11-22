@@ -798,9 +798,9 @@ mod system_refusals {
 fn the_global_page_says_whether_waos_reaches_the_phone_s_files_and_opens_android_s_page() {
     let layouts: [fn(DesktopKind) -> (LibraryDesktop, ViewId); 2] = [in_launcher_of, on_phone_of];
     for layout in layouts {
-        let phone = Arc::new(TestPhone::reachable(false));
+        let phone = std::rc::Rc::new(TestPhone::reachable(false));
         let kind = DesktopKind {
-            phone_files: Some(Arc::clone(&phone) as _),
+            phone_files: Some(std::rc::Rc::clone(&phone) as _),
             ..DesktopKind::default()
         };
         let (mut desktop, view) = layout(kind);
@@ -813,9 +813,7 @@ fn the_global_page_says_whether_waos_reaches_the_phone_s_files_and_opens_android
         desktop.tap(view, words::OPEN_ANDROID_SETTINGS);
         assert_eq!(phone.pages_opened(), 1);
 
-        phone
-            .reachable
-            .store(true, std::sync::atomic::Ordering::SeqCst);
+        phone.reachable.set(true);
         desktop.leave_and_come_back();
         assert!(
             desktop.shows(words::PHONE_FILES_ON),

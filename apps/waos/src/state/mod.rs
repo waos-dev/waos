@@ -10,7 +10,9 @@
 //! asks every program first; and on macOS the activity that keeps App Nap from throttling WaOS
 //! while a program compiles or its window is in sight (`app_nap_exemption`).
 //!
-//! The invariant: nothing here is touched off the main thread. What reaches it from the programs'
+//! The invariant: nothing here is touched off the main thread, and the system is asked on it alone;
+//! what the programs' commands read of it, This computer's home, is kept for them
+//! (`logic::phone_files`). What reaches it from the programs'
 //! threads and the dev server's comes through a queue a task of the main thread's empties: the view
 //! requests (`logic::placement`), the questions (`logic::prompts`), who records
 //! (`logic::recording_indicator`), the clipboard's calls (`logic::clipboard_calls`), the menus'
@@ -41,6 +43,7 @@ pub(crate) mod media_players;
 pub(crate) mod menus;
 pub(crate) mod notifications;
 pub(crate) mod opener;
+pub(crate) mod phone_files;
 pub(crate) mod phone_window;
 pub(crate) mod program_apps;
 #[cfg(target_os = "macos")]
@@ -92,7 +95,7 @@ use crate::logic::installed_runs::InstalledRuns;
 use crate::logic::machine_facts::platform_state;
 use crate::logic::noted_file_dialogs::NotedFileDialogs;
 use crate::logic::package_copies::PackageCopies;
-use crate::logic::phone_files::PhoneFiles;
+use crate::logic::phone_files::{PhoneFilesAccess, ThisComputerHome};
 use crate::logic::placement::WindowsOnRequest;
 use crate::logic::preferences::PreferencesFile;
 use crate::logic::program_faces::ProgramFaces;
@@ -130,6 +133,7 @@ use media_players::MediaPlayers;
 use menus::Menus;
 use notifications::Notifications;
 use opener::Opener;
+use phone_files::follow_phone_files;
 use phone_window::in_phone_window;
 use questions::Questions;
 use recordings::Recordings;
@@ -187,15 +191,16 @@ pub(crate) enum OpenedAtStart {
 /// windows and their questions, makes a quit ask every program first, and opens what `opened`
 /// names, with WaOS or with their program. What `later_launches` of WaOS pass on is read by WaOS's
 /// command line and opened so, as the system's own requests are. Where WaOS reaches the phone's
-/// files only as the user allows, `phone_files` says whether it may, and This computer's home
-/// follows it; a pick of This computer asks for it, and the global settings say it.
+/// files only as the user allows, `phone_files` says whether it may, read on the main thread as
+/// WaOS starts and comes back to the front, and This computer's home follows it; a pick of This
+/// computer asks for it, and the global settings say it.
 pub(crate) fn start(
     app: &mut App,
     folders: AppFolders,
     place: LibraryPlace,
     opened: Option<OpenedAtStart>,
     later_launches: Option<LaterLaunches>,
-    phone_files: Option<Arc<dyn PhoneFiles>>,
+    phone_files: Option<Rc<dyn PhoneFilesAccess>>,
 ) -> Result<()> {
     let facts = platform_state(app.platform().as_ref());
     let programs_open = programs_open(place);
@@ -315,7 +320,11 @@ pub(crate) fn start(
     let view_windows = ViewWindows::listen(app, requests);
     let posted_as_programs =
         notifications.map(|notifications| notifications.serve(app, store.clone()));
-    let capabilities = local_capabilities(phone_files.clone());
+    let phone_files = phone_files.map(|access| follow_phone_files(app, access));
+    let home = phone_files
+        .as_ref()
+        .map(|phone_files| phone_files.read(app).home());
+    let capabilities = local_capabilities(home);
     let environments = ProgramEnvironments::new(capabilities, store.clone());
     // What a tab closed on a phone stops its program among.
     let tabs_runs = Arc::clone(&runs);
@@ -606,16 +615,15 @@ fn tell_installs_to_inspectors(
 }
 
 /// This computer's capabilities, its sound without the microphone where WaOS's bundle does not
-/// say why it records, and its home the phone's files' where WaOS reaches them only as the user
-/// allows.
-fn local_capabilities(phone_files: Option<Arc<dyn PhoneFiles>>) -> LocalCapabilities {
+/// say why it records, and its home the one `home` keeps, where WaOS gives it.
+fn local_capabilities(home: Option<ThisComputerHome>) -> LocalCapabilities {
     let capabilities = if MICROPHONE_USAGE_DECLARED {
         LocalCapabilities::new()
     } else {
         LocalCapabilities::without_microphone()
     };
-    match phone_files {
-        Some(phone_files) => capabilities.with_home(Arc::new(move || phone_files.home())),
+    match home {
+        Some(home) => capabilities.with_home(Arc::new(move || home.get())),
         None => capabilities,
     }
 }

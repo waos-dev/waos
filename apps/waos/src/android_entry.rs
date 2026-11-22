@@ -5,12 +5,12 @@
 //! it as views of the one app. Android keeps one instance of an app itself and gives
 //! it no command line, so nothing here reads one.
 
-use std::sync::Arc;
+use std::rc::Rc;
 
 use waft::{AndroidApp, DefaultEmbedder, Shell};
 
 use crate::logic::command_line::LibraryPlace;
-use crate::logic::phone_files::PhoneFiles;
+use crate::logic::phone_files::PhoneFilesAccess;
 use crate::{os, state, write_traces};
 
 /// Runs WaOS in the process `app` is, for the process's life.
@@ -23,7 +23,7 @@ pub(crate) fn main(app: AndroidApp) {
         .android_app(app)
         .run(move |platform| {
             Shell::new(platform, move |app| {
-                let phone_files = Some(Arc::new(phone_files) as Arc<dyn PhoneFiles>);
+                let phone_files = Some(Rc::new(phone_files) as Rc<dyn PhoneFilesAccess>);
                 let started =
                     state::start(app, folders, LibraryPlace::Phone, None, None, phone_files);
                 if let Err(error) = started {

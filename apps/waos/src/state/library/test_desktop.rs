@@ -46,7 +46,7 @@ use crate::logic::installed_code::HeldCompiles;
 use crate::logic::installed_runs::InstalledRuns;
 use crate::logic::opened_package::tests::write_package;
 use crate::logic::package_copies::PackageCopies;
-use crate::logic::phone_files::PhoneFiles;
+use crate::logic::phone_files::PhoneFilesAccess;
 use crate::logic::placement::WindowsOnRequest;
 use crate::logic::preferences::PreferencesFile;
 use crate::logic::program_faces::ProgramFaces;
@@ -57,6 +57,7 @@ use crate::logic::runs::Runs;
 use crate::logic::test_engine;
 use crate::logic::test_outputs::StatedOutputs;
 use crate::state::ViewWindows;
+use crate::state::phone_files::follow_phone_files;
 use crate::state::questions::{self, Questions};
 use crate::state::recordings::Recordings;
 use crate::ui::every_window::{LibraryWindow, every_window, program_windows};
@@ -112,7 +113,7 @@ pub(crate) struct LibraryDesktop {
 pub(crate) struct DesktopKind {
     pub(crate) system: TargetPlatform,
     pub(crate) own_preferences: bool,
-    pub(crate) phone_files: Option<Arc<dyn PhoneFiles>>,
+    pub(crate) phone_files: Option<Rc<dyn PhoneFilesAccess>>,
 }
 
 impl Default for DesktopKind {
@@ -197,6 +198,7 @@ impl LibraryDesktop {
                 view_windows.clone(),
                 ProgramFaces::new(store.clone(), None),
             );
+            let phone_files = phone_files.map(|access| follow_phone_files(app, access));
             Questions::listen(
                 app,
                 prompted.questions,
