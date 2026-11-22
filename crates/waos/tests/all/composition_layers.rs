@@ -1,37 +1,27 @@
 //! A program's composition layers under the test shell: `examples/composition-layers` makes an
 //! opaque layer and one that is not on the shell's compositor, sets its view's layers to both and
-//! presents its first frame, then to the second alone, moved, and presents its second. The shell's
-//! present gets the layers the view held as it presented, in the order set, each the layer the
-//! shell's compositor made for it, with its placement as the program gave it, every kind of
-//! mutator carried; a layer the view no longer holds is not passed with a later present; and once
-//! the program has ended, the engine holds none of the layers it made. A screenshot of its view
-//! shows a video's frame on its badge whole at the frame's shape, centred, where the badge's
-//! placement puts it, and nothing of a layer its last picture no longer holds (the design's
-//! decision 62). Under a shell with no compositor, the program's `get-compositor` answers none,
-//! and its presents carry no layers.
+//! presents its first frame, then to the second alone, moved, and presents its second. Once both
+//! frames are presented, the headless view holds the second frame's layer with its placement and
+//! transform (the video is no longer passed), and once the program has ended, the engine holds
+//! none of the layers it made. A screenshot of its view shows a video's frame on its badge whole
+//! at the frame's shape, centred, where the badge's placement puts it, and nothing of a layer its
+//! last picture no longer holds (the design's decision 62). Under a shell with no compositor, the
+//! program's `get-compositor` answers none, and its presents carry no layers.
 //!
 //! Presents carry hardware buffers, which are made on Apple's systems, where these tests run;
 //! elsewhere one test in their place, in `main.rs`, says so and passes.
 
 use std::path::Path;
-use std::sync::{Arc, Mutex, mpsc};
+use std::sync::Arc;
 
-use waos::bindings::wasdk::platform::views::{
-    Cursor, Mutator, OverlayStyle, Placement, RoundedRect, ViewError, ViewFocusDirection,
-    ViewFocusState,
-};
+use waos::bindings::wasdk::platform::views::{Mutator, Placement};
 use waos::bindings::wasdk::platform::windows::{Point, Rect, Size};
-use waos::{
-    HardwareBuffer, PlacedView, Presence, ProgramEnvironment, ProgramView, RunningProgram,
-    ShellCompositionLayer, ShellView, ViewPlacement, ViewRequest, WaOS,
-};
-use waos_headless::SCREEN;
+use waos::{ProgramEnvironment, WaOS};
 
 use crate::test_shell::composition::{self, PresentedLayer};
 use crate::test_shell::video_frames::{HeldFrame, frame_sized};
 use crate::test_shell::{
-    DISPLAY, RecordedOutput, TestShell, WITHIN, config, metrics, pixel_of, printing_to, wait_until,
-    within,
+    RecordedOutput, TestShell, config, pixel_of, printing_to, wait_until, within,
 };
 
 /// The program's first layer, made opaque, and its second.
@@ -41,48 +31,21 @@ const BADGE: usize = 1;
 #[test]
 fn a_present_hands_the_shell_the_layers_the_view_holds_in_order_with_their_placements() {
     let shell = TestShell::new();
-    let recorded = Arc::new(RecordingLayersView::default());
-    let (arrivals, arrived) = mpsc::channel();
-    let mut parts = shell.shell();
-    parts.views = Arc::new(RecordingPlacement {
-        view: Arc::clone(&recorded),
-        arrivals,
-    });
-    let engine = WaOS::new(config(), parts, shell.platform()).unwrap();
+    let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
     let program = engine
         .load(Path::new(waos_test_programs::COMPOSITION_LAYERS))
         .unwrap();
     let running = engine
         .run(&program, ProgramEnvironment::default())
         .expect("the program runs");
-    let _view = arrived.recv_timeout(WITHIN).expect("its view arrives");
-    wait_until("two frames presented", || {
-        recorded.presented_layers().len() >= 2
-    });
+    let shown = within(shell.headless.view(0)).expect("its view arrives");
+    wait_until("two frames presented", || shown.pictures_shown() >= 2);
 
     let made = shell.compositor.layers_made();
     let opaque: Vec<(usize, bool)> = made.iter().map(|l| (l.number, l.opaque)).collect();
     assert_eq!(opaque, [(VIDEO, true), (BADGE, false)]);
-    let presents = recorded.presented_layers();
     assert_eq!(
-        described(&presents[0]),
-        described(&[
-            PresentedLayer {
-                number: VIDEO,
-                placement: video_placement(),
-            },
-            PresentedLayer {
-                number: BADGE,
-                placement: Placement {
-                    rect: rect(16.0, 16.0, 96.0, 48.0),
-                    mutators: Vec::new(),
-                },
-            },
-        ]),
-        "the first frame shows both, the video beneath"
-    );
-    assert_eq!(
-        described(&presents[1]),
+        described(&composition::presented(shown.layers())),
         described(&[PresentedLayer {
             number: BADGE,
             placement: Placement {
@@ -118,12 +81,9 @@ fn a_screenshot_shows_a_frame_on_a_layer_whole_where_the_last_picture_places_the
     let running = engine
         .run(&program, ProgramEnvironment::default())
         .expect("the program runs");
-    let view = within(shell.headless.view(0))
-        .and_then(|shown| shown.view())
-        .expect("its view arrives");
-    wait_until("two frames presented", || {
-        running.stats().frames_presented() >= 2
-    });
+    let shown = within(shell.headless.view(0)).expect("its view arrives");
+    let view = shown.view().expect("its view");
+    wait_until("two frames presented", || shown.pictures_shown() >= 2);
     let made = shell.compositor.layers_made();
     // Square, where the badge is twice as wide as it is high.
     made[BADGE].show_frame(HeldFrame::new(frame_sized(48, 48, ORANGE)));
@@ -174,14 +134,8 @@ fn a_screenshot_shows_a_frame_on_a_layer_whole_where_the_last_picture_places_the
 #[test]
 fn under_a_shell_without_a_compositor_a_program_gets_none_and_presents_no_layers() {
     let shell = TestShell::new();
-    let recorded = Arc::new(RecordingLayersView::default());
-    let (arrivals, arrived) = mpsc::channel();
     let mut parts = shell.shell();
     parts.compositor = None;
-    parts.views = Arc::new(RecordingPlacement {
-        view: Arc::clone(&recorded),
-        arrivals,
-    });
     let engine = WaOS::new(config(), parts, shell.platform()).unwrap();
     let program = engine
         .load(Path::new(waos_test_programs::COMPOSITION_LAYERS))
@@ -190,17 +144,12 @@ fn under_a_shell_without_a_compositor_a_program_gets_none_and_presents_no_layers
     let running = engine
         .run(&program, printing_to(&output))
         .expect("the program runs");
-    let _view = arrived.recv_timeout(WITHIN).expect("its view arrives");
-    wait_until("two frames presented", || {
-        recorded.presented_layers().len() >= 2
-    });
+    let shown = within(shell.headless.view(0)).expect("its view arrives");
+    let view = shown.view().expect("its view");
     output.wait_for("no compositor");
+    assert!(within(view.picture_after_events()), "its first picture");
     assert!(shell.compositor.layers_made().is_empty());
-    assert!(
-        recorded.presented_layers().iter().all(Vec::is_empty),
-        "{:#?}",
-        recorded.presented_layers()
-    );
+    assert!(shown.layers().is_empty());
     running.stop();
     within(running.ended());
 }
@@ -209,29 +158,6 @@ fn under_a_shell_without_a_compositor_a_program_gets_none_and_presents_no_layers
 /// are compared by what `Debug` writes, every field of every mutator.
 fn described(layers: &[PresentedLayer]) -> String {
     format!("{layers:#?}")
-}
-
-/// The placement the program gives its video in its first frame.
-fn video_placement() -> Placement {
-    let corner = Size {
-        width: 8.0,
-        height: 8.0,
-    };
-    Placement {
-        rect: rect(0.0, 0.0, 640.0, 360.0),
-        mutators: vec![
-            Mutator::Transform(scale(2.0)),
-            Mutator::ClipRect(rect(0.0, 0.0, 600.0, 300.0)),
-            Mutator::ClipRoundedRect(RoundedRect {
-                rect: rect(10.0, 10.0, 300.0, 200.0),
-                top_left: corner,
-                top_right: corner,
-                bottom_right: corner,
-                bottom_left: corner,
-            }),
-            Mutator::Opacity(128),
-        ],
-    }
 }
 
 fn rect(x: f64, y: f64, width: f64, height: f64) -> Rect {
@@ -249,72 +175,4 @@ fn scale(factor: f32) -> Vec<f32> {
         0.0, 0.0, 1.0, 0.0, //
         0.0, 0.0, 0.0, 1.0,
     ]
-}
-
-/// A view that records which composition layers each present named.
-#[derive(Default)]
-struct RecordingLayersView {
-    presented_layers: Mutex<Vec<Vec<PresentedLayer>>>,
-    shown: Mutex<Option<Box<dyn FnOnce() + Send + Sync>>>,
-}
-
-impl RecordingLayersView {
-    fn presented_layers(&self) -> Vec<Vec<PresentedLayer>> {
-        self.presented_layers.lock().unwrap().clone()
-    }
-}
-
-impl ShellView for RecordingLayersView {
-    fn present(
-        &self,
-        _buffer: HardwareBuffer,
-        layers: Vec<(Arc<dyn ShellCompositionLayer>, Placement)>,
-        released: Box<dyn FnOnce() + Send + Sync>,
-    ) {
-        self.presented_layers
-            .lock()
-            .unwrap()
-            .push(composition::presented(layers));
-        let before = self.shown.lock().unwrap().replace(released);
-        if let Some(before) = before {
-            before();
-        }
-    }
-
-    fn set_cursor(&self, _cursor: Cursor) {}
-    fn request_focus_change(&self, _state: ViewFocusState, _direction: ViewFocusDirection) {}
-    fn set_handles_back(&self, _handles: bool) {}
-    fn set_overlay_style(&self, _style: OverlayStyle) {}
-}
-
-/// Places a [`RecordingLayersView`] on the test shell's screen and hands the [`ProgramView`] back.
-struct RecordingPlacement {
-    view: Arc<RecordingLayersView>,
-    arrivals: mpsc::Sender<ProgramView>,
-}
-
-impl ViewPlacement for RecordingPlacement {
-    fn view_requested(
-        &self,
-        program: &RunningProgram,
-        request: ViewRequest,
-    ) -> Result<(), ViewError> {
-        let view = program.add_view(
-            request.id,
-            PlacedView {
-                view: Arc::clone(&self.view) as Arc<dyn ShellView>,
-                text_input: None,
-                window: None,
-                metrics: metrics(DISPLAY.width, DISPLAY.height),
-                screen: Some(SCREEN),
-                presence: Presence {
-                    on_screen: true,
-                    occluded: false,
-                    focused: true,
-                },
-            },
-        );
-        let _ = self.arrivals.send(view);
-        Ok(())
-    }
 }
