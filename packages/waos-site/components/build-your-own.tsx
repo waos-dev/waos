@@ -5,6 +5,8 @@ import Link from 'next/link';
 import { Check, Copy, X } from 'lucide-react';
 import { buttonVariants } from 'fumadocs-ui/components/ui/button';
 import { useCopyButton } from 'fumadocs-ui/utils/use-copy-button';
+import { platformInfo, platformList } from '@/lib/platform';
+import { useVisitorPlatform } from '@/lib/use-visitor-platform';
 
 /**
  * The home page's second action: a button naming, one after another, the agents a reader may
@@ -13,19 +15,20 @@ import { useCopyButton } from 'fumadocs-ui/utils/use-copy-button';
  */
 export function BuildYourOwn({
   prompt,
-  downloadUrl,
-  androidDownloadUrl,
   startUrl,
 }: {
   prompt: string;
-  downloadUrl: string;
-  androidDownloadUrl: string;
   startUrl: string;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const [copied, copy] = useCopyButton(() => navigator.clipboard.writeText(prompt));
   const [paused, setPaused] = useState(false);
   const shown = useTurns(agents.length, paused);
+  const visitor = useVisitorPlatform();
+  const primary = visitor === 'other' ? undefined : platformInfo(visitor);
+  const orderedPlatforms = primary
+    ? [primary, ...platformList.filter((item) => item.id !== primary.id)]
+    : platformList;
 
   return (
     <>
@@ -65,12 +68,26 @@ export function BuildYourOwn({
           <ol className="flex flex-col gap-6">
             <Step number={1} title="Get WaOS">
               <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
-                <a href={downloadUrl} className="font-medium underline underline-offset-4">
-                  Download for macOS (Apple Silicon)
-                </a>
-                <a href={androidDownloadUrl} className="font-medium underline underline-offset-4">
-                  Download for Android
-                </a>
+                {orderedPlatforms.map((item) => {
+                  const isPrimary = primary?.id === item.id;
+                  const label =
+                    item.id === 'macos' || isPrimary
+                      ? `Download for ${item.name} (${item.detail})`
+                      : item.name;
+                  return (
+                    <a
+                      key={item.id}
+                      href={item.href}
+                      className={
+                        isPrimary
+                          ? 'font-semibold text-fd-foreground underline underline-offset-4'
+                          : 'font-medium text-fd-muted-foreground underline underline-offset-4 hover:text-fd-foreground'
+                      }
+                    >
+                      {label}
+                    </a>
+                  );
+                })}
               </div>
             </Step>
             <Step number={2} title="Give your coding agent this, then say what you want">
