@@ -25,7 +25,7 @@ use tokio::sync::watch;
 use waos::bindings::wasdk::platform::screens::PixelSize;
 use waos::bindings::wasdk::platform::views::{
     Cursor, Insets, Metrics, OverlayStyle, PixelRect, Placement, TextEditingValue,
-    TextInputConfiguration, ViewError, ViewFocusDirection, ViewFocusState,
+    TextInputConfiguration, TextInputType, ViewError, ViewFocusDirection, ViewFocusState,
 };
 use waos::bindings::wasdk::platform::windows::{Point, Rect, Size};
 use waos::{
@@ -145,7 +145,12 @@ impl HeadlessShell {
 pub struct HeadlessView {
     view: OnceLock<WeakProgramView>,
     window: Option<Arc<HeadlessWindow>>,
+    text_input: Arc<EditedText>,
     handles_back: AtomicBool,
+    /// How many pictures the view was handed.
+    pictures: AtomicUsize,
+    /// The layers handed with the picture presented last, reached weakly, and where each goes.
+    layers: Mutex<Vec<(Weak<dyn ShellCompositionLayer>, Placement)>>,
     /// The release of the picture presented last, which runs once the next replaces it.
     shown: Mutex<Option<Released>>,
 }
@@ -168,15 +173,40 @@ impl HeadlessView {
     pub fn handles_back(&self) -> bool {
         self.handles_back.load(Ordering::SeqCst)
     }
+
+    /// How many pictures the view was handed: for a test that a view hidden while another kept
+    /// drawing was handed none meanwhile.
+    pub fn pictures_shown(&self) -> usize {
+        self.pictures.load(Ordering::SeqCst)
+    }
+
+    /// The layers handed with the picture presented last, the bottom-most first, each where the
+    /// program placed it; one the engine let go of since is left out.
+    pub fn layers(&self) -> Vec<(Arc<dyn ShellCompositionLayer>, Placement)> {
+        locked(&self.layers)
+            .iter()
+            .filter_map(|(layer, placement)| Some((layer.upgrade()?, placement.clone())))
+            .collect()
+    }
+
+    /// The kind of text the program edits in the view now; none while it edits nothing.
+    pub fn text_input_type(&self) -> Option<TextInputType> {
+        *locked(&self.text_input.input_type)
+    }
 }
 
 impl ShellView for HeadlessView {
     fn present(
         &self,
         _buffer: HardwareBuffer,
-        _layers: Vec<(Arc<dyn ShellCompositionLayer>, Placement)>,
+        layers: Vec<(Arc<dyn ShellCompositionLayer>, Placement)>,
         released: Released,
     ) {
+        *locked(&self.layers) = layers
+            .iter()
+            .map(|(layer, placement)| (Arc::downgrade(layer), placement.clone()))
+            .collect();
+        self.pictures.fetch_add(1, Ordering::SeqCst);
         let before = locked(&self.shown).replace(released);
         if let Some(before) = before {
             before();
@@ -369,17 +399,21 @@ impl GivenViews {
                 drags: AtomicUsize::new(0),
             })
         });
+        let text_input = Arc::new(EditedText::default());
         let given = Arc::new(HeadlessView {
             view: OnceLock::new(),
             window: window.clone(),
+            text_input: Arc::clone(&text_input),
             handles_back: AtomicBool::new(false),
+            pictures: AtomicUsize::new(0),
+            layers: Mutex::default(),
             shown: Mutex::default(),
         });
         let view = program.add_view(
             request.id,
             PlacedView {
                 view: Arc::clone(&given) as Arc<dyn ShellView>,
-                text_input: Some(Arc::new(NoInputMethods)),
+                text_input: Some(text_input as Arc<dyn ShellTextInput>),
                 window: window.as_ref().map(|window| PlacedWindow {
                     window: Arc::clone(window) as Arc<dyn ShellWindow>,
                     frame: display.screen().frame,
@@ -416,17 +450,31 @@ impl ViewPlacement for GivenViews {
     }
 }
 
-/// Input methods that do nothing of their own.
-struct NoInputMethods;
+/// Input methods that do nothing of their own, keeping the kind of text the program edits.
+#[derive(Default)]
+struct EditedText {
+    input_type: Mutex<Option<TextInputType>>,
+}
 
-impl ShellTextInput for NoInputMethods {
-    fn set_client(&self, _configuration: TextInputConfiguration) {}
+impl ShellTextInput for EditedText {
+    fn set_client(&self, configuration: TextInputConfiguration) {
+        *locked(&self.input_type) = Some(configuration.input_type);
+    }
+
     fn show(&self) {}
-    fn update_config(&self, _configuration: TextInputConfiguration) {}
+
+    fn update_config(&self, configuration: TextInputConfiguration) {
+        *locked(&self.input_type) = Some(configuration.input_type);
+    }
+
     fn set_editing_state(&self, _value: TextEditingValue) {}
     fn set_caret_rect(&self, _rect: PixelRect) {}
     fn set_composing_rect(&self, _rect: PixelRect) {}
-    fn clear_client(&self) {}
+
+    fn clear_client(&self) {
+        *locked(&self.input_type) = None;
+    }
+
     fn hide(&self) {}
 }
 
