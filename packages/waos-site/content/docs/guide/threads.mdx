@@ -1,0 +1,30 @@
+---
+title: Threads
+description: Run crates written around std::thread, taking turns on one core.
+---
+
+A program's `std::thread`s run in WaOS as the component model's cooperative threads. Spawning, joining, `Mutex`, `Condvar`, channels, `park` and `sleep` work as they do natively, so a crate written around threads (a database's worker thread, a playback thread, a thread pool) runs as written.
+
+They take turns on one core. A thread runs while the others wait: in a sleep, a lock, a channel, any call into WaOS, or the program's main awaiting. A thread that computes without waiting holds every other thread, the window's among them, until it waits. Threads make threaded code run, never faster. For work that should run in parallel and leave the window answering, use [workers](/docs/guide/workers).
+
+## Building a program with threads
+
+Rust's own libc for `wasm32-wasip3` has no threads yet, so `thread::spawn` answers `Unsupported` until the program links wasi-sdk's cooperative-threads libc instead. Install [wasi-sdk 34](https://github.com/WebAssembly/wasi-sdk/releases/tag/wasi-sdk-34) or later, and give the program a `.cargo/config.toml` with its absolute path in place of `<wasi-sdk>`:
+
+```toml
+[target.wasm32-wasip3]
+rustflags = [
+  "-C", "link-self-contained=no",
+  "-L", "native=<wasi-sdk>/share/wasi-sysroot/experimental-coop-threads/lib/wasm32-wasip3",
+  "-C", "link-arg=<wasi-sdk>/share/wasi-sysroot/experimental-coop-threads/lib/wasm32-wasip3/crt1-command.o",
+]
+```
+
+`waos build` and `waos run` then build it with threads. A `RUSTFLAGS` set in the environment replaces these flags, as Cargo does. C code the program builds uses the same sysroot: `CFLAGS_wasm32_wasip3="--sysroot=<wasi-sdk>/share/wasi-sysroot/experimental-coop-threads"`, with the compiler set as [Start](/docs/start) says.
+
+These flags go once Rust's own libc has threads, which Rust expects by the end of 2026; the program's code does not change.
+
+## Where it's missing
+
+- `available_parallelism` answers 1, so a pool sized by it starts one thread.
+- tokio refuses its multi-threaded runtime (`rt-multi-thread`) on wasm when it compiles; its current-thread runtime builds.

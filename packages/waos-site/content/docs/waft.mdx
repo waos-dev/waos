@@ -136,13 +136,13 @@ impl StatelessWidget for Home {
 
 ## Async work and workers on WaOS
 
-A WaOS program runs on one thread, and its async work runs there as tasks:
+A WaOS program's async work runs on its main thread, as tasks:
 
 - `app.spawn(async move |cx| …)` starts a task, which awaits any `wasdk` future and reaches the app again through `cx.update(|app| …)`. It starts once the current event is handled.
 - `Timer::periodic(app, duration, |app, timer| …)` repeats every `duration` (firing once without replaying missed ticks when a frozen program thaws); `Timer::new(app, duration, listener)` fires once after `duration`. Call `cancel(app)` to stop either.
 - A callback from outside the app hands it work with `post` on the `AsyncApp` that `app.to_async()` answers.
 
-> On WaOS a program has one thread, so `app.run_in_background`'s work runs on it too, after the current event, and long CPU work still holds the window up. Work that long goes to a worker ([Workers](/docs/guide/workers)), started from a task.
+> On WaOS a program's threads take turns on one core, so `app.run_in_background`'s work runs on the main thread too, after the current event, and long CPU work still holds the window up. Work that long goes to a worker ([Workers](/docs/guide/workers)), started from a task.
 
 ## Waft documentation on waft.rs
 

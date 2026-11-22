@@ -3,7 +3,7 @@ title: Workers
 description: Run heavy work in parallel, off the window's thread.
 ---
 
-A program has one thread, so work that takes long holds its window up while it runs. A worker is another instance of the program's own code, on a thread of its own, as the web's workers are: it shares no memory with the program, and the two send each other messages, each a `Vec<u8>`, over a stream each way. A worker is a function the program marks `#[wasdk::worker]`; the program starts it by its name, sends it work, and reads what it sends back, while its window goes on answering. Several workers run in parallel, as many at once as the machine has threads (`available_parallelism`).
+A program's threads take turns on one core ([Threads](/docs/guide/threads)), so work that takes long holds its window up while it runs. A worker is another instance of the program's own code, on a thread of its own, as the web's workers are: it shares no memory with the program, and the two send each other messages, each a `Vec<u8>`, over a stream each way. A worker is a function the program marks `#[wasdk::worker]`; the program starts it by its name, sends it work, and reads what it sends back, while its window goes on answering. Several workers run in parallel, as many at once as the machine has threads (`available_parallelism`).
 
 ## With wasdk
 
