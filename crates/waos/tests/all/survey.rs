@@ -136,7 +136,9 @@ fn moves_maximizes_and_minimizes_its_window_from_the_band_it_treats_as_its_title
     press(&view, ON_TITLE_BAR, 0);
     output.wait_for("view 1: pressed on its title bar: moving its window");
     // Survey says so before it asks its window to move.
-    wait_until("a press on the band moves the window", || window.drags() == 1);
+    wait_until("a press on the band moves the window", || {
+        window.drags() == 1
+    });
 
     press(&view, ON_TITLE_BAR, 200 * MS);
     output.wait_for("view 1: double-clicked its title bar: Some(TitleBarAction::Maximize)");
