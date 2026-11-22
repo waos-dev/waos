@@ -21,7 +21,7 @@ use std::fs;
 use std::future::pending;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, mpsc};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 
 use futures::FutureExt;
@@ -31,26 +31,20 @@ use waos::bindings::wasdk::platform::menus::{
     MenuEntry, MenuEntryKind, Provided, ProvidedItem, ShortcutModifiers, Submenu,
 };
 use waos::bindings::wasdk::platform::notifications::Activation;
-use waos::bindings::wasdk::platform::views::{
-    Cursor, OverlayStyle, PixelRect, Placement, TextEditingValue, TextInputConfiguration,
-    TextInputType, ViewError, ViewFocusDirection, ViewFocusState,
-};
-use waos::bindings::wasdk::platform::windows::{Point, Rect, Size};
+use waos::bindings::wasdk::platform::views::TextInputType;
 use waos::{
-    Answer, HardwareBuffer, Keyboard, OpenRequest, PlacedView, PlacedWindow, Presence, ProgramEnd,
-    ProgramEnvironment, ProgramGrants, ProgramOutput, ProgramView, Question, RunningProgram,
-    ShellCompositionLayer, ShellTextInput, ShellView, ShellWindow, ShellWindowSizeLimits,
-    ViewPlacement, ViewRequest, WaOS,
+    Answer, Keyboard, OpenRequest, ProgramEnd, ProgramEnvironment, ProgramGrants, ProgramOutput,
+    ProgramView, Question, RunningProgram, WaOS,
 };
 use waos_capabilities::{
     ChangedFuture, DomainRule, FileSystemGrant, Mount, NetworkGrant, ProgramFolders,
 };
-use waos_headless::{HeadlessView, SCREEN};
+use waos_headless::HeadlessView;
 
 use crate::test_shell::clipboard::CopiedText;
 use crate::test_shell::menus::TestMenus;
 use crate::test_shell::{
-    DISPLAY, RecordedOutput, TestShell, WITHIN, config, metrics, wait_until, within,
+    DISPLAY, RecordedOutput, TestShell, config, metrics, wait_until, within,
 };
 
 /// A note typed in, and its title.
@@ -182,48 +176,24 @@ fn a_deleted_note_goes_to_recently_deleted_and_is_recovered_from_there() {
 #[test]
 fn at_a_phones_width_the_list_is_a_pane_over_the_note_that_search_opens() {
     let shell = TestShell::new();
-    let text_input = Arc::new(RecordingTextInput::default());
-    let (arrivals, arrived) = mpsc::channel();
-    let mut parts = shell.shell();
-    parts.views = Arc::new(TextInputPlacement {
-        text_input: Arc::clone(&text_input),
-        arrivals,
-    });
-    let engine = WaOS::new(config(), parts, shell.platform()).unwrap();
+    let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
     let folders = Folders::new();
     let grants = Arc::new(NotesGrants::default());
-    let output = Arc::new(RecordedOutput::default());
-    let program = engine.load(Path::new(waos_test_programs::NOTES)).unwrap();
-    let environment = ProgramEnvironment {
-        output: Some(Arc::clone(&output) as Arc<dyn ProgramOutput>),
-        grants: Some(Arc::clone(&grants) as Arc<dyn ProgramGrants>),
-        folders: Some(folders.own()),
-        ..waos_local::LocalCapabilities::new().environment()
-    };
-    let running = engine.run(&program, environment).unwrap();
-    let window = arrived
-        .recv_timeout(WITHIN)
-        .expect("notes asks for its window");
+    let (running, shown, window, _output) = launch(&engine, &shell, &folders, &grants);
     let bar = wait_for_bar(&shell.menus);
     window.metrics_changed(metrics(PHONE_WIDTH, DISPLAY.height));
 
     type_new_note(&engine, &shell, &running, &window, SHOPPING, SHOPPING_TITLE);
     running.menu_chosen(id_of(&bar, "File", "New Note"));
     wait_for_title(&window, "New Note");
-    let started = text_input.started().len();
     running.menu_chosen(id_of(&bar, "Edit", "Search"));
     wait_until(
         "the search field has the focus, once the pane has opened",
-        || {
-            let inputs = text_input.started();
-            inputs.len() > started && matches!(inputs.last(), Some(TextInputType::Text))
-        },
+        || matches!(shown.text_input_type(), Some(TextInputType::Text)),
     );
     paste(&engine, &window, "milk");
     wait_for_title(&window, SHOPPING_TITLE);
-    window.close_requested();
-    running.remove_view(window.id());
-    within(running.ended());
+    close(&running, &window);
 }
 
 #[test]
@@ -532,116 +502,6 @@ fn wait_for_title(window: &ProgramView, title: &str) {
     wait_until(&format!("the window is titled {title}"), || {
         window.window_title().as_deref() == Some(title)
     });
-}
-
-/// Records the kind of text each editing session started in the view took.
-#[derive(Default)]
-struct RecordingTextInput {
-    started: Mutex<Vec<TextInputType>>,
-}
-
-impl RecordingTextInput {
-    fn started(&self) -> Vec<TextInputType> {
-        self.started.lock().unwrap().clone()
-    }
-}
-
-impl ShellTextInput for RecordingTextInput {
-    fn set_client(&self, configuration: TextInputConfiguration) {
-        self.started.lock().unwrap().push(configuration.input_type);
-    }
-
-    fn show(&self) {}
-    fn update_config(&self, _configuration: TextInputConfiguration) {}
-    fn set_editing_state(&self, _value: TextEditingValue) {}
-    fn set_caret_rect(&self, _rect: PixelRect) {}
-    fn set_composing_rect(&self, _rect: PixelRect) {}
-    fn clear_client(&self) {}
-    fn hide(&self) {}
-}
-
-/// Places a view with [`RecordingTextInput`] so a test sees when the search field gains focus.
-struct TextInputPlacement {
-    text_input: Arc<RecordingTextInput>,
-    arrivals: mpsc::Sender<ProgramView>,
-}
-
-impl ViewPlacement for TextInputPlacement {
-    fn view_requested(
-        &self,
-        program: &RunningProgram,
-        request: ViewRequest,
-    ) -> Result<(), ViewError> {
-        let frame = Rect {
-            origin: Point { x: 0.0, y: 0.0 },
-            size: Size {
-                width: f64::from(DISPLAY.width) / DISPLAY.scale,
-                height: f64::from(DISPLAY.height) / DISPLAY.scale,
-            },
-        };
-        let view = program.add_view(
-            request.id,
-            PlacedView {
-                view: Arc::new(NoopView::default()),
-                text_input: Some(Arc::clone(&self.text_input) as Arc<dyn ShellTextInput>),
-                window: Some(PlacedWindow {
-                    window: Arc::new(NoopWindow),
-                    frame,
-                    maximized: false,
-                    title_bar_double_click_action: None,
-                }),
-                metrics: metrics(DISPLAY.width, DISPLAY.height),
-                screen: Some(SCREEN),
-                presence: Presence {
-                    on_screen: true,
-                    occluded: false,
-                    focused: true,
-                },
-            },
-        );
-        let _ = self.arrivals.send(view);
-        Ok(())
-    }
-}
-
-#[derive(Default)]
-struct NoopView {
-    shown: Mutex<Option<Box<dyn FnOnce() + Send + Sync>>>,
-}
-
-impl ShellView for NoopView {
-    fn present(
-        &self,
-        _buffer: HardwareBuffer,
-        _layers: Vec<(Arc<dyn ShellCompositionLayer>, Placement)>,
-        released: Box<dyn FnOnce() + Send + Sync>,
-    ) {
-        let before = self.shown.lock().unwrap().replace(released);
-        if let Some(before) = before {
-            before();
-        }
-    }
-
-    fn set_cursor(&self, _cursor: Cursor) {}
-    fn request_focus_change(&self, _state: ViewFocusState, _direction: ViewFocusDirection) {}
-    fn set_handles_back(&self, _handles: bool) {}
-    fn set_overlay_style(&self, _style: OverlayStyle) {}
-}
-
-struct NoopWindow;
-
-impl ShellWindow for NoopWindow {
-    fn set_frame(&self, _frame: Rect, _animate: Option<Duration>) {}
-    fn set_title(&self, _title: &str) {}
-    fn show(&self) {}
-    fn hide(&self) {}
-    fn close(&self) {}
-    fn size_limits(&self) -> Option<&dyn ShellWindowSizeLimits> {
-        None
-    }
-    fn drag(&self) {}
-    fn set_maximized(&self, _maximized: bool) {}
-    fn set_minimized(&self, _minimized: bool) {}
 }
 
 /// A note as the program's store keeps it.
