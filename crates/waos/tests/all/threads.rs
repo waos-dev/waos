@@ -4,7 +4,9 @@
 //! component that calls the threads' built-ins directly; the experiment
 //! `2026-11-22-std-threads-on-wasip3` ran a wasdk program's `std::thread`s in the engine.
 
-use crate::shell;
+use waos::WaOS;
+
+use crate::test_shell::{TestShell, config};
 
 /// A component whose one function yields its thread and answers the thread's index, through the
 /// built-ins wasmtime refuses unless the component model's threading is on.
@@ -25,7 +27,8 @@ fn a_component_using_cooperative_threads_loads() {
     let folder = tempfile::tempdir().unwrap();
     let component = folder.path().join("yields-its-thread.wat");
     std::fs::write(&component, YIELDS_ITS_THREAD).unwrap();
-    let (engine, _shell, _arrivals) = shell::engine();
+    let shell = TestShell::new();
+    let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
     engine
         .load(&component)
         .unwrap_or_else(|error| panic!("the threads' built-ins are refused: {error:#}"));
