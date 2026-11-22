@@ -9,6 +9,7 @@
 //! The invariant: a test reads only its own shell and its own programs' outputs, so the tests run
 //! side by side in one process without seeing each other.
 
+mod engine_log;
 mod events;
 mod output;
 mod prompts;
@@ -44,6 +45,7 @@ use crate::shell::notifications::TestNotifications;
 use crate::shell::opener::TestOpener;
 use crate::shell::sound::TestSound;
 use crate::shell::video_frames::TestVideoFrameReaders;
+pub use engine_log::engine_log;
 pub use events::{metrics, mouse};
 pub use output::RecordedOutput;
 pub use prompts::TestPrompts;

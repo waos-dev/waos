@@ -14,7 +14,7 @@ use std::sync::Arc;
 use futures::StreamExt;
 use waos::{ProgramEnd, ProgramEnvironment, TraceKind, TraceStream, WaOS};
 
-use crate::test_shell::{RecordedOutput, TestShell, config, printing_to, within};
+use crate::test_shell::{RecordedOutput, TestShell, config, engine_log, printing_to, within};
 
 /// Forever's first two reports, in order.
 const FIRST_REPORTS: [&str; 2] = ["count 1048576", "count 2097152"];
@@ -28,15 +28,14 @@ fn a_chosen_output_gets_what_the_program_writes_in_order_and_the_log_nothing() {
         .load(Path::new(waos_test_programs::FOREVER))
         .unwrap()
         .named(name);
+    let log = engine_log();
     let output = Arc::new(RecordedOutput::default());
     let running = engine.run(&forever, printing_to(&output)).unwrap();
     output.wait_for(FIRST_REPORTS[1]);
     running.stop();
     assert!(matches!(within(running.ended()), ProgramEnd::Stopped));
     assert_eq!(output.lines()[..2], FIRST_REPORTS);
-    // TODO(tests-without-the-clock): the test shell has no reader of the engine's log, so this
-    // reads the old shell's, which records every program's lines by name.
-    let logged = crate::shell::output().lines_of(0, name);
+    let logged = log.lines_of(name);
     assert!(
         logged.is_empty(),
         "the log got what the chosen output was for: {logged:?}"
@@ -52,14 +51,12 @@ fn with_no_output_chosen_the_program_writes_to_the_log() {
         .load(Path::new(waos_test_programs::FOREVER))
         .unwrap()
         .named(name);
-    // TODO(tests-without-the-clock): the test shell has no reader of the engine's log, so this
-    // reads the old shell's, which records every program's lines by name.
-    let log = crate::shell::output();
+    let log = engine_log();
     let running = engine.run(&forever, ProgramEnvironment::default()).unwrap();
-    log.wait_for(0, name, |line| line == FIRST_REPORTS[1]);
+    log.wait_for(name, FIRST_REPORTS[1]);
     running.stop();
     assert!(matches!(within(running.ended()), ProgramEnd::Stopped));
-    assert_eq!(log.lines_of(0, name)[..2], FIRST_REPORTS);
+    assert_eq!(log.lines_of(name)[..2], FIRST_REPORTS);
 }
 
 #[test]
