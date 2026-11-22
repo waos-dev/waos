@@ -1,73 +1,53 @@
 //! `examples/back` under the test shell: a program that goes back within itself. Its view starts
-//! not handling Back; a press takes it a page on, and the view, and the shell with it, hear that it
+//! not handling Back; a tap takes it a page on, and the view, and the shell with it, hear that it
 //! handles Back; the user's Back sent to it, as a shell sends it then, takes it a page back, and
-//! back on its first page it says it no longer handles Back, the shell told each change once.
+//! back on its first page it says it no longer handles Back.
 
+use std::path::Path;
 use std::sync::Arc;
-use std::sync::mpsc::Receiver;
 
-use waos::bindings::wasdk::platform::views::{PointerButtons, PointerChange};
-use waos::{HeldModifiers, ProgramEnvironment, ProgramOutput, ProgramView, RunningProgram, WaOS};
+use waos::{ProgramEnd, WaOS};
 
-use crate::shell::{self, Lines, WITHIN, mouse, wait_until};
+use crate::test_shell::{RecordedOutput, TestShell, config, printing_to, within};
 
 #[test]
 fn it_handles_back_while_it_has_a_page_to_go_back_to() {
-    let (engine, shell, arrivals) = shell::engine();
-    let lines = Arc::new(Lines::default());
-    let (running, view) = run(&engine, &arrivals, &lines);
-    let shell_view = Arc::clone(&shell.placed_views()[0]);
+    let shell = TestShell::new();
+    let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
+    let program = engine.load(Path::new(waos_test_programs::BACK)).unwrap();
+    let output = Arc::new(RecordedOutput::default());
+    let running = engine.run(&program, printing_to(&output)).unwrap();
+    let shown = within(shell.headless.view(0)).expect("the program asks for its window");
+    let view = shown.view().expect("the program's view");
+    output.wait_for("page 0, handles back: false");
     assert!(!view.handles_back(), "a view starts not handling Back");
 
-    press(&view);
-    lines.wait_for("page 1, handles back: true");
-    wait_until("the view handles Back", || view.handles_back());
-    press(&view);
-    lines.wait_for("page 2, handles back: true");
+    // The program says whether it handles Back before it prints the page it is on.
+    running.mouse().tap(&view, (1.0, 1.0));
+    output.wait_for("page 1, handles back: true");
+    assert!(view.handles_back());
+    assert!(shown.handles_back(), "the shell is told");
+    running.mouse().tap(&view, (1.0, 1.0));
+    output.wait_for("page 2, handles back: true");
 
     view.pop_route();
-    wait_until("back on page 1", || {
-        lines.count("page 1, handles back: true") == 2
-    });
+    // A Back queued behind one unread merges into it, as a shell's repeated Back does.
+    output.wait_for("back");
     view.pop_route();
-    lines.wait_for("page 0, handles back: false");
-    wait_until("the view no longer handles Back", || !view.handles_back());
-    assert_eq!(lines.count("back"), 2, "each Back heard once");
-    assert_eq!(shell_view.handles_back(), [true, false], "each change once");
-    end(&running, &view);
-}
-
-/// The program, its output into `lines`, and its window once it opened.
-fn run(
-    engine: &WaOS,
-    arrivals: &Receiver<ProgramView>,
-    lines: &Arc<Lines>,
-) -> (RunningProgram, ProgramView) {
-    let program = shell::load(engine, waos_test_programs::BACK);
-    let environment = ProgramEnvironment {
-        output: Some(Arc::clone(lines) as Arc<dyn ProgramOutput>),
-        ..ProgramEnvironment::default()
-    };
-    let running = engine.run(&program, environment).unwrap();
-    let view = arrivals
-        .recv_timeout(WITHIN)
-        .expect("the program asks for its window");
-    lines.wait_for("page 0, handles back: false");
-    (running, view)
-}
-
-/// A mouse's press at the view's corner.
-fn press(view: &ProgramView) {
-    let held = HeldModifiers::default();
-    view.pointer(
-        mouse(PointerChange::Down, PointerButtons::PRIMARY, (1.0, 1.0), 0),
-        &held,
-    );
-}
-
-/// Asks the program to close its window, and waits for it to end with its view.
-fn end(running: &RunningProgram, view: &ProgramView) {
+    // The program ends once it has heard every event before the request to close.
     view.close_requested();
-    running.remove_view(view.id());
-    shell::wait_for_end(running);
+    let end = within(running.ended());
+    assert!(matches!(end, ProgramEnd::Returned(Ok(()))), "{end:?}");
+    assert_eq!(
+        output.lines()[3..],
+        [
+            "back",
+            "page 1, handles back: true",
+            "back",
+            "page 0, handles back: false"
+        ],
+        "each Back heard once"
+    );
+    assert!(!view.handles_back());
+    assert!(!shown.handles_back(), "the shell is told");
 }
