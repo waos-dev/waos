@@ -24,10 +24,5 @@ inventory.workspace = true
 [lints]
 workspace = true
 
-# The systems this crate's tests run on in CI (`.github/platform-test-packages.sh`): macOS runs every
-# crate's, and Linux and Windows those of the crates that name them and whose code depends on the system.
-[package.metadata.waos]
-systems = ["macos", "linux", "windows"]
-
 [package.metadata.docs.rs]
 all-features = true

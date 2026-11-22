@@ -1,7 +1,13 @@
 # What every job that builds the workspace does first, after its checkout (with `fetch-depth: 0`):
-# each file dated by its last commit, Rust's cache, and the test programs main last built.
+# each file dated by its last commit, Rust's cache, and (when opted in) the test programs main last
+# built.
 name: Prepare a build
-description: Dates the checkout's files by their commits, and restores Rust's cache and the test programs.
+description: Dates the checkout's files by their commits, restores Rust's cache, and optionally restores the test programs.
+inputs:
+  test-programs:
+    description: Whether to restore target/test-programs (needed by jobs that build or run waos-test-programs).
+    required: false
+    default: "false"
 runs:
   using: composite
   steps:
@@ -18,6 +24,7 @@ runs:
     # what they are built from (`crates/waos/tests/programs/build.rs`); a job that runs tests saves
     # it on main (`save-test-programs`).
     - name: The test programs, as main last built them
+      if: inputs.test-programs == 'true'
       uses: actions/cache/restore@v4
       with:
         path: target/test-programs
