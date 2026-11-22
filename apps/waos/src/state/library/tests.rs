@@ -427,6 +427,17 @@ fn text_that_names_no_source_is_the_librarys_problem() {
 }
 
 #[test]
+fn waos_comes_with_the_official_source() {
+    assert_eq!(
+        first_sources()
+            .iter()
+            .map(Source::to_string)
+            .collect::<Vec<_>>(),
+        ["https://list.waos.app/index.json"]
+    );
+}
+
+#[test]
 fn a_removed_source_takes_its_listing_with_it() {
     let library = TestLibrary::new();
     let server = Server::start();

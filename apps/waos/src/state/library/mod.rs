@@ -196,6 +196,20 @@ impl EventEmitter<ProgramOpened> for Library {}
 /// How many threads the library's runtime reads, downloads and loads on.
 const WORK_THREADS: usize = 2;
 
+/// The source WaOS comes with, which its user removes as any other: the official source, the
+/// catalog of apps their own repositories release (`docs/proposals/2026-11-22-official-source.md`).
+const OFFICIAL_SOURCE: &str = "https://list.waos.app/index.json";
+
+/// The sources the library starts with on a store whose list of sources was never made, as at
+/// WaOS's first start: the official source.
+pub(crate) fn first_sources() -> Vec<Source> {
+    vec![
+        OFFICIAL_SOURCE
+            .parse()
+            .expect("the official source is an index's URL"),
+    ]
+}
+
 /// The library over `store`, opening programs with `runs` where `programs_open` says, copying the
 /// packages handed without a path into `package_copies`, with WaOS's own preferences in
 /// `preferences`, where it keeps them, on a runtime of its own.

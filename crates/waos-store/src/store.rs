@@ -215,6 +215,18 @@ impl Store {
         })
     }
 
+    /// Makes the list of sources `first` where none was ever made, as WaOS comes with sources of
+    /// its own. A list made already is kept as it is, emptied or not, so a source the user removed
+    /// never comes back.
+    pub fn start_sources_with(&self, first: &[Source]) -> Result<(), StoreError> {
+        let _changing = self.lock_changes();
+        let path = self.sources_path();
+        if sources_file::is_made(&path)? {
+            return Ok(());
+        }
+        sources_file::write(&path, first)
+    }
+
     /// Adds `source` after the others; a source added already stays where it is.
     pub fn add_source(&self, source: Source) -> Result<(), StoreError> {
         let _changing = self.lock_changes();

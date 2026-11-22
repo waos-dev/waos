@@ -4,6 +4,9 @@
 //! ```toml
 //! sources = ["github.com/example/triangle", "https://example.com/waos/index.json"]
 //! ```
+//!
+//! The invariant: the file, once made, is the list, whatever it holds; an empty list is the
+//! user's, never a reason to make it again.
 
 use std::fs;
 use std::io::ErrorKind;
@@ -34,6 +37,11 @@ pub(crate) fn read(path: &Path) -> Result<Vec<Source>, StoreError> {
         .collect()
 }
 
+/// Whether the list was ever made: whether there is a file at `path`.
+pub(crate) fn is_made(path: &Path) -> Result<bool, StoreError> {
+    fs::exists(path).map_err(StoreError::io_at(path))
+}
+
 /// Writes `sources` to the file at `path`, whole.
 pub(crate) fn write(path: &Path, sources: &[Source]) -> Result<(), StoreError> {
     let file = SourcesFile {
@@ -61,6 +69,15 @@ mod tests {
         .collect();
         write(&path, &sources).unwrap();
         assert_eq!(read(&path).unwrap(), sources);
+    }
+
+    #[test]
+    fn a_list_emptied_is_made_still() {
+        let scratch = tempfile::tempdir().unwrap();
+        let path = scratch.path().join("sources.toml");
+        assert!(!is_made(&path).unwrap());
+        write(&path, &[]).unwrap();
+        assert!(is_made(&path).unwrap());
     }
 
     #[test]
