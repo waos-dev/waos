@@ -21,7 +21,7 @@ let forward = pressed && event.physical == physical::KEY_W;
 reply.handled(true);
 ```
 
-A key names no modifiers, as `KeyData` names none: a program keeps which are held from the modifier keys it is sent, `logical::SHIFT_LEFT`, `logical::SHIFT_RIGHT` and the like, never `logical::SHIFT`, which stands for either in Flutter's maps and is never sent. A modifier that changed while the program was not told, as around a click in another window, arrives as a `synthesized` key before the pointer event that showed it. Model Viewer keeps egui's modifiers this way.
+A key names no modifiers, as `KeyData` names none: a program keeps which are held from the modifier keys it is sent, `logical::SHIFT_LEFT`, `logical::SHIFT_RIGHT` and the like, never `logical::SHIFT`, which stands for either in Flutter's maps and is never sent. A modifier that changed while the program was not told, as around a click in another window, arrives as a `synthesized` key before the pointer event that showed it.
 
 ## With Waft
 
