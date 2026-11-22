@@ -15,7 +15,7 @@
 //! inside the engine's call that asked for it.
 
 use std::future::Future;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Sender};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError, Weak};
 use std::thread;
@@ -207,6 +207,7 @@ pub struct HeadlessWindow {
     max_size: Mutex<Option<Size>>,
     maximized: AtomicBool,
     minimized: AtomicBool,
+    drags: AtomicUsize,
 }
 
 impl HeadlessWindow {
@@ -234,6 +235,12 @@ impl HeadlessWindow {
     /// Whether the program last asked for the window minimized.
     pub fn is_minimized(&self) -> bool {
         self.minimized.load(Ordering::SeqCst)
+    }
+
+    /// How many moves of the window from a press the program asked for, as a window system starts
+    /// one for a press on a title bar.
+    pub fn drags(&self) -> usize {
+        self.drags.load(Ordering::SeqCst)
     }
 
     fn view(&self) -> Option<ProgramView> {
@@ -271,7 +278,9 @@ impl ShellWindow for HeadlessWindow {
         Some(self)
     }
 
-    fn drag(&self) {}
+    fn drag(&self) {
+        self.drags.fetch_add(1, Ordering::SeqCst);
+    }
 
     fn set_maximized(&self, maximized: bool) {
         self.maximized.store(maximized, Ordering::SeqCst);
@@ -357,6 +366,7 @@ impl GivenViews {
                 max_size: Mutex::default(),
                 maximized: AtomicBool::new(false),
                 minimized: AtomicBool::new(false),
+                drags: AtomicUsize::new(0),
             })
         });
         let given = Arc::new(HeadlessView {

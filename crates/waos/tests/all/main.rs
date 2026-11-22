@@ -20,6 +20,7 @@
 mod asking;
 mod reaching;
 mod shell;
+mod test_shell;
 
 mod audio;
 mod back;
