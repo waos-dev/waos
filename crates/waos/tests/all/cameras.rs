@@ -12,20 +12,21 @@
 //! WaOS's own, asked nothing, shown recording with it apart; one whose shell has none lists none.
 
 use std::fs;
+use std::path::Path;
 use std::sync::Arc;
 
 use futures::FutureExt;
 use tempfile::TempDir;
 use waos::bindings::wasdk::media::cameras::{CameraError, CameraInterruption, CaptureState};
 use waos::{
-    Answer, ProgramEnd, ProgramEnvironment, ProgramGrants, ProgramOutput, Question,
-    RecordingDevice, RunningProgram, WaOS,
+    Answer, ProgramEnd, ProgramEnvironment, ProgramGrants, Question, RecordingDevice,
+    RunningProgram, WaOS,
 };
 use waos_capabilities::ProgramFolders;
 
 use crate::asking::QuestionsAsked;
 use crate::shell::cameras::{Started, formats, listed};
-use crate::shell::{self, Lines, TestShell, wait_until};
+use crate::test_shell::{RecordedOutput, TestShell, config, printing_to, wait_until, within};
 
 /// What the program says of the cameras listed, before it opens one.
 const LISTED: [&str; 2] = [
@@ -41,44 +42,45 @@ const FORMATS: [&str; 2] = [
 
 #[test]
 fn a_camera_opens_once_allowed_and_runs_on_the_shells_own_layer_and_reader_until_it_ends() {
-    let (engine, shell, _arrivals) = shell::engine();
+    let shell = TestShell::new();
+    let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
     let run = Run::start(&engine, Run::asking());
     for line in LISTED {
-        run.lines.wait_for(line);
+        run.output.wait_for(line);
     }
     wait_until("the camera question is put", || {
-        !shell.questions().is_empty()
+        !shell.prompts.questions().is_empty()
     });
     assert_eq!(
-        shell.questions(),
+        shell.prompts.questions(),
         [("cameras".to_owned(), Question::Camera)],
         "listing asks nothing; opening asks once"
     );
-    assert!(shell.cameras().opened().is_empty(), "nothing opens before");
-    shell.answer_questions(Some(Answer::Granted));
+    assert!(shell.cameras.opened().is_empty(), "nothing opens before");
+    shell.prompts.answer_questions(Some(Answer::Granted));
 
     for line in FORMATS {
-        run.lines.wait_for(line);
+        run.output.wait_for(line);
     }
-    run.lines.wait_for("started in 640x480");
+    run.output.wait_for("started in 640x480");
     assert_eq!(
-        shell.cameras().opened(),
+        shell.cameras.opened(),
         [("cameras".to_owned(), "front".to_owned())]
     );
     let session = started(&shell);
     assert_eq!(sizes(&[session.picked.size]), ["640x480"]);
     assert_eq!(session.preview, Some(0), "the layer the program made");
-    assert!(shell.compositor().layers_made()[0].opaque);
+    assert!(shell.compositor.layers_made()[0].opaque);
     assert_eq!(session.frames, Some(0), "the reader the program made");
-    assert_eq!(shell.video_frame_readers().made().len(), 1);
+    assert_eq!(shell.video_frame_readers.made().len(), 1);
     assert_eq!(
         sizes(&session.photos.into_iter().collect::<Vec<_>>()),
         ["640x480"]
     );
-    run.lines.wait_for("photo: image/jpeg, 3 bytes");
-    run.lines.wait_for("state: running");
+    run.output.wait_for("photo: image/jpeg, 3 bytes");
+    run.output.wait_for("state: running");
     assert_eq!(
-        shell.sound().recording(),
+        shell.sound.recording(),
         [("cameras".to_owned(), RecordingDevice::Camera, true)],
         "shown using the camera from its start"
     );
@@ -86,25 +88,30 @@ fn a_camera_opens_once_allowed_and_runs_on_the_shells_own_layer_and_reader_until
     session.report(CaptureState::Interrupted(Some(
         CameraInterruption::Background,
     )));
-    run.lines.wait_for("state: interrupted (background)");
+    run.output.wait_for("state: interrupted (background)");
     session.report(CaptureState::Interrupted(Some(
         CameraInterruption::InUseByAnotherApp,
     )));
-    run.lines
+    run.output
         .wait_for("state: interrupted (in use by another app)");
     session.report(CaptureState::Interrupted(None));
-    run.lines.wait_for("state: interrupted");
+    run.output.wait_for("state: interrupted");
     session.report(CaptureState::Running);
-    wait_until("the program hears it runs again", || {
-        run.lines.count("state: running") == 2
-    });
+    run.output
+        .wait_until("the program hears it runs again", |lines| {
+            lines
+                .iter()
+                .filter(|line| *line == "state: running")
+                .count()
+                == 2
+        });
     session.report(CaptureState::Ended(CameraError::Unplugged));
-    run.lines.wait_for("state: ended (unplugged)");
-    let end = shell::wait_for_end(&run.running);
+    run.output.wait_for("state: ended (unplugged)");
+    let end = within(run.running.ended());
     assert!(matches!(end, ProgramEnd::Returned(Ok(()))), "{end:?}");
     assert!(session.is_dropped(), "let go as the program returns");
     assert_eq!(
-        shell.sound().recording(),
+        shell.sound.recording(),
         [
             ("cameras".to_owned(), RecordingDevice::Camera, true),
             ("cameras".to_owned(), RecordingDevice::Camera, false)
@@ -115,115 +122,122 @@ fn a_camera_opens_once_allowed_and_runs_on_the_shells_own_layer_and_reader_until
 
 #[test]
 fn a_simulated_answer_opens_the_shells_own_camera_unasked_and_shows_it_simulated() {
-    let (engine, shell, _arrivals) = shell::engine();
+    let shell = TestShell::new();
+    let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
     let run = Run::start(&engine, Run::answered(Answer::Simulated));
-    run.lines
+    run.output
         .wait_for("camera waos-test-pattern: WaOS test pattern (external)");
-    run.lines.wait_for("state: running");
-    assert!(shell.questions().is_empty(), "nothing asked");
+    run.output.wait_for("state: running");
+    assert!(shell.prompts.questions().is_empty(), "nothing asked");
     assert!(
-        shell.cameras().opened().is_empty(),
+        shell.cameras.opened().is_empty(),
         "the system's camera untouched"
     );
     assert_eq!(
-        shell.simulated_cameras().opened(),
+        shell.simulated_cameras.opened(),
         [("cameras".to_owned(), "waos-test-pattern".to_owned())]
     );
     assert_eq!(
-        shell.sound().recording(),
+        shell.sound.recording(),
         [("cameras".to_owned(), RecordingDevice::SimulatedCamera, true)],
         "shown with the camera of WaOS's own"
     );
-    let session = shell.simulated_cameras().started().remove(0);
+    let session = shell.simulated_cameras.started().remove(0);
     session.report(CaptureState::Ended(CameraError::Unplugged));
-    shell::wait_for_end(&run.running);
+    within(run.running.ended());
 }
 
 #[test]
 fn a_simulated_answer_on_a_shell_without_cameras_of_its_own_lists_none() {
-    let (engine, shell, _arrivals) = shell::engine_of(shell::config(), |parts| {
-        parts.simulated_cameras = None;
-    });
+    let shell = TestShell::new();
+    let mut parts = shell.shell();
+    parts.simulated_cameras = None;
+    let engine = WaOS::new(config(), parts, shell.platform()).unwrap();
     let run = Run::start(&engine, Run::answered(Answer::Simulated));
-    shell::wait_for_end(&run.running);
+    within(run.running.ended());
     assert!(
-        !run.lines
-            .all()
+        !run.output
+            .lines()
             .iter()
             .any(|line| line.starts_with("camera ")),
         "{:#?}",
-        run.lines.all()
+        run.output.lines()
     );
-    assert!(shell.cameras().opened().is_empty());
+    assert!(shell.cameras.opened().is_empty());
 }
 
 #[test]
 fn the_program_hears_the_list_again_each_time_a_camera_comes_or_goes() {
-    let (engine, shell, _arrivals) = shell::engine();
+    let shell = TestShell::new();
+    let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
     let run = Run::start(&engine, Run::allowed());
-    run.lines.wait_for("state: running");
+    run.output.wait_for("state: running");
     let cameras = listed();
-    shell.cameras().set_listed(vec![cameras[1].clone()]);
-    run.lines.wait_for("cameras now: desk");
-    shell.cameras().set_listed(cameras);
-    run.lines.wait_for("cameras now: front, desk");
+    shell.cameras.set_listed(vec![cameras[1].clone()]);
+    run.output.wait_for("cameras now: desk");
+    shell.cameras.set_listed(cameras);
+    run.output.wait_for("cameras now: front, desk");
     run.running.stop();
-    shell::wait_for_end(&run.running);
+    within(run.running.ended());
 }
 
 #[test]
 fn a_running_camera_keeps_its_program_from_freezing_until_it_lets_the_session_go() {
-    let (engine, shell, _arrivals) = shell::engine();
+    let shell = TestShell::new();
+    let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
     let run = Run::start(&engine, Run::allowed());
-    run.lines.wait_for("state: running");
-    shell::resolved(engine.app_suspending());
+    run.output.wait_for("state: running");
+    within(engine.app_suspending());
     assert!(
         run.running.frozen().now_or_never().is_none(),
         "paused with its camera running, it is not frozen"
     );
     started(&shell).report(CaptureState::Ended(CameraError::Unplugged));
-    run.lines.wait_for("state: ended (unplugged)");
-    let end = shell::wait_for_end(&run.running);
+    run.output.wait_for("state: ended (unplugged)");
+    let end = within(run.running.ended());
     assert!(matches!(end, ProgramEnd::Returned(Ok(()))), "{end:?}");
     engine.app_resumed();
 }
 
 #[test]
 fn a_refused_camera_opens_nothing_and_the_program_hears_why() {
-    let (engine, shell, _arrivals) = shell::engine();
+    let shell = TestShell::new();
+    let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
     let run = Run::start(&engine, Run::asking());
     wait_until("the camera question is put", || {
-        !shell.questions().is_empty()
+        !shell.prompts.questions().is_empty()
     });
-    shell.answer_questions(Some(Answer::Denied));
-    run.lines.wait_for("open front: not allowed");
-    shell::wait_for_end(&run.running);
-    assert!(shell.cameras().opened().is_empty());
-    assert!(shell.sound().recording().is_empty());
+    shell.prompts.answer_questions(Some(Answer::Denied));
+    run.output.wait_for("open front: not allowed");
+    within(run.running.ended());
+    assert!(shell.cameras.opened().is_empty());
+    assert!(shell.sound.recording().is_empty());
 }
 
 #[test]
 fn a_session_on_a_camera_running_for_someone_else_says_the_format_it_joined() {
-    let (engine, shell, _arrivals) = shell::engine();
-    shell.cameras().run_elsewhere_in(formats()[0].clone());
+    let shell = TestShell::new();
+    let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
+    shell.cameras.run_elsewhere_in(formats()[0].clone());
     let run = Run::start(&engine, Run::allowed());
-    run.lines.wait_for("started in 1920x1080");
+    run.output.wait_for("started in 1920x1080");
     let session = started(&shell);
     assert_eq!(sizes(&[session.picked.size]), ["640x480"], "the one picked");
     assert!(
-        shell.questions().is_empty(),
+        shell.prompts.questions().is_empty(),
         "answered before, so not asked"
     );
     run.running.stop();
-    shell::wait_for_end(&run.running);
+    within(run.running.ended());
     assert!(session.is_dropped(), "let go as the program is stopped");
 }
 
 #[test]
 fn a_format_the_camera_does_not_list_traps_the_program() {
-    let (engine, shell, _arrivals) = shell::engine();
+    let shell = TestShell::new();
+    let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
     let run = Run::start_with(&engine, Run::allowed(), &["unlisted"]);
-    let end = shell::wait_for_end(&run.running);
+    let end = within(run.running.ended());
     let ProgramEnd::Failed(trap) = end else {
         panic!("starting in an unlisted format traps: {end:?}");
     };
@@ -232,7 +246,7 @@ fn a_format_the_camera_does_not_list_traps_the_program() {
         "{trap:#}"
     );
     assert!(
-        shell.cameras().started().is_empty(),
+        shell.cameras.started().is_empty(),
         "nothing reached the shell"
     );
 }
@@ -246,22 +260,25 @@ fn a_shell_without_cameras_or_without_an_indicator_gives_the_program_none() {
         },
         |parts: &mut waos::Shell| parts.recording_indicator = None,
     ] {
-        let (engine, _shell, _arrivals) = shell::engine_of(shell::config(), adjust);
+        let shell = TestShell::new();
+        let mut parts = shell.shell();
+        adjust(&mut parts);
+        let engine = WaOS::new(config(), parts, shell.platform()).unwrap();
         let run = Run::start(&engine, Run::allowed());
         assert!(matches!(
-            shell::wait_for_end(&run.running),
+            within(run.running.ended()),
             ProgramEnd::Returned(Ok(()))
         ));
-        assert_eq!(run.lines.all(), ["cameras: none"]);
+        assert_eq!(run.output.lines(), ["cameras: none"]);
     }
 }
 
 /// The session started first, once the shell has it.
 fn started(shell: &TestShell) -> Started {
     wait_until("the shell starts a session", || {
-        !shell.cameras().started().is_empty()
+        !shell.cameras.started().is_empty()
     });
-    shell.cameras().started()[0].clone()
+    shell.cameras.started()[0].clone()
 }
 
 /// Each of `sizes` as the program writes one.
@@ -275,7 +292,7 @@ fn sizes(sizes: &[waos::bindings::wasdk::platform::windows::Size]) -> Vec<String
 /// `examples/cameras` running with grants of the test's, in folders of its own.
 struct Run {
     running: RunningProgram,
-    lines: Arc<Lines>,
+    output: Arc<RecordedOutput>,
     _folders: TempDir,
 }
 
@@ -296,18 +313,17 @@ impl Run {
         for file in files {
             fs::write(own.data.join(file), "").unwrap();
         }
-        let lines = Arc::new(Lines::default());
+        let output = Arc::new(RecordedOutput::default());
         let environment = ProgramEnvironment {
-            output: Some(Arc::clone(&lines) as Arc<dyn ProgramOutput>),
             grants: Some(grants as Arc<dyn ProgramGrants>),
             folders: Some(own),
-            ..ProgramEnvironment::default()
+            ..printing_to(&output)
         };
-        let program = shell::load(engine, waos_test_programs::CAMERAS);
+        let program = engine.load(Path::new(waos_test_programs::CAMERAS)).unwrap();
         let running = engine.run(&program, environment).unwrap();
         Run {
             running,
-            lines,
+            output,
             _folders: folders,
         }
     }
