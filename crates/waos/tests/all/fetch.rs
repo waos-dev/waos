@@ -25,7 +25,7 @@ fn a_request_goes_to_a_host_the_program_may_reach_and_no_redirect_is_followed() 
     let run = Run::start(waos_test_programs::FETCH, &grants, &port_of(serve_pages()));
     run.returned();
     assert_eq!(
-        run.lines.all(),
+        run.output.lines(),
         [
             "get allowed.localhost/hello: 200 hello",
             "get refused.localhost/hello: 200 hello",
@@ -44,7 +44,7 @@ fn a_name_the_rule_allows_does_not_reach_this_computer_without_the_local_network
     let grants = TestGrants::new(any(), false);
     let run = Run::start(waos_test_programs::FETCH, &grants, &port_of(serve_pages()));
     run.returned();
-    let lines = run.lines.all();
+    let lines = run.output.lines();
     assert_eq!(
         lines[..4],
         [
@@ -68,7 +68,7 @@ fn with_both_switches_off_no_request_goes_out() {
     let run = Run::start(waos_test_programs::FETCH, &grants, &port_of(serve_pages()));
     run.returned();
     assert_eq!(
-        run.lines.all(),
+        run.output.lines(),
         [
             "get allowed.localhost/hello: ErrorCode::HttpRequestDenied",
             "get refused.localhost/hello: ErrorCode::HttpRequestDenied",

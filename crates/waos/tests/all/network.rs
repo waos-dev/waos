@@ -19,7 +19,7 @@ fn a_name_the_rule_refuses_and_a_bare_address_under_only_some_are_refused() {
     let run = Run::start(waos_test_programs::NETWORK, &grants, &port_of(serve_echo()));
     run.returned();
     assert_eq!(
-        run.lines.all(),
+        run.output.lines(),
         [
             "lookup allowed.example: not refused",
             "lookup refused.example: PermissionDenied",
@@ -42,7 +42,7 @@ fn the_network_switch_reaches_the_internet_but_not_this_computer() {
     let run = Run::start(waos_test_programs::NETWORK, &grants, &port_of(serve_echo()));
     run.returned();
     assert_eq!(
-        run.lines.all(),
+        run.output.lines(),
         [
             "lookup allowed.example: not refused",
             "lookup refused.example: not refused",
@@ -63,11 +63,11 @@ fn the_network_switch_reaches_the_internet_but_not_this_computer() {
 fn the_local_network_switch_reaches_this_computer_until_it_is_turned_off() {
     let grants = TestGrants::new(off(), true);
     let run = Run::start(waos_test_programs::NETWORK, &grants, &port_of(serve_echo()));
-    run.lines.wait_for("hold: connected");
+    run.output.wait_for("hold: connected");
     grants.set_local_network(false);
     run.returned();
     assert_eq!(
-        run.lines.all(),
+        run.output.lines(),
         [
             "lookup allowed.example: PermissionDenied",
             "lookup refused.example: PermissionDenied",
