@@ -20,25 +20,18 @@
 //! their place, in `main.rs`, says so and passes.
 
 use std::path::Path;
-use std::sync::{Arc, Mutex, mpsc};
+use std::sync::Arc;
 
 use waos::bindings::wasdk::platform::hardware_buffers::{ImageError, ImageErrorKind};
-use waos::bindings::wasdk::platform::views::{
-    Cursor, Mutator, OverlayStyle, Placement, ViewError, ViewFocusDirection, ViewFocusState,
-};
+use waos::bindings::wasdk::platform::views::{Mutator, Placement};
 use waos::bindings::wasdk::platform::windows::{Point, Rect, Size};
-use waos::{
-    HardwareBuffer, PlacedView, Presence, ProgramView, RunningProgram, ShellCompositionLayer,
-    ShellView, ViewPlacement, ViewRequest, WaOS,
-};
-use waos_headless::SCREEN;
+use waos::WaOS;
 
 use crate::test_shell::composition::{self, PresentedLayer};
 use crate::test_shell::hardware_buffer::pixel;
 use crate::test_shell::image_codecs::{Asked, ImageAnswers};
 use crate::test_shell::{
-    DISPLAY, RecordedOutput, TestShell, WITHIN, config, metrics, pixel_of, printing_to, wait_until,
-    within,
+    DISPLAY, RecordedOutput, TestShell, config, pixel_of, printing_to, wait_until, within,
 };
 
 /// A pixel as the bytes lie in a BGRA buffer.
@@ -56,21 +49,15 @@ const LAYER_AT: usize = 16;
 #[test]
 fn buffers_the_program_drew_reach_the_codecs_and_the_layer_once_the_gpu_drew_them() {
     let shell = TestShell::new();
-    let recorded = Arc::new(RecordingLayersView::default());
-    let (arrivals, arrived) = mpsc::channel();
-    let mut parts = shell.shell();
-    parts.views = Arc::new(RecordingPlacement {
-        view: Arc::clone(&recorded),
-        arrivals,
-    });
-    let engine = WaOS::new(config(), parts, shell.platform()).unwrap();
+    let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
     shell.image_codecs.answer_with(answers());
     let output = Arc::new(RecordedOutput::default());
     let program = engine
         .load(Path::new(waos_test_programs::HARDWARE_BUFFERS))
         .unwrap();
     let running = engine.run(&program, printing_to(&output)).unwrap();
-    let view = arrived.recv_timeout(WITHIN).expect("its view arrives");
+    let shown = within(shell.headless.view(0)).expect("its view arrives");
+    let view = shown.view().expect("its view");
     for line in [
         "rgba8: unsupported",
         "16385x48: too-large",
@@ -86,9 +73,7 @@ fn buffers_the_program_drew_reach_the_codecs_and_the_layer_once_the_gpu_drew_the
     }
     // The program stops presenting once "red is back", so wait for its two presented frames rather
     // than a picture after that final frame event.
-    wait_until("its frames are on screen", || {
-        running.stats().frames_presented() >= 2
-    });
+    wait_until("its frames are on screen", || shown.pictures_shown() >= 2);
     let counted = running.stats().hardware_buffer_bytes();
     assert!(
         counted >= 2 * (WIDTH * HEIGHT * 4) as u64,
@@ -120,14 +105,13 @@ fn buffers_the_program_drew_reach_the_codecs_and_the_layer_once_the_gpu_drew_the
         "the red buffer reaches the codecs as the GPU drew it"
     );
 
-    let layers = recorded.presented_layers();
     assert_eq!(
-        described(&layers[0]),
+        described(&composition::presented(shown.layers())),
         described(&[PresentedLayer {
             number: 0,
             placement: layer_placement(),
         }]),
-        "the view's first frame names the layer where the program placed it"
+        "the view names the layer where the program placed it"
     );
     made[0].show_nothing();
     let canvas = view.picture().unwrap().expect("a frame on screen");
@@ -152,15 +136,12 @@ fn a_screenshot_is_the_canvas_over_what_its_layer_shows() {
         .load(Path::new(waos_test_programs::HARDWARE_BUFFERS))
         .unwrap();
     let running = engine.run(&program, printing_to(&output)).unwrap();
-    let view = within(shell.headless.view(0))
-        .and_then(|shown| shown.view())
-        .expect("its view arrives");
+    let shown = within(shell.headless.view(0)).expect("its view arrives");
+    let view = shown.view().expect("its view");
     output.wait_for("red is back");
     // The program stops presenting once "red is back", so wait for its two presented frames rather
     // than a picture after that final frame event.
-    wait_until("its frames are on screen", || {
-        running.stats().frames_presented() >= 2
-    });
+    wait_until("its frames are on screen", || shown.pictures_shown() >= 2);
     let screenshot = view.picture().unwrap().expect("a picture");
     assert_eq!(
         (screenshot.width, screenshot.height),
@@ -187,14 +168,8 @@ fn a_screenshot_is_the_canvas_over_what_its_layer_shows() {
 #[test]
 fn without_a_compositor_the_program_draws_its_canvas_with_no_layer() {
     let shell = TestShell::new();
-    let recorded = Arc::new(RecordingLayersView::default());
-    let (arrivals, arrived) = mpsc::channel();
     let mut parts = shell.shell();
     parts.compositor = None;
-    parts.views = Arc::new(RecordingPlacement {
-        view: Arc::clone(&recorded),
-        arrivals,
-    });
     let engine = WaOS::new(config(), parts, shell.platform()).unwrap();
     shell.image_codecs.answer_with(answers());
     let output = Arc::new(RecordedOutput::default());
@@ -202,10 +177,11 @@ fn without_a_compositor_the_program_draws_its_canvas_with_no_layer() {
         .load(Path::new(waos_test_programs::HARDWARE_BUFFERS))
         .unwrap();
     let running = engine.run(&program, printing_to(&output)).unwrap();
-    let view = arrived.recv_timeout(WITHIN).expect("its view arrives");
+    let shown = within(shell.headless.view(0)).expect("its view arrives");
+    let view = shown.view().expect("its view");
     output.wait_for("no compositor");
     assert!(within(view.picture_after_events()), "its canvas drew");
-    assert!(recorded.presented_layers()[0].is_empty());
+    assert!(shown.layers().is_empty());
     assert!(shell.compositor.layers_made().is_empty());
     running.stop();
     within(running.ended());
@@ -253,72 +229,4 @@ fn layer_placement() -> Placement {
 /// Presented layers as text, which compares where the WIT's records do not.
 fn described(layers: &[PresentedLayer]) -> String {
     format!("{layers:?}")
-}
-
-/// A view that records which composition layers each present named.
-#[derive(Default)]
-struct RecordingLayersView {
-    presented_layers: Mutex<Vec<Vec<PresentedLayer>>>,
-    shown: Mutex<Option<Box<dyn FnOnce() + Send + Sync>>>,
-}
-
-impl RecordingLayersView {
-    fn presented_layers(&self) -> Vec<Vec<PresentedLayer>> {
-        self.presented_layers.lock().unwrap().clone()
-    }
-}
-
-impl ShellView for RecordingLayersView {
-    fn present(
-        &self,
-        _buffer: HardwareBuffer,
-        layers: Vec<(Arc<dyn ShellCompositionLayer>, Placement)>,
-        released: Box<dyn FnOnce() + Send + Sync>,
-    ) {
-        self.presented_layers
-            .lock()
-            .unwrap()
-            .push(composition::presented(layers));
-        let before = self.shown.lock().unwrap().replace(released);
-        if let Some(before) = before {
-            before();
-        }
-    }
-
-    fn set_cursor(&self, _cursor: Cursor) {}
-    fn request_focus_change(&self, _state: ViewFocusState, _direction: ViewFocusDirection) {}
-    fn set_handles_back(&self, _handles: bool) {}
-    fn set_overlay_style(&self, _style: OverlayStyle) {}
-}
-
-/// Places a [`RecordingLayersView`] on the test shell's screen and hands the [`ProgramView`] back.
-struct RecordingPlacement {
-    view: Arc<RecordingLayersView>,
-    arrivals: mpsc::Sender<ProgramView>,
-}
-
-impl ViewPlacement for RecordingPlacement {
-    fn view_requested(
-        &self,
-        program: &RunningProgram,
-        request: ViewRequest,
-    ) -> Result<(), ViewError> {
-        let view = program.add_view(
-            request.id,
-            PlacedView {
-                view: Arc::clone(&self.view) as Arc<dyn ShellView>,
-                text_input: None,
-                window: None,
-                metrics: metrics(DISPLAY.width, DISPLAY.height),
-                screen: Some(SCREEN),
-                presence: Presence {
-                    on_screen: true,
-                    occluded: false,
-                    focused: true,
-                },
-            },
-        );
-        let _ = self.arrivals.send(view);
-        Ok(())
-    }
 }
