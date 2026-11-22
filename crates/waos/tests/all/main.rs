@@ -67,9 +67,13 @@ mod roles;
 mod storage;
 mod survey;
 mod trust;
+#[cfg(target_vendor = "apple")]
+mod two_windows;
 mod video_frames;
 #[cfg(target_vendor = "apple")]
 mod video_player;
+#[cfg(target_vendor = "apple")]
+mod waft_app;
 #[cfg(target_vendor = "apple")]
 mod waft_back;
 #[cfg(target_vendor = "apple")]
