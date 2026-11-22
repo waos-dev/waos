@@ -22,7 +22,7 @@ use waos::bindings::wasdk::platform::windows::Size;
 use waos::{ProgramEnd, ProgramEnvironment, RunningProgram, WaOS};
 use waos_capabilities::ProgramFolders;
 
-use crate::shell::image_codecs::{Asked, ImageAnswers, ImageFacts, OpenedFrom, TestImageCodecs};
+use crate::test_shell::image_codecs::{Asked, ImageAnswers, ImageFacts, OpenedFrom, TestImageCodecs};
 use crate::test_shell::{RecordedOutput, TestShell, config, printing_to, within};
 
 /// What the program's photo file holds: not an image, which the shell's codecs never read.

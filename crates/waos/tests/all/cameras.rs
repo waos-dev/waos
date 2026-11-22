@@ -25,7 +25,7 @@ use waos::{
 use waos_capabilities::ProgramFolders;
 
 use crate::asking::QuestionsAsked;
-use crate::shell::cameras::{Started, formats, listed};
+use crate::test_shell::cameras::{Started, formats, listed};
 use crate::test_shell::{RecordedOutput, TestShell, config, printing_to, wait_until, within};
 
 /// What the program says of the cameras listed, before it opens one.

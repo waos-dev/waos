@@ -27,9 +27,9 @@ use waos::{
 };
 use waos_capabilities::{ChangedFuture, DomainRule, FileSystemGrant, NetworkGrant};
 
-use crate::shell::clipboard::CopiedText;
-use crate::shell::menus::{OpenedAt, TestMenus};
-use crate::shell::opener::Opened;
+use crate::test_shell::clipboard::CopiedText;
+use crate::test_shell::menus::{OpenedAt, TestMenus};
+use crate::test_shell::opener::Opened;
 use crate::test_shell::{RecordedOutput, TestShell, config, wait_until, within};
 
 /// The line the program's text field starts with.

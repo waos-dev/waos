@@ -23,8 +23,8 @@ use waos::{ProgramEnd, ProgramEnvironment, ProgramGrants, RunningProgram, WaOS};
 use waos_capabilities::ProgramFolders;
 
 use crate::reaching::{TestGrants, off};
-use crate::shell::media_assets::{AssetAnswers, FrameAsked};
-use crate::shell::video_frames::{FRAME_HEIGHT, FRAME_WIDTH};
+use crate::test_shell::media_assets::{AssetAnswers, FrameAsked};
+use crate::test_shell::video_frames::{FRAME_HEIGHT, FRAME_WIDTH};
 use crate::test_shell::{RecordedOutput, TestShell, config, printing_to, wait_until, within};
 
 #[test]

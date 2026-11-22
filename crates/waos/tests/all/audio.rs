@@ -24,7 +24,7 @@ use waos::{
 };
 
 use crate::asking::QuestionsAsked;
-use crate::shell::sound::{HEADPHONES, TestDevices};
+use crate::test_shell::sound::{HEADPHONES, TestDevices};
 use crate::test_shell::{RecordedOutput, TestShell, config, printing_to, wait_until, within};
 
 /// What `examples/sound` prints before it opens the microphone, in order.

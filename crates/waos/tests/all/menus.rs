@@ -30,8 +30,8 @@ use waos::{
     EngineTime, FreezePolicy, ManualTime, ProgramEnd, ProgramView, RunningProgram, WaOS, WaOSConfig,
 };
 
-use crate::shell::clipboard::{CopiedFile, CopiedText};
-use crate::shell::menus::OpenedAt;
+use crate::test_shell::clipboard::{CopiedFile, CopiedText};
+use crate::test_shell::menus::OpenedAt;
 use crate::test_shell::{RecordedOutput, TestShell, config, printing_to, within};
 
 /// The engine's tick, at which a freeze takes.

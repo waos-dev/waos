@@ -47,8 +47,8 @@ use waos_capabilities::{
 };
 use waos_headless::{HeadlessView, SCREEN};
 
-use crate::shell::clipboard::CopiedText;
-use crate::shell::menus::TestMenus;
+use crate::test_shell::clipboard::CopiedText;
+use crate::test_shell::menus::TestMenus;
 use crate::test_shell::{
     DISPLAY, RecordedOutput, TestShell, WITHIN, config, metrics, wait_until, within,
 };

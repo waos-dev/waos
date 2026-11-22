@@ -30,7 +30,7 @@ use waos::{
 };
 use waos_capabilities::{ChangedFuture, DomainRule, FileSystemGrant, NetworkGrant, ProgramFolders};
 
-use crate::shell::clipboard::CopiedText;
+use crate::test_shell::clipboard::CopiedText;
 use crate::test_shell::{RecordedOutput, TestShell, config, printing_to, within};
 
 #[test]

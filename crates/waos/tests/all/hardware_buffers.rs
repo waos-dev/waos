@@ -33,9 +33,9 @@ use waos::{
 };
 use waos_headless::SCREEN;
 
-use crate::shell::composition::{self, PresentedLayer};
-use crate::shell::hardware_buffer::pixel;
-use crate::shell::image_codecs::{Asked, ImageAnswers};
+use crate::test_shell::composition::{self, PresentedLayer};
+use crate::test_shell::hardware_buffer::pixel;
+use crate::test_shell::image_codecs::{Asked, ImageAnswers};
 use crate::test_shell::{
     DISPLAY, RecordedOutput, TestShell, WITHIN, config, metrics, pixel_of, printing_to, wait_until,
     within,

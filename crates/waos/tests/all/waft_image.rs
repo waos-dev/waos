@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 use waos::{ProgramEnd, ProgramEnvironment, ProgramOutput, ProgramView, RunningProgram, WaOS};
 
-use crate::shell::image_codecs::{Asked, ImageAnswers, ImageFacts, OpenedFrom, TestImageCodecs};
+use crate::test_shell::image_codecs::{Asked, ImageAnswers, ImageFacts, OpenedFrom, TestImageCodecs};
 use crate::test_shell::{DISPLAY, RecordedOutput, TestShell, config, pixel_of, wait_until, within};
 
 /// The length of the program's PNG, `examples/waft-image/src/red.png`.

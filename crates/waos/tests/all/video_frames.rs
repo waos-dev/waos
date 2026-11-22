@@ -17,9 +17,9 @@ use waos::{ProgramEnd, ProgramEnvironment, RunningProgram, WaOS};
 use waos_capabilities::ProgramFolders;
 
 #[cfg(target_vendor = "apple")]
-use crate::shell::media_players::{Destination, PlayerCall};
+use crate::test_shell::media_players::{Destination, PlayerCall};
 #[cfg(target_vendor = "apple")]
-use crate::shell::video_frames::{FRAME_HEIGHT, FRAME_WIDTH};
+use crate::test_shell::video_frames::{FRAME_HEIGHT, FRAME_WIDTH};
 #[cfg(target_vendor = "apple")]
 use crate::test_shell::wait_until;
 use crate::test_shell::{RecordedOutput, TestShell, config, printing_to, within};

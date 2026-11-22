@@ -25,7 +25,7 @@ use waos::{ProgramEnd, ProgramEnvironment, ProgramGrants, RunningProgram, WaOS};
 use waos_capabilities::ProgramFolders;
 
 use crate::reaching::{TestGrants, off};
-use crate::shell::media_players::{Destination, OpenedPlayer, PlayerCall};
+use crate::test_shell::media_players::{Destination, OpenedPlayer, PlayerCall};
 use crate::test_shell::{RecordedOutput, TestShell, config, printing_to, wait_until, within};
 
 /// Where the program plays each source from.

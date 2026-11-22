@@ -28,7 +28,7 @@ use waos_capabilities::{
     ChangedFuture, DomainRule, FileSystemGrant, Mount, NetworkGrant, ProgramFolders,
 };
 
-use crate::shell::opener::Opened;
+use crate::test_shell::opener::Opened;
 use crate::test_shell::{RecordedOutput, TestShell, config, printing_to, wait_until, within};
 
 /// The engine's tick, at which a freeze takes.

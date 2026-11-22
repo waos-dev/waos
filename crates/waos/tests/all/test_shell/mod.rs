@@ -9,10 +9,27 @@
 //! The invariant: a test reads only its own shell and its own programs' outputs, so the tests run
 //! side by side in one process without seeing each other.
 
+// Each test uses the part of the stand-ins it needs.
+#![allow(dead_code)]
+
+pub mod cameras;
+pub mod clipboard;
+pub mod composition;
 mod engine_log;
 mod events;
+pub mod file_dialogs;
+pub mod hardware_buffer;
+pub mod image_codecs;
+pub mod machines;
+pub mod media_assets;
+pub mod media_players;
+pub mod menus;
+pub mod notifications;
+pub mod opener;
 mod output;
 mod prompts;
+pub mod sound;
+pub mod video_frames;
 
 use std::future::Future;
 use std::path::PathBuf;
@@ -32,19 +49,19 @@ use waos::{
 };
 use waos_headless::{Display, HeadlessShell, Refreshes};
 
-use crate::shell::cameras::TestCameras;
-use crate::shell::clipboard::TestClipboard;
-use crate::shell::composition::TestCompositor;
-use crate::shell::file_dialogs::TestFileDialogs;
-use crate::shell::image_codecs::TestImageCodecs;
-use crate::shell::machines::TestMachinePicker;
-use crate::shell::media_assets::TestMediaAssets;
-use crate::shell::media_players::TestMediaPlayers;
-use crate::shell::menus::TestMenus;
-use crate::shell::notifications::TestNotifications;
-use crate::shell::opener::TestOpener;
-use crate::shell::sound::TestSound;
-use crate::shell::video_frames::TestVideoFrameReaders;
+use cameras::TestCameras;
+use clipboard::TestClipboard;
+use composition::TestCompositor;
+use file_dialogs::TestFileDialogs;
+use image_codecs::TestImageCodecs;
+use machines::TestMachinePicker;
+use media_assets::TestMediaAssets;
+use media_players::TestMediaPlayers;
+use menus::TestMenus;
+use notifications::TestNotifications;
+use opener::TestOpener;
+use sound::TestSound;
+use video_frames::TestVideoFrameReaders;
 pub use engine_log::engine_log;
 pub use events::{metrics, mouse};
 pub use output::RecordedOutput;

@@ -34,10 +34,10 @@ use waos::{
 use waos_capabilities::ProgramFolders;
 use waos_headless::HeadlessView;
 
-use crate::shell::image_codecs::{Asked, ImageAnswers, ImageFacts, OpenedFrom};
-use crate::shell::media_assets::{AssetAnswers, FrameAsked};
-use crate::shell::media_players::{Destination, OpenedPlayer, PlayerCall};
-use crate::shell::menus::TestMenus;
+use crate::test_shell::image_codecs::{Asked, ImageAnswers, ImageFacts, OpenedFrom};
+use crate::test_shell::media_assets::{AssetAnswers, FrameAsked};
+use crate::test_shell::media_players::{Destination, OpenedPlayer, PlayerCall};
+use crate::test_shell::menus::TestMenus;
 use crate::test_shell::{RecordedOutput, TestShell, config, pixel_of, wait_until, within};
 
 /// How long the media the tests play is.
