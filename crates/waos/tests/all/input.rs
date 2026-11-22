@@ -8,17 +8,24 @@
 //!
 //! It draws, so it runs where the engine makes hardware buffers, on Apple's systems.
 
-use std::sync::Arc;
-use std::sync::mpsc::Receiver;
+use std::path::Path;
+use std::sync::{Arc, Condvar, Mutex, mpsc};
 
 use waos::bindings::wasdk::platform::hardware_buffers::PixelBuffer;
 use waos::bindings::wasdk::platform::views::{
-    PointerButtons, PointerChange, PointerDeviceKind, PointerEvent, PointerSignalKind,
-    TextAffinity, TextEditingValue, TextSelection,
+    Cursor, OverlayStyle, Placement, PointerButtons, PointerChange, PointerDeviceKind,
+    PointerEvent, PointerSignalKind, ViewError, ViewFocusDirection, ViewFocusState,
 };
-use waos::{HeldModifiers, ProgramEnvironment, ProgramOutput, ProgramView, RunningProgram, WaOS};
+use waos::{
+    HardwareBuffer, HeldModifiers, Keyboard, PlacedView, Presence, ProgramEnd, ProgramView,
+    RunningProgram, ShellCompositionLayer, ShellView, ViewPlacement, ViewRequest, WaOS,
+};
+use waos_headless::SCREEN;
 
-use crate::shell::{self, Lines, VIEW_HEIGHT, VIEW_WIDTH, WITHIN, pixel_of, resolved};
+use crate::test_shell::{
+    DISPLAY, RecordedOutput, TestShell, WITHIN, config, metrics, pixel_of, printing_to, wait_until,
+    within,
+};
 
 /// The program's first two colours, as the bytes of a hardware buffer: blue, green, red, alpha,
 /// of 0.1, 0.1, 0.4 and 0.9, 0.5, 0.1.
@@ -30,13 +37,17 @@ const TOLERANCE: u8 = 2;
 
 #[test]
 fn its_window_is_titled_as_asked_and_its_picture_is_the_colour_it_drew() {
-    let (engine, _shell, arrivals) = shell::engine();
-    let lines = Arc::new(Lines::default());
-    let (running, window) = run(&engine, &arrivals, &lines);
+    let shell = TestShell::new();
+    let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
+    let output = Arc::new(RecordedOutput::default());
+    let (running, window) = run(&engine, &shell, &output);
     assert_eq!(window.window_title().as_deref(), Some("Input"));
-    assert!(resolved(window.picture_after_events()), "its first picture");
+    assert!(within(window.picture_after_events()), "its first picture");
     let picture = window.picture().unwrap().expect("a picture");
-    assert_eq!((picture.width, picture.height), (VIEW_WIDTH, VIEW_HEIGHT));
+    assert_eq!(
+        (picture.width, picture.height),
+        (DISPLAY.width, DISPLAY.height)
+    );
     assert_colour("the middle", middle(&picture), FIRST);
     assert_colour("a corner", pixel_of(&picture, 0, 0), FIRST);
     end(&running, &window);
@@ -44,17 +55,30 @@ fn its_window_is_titled_as_asked_and_its_picture_is_the_colour_it_drew() {
 
 #[test]
 fn a_press_reaches_it_and_the_picture_after_it_is_held_until_the_shell_takes_it() {
-    let (engine, shell, arrivals) = shell::engine();
-    let lines = Arc::new(Lines::default());
-    let (running, window) = run(&engine, &arrivals, &lines);
-    assert!(resolved(window.picture_after_events()), "its first picture");
+    let shell = TestShell::new();
+    let held_view = Arc::new(HoldingView::default());
+    let (arrivals, arrived) = mpsc::channel();
+    let placement = Arc::new(HoldingPlacement {
+        view: Arc::clone(&held_view),
+        arrivals,
+    });
+    let mut parts = shell.shell();
+    parts.views = placement;
+    let engine = WaOS::new(config(), parts, shell.platform()).unwrap();
+    let output = Arc::new(RecordedOutput::default());
+    let program = engine.load(Path::new(waos_test_programs::INPUT)).unwrap();
+    let running = engine.run(&program, printing_to(&output)).unwrap();
+    let window = arrived
+        .recv_timeout(WITHIN)
+        .expect("the program asks for its window");
+    output.wait_for("window: open");
+    assert!(within(window.picture_after_events()), "its first picture");
 
-    let shell_view = Arc::clone(&shell.placed_views()[0]);
-    shell_view.hold_presents();
+    held_view.hold_presents();
     press(&window, 40.0, 30.0);
     let after_press = window.picture_after_events();
     release(&window, 40.0, 30.0);
-    lines.wait_for(
+    output.wait_for(
         "pointer: PointerChange::Down PointerDeviceKind::Mouse PointerSignalKind::None device 7 at 40,30 buttons 1 pressure 1 scroll 0,0",
     );
     assert_colour(
@@ -62,79 +86,147 @@ fn a_press_reaches_it_and_the_picture_after_it_is_held_until_the_shell_takes_it(
         middle(&window.picture().unwrap().unwrap()),
         FIRST,
     );
-    shell_view.let_presents_through();
-    assert!(resolved(after_press), "the picture after the press");
+    held_view.let_presents_through();
+    assert!(within(after_press), "the picture after the press");
     assert_colour(
         "the picture after the press",
         middle(&window.picture().unwrap().unwrap()),
         SECOND,
     );
-    end(&running, &window);
+    running.remove_view(window.id());
+    assert!(matches!(within(running.ended()), ProgramEnd::Returned(Ok(()))));
 }
 
 #[test]
 fn what_it_edits_is_the_engines_copy_which_an_input_methods_change_replaces() {
-    let (engine, _shell, arrivals) = shell::engine();
-    let lines = Arc::new(Lines::default());
-    let (running, window) = run(&engine, &arrivals, &lines);
+    let shell = TestShell::new();
+    let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
+    let output = Arc::new(RecordedOutput::default());
+    let (running, window) = run(&engine, &shell, &output);
     assert!(window.editing_value().is_none(), "nothing edited before");
-    click(&window, 1.0, 1.0);
-    lines.wait_for("text: editing");
-    shell::wait_until("the program's empty text is kept", || {
+    running.mouse().tap(&window, (1.0, 1.0));
+    output.wait_for("text: editing");
+    wait_until("the program's empty text is kept", || {
         window
             .editing_value()
             .is_some_and(|value| value.text.is_empty())
     });
 
-    window.text_input_editing_value(caret_after("milk"));
-    lines.wait_for("text: \"milk\" selection Some(\"4..4\")");
+    Keyboard::insert_text(&window, "milk").unwrap();
+    output.wait_for("text: \"milk\" selection Some(\"4..4\")");
     assert_eq!(window.editing_value().unwrap().text, "milk");
     end(&running, &window);
 }
 
 #[test]
 fn once_its_window_is_gone_a_wait_ends_without_a_picture_and_there_is_none_to_read() {
-    let (engine, _shell, arrivals) = shell::engine();
-    let lines = Arc::new(Lines::default());
-    let (running, window) = run(&engine, &arrivals, &lines);
-    assert!(resolved(window.picture_after_events()), "its first picture");
+    let shell = TestShell::new();
+    let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
+    let output = Arc::new(RecordedOutput::default());
+    let (running, window) = run(&engine, &shell, &output);
+    assert!(within(window.picture_after_events()), "its first picture");
     running.remove_view(window.id());
-    assert!(!resolved(window.picture_after_events()));
+    assert!(!within(window.picture_after_events()));
     assert!(window.picture().unwrap().is_none());
-    shell::wait_for_end(&running);
+    assert!(matches!(within(running.ended()), ProgramEnd::Returned(Ok(()))));
 }
 
-/// The program, its output into `lines`, and its window once it opened.
+/// The program, its output into `output`, and its window once it opened.
 fn run(
     engine: &WaOS,
-    arrivals: &Receiver<ProgramView>,
-    lines: &Arc<Lines>,
+    shell: &TestShell,
+    output: &Arc<RecordedOutput>,
 ) -> (RunningProgram, ProgramView) {
-    let program = shell::load(engine, waos_test_programs::INPUT);
-    let environment = ProgramEnvironment {
-        output: Some(Arc::clone(lines) as Arc<dyn ProgramOutput>),
-        ..ProgramEnvironment::default()
-    };
-    let running = engine.run(&program, environment).unwrap();
-    let window = arrivals
-        .recv_timeout(WITHIN)
+    let program = engine.load(Path::new(waos_test_programs::INPUT)).unwrap();
+    let running = engine.run(&program, printing_to(output)).unwrap();
+    let window = within(shell.headless.view(0))
+        .and_then(|shown| shown.view())
         .expect("the program asks for its window");
-    lines.wait_for("window: open");
+    output.wait_for("window: open");
     (running, window)
 }
 
 /// Asks the program to close its window, and waits for it to end with its view.
 fn end(running: &RunningProgram, window: &ProgramView) {
     window.close_requested();
-    running.remove_view(window.id());
-    shell::wait_for_end(running);
+    let end = within(running.ended());
+    assert!(matches!(end, ProgramEnd::Returned(Ok(()))), "{end:?}");
 }
 
-/// A mouse's press and release at `(x, y)` in `window`'s physical pixels, the mouse coming in
-/// there first.
-fn click(window: &ProgramView, x: f64, y: f64) {
-    press(window, x, y);
-    release(window, x, y);
+/// A view whose presents a test can hold back, as GPU work or a shell that has not taken a frame
+/// yet holds them.
+#[derive(Default)]
+struct HoldingView {
+    presents_held: Mutex<bool>,
+    presents_let_through: Condvar,
+    shown: Mutex<Option<Box<dyn FnOnce() + Send + Sync>>>,
+}
+
+impl HoldingView {
+    fn hold_presents(&self) {
+        *self.presents_held.lock().unwrap() = true;
+    }
+
+    fn let_presents_through(&self) {
+        *self.presents_held.lock().unwrap() = false;
+        self.presents_let_through.notify_all();
+    }
+}
+
+impl ShellView for HoldingView {
+    fn present(
+        &self,
+        _buffer: HardwareBuffer,
+        _layers: Vec<(Arc<dyn ShellCompositionLayer>, Placement)>,
+        released: Box<dyn FnOnce() + Send + Sync>,
+    ) {
+        let held = self.presents_held.lock().unwrap();
+        let _through = self
+            .presents_let_through
+            .wait_while(held, |held| *held)
+            .unwrap();
+        let before = self.shown.lock().unwrap().replace(released);
+        if let Some(before) = before {
+            before();
+        }
+    }
+
+    fn set_cursor(&self, _cursor: Cursor) {}
+    fn request_focus_change(&self, _state: ViewFocusState, _direction: ViewFocusDirection) {}
+    fn set_handles_back(&self, _handles: bool) {}
+    fn set_overlay_style(&self, _style: OverlayStyle) {}
+}
+
+/// Places a single [`HoldingView`] on the test shell's screen and hands the [`ProgramView`] back.
+struct HoldingPlacement {
+    view: Arc<HoldingView>,
+    arrivals: mpsc::Sender<ProgramView>,
+}
+
+impl ViewPlacement for HoldingPlacement {
+    fn view_requested(
+        &self,
+        program: &RunningProgram,
+        request: ViewRequest,
+    ) -> Result<(), ViewError> {
+        let view = program.add_view(
+            request.id,
+            PlacedView {
+                view: Arc::clone(&self.view) as Arc<dyn ShellView>,
+                text_input: None,
+                window: None,
+                metrics: metrics(DISPLAY.width, DISPLAY.height),
+                screen: Some(SCREEN),
+                presence: Presence {
+                    on_screen: true,
+                    occluded: false,
+                    focused: true,
+                },
+            },
+        );
+        let _ = self.arrivals.send(view);
+        Ok(())
+    }
 }
 
 /// The mouse coming to `(x, y)` in `window` and its button going down there.
@@ -145,17 +237,17 @@ fn press(window: &ProgramView, x: f64, y: f64) {
         (PointerChange::Hover, PointerButtons::empty()),
         (PointerChange::Down, PointerButtons::PRIMARY),
     ] {
-        window.pointer(mouse(change, buttons, x, y), &held);
+        window.pointer(mouse_event(change, buttons, x, y), &held);
     }
 }
 
 /// The mouse's button coming up at `(x, y)` in `window`.
 fn release(window: &ProgramView, x: f64, y: f64) {
-    let up = mouse(PointerChange::Up, PointerButtons::empty(), x, y);
+    let up = mouse_event(PointerChange::Up, PointerButtons::empty(), x, y);
     window.pointer(up, &HeldModifiers::default());
 }
 
-fn mouse(change: PointerChange, buttons: PointerButtons, x: f64, y: f64) -> PointerEvent {
+fn mouse_event(change: PointerChange, buttons: PointerButtons, x: f64, y: f64) -> PointerEvent {
     PointerEvent {
         time: 0,
         change,
@@ -183,21 +275,6 @@ fn mouse(change: PointerChange, buttons: PointerButtons, x: f64, y: f64) -> Poin
         pan_y: 0.0,
         scale: 1.0,
         rotation: 0.0,
-    }
-}
-
-/// `text`, with the caret after it.
-fn caret_after(text: &str) -> TextEditingValue {
-    let end = text.encode_utf16().count() as u32;
-    TextEditingValue {
-        text: text.to_owned(),
-        selection: Some(TextSelection {
-            base_offset: end,
-            extent_offset: end,
-            affinity: TextAffinity::Downstream,
-            is_directional: false,
-        }),
-        composing: None,
     }
 }
 
