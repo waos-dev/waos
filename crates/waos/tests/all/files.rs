@@ -10,15 +10,13 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use futures::channel::oneshot;
-use futures::executor::block_on;
 use tempfile::TempDir;
-use waos::{Answer, ProgramEnd, ProgramEnvironment, ProgramGrants, ProgramOutput, Question};
+use waos::{Answer, ProgramEnd, ProgramEnvironment, ProgramGrants, Question, WaOS};
 use waos_capabilities::{
     ChangedFuture, DomainRule, FileSystemGrant, Mount, NetworkGrant, ProgramFolders,
 };
 
-use crate::shell;
-use crate::shell::Lines;
+use crate::test_shell::{RecordedOutput, TestShell, config, printing_to, within};
 
 /// What the program prints before it waits for `/later`, in order.
 const BEFORE_LATER: [&str; 26] = [
@@ -53,26 +51,26 @@ const BEFORE_LATER: [&str; 26] = [
 #[test]
 fn a_program_uses_its_mounts_and_nothing_outside_them() {
     let machine = Machine::new();
-    let (engine, _shell, _arrivals) = shell::engine();
-    let program = shell::load(&engine, waos_test_programs::FILES);
+    let shell = TestShell::new();
+    let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
+    let program = engine.load(Path::new(waos_test_programs::FILES)).unwrap();
     let grants = Arc::new(TestGrants::new(machine.mounts()));
-    let lines = Arc::new(Lines::default());
+    let output = Arc::new(RecordedOutput::default());
     let environment = ProgramEnvironment {
-        output: Some(Arc::clone(&lines) as Arc<dyn ProgramOutput>),
         grants: Some(Arc::clone(&grants) as Arc<dyn ProgramGrants>),
         folders: Some(machine.own_folders()),
-        ..ProgramEnvironment::default()
+        ..printing_to(&output)
     };
     let running = engine.run(&program, environment).unwrap();
-    lines.wait_for(BEFORE_LATER[BEFORE_LATER.len() - 1]);
-    assert_eq!(lines.all(), BEFORE_LATER);
+    output.wait_for(BEFORE_LATER[BEFORE_LATER.len() - 1]);
+    assert_eq!(output.lines(), BEFORE_LATER);
 
     grants.set_mounts(machine.mounts_with_later());
-    lines.wait_for("later read: hi");
+    output.wait_for("later read: hi");
     grants.set_mounts(machine.mounts());
-    lines.wait_for("later gone: NotFound");
-    lines.wait_for("later read through the kept file: hi");
-    let end = block_on(running.ended());
+    output.wait_for("later gone: NotFound");
+    output.wait_for("later read through the kept file: hi");
+    let end = within(running.ended());
     assert!(matches!(end, ProgramEnd::Returned(Ok(()))), "{end:?}");
 
     machine.assert_changed_only_where_the_program_may();
