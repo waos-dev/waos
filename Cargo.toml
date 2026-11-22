@@ -127,11 +127,12 @@ pastey = "0.2"
 # re-exports, so the two versions move together.
 wgpu = { version = "30", default-features = false }
 # GPUI, Zed's UI framework, and its wgpu renderer, which `wasdk-adapter-gpui` puts over wasdk:
-# from the branch `waos-gpui-getrandom04` of a fork of Zed, Zed's main of 2026-11-14 (703b5ac3f4)
-# with four commits, for GPUI's renderer on a WASI component, on crates.io's wgpu 30, the wgpu
-# above, and on rand 0.10, whose getrandom builds for `wasm32-wasip3`.
-gpui = { git = "https://github.com/xtyxtyx/zed", rev = "ab35bace16f23ddc65bbc8968d69d1d48e0369ad" }
-gpui_wgpu = { git = "https://github.com/xtyxtyx/zed", rev = "ab35bace16f23ddc65bbc8968d69d1d48e0369ad" }
+# from WaOS's fork of Zed, `waos-dev/zed`, at the revision its branch `waos` (Zed's port) is built
+# on: Zed's main of 2026-11-14 (703b5ac3f4) with four commits, for GPUI's renderer on a WASI
+# component, on crates.io's wgpu 30, the wgpu above, and on rand 0.10, whose getrandom builds for
+# `wasm32-wasip3`.
+gpui = { git = "https://github.com/waos-dev/zed", rev = "ab35bace16f23ddc65bbc8968d69d1d48e0369ad" }
+gpui_wgpu = { git = "https://github.com/waos-dev/zed", rev = "ab35bace16f23ddc65bbc8968d69d1d48e0369ad" }
 # The window handles GPUI's windows answer, which a program's have none of.
 raw-window-handle = "0.6"
 # A stable id for each of the system's screens, as GPUI keeps a display by.
