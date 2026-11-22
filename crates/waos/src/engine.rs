@@ -398,6 +398,10 @@ pub(crate) fn engine_config(native_unwind_info: bool) -> Config {
     config.macos_use_mach_ports(false);
     config.wasm_component_model(true);
     config.wasm_component_model_async(true);
+    // A program's `std::thread`s, the component model's cooperative threads: they take turns on
+    // the program's one thread, so threaded crates run, never faster (decision 1 of
+    // `docs/proposals/2026-11-22-cooperative-threads.md`).
+    config.wasm_component_model_threading(true);
     config.consume_fuel(true);
     // How a program's fuel gets read: a tick interrupts it wherever it is, which is the one
     // moment wasmtime lets the engine look into a running store.

@@ -40,6 +40,7 @@ The rules WaOS keeps, one line each, so they are not lost under the code. Each l
 ## Running
 
 - A program's lifecycle state comes only from how its views stand: resumed while one is on screen and focused, inactive while one is on screen, hidden once none is. WaOS going to the background pauses every program; nothing else sets the state. A program with no view keeps the state it had. ([`state_of_views.rs`](../crates/waos/src/lifecycle/state_of_views.rs), [`lifecycle`](../crates/waos/src/lifecycle/mod.rs))
+- A program's threads take turns on one core: the engine runs `std::thread` as the component model's cooperative threads, for crates written around threads, and parallel work is workers. ([decision 1](proposals/2026-11-22-cooperative-threads.md); [`engine.rs`](../crates/waos/src/engine.rs))
 - A hidden program freezes after a delay, by the freeze rule alone, and never while it is shown, owes an answer, sounds or records. ([`freeze_rule.rs`](../crates/waos/src/lifecycle/freeze_rule.rs))
 
 ## Files

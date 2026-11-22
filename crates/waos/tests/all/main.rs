@@ -62,6 +62,7 @@ mod permissions;
 mod roles;
 mod storage;
 mod survey;
+mod threads;
 mod trust;
 #[cfg(target_vendor = "apple")]
 mod two_windows;
