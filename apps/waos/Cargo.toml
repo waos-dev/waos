@@ -142,9 +142,9 @@ waft-embedder-android.workspace = true
 # platform with no window server for the tests of the programs' windows.
 [dev-dependencies]
 waos-test-programs = { path = "../../crates/waos/tests/programs" }
-# This computer's fonts, as Waft's platforms give them, for the tests that draw the library.
-valo-fontmgr.workspace = true
 waft-test.workspace = true
+# What a test reads back of a widget it looks at (`testing::capture_pixels`).
+waft-widgets = { workspace = true, features = ["test-support"] }
 # Folders under fresh names for the library's stores and packages, removed with the test.
 tempfile.workspace = true
 # The digest a source's listing gives of each package.
