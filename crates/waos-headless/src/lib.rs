@@ -13,7 +13,7 @@
 //! call that asked for it.
 
 use std::sync::mpsc::{self, Sender};
-use std::sync::{Arc, Mutex, OnceLock, PoisonError, Weak};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -24,9 +24,9 @@ use waos::bindings::wasdk::platform::views::{
 };
 use waos::bindings::wasdk::platform::windows::{Point, Rect, Size};
 use waos::{
-    HardwareBuffer, PlacedView, PlacedWindow, Presence, ProgramView, Prompts, RunningProgram,
-    Screen, Shell, ShellCompositionLayer, ShellTextInput, ShellView, ShellWindow,
-    ShellWindowSizeLimits, ViewPlacement, ViewRequest, VsyncWaiter, WaOS,
+    HardwareBuffer, OnRefresh, PlacedView, PlacedWindow, Presence, ProgramView, Prompts,
+    RunningProgram, Screen, Shell, ShellCompositionLayer, ShellTextInput, ShellView, ShellWindow,
+    ShellWindowSizeLimits, ViewPlacement, ViewRequest, VsyncWaiter,
 };
 
 /// The screen's identifier.
@@ -58,7 +58,7 @@ pub struct HeadlessScreen {
 }
 
 impl HeadlessScreen {
-    /// A screen of `display`, refreshing as `refreshes` says once [`attach`](Self::attach)ed.
+    /// A screen of `display`, refreshing as `refreshes` says.
     pub fn new(display: Display, refreshes: Refreshes) -> HeadlessScreen {
         let interval = match refreshes {
             Refreshes::WhenAsked => Duration::ZERO,
@@ -66,10 +66,7 @@ impl HeadlessScreen {
         };
         HeadlessScreen {
             placement: Arc::new(GivenViews { display }),
-            refresher: Arc::new(Refresher {
-                interval,
-                asks: OnceLock::new(),
-            }),
+            refresher: Arc::new(Refresher::start(interval)),
         }
     }
 
@@ -103,12 +100,6 @@ impl HeadlessScreen {
             simulated_cameras: None,
             machine_picker: None,
         }
-    }
-
-    /// Starts the screen's refreshes, which reach `engine`, the one its shell went to, for as
-    /// long as it runs.
-    pub fn attach(&self, engine: &Arc<WaOS>) {
-        self.refresher.start(Arc::downgrade(engine));
     }
 
     /// Gives `program` a view for its request `request`, as the screen gives one for each request:
@@ -302,44 +293,34 @@ impl ShellWindow for FilledWindow {
     fn set_minimized(&self, _minimized: bool) {}
 }
 
-/// The screen's refreshes, each `interval` after it was asked, on a thread of the screen's own.
+/// The screen's refreshes, each `interval` after it was asked, on a thread of the screen's own,
+/// which ends with the screen.
 struct Refresher {
-    interval: Duration,
-    /// Where an ask goes, once the thread runs.
-    asks: OnceLock<Sender<u64>>,
+    asks: Sender<OnRefresh>,
 }
 
 impl Refresher {
-    /// Starts the thread, which reports each refresh asked to `engine` until the engine or the
-    /// screen is gone.
-    fn start(&self, engine: Weak<WaOS>) {
-        let (asks, asked) = mpsc::channel::<u64>();
-        if self.asks.set(asks).is_err() {
-            return;
-        }
-        let interval = self.interval;
+    /// Starts the thread, which answers each refresh asked `interval` later.
+    fn start(interval: Duration) -> Refresher {
+        let (asks, asked) = mpsc::channel::<OnRefresh>();
         thread::Builder::new()
             .name("headless screen".into())
             .spawn(move || {
-                for screen in asked {
+                for on_refresh in asked {
                     thread::sleep(interval);
-                    let Some(engine) = engine.upgrade() else {
-                        return;
-                    };
                     let now = Instant::now();
-                    engine.screen_refreshed(screen, now, now + interval);
+                    on_refresh(now, now + interval);
                 }
             })
             .expect("a thread for the headless screen's refreshes");
+        Refresher { asks }
     }
 }
 
 impl VsyncWaiter for Refresher {
-    fn next_vsync(&self, screen: u64) {
-        if let Some(asks) = self.asks.get() {
-            // A thread gone is an engine gone, with nothing to refresh.
-            let _ = asks.send(screen);
-        }
+    fn next_vsync(&self, _screen: u64, on_refresh: OnRefresh) {
+        // The thread ends only with the screen, which is asking.
+        let _ = self.asks.send(on_refresh);
     }
 }
 

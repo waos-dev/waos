@@ -27,7 +27,7 @@
 //! own loop, an answer that needs that loop is a future, and what it reports back comes through the
 //! view's `ProgramView`, a program's `RunningProgram`, a tray icon's `TrayIconReports`, a player's
 //! `MediaPlayerReports` or a capture session's `CaptureSessionReports`, or for a screen's refresh
-//! through `WaOS::screen_refreshed`. No GPU object crosses here: a hardware
+//! through the `OnRefresh` the engine handed over with its ask. No GPU object crosses here: a hardware
 //! buffer and a video's frame are the platform's own types, an image the hardware codecs decoded
 //! a hardware buffer. A composition layer and a frame
 //! reader are the shell's own values, which the engine holds and hands back and never looks into.
@@ -193,13 +193,17 @@ impl Prompts for NoPrompts {
 /// The screens' refreshes: Flutter's `VsyncWaiter`, for any screen. The engine decides which
 /// views a refresh serves; the shell only says when it comes.
 pub trait VsyncWaiter: Send + Sync {
-    /// Calls `WaOS::screen_refreshed(screen, at, display_time)` once, at the next refresh of
-    /// `screen`, with when the picture drawn for it is expected on screen, whether or not anything
-    /// on it is in sight, and never inside this call: a refresh may ask for the next. The engine
-    /// asks again for each refresh it wants, and never twice before the one asked for comes. Called
-    /// from any thread.
-    fn next_vsync(&self, screen: ScreenId);
+    /// Calls `on_refresh` once, at the next refresh of `screen`, with when it began and when the
+    /// picture drawn for it is expected on screen, whether or not anything on it is in sight, and
+    /// never inside this call: a refresh may ask for the next. The engine asks again for each
+    /// refresh it wants, and never twice before the one asked for comes. Called from any thread.
+    fn next_vsync(&self, screen: ScreenId, on_refresh: OnRefresh);
 }
+
+/// What a shell calls at a screen's refresh it was asked for: when the refresh began, and when the
+/// picture drawn for it is expected on screen. As a browser's `requestAnimationFrame` takes its
+/// callback, the engine hands it over with each ask, so a shell needs no way back to the engine.
+pub type OnRefresh = Box<dyn FnOnce(Instant, Instant) + Send>;
 
 /// Where a program's views go: what answers a program's `request-view`. A desktop's shell makes
 /// a window for each request, and Android a task; a shell that showed a screen for the program
@@ -1113,7 +1117,7 @@ pub(crate) mod tests {
     }
 
     impl VsyncWaiter for Headless {
-        fn next_vsync(&self, screen: ScreenId) {
+        fn next_vsync(&self, screen: ScreenId, _on_refresh: OnRefresh) {
             self.refreshes_asked.lock().unwrap().push(screen);
         }
     }

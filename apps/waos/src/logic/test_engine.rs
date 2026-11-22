@@ -38,7 +38,7 @@ impl ViewPlacement for NoWindows {
 pub(crate) struct NoRefreshes;
 
 impl VsyncWaiter for NoRefreshes {
-    fn next_vsync(&self, _screen: u64) {}
+    fn next_vsync(&self, _screen: u64, _on_refresh: waos::OnRefresh) {}
 }
 
 /// An engine placing views with `views`, with nobody to ask, keeping compiled programs in
@@ -197,9 +197,7 @@ pub(crate) mod drawing {
             locales: Vec::new(),
             time_zone: None,
         };
-        let engine = Arc::new(WaOS::new(config, shell, platform).expect("an engine"));
-        screen.attach(&engine);
-        engine
+        Arc::new(WaOS::new(config, shell, platform).expect("an engine"))
     }
 
     /// Opens a view for `program`'s `request` in a window of its own, filling the test screen.

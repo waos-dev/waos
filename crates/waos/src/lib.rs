@@ -124,7 +124,7 @@ pub use shell::{
     CaptureStartFuture, ClipboardReadFuture, ClipboardWriteFuture, Content, ContentFuture,
     CopiedItem, FileDialogFuture, FileSink, FileWriteFuture, HardwareBuffer, ImageFuture,
     LayerPicture, MachinePickedFuture, MediaAssetFuture, MenuChosenFuture, NoPrompts,
-    NotificationFuture, OpenFuture, OpenedCamera, OpenedImage, PhotoFuture, PlacedView,
+    NotificationFuture, OnRefresh, OpenFuture, OpenedCamera, OpenedImage, PhotoFuture, PlacedView,
     PlacedWindow, Prompts, RecordingDevice, SettingsClosedFuture, Shell, ShellAttachedMenu,
     ShellAudioOutputPicker, ShellCamera, ShellCameras, ShellCaptureSession, ShellClipboard,
     ShellClipboardItem, ShellCompositionLayer, ShellCompositor, ShellContextMenus,

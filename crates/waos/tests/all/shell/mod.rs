@@ -63,14 +63,14 @@ use waos::bindings::wasdk::platform::views::{
 use waos::bindings::wasdk::platform::windows::{Point, Rect, Size, TitleBarAction};
 use waos::{
     Answer, AnswerFuture, EngineTime, FreezePolicy, HardwareBuffer, HttpProxy, ManualTime,
-    OutputStream, PlacedView, PlacedWindow, PlatformState, Presence, Program, ProgramEnd,
-    ProgramEnvironment, ProgramOutput, ProgramView, Prompts, Question, Role, RunningProgram,
-    Screen, SettingsClosedFuture, Shell, ShellAudioOutputPicker, ShellCameras, ShellClipboard,
-    ShellCompositionLayer, ShellCompositor, ShellContextMenus, ShellFileDialogs, ShellImageCodecs,
-    ShellMachinePicker, ShellMediaAssets, ShellMediaPlayers, ShellMenuBar, ShellNotifications,
-    ShellOpener, ShellRecordingIndicator, ShellTextInput, ShellTrayIcons, ShellVideoFrameReaders,
-    ShellView, ShellWindow, ShellWindowSizeLimits, Switch, ViewPlacement, ViewRequest, VsyncWaiter,
-    WaOS, WaOSConfig, WindowConfig,
+    OnRefresh, OutputStream, PlacedView, PlacedWindow, PlatformState, Presence, Program,
+    ProgramEnd, ProgramEnvironment, ProgramOutput, ProgramView, Prompts, Question, Role,
+    RunningProgram, Screen, SettingsClosedFuture, Shell, ShellAudioOutputPicker, ShellCameras,
+    ShellClipboard, ShellCompositionLayer, ShellCompositor, ShellContextMenus, ShellFileDialogs,
+    ShellImageCodecs, ShellMachinePicker, ShellMediaAssets, ShellMediaPlayers, ShellMenuBar,
+    ShellNotifications, ShellOpener, ShellRecordingIndicator, ShellTextInput, ShellTrayIcons,
+    ShellVideoFrameReaders, ShellView, ShellWindow, ShellWindowSizeLimits, Switch, ViewPlacement,
+    ViewRequest, VsyncWaiter, WaOS, WaOSConfig, WindowConfig,
 };
 
 use cameras::TestCameras;
@@ -227,7 +227,6 @@ pub fn engine_of(
     };
     adjust(&mut parts);
     let engine = Arc::new(WaOS::new(config, parts, platform).expect("an engine"));
-    let _ = shell.engine.set(Arc::downgrade(&engine));
     (engine, shell, arrivals)
 }
 
@@ -371,8 +370,6 @@ type PrepareView = Box<dyn FnOnce(&RecordingView) + Send>;
 /// The shell: answers every request with a view, at once, refreshes its screen a moment after it
 /// is asked, and keeps what it was asked.
 pub struct TestShell {
-    /// The engine its screen's refreshes are reported to, once it is made.
-    engine: OnceLock<Weak<WaOS>>,
     /// How many of the screen's refreshes were asked for.
     refreshes_asked: AtomicUsize,
     /// Whether a test stopped the screen's refreshes.
@@ -380,7 +377,7 @@ pub struct TestShell {
     /// When each refresh's picture was expected on screen.
     display_times: Mutex<Vec<Instant>>,
     /// Where the refreshes asked for go: to the screen's thread, which ends with the shell.
-    screen: Sender<ScreenId>,
+    screen: Sender<OnRefresh>,
     arrivals: Sender<ProgramView>,
     /// How each window asked for was to be made, in order.
     requests: Mutex<Vec<WindowConfig>>,
@@ -447,7 +444,6 @@ impl TestShell {
         let (arrivals, arrived) = mpsc::channel();
         let (screen, asked) = mpsc::channel();
         let shell = Arc::new(TestShell {
-            engine: OnceLock::new(),
             refreshes_asked: AtomicUsize::new(0),
             refreshes_stopped: AtomicBool::new(false),
             display_times: Mutex::default(),
@@ -559,18 +555,16 @@ impl TestShell {
         self.refreshes_stopped.store(true, Ordering::SeqCst);
     }
 
-    /// The screen refreshes now, its picture expected on screen a refresh later, as the engine
-    /// hears it, unless a test stopped its refreshes. The display time is kept.
-    fn refresh(&self, screen: ScreenId) {
+    /// The screen refreshes now, its picture expected on screen a refresh later, as `on_refresh`
+    /// tells the engine, unless a test stopped its refreshes. The display time is kept.
+    fn refresh(&self, on_refresh: OnRefresh) {
         if self.refreshes_stopped.load(Ordering::SeqCst) {
             return;
         }
-        if let Some(engine) = self.engine.get().and_then(Weak::upgrade) {
-            let now = Instant::now();
-            let display_time = now + REFRESH_INTERVAL;
-            self.display_times.lock().unwrap().push(display_time);
-            engine.screen_refreshed(screen, now, display_time);
-        }
+        let now = Instant::now();
+        let display_time = now + REFRESH_INTERVAL;
+        self.display_times.lock().unwrap().push(display_time);
+        on_refresh(now, display_time);
     }
 
     /// When each refresh's picture was expected on screen, as the engine was told, in order.
@@ -780,22 +774,22 @@ impl Prompts for TestShell {
 
 impl VsyncWaiter for TestShell {
     /// Refreshes [`REFRESH_INTERVAL`] later, on the screen's thread.
-    fn next_vsync(&self, screen: ScreenId) {
+    fn next_vsync(&self, _screen: ScreenId, on_refresh: OnRefresh) {
         self.refreshes_asked.fetch_add(1, Ordering::SeqCst);
-        let _ = self.screen.send(screen);
+        let _ = self.screen.send(on_refresh);
     }
 }
 
 /// The screen's thread: each refresh asked for comes [`REFRESH_INTERVAL`] after it was asked. It
 /// ends with the shell.
-fn run_screen(shell: Weak<TestShell>, asked: Receiver<ScreenId>) {
+fn run_screen(shell: Weak<TestShell>, asked: Receiver<OnRefresh>) {
     thread::Builder::new()
         .name("test screen".into())
         .spawn(move || {
-            for screen in asked {
+            for on_refresh in asked {
                 thread::sleep(REFRESH_INTERVAL);
                 match shell.upgrade() {
-                    Some(shell) => shell.refresh(screen),
+                    Some(shell) => shell.refresh(on_refresh),
                     None => return,
                 }
             }

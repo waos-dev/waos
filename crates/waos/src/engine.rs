@@ -13,7 +13,6 @@
 use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::Instant;
 
 use anyhow::{Context as _, Result, ensure};
 use futures::FutureExt;
@@ -23,7 +22,6 @@ use wasmtime::{Config, Engine, WasmBacktraceDetails};
 
 use crate::access::Days;
 use crate::bindings::wasdk::media::caption_settings::CaptionStyle;
-use crate::bindings::wasdk::platform::screens::ScreenId;
 use crate::bindings::wasdk::platform::system::{Brightness, Locale};
 use crate::caption_settings::CaptionSettings;
 use crate::clipboard::PlatformClipboard;
@@ -42,7 +40,7 @@ use crate::shell::{Shell, ShellClipboardItem};
 use crate::source_lines::ComponentFile;
 use crate::system::SystemSettings;
 use crate::temporary_folders::TemporaryFolders;
-use crate::views::{Refresh, ScreenRefreshes};
+use crate::views::ScreenRefreshes;
 
 /// How hardware buffers are backed on Linux. Ignored on other platforms.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -162,7 +160,11 @@ impl WaOS {
             screenshots: Arc::new(Screenshots::new(Arc::clone(&gpu), hardware_buffers)),
             gpu,
             hardware_buffers,
-            refreshes: ScreenRefreshes::new(Arc::clone(&shell.vsync), screens.clone()),
+            refreshes: ScreenRefreshes::new(
+                Arc::clone(&shell.vsync),
+                screens.clone(),
+                programs.clone(),
+            ),
             clipboard: PlatformClipboard::new(shell.clipboard.clone()),
             shell,
             screens,
@@ -187,15 +189,6 @@ impl WaOS {
     /// were added, removed or changed.
     pub fn set_screens(&self, screens: Vec<Screen>) {
         self.screens.set(screens);
-    }
-
-    /// `screen` refreshed at `at`, as the shell's `VsyncWaiter` was asked, the picture drawn for it
-    /// expected on screen at `display_time`: each program's views on it that asked for a frame and
-    /// are in sight get one, the frame naming them all.
-    pub fn screen_refreshed(&self, screen: ScreenId, at: Instant, display_time: Instant) {
-        let refresh = Refresh { at, display_time };
-        self.refreshes.came(screen, refresh);
-        self.programs.screen_refreshed(screen, refresh);
     }
 
     /// The user's light or dark preference now; programs hear of a change.
@@ -457,7 +450,6 @@ fn name_of(path: &Path) -> String {
 #[cfg(all(test, target_os = "macos"))]
 mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
-    use std::sync::{OnceLock, Weak};
     use std::thread;
     use std::time::{Duration, Instant};
 
@@ -467,12 +459,14 @@ mod tests {
     use objc2_metal::MTLDevice;
 
     use super::*;
+    use crate::bindings::wasdk::platform::screens::ScreenId;
     use crate::bindings::wasdk::platform::views::{
         Cursor, Insets, Metrics, OverlayStyle, Placement, ViewError, ViewFocusDirection,
         ViewFocusState,
     };
     use crate::lifecycle::Presence;
     use crate::running::ProgramEnd;
+    use crate::shell::OnRefresh;
     use crate::shell::{
         HardwareBuffer, PlacedView, ShellCompositionLayer, ShellView, ViewPlacement, ViewRequest,
         VsyncWaiter,
@@ -497,8 +491,6 @@ mod tests {
     #[derive(Default)]
     struct Refreshing {
         presents: AtomicUsize,
-        /// The engine the refreshes are reported to, once it is made.
-        engine: OnceLock<Weak<WaOS>>,
     }
 
     impl Refreshing {
@@ -535,14 +527,11 @@ mod tests {
     }
 
     impl VsyncWaiter for Refreshing {
-        fn next_vsync(&self, screen: ScreenId) {
-            let engine = self.engine.get().cloned();
+        fn next_vsync(&self, _screen: ScreenId, on_refresh: OnRefresh) {
             thread::spawn(move || {
                 thread::sleep(REFRESH_INTERVAL);
-                if let Some(engine) = engine.as_ref().and_then(Weak::upgrade) {
-                    let now = Instant::now();
-                    engine.screen_refreshed(screen, now, now + REFRESH_INTERVAL);
-                }
+                let now = Instant::now();
+                on_refresh(now, now + REFRESH_INTERVAL);
             });
         }
     }
@@ -604,9 +593,7 @@ mod tests {
             simulated_cameras: None,
             machine_picker: None,
         };
-        let engine = Arc::new(WaOS::new(config, shell_parts, platform).expect("an engine"));
-        let _ = shell.engine.set(Arc::downgrade(&engine));
-        engine
+        Arc::new(WaOS::new(config, shell_parts, platform).expect("an engine"))
     }
 
     /// A view of 1600 by 1000 pixels on `shell`, on its screen, in sight and focused.

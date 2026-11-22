@@ -18,10 +18,11 @@
 //! decides whether a view has had the one its screen is in.
 
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, Weak};
 use std::time::{Duration, Instant};
 
 use crate::bindings::wasdk::platform::screens::ScreenId;
+use crate::running::Programs;
 use crate::screens::Screens;
 use crate::shell::VsyncWaiter;
 use crate::sync::locked;
@@ -59,6 +60,8 @@ struct Refreshes {
     waiter: Arc<dyn VsyncWaiter>,
     /// The screens as the system has them, whose refresh rates give their intervals.
     screens: Screens,
+    /// The programs running, whose views a refresh serves.
+    programs: Programs,
     of_screens: Mutex<HashMap<ScreenId, ScreenRefresh>>,
 }
 
@@ -72,11 +75,17 @@ struct ScreenRefresh {
 }
 
 impl ScreenRefreshes {
-    /// None asked yet, of the shell's `waiter`, for the screens `screens`.
-    pub(crate) fn new(waiter: Arc<dyn VsyncWaiter>, screens: Screens) -> ScreenRefreshes {
+    /// None asked yet, of the shell's `waiter`, for the screens `screens`, a refresh serving the
+    /// views of `programs`.
+    pub(crate) fn new(
+        waiter: Arc<dyn VsyncWaiter>,
+        screens: Screens,
+        programs: Programs,
+    ) -> ScreenRefreshes {
         ScreenRefreshes(Arc::new(Refreshes {
             waiter,
             screens,
+            programs,
             of_screens: Mutex::default(),
         }))
     }
@@ -89,7 +98,14 @@ impl ScreenRefreshes {
             !std::mem::replace(&mut of_screen.next_asked, true)
         };
         if newly_asked {
-            self.0.waiter.next_vsync(screen);
+            // Weakly: a refresh the shell holds on to keeps nothing of an engine gone.
+            let refreshes = Arc::downgrade(&self.0);
+            self.0.waiter.next_vsync(
+                screen,
+                Box::new(move |at, display_time| {
+                    refreshed(&refreshes, screen, Refresh { at, display_time });
+                }),
+            );
         }
     }
 
@@ -127,6 +143,18 @@ impl ScreenRefreshes {
     }
 }
 
+/// `refresh` of `screen` came, as the shell reports what it was asked: it is the last the screen
+/// had, and each program's views on it that asked for a frame and are in sight get one, the frame
+/// naming them all.
+fn refreshed(refreshes: &Weak<Refreshes>, screen: ScreenId, refresh: Refresh) {
+    let Some(refreshes) = refreshes.upgrade() else {
+        return;
+    };
+    let programs = refreshes.programs.clone();
+    ScreenRefreshes(refreshes).came(screen, refresh);
+    programs.screen_refreshed(screen, refresh);
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
     use std::sync::LazyLock;
@@ -144,6 +172,7 @@ pub(crate) mod tests {
         ScreenRefreshes::new(
             Arc::clone(shell) as Arc<dyn VsyncWaiter>,
             Screens::new(Vec::new()),
+            Programs::default(),
         )
     }
 
@@ -152,6 +181,7 @@ pub(crate) mod tests {
         ScreenRefreshes::new(
             Arc::clone(shell) as Arc<dyn VsyncWaiter>,
             Screens::new(vec![screen_refreshing_at(1, 1_000)]),
+            Programs::default(),
         )
     }
 
@@ -234,6 +264,7 @@ pub(crate) mod tests {
         let unsaid = ScreenRefreshes::new(
             Arc::clone(&shell) as Arc<dyn VsyncWaiter>,
             Screens::new(vec![screen_refreshing_at(1, 0)]),
+            Programs::default(),
         );
         unsaid.came(1, told);
         assert_eq!(unsaid.current(1, told.at), None, "the system says no rate");

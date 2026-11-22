@@ -147,7 +147,6 @@ impl HeadlessDaemon {
         };
         let engine =
             Arc::new(WaOS::new(waos_config, shell, platform).context("starting the engine")?);
-        screen.attach(&engine);
 
         let capabilities = LocalCapabilities::new();
         let environments = ProgramEnvironments::new(capabilities, store.clone());
