@@ -8,6 +8,11 @@
 //! printed reaches the output pipe only then: the pseudoconsole is closed as the command's end is
 //! collected, so its output ends as a terminal's does when its command ends.
 //!
+//! A process inherits from the one that starts it whether it ignores Ctrl-C, so WaOS stops
+//! ignoring it before it starts a command here: whatever started WaOS may have had it ignored, as
+//! a GitHub Actions runner's steps do (measured 2026-11-22), and every command in WaOS's terminals
+//! would then ignore the Ctrl-C typed in them.
+//!
 //! The invariants a later editor will break:
 //! - The pseudoconsole is closed once, whoever closes it first: the command's end, a hang-up or
 //!   the terminal dropped.
@@ -26,6 +31,7 @@ use waos_capabilities::{ExecError, ExitStatus, TerminalSize};
 use windows_sys::Win32::Foundation::{HANDLE, INVALID_HANDLE_VALUE, S_OK, WAIT_OBJECT_0};
 use windows_sys::Win32::System::Console::{
     COORD, ClosePseudoConsole, CreatePseudoConsole, HPCON, ResizePseudoConsole,
+    SetConsoleCtrlHandler,
 };
 use windows_sys::Win32::System::Pipes::CreatePipe;
 use windows_sys::Win32::System::Threading::{
@@ -158,6 +164,7 @@ pub(crate) fn start_in_terminal(
         Arc::new(Pseudoconsole::open(size, &typed_by_console, &shown_by_console).map_err(failed)?);
     drop((typed_by_console, shown_by_console));
     let job = Job::new().map_err(failed)?;
+    stop_ignoring_ctrl_c();
     let process = start_attached(&starting, &pseudoconsole, &job)
         .map_err(|error| ExecError::Refused(format!("{}: {error}", starting.program)))?;
     let typed = File::from(typed);
@@ -173,6 +180,13 @@ pub(crate) fn start_in_terminal(
         reader: Box::new(File::from(shown)),
         writer: Box::new(typed),
     })
+}
+
+/// Has WaOS handle Ctrl-C as a process does by default, so the command it starts next inherits
+/// that and hears the Ctrl-C typed in its terminal.
+fn stop_ignoring_ctrl_c() {
+    // SAFETY: no handler is passed; the call only clears the process's flag to ignore Ctrl-C.
+    unsafe { SetConsoleCtrlHandler(None, 0) };
 }
 
 /// A pipe: its reading end, then its writing end.
