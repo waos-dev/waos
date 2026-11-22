@@ -207,6 +207,9 @@ pub(crate) fn start(
     let preferences = own_preferences(place, &folders);
     let store = Store::open(&folders.store, SourceProxy::System)
         .with_context(|| format!("opening the store at {}", folders.store.display()))?;
+    if let Err(error) = store.start_sources_with(&library::first_sources()) {
+        tracing::warn!("the sources WaOS comes with are not added: {error}");
+    }
     let package_copies =
         PackageCopies::clear(folders.package_copies.clone()).with_context(|| {
             format!(

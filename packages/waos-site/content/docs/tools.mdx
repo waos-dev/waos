@@ -10,6 +10,7 @@ description: Every waos command, and when to use it.
 - **`waos build`** builds the app as a component, for `wasm32-wasip3`, at `target/waos/<profile>/<package>.wasm`; `--release` optimizes it. Use it until the app compiles.
 - **`waos run`** builds the app and runs it in the WaOS on this machine, starting WaOS when none is running, as the program its id names, with that program's settings and folders. What the app prints, and its panics, come to this terminal; Ctrl-C stops it. `--env NAME=VALUE` gives the app a variable for this run alone, such as `--env RUST_LOG=debug`; nothing of the shell's environment is passed.
 - **`waos package`** builds the release component and writes it as a package signed with your key, at `target/waos/<id>-<version>.wapk`, listed in `target/waos/index.json`, from the id, name and icon of the package's `[package.metadata.waos]`.
+- **`waos package verify <file>`** checks a package as WaOS opens it, its signature, manifest and icon, and prints its id, version and publisher key, in full and as its fingerprint; `--publisher <key>`, the key's 64 hex digits, refuses it unless that key signed it.
 
 > A run lives as long as the `waos run` that started it: leave it running, in a terminal of its own, while the other commands reach it, and start it so that the shell it runs in stays. A second `waos run` of the same app replaces the first, which prints that it was replaced.
 

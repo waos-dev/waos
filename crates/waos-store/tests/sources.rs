@@ -38,6 +38,31 @@ fn sources_are_kept_in_the_order_added() {
     ));
 }
 
+#[test]
+fn the_first_sources_are_made_once_and_a_removed_one_never_comes_back() {
+    let scratch = tempfile::tempdir().unwrap();
+    let directory = scratch.path().join("store");
+    let store = Store::open(&directory, SourceProxy::None).unwrap();
+    let first = [source("https://list.waos.app/index.json")];
+    store.start_sources_with(&first).unwrap();
+    assert_eq!(store.sources(), first);
+    store.remove_source(&first[0]).unwrap();
+    store.start_sources_with(&first).unwrap();
+    assert!(store.sources().is_empty());
+}
+
+#[test]
+fn the_first_sources_leave_a_list_added_to_already_as_it_is() {
+    let scratch = tempfile::tempdir().unwrap();
+    let store = Store::open(&scratch.path().join("store"), SourceProxy::None).unwrap();
+    let github = source("github.com/example/triangle");
+    store.add_source(github.clone()).unwrap();
+    store
+        .start_sources_with(&[source("https://list.waos.app/index.json")])
+        .unwrap();
+    assert_eq!(store.sources(), [github]);
+}
+
 #[tokio::test]
 async fn a_source_is_read_from_its_index() {
     let scratch = tempfile::tempdir().unwrap();

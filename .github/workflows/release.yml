@@ -2,7 +2,13 @@
 # command and the engine are published together at the tag's version, so the SDK always matches
 # its WaOS, and a program written by the published `cargo waos new` builds from crates.io alone.
 # Waft's crates the SDK names must be on crates.io first, at the versions the workspace names. The
-# release on GitHub carries the docs of that version, which `cargo waos docs` downloads.
+# release on GitHub carries the docs of that version, which `cargo waos docs` downloads, and
+# WaOS's built-in apps, each a package signed with the WaOS project's key, with the `index.json`
+# that lists them, so github.com/waos-dev/waos is a source of them (the official source's decision
+# 1, `docs/proposals/2026-11-22-official-source.md`).
+#
+# Secrets: CARGO_REGISTRY_TOKEN; WAOS_SIGNING_KEY, the WaOS project's signing key, the PEM text
+# `waos package` reads; and mirror-release.yml's.
 name: Release
 
 on:
@@ -43,9 +49,37 @@ jobs:
           gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || gh release create "$GITHUB_REF_NAME" --verify-tag --title "$GITHUB_REF_NAME" --notes "WaOS $GITHUB_REF_NAME"
           gh release upload "$GITHUB_REF_NAME" "$archive" --clobber
 
+  # Each built-in app packaged by the `waos` of this tag, built from the workspace, signed with the
+  # WaOS project's key and attached to the release with the index `waos package` writes beside
+  # the packages. On Linux, the cheapest runner that builds them: a component is the same whatever
+  # machine built it.
+  builtin-apps:
+    needs: [release]
+    runs-on: ubuntu-latest
+    permissions:
+      # The packages and their index, attached to the GitHub release.
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Each built-in app, packaged
+        env:
+          WAOS_SIGNING_KEY: ${{ secrets.WAOS_SIGNING_KEY }}
+        run: |
+          cargo build --locked -p waos-cli
+          packages=$(cargo metadata --locked --no-deps --format-version 1 | jq -r --arg apps "$GITHUB_WORKSPACE/builtin-apps/" \
+            '.packages[] | select((.manifest_path | startswith($apps)) and .metadata.waos.id != null) | .name')
+          test -n "$packages" || { echo "no built-in app found"; exit 1; }
+          for package in $packages; do
+            target/debug/waos package -p "$package"
+          done
+      - name: The packages and their index, on the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$GITHUB_REF_NAME" target/waos/*.wapk target/waos/index.json --clobber
+
   # The files just attached, copied to download.waos.app.
   mirror:
-    needs: [release]
+    needs: [release, builtin-apps]
     uses: ./.github/workflows/mirror-release.yml
     with:
       tag: ${{ github.ref_name }}

@@ -21,7 +21,7 @@
 //! `tests/new.rs` builds each template as a component.
 
 mod enclosing_workspace;
-mod icon;
+pub(crate) mod icon;
 mod manifest;
 mod program_name;
 mod template;

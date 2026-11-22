@@ -14,4 +14,6 @@ WaOS's own apps, written as programs over `wasdk` as any program is, and kept he
 
 Each runs with `waos run -p <name>` against a WaOS built from this workspace, and is run by the engine's tests (`crates/waos/tests/`).
 
+Each release of WaOS releases them too: on the tag, `.github/workflows/release.yml` packages each app here with the `waos` built from the workspace at the tag, `waos package -p <package>`, signed with the WaOS project's key, the secret `WAOS_SIGNING_KEY`, and attaches every package and the `index.json` listing them to the tag's GitHub release, so `github.com/waos-dev/waos` is a source of them, at the release's version, and download.waos.app holds a copy as it does every release file.
+
 Each app's `icon.png` is rendered from the `icon.svg` beside it, which is the source to edit; the eight are drawn as one family, in one light and finish, for other apps' icons to sit beside. On macOS, `qlmanage -t -s 1024 -o <folder> icon.svg` renders it as `<folder>/icon.svg.png`, which is then saved without its alpha channel, as an RGB PNG of 1024 pixels on a side (with Pillow: `Image.open(path).convert("RGB").save("icon.png")`). Model Viewer's `icon.svg` is written by its `icon.py` (`python3 icon.py icon.svg`), which computes the sphere's facets and their shading.
