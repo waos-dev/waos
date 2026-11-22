@@ -43,6 +43,17 @@ use wasmtime::component::Component;
 /// remove, because a program maps it: no component is dated so, so it is never mapped again.
 const RETIRED: SystemTime = SystemTime::UNIX_EPOCH;
 
+const GIB: u64 = 1024 * 1024 * 1024;
+/// Upper bound on threads used to compile one component, so high-core machines do not multiply
+/// per-thread Cranelift allocator arenas without bound.
+const MAX_COMPILE_THREADS: usize = 8;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct SystemMemory {
+    total_bytes: u64,
+    available_bytes: u64,
+}
+
 /// The component at `component`, mapped from its file in `cache`, which it is compiled into
 /// first when there is none compiled from it as it is now by an engine like `engine`.
 pub(crate) fn load(engine: &Engine, component: &Path, cache: &Path) -> Result<Component> {
@@ -160,11 +171,9 @@ impl ComponentFiles {
 fn compile_into(engine: &Engine, component: &Path, files: &ComponentFiles) -> Result<PathBuf> {
     // Read before the bytes, so that a component changed while it compiles reads as changed.
     let dated = modified(component)?;
-    let bytes = fs::read(component).with_context(|| format!("reading {}", component.display()))?;
-    let code = engine
-        .precompile_component(&bytes)
-        .map_err(anyhow::Error::from)
-        .with_context(|| format!("compiling {}", component.display()))?;
+    let bytes = read_component(component)?;
+    let code = precompile(engine, component, &bytes)?;
+    drop(bytes);
     let compiled = files.new_file();
     write_whole(&compiled, &code, dated)
         .with_context(|| format!("writing {}", compiled.display()))?;
@@ -182,6 +191,105 @@ fn compile_into(engine: &Engine, component: &Path, files: &ComponentFiles) -> Re
     }
     remove_retired(&files.cache);
     Ok(compiled)
+}
+
+/// Precompiles `bytes` on a scoped thread pool sized to available CPUs and RAM so compilation
+/// leaves headroom for the UI and releases its worker threads' allocator arenas as soon as it
+/// finishes.
+fn precompile(engine: &Engine, component: &Path, bytes: &[u8]) -> Result<Vec<u8>> {
+    let cpus = std::thread::available_parallelism()
+        .map(std::num::NonZeroUsize::get)
+        .unwrap_or(1);
+    let threads = compile_threads(cpus, system_memory());
+    tracing::debug!(
+        component = %component.display(),
+        threads,
+        bytes = bytes.len(),
+        "precompiling component"
+    );
+    let pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(threads)
+        .thread_name(|index| format!("waos-compile-{index}"))
+        .start_handler(|_| crate::os::lower_thread_priority())
+        .build()
+        .context("starting the compile thread pool")?;
+    let code = pool
+        .install(|| engine.precompile_component(bytes))
+        .map_err(anyhow::Error::from)
+        .with_context(|| format!("compiling {}", component.display()));
+    drop(pool);
+    code
+}
+
+/// How many threads to give one component compile: leaves a core for the UI, caps at
+/// [`MAX_COMPILE_THREADS`], and scales down on low-memory devices so Cranelift's per-thread
+/// arenas do not push the process into the low-memory killer.
+fn compile_threads(cpus: usize, memory: Option<SystemMemory>) -> usize {
+    let by_cpu = cpus.saturating_sub(1).clamp(1, MAX_COMPILE_THREADS);
+    let Some(memory) = memory else {
+        return by_cpu;
+    };
+    let by_memory = if memory.available_bytes < GIB {
+        1
+    } else if memory.total_bytes <= 4 * GIB || memory.available_bytes < 2 * GIB {
+        2
+    } else if memory.total_bytes <= 8 * GIB || memory.available_bytes < 4 * GIB {
+        4
+    } else {
+        MAX_COMPILE_THREADS
+    };
+    by_cpu.min(by_memory)
+}
+
+#[cfg(any(target_os = "linux", target_os = "android"))]
+fn system_memory() -> Option<SystemMemory> {
+    let text = fs::read_to_string("/proc/meminfo").ok()?;
+    parse_proc_meminfo(&text)
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "android")))]
+fn system_memory() -> Option<SystemMemory> {
+    None
+}
+
+#[cfg(any(target_os = "linux", target_os = "android", test))]
+fn parse_proc_meminfo(text: &str) -> Option<SystemMemory> {
+    let mut total_kib = None;
+    let mut available_kib = None;
+    for line in text.lines() {
+        if let Some(rest) = line.strip_prefix("MemTotal:") {
+            total_kib = parse_meminfo_kib(rest);
+        } else if let Some(rest) = line.strip_prefix("MemAvailable:") {
+            available_kib = parse_meminfo_kib(rest);
+        }
+    }
+    Some(SystemMemory {
+        total_bytes: total_kib?.checked_mul(1024)?,
+        available_bytes: available_kib?.checked_mul(1024)?,
+    })
+}
+
+#[cfg(any(target_os = "linux", target_os = "android", test))]
+fn parse_meminfo_kib(value: &str) -> Option<u64> {
+    value.split_whitespace().next()?.parse().ok()
+}
+
+/// Reads the component file for compilation. On Android every component compiled by WaOS lives in
+/// the store's immutable unpacked version folder, so mapping avoids copying large `.wasm` files
+/// into private heap; elsewhere the file is read so a development rebuild cannot truncate a mapped
+/// file.
+#[cfg(target_os = "android")]
+#[allow(unsafe_code)]
+fn read_component(component: &Path) -> Result<memmap2::Mmap> {
+    let file = File::open(component).with_context(|| format!("opening {}", component.display()))?;
+    // SAFETY: on Android every component compiled by WaOS lives in the store's unpacked version
+    // directory, which is written whole before becoming current and never modified in place.
+    unsafe { memmap2::Mmap::map(&file) }.with_context(|| format!("mapping {}", component.display()))
+}
+
+#[cfg(not(target_os = "android"))]
+fn read_component(component: &Path) -> Result<Vec<u8>> {
+    fs::read(component).with_context(|| format!("reading {}", component.display()))
 }
 
 /// Removes `file`, which is no component's code any longer; where the system will not, since a
@@ -359,5 +467,54 @@ mod tests {
         drop(mapped);
         remove_retired(cache.path());
         assert!(!file.exists(), "gone once nothing maps it");
+    }
+
+    #[test]
+    fn compile_threads_scales_with_cpus_and_memory() {
+        assert_eq!(compile_threads(1, None), 1);
+        assert_eq!(compile_threads(4, None), 3);
+        assert_eq!(compile_threads(16, None), MAX_COMPILE_THREADS);
+
+        let pixel_4gb = SystemMemory {
+            total_bytes: 3_930_000_000,
+            available_bytes: 1_900_000_000,
+        };
+        assert_eq!(compile_threads(8, Some(pixel_4gb)), 2);
+
+        let low_available = SystemMemory {
+            total_bytes: 8 * GIB,
+            available_bytes: 800 * 1024 * 1024,
+        };
+        assert_eq!(compile_threads(8, Some(low_available)), 1);
+
+        let mid_8gb = SystemMemory {
+            total_bytes: 8 * GIB,
+            available_bytes: 5 * GIB,
+        };
+        assert_eq!(compile_threads(8, Some(mid_8gb)), 4);
+
+        let phone_12gb = SystemMemory {
+            total_bytes: 12 * GIB,
+            available_bytes: 6 * GIB,
+        };
+        assert_eq!(compile_threads(8, Some(phone_12gb)), 7);
+    }
+
+    #[test]
+    fn proc_meminfo_parses_total_and_available_kib() {
+        let sample = "\
+MemTotal:        3838896 kB
+MemFree:          112340 kB
+MemAvailable:    1654320 kB
+Buffers:           12345 kB
+";
+        assert_eq!(
+            parse_proc_meminfo(sample),
+            Some(SystemMemory {
+                total_bytes: 3_838_896 * 1024,
+                available_bytes: 1_654_320 * 1024,
+            })
+        );
+        assert_eq!(parse_proc_meminfo("MemTotal: 1024 kB\n"), None);
     }
 }

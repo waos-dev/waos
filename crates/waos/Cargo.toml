@@ -28,6 +28,8 @@ tokio.workspace = true
 tracing.workspace = true
 wasmtime.workspace = true
 wasmtime-wasi.workspace = true
+# Scoped thread pool for ahead-of-time component compilation (`code_cache`).
+rayon.workspace = true
 # Where in its source a failed program was (`source_lines`), from its component's DWARF.
 wasmparser.workspace = true
 addr2line.workspace = true
@@ -104,6 +106,8 @@ objc2-core-video = { version = "0.3", default-features = false, features = ["std
 # which wraps the image as one of wgpu-core's and opens a device with the import's extensions.
 [target.'cfg(target_os = "android")'.dependencies]
 ndk = { version = "0.9", features = ["api-level-26"] }
+# Mapping an immutable installed component file during ahead-of-time compilation (`code_cache`).
+memmap2.workspace = true
 
 # Vulkan, where a program's device imports the system's hardware buffers: Android's
 # `AHardwareBuffer`s and Linux's dmabufs.
@@ -114,7 +118,6 @@ wgpu-hal = { version = "30", features = ["vulkan"] }
 # Linux's dmabufs: GBM, loaded at run time, and the DRM and dma-buf ioctls.
 [target.'cfg(target_os = "linux")'.dependencies]
 libloading = "0.8"
-libc = "0.2"
 
 # The frames the tests' readers hand out: pixel buffers on IOSurfaces, made and filled by the test
 # shell.
@@ -127,9 +130,10 @@ objc2-core-video = { version = "0.3", default-features = false, features = ["std
 wasmtime = { workspace = true, features = ["pulley"] }
 
 # Linux's `/proc/self/fd`, through which `files` sets a file's times where no call keeps the path
-# beneath its folder.
+# beneath its folder, and `libc` for Linux's dmabuf ioctls and lowering compile-thread priority.
 [target.'cfg(any(target_os = "linux", target_os = "android"))'.dependencies]
 rustix-linux-procfs.workspace = true
+libc.workspace = true
 
 # Windows' file calls, which `files`' Windows half makes: `NtCreateFile` beneath a folder's handle,
 # a reparse point's contents, a handle's information and a handle reopened; the features
@@ -150,10 +154,12 @@ wgpu-hal = { version = "30", features = ["dx12"] }
 [target.'cfg(target_os = "macos")'.dependencies]
 system-configuration = "0.7"
 
-# `code_cache` maps code wasmtime compiled earlier, an unsafe API of wasmtime's, and `os` wraps
-# the system's allocation of a hardware buffer into a texture on the program's device, hands its
-# image to the compositor on Android and Linux, and reads its proxy settings; `files` makes
-# Windows' file calls, in its copy of `wasmtime-wasi`'s Windows half (`files/beneath/windows`, and
-# its tests' junctions) and in `files/windows.rs`; the rest of the crate has no `unsafe`.
+# `code_cache` maps code wasmtime compiled earlier (an unsafe API of wasmtime's) and, on Android,
+# maps an immutable installed component to compile it; `os` wraps the system's allocation of a
+# hardware buffer into a texture on the program's device, hands its image to the compositor on
+# Android and Linux, lowers a compile thread's priority on Linux and Android, and reads its proxy
+# settings; `files` makes Windows' file calls, in its copy of `wasmtime-wasi`'s Windows half
+# (`files/beneath/windows`, and its tests' junctions) and in `files/windows.rs`; the rest of the
+# crate has no `unsafe`.
 [lints.rust]
 unsafe_code = "deny"

@@ -4,7 +4,9 @@
 //! The invariant a later editor will break: a download is handed on only when its SHA-256 is the
 //! one listed; one that is not is removed with its temporary file.
 
+use std::fs;
 use std::io::Write;
+use std::path::Path;
 use std::time::Duration;
 
 use reqwest::{Client, Response};
@@ -69,16 +71,21 @@ pub(crate) async fn read_index(http: &Client, url: &Url) -> Result<Index, Source
     })
 }
 
-/// Downloads the package at `url` into a temporary file, removed when dropped, and refuses it
-/// unless its SHA-256 is `listed`.
+/// Downloads the package at `url` into a temporary file inside `folder`, removed when dropped, and
+/// refuses it unless its SHA-256 is `listed`.
 pub(crate) async fn download(
     http: &Client,
     url: &Url,
     listed: &[u8; 32],
+    folder: &Path,
 ) -> Result<NamedTempFile, SourceError> {
     let mut response = get(http, url).await?;
-    let mut file = NamedTempFile::new().map_err(|error| SourceError::Io {
-        path: std::env::temp_dir(),
+    fs::create_dir_all(folder).map_err(|error| SourceError::Io {
+        path: folder.to_path_buf(),
+        error,
+    })?;
+    let mut file = NamedTempFile::new_in(folder).map_err(|error| SourceError::Io {
+        path: folder.to_path_buf(),
         error,
     })?;
     let mut sha256 = Sha256::new();

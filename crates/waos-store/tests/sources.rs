@@ -206,3 +206,41 @@ async fn an_update_from_a_source_must_be_signed_with_the_installed_key() {
     let installed = store.installed();
     assert_eq!(installed[0].manifest.version().to_string(), "1.0.0");
 }
+
+#[tokio::test]
+async fn downloads_stage_inside_the_store_and_interrupted_ones_are_cleared_on_open() {
+    let scratch = tempfile::tempdir().unwrap();
+    let directory = scratch.path().join("store");
+    let key = SigningKey::generate();
+    let package = write_package(scratch.path(), TRIANGLE, "1.2.0", &key);
+    let listed = listing(&package, TRIANGLE, "1.2.0");
+    let server = Server::serve(vec![(
+        format!("waos/{}", listed.package),
+        std::fs::read(&package).unwrap(),
+    )])
+    .await;
+    let store = Store::open(&directory, SourceProxy::None).unwrap();
+    let download = store
+        .download(&source(&server.url("waos/index.json")), &listed)
+        .await
+        .unwrap();
+    let downloads = directory.join("downloads");
+    assert_eq!(
+        std::fs::read_dir(&downloads).unwrap().count(),
+        1,
+        "downloaded into the store's downloads folder"
+    );
+    drop(download);
+    assert_eq!(
+        std::fs::read_dir(&downloads).unwrap().count(),
+        0,
+        "temporary file removed when dropped"
+    );
+
+    std::fs::write(downloads.join("interrupted.tmp"), b"partial").unwrap();
+    let _reopened = Store::open(&directory, SourceProxy::None).unwrap();
+    assert!(
+        !downloads.exists(),
+        "interrupted downloads cleared on Store::open"
+    );
+}

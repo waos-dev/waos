@@ -73,8 +73,7 @@ fn on_phone_of(kind: DesktopKind) -> (LibraryDesktop, ViewId) {
 
 fn installs(desktop: &mut LibraryDesktop, id: &str, name: &str, component: &[u8]) {
     let package = desktop.package(id, name, "1.0.0", component);
-    desktop.update(|library, cx| library.open_files(vec![package], cx));
-    desktop.update(|library, cx| library.answer(true, cx));
+    desktop.install_package(package);
     desktop.settle_until_code_is_ready();
 }
 

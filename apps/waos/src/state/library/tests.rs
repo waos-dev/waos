@@ -174,7 +174,22 @@ impl TestLibrary {
 
     fn installs_after_yes(&self, package: PathBuf) {
         self.update(|library, cx| library.open_files(vec![package], cx));
+        self.wait_until("the install question", |library| {
+            library.question().is_some()
+        });
+        let (id, version) = self.read(|library| match library.question() {
+            Some(Question::Install(package)) => (
+                package.manifest().id().clone(),
+                package.manifest().version().clone(),
+            ),
+            _ => panic!("expected an install question"),
+        });
         self.update(|library, cx| library.answer(true, cx));
+        self.wait_until("the install", |library| {
+            library.installed().iter().any(|program| {
+                program.manifest.id() == &id && program.manifest.version() == &version
+            }) || library.problem().is_some()
+        });
     }
 
     fn asked_to_be_seen(&self) -> usize {
@@ -225,6 +240,9 @@ fn a_package_opened_with_waos_is_installed_once_the_user_says_yes() {
     let library = TestLibrary::new();
     let package = library.package(TRIANGLE, "1.0.0", b"\0asm");
     library.update(|library, cx| library.open_files(vec![package], cx));
+    library.wait_until("the install question", |library| {
+        library.question().is_some()
+    });
     assert_eq!(
         library.read(question).as_deref(),
         Some("install dev.example.triangle")
@@ -232,6 +250,7 @@ fn a_package_opened_with_waos_is_installed_once_the_user_says_yes() {
     assert_eq!(library.asked_to_be_seen(), 1);
     assert!(library.installed().is_empty(), "not before the answer");
     library.update(|library, cx| library.answer(true, cx));
+    library.wait_until("the install", |library| !library.installed().is_empty());
     assert_eq!(
         library.installed(),
         [(TRIANGLE.to_owned(), "1.0.0".to_owned())]
@@ -254,14 +273,16 @@ fn packages_the_system_opens_with_waos_at_launch_and_later_are_asked_about() {
     };
     library.cell.borrow_mut().open_requested(opened(triangle));
     take_files_opened_with_waos(&mut library.cell.borrow_mut(), &library.library, None);
-    library.cell.checkpoint();
+    library.wait_until("the launch's question", |library| {
+        library.question().is_some()
+    });
     assert_eq!(
         library.read(question).as_deref(),
         Some("install dev.example.triangle"),
         "the launch's request waited for WaOS"
     );
     library.cell.borrow_mut().open_requested(opened(survey));
-    library.cell.checkpoint();
+    library.wait_until("the second request", |_| library.asked_to_be_seen() == 2);
     library.update(|library, cx| library.answer(false, cx));
     assert_eq!(
         library.read(question).as_deref(),
@@ -275,6 +296,9 @@ fn a_package_the_user_declines_is_not_installed() {
     let library = TestLibrary::new();
     let package = library.package(TRIANGLE, "1.0.0", b"\0asm");
     library.update(|library, cx| library.open_files(vec![package], cx));
+    library.wait_until("the install question", |library| {
+        library.question().is_some()
+    });
     library.update(|library, cx| library.answer(false, cx));
     assert!(library.installed().is_empty());
     assert_eq!(library.read(question), None);
@@ -286,6 +310,9 @@ fn packages_opened_together_are_asked_about_one_at_a_time() {
     let triangle = library.package(TRIANGLE, "1.0.0", b"\0asm");
     let survey = library.package(SURVEY, "2.0.0", b"\0asm");
     library.update(|library, cx| library.open_files(vec![triangle, survey], cx));
+    library.wait_until("the install question", |library| {
+        library.question().is_some()
+    });
     assert_eq!(
         library.read(question).as_deref(),
         Some("install dev.example.triangle")
@@ -296,6 +323,7 @@ fn packages_opened_together_are_asked_about_one_at_a_time() {
         Some("install dev.example.survey")
     );
     library.update(|library, cx| library.answer(true, cx));
+    library.wait_until("the install", |library| !library.installed().is_empty());
     assert_eq!(
         library.installed(),
         [(SURVEY.to_owned(), "2.0.0".to_owned())]
@@ -308,6 +336,7 @@ fn a_file_that_cannot_be_installed_is_the_librarys_problem() {
     let notes = library.folder.path().join("notes.txt");
     std::fs::write(&notes, "hello").unwrap();
     library.update(|library, cx| library.open_files(vec![notes], cx));
+    library.wait_until("the problem", |library| library.problem().is_some());
     let problem = library.read(|library| library.problem().map(str::to_owned));
     assert!(problem.is_some_and(|problem| problem.contains(".wapk")));
     assert_eq!(library.read(question), None);
@@ -880,6 +909,7 @@ fn a_package_handed_as_a_handle_is_copied_asked_about_and_its_copy_removed_once_
     library.wait_until("the question", |library| library.question().is_some());
     assert_eq!(library.copies().len(), 1, "a copy while it is asked about");
     library.update(|library, cx| library.answer(true, cx));
+    library.wait_until("the install", |library| !library.installed().is_empty());
     assert_eq!(
         library.installed(),
         [(TRIANGLE.to_owned(), "1.0.0".to_owned())]

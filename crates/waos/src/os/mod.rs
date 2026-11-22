@@ -85,3 +85,20 @@ pub(crate) fn resolve_buffer_mode(
 ) -> crate::HardwareBufferMode {
     requested
 }
+
+/// Lowers the calling thread's scheduling priority so ahead-of-time compilation yields to UI and
+/// foreground threads. On Linux and Android (`NPTL`), `setpriority(PRIO_PROCESS, 0, ...)` changes
+/// only the calling thread's niceness; on macOS and BSD it would change the whole process, so it
+/// is a no-op outside Linux and Android.
+#[cfg(any(target_os = "linux", target_os = "android"))]
+#[allow(unsafe_code)]
+pub(crate) fn lower_thread_priority() {
+    // Matches Android's `Process.THREAD_PRIORITY_BACKGROUND`.
+    const BACKGROUND_NICE: libc::c_int = 10;
+    // SAFETY: `setpriority` with `PRIO_PROCESS` and `0` adjusts only the calling thread's
+    // scheduling priority and cannot cause memory unsafety.
+    let _ = unsafe { libc::setpriority(libc::PRIO_PROCESS, 0, BACKGROUND_NICE) };
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "android")))]
+pub(crate) fn lower_thread_priority() {}

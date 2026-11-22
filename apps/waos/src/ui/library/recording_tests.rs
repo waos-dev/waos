@@ -46,8 +46,7 @@ fn on_phone() -> LibraryDesktop {
 fn open_forever(desktop: &mut LibraryDesktop) -> RunningProgram {
     let component = std::fs::read(waos_test_programs::FOREVER_SHOWN).unwrap();
     let package = desktop.package(FOREVER, "Forever", "1.0.0", &component);
-    desktop.update(|library, cx| library.open_files(vec![package], cx));
-    desktop.update(|library, cx| library.answer(true, cx));
+    desktop.install_package(package);
     let id: ProgramId = FOREVER.parse().unwrap();
     desktop.update(|library, cx| library.open(&id, cx));
     let runs = Arc::clone(&desktop.runs);

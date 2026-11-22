@@ -249,9 +249,10 @@ fn a_package_opened_while_a_tab_is_in_sight_is_asked_about_over_the_tab() {
     phone.library.update(&mut phone.shell.app(), |library, cx| {
         library.open_files(vec![file], cx)
     });
-    phone.settle();
+    phone.settle_until("the install question", |phone| {
+        phone.shows("Install Survey?")
+    });
     assert!(phone.has::<CupertinoAlertDialog>(), "{:?}", phone.labels());
-    assert!(phone.shows("Install Survey?"), "{:?}", phone.labels());
     assert!(
         phone.has::<ProgramCanvas>(),
         "over the tab, which stays in sight"

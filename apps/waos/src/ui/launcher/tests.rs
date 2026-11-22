@@ -108,8 +108,20 @@ fn summon(desktop: &mut LibraryDesktop, launcher: &Entity<Launcher>) {
 fn install(desktop: &mut LibraryDesktop, id: &str, name: &str, version: &str, component: &[u8]) {
     let package = desktop.package(id, name, version, component);
     desktop.update(|library, cx| library.open_files(vec![package], cx));
+    desktop.settle_until("the install question", |desktop| {
+        desktop.shows(words::INSTALL)
+    });
     let view = launcher_view(desktop);
     desktop.tap(view, words::INSTALL);
+    let installed_id: ProgramId = id.parse().unwrap();
+    desktop.settle_until("the install", |desktop| {
+        desktop.read(|library| {
+            library
+                .installed()
+                .iter()
+                .any(|program| program.manifest.id() == &installed_id)
+        })
+    });
     desktop.settle_until_code_is_ready();
 }
 
@@ -310,10 +322,13 @@ fn a_package_opened_with_waos_summons_the_launcher_with_the_question() {
     desktop.press_escape();
     let package = desktop.package(TRIANGLE, "Triangle", "1.0.0", b"\0asm");
     desktop.update(|library, cx| library.open_files(vec![package], cx));
+    desktop.settle_until("the question", |desktop| desktop.shows("Install Triangle?"));
     assert!(is_on_screen(&desktop));
-    assert!(desktop.shows("Install Triangle?"), "{:?}", desktop.labels());
     let view = launcher_view(&desktop);
     desktop.tap(view, words::INSTALL);
+    desktop.settle_until("the install", |desktop| {
+        desktop.read(|library| !library.installed().is_empty())
+    });
     desktop.settle_until_code_is_ready();
     assert!(desktop.shows("Triangle"), "{:?}", desktop.labels());
 }

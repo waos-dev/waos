@@ -382,6 +382,9 @@ impl TestPhone {
         self.library.update(&mut self.shell.app(), |library, cx| {
             library.open_files(vec![file], cx)
         });
+        self.settle_until("the install question", |phone| {
+            phone.library.read(&phone.shell.app()).question().is_some()
+        });
         self.library.update(&mut self.shell.app(), |library, cx| {
             library.answer(true, cx)
         });

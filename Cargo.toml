@@ -69,6 +69,11 @@ inventory = "0.3.25"
 # ended together, 50 in none of 260); it runs what wit-bindgen 0.63 makes.
 wasmtime = "50.0.1"
 wasmtime-wasi = { version = "50.0.1", features = ["p3"] }
+# A compile's own thread pool, bounded to what the machine has memory for and dropped once the
+# compile ends; and mapping an immutable installed component on Android without copying it into
+# heap. Both are already in wasmtime's dependency graph.
+rayon = "1.12"
+memmap2 = "0.9"
 # Where in its source a failed program was, read from the DWARF of its component's file: the
 # versions wasmtime reads a component and its DWARF with, and the demangler it names functions
 # with.

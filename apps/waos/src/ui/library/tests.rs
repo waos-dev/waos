@@ -62,9 +62,14 @@ fn phone_view(desktop: &LibraryDesktop) -> ViewId {
 fn install_on_the_phone(desktop: &mut LibraryDesktop, component: &[u8]) {
     let package = desktop.package(TRIANGLE, "Triangle", "1.0.0", component);
     desktop.update(|library, cx| library.open_files(vec![package], cx));
-    assert!(desktop.shows("Install Triangle?"), "{:?}", desktop.labels());
+    desktop.settle_until("the install question", |desktop| {
+        desktop.shows("Install Triangle?")
+    });
     let view = phone_view(desktop);
     desktop.tap(view, words::INSTALL);
+    desktop.settle_until("the install", |desktop| {
+        desktop.read(|library| !library.installed().is_empty())
+    });
 }
 
 /// The source at `index` added, serving triangle at `version`, once it is read.
@@ -123,10 +128,9 @@ fn a_package_opened_with_waos_is_installed_from_the_alert_once_the_user_says_so(
     let mut desktop = desktop();
     let package = desktop.package(TRIANGLE, "Triangle", "1.0.0", b"\0asm");
     desktop.update(|library, cx| library.open_files(vec![package], cx));
-    assert!(
-        desktop.has::<CupertinoAlertDialog>(),
-        "a sheet over the home"
-    );
+    desktop.settle_until("the install alert", |desktop| {
+        desktop.has::<CupertinoAlertDialog>()
+    });
     assert_eq!(
         desktop.count::<ProgramIcon>(|icon| icon.png.is_some()),
         1,
@@ -134,7 +138,9 @@ fn a_package_opened_with_waos_is_installed_from_the_alert_once_the_user_says_so(
     );
     let view = phone_view(&desktop);
     desktop.tap(view, words::INSTALL);
-    assert_eq!(desktop.read(|library| library.installed().len()), 1);
+    desktop.settle_until("the install", |desktop| {
+        desktop.read(|library| library.installed().len() == 1)
+    });
     assert!(!desktop.shows("Install Triangle?"));
     assert!(!desktop.has::<CupertinoAlertDialog>(), "the alert goes");
     assert!(desktop.shows("Triangle"), "{:?}", desktop.labels());
@@ -333,8 +339,12 @@ fn a_long_name_is_laid_out_across_its_tile() {
     let name = "Notes with a rather long name of many words";
     let package = desktop.package(TRIANGLE, name, "1.0.0", b"\0asm");
     desktop.update(|library, cx| library.open_files(vec![package], cx));
+    desktop.settle_until("the install question", |desktop| {
+        desktop.shows(words::INSTALL)
+    });
     let view = phone_view(&desktop);
     desktop.tap(view, words::INSTALL);
+    desktop.settle_until("the install", |desktop| desktop.shows(name));
     let label = desktop
         .bounds_of::<waft::Text>(&|text| text.data.as_deref() == Some(name))
         .expect("the name");
@@ -372,14 +382,17 @@ fn a_package_picked_from_a_file_is_asked_about_and_installed_once_the_user_says_
     let view = phone_view(&desktop);
     desktop.tap(view, words::INSTALL_FROM_FILE_ROW);
     assert_eq!(dialogs.asked(), [package_dialog(view)]);
+    desktop.settle_until("the question", |desktop| desktop.shows("Install Triangle?"));
     assert!(
-        desktop.has::<CupertinoAlertDialog>() && desktop.shows("Install Triangle?"),
+        desktop.has::<CupertinoAlertDialog>(),
         "{:?}",
         desktop.labels()
     );
     assert!(!desktop.read(|library| library.is_picking()));
     desktop.tap(view, words::INSTALL);
-    assert_eq!(desktop.read(|library| library.installed().len()), 1);
+    desktop.settle_until("the install", |desktop| {
+        desktop.read(|library| library.installed().len() == 1)
+    });
     assert!(!desktop.has::<CupertinoAlertDialog>(), "the alert goes");
 }
 
@@ -426,7 +439,9 @@ fn a_package_picked_without_a_path_is_copied_and_asked_about() {
     desktop.tap(view, words::INSTALL_FROM_FILE_ROW);
     desktop.settle_until("the question", |desktop| desktop.shows("Install Triangle?"));
     desktop.tap(view, words::INSTALL);
-    assert_eq!(desktop.read(|library| library.installed().len()), 1);
+    desktop.settle_until("the install", |desktop| {
+        desktop.read(|library| library.installed().len() == 1)
+    });
 }
 
 #[test]
@@ -443,6 +458,6 @@ fn a_package_picked_from_a_file_in_fluents_layout_is_asked_about() {
     assert!(desktop.has::<FluentGetPrograms>(), "{:?}", desktop.labels());
     desktop.tap(view, words::INSTALL_FROM_FILE);
     assert_eq!(dialogs.asked(), [package_dialog(view)]);
-    assert!(desktop.shows("Install Triangle?"), "{:?}", desktop.labels());
+    desktop.settle_until("the question", |desktop| desktop.shows("Install Triangle?"));
     assert!(!desktop.has::<CupertinoAlertDialog>(), "Fluent's dialog");
 }

@@ -299,6 +299,30 @@ impl LibraryDesktop {
         });
     }
 
+    /// Opens `package` with the library, answers yes to the install question, and waits until the
+    /// install finishes.
+    pub(crate) fn install_package(&mut self, package: std::path::PathBuf) {
+        self.update(|library, cx| library.open_files(vec![package], cx));
+        self.settle_until("the install question", |desktop| {
+            desktop.read(|library| library.question().is_some())
+        });
+        let (id, version) = self.read(|library| match library.question() {
+            Some(super::Question::Install(package)) => (
+                package.manifest().id().clone(),
+                package.manifest().version().clone(),
+            ),
+            _ => panic!("expected an install question"),
+        });
+        self.update(|library, cx| library.answer(true, cx));
+        self.settle_until("the install", |desktop| {
+            desktop.read(|library| {
+                library.installed().iter().any(|program| {
+                    program.manifest.id() == &id && program.manifest.version() == &version
+                }) || library.problem().is_some()
+            })
+        });
+    }
+
     /// Holds the library's compiles back until the answer is dropped.
     pub(crate) fn hold_compiles(&self) -> HeldCompiles {
         self.read(|library| library.runs.code.hold())

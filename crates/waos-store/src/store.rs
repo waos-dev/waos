@@ -30,6 +30,9 @@ const SOURCES: &str = "sources.toml";
 /// Where a program being removed is moved to, in the store's directory, before it is removed.
 const REMOVING: &str = "removing";
 
+/// Where packages downloaded from a source are staged before they are verified and unpacked.
+const DOWNLOADS: &str = "downloads";
+
 /// A program as installed: its manifest, and the key every update of it must be signed with.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct InstalledProgram {
@@ -65,7 +68,7 @@ pub struct Store {
 
 impl Store {
     /// The store in `directory`, made when it is not there yet, reading sources through `proxy`.
-    /// Clears what installs and removals a crash interrupted left.
+    /// Clears what installs, downloads and removals a crash interrupted left.
     pub fn open(directory: &Path, proxy: SourceProxy) -> Result<Store, StoreError> {
         let store = Store {
             directory: directory.to_path_buf(),
@@ -125,16 +128,17 @@ impl Store {
         self.install_download(download).await
     }
 
-    /// Downloads `program` as `source` lists it to a temporary file, and refuses it unless its
-    /// SHA-256 is the one listed, before anything opens it. Nothing installed changes: a caller
-    /// may end what runs of the program between this and its install.
+    /// Downloads `program` as `source` lists it to a temporary file inside the store's directory,
+    /// and refuses it unless its SHA-256 is the one listed, before anything opens it. Nothing
+    /// installed changes: a caller may end what runs of the program between this and its install.
     pub async fn download(
         &self,
         source: &Source,
         program: &ListedProgram,
     ) -> Result<Download, InstallError> {
         let url = source.package_url(&program.package)?;
-        let file = fetch::download(&self.http, &url, &program.sha256).await?;
+        let file =
+            fetch::download(&self.http, &url, &program.sha256, &self.downloads_folder()).await?;
         Ok(Download {
             file,
             listed: program.clone(),
@@ -328,14 +332,17 @@ impl Store {
         self.install(package)
     }
 
-    /// Removes what installs and removals a crash interrupted left: in each program's folder,
-    /// and the programs being removed. What cannot be removed stays, unseen, and is said to
-    /// whoever subscribes.
+    /// Removes what installs, downloads and removals a crash interrupted left: in each program's
+    /// folder, unfinished downloads, and the programs being removed. What cannot be removed stays,
+    /// unseen, and is said to whoever subscribes.
     fn clear_unfinished(&self) {
         for folder in self.program_folders() {
             if let Err(error) = programs::clear_unfinished(&folder) {
                 tracing::warn!("what an interrupted install left stays: {error}");
             }
+        }
+        if let Err(error) = programs::remove_if_there(&self.downloads_folder()) {
+            tracing::warn!("what an interrupted download left stays: {error}");
         }
         if let Err(error) = programs::remove_if_there(&self.removing_folder()) {
             tracing::warn!("what an interrupted removal left stays: {error}");
@@ -387,6 +394,10 @@ impl Store {
 
     fn removing_folder(&self) -> PathBuf {
         self.directory.join(REMOVING)
+    }
+
+    fn downloads_folder(&self) -> PathBuf {
+        self.directory.join(DOWNLOADS)
     }
 
     /// The folder of each program installed, or left by an interrupted install, and no other

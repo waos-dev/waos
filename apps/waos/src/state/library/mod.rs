@@ -104,7 +104,7 @@ pub(crate) struct Library {
     /// The programs running now, by id, whoever started them.
     running: BTreeSet<ProgramId>,
     sources: Vec<SourceListing>,
-    /// The programs being installed from a source now, by id.
+    /// The programs being installed now, by id.
     installing: Vec<ProgramId>,
     /// What the user is asked now, and then the packages opened with WaOS waiting their turn.
     questions: Vec<Question>,
@@ -379,7 +379,7 @@ impl Library {
         &self.sources
     }
 
-    /// Whether the program `id` is being installed from a source now.
+    /// Whether the program `id` is being installed now.
     pub(crate) fn is_installing(&self, id: &ProgramId) -> bool {
         self.installing.contains(id)
     }
@@ -681,22 +681,45 @@ impl Library {
         cx.notify();
     }
 
-    /// Takes the files the system opened with WaOS: each package waits for the user to say
-    /// whether to install it, and the library asks to be seen; a file that cannot be installed is
-    /// the library's problem.
+    /// Takes the files the system opened with WaOS: each package is verified off the main thread,
+    /// then waits for the user to say whether to install it, and the library asks to be seen; a
+    /// file that cannot be installed is the library's problem.
     pub(crate) fn open_files(&mut self, files: Vec<PathBuf>, cx: &mut Context<Library>) {
         tracing::info!(?files, "the system opened files with WaOS");
-        for file in files {
-            match OpenedPackage::open(&file) {
-                Ok(package) => self.ask(Question::Install(Box::new(package))),
-                Err(error) => {
-                    self.package_copies.remove(&file);
-                    self.problem = Some(format!("{error:#}"));
-                }
-            }
+        if files.is_empty() {
+            cx.emit(WantsToBeSeen);
+            cx.notify();
+            return;
         }
-        cx.emit(WantsToBeSeen);
-        cx.notify();
+        self.work_then(
+            async move {
+                tokio::task::spawn_blocking(move || {
+                    files
+                        .into_iter()
+                        .map(|file| {
+                            let opened = OpenedPackage::open(&file);
+                            (file, opened)
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .await
+                .unwrap_or_else(|error| std::panic::resume_unwind(error.into_panic()))
+            },
+            |library, opened, cx| {
+                for (file, package) in opened {
+                    match package {
+                        Ok(package) => library.ask(Question::Install(Box::new(package))),
+                        Err(error) => {
+                            library.package_copies.remove(&file);
+                            library.problem = Some(format!("{error:#}"));
+                        }
+                    }
+                }
+                cx.emit(WantsToBeSeen);
+                cx.notify();
+            },
+            cx,
+        );
     }
 
     /// Takes `documents`, files the system opened with WaOS without a path, as Android hands a
@@ -783,29 +806,46 @@ impl Library {
         );
     }
 
-    /// Installs `package`, its copy removed after, and offers its program a place on the home
-    /// screen where it is new.
+    /// Installs `package` off the main thread, removes its copy after, and offers its program a
+    /// place on the home screen where it is new.
     fn put_in_place(&mut self, package: Box<OpenedPackage>, cx: &mut Context<Library>) {
         let (id, copy) = (
             package.manifest().id().clone(),
             package.file().to_path_buf(),
         );
+        if self.is_installing(&id) {
+            self.package_copies.remove(&copy);
+            return;
+        }
+        self.installing.push(id.clone());
         let first_install = self.installed_program(&id).is_none();
         self.remove_code(&id);
-        let installed = self
-            .store
-            .install(package.into_package())
-            .map(|installed| self.compile(installed.manifest.id()));
-        self.package_copies.remove(&copy);
-        let succeeded = installed.is_ok();
-        match installed {
-            Ok(()) => self.succeeded(cx),
-            Err(error) => self.failed(format!("{error}"), cx),
-        }
-        self.installed_changed(cx);
-        if succeeded && first_install {
-            self.offer_home_screen(&id, cx);
-        }
+        let store = self.store.clone();
+        self.work_then(
+            async move {
+                tokio::task::spawn_blocking(move || store.install(package.into_package()))
+                    .await
+                    .unwrap_or_else(|error| std::panic::resume_unwind(error.into_panic()))
+            },
+            move |library, installed, cx| {
+                library.installing.retain(|installing| installing != &id);
+                library.package_copies.remove(&copy);
+                let succeeded = installed.is_ok();
+                match installed {
+                    Ok(installed) => {
+                        library.compile(installed.manifest.id());
+                        library.succeeded(cx);
+                    }
+                    Err(error) => library.failed(format!("{error}"), cx),
+                }
+                library.installed_changed(cx);
+                if succeeded && first_install {
+                    library.offer_home_screen(&id, cx);
+                }
+            },
+            cx,
+        );
+        cx.notify();
     }
 
     /// Removes the installed program `id` once no run of it is left: one that runs ends first,
