@@ -20,7 +20,7 @@ use waos::inspection::InspectedPrograms;
 use waos::{
     EngineTime, FreezePolicy, HardwareBufferMode, HttpProxy, PlatformState, WaOS, WaOSConfig,
 };
-use waos_headless::{Display, HeadlessScreen, Refreshes};
+use waos_headless::{Display, HeadlessShell, Refreshes};
 use waos_local::LocalCapabilities;
 use waos_store::{SourceProxy, Store};
 
@@ -117,8 +117,8 @@ impl HeadlessDaemon {
         let (prompts, prompted) = PromptsOnRequest::new(Arc::clone(&asking));
         let output_picker = prompts.output_picker();
         let machine_picker = prompts.machine_picker();
-        let screen = HeadlessScreen::new(config.display, Refreshes::Every(REFRESH_INTERVAL));
-        let mut shell = screen.shell(Arc::new(prompts));
+        let headless = HeadlessShell::new(config.display, Refreshes::Every(REFRESH_INTERVAL));
+        let mut shell = headless.shell(Arc::new(prompts));
         shell.audio_output_picker = Some(Arc::new(output_picker));
         shell.machine_picker = Some(Arc::new(machine_picker));
 
@@ -139,7 +139,7 @@ impl HeadlessDaemon {
             hardware_buffers: HardwareBufferMode::Offscreen,
         };
         let platform = PlatformState {
-            screens: vec![screen.screen()],
+            screens: vec![headless.screen()],
             platform_brightness: Brightness::Light,
             caption_style: None,
             locales: system_locales(),

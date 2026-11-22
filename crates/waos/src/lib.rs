@@ -138,7 +138,7 @@ pub use shell::{
 };
 pub use simulated_input::{DragPath, Keyboard, Mouse, NoSuchChord, NothingEdited};
 pub use stats::Stats;
-pub use views::{HeldModifiers, KeyHandledFuture, ProgramView, Watching};
+pub use views::{HeldModifiers, KeyHandledFuture, ProgramView, Watching, WeakProgramView};
 pub use waos_capabilities::MachineChoice;
 pub use waos_capabilities::{
     Answer, FileDialog, ProgramGrants, Question, Role, SimulatedSound, Switch,

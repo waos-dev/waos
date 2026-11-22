@@ -69,7 +69,7 @@ use super::event_queue::{EventQueue, QueuedEvent, ViewEvents};
 use super::frames_in_flight::{FrameInFlight, FramesInFlight};
 use super::key_reply::{KeyHandledFuture, KeyReply};
 use super::modifiers::{HeldModifiers, ToldModifiers};
-use super::program_views::{Requested, ViewsState};
+use super::program_views::{ProgramViews, Requested, ViewsState};
 use super::screen_refreshes::{Refresh, ScreenRefreshes};
 use super::shown_picture::{HandedPicture, ShownPicture};
 use super::view_text_input::ViewTextInput;
@@ -77,6 +77,18 @@ use super::view_text_input::ViewTextInput;
 /// One view, shared by the shell, which reports into it, and the engine, which reads it.
 #[derive(Clone)]
 pub struct ProgramView(Arc<ViewState>);
+
+/// A view reached weakly, as a shell's record of it holds it: the view goes once the engine and
+/// whoever else holds it let go, whatever the shell keeps of it.
+#[derive(Clone)]
+pub struct WeakProgramView(Weak<ViewState>);
+
+impl WeakProgramView {
+    /// The view, while it is still held elsewhere.
+    pub fn upgrade(&self) -> Option<ProgramView> {
+        self.0.upgrade().map(ProgramView)
+    }
+}
 
 struct ViewState {
     id: ViewId,
@@ -187,6 +199,20 @@ impl ProgramView {
 
     pub fn id(&self) -> ViewId {
         self.0.id
+    }
+
+    /// The view, reached weakly.
+    pub fn downgrade(&self) -> WeakProgramView {
+        WeakProgramView(Arc::downgrade(&self.0))
+    }
+
+    /// The shell took the view away, as the window it was in closed: its events end, and the
+    /// program hears of it, as [`RunningProgram::remove_view`](crate::RunningProgram::remove_view)
+    /// does, for a shell's window that holds its view and not its program.
+    pub fn remove(&self) {
+        if let Some(views) = self.0.views.upgrade() {
+            ProgramViews::of(views).remove(self.0.id);
+        }
     }
 
     /// The request this view arrived for.

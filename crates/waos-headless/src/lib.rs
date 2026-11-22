@@ -1,32 +1,37 @@
-//! A screen with no display, as the engine's shell parts: one screen, each program's request for a
-//! view given one at once, in a window filling the screen or in none, focused and in sight; frames
-//! refreshed by one thread of its own, as soon as asked or a set time after; and each view keeping
-//! the picture presented last until the next replaces it, which the engine reads back
-//! (`ProgramView::picture`). What `waos --headless` runs on, and the tests that run a program.
-//!
-//! The screen is the shell's placement and refreshes alone, with the prompts its maker gives it:
-//! every other part of the shell is its maker's to plug in, real or a test's own.
+//! A headless shell: the windowing parts of the engine's shell, over one screen with no display.
+//! Each program's request for a view is given one at once, in a window filling the screen or in
+//! none, focused and in sight; frames are refreshed by one thread of the shell's own, as soon as
+//! asked or a set time after; each view keeps the picture presented last until the next replaces
+//! it, which the engine reads back (`ProgramView::picture`); and what the engine told each view and
+//! its window, its title, its size limits, whether it is maximized, is kept for whoever reads it,
+//! as a window system knows its windows. What `waos --headless` runs on, and the tests that run a
+//! program. Every other part of the engine's shell, the questions it asks among them, is its
+//! maker's to plug in, real or a test's own.
 //!
 //! The invariants a later editor will break: nothing here touches a window system; a view's last
-//! picture is released only once the next is presented, so a screenshot can always read it; and
-//! a refresh reaches the engine only from the screen's own thread, never from inside the engine's
-//! call that asked for it.
+//! picture is released only once the next is presented or the view is gone, so a screenshot can
+//! always read it; the shell reaches its views only weakly, so it keeps nothing of a view the
+//! engine let go of; and a refresh reaches the engine only from the shell's own thread, never from
+//! inside the engine's call that asked for it.
 
+use std::future::Future;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Sender};
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError, Weak};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use tokio::sync::watch;
 use waos::bindings::wasdk::platform::screens::PixelSize;
 use waos::bindings::wasdk::platform::views::{
-    Cursor, Insets, Metrics, OverlayStyle, PixelRect, Placement, RequestId, TextEditingValue,
+    Cursor, Insets, Metrics, OverlayStyle, PixelRect, Placement, TextEditingValue,
     TextInputConfiguration, ViewError, ViewFocusDirection, ViewFocusState,
 };
 use waos::bindings::wasdk::platform::windows::{Point, Rect, Size};
 use waos::{
     HardwareBuffer, OnRefresh, PlacedView, PlacedWindow, Presence, ProgramView, Prompts,
     RunningProgram, Screen, Shell, ShellCompositionLayer, ShellTextInput, ShellView, ShellWindow,
-    ShellWindowSizeLimits, ViewPlacement, ViewRequest, VsyncWaiter,
+    ShellWindowSizeLimits, ViewPlacement, ViewRequest, VsyncWaiter, WeakProgramView, WindowConfig,
 };
 
 /// The screen's identifier.
@@ -45,41 +50,45 @@ pub struct Display {
 /// When the screen refreshes after the engine asks it to.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Refreshes {
-    /// At once: what a test runs on, which waits on nothing but what the program does.
+    /// At once: what a test runs on, whose program's frames come only as it asks for them.
     WhenAsked,
     /// This long after: what a program animating on a headless server is paced by.
     Every(Duration),
 }
 
-/// A screen with no display: its views' placement and its refreshes, as the engine's shell parts.
-pub struct HeadlessScreen {
-    placement: Arc<GivenViews>,
+/// The windowing parts of the engine's shell, over a screen with no display.
+pub struct HeadlessShell {
+    views: Arc<GivenViews>,
     refresher: Arc<Refresher>,
 }
 
-impl HeadlessScreen {
-    /// A screen of `display`, refreshing as `refreshes` says.
-    pub fn new(display: Display, refreshes: Refreshes) -> HeadlessScreen {
+impl HeadlessShell {
+    /// A shell over a screen of `display`, refreshing as `refreshes` says.
+    pub fn new(display: Display, refreshes: Refreshes) -> HeadlessShell {
         let interval = match refreshes {
             Refreshes::WhenAsked => Duration::ZERO,
             Refreshes::Every(interval) => interval,
         };
-        HeadlessScreen {
-            placement: Arc::new(GivenViews { display }),
+        HeadlessShell {
+            views: Arc::new(GivenViews {
+                display,
+                given: Mutex::default(),
+                count: watch::Sender::new(0),
+            }),
             refresher: Arc::new(Refresher::start(interval)),
         }
     }
 
     /// The screen as the engine sees it, which its `PlatformState` lists.
     pub fn screen(&self) -> Screen {
-        self.placement.display.screen()
+        self.views.display.screen()
     }
 
-    /// A shell of this screen's placement and refreshes, asking its questions of `prompts`, with
-    /// every other part none, for its maker to plug in.
+    /// The engine's shell: this shell's placement and refreshes, asking its questions of
+    /// `prompts`, with every other part none, for its maker to plug in.
     pub fn shell(&self, prompts: Arc<dyn Prompts>) -> Shell {
         Shell {
-            views: Arc::clone(&self.placement) as Arc<dyn ViewPlacement>,
+            views: Arc::clone(&self.views) as Arc<dyn ViewPlacement>,
             vsync: Arc::clone(&self.refresher) as Arc<dyn VsyncWaiter>,
             compositor: None,
             prompts,
@@ -102,10 +111,184 @@ impl HeadlessScreen {
         }
     }
 
-    /// Gives `program` a view for its request `request`, as the screen gives one for each request:
+    /// Every view the shell gave that is still open, the first given first.
+    pub fn views(&self) -> Vec<Arc<HeadlessView>> {
+        locked(&self.views.given)
+            .iter()
+            .filter_map(Weak::upgrade)
+            .collect()
+    }
+
+    /// Resolves once the shell has given its `index`th view, counting from 0, with it; with none
+    /// where that view is gone by then.
+    pub fn view(
+        &self,
+        index: usize,
+    ) -> impl Future<Output = Option<Arc<HeadlessView>>> + Send + 'static + use<> {
+        let views = Arc::clone(&self.views);
+        let mut count = views.count.subscribe();
+        async move {
+            // The sender lives as long as `views`, held here.
+            let _ = count.wait_for(|count| *count > index).await;
+            locked(&views.given).get(index).and_then(Weak::upgrade)
+        }
+    }
+
+    /// Gives `program` a view for its request `request`, as the shell gives one for each request:
     /// what a test that places a view itself calls.
-    pub fn add_view(&self, program: &RunningProgram, request: RequestId) -> ProgramView {
-        self.placement.add_view(program, request)
+    pub fn add_view(&self, program: &RunningProgram, request: ViewRequest) -> ProgramView {
+        self.views.add_view(program, request)
+    }
+}
+
+/// A view the shell gave a program, and what the engine told it since.
+pub struct HeadlessView {
+    view: OnceLock<WeakProgramView>,
+    window: Option<Arc<HeadlessWindow>>,
+    handles_back: AtomicBool,
+    /// The release of the picture presented last, which runs once the next replaces it.
+    shown: Mutex<Option<Released>>,
+}
+
+/// What the engine hands the shell with a hardware buffer, to call once it is done showing it.
+type Released = Box<dyn FnOnce() + Send + Sync>;
+
+impl HeadlessView {
+    /// The engine's view, while the program has it.
+    pub fn view(&self) -> Option<ProgramView> {
+        self.view.get()?.upgrade()
+    }
+
+    /// The window the view is in; none on a phone's deck.
+    pub fn window(&self) -> Option<&HeadlessWindow> {
+        self.window.as_deref()
+    }
+
+    /// Whether the program goes back within itself when the user asks, as it said last.
+    pub fn handles_back(&self) -> bool {
+        self.handles_back.load(Ordering::SeqCst)
+    }
+}
+
+impl ShellView for HeadlessView {
+    fn present(
+        &self,
+        _buffer: HardwareBuffer,
+        _layers: Vec<(Arc<dyn ShellCompositionLayer>, Placement)>,
+        released: Released,
+    ) {
+        let before = locked(&self.shown).replace(released);
+        if let Some(before) = before {
+            before();
+        }
+    }
+
+    fn set_cursor(&self, _cursor: Cursor) {}
+
+    fn request_focus_change(&self, _state: ViewFocusState, _direction: ViewFocusDirection) {}
+
+    fn set_handles_back(&self, handles: bool) {
+        self.handles_back.store(handles, Ordering::SeqCst);
+    }
+
+    fn set_overlay_style(&self, _style: OverlayStyle) {}
+}
+
+/// The window around a view, filling the screen with nothing around the view, and what the engine
+/// told it since. It takes every frame it is given and reports it at once, scaled to physical
+/// pixels; closed, it takes its view away, as a window system's window closing does.
+pub struct HeadlessWindow {
+    view: OnceLock<WeakProgramView>,
+    scale: f64,
+    /// What the program asked for when it requested the view.
+    config: WindowConfig,
+    title: Mutex<String>,
+    min_size: Mutex<Option<Size>>,
+    max_size: Mutex<Option<Size>>,
+    maximized: AtomicBool,
+    minimized: AtomicBool,
+}
+
+impl HeadlessWindow {
+    /// What the program asked for when it requested the window's view.
+    pub fn config(&self) -> &WindowConfig {
+        &self.config
+    }
+
+    /// The title the window shows: the one the program asked for, or set last.
+    pub fn title(&self) -> String {
+        locked(&self.title).clone()
+    }
+
+    /// The smallest and the largest size the program last set, in logical points; none for one
+    /// it has not set.
+    pub fn size_limits(&self) -> (Option<Size>, Option<Size>) {
+        (*locked(&self.min_size), *locked(&self.max_size))
+    }
+
+    /// Whether the program last asked for the window maximized.
+    pub fn is_maximized(&self) -> bool {
+        self.maximized.load(Ordering::SeqCst)
+    }
+
+    /// Whether the program last asked for the window minimized.
+    pub fn is_minimized(&self) -> bool {
+        self.minimized.load(Ordering::SeqCst)
+    }
+
+    fn view(&self) -> Option<ProgramView> {
+        self.view.get()?.upgrade()
+    }
+}
+
+impl ShellWindow for HeadlessWindow {
+    fn set_frame(&self, frame: Rect, _animate: Option<Duration>) {
+        let Some(view) = self.view() else {
+            return;
+        };
+        view.window_frame_changed(frame);
+        view.metrics_changed(Metrics {
+            width: (frame.size.width * self.scale).round() as u32,
+            height: (frame.size.height * self.scale).round() as u32,
+            ..view.metrics()
+        });
+    }
+
+    fn set_title(&self, title: &str) {
+        *locked(&self.title) = title.to_owned();
+    }
+
+    fn show(&self) {}
+    fn hide(&self) {}
+
+    fn close(&self) {
+        if let Some(view) = self.view() {
+            view.remove();
+        }
+    }
+
+    fn size_limits(&self) -> Option<&dyn ShellWindowSizeLimits> {
+        Some(self)
+    }
+
+    fn drag(&self) {}
+
+    fn set_maximized(&self, maximized: bool) {
+        self.maximized.store(maximized, Ordering::SeqCst);
+    }
+
+    fn set_minimized(&self, minimized: bool) {
+        self.minimized.store(minimized, Ordering::SeqCst);
+    }
+}
+
+impl ShellWindowSizeLimits for HeadlessWindow {
+    fn set_min_size(&self, size: Option<Size>) {
+        *locked(&self.min_size) = size;
+    }
+
+    fn set_max_size(&self, size: Option<Size>) {
+        *locked(&self.max_size) = size;
     }
 }
 
@@ -114,7 +297,10 @@ impl Display {
     fn screen(self) -> Screen {
         let frame = Rect {
             origin: Point { x: 0.0, y: 0.0 },
-            size: self.points(),
+            size: Size {
+                width: f64::from(self.width) / self.scale,
+                height: f64::from(self.height) / self.scale,
+            },
         };
         Screen {
             id: SCREEN,
@@ -127,14 +313,6 @@ impl Display {
             refresh_rate: 60_000,
             frame,
             visible_frame: frame,
-        }
-    }
-
-    /// The display's size in logical points.
-    fn points(self) -> Size {
-        Size {
-            width: f64::from(self.width) / self.scale,
-            height: f64::from(self.height) / self.scale,
         }
     }
 
@@ -157,21 +335,40 @@ impl Display {
     }
 }
 
-/// Each request given a view at once, filling the display, focused and in sight.
+/// Each request given a view at once, filling the display, focused and in sight; and every view
+/// given, reached weakly, in order.
 struct GivenViews {
     display: Display,
+    given: Mutex<Vec<Weak<HeadlessView>>>,
+    /// How many views were given.
+    count: watch::Sender<usize>,
 }
 
 impl GivenViews {
-    fn add_view(&self, program: &RunningProgram, request: RequestId) -> ProgramView {
+    fn add_view(&self, program: &RunningProgram, request: ViewRequest) -> ProgramView {
         let display = self.display;
-        let window = display
-            .windows
-            .then(|| Arc::new(FilledWindow::new(display.scale)));
+        let window = display.windows.then(|| {
+            Arc::new(HeadlessWindow {
+                view: OnceLock::new(),
+                scale: display.scale,
+                title: Mutex::new(request.config.title.clone()),
+                config: request.config,
+                min_size: Mutex::default(),
+                max_size: Mutex::default(),
+                maximized: AtomicBool::new(false),
+                minimized: AtomicBool::new(false),
+            })
+        });
+        let given = Arc::new(HeadlessView {
+            view: OnceLock::new(),
+            window: window.clone(),
+            handles_back: AtomicBool::new(false),
+            shown: Mutex::default(),
+        });
         let view = program.add_view(
-            request,
+            request.id,
             PlacedView {
-                view: Arc::new(KeptPicture::default()),
+                view: Arc::clone(&given) as Arc<dyn ShellView>,
                 text_input: Some(Arc::new(NoInputMethods)),
                 window: window.as_ref().map(|window| PlacedWindow {
                     window: Arc::clone(window) as Arc<dyn ShellWindow>,
@@ -188,9 +385,12 @@ impl GivenViews {
                 },
             },
         );
-        if let Some(window) = window {
-            *locked(&window.view) = Some(view.clone());
+        let _ = given.view.set(view.downgrade());
+        if let Some(window) = &window {
+            let _ = window.view.set(view.downgrade());
         }
+        locked(&self.given).push(Arc::downgrade(&given));
+        self.count.send_modify(|count| *count += 1);
         view
     }
 }
@@ -201,35 +401,9 @@ impl ViewPlacement for GivenViews {
         program: &RunningProgram,
         request: ViewRequest,
     ) -> Result<(), ViewError> {
-        self.add_view(program, request.id);
+        self.add_view(program, request);
         Ok(())
     }
-}
-
-/// A view that keeps the picture presented last until the next replaces it.
-#[derive(Default)]
-struct KeptPicture(Mutex<Option<Box<dyn FnOnce() + Send + Sync>>>);
-
-impl ShellView for KeptPicture {
-    fn present(
-        &self,
-        _buffer: HardwareBuffer,
-        _layers: Vec<(Arc<dyn ShellCompositionLayer>, Placement)>,
-        released: Box<dyn FnOnce() + Send + Sync>,
-    ) {
-        let before = locked(&self.0).replace(released);
-        if let Some(before) = before {
-            before();
-        }
-    }
-
-    fn set_cursor(&self, _cursor: Cursor) {}
-
-    fn request_focus_change(&self, _state: ViewFocusState, _direction: ViewFocusDirection) {}
-
-    fn set_handles_back(&self, _handles: bool) {}
-
-    fn set_overlay_style(&self, _style: OverlayStyle) {}
 }
 
 /// Input methods that do nothing of their own.
@@ -246,55 +420,8 @@ impl ShellTextInput for NoInputMethods {
     fn hide(&self) {}
 }
 
-/// A window its view fills, with nothing around it, which takes every frame it is given and
-/// reports it at once, scaled to physical pixels; otherwise it stays as it is, whatever the
-/// program asks of it. It holds its view until it is closed.
-struct FilledWindow {
-    view: Mutex<Option<ProgramView>>,
-    scale: f64,
-}
-
-impl FilledWindow {
-    fn new(scale: f64) -> FilledWindow {
-        FilledWindow {
-            view: Mutex::new(None),
-            scale,
-        }
-    }
-}
-
-impl ShellWindow for FilledWindow {
-    fn set_frame(&self, frame: Rect, _animate: Option<Duration>) {
-        let Some(view) = locked(&self.view).clone() else {
-            return;
-        };
-        view.window_frame_changed(frame);
-        view.metrics_changed(Metrics {
-            width: (frame.size.width * self.scale).round() as u32,
-            height: (frame.size.height * self.scale).round() as u32,
-            ..view.metrics()
-        });
-    }
-
-    fn set_title(&self, _title: &str) {}
-    fn show(&self) {}
-    fn hide(&self) {}
-
-    fn close(&self) {
-        locked(&self.view).take();
-    }
-
-    fn size_limits(&self) -> Option<&dyn ShellWindowSizeLimits> {
-        None
-    }
-
-    fn drag(&self) {}
-    fn set_maximized(&self, _maximized: bool) {}
-    fn set_minimized(&self, _minimized: bool) {}
-}
-
-/// The screen's refreshes, each `interval` after it was asked, on a thread of the screen's own,
-/// which ends with the screen.
+/// The screen's refreshes, each `interval` after it was asked, on a thread of the shell's own,
+/// which ends with the shell.
 struct Refresher {
     asks: Sender<OnRefresh>,
 }
@@ -304,7 +431,7 @@ impl Refresher {
     fn start(interval: Duration) -> Refresher {
         let (asks, asked) = mpsc::channel::<OnRefresh>();
         thread::Builder::new()
-            .name("headless screen".into())
+            .name("headless refreshes".into())
             .spawn(move || {
                 for on_refresh in asked {
                     thread::sleep(interval);
@@ -312,18 +439,18 @@ impl Refresher {
                     on_refresh(now, now + interval);
                 }
             })
-            .expect("a thread for the headless screen's refreshes");
+            .expect("a thread for the headless shell's refreshes");
         Refresher { asks }
     }
 }
 
 impl VsyncWaiter for Refresher {
     fn next_vsync(&self, _screen: u64, on_refresh: OnRefresh) {
-        // The thread ends only with the screen, which is asking.
+        // The thread ends only with the shell, which is asking.
         let _ = self.asks.send(on_refresh);
     }
 }
 
-fn locked<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+fn locked<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
