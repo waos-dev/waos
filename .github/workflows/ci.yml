@@ -74,6 +74,13 @@ jobs:
           examples=$(cargo metadata --no-deps --format-version 1 \
             | jq -r '.packages[] | select(.manifest_path | contains("/examples/")) | "--exclude " + .name')
           cargo test --workspace --exclude waos --exclude waos-cli --exclude waos-app $examples --no-fail-fast
+      # A crate that builds for WASI alone has no tests on macOS: they run as a program, under
+      # wasmtime at the engine's version, the runner `.cargo/config.toml` names.
+      - uses: bytecodealliance/actions/wasmtime/setup@v1
+        with:
+          version: "50.0.3"
+      - name: Tests of the SDK that builds for WASI alone
+        run: cargo test --no-fail-fast -p wasdk-adapter-gpui --target wasm32-wasip3
 
   # Windows and Linux run the engine, the command and the SDK today; the app's shell still waits
   # for the decisions of docs/proposals/2026-11-13-windows-and-linux.md (dmabufs, ConPTY,

@@ -1,3 +1,8 @@
 # `cargo xtask <task>`: the repository's own chores, `xtask/`.
 [alias]
 xtask = "run --package xtask --"
+
+# A test built for a program's target runs as a program, under wasmtime at the engine's version
+# (`cargo test --target wasm32-wasip3`): `wasdk-adapter-gpui` builds for WASI alone.
+[target.wasm32-wasip3]
+runner = "wasmtime run -W component-model-async=y -S p3=y"
