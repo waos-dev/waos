@@ -10,6 +10,7 @@
 //! hardware buffers are Apple's systems', where the engine takes them.
 
 use std::fs;
+use std::path::Path;
 use std::sync::Arc;
 
 use tempfile::TempDir;
@@ -18,20 +19,20 @@ use waos::bindings::wasdk::media::image_codecs::{
     ImagePage, ImagePages, ImagePictures, ImageRotation, Location,
 };
 use waos::bindings::wasdk::platform::windows::Size;
-use waos::{ProgramEnd, ProgramEnvironment, ProgramOutput, RunningProgram, WaOS};
+use waos::{ProgramEnd, ProgramEnvironment, RunningProgram, WaOS};
 use waos_capabilities::ProgramFolders;
 
-use crate::shell;
-use crate::shell::Lines;
 use crate::shell::image_codecs::{Asked, ImageAnswers, ImageFacts, OpenedFrom, TestImageCodecs};
+use crate::test_shell::{RecordedOutput, TestShell, config, printing_to, within};
 
 /// What the program's photo file holds: not an image, which the shell's codecs never read.
 const PHOTO: &str = "a photo's bytes";
 
 #[test]
 fn an_image_says_what_it_is_and_decodes_into_both_memories_and_encodes_again() {
-    let (engine, shell, _arrivals) = shell::engine();
-    shell.image_codecs().answer_with(answers());
+    let shell = TestShell::new();
+    let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
+    shell.image_codecs.answer_with(answers());
     let run = Run::start(&engine, "/data/photo.jpg\nbytes /data/photo.jpg\n");
     let photo = "/data/photo.jpg";
     for line in [
@@ -51,14 +52,14 @@ fn an_image_says_what_it_is_and_decodes_into_both_memories_and_encodes_again() {
         format!("{photo}: hardware encoded image/jpeg opens 32x48"),
         format!("bytes {photo}: image/jpeg 32x48, pictures: still, turned quarter-turn"),
     ] {
-        run.lines.wait_for(&line);
+        run.output.wait_for(&line);
     }
     assert!(matches!(
-        shell::wait_for_end(&run.running),
+        within(run.running.ended()),
         ProgramEnd::Returned(Ok(()))
     ));
 
-    let asked = shell.image_codecs().asked();
+    let asked = shell.image_codecs.asked();
     let file = fs::canonicalize(run.data()).unwrap().join("photo.jpg");
     let opened_from = |from| Asked::Open {
         program: "image-codecs".to_owned(),
@@ -102,8 +103,9 @@ fn an_image_says_what_it_is_and_decodes_into_both_memories_and_encodes_again() {
 
 #[test]
 fn an_animation_says_how_often_it_plays_and_decodes_its_frames() {
-    let (engine, shell, _arrivals) = shell::engine();
-    shell.image_codecs().answer_with(ImageAnswers {
+    let shell = TestShell::new();
+    let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
+    shell.image_codecs.answer_with(ImageAnswers {
         decoded_formats: vec!["image/gif".to_owned()],
         opened: Ok(ImageFacts {
             // `gif-loop3.gif`, whose NETSCAPE extension repeats its two frames three times, which
@@ -126,14 +128,14 @@ fn an_animation_says_how_often_it_plays_and_decodes_its_frames() {
         ..ImageAnswers::default()
     });
     let run = Run::start(&engine, "/data/still.gif\n");
-    run.lines.wait_for(
+    run.output.wait_for(
         "/data/still.gif: image/gif 1x1, pictures: 2 frames of 100ms, 200ms, played 4 times, upright",
     );
-    run.lines
+    run.output
         .wait_for("/data/still.gif: pixels 1x1 rgba8 premultiplied, all red");
-    shell::wait_for_end(&run.running);
+    within(run.running.ended());
 
-    let asked = shell.image_codecs().asked();
+    let asked = shell.image_codecs.asked();
     assert_eq!(
         asked[..2],
         [
@@ -153,8 +155,9 @@ fn an_animation_says_how_often_it_plays_and_decodes_its_frames() {
 
 #[test]
 fn a_document_says_its_pages_and_decodes_its_primary_page() {
-    let (engine, shell, _arrivals) = shell::engine();
-    shell.image_codecs().answer_with(ImageAnswers {
+    let shell = TestShell::new();
+    let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
+    shell.image_codecs.answer_with(ImageAnswers {
         decoded_formats: vec!["image/tiff".to_owned()],
         opened: Ok(ImageFacts {
             // `two-pages.tiff`, a red page of 3 by 2 and a blue one of 2 by 5.
@@ -169,14 +172,14 @@ fn a_document_says_its_pages_and_decodes_its_primary_page() {
         ..ImageAnswers::default()
     });
     let run = Run::start(&engine, "/data/pages.tiff\n");
-    run.lines.wait_for(
+    run.output.wait_for(
         "/data/pages.tiff: image/tiff 3x2, pictures: 2 pages of 3x2, 2x5, primary 0, upright",
     );
-    run.lines
+    run.output
         .wait_for("/data/pages.tiff: pixels 3x2 rgba8 premultiplied, all red");
-    shell::wait_for_end(&run.running);
+    within(run.running.ended());
 
-    let asked = shell.image_codecs().asked();
+    let asked = shell.image_codecs.asked();
     assert_eq!(
         asked[..2],
         [
@@ -207,40 +210,37 @@ fn page(width: f64, height: f64) -> ImagePage {
 
 #[test]
 fn a_path_outside_the_programs_files_is_not_found_and_reaches_no_shell() {
-    let (engine, shell, _arrivals) = shell::engine();
-    shell.image_codecs().answer_with(answers());
+    let shell = TestShell::new();
+    let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
+    shell.image_codecs.answer_with(answers());
     let run = Run::start(&engine, "/elsewhere/photo.jpg\n");
-    run.lines.wait_for(
+    run.output.wait_for(
         "/elsewhere/photo.jpg: open failed (not-found: no file at /elsewhere/photo.jpg among the program's)",
     );
-    shell::wait_for_end(&run.running);
-    assert_eq!(
-        shell.image_codecs().asked(),
-        [],
-        "nothing reaches the shell"
-    );
+    within(run.running.ended());
+    assert_eq!(shell.image_codecs.asked(), [], "nothing reaches the shell");
 }
 
 #[test]
 fn a_shell_without_hardware_codecs_gives_the_program_none() {
     let codecs = Arc::new(TestImageCodecs::without_hardware());
     codecs.answer_with(answers());
-    let given = Arc::clone(&codecs);
-    let (engine, _shell, _arrivals) = shell::engine_of(shell::config(), move |parts| {
-        parts.image_codecs = Some(given);
-    });
+    let shell = TestShell::new();
+    let mut parts = shell.shell();
+    parts.image_codecs = Some(Arc::clone(&codecs) as _);
+    let engine = WaOS::new(config(), parts, shell.platform()).unwrap();
     let run = Run::start(&engine, "/data/photo.jpg\n");
-    run.lines.wait_for("hardware codecs: none");
-    run.lines
+    run.output.wait_for("hardware codecs: none");
+    run.output
         .wait_for("/data/photo.jpg: encoded image/png opens 32x48");
-    shell::wait_for_end(&run.running);
+    within(run.running.ended());
     assert!(
-        !run.lines
-            .all()
+        !run.output
+            .lines()
             .iter()
             .any(|line| line.contains("hardware buffer")),
         "{:?}",
-        run.lines.all()
+        run.output.lines()
     );
     assert!(
         codecs
@@ -253,15 +253,16 @@ fn a_shell_without_hardware_codecs_gives_the_program_none() {
 
 #[test]
 fn a_shell_without_image_codecs_gives_the_program_none() {
-    let (engine, _shell, _arrivals) = shell::engine_of(shell::config(), |parts| {
-        parts.image_codecs = None;
-    });
+    let shell = TestShell::new();
+    let mut parts = shell.shell();
+    parts.image_codecs = None;
+    let engine = WaOS::new(config(), parts, shell.platform()).unwrap();
     let run = Run::start(&engine, "/data/photo.jpg\n");
     assert!(matches!(
-        shell::wait_for_end(&run.running),
+        within(run.running.ended()),
         ProgramEnd::Returned(Ok(()))
     ));
-    assert_eq!(run.lines.all(), ["image codecs: none"]);
+    assert_eq!(run.output.lines(), ["image codecs: none"]);
 }
 
 /// What the shell's codecs answer: a JPEG photo of 32 by 48 upright, stored turned a quarter, with
@@ -312,7 +313,7 @@ fn answers() -> ImageAnswers {
 /// photo of its own, `/data/photo.jpg`.
 struct Run {
     running: RunningProgram,
-    lines: Arc<Lines>,
+    output: Arc<RecordedOutput>,
     folders: TempDir,
 }
 
@@ -330,17 +331,18 @@ impl Run {
         for source in sources.lines().filter(|line| line.starts_with("/data/")) {
             fs::write(own.data.join(&source["/data/".len()..]), PHOTO).unwrap();
         }
-        let lines = Arc::new(Lines::default());
+        let output = Arc::new(RecordedOutput::default());
         let environment = ProgramEnvironment {
-            output: Some(Arc::clone(&lines) as Arc<dyn ProgramOutput>),
             folders: Some(own),
-            ..ProgramEnvironment::default()
+            ..printing_to(&output)
         };
-        let program = shell::load(engine, waos_test_programs::IMAGE_CODECS);
+        let program = engine
+            .load(Path::new(waos_test_programs::IMAGE_CODECS))
+            .unwrap();
         let running = engine.run(&program, environment).unwrap();
         Run {
             running,
-            lines,
+            output,
             folders,
         }
     }
