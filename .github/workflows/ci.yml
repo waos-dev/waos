@@ -131,7 +131,7 @@ jobs:
             -p wasdk \
             -p wasdk-wgpu
       # One run with every filter: libtest takes several, and one build of the app serves them.
-      - name: Headless Linux app tests (virtual shell, dev protocol, and CLI routing)
+      - name: Headless Linux app tests (the headless screen, dev protocol, and CLI routing)
         run: |
           cargo test --no-fail-fast -p waos-app --lib -- \
             headless_entry logic::dev_screenshot logic::dev_resize logic::dev_input logic::command_line

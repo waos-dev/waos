@@ -3,7 +3,7 @@
 //! the test gives it, or none to ask, keeping no days of what the programs do unless the test
 //! gives it the log to keep them in, as the app gives its store; or over a shell the test fills
 //! in further, on the time it gives; or, on Apple's systems and Linux, one whose programs' windows
-//! draw (`drawing::engine`), built over [`super::virtual_shell`]. A test that loads
+//! draw (`drawing::engine`), built over `waos_headless`'s screen. A test that loads
 //! `waos_test_programs`' programs where they are gives it the cache the tests share for them,
 //! `waos_test_programs::CODE_CACHE`; one whose programs are copies at paths of its own, sent to the
 //! dev server or installed from a package, gives it a cache in its own folder, removed with it.
@@ -146,20 +146,24 @@ pub(crate) mod drawing {
         ProgramView, RunningProgram, WaOS, WaOSConfig,
     };
 
-    use crate::logic::virtual_shell::{self, VirtualDisplay};
+    use waos_headless::{Display, HeadlessScreen, Refreshes};
 
     /// The size of a window [`engine`]'s shell gives, in physical pixels, at 2x.
     pub(crate) const WINDOW_WIDTH: u32 = 400;
     pub(crate) const WINDOW_HEIGHT: u32 = 300;
 
-    const TEST_DISPLAY: VirtualDisplay = VirtualDisplay {
-        width: WINDOW_WIDTH,
-        height: WINDOW_HEIGHT,
-        scale: 2.0,
-    };
+    /// The screen's display, in windows or, for a deck, in none.
+    fn display(windows: bool) -> Display {
+        Display {
+            width: WINDOW_WIDTH,
+            height: WINDOW_HEIGHT,
+            scale: 2.0,
+            windows,
+        }
+    }
 
     /// An engine whose programs' windows draw: each request given a window at once, focused and in
-    /// sight, on one screen that refreshes every 16 ms after it is asked, each window keeping the
+    /// sight, on one screen that refreshes as soon as it is asked, each window keeping the
     /// picture presented last until the next replaces it; with nobody to ask, keeping compiled
     /// programs in `code_cache`.
     pub(crate) fn engine(code_cache: &Path) -> Arc<WaOS> {
@@ -173,8 +177,8 @@ pub(crate) mod drawing {
 
     /// An engine as [`engine`]'s, placing views in windows when `in_windows`.
     fn engine_giving(in_windows: bool, code_cache: &Path) -> Arc<WaOS> {
-        let (shell, refreshes) =
-            virtual_shell::shell(TEST_DISPLAY, in_windows, Arc::new(NoPrompts));
+        let screen = HeadlessScreen::new(display(in_windows), Refreshes::WhenAsked);
+        let shell = screen.shell(Arc::new(NoPrompts));
         let config = WaOSConfig {
             code_cache: code_cache.to_owned(),
             freeze: FreezePolicy::default(),
@@ -187,19 +191,19 @@ pub(crate) mod drawing {
             hardware_buffers: HardwareBufferMode::Offscreen,
         };
         let platform = PlatformState {
-            screens: vec![TEST_DISPLAY.screen()],
+            screens: vec![screen.screen()],
             platform_brightness: Brightness::Light,
             caption_style: None,
             locales: Vec::new(),
             time_zone: None,
         };
         let engine = Arc::new(WaOS::new(config, shell, platform).expect("an engine"));
-        refreshes.attach(&engine);
+        screen.attach(&engine);
         engine
     }
 
     /// Opens a view for `program`'s `request` in a window of its own, filling the test screen.
     pub(crate) fn add_window(program: &RunningProgram, request: RequestId) -> ProgramView {
-        TEST_DISPLAY.add_window(program, request)
+        HeadlessScreen::new(display(true), Refreshes::WhenAsked).add_view(program, request)
     }
 }

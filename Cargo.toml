@@ -40,6 +40,7 @@ waos-wit-serialize = { version = "0.6.0", path = "crates/waos-wit-serialize" }
 waos-activity = { version = "0.6.0", path = "crates/waos-activity" }
 waos-store = { path = "crates/waos-store" }
 waos-program-window = { path = "crates/waos-program-window" }
+waos-headless = { path = "crates/waos-headless" }
 waos-window-messages = { path = "crates/waos-window-messages" }
 waos-local = { path = "capabilities/local" }
 waos-local-processes = { path = "capabilities/local-processes" }

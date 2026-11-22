@@ -23,6 +23,7 @@ waos-store.workspace = true
 waos-activity.workspace = true
 # The packages a source lists and the system opens with WaOS, as the store reads them.
 waos-package.workspace = true
+waos-headless.workspace = true
 waos-dev-protocol.workspace = true
 # The programs' windows WaOS shows in its own process, and the link they reach the engine's programs
 # through.

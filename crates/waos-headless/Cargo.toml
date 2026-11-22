@@ -1,0 +1,16 @@
+[package]
+name = "waos-headless"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "A screen with no display for the WaOS engine: each program's request given a window at once, its frames refreshed, its last picture kept."
+homepage.workspace = true
+repository.workspace = true
+readme = "README.md"
+
+[dependencies]
+waos.workspace = true
+
+[lints]
+workspace = true
