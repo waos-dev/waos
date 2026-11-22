@@ -1,6 +1,6 @@
-import { latestMaxAge, latestRelease } from '@/lib/releases';
+import { latestRelease, releaseCacheHeaders } from '@/lib/releases';
 
-export const revalidate = 300;
+export const dynamic = 'force-dynamic';
 
 /**
  * The newest release as JSON: `{ version, tag, publishedAt, downloads: { macos, windows, linux,
@@ -9,7 +9,5 @@ export const revalidate = 300;
  */
 export async function GET() {
   const latest = await latestRelease();
-  return Response.json(latest, {
-    headers: { 'Cache-Control': `public, s-maxage=${latestMaxAge}, stale-while-revalidate=86400` },
-  });
+  return Response.json(latest, { headers: releaseCacheHeaders });
 }

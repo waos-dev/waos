@@ -36,56 +36,79 @@ export interface Latest {
   downloads: Partial<Record<Platform, Download>>;
 }
 
-/** How long a read of GitHub's newest release is kept before it is read again, in seconds. */
+/** How long a read of GitHub's newest release is cached at the edge before it is read again, in seconds. */
 export const latestMaxAge = 300;
+
+/**
+ * Response caching for `/api/latest` and `/download/<platform>`: browsers never cache the
+ * redirect or JSON, while Vercel's edge caches it for {@link latestMaxAge} seconds with no
+ * stale-while-revalidate, so once 5 minutes pass a download waits for the fresh release instead
+ * of handing out an older version.
+ */
+export const releaseCacheHeaders = {
+  'Cache-Control': 'no-store',
+  'Vercel-CDN-Cache-Control': `public, s-maxage=${latestMaxAge}`,
+} as const;
 
 interface GitHubRelease {
   tag_name: string;
   published_at: string;
+  draft: boolean;
+  prerelease: boolean;
   assets: { name: string; size: number; browser_download_url: string }[];
 }
 
 /**
- * WaOS's newest release, read from GitHub and kept for {@link latestMaxAge} seconds, so the site
- * names no version of its own: a new release is what every download and install script gets
- * within minutes of its files being attached.
+ * WaOS's newest published release, read directly from GitHub (no Next.js Data Cache SWR layer).
+ * Reads the last few releases so that while a new release's platform jobs are still uploading,
+ * each platform resolves to the newest release that has its file rather than returning 404.
  */
 export async function latestRelease(): Promise<Latest> {
   const repository = new URL(repositoryUrl).pathname.slice(1);
   const token = process.env.GITHUB_TOKEN;
-  const response = await fetch(`https://api.github.com/repos/${repository}/releases/latest`, {
+  const response = await fetch(`https://api.github.com/repos/${repository}/releases?per_page=5`, {
     headers: {
       Accept: 'application/vnd.github+json',
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
-    next: { revalidate: latestMaxAge },
+    cache: 'no-store',
   });
   if (!response.ok) {
-    throw new Error(`GitHub answered ${response.status} for the latest release`);
+    throw new Error(`GitHub answered ${response.status} for the latest releases`);
   }
-  const release = (await response.json()) as GitHubRelease;
+  const releases = ((await response.json()) as GitHubRelease[]).filter(
+    (release) => !release.draft && !release.prerelease,
+  );
+  const newest = releases[0];
+  if (!newest) {
+    throw new Error(`No published release found for ${repository}`);
+  }
+
   const downloads: Partial<Record<Platform, Download>> = {};
   await Promise.all(
     (Object.entries(platforms) as [Platform, RegExp][]).map(async ([platform, pattern]) => {
-      const asset = release.assets.find((asset) => pattern.test(asset.name));
-      if (!asset) return;
-      const mirrored = `${mirrorOrigin}/${release.tag_name}/${asset.name}`;
-      const url = (await isMirrored(mirrored)) ? mirrored : asset.browser_download_url;
-      downloads[platform] = { name: asset.name, size: asset.size, url, github: asset.browser_download_url };
+      for (const release of releases) {
+        const asset = release.assets.find((item) => pattern.test(item.name));
+        if (!asset) continue;
+        const mirrored = `${mirrorOrigin}/${release.tag_name}/${asset.name}`;
+        const url = (await isMirrored(mirrored)) ? mirrored : asset.browser_download_url;
+        downloads[platform] = { name: asset.name, size: asset.size, url, github: asset.browser_download_url };
+        return;
+      }
     }),
   );
   return {
-    version: release.tag_name.replace(/^v/, ''),
-    tag: release.tag_name,
-    publishedAt: release.published_at,
+    version: newest.tag_name.replace(/^v/, ''),
+    tag: newest.tag_name,
+    publishedAt: newest.published_at,
     downloads,
   };
 }
 
-/** Whether the mirror has the file at `url`, asked as often as the release is read. */
+/** Whether the mirror has the file at `url`, checked live without Next.js's stale fetch cache. */
 async function isMirrored(url: string): Promise<boolean> {
   try {
-    const response = await fetch(url, { method: 'HEAD', next: { revalidate: latestMaxAge } });
+    const response = await fetch(url, { method: 'HEAD', cache: 'no-store', signal: AbortSignal.timeout(5000) });
     return response.ok;
   } catch {
     return false;

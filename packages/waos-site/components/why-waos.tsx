@@ -43,7 +43,7 @@ export function WhyWaos() {
             id="native"
             span="lg:col-span-7"
             title="Write once, native on desktop and phone"
-            text="One .wapk runs on macOS and Android with Waft's Fluent and Cupertino kits, real windows, system menus, and touch gestures."
+            text="One .wapk runs on macOS, Windows, Linux, and Android with Waft's Fluent and Cupertino kits, real windows, system menus, and touch gestures."
           >
             <DesktopAndPhone />
           </BentoCard>

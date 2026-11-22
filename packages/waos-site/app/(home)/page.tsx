@@ -1,15 +1,13 @@
 import Link from 'next/link';
-import { Download } from 'lucide-react';
-import { buttonVariants } from 'fumadocs-ui/components/ui/button';
 import { ServerCodeBlock } from 'fumadocs-ui/components/codeblock.rsc';
 import { AgentPromptCard } from '@/components/agent-prompt-card';
-import { BuildYourOwn } from '@/components/build-your-own';
+import { HeroDownload } from '@/components/hero-download';
+import { InstallCommands } from '@/components/install-commands';
 import { WaosIcon } from '@/components/waos-icon';
 import { WapkStory } from '@/components/wapk-story';
 import { WaveStrip } from '@/components/wave-strip';
 import { WhyWaos } from '@/components/why-waos';
-import { helloCommands } from '@/lib/sample';
-import { downloadPath } from '@/lib/releases';
+import { helloCommands, windowsHelloCommands } from '@/lib/sample';
 import { agentPrompt, docsRoute, headline, siteOrigin, subtitle } from '@/lib/shared';
 import { guideTopics } from '@/lib/source';
 import { topicIcon } from '@/lib/topic-icons';
@@ -44,33 +42,7 @@ function Hero() {
       <p className="relative mt-6 max-w-[640px] text-lg leading-relaxed text-fd-muted-foreground sm:text-xl">
         {subtitle}
       </p>
-      <div className="relative mt-9 flex flex-wrap justify-center gap-3">
-        <a href={downloadPath('macos')} className={buttonVariants({ color: 'primary', className: 'gap-2 px-6 py-3 text-base' })}>
-          <Download aria-hidden className="size-5" strokeWidth={2} />
-          Download for macOS
-        </a>
-        <BuildYourOwn
-          prompt={agentPrompt()}
-          downloadUrl={downloadPath('macos')}
-          androidDownloadUrl={downloadPath('android')}
-          startUrl={`${docsRoute}/start`}
-        />
-      </div>
-      <p className="relative mt-6 text-sm text-fd-muted-foreground">
-        Available for{' '}
-        <a href={downloadPath('macos')} className="font-medium text-fd-foreground underline underline-offset-4">
-          macOS (Apple Silicon)
-        </a>
-        ,{' '}
-        <a href={downloadPath('windows')} className="font-medium text-fd-foreground underline underline-offset-4">
-          Windows
-        </a>{' '}
-        and{' '}
-        <a href={downloadPath('android')} className="font-medium text-fd-foreground underline underline-offset-4">
-          Android
-        </a>
-        , and for Linux through <code>install.sh</code>.
-      </p>
+      <HeroDownload prompt={agentPrompt()} startUrl={`${docsRoute}/start`} />
     </section>
   );
 }
@@ -112,7 +84,10 @@ function BuildSection() {
             .
           </p>
           <div className="mt-10 grid gap-12 lg:grid-cols-2 lg:items-start">
-            <ServerCodeBlock code={helloCommands} lang="sh" />
+            <InstallCommands
+              unix={<ServerCodeBlock code={helloCommands} lang="sh" />}
+              windows={<ServerCodeBlock code={windowsHelloCommands} lang="powershell" />}
+            />
             <ul className="grid gap-x-10 gap-y-8 sm:grid-cols-2">
               {docs.map((page) => (
                 <li key={page.url}>

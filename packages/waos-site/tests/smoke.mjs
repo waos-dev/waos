@@ -194,6 +194,35 @@ async function checkSiteRoutes() {
   check("Waft's old address leads to its page", moved.headers.get('location') === '/docs/waft');
   const waftSubpage = await fetch(`${BASE}/docs/waft/state`, { redirect: 'manual' });
   check("Waft's framework subpages redirect to waft.rs", waftSubpage.headers.get('location') === 'https://waft.rs/docs/state');
+  const unknownPlatform = await fetch(`${BASE}/download/unknown`, { redirect: 'manual' });
+  check('/download/unknown returns 404', unknownPlatform.status === 404, `${unknownPlatform.status}`);
+  check(
+    '/download/unknown is not cached',
+    (unknownPlatform.headers.get('cache-control') ?? '').includes('no-store'),
+    unknownPlatform.headers.get('cache-control') ?? '',
+  );
+  const latest = await fetch(`${BASE}/api/latest`);
+  if (latest.ok) {
+    const cacheControl = latest.headers.get('cache-control') ?? '';
+    const cdnCache = latest.headers.get('vercel-cdn-cache-control') ?? '';
+    check('/api/latest sets Cache-Control: no-store', cacheControl.includes('no-store'), cacheControl);
+    check('/api/latest has no stale-while-revalidate', !cacheControl.includes('stale-while-revalidate') && !cdnCache.includes('stale-while-revalidate'), `${cacheControl} | ${cdnCache}`);
+    if (!SITE_URL) {
+      check('/api/latest sets 5-minute Vercel edge cache', cdnCache === 'public, s-maxage=300', cdnCache);
+    }
+    const payload = await latest.json();
+    check('/api/latest returns version and all 4 platforms', Boolean(payload.version && payload.downloads?.macos && payload.downloads?.windows && payload.downloads?.linux && payload.downloads?.android), payload.version);
+    const mac = await fetch(`${BASE}/download/macos`, { redirect: 'manual' });
+    const macCache = mac.headers.get('cache-control') ?? '';
+    const macCdn = mac.headers.get('vercel-cdn-cache-control') ?? '';
+    check('/download/macos redirects with 302', mac.status === 302, `${mac.status}`);
+    check('/download/macos sets Cache-Control: no-store', macCache.includes('no-store'), macCache);
+    if (!SITE_URL) {
+      check('/download/macos sets 5-minute Vercel edge cache', macCdn === 'public, s-maxage=300', macCdn);
+    }
+  } else if (SITE_URL) {
+    check('/api/latest answers on deployed site', false, `${latest.status}`);
+  }
 }
 
 /** Loads `path` in the browser and checks it answers with `title` as its heading. */
@@ -273,15 +302,25 @@ async function checkHome(page) {
   const bodyText = await page.locator('#nd-home-layout').innerText();
   check('the home page has no middot splits', !bodyText.includes('·'));
   const download = page.getByRole('link', { name: 'Download for macOS' });
-  check('the macOS download is the site\'s newest-release address', (await download.getAttribute('href')) === '/download/macos');
+  check("the macOS download is the site's newest-release address", (await download.getAttribute('href')) === '/download/macos');
   const androidDownload = page.getByRole('link', { name: 'Android' });
-  check('the Android download is the site\'s newest-release address', (await androidDownload.getAttribute('href')) === '/download/android');
+  check("the Android download is the site's newest-release address", (await androidDownload.getAttribute('href')) === '/download/android');
+  const linuxDownload = page.getByRole('link', { name: 'Linux' });
+  check("the Linux download is the site's newest-release address", (await linuxDownload.getAttribute('href')) === '/download/linux');
   const topics = await page
     .locator('section h3 + ul a')
     .evaluateAll((links) => links.map((link) => [link.getAttribute('href'), link.textContent]));
   const guides = GUIDE_TOPICS.map(([slug, title]) => [`/docs/guide/${slug}`, title]);
   check('every topic links to its guide', JSON.stringify(topics) === JSON.stringify(guides));
   await page.getByRole('button', { name: 'Build your app with an agent' }).click();
+  const dialogLinks = await linksIn(page, 'dialog');
+  check(
+    'the Build dialog lists all four platforms',
+    ['/download/macos', '/download/windows', '/download/linux', '/download/android'].every((href) =>
+      dialogLinks.includes(href),
+    ),
+    dialogLinks.join(', '),
+  );
   await page.getByRole('button', { name: 'Copy', exact: true }).click();
   const copied = await page.evaluate(() => navigator.clipboard.readText());
   check('the agent prompt points at the playbook', copied.includes(`${ORIGIN}/agents.md`), copied);
@@ -292,9 +331,80 @@ async function checkHome(page) {
   check('starter chip customizes the inline prompt', starterCopied.includes('markdown reader'), starterCopied);
   const commands = await page.locator('pre').first().innerText();
   check('the commands make an app and run it', commands.includes('waos new hello'));
+  await page.getByRole('tab', { name: 'Windows' }).click();
+  const winCommands = await page.locator('pre').first().innerText();
+  check('the Windows tab shows PowerShell install.ps1', winCommands.includes('install.ps1'));
   const docsLinks = await page.locator('section ul a').evaluateAll((links) => links.map((link) => link.getAttribute('href')));
   check('the developers are pointed at Start', docsLinks.includes('/docs/start'));
   check('Concepts remains reachable from the home page', docsLinks.includes('/docs/concepts'));
+}
+
+const PLATFORM_CASES = [
+  {
+    name: 'Windows',
+    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/130.0.0.0 Safari/537.36',
+    button: 'Download for Windows',
+    href: '/download/windows',
+    snippet: 'install.ps1',
+  },
+  {
+    name: 'Linux',
+    userAgent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/130.0.0.0 Safari/537.36',
+    button: 'Download for Linux',
+    href: '/download/linux',
+    snippet: 'install.sh',
+  },
+  {
+    name: 'Android',
+    userAgent: 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 Chrome/130.0.0.0 Mobile Safari/537.36',
+    button: 'Download for Android',
+    href: '/download/android',
+    snippet: 'install.sh',
+  },
+  {
+    name: 'iPhone',
+    userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148 Safari/604.1',
+    button: 'Download WaOS',
+    href: '#downloads',
+    snippet: 'install.sh',
+  },
+];
+
+async function checkPlatforms(browser) {
+  const staticContext = await newContext(browser, { javaScriptEnabled: false });
+  const staticPage = await staticContext.newPage();
+  await staticPage.goto(BASE, { waitUntil: 'load' });
+  const staticCta = staticPage.getByRole('link', { name: 'Download WaOS' });
+  check('static HTML renders neutral Download WaOS button', (await staticCta.getAttribute('href')) === '#downloads');
+  const staticDownloads = await linksIn(staticPage, '#downloads');
+  check(
+    'static HTML lists all four platforms',
+    ['/download/macos', '/download/windows', '/download/linux', '/download/android'].every((href) =>
+      staticDownloads.includes(href),
+    ),
+    staticDownloads.join(', '),
+  );
+  await staticContext.close();
+
+  for (const item of PLATFORM_CASES) {
+    const context = await newContext(browser, {
+      userAgent: item.userAgent,
+      permissions: ['clipboard-read', 'clipboard-write'],
+    });
+    const page = await context.newPage();
+    await page.goto(BASE, { waitUntil: 'load' });
+    const cta = page.getByRole('link', { name: item.button });
+    await cta.waitFor({ state: 'visible', timeout: 5000 });
+    check(`${item.name} shows "${item.button}" -> ${item.href}`, (await cta.getAttribute('href')) === item.href);
+    const snippet = await page.locator('pre').first().innerText();
+    check(`${item.name} quickstart defaults to ${item.snippet}`, snippet.includes(item.snippet));
+    if (item.name === 'Linux') {
+      await page.getByRole('button', { name: 'install.sh' }).click();
+      const copied = await page.evaluate(() => navigator.clipboard.readText());
+      check('Linux install.sh button copies the curl command', copied === 'curl -fsSL https://waos.app/install.sh | sh', copied);
+    }
+    await context.close();
+  }
 }
 
 /** The art's pixels, as an image, `after` milliseconds from now. */
@@ -348,13 +458,17 @@ try {
   await checkSiteRoutes();
 
   browser = await chromium.launch({ headless: true });
-  const context = await newContext(browser, { permissions: ['clipboard-read', 'clipboard-write'] });
+  const context = await newContext(browser, {
+    userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/130.0.0.0 Safari/537.36',
+    permissions: ['clipboard-read', 'clipboard-write'],
+  });
   const page = await context.newPage();
   const consoleErrors = [];
   page.on('console', (message) => message.type() === 'error' && consoleErrors.push(message.text()));
   page.on('pageerror', (error) => consoleErrors.push(`pageerror: ${error.message}`));
 
   await checkHome(page);
+  await checkPlatforms(browser);
   await checkDocsPages(page);
   await checkReference(page);
   await checkIcons(page);
