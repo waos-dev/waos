@@ -19,7 +19,7 @@ use anyhow::{Result, anyhow};
 use futures::channel::{mpsc, oneshot};
 use gpui::{
     Action, ActivityGuard, AnyWindowHandle, BackgroundExecutor, ClipboardItem, CursorStyle,
-    DummyKeyboardMapper, ForegroundExecutor, Keymap, Menu, MenuItem, OperatingSystem,
+    DummyKeyboardMapper, ForegroundExecutor, Keymap, Menu, MenuItem, OperatingSystem, OwnedMenu,
     PathPromptOptions, Platform, PlatformDisplay, PlatformInfo, PlatformKeyboardLayout,
     PlatformKeyboardMapper, PlatformTarget, PlatformTextSystem, PlatformWindow, Task, ThermalState,
     WindowAppearance, WindowKind, WindowParams,
@@ -52,6 +52,9 @@ pub(crate) struct WasdkPlatform {
     active_window: Cell<Option<AnyWindowHandle>>,
     cursor: Cell<Cursor>,
     cursor_hidden: Cell<bool>,
+    /// The menus the app set last, which it reads back to draw them in its window, as GPUI's
+    /// Linux and Windows apps do: WaOS's menu bar does not carry them yet.
+    menus: RefCell<Vec<OwnedMenu>>,
     callbacks: PlatformCallbacks,
 }
 
@@ -84,6 +87,7 @@ impl WasdkPlatform {
             active_window: Cell::new(None),
             cursor: Cell::new(Cursor::Default),
             cursor_hidden: Cell::new(false),
+            menus: RefCell::new(Vec::new()),
             callbacks: PlatformCallbacks::default(),
         }
     }
@@ -322,7 +326,13 @@ impl Platform for WasdkPlatform {
 
     fn on_system_wake(&self, _callback: Box<dyn FnMut()>) {}
 
-    fn set_menus(&self, _menus: Vec<Menu>, _keymap: &Keymap) {}
+    fn set_menus(&self, menus: Vec<Menu>, _keymap: &Keymap) {
+        *self.menus.borrow_mut() = menus.into_iter().map(|menu| menu.owned()).collect();
+    }
+
+    fn get_menus(&self) -> Option<Vec<OwnedMenu>> {
+        Some(self.menus.borrow().clone())
+    }
 
     fn set_dock_menu(&self, _menu: Vec<MenuItem>, _keymap: &Keymap) {}
 

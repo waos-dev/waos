@@ -36,6 +36,6 @@ GPUI's model and the WIT's, as the adapter carries one into the other:
 - **Cursor,** GPUI's styles as the WIT's CSS cursors, set on every view of the program; hidden until the pointer moves when GPUI asks.
 - **The end:** GPUI's `quit`, and WaOS's request to end the program, which the adapter answers `exit`, run GPUI's quit handlers and end `run`.
 
-Not carried yet: the menu bar (`set_menus`), GPUI's open requests and Dock menu, credentials, notifications, drops, the keyboard's layout (it answers "unknown", the keys coming already meant under it), window visibility (WaOS gives a view off screen no frames), transparent windows and full screen, accessibility (GPUI compiles AccessKit out on wasm).
+Not carried yet: the menu bar: the menus GPUI sets are kept and read back (`get_menus`), so an app draws them in its window as GPUI's Linux and Windows apps do, but WaOS's menus do not show them; GPUI's open requests and Dock menu, credentials, notifications, drops, the keyboard's layout (it answers "unknown", the keys coming already meant under it), window visibility (WaOS gives a view off screen no frames), transparent windows and full screen, accessibility (GPUI compiles AccessKit out on wasm).
 
 The crate compiles natively only as an empty crate; only a component's imports mean anything.
