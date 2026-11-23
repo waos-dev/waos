@@ -1695,7 +1695,11 @@ fn on_the_home_the_pill_is_a_search_field_that_filters_the_programs_as_the_user_
     assert!(!home_shows(&phone, "Triangle") && home_shows(&phone, "Survey"));
     phone.type_text("neither");
     assert!(!home_shows(&phone, "Triangle") && !home_shows(&phone, "Survey"));
-    assert!(phone.shows(words::NO_PROGRAMS_FOUND), "{:?}", phone.labels());
+    assert!(
+        phone.shows(words::NO_PROGRAMS_FOUND),
+        "{:?}",
+        phone.labels()
+    );
     phone.type_text("");
     assert!(home_shows(&phone, "Triangle") && home_shows(&phone, "Survey"));
 }

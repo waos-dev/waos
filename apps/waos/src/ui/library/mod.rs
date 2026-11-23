@@ -30,8 +30,8 @@ mod tests;
 pub(crate) mod words;
 
 use waft::{
-    App, BuildContext, Entity, IntoWidget, KeyRef, MediaQuery, PageRef, StatelessWidget,
-    ValueKey, WidgetRef,
+    App, BuildContext, Entity, IntoWidget, KeyRef, MediaQuery, PageRef, StatelessWidget, ValueKey,
+    WidgetRef,
 };
 
 use crate::logic::library_layout::LibraryLayout;

@@ -95,8 +95,7 @@ fn the_settings_for_every_program_change_in_the_launcher_and_are_kept() {
         "{:?}",
         desktop.labels()
     );
-    assert!(desktop.shows(words::NETWORK) && desktop.shows(words::FOLDERS));
-    assert!(desktop.shows(words::LOCAL_NETWORK));
+    assert!(desktop.shows(words::NETWORK) && desktop.shows(words::LOCAL_NETWORK));
     desktop.tap(view, words::ONLY_DOMAINS);
     assert_eq!(
         global_network(&desktop).domains,
@@ -115,6 +114,8 @@ fn the_settings_for_every_program_change_in_the_launcher_and_are_kept() {
         global_network(&desktop).domains,
         DomainRule::Only(Vec::new())
     );
+    desktop.scroll_until_visible(view, words::FOLDERS, words::NETWORK, 200.0);
+    assert!(desktop.shows(words::FOLDERS), "further down");
 }
 
 #[test]
@@ -512,8 +513,14 @@ fn each_setting_that_is_on_or_off_is_a_switch_on_a_row_naming_it_on_the_phone() 
     let (mut desktop, view) = on_phone();
     open_global_settings(&mut desktop, view);
     assert!(!desktop.shows(words::ON) && !desktop.shows(words::OFF));
+    assert!(
+        desktop.shows(words::ANY_DOMAIN),
+        "a choice among named things stays a segmented control"
+    );
+    let mut above = words::NETWORK;
     for (name, value) in on_off_settings() {
-        desktop.scroll_to_end_at(view, words::NETWORK);
+        desktop.scroll_until_visible(view, name, above, 200.0);
+        above = name;
         let global = desktop.store.global_settings().unwrap();
         assert_eq!(switch_shows(&desktop, name), value(&global), "{name}");
         let switch = desktop.bounds_beside::<CupertinoSwitch>(name).unwrap();
@@ -522,10 +529,8 @@ fn each_setting_that_is_on_or_off_is_a_switch_on_a_row_naming_it_on_the_phone() 
             "{name} spans its row up to the switch, so a name too long for it is cut with an ellipsis, not measured to nothing"
         );
     }
-    assert!(
-        desktop.shows(words::ANY_DOMAIN) && desktop.shows(words::ALLOW),
-        "a choice among named things stays a segmented control"
-    );
+    desktop.scroll_until_visible(view, words::ALLOW, above, 200.0);
+    assert!(desktop.shows(words::ALLOW), "the notifications' choice too");
 }
 
 #[test]

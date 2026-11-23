@@ -106,7 +106,9 @@ fn a_page_slides_in_over_the_home_and_its_back_button_slides_it_out() {
     let view = phone_view(&desktop);
     desktop.tap_in_motion(view, words::GET_PROGRAMS);
     desktop.frames(2);
-    let sliding = desktop.find(words::ADD_SOURCE).expect("the page, on its way in");
+    let sliding = desktop
+        .find(words::ADD_SOURCE)
+        .expect("the page, on its way in");
     assert!(desktop.shows(words::NO_PROGRAMS), "the home, under it");
     desktop.settle();
     let settled = desktop.find(words::ADD_SOURCE).expect("the page, in place");
@@ -116,10 +118,18 @@ fn a_page_slides_in_over_the_home_and_its_back_button_slides_it_out() {
     );
 
     desktop.tap_in_motion(view, words::HOME_TITLE);
-    assert_eq!(desktop.read(|library| library.page().clone()), LibraryPage::Home);
+    assert_eq!(
+        desktop.read(|library| library.page().clone()),
+        LibraryPage::Home
+    );
     desktop.frames(2);
-    let leaving = desktop.find(words::ADD_SOURCE).expect("the page, on its way out");
-    assert!(leaving.dx() > settled.dx() + 50.0, "to the right: at {leaving:?}");
+    let leaving = desktop
+        .find(words::ADD_SOURCE)
+        .expect("the page, on its way out");
+    assert!(
+        leaving.dx() > settled.dx() + 50.0,
+        "to the right: at {leaving:?}"
+    );
     desktop.settle();
     assert!(!desktop.shows(words::ADD_SOURCE), "{:?}", desktop.labels());
     assert!(desktop.shows(words::NO_PROGRAMS), "back on the home");
@@ -139,7 +149,10 @@ fn a_swipe_from_the_left_edge_takes_a_page_back_to_the_home() {
         Offset::new(5.0, middle),
         Offset::new(width * 0.8, middle),
     );
-    assert_eq!(desktop.read(|library| library.page().clone()), LibraryPage::Home);
+    assert_eq!(
+        desktop.read(|library| library.page().clone()),
+        LibraryPage::Home
+    );
     assert!(!desktop.shows(words::ADD_SOURCE), "{:?}", desktop.labels());
     assert!(desktop.shows(words::NO_PROGRAMS), "back on the home");
 }

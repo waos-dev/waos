@@ -25,8 +25,8 @@ use waft::ui::{
     ViewFocusState, ViewId, ViewRef, WindowConfig,
 };
 use waft::{
-    AnyElement, App, AppLifecycleState, Curves, Entity, Offstage, ScrollPositionAlignmentPolicy,
-    Scrollable, Shell, State as _, Text, WidgetsBinding, downcast_widget, run_widget,
+    AnyElement, App, AppLifecycleState, Curves, Entity, ScrollPositionAlignmentPolicy, Scrollable,
+    Shell, State as _, Text, WidgetsBinding, downcast_widget, run_widget,
 };
 use waft_cupertino::install_cupertino_icon_font;
 use waft_services::{LogicalKeyboardKey, PhysicalKeyboardKey, ServicesBinding};
@@ -521,13 +521,6 @@ impl LibraryDesktop {
         }
     }
 
-    /// Scrolls what holds the label `text` shows, in the window of `view`, to its end, with the
-    /// mouse's wheel over the label.
-    pub(crate) fn scroll_to_end_at(&mut self, view: ViewId, text: &str) {
-        let at = self.label_at(text);
-        self.wheel_at(view, at, 100_000.0);
-    }
-
     /// Turns the mouse's wheel at `at`, in the window of `view`, by `delta` pixels, a positive
     /// one towards the content's end.
     fn wheel_at(&mut self, view: ViewId, at: Offset, delta: f64) {
@@ -754,23 +747,15 @@ impl LibraryDesktop {
     }
 }
 
-/// Every element mounted and not offstage.
+/// Every element mounted and onstage, as a finder skipping offstage widgets walks them: none in
+/// an `Offstage`, and none of a route kept alive under an opaque one.
 pub(crate) fn onstage_elements(app: &mut App) -> Vec<AnyElement> {
     let Some(root) = WidgetsBinding::instance(app).root_element(app) else {
         return Vec::new();
     };
-    let mut elements = vec![root];
-    let mut index = 0;
-    while index < elements.len() {
-        let element = elements[index];
-        let offstage = downcast_widget::<Offstage>(element.widget(app).as_ref())
-            .is_some_and(|widget| widget.offstage);
-        if !offstage {
-            elements.extend(element.children(app));
-        }
-        index += 1;
-    }
-    elements
+    std::iter::once(root)
+        .chain(root.descendants(app, true))
+        .collect()
 }
 
 /// Where `element` is drawn, in its view, when it is a box.

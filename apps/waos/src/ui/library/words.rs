@@ -137,8 +137,7 @@ pub(crate) fn unreadable(why: &str) -> String {
 
 pub(crate) const SETTINGS: &str = "Settings";
 pub(crate) const GLOBAL_SETTINGS: &str = "Every app's settings";
-pub(crate) const GLOBAL_DETAIL: &str =
-    "What every app may use, until you set it for one app.";
+pub(crate) const GLOBAL_DETAIL: &str = "What every app may use, until you set it for one app.";
 pub(crate) const FOLLOWS_GLOBAL: &str = "Follows the setting for every app.";
 pub(crate) const WHERE_PROGRAMS_OPEN: &str = "Where apps open";
 pub(crate) const PROGRAMS_INSIDE_WAOS: &str = "Show apps inside WaOS";
@@ -200,8 +199,7 @@ pub(crate) fn record(of: &SettingsOf) -> (&'static str, &'static str) {
 }
 pub(crate) const FOLDERS: &str = "Folders";
 pub(crate) const FOLDER_PLACEHOLDER: &str = "/Users/you/Documents";
-pub(crate) const FOLDER_AT_PLACEHOLDER: &str =
-    "Where the app sees it: the same path when empty";
+pub(crate) const FOLDER_AT_PLACEHOLDER: &str = "Where the app sees it: the same path when empty";
 pub(crate) const WRITABLE: &str = "Writable";
 pub(crate) const READ_ONLY: &str = "Read-only";
 pub(crate) const FOLDERS_AT_ONCE: &str =
@@ -231,7 +229,8 @@ pub(crate) const LINKS_DETAIL: &str = "What this app was answered when it asked 
 pub(crate) const ROLES: &str = "Roles";
 pub(crate) const ROLES_DETAIL: &str = "What this app was answered when it asked to be more than an app. Remove one to be asked again at its next start.";
 pub(crate) const ANSWERED_WITHOUT_ASKING: &str = "Answered without asking";
-pub(crate) const ANSWERED_WITHOUT_ASKING_DETAIL: &str = "When this app asks for one of these, WaOS gives it what is set here instead of asking you.";
+pub(crate) const ANSWERED_WITHOUT_ASKING_DETAIL: &str =
+    "When this app asks for one of these, WaOS gives it what is set here instead of asking you.";
 pub(crate) const WHICH_MACHINE: &str = "Which computer";
 pub(crate) const WHICH_OUTPUT: &str = "Which sound output";
 pub(crate) const ANSWER_WITH: &str = "Answer with";

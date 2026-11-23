@@ -33,7 +33,7 @@ use waft::ui::{
     ViewHost, ViewId, ViewMetrics, ViewPadding, ViewRef, WindowConfig, flattened_ops, slices,
 };
 use waft::{
-    AnyElement, App, Entity, Offset, Offstage, Opacity, Rect, Shell, TextStyle, WidgetsBinding,
+    AnyElement, App, Entity, Offset, Opacity, Rect, Shell, TextStyle, WidgetsBinding,
     downcast_widget, run_widget,
 };
 use waft_cupertino::install_cupertino_icon_font;
@@ -1002,7 +1002,8 @@ impl TestPhone {
     }
 }
 
-/// Every element mounted that a user could see: none offstage, and none drawn at no opacity.
+/// Every element mounted that a user could see: onstage, as a finder skipping offstage widgets
+/// walks them, and none drawn at no opacity.
 fn elements_in_sight(app: &mut App) -> Vec<AnyElement> {
     let Some(root) = WidgetsBinding::instance(app).root_element(app) else {
         return Vec::new();
@@ -1012,12 +1013,10 @@ fn elements_in_sight(app: &mut App) -> Vec<AnyElement> {
     while index < elements.len() {
         let element = elements[index];
         let widget = element.widget(app);
-        let hidden = downcast_widget::<Offstage>(widget.as_ref())
-            .is_some_and(|widget| widget.offstage)
-            || downcast_widget::<Opacity>(widget.as_ref())
-                .is_some_and(|widget| widget.opacity == 0.0);
+        let hidden =
+            downcast_widget::<Opacity>(widget.as_ref()).is_some_and(|widget| widget.opacity == 0.0);
         if !hidden {
-            elements.extend(element.children(app));
+            element.debug_visit_onstage_children(app, &mut |child| elements.push(child));
         }
         index += 1;
     }

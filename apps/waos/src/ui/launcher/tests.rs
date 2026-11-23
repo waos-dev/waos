@@ -291,6 +291,28 @@ fn more_reaches_getting_programs_and_the_settings_each_with_back_to_the_grid() {
     assert!(desktop.has::<LauncherHome>());
 }
 
+/// A page opened from the launcher enters as WinUI's `Frame` navigates: it rises into place from
+/// below.
+#[test]
+fn a_page_rises_into_place_over_the_grid_as_winuis_pages_enter() {
+    let (mut desktop, _launcher) = desktop();
+    install(&mut desktop, TRIANGLE, "Triangle", "1.0.0", b"\0asm");
+    let view = launcher_view(&desktop);
+    tap_symbol(&mut desktop, FluentSymbol::More);
+    desktop.tap_in_motion(view, words::GET_PROGRAMS);
+    desktop.frames(5);
+    let rising = desktop
+        .find(words::NO_SOURCES)
+        .expect("the page, on its way in");
+    desktop.settle();
+    let settled = desktop.find(words::NO_SOURCES).expect("the page, in place");
+    assert!(
+        rising.dy() > settled.dy() + 10.0,
+        "from below: at {rising:?}, then {settled:?}"
+    );
+    assert!(!desktop.has::<LauncherHome>(), "the grid, covered");
+}
+
 #[test]
 fn a_dismissed_launcher_comes_back_on_its_grid() {
     let (mut desktop, launcher) = desktop();
