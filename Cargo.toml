@@ -231,6 +231,8 @@ waft-test = "0.10.0"
 waft-embedder = "0.10.0"
 waft-foundation = "0.10.0"
 waft-shell = "0.10.0"
+# The messages Waft's CLI speaks to an app's service extensions, which `waos ext --stdio` relays.
+waft-service-protocol = "0.10.0"
 # Waft's Cupertino widgets, which `examples/two-windows` spins an activity indicator of, and
 # the library is drawn with at a phone's size.
 waft-cupertino = "0.10.0"

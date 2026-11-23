@@ -27,6 +27,7 @@ mod connecting;
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 mod desktop_entries;
 mod docs;
+mod ext;
 mod icon_rule;
 mod input;
 mod inspect;
@@ -84,6 +85,7 @@ pub const CLI_COMMANDS: &[&str] = &[
     "ui",
     "settings",
     "inspect",
+    "ext",
     "docs",
     "help",
 ];
@@ -226,6 +228,14 @@ enum Command {
     /// Inspects what WaOS knows of what a program does with what it was allowed, as JSON lines of
     /// wasdk:inspect's values: `summary`, `active-uses`, or `trace`.
     Inspect(InspectArgs),
+    /// Calls a running program's service extensions, as Waft's CLI (`cargo waft ext`) calls an
+    /// app's: `waos ext --stdio` relays Waft's service protocol, one JSON message a line, between
+    /// stdin and stdout and the program, until stdin closes; `waos ext list` lists the programs
+    /// running that serve extensions, as Waft's listing with --json.
+    ///
+    /// Without --id, the program is this package's development install. A program serves its
+    /// extensions in a debug build, as a Waft app's framework serves Waft's.
+    Ext(ExtArgs),
     /// Reads WaOS's docs of the version the app builds with, searches them, or installs the agent
     /// skill (`docs skill install`).
     ///
@@ -383,6 +393,31 @@ struct InspectTraceArgs {
     /// microphone, machines, permissions, links, notifications, output).
     #[arg(value_name = "CAPABILITY")]
     capabilities: Vec<String>,
+}
+
+#[derive(Args)]
+#[command(args_conflicts_with_subcommands = true)]
+struct ExtArgs {
+    #[command(flatten)]
+    target: Target,
+    /// Relays Waft's service protocol between stdin and stdout and the program, one JSON message
+    /// a line, until stdin closes: each request one call of the extension it names.
+    #[arg(long)]
+    stdio: bool,
+    #[command(subcommand)]
+    command: Option<ExtCommand>,
+}
+
+#[derive(Subcommand)]
+enum ExtCommand {
+    /// Lists the programs running in WaOS that serve service extensions, a line each: its name
+    /// and id, or, with --json, a JSON object in Waft's listing format, its address the command
+    /// that relays to it.
+    List {
+        /// Each as a JSON object a line, as Waft's discovery reads a listing.
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[derive(Args)]
@@ -736,6 +771,7 @@ fn dispatch(command: Command, starter: &dyn WaOSStarter) -> Result<ExitCode> {
         Command::Ui(ui) => dispatch_ui(ui.command),
         Command::Settings(settings) => dispatch_settings(settings, starter),
         Command::Inspect(inspect) => dispatch_inspect(inspect),
+        Command::Ext(ext) => dispatch_ext(ext),
         Command::Docs(docs) => match docs.command {
             Some(DocsCommand::Skill(SkillArgs {
                 command: SkillCommand::Install { dir },
@@ -799,6 +835,16 @@ fn dispatch_settings(args: SettingsArgs, starter: &dyn WaOSStarter) -> Result<Ex
             let target = set.target.clone().or(&args.target);
             target_id(&target).and_then(|id| on_this_thread(settings::set(id, &set.row, starter)))
         }
+    }
+}
+
+fn dispatch_ext(args: ExtArgs) -> Result<ExitCode> {
+    match args.command {
+        Some(ExtCommand::List { json }) => on_this_thread(ext::list(json)),
+        None if args.stdio => on_this_thread(ext::relay_stdio(target_id(&args.target)?)),
+        None => anyhow::bail!(
+            "`waos ext` relays with --stdio (`waos ext --stdio`, `waos ext --id <id> --stdio`), or lists the programs serving extensions (`waos ext list`)"
+        ),
     }
 }
 
@@ -1445,6 +1491,7 @@ mod tests {
             "ui",
             "settings",
             "inspect",
+            "ext",
             "docs",
         ] {
             assert!(
@@ -1566,5 +1613,31 @@ mod tests {
         for command in ["install", "launch", "attach", "stop", "uninstall"] {
             assert!(is_cli_command(command), "{command}");
         }
+    }
+
+    #[test]
+    fn ext_relays_over_stdio_for_an_id_or_the_package_and_lists() {
+        let Command::Ext(ext) = parsed(&["ext", "--id", "dev.example.notes", "--stdio"]) else {
+            panic!("ext --stdio");
+        };
+        assert!(ext.stdio && ext.command.is_none());
+        assert_eq!(
+            ext.target.id.as_ref().map(ProgramId::as_str),
+            Some("dev.example.notes")
+        );
+        let Command::Ext(ext) = parsed(&["ext", "--stdio", "-p", "notes"]) else {
+            panic!("ext -p --stdio");
+        };
+        assert_eq!(ext.target.program.package.as_deref(), Some("notes"));
+        let Command::Ext(ExtArgs {
+            command: Some(ExtCommand::List { json }),
+            ..
+        }) = parsed(&["ext", "list", "--json"])
+        else {
+            panic!("ext list --json");
+        };
+        assert!(json);
+        assert!(refused(&["ext", "--stdio", "list"]));
+        assert!(is_cli_command("ext"));
     }
 }

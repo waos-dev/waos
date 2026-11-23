@@ -54,10 +54,11 @@ pub use component::{CHUNK_BYTES, component_digest};
 pub use connection::{Connection, Locality, MAX_FRAME_BYTES};
 pub use hello::{Hello, MAJOR, Mismatch, Peer, SERVED};
 pub use messages::{
-    Component, Input, InputAnswer, InputDone, InspectAnswer, Inspection, Install, InstallAnswer,
-    Launch, LaunchAnswer, OpenAnswer, OutputStream, RefusedAnswer, Request, ResizeAnswer, Resized,
-    RunEnd, RunEvent, ScreenshotAnswer, SettingsAnswer, StopAnswer, TracedCapability,
-    UninstallAnswer, Upload, WindowId, WindowPicture,
+    Component, ExtensionAnswer, Input, InputAnswer, InputDone, InspectAnswer, Inspection, Install,
+    InstallAnswer, Launch, LaunchAnswer, OpenAnswer, OutputStream, RefusedAnswer, Request,
+    ResizeAnswer, Resized, RunEnd, RunEvent, ScreenshotAnswer, ServingProgram, ServingPrograms,
+    ServingProgramsAnswer, SettingsAnswer, StopAnswer, TracedCapability, UninstallAnswer, Upload,
+    WindowId, WindowPicture,
 };
 #[cfg(windows)]
 pub use pipe::{ClientStream, Listener, ServerStream, listener_path};

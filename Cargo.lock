@@ -8618,6 +8618,7 @@ dependencies = [
  "tokio",
  "toml 1.2.2+spec-1.1.0",
  "toml_edit",
+ "waft-service-protocol",
  "waos-dev-protocol",
  "waos-package",
  "wasmparser 0.261.0",

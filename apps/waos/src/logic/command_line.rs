@@ -4,7 +4,7 @@
 //! files with a program, `waos open --program <id>` opens the program, or brings it forward, as a
 //! pin of it on Windows or Linux does, `waos --headless [--idle-timeout <secs>]` runs WaOS without
 //! a windowing system, developer CLI commands (`new`, `build`, `install`, `launch`, `attach`,
-//! `stop`, `uninstall`, `run`, `package`, `ui`, `settings`, `inspect`, `docs`) are dispatched to
+//! `stop`, `uninstall`, `run`, `package`, `ui`, `settings`, `inspect`, `ext`, `docs`) are dispatched to
 //! `waos-cli`, and `waos <file>...` opens files with WaOS
 //! itself, as Windows and Linux start an app with the files it opens.
 //!
@@ -42,6 +42,7 @@ const RESERVED_COMMANDS: &[&str] = &[
     "ui",
     "settings",
     "inspect",
+    "ext",
     "docs",
     "help",
 ];
@@ -364,6 +365,7 @@ mod tests {
             &["waos", "ui", "screenshot"],
             &["waos", "settings", "set", "camera", "allow"],
             &["waos", "inspect", "summary"],
+            &["waos", "ext", "list", "--json"],
             &["waos", "docs", "skill", "install"],
             &["waos", "--help"],
             &["waos", "-V"],

@@ -44,6 +44,15 @@ pub enum RefusalKind {
     NotRunning,
     /// No program of the id is installed.
     NotInstalled,
+    /// The program runs, but serves no service extensions: it listens for none, as a release
+    /// build does.
+    NotServing,
+    /// The program serves no service extension of that name; `registered` names those it does.
+    UnknownExtension { registered: Vec<String> },
+    /// The parameters do not fit the service extension: the message says why.
+    InvalidParams,
+    /// The service extension failed while answering: the message says why.
+    ExtensionFailed,
     /// The program has no window `window`.
     NoWindow { window: WindowId },
     /// The point `x`, `y` is outside the window, which is `width` by `height` physical pixels at

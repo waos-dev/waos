@@ -28,6 +28,10 @@ These reach the app while it runs, started by `waos run` or `waos launch`, or op
 
 > A key the app leaves goes nowhere, where a real one would go on to the menu bar: `key cmd+q` does not quit.
 
+## Its service extensions
+
+A Waft app built for debugging serves Waft's service extensions: named calls answered with JSON, its widget tree, its focus, the inspector's, as Flutter's `ext.flutter.*` are. `cargo waft ext` reaches them in an app on WaOS through `waos`: **`waos ext list --json`** lists each app running that serves them, and **`waos ext --stdio`** relays the calls, one JSON message a line. Neither needs anything of you beyond the app running.
+
 ## Answer ahead
 
 WaOS asks its user before a program uses a camera, the microphone or notifications, and shows a dialog when it asks for a file or a machine. Each question is a row in the program's settings, and a row set ahead is answered without asking, so a run never waits for a person.

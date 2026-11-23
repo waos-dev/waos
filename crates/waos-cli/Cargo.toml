@@ -37,7 +37,10 @@ glob.workspace = true
 # The icon a new program starts with.
 png.workspace = true
 # A run's connection: the socket, its frames, Ctrl-C, and the wait for a WaOS just started.
-tokio = { workspace = true, features = ["net", "io-util", "signal"] }
+tokio = { workspace = true, features = ["net", "io-util", "io-std", "signal"] }
+# The messages of Waft's service protocol, which `waos ext --stdio` relays to a program's service
+# extensions, one a line, as Waft's CLI speaks them to an app.
+waft-service-protocol.workspace = true
 # The docs of a version, downloaded once from its GitHub release over that runtime, and unpacked
 # from their gzipped tar into the user's cache; waos.app's latest where there is none.
 reqwest.workspace = true

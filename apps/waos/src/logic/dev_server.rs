@@ -2,7 +2,8 @@
 //! names, on a thread of the app's own with a runtime of its own, and a task per connection,
 //! each, once the hellos are exchanged, one request: an install or an uninstall
 //! (`dev_install`), a launch or a stop (`dev_launch`), an attach to what a launch writes
-//! (`dev_attach`), one opening of files with a program (`opening`), one screenshot of the windows
+//! (`dev_attach`), a call of a program's service extension or the list of
+//! the programs serving them (`dev_extensions`), one opening of files with a program (`opening`), one screenshot of the windows
 //! of a program running (`dev_screenshot`), one input to one of them (`dev_input`), a size for one
 //! of them (`dev_resize`), a program's settings read or one of them set (`dev_settings`), or an
 //! inspection of a program (`dev_inspect`). A connection of another protocol's major, or with a
@@ -22,6 +23,7 @@ use std::time::Duration;
 
 use super::asking_now::AskingNow;
 use super::dev_attach::{self, AttachContext};
+use super::dev_extensions;
 use super::dev_inspect::{self, InspectionContext};
 use super::dev_install::{self, InstallContext};
 use super::dev_launch::{self, LaunchContext};
@@ -293,6 +295,12 @@ async fn serve_connection(mut connection: Connection<ServerStream>, context: Con
                 asking: &context.asking,
             };
             dev_attach::serve(connection, &id, attach).await;
+        }
+        Ok(Some(Request::Extension { id, name, params })) => {
+            dev_extensions::call(connection, runs, &id, &name, params).await;
+        }
+        Ok(Some(Request::ServingPrograms)) => {
+            dev_extensions::serving(connection, runs, &context.store).await;
         }
         Ok(Some(Request::Open { id, files })) => {
             if let Some(answer) = dev_refusal::elsewhere(connection.locality(), &id) {

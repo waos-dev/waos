@@ -95,6 +95,18 @@ pub enum Request {
     /// Removes the installed program `id`, with its settings and its own folders, its run
     /// stopped first.
     Uninstall { id: ProgramId },
+    /// Calls the service extension `name` of the program `id` running, however it was started,
+    /// with `params`, each a name and a text value, as Flutter's service extensions take them:
+    /// answered with the extension's JSON, or why not.
+    Extension {
+        id: ProgramId,
+        name: String,
+        #[serde(default)]
+        params: Vec<(String, String)>,
+    },
+    /// The programs running that serve service extensions, for a development tool's list of what
+    /// it can call.
+    ServingPrograms,
     #[serde(skip)]
     Unknown,
 }
@@ -117,6 +129,8 @@ impl Request {
             Request::Attach { .. } => "attach",
             Request::Stop { .. } => "stop",
             Request::Uninstall { .. } => "uninstall",
+            Request::Extension { .. } => "extension",
+            Request::ServingPrograms => "serving-programs",
             Request::Unknown => "unknown",
         }
     }
@@ -269,6 +283,54 @@ pub enum StopAnswer {
 }
 
 adjacent_unknown!(StopAnswer);
+
+/// What a service extension answers: the answer's JSON text, as the program gave it, or why there
+/// is none, its kind keeping an unknown name (with the names served), parameters that do not fit
+/// and a failure apart.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(remote = "Self", tag = "kind", content = "data")]
+pub enum ExtensionAnswer {
+    Answered(String),
+    Refused(Refusal),
+    #[serde(skip)]
+    Unknown,
+}
+
+adjacent_unknown!(ExtensionAnswer);
+
+/// What a list of the programs serving service extensions answers: each of them, with the process
+/// id of the WaOS they run in, or why not.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(remote = "Self", tag = "kind", content = "data")]
+pub enum ServingProgramsAnswer {
+    Programs(ServingPrograms),
+    Refused(Refusal),
+    #[serde(skip)]
+    Unknown,
+}
+
+adjacent_unknown!(ServingProgramsAnswer);
+
+/// The programs running that serve service extensions, in the WaOS whose process is `pid`.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ServingPrograms {
+    /// The process id of the WaOS they run in.
+    #[serde(default)]
+    pub pid: u32,
+    #[serde(default)]
+    pub programs: Vec<ServingProgram>,
+}
+
+/// One program serving service extensions.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ServingProgram {
+    pub id: ProgramId,
+    /// The name its user sees, a development install's followed by " (Development)".
+    pub name: String,
+    /// Whether it runs now; a program is listed only while it does.
+    #[serde(default)]
+    pub running: bool,
+}
 
 /// What an uninstall answers: the program is gone, with its settings and its own folders, or why
 /// not.
@@ -482,8 +544,9 @@ adjacent_unknown!(OpenAnswer);
 /// An answer carrying only `Refused(Refusal)`, matching the shared `{"kind": "Refused", "data": ...}`
 /// shape of every request's answer enum (`ScreenshotAnswer`, `InputAnswer`, `ResizeAnswer`,
 /// `SettingsAnswer`, `InspectAnswer`, `OpenAnswer`, `InstallAnswer`, `LaunchAnswer`,
-/// `StopAnswer`, `UninstallAnswer`) as well as [`Upload::Refused`] and [`RunEvent::Refused`]. Used when WaOS reads [`Request::Unknown`] and cannot name a single
-/// request's answer enum.
+/// `StopAnswer`, `UninstallAnswer`, `ExtensionAnswer`, `ServingProgramsAnswer`) as well as
+/// [`Upload::Refused`] and [`RunEvent::Refused`]. Used when WaOS reads [`Request::Unknown`] and
+/// cannot name a single request's answer enum.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(tag = "kind", content = "data")]
 pub enum RefusedAnswer {
@@ -700,6 +763,12 @@ mod tests {
             Request::Uninstall {
                 id: id.development(),
             },
+            Request::Extension {
+                id: id.clone(),
+                name: "ext.waft.inspector.getRootWidget".into(),
+                params: vec![("objectGroup".into(), "tree".into())],
+            },
+            Request::ServingPrograms,
             Request::Screenshot {
                 id: id.clone(),
                 window: Some(WindowId(2)),
@@ -782,6 +851,23 @@ mod tests {
         cbor(LaunchAnswer::Launched);
         cbor(StopAnswer::Stopped);
         cbor(UninstallAnswer::Uninstalled);
+        cbor(ExtensionAnswer::Answered(
+            r#"{"type":"_extensionType"}"#.into(),
+        ));
+        cbor(ExtensionAnswer::Refused(Refusal::new(
+            RefusalKind::UnknownExtension {
+                registered: vec!["ext.waft.debugDumpApp".into()],
+            },
+            "no ext.waft.nothing",
+        )));
+        cbor(ServingProgramsAnswer::Programs(ServingPrograms {
+            pid: 4242,
+            programs: vec![ServingProgram {
+                id: "dev.example.notes.development".parse().unwrap(),
+                name: "Notes (Development)".into(),
+                running: true,
+            }],
+        }));
         cbor(RunEvent::Output {
             stream: OutputStream::Stderr,
             bytes: (0..=255).cycle().take(1000).collect(),
@@ -832,6 +918,11 @@ mod tests {
             assert_eq!(decode::<LaunchAnswer>(newer), LaunchAnswer::Unknown);
             assert_eq!(decode::<StopAnswer>(newer), StopAnswer::Unknown);
             assert_eq!(decode::<UninstallAnswer>(newer), UninstallAnswer::Unknown);
+            assert_eq!(decode::<ExtensionAnswer>(newer), ExtensionAnswer::Unknown);
+            assert_eq!(
+                decode::<ServingProgramsAnswer>(newer),
+                ServingProgramsAnswer::Unknown
+            );
             assert_eq!(decode::<RunEvent>(newer), RunEvent::Unknown);
             assert_eq!(decode::<OutputStream>(newer), OutputStream::Unknown);
             assert_eq!(decode::<RunEnd>(newer), RunEnd::Unknown);
@@ -1116,6 +1207,11 @@ mod tests {
         assert_eq!(encode(&LaunchAnswer::Refused(refusal.clone())), shared);
         assert_eq!(encode(&StopAnswer::Refused(refusal.clone())), shared);
         assert_eq!(encode(&UninstallAnswer::Refused(refusal.clone())), shared);
+        assert_eq!(encode(&ExtensionAnswer::Refused(refusal.clone())), shared);
+        assert_eq!(
+            encode(&ServingProgramsAnswer::Refused(refusal.clone())),
+            shared
+        );
         assert_eq!(encode(&RunEvent::Refused(refusal)), shared);
     }
 }

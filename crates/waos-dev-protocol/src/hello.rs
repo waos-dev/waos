@@ -19,7 +19,7 @@ use crate::messages::Request;
 pub const MAJOR: u32 = 3;
 
 /// Every request a WaOS serves, by [`Request::name`]: what its hello lists.
-pub const SERVED: [&str; 12] = [
+pub const SERVED: [&str; 14] = [
     "screenshot",
     "input",
     "resize",
@@ -32,6 +32,8 @@ pub const SERVED: [&str; 12] = [
     "attach",
     "stop",
     "uninstall",
+    "extension",
+    "serving-programs",
 ];
 
 /// Which half of the protocol sent a [`Hello`].
@@ -235,6 +237,12 @@ mod tests {
             Request::Uninstall {
                 id: id.development(),
             },
+            Request::Extension {
+                id: id.clone(),
+                name: "ext.waft.debugDumpApp".to_owned(),
+                params: Vec::new(),
+            },
+            Request::ServingPrograms,
         ];
         // Match exhaustively so adding a `Request` variant fails to compile here until `all` and
         // `SERVED` list it too.
@@ -252,6 +260,8 @@ mod tests {
                 | Request::Attach { .. }
                 | Request::Stop { .. }
                 | Request::Uninstall { .. }
+                | Request::Extension { .. }
+                | Request::ServingPrograms
                 | Request::Unknown => {}
             }
         }

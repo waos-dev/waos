@@ -62,10 +62,33 @@ pub async fn greeted(
     Ok(connection)
 }
 
-/// A connection to the WaOS running, never started.
-pub async fn connect() -> Result<Connection<ClientStream>> {
+/// What a request to the WaOS on this machine came to: its answer, or nobody answering.
+pub enum Unreached<A> {
+    Answered(A),
+    NobodyAnswers,
+}
+
+/// What the WaOS running answers `request`, its hello read and checked first; or that none
+/// answers, which for a list of what runs there is an answer of its own: nothing runs.
+pub async fn ask_if_answered<A: DeserializeOwned>(request: &Request) -> Result<Unreached<A>> {
     let socket = waos_dev_protocol::listener_path();
     match Connection::connect(&socket).await {
+        Ok(connection) => Ok(Unreached::Answered(answer(connection, request).await?)),
+        Err(error) if nobody_answers(&error) => Ok(Unreached::NobodyAnswers),
+        Err(error) => {
+            Err(error).with_context(|| format!("connecting to WaOS at {}", socket.display()))
+        }
+    }
+}
+
+/// A connection to the WaOS running, never started.
+pub async fn connect() -> Result<Connection<ClientStream>> {
+    connect_at(&waos_dev_protocol::listener_path()).await
+}
+
+/// A connection to the WaOS running at `socket`, never started.
+pub async fn connect_at(socket: &std::path::Path) -> Result<Connection<ClientStream>> {
+    match Connection::connect(socket).await {
         Ok(connection) => Ok(connection),
         Err(error) if nobody_answers(&error) => {
             bail!(
