@@ -4,8 +4,8 @@
 //! caller's thread, which compiles it unless the code cache holds its code; then started held in
 //! place of the one running, which is stopped first, as a later `waos launch` replaces a run, and
 //! kept among the runs as one the library opened,
-//! with its settings and folders and this computer's capabilities, its output going to WaOS's log
-//! and to an inspector that listens. Answered once it is linked, so the inspector can listen to it
+//! with its settings and folders and this computer's capabilities, its output going to WaOS's log,
+//! to an inspector that listens and to whoever attaches. Answered once it is linked, so the inspector can listen to it
 //! from its first instruction.
 //!
 //! The invariant: a program is started only by the id of one installed, so an inspector starts
@@ -64,7 +64,7 @@ impl HeldStarts {
         let program = tokio::task::spawn_blocking(move || engine.load(&component))
             .await??
             .named(id.as_str());
-        let environment = runs.environments.of(id)?;
+        let (environment, output) = runs.with_output(id, runs.environments.of(id)?);
         runs.places.set(id, runs.places.usual());
         let mut held = None;
         let run = runs
@@ -76,7 +76,7 @@ impl HeldStarts {
             })
             .await?;
         tracing::info!(%id, "started held for an inspector");
-        runs.runs.take_out_once_ended(run);
+        runs.take_out_once_ended(id, run, output);
         held.ok_or_else(|| anyhow::anyhow!("a run that started is held"))
     }
 }

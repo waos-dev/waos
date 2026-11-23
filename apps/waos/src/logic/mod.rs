@@ -82,7 +82,6 @@ pub(crate) mod image_values;
 pub(crate) mod inspected_programs;
 pub(crate) mod installed_code;
 pub(crate) mod installed_runs;
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(crate) mod launch_outputs;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(crate) mod launcher_placement;

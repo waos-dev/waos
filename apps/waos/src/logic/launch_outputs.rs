@@ -1,22 +1,27 @@
-//! What each program `waos launch` started writes, and how it ended, for `waos attach` (the
-//! design's decision 70): a launch's output goes to every attach's connection as the program
-//! writes it, with backpressure, so a program writing faster than the slowest attach reads waits,
-//! as on a pipe; while nobody is attached it is kept, its last [`KEPT_UNATTACHED`] bytes, and the
-//! next attach hears it first, so what a program writes between its launch and `waos run`'s attach,
-//! or a tool's whole output when it ends before anything attaches, is not lost. A launch that
-//! ended with nobody attached is kept until one attach hears how, or the next launch of its id.
+//! What each program running writes, and how it ended, for `waos attach` (the design's decision
+//! 70), whoever started it: a launch from `waos`, the library, the launcher, files opened with it,
+//! its app on macOS, or an inspector. A run's output goes to WaOS's log, as it always has, and to
+//! every attach's connection as the program writes it, with backpressure, so a program writing
+//! faster than the slowest attach reads waits, as on a pipe; while nobody is attached it is kept,
+//! its last [`KEPT_UNATTACHED`] bytes, and the next attach hears it first, so what a program writes
+//! between its launch and `waos run`'s attach, or a tool's whole output when it ends before
+//! anything attaches, is not lost. A run that ended with nobody attached is kept until one attach
+//! hears how, or the next run of its id.
 //!
 //! The invariants: every attach hears `Started` first, then what was kept, then what the program
 //! writes, in the order written, then `Ended` once; an attach that went away holds back no write;
-//! and a program never waits on output while nobody is attached.
+//! a program never waits on output while nobody is attached; and every byte written reaches the
+//! log, a line an event.
 
 mod frames;
+mod logged_lines;
 
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::task::{Context, Poll};
 
 pub(crate) use frames::Frames;
+use logged_lines::LoggedLines;
 use waos::{OutputStream, ProgramOutput};
 use waos_dev_protocol::{OutputStream as ProtocolStream, RunEnd, RunEvent};
 use waos_package::ProgramId;
@@ -25,15 +30,15 @@ use waos_package::ProgramId;
 /// first. Older output goes as newer comes.
 pub(crate) const KEPT_UNATTACHED: usize = 1 << 20;
 
-/// What one launch writes and how it ends, for the attaches to it; the engine writes the
+/// What one run writes and how it ends, for the log and the attaches to it; the engine writes the
 /// program's output here.
-#[derive(Default)]
 pub(crate) struct LaunchOutput {
     state: Mutex<OutputState>,
 }
 
-#[derive(Default)]
 struct OutputState {
+    /// The log's lines of what the program wrote.
+    logged: LoggedLines,
     /// What the program wrote while nobody was attached, oldest first.
     kept: VecDeque<(ProtocolStream, Vec<u8>)>,
     /// The bytes in `kept`, which [`KEPT_UNATTACHED`] bounds.
@@ -45,8 +50,17 @@ struct OutputState {
 }
 
 impl LaunchOutput {
-    pub(crate) fn new() -> Arc<LaunchOutput> {
-        Arc::default()
+    /// The output of the program that runs as `program`, which names its lines in the log.
+    pub(crate) fn new(program: &str) -> Arc<LaunchOutput> {
+        Arc::new(LaunchOutput {
+            state: Mutex::new(OutputState {
+                logged: LoggedLines::of(program),
+                kept: VecDeque::new(),
+                kept_bytes: 0,
+                attached: Vec::new(),
+                end: None,
+            }),
+        })
     }
 
     /// Attaches a queue that hears `Started`, what was kept, then what the program writes and how
@@ -73,6 +87,7 @@ impl LaunchOutput {
     /// heard it.
     pub(crate) fn ended(&self, end: RunEnd) -> bool {
         let mut state = self.lock();
+        state.logged.finish();
         let attached = std::mem::take(&mut state.attached);
         let mut heard = false;
         for frames in attached {
@@ -119,6 +134,7 @@ impl ProgramOutput for LaunchOutput {
         let mut state = self.lock();
         state.attached.retain(|frames| !frames.is_closed());
         if state.attached.is_empty() {
+            state.logged.wrote(stream, bytes);
             Self::keep(&mut state, stream, bytes);
             return Poll::Ready(bytes.len());
         }
@@ -134,6 +150,7 @@ impl ProgramOutput for LaunchOutput {
             return Poll::Pending;
         }
         let written = &bytes[..bytes.len().min(room)];
+        state.logged.wrote(stream, written);
         for frames in &state.attached {
             frames.push_output(stream, written);
         }
@@ -141,7 +158,7 @@ impl ProgramOutput for LaunchOutput {
     }
 }
 
-/// The output of each id's last launch, while it runs, and after it ended until one attach heard
+/// The output of each id's last run, while it runs, and after it ended until one attach heard
 /// how.
 #[derive(Default)]
 pub(crate) struct LaunchOutputs {
@@ -149,9 +166,9 @@ pub(crate) struct LaunchOutputs {
 }
 
 impl LaunchOutputs {
-    /// The output of a new launch of `id`, in place of the one before.
+    /// The output of a new run of `id`, in place of the one before.
     pub(crate) fn launched(&self, id: &ProgramId) -> Arc<LaunchOutput> {
-        let output = LaunchOutput::new();
+        let output = LaunchOutput::new(id.as_str());
         self.lock().insert(id.clone(), Arc::clone(&output));
         output
     }
@@ -161,8 +178,8 @@ impl LaunchOutputs {
         self.lock().get(id).cloned()
     }
 
-    /// Lets go of `output`, the launch of `id` whose end an attach heard, unless a later launch
-    /// took its place already.
+    /// Lets go of `output`, the run of `id` whose end an attach heard, unless a later run took
+    /// its place already.
     pub(crate) fn heard(&self, id: &ProgramId, output: &Arc<LaunchOutput>) {
         let mut launches = self.lock();
         if launches
@@ -207,7 +224,7 @@ mod tests {
 
     #[tokio::test]
     async fn an_attach_hears_what_was_written_before_it_then_what_follows_then_the_end() {
-        let launch = LaunchOutput::new();
+        let launch = LaunchOutput::new("dev.example.notes");
         assert_eq!(write(&launch, b"before\n").await, 7);
         let frames = launch.attach();
         write(&launch, b"after\n").await;
@@ -225,7 +242,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_launch_that_ended_unheard_tells_the_next_attach_what_it_wrote_and_how_it_ended() {
-        let launch = LaunchOutput::new();
+        let launch = LaunchOutput::new("dev.example.notes");
         write(&launch, b"all of it\n").await;
         assert!(
             !launch.ended(RunEnd::Returned { success: false }),
@@ -244,7 +261,7 @@ mod tests {
 
     #[tokio::test]
     async fn while_nobody_is_attached_only_the_last_of_the_output_is_kept_and_nothing_waits() {
-        let launch = LaunchOutput::new();
+        let launch = LaunchOutput::new("dev.example.notes");
         for _ in 0..3 {
             assert_eq!(
                 write(&launch, &vec![1; KEPT_UNATTACHED]).await,
@@ -266,7 +283,7 @@ mod tests {
 
     #[tokio::test]
     async fn an_attach_that_reads_nothing_holds_the_program_back_until_it_goes() {
-        let launch = LaunchOutput::new();
+        let launch = LaunchOutput::new("dev.example.notes");
         let frames = launch.attach();
         assert_eq!(frames.next().await, Some(RunEvent::Started));
         write(&launch, &vec![1; frames::OUTPUT_IN_FLIGHT]).await;
@@ -282,6 +299,53 @@ mod tests {
             .expect("the attach going lets the program go on")
             .unwrap();
         assert_eq!(accepted, 4);
+    }
+
+    /// What `tracing` writes while `work` runs on this thread, as text.
+    fn logged(work: impl FnOnce()) -> String {
+        #[derive(Clone, Default)]
+        struct Written(Arc<Mutex<Vec<u8>>>);
+        impl std::io::Write for Written {
+            fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+                self.0.lock().unwrap().extend_from_slice(bytes);
+                Ok(bytes.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        let written = Written::default();
+        let kept = written.clone();
+        let subscriber = tracing_subscriber::fmt()
+            .with_writer(move || kept.clone())
+            .with_ansi(false)
+            .finish();
+        tracing::subscriber::with_default(subscriber, work);
+        let bytes = written.0.lock().unwrap().clone();
+        String::from_utf8(bytes).unwrap()
+    }
+
+    #[test]
+    fn what_a_program_writes_reaches_the_log_a_line_an_event_attached_or_not() {
+        let log = logged(|| {
+            futures::executor::block_on(async {
+                let launch = LaunchOutput::new("dev.example.notes");
+                write(&launch, b"first li").await;
+                write(&launch, b"ne\nsecond").await;
+                let frames = launch.attach();
+                write(&launch, b" line\n").await;
+                poll_fn(|cx| launch.poll_write(OutputStream::Stderr, cx, b"unended")).await;
+                launch.ended(RunEnd::Stopped);
+                drop(frames);
+            });
+        });
+        let lines: Vec<&str> = log.lines().collect();
+        assert_eq!(lines.len(), 3, "{log}");
+        assert!(lines[0].contains("INFO program: first line "), "{log}");
+        assert!(lines[1].contains("INFO program: second line "), "{log}");
+        assert!(lines[2].contains("WARN program: unended "), "{log}");
+        let named = |line: &&str| line.contains("program=dev.example.notes");
+        assert!(lines.iter().all(named), "{log}");
     }
 
     #[test]

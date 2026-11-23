@@ -87,7 +87,7 @@ pub enum Request {
     Install(Install),
     /// Starts an installed program, in place of its run if it runs: see [`Launch`].
     Launch(Launch),
-    /// What the program `id`, started by a `Launch`, writes as it runs and how it ends, as
+    /// What the program `id` running writes and how it ends, however it was started, as
     /// [`RunEvent`]s; closing the connection detaches, and the program runs on.
     Attach { id: ProgramId },
     /// Stops the program `id` running, however it was started.
@@ -507,7 +507,7 @@ pub enum RunEvent {
     /// WaOS asks the program's user something now, and the program waits for the answer: a row
     /// on Ask, which `waos settings set` answers ahead next time.
     Asking(Asked),
-    /// Nothing to attach to, and why: the program does not run, or no launch started it.
+    /// Nothing to attach to, and why: the program does not run.
     Refused(Refusal),
     Ended(RunEnd),
     #[serde(skip)]

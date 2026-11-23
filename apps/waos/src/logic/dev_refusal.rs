@@ -1,6 +1,5 @@
 //! The refusals the dev server gives, each in words a person can act on, beside a kind an agent
-//! acts on: the program that does not run, is not installed, or was not launched, the window that
-//! is not there or is a tab in no window, the point outside it, the input that cannot be given, the component that does not load, and the opening a connection not
+//! acts on: the program that does not run or is not installed, the window that is not there or is a tab in no window, the point outside it, the input that cannot be given, the component that does not load, and the opening a connection not
 //! on this machine asks for, which only one here may have.
 
 use waos_dev_protocol::{Asked, Locality, OpenAnswer, Refusal, RefusalKind, WindowId};
@@ -21,16 +20,6 @@ pub(crate) fn not_installed(id: &ProgramId) -> Refusal {
     Refusal::new(
         RefusalKind::NotInstalled,
         format!("{id} is not installed: `waos install` installs a program from its source"),
-    )
-}
-
-/// `id` runs, but no launch started it, so its output goes to WaOS's log.
-pub(crate) fn not_launched(id: &ProgramId) -> Refusal {
-    Refusal::new(
-        RefusalKind::NotLaunched,
-        format!(
-            "{id} runs, opened from WaOS rather than launched, and what it writes goes to WaOS's log: `waos launch` starts it again to attach to"
-        ),
     )
 }
 
@@ -161,7 +150,6 @@ mod tests {
             no_window.message
         );
         assert!(not_installed(&notes()).message.contains("waos install"));
-        assert!(not_launched(&notes()).message.contains("waos launch"));
         assert_eq!(
             outside_window(&notes(), WindowId(1), 800, 600, 900.0, 700.0, 1.0).kind,
             RefusalKind::OutsideWindow {

@@ -178,10 +178,10 @@ enum Command {
     /// environment is passed; TMPDIR, which WaOS sets, wins over a variable of that name.
     /// Arguments after -- reach the program as its own arguments, as `cargo run --` passes them.
     Launch(LaunchArgs),
-    /// Writes what the program a launch started writes, here, as it writes it, each line after
-    /// the program's name, from what it wrote with nobody attached on, until it ends; the exit
-    /// status is 0 for a program that returned success and 1 otherwise. Ctrl-C detaches, and the
-    /// program runs on.
+    /// Writes what a program running writes, however it was started, here, as it writes it, each
+    /// line after the program's name, from what it wrote with nobody attached on, until it ends;
+    /// the exit status is 0 for a program that returned success and 1 otherwise. Ctrl-C detaches,
+    /// and the program runs on.
     ///
     /// Without an id, the program is this package's development install.
     Attach(Target),

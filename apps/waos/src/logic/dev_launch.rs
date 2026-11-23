@@ -11,16 +11,15 @@
 //! not started. A stop ends the program running, however it was started.
 //!
 //! The invariant: a launched run's end is told to its output, then the run is taken out of the
-//! runs, by a task of the server's runtime, so every attach hears how it ended and the runs never
-//! hold an ended program.
+//! runs, by a task of the server's runtime (`InstalledRuns::take_out_once_ended`), so every attach
+//! hears how it ended and the runs never hold an ended program.
 
 use std::sync::Arc;
-use std::time::Instant;
 
 use anyhow::Context as _;
 use tokio::io::{ReadHalf, WriteHalf};
 use tracing::Instrument;
-use waos::{ProgramEnvironment, ProgramOutput};
+use waos::ProgramEnvironment;
 use waos_dev_protocol::{
     Connection, Launch, LaunchAnswer, Refusal, RefusalKind, ServerStream, StopAnswer,
 };
@@ -29,16 +28,13 @@ use waos_store::Store;
 
 use super::dev_refusal;
 use super::installed_runs::InstalledRuns;
-use super::launch_outputs::{LaunchOutput, LaunchOutputs};
-use super::runs::{LaunchedRun, Runs};
+use super::runs::Runs;
 
 /// What launching and stopping need of the app.
 #[derive(Clone)]
 pub(crate) struct LaunchContext {
     pub(crate) installed: InstalledRuns,
     pub(crate) store: Store,
-    /// The output of each launch, for the attaches to it.
-    pub(crate) outputs: Arc<LaunchOutputs>,
 }
 
 /// Serves a connection's `Launch`: the program started, answered `Launched`, or why not, after
@@ -106,20 +102,19 @@ async fn start(
         .and_then(|loaded| loaded)
         .map_err(|error| dev_refusal::cannot_load(&id, &error))?
         .named(id.as_str());
-    let output = context.outputs.launched(&id);
+    let (environment, output) = installed.with_output(&id, environment);
     let environment = ProgramEnvironment {
-        output: Some(Arc::clone(&output) as Arc<dyn ProgramOutput>),
         variables,
         arguments,
         ..environment
     };
-    let launched = installed
+    let run = installed
         .runs
-        .launch(&id, || installed.engine.run(&program, environment))
+        .start_in_place(&id, || installed.engine.run(&program, environment))
         .await
         .map_err(|error| dev_refusal::cannot_load(&id, &error))?;
     tracing::info!("launched");
-    tell_its_end(&id, launched, output, context);
+    installed.take_out_once_ended(&id, run, output);
     Ok(())
 }
 
@@ -152,40 +147,6 @@ async fn closed(mut reading: Connection<ReadHalf<ServerStream>>) {
             Ok(None) | Err(_) => return,
         }
     }
-}
-
-/// Tells `output` how the launched run ends once it has, and takes it out of the runs, on a task
-/// of the runtime this runs on; lets go of the output once an attach heard the end.
-fn tell_its_end(
-    id: &ProgramId,
-    launched: LaunchedRun,
-    output: Arc<LaunchOutput>,
-    context: &LaunchContext,
-) {
-    let (runs, outputs) = (
-        Arc::clone(&context.installed.runs),
-        Arc::clone(&context.outputs),
-    );
-    let id = id.clone();
-    let started_at = Instant::now();
-    let span = tracing::info_span!("run", name = id.as_str());
-    tokio::spawn(
-        async move {
-            let program = &launched.run.program;
-            let end = program.ended().await;
-            tracing::info!(
-                ?end,
-                seconds = started_at.elapsed().as_secs_f64(),
-                frames_presented = program.stats().frames_presented(),
-                "ended"
-            );
-            if output.ended(launched.end(&end)) {
-                outputs.heard(&id, &output);
-            }
-            runs.ended(&launched.run).await;
-        }
-        .instrument(span),
-    );
 }
 
 /// Serves a connection's `Stop`: the program `id` ended, however it was started, or why not.

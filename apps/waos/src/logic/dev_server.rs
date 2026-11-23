@@ -28,7 +28,6 @@ use super::dev_launch::{self, LaunchContext};
 use super::dev_refusal;
 use super::dev_settings::{self, SettingsContext};
 use super::installed_runs::InstalledRuns;
-use super::launch_outputs::LaunchOutputs;
 use super::opening;
 use super::{dev_input, dev_resize, dev_screenshot};
 use tokio::sync::{oneshot, watch};
@@ -76,7 +75,6 @@ impl DevServer {
             store,
             asking,
             socket: socket.to_owned(),
-            outputs: Arc::default(),
             installing: Arc::default(),
             connections: Arc::new(connections_tx),
         };
@@ -131,8 +129,6 @@ struct ServerContext {
     /// What each program's user is asked now.
     asking: Arc<AskingNow>,
     socket: PathBuf,
-    /// The output of each launch, for the attaches to it.
-    outputs: Arc<LaunchOutputs>,
     /// Held by an install or uninstall, one at a time.
     installing: Arc<tokio::sync::Mutex<()>>,
     /// Number of currently open client connections.
@@ -220,7 +216,6 @@ struct ConnectionContext {
     installed: InstalledRuns,
     store: Store,
     asking: Arc<AskingNow>,
-    outputs: Arc<LaunchOutputs>,
     installing: Arc<tokio::sync::Mutex<()>>,
 }
 
@@ -229,7 +224,6 @@ fn connection_context(context: &ServerContext) -> ConnectionContext {
         installed: context.installed.clone(),
         store: context.store.clone(),
         asking: Arc::clone(&context.asking),
-        outputs: Arc::clone(&context.outputs),
         installing: Arc::clone(&context.installing),
     }
 }
@@ -247,7 +241,6 @@ impl ConnectionContext {
         LaunchContext {
             installed: self.installed.clone(),
             store: self.store.clone(),
-            outputs: Arc::clone(&self.outputs),
         }
     }
 
@@ -296,7 +289,7 @@ async fn serve_connection(mut connection: Connection<ServerStream>, context: Con
         Ok(Some(Request::Attach { id })) => {
             let attach = AttachContext {
                 runs,
-                outputs: &context.outputs,
+                outputs: &context.installed.outputs,
                 asking: &context.asking,
             };
             dev_attach::serve(connection, &id, attach).await;
@@ -640,7 +633,6 @@ pub(crate) mod tests {
                 installed: self.installed.clone(),
                 store: self.store.clone(),
                 asking: Arc::clone(&self.asking),
-                outputs: Arc::default(),
                 installing: Arc::default(),
             };
             tokio::spawn(serve_connection(
@@ -1054,7 +1046,7 @@ pub(crate) mod tests {
     }
 
     #[tokio::test]
-    async fn an_attach_to_a_program_the_library_opened_is_refused_not_launched() {
+    async fn an_attach_to_a_program_the_library_opened_hears_its_output_from_then_on() {
         let server = TestServer::start("attach-library");
         let packages = server.folder.join("packages");
         fs::create_dir_all(&packages).unwrap();
@@ -1078,10 +1070,21 @@ pub(crate) mod tests {
             .await
             .unwrap();
         let mut client = server.attach(&id).await;
-        let RunEvent::Refused(refusal) = next::<RunEvent>(&mut client).await else {
-            panic!("refused");
-        };
-        assert_eq!(refusal.kind, RefusalKind::NotLaunched);
+        started(&mut client).await;
+        let mut frames = Vec::new();
+        while !stdout_of(&frames).contains(FIRST_REPORTS) {
+            frames.push(next(&mut client).await);
+        }
+        assert!(
+            stdout_of(&frames).starts_with(FIRST_REPORTS),
+            "what it wrote before the attach first, as kept"
+        );
+        assert_eq!(
+            server.ask::<StopAnswer>(&Request::Stop { id }).await,
+            StopAnswer::Stopped
+        );
+        let frames = frames_until(&mut client, |frame| matches!(frame, RunEvent::Ended(_))).await;
+        assert_eq!(frames.last(), Some(&RunEvent::Ended(RunEnd::Stopped)));
     }
 
     #[tokio::test]

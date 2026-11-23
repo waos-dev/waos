@@ -1,6 +1,6 @@
-//! What `waos attach` asks (the design's decision 70): the output of the program `waos launch`
-//! started, `Started` first, then what it wrote with nobody attached, then what it writes as it
-//! writes it and how it ended (`launch_outputs`); or how its launch ended, where it ended with
+//! What `waos attach` asks (the design's decision 70): the output of any program running, however
+//! it was started, `Started` first, then what it wrote with nobody attached, then what it writes
+//! as it writes it and how it ended (`launch_outputs`); or how its run ended, where it ended with
 //! nobody attached. While attached, the program's windows count as in sight though other windows
 //! cover them (the design's decision 63), so a tool's screenshot and input meet windows that draw,
 //! and what WaOS asks the program's user, a row of its settings on Ask, is heard as `Asking`.
@@ -15,7 +15,7 @@ use std::sync::Arc;
 use tokio::io::{ReadHalf, WriteHalf};
 use tokio::sync::broadcast::{self, error::RecvError};
 use waos::Watching;
-use waos_dev_protocol::{Asked, Connection, Request, RunEvent, ServerStream};
+use waos_dev_protocol::{Asked, Connection, Refusal, RefusalKind, Request, RunEvent, ServerStream};
 use waos_package::ProgramId;
 
 use super::asking_now::AskingNow;
@@ -66,19 +66,22 @@ pub(crate) async fn serve(
     drop(watching);
 }
 
-/// The output of the launch of `id` to attach to, and the watch that keeps its windows in sight
-/// while it runs; or why there is none: it does not run, or runs from no launch.
+/// The output of the run of `id` to attach to, and the watch that keeps its windows in sight
+/// while it runs; or why there is none: it does not run, nor ended unheard.
 fn attached_to(
     id: &ProgramId,
     context: &AttachContext<'_>,
-) -> Result<(Arc<LaunchOutput>, Option<Watching>), waos_dev_protocol::Refusal> {
-    let launched = context.outputs.of(id);
-    match (context.runs.running_now(id), launched) {
+) -> Result<(Arc<LaunchOutput>, Option<Watching>), Refusal> {
+    let kept = context.outputs.of(id);
+    match (context.runs.running_now(id), kept) {
         (Some(program), Some(output)) if !output.has_ended() => {
             // Before the queue fills, so no window counts as covered while it is attached.
             Ok((output, Some(program.watch())))
         }
-        (Some(_), _) => Err(dev_refusal::not_launched(id)),
+        (Some(_), _) => Err(Refusal::new(
+            RefusalKind::Failed,
+            format!("{id} runs, but WaOS keeps no output of its run"),
+        )),
         (None, Some(output)) => Ok((output, None)),
         (None, None) => Err(dev_refusal::not_running(id)),
     }

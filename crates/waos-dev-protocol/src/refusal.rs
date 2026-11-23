@@ -44,9 +44,6 @@ pub enum RefusalKind {
     NotRunning,
     /// No program of the id is installed.
     NotInstalled,
-    /// The program runs, but no launch started it, as one opened from WaOS's library: its output
-    /// goes to WaOS's log, and nothing attaches to it.
-    NotLaunched,
     /// The program has no window `window`.
     NoWindow { window: WindowId },
     /// The point `x`, `y` is outside the window, which is `width` by `height` physical pixels at
