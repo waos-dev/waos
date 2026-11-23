@@ -14,7 +14,7 @@ use anyhow::{Context, Result};
 use sha2::{Digest, Sha256};
 use waos_package::{Index, ListedProgram, Manifest, ProgramKind};
 
-use crate::build::{self, Profile};
+use crate::build::{self, Features, Profile};
 use crate::metadata::WaosMetadata;
 use crate::{component_imports, icon_rule, signing_key, workspace};
 
@@ -29,8 +29,9 @@ pub struct PackagedProgram {
     pub index: PathBuf,
 }
 
-/// Packages `package`, or the package of this directory, and lists it in the index.
-pub fn package(name: Option<&str>) -> Result<PackagedProgram> {
+/// Packages `package`, or the package of this directory, built with `features`, and lists it in
+/// the index.
+pub fn package(name: Option<&str>, features: &Features) -> Result<PackagedProgram> {
     let metadata = workspace::metadata()?;
     let package = workspace::chosen_package(&metadata, name)?;
     let waos = WaosMetadata::of(package)?;
@@ -39,7 +40,7 @@ pub fn package(name: Option<&str>) -> Result<PackagedProgram> {
         .with_context(|| format!("the manifest of {}", package.name))?
         .with_kind(waos.kind);
     let key = signing_key::signing_key()?;
-    let built = build::build(&metadata, package, Profile::Release)?;
+    let built = build::build(&metadata, package, Profile::Release, features)?;
     warn_of_an_app_with_no_view(&manifest, &built.component)?;
     let folder = workspace::waos_folder(&metadata);
     let written = folder.join(format!("{}-{}.wapk", manifest.id(), manifest.version()));

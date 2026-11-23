@@ -52,7 +52,7 @@ use clap::{Args, CommandFactory, FromArgMatches, Parser, Subcommand};
 use waos_dev_protocol::{Input, Inspection, WindowId};
 use waos_package::{ProgramId, PublisherKey};
 
-use crate::build::{BuiltProgram, Profile};
+use crate::build::{BuiltProgram, Features, Profile};
 use crate::input::Pair;
 use crate::metadata::WaosMetadata;
 use crate::new::Template;
@@ -336,6 +336,8 @@ struct InspectTraceArgs {
 struct PackageArgs {
     #[command(flatten)]
     program: Program,
+    #[command(flatten)]
+    features: FeatureArgs,
     #[command(subcommand)]
     command: Option<PackageCommand>,
 }
@@ -461,6 +463,37 @@ struct BuildArgs {
     /// An optimized build.
     #[arg(long)]
     release: bool,
+    #[command(flatten)]
+    features: FeatureArgs,
+}
+
+/// Which of the program's features its build turns on, as cargo's flags of the same names do.
+#[derive(Args)]
+struct FeatureArgs {
+    /// Features to turn on, separated by commas or spaces, or repeated: --features online,update.
+    #[arg(short = 'F', long, value_name = "FEATURES", value_delimiter = ',')]
+    features: Vec<String>,
+    /// Every feature of the program's package.
+    #[arg(long)]
+    all_features: bool,
+    /// None of the package's default features, only those --features names.
+    #[arg(long)]
+    no_default_features: bool,
+}
+
+impl FeatureArgs {
+    fn features(&self) -> Features {
+        Features {
+            chosen: self
+                .features
+                .iter()
+                .flat_map(|named| named.split_whitespace())
+                .map(str::to_owned)
+                .collect(),
+            all: self.all_features,
+            without_default: self.no_default_features,
+        }
+    }
 }
 
 /// Which program, which build of it, and the variables its run adds.
@@ -596,7 +629,7 @@ fn dispatch(command: Command, starter: &dyn WaOSStarter) -> Result<ExitCode> {
         Command::Run(run) => build_and_run(&run, starter),
         Command::Package(args) => match args.command {
             Some(PackageCommand::Verify(verify)) => verify_package(&verify),
-            None => package(&args.program),
+            None => package(&args.program, &args.features),
         },
         Command::Ui(ui) => dispatch_ui(ui.command),
         Command::Settings(settings) => dispatch_settings(settings, starter),
@@ -725,7 +758,12 @@ fn build_and_run(args: &RunArgs, starter: &dyn WaOSStarter) -> Result<ExitCode> 
     let metadata = workspace::metadata()?;
     let package = workspace::chosen_package(&metadata, args.build.program.package.as_deref())?;
     let identity = WaosMetadata::run_identity_of(package)?;
-    let built = build::build(&metadata, package, args.build.profile())?;
+    let built = build::build(
+        &metadata,
+        package,
+        args.build.profile(),
+        &args.build.features.features(),
+    )?;
     on_this_thread(run::run(identity, &built, &args.env, &args.args, starter))
 }
 
@@ -775,9 +813,9 @@ fn on_this_thread<T>(work: impl Future<Output = Result<T>>) -> Result<T> {
     runtime.block_on(work)
 }
 
-/// Packages the program and says where its package is.
-fn package(program: &Program) -> Result<ExitCode> {
-    let packaged = package::package(program.package.as_deref())?;
+/// Packages the program, built with the features asked, and says where its package is.
+fn package(program: &Program, features: &FeatureArgs) -> Result<ExitCode> {
+    let packaged = package::package(program.package.as_deref(), &features.features())?;
     eprintln!("waos: listed in {}", packaged.index.display());
     println!("{}", packaged.package.display());
     Ok(ExitCode::SUCCESS)
@@ -824,7 +862,12 @@ fn install_skill(dir: Option<PathBuf>) -> Result<ExitCode> {
 fn build_chosen(args: &BuildArgs) -> Result<BuiltProgram> {
     let metadata = workspace::metadata()?;
     let package = workspace::chosen_package(&metadata, args.program.package.as_deref())?;
-    build::build(&metadata, package, args.profile())
+    build::build(
+        &metadata,
+        package,
+        args.profile(),
+        &args.features.features(),
+    )
 }
 
 #[cfg(test)]
@@ -1105,6 +1148,45 @@ mod tests {
         assert!(refused(&["skill", "install"]));
         assert!(refused(&["skill"]));
         assert!(refused(&["docs", "skill"]));
+    }
+
+    #[test]
+    fn build_run_and_package_take_cargos_feature_flags() {
+        let Command::Run(run) = parsed(&[
+            "run",
+            "--features",
+            "online,update",
+            "-F",
+            "extra more",
+            "--no-default-features",
+        ]) else {
+            panic!("run");
+        };
+        assert_eq!(
+            run.build.features.features(),
+            Features {
+                chosen: ["online", "update", "extra", "more"]
+                    .map(str::to_owned)
+                    .to_vec(),
+                all: false,
+                without_default: true,
+            }
+        );
+
+        let Command::Build(build) = parsed(&["build", "--all-features"]) else {
+            panic!("build");
+        };
+        assert!(build.features.features().all);
+
+        let Command::Package(package) = parsed(&["package", "--no-default-features"]) else {
+            panic!("package");
+        };
+        assert!(package.features.features().without_default);
+
+        let Command::Build(plain) = parsed(&["build"]) else {
+            panic!("plain build");
+        };
+        assert_eq!(plain.features.features(), Features::default());
     }
 
     #[test]
