@@ -1,8 +1,7 @@
 //! The app's own folders on this machine: where compiled programs are kept for the engine's code
-//! cache, where the components `waos` sends are kept while they run, and, on macOS, the apps
-//! of the programs run in development, all caches the system may clear and the next run makes
-//! again, the copies of the packages handed without a path while they are asked about, and the
-//! running programs' `/tmp`, each emptied when its program ends; WaOS's data folder, with the store in it, the programs installed and the sources added, which the user
+//! cache, a cache the system may clear and the next run makes again, the copies of the packages
+//! handed without a path while they are asked about, and the running programs' `/tmp`, each
+//! emptied when its program ends; WaOS's data folder, with the store in it, the programs installed and the sources added, which the user
 //! keeps; and, on macOS, where the installed programs' apps go, among the user's applications.
 //!
 //! The invariant: the caches are under the user's caches, beside each other, so clearing WaOS's
@@ -43,9 +42,6 @@ pub(crate) struct AppFolders {
     /// WaOS writes neither.
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     pub(crate) data: PathBuf,
-    /// The apps of the programs run in development, under the caches.
-    #[cfg(target_os = "macos")]
-    pub(crate) development_apps: PathBuf,
     /// The installed programs' apps, among the user's applications, as Chrome puts its web apps in
     /// `~/Applications/Chrome Apps`.
     #[cfg(target_os = "macos")]
@@ -75,7 +71,6 @@ pub(crate) fn app_folders() -> AppFolders {
         #[cfg(not(target_os = "ios"))]
         data: data_folder(),
         #[cfg(target_os = "macos")]
-        development_apps: caches.join("apps"),
         #[cfg(target_os = "macos")]
         installed_apps: home().join("Applications/WaOS Programs"),
     }

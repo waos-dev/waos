@@ -340,8 +340,6 @@ mod tests {
             start_menu: root.join("start-menu"),
             data: root.join("data"),
             #[cfg(target_os = "macos")]
-            development_apps: root.join("apps"),
-            #[cfg(target_os = "macos")]
             installed_apps: root.join("installed-apps"),
         }
     }

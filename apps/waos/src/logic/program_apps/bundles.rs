@@ -1,7 +1,7 @@
 //! Each program's app bundle as WaOS keeps it, as Chrome keeps its app shims: an installed
 //! program's in a folder of the user's applications, named after the program, with its package's
-//! name, version and icon; a program run in development's under WaOS's caches, named by its id,
-//! the id its only name. Each is written at install, or at the first launch that finds none,
+//! name, version and icon, a development install's as any other's, since every program that runs
+//! is installed (the design's decision 70). Each is written at install, or at the first launch that finds none,
 //! rewritten when the program is updated, and when WaOS's files it is made from are not those it
 //! was written from, as Chrome rewrites its shims when Chrome updates: the loader it carries a copy
 //! of, by its SHA-256, and the window library and the WaOS it names, by their paths
@@ -43,10 +43,8 @@ pub(crate) struct ProgramDescription {
     /// Its name as its user knows it.
     pub(crate) name: String,
     pub(crate) version: String,
-    /// Its package's icon; none for a program run in development.
+    /// Its icon, as its install keeps it; none for a development build that had none.
     pub(crate) icon: Option<PathBuf>,
-    /// Whether it is installed, rather than run in development.
-    pub(crate) installed: bool,
 }
 
 /// Where the bundles go.
@@ -54,8 +52,6 @@ pub(crate) struct ProgramDescription {
 pub(crate) struct BundleFolders {
     /// Installed programs': a folder of the user's applications.
     pub(crate) installed: PathBuf,
-    /// Programs run in development: a folder of WaOS's caches.
-    pub(crate) development: PathBuf,
 }
 
 /// What the record says of the code hash a program's bundle was signed with.
@@ -102,8 +98,6 @@ pub(crate) struct KeptBundle {
     code_hash_hmac: String,
     /// The program's version it was written for.
     version: String,
-    /// Whether it is an installed program's, rather than one run in development's.
-    installed: bool,
     /// What WaOS's files it was made from were ([`made_from`]); none for a bundle written before
     /// WaOS kept it, which is made again.
     #[serde(default)]
@@ -164,16 +158,6 @@ impl Bundles {
             .collect()
     }
 
-    /// The installed programs that have a bundle.
-    pub(crate) fn installed_programs(&self) -> Vec<ProgramId> {
-        self.record()
-            .apps
-            .iter()
-            .filter(|(_, kept)| kept.installed)
-            .filter_map(|(id, _)| id.parse().ok())
-            .collect()
-    }
-
     /// The bundle of `program`, as WaOS wrote it, at the version it is now, from WaOS's files as
     /// they are now; written now if there is none, or it is of another version, or made from
     /// other files.
@@ -182,7 +166,6 @@ impl Bundles {
         match kept {
             Some(kept)
                 if kept.version == program.version
-                    && kept.installed == program.installed
                     && kept.made_from == self.made_from
                     && kept.path.exists() =>
             {
@@ -211,7 +194,6 @@ impl Bundles {
             code_hash_hmac: hex::encode(self.hmac(&code_hash).finalize().into_bytes()),
             code_hash: hex::encode(code_hash),
             version: program.version.clone(),
-            installed: program.installed,
             made_from: self.made_from.clone(),
         };
         tracing::info!(program = %program.id, path = %kept.path.display(), "the program's app was written");
@@ -265,11 +247,8 @@ impl Bundles {
     }
 
     /// Where `program`'s bundle goes: named after it in the installed programs' folder, unless
-    /// another program's bundle has that name, when its id is added; by its id in development's.
+    /// another program's bundle has that name, when its id is added.
     fn place_of(&self, program: &ProgramDescription) -> PathBuf {
-        if !program.installed {
-            return self.folders.development.join(format!("{}.app", program.id));
-        }
         let named = self
             .folders
             .installed

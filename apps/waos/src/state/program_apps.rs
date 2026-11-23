@@ -94,7 +94,6 @@ mod macos {
         let apps_folders = AppsFolders {
             data: folders.data.clone(),
             installed: folders.installed_apps.clone(),
-            development: folders.development_apps.clone(),
         };
         let (canvases, canvas_calls) = CanvasesOnRequest::new();
         let (dialogs, dialog_reports) = mpsc::unbounded();

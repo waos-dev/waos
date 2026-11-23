@@ -11,7 +11,6 @@ fn bundles(folder: &Path, system: &str) -> Bundles {
 fn bundles_made_from(folder: &Path, system: &str, made_from: &str) -> Bundles {
     let folders = BundleFolders {
         installed: folder.join("Applications/WaOS Programs"),
-        development: folder.join("Caches/apps"),
     };
     let waos = WaosFiles {
         loader: folder.join("waos-program-loader"),
@@ -34,7 +33,6 @@ fn installed(id: &str, name: &str) -> ProgramDescription {
         name: name.to_owned(),
         version: "1.0.0".to_owned(),
         icon: None,
-        installed: true,
     }
 }
 
@@ -52,7 +50,6 @@ fn record(bundles: &Bundles, program: &ProgramDescription, path: PathBuf) {
                     code_hash: "00ff".to_owned(),
                     code_hash_hmac,
                     version: program.version.clone(),
-                    installed: program.installed,
                     made_from: bundles.made_from.clone(),
                 },
             );
@@ -61,7 +58,7 @@ fn record(bundles: &Bundles, program: &ProgramDescription, path: PathBuf) {
 }
 
 #[test]
-fn an_installed_programs_app_is_named_after_it_and_a_development_runs_by_its_id() {
+fn an_installed_programs_app_is_named_after_it_a_development_installs_as_any() {
     let folder = tempfile::tempdir().unwrap();
     let bundles = bundles(folder.path(), "27.0.1");
     let notes = installed("dev.example.notes", "Notes");
@@ -69,13 +66,12 @@ fn an_installed_programs_app_is_named_after_it_and_a_development_runs_by_its_id(
         bundles.place_of(&notes),
         folder.path().join("Applications/WaOS Programs/Notes.app")
     );
-    let development = ProgramDescription {
-        installed: false,
-        ..notes
-    };
+    let development = installed("dev.example.notes.development", "Notes (Development)");
     assert_eq!(
         bundles.place_of(&development),
-        folder.path().join("Caches/apps/dev.example.notes.app")
+        folder
+            .path()
+            .join("Applications/WaOS Programs/Notes (Development).app")
     );
 }
 
@@ -113,10 +109,6 @@ fn the_record_outlives_waos_and_says_the_hash_each_bundle_was_signed_with() {
         KeptCodeHash::Signed(vec![0x00, 0xff])
     );
     assert_eq!(reopened.programs(), std::slice::from_ref(&notes.id));
-    assert_eq!(
-        reopened.installed_programs(),
-        std::slice::from_ref(&notes.id)
-    );
     assert!(!reopened.signed_on_another_system());
     assert_eq!(
         reopened.code_hash(&"dev.example.other".parse().unwrap()),
