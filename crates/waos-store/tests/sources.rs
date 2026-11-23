@@ -233,21 +233,17 @@ async fn an_update_from_a_source_never_touches_a_development_install() {
         .unwrap();
     let development = "dev.example.triangle.development";
     let update = write_package(scratch.path(), TRIANGLE, "2.0.0", &key);
-    let posing = write_package(scratch.path(), development, "2.0.0", &key);
-    let (update_listed, posing_listed) = (
-        listing(&update, TRIANGLE, "2.0.0"),
-        listing(&posing, development, "2.0.0"),
-    );
-    let server = Server::serve(vec![
-        (
-            update_listed.package.clone(),
-            std::fs::read(&update).unwrap(),
-        ),
-        (
-            posing_listed.package.clone(),
-            std::fs::read(&posing).unwrap(),
-        ),
-    ])
+    let update_listed = listing(&update, TRIANGLE, "2.0.0");
+    // A listing of the development id, as a source could list one: no package of it can be made,
+    // so whatever it names is refused before it is downloaded.
+    let posing_listed = waos_package::ListedProgram {
+        id: development.parse().unwrap(),
+        ..update_listed.clone()
+    };
+    let server = Server::serve(vec![(
+        update_listed.package.clone(),
+        std::fs::read(&update).unwrap(),
+    )])
     .await;
     let source = source(&server.url("index.json"));
 
@@ -256,7 +252,13 @@ async fn an_update_from_a_source_never_touches_a_development_install() {
         .install_from(&source, &posing_listed)
         .await
         .unwrap_err();
-    assert!(matches!(error, InstallError::Development(_)), "{error}");
+    assert!(
+        matches!(
+            error,
+            InstallError::Package(waos_package::PackageError::DevelopmentId(_))
+        ),
+        "{error}"
+    );
 
     let installed: Vec<(String, String, bool)> = store
         .installed()

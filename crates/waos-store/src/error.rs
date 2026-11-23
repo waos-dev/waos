@@ -86,12 +86,7 @@ pub enum InstallError {
     /// A source's package is not the program at the version the source lists it as: each as
     /// its id and version, `dev.example.triangle 1.2.0`.
     NotAsListed { listed: String, package: String },
-    /// The id is a development install's, made from the program's source by `waos install`,
-    /// which no package replaces.
-    Development(ProgramId),
-    /// The development id is a program installed from a package, which no development install
-    /// replaces.
-    Published(ProgramId),
+
     /// The package could not be downloaded from its source.
     Download(SourceError),
     /// The store's own files could not be read or written.
@@ -123,14 +118,7 @@ impl fmt::Display for InstallError {
             InstallError::NotAsListed { listed, package } => {
                 write!(f, "the source lists {listed}, but its package is {package}")
             }
-            InstallError::Development(id) => write!(
-                f,
-                "{id} is installed from its source with `waos install`, and no package replaces it"
-            ),
-            InstallError::Published(id) => write!(
-                f,
-                "{id} is installed from a package, so a development install does not replace it"
-            ),
+
             InstallError::Download(error) => write!(f, "{error}"),
             InstallError::Store(error) => write!(f, "{error}"),
         }

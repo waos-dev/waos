@@ -8,7 +8,7 @@ use zip::result::ZipError;
 
 use crate::entries::{COMPONENT, ICON, MANIFEST, PUBLISHER_KEY, SIGNATURE, SIGNATURE_LENGTH};
 use crate::icon::MINIMUM_SIDE;
-use crate::{KeyError, ManifestError};
+use crate::{DEVELOPMENT_SUFFIX, KeyError, ManifestError, ProgramId};
 
 /// Why a package could not be opened, unpacked or written, in words the person installing or
 /// making it can act on.
@@ -54,6 +54,9 @@ pub enum PackageError {
     IconTooSmall {
         side: u32,
     },
+    /// The id ends in `.development`, which names the development install of the program of the
+    /// id before it, made from its source, and which no package may take.
+    DevelopmentId(ProgramId),
 }
 
 impl PackageError {
@@ -123,6 +126,10 @@ impl fmt::Display for PackageError {
             PackageError::IconTooSmall { side } => write!(
                 f,
                 "{ICON} is {side}×{side} pixels; an icon is at least {MINIMUM_SIDE} pixels on a side"
+            ),
+            PackageError::DevelopmentId(id) => write!(
+                f,
+                "the id {id} ends in {DEVELOPMENT_SUFFIX}, which names a program's development install, made from its source by `waos install`; a package takes the program's own id"
             ),
         }
     }

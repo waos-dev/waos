@@ -18,8 +18,8 @@ use crate::{Manifest, PackageError, SigningKey};
 /// Writes the package at `path`, replacing what is there: `manifest`, the component in the file
 /// `program`, streamed, and the icon in the file `icon`, then the publisher key of `key` and the
 /// signature `key` makes over the three, every entry deflated. Refuses what
-/// [`Package::open`](crate::Package::open) would: an icon that is not a square PNG of at least
-/// 256 pixels, and an entry over its cap.
+/// [`Package::open`](crate::Package::open) would: an id ending in `.development`, a development
+/// install's, an icon that is not a square PNG of at least 256 pixels, and an entry over its cap.
 pub fn write(
     path: &Path,
     manifest: &Manifest,
@@ -27,6 +27,7 @@ pub fn write(
     icon: &Path,
     key: &SigningKey,
 ) -> Result<(), PackageError> {
+    manifest.check_published()?;
     let manifest_text = manifest_text(manifest)?;
     let icon_png = read_icon(icon)?;
     let component = File::open(program).map_err(PackageError::io_at(program))?;
@@ -156,6 +157,25 @@ mod tests {
             ),
             "{error}"
         );
+    }
+
+    #[test]
+    fn a_development_installs_id_is_not_written() {
+        let scratch = tempfile::tempdir().unwrap();
+        let component = write_file(scratch.path(), "program.wasm", &component_bytes());
+        let icon = write_file(scratch.path(), "icon.png", &png_header(1024, 1024));
+        let path = scratch.path().join("program.wapk");
+        let manifest = Manifest::new(
+            "dev.example.triangle.development".parse().unwrap(),
+            "Triangle",
+            "0.1.0".parse().unwrap(),
+        )
+        .unwrap();
+        let error =
+            write(&path, &manifest, &component, &icon, &SigningKey::generate()).unwrap_err();
+        assert!(matches!(error, PackageError::DevelopmentId(_)), "{error}");
+        assert!(error.to_string().contains("waos install"), "{error}");
+        assert!(!path.exists());
     }
 
     #[test]

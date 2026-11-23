@@ -28,6 +28,12 @@ impl ProgramId {
     pub fn development(&self) -> ProgramId {
         ProgramId(format!("{}{DEVELOPMENT_SUFFIX}", self.0))
     }
+
+    /// Whether this is a development install's id, ending in [`DEVELOPMENT_SUFFIX`]: one no
+    /// package may take.
+    pub fn is_development(&self) -> bool {
+        self.0.ends_with(DEVELOPMENT_SUFFIX)
+    }
 }
 
 impl FromStr for ProgramId {
@@ -144,7 +150,11 @@ mod tests {
         let notes: ProgramId = "dev.example.notes".parse().unwrap();
         let development = notes.development();
         assert_eq!(development.as_str(), "dev.example.notes.development");
-        assert_eq!(development.as_str().parse::<ProgramId>(), Ok(development));
+        assert_eq!(
+            development.as_str().parse::<ProgramId>(),
+            Ok(development.clone())
+        );
+        assert!(development.is_development() && !notes.is_development());
     }
 
     #[test]

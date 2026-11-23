@@ -1,7 +1,7 @@
 //! Development installs: a program built from its source installed under its development id, a
 //! program of its own beside the one published under the plain id, with its own folders and
-//! settings, which an install again replaces the component of and keeps, and which no package
-//! replaces, nor it a package.
+//! settings, which an install again replaces the component of and keeps, and whose id no package
+//! takes.
 
 mod support;
 
@@ -10,8 +10,8 @@ use std::path::Path;
 
 use sha2::{Digest, Sha256};
 use support::write_package;
-use waos_package::{Manifest, Package, ProgramId, SigningKey};
-use waos_store::{DevelopmentBuild, InstallError, Setting, SourceProxy, Store};
+use waos_package::{Manifest, Package, PackageError, ProgramId, SigningKey};
+use waos_store::{DevelopmentBuild, Setting, SourceProxy, Store};
 
 const TRIANGLE: &str = "dev.example.triangle";
 
@@ -114,32 +114,26 @@ fn installing_again_replaces_the_component_and_keeps_its_data_and_settings() {
 }
 
 #[test]
-fn no_package_replaces_a_development_install_nor_a_development_build_a_package() {
+fn no_package_takes_a_development_installs_id() {
     let scratch = tempfile::tempdir().unwrap();
-    let store = store(scratch.path());
-    let source = manifest("0.1.0");
-    store
-        .install_development(&build(&source, b"\0asm from source"))
-        .unwrap();
-    let development = "dev.example.triangle.development";
-    let key = SigningKey::generate();
-    let package = write_package(scratch.path(), development, "9.0.0", &key);
-    let error = store.install(Package::open(&package).unwrap()).unwrap_err();
-    assert!(matches!(error, InstallError::Development(_)), "{error}");
-    assert!(store.installed()[0].is_development());
-
-    let other = tempfile::tempdir().unwrap();
-    let published = Store::open(&other.path().join("store"), SourceProxy::None).unwrap();
-    published.install(Package::open(&package).unwrap()).unwrap();
-    let error = published
-        .install_development(&build(&source, b"\0asm from source"))
-        .unwrap_err();
-    assert!(matches!(error, InstallError::Published(_)), "{error}");
-    assert_eq!(
-        published.installed()[0].publisher(),
-        Some(key.publisher()),
-        "the package's install stays"
-    );
+    let manifest = Manifest::new(
+        "dev.example.triangle.development".parse().unwrap(),
+        "Triangle",
+        "9.0.0".parse().unwrap(),
+    )
+    .unwrap();
+    let component = scratch.path().join("program.wasm");
+    fs::write(&component, b"\0asm").unwrap();
+    let path = scratch.path().join("posing.wapk");
+    let error = waos_package::write(
+        &path,
+        &manifest,
+        &component,
+        &component,
+        &SigningKey::generate(),
+    )
+    .unwrap_err();
+    assert!(matches!(error, PackageError::DevelopmentId(_)), "{error}");
 }
 
 #[tokio::test]

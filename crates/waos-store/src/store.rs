@@ -4,8 +4,8 @@
 //! The invariant a later editor will break: every change to the directory happens under one lock,
 //! so two installs of one program, or two edits of the sources, never interleave; a package
 //! replaces an installed program only when it is signed with the same key and is newer; and a
-//! development build is installed only under its program's development id, never over a package's
-//! install, nor a package over it.
+//! development build is installed only under its program's development id, which no package takes
+//! (`waos-package` refuses one, and a source's listing of one is refused before its download).
 
 use std::cmp::Ordering;
 use std::fs;
@@ -15,7 +15,7 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use tokio::sync::watch;
 use waos_capabilities::{ChangedFuture, ProgramFolders, ProgramGrants};
 use waos_package::{
-    COMPONENT, ICON, Index, ListedProgram, Manifest, Package, ProgramId, PublisherKey,
+    COMPONENT, ICON, Index, ListedProgram, Manifest, Package, PackageError, ProgramId, PublisherKey,
 };
 
 use crate::grants::{Settings, StoreGrants};
@@ -202,8 +202,8 @@ impl Store {
     /// Installs `build` as its program's development install, under the development id
     /// (`dev.example.notes.development`), a program of its own beside one installed under the
     /// plain id: new, or in place of the development build installed before, whatever its
-    /// version, keeping its settings and its own folders. An id a package's install holds is
-    /// refused, and that program stays as it was.
+    /// version, keeping its settings and its own folders. No package holds a development id,
+    /// which `waos-package` refuses.
     pub fn install_development(
         &self,
         build: &DevelopmentBuild<'_>,
@@ -211,11 +211,6 @@ impl Store {
         let _changing = self.lock_changes();
         let manifest = build.installed_manifest();
         let folder = self.program_folder(manifest.id());
-        if let Some(installed) = programs::read_installed(&folder)?
-            && !installed.is_development()
-        {
-            return Err(InstallError::Published(manifest.id().clone()));
-        }
         programs::put_in_place(&folder, manifest.version(), |unpacked| {
             Ok(programs::unpack_development(
                 unpacked,
@@ -277,13 +272,17 @@ impl Store {
     }
 
     /// Downloads `program` as `source` lists it to a temporary file, and refuses it unless its
-    /// SHA-256 is the one listed, before anything opens it. Nothing installed changes: a caller
+    /// SHA-256 is the one listed, before anything opens it; a listing of a development install's
+    /// id, which no package may take, is refused before anything is downloaded. Nothing installed changes: a caller
     /// may end what runs of the program between this and its install.
     pub async fn download(
         &self,
         source: &Source,
         program: &ListedProgram,
     ) -> Result<Download, InstallError> {
+        if program.id.is_development() {
+            return Err(PackageError::DevelopmentId(program.id.clone()).into());
+        }
         let url = source.package_url(&program.package)?;
         let file = fetch::download(&self.http, &url, &program.sha256).await?;
         Ok(Download {
@@ -573,11 +572,11 @@ impl Store {
 }
 
 /// Refuses `package` as an update of `installed` unless it is signed with the same key and is
-/// newer, and always over a development install, which no package updates.
+/// newer; a development install, which no package takes the id of, is no package's to update.
 fn check_update(installed: &InstalledProgram, package: &Package) -> Result<(), InstallError> {
     let id = package.manifest().id();
     let Some(publisher) = installed.publisher() else {
-        return Err(InstallError::Development(id.clone()));
+        return Err(PackageError::DevelopmentId(id.clone()).into());
     };
     if *package.publisher() != publisher {
         return Err(InstallError::DifferentPublisher {

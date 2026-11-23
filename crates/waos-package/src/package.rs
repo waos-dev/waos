@@ -36,7 +36,8 @@ pub struct Package {
 
 impl Package {
     /// Opens the package at `path`: verifies its signature with its publisher's key, then reads
-    /// and checks its manifest and icon. The component is read through once, for its SHA-256,
+    /// and checks its manifest, which no development install's id ending in `.development` passes,
+    /// and its icon. The component is read through once, for its SHA-256,
     /// and left compressed.
     pub fn open(path: &Path) -> Result<Package, PackageError> {
         let mut archive = open_archive(path)?;
@@ -45,6 +46,7 @@ impl Package {
         let manifest_text =
             String::from_utf8(signed.manifest).map_err(|_| PackageError::ManifestNotUtf8)?;
         let manifest = Manifest::from_toml(&manifest_text)?;
+        manifest.check_published()?;
         check_icon(&signed.icon)?;
         Ok(Package {
             path: path.to_path_buf(),
@@ -275,6 +277,19 @@ mod tests {
                 "{error}"
             );
         }
+    }
+
+    #[test]
+    fn a_package_signed_under_a_development_installs_id_is_refused() {
+        let scratch = tempfile::tempdir().unwrap();
+        let reserved =
+            TRIANGLE_MANIFEST.replace("dev.example.triangle", "dev.example.triangle.development");
+        let entries = signed(
+            with_entry(&triangle_entries(), MANIFEST, reserved.as_bytes()),
+            &SigningKey::generate(),
+        );
+        let error = Package::open(&zip_of(scratch.path(), &entries)).unwrap_err();
+        assert!(matches!(error, PackageError::DevelopmentId(_)), "{error}");
     }
 
     #[test]
