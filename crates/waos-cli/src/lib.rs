@@ -173,7 +173,7 @@ enum Command {
     /// in place of its run if it runs, and returns once it runs: the program runs on until it
     /// ends or `waos stop` stops it, and `waos attach` reads what it writes.
     ///
-    /// Without an id, the program is this package's development install. Each --env NAME=VALUE
+    /// Without --id, the program is this package's development install. Each --env NAME=VALUE
     /// adds a variable the program reads in this launch alone, and nothing of this shell's
     /// environment is passed; TMPDIR, which WaOS sets, wins over a variable of that name.
     /// Arguments after -- reach the program as its own arguments, as `cargo run --` passes them.
@@ -183,13 +183,13 @@ enum Command {
     /// the exit status is 0 for a program that returned success and 1 otherwise. Ctrl-C detaches,
     /// and the program runs on.
     ///
-    /// Without an id, the program is this package's development install.
+    /// Without --id, the program is this package's development install.
     Attach(Target),
-    /// Stops the program running, however it was started. Without an id, the program is this
+    /// Stops the program running, however it was started. Without --id, the program is this
     /// package's development install.
     Stop(Target),
     /// Uninstalls a program, with its settings and its data, its run stopped first, starting
-    /// WaOS when none answers. Without an id, the program is this package's development install,
+    /// WaOS when none answers. Without --id, the program is this package's development install,
     /// and the program published under the plain id stays.
     Uninstall(Target),
     /// Builds the program, installs it as its development install, launches it and attaches to
@@ -214,7 +214,8 @@ enum Command {
     /// `waos package verify <file>` verifies a package instead, as WaOS opens it.
     Package(PackageArgs),
     /// Drives and captures a running program's windows: screenshot, resize, tap, press, drag,
-    /// type, key, and scroll.
+    /// type, key, and scroll. Each reaches this package's development install, or, with --id, any
+    /// program running, however it was installed or started.
     Ui(UiArgs),
     /// Reads or changes a program's settings (`list` by default, or `set <row> <value>`).
     ///
@@ -319,7 +320,7 @@ enum UiCommand {
 #[derive(Args)]
 struct SettingsArgs {
     #[command(flatten)]
-    program: Program,
+    target: Target,
     #[command(subcommand)]
     command: Option<SettingsCommand>,
 }
@@ -327,7 +328,7 @@ struct SettingsArgs {
 #[derive(Subcommand)]
 enum SettingsCommand {
     /// Prints the program's settings, one row each (the default when no subcommand is given).
-    List(Program),
+    List(Target),
     /// Sets one row of the program's settings, as its user would on its settings page in WaOS,
     /// and prints the rows after it. A row on ask is asked of the user when the program asks;
     /// one set is answered without asking, every run, installed or not.
@@ -348,7 +349,7 @@ enum SettingsCommand {
 #[derive(Args)]
 struct InspectArgs {
     #[command(flatten)]
-    program: Program,
+    target: Target,
     #[command(subcommand)]
     command: InspectCommand,
 }
@@ -359,7 +360,7 @@ enum InspectCommand {
     Summary(InspectSummaryArgs),
     /// Streams what the program uses now, each use that lasts and each open file, until Ctrl-C or
     /// the program's end.
-    ActiveUses(Program),
+    ActiveUses(Target),
     /// Streams live events for the named capabilities (network, files, clipboard, camera,
     /// microphone, machines, permissions, links, notifications, output, or `all`).
     Trace(InspectTraceArgs),
@@ -368,7 +369,7 @@ enum InspectCommand {
 #[derive(Args)]
 struct InspectSummaryArgs {
     #[command(flatten)]
-    program: Program,
+    target: Target,
     /// How many of the summary's days, newest first.
     #[arg(long, default_value_t = 7)]
     days: u32,
@@ -377,7 +378,7 @@ struct InspectSummaryArgs {
 #[derive(Args)]
 struct InspectTraceArgs {
     #[command(flatten)]
-    program: Program,
+    target: Target,
     /// Capabilities to trace (`all` when omitted, or any of network, files, clipboard, camera,
     /// microphone, machines, permissions, links, notifications, output).
     #[arg(value_name = "CAPABILITY")]
@@ -459,7 +460,7 @@ enum SkillCommand {
 #[derive(Args)]
 struct ScreenshotArgs {
     #[command(flatten)]
-    program: Program,
+    target: Target,
     /// The window to take a picture of alone, by its id as the pictures list them; every window
     /// without it. With --out a file, this window's picture is the one written, or the first
     /// window's without it.
@@ -474,7 +475,7 @@ struct ScreenshotArgs {
 #[derive(Args)]
 struct SetArgs {
     #[command(flatten)]
-    program: Program,
+    target: Target,
     /// The row, then its value: `camera allow`, `save-file /tmp/out.pdf`, `machine ask`. A path is
     /// made whole against this directory, with `.` and `..` resolved as written.
     #[arg(required = true, num_args = 2..)]
@@ -500,23 +501,28 @@ struct Program {
     package: Option<String>,
 }
 
-impl Program {
-    fn or(self, fallback: &Program) -> Program {
-        Program {
-            package: self.package.or_else(|| fallback.package.clone()),
-        }
-    }
-}
-
-/// Which program a command reaches: the one its id names, or this package's development install.
+/// Which program a command reaches: the one `--id` names, however it was installed or started,
+/// or this package's development install.
 #[derive(Args, Clone, Default)]
 struct Target {
-    /// The program's id: dev.example.notes, or a development install's,
-    /// dev.example.notes.development. Without it, this package's development install.
-    #[arg(value_name = "ID", conflicts_with = "package")]
+    /// The program's id, any program's: dev.example.notes, as published, or
+    /// dev.example.notes.development, a development install's. Without it, this package's
+    /// development install.
+    #[arg(long, value_name = "ID", conflicts_with = "package")]
     id: Option<ProgramId>,
     #[command(flatten)]
     program: Program,
+}
+
+impl Target {
+    /// This target, or `fallback` where this one names nothing, as a subcommand's options fall
+    /// back on its command's.
+    fn or(self, fallback: &Target) -> Target {
+        match (&self.id, &self.program.package) {
+            (None, None) => fallback.clone(),
+            _ => self,
+        }
+    }
 }
 
 /// Which program a launch starts, and the variables and arguments it gives it.
@@ -594,7 +600,7 @@ struct RunArgs {
 #[derive(Args)]
 struct WindowArgs {
     #[command(flatten)]
-    program: Program,
+    target: Target,
     /// The window's id, as `ui screenshot` lists it: its picture is in pixels, as the
     /// screenshot's, and its logical points are those divided by its scale. Without it, acts on
     /// the program's first open window.
@@ -784,27 +790,25 @@ fn dispatch_ui(command: UiCommand) -> Result<ExitCode> {
 
 fn dispatch_settings(args: SettingsArgs, starter: &dyn WaOSStarter) -> Result<ExitCode> {
     match args.command {
-        None => {
-            program_id(&args.program).and_then(|id| on_this_thread(settings::show(id, starter)))
-        }
-        Some(SettingsCommand::List(program)) => {
-            let program = program.or(&args.program);
-            program_id(&program).and_then(|id| on_this_thread(settings::show(id, starter)))
+        None => target_id(&args.target).and_then(|id| on_this_thread(settings::show(id, starter))),
+        Some(SettingsCommand::List(target)) => {
+            let target = target.or(&args.target);
+            target_id(&target).and_then(|id| on_this_thread(settings::show(id, starter)))
         }
         Some(SettingsCommand::Set(set)) => {
-            let program = set.program.or(&args.program);
-            program_id(&program).and_then(|id| on_this_thread(settings::set(id, &set.row, starter)))
+            let target = set.target.clone().or(&args.target);
+            target_id(&target).and_then(|id| on_this_thread(settings::set(id, &set.row, starter)))
         }
     }
 }
 
 fn dispatch_inspect(args: InspectArgs) -> Result<ExitCode> {
-    let (program, asked) = match args.command {
+    let (target, asked) = match args.command {
         InspectCommand::Summary(summary) => (
-            summary.program.or(&args.program),
+            summary.target.or(&args.target),
             Inspection::Summary { days: summary.days },
         ),
-        InspectCommand::ActiveUses(program) => (program.or(&args.program), Inspection::ActiveUses),
+        InspectCommand::ActiveUses(target) => (target.or(&args.target), Inspection::ActiveUses),
         InspectCommand::Trace(trace) => {
             let words = if trace.capabilities.is_empty() {
                 vec!["all".to_owned()]
@@ -812,10 +816,10 @@ fn dispatch_inspect(args: InspectArgs) -> Result<ExitCode> {
                 trace.capabilities
             };
             let asked = inspect::inspection_of(&words, 7)?;
-            (trace.program.or(&args.program), asked)
+            (trace.target.or(&args.target), asked)
         }
     };
-    let id = program_id(&program)?;
+    let id = target_id(&target)?;
     on_this_thread(inspect::inspect(id, asked))
 }
 
@@ -907,15 +911,11 @@ fn install_build(
     })
 }
 
-/// Writes the pictures of the program's windows under target/waos/screenshots/<package>, or where
-/// --out asks, as the WaOS running it answers.
+/// Writes the pictures of the program's windows under target/waos/screenshots/<package>, or
+/// <id> for one --id names, or where --out asks, as the WaOS running it answers.
 fn screenshot(args: &ScreenshotArgs) -> Result<ExitCode> {
-    let metadata = workspace::metadata()?;
-    let package = workspace::chosen_package(&metadata, args.program.package.as_deref())?;
-    let id = WaosMetadata::id_of(package)?.development();
-    let default = workspace::waos_folder(&metadata)
-        .join("screenshots")
-        .join(package.name.as_str());
+    let (id, name) = target_of(&args.target)?;
+    let default = screenshots_folder(&name);
     on_this_thread(screenshot::take(
         id,
         args.out.as_deref(),
@@ -926,13 +926,13 @@ fn screenshot(args: &ScreenshotArgs) -> Result<ExitCode> {
 
 /// Gives `input` to the window the arguments choose, and waits for WaOS's answer.
 fn give(window: &WindowArgs, input: Input) -> Result<ExitCode> {
-    let id = program_id(&window.program)?;
+    let id = target_id(&window.target)?;
     on_this_thread(input::give(id, window.window, input))
 }
 
 /// Sizes the window the arguments choose, and waits for WaOS's answer.
 fn resize_window(args: &ResizeArgs) -> Result<ExitCode> {
-    let id = program_id(&args.window.program)?;
+    let id = target_id(&args.window.target)?;
     on_this_thread(resize::resize(id, args.window.window, args.to))
 }
 
@@ -950,13 +950,22 @@ fn target_of(target: &Target) -> Result<(ProgramId, String)> {
     }
 }
 
-/// The development id of the chosen package's program, its [package.metadata.waos] id followed
-/// by `.development`, read without building anything: the program `waos install` installs and
-/// `waos run` runs.
-fn program_id(program: &Program) -> Result<ProgramId> {
-    let metadata = workspace::metadata()?;
-    let package = workspace::chosen_package(&metadata, program.package.as_deref())?;
-    Ok(WaosMetadata::id_of(package)?.development())
+/// The program `target` names: the id given, or else the development id of the chosen package's
+/// program, its [package.metadata.waos] id followed by `.development`, read without building
+/// anything: the program `waos install` installs and `waos run` runs.
+fn target_id(target: &Target) -> Result<ProgramId> {
+    Ok(target_of(target)?.0)
+}
+
+/// Where a screenshot of the program named `name` goes by default: `target/waos/screenshots/<name>`
+/// in this directory's workspace, or `screenshots/<name>` here outside any.
+fn screenshots_folder(name: &str) -> PathBuf {
+    match workspace::metadata() {
+        Ok(metadata) => workspace::waos_folder(&metadata)
+            .join("screenshots")
+            .join(name),
+        Err(_) => PathBuf::from("screenshots").join(name),
+    }
 }
 
 /// What `work` answers, on a runtime of this thread's: a command's connection to WaOS, or a
@@ -1063,7 +1072,7 @@ mod tests {
         else {
             panic!("ui screenshot");
         };
-        assert_eq!(shot.program.package.as_deref(), Some("notes"));
+        assert_eq!(shot.target.program.package.as_deref(), Some("notes"));
         assert_eq!(shot.window, Some(WindowId(2)));
         assert_eq!(shot.out.as_deref(), Some(Path::new("shots/")));
 
@@ -1091,7 +1100,7 @@ mod tests {
             (tap.at, tap.window.window),
             (Pair(120.0, 48.0), Some(WindowId(2)))
         );
-        assert_eq!(tap.window.program.package.as_deref(), Some("notes"));
+        assert_eq!(tap.window.target.program.package.as_deref(), Some("notes"));
         assert!(refused(&["ui", "tap"]));
         assert!(refused(&["ui", "tap", "--at", "120"]));
 
@@ -1175,7 +1184,10 @@ mod tests {
                 height: 844.0
             }
         );
-        assert_eq!(resize.window.program.package.as_deref(), Some("notes"));
+        assert_eq!(
+            resize.window.target.program.package.as_deref(),
+            Some("notes")
+        );
         assert!(refused(&["ui", "resize", "--to", "390,844"]));
         assert!(refused(&["resize", "--to", "320x568"]));
     }
@@ -1190,17 +1202,17 @@ mod tests {
         let Command::Settings(args) = parsed(&["settings", "-p", "notes"]) else {
             panic!("settings -p");
         };
-        assert_eq!(args.program.package.as_deref(), Some("notes"));
+        assert_eq!(args.target.program.package.as_deref(), Some("notes"));
         assert!(args.command.is_none());
 
         let Command::Settings(SettingsArgs {
-            command: Some(SettingsCommand::List(program)),
+            command: Some(SettingsCommand::List(target)),
             ..
         }) = parsed(&["settings", "list", "-p", "notes"])
         else {
             panic!("settings list");
         };
-        assert_eq!(program.package.as_deref(), Some("notes"));
+        assert_eq!(target.program.package.as_deref(), Some("notes"));
 
         let Command::Settings(SettingsArgs {
             command: Some(SettingsCommand::Set(set)),
@@ -1210,21 +1222,44 @@ mod tests {
             panic!("settings set");
         };
         assert_eq!(set.row, ["camera", "allow"]);
-        assert_eq!(set.program.package.as_deref(), Some("notes"));
+        assert_eq!(set.target.program.package.as_deref(), Some("notes"));
 
         let Command::Settings(SettingsArgs {
-            program: parent,
+            target: parent,
             command: Some(SettingsCommand::Set(set)),
         }) = parsed(&["settings", "-p", "notes", "set", "open-files", "/a", "/b"])
         else {
             panic!("settings -p set");
         };
-        assert_eq!(set.program.or(&parent).package.as_deref(), Some("notes"));
+        assert_eq!(
+            set.target.or(&parent).program.package.as_deref(),
+            Some("notes")
+        );
         assert_eq!(set.row, ["open-files", "/a", "/b"]);
 
         assert!(refused(&["settings", "set", "camera"]));
 
         assert!(refused(&["set", "camera", "allow"]));
+
+        let Command::Settings(SettingsArgs {
+            target: parent,
+            command: Some(SettingsCommand::Set(set)),
+        }) = parsed(&[
+            "settings",
+            "--id",
+            "dev.example.notes",
+            "set",
+            "camera",
+            "deny",
+        ])
+        else {
+            panic!("settings --id set");
+        };
+        assert_eq!(
+            set.target.or(&parent).id.as_ref().map(ProgramId::as_str),
+            Some("dev.example.notes"),
+            "a published program's, by its id"
+        );
     }
 
     #[test]
@@ -1237,16 +1272,16 @@ mod tests {
             panic!("inspect summary");
         };
         assert_eq!(summary.days, 14);
-        assert_eq!(summary.program.package.as_deref(), Some("notes"));
+        assert_eq!(summary.target.program.package.as_deref(), Some("notes"));
 
         let Command::Inspect(InspectArgs {
-            command: InspectCommand::ActiveUses(program),
+            command: InspectCommand::ActiveUses(target),
             ..
         }) = parsed(&["inspect", "active-uses", "-p", "notes"])
         else {
             panic!("inspect active-uses");
         };
-        assert_eq!(program.package.as_deref(), Some("notes"));
+        assert_eq!(target.program.package.as_deref(), Some("notes"));
 
         let Command::Inspect(InspectArgs {
             command: InspectCommand::Trace(trace),
@@ -1460,7 +1495,7 @@ mod tests {
     }
 
     #[test]
-    fn install_launch_attach_stop_and_uninstall_take_an_id_or_the_package() {
+    fn every_command_that_reaches_a_program_takes_an_id_or_the_package() {
         let Command::Install(install) = parsed(&["install", "-p", "notes", "--release"]) else {
             panic!("install");
         };
@@ -1469,6 +1504,7 @@ mod tests {
 
         let Command::Launch(launch) = parsed(&[
             "launch",
+            "--id",
             "dev.example.notes.development",
             "--env",
             "RUST_LOG=debug",
@@ -1491,22 +1527,42 @@ mod tests {
         assert_eq!(launch.target.id, None);
         assert_eq!(launch.target.program.package.as_deref(), Some("notes"));
 
-        for command in ["attach", "stop", "uninstall"] {
-            let (Command::Attach(target) | Command::Stop(target) | Command::Uninstall(target)) =
-                parsed(&[command, "dev.example.notes"])
-            else {
-                panic!("{command}");
-            };
-            assert_eq!(
-                target.id.as_ref().map(ProgramId::as_str),
-                Some("dev.example.notes")
-            );
-            assert!(refused(&[command, "triangle"]), "{command}: not an id");
-            assert!(
-                refused(&[command, "dev.example.notes", "-p", "notes"]),
-                "{command}: an id or a package, not both"
-            );
+        let id = ["--id", "dev.example.notes"];
+        for command in [
+            &["attach"][..],
+            &["stop"],
+            &["uninstall"],
+            &["launch"],
+            &["ui", "screenshot"],
+            &["ui", "tap", "--at", "1,2"],
+            &["ui", "type", "text"],
+            &["ui", "key", "enter"],
+            &["ui", "resize", "--to", "390x844"],
+            &["settings"],
+            &["settings", "set", "camera", "allow"],
+            &["inspect", "summary"],
+            &["inspect", "trace", "network"],
+        ] {
+            let mut argv = command.to_vec();
+            argv.extend(id);
+            parsed(&argv);
+            let mut both = argv.clone();
+            both.extend(["-p", "notes"]);
+            assert!(refused(&both), "{command:?}: an id or a package, not both");
+            let mut bad = command.to_vec();
+            bad.extend(["--id", "triangle"]);
+            assert!(refused(&bad), "{command:?}: not an id");
         }
+        let (Command::Attach(target) | Command::Stop(target) | Command::Uninstall(target)) =
+            parsed(&["stop", "--id", "dev.example.notes"])
+        else {
+            panic!("stop");
+        };
+        assert_eq!(
+            target.id.as_ref().map(ProgramId::as_str),
+            Some("dev.example.notes")
+        );
+        assert!(refused(&["stop", "dev.example.notes"]), "by --id alone");
         for command in ["install", "launch", "attach", "stop", "uninstall"] {
             assert!(is_cli_command(command), "{command}");
         }
