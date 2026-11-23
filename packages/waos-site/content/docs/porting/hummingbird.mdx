@@ -3,7 +3,7 @@ title: Hummingbird
 description: "A GPUI music player, ported in a day on threads: what it took and what it found."
 ---
 
-[Hummingbird](https://github.com/hummingbird-player/hummingbird) is a music player written with GPUI: a library in SQLite through sqlx, a playback thread that decodes with symphonia, tokio for its background work, cpal for its output. Its port is the branch `waos` of [`github.com/waos-dev/hummingbird`](https://github.com/waos-dev/hummingbird), whose `WAOS.md` says how to build it. It plays music from a folder the user picks, as the program `dev.waos.hummingbird`.
+[Hummingbird](https://github.com/hummingbird-player/hummingbird) is a music player written with GPUI: a library in SQLite through sqlx, a playback thread that decodes with symphonia, tokio for its background work, cpal for its output. Its port is the branch `waos` of [`github.com/waos-dev/hummingbird`](https://github.com/waos-dev/hummingbird), whose `WAOS.md` says how to build and release it. It plays music from a folder the user picks, as the program `dev.waos.hummingbird`, released from the fork's `waos-v*` tags and signed with the WaOS project's key, as Zed is, and it needs WaOS 0.7.0 or newer.
 
 It was the first port with threads: its playback thread, tokio's workers and sqlx's SQLite worker run as written, as WaOS's cooperative threads.
 
@@ -11,7 +11,7 @@ It was the first port with threads: its playback thread, tokio's workers and sql
 
 - **GPUI from WaOS's fork,** for every target, in place of the `gpui-unofficial` snapshot it used. The one difference that mattered: the newer GPUI already makes every element `IntoElement`, so the app's own ten impls went.
 - **`wasdk-adapter-gpui` as its platform,** its start split into a shared launch and two runners, the system's and WaOS's.
-- **A sound output over WaOS's audio graph** (`src/devices/builtin/waos.rs`), beside cpal's: the playback thread fills a ring, as for cpal, and a writer thread of the output's drains it into a `stream-input` node, whose `write` waits while it is ahead. Hummingbird's own output traits (`Device`, `OutputStream`) fit it with no change.
+- **A sound output over WaOS's audio graph** (`src/devices/builtin/waos.rs`), beside cpal's: the playback thread fills a ring, as for cpal, and a writer thread of the output's drains it into a `stream-input` node, whose `write` waits while it is ahead. While paused, its context is suspended, so a paused Hummingbird makes no sound and WaOS may freeze it out of sight. Hummingbird's own output traits (`Device`, `OutputStream`) fit it with no change.
 - **Its folders:** the library and settings in `/data`, logs in `/cache/logs`.
 - **Gated on WaOS:** Discord presence (an IPC socket), the updater, mimalloc, and the Opus and HE-AAC decoders, whose C libraries are not built for WaOS yet. Last.fm and ListenBrainz are its default features, left out with `--no-default-features`: their reqwest's wasm build is the browser's.
 - **Three crates patched** (`waos/patched/README.md`): `cntp_i18n_core` on the fork's GPUI, getrandom 0.3 on Preview 3, and tokio's timed park.
@@ -28,6 +28,5 @@ It was the first port with threads: its playback thread, tokio's workers and sql
 
 ## Not done yet
 
-- Pause suspends nothing: the audio context keeps running, so WaOS never freezes a paused Hummingbird out of sight.
 - Choosing an output: WaOS lists none, the user picks one through `select-audio-output`, which Hummingbird's output menu does not open yet.
 - Watching the library for changes, and media keys.
