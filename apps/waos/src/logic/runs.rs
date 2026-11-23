@@ -1,13 +1,13 @@
-//! The programs running in WaOS, by the id of the program each is, whether `waos` sent it or
-//! the library opened it (decision 11 of the permissions proposal). One per id: a later run
-//! `waos` sends takes the place of the one before, which is stopped first and ends
-//! `Replaced` (the design's decision 29), as does a start an inspector asks for, while a program
-//! the library opens again is left running as it is. Every run of an id is ended before its program is removed or updated
-//! ([`Runs::stop`]), as a system ends an app it uninstalls or updates, so no run outlives the
-//! package it came from or the folders it was given. A run `waos` sent is its own to read and drive, through
-//! its program's own mouse and the keyboard; one the library opened is no tool's (the design's decision 60).
-//! What a sent run has beside its program is `sent`'s, which a phone, where `waos` reaches
-//! no WaOS yet, does not compile.
+//! The programs running in WaOS, by the id of the program each is, whether `waos launch` started
+//! it or the library opened it. One per id: a later launch takes the place of the one before,
+//! which is stopped first and ends `Replaced` (the design's decision 70), as does a start an
+//! inspector asks for, while a program the library opens again is left running as it is. Every
+//! run of an id is ended before its program is removed or updated ([`Runs::stop`]), as a system
+//! ends an app it uninstalls or updates, so no run outlives the package it came from or the
+//! folders it was given. Every program running is its user's to read and drive through the dev
+//! socket, through its program's own mouse and the keyboard (decision 70), as `driven` finds it,
+//! which a phone, where `waos` reaches no WaOS yet, does not compile. Each run knows whether a later
+//! one took its place, so its end is told as `Replaced`.
 //!
 //! The invariants: one start or stop of an id at a time. Each holds the id's turn from the moment
 //! it looks for the run before to the moment the new one is in the list, so two runs of one id
@@ -20,10 +20,10 @@
 //! caller has the program's code compiled before it starts a run.
 
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
-mod sent;
+mod driven;
 
 use std::collections::{BTreeSet, HashMap};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Instant;
 
@@ -32,11 +32,12 @@ use anyhow::Result;
 use futures::future::join_all;
 use tokio::sync::{OwnedMutexGuard, watch};
 use tracing::Instrument;
-use waos::RunningProgram;
+use waos::{ProgramEnd, RunningProgram};
+use waos_dev_protocol::RunEnd;
 use waos_package::ProgramId;
 
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
-pub(crate) use sent::{DevRun, SentRun};
+pub(crate) use driven::DrivenProgram;
 
 /// The runs by id.
 #[derive(Default)]
@@ -57,10 +58,8 @@ pub(crate) struct Runs {
 struct Running {
     serial: u64,
     program: RunningProgram,
-    /// What a run `waos` sent has beside its program; none for one the library opened, which
-    /// no tool reads or drives.
-    #[cfg(not(any(target_os = "android", target_os = "ios")))]
-    sent: Option<sent::Sent>,
+    /// Set before the program is stopped for a later run of its id, or a new build of it.
+    replaced: Arc<AtomicBool>,
 }
 
 /// What [`Runs::start_unless_running`] found: a run it started, or the program running already.
@@ -74,6 +73,21 @@ pub(crate) struct Run {
     id: ProgramId,
     serial: u64,
     pub(crate) program: RunningProgram,
+    replaced: Arc<AtomicBool>,
+}
+
+impl Run {
+    /// How the run ended, as an attach hears it: a stop for a later run of the id, or a new build
+    /// of it, is `Replaced`.
+    pub(crate) fn end(&self, end: &ProgramEnd) -> RunEnd {
+        match end {
+            ProgramEnd::Returned(Ok(())) => RunEnd::Returned { success: true },
+            ProgramEnd::Returned(Err(())) => RunEnd::Returned { success: false },
+            ProgramEnd::Failed(error) => RunEnd::Failed(format!("{error:#}")),
+            ProgramEnd::Stopped if self.replaced.load(Ordering::SeqCst) => RunEnd::Replaced,
+            ProgramEnd::Stopped => RunEnd::Stopped,
+        }
+    }
 }
 
 impl Runs {
@@ -95,9 +109,9 @@ impl Runs {
     }
 
     /// Starts a run of the program `id` in place of the one running, if any, which is stopped
-    /// first, as a later run `waos` sends takes the place of the one before (decision 18 of
-    /// `docs/proposals/2026-11-15-inspector-roles-and-compatibility.md`); then `start` starts the
-    /// program, and the run is in the list as one the library opened. An error from `start`
+    /// first and ends `Replaced`, as a later launch takes the place of the one before (decision 18
+    /// of `docs/proposals/2026-11-15-inspector-roles-and-compatibility.md`); then `start` starts
+    /// the program, and the run is in the list. An error from `start`
     /// leaves the id free. `start` waits for nothing: the program it starts is loaded already.
     pub(crate) async fn start_in_place(
         &self,
@@ -112,18 +126,29 @@ impl Runs {
     }
 
     /// Stops the program running as `id`, if any, and waits until it has ended, out of the list
-    /// first; one `waos` sent ends `Replaced`. The caller holds the id's turn.
+    /// first; it ends `Replaced`. The caller holds the id's turn.
     async fn end_the_one_before(&self, id: &ProgramId) {
         let Some(before) = self.take_out(id) else {
             return;
         };
         tracing::info!(%id, "a later run of the program: stopping the one before");
-        #[cfg(not(any(target_os = "android", target_os = "ios")))]
-        if let Some(sent) = &before.sent {
-            sent.replaced();
-        }
+        before.replaced.store(true, Ordering::SeqCst);
         before.program.stop();
         before.program.ended().await;
+    }
+
+    /// Stops the program running as `id`, if any, for a new build of it installed in its place,
+    /// and waits until it has ended: it ends `Replaced`. Answers whether one ran.
+    pub(crate) async fn stop_replaced(&self, id: &ProgramId) -> bool {
+        let _turn = self.turn_of(id).await;
+        let ran = self.runs_now(id);
+        self.end_the_one_before(id).await;
+        ran
+    }
+
+    /// Whether a run of `id` is in the list now.
+    fn runs_now(&self, id: &ProgramId) -> bool {
+        self.listed().contains_key(id)
     }
 
     /// Takes the run of `id` out of the list, so nothing finds it running while it ends.
@@ -135,8 +160,12 @@ impl Runs {
     }
 
     /// Takes `run` out of the list once its program ends, on a task of the runtime this runs on,
-    /// telling WaOS's log how long it ran.
-    pub(crate) fn take_out_once_ended(self: &Arc<Self>, run: Run) {
+    /// telling WaOS's log how long it ran and `heard` how it ended, first.
+    pub(crate) fn take_out_once_ended(
+        self: &Arc<Self>,
+        run: Run,
+        heard: impl FnOnce(RunEnd) + Send + 'static,
+    ) {
         let runs = Arc::clone(self);
         let started_at = Instant::now();
         let span = tracing::info_span!("run", name = %run.id);
@@ -149,6 +178,7 @@ impl Runs {
                     frames_presented = run.program.stats().frames_presented(),
                     "ended"
                 );
+                heard(run.end(&end));
                 runs.ended(&run).await;
             }
             .instrument(span),
@@ -167,15 +197,17 @@ impl Runs {
     }
 
     /// Ends the run of the program `id`, if any, once a start under way is done, and waits until
-    /// it has ended: it is out of the list first, so nothing finds it running meanwhile.
-    pub(crate) async fn stop(&self, id: &ProgramId) {
+    /// it has ended: it is out of the list first, so nothing finds it running meanwhile. Answers
+    /// whether one ran.
+    pub(crate) async fn stop(&self, id: &ProgramId) -> bool {
         let _turn = self.turn_of(id).await;
         let Some(current) = self.take_out(id) else {
-            return;
+            return false;
         };
         tracing::info!(%id, "its run is stopped");
         current.program.stop();
         current.program.ended().await;
+        true
     }
 
     /// The ids running now, and each change of them from now on.
@@ -193,7 +225,7 @@ impl Runs {
         self.listed().get(id).map(|current| current.program.clone())
     }
 
-    /// Puts `program` in the list as the program `id`, as a new run, which nothing sent.
+    /// Puts `program` in the list as the program `id`, as a new run.
     fn list(&self, id: &ProgramId, program: RunningProgram) -> Run {
         let mut running = self.listed();
         self.list_in(&mut running, id, program)
@@ -207,13 +239,13 @@ impl Runs {
         program: RunningProgram,
     ) -> Run {
         let serial = self.serials.fetch_add(1, Ordering::SeqCst);
+        let replaced = Arc::new(AtomicBool::new(false));
         running.insert(
             id.clone(),
             Running {
                 serial,
                 program: program.clone(),
-                #[cfg(not(any(target_os = "android", target_os = "ios")))]
-                sent: None,
+                replaced: Arc::clone(&replaced),
             },
         );
         self.ids.send_replace(running.keys().cloned().collect());
@@ -221,6 +253,7 @@ impl Runs {
             id: id.clone(),
             serial,
             program,
+            replaced,
         }
     }
 

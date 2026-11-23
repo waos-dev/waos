@@ -49,9 +49,9 @@ fn a_new_program_installs_and_its_component_is_what_runs() {
     let installed_program = store
         .install(package(scratch.path(), "1.0.0", &key))
         .unwrap();
-    assert_eq!(installed_program.publisher, key.publisher());
+    assert_eq!(installed_program.publisher(), Some(key.publisher()));
     assert_eq!(installed(&store), triangle_at("1.0.0"));
-    assert_eq!(store.installed()[0].publisher, key.publisher());
+    assert_eq!(store.installed()[0].publisher(), Some(key.publisher()));
     assert_eq!(component(&store), component_of(TRIANGLE, "1.0.0"));
 }
 
@@ -168,5 +168,5 @@ fn a_store_opened_again_has_what_was_installed() {
         .unwrap();
     let store = Store::open(&directory, SourceProxy::None).unwrap();
     assert_eq!(installed(&store), triangle_at("1.0.0"));
-    assert_eq!(store.installed()[0].publisher, key.publisher());
+    assert_eq!(store.installed()[0].publisher(), Some(key.publisher()));
 }

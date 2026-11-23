@@ -1,5 +1,5 @@
-//! A size `waos resize` asks for one window of a program a run of `waos run` runs, by
-//! the id the run gave it, so
+//! A size `waos ui resize` asks for one window of a program running, however it was installed or
+//! started (the design's decision 70), by the id its run gave it, so
 //! a test sees the program's layout at a phone's width or a narrow window's (the design's decision
 //! 60): through the engine's view, which sizes its window through the shell as the program's own
 //! `set-frame` does (`ProgramView::resize_window`), so each placement answers as it answers the
@@ -54,9 +54,8 @@ async fn resize(
     size: Size,
 ) -> Result<Resized, Refusal> {
     let run = runs
-        .dev_run(id)
-        .await
-        .ok_or_else(|| dev_refusal::no_dev_run_now(id))?;
+        .driven(id)
+        .ok_or_else(|| dev_refusal::not_running(id))?;
     let (window, view) = run.window(window)?;
     tracing::info!(%id, %window, size.width, size.height, "a resize from waos");
     let reported = view
@@ -83,12 +82,12 @@ mod tests {
     };
 
     use crate::logic::dev_input::tests::{INPUT, run_input};
-    use crate::logic::dev_server::tests::TestServer;
+    use crate::logic::dev_server::tests::{TestServer, development};
     use crate::logic::test_engine::drawing::{WINDOW_HEIGHT, WINDOW_WIDTH};
 
     fn resize(window: WindowId, width: f64, height: f64) -> Request {
         Request::Resize {
-            id: INPUT.parse().unwrap(),
+            id: development(INPUT),
             window: Some(window),
             width,
             height,
@@ -130,7 +129,7 @@ mod tests {
             }
         );
         let screenshot = Request::Screenshot {
-            id: INPUT.parse().unwrap(),
+            id: development(INPUT),
             window: None,
         };
         let ScreenshotAnswer::Pictures(pictures) =
@@ -152,7 +151,7 @@ mod tests {
             }
         );
         let screenshot = Request::Screenshot {
-            id: INPUT.parse().unwrap(),
+            id: development(INPUT),
             window: None,
         };
         let ScreenshotAnswer::Pictures(pictures) =
@@ -171,7 +170,7 @@ mod tests {
         let server = TestServer::drawing("resize-not-there");
         assert_eq!(
             refused(&server, WindowId(1), 100.0, 80.0).await.kind,
-            RefusalKind::NoDevRunNow
+            RefusalKind::NotRunning
         );
         let (_client, _frames) = run_input(&server).await;
         for window in [WindowId(0), WindowId(2)] {

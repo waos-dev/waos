@@ -86,6 +86,7 @@ pub enum InstallError {
     /// A source's package is not the program at the version the source lists it as: each as
     /// its id and version, `dev.example.triangle 1.2.0`.
     NotAsListed { listed: String, package: String },
+
     /// The package could not be downloaded from its source.
     Download(SourceError),
     /// The store's own files could not be read or written.
@@ -117,6 +118,7 @@ impl fmt::Display for InstallError {
             InstallError::NotAsListed { listed, package } => {
                 write!(f, "the source lists {listed}, but its package is {package}")
             }
+
             InstallError::Download(error) => write!(f, "{error}"),
             InstallError::Store(error) => write!(f, "{error}"),
         }

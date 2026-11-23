@@ -1,20 +1,24 @@
-//! `waos`, the command: writes a new program, builds a program as a component, runs it in the
-//! WaOS on this machine, and packages it as a signed `.wapk` for a package source; while it runs
-//! there, takes screenshots of its windows, gives them input and sizes them (`ui`), reads and sets
-//! its settings (`settings`), inspects what it does (`inspect`), and reads or installs WaOS's docs
-//! (`docs`).
+//! `waos`, the command: writes a new program, builds a program as a component, installs it from
+//! its source in the WaOS on this machine as its development install, launches it, attaches to
+//! it, stops it and uninstalls it, runs it (all of these at once), and packages it as a signed
+//! `.wapk` for a package source; while it runs there, takes screenshots of its windows, gives them
+//! input and sizes them (`ui`), reads and sets its settings (`settings`), inspects what it does
+//! (`inspect`), and reads or installs WaOS's docs (`docs`).
 //!
 //! This crate is engine-free and builds on stable Rust. Both its own `waos` binary, the command
 //! alone, and the `waos` binary that also is WaOS call into [`run_from_args`] with their own [`WaOSStarter`].
 //!
-//! The invariant: every command is about a program and the WaOS it runs in. A run goes to the
-//! WaOS already running, starting one through the caller's [`WaOSStarter`] when none answers,
-//! never to an engine of this crate's own; a program's settings go to the WaOS keeping them,
-//! started the same way; a screenshot, resize, input, or live inspection goes to the WaOS running
-//! the program, never starting one.
+//! The invariant: every command is about a program and the WaOS it runs in. An install, a launch,
+//! a run and an uninstall go to the WaOS already running, starting one through the caller's
+//! [`WaOSStarter`] when none answers, never to an engine of this crate's own; a program's settings
+//! go to the WaOS keeping them, started the same way; an attach, a stop, a screenshot, resize,
+//! input, or live inspection goes to the WaOS running the program, never starting one. Inside a
+//! program's project, a command with no id names the project's development id, its
+//! `[package.metadata.waos]` id followed by `.development` (the design's decision 70).
 
 mod asked;
 mod asking;
+mod attach;
 mod build;
 mod component_imports;
 mod connecting;
@@ -23,9 +27,12 @@ mod connecting;
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 mod desktop_entries;
 mod docs;
+mod ext;
 mod icon_rule;
 mod input;
 mod inspect;
+mod install;
+mod launch;
 mod metadata;
 mod new;
 mod os;
@@ -36,6 +43,8 @@ mod screenshot;
 mod settings;
 mod signing_key;
 mod skill;
+mod stop;
+mod uninstall;
 mod variables;
 mod verify;
 pub mod waos_app;
@@ -52,9 +61,11 @@ use clap::{Args, CommandFactory, FromArgMatches, Parser, Subcommand};
 use waos_dev_protocol::{Input, Inspection, WindowId};
 use waos_package::{ProgramId, PublisherKey};
 
+use crate::attach::OnInterrupt;
 use crate::build::{BuiltProgram, Features, Profile};
 use crate::input::Pair;
-use crate::metadata::WaosMetadata;
+use crate::install::InstallBuild;
+use crate::metadata::{InstallIdentity, WaosMetadata};
 use crate::new::Template;
 use crate::resize::Points;
 
@@ -62,7 +73,21 @@ pub use crate::connecting::{DefaultStarter, WaOSStarter};
 
 /// Top-level developer CLI subcommands.
 pub const CLI_COMMANDS: &[&str] = &[
-    "new", "build", "run", "package", "ui", "settings", "inspect", "docs", "help",
+    "new",
+    "build",
+    "install",
+    "launch",
+    "attach",
+    "stop",
+    "uninstall",
+    "run",
+    "package",
+    "ui",
+    "settings",
+    "inspect",
+    "ext",
+    "docs",
+    "help",
 ];
 
 /// Whether `word` is a developer CLI subcommand.
@@ -119,7 +144,7 @@ fn build_clap_command(app_help: Option<&'static str>) -> clap::Command {
 #[derive(Parser)]
 #[command(
     name = "waos",
-    about = "waos: writes a new program, builds a program as a component, runs it in WaOS, packages it, drives its UI, manages its settings, inspects its activity, and reads WaOS's docs. `waos docs` is the map of WaOS's docs for writing an app.",
+    about = "waos: writes a new program, builds a program as a component, installs it in WaOS from its source, launches, attaches to and stops it, or runs it, all at once, packages it, drives its UI, manages its settings, inspects its activity, and reads WaOS's docs. `waos docs` is the map of WaOS's docs for writing an app.",
     after_help = "The docs and guides are at https://waos.app/docs; `waos docs` prints the app's version's.",
     version
 )]
@@ -140,16 +165,45 @@ enum Command {
     /// Builds the program as a component, for wasm32-wasip3, and puts it at
     /// target/waos/<profile>/<package>.wasm.
     Build(BuildArgs),
-    /// Builds the program and runs it in the WaOS on this machine, starting WaOS when none
-    /// answers, as the program the id in its [package.metadata.waos] names, with that program's
-    /// settings and folders. What it writes comes here as it writes it, each line after the
-    /// program's name; Ctrl-C stops it; the exit status is 0 for a run that returned success and
-    /// 1 otherwise.
+    /// Builds the program and installs it from its source in the WaOS on this machine, starting
+    /// WaOS when none answers, as its development install: a program of its own, under the id in
+    /// its [package.metadata.waos] followed by .development, with its own data and settings,
+    /// beside the program published under the plain id. Installing again replaces its component
+    /// and keeps its data and settings. Prints the id it is installed as.
+    Install(BuildArgs),
+    /// Starts an installed program in the WaOS on this machine, starting WaOS when none answers,
+    /// in place of its run if it runs, and returns once it runs: the program runs on until it
+    /// ends or `waos stop` stops it, and `waos attach` reads what it writes.
+    ///
+    /// Without --id, the program is this package's development install. Each --env NAME=VALUE
+    /// adds a variable the program reads in this launch alone, and nothing of this shell's
+    /// environment is passed; TMPDIR, which WaOS sets, wins over a variable of that name.
+    /// Arguments after -- reach the program as its own arguments, as `cargo run --` passes them.
+    Launch(LaunchArgs),
+    /// Writes what a program running writes, however it was started, here, as it writes it, each
+    /// line after the program's name, from what it wrote with nobody attached on, until it ends;
+    /// the exit status is 0 for a program that returned success and 1 otherwise. Ctrl-C detaches,
+    /// and the program runs on.
+    ///
+    /// Without --id, the program is this package's development install.
+    Attach(Target),
+    /// Stops the program running, however it was started. Without --id, the program is this
+    /// package's development install.
+    Stop(Target),
+    /// Uninstalls a program, with its settings and its data, its run stopped first, starting
+    /// WaOS when none answers. Without --id, the program is this package's development install,
+    /// and the program published under the plain id stays.
+    Uninstall(Target),
+    /// Builds the program, installs it as its development install, launches it and attaches to
+    /// it, as `waos install`, `waos launch` and `waos attach` do one after the other. What it
+    /// writes comes here as it writes it, each line after the program's name; Ctrl-C stops it;
+    /// the exit status is 0 for a run that returned success and 1 otherwise. `waos install` then
+    /// `waos launch` is the same run, detached.
     ///
     /// Each --env NAME=VALUE adds a variable the program reads in this run alone, and nothing of
-    /// this shell's environment is passed. Installed programs never get them, and TMPDIR, which
-    /// WaOS sets, wins over a variable of that name given here. Arguments after -- reach the
-    /// program as its own arguments, as `cargo run --` passes them.
+    /// this shell's environment is passed. A program opened from WaOS never gets them, and
+    /// TMPDIR, which WaOS sets, wins over a variable of that name given here. Arguments after --
+    /// reach the program as its own arguments, as `cargo run --` passes them.
     ///
     /// A question WaOS asks while the program runs, to allow something or to pick a file, has a
     /// row among the program's settings: `waos settings` lists them, and `waos settings set`
@@ -162,16 +216,26 @@ enum Command {
     /// `waos package verify <file>` verifies a package instead, as WaOS opens it.
     Package(PackageArgs),
     /// Drives and captures a running program's windows: screenshot, resize, tap, press, drag,
-    /// type, key, and scroll.
+    /// type, key, and scroll. Each reaches this package's development install, or, with --id, any
+    /// program running, however it was installed or started.
     Ui(UiArgs),
     /// Reads or changes a program's settings (`list` by default, or `set <row> <value>`).
     ///
-    /// The settings are the program's own, kept by WaOS, for a program a dev run on this machine
-    /// runs or has run; WaOS is started when none answers.
+    /// The settings are the program's own, kept by WaOS, of any program, this package's
+    /// development install by default, set ahead of its install too; WaOS is started when none
+    /// answers.
     Settings(SettingsArgs),
     /// Inspects what WaOS knows of what a program does with what it was allowed, as JSON lines of
     /// wasdk:inspect's values: `summary`, `active-uses`, or `trace`.
     Inspect(InspectArgs),
+    /// Calls a running program's service extensions, as Waft's CLI (`cargo waft ext`) calls an
+    /// app's: `waos ext --stdio` relays Waft's service protocol, one JSON message a line, between
+    /// stdin and stdout and the program, until stdin closes; `waos ext list` lists the programs
+    /// running that serve extensions, as Waft's listing with --json.
+    ///
+    /// Without --id, the program is this package's development install. A program serves its
+    /// extensions in a debug build, as a Waft app's framework serves Waft's.
+    Ext(ExtArgs),
     /// Reads WaOS's docs of the version the app builds with, searches them, or installs the agent
     /// skill (`docs skill install`).
     ///
@@ -266,7 +330,7 @@ enum UiCommand {
 #[derive(Args)]
 struct SettingsArgs {
     #[command(flatten)]
-    program: Program,
+    target: Target,
     #[command(subcommand)]
     command: Option<SettingsCommand>,
 }
@@ -274,7 +338,7 @@ struct SettingsArgs {
 #[derive(Subcommand)]
 enum SettingsCommand {
     /// Prints the program's settings, one row each (the default when no subcommand is given).
-    List(Program),
+    List(Target),
     /// Sets one row of the program's settings, as its user would on its settings page in WaOS,
     /// and prints the rows after it. A row on ask is asked of the user when the program asks;
     /// one set is answered without asking, every run, installed or not.
@@ -295,7 +359,7 @@ enum SettingsCommand {
 #[derive(Args)]
 struct InspectArgs {
     #[command(flatten)]
-    program: Program,
+    target: Target,
     #[command(subcommand)]
     command: InspectCommand,
 }
@@ -306,7 +370,7 @@ enum InspectCommand {
     Summary(InspectSummaryArgs),
     /// Streams what the program uses now, each use that lasts and each open file, until Ctrl-C or
     /// the program's end.
-    ActiveUses(Program),
+    ActiveUses(Target),
     /// Streams live events for the named capabilities (network, files, clipboard, camera,
     /// microphone, machines, permissions, links, notifications, output, or `all`).
     Trace(InspectTraceArgs),
@@ -315,7 +379,7 @@ enum InspectCommand {
 #[derive(Args)]
 struct InspectSummaryArgs {
     #[command(flatten)]
-    program: Program,
+    target: Target,
     /// How many of the summary's days, newest first.
     #[arg(long, default_value_t = 7)]
     days: u32,
@@ -324,11 +388,36 @@ struct InspectSummaryArgs {
 #[derive(Args)]
 struct InspectTraceArgs {
     #[command(flatten)]
-    program: Program,
+    target: Target,
     /// Capabilities to trace (`all` when omitted, or any of network, files, clipboard, camera,
     /// microphone, machines, permissions, links, notifications, output).
     #[arg(value_name = "CAPABILITY")]
     capabilities: Vec<String>,
+}
+
+#[derive(Args)]
+#[command(args_conflicts_with_subcommands = true)]
+struct ExtArgs {
+    #[command(flatten)]
+    target: Target,
+    /// Relays Waft's service protocol between stdin and stdout and the program, one JSON message
+    /// a line, until stdin closes: each request one call of the extension it names.
+    #[arg(long)]
+    stdio: bool,
+    #[command(subcommand)]
+    command: Option<ExtCommand>,
+}
+
+#[derive(Subcommand)]
+enum ExtCommand {
+    /// Lists the programs running in WaOS that serve service extensions, a line each: its name
+    /// and id, or, with --json, a JSON object in Waft's listing format, its address the command
+    /// that relays to it.
+    List {
+        /// Each as a JSON object a line, as Waft's discovery reads a listing.
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[derive(Args)]
@@ -406,7 +495,7 @@ enum SkillCommand {
 #[derive(Args)]
 struct ScreenshotArgs {
     #[command(flatten)]
-    program: Program,
+    target: Target,
     /// The window to take a picture of alone, by its id as the pictures list them; every window
     /// without it. With --out a file, this window's picture is the one written, or the first
     /// window's without it.
@@ -421,7 +510,7 @@ struct ScreenshotArgs {
 #[derive(Args)]
 struct SetArgs {
     #[command(flatten)]
-    program: Program,
+    target: Target,
     /// The row, then its value: `camera allow`, `save-file /tmp/out.pdf`, `machine ask`. A path is
     /// made whole against this directory, with `.` and `..` resolved as written.
     #[arg(required = true, num_args = 2..)]
@@ -447,12 +536,43 @@ struct Program {
     package: Option<String>,
 }
 
-impl Program {
-    fn or(self, fallback: &Program) -> Program {
-        Program {
-            package: self.package.or_else(|| fallback.package.clone()),
+/// Which program a command reaches: the one `--id` names, however it was installed or started,
+/// or this package's development install.
+#[derive(Args, Clone, Default)]
+struct Target {
+    /// The program's id, any program's: dev.example.notes, as published, or
+    /// dev.example.notes.development, a development install's. Without it, this package's
+    /// development install.
+    #[arg(long, value_name = "ID", conflicts_with = "package")]
+    id: Option<ProgramId>,
+    #[command(flatten)]
+    program: Program,
+}
+
+impl Target {
+    /// This target, or `fallback` where this one names nothing, as a subcommand's options fall
+    /// back on its command's.
+    fn or(self, fallback: &Target) -> Target {
+        match (&self.id, &self.program.package) {
+            (None, None) => fallback.clone(),
+            _ => self,
         }
     }
+}
+
+/// Which program a launch starts, and the variables and arguments it gives it.
+#[derive(Args)]
+struct LaunchArgs {
+    #[command(flatten)]
+    target: Target,
+    /// A variable the program reads in this launch alone, as NAME=VALUE, repeatable: --env
+    /// RUST_LOG=debug. Nothing of this shell's environment is passed, and TMPDIR, which WaOS
+    /// sets, wins over a variable of that name.
+    #[arg(long, value_name = "NAME=VALUE", value_parser = variables::parse)]
+    env: Vec<(String, String)>,
+    /// The program's arguments, after `--`: `waos launch -- --port 8080`.
+    #[arg(last = true, value_name = "ARG")]
+    args: Vec<String>,
 }
 
 /// Which program, and which build of it.
@@ -502,8 +622,8 @@ struct RunArgs {
     #[command(flatten)]
     build: BuildArgs,
     /// A variable the program reads in this run alone, as NAME=VALUE, repeatable: --env
-    /// RUST_LOG=debug. Nothing of this shell's environment is passed, installed programs never
-    /// get these, and TMPDIR, which WaOS sets, wins over a variable of that name.
+    /// RUST_LOG=debug. Nothing of this shell's environment is passed, a program opened from WaOS
+    /// never gets these, and TMPDIR, which WaOS sets, wins over a variable of that name.
     #[arg(long, value_name = "NAME=VALUE", value_parser = variables::parse)]
     env: Vec<(String, String)>,
     /// The program's arguments, after `--`: `waos run -- --port 8080`.
@@ -515,7 +635,7 @@ struct RunArgs {
 #[derive(Args)]
 struct WindowArgs {
     #[command(flatten)]
-    program: Program,
+    target: Target,
     /// The window's id, as `ui screenshot` lists it: its picture is in pixels, as the
     /// screenshot's, and its logical points are those divided by its scale. Without it, acts on
     /// the program's first open window.
@@ -626,6 +746,23 @@ fn dispatch(command: Command, starter: &dyn WaOSStarter) -> Result<ExitCode> {
     match command {
         Command::New(new) => new_program(&new),
         Command::Build(build) => build_only(&build),
+        Command::Install(build) => build_and_install(&build, starter),
+        Command::Launch(launch) => {
+            let (id, name) = target_of(&launch.target)?;
+            let launching = launch::launch(&id, &name, &launch.args, &launch.env, starter);
+            on_this_thread(launching).map(|()| ExitCode::SUCCESS)
+        }
+        Command::Attach(target) => {
+            let (id, name) = target_of(&target)?;
+            on_this_thread(async {
+                let connection = asking::connect().await?;
+                attach::attach_on(connection, &id, &name, OnInterrupt::Detach).await
+            })
+        }
+        Command::Stop(target) => on_this_thread(stop::stop(target_of(&target)?.0)),
+        Command::Uninstall(target) => {
+            on_this_thread(uninstall::uninstall(target_of(&target)?.0, starter))
+        }
         Command::Run(run) => build_and_run(&run, starter),
         Command::Package(args) => match args.command {
             Some(PackageCommand::Verify(verify)) => verify_package(&verify),
@@ -634,6 +771,7 @@ fn dispatch(command: Command, starter: &dyn WaOSStarter) -> Result<ExitCode> {
         Command::Ui(ui) => dispatch_ui(ui.command),
         Command::Settings(settings) => dispatch_settings(settings, starter),
         Command::Inspect(inspect) => dispatch_inspect(inspect),
+        Command::Ext(ext) => dispatch_ext(ext),
         Command::Docs(docs) => match docs.command {
             Some(DocsCommand::Skill(SkillArgs {
                 command: SkillCommand::Install { dir },
@@ -688,27 +826,35 @@ fn dispatch_ui(command: UiCommand) -> Result<ExitCode> {
 
 fn dispatch_settings(args: SettingsArgs, starter: &dyn WaOSStarter) -> Result<ExitCode> {
     match args.command {
-        None => {
-            program_id(&args.program).and_then(|id| on_this_thread(settings::show(id, starter)))
-        }
-        Some(SettingsCommand::List(program)) => {
-            let program = program.or(&args.program);
-            program_id(&program).and_then(|id| on_this_thread(settings::show(id, starter)))
+        None => target_id(&args.target).and_then(|id| on_this_thread(settings::show(id, starter))),
+        Some(SettingsCommand::List(target)) => {
+            let target = target.or(&args.target);
+            target_id(&target).and_then(|id| on_this_thread(settings::show(id, starter)))
         }
         Some(SettingsCommand::Set(set)) => {
-            let program = set.program.or(&args.program);
-            program_id(&program).and_then(|id| on_this_thread(settings::set(id, &set.row, starter)))
+            let target = set.target.clone().or(&args.target);
+            target_id(&target).and_then(|id| on_this_thread(settings::set(id, &set.row, starter)))
         }
     }
 }
 
+fn dispatch_ext(args: ExtArgs) -> Result<ExitCode> {
+    match args.command {
+        Some(ExtCommand::List { json }) => on_this_thread(ext::list(json)),
+        None if args.stdio => on_this_thread(ext::relay_stdio(target_id(&args.target)?)),
+        None => anyhow::bail!(
+            "`waos ext` relays with --stdio (`waos ext --stdio`, `waos ext --id <id> --stdio`), or lists the programs serving extensions (`waos ext list`)"
+        ),
+    }
+}
+
 fn dispatch_inspect(args: InspectArgs) -> Result<ExitCode> {
-    let (program, asked) = match args.command {
+    let (target, asked) = match args.command {
         InspectCommand::Summary(summary) => (
-            summary.program.or(&args.program),
+            summary.target.or(&args.target),
             Inspection::Summary { days: summary.days },
         ),
-        InspectCommand::ActiveUses(program) => (program.or(&args.program), Inspection::ActiveUses),
+        InspectCommand::ActiveUses(target) => (target.or(&args.target), Inspection::ActiveUses),
         InspectCommand::Trace(trace) => {
             let words = if trace.capabilities.is_empty() {
                 vec!["all".to_owned()]
@@ -716,10 +862,10 @@ fn dispatch_inspect(args: InspectArgs) -> Result<ExitCode> {
                 trace.capabilities
             };
             let asked = inspect::inspection_of(&words, 7)?;
-            (trace.program.or(&args.program), asked)
+            (trace.target.or(&args.target), asked)
         }
     };
-    let id = program_id(&program)?;
+    let id = target_id(&target)?;
     on_this_thread(inspect::inspect(id, asked))
 }
 
@@ -752,30 +898,70 @@ fn build_only(args: &BuildArgs) -> Result<ExitCode> {
     Ok(ExitCode::SUCCESS)
 }
 
-/// Builds the program and runs it in WaOS as the program its id names until it ends, on a
-/// runtime of this thread's. A package with no id is refused before anything is built.
+/// Builds the program and installs it as its development install, on a runtime of this
+/// thread's. A package with no id is refused before anything is built.
+fn build_and_install(args: &BuildArgs, starter: &dyn WaOSStarter) -> Result<ExitCode> {
+    let metadata = workspace::metadata()?;
+    let package = workspace::chosen_package(&metadata, args.program.package.as_deref())?;
+    let identity = WaosMetadata::install_identity_of(package)?;
+    let built = build::build(
+        &metadata,
+        package,
+        args.profile(),
+        &args.features.features(),
+    )?;
+    let build = install_build(identity, package, &built)?;
+    on_this_thread(install::install(&build, starter)).map(|()| ExitCode::SUCCESS)
+}
+
+/// Builds the program, installs it as its development install, launches it and attaches to it
+/// until it ends, on a runtime of this thread's. A package with no id is refused before anything
+/// is built.
 fn build_and_run(args: &RunArgs, starter: &dyn WaOSStarter) -> Result<ExitCode> {
     let metadata = workspace::metadata()?;
     let package = workspace::chosen_package(&metadata, args.build.program.package.as_deref())?;
-    let identity = WaosMetadata::run_identity_of(package)?;
+    let identity = WaosMetadata::install_identity_of(package)?;
     let built = build::build(
         &metadata,
         package,
         args.build.profile(),
         &args.build.features.features(),
     )?;
-    on_this_thread(run::run(identity, &built, &args.env, &args.args, starter))
+    let build = install_build(identity, package, &built)?;
+    on_this_thread(run::run(
+        &build,
+        &built.name,
+        &args.env,
+        &args.args,
+        starter,
+    ))
 }
 
-/// Writes the pictures of the program's windows under target/waos/screenshots/<package>, or where
-/// --out asks, as the WaOS running it answers.
+/// What an install sends of `built`, the build of `package`, which `identity` names: its name
+/// people see, the package's where its metadata names none, its version, and its icon where its
+/// metadata names one.
+fn install_build(
+    identity: InstallIdentity,
+    package: &cargo_metadata::Package,
+    built: &BuiltProgram,
+) -> Result<InstallBuild> {
+    let read =
+        |path: &Path| std::fs::read(path).with_context(|| format!("reading {}", path.display()));
+    Ok(InstallBuild {
+        id: identity.id,
+        kind: identity.kind,
+        name: identity.name.unwrap_or_else(|| package.name.to_string()),
+        version: package.version.clone(),
+        icon: identity.icon.as_deref().map(read).transpose()?,
+        component: read(&built.component)?,
+    })
+}
+
+/// Writes the pictures of the program's windows under target/waos/screenshots/<package>, or
+/// <id> for one --id names, or where --out asks, as the WaOS running it answers.
 fn screenshot(args: &ScreenshotArgs) -> Result<ExitCode> {
-    let metadata = workspace::metadata()?;
-    let package = workspace::chosen_package(&metadata, args.program.package.as_deref())?;
-    let id = WaosMetadata::id_of(package)?;
-    let default = workspace::waos_folder(&metadata)
-        .join("screenshots")
-        .join(package.name.as_str());
+    let (id, name) = target_of(&args.target)?;
+    let default = screenshots_folder(&name);
     on_this_thread(screenshot::take(
         id,
         args.out.as_deref(),
@@ -786,21 +972,46 @@ fn screenshot(args: &ScreenshotArgs) -> Result<ExitCode> {
 
 /// Gives `input` to the window the arguments choose, and waits for WaOS's answer.
 fn give(window: &WindowArgs, input: Input) -> Result<ExitCode> {
-    let id = program_id(&window.program)?;
+    let id = target_id(&window.target)?;
     on_this_thread(input::give(id, window.window, input))
 }
 
 /// Sizes the window the arguments choose, and waits for WaOS's answer.
 fn resize_window(args: &ResizeArgs) -> Result<ExitCode> {
-    let id = program_id(&args.window.program)?;
+    let id = target_id(&args.window.target)?;
     on_this_thread(resize::resize(id, args.window.window, args.to))
 }
 
-/// The id in the chosen package's [package.metadata.waos], read without building anything.
-fn program_id(program: &Program) -> Result<ProgramId> {
-    let metadata = workspace::metadata()?;
-    let package = workspace::chosen_package(&metadata, program.package.as_deref())?;
-    WaosMetadata::id_of(package)
+/// The program `target` names and how its output is named: the id given, by itself, or else the
+/// chosen package's development install, by the package's name.
+fn target_of(target: &Target) -> Result<(ProgramId, String)> {
+    match &target.id {
+        Some(id) => Ok((id.clone(), id.to_string())),
+        None => {
+            let metadata = workspace::metadata()?;
+            let package = workspace::chosen_package(&metadata, target.program.package.as_deref())?;
+            let id = WaosMetadata::id_of(package)?.development();
+            Ok((id, package.name.to_string()))
+        }
+    }
+}
+
+/// The program `target` names: the id given, or else the development id of the chosen package's
+/// program, its [package.metadata.waos] id followed by `.development`, read without building
+/// anything: the program `waos install` installs and `waos run` runs.
+fn target_id(target: &Target) -> Result<ProgramId> {
+    Ok(target_of(target)?.0)
+}
+
+/// Where a screenshot of the program named `name` goes by default: `target/waos/screenshots/<name>`
+/// in this directory's workspace, or `screenshots/<name>` here outside any.
+fn screenshots_folder(name: &str) -> PathBuf {
+    match workspace::metadata() {
+        Ok(metadata) => workspace::waos_folder(&metadata)
+            .join("screenshots")
+            .join(name),
+        Err(_) => PathBuf::from("screenshots").join(name),
+    }
 }
 
 /// What `work` answers, on a runtime of this thread's: a command's connection to WaOS, or a
@@ -907,7 +1118,7 @@ mod tests {
         else {
             panic!("ui screenshot");
         };
-        assert_eq!(shot.program.package.as_deref(), Some("notes"));
+        assert_eq!(shot.target.program.package.as_deref(), Some("notes"));
         assert_eq!(shot.window, Some(WindowId(2)));
         assert_eq!(shot.out.as_deref(), Some(Path::new("shots/")));
 
@@ -935,7 +1146,7 @@ mod tests {
             (tap.at, tap.window.window),
             (Pair(120.0, 48.0), Some(WindowId(2)))
         );
-        assert_eq!(tap.window.program.package.as_deref(), Some("notes"));
+        assert_eq!(tap.window.target.program.package.as_deref(), Some("notes"));
         assert!(refused(&["ui", "tap"]));
         assert!(refused(&["ui", "tap", "--at", "120"]));
 
@@ -1019,7 +1230,10 @@ mod tests {
                 height: 844.0
             }
         );
-        assert_eq!(resize.window.program.package.as_deref(), Some("notes"));
+        assert_eq!(
+            resize.window.target.program.package.as_deref(),
+            Some("notes")
+        );
         assert!(refused(&["ui", "resize", "--to", "390,844"]));
         assert!(refused(&["resize", "--to", "320x568"]));
     }
@@ -1034,17 +1248,17 @@ mod tests {
         let Command::Settings(args) = parsed(&["settings", "-p", "notes"]) else {
             panic!("settings -p");
         };
-        assert_eq!(args.program.package.as_deref(), Some("notes"));
+        assert_eq!(args.target.program.package.as_deref(), Some("notes"));
         assert!(args.command.is_none());
 
         let Command::Settings(SettingsArgs {
-            command: Some(SettingsCommand::List(program)),
+            command: Some(SettingsCommand::List(target)),
             ..
         }) = parsed(&["settings", "list", "-p", "notes"])
         else {
             panic!("settings list");
         };
-        assert_eq!(program.package.as_deref(), Some("notes"));
+        assert_eq!(target.program.package.as_deref(), Some("notes"));
 
         let Command::Settings(SettingsArgs {
             command: Some(SettingsCommand::Set(set)),
@@ -1054,21 +1268,44 @@ mod tests {
             panic!("settings set");
         };
         assert_eq!(set.row, ["camera", "allow"]);
-        assert_eq!(set.program.package.as_deref(), Some("notes"));
+        assert_eq!(set.target.program.package.as_deref(), Some("notes"));
 
         let Command::Settings(SettingsArgs {
-            program: parent,
+            target: parent,
             command: Some(SettingsCommand::Set(set)),
         }) = parsed(&["settings", "-p", "notes", "set", "open-files", "/a", "/b"])
         else {
             panic!("settings -p set");
         };
-        assert_eq!(set.program.or(&parent).package.as_deref(), Some("notes"));
+        assert_eq!(
+            set.target.or(&parent).program.package.as_deref(),
+            Some("notes")
+        );
         assert_eq!(set.row, ["open-files", "/a", "/b"]);
 
         assert!(refused(&["settings", "set", "camera"]));
 
         assert!(refused(&["set", "camera", "allow"]));
+
+        let Command::Settings(SettingsArgs {
+            target: parent,
+            command: Some(SettingsCommand::Set(set)),
+        }) = parsed(&[
+            "settings",
+            "--id",
+            "dev.example.notes",
+            "set",
+            "camera",
+            "deny",
+        ])
+        else {
+            panic!("settings --id set");
+        };
+        assert_eq!(
+            set.target.or(&parent).id.as_ref().map(ProgramId::as_str),
+            Some("dev.example.notes"),
+            "a published program's, by its id"
+        );
     }
 
     #[test]
@@ -1081,16 +1318,16 @@ mod tests {
             panic!("inspect summary");
         };
         assert_eq!(summary.days, 14);
-        assert_eq!(summary.program.package.as_deref(), Some("notes"));
+        assert_eq!(summary.target.program.package.as_deref(), Some("notes"));
 
         let Command::Inspect(InspectArgs {
-            command: InspectCommand::ActiveUses(program),
+            command: InspectCommand::ActiveUses(target),
             ..
         }) = parsed(&["inspect", "active-uses", "-p", "notes"])
         else {
             panic!("inspect active-uses");
         };
-        assert_eq!(program.package.as_deref(), Some("notes"));
+        assert_eq!(target.program.package.as_deref(), Some("notes"));
 
         let Command::Inspect(InspectArgs {
             command: InspectCommand::Trace(trace),
@@ -1242,7 +1479,20 @@ mod tests {
     fn top_level_help_lists_only_domain_commands() {
         let help = build_clap_command(None).render_help().to_string();
         for visible in [
-            "new", "build", "run", "package", "ui", "settings", "inspect", "docs",
+            "new",
+            "build",
+            "install",
+            "launch",
+            "attach",
+            "stop",
+            "uninstall",
+            "run",
+            "package",
+            "ui",
+            "settings",
+            "inspect",
+            "ext",
+            "docs",
         ] {
             assert!(
                 help.contains(visible),
@@ -1289,5 +1539,105 @@ mod tests {
         assert_eq!(run.build.program.package.as_deref(), Some("notes"));
         assert_eq!(run.env, [("RUST_LOG".to_owned(), "debug".to_owned())]);
         assert_eq!(run.args, ["--port", "8080"]);
+    }
+
+    #[test]
+    fn every_command_that_reaches_a_program_takes_an_id_or_the_package() {
+        let Command::Install(install) = parsed(&["install", "-p", "notes", "--release"]) else {
+            panic!("install");
+        };
+        assert_eq!(install.program.package.as_deref(), Some("notes"));
+        assert!(install.release);
+
+        let Command::Launch(launch) = parsed(&[
+            "launch",
+            "--id",
+            "dev.example.notes.development",
+            "--env",
+            "RUST_LOG=debug",
+            "--",
+            "--port",
+            "8080",
+        ]) else {
+            panic!("launch");
+        };
+        assert_eq!(
+            launch.target.id.as_ref().map(ProgramId::as_str),
+            Some("dev.example.notes.development")
+        );
+        assert_eq!(launch.env, [("RUST_LOG".to_owned(), "debug".to_owned())]);
+        assert_eq!(launch.args, ["--port", "8080"]);
+
+        let Command::Launch(launch) = parsed(&["launch", "-p", "notes"]) else {
+            panic!("launch in a project");
+        };
+        assert_eq!(launch.target.id, None);
+        assert_eq!(launch.target.program.package.as_deref(), Some("notes"));
+
+        let id = ["--id", "dev.example.notes"];
+        for command in [
+            &["attach"][..],
+            &["stop"],
+            &["uninstall"],
+            &["launch"],
+            &["ui", "screenshot"],
+            &["ui", "tap", "--at", "1,2"],
+            &["ui", "type", "text"],
+            &["ui", "key", "enter"],
+            &["ui", "resize", "--to", "390x844"],
+            &["settings"],
+            &["settings", "set", "camera", "allow"],
+            &["inspect", "summary"],
+            &["inspect", "trace", "network"],
+        ] {
+            let mut argv = command.to_vec();
+            argv.extend(id);
+            parsed(&argv);
+            let mut both = argv.clone();
+            both.extend(["-p", "notes"]);
+            assert!(refused(&both), "{command:?}: an id or a package, not both");
+            let mut bad = command.to_vec();
+            bad.extend(["--id", "triangle"]);
+            assert!(refused(&bad), "{command:?}: not an id");
+        }
+        let (Command::Attach(target) | Command::Stop(target) | Command::Uninstall(target)) =
+            parsed(&["stop", "--id", "dev.example.notes"])
+        else {
+            panic!("stop");
+        };
+        assert_eq!(
+            target.id.as_ref().map(ProgramId::as_str),
+            Some("dev.example.notes")
+        );
+        assert!(refused(&["stop", "dev.example.notes"]), "by --id alone");
+        for command in ["install", "launch", "attach", "stop", "uninstall"] {
+            assert!(is_cli_command(command), "{command}");
+        }
+    }
+
+    #[test]
+    fn ext_relays_over_stdio_for_an_id_or_the_package_and_lists() {
+        let Command::Ext(ext) = parsed(&["ext", "--id", "dev.example.notes", "--stdio"]) else {
+            panic!("ext --stdio");
+        };
+        assert!(ext.stdio && ext.command.is_none());
+        assert_eq!(
+            ext.target.id.as_ref().map(ProgramId::as_str),
+            Some("dev.example.notes")
+        );
+        let Command::Ext(ext) = parsed(&["ext", "--stdio", "-p", "notes"]) else {
+            panic!("ext -p --stdio");
+        };
+        assert_eq!(ext.target.program.package.as_deref(), Some("notes"));
+        let Command::Ext(ExtArgs {
+            command: Some(ExtCommand::List { json }),
+            ..
+        }) = parsed(&["ext", "list", "--json"])
+        else {
+            panic!("ext list --json");
+        };
+        assert!(json);
+        assert!(refused(&["ext", "--stdio", "list"]));
+        assert!(is_cli_command("ext"));
     }
 }

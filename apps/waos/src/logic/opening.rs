@@ -1,7 +1,7 @@
 //! Handing a program what its user does to it from outside it: files opened with it, as `waos open
 //! <file> --program <id>` asks until programs register what opens them (decision 3 of the opening
 //! proposal), and a click on one of its notifications. Each goes to the program the id names
-//! (`program_named`), the one running under it, whether `waos` sent it or the library opened
+//! (`program_named`), the one running under it, whether `waos launch` started it or the library opened
 //! it, or else the installed program, opened as the library opens it; the program hears it once it
 //! listens (`RunningProgram::open_requested`, `RunningProgram::notification_activated`).
 //!

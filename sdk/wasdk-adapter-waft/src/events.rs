@@ -2,7 +2,8 @@
 //!
 //! Each view's events arrive in the order they happened on the view's one stream. Beside them are
 //! merged the changes among the program's views, the screens and what the user set, the program's
-//! lifecycle states, the platform's requests to end the program, the installed fonts' changes, the
+//! lifecycle states, the platform's requests to end the program, in a debug build the calls of its
+//! service extensions a development tool makes, the installed fonts' changes, the
 //! clipboard's changes where the platform has one, the items chosen in the menu bar where it has
 //! one, what the user opens with the program, what the user does to its notifications where the
 //! platform has them, the streams the platform opens as the app goes ([`StreamOpener`]): each tray
@@ -22,6 +23,7 @@ use waft_embedder::{MenuId, TrayIconEvent, TrayIconId, View, ViewId};
 use wasdk::StreamReader;
 use wasdk::lifecycle::{self, ExitRequest, LifecycleState};
 use wasdk::screens::{self, ScreenChange};
+use wasdk::service_extensions::{self, ExtensionCall};
 use wasdk::system::{self, SystemChange};
 use wasdk::views::{self, ViewChange, ViewEvent};
 use wasdk::{clipboard, menus, notifications};
@@ -42,6 +44,8 @@ pub(crate) enum Event {
     LifecycleState(LifecycleState),
     /// The platform asks whether the program may end.
     ExitRequest(ExitRequest),
+    /// A development tool calls one of the program's service extensions.
+    ExtensionCall(ExtensionCall),
     /// The installed fonts changed.
     FontsChanged,
     /// What is on the clipboard changed: another program or app copied, or this one did.
@@ -101,6 +105,10 @@ impl Events {
         streams.push(merged(system::changes(), Event::SystemChange));
         streams.push(merged(lifecycle::state_changes(), Event::LifecycleState));
         streams.push(merged(lifecycle::exit_requests(), Event::ExitRequest));
+        // Only a debug build serves its extensions, as Flutter's do in debug builds alone.
+        if cfg!(debug_assertions) {
+            streams.push(merged(service_extensions::calls(), Event::ExtensionCall));
+        }
         streams.push(merged(wasdk::fonts::changes(), |_count| {
             Event::FontsChanged
         }));

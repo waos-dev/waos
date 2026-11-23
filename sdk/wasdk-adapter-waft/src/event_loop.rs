@@ -36,6 +36,7 @@ use crate::open_requests::framework_open_request;
 use crate::platform::WasdkPlatform;
 use crate::pointer::pointer_report;
 use crate::refreshes::{Refresh, Refreshes};
+use crate::service_extensions::framework_call;
 use crate::text_editing::{framework_action, framework_editing_value};
 use crate::typing::ChordModifiers;
 use crate::windows::view_error;
@@ -120,6 +121,7 @@ impl EventLoop {
                 .client
                 .app_lifecycle_state_changed(framework_lifecycle_state(state)),
             Event::ExitRequest(request) => self.client.request_app_exit(reply_to(request)),
+            Event::ExtensionCall(call) => self.client.service_extension_call(framework_call(call)),
             Event::FontsChanged => self.client.system_fonts_changed(),
             Event::ClipboardChanged => self.client.clipboard_changed(),
             Event::MenuSelected(id) => self.client.menu_selected(id),

@@ -37,7 +37,7 @@ mod write;
 pub use entries::{COMPONENT, ICON, MANIFEST, PUBLISHER_KEY};
 pub use error::PackageError;
 pub use icon::MINIMUM_SIDE as ICON_MINIMUM_SIDE;
-pub use id::{IdError, ProgramId};
+pub use id::{DEVELOPMENT_SUFFIX, IdError, ProgramId};
 pub use index::{Index, IndexError, ListedProgram};
 pub use keys::{KeyError, PublisherKey, SigningKey};
 pub use manifest::{Manifest, ManifestError, ProgramKind};

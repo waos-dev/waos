@@ -72,6 +72,15 @@ impl Manifest {
         })
     }
 
+    /// Refuses the manifest as a package's when its id is a development install's, ending in
+    /// `.development`, which no package may take.
+    pub(crate) fn check_published(&self) -> Result<(), crate::PackageError> {
+        if self.id.is_development() {
+            return Err(crate::PackageError::DevelopmentId(self.id.clone()));
+        }
+        Ok(())
+    }
+
     /// The same manifest, of `kind`.
     pub fn with_kind(self, kind: ProgramKind) -> Manifest {
         Manifest { kind, ..self }

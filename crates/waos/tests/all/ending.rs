@@ -75,6 +75,22 @@ fn a_program_built_for_another_version_of_the_interface_ends_incompatible() {
 }
 
 #[test]
+fn a_program_built_against_an_earlier_minor_version_of_the_interface_is_linked() {
+    let engine = engine_with(config());
+    let earlier = engine
+        .load(Path::new(waos_test_programs::BUILT_AGAINST_2_0))
+        .unwrap();
+    let running = engine.run(&earlier, ProgramEnvironment::default()).unwrap();
+    let ProgramEnd::Failed(error) = within(running.ended()) else {
+        panic!("a program with no `wasi:cli/run` fails once linked");
+    };
+    assert!(
+        error.downcast_ref::<IncompatibleProgram>().is_none(),
+        "`wasdk:platform/system@2.0.0` links against the 2.1.0 the engine serves: {error:#}"
+    );
+}
+
+#[test]
 fn a_trap_is_not_incompatible() {
     let engine = engine_with(config());
     let trap = engine.load(Path::new(waos_test_programs::TRAP)).unwrap();

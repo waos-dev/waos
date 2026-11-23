@@ -16,14 +16,14 @@ use std::str::FromStr;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
-use waos_package::{ProgramId, ProgramKind};
+use waos_package::{ProgramId, ProgramKind, Version};
 
 use crate::adjacent::adjacent_unknown;
 use crate::refusal::Refusal;
 use crate::settings_rows::{Asked, Row, SettingRow};
 
-/// One of a run's windows, named as it opens: a number the run never gives twice, so a window
-/// keeps its name however others close.
+/// One of a program's windows, named as it opens: a number its run never gives twice, so a
+/// window keeps its name however others close.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct WindowId(pub u64);
 
@@ -47,17 +47,14 @@ impl FromStr for WindowId {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(remote = "Self", tag = "kind", content = "data")]
 pub enum Request {
-    /// Run a component as the program it names, with the program's settings and folders,
-    /// installed or not: see [`Run`].
-    Run(Run),
     /// The last picture of each window of the program `id` names, or of the one `window` names
-    /// alone, while a run of `waos run` runs it.
+    /// alone, while it runs, however it was installed or started.
     Screenshot {
         id: ProgramId,
         window: Option<WindowId>,
     },
     /// `input` to the program `id` names, as its user would give it, in its window `window` or its
-    /// first open window when none is named, while a run of `waos run` runs it.
+    /// first open window when none is named, while it runs.
     Input {
         id: ProgramId,
         window: Option<WindowId>,
@@ -65,16 +62,15 @@ pub enum Request {
     },
     /// Sizes the window `window` (or the program's first open window when none is named) of the
     /// program `id` names, so the view in it is `width` by `height` logical points, its top-left
-    /// where it is: as the program's own `set-frame` sizes it, while a run of `waos run`
-    /// runs it.
+    /// where it is: as the program's own `set-frame` sizes it, while it runs.
     Resize {
         id: ProgramId,
         window: Option<WindowId>,
         width: f64,
         height: f64,
     },
-    /// The rows of the settings of the program `id` names, while a run of `waos run` on this
-    /// machine runs it or once one has.
+    /// The rows of the settings of the program `id` names, however it was installed, or of one
+    /// not installed yet, whose settings are set ahead of its install.
     Settings { id: ProgramId },
     /// Sets `row` among the settings of the program `id` names, as its user would on its settings
     /// page, for the same programs.
@@ -86,6 +82,31 @@ pub enum Request {
     /// user would open them with it: the program running under that id, or the installed one,
     /// started. This machine's alone.
     Open { id: ProgramId, files: Vec<PathBuf> },
+    /// Installs a program built from its source as its development install, under its
+    /// development id: see [`Install`].
+    Install(Install),
+    /// Starts an installed program, in place of its run if it runs: see [`Launch`].
+    Launch(Launch),
+    /// What the program `id` running writes and how it ends, however it was started, as
+    /// [`RunEvent`]s; closing the connection detaches, and the program runs on.
+    Attach { id: ProgramId },
+    /// Stops the program `id` running, however it was started.
+    Stop { id: ProgramId },
+    /// Removes the installed program `id`, with its settings and its own folders, its run
+    /// stopped first.
+    Uninstall { id: ProgramId },
+    /// Calls the service extension `name` of the program `id` running, however it was started,
+    /// with `params`, each a name and a text value, as Flutter's service extensions take them:
+    /// answered with the extension's JSON, or why not.
+    Extension {
+        id: ProgramId,
+        name: String,
+        #[serde(default)]
+        params: Vec<(String, String)>,
+    },
+    /// The programs running that serve service extensions, for a development tool's list of what
+    /// it can call.
+    ServingPrograms,
     #[serde(skip)]
     Unknown,
 }
@@ -96,7 +117,6 @@ impl Request {
     /// Its name in WaOS's hello: what `serves` lists.
     pub fn name(&self) -> &'static str {
         match self {
-            Request::Run(_) => "run",
             Request::Screenshot { .. } => "screenshot",
             Request::Input { .. } => "input",
             Request::Resize { .. } => "resize",
@@ -104,44 +124,84 @@ impl Request {
             Request::Set { .. } => "set",
             Request::Inspect { .. } => "inspect",
             Request::Open { .. } => "open",
+            Request::Install(_) => "install",
+            Request::Launch(_) => "launch",
+            Request::Attach { .. } => "attach",
+            Request::Stop { .. } => "stop",
+            Request::Uninstall { .. } => "uninstall",
+            Request::Extension { .. } => "extension",
+            Request::ServingPrograms => "serving-programs",
             Request::Unknown => "unknown",
         }
     }
 }
 
-/// A run: the program, whether it is an app or a tool, its arguments, the variables this run alone
-/// adds to its environment (the design's decision 68), and the component's length and SHA-256
-/// (`component_digest`), which the parts that follow carry. The program running under the id is stopped first. Nothing of the
-/// client's own environment is sent, and WaOS's own variables win where both name one.
+/// A launch of the installed program `id`: its `arguments`, after `waos launch --`, and the
+/// `variables` this launch alone adds to its environment (the design's decision 68). Nothing of
+/// the client's own environment is sent, and WaOS's own variables win where both name one.
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
-pub struct Run {
+pub struct Launch {
     pub id: ProgramId,
-    /// What its `[package.metadata.waos]` declares it, an app where a client from before kinds
-    /// says nothing.
+    /// Its arguments, which the program reads as its own after its name.
+    #[serde(default)]
+    pub arguments: Vec<String>,
+    /// The variables the program reads besides the engine's own, each its name and value.
+    #[serde(default)]
+    pub variables: Vec<(String, String)>,
+}
+
+/// A variable's value may be a secret: an event that prints a launch says each variable's name,
+/// never its value.
+impl fmt::Debug for Launch {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let names: Vec<&str> = self
+            .variables
+            .iter()
+            .map(|(name, _)| name.as_str())
+            .collect();
+        f.debug_struct("Launch")
+            .field("id", &format_args!("{}", self.id))
+            .field("arguments", &self.arguments)
+            .field("variables", &format_args!("{names:?}"))
+            .finish()
+    }
+}
+
+/// A program built from its source, which WaOS installs as its development install, under its id
+/// followed by `.development` (the design's decision 70): the program's own id, what it is, the
+/// name its user sees, its version, its icon where it has one, and the component's length and
+/// SHA-256 (`component_digest`), which the parts that follow carry unless WaOS answers it holds
+/// them already.
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
+pub struct Install {
+    /// The program's own id, its `[package.metadata.waos]`'s, not its development id.
+    pub id: ProgramId,
+    /// What its `[package.metadata.waos]` declares it.
     #[serde(default)]
     pub kind: ProgramKind,
-    /// Its arguments, after `waos run --`, which the program reads as its own.
-    #[serde(default)]
-    pub args: Vec<String>,
-    /// The variables the program reads besides the engine's own, each its name and value.
-    pub variables: Vec<(String, String)>,
+    /// The name its user sees, which WaOS shows followed by " (Development)".
+    pub name: String,
+    pub version: Version,
+    /// Its icon, a square PNG; none for a program whose metadata names none.
+    #[serde(default, with = "serde_bytes")]
+    pub icon: Option<Vec<u8>>,
     /// The component's bytes, which the parts that follow carry together.
     pub length: u64,
     /// The component's SHA-256, checked once its bytes are all there.
     pub digest: [u8; 32],
 }
 
-/// What WaOS answers a `Run` with before any component arrives: whether to send it, whether WaOS
-/// holds it already, or why not.
+/// What WaOS answers an `Install` with before any component arrives: whether to send it, whether
+/// WaOS holds it already, or why not.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(remote = "Self", tag = "kind", content = "data")]
 pub enum Upload {
     /// The parts follow.
     Send,
-    /// WaOS holds that component already, by its length and digest: nothing is sent, and the run
-    /// starts from it.
+    /// The development install holds that component already, by its length and digest: nothing
+    /// is sent, and the install keeps it.
     Have,
-    /// The run is refused before anything is uploaded.
+    /// The install is refused before anything is uploaded.
     Refused(Refusal),
     #[serde(skip)]
     Unknown,
@@ -149,28 +209,25 @@ pub enum Upload {
 
 adjacent_unknown!(Upload);
 
-/// A component is megabytes and a variable's value may be a secret: an event that prints the run
-/// says how many bytes, the digest shortened, and each variable's name, never its value.
-impl fmt::Debug for Run {
+/// A component is megabytes and an icon kilobytes: an event that prints the install says how
+/// many bytes, and the digest shortened.
+impl fmt::Debug for Install {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let names: Vec<&str> = self
-            .variables
-            .iter()
-            .map(|(name, _)| name.as_str())
-            .collect();
-        f.debug_struct("Run")
+        f.debug_struct("Install")
             .field("id", &format_args!("{}", self.id))
             .field("kind", &self.kind)
-            .field("args", &self.args)
+            .field("name", &self.name)
+            .field("version", &format_args!("{}", self.version))
+            .field("icon", &self.icon.as_ref().map(Vec::len))
             .field("component", &format_args!("{} bytes", self.length))
             .field("digest", &format_args!("{}", said_digest(&self.digest)))
-            .field("variables", &format_args!("{names:?}"))
             .finish()
     }
 }
 
-/// Part of a run's component, which its `Run` announced: at most [`CHUNK_BYTES`](crate::CHUNK_BYTES)
-/// of it, the parts in order until the announced length is reached.
+/// Part of an install's component, which its `Install` announced: at most
+/// [`CHUNK_BYTES`](crate::CHUNK_BYTES) of it, the parts in order until the announced length is
+/// reached.
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct Component {
     #[serde(with = "serde_bytes")]
@@ -185,6 +242,108 @@ impl fmt::Debug for Component {
             .finish()
     }
 }
+
+/// What an install answers once its component is there: the id it is installed under, its
+/// development id, or why not.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(remote = "Self", tag = "kind", content = "data")]
+pub enum InstallAnswer {
+    Installed {
+        id: ProgramId,
+    },
+    Refused(Refusal),
+    #[serde(skip)]
+    Unknown,
+}
+
+adjacent_unknown!(InstallAnswer);
+
+/// What a launch answers: `Compiling` first where WaOS compiles the program's code before it
+/// starts it, minutes for a large debug build; then `Launched` once it runs, or why not.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(remote = "Self", tag = "kind", content = "data")]
+pub enum LaunchAnswer {
+    Compiling,
+    Launched,
+    Refused(Refusal),
+    #[serde(skip)]
+    Unknown,
+}
+
+adjacent_unknown!(LaunchAnswer);
+
+/// What a stop answers: the program ended, or why it was not stopped.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(remote = "Self", tag = "kind", content = "data")]
+pub enum StopAnswer {
+    Stopped,
+    Refused(Refusal),
+    #[serde(skip)]
+    Unknown,
+}
+
+adjacent_unknown!(StopAnswer);
+
+/// What a service extension answers: the answer's JSON text, as the program gave it, or why there
+/// is none, its kind keeping an unknown name (with the names served), parameters that do not fit
+/// and a failure apart.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(remote = "Self", tag = "kind", content = "data")]
+pub enum ExtensionAnswer {
+    Answered(String),
+    Refused(Refusal),
+    #[serde(skip)]
+    Unknown,
+}
+
+adjacent_unknown!(ExtensionAnswer);
+
+/// What a list of the programs serving service extensions answers: each of them, with the process
+/// id of the WaOS they run in, or why not.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(remote = "Self", tag = "kind", content = "data")]
+pub enum ServingProgramsAnswer {
+    Programs(ServingPrograms),
+    Refused(Refusal),
+    #[serde(skip)]
+    Unknown,
+}
+
+adjacent_unknown!(ServingProgramsAnswer);
+
+/// The programs running that serve service extensions, in the WaOS whose process is `pid`.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ServingPrograms {
+    /// The process id of the WaOS they run in.
+    #[serde(default)]
+    pub pid: u32,
+    #[serde(default)]
+    pub programs: Vec<ServingProgram>,
+}
+
+/// One program serving service extensions.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ServingProgram {
+    pub id: ProgramId,
+    /// The name its user sees, a development install's followed by " (Development)".
+    pub name: String,
+    /// Whether it runs now; a program is listed only while it does.
+    #[serde(default)]
+    pub running: bool,
+}
+
+/// What an uninstall answers: the program is gone, with its settings and its own folders, or why
+/// not.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(remote = "Self", tag = "kind", content = "data")]
+pub enum UninstallAnswer {
+    Uninstalled,
+    Refused(Refusal),
+    #[serde(skip)]
+    Unknown,
+}
+
+adjacent_unknown!(UninstallAnswer);
 
 /// What an inspection asks of a program.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -318,8 +477,8 @@ adjacent_unknown!(InputAnswer);
 /// screenshot shows it once it has, a window out of sight drawing nothing until it is in sight.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InputDone {
-    /// Whether the window was in sight when the input was given, a run of `waos run`
-    /// counting its windows in sight while it is attached.
+    /// Whether the window was in sight when the input was given, a program counting its windows
+    /// in sight while `waos attach` (or `waos run`) is attached to it.
     pub in_sight: bool,
 }
 
@@ -384,23 +543,23 @@ adjacent_unknown!(OpenAnswer);
 
 /// An answer carrying only `Refused(Refusal)`, matching the shared `{"kind": "Refused", "data": ...}`
 /// shape of every request's answer enum (`ScreenshotAnswer`, `InputAnswer`, `ResizeAnswer`,
-/// `SettingsAnswer`, `InspectAnswer`, `OpenAnswer`) as well as [`Upload::Refused`] and
-/// [`RunEvent::Refused`]. Used when WaOS reads [`Request::Unknown`] and cannot name a single
-/// request's answer enum.
+/// `SettingsAnswer`, `InspectAnswer`, `OpenAnswer`, `InstallAnswer`, `LaunchAnswer`,
+/// `StopAnswer`, `UninstallAnswer`, `ExtensionAnswer`, `ServingProgramsAnswer`) as well as
+/// [`Upload::Refused`] and [`RunEvent::Refused`]. Used when WaOS reads [`Request::Unknown`] and
+/// cannot name a single request's answer enum.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(tag = "kind", content = "data")]
 pub enum RefusedAnswer {
     Refused(Refusal),
 }
 
-/// What a run's connection hears, from `Compiling` to `Ended`; an event this build does not know
-/// is `Unknown`, skipped, never a broken connection.
+/// What an attach's connection hears, from `Started` to `Ended`; an event this build does not
+/// know is `Unknown`, skipped, never a broken connection.
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
 #[serde(remote = "Self", tag = "kind", content = "data")]
 pub enum RunEvent {
-    /// WaOS compiles the component of the run, which it does before it starts it: `Started` or
-    /// `Refused` follows once it has, minutes later for a large debug build.
-    Compiling,
+    /// Attached to the program running: what it wrote since it launched and had nobody to read
+    /// it follows, then what it writes as it writes it.
     Started,
     /// Bytes the program wrote, as it wrote them: a terminal shows them as they come.
     Output {
@@ -408,10 +567,10 @@ pub enum RunEvent {
         #[serde(with = "serde_bytes")]
         bytes: Vec<u8>,
     },
-    /// WaOS asks the run's program's user something now, and the program waits for the answer: a
-    /// row on Ask, which `waos set` answers ahead next time.
+    /// WaOS asks the program's user something now, and the program waits for the answer: a row
+    /// on Ask, which `waos settings set` answers ahead next time.
     Asking(Asked),
-    /// The component could not be loaded or run, or the run could not start, and why.
+    /// Nothing to attach to, and why: the program does not run.
     Refused(Refusal),
     Ended(RunEnd),
     #[serde(skip)]
@@ -424,7 +583,6 @@ adjacent_unknown!(RunEvent);
 impl fmt::Debug for RunEvent {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            RunEvent::Compiling => f.write_str("Compiling"),
             RunEvent::Started => f.write_str("Started"),
             RunEvent::Output { stream, bytes } => f
                 .debug_struct("Output")
@@ -442,7 +600,8 @@ impl fmt::Debug for RunEvent {
 /// One of a program's windows, as its user sees it: what `waos screenshot` writes.
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WindowPicture {
-    /// The window's id, as the run gave it when the window opened: what an input's `window` names.
+    /// The window's id, as the program's run gave it when the window opened: what an input's
+    /// `window` names.
     pub window: WindowId,
     /// The title the program gave the window; empty for one it left untitled, which shows the
     /// program's name, and for a view in no window.
@@ -452,8 +611,8 @@ pub struct WindowPicture {
     pub width: u32,
     pub height: u32,
     /// Whether the window is in sight. One minimized or hidden shows no new picture until it is in
-    /// sight again, and keeps showing its last; one other windows cover is in sight while a run of
-    /// `waos run` runs its program.
+    /// sight again, and keeps showing its last; one other windows cover is in sight while `waos
+    /// attach` (or `waos run`) is attached to its program.
     pub in_sight: bool,
     /// What the window shows, as a PNG: the last picture the program presented in it over what
     /// each composition layer beneath it shows now, a player's video or a camera's picture among
@@ -492,7 +651,7 @@ pub enum OutputStream {
 
 adjacent_unknown!(OutputStream);
 
-/// How the run ended.
+/// How the program's run ended.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(remote = "Self", tag = "kind", content = "data")]
 pub enum RunEnd {
@@ -500,9 +659,9 @@ pub enum RunEnd {
     Returned { success: bool },
     /// It trapped, or could not run: the error.
     Failed(String),
-    /// WaOS stopped it, as when the app quits.
+    /// WaOS stopped it: `waos stop`, or the app quitting.
     Stopped,
-    /// A later run of the same name took its place.
+    /// A later launch or install of the program took its place.
     Replaced,
     #[serde(skip)]
     Unknown,
@@ -581,14 +740,35 @@ mod tests {
     fn each_requests_answer_reads_back_as_written() {
         let id: ProgramId = "dev.example.notes".parse().unwrap();
         let requests = [
-            Request::Run(Run {
+            Request::Install(Install {
                 id: id.clone(),
                 kind: waos_package::ProgramKind::App,
-                args: vec!["--flag".to_owned()],
-                variables: vec![("RUST_LOG".to_owned(), "debug".to_owned())],
+                name: "Notes".into(),
+                version: "0.1.0".parse().unwrap(),
+                icon: Some(vec![0x89; 64]),
                 length: 1024,
                 digest: [0xab; 32],
             }),
+            Request::Launch(Launch {
+                id: id.development(),
+                arguments: vec!["--flag".to_owned()],
+                variables: vec![("RUST_LOG".to_owned(), "debug".to_owned())],
+            }),
+            Request::Attach {
+                id: id.development(),
+            },
+            Request::Stop {
+                id: id.development(),
+            },
+            Request::Uninstall {
+                id: id.development(),
+            },
+            Request::Extension {
+                id: id.clone(),
+                name: "ext.waft.inspector.getRootWidget".into(),
+                params: vec![("objectGroup".into(), "tree".into())],
+            },
+            Request::ServingPrograms,
             Request::Screenshot {
                 id: id.clone(),
                 window: Some(WindowId(2)),
@@ -664,6 +844,30 @@ mod tests {
             r#"{"verdict":"Allowed"}"#.into(),
         ]));
         cbor(OpenAnswer::Opened);
+        cbor(InstallAnswer::Installed {
+            id: "dev.example.notes.development".parse().unwrap(),
+        });
+        cbor(LaunchAnswer::Compiling);
+        cbor(LaunchAnswer::Launched);
+        cbor(StopAnswer::Stopped);
+        cbor(UninstallAnswer::Uninstalled);
+        cbor(ExtensionAnswer::Answered(
+            r#"{"type":"_extensionType"}"#.into(),
+        ));
+        cbor(ExtensionAnswer::Refused(Refusal::new(
+            RefusalKind::UnknownExtension {
+                registered: vec!["ext.waft.debugDumpApp".into()],
+            },
+            "no ext.waft.nothing",
+        )));
+        cbor(ServingProgramsAnswer::Programs(ServingPrograms {
+            pid: 4242,
+            programs: vec![ServingProgram {
+                id: "dev.example.notes.development".parse().unwrap(),
+                name: "Notes (Development)".into(),
+                running: true,
+            }],
+        }));
         cbor(RunEvent::Output {
             stream: OutputStream::Stderr,
             bytes: (0..=255).cycle().take(1000).collect(),
@@ -710,6 +914,15 @@ mod tests {
             assert_eq!(decode::<SettingsAnswer>(newer), SettingsAnswer::Unknown);
             assert_eq!(decode::<InspectAnswer>(newer), InspectAnswer::Unknown);
             assert_eq!(decode::<OpenAnswer>(newer), OpenAnswer::Unknown);
+            assert_eq!(decode::<InstallAnswer>(newer), InstallAnswer::Unknown);
+            assert_eq!(decode::<LaunchAnswer>(newer), LaunchAnswer::Unknown);
+            assert_eq!(decode::<StopAnswer>(newer), StopAnswer::Unknown);
+            assert_eq!(decode::<UninstallAnswer>(newer), UninstallAnswer::Unknown);
+            assert_eq!(decode::<ExtensionAnswer>(newer), ExtensionAnswer::Unknown);
+            assert_eq!(
+                decode::<ServingProgramsAnswer>(newer),
+                ServingProgramsAnswer::Unknown
+            );
             assert_eq!(decode::<RunEvent>(newer), RunEvent::Unknown);
             assert_eq!(decode::<OutputStream>(newer), OutputStream::Unknown);
             assert_eq!(decode::<RunEnd>(newer), RunEnd::Unknown);
@@ -911,22 +1124,32 @@ mod tests {
     }
 
     #[test]
-    fn a_run_prints_its_component_as_a_count_and_its_digest_shortened() {
-        let run = Run {
+    fn an_install_prints_its_component_as_a_count_and_a_launch_its_variables_by_name() {
+        let install = Install {
             id: "dev.example.triangle".parse().unwrap(),
             kind: waos_package::ProgramKind::App,
-            args: vec!["--flag".to_owned()],
-            variables: vec![
-                ("RUST_LOG".to_owned(), "debug".to_owned()),
-                ("API_TOKEN".to_owned(), "s3cret".to_owned()),
-            ],
+            name: "Triangle".into(),
+            version: "0.1.0".parse().unwrap(),
+            icon: None,
             length: 1024,
             digest: [0xab; 32],
         };
         assert_eq!(
-            format!("{run:?}"),
-            "Run { id: dev.example.triangle, kind: App, args: [\"--flag\"], component: 1024 bytes, digest: abababab…, variables: [\"RUST_LOG\", \"API_TOKEN\"] }",
-            "a variable's value may be a secret, so only its name is said"
+            format!("{install:?}"),
+            "Install { id: dev.example.triangle, kind: App, name: \"Triangle\", version: 0.1.0, icon: None, component: 1024 bytes, digest: abababab… }"
+        );
+        let launch = Request::Launch(Launch {
+            id: "dev.example.triangle.development".parse().unwrap(),
+            arguments: vec!["--flag".to_owned()],
+            variables: vec![
+                ("RUST_LOG".to_owned(), "debug".to_owned()),
+                ("API_TOKEN".to_owned(), "s3cret".to_owned()),
+            ],
+        });
+        let printed = format!("{launch:?}");
+        assert!(
+            !printed.contains("s3cret") && printed.contains("API_TOKEN"),
+            "a variable's value may be a secret, so only its name is said: {printed}"
         );
     }
 
@@ -980,6 +1203,15 @@ mod tests {
         assert_eq!(encode(&SettingsAnswer::Refused(refusal.clone())), shared);
         assert_eq!(encode(&InspectAnswer::Refused(refusal.clone())), shared);
         assert_eq!(encode(&OpenAnswer::Refused(refusal.clone())), shared);
+        assert_eq!(encode(&InstallAnswer::Refused(refusal.clone())), shared);
+        assert_eq!(encode(&LaunchAnswer::Refused(refusal.clone())), shared);
+        assert_eq!(encode(&StopAnswer::Refused(refusal.clone())), shared);
+        assert_eq!(encode(&UninstallAnswer::Refused(refusal.clone())), shared);
+        assert_eq!(encode(&ExtensionAnswer::Refused(refusal.clone())), shared);
+        assert_eq!(
+            encode(&ServingProgramsAnswer::Refused(refusal.clone())),
+            shared
+        );
         assert_eq!(encode(&RunEvent::Refused(refusal)), shared);
     }
 }

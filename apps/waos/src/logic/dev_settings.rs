@@ -1,13 +1,11 @@
-//! A program's settings as `waos settings` reads them and `waos set` sets them: its
+//! A program's settings as `waos settings` reads them and `waos settings set` sets them: its
 //! settings page's rows (`setting_changes`), each by the key `waos-dev-protocol` names it with, a
 //! set made as the page makes the same change, so the command and the page are one rule. A set
-//! answer is the program's setting, used by every run of it, installed or not (decision 11 of the
-//! permissions proposal).
+//! answer is the program's setting, used by every run of it.
 //!
-//! The invariant: only a program a run of `waos run` on this machine runs or has run, whose
-//! component one sent is among the components kept (`sent_components`), or one the store does not
-//! have installed, which may be set before its first run, is read or set; one the library
-//! installed, which no run sent, is `Refused(NeverDevRun)`.
+//! The invariant: every program's settings are read and set, however it was installed, a
+//! published one as a development install, and an id the store does not have installed, which may
+//! be set before its install (the design's decision 70): the dev socket is its user's alone.
 
 use std::sync::Arc;
 
@@ -22,16 +20,12 @@ use waos_store::{ProgramSettings, Store, StoreError};
 use super::dev_refusal;
 use super::dev_server::BUILD;
 use super::environments::ProgramEnvironments;
-use super::runs::Runs;
-use super::sent_components::SentComponents;
 use super::setting_changes::{
     self, SettingChange, Shown, ShownSettings, Which, change_program, program_page,
 };
 
 /// What reading and setting a program's settings needs of the app.
 pub(crate) struct SettingsContext {
-    pub(crate) runs: Arc<Runs>,
-    pub(crate) components: Arc<SentComponents>,
     pub(crate) store: Store,
     pub(crate) environments: Arc<ProgramEnvironments>,
 }
@@ -58,9 +52,6 @@ async fn rows_after(
     id: &ProgramId,
     set: Option<Row>,
 ) -> Result<Vec<SettingRow>, Refusal> {
-    if !is_a_development_program(context, id).await {
-        return Err(dev_refusal::never_dev_run(id));
-    }
     let environments = Arc::clone(&context.environments);
     // Listing the sound outputs waits for the system's audio.
     let offered = tokio::task::spawn_blocking(move || environments.offered())
@@ -85,15 +76,6 @@ async fn rows_after(
 /// A request of the settings' own that failed: its message is the error's.
 fn failed(error: impl std::fmt::Display) -> Refusal {
     Refusal::new(RefusalKind::Failed, error.to_string())
-}
-
-/// Whether `id` is a development program: one a run of `waos run` on this machine runs or
-/// has run, or one the store does not have installed, which may be set before its first run. An
-/// installed program no run sent is not one.
-async fn is_a_development_program(context: &SettingsContext, id: &ProgramId) -> bool {
-    context.runs.dev_run(id).await.is_some()
-        || context.components.was_sent(id)
-        || context.store.program(id).is_none()
 }
 
 /// Makes `change` to the program `id`'s own settings, as its page makes it.

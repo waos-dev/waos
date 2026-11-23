@@ -13,9 +13,26 @@ use serde::{Deserialize, Serialize};
 #[serde(try_from = "String", into = "String")]
 pub struct ProgramId(String);
 
+/// What a program's development id adds to its id: `dev.example.notes` is installed from its
+/// source, by `waos install`, as `dev.example.notes.development`, a program of its own beside the
+/// one published under the plain id.
+pub const DEVELOPMENT_SUFFIX: &str = ".development";
+
 impl ProgramId {
     pub fn as_str(&self) -> &str {
         &self.0
+    }
+
+    /// The id the program is installed under from its source, its development install's: this id
+    /// followed by [`DEVELOPMENT_SUFFIX`], which is an id too, since its last segment is a word.
+    pub fn development(&self) -> ProgramId {
+        ProgramId(format!("{}{DEVELOPMENT_SUFFIX}", self.0))
+    }
+
+    /// Whether this is a development install's id, ending in [`DEVELOPMENT_SUFFIX`]: one no
+    /// package may take.
+    pub fn is_development(&self) -> bool {
+        self.0.ends_with(DEVELOPMENT_SUFFIX)
     }
 }
 
@@ -126,6 +143,18 @@ mod tests {
 
     fn refusal(id: &str) -> IdError {
         id.parse::<ProgramId>().unwrap_err()
+    }
+
+    #[test]
+    fn a_programs_development_id_is_its_id_and_development_and_an_id_itself() {
+        let notes: ProgramId = "dev.example.notes".parse().unwrap();
+        let development = notes.development();
+        assert_eq!(development.as_str(), "dev.example.notes.development");
+        assert_eq!(
+            development.as_str().parse::<ProgramId>(),
+            Ok(development.clone())
+        );
+        assert!(development.is_development() && !notes.is_development());
     }
 
     #[test]

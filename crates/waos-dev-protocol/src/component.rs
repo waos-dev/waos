@@ -1,7 +1,7 @@
-//! A run's component as an upload over the connection: its `Run` announces the component's
-//! length and its SHA-256, and the `Component` frames after it carry the bytes, each at most
+//! An install's component as an upload over the connection: its `Install` announces the
+//! component's length and its SHA-256, and the `Component` frames after it carry the bytes, each at most
 //! [`CHUNK_BYTES`], which the receiving side assembles and checks. A component is megabytes, a
-//! debug build hundreds of them, over the largest frame a connection accepts whole, so a run's
+//! debug build hundreds of them, over the largest frame a connection accepts whole, so an install's
 //! component is the one message that is many.
 //!
 //! The invariants a later editor will break:
@@ -11,8 +11,8 @@
 //! - The receiver reads parts until the announced length is reached, and answers the whole only
 //!   when its digest is the one announced: a component that arrives short, past its length, or
 //!   changed on the way is an error naming what did not hold. The errors of a wrong upload are
-//!   `InvalidData`, after whole frames, so the connection still speaks and the run can be
-//!   refused on it.
+//!   `InvalidData`, after whole frames, so the connection still speaks and the install can
+//!   be refused on it.
 
 use std::io;
 
@@ -28,7 +28,7 @@ use crate::messages::Component;
 pub const CHUNK_BYTES: usize = 8 << 20;
 
 impl<S: AsyncWrite + Unpin> Connection<S> {
-    /// Sends `component` as the `Component` frames its `Run` announced: the parts in order, each
+    /// Sends `component` as the `Component` frames its `Install` announced: the parts in order, each
     /// at most [`CHUNK_BYTES`].
     pub async fn send_component(&mut self, component: &[u8]) -> io::Result<()> {
         for part in component.chunks(CHUNK_BYTES) {
@@ -42,7 +42,7 @@ impl<S: AsyncWrite + Unpin> Connection<S> {
 }
 
 impl<S: AsyncRead + Unpin> Connection<S> {
-    /// The component a `Run` announced as `length` bytes of `digest`: the `Component` frames
+    /// The component an `Install` announced as `length` bytes of `digest`: the `Component` frames
     /// that follow, assembled and checked. A frame that is not a part of the component, or more
     /// bytes than the length announced, is an error, and so is a digest that does not hold once
     /// the bytes are all there.
@@ -59,7 +59,7 @@ impl<S: AsyncRead + Unpin> Connection<S> {
                 Some(Component { bytes }) => {
                     if component.len() as u64 + bytes.len() as u64 > length {
                         return Err(invalid_data(format!(
-                            "a component frame past the {length} bytes its run announced"
+                            "a component frame past the {length} bytes its install announced"
                         )));
                     }
                     component.extend_from_slice(&bytes);
@@ -74,14 +74,14 @@ impl<S: AsyncRead + Unpin> Connection<S> {
         }
         if &component_digest(&component) != digest {
             return Err(invalid_data(
-                "the component's digest is not the one its run announced",
+                "the component's digest is not the one its install announced",
             ));
         }
         Ok(component)
     }
 }
 
-/// The SHA-256 of `component`, which a run's `digest` carries and its receiver checks.
+/// The SHA-256 of `component`, which an install's `digest` carries and its receiver checks.
 pub fn component_digest(component: &[u8]) -> [u8; 32] {
     let mut digest = [0; 32];
     digest.copy_from_slice(&Sha256::digest(component));
@@ -95,7 +95,7 @@ mod tests {
     use tokio::io::DuplexStream;
 
     use super::*;
-    use crate::messages::Run;
+    use crate::messages::Install;
     use waos_package::ProgramId;
 
     fn pair() -> (Connection<DuplexStream>, Connection<DuplexStream>) {
@@ -107,23 +107,24 @@ mod tests {
         "dev.example.triangle".parse().unwrap()
     }
 
-    fn run(length: u64, digest: [u8; 32]) -> Run {
-        Run {
+    fn install(length: u64, digest: [u8; 32]) -> Install {
+        Install {
             id: id(),
             kind: waos_package::ProgramKind::App,
-            args: Vec::new(),
-            variables: Vec::new(),
+            name: "Triangle".into(),
+            version: "0.1.0".parse().unwrap(),
+            icon: None,
             length,
             digest,
         }
     }
 
-    /// The `Run` at the other end of `receiver`, whose component the test reads.
+    /// The `Install` at the other end of `receiver`, whose component the test reads.
     async fn announced(
         mut receiver: Connection<DuplexStream>,
     ) -> (Connection<DuplexStream>, u64, [u8; 32]) {
-        let run: Run = receiver.receive().await.unwrap().expect("a run");
-        (receiver, run.length, run.digest)
+        let install: Install = receiver.receive().await.unwrap().expect("an install");
+        (receiver, install.length, install.digest)
     }
 
     #[tokio::test]
@@ -136,7 +137,10 @@ mod tests {
             .collect();
         let sending = tokio::spawn(async move {
             sender
-                .send(&run(component.len() as u64, component_digest(&component)))
+                .send(&install(
+                    component.len() as u64,
+                    component_digest(&component),
+                ))
                 .await
                 .unwrap();
             sender.send_component(&component).await
@@ -157,7 +161,7 @@ mod tests {
         let component = b"not the component announced".to_vec();
         let length = component.len() as u64;
         let sending = tokio::spawn(async move {
-            sender.send(&run(length, [0; 32])).await.unwrap();
+            sender.send(&install(length, [0; 32])).await.unwrap();
             sender.send_component(&component).await.unwrap();
         });
         let (mut receiver, length, digest) = announced(receiver).await;
@@ -171,11 +175,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_part_past_the_length_a_run_announced_is_refused() {
+    async fn a_part_past_the_length_an_install_announced_is_refused() {
         let (mut sender, receiver) = pair();
         let sending = tokio::spawn(async move {
             sender
-                .send(&run(4, component_digest(b"eight")))
+                .send(&install(4, component_digest(b"eight")))
                 .await
                 .unwrap();
             sender.send_component(b"eight bytes").await.unwrap();

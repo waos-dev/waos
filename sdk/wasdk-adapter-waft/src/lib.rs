@@ -82,6 +82,7 @@ mod pointer;
 mod refreshes;
 mod renderer;
 mod screens;
+mod service_extensions;
 mod shown_videos;
 mod system;
 pub mod targets;

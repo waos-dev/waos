@@ -1,0 +1,185 @@
+package wasdk:media@2.1.0;
+
+/// The system's cameras: listed with which way each looks, opened once the user allows it, and
+/// run for the program in one of a camera's formats, feeding the outputs it starts with.
+///
+/// **Listing and opening.** `list` names the cameras attached now, and asks nothing; `changes` hears
+/// the list again each time a camera comes or goes. `open` asks the user the `permissions`
+/// interface's `camera` question at its first use, and opens the camera once the user allows it,
+/// answering `not-allowed` otherwise. Listing, opening and starting a camera answer once the system
+/// has, as the web's `enumerateDevices` and `getUserMedia` do.
+///
+/// **Formats and outputs.** A camera lists the ways it runs (`formats`), each with the size of its
+/// frames and its preview, its frame rates and the sizes it takes photos at, and a program starts
+/// it in one, with its outputs given whole (`camera-outputs`), which the system configures
+/// together, as Apple configures a capture session and Android binds its use cases: a composition
+/// layer the system draws the preview on (`views`), a frame reader whose frames the program draws
+/// itself (`video-frames`), and photos at one of the format's sizes, each encoded by the system.
+/// Starting fails for what can happen at any time: the camera in use, unplugged, or not allowed.
+/// A format the camera does not list, photos at a size the format does not list, and a
+/// photo asked of a session started without photos are the program's mistakes, and trap.
+///
+/// **Sharing.** Each program has a session of its own. A camera another program runs keeps its
+/// format: a later session joins it, and its `format` says so. On Android, which gives a camera one
+/// stream of photos, a session that joins also takes its photos at the size the first session set,
+/// whatever its own outputs say, and takes none where the first set none.
+///
+/// **Turning.** A session gives the two turns that keep the camera's picture level, as Apple's
+/// rotation coordinator does: one for the preview, which the system draws turned so, and one for
+/// what is captured, which a photo carries in its EXIF and a frame reports as its `rotation`. They
+/// differ only while the device turns, and on Android never: there both are the sensor's
+/// orientation against the screen's. A program may ask for frames delivered upright instead, which
+/// Apple's systems turn at a cost on every frame, and Android cannot.
+///
+/// **State.** A session runs, is interrupted, giving no frames until it resumes by itself, with the
+/// reason where the system gives one, or has ended for good: `state` reads it, and `state-changes` hears it again at each change. While a
+/// program holds a session, the platform shows that it uses the camera.
+interface cameras {
+  use wasdk:platform/windows@2.1.0.{size};
+  use wasdk:platform/views@2.1.0.{composition-layer};
+  use video-frames.{video-frame-reader};
+
+  resource cameras {
+    /// The cameras attached now, in the system's order; asks nothing.
+    %list: async func() -> list<camera-info>;
+    /// The list again each time a camera comes or goes: a stream read late hears the newest,
+    /// passing over those between. Each call is a stream of its own.
+    changes: func() -> stream<list<camera-info>>;
+    /// The camera `id`, one `list` named, opened once the user allows it: asks
+    /// `permissions.camera` at the first use. `unplugged` for a camera no longer attached.
+    open: async func(id: string) -> result<camera, camera-error>;
+  }
+
+  /// The system's cameras, where it has them.
+  get-cameras: func() -> option<cameras>;
+
+  record camera-info {
+    /// The system's name for the camera, kept while it stays attached.
+    id: string,
+    /// What the system calls it, which the user knows it by.
+    name: string,
+    facing: camera-facing,
+  }
+
+  /// Which way a camera looks.
+  enum camera-facing {
+    /// At the user: a phone's selfie camera, a laptop's.
+    front,
+    /// Away from the user: a phone's main camera.
+    back,
+    /// One the system cannot say of: plugged in, or on another device.
+    external,
+  }
+
+  /// One way this camera runs, with all its outputs.
+  record camera-format {
+    /// Its frames' and preview's size, in the camera's own pixels.
+    size: size,
+    /// The slowest and the fastest frame rate it keeps at that size, in frames a second.
+    min-frame-rate: f64,
+    max-frame-rate: f64,
+    /// The sizes it takes photos at while running so, in pixels.
+    photo-sizes: list<size>,
+  }
+
+  /// What a camera feeds, given whole to `start`. An output left unset is not fed.
+  resource camera-outputs {
+    /// Outputs that feed nothing.
+    constructor();
+    /// The system draws the preview on this layer.
+    set-preview: func(layer: borrow<composition-layer>);
+    /// Frames for the program, read by this reader.
+    set-frames: func(reader: borrow<video-frame-reader>);
+    /// Photos at this size, one of the format's `photo-sizes`, taken with `take-photo`.
+    set-photos: func(size: size);
+    /// Frames delivered turned and mirrored as they show, each with `rotation` 0 and `flip`
+    /// false, the system turning every frame at a cost, as Apple's capture connection does;
+    /// `start` answers `not-supported` where the system cannot, as Android's camera cannot. The
+    /// preview and the photos are turned either way.
+    set-upright-frames: func();
+  }
+
+  /// The turns, in degrees clockwise, 0, 90, 180 or 270, that keep a camera's picture level
+  /// relative to gravity, as Apple's rotation coordinator gives them; they differ only while the
+  /// device turns, and on Android never. Waft's `CaptureSession` gives each by a method of its own
+  /// and tells their changes through `changed`.
+  record video-rotation-angles {
+    /// The preview's, which the system's preview is drawn turned by:
+    /// `videoRotationAngleForHorizonLevelPreview`.
+    for-horizon-level-preview: u32,
+    /// What is captured's, which a photo carries in its EXIF and a frame reports what of as its
+    /// `rotation`: `videoRotationAngleForHorizonLevelCapture`.
+    for-horizon-level-capture: u32,
+  }
+
+  /// A camera opened for the program. A session started on it runs on after it is dropped.
+  resource camera {
+    /// The formats this camera runs in, in the system's order.
+    formats: func() -> list<camera-format>;
+    /// Starts the camera in `format`, one of its `formats`, feeding `outputs`, or joins it in the
+    /// format it already runs in for another program. An error for what can happen at any time:
+    /// the camera is in use, unplugged, or not allowed; and `not-supported` for outputs the system
+    /// cannot feed, such as upright frames on Android.
+    start: async func(format: camera-format, outputs: borrow<camera-outputs>) -> result<capture-session, camera-error>;
+  }
+
+  /// The camera running for this program; dropping it stops the camera for this program, its
+  /// preview leaving its layer and its reader reading nothing more.
+  resource capture-session {
+    /// The format it runs in: the one picked, unless this session joined another program's.
+    format: func() -> camera-format;
+    state: func() -> capture-state;
+    /// The state again each time it changes: a stream read late hears the newest, passing over
+    /// those between. Each call is a stream of its own, which ends with the session.
+    state-changes: func() -> stream<capture-state>;
+    /// The turns that keep the camera's picture level now.
+    video-rotation-angles: func() -> video-rotation-angles;
+    /// The turns again each time either changes, as `state-changes` tells the state: a stream
+    /// read late hears the newest. Each call is a stream of its own, which ends with the session.
+    video-rotation-angle-changes: func() -> stream<video-rotation-angles>;
+    /// A photo at the size of its outputs, encoded by the system; `failed` while the session does
+    /// not run.
+    take-photo: async func() -> result<photo, camera-error>;
+  }
+
+  variant capture-state {
+    running,
+    /// No frames for now, for this reason where the system gives one, as macOS does not; it
+    /// resumes by itself.
+    interrupted(option<camera-interruption>),
+    /// For good.
+    ended(camera-error),
+  }
+
+  /// Why a session gives no frames for now.
+  enum camera-interruption {
+    /// Another app has the camera, as a phone allows one at a time.
+    in-use-by-another-app,
+    /// The program is in the background.
+    background,
+    /// The system is too hot or too busy.
+    system-pressure,
+  }
+
+  /// Why a camera did not open, start, run or take a photo.
+  variant camera-error {
+    /// The user did not let the program use the cameras, or the system's policy does not.
+    not-allowed,
+    /// Another app has the camera, and the system does not share it.
+    in-use,
+    /// The camera is no longer attached.
+    unplugged,
+    /// The system cannot feed an output asked for, for this reason, such as upright frames on
+    /// Android.
+    not-supported(string),
+    /// The system failed, for its reason.
+    failed(string),
+  }
+
+  /// A photo, as the system encoded it.
+  record photo {
+    /// Its encoding's MIME type, such as `image/jpeg`.
+    mime-type: string,
+    data: list<u8>,
+  }
+}

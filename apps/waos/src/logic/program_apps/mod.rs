@@ -99,8 +99,6 @@ pub(crate) struct AppsFolders {
     pub(crate) data: PathBuf,
     /// Where the installed programs' apps go.
     pub(crate) installed: PathBuf,
-    /// Where the apps of programs run in development go.
-    pub(crate) development: PathBuf,
 }
 
 pub(crate) struct ProgramApps {
@@ -143,7 +141,6 @@ impl ProgramApps {
         })?;
         let bundle_folders = BundleFolders {
             installed: folders.installed,
-            development: folders.development,
         };
         let key = safe_storage_key().context("the key the programs' apps are vouched for with")?;
         let made_from = made_from(&waos).context("what the programs' apps are made from")?;
@@ -202,13 +199,15 @@ impl ProgramApps {
             .map(|program| program.manifest.id().clone())
             .collect();
         self.runtime.spawn_blocking(move || {
-            for removed in apps.bundles.installed_programs() {
+            for removed in apps.bundles.programs() {
                 if !installed.contains(&removed) {
                     log_failure(&removed, apps.bundles.delete(&removed));
                 }
             }
             for id in installed {
-                log_failure(&id, apps.bundles.ensure(&apps.describe(&id)).map(drop));
+                if let Some(description) = apps.describe(&id) {
+                    log_failure(&id, apps.bundles.ensure(&description).map(drop));
+                }
             }
         });
     }
@@ -233,7 +232,11 @@ impl ProgramApps {
             return;
         };
         self.runtime.spawn(async move {
-            let description = apps.describe(&id);
+            let Some(description) = apps.describe(&id) else {
+                return apps
+                    .reach
+                    .give_up(&id, "it is not installed, so it has no app");
+            };
             let bundle = match attempt {
                 LaunchAttempt::First => apps.bundles.ensure(&description),
                 LaunchAttempt::Again => apps.bundles.write(&description),
@@ -319,7 +322,9 @@ impl ProgramApps {
         };
         let id = id.clone();
         self.runtime.spawn_blocking(move || {
-            log_failure(&id, apps.bundles.write(&apps.describe(&id)).map(drop));
+            if let Some(description) = apps.describe(&id) {
+                log_failure(&id, apps.bundles.write(&description).map(drop));
+            }
         });
     }
 
@@ -383,29 +388,17 @@ impl ProgramApps {
         self.reach.forget(id, process);
     }
 
-    /// What `id`'s bundle is written from: its package, when it is installed; else its id alone.
-    fn describe(&self, id: &ProgramId) -> ProgramDescription {
-        let installed = self
-            .store
-            .installed()
-            .into_iter()
-            .find(|program| program.manifest.id() == id);
-        match installed {
-            Some(program) => ProgramDescription {
-                id: id.clone(),
-                name: program.manifest.name().to_owned(),
-                version: program.manifest.version().to_string(),
-                icon: self.store.icon(id),
-                installed: true,
-            },
-            None => ProgramDescription {
-                id: id.clone(),
-                name: id.to_string(),
-                version: "0".to_owned(),
-                icon: None,
-                installed: false,
-            },
-        }
+    /// What `id`'s bundle is written from: its install, a development install's as any other's;
+    /// none for a program not installed, which has no app, since every program that runs is
+    /// installed (the design's decision 70).
+    fn describe(&self, id: &ProgramId) -> Option<ProgramDescription> {
+        let program = self.store.installed_program(id)?;
+        Some(ProgramDescription {
+            id: id.clone(),
+            name: program.name(),
+            version: program.manifest.version().to_string(),
+            icon: self.store.icon(id),
+        })
     }
 
     /// Rebuilds, in the background, every bundle signed on another version of the system, and each
@@ -425,7 +418,14 @@ impl ProgramApps {
         );
         self.runtime.spawn_blocking(move || {
             for id in stale {
-                log_failure(&id, apps.bundles.write(&apps.describe(&id)).map(drop));
+                match apps.describe(&id) {
+                    Some(description) => {
+                        log_failure(&id, apps.bundles.write(&description).map(drop));
+                    }
+                    // A bundle of a program no longer installed, as one run in development
+                    // under its id before development installs: it goes.
+                    None => log_failure(&id, apps.bundles.delete(&id)),
+                }
             }
         });
     }

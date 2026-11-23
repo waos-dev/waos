@@ -410,7 +410,10 @@ mod tests {
         let layer = session
             .preview_layer()
             .expect("a preview on the program's layer");
-        assert!(Arc::ptr_eq(&layer, &compositor.made()[0].layer));
+        assert!(std::ptr::addr_eq(
+            Arc::as_ptr(&layer),
+            Arc::as_ptr(&compositor.made()[0])
+        ));
         let reader = session
             .frame_reader()
             .expect("frames to the program's reader");

@@ -21,7 +21,7 @@
 //! assets' calls (`logic::media_asset_calls`), the cameras'
 //! calls (`logic::camera_calls`), each view's calls (`waos-program-window`'s), on macOS what
 //! the programs' apps send (`logic::program_apps`), the presence of each of their windows among
-//! it, and what the compiles' lists say (`logic::installed_code`, `logic::dev_compiles`).
+//! it, and what the compiles' list says (`logic::installed_code`).
 
 #[cfg(any(target_os = "macos", test))]
 pub(crate) mod app_nap_exemption;
@@ -83,7 +83,6 @@ use waos_store::{SourceProxy, Store};
 use crate::logic::asking_now::AskingNow;
 use crate::logic::command_line::LibraryPlace;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
-use crate::logic::dev_compiles::DevCompiles;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 use crate::logic::dev_server::DevServer;
 use crate::logic::environments::ProgramEnvironments;
@@ -108,7 +107,6 @@ use crate::logic::prompts::PromptsOnRequest;
 use crate::logic::recording_indicator::RecordingIndicatorOnRequest;
 use crate::logic::runs::Runs;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
-use crate::logic::sent_components::SentComponents;
 use crate::logic::vsync_waiter::WaftVsync;
 use crate::ui::deck::Deck;
 use crate::ui::every_window::{LibraryWindow, every_window, program_windows};
@@ -338,33 +336,10 @@ pub(crate) fn start(
         installed_runs.code.compiling_ids(),
     );
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
-    let sent = Arc::new(SentComponents::new(folders.dev_components));
-    // The compiles `waos`'s runs make, for the same activity.
-    #[cfg(target_os = "macos")]
-    let dev_compiles = {
-        let (compiles, compiling) = DevCompiles::new();
-        app_nap_exemption::follow_dev_compiling(app, app_nap_exemption.clone(), compiling);
-        Some(compiles)
-    };
-    #[cfg(all(
-        not(target_os = "macos"),
-        not(any(target_os = "android", target_os = "ios"))
-    ))]
-    let dev_compiles: Option<Arc<DevCompiles>> = None;
-    #[cfg(not(any(target_os = "android", target_os = "ios")))]
-    listen_for_the_command(
-        app,
-        installed_runs.clone(),
-        &store,
-        asking,
-        Arc::clone(&sent),
-        dev_compiles,
-    )?;
+    listen_for_the_command(app, installed_runs.clone(), &store, asking)?;
     let starts = HeldStarts {
         installed: installed_runs.clone(),
         store: store.clone(),
-        #[cfg(not(any(target_os = "android", target_os = "ios")))]
-        sent,
     };
     let prompt_windows = questions::prompt_windows(app, view_windows.clone(), faces);
     let questions_store = store.clone();
@@ -478,10 +453,10 @@ pub(crate) fn start(
     Ok(())
 }
 
-/// Listens for `waos` on the socket `waos-dev-protocol` names, running what it sends on
-/// `installed`'s engine with its environments, counted in its runs, the components kept in
-/// `sent`, reporting each compile a run makes to `dev_compiles`, and opening files with an
-/// installed program as `installed` opens it; and
+/// Listens for `waos` on the socket `waos-dev-protocol` names, installing what it sends into
+/// `store` and launching it on `installed`'s engine with its environments, counted in its runs,
+/// its code compiled as an install's, and opening files with an installed program as `installed`
+/// opens it; and
 /// makes a quit ask every program in its runs first, stopping the server and keeping the
 /// engine's days once they agree. Not on
 /// a phone: `waos` reaches none yet, and the system ends an app there without asking it.
@@ -491,21 +466,12 @@ fn listen_for_the_command(
     installed: InstalledRuns,
     store: &Store,
     asking: Arc<AskingNow>,
-    sent: Arc<SentComponents>,
-    dev_compiles: Option<Arc<DevCompiles>>,
 ) -> Result<()> {
     let socket = waos_dev_protocol::listener_path();
     let runs = Arc::clone(&installed.runs);
     let engine = Arc::clone(&installed.engine);
-    let server = DevServer::start(
-        installed,
-        store.clone(),
-        asking,
-        &socket,
-        sent,
-        dev_compiles,
-    )
-    .with_context(|| format!("listening for waos at {}", socket.display()))?;
+    let server = DevServer::start(installed, store.clone(), asking, &socket)
+        .with_context(|| format!("listening for waos at {}", socket.display()))?;
     tracing::info!(socket = %socket.display(), "WaOS listens for waos");
     quitting::ask_programs_before_quitting(app, runs, server, engine);
     Ok(())

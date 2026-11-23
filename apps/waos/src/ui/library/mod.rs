@@ -79,6 +79,6 @@ fn program_name(library: &Entity<Library>, of: &SettingsOf, app: &App) -> Option
         .installed()
         .iter()
         .find(|program| program.manifest.id() == id)
-        .map(|program| program.manifest.name().to_owned());
+        .map(|program| program.name());
     Some(installed.unwrap_or_else(|| id.to_string()))
 }

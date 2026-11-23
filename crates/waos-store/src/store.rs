@@ -2,17 +2,20 @@
 //! sources the user added, kept in a directory the app gives it.
 //!
 //! The invariant a later editor will break: every change to the directory happens under one lock,
-//! so two installs of one program, or two edits of the sources, never interleave; and a package
-//! replaces an installed program only when it is signed with the same key and is newer.
+//! so two installs of one program, or two edits of the sources, never interleave; a package
+//! replaces an installed program only when it is signed with the same key and is newer; and a
+//! development build is installed only under its program's development id, which no package takes
+//! (`waos-package` refuses one, and a source's listing of one is refused before its download).
 
 use std::cmp::Ordering;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
+use tokio::sync::watch;
 use waos_capabilities::{ChangedFuture, ProgramFolders, ProgramGrants};
 use waos_package::{
-    COMPONENT, ICON, Index, ListedProgram, Manifest, Package, ProgramId, PublisherKey,
+    COMPONENT, ICON, Index, ListedProgram, Manifest, Package, PackageError, ProgramId, PublisherKey,
 };
 
 use crate::grants::{Settings, StoreGrants};
@@ -30,11 +33,72 @@ const SOURCES: &str = "sources.toml";
 /// Where a program being removed is moved to, in the store's directory, before it is removed.
 const REMOVING: &str = "removing";
 
-/// A program as installed: its manifest, and the key every update of it must be signed with.
+/// What the name of a development install is shown with, after the program's own.
+const DEVELOPMENT_LABEL: &str = " (Development)";
+
+/// A program as installed: its manifest, and where it came from.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct InstalledProgram {
     pub manifest: Manifest,
-    pub publisher: PublisherKey,
+    pub origin: Origin,
+}
+
+/// Where an installed program came from: a package, whose publisher's key every update of it must
+/// be signed with, or its source, built and installed under its development id by `waos install`,
+/// which no package or source updates.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Origin {
+    Package { publisher: PublisherKey },
+    Development { component_sha256: [u8; 32] },
+}
+
+impl InstalledProgram {
+    /// The key every update of it must be signed with; none for a development install.
+    pub fn publisher(&self) -> Option<PublisherKey> {
+        match self.origin {
+            Origin::Package { publisher } => Some(publisher),
+            Origin::Development { .. } => None,
+        }
+    }
+
+    /// Whether it is a development install, made from its source by `waos install`.
+    pub fn is_development(&self) -> bool {
+        matches!(self.origin, Origin::Development { .. })
+    }
+
+    /// The name its user sees: its manifest's, and a development install's followed by
+    /// " (Development)", so it reads apart from the program published under the plain id.
+    pub fn name(&self) -> String {
+        let name = self.manifest.name();
+        match self.origin {
+            Origin::Package { .. } => name.to_owned(),
+            Origin::Development { .. } => format!("{name}{DEVELOPMENT_LABEL}"),
+        }
+    }
+}
+
+/// A program built from its source, as `waos install` sends it, to install as its development
+/// install: its manifest, under the program's own id, its component and its icon, where it has
+/// one.
+#[derive(Clone, Copy, Debug)]
+pub struct DevelopmentBuild<'a> {
+    pub manifest: &'a Manifest,
+    pub component: &'a [u8],
+    pub icon: Option<&'a [u8]>,
+}
+
+impl DevelopmentBuild<'_> {
+    /// The manifest it is installed with: its own, under the program's development id.
+    fn installed_manifest(&self) -> Manifest {
+        let manifest = self.manifest;
+        Manifest::new(
+            manifest.id().development(),
+            manifest.name(),
+            manifest.version().clone(),
+        )
+        .expect("a manifest's name is one already")
+        .with_kind(manifest.kind())
+    }
 }
 
 /// A listed program's package, downloaded and checked against the SHA-256 its source lists, waiting
@@ -61,6 +125,8 @@ pub struct Store {
     http: reqwest::Client,
     /// What the user lets programs use, held in memory over its files.
     settings: Arc<Settings>,
+    /// Counts the changes of what is installed, for whoever shows it.
+    installs: Arc<watch::Sender<u64>>,
 }
 
 impl Store {
@@ -72,6 +138,7 @@ impl Store {
             changes: Arc::default(),
             http: fetch::http_client(proxy)?,
             settings: Arc::new(Settings::new(directory)),
+            installs: Arc::new(watch::Sender::new(0)),
         };
         let programs = store.programs_folder();
         fs::create_dir_all(&programs).map_err(StoreError::io_at(&programs))?;
@@ -97,20 +164,99 @@ impl Store {
         installed
     }
 
+    /// The installed program `id` names; none when it is not installed, or its files cannot be
+    /// read, which is said to whoever subscribes.
+    pub fn installed_program(&self, id: &ProgramId) -> Option<InstalledProgram> {
+        programs::read_installed(&self.program_folder(id)).unwrap_or_else(|error| {
+            tracing::warn!("{id} cannot be read: {error}");
+            None
+        })
+    }
+
+    /// Changes each time what is installed changes: an install, an update or a removal, from here
+    /// or from another clone of the store.
+    pub fn installed_changes(&self) -> watch::Receiver<u64> {
+        self.installs.subscribe()
+    }
+
     /// Installs `package`: a new id, or the same id and key at a newer version, which updates
-    /// it. A different key, or a version not newer, is refused, and the program installed stays
-    /// as it was.
+    /// it. A different key, a version not newer, or an id a development install holds, is
+    /// refused, and the program installed stays as it was.
     pub fn install(&self, mut package: Package) -> Result<InstalledProgram, InstallError> {
         let _changing = self.lock_changes();
         let folder = self.program_folder(package.manifest().id());
         if let Some(installed) = programs::read_installed(&folder)? {
             check_update(&installed, &package)?;
         }
-        programs::put_in_place(&folder, &mut package)?;
+        let version = package.manifest().version().clone();
+        programs::put_in_place(&folder, &version, |unpacked| Ok(package.unpack(unpacked)?))?;
+        self.installed_changed();
         Ok(InstalledProgram {
             manifest: package.manifest().clone(),
-            publisher: *package.publisher(),
+            origin: Origin::Package {
+                publisher: *package.publisher(),
+            },
         })
+    }
+
+    /// Installs `build` as its program's development install, under the development id
+    /// (`dev.example.notes.development`), a program of its own beside one installed under the
+    /// plain id: new, or in place of the development build installed before, whatever its
+    /// version, keeping its settings and its own folders. No package holds a development id,
+    /// which `waos-package` refuses.
+    pub fn install_development(
+        &self,
+        build: &DevelopmentBuild<'_>,
+    ) -> Result<InstalledProgram, InstallError> {
+        let _changing = self.lock_changes();
+        let manifest = build.installed_manifest();
+        let folder = self.program_folder(manifest.id());
+        programs::put_in_place(&folder, manifest.version(), |unpacked| {
+            Ok(programs::unpack_development(
+                unpacked,
+                &manifest,
+                build.component,
+                build.icon,
+            )?)
+        })?;
+        self.installed_changed();
+        Ok(InstalledProgram {
+            manifest,
+            origin: Origin::Development {
+                component_sha256: programs::component_sha256(build.component),
+            },
+        })
+    }
+
+    /// Whether the program `manifest` names, under its own id, is installed as its development
+    /// install already as it is: that manifest, its component of SHA-256 `component_sha256`, and
+    /// `icon`, so installing it again would change nothing. Its component is not read.
+    pub fn holds_development(
+        &self,
+        manifest: &Manifest,
+        component_sha256: &[u8; 32],
+        icon: Option<&[u8]>,
+    ) -> bool {
+        let build = DevelopmentBuild {
+            manifest,
+            component: &[],
+            icon,
+        };
+        let folder = self.program_folder(&manifest.id().development());
+        let Ok(Some(installed)) = programs::read_installed(&folder) else {
+            return false;
+        };
+        let same_component = installed.origin
+            == Origin::Development {
+                component_sha256: *component_sha256,
+            };
+        let installed_icon = programs::installed_folder(&folder)
+            .ok()
+            .flatten()
+            .and_then(|unpacked| programs::read_icon(&unpacked).ok());
+        installed.manifest == build.installed_manifest()
+            && same_component
+            && installed_icon == Some(icon.map(<[u8]>::to_vec))
     }
 
     /// Downloads `program` as `source` lists it, refuses it unless its SHA-256 is the one listed,
@@ -126,13 +272,17 @@ impl Store {
     }
 
     /// Downloads `program` as `source` lists it to a temporary file, and refuses it unless its
-    /// SHA-256 is the one listed, before anything opens it. Nothing installed changes: a caller
+    /// SHA-256 is the one listed, before anything opens it; a listing of a development install's
+    /// id, which no package may take, is refused before anything is downloaded. Nothing installed changes: a caller
     /// may end what runs of the program between this and its install.
     pub async fn download(
         &self,
         source: &Source,
         program: &ListedProgram,
     ) -> Result<Download, InstallError> {
+        if program.id.is_development() {
+            return Err(PackageError::DevelopmentId(program.id.clone()).into());
+        }
         let url = source.package_url(&program.package)?;
         let file = fetch::download(&self.http, &url, &program.sha256).await?;
         Ok(Download {
@@ -165,6 +315,7 @@ impl Store {
         programs::take_out(&self.program_folder(id), id, &self.removing_folder())?;
         self.settings.forget(id);
         self.forget_days(id.as_str());
+        self.installed_changed();
         Ok(())
     }
 
@@ -200,10 +351,12 @@ impl Store {
         }
     }
 
-    /// The icon of the program `id` names, a square PNG from its package; none when it is not
-    /// installed, or its files cannot be read, which is said to whoever subscribes.
+    /// The icon of the program `id` names, a square PNG from its package or its development
+    /// build; none when it is not installed, a development build had none, or its files cannot
+    /// be read, which is said to whoever subscribes.
     pub fn icon(&self, id: &ProgramId) -> Option<PathBuf> {
-        Some(self.program(id)?.with_file_name(ICON))
+        let icon = self.program(id)?.with_file_name(ICON);
+        icon.is_file().then_some(icon)
     }
 
     /// The sources the user added, in the order added; none when they cannot be read, which is
@@ -342,6 +495,12 @@ impl Store {
         }
     }
 
+    /// Tells whoever follows what is installed that it changed.
+    fn installed_changed(&self) {
+        self.installs
+            .send_modify(|changes| *changes = changes.wrapping_add(1));
+    }
+
     pub(crate) fn lock_changes(&self) -> MutexGuard<'_, ()> {
         // The lock guards no value, so a change that panicked leaves nothing half-changed in it.
         self.changes.lock().unwrap_or_else(PoisonError::into_inner)
@@ -413,13 +572,16 @@ impl Store {
 }
 
 /// Refuses `package` as an update of `installed` unless it is signed with the same key and is
-/// newer.
+/// newer; a development install, which no package takes the id of, is no package's to update.
 fn check_update(installed: &InstalledProgram, package: &Package) -> Result<(), InstallError> {
     let id = package.manifest().id();
-    if *package.publisher() != installed.publisher {
+    let Some(publisher) = installed.publisher() else {
+        return Err(PackageError::DevelopmentId(id.clone()).into());
+    };
+    if *package.publisher() != publisher {
         return Err(InstallError::DifferentPublisher {
             id: id.clone(),
-            installed: installed.publisher,
+            installed: publisher,
             package: *package.publisher(),
         });
     }

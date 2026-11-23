@@ -78,8 +78,5 @@ pub(crate) fn name_and_version(library: &Library, id: &ProgramId) -> Option<(Str
         .installed()
         .iter()
         .find(|program| program.manifest.id() == id)?;
-    Some((
-        program.manifest.name().to_owned(),
-        program.manifest.version().to_string(),
-    ))
+    Some((program.name(), program.manifest.version().to_string()))
 }

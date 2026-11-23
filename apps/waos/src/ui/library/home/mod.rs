@@ -43,12 +43,12 @@ pub(crate) fn home_entries(library: &Library) -> Vec<HomeEntry> {
     let mut entries: Vec<HomeEntry> = library
         .installed()
         .iter()
-        .filter(|program| is_searched_for(program.manifest.name(), library.search()))
+        .filter(|program| is_searched_for(&program.name(), library.search()))
         .map(|program| {
             let id = program.manifest.id();
             HomeEntry {
                 id: id.clone(),
-                name: program.manifest.name().to_owned(),
+                name: program.name(),
                 icon: library.icon(id).cloned(),
                 running: library.is_running(id),
                 update_offered: library.update_offered(id),

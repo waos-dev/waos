@@ -1,6 +1,7 @@
 //! Opening an installed program: its component, from the store, its code waited for while it is
 //! compiled (`installed_code`), as at its install, or compiled where the cache holds none current,
-//! then loaded off the caller's thread and run in WaOS as `waos run` runs what it sends,
+//! then loaded off the caller's thread and run in WaOS as `waos launch` runs one, its output to
+//! WaOS's log and to whoever attaches (`launch_outputs`),
 //! with this computer's capabilities, the grants of its own settings and its own folders, its views
 //! going where its place says, set before it starts (`program_places`). It is named by its id,
 //! which names it among the runs, so a quit asks it while it runs, in WaOS's log, where its output
@@ -12,19 +13,23 @@
 //! click on its notification runs as any program does, which it may answer with no window.
 //!
 //! The invariant: a run started here is taken out of the runs once it ends, by a task of the
-//! runtime it was started on, so the runs never hold an ended program of the library's.
+//! runtime it was started on, its output told how it ended first, so the runs never hold an ended
+//! program of the library's and every attach hears its end; and every run of every program, the
+//! library's, `waos launch`'s and an inspector's, writes to an output of `outputs`, so any program
+//! running is attached to.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::{Context, Result, ensure};
-use waos::{RunningProgram, WaOS};
+use waos::{ProgramEnvironment, ProgramOutput, RunningProgram, WaOS};
 use waos_package::{ProgramId, ProgramKind};
 
 use super::environments::ProgramEnvironments;
 use super::installed_code::InstalledCode;
+use super::launch_outputs::{LaunchOutput, LaunchOutputs};
 use super::program_places::{ProgramPlace, ProgramPlaces};
-use super::runs::{Runs, Started};
+use super::runs::{Run, Runs, Started};
 
 /// Why a tool the user opens does not open: there is nowhere for its input and output to go.
 const NO_TERMINAL: &str = "it is a command-line program, with no window of its own, and WaOS cannot show its terminal yet";
@@ -67,6 +72,8 @@ pub(crate) struct InstalledRuns {
     pub(crate) runs: Arc<Runs>,
     /// Where each program's views go, which the engine's placement reads.
     pub(crate) places: ProgramPlaces,
+    /// What each program running writes, for the attaches to it.
+    pub(crate) outputs: Arc<LaunchOutputs>,
 }
 
 impl InstalledRuns {
@@ -84,7 +91,35 @@ impl InstalledRuns {
             environments,
             runs,
             places,
+            outputs: Arc::default(),
         }
+    }
+
+    /// What the program `id` runs with, `environment`, with its output to a new output of
+    /// `outputs`, the log's and the attaches': call it as the run starts, never for a program that
+    /// runs already, whose output it would take the place of.
+    pub(crate) fn with_output(
+        &self,
+        id: &ProgramId,
+        environment: ProgramEnvironment,
+    ) -> (ProgramEnvironment, Arc<LaunchOutput>) {
+        let output = self.outputs.launched(id);
+        let environment = ProgramEnvironment {
+            output: Some(Arc::clone(&output) as Arc<dyn ProgramOutput>),
+            ..environment
+        };
+        (environment, output)
+    }
+
+    /// Takes `run`, of the program `id`, out of the runs once it ends, on a task of the runtime
+    /// this runs on, telling `output` how it ended first, and letting go of it once an attach heard.
+    pub(crate) fn take_out_once_ended(&self, id: &ProgramId, run: Run, output: Arc<LaunchOutput>) {
+        let (outputs, id) = (Arc::clone(&self.outputs), id.clone());
+        self.runs.take_out_once_ended(run, move |end| {
+            if output.ended(end) {
+                outputs.heard(&id, &output);
+            }
+        });
     }
 
     /// Runs the installed program `id`, whose component is at `component`, its views going to
@@ -99,6 +134,7 @@ impl InstalledRuns {
         opening: Opening,
     ) -> Result<OpenedRun> {
         let name = id.as_str();
+        let mut output = None;
         self.code_ready(id, &component)
             .await
             .with_context(|| format!("{id} could not be opened"))?;
@@ -113,7 +149,8 @@ impl InstalledRuns {
                         || self.environments.kind_of(id) == ProgramKind::App,
                     NO_TERMINAL
                 );
-                let environment = self.environments.of(id)?;
+                let (environment, its_output) = self.with_output(id, self.environments.of(id)?);
+                output = Some(its_output);
                 self.places.set(id, place);
                 self.engine.run(&program, environment)
             })
@@ -128,7 +165,8 @@ impl InstalledRuns {
         };
         tracing::info!(%id, "opened from the library");
         let program = run.program.clone();
-        self.runs.take_out_once_ended(run);
+        let output = output.context("a run that started writes to its output")?;
+        self.take_out_once_ended(id, run, output);
         Ok(OpenedRun::Started(program))
     }
 

@@ -1,15 +1,15 @@
 //! Starting a program held for an inspector (decisions 18 and 19 of
 //! `docs/proposals/2026-11-15-inspector-roles-and-compatibility.md`): the program the id names,
-//! installed, by its component in the store, or else run in development, by the component its
-//! last `waos run` sent; loaded off the caller's thread, which compiles it unless the code
-//! cache holds its code; then started held in place of the one running, which is stopped first,
-//! as a later `waos run` replaces a run, and kept among the runs as one the library opened,
-//! with its settings and folders and this computer's capabilities, its output going to WaOS's log
-//! and to an inspector that listens. Answered once it is linked, so the inspector can listen to it
+//! installed, by its component in the store, a development install's among them; loaded off the
+//! caller's thread, which compiles it unless the code cache holds its code; then started held in
+//! place of the one running, which is stopped first, as a later `waos launch` replaces a run, and
+//! kept among the runs as one the library opened,
+//! with its settings and folders and this computer's capabilities, its output going to WaOS's log,
+//! to an inspector that listens and to whoever attaches. Answered once it is linked, so the inspector can listen to it
 //! from its first instruction.
 //!
-//! The invariant: a program is started only by the id of one installed or sent before, so an
-//! inspector starts nothing WaOS does not already know as that program.
+//! The invariant: a program is started only by the id of one installed, so an inspector starts
+//! nothing WaOS does not already know as that program.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -20,16 +20,11 @@ use waos_package::ProgramId;
 use waos_store::Store;
 
 use super::installed_runs::InstalledRuns;
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
-use super::sent_components::SentComponents;
 
 /// What starting a program held needs of the app.
 pub(crate) struct HeldStarts {
     pub(crate) installed: InstalledRuns,
     pub(crate) store: Store,
-    /// The components `waos` sent, where a development run is started again from.
-    #[cfg(not(any(target_os = "android", target_os = "ios")))]
-    pub(crate) sent: Arc<SentComponents>,
 }
 
 impl HeldStarts {
@@ -37,18 +32,10 @@ impl HeldStarts {
     pub(crate) async fn start(&self, id: &str) -> Result<HeldProgram, StartError> {
         let id: ProgramId = id.parse().map_err(|_| StartError::Unknown)?;
         tracing::info!(%id, "an inspector asks to start it held");
-        if let Some(installed) = self.store.program(&id) {
-            return self.start_from(&id, installed).await;
+        match self.store.program(&id) {
+            Some(installed) => self.start_from(&id, installed).await,
+            None => Err(StartError::Unknown),
         }
-        #[cfg(not(any(target_os = "android", target_os = "ios")))]
-        {
-            // Held until the run is among the runs, as a run `waos` sends holds it.
-            let sent = self.sent.hold(&id).await;
-            if sent.path().is_file() {
-                return self.start_from(&id, sent.path().to_owned()).await;
-            }
-        }
-        Err(StartError::Unknown)
     }
 
     /// Starts the program at `component` held as the program `id`, and answers it once linked.
@@ -77,7 +64,7 @@ impl HeldStarts {
         let program = tokio::task::spawn_blocking(move || engine.load(&component))
             .await??
             .named(id.as_str());
-        let environment = runs.environments.of(id)?;
+        let (environment, output) = runs.with_output(id, runs.environments.of(id)?);
         runs.places.set(id, runs.places.usual());
         let mut held = None;
         let run = runs
@@ -89,7 +76,7 @@ impl HeldStarts {
             })
             .await?;
         tracing::info!(%id, "started held for an inspector");
-        runs.runs.take_out_once_ended(run);
+        runs.take_out_once_ended(id, run, output);
         held.ok_or_else(|| anyhow::anyhow!("a run that started is held"))
     }
 }
@@ -110,7 +97,8 @@ mod tests {
     use crate::logic::test_engine::{self, NoWindows};
 
     #[tokio::test(flavor = "multi_thread")]
-    async fn an_inspector_starts_a_development_run_held_in_place_of_the_one_running_and_ends_it() {
+    async fn an_inspector_starts_a_development_install_held_in_place_of_the_one_running_and_ends_it()
+     {
         let folder = tempfile::tempdir().unwrap();
         let engine = test_engine::engine(Arc::new(NoWindows), &folder.path().join("code"));
         let store =
@@ -123,18 +111,25 @@ mod tests {
             ProgramPlaces::new(ProgramPlace::Windows),
         );
         let programs = ProgramsOnThisComputer::new(store.clone(), Arc::clone(&runs));
-        let sent = Arc::new(SentComponents::new(folder.path().join("dev")));
-        let id: ProgramId = "dev.example.forever".parse().unwrap();
+        let manifest = waos_package::Manifest::new(
+            "dev.example.forever".parse().unwrap(),
+            "Forever",
+            "0.1.0".parse().unwrap(),
+        )
+        .unwrap();
         let forever = std::fs::read(waos_test_programs::FOREVER).unwrap();
-        sent.hold(&id).await.write(&forever).unwrap();
-        let starts = HeldStarts {
-            installed,
-            store,
-            sent,
-        };
+        store
+            .install_development(&waos_store::DevelopmentBuild {
+                manifest: &manifest,
+                component: &forever,
+                icon: None,
+            })
+            .unwrap();
+        let id: ProgramId = "dev.example.forever.development".parse().unwrap();
+        let starts = HeldStarts { installed, store };
         programs.serve_starts(starts, tokio::runtime::Handle::current());
 
-        let held = programs.start_held("dev.example.forever").await.unwrap();
+        let held = programs.start_held(id.as_str()).await.unwrap();
         let program = runs.running(&id).await.expect("among the runs");
         let mut output = program.trace(TraceKind::Output).expect("linked");
         drop(held);
@@ -143,7 +138,7 @@ mod tests {
         let bytes: Vec<u8> = serde_json::from_value(json["bytes"].clone()).unwrap();
         assert_eq!(String::from_utf8_lossy(&bytes), "count 1048576\n");
 
-        let again = programs.start_held("dev.example.forever").await.unwrap();
+        let again = programs.start_held(id.as_str()).await.unwrap();
         assert!(
             matches!(program.ended().await, waos::ProgramEnd::Stopped),
             "the run before is stopped first"
@@ -155,9 +150,9 @@ mod tests {
                 programs.start_held("dev.example.never-sent").await,
                 Err(StartError::Unknown)
             ),
-            "an id neither installed nor sent"
+            "an id not installed"
         );
-        programs.end("dev.example.forever").await;
+        programs.end(id.as_str()).await;
         assert!(
             matches!(started_again.ended().await, waos::ProgramEnd::Stopped),
             "ended by an inspector"

@@ -632,12 +632,12 @@ impl TestPhone {
     /// Where the last frame placed the picture of the `nth` program opened, counting from 0, in
     /// points; none where the frame placed it nowhere.
     pub(crate) fn picture(&self, nth: usize) -> Option<Picture> {
-        let layer = self.compositor.made().get(nth)?.layer.clone();
+        let layer = Arc::clone(self.compositor.made().get(nth)?);
         let scene = self.screen.last_scene()?;
         let slices = slices(&scene, |_| None);
         let (_, placement) = slices
             .composition_layers()
-            .find(|(placed, _)| Arc::ptr_eq(placed, &layer))?;
+            .find(|(placed, _)| std::ptr::addr_eq(Arc::as_ptr(placed), Arc::as_ptr(&layer)))?;
         let in_points = |rect: Rect| {
             Rect::from_ltrb(
                 rect.left / PIXEL_RATIO,
@@ -664,7 +664,7 @@ impl TestPhone {
             .composition_layers()
             .filter_map(|(placed, _)| {
                 made.iter()
-                    .position(|made| Arc::ptr_eq(&made.layer, placed))
+                    .position(|made| std::ptr::addr_eq(Arc::as_ptr(made), Arc::as_ptr(placed)))
             })
             .collect()
     }

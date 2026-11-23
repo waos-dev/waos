@@ -6,9 +6,9 @@
 //! the activity, and 5 seconds with it).
 //!
 //! The activity is the system's, behind the closure this state is made with, so its rule is tested
-//! without macOS. [`start`] makes it over Waft's macOS host; [`follow_installed_compiling`],
-//! [`follow_dev_compiling`] and [`follow_windows`] tell it what the library's compiles, the
-//! compiles `waos`'s runs make and the programs' windows report. None of this is built on
+//! without macOS. [`start`] makes it over Waft's macOS host; [`follow_installed_compiling`] and
+//! [`follow_windows`] tell it what the installed programs' compiles, a development install's among
+//! them, and the programs' windows report. None of this is built on
 //! another system, where there is nothing to keep.
 
 use std::any::Any;
@@ -33,10 +33,8 @@ pub(crate) struct AppNapExemption {
     /// macOS's activity, held while [`needed`](Self::needed) is true; none before the first
     /// reason and after the last.
     held: Option<Box<dyn Any>>,
-    /// The programs whose code the library compiles, being compiled now.
+    /// The installed programs whose code is being compiled now.
     installed_compiling: BTreeSet<ProgramId>,
-    /// The programs whose code `waos` sent and WaOS is compiling now.
-    sent_compiling: BTreeSet<ProgramId>,
     /// The programs' windows in sight now.
     in_sight: BTreeSet<WindowKey>,
 }
@@ -48,7 +46,6 @@ impl AppNapExemption {
             begin,
             held: None,
             installed_compiling: BTreeSet::new(),
-            sent_compiling: BTreeSet::new(),
             in_sight: BTreeSet::new(),
         }
     }
@@ -56,12 +53,6 @@ impl AppNapExemption {
     /// The programs whose code is being compiled are `compiling`.
     pub(crate) fn installed_compiling_changed(&mut self, compiling: BTreeSet<ProgramId>) {
         self.installed_compiling = compiling;
-        self.keep_while_needed();
-    }
-
-    /// The programs whose code `waos` sent and WaOS is compiling are `compiling`.
-    pub(crate) fn sent_compiling_changed(&mut self, compiling: BTreeSet<ProgramId>) {
-        self.sent_compiling = compiling;
         self.keep_while_needed();
     }
 
@@ -77,9 +68,7 @@ impl AppNapExemption {
 
     /// Whether WaOS is doing work its user waits on now.
     pub(crate) fn needed(&self) -> bool {
-        !self.installed_compiling.is_empty()
-            || !self.sent_compiling.is_empty()
-            || !self.in_sight.is_empty()
+        !self.installed_compiling.is_empty() || !self.in_sight.is_empty()
     }
 
     /// Begins the activity with the first reason and ends it with the last.
@@ -149,24 +138,6 @@ mod host {
         });
     }
 
-    /// Keeps the activity while the programs `waos` sent are being compiled.
-    pub(crate) fn follow_dev_compiling(
-        app: &mut App,
-        activity: Entity<AppNapExemption>,
-        mut compiling: watch::Receiver<BTreeSet<ProgramId>>,
-    ) {
-        let now = compiling.borrow_and_update().clone();
-        activity.update(app, |activity, _| activity.sent_compiling_changed(now));
-        app.spawn(async move |cx| {
-            while compiling.changed().await.is_ok() {
-                let now = compiling.borrow_and_update().clone();
-                cx.update(|app| {
-                    activity.update(app, |activity, _| activity.sent_compiling_changed(now));
-                });
-            }
-        });
-    }
-
     /// Keeps the activity while a window the programs' apps report in sight is.
     pub(crate) fn follow_windows(
         app: &mut App,
@@ -187,7 +158,7 @@ mod host {
 }
 
 #[cfg(target_os = "macos")]
-pub(crate) use host::{follow_dev_compiling, follow_installed_compiling, follow_windows, start};
+pub(crate) use host::{follow_installed_compiling, follow_windows, start};
 
 #[cfg(test)]
 mod tests {
@@ -267,14 +238,14 @@ mod tests {
     }
 
     #[test]
-    fn a_compile_waos_sent_holds_it_too() {
+    fn a_development_installs_compile_holds_it_as_any_installs_does() {
         let (mut activity, begun, ended) = activity();
-        let sent: ProgramId = "dev.example.sent".parse().unwrap();
-        activity.sent_compiling_changed([sent.clone()].into());
+        let development: ProgramId = "dev.example.notes.development".parse().unwrap();
+        activity.installed_compiling_changed([development].into());
         assert!(activity.needed());
         assert_eq!((begun.get(), ended.get()), (1, 0));
 
-        activity.sent_compiling_changed(BTreeSet::new());
+        activity.installed_compiling_changed(BTreeSet::new());
         assert!(!activity.needed());
         assert_eq!((begun.get(), ended.get()), (1, 1));
     }

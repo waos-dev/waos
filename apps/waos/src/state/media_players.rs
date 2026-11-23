@@ -260,7 +260,10 @@ mod tests {
             ]
         );
         let layer = opened.video_layer().expect("on the program's layer");
-        assert!(Arc::ptr_eq(&layer, &compositor.made()[0].layer));
+        assert!(std::ptr::addr_eq(
+            Arc::as_ptr(&layer),
+            Arc::as_ptr(&compositor.made()[0])
+        ));
 
         opened.set_state(ui::PlayerState {
             status: ui::PlayerStatus::Ready,

@@ -1,5 +1,5 @@
-//! `waos ui screenshot`: the last picture of each window of the program a run of `waos
-//! run` runs, asked of the WaOS running it, written as `window-<id>.png` under
+//! `waos ui screenshot`: the last picture of each window of a program running, the package's
+//! development install by default, asked of the WaOS running it, written as `window-<id>.png` under
 //! `target/waos/screenshots/<package>`, each printed with its window's id, title and size, so
 //! an agent building the program sees it as its user does (the design's decision 60). `--out`
 //! writes them in a folder instead, one named as a folder or one that exists, all the windows, or

@@ -56,6 +56,7 @@ use crate::notifications::ProgramNotifications;
 use crate::permissions::{NothingGranted, SystemRefusal};
 use crate::screens::Screens;
 use crate::screenshots::Screenshots;
+use crate::service_extensions::ProgramServiceExtensions;
 use crate::shell::{
     PlacedView, Prompts, ShellAudioOutputPicker, ShellCameras, ShellCompositor, ShellFileDialogs,
     ShellImageCodecs, ShellMachinePicker, ShellMediaAssets, ShellMediaPlayers, ShellNotifications,
@@ -111,6 +112,8 @@ struct Running {
     /// The mouse a tool moves over the program's views as its user would.
     mouse: Mouse,
     lifecycle: Lifecycle,
+    /// The service extensions it serves to a development tool.
+    service_extensions: ProgramServiceExtensions,
     /// Its menu bar, as it set it last.
     menus: ProgramMenus,
     /// What the user does to its notifications.
@@ -262,6 +265,7 @@ impl RunningProgram {
             menus: ProgramMenus::new(lifecycle.clone()),
             notifications: ProgramNotifications::new(lifecycle.clone()),
             notifications_refused: SystemRefusal::default(),
+            service_extensions: ProgramServiceExtensions::new(lifecycle.clone()),
             lifecycle,
             clock: start.clock.clone(),
             workers: ProgramWorkers::new(Arc::clone(&stats)),
@@ -279,6 +283,10 @@ impl RunningProgram {
             handed,
             storage,
         }));
+        // Made before its thread starts, so a tool inspecting the program the moment it starts
+        // reaches it.
+        let access = instances::access_of(&start, &program);
+        program.attach_access(&access);
         start.programs.add(&program);
         let on_thread = program.clone();
         let thread_name = format!("program {}", start.name);
@@ -286,7 +294,7 @@ impl RunningProgram {
         thread::Builder::new()
             .name(thread_name.clone())
             .spawn(move || {
-                let ending = run_on_this_thread(start, on_thread, clock, stopped);
+                let ending = run_on_this_thread(start, on_thread, access, clock, stopped);
                 // Its day is kept at its end, by the engine's writer.
                 if let Some((days, name)) = days {
                     days.keep_now(&name);
@@ -322,6 +330,12 @@ impl RunningProgram {
     /// as its views' standing changes it.
     pub fn watch(&self) -> Watching {
         self.0.views.watch()
+    }
+
+    /// The program's service extensions, which a development tool calls: what each answers, and
+    /// whether the program serves any now.
+    pub fn service_extensions(&self) -> &ProgramServiceExtensions {
+        &self.0.service_extensions
     }
 
     /// Asks the program whether it may end: resolves once every stream it opened has answered,
@@ -401,15 +415,14 @@ impl RunningProgram {
     }
 
     /// What the program does with `kind` from now on, live, for as long as the stream is held:
-    /// none before its code is linked and once it and every use it held have ended.
+    /// none once it and every use it held have ended.
     pub fn trace(&self, kind: TraceKind) -> Option<TraceStream> {
         let access = self.0.access.get()?.upgrade()?;
         Some(access.subscribe(kind))
     }
 
     /// What the program uses now, as `wasdk:inspect` says it, and each change from then on,
-    /// until it and every use it made have ended; none before its code is linked and once that
-    /// has happened.
+    /// until it and every use it made have ended; none once that has happened.
     pub fn active_uses(
         &self,
     ) -> Option<(
@@ -437,9 +450,9 @@ impl RunningProgram {
         self.0.hardware_buffers
     }
 
-    /// Its access, from its instances' link on.
+    /// Its access, from its start on.
     pub(crate) fn attach_access(&self, access: &ProgramAccess) {
-        // Linked once; a second link would be the same program's.
+        // Attached once, as it starts.
         let _ = self.0.access.set(access.downgrade());
     }
 
@@ -571,6 +584,7 @@ fn end_of_thread(end: Result<ProgramEnd, Canceled>) -> ProgramEnd {
 fn run_on_this_thread(
     start: ProgramStart,
     program: RunningProgram,
+    access: ProgramAccess,
     clock: Clock,
     stopped: oneshot::Receiver<()>,
 ) -> ProgramEnd {
@@ -584,7 +598,7 @@ fn run_on_this_thread(
     };
     let workers = program.0.workers.clone();
     runtime.block_on(async {
-        let end = run_until_stopped(start, program.clone(), clock, stopped).await;
+        let end = run_until_stopped(start, program.clone(), access, clock, stopped).await;
         workers.end_all().await;
         end
     })
@@ -594,12 +608,13 @@ fn run_on_this_thread(
 async fn run_until_stopped(
     start: ProgramStart,
     program: RunningProgram,
+    access: ProgramAccess,
     clock: Clock,
     stopped: oneshot::Receiver<()>,
 ) -> ProgramEnd {
     let activity = Arc::clone(&program.0.activity);
     let sources = program.0.sources.clone();
-    let mut run = pin!(activity.watch(store::run(start, program, clock)));
+    let mut run = pin!(activity.watch(store::run(start, program, access, clock)));
     tokio::select! {
         end = &mut run => return end,
         () = stop_asked(stopped) => {}

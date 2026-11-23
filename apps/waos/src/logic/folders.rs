@@ -1,8 +1,7 @@
 //! The app's own folders on this machine: where compiled programs are kept for the engine's code
-//! cache, where the components `waos` sends are kept while they run, and, on macOS, the apps
-//! of the programs run in development, all caches the system may clear and the next run makes
-//! again, the copies of the packages handed without a path while they are asked about, and the
-//! running programs' `/tmp`, each emptied when its program ends; WaOS's data folder, with the store in it, the programs installed and the sources added, which the user
+//! cache, a cache the system may clear and the next run makes again, the copies of the packages
+//! handed without a path while they are asked about, and the running programs' `/tmp`, each
+//! emptied when its program ends; WaOS's data folder, with the store in it, the programs installed and the sources added, which the user
 //! keeps; and, on macOS, where the installed programs' apps go, among the user's applications.
 //!
 //! The invariant: the caches are under the user's caches, beside each other, so clearing WaOS's
@@ -18,10 +17,6 @@ pub(crate) struct AppFolders {
     /// caches: on the volume of the user's home, where the store and the programs' `/data` are,
     /// so a program's file renamed from `/tmp` into `/data` is one rename.
     pub(crate) temporary_folders: PathBuf,
-    /// The components `waos` sends, one file per program's name; none on a phone, which
-    /// `waos` reaches not yet.
-    #[cfg(not(any(target_os = "android", target_os = "ios")))]
-    pub(crate) dev_components: PathBuf,
     /// The copies of the packages handed without a path while they are asked about
     /// (`logic::package_copies`), under the caches.
     pub(crate) package_copies: PathBuf,
@@ -47,9 +42,6 @@ pub(crate) struct AppFolders {
     /// WaOS writes neither.
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     pub(crate) data: PathBuf,
-    /// The apps of the programs run in development, under the caches.
-    #[cfg(target_os = "macos")]
-    pub(crate) development_apps: PathBuf,
     /// The installed programs' apps, among the user's applications, as Chrome puts its web apps in
     /// `~/Applications/Chrome Apps`.
     #[cfg(target_os = "macos")]
@@ -68,8 +60,6 @@ pub(crate) fn app_folders() -> AppFolders {
     AppFolders {
         code_cache: caches.join("code"),
         temporary_folders: caches.join("tmp"),
-        #[cfg(not(target_os = "ios"))]
-        dev_components: caches.join("dev"),
         package_copies: caches.join("packages"),
         store: data_folder().join("store"),
         preferences: data_folder().join("preferences.toml"),
@@ -81,7 +71,6 @@ pub(crate) fn app_folders() -> AppFolders {
         #[cfg(not(target_os = "ios"))]
         data: data_folder(),
         #[cfg(target_os = "macos")]
-        development_apps: caches.join("apps"),
         #[cfg(target_os = "macos")]
         installed_apps: home().join("Applications/WaOS Programs"),
     }
@@ -156,11 +145,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn both_folders_are_under_the_users_caches() {
+    fn the_code_cache_and_the_programs_tmp_are_under_the_users_caches() {
         let folders = app_folders();
         assert!(folders.code_cache.starts_with(home()));
-        assert_eq!(folders.code_cache.parent(), folders.dev_components.parent());
-        assert_ne!(folders.code_cache, folders.dev_components);
+        assert_eq!(
+            folders.code_cache.parent(),
+            folders.temporary_folders.parent()
+        );
+        assert_ne!(folders.code_cache, folders.temporary_folders);
     }
 
     #[test]

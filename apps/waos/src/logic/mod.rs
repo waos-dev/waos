@@ -1,15 +1,16 @@
 //! Plain Rust, tested without Waft's UI: WaOS's command line and where it shows its library
-//! (`command_line`); where the app keeps its files, the programs `waos` has running and the
-//! dev server that runs what each connection sends, or opens the files it sends with a program
-//! (`opening`), and `waos open`'s side of that (`open_command`), or answers its screenshot of a
-//! program's windows (`dev_screenshot`), gives them its input (`dev_input`) or sizes one
-//! (`dev_resize`), or reads and sets a program's settings (`dev_settings`), with which programs'
-//! code it is compiling (`dev_compiles`), with what WaOS asks each program's user now, which a run
-//! says and a screenshot and an input read (`asking_now`), its file dialogs among it
+//! (`command_line`); where the app keeps its files, the programs running and the dev server that
+//! installs what `waos install` sends and uninstalls (`dev_install`), launches and stops a program
+//! (`dev_launch`), attaches to what a launch writes (`launch_outputs`, `dev_attach`), or opens the
+//! files it sends with a program (`opening`), and `waos open`'s side of that (`open_command`), or
+//! answers its screenshot of a program's windows (`dev_screenshot`), gives them its input
+//! (`dev_input`) or sizes one (`dev_resize`), or reads and sets a program's settings
+//! (`dev_settings`), with what WaOS asks each program's user now, which an attach says and a
+//! screenshot and an input read (`asking_now`), its file dialogs among it
 //! (`noted_file_dialogs`); what each program
 //! runs with (`environments`): this computer's capabilities and the grants of the store's settings;
 //! the library's side of the store: a package opened with WaOS, what a source's listing offers
-//! against what is installed, an installed program run as `waos run` runs one, its code
+//! against what is installed, an installed program run as `waos launch` runs one, its code
 //! compiled at its install and removed with it (`installed_code`), each installed program's shortcut on Android's home screen and WaOS's
 //! icon's menu, made to match what is installed (`program_shortcuts`), and a settings
 //! page and what the user changes on it (`setting_changes`); when the desktop's launcher shows and
@@ -49,17 +50,21 @@ pub(crate) mod command_line;
 pub(crate) mod cues;
 pub(crate) mod deck_geometry;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
-pub(crate) mod dev_compiles;
+pub(crate) mod dev_attach;
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+pub(crate) mod dev_extensions;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(crate) mod dev_input;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(crate) mod dev_inspect;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
+pub(crate) mod dev_install;
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+pub(crate) mod dev_launch;
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(crate) mod dev_refusal;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(crate) mod dev_resize;
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
-pub(crate) mod dev_run;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(crate) mod dev_screenshot;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
@@ -79,6 +84,7 @@ pub(crate) mod image_values;
 pub(crate) mod inspected_programs;
 pub(crate) mod installed_code;
 pub(crate) mod installed_runs;
+pub(crate) mod launch_outputs;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(crate) mod launcher_placement;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
@@ -123,8 +129,6 @@ pub(crate) mod prompts;
 pub(crate) mod quit_question;
 pub(crate) mod recording_indicator;
 pub(crate) mod runs;
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
-pub(crate) mod sent_components;
 pub(crate) mod setting_changes;
 #[cfg(any(target_os = "macos", target_os = "android"))]
 pub(crate) mod simulated_cameras;

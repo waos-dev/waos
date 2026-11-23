@@ -8,15 +8,16 @@
 //! update, before anything is sent. An older WaOS also answers any request or inner variant it
 //! cannot read (`Unknown`) with a [`Refusal`] naming its build rather than breaking the connection.
 //! Then one [`Request`], answered in its own terms: [`ScreenshotAnswer`], [`InputAnswer`],
-//! [`ResizeAnswer`], [`SettingsAnswer`], [`InspectAnswer`] or [`OpenAnswer`], or, for a run, an
-//! [`Upload`] first — `Send`, and the component's parts follow; `Have`, WaOS holds it and nothing
-//! is sent; or `Refused` — then [`RunEvent`]s from `Compiling` to `Ended`, with the program's
-//! output among them as it comes (the design's decision 29: the connection is the run). A
-//! component is megabytes, a debug build hundreds of them, so a [`Run`] carries its length and
-//! SHA-256, its arguments and the run's variables, and the component follows in [`Component`]
-//! frames of 8 MiB at most (`component`), which WaOS assembles and checks. A
-//! request that cannot be carried out is answered with a [`Refusal`], a kind an agent acts on and
-//! a message for a person.
+//! [`ResizeAnswer`], [`SettingsAnswer`], [`InspectAnswer`], [`OpenAnswer`], [`LaunchAnswer`],
+//! [`StopAnswer`] or [`UninstallAnswer`]; for an install, an [`Upload`] first — `Send`, and the
+//! component's parts follow; `Have`, the development install holds it and nothing is sent; or
+//! `Refused` — then an [`InstallAnswer`]; and for an attach, [`RunEvent`]s from `Started` to
+//! `Ended`, with the program's output among them as it comes. A run is these steps (the design's
+//! decision 70): install, launch, attach, stop; closing an attach's connection detaches, and the
+//! program runs on. A component is megabytes, a debug build hundreds of them, so an [`Install`]
+//! carries its length and SHA-256, and the component follows in [`Component`] frames of 8 MiB at
+//! most (`component`), which WaOS assembles and checks. A request that cannot be carried out is
+//! answered with a [`Refusal`], a kind an agent acts on and a message for a person.
 //!
 //! The messages are CBOR (`ciborium`), so each variant and field is named in its encoding: a
 //! field added with `#[serde(default)]` or a variant added at any enum's end is read by a side
@@ -53,9 +54,11 @@ pub use component::{CHUNK_BYTES, component_digest};
 pub use connection::{Connection, Locality, MAX_FRAME_BYTES};
 pub use hello::{Hello, MAJOR, Mismatch, Peer, SERVED};
 pub use messages::{
-    Component, Input, InputAnswer, InputDone, InspectAnswer, Inspection, OpenAnswer, OutputStream,
-    RefusedAnswer, Request, ResizeAnswer, Resized, Run, RunEnd, RunEvent, ScreenshotAnswer,
-    SettingsAnswer, TracedCapability, Upload, WindowId, WindowPicture,
+    Component, ExtensionAnswer, Input, InputAnswer, InputDone, InspectAnswer, Inspection, Install,
+    InstallAnswer, Launch, LaunchAnswer, OpenAnswer, OutputStream, RefusedAnswer, Request,
+    ResizeAnswer, Resized, RunEnd, RunEvent, ScreenshotAnswer, ServingProgram, ServingPrograms,
+    ServingProgramsAnswer, SettingsAnswer, StopAnswer, TracedCapability, UninstallAnswer, Upload,
+    WindowId, WindowPicture,
 };
 #[cfg(windows)]
 pub use pipe::{ClientStream, Listener, ServerStream, listener_path};

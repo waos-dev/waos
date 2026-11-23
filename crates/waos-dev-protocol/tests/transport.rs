@@ -8,9 +8,10 @@ use std::path::Path;
 
 use waos_dev_protocol::{
     Asked, CHUNK_BYTES, ClientStream, Connection, Hello, Input, InputAnswer, InputDone,
-    InspectAnswer, Listener, MAJOR, MAX_FRAME_BYTES, Mismatch, OpenAnswer, OutputStream, Question,
-    Request, ResizeAnswer, Resized, Run, RunEnd, RunEvent, ScreenshotAnswer, ServerStream,
-    SettingRow, SettingsAnswer, TestPlace, Upload, WindowId, WindowPicture, component_digest,
+    InspectAnswer, Install, InstallAnswer, Launch, LaunchAnswer, Listener, MAJOR, MAX_FRAME_BYTES,
+    Mismatch, OpenAnswer, OutputStream, Question, Request, ResizeAnswer, Resized, RunEnd, RunEvent,
+    ScreenshotAnswer, ServerStream, SettingRow, SettingsAnswer, TestPlace, Upload, WindowId,
+    WindowPicture, component_digest,
 };
 
 /// A stream to the WaOS at `path` with nothing said on it, as a client of another build opens it.
@@ -84,17 +85,33 @@ fn screenshot() -> Request {
     }
 }
 
+fn install(id: &waos_package::ProgramId, length: u64, digest: [u8; 32]) -> Install {
+    Install {
+        id: id.clone(),
+        kind: waos_package::ProgramKind::App,
+        name: "Triangle".to_owned(),
+        version: "0.1.0".parse().unwrap(),
+        icon: None,
+        length,
+        digest,
+    }
+}
+
 fn every_request() -> Vec<Request> {
     let id: waos_package::ProgramId = "dev.example.triangle".parse().unwrap();
     vec![
-        Request::Run(Run {
-            id: id.clone(),
-            kind: waos_package::ProgramKind::App,
-            args: vec!["--flag".to_owned()],
+        Request::Install(install(&id, 3 << 20, [0xab; 32])),
+        Request::Launch(Launch {
+            id: id.development(),
+            arguments: vec!["--flag".to_owned()],
             variables: vec![("RUST_LOG".to_owned(), "debug".to_owned())],
-            length: 3 << 20,
-            digest: [0xab; 32],
         }),
+        Request::Attach {
+            id: id.development(),
+        },
+        Request::Stop {
+            id: id.development(),
+        },
         Request::Screenshot {
             id: id.clone(),
             window: Some(WindowId(2)),
@@ -196,6 +213,18 @@ async fn every_answer_comes_back_as_sent() {
         client.receive::<OpenAnswer>()
     );
     opened.0.unwrap();
+    let installed = InstallAnswer::Installed {
+        id: "dev.example.notes.development".parse().unwrap(),
+    };
+    let (sent, received) = tokio::join!(server.send(&installed), client.receive::<InstallAnswer>());
+    sent.unwrap();
+    assert_eq!(received.unwrap(), Some(installed));
+    let launched = tokio::join!(
+        server.send(&LaunchAnswer::Launched),
+        client.receive::<LaunchAnswer>()
+    );
+    launched.0.unwrap();
+    assert_eq!(launched.1.unwrap(), Some(LaunchAnswer::Launched));
     let have = tokio::join!(server.send(&Upload::Have), client.receive::<Upload>());
     have.0.unwrap();
     assert_eq!(have.1.unwrap(), Some(Upload::Have));
@@ -300,7 +329,7 @@ async fn nobody_answers_once_the_listener_is_dropped() {
     );
 }
 
-/// A run's component larger than one frame goes over the transport as parts and comes back
+/// An install's component larger than one frame goes over the transport as parts and comes back
 /// whole, checked by its length and digest: a debug build is hundreds of megabytes, over the
 /// frame a connection accepts whole.
 #[tokio::test]
@@ -311,19 +340,17 @@ async fn a_component_larger_than_one_frame_round_trips() {
     let length = (MAX_FRAME_BYTES + 1) as u64;
     let sending = tokio::spawn(async move {
         let component: Vec<u8> = (0..=255u8).cycle().take(MAX_FRAME_BYTES + 1).collect();
-        let run = Run {
-            id,
-            kind: waos_package::ProgramKind::App,
-            args: Vec::new(),
-            variables: Vec::new(),
-            length: component.len() as u64,
-            digest: component_digest(&component),
-        };
-        client.send(&Request::Run(run)).await.unwrap();
+        let install = install(&id, component.len() as u64, component_digest(&component));
+        client.send(&Request::Install(install)).await.unwrap();
         client.send_component(&component).await.unwrap();
     });
-    let Request::Run(run) = server.receive::<Request>().await.unwrap().expect("a run") else {
-        panic!("a run");
+    let Request::Install(run) = server
+        .receive::<Request>()
+        .await
+        .unwrap()
+        .expect("an install")
+    else {
+        panic!("an install");
     };
     assert_eq!(run.length, length);
     assert_eq!(run.length, CHUNK_BYTES as u64 * 32 + 1);

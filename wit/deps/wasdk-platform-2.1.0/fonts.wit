@@ -1,0 +1,188 @@
+package wasdk:platform@2.1.0;
+
+/// The fonts installed on the platform, found the way Skia's `SkFontMgr` finds them, and the
+/// pixels of their glyphs.
+///
+/// A program shapes and lays out text itself; what it needs from the platform is which faces a
+/// family has, which face covers a character in a language, which face is the platform's own
+/// user-interface font, and the pixels of a glyph. Every answer is a `typeface`: one face in a
+/// font file, its tables served one at a time as every font system serves them, and the
+/// engine's id for it, which a glyph call names in its `font`. Outlines and colour glyphs are
+/// drawn in the engine, so `tables` leaves them out; a program that reads a font itself, as a
+/// typesetter or an immediate-mode interface does, opens the face's whole file with
+/// `open-stream`, a copy of it in the program's memory, and knows a file it has read already by
+/// its `file-id`.
+///
+/// Fonts are a capability: a program given none gets empty answers, as on a machine with none
+/// installed.
+interface fonts {
+  /// A table tag, its four bytes as a big-endian number: `cmap` is 0x636d6170.
+  type tag = u32;
+
+  /// A face's position within its family, in CSS terms.
+  record style {
+    /// The CSS font weight, conventionally 100 to 900.
+    weight: u16,
+    /// The CSS font-width percentage; 100 is normal.
+    width: f32,
+    slant: slant,
+  }
+
+  enum slant {
+    upright,
+    italic,
+    oblique,
+  }
+
+  /// One face in a font file, as the engine handed it out.
+  resource typeface {
+    /// The engine's id for this face; a `font` names its typeface by it. The same however the
+    /// face was matched and for as long as the program runs, and meaningful only to this program.
+    id: func() -> u64;
+    /// The name the platform files the face under.
+    family: func() -> string;
+    style: func() -> style;
+    /// Its tables, outlines and colour glyphs excepted, in the file's order: shapes come from
+    /// `glyph-alpha` and its siblings.
+    tables: func() -> list<tag>;
+    /// One table's bytes; none for a tag the face lacks or the engine keeps.
+    table: func(tag: tag) -> option<list<u8>>;
+    /// The engine's id for the font file this face is in: the same for every face in one file,
+    /// as the faces of a collection are, and for as long as the program runs, and different for
+    /// different files, so a program that reads whole files knows before it opens a stream
+    /// whether it holds the file already. An opaque number, meaningful only to this program and
+    /// only for equality: not a path, and not a typeface's `id`.
+    file-id: func() -> u64;
+    /// The face's index in its file, the same as `font-file`'s `index`: 0 unless the file is a
+    /// collection.
+    index: func() -> u32;
+    /// The font file this face is in, whole: Skia's `SkTypeface::openStream`.
+    open-stream: func() -> font-file;
+  }
+
+  /// A face's font file, as `open-stream` opens it, with what a reader needs before the first
+  /// byte: Skia's `SkStreamAsset`, which has a length, and the index `openStream` returns beside it.
+  record font-file {
+    /// The file's bytes, from the first to the last.
+    data: stream<u8>,
+    /// The file's size in bytes: `data` carries exactly this many.
+    length: u64,
+    /// The face's index in the file (0 unless the file is a collection).
+    index: u32,
+  }
+
+  /// What a glyph call draws from: a typeface, at one point on its axes, with the fake bold and
+  /// italic the program's text layout asks for where the typeface has no face of its own for the
+  /// style, as Skia's `SkFont` carries them.
+  record font {
+    typeface: u64,
+    /// A value for each of the typeface's axes, by its tag: valo's `variation_coordinates`.
+    /// Empty for a face that isn't variable, or its default.
+    variation-coordinates: list<tuple<tag, f32>>,
+    /// Fake bold: how much the outline is thickened, as a fraction of the font size, the width
+    /// of the stroke it is stroked and filled with, so each edge moves out by half of it. 0 for
+    /// none.
+    embolden: f32,
+    /// Fake italic: the horizontal shear each point's x moves by, times its y, y down, as
+    /// `SkFont::setSkewX`. 0 for none.
+    skew: f32,
+  }
+
+  /// Rasterized glyph pixels with their placement. Rows are tightly packed, top row first, and
+  /// what a pixel's bytes mean is said by the call that made the image. Draw the top-left of the
+  /// bitmap at the glyph origin plus `left`, minus `top`.
+  record glyph-image {
+    width: u32,
+    height: u32,
+    left: s32,
+    top: s32,
+    data: list<u8>,
+  }
+
+  /// A stroke applied to an outline before rasterizing, in raster pixels: `width` is the whole
+  /// stroke, centred on the outline, and `miter-limit` the longest miter as a multiple of half
+  /// the width.
+  record glyph-stroke {
+    width: f32,
+    miter-limit: f32,
+    cap: cap,
+    join: join,
+  }
+
+  enum cap {
+    butt,
+    round,
+    square,
+  }
+
+  enum join {
+    miter,
+    round,
+    bevel,
+  }
+
+  record point {
+    x: f32,
+    y: f32,
+  }
+
+  variant path-element {
+    move-to(point),
+    line-to(point),
+    quad-to(tuple<point, point>),
+    conic-to(tuple<point, point, f32>),
+    cubic-to(tuple<point, point, point>),
+    close,
+  }
+
+  /// The installed family names.
+  families: func() -> list<string>;
+
+  /// Every face the platform has under `family`; empty for a family it does not know.
+  family: func(family: string) -> list<typeface>;
+
+  /// The family's face nearest `style`.
+  match-family-style: func(family: string, style: style) -> option<typeface>;
+
+  /// A face that covers `character`, preferring the languages in `locales` (BCP 47, most
+  /// preferred first), then `family`, then `style`. None when nothing installed covers it.
+  match-character: func(family: option<string>, style: style, locales: list<string>, character: char) -> option<typeface>;
+
+  /// The platform's own user-interface face for text at `size` points, nearest `style`: what a
+  /// program means by "the system font". None where the platform has no such notion.
+  system-font: func(size: f32, style: style) -> option<typeface>;
+
+  /// The installed fonts changed. Each item is how many times they have changed since the
+  /// program started, so a program that reads late knows how many it missed. Each call is a
+  /// stream of its own.
+  changes: func() -> stream<u64>;
+
+  /// The glyph calls draw a glyph of `font` at `px`, the font size in raster pixels, from its
+  /// unhinted outline. Each says what its image's pixels are, and returns none when the glyph
+  /// has no shape of that kind, and for a font the engine cannot draw: a typeface it did not
+  /// hand this program, or a point on its axes that is none of its named instances.
+  ///
+  /// Coverage of the outline, one byte per pixel: how much of the pixel the outline covers, from
+  /// 0 for none to 255 for all of it. `dx` shifts the outline right by that fraction of a pixel,
+  /// for subpixel positioning; 0, 0.25, 0.5 and 0.75 are the usual steps.
+  glyph-alpha: func(font: font, glyph: u32, px: f32, dx: f32) -> option<glyph-image>;
+
+  /// Coverage as `glyph-alpha` gives it, of the outline widened by `stroke`.
+  glyph-stroked: func(font: font, glyph: u32, px: f32, dx: f32, stroke: glyph-stroke) -> option<glyph-image>;
+
+  /// A signed distance field, one byte per pixel: `round(255 * clamp(0.5 + d / 16, 0, 1))`,
+  /// where `d` is the pixel's distance to the outline in pixels, positive inside. So 128 is the
+  /// edge, and distances saturate 8 pixels either side of it. The image is the glyph's coverage
+  /// box with 8 pixels of padding on every side, which `left` and `top` include.
+  glyph-sdf: func(font: font, glyph: u32, px: f32) -> option<glyph-image>;
+
+  /// The glyph's own colours, from its colour layers or an embedded bitmap: four bytes per
+  /// pixel, RGBA in sRGB, premultiplied by alpha. None for a glyph with no colours, which is then
+  /// drawn with `glyph-alpha`.
+  glyph-color: func(font: font, glyph: u32, px: f32) -> option<glyph-image>;
+
+  /// The glyph's outline at `px`, y down, origin on the baseline. For large text, from about 64
+  /// pixels up, the outline is a smaller transfer than the image, and the program may rasterize
+  /// it itself.
+  glyph-path: func(font: font, glyph: u32, px: f32) -> option<list<path-element>>;
+}

@@ -2,7 +2,8 @@
 //! update the installed one to the version listed, or nothing, for a version not newer than the
 //! one installed, by semver's precedence as the store compares them. An update is any listing of
 //! an installed id at a newer version (the design's decision 46); whether the package is signed
-//! with the installed program's key is the store's to check when it installs it.
+//! with the installed program's key is the store's to check when it installs it. A development
+//! install is never offered an update, since no source updates it (decision 70).
 
 use std::cmp::Ordering;
 
@@ -16,7 +17,8 @@ pub(crate) enum Offer {
     Install,
     /// The version listed is newer than the one installed, which is `installed`.
     Update { installed: String },
-    /// The version installed is the one listed, or newer.
+    /// The version installed is the one listed, or newer; or the id is a development install's,
+    /// which no source updates.
     Installed,
 }
 
@@ -28,6 +30,9 @@ pub(crate) fn offer_of(listed: &ListedProgram, installed: &[InstalledProgram]) -
     else {
         return Offer::Install;
     };
+    if program.is_development() {
+        return Offer::Installed;
+    }
     let version = program.manifest.version();
     if listed.version.cmp_precedence(version) == Ordering::Greater {
         Offer::Update {
@@ -41,6 +46,7 @@ pub(crate) fn offer_of(listed: &ListedProgram, installed: &[InstalledProgram]) -
 #[cfg(test)]
 mod tests {
     use waos_package::{Manifest, SigningKey};
+    use waos_store::Origin;
 
     use super::*;
 
@@ -48,7 +54,9 @@ mod tests {
         InstalledProgram {
             manifest: Manifest::new(id.parse().unwrap(), "Triangle", version.parse().unwrap())
                 .unwrap(),
-            publisher: SigningKey::generate().publisher(),
+            origin: Origin::Package {
+                publisher: SigningKey::generate().publisher(),
+            },
         }
     }
 
@@ -97,5 +105,20 @@ mod tests {
             Offer::Installed,
             "an older version is not offered"
         );
+    }
+
+    #[test]
+    fn a_development_install_is_offered_no_update() {
+        let development = InstalledProgram {
+            origin: Origin::Development {
+                component_sha256: [0; 32],
+            },
+            ..installed("dev.example.triangle.development", "0.1.0")
+        };
+        let offer = offer_of(
+            &listed("dev.example.triangle.development", "9.0.0"),
+            &[development],
+        );
+        assert_eq!(offer, Offer::Installed);
     }
 }

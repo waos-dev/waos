@@ -4,9 +4,10 @@
 //! connection closes or the program ends.
 //! Each value goes as JSON of `wasdk:inspect`'s, one a line, so the command prints what it reads.
 //!
-//! The invariant: only a program a run of `waos run` on this machine runs is inspected live,
-//! and only one it runs or has run has its summary read, as its settings are (`dev_settings`);
-//! never a program the library opened, whose record is its user's to read.
+//! The invariant: every program is inspected, however it was installed or started, as the dev
+//! socket is its user's alone (the design's decision 70): any running program live, and any
+//! program's summary, whether it runs or not, the days the engine keeps of it, none for a program
+//! it keeps none of.
 
 use futures::StreamExt;
 use futures::stream::{self, BoxStream};
@@ -17,12 +18,10 @@ use waos_package::ProgramId;
 use super::dev_refusal;
 use super::dev_server::BUILD;
 use super::runs::Runs;
-use super::sent_components::SentComponents;
 
 /// What an inspection reads of the app.
 pub(crate) struct InspectionContext<'a> {
     pub(crate) runs: &'a Runs,
-    pub(crate) components: &'a SentComponents,
     pub(crate) engine: &'a WaOS,
 }
 
@@ -33,23 +32,16 @@ pub(crate) async fn answer(
     id: &ProgramId,
     asked: Inspection,
 ) {
-    let running = context.runs.dev_run(id).await.map(|run| run.program);
+    let running = context.runs.running_now(id);
     let answered = match asked {
-        Inspection::Summary { days } => {
-            let was_run = running.is_some() || context.components.was_sent(id);
-            if was_run {
-                Ok(summary(context.engine, id, days))
-            } else {
-                Err(dev_refusal::never_dev_run(id))
-            }
-        }
+        Inspection::Summary { days } => Ok(summary(context.engine, id, days)),
         Inspection::ActiveUses => match running.as_ref().and_then(RunningProgram::active_uses) {
             Some((now, changes)) => {
                 let changes = changes.map(|change| json(&change)).boxed();
                 send_lines(connection, vec![json(&now)], changes).await;
                 return;
             }
-            None => Err(dev_refusal::no_dev_run_now(id)),
+            None => Err(dev_refusal::not_running(id)),
         },
         Inspection::Trace(traced) => {
             let Some(kinds) = traced
@@ -66,7 +58,7 @@ pub(crate) async fn answer(
                     trace(connection, &program, &kinds).await;
                     return;
                 }
-                None => Err(dev_refusal::no_dev_run_now(id)),
+                None => Err(dev_refusal::not_running(id)),
             }
         }
         Inspection::Unknown => Err(dev_refusal::unsupported(BUILD, "inspection")),

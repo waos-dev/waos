@@ -1,11 +1,11 @@
 //! One request to the WaOS on this machine about a program: for `waos ui screenshot`, `tap`,
-//! `press`, `drag`, `type`, `key` and `scroll`, connected to as it runs, never started, since only
-//! a program a run of `waos run` runs is read or driven (the design's decision 60); for
-//! `waos settings` and `set`, on a connection the caller made. Each side says its hello
+//! `press`, `drag`, `type`, `key` and `scroll`, `waos attach` and `waos stop`, connected to as it
+//! runs, never started, since only a program running is read, driven or stopped (the design's
+//! decisions 60 and 70); for `waos settings` and `set`, on a connection the caller made. Each side says its hello
 //! first: a different protocol's major, or a request WaOS does not serve, is refused before it is
 //! sent, with both builds named and which one to update.
 //!
-//! The invariant: [`ask`] never starts WaOS. With none answering, there is no run to ask about.
+//! The invariant: [`ask`] never starts WaOS. With none answering, no program runs to ask about.
 
 use anyhow::{Context, Result, anyhow, bail};
 use serde::de::DeserializeOwned;
@@ -62,14 +62,37 @@ pub async fn greeted(
     Ok(connection)
 }
 
-/// A connection to the WaOS running, never started.
-pub async fn connect() -> Result<Connection<ClientStream>> {
+/// What a request to the WaOS on this machine came to: its answer, or nobody answering.
+pub enum Unreached<A> {
+    Answered(A),
+    NobodyAnswers,
+}
+
+/// What the WaOS running answers `request`, its hello read and checked first; or that none
+/// answers, which for a list of what runs there is an answer of its own: nothing runs.
+pub async fn ask_if_answered<A: DeserializeOwned>(request: &Request) -> Result<Unreached<A>> {
     let socket = waos_dev_protocol::listener_path();
     match Connection::connect(&socket).await {
+        Ok(connection) => Ok(Unreached::Answered(answer(connection, request).await?)),
+        Err(error) if nobody_answers(&error) => Ok(Unreached::NobodyAnswers),
+        Err(error) => {
+            Err(error).with_context(|| format!("connecting to WaOS at {}", socket.display()))
+        }
+    }
+}
+
+/// A connection to the WaOS running, never started.
+pub async fn connect() -> Result<Connection<ClientStream>> {
+    connect_at(&waos_dev_protocol::listener_path()).await
+}
+
+/// A connection to the WaOS running at `socket`, never started.
+pub async fn connect_at(socket: &std::path::Path) -> Result<Connection<ClientStream>> {
+    match Connection::connect(socket).await {
         Ok(connection) => Ok(connection),
         Err(error) if nobody_answers(&error) => {
             bail!(
-                "no WaOS answers at {}: run the program with `waos run` first",
+                "no WaOS answers at {}: start the program with `waos run` or `waos launch` first",
                 socket.display()
             )
         }
