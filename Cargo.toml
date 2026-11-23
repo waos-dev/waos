@@ -367,3 +367,34 @@ opt-level = 3
 # a release build, so a debug WaOS took minutes to show `examples/hello` in the simulator.
 [profile.dev.package.pulley-interpreter]
 opt-level = 3
+
+# Waft's main, unreleased: FluentRoutePage (waft#152) and the overscroll revert (waft#153).
+# Dropped when Waft releases them.
+[patch.crates-io]
+waft = { path = "../waft-3/crates/waft" }
+waft-animation = { path = "../waft-3/crates/waft-animation" }
+waft-cupertino = { path = "../waft-3/crates/waft-cupertino" }
+waft-embedder = { path = "../waft-3/crates/waft-embedder" }
+waft-embedder-android = { path = "../waft-3/crates/waft-embedder-android" }
+waft-embedder-apple = { path = "../waft-3/crates/waft-embedder-apple" }
+waft-embedder-default = { path = "../waft-3/crates/waft-embedder-default" }
+waft-embedder-ios = { path = "../waft-3/crates/waft-embedder-ios" }
+waft-embedder-web = { path = "../waft-3/crates/waft-embedder-web" }
+waft-embedder-winit = { path = "../waft-3/crates/waft-embedder-winit" }
+waft-foundation = { path = "../waft-3/crates/waft-foundation" }
+waft-gestures = { path = "../waft-3/crates/waft-gestures" }
+waft-macros = { path = "../waft-3/crates/waft-macros" }
+waft-markdown = { path = "../waft-3/crates/waft-markdown" }
+waft-material = { path = "../waft-3/crates/waft-material" }
+waft-material-color-utilities = { path = "../waft-3/crates/waft-material-color-utilities" }
+waft-painting = { path = "../waft-3/crates/waft-painting" }
+waft-physics = { path = "../waft-3/crates/waft-physics" }
+waft-rendering = { path = "../waft-3/crates/waft-rendering" }
+waft-scheduler = { path = "../waft-3/crates/waft-scheduler" }
+waft-service-protocol = { path = "../waft-3/crates/waft-service-protocol" }
+waft-services = { path = "../waft-3/crates/waft-services" }
+waft-shell = { path = "../waft-3/crates/waft-shell" }
+waft-single-instance = { path = "../waft-3/crates/waft-single-instance" }
+waft-test = { path = "../waft-3/crates/waft-test" }
+waft-widgets = { path = "../waft-3/crates/waft-widgets" }
+waft-winui = { path = "../waft-3/crates/waft-winui" }
