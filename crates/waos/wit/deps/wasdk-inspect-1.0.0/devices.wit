@@ -49,13 +49,14 @@ interface devices {
     /// Each change from now on, on a stream of its own.
     program-changes: func() -> stream<program-change>;
     /// The icon of the program `id` names, as its package's PNG; none for one without an icon,
-    /// as a development run of a program not installed. Asked for as a program is shown, so a
+    /// as a development build that had none. Asked for as a program is shown, so a
     /// list of many stays small.
     icon: async func(id: string) -> option<list<u8>>;
     /// Starts the program `id` names, held before its first instruction until the answer is
     /// dropped, so a listener hears it from its start. One that runs now is ended first, as a
-    /// later `waos run` of it ends the one before. A program run in development starts again
-    /// from the component its last `waos run` sent, with its settings and folders.
+    /// later `waos launch` of it ends the one before. A program in development is its
+    /// development install, `<id>.development`, which starts as any installed program does,
+    /// with its settings and folders.
     start-held: async func(id: string) -> result<held-program, start-error>;
     /// Ends the program `id` names where it runs, with a stop, as a start in its place ends it;
     /// answers once it has ended. Nothing for one that does not run.

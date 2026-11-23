@@ -83,6 +83,7 @@ mod roles;
 mod running;
 mod screens;
 mod screenshots;
+mod service_extensions;
 mod shell;
 mod simulated_input;
 mod source_lines;
@@ -119,6 +120,7 @@ pub use program::Program;
 pub use roles::RoleNotGranted;
 pub use running::{HeldProgram, IncompatibleProgram, ProgramEnd, RunningProgram};
 pub use screens::Screen;
+pub use service_extensions::{ExtensionAnswer, ExtensionError, ProgramServiceExtensions};
 pub use shell::{
     AnswerFuture, AudioOutputPickedFuture, CameraChangeFuture, CameraListFuture, CameraOpenFuture,
     CaptureStartFuture, ClipboardReadFuture, ClipboardWriteFuture, Content, ContentFuture,

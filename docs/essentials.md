@@ -24,7 +24,7 @@ The rules WaOS keeps, one line each, so they are not lost under the code. Each l
 
 ## Views and windows
 
-- A program has a view only by asking for one; a program that never asks has none. ([decision 1](proposals/2026-11-21-views-a-program-asks-for.md); [`views.wit`](../wit/deps/wasdk-platform-2.0.0/views.wit))
+- A program has a view only by asking for one; a program that never asks has none. ([decision 1](proposals/2026-11-21-views-a-program-asks-for.md); [`views.wit`](../wit/deps/wasdk-platform-2.1.0/views.wit))
 - The engine passes every request to the shell's placement, which decides where the view goes: a window on a desktop, a task on Android, a tab inside WaOS. ([`ViewPlacement`](../crates/waos/src/shell/mod.rs))
 - On a phone, an app's screen opens when it launches, and its first request gets that screen; until then the screen is empty. ([decisions 2 and 10](proposals/2026-11-21-views-a-program-asks-for.md); [`tabs.rs`](../apps/waos/src/state/deck/tabs.rs), [`view_windows.rs`](../crates/waos-program-window/src/state/view_windows.rs))
 - A screen waits for its app for as long as the app runs; the user closes it, and it closes when the app ends without asking. ([decision 8](proposals/2026-11-21-views-a-program-asks-for.md))
@@ -48,7 +48,7 @@ The rules WaOS keeps, one line each, so they are not lost under the code. Each l
 
 - A program reaches no path on the machine outside its mounts, and what is read-only is decided in one table. ([`target.rs`](../crates/waos/src/files/target.rs), [`mounts.rs`](../crates/waos/src/files/mounts.rs))
 - A file or folder the user picks for a program, or opens it with, is mounted at its own path until the user takes it back: kept among its grants, which mount it while they hold it, or for its run alone where nothing keeps them. ([`picks.rs`](../crates/waos/src/files/picks.rs))
-- A program mounts a folder it holds at a path of its own files, for as long as it keeps the mount; its own `/data`, `/cache` and `/tmp` stay over what it mounts. ([projects on machines](proposals/2026-11-21-projects-on-machines.md); [`mounts.wit`](../wit/deps/wasdk-platform-2.0.0/mounts.wit), [`mount_host.rs`](../crates/waos/src/files/mount_host.rs))
+- A program mounts a folder it holds at a path of its own files, for as long as it keeps the mount; its own `/data`, `/cache` and `/tmp` stay over what it mounts. ([projects on machines](proposals/2026-11-21-projects-on-machines.md); [`mounts.wit`](../wit/deps/wasdk-platform-2.1.0/mounts.wit), [`mount_host.rs`](../crates/waos/src/files/mount_host.rs))
 - On Android, This computer reaches the phone's files once the user turns on All files access for WaOS, which WaOS offers as This computer is picked and its settings show; its home is the phone's storage then, WaOS's own folder before. ([decisions 4 and 5](proposals/2026-11-21-projects-on-machines.md); [`phone_files.rs`](../apps/waos/src/state/phone_files.rs), [`all_files_access.rs`](../apps/waos/src/os/android/all_files_access.rs))
 - WaOS asks the system only on the main thread; what the engine needs of it is read there, kept, and read again when WaOS comes back to the front, where the user comes back from changing it. Android ends WaOS when a program's thread asks it. ([`state`](../apps/waos/src/state/mod.rs), [`logic::phone_files`](../apps/waos/src/logic/phone_files.rs))
 

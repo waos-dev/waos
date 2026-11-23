@@ -24,6 +24,8 @@ wasdk-wgpu.workspace = true
 wgpu.workspace = true
 # What the embedder does, as events a subscriber reads: each frame of a video it draws.
 tracing.workspace = true
+# A service extension's answer, which Waft gives as JSON, as the text the platform carries.
+serde_json.workspace = true
 # A picked file's `file:` URL, read back as its path inside the program for a player's source.
 url.workspace = true
 

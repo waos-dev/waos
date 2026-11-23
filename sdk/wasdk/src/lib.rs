@@ -79,8 +79,8 @@ pub use bindings::wasdk::media::{
 };
 pub use bindings::wasdk::platform::{
     audio, clipboard, file_dialogs, file_watching, fonts, gpu_interop, hardware_buffers, lifecycle,
-    machines, menus, mounts, notifications, opener, permissions, screens, system, trust, views,
-    windows, workers,
+    machines, menus, mounts, notifications, opener, permissions, screens, service_extensions,
+    system, trust, views, windows, workers,
 };
 pub use bindings::wasi::clocks::{monotonic_clock, system_clock};
 pub use bindings::wasi::filesystem::preopens;

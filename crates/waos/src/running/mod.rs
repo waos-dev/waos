@@ -56,6 +56,7 @@ use crate::notifications::ProgramNotifications;
 use crate::permissions::{NothingGranted, SystemRefusal};
 use crate::screens::Screens;
 use crate::screenshots::Screenshots;
+use crate::service_extensions::ProgramServiceExtensions;
 use crate::shell::{
     PlacedView, Prompts, ShellAudioOutputPicker, ShellCameras, ShellCompositor, ShellFileDialogs,
     ShellImageCodecs, ShellMachinePicker, ShellMediaAssets, ShellMediaPlayers, ShellNotifications,
@@ -111,6 +112,8 @@ struct Running {
     /// The mouse a tool moves over the program's views as its user would.
     mouse: Mouse,
     lifecycle: Lifecycle,
+    /// The service extensions it serves to a development tool.
+    service_extensions: ProgramServiceExtensions,
     /// Its menu bar, as it set it last.
     menus: ProgramMenus,
     /// What the user does to its notifications.
@@ -262,6 +265,7 @@ impl RunningProgram {
             menus: ProgramMenus::new(lifecycle.clone()),
             notifications: ProgramNotifications::new(lifecycle.clone()),
             notifications_refused: SystemRefusal::default(),
+            service_extensions: ProgramServiceExtensions::new(lifecycle.clone()),
             lifecycle,
             clock: start.clock.clone(),
             workers: ProgramWorkers::new(Arc::clone(&stats)),
@@ -322,6 +326,12 @@ impl RunningProgram {
     /// as its views' standing changes it.
     pub fn watch(&self) -> Watching {
         self.0.views.watch()
+    }
+
+    /// The program's service extensions, which a development tool calls: what each answers, and
+    /// whether the program serves any now.
+    pub fn service_extensions(&self) -> &ProgramServiceExtensions {
+        &self.0.service_extensions
     }
 
     /// Asks the program whether it may end: resolves once every stream it opened has answered,

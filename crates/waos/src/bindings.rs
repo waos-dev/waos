@@ -8,7 +8,7 @@
 //! `ProgramView`, a key's reply its `KeyReply`, the compositor and a composition layer the
 //! shell's compositor and layer, a window its `ProgramWindow`, a window's
 //! configuration the record of what the program set, a screen the plain value the list holds, an
-//! exit request the lifecycle's, a view's text input the shell's side of it, a typeface the face
+//! exit request the lifecycle's, an extension call the service extensions', a view's text input the shell's side of it, a typeface the face
 //! handed out with its id, a permission the guarded capability it stands for, the clipboard, an item listed, a copy's options, a source, a paste's
 //! request, the user's copy request and the user's paste the clipboard's, a menu's place, a
 //! tray icon and its menus the menus', sound's resources web-audio-api's own values where it
@@ -52,6 +52,7 @@ wasmtime::component::bindgen!({
         "wasdk:platform/lifecycle.state-changes": store | tracing | trappable,
         "wasdk:platform/lifecycle.exit-requests": store | tracing | trappable,
         "wasdk:platform/lifecycle.open-requests": store | tracing | trappable,
+        "wasdk:platform/service-extensions.calls": store | tracing | trappable,
         "wasdk:platform/fonts.changes": store | tracing | trappable,
         "wasdk:platform/fonts.[method]typeface.open-stream": store | tracing | trappable,
         "wasdk:platform/permissions.[method]permission.request": store | tracing | trappable,
@@ -88,6 +89,7 @@ wasmtime::component::bindgen!({
         "wasdk:platform/windows.size-limits": crate::windows::SizeLimits,
         "wasdk:platform/screens.screen": crate::screens::Screen,
         "wasdk:platform/lifecycle.exit-request": crate::lifecycle::ExitRequest,
+        "wasdk:platform/service-extensions.extension-call": crate::service_extensions::ExtensionCall,
         "wasdk:platform/fonts.typeface": crate::fonts::Typeface,
         "wasdk:platform/permissions.permission": crate::permissions::Permission,
         "wasdk:platform/trust.trust": crate::trust::Trust,

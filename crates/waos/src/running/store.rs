@@ -61,6 +61,7 @@ use crate::permissions::host::{PermissionsCtx, PermissionsCtxView};
 use crate::roles;
 use crate::screens::Screens;
 use crate::screens::host::{ScreensCtx, ScreensCtxView};
+use crate::service_extensions::host::{ServiceExtensionsCtx, ServiceExtensionsCtxView};
 use crate::shell::{
     ShellCompositor, ShellFileDialogs, ShellImageCodecs, ShellMediaAssets, ShellMediaPlayers,
     ShellNotifications, ShellOpener, ShellVideoFrameReaders, ViewPlacement,
@@ -215,6 +216,7 @@ fn linker(engine: &Engine, held: &[Role]) -> wasmtime::Result<Linker<StoreData>>
     crate::system::host::add_to_linker(&mut linker)?;
     crate::caption_settings::host::add_to_linker(&mut linker)?;
     crate::lifecycle::host::add_to_linker(&mut linker)?;
+    crate::service_extensions::host::add_to_linker(&mut linker)?;
     crate::fonts::host::add_to_linker(&mut linker)?;
     crate::permissions::host::add_to_linker(&mut linker)?;
     crate::trust::host::add_to_linker(&mut linker)?;
@@ -786,6 +788,16 @@ impl WorkersCtxView for StoreData {
         WorkersCtx {
             table: &mut self.table,
             instances: &self.instances,
+        }
+    }
+}
+
+impl ServiceExtensionsCtxView for StoreData {
+    fn service_extensions_ctx(&mut self) -> ServiceExtensionsCtx<'_> {
+        ServiceExtensionsCtx {
+            table: &mut self.table,
+            extensions: self.program.service_extensions(),
+            hears_calls: self.role == InstanceRole::Main,
         }
     }
 }

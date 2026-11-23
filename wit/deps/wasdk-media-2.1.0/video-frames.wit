@@ -1,0 +1,59 @@
+package wasdk:media@2.1.0;
+
+/// A video's frames for the program to draw, and where a player's picture goes.
+///
+/// **Readers.** A program makes a frame reader on the system's readers, where the system hands
+/// out frames (`get-video-frame-readers`), and gives it to a player or a camera as its picture's
+/// destination. At each frame it draws, it asks the reader for the video's frame of the frame's
+/// `display-time`, the moment its picture reaches the screen, and draws the frame's hardware
+/// buffer through a texture it imports of it on its own device (`wasdk:platform/gpu-interop`).
+///
+/// **Lent frames.** A frame is the decoder's or the camera's, as Apple's `CVPixelBuffer`,
+/// Android's `AImage` and WebCodecs' and WinRT's `VideoFrame` are: lent with its slot in the
+/// system's pool, which hands that memory out again only once the frame, its hardware buffer and
+/// every texture imported of it are dropped, so a program that keeps frames keeps the decoder from
+/// reusing them. Memory a program holds of its own, which no pool waits for, is a hardware buffer
+/// it allocates or the hardware codecs decode (`wasdk:platform/hardware-buffers`).
+interface video-frames {
+  use wasdk:platform/hardware-buffers@2.1.0.{hardware-buffer};
+  use wasdk:platform/views@2.1.0.{composition-layer, instant};
+
+  /// One picture of a video, lent with its slot in the system's pool until it, its buffer and
+  /// every texture imported of it are dropped.
+  resource video-frame {
+    /// The frame's memory, which keeps the frame, and its slot, while it is held.
+    hardware-buffer: func() -> hardware-buffer;
+    /// The rotation applied to the frame when it is shown, in degrees clockwise: 0, 90, 180 or
+    /// 270, as the web's `VideoFrame.rotation`. It applies before `flip`. The buffer is not
+    /// turned: a frame turned a quarter shows its buffer's height as its width. A camera's frame
+    /// on a phone is turned so, unless its session asked for upright frames.
+    rotation: func() -> u32;
+    /// Whether the frame is shown flipped horizontally, after `rotation`, as the web's
+    /// `VideoFrame.flip`: a camera that looks at its user, shown as a mirror.
+    %flip: func() -> bool;
+  }
+
+  /// The system's frame readers, where it hands out frames.
+  resource video-frame-readers {
+    /// A reader fed by nothing yet.
+    make-reader: func() -> video-frame-reader;
+  }
+
+  get-video-frame-readers: func() -> option<video-frame-readers>;
+
+  /// Where a player or a camera sends its frames for the program to draw; given to one source
+  /// at a time.
+  resource video-frame-reader {
+    /// The frame to show at `display-time`: a player's frame for that moment, a camera's
+    /// newest. None when it is the frame answered last, or before the first.
+    frame-for: func(display-time: instant) -> option<video-frame>;
+  }
+
+  /// Where a source's picture goes.
+  variant video-output {
+    /// The system draws the video on this layer.
+    layer(borrow<composition-layer>),
+    /// The program draws the frames this reader reads.
+    frames(borrow<video-frame-reader>),
+  }
+}
