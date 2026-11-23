@@ -1,8 +1,8 @@
 //! `waos settings` and `waos settings set`: a program's settings, as its settings page in WaOS
 //! shows them, one row each, read or set by the WaOS on this machine, which keeps them; a set
-//! answer is the program's setting, used by every run of it. Only a development install is
-//! reached, the package's by default, or one the store does not have installed, which may be set
-//! before its install (the design's decision 70).
+//! answer is the program's setting, used by every run of it. Any program is reached, however it
+//! was installed, the package's development install by default, and one the store does not have
+//! installed, which may be set before its install (the design's decision 70).
 //! WaOS is started when none answers, since the settings are there to be set before the run that
 //! needs them.
 //!

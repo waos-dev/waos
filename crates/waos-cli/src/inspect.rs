@@ -3,8 +3,8 @@
 //! values, one value a line, for a terminal or a coding agent to read: the program's audit summary,
 //! its days newest first; what it uses now, then each change to it; or its live trace of the
 //! capabilities named, each event as it comes; the last two until Ctrl-C or the program's end. Any
-//! program running is inspected, the package's development install by default, and a development
-//! install has its summary read while it does not run too.
+//! program is inspected, the package's development install by default: live while it runs, and
+//! its summary whether it runs or not.
 //!
 //! The invariant: what WaOS answers is printed as it came, so the command needs no types of its
 //! own: the WIT is the one schema.

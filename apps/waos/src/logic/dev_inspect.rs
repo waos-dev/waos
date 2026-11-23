@@ -4,17 +4,16 @@
 //! connection closes or the program ends.
 //! Each value goes as JSON of `wasdk:inspect`'s, one a line, so the command prints what it reads.
 //!
-//! The invariant: any program running is inspected live, however it was installed or started, as
-//! the dev socket is its user's alone (the design's decision 70); a summary is read of one
-//! running, or of a development install, whose record is its developer's, never of a program
-//! installed from a package that does not run, whose record its settings page shows.
+//! The invariant: every program is inspected, however it was installed or started, as the dev
+//! socket is its user's alone (the design's decision 70): any running program live, and any
+//! program's summary, whether it runs or not, the days the engine keeps of it, none for a program
+//! it keeps none of.
 
 use futures::StreamExt;
 use futures::stream::{self, BoxStream};
 use waos::{RunningProgram, TraceKind, WaOS};
 use waos_dev_protocol::{Connection, InspectAnswer, Inspection, ServerStream, TracedCapability};
 use waos_package::ProgramId;
-use waos_store::Store;
 
 use super::dev_refusal;
 use super::dev_server::BUILD;
@@ -23,7 +22,6 @@ use super::runs::Runs;
 /// What an inspection reads of the app.
 pub(crate) struct InspectionContext<'a> {
     pub(crate) runs: &'a Runs,
-    pub(crate) store: &'a Store,
     pub(crate) engine: &'a WaOS,
 }
 
@@ -36,12 +34,7 @@ pub(crate) async fn answer(
 ) {
     let running = context.runs.running_now(id);
     let answered = match asked {
-        Inspection::Summary { days } => match context.store.installed_program(id) {
-            _ if running.is_some() => Ok(summary(context.engine, id, days)),
-            Some(installed) if installed.is_development() => Ok(summary(context.engine, id, days)),
-            Some(_) => Err(dev_refusal::not_development(id)),
-            None => Err(dev_refusal::not_installed(id)),
-        },
+        Inspection::Summary { days } => Ok(summary(context.engine, id, days)),
         Inspection::ActiveUses => match running.as_ref().and_then(RunningProgram::active_uses) {
             Some((now, changes)) => {
                 let changes = changes.map(|change| json(&change)).boxed();

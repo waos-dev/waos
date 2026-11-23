@@ -69,8 +69,8 @@ pub enum Request {
         width: f64,
         height: f64,
     },
-    /// The rows of the settings of the program `id` names: a development install, or one not
-    /// installed yet, whose settings are set ahead of its install.
+    /// The rows of the settings of the program `id` names, however it was installed, or of one
+    /// not installed yet, whose settings are set ahead of its install.
     Settings { id: ProgramId },
     /// Sets `row` among the settings of the program `id` names, as its user would on its settings
     /// page, for the same programs.

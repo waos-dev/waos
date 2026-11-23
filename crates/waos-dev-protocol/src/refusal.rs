@@ -42,9 +42,6 @@ impl fmt::Display for Refusal {
 pub enum RefusalKind {
     /// The program does not run now.
     NotRunning,
-    /// The program is installed from a package, not as a development install, so its settings,
-    /// or its record with nothing running, are its user's to read on its settings page.
-    NotDevelopment,
     /// No program of the id is installed.
     NotInstalled,
     /// The program runs, but no launch started it, as one opened from WaOS's library: its output

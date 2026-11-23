@@ -328,7 +328,6 @@ async fn serve_connection(mut connection: Connection<ServerStream>, context: Con
         Ok(Some(Request::Inspect { id, asked })) => {
             let inspection = InspectionContext {
                 runs,
-                store: &context.store,
                 engine: &context.installed.engine,
             };
             dev_inspect::answer(connection, inspection, &id, asked).await;
@@ -1144,7 +1143,7 @@ pub(crate) mod tests {
     }
 
     #[tokio::test]
-    async fn the_settings_of_a_program_installed_from_a_package_are_refused() {
+    async fn the_settings_of_a_program_installed_from_a_package_are_read_and_set_too() {
         let server = TestServer::start("settings-published");
         let packages = server.folder.join("packages");
         fs::create_dir_all(&packages).unwrap();
@@ -1155,16 +1154,35 @@ pub(crate) mod tests {
             .store
             .install(waos_package::Package::open(&package).unwrap())
             .unwrap();
-        let settings = Request::Settings {
-            id: FOREVER.parse().unwrap(),
+        let id: ProgramId = FOREVER.parse().unwrap();
+        let set = Request::Set {
+            id: id.clone(),
+            row: Row::Question(Question::Camera, Some(Answer::Deny)),
         };
-        let waos_dev_protocol::SettingsAnswer::Refused(refusal) = server
-            .ask::<waos_dev_protocol::SettingsAnswer>(&settings)
-            .await
+        let waos_dev_protocol::SettingsAnswer::Rows(rows) =
+            server.ask::<waos_dev_protocol::SettingsAnswer>(&set).await
         else {
-            panic!("refused");
+            panic!("the rows after the set");
         };
-        assert_eq!(refusal.kind, RefusalKind::NotDevelopment);
+        let camera = rows.iter().find(|row| row.key == "camera").unwrap();
+        assert_eq!(camera.values, ["deny"]);
+        let own = server.store.program_settings(&id).unwrap();
+        assert_eq!(
+            own.answers.get(waos_store::Question::Camera),
+            &waos_store::Setting::Own(waos_store::Answer::Denied),
+            "kept as its page keeps it"
+        );
+        let summary = Request::Inspect {
+            id,
+            asked: waos_dev_protocol::Inspection::Summary { days: 7 },
+        };
+        assert_eq!(
+            server
+                .ask::<waos_dev_protocol::InspectAnswer>(&summary)
+                .await,
+            waos_dev_protocol::InspectAnswer::Inspected(Vec::new()),
+            "its summary is read though it does not run, with no day kept"
+        );
     }
 
     #[tokio::test]

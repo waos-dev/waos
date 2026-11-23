@@ -3,9 +3,9 @@
 //! set made as the page makes the same change, so the command and the page are one rule. A set
 //! answer is the program's setting, used by every run of it.
 //!
-//! The invariant: only a development install (the design's decision 70), or an id the store does
-//! not have installed, which may be set before its install, is read or set; a program installed
-//! from a package is `Refused(NotDevelopment)`, its settings its user's to set on its page.
+//! The invariant: every program's settings are read and set, however it was installed, a
+//! published one as a development install, and an id the store does not have installed, which may
+//! be set before its install (the design's decision 70): the dev socket is its user's alone.
 
 use std::sync::Arc;
 
@@ -52,9 +52,6 @@ async fn rows_after(
     id: &ProgramId,
     set: Option<Row>,
 ) -> Result<Vec<SettingRow>, Refusal> {
-    if !is_a_development_program(&context.store, id) {
-        return Err(dev_refusal::not_development(id));
-    }
     let environments = Arc::clone(&context.environments);
     // Listing the sound outputs waits for the system's audio.
     let offered = tokio::task::spawn_blocking(move || environments.offered())
@@ -79,14 +76,6 @@ async fn rows_after(
 /// A request of the settings' own that failed: its message is the error's.
 fn failed(error: impl std::fmt::Display) -> Refusal {
     Refusal::new(RefusalKind::Failed, error.to_string())
-}
-
-/// Whether `id` is a development program: a development install, or one the store does not have
-/// installed, which may be set before its install. A program installed from a package is not one.
-fn is_a_development_program(store: &Store, id: &ProgramId) -> bool {
-    store
-        .installed_program(id)
-        .is_none_or(|installed| installed.is_development())
 }
 
 /// Makes `change` to the program `id`'s own settings, as its page makes it.

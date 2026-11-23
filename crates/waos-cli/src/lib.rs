@@ -218,8 +218,9 @@ enum Command {
     Ui(UiArgs),
     /// Reads or changes a program's settings (`list` by default, or `set <row> <value>`).
     ///
-    /// The settings are the program's own, kept by WaOS, of this package's development install,
-    /// set ahead of its install too; WaOS is started when none answers.
+    /// The settings are the program's own, kept by WaOS, of any program, this package's
+    /// development install by default, set ahead of its install too; WaOS is started when none
+    /// answers.
     Settings(SettingsArgs),
     /// Inspects what WaOS knows of what a program does with what it was allowed, as JSON lines of
     /// wasdk:inspect's values: `summary`, `active-uses`, or `trace`.
