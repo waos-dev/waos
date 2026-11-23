@@ -1,7 +1,3 @@
 # cameras
 
-A program that runs a camera through the system's cameras, and what the tests read a camera's way through WaOS from: it says each camera listed, as `camera front: FaceTime HD Camera (front)`, and from then on the ids of those listed each time a camera comes or goes, as `cameras now: front, desk`; it opens the first, which asks its user at the first use, saying `open front: not allowed` where the user refuses, says each of its formats, as `format 1920x1080 at 15-30 fps, photos 1920x1080 1280x720`, and starts it in the last, its preview on an opaque composition layer of its own and its frames in a frame reader of its own, each where the system has them, and its photos at the format's first photo size, saying the format it runs in, as `started in 640x480`, or why it did not start. Where its `/data/unlisted` exists it starts the camera in a format of its own making instead, which the camera does not list, and is trapped for it. Then it takes a photo, saying `photo: image/jpeg, 3 bytes` or why not, and says the session's state, as `state: running`, and each state after, as `state: interrupted (background)`, or `state: interrupted` where the system gives no reason, until the session ends, as `state: ended (unplugged)`, when it lets the session go and returns. Where the system has no cameras it says `cameras: none`.
-
-- **Takes:** `wasdk`.
-- **Provides:** a component, `target/wasm32-wasip3/debug/cameras.wasm`, from `cargo build -p cameras --target wasm32-wasip3`.
-- **Used by:** the engine's tests (`crates/waos/tests/all/cameras.rs`) and the app's (`apps/waos/src/state/cameras.rs`), through `crates/waos/tests/programs`.
+An app using the cameras interface directly; the engine's tests read its output.

@@ -1,14 +1,3 @@
 # Built-in apps
 
-WaOS's own apps, written as programs over `wasdk` as any program is, and kept here so they grow with the project and show what it lacks: each is an app a person uses, where `examples/` holds programs that each show one capability.
-
-- **Notes** (`notes`): a library of notes the app keeps in its own `/data`, and text files from anywhere edited in place beside them, in WinUI's Fluent look, a sidebar of them beside the note, or a pane over it at a phone's width, searched, deleted into Recently Deleted, and imported and exported as text files.
-- **Video Player** (`video-player`): a library of the videos in the folders its user adds, with thumbnails, lengths and how far each was watched, by folder, Continue Watching and search; plays one, or a file or link, with the player's controls, subtitles and audio tracks, in Fluent's look.
-- **Camera** (`camera`, the package `camera-app`): the camera's picture live in the window, drawn through one of six looks by a shader of the app's own on its own WebGPU device; photos the system takes, developed in the look and kept in the app's `/data`, viewed large, exported through the save dialog and deleted; it says why there is no picture while WaOS asks for the camera, when it is refused and when there is none, in Fluent's dark look.
-- **Inspector** (`inspector`): what the programs on this device do with what they were allowed, as the inspector role lets it see: the programs, those that used something guarded lately first, and for the one chosen a report of its last seven days, then live panels of its network, files, access, output and what it uses now, in Fluent's look at a desktop's width and Cupertino's at a phone's. Its icon is WaOS's default program icon until one is drawn.
-
-Each runs with `waos run -p <name>` against a WaOS built from this workspace, and is run by the engine's tests (`crates/waos/tests/`).
-
-Each release of WaOS releases them too: on the tag, `.github/workflows/release.yml` packages each app here with the `waos` built from the workspace at the tag, `waos package -p <package>`, signed with the WaOS project's key, the secret `WAOS_SIGNING_KEY`, and attaches every package and the `index.json` listing them to the tag's GitHub release, so `github.com/waos-dev/waos` is a source of them, at the release's version, and download.waos.app holds a copy as it does every release file.
-
-Each app's `icon.png` is rendered from the `icon.svg` beside it, which is the source to edit; they are drawn as one family, in one light and finish, for other apps' icons to sit beside. On macOS, `qlmanage -t -s 1024 -o <folder> icon.svg` renders it as `<folder>/icon.svg.png`, which is then saved without its alpha channel, as an RGB PNG of 1024 pixels on a side (with Pillow: `Image.open(path).convert("RGB").save("icon.png")`).
+The apps that come with WaOS, written as any app is. Each is an app a person uses, so it shows what WaOS still lacks; `examples/` holds small apps that each show one feature.
