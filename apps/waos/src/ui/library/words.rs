@@ -37,7 +37,9 @@ pub(crate) const INSTALLED: &str = "Installed";
 pub(crate) const INSTALLING: &str = "Installing…";
 pub(crate) const READING: &str = "Reading…";
 pub(crate) const LISTS_NOTHING: &str = "Lists no programs.";
-pub(crate) const NO_PROGRAMS: &str = "No programs yet.";
+pub(crate) const NO_PROGRAMS: &str = "No Programs";
+/// Under the title of a home with nothing installed: what will appear there.
+pub(crate) const NO_PROGRAMS_SAID: &str = "Programs you get appear here.";
 /// In the field the home is searched from, the deck's pill or the launcher's row, while nothing is
 /// typed in it.
 pub(crate) const SEARCH_PROGRAMS: &str = "Search programs";

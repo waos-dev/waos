@@ -11,8 +11,8 @@
 
 use waft::{
     App, BuildContext, Center, Column, CrossAxisAlignment, EdgeInsetsGeometry, Entity, Expanded,
-    IntoWidget, LayoutBuilder, ListView, Listener, MainAxisSize, Padding, Row, StatelessWidget,
-    Text, TextAlign, WidgetRef,
+    IntoWidget, LayoutBuilder, ListView, Listener, MainAxisSize, Padding, Row, SizedBox,
+    StatelessWidget, Text, TextAlign, WidgetRef,
 };
 use waft_winui::{
     Button, ButtonStyle, FluentSymbol, FontIcon, InfoBadgeStyle, TextBlockStyle, ThemeResources,
@@ -29,6 +29,8 @@ use crate::ui::library::words;
 
 /// The home's margins, as the Start menu's.
 pub(crate) const MARGIN: f64 = 24.0;
+/// The size of the symbol over a home with nothing installed.
+const EMPTY_SYMBOL_SIZE: f64 = 48.0;
 const TITLE_TOP: f64 = 16.0;
 
 /// The icons: 64 points, in cells at least 96 wide, up to seven to a row.
@@ -192,9 +194,19 @@ impl FluentHomeBody {
         .into_widget()
     }
 
-    /// One line saying nothing is installed, and the button that gets programs.
+    /// Nothing installed, as an empty view says it (Apple's `ContentUnavailableView`, in
+    /// Fluent's symbols and type): the apps symbol, a title, what will appear here, and the
+    /// button that gets programs.
     fn nothing_installed(&self, resources: &ThemeResources) -> WidgetRef {
-        let said = Text::new(words::NO_PROGRAMS)
+        let symbol = FontIcon::symbol(FluentSymbol::Apps)
+            .font_size(EMPTY_SYMBOL_SIZE)
+            .foreground(resources.text_fill_color_secondary);
+        let title = Text::new(words::NO_PROGRAMS)
+            .text_align(TextAlign::Center)
+            .style(
+                TextBlockStyle::Subtitle.text_style(resources, resources.text_fill_color_primary),
+            );
+        let said = Text::new(words::NO_PROGRAMS_SAID)
             .text_align(TextAlign::Center)
             .style(TextBlockStyle::Body.text_style(resources, resources.text_fill_color_secondary));
         let get = Button::text(
@@ -204,10 +216,23 @@ impl FluentHomeBody {
         .style(ButtonStyle::Accent);
         Center::new()
             .child(
-                Column::new()
-                    .main_axis_size(MainAxisSize::Min)
-                    .spacing(16.0)
-                    .children([said.into_widget(), get.into_widget()]),
+                Padding::new(EdgeInsetsGeometry::from_ltrb(
+                    MARGIN,
+                    0.0,
+                    MARGIN,
+                    2.0 * MARGIN,
+                ))
+                .child(Column::new().main_axis_size(MainAxisSize::Min).children(
+                    [
+                        symbol.into_widget(),
+                        SizedBox::new().height(16.0).into_widget(),
+                        title.into_widget(),
+                        SizedBox::new().height(4.0).into_widget(),
+                        said.into_widget(),
+                        SizedBox::new().height(20.0).into_widget(),
+                        get.into_widget(),
+                    ],
+                )),
             )
             .into_widget()
     }

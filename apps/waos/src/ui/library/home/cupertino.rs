@@ -8,8 +8,8 @@
 
 use waft::{
     App, BuildContext, Center, Column, EdgeInsetsGeometry, Entity, Expanded, Icon, IntoWidget,
-    ListView, Listener, MainAxisSize, Padding, Row, Size, StatelessWidget, Text, TextAlign,
-    TextStyle, WidgetRef,
+    ListView, Listener, MainAxisSize, Padding, Row, Size, SizedBox, StatelessWidget, Text,
+    TextAlign, TextStyle, WidgetRef,
 };
 use waft_cupertino::{
     CupertinoButton, CupertinoColors, CupertinoDynamicColor, CupertinoIcons,
@@ -29,6 +29,8 @@ use crate::ui::library::words;
 /// iOS's home screen on a phone 390 points wide: four columns of 60-point icons, 27 points in
 /// from each side, a name 6 points under its icon in 12-point type, rows 28 points apart.
 const COLUMNS: usize = 4;
+/// The size of the symbol over a home with nothing installed: iOS's empty views'.
+const EMPTY_SYMBOL_SIZE: f64 = 56.0;
 const ICON_SIDE: f64 = 60.0;
 const SIDE_MARGIN: f64 = 27.0;
 const TOP_MARGIN: f64 = 20.0;
@@ -56,7 +58,7 @@ impl StatelessWidget for CupertinoHome {
             let nothing_installed = if searching {
                 nothing_found()
             } else {
-                self.nothing_installed()
+                self.nothing_installed(app, context)
             };
             under_bar(move |top| {
                 Column::new()
@@ -181,26 +183,41 @@ impl CupertinoHome {
             .into_widget()
     }
 
-    /// One line saying nothing is installed, and the button that gets programs.
-    fn nothing_installed(&self) -> WidgetRef {
+    /// Nothing installed, as iOS's empty views say it (`ContentUnavailableView`): a large
+    /// symbol, a title, what will appear here, and the button that gets programs.
+    fn nothing_installed(&self, app: &mut App, context: BuildContext) -> WidgetRef {
+        let secondary = resolved(CupertinoColors::SECONDARY_LABEL, app, context);
+        let label = resolved(CupertinoColors::LABEL, app, context);
+        let symbol = Icon::new(Some(CupertinoIcons::square_grid_2x2()))
+            .size(EMPTY_SYMBOL_SIZE)
+            .color(secondary);
+        let title = Text::new(words::NO_PROGRAMS)
+            .text_align(TextAlign::Center)
+            .style(
+                TextStyle::new()
+                    .font_size(20.0)
+                    .font_weight(waft::ui::FontWeight::W600)
+                    .color(label),
+            );
+        let said = Text::new(words::NO_PROGRAMS_SAID)
+            .text_align(TextAlign::Center)
+            .style(TextStyle::new().font_size(15.0).color(secondary));
         let get = CupertinoButton::tinted(
             Text::new(words::GET_PROGRAMS).into_widget(),
             Some(self.show(LibraryPage::GetPrograms)),
         );
         Center::new()
-            .child(
-                Padding::new(EdgeInsetsGeometry::all(SIDE_MARGIN)).child(
-                    Column::new()
-                        .main_axis_size(MainAxisSize::Min)
-                        .spacing(16.0)
-                        .children([
-                            Text::new(words::NO_PROGRAMS)
-                                .text_align(TextAlign::Center)
-                                .into_widget(),
-                            get.into_widget(),
-                        ]),
-                ),
-            )
+            .child(Padding::new(EdgeInsetsGeometry::all(SIDE_MARGIN)).child(
+                Column::new().main_axis_size(MainAxisSize::Min).children([
+                    symbol.into_widget(),
+                    SizedBox::new().height(16.0).into_widget(),
+                    title.into_widget(),
+                    SizedBox::new().height(6.0).into_widget(),
+                    said.into_widget(),
+                    SizedBox::new().height(20.0).into_widget(),
+                    get.into_widget(),
+                ]),
+            ))
             .into_widget()
     }
 
