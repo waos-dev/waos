@@ -16,6 +16,7 @@ What stands between today and a first stable release, in the order it blocks one
 - [ ] Limits the user sets on an app's CPU and disk.
 - [ ] "Allow once" as an answer to a question.
 - [ ] Opening a link or a file in another app asks the user, as a link of another scheme does today.
+- [ ] Rework how the user controls an app's network: today's switches, `localhost` and per-connection checks are naive.
 - [ ] A per-app setting for running in the background (music, a download), replacing today's rule that sound, recording or a camera keeps an app running, which an app playing silence abuses.
 - [ ] Accessibility: an app's semantics tree. Changes the views interface.
 
@@ -24,7 +25,7 @@ What stands between today and a first stable release, in the order it blocks one
 - [ ] Android: a folder picked through the system's picker has no path, so WaOS can't mount it. Turn a pick in the phone's own storage into its path while WaOS has All files access; fail clearly for a cloud folder.
 - [ ] iOS: developer builds (the App Store refuses downloaded code).
 - [ ] Windows, then Linux.
-- [ ] Remote machines over SSH; then Termux on an Android phone as an SSH machine at `localhost`, for git, compilers and language servers on a phone.
+- [ ] Machines over SSH, then other kinds; Termux on an Android phone as an SSH machine at `localhost`, for git, compilers and language servers on a phone.
 - [ ] Tools an editor downloads (language servers, debug adapters) installed on the app's machine, which can't run them from the app's own data.
 
 ## Building apps alone
