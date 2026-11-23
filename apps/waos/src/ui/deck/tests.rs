@@ -18,6 +18,7 @@ use crate::state::deck::test_phone::{
     TestPhone,
 };
 use crate::state::library::{LibraryPage, open_settings_when_asked};
+use crate::ui::library::words;
 
 /// Which picture is which program's, in the order the tests open them.
 const TRIANGLES: usize = 0;
@@ -1646,7 +1647,7 @@ fn a_home_opened_after_the_last_one_went_starts_on_the_grid_of_programs() {
         library.show_page(LibraryPage::GetPrograms, cx)
     });
     phone.settle();
-    assert!(phone.shows("Get programs"), "{:?}", phone.labels());
+    assert!(phone.shows(words::GET_PROGRAMS), "{:?}", phone.labels());
     phone.open(TRIANGLE);
     phone.show(None);
     assert_eq!(phone.current_tab(), "home");
@@ -1678,7 +1679,7 @@ fn home_shows(phone: &TestPhone, name: &str) -> bool {
 fn on_the_home_the_pill_is_a_search_field_that_filters_the_programs_as_the_user_types() {
     let mut phone = home_with_two_installed();
     let pill = phone
-        .label_bounds("Search programs")
+        .label_bounds(words::SEARCH_PROGRAMS)
         .expect("the search field, in the bar");
     assert!(pill.top > page_box().bottom, "{pill:?}");
     assert!(!phone.keyboard_asked_for());
@@ -1694,7 +1695,7 @@ fn on_the_home_the_pill_is_a_search_field_that_filters_the_programs_as_the_user_
     assert!(!home_shows(&phone, "Triangle") && home_shows(&phone, "Survey"));
     phone.type_text("neither");
     assert!(!home_shows(&phone, "Triangle") && !home_shows(&phone, "Survey"));
-    assert!(phone.shows("No programs found."), "{:?}", phone.labels());
+    assert!(phone.shows(words::NO_PROGRAMS_FOUND), "{:?}", phone.labels());
     phone.type_text("");
     assert!(home_shows(&phone, "Triangle") && home_shows(&phone, "Survey"));
 }
@@ -1751,7 +1752,7 @@ fn a_program_found_by_searching_takes_the_homes_tab_and_the_next_home_searches_f
         "every program again: {:?}",
         phone.labels()
     );
-    assert!(phone.shows("Search programs"), "an empty field");
+    assert!(phone.shows(words::SEARCH_PROGRAMS), "an empty field");
 }
 
 #[test]
@@ -2471,7 +2472,7 @@ fn back_on_the_home_goes_to_its_first_page_and_from_there_is_the_systems() {
         library.show_page(LibraryPage::GetPrograms, cx)
     });
     phone.settle();
-    assert!(phone.shows("Get programs"), "{:?}", phone.labels());
+    assert!(phone.shows(words::GET_PROGRAMS), "{:?}", phone.labels());
     assert!(phone.back());
     phone.settle();
     assert!(

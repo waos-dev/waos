@@ -9,7 +9,7 @@ use crate::state::library::Question;
 /// The home's title.
 pub(crate) const HOME_TITLE: &str = "WaOS";
 /// The page of sources and what they list, and the buttons that open it.
-pub(crate) const GET_PROGRAMS: &str = "Get programs";
+pub(crate) const GET_PROGRAMS: &str = "Get apps";
 pub(crate) const ADD_SOURCE: &str = "Add a source";
 /// Beside adding a source in Fluent's layout, which opens the system's file picker for a package:
 /// the ellipsis Windows ends a command with that asks for more before it acts.
@@ -36,15 +36,15 @@ pub(crate) const UPDATE: &str = "Update";
 pub(crate) const INSTALLED: &str = "Installed";
 pub(crate) const INSTALLING: &str = "Installing…";
 pub(crate) const READING: &str = "Reading…";
-pub(crate) const LISTS_NOTHING: &str = "Lists no programs.";
-pub(crate) const NO_PROGRAMS: &str = "No Programs";
+pub(crate) const LISTS_NOTHING: &str = "Lists no apps.";
+pub(crate) const NO_PROGRAMS: &str = "No Apps";
 /// Under the title of a home with nothing installed: what will appear there.
-pub(crate) const NO_PROGRAMS_SAID: &str = "Programs you get appear here.";
+pub(crate) const NO_PROGRAMS_SAID: &str = "Apps you get appear here.";
 /// In the field the home is searched from, the deck's pill or the launcher's row, while nothing is
 /// typed in it.
-pub(crate) const SEARCH_PROGRAMS: &str = "Search programs";
+pub(crate) const SEARCH_PROGRAMS: &str = "Search apps";
 /// On the home, while the user searches for a program and none installed is it.
-pub(crate) const NO_PROGRAMS_FOUND: &str = "No programs found.";
+pub(crate) const NO_PROGRAMS_FOUND: &str = "No apps found.";
 pub(crate) const NO_SOURCES: &str = "No sources added.";
 pub(crate) const SOURCE_PLACEHOLDER: &str = "github.com/owner/repo, or an index.json's URL";
 
@@ -136,22 +136,22 @@ pub(crate) fn unreadable(why: &str) -> String {
 }
 
 pub(crate) const SETTINGS: &str = "Settings";
-pub(crate) const GLOBAL_SETTINGS: &str = "Every program's settings";
+pub(crate) const GLOBAL_SETTINGS: &str = "Every app's settings";
 pub(crate) const GLOBAL_DETAIL: &str =
-    "What every program may use, until you set it for one program.";
-pub(crate) const FOLLOWS_GLOBAL: &str = "Follows the setting for every program.";
-pub(crate) const WHERE_PROGRAMS_OPEN: &str = "Where programs open";
-pub(crate) const PROGRAMS_INSIDE_WAOS: &str = "Show programs inside WaOS";
+    "What every app may use, until you set it for one app.";
+pub(crate) const FOLLOWS_GLOBAL: &str = "Follows the setting for every app.";
+pub(crate) const WHERE_PROGRAMS_OPEN: &str = "Where apps open";
+pub(crate) const PROGRAMS_INSIDE_WAOS: &str = "Show apps inside WaOS";
 pub(crate) const PROGRAMS_INSIDE_WAOS_DETAIL: &str =
-    "Programs you open from now on show in WaOS's tabs, rather than each as an app of its own.";
+    "Apps you open from now on show in WaOS's tabs, rather than each on its own.";
 /// On the global page of a desktop's launcher, the choice of how WaOS stays on the desktop.
 pub(crate) const WHERE_WAOS_STAYS: &str = "Where WaOS stays";
 /// The global settings' line on the phone's files, where WaOS reaches them only as the user
 /// allows, and what it says while WaOS may reach them or not.
 pub(crate) const PHONE_FILES: &str = "This phone's files";
 pub(crate) const PHONE_FILES_ON: &str =
-    "All files access is on: a program working on This computer sees the files on this phone.";
-pub(crate) const PHONE_FILES_OFF: &str = "All files access is off: a program working on This computer sees only WaOS's own folder. Turn it on for WaOS in Android's settings.";
+    "All files access is on: an app working on This computer sees the files on this phone.";
+pub(crate) const PHONE_FILES_OFF: &str = "All files access is off: an app working on This computer sees only WaOS's own folder. Turn it on for WaOS in Android's settings.";
 /// The button that opens Android's page for WaOS's All files access.
 pub(crate) const OPEN_ANDROID_SETTINGS: &str = "Open Android's settings";
 
@@ -172,7 +172,7 @@ pub(crate) fn keep_in_dock_detail(platform: TargetPlatform) -> &'static str {
     }
 }
 
-pub(crate) const USE_GLOBAL: &str = "Use the setting for every program";
+pub(crate) const USE_GLOBAL: &str = "Use the setting for every app";
 pub(crate) const ON: &str = "On";
 pub(crate) const OFF: &str = "Off";
 pub(crate) const NETWORK: &str = "Network";
@@ -185,11 +185,11 @@ pub(crate) const CLIPBOARD_READ: &str = "Reading the clipboard";
 pub(crate) const CLIPBOARD_WRITE: &str = "Writing the clipboard";
 pub(crate) const RECORD: &str = "Keep a record of what it does";
 pub(crate) const RECORD_DETAIL: &str = "The sites it reaches, the files it opens and changes, when it uses the camera and the microphone, and what it runs, over the last seven days, on this device alone. Turned off, what was kept is removed.";
-pub(crate) const RECORD_EVERY: &str = "Keep a record of what programs do";
+pub(crate) const RECORD_EVERY: &str = "Keep a record of what apps do";
 pub(crate) const LAST_DAYS: &str = "Last seven days";
 pub(crate) const NOTHING_USED: &str = "It has used nothing that needs your permission.";
 pub(crate) const NOTHING_RECORDED: &str = "No record is kept of what it does.";
-pub(crate) const RECORD_EVERY_DETAIL: &str = "The sites each reaches, the files it opens and changes, when it uses the camera and the microphone, and what it runs, over the last seven days, on this device alone. Turned off, what was kept of every program that follows this is removed.";
+pub(crate) const RECORD_EVERY_DETAIL: &str = "The sites each reaches, the files it opens and changes, when it uses the camera and the microphone, and what it runs, over the last seven days, on this device alone. Turned off, what was kept of every app that follows this is removed.";
 
 /// The record's name and what it is, on the page of `of`.
 pub(crate) fn record(of: &SettingsOf) -> (&'static str, &'static str) {
@@ -201,37 +201,37 @@ pub(crate) fn record(of: &SettingsOf) -> (&'static str, &'static str) {
 pub(crate) const FOLDERS: &str = "Folders";
 pub(crate) const FOLDER_PLACEHOLDER: &str = "/Users/you/Documents";
 pub(crate) const FOLDER_AT_PLACEHOLDER: &str =
-    "Where the program sees it: the same path when empty";
+    "Where the app sees it: the same path when empty";
 pub(crate) const WRITABLE: &str = "Writable";
 pub(crate) const READ_ONLY: &str = "Read-only";
 pub(crate) const FOLDERS_AT_ONCE: &str =
-    "A folder added or removed applies at once, to a program running too.";
+    "A folder added or removed applies at once, to an app running too.";
 pub(crate) const NO_FOLDERS: &str = "No folders.";
 pub(crate) const MACHINES: &str = "Machines";
 /// The warning a program's machines are shown under.
-pub(crate) const MACHINES_AS_YOU: &str = "This program acts on these machines as you: it can run any command there and read and change any file you can. Remove a machine to take it back.";
+pub(crate) const MACHINES_AS_YOU: &str = "This app acts on these machines as you: it can run any command there and read and change any file you can. Remove a machine to take it back.";
 pub(crate) const NO_MACHINES: &str = "No machines.";
 pub(crate) const ASK: &str = "Ask";
 pub(crate) const ALLOW: &str = "Allow";
 pub(crate) const DONT_ALLOW: &str = "Don't allow";
 pub(crate) const SIMULATED: &str = "Simulated";
-pub(crate) const SIMULATED_CAMERA_DETAIL: &str = "Simulated: a test pattern from WaOS, not your camera. Nothing asks the system, and the program is shown using a simulated camera.";
-pub(crate) const NO_SIMULATED_CAMERA: &str = "WaOS has no simulated camera on this system yet, so a program answered Simulated sees no camera at all.";
-pub(crate) const SIMULATED_MICROPHONE_DETAIL: &str = "Simulated: a microphone of WaOS's own, not yours. Nothing asks the system, and the program is shown using a simulated microphone.";
+pub(crate) const SIMULATED_CAMERA_DETAIL: &str = "Simulated: a test pattern from WaOS, not your camera. Nothing asks the system, and the app is shown using a simulated camera.";
+pub(crate) const NO_SIMULATED_CAMERA: &str = "WaOS has no simulated camera on this system yet, so an app answered Simulated sees no camera at all.";
+pub(crate) const SIMULATED_MICROPHONE_DETAIL: &str = "Simulated: a microphone of WaOS's own, not yours. Nothing asks the system, and the app is shown using a simulated microphone.";
 pub(crate) const SIMULATED_RECORDS: &str = "What it records";
 pub(crate) const QUIET_TONE: &str = "A quiet beep";
 pub(crate) const SILENCE: &str = "Silence";
 /// What a program's page says while the system refuses the program its notifications.
-pub(crate) const NOTIFICATIONS_REFUSED: &str = "macOS does not let this program show notifications, whatever you allow here. macOS asks only once: turn them on for it in System Settings.";
+pub(crate) const NOTIFICATIONS_REFUSED: &str = "macOS does not let this app show notifications, whatever you allow here. macOS asks only once: turn them on for it in System Settings.";
 /// The button that opens the system's settings at a program's notifications.
 pub(crate) const OPEN_SYSTEM_SETTINGS: &str = "Open System Settings";
 
 pub(crate) const LINKS: &str = "Links";
-pub(crate) const LINKS_DETAIL: &str = "What this program was answered when it asked to open links of these kinds. Remove one to be asked again.";
+pub(crate) const LINKS_DETAIL: &str = "What this app was answered when it asked to open links of these kinds. Remove one to be asked again.";
 pub(crate) const ROLES: &str = "Roles";
-pub(crate) const ROLES_DETAIL: &str = "What this program was answered when it asked to be more than a program. Remove one to be asked again at its next start.";
+pub(crate) const ROLES_DETAIL: &str = "What this app was answered when it asked to be more than an app. Remove one to be asked again at its next start.";
 pub(crate) const ANSWERED_WITHOUT_ASKING: &str = "Answered without asking";
-pub(crate) const ANSWERED_WITHOUT_ASKING_DETAIL: &str = "When this program asks for one of these, WaOS gives it what is set here instead of asking you.";
+pub(crate) const ANSWERED_WITHOUT_ASKING_DETAIL: &str = "When this app asks for one of these, WaOS gives it what is set here instead of asking you.";
 pub(crate) const WHICH_MACHINE: &str = "Which computer";
 pub(crate) const WHICH_OUTPUT: &str = "Which sound output";
 pub(crate) const ANSWER_WITH: &str = "Answer with";
@@ -307,7 +307,7 @@ pub(crate) fn link_scheme(scheme: &str, answer: waos_store::Answer) -> String {
 /// The answer a program was given to holding `role`.
 pub(crate) fn role(role: waos_store::Role, answer: waos_store::Answer) -> String {
     let what = match role {
-        waos_store::Role::Inspector => "See what other programs do",
+        waos_store::Role::Inspector => "See what other apps do",
     };
     let given = match answer {
         waos_store::Answer::Granted => ALLOW,
