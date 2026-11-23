@@ -16,7 +16,7 @@ use wasmtime::{AsContext, Engine, Store, StoreLimitsBuilder, UpdateDeadline};
 use wasmtime_wasi::{I32Exit, WasiCtx, WasiCtxView, WasiView};
 use wasmtime_wasi_http::{WasiHttpCtx, WasiHttpCtxView, WasiHttpView};
 
-use super::instances::{self, ProgramInstances, UserSide};
+use super::instances::{ProgramInstances, UserSide};
 use super::limits::Limits;
 use super::worker::WorkerRun;
 use super::{ProgramEnd, ProgramStart, RunningProgram};
@@ -93,9 +93,14 @@ const YIELD_INTERVAL: u64 = 10_000_000;
 
 /// Runs the program to its end: instantiates it in a store of its own and calls its
 /// `wasi:cli/run`.
-pub(super) async fn run(start: ProgramStart, program: RunningProgram, clock: Clock) -> ProgramEnd {
+pub(super) async fn run(
+    start: ProgramStart,
+    program: RunningProgram,
+    access: ProgramAccess,
+    clock: Clock,
+) -> ProgramEnd {
     let file = start.file.clone();
-    match run_in_store(start, program, clock).await {
+    match run_in_store(start, program, access, clock).await {
         Ok(Ok(returned)) => ProgramEnd::Returned(returned),
         Ok(Err(trap)) | Err(trap) => end_of_error(trap, &file),
     }
@@ -104,10 +109,9 @@ pub(super) async fn run(start: ProgramStart, program: RunningProgram, clock: Clo
 async fn run_in_store(
     mut start: ProgramStart,
     program: RunningProgram,
+    access: ProgramAccess,
     clock: Clock,
 ) -> wasmtime::Result<wasmtime::Result<Result<(), ()>>> {
-    let access = instances::access_of(&start, &program);
-    program.attach_access(&access);
     if let Some(hold) = start.hold.take() {
         hold.wait().await;
     }

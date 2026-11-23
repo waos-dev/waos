@@ -283,6 +283,10 @@ impl RunningProgram {
             handed,
             storage,
         }));
+        // Made before its thread starts, so a tool inspecting the program the moment it starts
+        // reaches it.
+        let access = instances::access_of(&start, &program);
+        program.attach_access(&access);
         start.programs.add(&program);
         let on_thread = program.clone();
         let thread_name = format!("program {}", start.name);
@@ -290,7 +294,7 @@ impl RunningProgram {
         thread::Builder::new()
             .name(thread_name.clone())
             .spawn(move || {
-                let ending = run_on_this_thread(start, on_thread, clock, stopped);
+                let ending = run_on_this_thread(start, on_thread, access, clock, stopped);
                 // Its day is kept at its end, by the engine's writer.
                 if let Some((days, name)) = days {
                     days.keep_now(&name);
@@ -411,15 +415,14 @@ impl RunningProgram {
     }
 
     /// What the program does with `kind` from now on, live, for as long as the stream is held:
-    /// none before its code is linked and once it and every use it held have ended.
+    /// none once it and every use it held have ended.
     pub fn trace(&self, kind: TraceKind) -> Option<TraceStream> {
         let access = self.0.access.get()?.upgrade()?;
         Some(access.subscribe(kind))
     }
 
     /// What the program uses now, as `wasdk:inspect` says it, and each change from then on,
-    /// until it and every use it made have ended; none before its code is linked and once that
-    /// has happened.
+    /// until it and every use it made have ended; none once that has happened.
     pub fn active_uses(
         &self,
     ) -> Option<(
@@ -447,9 +450,9 @@ impl RunningProgram {
         self.0.hardware_buffers
     }
 
-    /// Its access, from its instances' link on.
+    /// Its access, from its start on.
     pub(crate) fn attach_access(&self, access: &ProgramAccess) {
-        // Linked once; a second link would be the same program's.
+        // Attached once, as it starts.
         let _ = self.0.access.set(access.downgrade());
     }
 
@@ -581,6 +584,7 @@ fn end_of_thread(end: Result<ProgramEnd, Canceled>) -> ProgramEnd {
 fn run_on_this_thread(
     start: ProgramStart,
     program: RunningProgram,
+    access: ProgramAccess,
     clock: Clock,
     stopped: oneshot::Receiver<()>,
 ) -> ProgramEnd {
@@ -594,7 +598,7 @@ fn run_on_this_thread(
     };
     let workers = program.0.workers.clone();
     runtime.block_on(async {
-        let end = run_until_stopped(start, program.clone(), clock, stopped).await;
+        let end = run_until_stopped(start, program.clone(), access, clock, stopped).await;
         workers.end_all().await;
         end
     })
@@ -604,12 +608,13 @@ fn run_on_this_thread(
 async fn run_until_stopped(
     start: ProgramStart,
     program: RunningProgram,
+    access: ProgramAccess,
     clock: Clock,
     stopped: oneshot::Receiver<()>,
 ) -> ProgramEnd {
     let activity = Arc::clone(&program.0.activity);
     let sources = program.0.sources.clone();
-    let mut run = pin!(activity.watch(store::run(start, program, clock)));
+    let mut run = pin!(activity.watch(store::run(start, program, access, clock)));
     tokio::select! {
         end = &mut run => return end,
         () = stop_asked(stopped) => {}

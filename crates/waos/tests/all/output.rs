@@ -80,6 +80,29 @@ fn a_listener_of_the_programs_output_hears_what_it_writes_from_then_on() {
     assert!(matches!(within(running.ended()), ProgramEnd::Stopped));
 }
 
+/// A tool reaches a program the moment it starts, before its thread has run anything: as
+/// `waos inspect` does a program it has just launched.
+#[test]
+fn a_program_is_inspected_from_the_moment_it_starts() {
+    let shell = TestShell::new();
+    let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
+    let forever = engine.load(Path::new(waos_test_programs::FOREVER)).unwrap();
+    let (running, held) = engine
+        .run_held(&forever, printing_to(&Arc::new(RecordedOutput::default())))
+        .unwrap();
+    assert!(
+        running.trace(TraceKind::Output).is_some(),
+        "traced as it starts"
+    );
+    assert!(
+        running.active_uses().is_some(),
+        "its uses read as it starts"
+    );
+    drop(held);
+    running.stop();
+    assert!(matches!(within(running.ended()), ProgramEnd::Stopped));
+}
+
 #[test]
 fn a_program_started_held_writes_nothing_until_let_go_and_a_listener_hears_its_first_write() {
     let shell = TestShell::new();
