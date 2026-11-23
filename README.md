@@ -27,17 +27,13 @@ The docs are at [waos.app/docs](https://waos.app/docs): concepts, a guide per fe
 
 ## Contribute
 
-The toolchain is pinned in `rust-toolchain.toml`, and [Waft](https://github.com/waos-dev/waft), the framework the app is built on, comes from crates.io.
+The toolchain is pinned in `rust-toolchain.toml`.
 
 ```bash
 cargo test --workspace
 cargo install waft-cli          # cargo waft, which runs Waft apps
 cargo waft run -p waos-app      # the WaOS app
 ```
-
-### Working on Waft and WaOS together
-
-WaOS builds on released Waft: a Waft change WaOS needs is released first. To try one before it is, point the build at your Waft checkout with Cargo's [`[patch.crates-io]`](https://doc.rust-lang.org/cargo/reference/overriding-dependencies.html), outside this repository.
 
 What each folder is:
 
@@ -51,7 +47,7 @@ What each folder is:
 | `builtin-apps/` | Apps that come with WaOS: Notes, Video Player, Camera and Inspector |
 | `examples/` | Small apps, one per feature |
 | `packages/waos-site` | waos.app |
-| `docs/proposals/` | The design and its decisions |
+| `docs/essentials.md` | The rules WaOS keeps across its code |
 
 Contributors and agents: read `AGENTS.md` first.
 

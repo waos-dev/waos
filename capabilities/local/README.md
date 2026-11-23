@@ -1,9 +1,3 @@
 # waos-local
 
-This computer's defaults, assembled: one provider per capability from the `local-*` crates, as a `ProgramEnvironment`, for an embedder that wants what the machine in front of the user has. It assembles and implements nothing itself: a provider lives in its own `local-*` crate, so an embedder can pick one without the rest, or in valo, as the fonts' does.
-
-- **Takes:** the `local-*` crates built so far, `local-audio` and `local-processes`; `ProgramEnvironment` from `waos-capabilities`, and valo's font managers through its re-export of `valo_fontmgr`.
-- **Provides:** `LocalCapabilities`, this computer's providers, made once and shared by every program, its sound with the microphone (`new`) or without it (`without_microphone`); its `environment()`, a `ProgramEnvironment` of them for one program, with the output left to whoever runs it.
-- **Used by:** the WaOS app; any app that embeds the engine on a computer.
-
-Built so far: fonts, sound and machines. `LocalCapabilities` makes valo's font manager for this platform once, with `valo_fontmgr::platform()` (CoreText on Apple's systems, the font configuration on Android, a scan of the font folders elsewhere), and every environment it gives holds that one manager, so every program shares its lookups and its files' mappings (the design's decisions 33 and 35). Every environment holds the same `waos_local_audio::LocalAudio`, this computer's sound devices, so a program's contexts play on the system's audio; `LocalCapabilities::without_microphone` makes them without the microphone, for an app that may not record sound. Every environment holds the same `waos_local_processes::LocalMachines`, this computer as a machine a program's user may pick for it, whose commands run in the user's login environment, read from the login shell once for every program. Step 7 of the design's work order adds the other capabilities, one at a time.
+This computer's capabilities together, for an embedder that wants everything the machine in front of the user has. Each lives in its own `local-*` crate, so an embedder can take one without the rest.

@@ -1,11 +1,3 @@
 # waos-local-audio
 
-This computer's sound devices as a capability: `LocalAudio`, the provider of `waos-capabilities`' `AudioDevices` for the machine in front of the user. Its contexts play on the system's audio and its microphone records from it, as web-audio-api reaches them through cpal: Core Audio on Apple's systems, WASAPI on Windows, ALSA on Linux, AAudio on Android. It depends on `waos-capabilities` only, and is chosen per program, in its environment.
-
-- **Takes:** `waos-capabilities`' `AudioDevices` and its re-export of `web_audio_api`, with web-audio-api's `cpal` feature turned on here, the one place it is.
-- **Provides:** `LocalAudio`, with this computer's microphone (`new`) or without it (`without_microphone`), for an app that may not record sound: a context made on the system's default output or one it lists, at a sample rate in Web Audio's range (`NotSupported` outside it, `NotFound` for an output it does not list); the outputs as the system lists them, each by web-audio-api's id for it, its group and its name; a context moved onto another output, keeping its graph and its state; and the default microphone, `NotFound` where the system has none, its failure to open answered as an error rather than web-audio-api's panic; without it, `has_microphone` answers false and opening it `NotSupported`.
-- **Used by:** `waos-local`, which assembles this computer's defaults; any embedder that picks it on its own.
-
-On Android cpal lists the devices and builds a stream through Java, which Android's runtime lets a thread enter on the thread's own stack alone: it aborts the process when a thread first enters Java on another stack, and refuses each later call made there as a stack overflow. The engine calls a provider on a stack of wasmtime's, a fiber's, so on Android each call that reaches cpal (a context made or moved, the outputs listed, the microphone opened) runs on a thread started for it (`calling_stack`), which attaches to Java for the call and detaches as it ends. Elsewhere a call runs where it is made.
-
-On macOS the system ends a process that opens the microphone unless its bundle's `Info.plist` gives `NSMicrophoneUsageDescription`, so an app whose bundle does not makes it `without_microphone`. Its tests check only what needs no device: a sample rate out of range, an output the system does not list, devices without the microphone, and that a call given a thread of its own runs there and answers, or panics, where it was made.
+This computer's sound devices, for apps: playing and recording through the system's audio.

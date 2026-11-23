@@ -1,5 +1,5 @@
 # Every change: the WIT keeps its versions honest, the workspace lints, and its tests pass (the
-# design's decision 67). Waft comes from crates.io, as the README's Contribute section says.
+# design's decision 67).
 #
 # The jobs run side by side, each as short as the slowest piece it holds: on macOS the engine and
 # the command, the app, and the rest of the workspace; on Linux and Windows clippy apart from the
