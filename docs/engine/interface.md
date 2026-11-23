@@ -1,0 +1,6 @@
+# Interface
+
+- **Apps are built against WaOS's interface, in WIT:** `wasdk:platform` (windows, files, menus and the rest), `wasdk:media` (players, cameras, sound), `wasdk:inspect` for the inspector role, and WASI 0.3's standard interfaces (files, sockets, HTTP, clocks) with WebGPU. ([wit/](/wit))
+- **Old apps keep running, while their API is worth keeping.** An app imports each package by name and version; a change comes under a new version, with new functions marked `@since`, so apps built before still link. CI refuses a package changed without a new version. An API not worth keeping is dropped, and an app that used it fails when opened, saying what's missing. ([wit_versions](/xtask/src/wit_versions))
+- **Edit `wit/`, then sync.** Each crate that generates bindings builds from its own copy, so it builds from what it publishes. `cargo xtask sync-wit` replaces every copy, and a test names any copy that differs. ([wit_copies](/xtask/src/wit_copies))
+- **An app built for a newer WaOS fails when opened, saying why.** The engine can't link it, and ends it naming what doesn't match. Nothing is checked at install, since wasmtime can't list what it provides. ([incompatible.rs](/crates/waos/src/running/incompatible.rs))
