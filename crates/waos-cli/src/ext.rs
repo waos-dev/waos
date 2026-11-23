@@ -15,12 +15,11 @@ use std::path::Path;
 use std::process::ExitCode;
 
 use anyhow::{Context, Result, bail};
-use serde::Serialize;
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncWrite, AsyncWriteExt};
 use waft_service_protocol::{
-    EXTENSION_ERROR, INVALID_PARAMS, INVALID_REQUEST, METHOD_NOT_FOUND, Message, Request, Response,
-    RpcError,
+    Address, EXTENSION_ERROR, INVALID_PARAMS, INVALID_REQUEST, ListedApp, METHOD_NOT_FOUND,
+    Message, Request, Response, RpcError,
 };
 use waos_dev_protocol::{
     ExtensionAnswer, RefusalKind, Request as WaosRequest, ServingProgram, ServingPrograms,
@@ -32,21 +31,6 @@ use crate::asking::{self, Unreached};
 
 /// The device a listing names: the WaOS on this machine.
 const DEVICE: &str = "WaOS";
-
-/// One program as Waft's discovery lists an app, field for field, in its order.
-// TODO: write `waft_service_protocol::ListedApp` with `Address::Command` once a Waft release has
-// them (waft#148); 0.10.0's address is TCP alone.
-#[derive(Serialize)]
-struct Listed<'a> {
-    app: &'a str,
-    identifier: &'a str,
-    device: &'static str,
-    pid: u32,
-    /// `command:` and the relay's argv, as a JSON array.
-    address: String,
-    /// Empty: the relay asks for none, WaOS's socket being the user's alone.
-    token: &'static str,
-}
 
 /// Prints each program running that serves extensions: as Waft's listing, a JSON object a line,
 /// with `json`, and a line of its name and id otherwise. With no WaOS answering, none runs.
@@ -82,17 +66,22 @@ fn listing(serving: &ServingPrograms, json: bool) -> Vec<String> {
 
 /// `program`, in the WaOS of process `pid`, as one line of Waft's listing.
 fn listed(program: &ServingProgram, pid: u32) -> String {
+    listed_app(program, pid).to_json().to_string()
+}
+
+/// `program`, in the WaOS of process `pid`, as Waft's discovery lists an app: reached through the
+/// relay, with no token, WaOS's socket being the user's alone.
+fn listed_app(program: &ServingProgram, pid: u32) -> ListedApp {
     let id = program.id.as_str();
-    let argv = json!(["waos", "ext", "--id", id, "--stdio"]);
-    let line = Listed {
-        app: &program.name,
-        identifier: id,
-        device: DEVICE,
+    let relay = ["waos", "ext", "--id", id, "--stdio"].map(String::from);
+    ListedApp {
+        app: program.name.clone(),
+        identifier: Some(id.to_owned()),
+        device: Some(DEVICE.to_owned()),
         pid,
-        address: format!("command:{argv}"),
-        token: "",
-    };
-    serde_json::to_string(&line).expect("a listing is JSON")
+        address: Address::Command(relay.to_vec()),
+        token: String::new(),
+    }
 }
 
 /// Relays between stdin and stdout and the program `id` in the WaOS on this machine, until stdin
@@ -221,11 +210,15 @@ mod tests {
                 running: true,
             }],
         };
+        let [line] = listing(&serving, true).try_into().expect("one line");
         assert_eq!(
-            listing(&serving, true),
-            [
-                r#"{"app":"Notes (Development)","identifier":"dev.example.notes.development","device":"WaOS","pid":4242,"address":"command:[\"waos\",\"ext\",\"--id\",\"dev.example.notes.development\",\"--stdio\"]","token":""}"#
-            ]
+            ListedApp::from_json(&line),
+            Some(listed_app(&serving.programs[0], 4242)),
+            "the line Waft reads back"
+        );
+        assert_eq!(
+            listed_app(&serving.programs[0], 4242).address.to_string(),
+            r#"command:["waos","ext","--id","dev.example.notes.development","--stdio"]"#
         );
         assert_eq!(
             listing(&serving, false),

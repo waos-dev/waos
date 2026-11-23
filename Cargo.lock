@@ -7978,9 +7978,9 @@ dependencies = [
 
 [[package]]
 name = "waft"
-version = "0.10.0"
+version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7a13bc39b4b268090a409ce49484a807938bbf456c1457dfda7f445a05729b16"
+checksum = "8bf660db48cb9cc44d4279129d57157aa1abb5d0bf7794156afcf0d27fb618f0"
 dependencies = [
  "waft-embedder",
  "waft-embedder-default",
@@ -7995,9 +7995,9 @@ dependencies = [
 
 [[package]]
 name = "waft-animation"
-version = "0.10.0"
+version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "86680cf0abf50cc4266c3a68bfdacba2a760a419b663900cf83e9f32855b7dcd"
+checksum = "a4bc52e3d515d5181a74e1117d3276ad02fa04f42d6f51c2330ae4d09ed85302"
 dependencies = [
  "waft-embedder",
  "waft-foundation",
@@ -8020,9 +8020,9 @@ dependencies = [
 
 [[package]]
 name = "waft-cupertino"
-version = "0.10.0"
+version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5a3be7c39387bf8783a3158084a4df43966012134c17e3416a493140151b4bdc"
+checksum = "bd16aceee6d60dcf6bd3757ae1d6c385dc45a19b6283fc96b5b48eacaba06137"
 dependencies = [
  "indexmap",
  "waft-animation",
@@ -8039,9 +8039,9 @@ dependencies = [
 
 [[package]]
 name = "waft-embedder"
-version = "0.10.0"
+version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bfaf370da9d9c50ad192262c9be7882ca8a661d6cd4c4e238dc25f5744802289"
+checksum = "97fbd1091e205ed032b8f56294fe5b36cb335a5c606862d0e8604596bcb2d4ce"
 dependencies = [
  "bytes",
  "http",
@@ -8061,9 +8061,9 @@ dependencies = [
 
 [[package]]
 name = "waft-embedder-android"
-version = "0.10.0"
+version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c6db2c53c5f676d71dbf9adf6a3367fd388844c4b1cf3b8a2f9c38cbee7d7cdf"
+checksum = "5a49a58afa7a11666818b9fdb61a804727c15e620a5a27f05e3743e7f3b7399d"
 dependencies = [
  "ash",
  "jni",
@@ -8083,9 +8083,9 @@ dependencies = [
 
 [[package]]
 name = "waft-embedder-apple"
-version = "0.10.0"
+version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "11bc1bab10c363a99f10a77df3559ed1e6755935d4b7d5f90d1ea7be4c78e071"
+checksum = "076046afe752ac6527ea36f3fa1723310d06183496f1e2152e04669e056b115f"
 dependencies = [
  "block2",
  "dispatch2",
@@ -8117,9 +8117,9 @@ dependencies = [
 
 [[package]]
 name = "waft-embedder-default"
-version = "0.10.0"
+version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "eb91328ca18c7037c243c707ae79d6f0fa92222b96931ff976a7a41d2508d8be"
+checksum = "aef9da775ec2844f57953da41c18b117d8157f7915b6713585cf1639a3368a89"
 dependencies = [
  "waft-embedder",
  "waft-embedder-android",
@@ -8130,9 +8130,9 @@ dependencies = [
 
 [[package]]
 name = "waft-embedder-ios"
-version = "0.10.0"
+version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4773c45271d0908539f5e1245320e33ae6ade6ca80d8ca4e60b703a90fecb0f7"
+checksum = "bef0e69b2a8613196359256c6ce06ed6f57c846a88a937037d46af8aacf07f77"
 dependencies = [
  "block2",
  "dispatch2",
@@ -8154,9 +8154,9 @@ dependencies = [
 
 [[package]]
 name = "waft-embedder-web"
-version = "0.10.0"
+version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f8ab68a6b5046660a421c2a77e909852785c6a67b0611b468d79ecf4b1a54aa8"
+checksum = "fb6679dd8d86b314ffd38c0ab51e0a5392e827b7022d6092c0ea86e028d45ed8"
 dependencies = [
  "console_error_panic_hook",
  "getrandom 0.3.4",
@@ -8173,9 +8173,9 @@ dependencies = [
 
 [[package]]
 name = "waft-embedder-winit"
-version = "0.10.0"
+version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "acc47be329bd46ad53d1e9ca5bb8e673ec1e8dfdb95a68d82cfebe1aefc3c89c"
+checksum = "005dc67f26db646b6437847102da3f11691e157e32b75fa8579045ebe81cbd47"
 dependencies = [
  "arboard",
  "block2",
@@ -8214,9 +8214,9 @@ dependencies = [
 
 [[package]]
 name = "waft-foundation"
-version = "0.10.0"
+version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dc2749aa7739d861a3da3a7804834bfe12e418fa2a251a16bf0738537b84d070"
+checksum = "d959d75fa998cb44744f88c676294c103eb363001358aa80d6529c27a9d910e0"
 dependencies = [
  "async-task",
  "indexmap",
@@ -8228,9 +8228,9 @@ dependencies = [
 
 [[package]]
 name = "waft-gestures"
-version = "0.10.0"
+version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ad3a6336f51f72e190f5f733bf52b262d22a6f65c465399d87a6ef69024dd856"
+checksum = "31d7aed006e4b0669d511a774733666fe222a2374be80165ed6aed3015e315e8"
 dependencies = [
  "indexmap",
  "waft-embedder",
@@ -8276,9 +8276,9 @@ dependencies = [
 
 [[package]]
 name = "waft-macros"
-version = "0.10.0"
+version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "031c231da73fad45641c81db898d4c81f7cd381e4b198ba65854fdd139f17999"
+checksum = "0ada8f38204745b2060061a625dd1d5c4a9aa649f9175ce30c3eb674daf02c24"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -8300,9 +8300,9 @@ dependencies = [
 
 [[package]]
 name = "waft-painting"
-version = "0.10.0"
+version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "16e14760d46d60245f15006c7f10f98e754083c6e4af4a234b9d40a756592069"
+checksum = "81e1a7da3c9060170878ab2ce9b54f29ae536395dda3e8a0119f3b5b03bf78ba"
 dependencies = [
  "http",
  "indexmap",
@@ -8316,18 +8316,18 @@ dependencies = [
 
 [[package]]
 name = "waft-physics"
-version = "0.10.0"
+version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "95491172b111a6edbc1ff44f4e4d24f85671ad84973721fea94611f9b1cdf120"
+checksum = "e6915a1331798692da7e8fc38d92655f19aef79ae5edcd53ceb72c178e0f8b69"
 dependencies = [
  "waft-embedder",
 ]
 
 [[package]]
 name = "waft-rendering"
-version = "0.10.0"
+version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b48137290b1df698b7cc485264b4fdad972162eff7627933d4c52e071075fae8"
+checksum = "ba89ebc4b52afe5df8f92194839e411ec0c041064539ac8a42d3963cf85c514f"
 dependencies = [
  "indexmap",
  "unicode-general-category",
@@ -8342,9 +8342,9 @@ dependencies = [
 
 [[package]]
 name = "waft-scheduler"
-version = "0.10.0"
+version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2f6e4eeefb65bbb7486b43ff0b04f25c4756e4122fd93600d289c457678ea115"
+checksum = "71bdc68362bf3747d2b31c7c52229b0472418285d0c89cb6645bf5056d4a900a"
 dependencies = [
  "indexmap",
  "waft-embedder",
@@ -8353,18 +8353,18 @@ dependencies = [
 
 [[package]]
 name = "waft-service-protocol"
-version = "0.10.0"
+version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "468f4936fd98a25b768d26793997132b6f9059910af32a0f7dc37cbe81590b6a"
+checksum = "118a39be4a47d94b3b3f76f9d683d496c8cb37d83f91b799dfc727e133e746ef"
 dependencies = [
  "serde_json",
 ]
 
 [[package]]
 name = "waft-services"
-version = "0.10.0"
+version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "75228579828ab0c493215a3f0d3ab46be4ed14e2049147840dd471b46620092f"
+checksum = "c52d36a0bc0f829901f0f414fe71af8059cb4e63f0557aec16e4d570f2719e62"
 dependencies = [
  "indexmap",
  "unicode-segmentation",
@@ -8376,9 +8376,9 @@ dependencies = [
 
 [[package]]
 name = "waft-shell"
-version = "0.10.0"
+version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b564e2e410042020e1eec167a27d144be5f5c97ea912b0dd4e3748630c895f44"
+checksum = "e723ca816a1c0dcafc6189c075f420d2918a4846f5826dff2d485a758b31de5e"
 dependencies = [
  "waft-embedder",
  "waft-foundation",
@@ -8391,9 +8391,9 @@ dependencies = [
 
 [[package]]
 name = "waft-single-instance"
-version = "0.10.0"
+version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5eed5b7d6b559979e2f898eba8fe4d5454c113df391bdbab5b66b6b439a2e0d6"
+checksum = "e56b5c64f316f7e8b9f21d4a92e221b0db844141e70289751ab53d1f34b2f16d"
 dependencies = [
  "windows-sys 0.60.2",
  "zbus",
@@ -8401,9 +8401,9 @@ dependencies = [
 
 [[package]]
 name = "waft-test"
-version = "0.10.0"
+version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "479fa3c3e2857d16ebc2407df85f5f17430915b42a2a02d130a3540c7d30b41c"
+checksum = "a8507bed802122d05553169b914df33888457da9b751cb91215a129507bf140e"
 dependencies = [
  "http",
  "valo-system-fonts",
@@ -8425,9 +8425,9 @@ dependencies = [
 
 [[package]]
 name = "waft-widgets"
-version = "0.10.0"
+version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7b5a5427cc471be319a9b6d21c342382de1126e47427b7277f99850d3b996bea"
+checksum = "e1a0fee77d522f52454747599780ac94e796d3d33eb1082becd4412d44558559"
 dependencies = [
  "base64 0.22.1",
  "indexmap",
@@ -8445,9 +8445,9 @@ dependencies = [
 
 [[package]]
 name = "waft-winui"
-version = "0.10.0"
+version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e5c5bdc348b6d0582db94f946204a6e2036f9082ae6ac755630e797f92fb72dd"
+checksum = "e2631a050e20f44ef7d83ef628b45dfb1fc33b4438b225fadd3895cc9b638672"
 dependencies = [
  "waft-animation",
  "waft-embedder",
