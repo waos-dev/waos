@@ -208,9 +208,9 @@ glob = "0.3"
 # The icon `waos new` gives a new program, encoded as a PNG, at the version the workspace
 # builds already, which `image` encodes with.
 png = "0.18"
-# Waft, the framework the WaOS app is built on, from crates.io: a Waft change WaOS needs is
-# released first (README, Working on Waft and WaOS together); and the layers its facade does not name, which a program's view takes its input
-# from: the pointer widget, the pointer events a widget receives, and the keys and text input.
+# Waft, the framework the WaOS app is built on, from crates.io (`AGENTS.md` says how to build
+# against an unreleased one); and the layers its facade does not name, which an app's view takes
+# its input from: the pointer widget, the pointer events a widget receives, and the keys and text input.
 waft = "0.11.0"
 waft-widgets = "0.11.0"
 waft-gestures = "0.11.0"
