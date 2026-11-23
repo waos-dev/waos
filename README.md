@@ -47,7 +47,7 @@ What each folder is:
 | `builtin-apps/` | Apps that come with WaOS: Notes, Video Player, Camera and Inspector |
 | `examples/` | Small apps, one per feature |
 | `packages/waos-site` | waos.app |
-| `docs/essentials.md` | The rules WaOS keeps across its code |
+| `docs/` | How WaOS works, by topic, from `docs/waos.md` |
 
 Contributors and agents: read `AGENTS.md` first.
 

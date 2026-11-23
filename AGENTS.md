@@ -1,6 +1,6 @@
 # WaOS
 
-WaOS runs apps: WebAssembly components that draw with WebGPU. `crates/waos` is the engine any app can embed, `apps/waos` the WaOS app, `wit/` the interface apps are built against, `sdk/wasdk` what they are written with. How it works: `docs/essentials.md`.
+WaOS runs apps: WebAssembly components that draw with WebGPU. `crates/waos` is the engine any app can embed, `apps/waos` the WaOS app, `wit/` the interface apps are built against, `sdk/wasdk` what they are written with. How it works: [docs/waos.md](docs/waos.md).
 
 The code calls an app a "program", the older word; rename it to "app" in what a change touches anyway.
 
@@ -18,8 +18,7 @@ cargo xtask sync-wit                               # after editing wit/
 ## Rules
 
 - **Changes to this file go to the lead first.** It steers every agent.
-- **Edit `wit/`, then sync.** The crates build from their own copy of the interface, so an edit not synced with `cargo xtask sync-wit` is silently ignored.
-- **Old apps keep running.** A change to what apps see that an app built before can't run against takes a new interface version; CI refuses it otherwise.
+- **Before changing `wit/`, read [the interface's rules](docs/engine/interface.md).**
 - **The lead settles the WIT before it is written.** It is what every app is built against.
 - **`unsafe` only where a system API is wrapped**, so unsafe code stays in a few known places; a crate that needs it denies the lint rather than forbidding it.
 - **No `RefCell` unless the problem needs it.** Shared mutable state hides who changes what.
@@ -29,7 +28,7 @@ cargo xtask sync-wit                               # after editing wit/
 
 ## Docs
 
-- `docs/essentials.md` holds the app's essential complexity: rules that hold across the code and no single file shows, one line each, saying first what someone sees, then why where it isn't obvious, with a link to the code that keeps it. It changes in the same commit as the code.
-- A crate's README says in a sentence or two what the crate is for.
-- Plans go in `TODO.md`. There are no other docs.
+- `docs/` says how WaOS works, by topic from [docs/waos.md](docs/waos.md) down: each rule one line, saying first what someone sees, a *Why:* where the reason isn't obvious, a *Today:* where the code differs from the intent, and a link to the code that keeps it. Docs change in the same commit as the code they describe.
+- **A change to `docs/` or to the website goes to the lead for review before it's made.**
+- A crate's README says in a sentence or two what the crate is for. Plans go in `TODO.md`.
 - Module docs say what the module is for and the invariant an editor could break; comments say only what the code can't.
