@@ -63,10 +63,7 @@ impl NamedProgram {
             .installed()
             .iter()
             .find(|program| program.manifest.id() == id)
-            .map_or_else(
-                || id.to_string(),
-                |program| program.manifest.name().to_owned(),
-            );
+            .map_or_else(|| id.to_string(), |program| program.name());
         NamedProgram {
             name,
             icon: library.icon(id).cloned(),

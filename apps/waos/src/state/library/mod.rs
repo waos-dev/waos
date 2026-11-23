@@ -98,6 +98,9 @@ pub(crate) struct Library {
     /// tokio.
     work: Arc<Runtime>,
     installed: Vec<InstalledProgram>,
+    /// The store's count of changes to what is installed that `installed` was read at, so a
+    /// change the library made itself is not read twice.
+    installed_at: u64,
     /// Each installed program's icon, a PNG, kept so a widget showing it shows the same bytes each
     /// build; none for one whose icon cannot be read.
     icons: HashMap<ProgramId, Arc<[u8]>>,
@@ -255,10 +258,12 @@ impl Library {
         work: Arc<Runtime>,
         cx: &mut Context<Library>,
     ) -> Library {
+        let installed_at = *store.installed_changes().borrow();
         let installed = store.installed();
         let mut library = Library {
             icons: icons_of(&store, &installed),
             installed,
+            installed_at,
             running: BTreeSet::new(),
             sources: Vec::new(),
             store,
@@ -285,7 +290,22 @@ impl Library {
         library.read_sources(cx);
         library.follow_running(cx);
         library.follow_compiling(cx);
+        library.follow_installed(cx);
         library
+    }
+
+    /// Reads again what is installed each time another part of WaOS changes it, as the dev server
+    /// installs what `waos install` sends, from now on.
+    fn follow_installed(&mut self, cx: &mut Context<Library>) {
+        follow(
+            self.store.installed_changes(),
+            |library, changes, cx| {
+                if changes != library.installed_at {
+                    library.installed_changed(cx);
+                }
+            },
+            cx,
+        );
     }
 
     /// Keeps which programs run as the runs' list changes, from now on.
@@ -573,7 +593,7 @@ impl Library {
         let Some(program) = self.installed_program(id) else {
             return;
         };
-        let name = program.manifest.name().to_owned();
+        let name = program.name();
         self.ask(Question::Remove {
             id: id.clone(),
             name,
@@ -893,6 +913,7 @@ impl Library {
 
     /// The store changed what is installed: read it again, and what each listing offers.
     fn installed_changed(&mut self, cx: &mut Context<Library>) {
+        self.installed_at = *self.store.installed_changes().borrow();
         self.installed = self.store.installed();
         self.icons = icons_of(&self.store, &self.installed);
         cx.emit(InstalledChanged);

@@ -1,7 +1,10 @@
 //! Programs on disk. Each has a folder under `programs/`, named by its id, made by its install or
 //! its first run, whichever comes first, and holding what the store keeps of it: when installed,
-//! the folder its package unpacked into and `current`, a file naming that folder; its settings;
-//! and its own folders, `data` and `cache`. A program run only in development has the last two.
+//! the folder its package, or its development build, unpacked into and `current`, a file naming
+//! that folder; its settings; and its own folders, `data` and `cache`. A program run only in
+//! development has the last two. What an install came from is in the folder it unpacked into: a
+//! package's `publisher.key`, or a development build's `development.sha256`, its component's
+//! SHA-256.
 //!
 //! The invariant a later editor will break: replacing `current` is the one step that changes
 //! what is installed, and moving the program's folder out of `programs/` the one step that
@@ -11,16 +14,23 @@
 //! it there. So a crash at any point leaves the earlier install or the new one, the program or
 //! none of it, and [`clear_unfinished`] and the store's opening remove what else it left.
 
-use std::fs;
-use std::io::ErrorKind;
+use std::fs::{self, File};
+use std::io::{ErrorKind, Write};
 use std::path::{Component, Path, PathBuf};
 
+use sha2::{Digest, Sha256};
 use waos_capabilities::ProgramFolders;
-use waos_package::{MANIFEST, Manifest, PUBLISHER_KEY, Package, ProgramId, PublisherKey};
+use waos_package::{
+    COMPONENT, ICON, MANIFEST, Manifest, PUBLISHER_KEY, ProgramId, PublisherKey, Version,
+};
 
 use crate::files::write_whole;
 use crate::grants::SETTINGS;
-use crate::{InstallError, InstalledProgram, StoreError};
+use crate::{InstallError, InstalledProgram, Origin, StoreError};
+
+/// The file of a development install's component's SHA-256, in the folder it unpacked into, in
+/// place of a package's `publisher.key`.
+const DEVELOPMENT_SHA256: &str = "development.sha256";
 
 /// The file naming the installed folder, in a program's folder.
 const CURRENT: &str = "current";
@@ -50,8 +60,8 @@ pub(crate) fn installed_folder(program: &Path) -> Result<Option<PathBuf>, StoreE
     Ok(Some(program.join(name)))
 }
 
-/// The program installed in `program`: its manifest and publisher key, as its package unpacked
-/// them; none when no version of it is installed.
+/// The program installed in `program`: its manifest and where it came from, as its install
+/// unpacked them; none when no version of it is installed.
 pub(crate) fn read_installed(program: &Path) -> Result<Option<InstalledProgram>, StoreError> {
     let Some(folder) = installed_folder(program)? else {
         return Ok(None);
@@ -61,24 +71,47 @@ pub(crate) fn read_installed(program: &Path) -> Result<Option<InstalledProgram>,
         fs::read_to_string(&manifest_path).map_err(StoreError::io_at(&manifest_path))?;
     let manifest =
         Manifest::from_toml(&manifest_text).map_err(StoreError::unreadable_at(&manifest_path))?;
-    let key_path = folder.join(PUBLISHER_KEY);
-    let key = fs::read(&key_path).map_err(StoreError::io_at(&key_path))?;
-    let publisher = PublisherKey::from_bytes(&key).map_err(StoreError::unreadable_at(&key_path))?;
     Ok(Some(InstalledProgram {
         manifest,
-        publisher,
+        origin: read_origin(&folder)?,
     }))
 }
 
-/// Installs `package` in `program`, the folder of its id: unpacks it into a folder of its own,
-/// makes `current` name that folder, then removes the version it replaced.
-pub(crate) fn put_in_place(program: &Path, package: &mut Package) -> Result<(), InstallError> {
+/// Where the install unpacked in `folder` came from: the package its `publisher.key` names the
+/// publisher of, or, with none, the development build its `development.sha256` names the
+/// component of.
+fn read_origin(folder: &Path) -> Result<Origin, StoreError> {
+    let key_path = folder.join(PUBLISHER_KEY);
+    match fs::read(&key_path) {
+        Ok(key) => {
+            let publisher =
+                PublisherKey::from_bytes(&key).map_err(StoreError::unreadable_at(&key_path))?;
+            return Ok(Origin::Package { publisher });
+        }
+        Err(error) if error.kind() == ErrorKind::NotFound => {}
+        Err(error) => return Err(StoreError::io_at(&key_path)(error)),
+    }
+    let sha256_path = folder.join(DEVELOPMENT_SHA256);
+    let sha256 = fs::read(&sha256_path).map_err(StoreError::io_at(&sha256_path))?;
+    let component_sha256 = sha256.try_into().map_err(|_| {
+        StoreError::unreadable_at(&sha256_path)("it is not the 32 bytes of a SHA-256")
+    })?;
+    Ok(Origin::Development { component_sha256 })
+}
+
+/// Installs a program at `version` in `program`, the folder of its id: `unpack` writes it into a
+/// folder of its own, then `current` names that folder, then the version it replaced is removed.
+pub(crate) fn put_in_place(
+    program: &Path,
+    version: &Version,
+    unpack: impl FnOnce(&Path) -> Result<(), InstallError>,
+) -> Result<(), InstallError> {
     fs::create_dir_all(program).map_err(StoreError::io_at(program))?;
     let unpacked = tempfile::Builder::new()
-        .prefix(&format!("{}-", package.manifest().version()))
+        .prefix(&format!("{version}-"))
         .tempdir_in(program)
         .map_err(StoreError::io_at(program))?;
-    package.unpack(unpacked.path())?;
+    unpack(unpacked.path())?;
     let installed = unpacked.keep();
     let name = installed
         .file_name()
@@ -87,6 +120,50 @@ pub(crate) fn put_in_place(program: &Path, package: &mut Package) -> Result<(), 
     write_whole(&current, name.as_encoded_bytes()).map_err(StoreError::io_at(&current))?;
     clear_unfinished(program)?;
     Ok(())
+}
+
+/// Writes a development build into `folder`, as a package unpacks: `manifest`, `component`, the
+/// icon where it has one, and the component's SHA-256, each on disk before the install goes on.
+pub(crate) fn unpack_development(
+    folder: &Path,
+    manifest: &Manifest,
+    component: &[u8],
+    icon: Option<&[u8]>,
+) -> Result<(), StoreError> {
+    write_synced(&folder.join(MANIFEST), manifest.to_toml().as_bytes())?;
+    if let Some(icon) = icon {
+        write_synced(&folder.join(ICON), icon)?;
+    }
+    write_synced(&folder.join(COMPONENT), component)?;
+    write_synced(
+        &folder.join(DEVELOPMENT_SHA256),
+        &component_sha256(component),
+    )
+}
+
+/// The SHA-256 of a development build's component, which its install keeps.
+pub(crate) fn component_sha256(component: &[u8]) -> [u8; 32] {
+    Sha256::digest(component).into()
+}
+
+/// The icon of the install unpacked in `folder`, its PNG's bytes; none for a development build
+/// that had none.
+pub(crate) fn read_icon(folder: &Path) -> Result<Option<Vec<u8>>, StoreError> {
+    let path = folder.join(ICON);
+    match fs::read(&path) {
+        Ok(icon) => Ok(Some(icon)),
+        Err(error) if error.kind() == ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(StoreError::io_at(&path)(error)),
+    }
+}
+
+/// Writes `contents` as the new file at `path`, on disk before it returns.
+fn write_synced(path: &Path, contents: &[u8]) -> Result<(), StoreError> {
+    let written = File::create(path).and_then(|mut file| {
+        file.write_all(contents)?;
+        file.sync_all()
+    });
+    written.map_err(StoreError::io_at(path))
 }
 
 /// The program's own folders in `program`, its folder, made where they are not yet.
@@ -174,7 +251,7 @@ fn is_one_name(name: &str) -> bool {
 mod tests {
     use std::path::Path;
 
-    use waos_package::{COMPONENT, SigningKey, Version};
+    use waos_package::{Package, SigningKey};
 
     use super::*;
 
@@ -204,6 +281,12 @@ mod tests {
         Package::open(&path).unwrap()
     }
 
+    /// Installs `package` in `program`, as the store installs one.
+    fn put_package(program: &Path, mut package: Package) {
+        let version = package.manifest().version().clone();
+        put_in_place(program, &version, |folder| Ok(package.unpack(folder)?)).unwrap();
+    }
+
     fn installed_version(program: &Path) -> Option<Version> {
         read_installed(program)
             .unwrap()
@@ -219,10 +302,10 @@ mod tests {
         let scratch = tempfile::tempdir().unwrap();
         let key = SigningKey::generate();
         let program = scratch.path().join("dev.example.triangle");
-        put_in_place(&program, &mut package(scratch.path(), "1.0.0", &key)).unwrap();
+        put_package(&program, package(scratch.path(), "1.0.0", &key));
         let installed = read_installed(&program).unwrap().unwrap();
         assert_eq!(installed.manifest.version(), &Version::new(1, 0, 0));
-        assert_eq!(installed.publisher, key.publisher());
+        assert_eq!(installed.publisher(), Some(key.publisher()));
         let folder = installed_folder(&program).unwrap().unwrap();
         assert_eq!(fs::read(folder.join(COMPONENT)).unwrap(), b"\0asm 1.0.0");
         assert_eq!(entries(&program), 2);
@@ -233,9 +316,9 @@ mod tests {
         let scratch = tempfile::tempdir().unwrap();
         let key = SigningKey::generate();
         let program = scratch.path().join("dev.example.triangle");
-        put_in_place(&program, &mut package(scratch.path(), "1.0.0", &key)).unwrap();
+        put_package(&program, package(scratch.path(), "1.0.0", &key));
         let earlier = installed_folder(&program).unwrap().unwrap();
-        put_in_place(&program, &mut package(scratch.path(), "1.1.0", &key)).unwrap();
+        put_package(&program, package(scratch.path(), "1.1.0", &key));
         assert_eq!(installed_version(&program), Some(Version::new(1, 1, 0)));
         assert!(!earlier.exists());
         assert_eq!(entries(&program), 2);
@@ -246,7 +329,7 @@ mod tests {
         let scratch = tempfile::tempdir().unwrap();
         let key = SigningKey::generate();
         let program = scratch.path().join("dev.example.triangle");
-        put_in_place(&program, &mut package(scratch.path(), "1.0.0", &key)).unwrap();
+        put_package(&program, package(scratch.path(), "1.0.0", &key));
         let interrupted = program.join("1.1.0-interrupted");
         package(scratch.path(), "1.1.0", &key)
             .unpack(&interrupted)
@@ -285,7 +368,7 @@ mod tests {
         assert_eq!(entries(&program), 3, "data, cache and settings");
 
         let key = SigningKey::generate();
-        put_in_place(&program, &mut package(scratch.path(), "1.0.0", &key)).unwrap();
+        put_package(&program, package(scratch.path(), "1.0.0", &key));
         assert_eq!(entries(&program), 5, "its install beside them");
         assert_eq!(fs::read(folders.data.join("notes.txt")).unwrap(), b"kept");
     }
@@ -296,8 +379,10 @@ mod tests {
         let program = scratch.path().join("dev.example.triangle");
         let removing = scratch.path().join("removing");
         let id: ProgramId = "dev.example.triangle".parse().unwrap();
-        let mut triangle = package(scratch.path(), "1.0.0", &SigningKey::generate());
-        put_in_place(&program, &mut triangle).unwrap();
+        put_package(
+            &program,
+            package(scratch.path(), "1.0.0", &SigningKey::generate()),
+        );
         own_folders(&program).unwrap();
         take_out(&program, &id, &removing).unwrap();
         assert!(!program.exists());

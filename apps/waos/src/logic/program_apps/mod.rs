@@ -393,7 +393,7 @@ impl ProgramApps {
         match installed {
             Some(program) => ProgramDescription {
                 id: id.clone(),
-                name: program.manifest.name().to_owned(),
+                name: program.name(),
                 version: program.manifest.version().to_string(),
                 icon: self.store.icon(id),
                 installed: true,

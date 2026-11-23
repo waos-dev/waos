@@ -228,7 +228,7 @@ fn runs_changes(runs: &Runs) -> BoxStream<'static, ProgramChange> {
 fn program_of(program: &InstalledProgram, running: bool) -> Program {
     Program {
         id: program.manifest.id().to_string(),
-        name: program.manifest.name().to_owned(),
+        name: program.name(),
         version: Some(program.manifest.version().to_string()),
         running,
     }

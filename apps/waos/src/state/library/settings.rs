@@ -201,10 +201,9 @@ impl Library {
     fn settings_asked(&mut self, asked: SettingsOpened, cx: &mut Context<Library>) {
         let (of, name) = match asked.program.name().parse::<ProgramId>() {
             Ok(id) => {
-                let name = self.installed_program(&id).map_or_else(
-                    || id.to_string(),
-                    |program| program.manifest.name().to_owned(),
-                );
+                let name = self
+                    .installed_program(&id)
+                    .map_or_else(|| id.to_string(), |program| program.name());
                 (SettingsOf::Program(id), name)
             }
             Err(_) => (SettingsOf::Global, asked.program.name().to_owned()),

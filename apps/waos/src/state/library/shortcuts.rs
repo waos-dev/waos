@@ -240,7 +240,7 @@ impl Library {
         let made = ids
             .into_iter()
             .filter_map(|id| {
-                let name = self.installed_program(&id)?.manifest.name().to_owned();
+                let name = self.installed_program(&id)?.name();
                 let png = self.icons.get(&id).cloned();
                 Some((id, name, png))
             })

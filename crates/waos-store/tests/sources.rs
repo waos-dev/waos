@@ -4,8 +4,10 @@
 mod support;
 
 use support::{Server, component_of, listing, write_package};
-use waos_package::{Index, SigningKey};
-use waos_store::{InstallError, Source, SourceError, SourceProxy, Store, StoreError};
+use waos_package::{Index, Manifest, SigningKey};
+use waos_store::{
+    DevelopmentBuild, InstallError, Source, SourceError, SourceProxy, Store, StoreError,
+};
 
 const TRIANGLE: &str = "dev.example.triangle";
 
@@ -119,7 +121,7 @@ async fn a_listed_package_is_downloaded_and_installed() {
     let store = Store::open(&scratch.path().join("store"), SourceProxy::None).unwrap();
     let source = source(&server.url("waos/index.json"));
     let installed = store.install_from(&source, &listed).await.unwrap();
-    assert_eq!(installed.publisher, key.publisher());
+    assert_eq!(installed.publisher(), Some(key.publisher()));
     let component = store.program(&TRIANGLE.parse().unwrap()).unwrap();
     assert_eq!(
         std::fs::read(component).unwrap(),
@@ -205,4 +207,73 @@ async fn an_update_from_a_source_must_be_signed_with_the_installed_key() {
     );
     let installed = store.installed();
     assert_eq!(installed[0].manifest.version().to_string(), "1.0.0");
+}
+
+#[tokio::test]
+async fn an_update_from_a_source_never_touches_a_development_install() {
+    let scratch = tempfile::tempdir().unwrap();
+    let store = Store::open(&scratch.path().join("store"), SourceProxy::None).unwrap();
+    let key = SigningKey::generate();
+    let published = write_package(scratch.path(), TRIANGLE, "1.0.0", &key);
+    store
+        .install(waos_package::Package::open(&published).unwrap())
+        .unwrap();
+    let source_manifest = Manifest::new(
+        TRIANGLE.parse().unwrap(),
+        "Triangle",
+        "0.1.0".parse().unwrap(),
+    )
+    .unwrap();
+    store
+        .install_development(&DevelopmentBuild {
+            manifest: &source_manifest,
+            component: b"\0asm from source",
+            icon: None,
+        })
+        .unwrap();
+    let development = "dev.example.triangle.development";
+    let update = write_package(scratch.path(), TRIANGLE, "2.0.0", &key);
+    let posing = write_package(scratch.path(), development, "2.0.0", &key);
+    let (update_listed, posing_listed) = (
+        listing(&update, TRIANGLE, "2.0.0"),
+        listing(&posing, development, "2.0.0"),
+    );
+    let server = Server::serve(vec![
+        (
+            update_listed.package.clone(),
+            std::fs::read(&update).unwrap(),
+        ),
+        (
+            posing_listed.package.clone(),
+            std::fs::read(&posing).unwrap(),
+        ),
+    ])
+    .await;
+    let source = source(&server.url("index.json"));
+
+    store.install_from(&source, &update_listed).await.unwrap();
+    let error = store
+        .install_from(&source, &posing_listed)
+        .await
+        .unwrap_err();
+    assert!(matches!(error, InstallError::Development(_)), "{error}");
+
+    let installed: Vec<(String, String, bool)> = store
+        .installed()
+        .iter()
+        .map(|program| {
+            let manifest = &program.manifest;
+            let id = manifest.id().to_string();
+            (id, manifest.version().to_string(), program.is_development())
+        })
+        .collect();
+    assert_eq!(
+        installed,
+        [
+            (TRIANGLE.to_owned(), "2.0.0".to_owned(), false),
+            (development.to_owned(), "0.1.0".to_owned(), true),
+        ]
+    );
+    let component = store.program(&development.parse().unwrap()).unwrap();
+    assert_eq!(std::fs::read(component).unwrap(), b"\0asm from source");
 }

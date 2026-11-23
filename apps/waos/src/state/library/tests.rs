@@ -10,7 +10,8 @@
 //! with an installed program as WaOS starts open it and reach it, while files opened with one not
 //! installed are the library's problem. A package handed without a path, through a handle or a
 //! stream of the test's own, is copied and asked about, its copy removed once answered; one that
-//! cannot be read, is no package, or is named as no file is, is the library's problem.
+//! cannot be read, is no package, or is named as no file is, is the library's problem. A
+//! development install another part of WaOS makes shows, named as one.
 
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
@@ -240,6 +241,43 @@ fn a_package_opened_with_waos_is_installed_once_the_user_says_yes() {
     assert_eq!(
         library.read(|library| library.problem().map(str::to_owned)),
         None
+    );
+}
+
+#[test]
+fn a_development_install_made_elsewhere_shows_named_as_one() {
+    let test = TestLibrary::new();
+    let store = test.read(|library| library.store.clone());
+    let manifest = Manifest::new(
+        TRIANGLE.parse().unwrap(),
+        "Triangle",
+        "0.1.0".parse().unwrap(),
+    )
+    .unwrap();
+    store
+        .install_development(&waos_store::DevelopmentBuild {
+            manifest: &manifest,
+            component: b"\0asm from source",
+            icon: None,
+        })
+        .unwrap();
+    test.wait_until("the development install shows", |library| {
+        !library.installed().is_empty()
+    });
+    let names: Vec<String> = test.read(|library| {
+        library
+            .installed()
+            .iter()
+            .map(InstalledProgram::name)
+            .collect()
+    });
+    assert_eq!(names, ["Triangle (Development)"]);
+    assert_eq!(
+        test.installed(),
+        [(
+            "dev.example.triangle.development".to_owned(),
+            "0.1.0".to_owned()
+        )]
     );
 }
 

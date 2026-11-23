@@ -20,7 +20,7 @@ pub(crate) fn name_of(store: &Store, runs_as: &str) -> String {
             .find(|installed| installed.manifest.id() == &id)
     });
     match installed {
-        Some(installed) => installed.manifest.name().to_owned(),
+        Some(installed) => installed.name(),
         None => runs_as.to_owned(),
     }
 }

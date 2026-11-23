@@ -77,7 +77,7 @@ impl ProgramEntry {
                 let id = program.manifest.id().clone();
                 Some(ProgramEntry {
                     app_id: app_id_of(&id)?,
-                    name: program.manifest.name().to_owned(),
+                    name: program.name(),
                     version: program.manifest.version().to_string(),
                     icon: store.icon(&id),
                     id,
