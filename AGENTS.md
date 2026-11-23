@@ -28,7 +28,7 @@ cargo xtask sync-wit                               # after editing wit/
 
 ## Docs
 
-- `docs/essentials.md` holds the app's essential complexity: rules that hold across the code and no single file shows, one line each, saying first what someone sees, then why where it isn't obvious, with a link to the code that keeps it. It changes in the same commit as the code.
-- A crate's README says in a sentence or two what the crate is for.
-- Plans go in `TODO.md`. There are no other docs.
+- `docs/` says how WaOS works, by topic from [docs/waos.md](docs/waos.md) down: each rule one line, saying first what someone sees, a *Why:* where the reason isn't obvious, a *Today:* where the code differs from the intent, and a link to the code that keeps it. Docs change in the same commit as the code they describe.
+- **A change to `docs/` or to the website goes to the lead for review before it's made.**
+- A crate's README says in a sentence or two what the crate is for. Plans go in `TODO.md`.
 - Module docs say what the module is for and the invariant an editor could break; comments say only what the code can't.
