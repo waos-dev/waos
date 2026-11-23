@@ -19,7 +19,7 @@ use crate::docs::{self, Docs};
 pub const NAME: &str = "waos";
 
 /// When an agent uses the skill, as `SKILL.md`'s front matter says it.
-const DESCRIPTION: &str = "Build, run, try and package an app for WaOS with waos, Waft and wasdk. Use when making a WaOS app or program, writing its UI with Waft, using a platform capability through wasdk, or running, screenshotting, giving input to or packaging it with waos.";
+const DESCRIPTION: &str = "Build, run, try and package an app for WaOS with waos, Waft and wasdk. Use when making a WaOS app or program, writing its UI with Waft, using a platform capability through wasdk, or installing, running, screenshotting, giving input to or packaging it with waos.";
 
 /// The skills folder an install writes into without `--dir`: Claude Code's personal one,
 /// `~/.claude/skills`, which every project of the user's sees, as every app they make wants it.

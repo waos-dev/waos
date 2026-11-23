@@ -3,8 +3,9 @@
 //! summoned, `waos phone` in a window of a phone's size, `waos open <file>... --program <id>` opens
 //! files with a program, `waos open --program <id>` opens the program, or brings it forward, as a
 //! pin of it on Windows or Linux does, `waos --headless [--idle-timeout <secs>]` runs WaOS without
-//! a windowing system, developer CLI commands (`new`, `build`, `run`, `package`, `ui`, `settings`,
-//! `inspect`, `docs`) are dispatched to `waos-cli`, and `waos <file>...` opens files with WaOS
+//! a windowing system, developer CLI commands (`new`, `build`, `install`, `launch`, `attach`,
+//! `stop`, `uninstall`, `run`, `package`, `ui`, `settings`, `inspect`, `docs`) are dispatched to
+//! `waos-cli`, and `waos <file>...` opens files with WaOS
 //! itself, as Windows and Linux start an app with the files it opens.
 //!
 //! The invariant: a word WaOS takes as a command (`phone`, `open`, or any developer CLI command)
@@ -26,8 +27,23 @@ pub(crate) const USAGE: &str = "usage: `waos` shows WaOS's launcher, `waos --lau
 
 /// Reserved command words that are never interpreted as bare file paths.
 const RESERVED_COMMANDS: &[&str] = &[
-    "phone", "open", // Developer CLI commands
-    "new", "build", "run", "package", "ui", "settings", "inspect", "docs", "help",
+    "phone",
+    "open",
+    // Developer CLI commands
+    "new",
+    "build",
+    "install",
+    "launch",
+    "attach",
+    "stop",
+    "uninstall",
+    "run",
+    "package",
+    "ui",
+    "settings",
+    "inspect",
+    "docs",
+    "help",
 ];
 
 /// Where WaOS shows its library.
@@ -266,6 +282,7 @@ mod tests {
             Ok(Command::OpenWithWaos(vec![PathBuf::from("./run")])),
         );
         assert_eq!(command_of(&["run"]), Err(USAGE));
+        assert_eq!(command_of(&["install"]), Err(USAGE));
         assert_eq!(command_of(&["ui"]), Err(USAGE));
         assert_eq!(command_of(&["a.wapk", "--launcher-closed"]), Err(USAGE));
     }
@@ -337,6 +354,11 @@ mod tests {
         for cmd in [
             &["waos", "new", "hello"][..],
             &["waos", "build", "--release"],
+            &["waos", "install", "-p", "notes"],
+            &["waos", "launch", "dev.example.notes.development"],
+            &["waos", "attach"],
+            &["waos", "stop"],
+            &["waos", "uninstall"],
             &["waos", "run", "-p", "notes"],
             &["waos", "package"],
             &["waos", "ui", "screenshot"],

@@ -2,8 +2,9 @@
 //! was allowed (the inspector proposal's protocol), printed as JSON lines of `wasdk:inspect`'s
 //! values, one value a line, for a terminal or a coding agent to read: the program's audit summary,
 //! its days newest first; what it uses now, then each change to it; or its live trace of the
-//! capabilities named, each event as it comes; the last two until Ctrl-C or the program's end. Only a program a run of `waos run`
-//! on this machine runs is inspected live, and one it runs or has run has its summary read.
+//! capabilities named, each event as it comes; the last two until Ctrl-C or the program's end. Any
+//! program running is inspected, the package's development install by default, and a development
+//! install has its summary read while it does not run too.
 //!
 //! The invariant: what WaOS answers is printed as it came, so the command needs no types of its
 //! own: the WIT is the one schema.

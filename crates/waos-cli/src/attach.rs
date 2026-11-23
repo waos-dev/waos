@@ -2,8 +2,8 @@
 //! it, to this process's stdout and stderr, each line after the program's name, so two programs'
 //! output read apart, from what it wrote with nobody attached on; what WaOS asks its user while
 //! the program waits for the answer, with the row that answers it ahead; and how it ended, which
-//! becomes the exit status (the design's decision 70). Ctrl-C, or the terminal closing, stops it,
-//! as `waos run`'s does.
+//! becomes the exit status (the design's decision 70). Ctrl-C, or the terminal closing, detaches
+//! and the program runs on, or, for `waos run`, stops it.
 //!
 //! The invariant: nothing here runs a program. It runs in the WaOS app, and this process holds
 //! only the connection, which closing detaches from.
@@ -23,6 +23,8 @@ pub(crate) const INTERRUPTED: u8 = 130;
 /// What Ctrl-C, or the terminal closing, does to the program attached to.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum OnInterrupt {
+    /// Detaches, as `waos attach`'s Ctrl-C does: the program runs on.
+    Detach,
     /// Stops it, as `waos run`'s Ctrl-C does.
     Stop,
 }
@@ -79,6 +81,9 @@ async fn interrupt(id: &ProgramId, name: &str, on_interrupt: OnInterrupt) -> Res
         OnInterrupt::Stop => {
             stop::stop_quietly(id).await?;
             eprintln!("waos: {name} stopped");
+        }
+        OnInterrupt::Detach => {
+            eprintln!("waos: detached from {name}, which runs on; `waos stop` stops it");
         }
     }
     Ok(ExitCode::from(INTERRUPTED))
@@ -279,7 +284,7 @@ mod tests {
         });
         let client = Connection::connect(&socket).await.unwrap();
         let id: ProgramId = "dev.example.notes.development".parse().unwrap();
-        let status = attach_on(client, &id, "notes", OnInterrupt::Stop)
+        let status = attach_on(client, &id, "notes", OnInterrupt::Detach)
             .await
             .unwrap();
         assert_eq!(

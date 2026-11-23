@@ -1,5 +1,5 @@
-//! `waos ui resize`: a size for a window of the program a run of `waos run` runs, sent to
-//! the WaOS running it, which sizes the window as the program's own `set-frame` would, so the
+//! `waos ui resize`: a size for a window of a program running, the package's development install
+//! by default, sent to the WaOS running it, which sizes the window as the program's own `set-frame` would, so the
 //! program can be seen at a phone's width or a narrow window's (the design's decision 60). A size
 //! is in logical points, written `<width>x<height>`: a screenshot's pixels are points times the
 //! window's scale, 2 on a Retina screen.

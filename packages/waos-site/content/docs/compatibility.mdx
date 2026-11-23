@@ -15,7 +15,7 @@ WASI's packages a program imports (`wasi:http`, `wasi:sockets`, `wasi:clocks`, `
 
 ## What `@unstable` means
 
-A new API starts as `@unstable(feature = name)`: it may still change or go in any release. WaOS gives it to a program run with `waos run`, and to a program whose package asks for it:
+A new API starts as `@unstable(feature = name)`: it may still change or go in any release. WaOS gives it to a development install, which `waos run` and `waos install` make, and to a program whose package asks for it:
 
 ```toml
 [package.metadata.waos]
