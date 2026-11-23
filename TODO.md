@@ -13,6 +13,9 @@ What stands between today and a first stable release, in the order it blocks one
 - [ ] Watching a single file: today only folders can be watched, so an app watching `settings.json` is refused.
 - [ ] Fonts are copied whole into each app (78 MB for PingFang SC): let an app map a font file instead. Changes the WIT.
 - [ ] Threads that share memory, for parallel CPU work; waits on wasmtime. Workers cover message-shaped work meanwhile.
+- [ ] Limits the user sets on an app's CPU and disk.
+- [ ] "Allow once" as an answer to a question.
+- [ ] Opening a link or a file in another app asks the user, as a link of another scheme does today.
 - [ ] A per-app setting for running in the background (music, a download), replacing today's rule that sound, recording or a camera keeps an app running, which an app playing silence abuses.
 - [ ] Accessibility: an app's semantics tree. Changes the views interface.
 
@@ -26,7 +29,6 @@ What stands between today and a first stable release, in the order it blocks one
 
 ## Building apps alone
 - [ ] Waft's Android settings (`[package.metadata.waft.android]`) are buried in `waft-cli`'s README: give them a page or a short section at its top.
-- [ ] A setting the user changes answers a question an app is waiting on, and the app's dialog closes.
 - [ ] A stack for a hung app (`waos inspect`).
 - [ ] `block_on` waiting on tasks it did not start (wit-bindgen's shared queue).
 - [ ] Screenshots at a size larger than the screen.
