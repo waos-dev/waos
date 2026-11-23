@@ -40,12 +40,16 @@ impl fmt::Display for Refusal {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(remote = "Self", tag = "kind", content = "data")]
 pub enum RefusalKind {
-    /// No run of `waos run` runs the program now: nothing does, or the program running was
-    /// opened otherwise, from WaOS's library.
-    NoDevRunNow,
-    /// No run of `waos run` on this machine runs the program or has run it, so its settings
-    /// are none of a tool's.
-    NeverDevRun,
+    /// The program does not run now.
+    NotRunning,
+    /// The program is installed from a package, not as a development install, so its settings,
+    /// or its record with nothing running, are its user's to read on its settings page.
+    NotDevelopment,
+    /// No program of the id is installed.
+    NotInstalled,
+    /// The program runs, but no launch started it, as one opened from WaOS's library: its output
+    /// goes to WaOS's log, and nothing attaches to it.
+    NotLaunched,
     /// The program has no window `window`.
     NoWindow { window: WindowId },
     /// The point `x`, `y` is outside the window, which is `width` by `height` physical pixels at

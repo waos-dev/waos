@@ -18,10 +18,6 @@ pub(crate) struct AppFolders {
     /// caches: on the volume of the user's home, where the store and the programs' `/data` are,
     /// so a program's file renamed from `/tmp` into `/data` is one rename.
     pub(crate) temporary_folders: PathBuf,
-    /// The components `waos` sends, one file per program's name; none on a phone, which
-    /// `waos` reaches not yet.
-    #[cfg(not(any(target_os = "android", target_os = "ios")))]
-    pub(crate) dev_components: PathBuf,
     /// The copies of the packages handed without a path while they are asked about
     /// (`logic::package_copies`), under the caches.
     pub(crate) package_copies: PathBuf,
@@ -68,8 +64,6 @@ pub(crate) fn app_folders() -> AppFolders {
     AppFolders {
         code_cache: caches.join("code"),
         temporary_folders: caches.join("tmp"),
-        #[cfg(not(target_os = "ios"))]
-        dev_components: caches.join("dev"),
         package_copies: caches.join("packages"),
         store: data_folder().join("store"),
         preferences: data_folder().join("preferences.toml"),
@@ -156,11 +150,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn both_folders_are_under_the_users_caches() {
+    fn the_code_cache_and_the_programs_tmp_are_under_the_users_caches() {
         let folders = app_folders();
         assert!(folders.code_cache.starts_with(home()));
-        assert_eq!(folders.code_cache.parent(), folders.dev_components.parent());
-        assert_ne!(folders.code_cache, folders.dev_components);
+        assert_eq!(
+            folders.code_cache.parent(),
+            folders.temporary_folders.parent()
+        );
+        assert_ne!(folders.code_cache, folders.temporary_folders);
     }
 
     #[test]

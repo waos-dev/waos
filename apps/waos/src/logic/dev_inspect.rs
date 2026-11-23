@@ -4,25 +4,26 @@
 //! connection closes or the program ends.
 //! Each value goes as JSON of `wasdk:inspect`'s, one a line, so the command prints what it reads.
 //!
-//! The invariant: only a program a run of `waos run` on this machine runs is inspected live,
-//! and only one it runs or has run has its summary read, as its settings are (`dev_settings`);
-//! never a program the library opened, whose record is its user's to read.
+//! The invariant: any program running is inspected live, however it was installed or started, as
+//! the dev socket is its user's alone (the design's decision 70); a summary is read of one
+//! running, or of a development install, whose record is its developer's, never of a program
+//! installed from a package that does not run, whose record its settings page shows.
 
 use futures::StreamExt;
 use futures::stream::{self, BoxStream};
 use waos::{RunningProgram, TraceKind, WaOS};
 use waos_dev_protocol::{Connection, InspectAnswer, Inspection, ServerStream, TracedCapability};
 use waos_package::ProgramId;
+use waos_store::Store;
 
 use super::dev_refusal;
 use super::dev_server::BUILD;
 use super::runs::Runs;
-use super::sent_components::SentComponents;
 
 /// What an inspection reads of the app.
 pub(crate) struct InspectionContext<'a> {
     pub(crate) runs: &'a Runs,
-    pub(crate) components: &'a SentComponents,
+    pub(crate) store: &'a Store,
     pub(crate) engine: &'a WaOS,
 }
 
@@ -33,23 +34,21 @@ pub(crate) async fn answer(
     id: &ProgramId,
     asked: Inspection,
 ) {
-    let running = context.runs.dev_run(id).await.map(|run| run.program);
+    let running = context.runs.running_now(id);
     let answered = match asked {
-        Inspection::Summary { days } => {
-            let was_run = running.is_some() || context.components.was_sent(id);
-            if was_run {
-                Ok(summary(context.engine, id, days))
-            } else {
-                Err(dev_refusal::never_dev_run(id))
-            }
-        }
+        Inspection::Summary { days } => match context.store.installed_program(id) {
+            _ if running.is_some() => Ok(summary(context.engine, id, days)),
+            Some(installed) if installed.is_development() => Ok(summary(context.engine, id, days)),
+            Some(_) => Err(dev_refusal::not_development(id)),
+            None => Err(dev_refusal::not_installed(id)),
+        },
         Inspection::ActiveUses => match running.as_ref().and_then(RunningProgram::active_uses) {
             Some((now, changes)) => {
                 let changes = changes.map(|change| json(&change)).boxed();
                 send_lines(connection, vec![json(&now)], changes).await;
                 return;
             }
-            None => Err(dev_refusal::no_dev_run_now(id)),
+            None => Err(dev_refusal::not_running(id)),
         },
         Inspection::Trace(traced) => {
             let Some(kinds) = traced
@@ -66,7 +65,7 @@ pub(crate) async fn answer(
                     trace(connection, &program, &kinds).await;
                     return;
                 }
-                None => Err(dev_refusal::no_dev_run_now(id)),
+                None => Err(dev_refusal::not_running(id)),
             }
         }
         Inspection::Unknown => Err(dev_refusal::unsupported(BUILD, "inspection")),

@@ -3,7 +3,7 @@
 //! once; a press holds the button down for its time, and a drag moves with it held; text is
 //! committed into what it edits, once it edits; a chord reaches it as its keys; each is done once
 //! it is handed over, saying whether the window was in sight; and an input to a
-//! program no run runs, to a window it has not, at a point outside it, or naming no key, reaches
+//! program not running, to a window it has not, at a point outside it, or naming no key, reaches
 //! nothing. The program draws, so these run where the engine makes hardware buffers, on Apple's
 //! systems.
 
@@ -16,10 +16,10 @@ use waos_dev_protocol::{
     RunEvent, ScreenshotAnswer, WindowId,
 };
 
-use crate::logic::dev_server::tests::{TestServer, WITHIN, next, stdout_of};
+use crate::logic::dev_server::tests::{TestServer, WITHIN, development, next, stdout_of};
 use crate::logic::test_engine::drawing::{WINDOW_HEIGHT, WINDOW_WIDTH};
 
-/// The id `examples/input` runs as.
+/// The id `examples/input` is installed as.
 pub(crate) const INPUT: &str = "dev.waos.examples.input";
 
 /// `examples/input` running under `server`, its window showing its first picture; its run's
@@ -38,7 +38,7 @@ pub(crate) async fn run_input(server: &TestServer) -> (Connection<ClientStream>,
 async fn wait_for_first_picture(server: &TestServer) {
     let deadline = Instant::now() + WITHIN;
     let screenshot = Request::Screenshot {
-        id: INPUT.parse().unwrap(),
+        id: development(INPUT),
         window: None,
     };
     loop {
@@ -72,7 +72,7 @@ async fn wait_for_line(
 /// An input to the window `window` of `examples/input`.
 fn input(window: WindowId, input: Input) -> Request {
     Request::Input {
-        id: INPUT.parse().unwrap(),
+        id: development(INPUT),
         window: Some(window),
         input,
     }
@@ -328,8 +328,8 @@ async fn an_input_to_a_window_out_of_sight_says_it_was_out_of_sight() {
 }
 
 #[tokio::test]
-async fn an_input_to_a_program_no_run_runs_reaches_nothing() {
+async fn an_input_to_a_program_not_running_reaches_nothing() {
     let server = TestServer::start("no-run");
     let rejection = refused(&server, WindowId(1), Input::Tap { x: 1.0, y: 1.0 }).await;
-    assert_eq!(rejection.kind, RefusalKind::NoDevRunNow);
+    assert_eq!(rejection.kind, RefusalKind::NotRunning);
 }

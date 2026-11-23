@@ -1,27 +1,47 @@
 //! The refusals the dev server gives, each in words a person can act on, beside a kind an agent
-//! acts on: the program no run of `waos run` runs, the window that is not there or is a tab
-//! in no window, the point outside it, the input that cannot be given, the component that does not
-//! load, and the opening a connection not on this machine asks for, which only one here may have.
+//! acts on: the program that does not run, is not installed, is not a development install or was
+//! not launched, the window that is not there or is a tab in no window, the point outside it, the
+//! input that cannot be given, the component that does not load, and the opening a connection not
+//! on this machine asks for, which only one here may have.
 
 use waos_dev_protocol::{Asked, Locality, OpenAnswer, Refusal, RefusalKind, WindowId};
 use waos_package::ProgramId;
 
-/// No run of `waos run` runs `id` now.
-pub(crate) fn no_dev_run_now(id: &ProgramId) -> Refusal {
+/// `id` does not run now.
+pub(crate) fn not_running(id: &ProgramId) -> Refusal {
     Refusal::new(
-        RefusalKind::NoDevRunNow,
+        RefusalKind::NotRunning,
         format!(
-            "{id} is not running from `waos run`: run it with `waos run` in another shell first; a program opened from WaOS's library is neither read nor driven"
+            "{id} is not running: start it with `waos launch` or `waos run`, or open it from WaOS"
         ),
     )
 }
 
-/// No run of `waos run` on this machine has run `id`, so it has no settings to read.
-pub(crate) fn never_dev_run(id: &ProgramId) -> Refusal {
+/// `id` is installed from a package, so its settings, and its record while it does not run, are
+/// its user's to read on its settings page.
+pub(crate) fn not_development(id: &ProgramId) -> Refusal {
     Refusal::new(
-        RefusalKind::NeverDevRun,
+        RefusalKind::NotDevelopment,
         format!(
-            "no `waos run` on this machine has run {id}: run it once with `waos run`; a program only installed from WaOS's library keeps its settings to its settings page"
+            "{id} is installed from a package, not as a development install: its settings are on its settings page in WaOS; `waos install` installs a program from its source"
+        ),
+    )
+}
+
+/// No program `id` is installed.
+pub(crate) fn not_installed(id: &ProgramId) -> Refusal {
+    Refusal::new(
+        RefusalKind::NotInstalled,
+        format!("{id} is not installed: `waos install` installs a program from its source"),
+    )
+}
+
+/// `id` runs, but no launch started it, so its output goes to WaOS's log.
+pub(crate) fn not_launched(id: &ProgramId) -> Refusal {
+    Refusal::new(
+        RefusalKind::NotLaunched,
+        format!(
+            "{id} runs, opened from WaOS rather than launched, and what it writes goes to WaOS's log: `waos launch` starts it again to attach to"
         ),
     )
 }
@@ -137,9 +157,9 @@ mod tests {
 
     #[test]
     fn each_refusal_says_what_to_do_next() {
-        let no_run = no_dev_run_now(&notes());
-        assert_eq!(no_run.kind, RefusalKind::NoDevRunNow);
-        assert!(no_run.message.contains("waos run"));
+        let no_run = not_running(&notes());
+        assert_eq!(no_run.kind, RefusalKind::NotRunning);
+        assert!(no_run.message.contains("waos launch"));
         let no_window = no_window(&notes(), WindowId(2), 1);
         assert_eq!(
             no_window.kind,
@@ -152,7 +172,9 @@ mod tests {
             "{}",
             no_window.message
         );
-        assert!(never_dev_run(&notes()).message.contains("has run"));
+        assert!(not_development(&notes()).message.contains("waos install"));
+        assert!(not_installed(&notes()).message.contains("waos install"));
+        assert!(not_launched(&notes()).message.contains("waos launch"));
         assert_eq!(
             outside_window(&notes(), WindowId(1), 800, 600, 900.0, 700.0, 1.0).kind,
             RefusalKind::OutsideWindow {

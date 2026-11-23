@@ -1,8 +1,9 @@
 //! What WaOS asks each program's user now, by the program's name: a question, a link scheme, a
 //! switch's page, a picker or a file dialog, from the moment it is asked until it is answered or
-//! dropped. A run of `waos run` hears each as it is asked, and says it on its terminal; a
-//! screenshot and an input read what is asked over the program's windows, which no tool acts
-//! through (the dev server's `dev_run`, `dev_screenshot` and `dev_input`).
+//! dropped. An attach hears each as it is asked, and what is asked as it attaches, and `waos
+//! attach` and `waos run` say it on their terminal; a screenshot and an input read what is asked
+//! over the program's windows, which no tool acts through (the dev server's `dev_attach`,
+//! `dev_screenshot` and `dev_input`).
 //!
 //! The invariant: what is noted goes when its answer comes or its asking is dropped, by the guard
 //! held in the future that waits for it, so nothing is said to be asked that no longer is.

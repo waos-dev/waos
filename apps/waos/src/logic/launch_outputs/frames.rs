@@ -1,10 +1,10 @@
-//! Bounded queue of [`RunEvent`] frames from a running program to its dev connection.
+//! Bounded queue of [`RunEvent`] frames from a running program to one attach's connection.
 //!
 //! The invariants: every frame leaves in the order pushed (`Started` before `Output` and `Ended`
 //! last); queued `Output` bytes stay within [`OUTPUT_IN_FLIGHT`] via async backpressure so a slow
 //! or unread client suspends writes with a [`Waker`] rather than blocking the program's executor
 //! thread; and [`Frames::close`] wakes waiting writers and drops further output so stopping a
-//! program never waits on output.
+//! program, or detaching, never waits on output.
 
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
@@ -18,7 +18,7 @@ use waos_dev_protocol::{OutputStream as ProtocolStream, RunEvent};
 pub(super) const OUTPUT_IN_FLIGHT: usize = 1 << 20;
 
 /// The frames a run's connection sends, in the order queued, with async backpressure on output.
-pub(super) struct Frames {
+pub(crate) struct Frames {
     queued: Mutex<Queued>,
     /// Wakes the connection sender when a frame is queued or the run ends.
     wake: Notify,
@@ -35,7 +35,7 @@ struct Queued {
 }
 
 impl Frames {
-    pub(super) fn new() -> Arc<Frames> {
+    pub(in crate::logic) fn new() -> Arc<Frames> {
         Arc::new(Frames {
             queued: Mutex::default(),
             wake: Notify::new(),
@@ -43,7 +43,7 @@ impl Frames {
     }
 
     /// Queues `event`; a queue already closed drops it.
-    pub(super) fn push(&self, event: RunEvent) {
+    pub(in crate::logic) fn push(&self, event: RunEvent) {
         let mut queued = self.lock();
         if queued.closed {
             return;
@@ -53,21 +53,13 @@ impl Frames {
         self.wake.notify_one();
     }
 
-    /// Polls writing as much of `bytes` as [`OUTPUT_IN_FLIGHT`] allows without exceeding it.
-    /// Returns [`Poll::Pending`] and keeps `cx.waker()` when no room is open yet, or accepts all
-    /// bytes once closed so a stopped run's output drains instead of hanging.
-    pub(super) fn poll_write(
-        &self,
-        stream: ProtocolStream,
-        cx: &mut Context<'_>,
-        bytes: &[u8],
-    ) -> Poll<usize> {
-        if bytes.is_empty() {
-            return Poll::Ready(0);
-        }
+    /// Polls for room for output: how many bytes [`OUTPUT_IN_FLIGHT`] leaves room for now. Returns
+    /// [`Poll::Pending`] and keeps `cx.waker()` when there is none yet, or any amount once closed,
+    /// so a stopped run's or a detached attach's output drains instead of hanging.
+    pub(super) fn poll_room(&self, cx: &mut Context<'_>) -> Poll<usize> {
         let mut queued = self.lock();
         if queued.closed {
-            return Poll::Ready(bytes.len());
+            return Poll::Ready(usize::MAX);
         }
         let room = OUTPUT_IN_FLIGHT.saturating_sub(queued.output);
         if room == 0 {
@@ -80,19 +72,32 @@ impl Frames {
             }
             return Poll::Pending;
         }
-        let take = bytes.len().min(room);
-        queued.output += take;
+        Poll::Ready(room)
+    }
+
+    /// Queues `bytes` the program wrote to `stream`, counted against [`OUTPUT_IN_FLIGHT`], which
+    /// the caller found room for; a queue already closed drops them.
+    pub(super) fn push_output(&self, stream: ProtocolStream, bytes: &[u8]) {
+        let mut queued = self.lock();
+        if queued.closed || bytes.is_empty() {
+            return;
+        }
+        queued.output += bytes.len();
         queued.frames.push_back(RunEvent::Output {
             stream,
-            bytes: bytes[..take].to_vec(),
+            bytes: bytes.to_vec(),
         });
         drop(queued);
         self.wake.notify_one();
-        Poll::Ready(take)
+    }
+
+    /// Whether the queue is closed: its attach is gone, or the run ended.
+    pub(super) fn is_closed(&self) -> bool {
+        self.lock().closed
     }
 
     /// The next frame, once one is queued; none once closed and drained.
-    pub(super) async fn next(&self) -> Option<RunEvent> {
+    pub(in crate::logic) async fn next(&self) -> Option<RunEvent> {
         loop {
             let woken = self.wake.notified();
             {
@@ -120,7 +125,7 @@ impl Frames {
 
     /// Closes the queue: waiting writers wake to drop further output, and the sender ends once
     /// buffered frames drain.
-    pub(super) fn close(&self) {
+    pub(in crate::logic) fn close(&self) {
         let writers = {
             let mut queued = self.lock();
             queued.closed = true;
@@ -144,21 +149,25 @@ mod tests {
 
     use super::*;
 
+    /// Writes as much of `bytes` as there is room for, as a program's output does.
+    async fn write(frames: &Frames, bytes: &[u8]) -> usize {
+        let room = poll_fn(|cx| frames.poll_room(cx)).await;
+        let take = bytes.len().min(room);
+        frames.push_output(ProtocolStream::Stdout, &bytes[..take]);
+        take
+    }
+
     #[tokio::test]
     async fn output_waits_with_pending_until_room_opens() {
         let frames = Frames::new();
-        poll_fn(|cx| {
-            assert_eq!(
-                frames.poll_write(ProtocolStream::Stdout, cx, &vec![1; OUTPUT_IN_FLIGHT]),
-                Poll::Ready(OUTPUT_IN_FLIGHT)
-            );
-            Poll::Ready(())
-        })
-        .await;
+        assert_eq!(
+            write(&frames, &vec![1; OUTPUT_IN_FLIGHT]).await,
+            OUTPUT_IN_FLIGHT
+        );
 
         let writer = tokio::spawn({
             let frames = Arc::clone(&frames);
-            async move { poll_fn(|cx| frames.poll_write(ProtocolStream::Stdout, cx, b"more")).await }
+            async move { write(&frames, b"more").await }
         });
         tokio::task::yield_now().await;
         assert!(!writer.is_finished(), "a full queue suspends with Pending");
@@ -180,10 +189,10 @@ mod tests {
     #[tokio::test]
     async fn a_closed_queue_drops_what_a_program_writes_and_ends_the_sender() {
         let frames = Frames::new();
-        poll_fn(|cx| frames.poll_write(ProtocolStream::Stdout, cx, b"kept")).await;
+        write(&frames, b"kept").await;
         frames.close();
-        let dropped = poll_fn(|cx| frames.poll_write(ProtocolStream::Stdout, cx, b"dropped")).await;
-        assert_eq!(dropped, b"dropped".len());
+        assert!(frames.is_closed());
+        assert_eq!(write(&frames, b"dropped").await, b"dropped".len());
         assert!(matches!(frames.next().await, Some(RunEvent::Output { .. })));
         assert!(
             frames.next().await.is_none(),
@@ -194,11 +203,10 @@ mod tests {
     #[tokio::test]
     async fn a_queue_closed_with_output_waiting_lets_the_writer_go() {
         let frames = Frames::new();
-        poll_fn(|cx| frames.poll_write(ProtocolStream::Stdout, cx, &vec![1; OUTPUT_IN_FLIGHT]))
-            .await;
+        write(&frames, &vec![1; OUTPUT_IN_FLIGHT]).await;
         let writer = tokio::spawn({
             let frames = Arc::clone(&frames);
-            async move { poll_fn(|cx| frames.poll_write(ProtocolStream::Stdout, cx, b"more")).await }
+            async move { write(&frames, b"more").await }
         });
         tokio::task::yield_now().await;
         frames.close();

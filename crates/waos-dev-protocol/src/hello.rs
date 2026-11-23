@@ -13,12 +13,13 @@ use crate::adjacent::adjacent_unknown;
 use crate::messages::Request;
 
 /// The protocol's major, which each hello says: raised only by a real break in the messages'
-/// meaning, while a field or a message added leaves it as it is.
-pub const MAJOR: u32 = 2;
+/// meaning, while a field or a message added leaves it as it is. 3 since a run became its steps,
+/// `install`, `launch`, `attach` and `stop`, and `run` went: a `waos` that runs programs with
+/// `run` is told to update itself rather than that WaOS lacks it.
+pub const MAJOR: u32 = 3;
 
 /// Every request a WaOS serves, by [`Request::name`]: what its hello lists.
-pub const SERVED: [&str; 8] = [
-    "run",
+pub const SERVED: [&str; 12] = [
     "screenshot",
     "input",
     "resize",
@@ -26,6 +27,11 @@ pub const SERVED: [&str; 8] = [
     "set",
     "inspect",
     "open",
+    "install",
+    "launch",
+    "attach",
+    "stop",
+    "uninstall",
 ];
 
 /// Which half of the protocol sent a [`Hello`].
@@ -157,18 +163,19 @@ impl std::error::Error for Mismatch {}
 mod tests {
     use std::path::PathBuf;
 
-    use crate::messages::{Input, Inspection, Request, Run, WindowId};
+    use crate::messages::{Input, Inspection, Install, Launch, Request, WindowId};
     use crate::settings_rows::Row;
     use waos_package::ProgramId;
 
     use super::*;
 
-    fn run() -> Request {
-        Request::Run(Run {
+    fn install() -> Request {
+        Request::Install(Install {
             id: "dev.example.triangle".parse().unwrap(),
             kind: waos_package::ProgramKind::App,
-            args: Vec::new(),
-            variables: Vec::new(),
+            name: "Triangle".into(),
+            version: "0.1.0".parse().unwrap(),
+            icon: None,
             length: 0,
             digest: [0; 32],
         })
@@ -185,14 +192,6 @@ mod tests {
     fn served_lists_every_request() {
         let id: ProgramId = "dev.example.triangle".parse().unwrap();
         let all = [
-            Request::Run(Run {
-                id: id.clone(),
-                kind: waos_package::ProgramKind::App,
-                args: Vec::new(),
-                variables: Vec::new(),
-                length: 0,
-                digest: [0; 32],
-            }),
             Request::Screenshot {
                 id: id.clone(),
                 window: None,
@@ -218,22 +217,41 @@ mod tests {
                 asked: Inspection::ActiveUses,
             },
             Request::Open {
-                id,
+                id: id.clone(),
                 files: Vec::<PathBuf>::new(),
+            },
+            install(),
+            Request::Launch(Launch {
+                id: id.development(),
+                arguments: Vec::new(),
+                variables: Vec::new(),
+            }),
+            Request::Attach {
+                id: id.development(),
+            },
+            Request::Stop {
+                id: id.development(),
+            },
+            Request::Uninstall {
+                id: id.development(),
             },
         ];
         // Match exhaustively so adding a `Request` variant fails to compile here until `all` and
         // `SERVED` list it too.
         for request in &all {
             match request {
-                Request::Run(_)
-                | Request::Screenshot { .. }
+                Request::Screenshot { .. }
                 | Request::Input { .. }
                 | Request::Resize { .. }
                 | Request::Settings { .. }
                 | Request::Set { .. }
                 | Request::Inspect { .. }
                 | Request::Open { .. }
+                | Request::Install(_)
+                | Request::Launch(_)
+                | Request::Attach { .. }
+                | Request::Stop { .. }
+                | Request::Uninstall { .. }
                 | Request::Unknown => {}
             }
         }
@@ -249,19 +267,22 @@ mod tests {
             ..Hello::waos("WaOS 0.3.0")
         };
         assert!(matches!(
-            empty.accepts(&cli, &run()),
-            Err(Mismatch::NotServed { request: "run", .. })
+            empty.accepts(&cli, &install()),
+            Err(Mismatch::NotServed {
+                request: "install",
+                ..
+            })
         ));
     }
 
     #[test]
     fn a_request_a_waos_does_not_serve_is_refused_naming_it() {
         let theirs = Hello {
-            serves: vec!["run".to_owned()],
+            serves: vec!["install".to_owned()],
             ..Hello::waos("WaOS 0.3.0")
         };
         let ours = Hello::command("waos 0.3.0");
-        assert_eq!(theirs.accepts(&ours, &run()), Ok(()));
+        assert_eq!(theirs.accepts(&ours, &install()), Ok(()));
         let refused = theirs.accepts(&ours, &screenshot()).unwrap_err();
         assert!(matches!(refused, Mismatch::NotServed { .. }));
         assert!(
@@ -278,7 +299,7 @@ mod tests {
             major: MAJOR + 1,
             ..Hello::waos("WaOS 0.4.0")
         };
-        let refused = newer.accepts(&ours, &run()).unwrap_err();
+        let refused = newer.accepts(&ours, &install()).unwrap_err();
         assert!(
             refused.to_string().contains("update waos")
                 && refused.to_string().contains("WaOS 0.4.0")
@@ -289,7 +310,7 @@ mod tests {
             major: MAJOR - 1,
             ..Hello::waos("WaOS 0.2.0")
         };
-        let refused = older.accepts(&ours, &run()).unwrap_err();
+        let refused = older.accepts(&ours, &install()).unwrap_err();
         assert!(
             refused.to_string().contains("update WaOS")
                 && refused.to_string().contains("WaOS 0.2.0"),
@@ -297,7 +318,7 @@ mod tests {
         );
 
         let open = Hello::waos_open("waos 0.3.0");
-        let refused = newer.accepts(&open, &run()).unwrap_err();
+        let refused = newer.accepts(&open, &install()).unwrap_err();
         assert!(
             refused.to_string().contains("update WaOS")
                 && !refused.to_string().contains("cargo install")

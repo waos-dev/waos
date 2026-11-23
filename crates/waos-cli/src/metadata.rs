@@ -1,6 +1,7 @@
 //! A program's `[package.metadata.waos]`: what packaging it needs that Cargo's own fields do not
 //! say, the program's id, the name people see, its icon, and whether it is an app or a tool, an app
-//! unless it says `kind = "tool"`; a run needs the id and the kind alone.
+//! unless it says `kind = "tool"`; an install from its source needs the id and the kind alone, and
+//! takes the name and the icon where the table gives them.
 //!
 //! ```toml
 //! [package.metadata.waos]
@@ -32,11 +33,15 @@ pub struct WaosMetadata {
     pub kind: ProgramKind,
 }
 
-/// What a run needs of `[package.metadata.waos]`: which program it is, and of what kind.
+/// What an install from the program's source needs of `[package.metadata.waos]`: which program it
+/// is, of what kind, and the name people see and the icon where it gives them.
 #[derive(Debug)]
-pub struct RunIdentity {
+pub struct InstallIdentity {
     pub id: ProgramId,
     pub kind: ProgramKind,
+    pub name: Option<String>,
+    /// The icon's PNG, beside the package's `Cargo.toml`.
+    pub icon: Option<PathBuf>,
 }
 
 /// The table as `Cargo.toml` spells it, before its fields are checked.
@@ -48,11 +53,13 @@ struct Fields {
     kind: Option<String>,
 }
 
-/// What a run needs of the table.
+/// What an install needs of the table.
 #[derive(Deserialize)]
-struct RunFields {
+struct InstallFields {
     id: String,
     kind: Option<String>,
+    name: Option<String>,
+    icon: Option<PathBuf>,
 }
 
 /// The kind `kind` spells, an app where none is said.
@@ -73,20 +80,28 @@ impl WaosMetadata {
 
     /// The id in `package`'s `[package.metadata.waos]`, which names the program a command reaches.
     pub fn id_of(package: &Package) -> Result<ProgramId> {
-        Ok(WaosMetadata::run_identity_of(package)?.id)
+        Ok(WaosMetadata::install_identity_of(package)?.id)
     }
 
-    /// The id and kind in `package`'s `[package.metadata.waos]`, which a run is the program of.
-    pub fn run_identity_of(package: &Package) -> Result<RunIdentity> {
-        WaosMetadata::run_identity_from_table(table_of(package)?)
+    /// What `package`'s `[package.metadata.waos]` says of the program an install from its source
+    /// is: its id and kind, and its name and icon where it says them.
+    pub fn install_identity_of(package: &Package) -> Result<InstallIdentity> {
+        let folder = package
+            .manifest_path
+            .parent()
+            .expect("a manifest is in a folder");
+        WaosMetadata::install_identity_from_table(table_of(package)?, folder.as_std_path())
             .with_context(|| format!("[package.metadata.waos] of {}", package.name))
     }
 
-    fn run_identity_from_table(table: &Value) -> Result<RunIdentity> {
-        let fields: RunFields = serde_json::from_value(table.clone())?;
-        Ok(RunIdentity {
+    /// The install's identity `table` holds, its icon's path relative to `folder`.
+    fn install_identity_from_table(table: &Value, folder: &Path) -> Result<InstallIdentity> {
+        let fields: InstallFields = serde_json::from_value(table.clone())?;
+        Ok(InstallIdentity {
             id: fields.id.parse()?,
             kind: kind_of(fields.kind.as_deref())?,
+            name: fields.name,
+            icon: fields.icon.map(|icon| folder.join(icon)),
         })
     }
 
@@ -144,27 +159,34 @@ mod tests {
     }
 
     #[test]
-    fn a_run_reads_the_id_and_the_kind_alone() {
+    fn an_install_needs_the_id_alone_and_takes_the_name_and_the_icon_given() {
+        let folder = Path::new("/programs/triangle");
         let table = json!({"id": "dev.example.triangle"});
-        let run = WaosMetadata::run_identity_from_table(&table).unwrap();
-        assert_eq!(run.id.as_str(), "dev.example.triangle");
+        let install = WaosMetadata::install_identity_from_table(&table, folder).unwrap();
+        assert_eq!(install.id.as_str(), "dev.example.triangle");
         assert_eq!(
-            run.kind,
+            install.kind,
             ProgramKind::App,
             "an app unless it says otherwise"
         );
-        let error =
-            WaosMetadata::run_identity_from_table(&json!({"name": "Triangle"})).unwrap_err();
+        assert_eq!((install.name, install.icon), (None, None));
+        let whole = json!({"id": "dev.example.triangle", "name": "Triangle", "icon": "icon.png"});
+        let install = WaosMetadata::install_identity_from_table(&whole, folder).unwrap();
+        assert_eq!(install.name.as_deref(), Some("Triangle"));
+        assert_eq!(install.icon, Some(folder.join("icon.png")));
+        let error = WaosMetadata::install_identity_from_table(&json!({"name": "Triangle"}), folder)
+            .unwrap_err();
         assert!(error.to_string().contains("`id`"), "{error}");
     }
 
     #[test]
     fn a_tool_says_so_and_an_unknown_kind_is_refused() {
+        let folder = Path::new("/");
         let tool = json!({"id": "dev.example.grep", "kind": "tool"});
-        let run = WaosMetadata::run_identity_from_table(&tool).unwrap();
-        assert_eq!(run.kind, ProgramKind::Tool);
+        let install = WaosMetadata::install_identity_from_table(&tool, folder).unwrap();
+        assert_eq!(install.kind, ProgramKind::Tool);
         let gadget = json!({"id": "dev.example.grep", "kind": "gadget"});
-        let error = WaosMetadata::run_identity_from_table(&gadget).unwrap_err();
+        let error = WaosMetadata::install_identity_from_table(&gadget, folder).unwrap_err();
         assert!(error.to_string().contains("gadget"), "{error}");
     }
 

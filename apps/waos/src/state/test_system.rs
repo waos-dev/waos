@@ -228,7 +228,7 @@ impl TestSystem {
             .run(&program, environment)
             .expect("the program runs");
         let listed = running.clone();
-        futures::executor::block_on(self.runs.start(&id, || Ok(listed))).expect("among the runs");
+        futures::executor::block_on(self.runs.launch(&id, || Ok(listed))).expect("among the runs");
         running
     }
 

@@ -15,6 +15,7 @@
 
 mod asked;
 mod asking;
+mod attach;
 mod build;
 mod component_imports;
 mod connecting;
@@ -26,6 +27,8 @@ mod docs;
 mod icon_rule;
 mod input;
 mod inspect;
+mod install;
+mod launch;
 mod metadata;
 mod new;
 mod os;
@@ -36,6 +39,7 @@ mod screenshot;
 mod settings;
 mod signing_key;
 mod skill;
+mod stop;
 mod variables;
 mod verify;
 pub mod waos_app;
@@ -54,7 +58,8 @@ use waos_package::{ProgramId, PublisherKey};
 
 use crate::build::{BuiltProgram, Features, Profile};
 use crate::input::Pair;
-use crate::metadata::WaosMetadata;
+use crate::install::InstallBuild;
+use crate::metadata::{InstallIdentity, WaosMetadata};
 use crate::new::Template;
 use crate::resize::Points;
 
@@ -752,19 +757,47 @@ fn build_only(args: &BuildArgs) -> Result<ExitCode> {
     Ok(ExitCode::SUCCESS)
 }
 
-/// Builds the program and runs it in WaOS as the program its id names until it ends, on a
-/// runtime of this thread's. A package with no id is refused before anything is built.
+/// Builds the program, installs it as its development install, launches it and attaches to it
+/// until it ends, on a runtime of this thread's. A package with no id is refused before anything
+/// is built.
 fn build_and_run(args: &RunArgs, starter: &dyn WaOSStarter) -> Result<ExitCode> {
     let metadata = workspace::metadata()?;
     let package = workspace::chosen_package(&metadata, args.build.program.package.as_deref())?;
-    let identity = WaosMetadata::run_identity_of(package)?;
+    let identity = WaosMetadata::install_identity_of(package)?;
     let built = build::build(
         &metadata,
         package,
         args.build.profile(),
         &args.build.features.features(),
     )?;
-    on_this_thread(run::run(identity, &built, &args.env, &args.args, starter))
+    let build = install_build(identity, package, &built)?;
+    on_this_thread(run::run(
+        &build,
+        &built.name,
+        &args.env,
+        &args.args,
+        starter,
+    ))
+}
+
+/// What an install sends of `built`, the build of `package`, which `identity` names: its name
+/// people see, the package's where its metadata names none, its version, and its icon where its
+/// metadata names one.
+fn install_build(
+    identity: InstallIdentity,
+    package: &cargo_metadata::Package,
+    built: &BuiltProgram,
+) -> Result<InstallBuild> {
+    let read =
+        |path: &Path| std::fs::read(path).with_context(|| format!("reading {}", path.display()));
+    Ok(InstallBuild {
+        id: identity.id,
+        kind: identity.kind,
+        name: identity.name.unwrap_or_else(|| package.name.to_string()),
+        version: package.version.clone(),
+        icon: identity.icon.as_deref().map(read).transpose()?,
+        component: read(&built.component)?,
+    })
 }
 
 /// Writes the pictures of the program's windows under target/waos/screenshots/<package>, or where
@@ -772,7 +805,7 @@ fn build_and_run(args: &RunArgs, starter: &dyn WaOSStarter) -> Result<ExitCode> 
 fn screenshot(args: &ScreenshotArgs) -> Result<ExitCode> {
     let metadata = workspace::metadata()?;
     let package = workspace::chosen_package(&metadata, args.program.package.as_deref())?;
-    let id = WaosMetadata::id_of(package)?;
+    let id = WaosMetadata::id_of(package)?.development();
     let default = workspace::waos_folder(&metadata)
         .join("screenshots")
         .join(package.name.as_str());
@@ -796,11 +829,13 @@ fn resize_window(args: &ResizeArgs) -> Result<ExitCode> {
     on_this_thread(resize::resize(id, args.window.window, args.to))
 }
 
-/// The id in the chosen package's [package.metadata.waos], read without building anything.
+/// The development id of the chosen package's program, its [package.metadata.waos] id followed
+/// by `.development`, read without building anything: the program `waos install` installs and
+/// `waos run` runs.
 fn program_id(program: &Program) -> Result<ProgramId> {
     let metadata = workspace::metadata()?;
     let package = workspace::chosen_package(&metadata, program.package.as_deref())?;
-    WaosMetadata::id_of(package)
+    Ok(WaosMetadata::id_of(package)?.development())
 }
 
 /// What `work` answers, on a runtime of this thread's: a command's connection to WaOS, or a

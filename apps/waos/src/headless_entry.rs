@@ -34,7 +34,6 @@ use crate::logic::installed_runs::InstalledRuns;
 use crate::logic::program_places::{ProgramPlace, ProgramPlaces};
 use crate::logic::prompts::{PromptRequests, PromptsOnRequest};
 use crate::logic::runs::Runs;
-use crate::logic::sent_components::SentComponents;
 use crate::os;
 use crate::write_traces;
 
@@ -153,19 +152,17 @@ impl HeadlessDaemon {
         let places = ProgramPlaces::new(ProgramPlace::Windows);
         let installed =
             InstalledRuns::new(Arc::clone(&engine), environments, Arc::clone(&runs), places);
-        let sent = Arc::new(SentComponents::new(config.folders.dev_components));
         let starts = HeldStarts {
             installed: installed.clone(),
             store: store.clone(),
-            sent: Arc::clone(&sent),
         };
         inspected.serve_starts(starts, runtime.clone());
 
         let (stop_prompts, stop_prompts_rx) = oneshot::channel();
         runtime.spawn(hold_prompts(prompted, stop_prompts_rx));
 
-        let server = DevServer::start(installed, store, asking, &config.socket, sent, None)
-            .with_context(|| {
+        let server =
+            DevServer::start(installed, store, asking, &config.socket).with_context(|| {
                 format!("listening for dev commands at {}", config.socket.display())
             })?;
         tracing::info!(socket = %config.socket.display(), "headless WaOS listening");
@@ -317,9 +314,9 @@ mod tests {
 
     use tempfile::TempDir;
     use waos_dev_protocol::{
-        Answer, ClientStream, Connection, Hello, Input, InputAnswer, InputDone, Request,
-        ResizeAnswer, Role, Row, Run, RunEvent, ScreenshotAnswer, SettingsAnswer, Upload, WindowId,
-        component_digest,
+        Answer, ClientStream, Connection, Hello, Input, InputAnswer, InputDone, Install,
+        InstallAnswer, Launch, LaunchAnswer, Request, ResizeAnswer, Role, Row, RunEvent,
+        ScreenshotAnswer, SettingsAnswer, StopAnswer, Upload, WindowId, component_digest,
     };
     use waos_package::ProgramId;
 
@@ -333,7 +330,6 @@ mod tests {
         AppFolders {
             code_cache: PathBuf::from(waos_test_programs::CODE_CACHE),
             temporary_folders: root.join("tmp"),
-            dev_components: root.join("dev"),
             package_copies: root.join("packages"),
             store: root.join("store"),
             preferences: root.join("preferences.toml"),
@@ -358,30 +354,60 @@ mod tests {
         conn
     }
 
+    /// The program at `component_path` installed as the program `id`, launched and attached to,
+    /// as `waos run` runs it: the attach's connection, and the development id it runs as.
     async fn start_run(
         socket: &Path,
         id: ProgramId,
         component_path: &Path,
-    ) -> Connection<ClientStream> {
+    ) -> (Connection<ClientStream>, ProgramId) {
         let component = std::fs::read(component_path).expect("read component");
         let mut conn = connect(socket).await;
-        conn.send(&Request::Run(Run {
-            id,
+        conn.send(&Request::Install(Install {
+            id: id.clone(),
             kind: waos_package::ProgramKind::App,
-            args: Vec::new(),
-            variables: Vec::new(),
+            name: id.to_string(),
+            version: "0.1.0".parse().unwrap(),
+            icon: None,
             length: component.len() as u64,
             digest: component_digest(&component),
         }))
         .await
-        .expect("send run");
+        .expect("send install");
         let upload: Upload = conn.receive().await.expect("upload").expect("upload reply");
         if upload == Upload::Send {
             conn.send_component(&component)
                 .await
                 .expect("send component");
         }
-        conn
+        let InstallAnswer::Installed { id: development } =
+            conn.receive().await.expect("install").expect("installed")
+        else {
+            panic!("installed");
+        };
+        assert_eq!(development, id.development());
+        let mut conn = connect(socket).await;
+        conn.send(&Request::Launch(Launch {
+            id: development.clone(),
+            arguments: Vec::new(),
+            variables: Vec::new(),
+        }))
+        .await
+        .expect("send launch");
+        loop {
+            match conn.receive().await.expect("launch").expect("an answer") {
+                LaunchAnswer::Compiling => {}
+                LaunchAnswer::Launched => break,
+                other => panic!("launched: {other:?}"),
+            }
+        }
+        let mut conn = connect(socket).await;
+        conn.send(&Request::Attach {
+            id: development.clone(),
+        })
+        .await
+        .expect("send attach");
+        (conn, development)
     }
 
     async fn ask<A: serde::de::DeserializeOwned>(socket: &Path, request: &Request) -> A {
@@ -394,7 +420,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn headless_daemon_serves_drawing_screenshot_resize_input_settings_and_idle_exit() {
+    async fn headless_daemon_serves_an_install_a_launch_its_attach_screenshot_resize_input_settings_stop_and_idle_exit()
+     {
         let temp = TempDir::new().unwrap();
         let socket = temp.path().join("dev.sock");
         let config = HeadlessConfig {
@@ -411,9 +438,14 @@ mod tests {
         let daemon =
             HeadlessDaemon::start(config, tokio::runtime::Handle::current()).expect("start daemon");
 
-        // 1. Run `examples/input` over waos-dev-protocol on the headless screen.
-        let id: ProgramId = INPUT_ID.parse().unwrap();
-        let run_conn = start_run(&socket, id.clone(), Path::new(waos_test_programs::INPUT)).await;
+        // 1. Install, launch and attach to `examples/input` over waos-dev-protocol on the
+        //    headless screen.
+        let (run_conn, id) = start_run(
+            &socket,
+            INPUT_ID.parse().unwrap(),
+            Path::new(waos_test_programs::INPUT),
+        )
+        .await;
 
         // Wait until first screenshot is presented.
         let deadline = Instant::now() + WITHIN;
@@ -483,14 +515,16 @@ mod tests {
         let settings: SettingsAnswer = ask(&socket, &Request::Settings { id: id.clone() }).await;
         assert!(matches!(settings, SettingsAnswer::Rows(_)), "{settings:?}");
 
+        // 5. Detach, the program running on, then stop it.
         drop(run_conn);
+        let stopped: StopAnswer = ask(&socket, &Request::Stop { id: id.clone() }).await;
+        assert_eq!(stopped, StopAnswer::Stopped);
 
-        // 5. Verify a pending `ask` prompt waits (is not immediately denied) and resolves via
+        // 6. Verify a pending `ask` prompt waits (is not immediately denied) and resolves via
         //    `Request::Set` (`waos settings set`).
-        let inspector_id: ProgramId = INSPECTOR_ID.parse().unwrap();
-        let mut ask_conn = start_run(
+        let (mut ask_conn, inspector_id) = start_run(
             &socket,
-            inspector_id.clone(),
+            INSPECTOR_ID.parse().unwrap(),
             Path::new(waos_test_programs::IMPORTS_INSPECT),
         )
         .await;
@@ -542,7 +576,7 @@ mod tests {
         }
         drop(ask_conn);
 
-        // 6. Idle timeout triggers once all runs and connections are gone.
+        // 7. Idle timeout triggers once all runs and connections are gone.
         let idle = tokio::time::timeout(
             Duration::from_secs(5),
             wait_until_idle(

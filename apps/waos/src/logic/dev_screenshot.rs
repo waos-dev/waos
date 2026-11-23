@@ -1,6 +1,6 @@
-//! A screenshot `waos screenshot` asks for: the last picture of each window of a program a
-//! run of `waos run` runs, or of the one window asked for, each with the id the run gave it
-//! as it opened, its title, its size, whether it is in sight, and the picture as a PNG (the
+//! A screenshot `waos ui screenshot` asks for: the last picture of each window of a program
+//! running, however it was installed or started (the design's decision 70), or of the one window
+//! asked for, each with the id its run gave it as it opened, its title, its size, whether it is in sight, and the picture as a PNG (the
 //! design's decision 60). A picture is what the window shows, at its view's size (`ProgramView::picture`,
 //! decision 62): the program's drawing over what each composition layer beneath it shows now, a
 //! buffer it presented, a player's video or a camera's picture, drawn together by the engine on
@@ -10,7 +10,8 @@
 //! What WaOS asks the program's user over its windows is the shell's, not the program's picture:
 //! each window says what is asked (`asking_now`).
 //!
-//! The invariant: only a run `waos run` sent is read, never a program the library opened.
+//! The invariant: a program is read only while it runs, through its view's own picture, never a
+//! window of the app's reached around the engine.
 
 use waos::ProgramView;
 use waos::bindings::wasdk::platform::hardware_buffers::PixelBuffer;
@@ -22,7 +23,7 @@ use waos_package::ProgramId;
 
 use super::asking_now::AskingNow;
 use super::dev_refusal;
-use super::runs::{DevRun, Runs};
+use super::runs::{DrivenProgram, Runs};
 
 /// Answers a connection's `Screenshot`: the pictures of the windows of the program `id`, or of
 /// `window` alone, or why neither was taken.
@@ -33,7 +34,7 @@ pub(crate) async fn answer(
     id: &ProgramId,
     window: Option<WindowId>,
 ) {
-    let answer = match runs.dev_run(id).await {
+    let answer = match runs.driven(id) {
         Some(run) => {
             let asked = asking.of(id.as_str());
             let id = id.clone();
@@ -50,7 +51,7 @@ pub(crate) async fn answer(
                 )),
             }
         }
-        None => ScreenshotAnswer::Refused(dev_refusal::no_dev_run_now(id)),
+        None => ScreenshotAnswer::Refused(dev_refusal::not_running(id)),
     };
     // A client gone meanwhile has nobody to tell.
     let _ = connection.send(&answer).await;
@@ -61,7 +62,7 @@ pub(crate) async fn answer(
 /// over it.
 fn pictures(
     id: &ProgramId,
-    run: &DevRun,
+    run: &DrivenProgram,
     asked: Option<&Asked>,
     window: Option<WindowId>,
 ) -> Result<Vec<WindowPicture>, Refusal> {
@@ -161,7 +162,7 @@ mod tests {
     use std::fs;
 
     use waos::bindings::wasdk::platform::hardware_buffers::{AlphaType, PixelFormat};
-    use waos_dev_protocol::{RefusalKind, Request, ScreenshotAnswer, WindowId};
+    use waos_dev_protocol::{InspectAnswer, RefusalKind, Request, ScreenshotAnswer, WindowId};
 
     use super::*;
     use crate::logic::dev_server::tests::TestServer;
@@ -179,14 +180,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn only_a_run_waos_sent_is_read() {
+    async fn a_program_the_library_opened_is_read_and_inspected_as_any_running_one() {
         let server = TestServer::start("screenshot-library");
         let ScreenshotAnswer::Refused(refusal) =
             server.ask::<ScreenshotAnswer>(&screenshot(OPENER)).await
         else {
             panic!("nothing runs");
         };
-        assert_eq!(refusal.kind, RefusalKind::NoDevRunNow);
+        assert_eq!(refusal.kind, RefusalKind::NotRunning);
         let packages = server.folder.join("packages");
         fs::create_dir_all(&packages).unwrap();
         let component = fs::read(waos_test_programs::OPENER).unwrap();
@@ -202,12 +203,20 @@ mod tests {
         let sent = open_command::send_to(&server.socket, &id, vec![file]).await;
         assert_eq!(sent.unwrap(), Sent::Opened);
         server.wait_for_runs(&[OPENER]).await;
-        let ScreenshotAnswer::Refused(refusal) =
-            server.ask::<ScreenshotAnswer>(&screenshot(OPENER)).await
-        else {
-            panic!("the library opened it");
+        assert_eq!(
+            server.ask::<ScreenshotAnswer>(&screenshot(OPENER)).await,
+            ScreenshotAnswer::Pictures(Vec::new()),
+            "read, though no run of waos started it: its engine here shows no window"
+        );
+        let active_uses = Request::Inspect {
+            id: OPENER.parse().unwrap(),
+            asked: waos_dev_protocol::Inspection::ActiveUses,
         };
-        assert_eq!(refusal.kind, RefusalKind::NoDevRunNow);
+        let InspectAnswer::Inspected(lines) = server.ask::<InspectAnswer>(&active_uses).await
+        else {
+            panic!("inspected, though no run of waos started it");
+        };
+        assert_eq!(lines.len(), 1, "everything it uses now, as one line");
     }
 
     /// Two pixels on each of two rows, each row padded to 12 bytes.
@@ -274,8 +283,9 @@ mod tests {
         use crate::logic::dev_server::tests::WITHIN;
         use crate::logic::test_engine::drawing::{WINDOW_HEIGHT, WINDOW_WIDTH};
 
-        /// The id `examples/input` runs as.
+        /// The id `examples/input` is installed as, and the development id it runs as.
         const INPUT: &str = "dev.waos.examples.input";
+        const INPUT_DEVELOPMENT: &str = "dev.waos.examples.input.development";
 
         /// Its first two colours, as RGBA: 0.1, 0.1, 0.4 and 0.9, 0.5, 0.1.
         const FIRST: [u8; 4] = [26, 26, 102, 255];
@@ -356,7 +366,7 @@ mod tests {
             let _client = server
                 .run(INPUT, Path::new(waos_test_programs::INPUT))
                 .await;
-            let pictures = pictures_once_shown(&server, INPUT).await;
+            let pictures = pictures_once_shown(&server, INPUT_DEVELOPMENT).await;
             let [picture] = &pictures[..] else {
                 panic!("one window: {pictures:?}");
             };
@@ -373,7 +383,7 @@ mod tests {
             assert_colour(middle, FIRST);
 
             let tap = Request::Input {
-                id: INPUT.parse().unwrap(),
+                id: INPUT_DEVELOPMENT.parse().unwrap(),
                 window: Some(WindowId(1)),
                 input: Input::Tap { x: 1.0, y: 1.0 },
             };
@@ -383,17 +393,17 @@ mod tests {
                     in_sight: true
                 })
             );
-            pictures_once_middle_is(&server, INPUT, SECOND).await;
+            pictures_once_middle_is(&server, INPUT_DEVELOPMENT, SECOND).await;
         }
 
-        /// The design's decision 63: a run is watched while its connection is open.
+        /// The design's decision 63: a program is watched while an attach to it is open.
         #[tokio::test]
-        async fn a_covered_window_is_in_sight_and_draws_while_its_run_is_open_and_not_after() {
+        async fn a_covered_window_is_in_sight_and_draws_while_attached_and_not_after() {
             let server = TestServer::drawing("screenshot-covered");
             let client = server
                 .run(INPUT, Path::new(waos_test_programs::INPUT))
                 .await;
-            pictures_once_shown(&server, INPUT).await;
+            pictures_once_shown(&server, INPUT_DEVELOPMENT).await;
             let view = server.programs().await[0].views().remove(0);
             view.presence_changed(Presence {
                 on_screen: true,
@@ -401,10 +411,10 @@ mod tests {
                 focused: false,
             });
             assert!(view.in_sight(), "covered, but watched");
-            let pictures = pictures_once_shown(&server, INPUT).await;
+            let pictures = pictures_once_shown(&server, INPUT_DEVELOPMENT).await;
             assert!(pictures[0].in_sight);
             let tap = Request::Input {
-                id: INPUT.parse().unwrap(),
+                id: INPUT_DEVELOPMENT.parse().unwrap(),
                 window: Some(WindowId(1)),
                 input: Input::Tap { x: 1.0, y: 1.0 },
             };
@@ -415,19 +425,24 @@ mod tests {
                 })
             );
             // A covered window draws what the input changed.
-            pictures_once_middle_is(&server, INPUT, SECOND).await;
+            pictures_once_middle_is(&server, INPUT_DEVELOPMENT, SECOND).await;
 
             drop(client);
-            server.wait_for_runs(&[]).await;
-            assert!(
-                !view.in_sight(),
-                "once the run ended, covered is out of sight"
-            );
+            let deadline = Instant::now() + WITHIN;
+            while view.in_sight() {
+                assert!(
+                    Instant::now() < deadline,
+                    "once detached, covered is out of sight"
+                );
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+            server.wait_for_runs(&[INPUT_DEVELOPMENT]).await;
         }
 
         #[tokio::test]
         async fn window_ids_survive_a_window_closing_and_screenshot_takes_one_window() {
             const TWO_WINDOWS: &str = "dev.waos.examples.twowindows";
+            const TWO_WINDOWS_DEVELOPMENT: &str = "dev.waos.examples.twowindows.development";
             let server = TestServer::drawing("window-ids");
             let _client = server
                 .run(TWO_WINDOWS, Path::new(waos_test_programs::TWO_WINDOWS))
@@ -435,7 +450,7 @@ mod tests {
             let deadline = Instant::now() + WITHIN;
             let both = loop {
                 if let ScreenshotAnswer::Pictures(pictures) = server
-                    .ask::<ScreenshotAnswer>(&screenshot(TWO_WINDOWS))
+                    .ask::<ScreenshotAnswer>(&screenshot(TWO_WINDOWS_DEVELOPMENT))
                     .await
                     && pictures.len() == 2
                     && pictures.iter().all(|picture| picture.png.is_some())
@@ -456,7 +471,7 @@ mod tests {
 
             // Asking for one window returns that window alone.
             let only_second = Request::Screenshot {
-                id: TWO_WINDOWS.parse().unwrap(),
+                id: TWO_WINDOWS_DEVELOPMENT.parse().unwrap(),
                 window: Some(WindowId(2)),
             };
             let ScreenshotAnswer::Pictures(one) =
@@ -476,7 +491,7 @@ mod tests {
             let first_view = program.views()[0].id();
             program.remove_view(first_view);
             let ScreenshotAnswer::Pictures(after_close) = server
-                .ask::<ScreenshotAnswer>(&screenshot(TWO_WINDOWS))
+                .ask::<ScreenshotAnswer>(&screenshot(TWO_WINDOWS_DEVELOPMENT))
                 .await
             else {
                 panic!("the remaining window");
@@ -488,7 +503,7 @@ mod tests {
             );
             let ScreenshotAnswer::Refused(refusal) = server
                 .ask::<ScreenshotAnswer>(&Request::Screenshot {
-                    id: TWO_WINDOWS.parse().unwrap(),
+                    id: TWO_WINDOWS_DEVELOPMENT.parse().unwrap(),
                     window: Some(WindowId(1)),
                 })
                 .await
@@ -511,7 +526,7 @@ mod tests {
             // With window 1 closed, input and resize without `--window` reach window 2.
             let default_input = server
                 .ask::<waos_dev_protocol::InputAnswer>(&Request::Input {
-                    id: TWO_WINDOWS.parse().unwrap(),
+                    id: TWO_WINDOWS_DEVELOPMENT.parse().unwrap(),
                     window: None,
                     input: Input::Tap { x: 1.0, y: 1.0 },
                 })
@@ -522,7 +537,7 @@ mod tests {
             );
             let default_resize = server
                 .ask::<waos_dev_protocol::ResizeAnswer>(&Request::Resize {
-                    id: TWO_WINDOWS.parse().unwrap(),
+                    id: TWO_WINDOWS_DEVELOPMENT.parse().unwrap(),
                     window: None,
                     width: 320.0,
                     height: 240.0,
@@ -537,7 +552,7 @@ mod tests {
             let third = crate::logic::test_engine::drawing::add_window(&program, 3);
             assert_eq!(third.id(), 3);
             let ScreenshotAnswer::Pictures(with_third) = server
-                .ask::<ScreenshotAnswer>(&screenshot(TWO_WINDOWS))
+                .ask::<ScreenshotAnswer>(&screenshot(TWO_WINDOWS_DEVELOPMENT))
                 .await
             else {
                 panic!("windows 2 and 3");

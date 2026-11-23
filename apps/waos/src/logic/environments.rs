@@ -1,9 +1,9 @@
 //! What each program runs with: this computer's capabilities, made once and shared, its sound
 //! devices among them unless others are given; what the user lets it use, read live from the
 //! store's settings; and its own folders, which the store keeps.
-//! A program is the one its id names, whether the library opened it or `waos` sent it
-//! (decision 11 of the permissions proposal): installed or not, it has its own settings over the
-//! global ones, and its own `/data` and `/cache`.
+//! A program is the one its id names, whether the library opened it or `waos launch` started
+//! it, a development install under its development id (the design's decision 70): it has its own
+//! settings over the global ones, and its own `/data` and `/cache`.
 
 use std::sync::Arc;
 

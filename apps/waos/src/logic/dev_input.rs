@@ -1,6 +1,6 @@
-//! An input `waos tap`, `press`, `drag`, `type`, `key` or `scroll` sends, given to a window
-//! of a program a run of `waos run` runs, as its user would give it (the design's decision
-//! 60): through the engine's view, as the shell reports its user's input, so the program cannot
+//! An input `waos ui tap`, `press`, `drag`, `type`, `key` or `scroll` sends, given to a window
+//! of a program running, however it was installed or started, as its user would give it (the
+//! design's decisions 60 and 70): through the engine's view, as the shell reports its user's input, so the program cannot
 //! tell the two apart: the program's own mouse (`RunningProgram::mouse`), a US keyboard and an
 //! input method's text (`Keyboard`), a press and a drag taking the time they say before the
 //! answer. This is the protocol's side alone: the window the input goes to, what is refused, and
@@ -19,7 +19,7 @@ use waos_package::ProgramId;
 use super::asking_now::AskingNow;
 use super::dev_refusal;
 use super::dev_server::BUILD;
-use super::runs::{DevRun, Runs};
+use super::runs::{DrivenProgram, Runs};
 
 /// Answers a connection's `Input`: `input` given to the window `window` of the program `id`, then
 /// `InputDone` with whether the window was in sight, or why it reached none.
@@ -55,9 +55,8 @@ async fn give(
         return Err(dev_refusal::unsupported(BUILD, "input"));
     }
     let run = runs
-        .dev_run(id)
-        .await
-        .ok_or_else(|| dev_refusal::no_dev_run_now(id))?;
+        .driven(id)
+        .ok_or_else(|| dev_refusal::not_running(id))?;
     if let Some(asked) = asking.of(id.as_str()) {
         return Err(dev_refusal::asking(id, &asked, "the input was not given"));
     }
@@ -73,7 +72,7 @@ async fn give(
 async fn deliver(
     id: &ProgramId,
     window: WindowId,
-    run: &DevRun,
+    run: &DrivenProgram,
     view: &ProgramView,
     input: &Input,
 ) -> Result<(), Refusal> {

@@ -3,7 +3,7 @@
 //! output a program's sound plays on, which the shell's picker of outputs asks, or a machine for a
 //! program, which the shell's picker of machines asks; and a switch's
 //! page to be opened in the library's settings (`state::library`). Each is noted as asked of the
-//! program's user until it is answered (`asking_now`), for a run of `waos run` to say. The engine asks from the
+//! program's user until it is answered (`asking_now`), for an attach to the program to say. The engine asks from the
 //! program's thread and is answered later, through the future it was given: a question with the
 //! user's reply, or none when nobody replied, because the main thread stopped listening or dropped
 //! it; a switch's page once the user left it, or at once when nobody can open it.
@@ -260,7 +260,7 @@ impl ShellMachinePicker for MachinePickerOnRequest {
 }
 
 impl ProgramQuestion {
-    /// The question, as a run of `waos run` is told it is asked.
+    /// The question, as an attach to the program is told it is asked.
     fn asked_now(&self) -> AskedNow {
         match self {
             ProgramQuestion::Permission(question) => {
