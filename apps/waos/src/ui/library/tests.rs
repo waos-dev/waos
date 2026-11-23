@@ -14,7 +14,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use waft::ui::{EmbedderClient as _, OpenOptions, View as _, ViewId};
-use waft::{Icon, IntoWidget};
+use waft::{Icon, IntoWidget, Offset};
 use waft_cupertino::{
     CupertinoActionSheet, CupertinoAlertDialog, CupertinoIcons, CupertinoNavigationBar,
 };
@@ -95,6 +95,52 @@ fn the_empty_homes_button_gets_programs() {
     assert!(desktop.shows(words::ADD_SOURCE), "{:?}", desktop.labels());
     assert!(desktop.shows(words::NO_SOURCES));
     desktop.tap(view, words::HOME_TITLE);
+    assert!(desktop.shows(words::NO_PROGRAMS), "back on the home");
+}
+
+/// A page opened from the home slides in from the right over it, as iOS pushes a page, and its
+/// back button slides it out again, the library home at once.
+#[test]
+fn a_page_slides_in_over_the_home_and_its_back_button_slides_it_out() {
+    let mut desktop = desktop();
+    let view = phone_view(&desktop);
+    desktop.tap_in_motion(view, words::GET_PROGRAMS);
+    desktop.frames(2);
+    let sliding = desktop.find(words::ADD_SOURCE).expect("the page, on its way in");
+    assert!(desktop.shows(words::NO_PROGRAMS), "the home, under it");
+    desktop.settle();
+    let settled = desktop.find(words::ADD_SOURCE).expect("the page, in place");
+    assert!(
+        sliding.dx() > settled.dx() + 50.0,
+        "from the right: at {sliding:?}, then {settled:?}"
+    );
+
+    desktop.tap_in_motion(view, words::HOME_TITLE);
+    assert_eq!(desktop.read(|library| library.page().clone()), LibraryPage::Home);
+    desktop.frames(2);
+    let leaving = desktop.find(words::ADD_SOURCE).expect("the page, on its way out");
+    assert!(leaving.dx() > settled.dx() + 50.0, "to the right: at {leaving:?}");
+    desktop.settle();
+    assert!(!desktop.shows(words::ADD_SOURCE), "{:?}", desktop.labels());
+    assert!(desktop.shows(words::NO_PROGRAMS), "back on the home");
+}
+
+/// A swipe from the screen's left edge takes a page back to the home, as on iOS, and the library
+/// with it.
+#[test]
+fn a_swipe_from_the_left_edge_takes_a_page_back_to_the_home() {
+    let mut desktop = desktop();
+    let view = phone_view(&desktop);
+    desktop.tap(view, words::GET_PROGRAMS);
+    let [width, height] = PHONE_SCREEN;
+    let middle = height / 2.0;
+    desktop.swipe(
+        view,
+        Offset::new(5.0, middle),
+        Offset::new(width * 0.8, middle),
+    );
+    assert_eq!(desktop.read(|library| library.page().clone()), LibraryPage::Home);
+    assert!(!desktop.shows(words::ADD_SOURCE), "{:?}", desktop.labels());
     assert!(desktop.shows(words::NO_PROGRAMS), "back on the home");
 }
 

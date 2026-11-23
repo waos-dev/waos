@@ -29,11 +29,14 @@ pub(crate) mod test_steps;
 mod tests;
 pub(crate) mod words;
 
-use waft::{App, BuildContext, Entity, IntoWidget, MediaQuery, StatelessWidget, WidgetRef};
+use waft::{
+    App, BuildContext, Entity, IntoWidget, KeyRef, MediaQuery, PageRef, StatelessWidget,
+    ValueKey, WidgetRef,
+};
 
 use crate::logic::library_layout::LibraryLayout;
 use crate::logic::setting_changes::SettingsOf;
-use crate::state::library::Library;
+use crate::state::library::{Library, LibraryPage};
 use crate::state::recordings::Recordings;
 use cupertino::CupertinoLibrary;
 use fluent::FluentLibrary;
@@ -70,6 +73,34 @@ impl StatelessWidget for LaidOutLibrary {
         }
     }
 }
+/// The pages a kit's navigator stacks while the library is on `shown`: the home at the bottom, and
+/// over it `shown` when that is another page, as iOS stacks a page pushed from the home.
+fn stacked_pages(shown: &LibraryPage) -> Vec<LibraryPage> {
+    let mut pages = vec![LibraryPage::Home];
+    if *shown != LibraryPage::Home {
+        pages.push(shown.clone());
+    }
+    pages
+}
+
+/// The key of the navigator's page that shows `page`: the library's pages tell apart as the
+/// library tells them, so a page given again updates the one shown.
+fn page_key(page: &LibraryPage) -> KeyRef {
+    ValueKey::new(page.clone()).into()
+}
+
+/// What a kit's navigator calls when it removes a page by itself, as a swipe back does: when the
+/// library was on that page, it goes home, so its pages no longer list it, as the navigator asks.
+fn home_once_removed(library: &Entity<Library>) -> impl Fn(&mut App, PageRef) + 'static {
+    let library = library.clone();
+    move |app, removed| {
+        let shown = page_key(library.read(app).page());
+        if removed.key() == Some(&shown) {
+            library.update(app, |library, cx| library.show_page(LibraryPage::Home, cx));
+        }
+    }
+}
+
 /// The name of the program whose settings `of` shows, as its user knows it, or its id once it is
 /// no longer installed; none on the global page.
 fn program_name(library: &Entity<Library>, of: &SettingsOf, app: &App) -> Option<String> {

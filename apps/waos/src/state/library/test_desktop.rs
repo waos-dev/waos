@@ -404,6 +404,47 @@ impl LibraryDesktop {
         self.click_at(view, at, 1);
     }
 
+    /// Taps the label `text` shows in the window of `view`, with the mouse, leaving what the tap
+    /// starts in motion, for [`frames`](Self::frames) to show it move.
+    pub(crate) fn tap_in_motion(&mut self, view: ViewId, text: &str) {
+        let at = self.label_at(text);
+        self.press_at(view, at, 1);
+    }
+
+    /// Draws `count` frames, each [`FRAME_INTERVAL`] after the last.
+    pub(crate) fn frames(&mut self, count: usize) {
+        for _ in 0..count {
+            self.pump();
+        }
+    }
+
+    /// Swipes a finger from `from` to `to` in the window of `view`, a frame's move at a time over
+    /// half a second, then lifts it, as a swipe across a phone's screen.
+    pub(crate) fn swipe(&mut self, view: ViewId, from: Offset, to: Offset) {
+        const MOVES: usize = 10;
+        let touch = |desktop: &mut LibraryDesktop, at: Offset, change| {
+            desktop.shell.pointer_reports(vec![PointerReport {
+                view_id: view,
+                time_stamp: desktop.elapsed,
+                device: 2,
+                kind: PointerDeviceKind::Touch,
+                position: [at.dx(), at.dy()],
+                change,
+                contact: Contact::default(),
+            }]);
+            desktop.pump();
+        };
+        touch(self, from, ReportedChange::Add);
+        touch(self, from, ReportedChange::Down { buttons: 1 });
+        for step in 1..=MOVES {
+            let at = from + (to - from) * (step as f64 / MOVES as f64);
+            touch(self, at, ReportedChange::Move { buttons: 1 });
+        }
+        touch(self, to, ReportedChange::Up { buttons: 0 });
+        touch(self, to, ReportedChange::Remove);
+        self.settle();
+    }
+
     /// Clicks the label `text` shows in the window of `view` with the mouse's secondary button, as
     /// a right click does.
     pub(crate) fn right_click(&mut self, view: ViewId, text: &str) {
@@ -449,8 +490,15 @@ impl LibraryDesktop {
             .unwrap_or_else(|| panic!("no label {text:?} on screen: {:?}", self.labels()))
     }
 
-    /// Clicks at `at` in the window of `view` with the mouse's `buttons`.
+    /// Clicks at `at` in the window of `view` with the mouse's `buttons`, then lets what it
+    /// started settle.
     fn click_at(&mut self, view: ViewId, at: Offset, buttons: i64) {
+        self.press_at(view, at, buttons);
+        self.settle();
+    }
+
+    /// Clicks at `at` in the window of `view` with the mouse's `buttons`.
+    fn press_at(&mut self, view: ViewId, at: Offset, buttons: i64) {
         let mut changes = vec![
             ReportedChange::Hover { buttons: 0 },
             ReportedChange::Down { buttons },
@@ -471,7 +519,6 @@ impl LibraryDesktop {
             }]);
             self.pump();
         }
-        self.settle();
     }
 
     /// Scrolls what holds the label `text` shows, in the window of `view`, to its end, with the
@@ -505,7 +552,6 @@ impl LibraryDesktop {
             }]);
             self.pump();
         }
-        self.settle();
     }
 
     /// Scrolls what holds the label `over` shows, in the window of `view`, by `delta` pixels at a
@@ -654,8 +700,8 @@ impl LibraryDesktop {
             .find(|element| label_of(&app, *element).as_deref() == Some(text))
     }
 
-    /// Where the label showing `text` is, in its view.
-    fn find(&self, text: &str) -> Option<Offset> {
+    /// Where the middle of the label showing `text` is, in its view.
+    pub(crate) fn find(&self, text: &str) -> Option<Offset> {
         let element = self.label_element(text)?;
         let app = self.shell.app();
         let label = element.render_object(&app)?.as_box()?;

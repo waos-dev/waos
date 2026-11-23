@@ -1,22 +1,25 @@
 //! The library at a phone's size, in Cupertino's widgets: the page the library is on, under an app
 //! of its own: the home, getting programs, or a settings page, the global one or a program's, each
-//! a page of its own with a way back to the home; and, where the library shows its own questions,
-//! what it asks or says as an alert over them.
+//! pushed over the home with a way back to it, as iOS slides a page in and swipes it back; and,
+//! where the library shows its own questions, what it asks or says as an alert over them.
 //!
 //! What it shows is the library's, read by the widget that shows each page.
 
+use std::rc::Rc;
+
 use waft::{
-    App, BuildContext, Builder, EdgeInsetsGeometry, Entity, Icon, IntoWidget, Listener,
-    MainAxisSize, MediaQuery, Row, StatelessWidget, Text, WidgetRef,
+    App, BuildContext, Builder, Clip, EdgeInsetsGeometry, Entity, Handle, HeroController,
+    HeroControllerScope, Icon, IntoWidget, Listener, MainAxisSize, MediaQuery, Navigator, PageRef,
+    Ref, Row, State, StateData, StatefulWidget, StatelessWidget, Text, WidgetRef,
 };
-use waft_cupertino::{CupertinoApp, CupertinoButton, CupertinoIcons};
+use waft_cupertino::{CupertinoApp, CupertinoButton, CupertinoIcons, CupertinoPage};
 
 use super::get_programs::cupertino::CupertinoGetPrograms;
 use super::home::cupertino::CupertinoHome;
 use super::program_name;
 use super::questions::cupertino::CupertinoAsked;
 use super::settings::cupertino::CupertinoSettings;
-use super::words;
+use super::{home_once_removed, page_key, stacked_pages, words};
 use crate::state::library::{Library, LibraryPage};
 use crate::state::recordings::Recordings;
 
@@ -52,17 +55,81 @@ impl StatelessWidget for CupertinoLibrary {
     }
 }
 
-/// The page the library is on.
-#[derive(Debug)]
+/// The library's pages, as a navigator of Cupertino's pages: the home, and the page the library
+/// is on over it. A change of page slides in or out as iOS's do, the navigation bars' titles moving
+/// between them, and a swipe back takes the library home. It clips nothing, as an app's root
+/// navigator doesn't: it spans the screen's width and a page slides in sideways, so what a clip
+/// would cut is off the screen already.
+#[derive(Clone, Debug)]
 struct LibraryPages {
     library: Entity<Library>,
     recordings: Entity<Recordings>,
 }
 
-impl StatelessWidget for LibraryPages {
-    fn build(&self, app: &mut App, _context: BuildContext) -> WidgetRef {
+impl StatefulWidget for LibraryPages {
+    type State = LibraryPagesState;
+
+    fn create_state(&self) -> LibraryPagesState {
+        LibraryPagesState {
+            state: StateData::new(),
+            hero_controller: None,
+        }
+    }
+}
+
+/// The navigator's own hero controller, which moves the navigation bars' titles between pages: a
+/// navigator inside an app has none of the app's, so it makes one, as Cupertino's tab view does.
+struct LibraryPagesState {
+    state: StateData<LibraryPages>,
+    hero_controller: Option<Ref<HeroController>>,
+}
+
+impl State for LibraryPagesState {
+    type Widget = LibraryPages;
+    waft_widgets::state_accessors!();
+
+    fn init_state(self: Handle<Self>, app: &mut App) {
+        let hero_controller = CupertinoApp::create_cupertino_hero_controller(app);
+        app.get_mut(self).hero_controller = Some(hero_controller);
+    }
+
+    fn dispose(self: Handle<Self>, app: &mut App) {
+        if let Some(hero_controller) = app.get_mut(self).hero_controller.take() {
+            hero_controller.dispose(app);
+        }
+    }
+
+    fn build(self: Handle<Self>, app: &mut App, _context: BuildContext) -> WidgetRef {
+        let widget = self.widget(app).clone();
+        let shown = widget.library.read(app).page().clone();
+        let pages: Vec<PageRef> = stacked_pages(&shown)
+            .into_iter()
+            .map(|page| widget.page(app, page))
+            .collect();
+        let navigator = Navigator::new()
+            .clip_behavior(Clip::None)
+            .pages(pages)
+            .on_did_remove_page(home_once_removed(&widget.library));
+        let hero_controller = app
+            .get(self)
+            .hero_controller
+            .clone()
+            .expect("init_state makes the controller");
+        HeroControllerScope::new(hero_controller, navigator).into_widget()
+    }
+}
+
+impl LibraryPages {
+    /// The navigator's page that shows `page`.
+    fn page(&self, app: &mut App, page: LibraryPage) -> PageRef {
+        let key = page_key(&page);
+        Rc::new(CupertinoPage::new(self.content(app, page)).key(key))
+    }
+
+    /// What `page` shows.
+    fn content(&self, app: &mut App, page: LibraryPage) -> WidgetRef {
         let library = self.library.clone();
-        match library.read(app).page().clone() {
+        match page {
             LibraryPage::Home => CupertinoHome {
                 library,
                 recordings: self.recordings.clone(),
