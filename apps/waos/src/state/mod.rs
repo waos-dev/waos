@@ -106,7 +106,6 @@ use crate::logic::program_shortcuts::SystemShortcuts;
 use crate::logic::prompts::PromptsOnRequest;
 use crate::logic::recording_indicator::RecordingIndicatorOnRequest;
 use crate::logic::runs::Runs;
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
 use crate::logic::vsync_waiter::WaftVsync;
 use crate::ui::deck::Deck;
 use crate::ui::every_window::{LibraryWindow, every_window, program_windows};
