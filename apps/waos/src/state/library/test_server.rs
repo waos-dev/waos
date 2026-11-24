@@ -45,9 +45,21 @@ impl Server {
     /// Lists `package`, of `id` at `version`, as the only program of `waos/index.json`, and
     /// serves it beside the index.
     pub(crate) fn publish(&self, id: &str, package: &Path, version: &str) {
+        self.publish_saying(id, package, version, |_| {});
+    }
+
+    /// [`publish`](Self::publish), the index saying of itself and of the program what `say`
+    /// adds: the source's name, what it puts forward, what a store shows of the program.
+    pub(crate) fn publish_saying(
+        &self,
+        id: &str,
+        package: &Path,
+        version: &str,
+        say: impl FnOnce(&mut Index),
+    ) {
         let bytes = std::fs::read(package).unwrap();
         let file_name = package.file_name().unwrap().to_string_lossy().into_owned();
-        let index = Index {
+        let mut index = Index {
             programs: vec![ListedProgram::new(
                 id.parse().unwrap(),
                 "Triangle",
@@ -57,6 +69,7 @@ impl Server {
             )],
             ..Index::default()
         };
+        say(&mut index);
         let mut files = self.files.lock().unwrap();
         files.insert(format!("waos/{file_name}"), bytes);
         files.insert("waos/index.json".to_owned(), index.to_json().into_bytes());

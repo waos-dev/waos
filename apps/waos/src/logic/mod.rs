@@ -40,6 +40,7 @@
 //! application is `state`'s.
 
 pub(crate) mod activity;
+pub(crate) mod app_store;
 pub(crate) mod asking_now;
 pub(crate) mod camera_calls;
 pub(crate) mod camera_values;

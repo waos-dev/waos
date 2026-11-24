@@ -424,6 +424,56 @@ fn a_sources_listing_offers_to_install_then_nothing_then_to_update() {
 }
 
 /// Installs the first program the one source lists, and waits until it is installed.
+/// The app store's catalog is what the sources list, with what each says of itself and of its
+/// apps; and every app with a newer version listed updates at once.
+#[test]
+fn the_app_store_shows_what_a_source_says_and_updates_every_app_at_once() {
+    let library = TestLibrary::new();
+    let server = Server::start();
+    let package = library.package(TRIANGLE, "1.0.0", b"\0asm");
+    server.publish_saying(TRIANGLE, &package, "1.0.0", |index| {
+        index.name = Some("Example Apps".to_owned());
+        index.featured = vec![TRIANGLE.parse().unwrap()];
+        index.programs[0].summary = Some("One triangle, drawn well".to_owned());
+    });
+    let index = server.url("waos/index.json");
+    library.update(|library, cx| library.add_source(&index, cx));
+    library.wait_until("the source's listing", |library| {
+        matches!(library.sources()[0].listing, Listing::Read(_))
+    });
+    let said = library.read(|library| library.sources()[0].name.clone());
+    assert_eq!(said.as_deref(), Some("Example Apps"));
+    let catalog = library.read(Library::catalog);
+    assert_eq!(catalog.len(), 1);
+    assert_eq!(catalog[0].offer, Offer::Install);
+    assert_eq!(
+        catalog[0].listed.summary.as_deref(),
+        Some("One triangle, drawn well")
+    );
+    assert_eq!(library.read(Library::featured), catalog, "put forward");
+
+    install_what_the_source_lists(&library);
+    let newer = library.package(TRIANGLE, "1.1.0", b"\0asm");
+    server.publish(TRIANGLE, &newer, "1.1.0");
+    library.update(|library, cx| library.read_sources(cx));
+    library.wait_until("the newer listing", |library| {
+        matches!(library.catalog().first(), Some(app) if matches!(app.offer, Offer::Update { .. }))
+    });
+    assert!(
+        library.read(Library::featured).is_empty(),
+        "put forward no more"
+    );
+    library.update(|library, cx| library.update_all(cx));
+    library.wait_until(
+        "the update",
+        |library| matches!(library.catalog().first(), Some(app) if app.offer == Offer::Installed),
+    );
+    assert_eq!(
+        library.installed(),
+        [(TRIANGLE.to_owned(), "1.1.0".to_owned())]
+    );
+}
+
 fn install_what_the_source_lists(library: &TestLibrary) {
     let (source, listed) = library.read(|library| {
         let read = &library.sources()[0];

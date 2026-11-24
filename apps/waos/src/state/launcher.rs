@@ -205,6 +205,7 @@ impl Launcher {
                 library.show_page(LibraryPage::Home, cx);
                 library.search_for("", cx);
                 library.show_category(None, cx);
+                library.reset_app_store(cx);
             });
         }
     }

@@ -39,6 +39,27 @@ pub(crate) enum LibraryPage {
     Settings(SettingsOf),
 }
 
+impl LibraryPage {
+    /// The page this one was opened over, which going back shows: every page is over the home;
+    /// none beneath the home.
+    pub(crate) fn beneath(&self) -> Option<LibraryPage> {
+        match self {
+            LibraryPage::Home => None,
+            LibraryPage::GetPrograms | LibraryPage::Settings(_) => Some(LibraryPage::Home),
+        }
+    }
+
+    /// The pages open up to this one, the home first: what a navigator stacks to show it.
+    pub(crate) fn stacked(&self) -> Vec<LibraryPage> {
+        let mut pages = vec![self.clone()];
+        while let Some(beneath) = pages.last().and_then(LibraryPage::beneath) {
+            pages.push(beneath);
+        }
+        pages.reverse();
+        pages
+    }
+}
+
 /// A program asked the user to change one of its switches, on the page open for it.
 #[derive(Clone, Debug)]
 pub(crate) struct SwitchAsked {
@@ -56,6 +77,14 @@ impl Library {
     /// The switch a program asked the user to change, on the settings page the library is on.
     pub(crate) fn switch_asked(&self) -> Option<&SwitchAsked> {
         self.switch_asked.as_ref()
+    }
+
+    /// The library goes back to the page the one it is on was opened over; nowhere from the
+    /// home.
+    pub(crate) fn go_back(&mut self, cx: &mut Context<Library>) {
+        if let Some(beneath) = self.page.beneath() {
+            self.show_page(beneath, cx);
+        }
     }
 
     /// The library goes to `page`; a program waiting for the user to leave the page it was on

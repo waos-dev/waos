@@ -19,7 +19,7 @@ use super::home::cupertino::CupertinoHome;
 use super::program_name;
 use super::questions::cupertino::CupertinoAsked;
 use super::settings::cupertino::CupertinoSettings;
-use super::{home_once_removed, page_key, stacked_pages, words};
+use super::{back_once_removed, page_key, words};
 use crate::state::library::{Library, LibraryPage};
 use crate::state::recordings::Recordings;
 
@@ -102,14 +102,15 @@ impl State for LibraryPagesState {
     fn build(self: Handle<Self>, app: &mut App, _context: BuildContext) -> WidgetRef {
         let widget = self.widget(app).clone();
         let shown = widget.library.read(app).page().clone();
-        let pages: Vec<PageRef> = stacked_pages(&shown)
+        let pages: Vec<PageRef> = shown
+            .stacked()
             .into_iter()
             .map(|page| widget.page(app, page))
             .collect();
         let navigator = Navigator::new()
             .clip_behavior(Clip::None)
             .pages(pages)
-            .on_did_remove_page(home_once_removed(&widget.library));
+            .on_did_remove_page(back_once_removed(&widget.library));
         let hero_controller = app
             .get(self)
             .hero_controller

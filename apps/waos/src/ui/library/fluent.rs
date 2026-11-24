@@ -22,7 +22,7 @@ use super::home::fluent::FluentHome;
 use super::program_name;
 use super::questions::fluent::FluentAsked;
 use super::settings::fluent::FluentSettings;
-use super::{home_once_removed, page_key, stacked_pages, words};
+use super::{back_once_removed, page_key, words};
 use crate::state::library::{Library, LibraryPage};
 use crate::state::recordings::Recordings;
 
@@ -86,13 +86,14 @@ struct LibraryPages {
 impl StatelessWidget for LibraryPages {
     fn build(&self, app: &mut App, context: BuildContext) -> WidgetRef {
         let shown = self.library.read(app).page().clone();
-        let pages: Vec<PageRef> = stacked_pages(&shown)
+        let pages: Vec<PageRef> = shown
+            .stacked()
             .into_iter()
             .map(|page| self.page(app, context, page))
             .collect();
         let navigator = Navigator::new()
             .pages(pages)
-            .on_did_remove_page(home_once_removed(&self.library));
+            .on_did_remove_page(back_once_removed(&self.library));
         // Above the navigator, as an app's shortcuts are, so a key from whichever page has the
         // focus reaches it.
         let keys = Focus::new(navigator).autofocus(true);

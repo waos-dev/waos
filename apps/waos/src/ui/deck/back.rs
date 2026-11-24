@@ -88,13 +88,13 @@ impl DeckViewState {
     }
 
     /// The home's page: from a page of its own other than its first, the library goes back to
-    /// the first; answers whether it did.
+    /// the page beneath; answers whether it did.
     fn go_back_on_the_home(self: Handle<Self>, app: &mut App) -> bool {
         let library = self.widget(app).library.clone();
         if *library.read(app).page() == LibraryPage::Home {
             return false;
         }
-        library.update(app, |library, cx| library.show_page(LibraryPage::Home, cx));
+        library.update(app, |library, cx| library.go_back(cx));
         true
     }
 }
