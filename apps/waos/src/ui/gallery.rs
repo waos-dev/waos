@@ -210,7 +210,7 @@ fn walks_the_library(layout: &str, (mut desktop, view): (LibraryDesktop, ViewId)
             server.serve_beside_index(&icon_file_of(category), icon);
         }
     }
-    adds_source(&mut desktop, &server.url("waos/index.json"));
+    adds_source(&mut desktop, &server.source());
     shows(&mut desktop, LibraryPage::AppStore);
     reads_the_icons_listed(&mut desktop);
     for (place, scene) in STORE_SCENES {

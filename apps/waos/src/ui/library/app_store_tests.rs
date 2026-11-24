@@ -43,7 +43,7 @@ fn on_the_store() -> (LibraryDesktop, waft::ui::ViewId, Server) {
     let server = Server::start();
     let triangle = desktop.package(TRIANGLE, "Triangle", "1.0.0", b"\0asm");
     server.publish_saying(TRIANGLE, &triangle, "1.0.0", says_what_a_store_shows);
-    adds_source(&mut desktop, &server.url("waos/index.json"));
+    adds_source(&mut desktop, &server.source());
     desktop.update(|library, cx| {
         library.show_page(crate::state::library::LibraryPage::AppStore, cx);
     });

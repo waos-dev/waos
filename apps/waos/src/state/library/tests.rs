@@ -383,7 +383,7 @@ fn a_sources_listing_offers_to_install_then_nothing_then_to_update() {
         &library.package(TRIANGLE, "1.0.0", b"\0asm"),
         "1.0.0",
     );
-    let index = server.url("waos/index.json");
+    let index = server.source();
     library.update(|library, cx| library.add_source(&index, cx));
     library.wait_until("the source's listing", |library| {
         matches!(library.sources()[0].listing, Listing::Read(_))
@@ -436,7 +436,7 @@ fn the_app_store_shows_what_a_source_says_and_updates_every_app_at_once() {
         index.featured = vec![TRIANGLE.parse().unwrap()];
         index.programs[0].summary = Some("One triangle, drawn well".to_owned());
     });
-    let index = server.url("waos/index.json");
+    let index = server.source();
     library.update(|library, cx| library.add_source(&index, cx));
     library.wait_until("the source's listing", |library| {
         matches!(library.sources()[0].listing, Listing::Read(_))
@@ -485,7 +485,7 @@ fn a_listed_apps_icon_is_read_after_its_source() {
     server.publish_saying(TRIANGLE, &package, "1.0.0", |index| {
         index.programs[0].icon = Some("triangle.png".to_owned());
     });
-    let index = server.url("waos/index.json");
+    let index = server.source();
     library.update(|library, cx| library.add_source(&index, cx));
     library.wait_until("the icon", |library| {
         let source = &library.sources()[0].source;
@@ -521,13 +521,13 @@ fn install_what_the_source_lists(library: &TestLibrary) {
 fn a_source_that_cannot_be_read_says_why() {
     let library = TestLibrary::new();
     let server = Server::start();
-    let missing = server.url("missing/index.json");
+    let missing = server.url("missing");
     library.update(|library, cx| library.add_source(&missing, cx));
     library.wait_until("the source's answer", |library| {
         !matches!(library.sources()[0].listing, Listing::Reading)
     });
     library.read(|library| match &library.sources()[0].listing {
-        Listing::Failed(why) => assert!(why.contains("404"), "{why}"),
+        Listing::Failed(why) => assert!(why.contains("lists no apps"), "{why}"),
         _ => panic!("the source is not read"),
     });
 }
@@ -547,7 +547,7 @@ fn waos_comes_with_the_official_source() {
             .iter()
             .map(Source::to_string)
             .collect::<Vec<_>>(),
-        ["https://list.waos.app/index.json"]
+        ["list.waos.app"]
     );
 }
 
@@ -560,7 +560,7 @@ fn a_removed_source_takes_its_listing_with_it() {
         &library.package(TRIANGLE, "1.0.0", b"\0asm"),
         "1.0.0",
     );
-    let index = server.url("waos/index.json");
+    let index = server.source();
     library.update(|library, cx| library.add_source(&index, cx));
     let source = library.read(|library| library.sources()[0].source.clone());
     library.update(|library, cx| library.remove_source(&source, cx));
@@ -762,7 +762,7 @@ fn an_update_from_a_source_ends_the_old_run_once_the_package_is_downloaded() {
         &library.package(TRIANGLE, "1.0.0", &forever),
         "1.0.0",
     );
-    let index = server.url("waos/index.json");
+    let index = server.source();
     library.update(|library, cx| library.add_source(&index, cx));
     library.wait_until("the source's listing", |library| {
         matches!(library.sources()[0].listing, Listing::Read(_))

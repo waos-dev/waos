@@ -13,6 +13,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
+use reqwest::StatusCode;
 use sha2::{Digest, Sha256};
 use tokio::sync::watch;
 use url::Url;
@@ -469,8 +470,16 @@ impl Store {
     }
 
     /// The index `source` serves: the programs it offers, each at a version, with its package.
+    /// An address that answers but has no index is told apart from one that could not be read:
+    /// it is no source, as a website that lists no apps.
     pub async fn read_source(&self, source: &Source) -> Result<Index, SourceError> {
-        fetch::read_index(&self.http, &source.index_url()).await
+        let read = fetch::read_index(&self.http, &source.index_url()).await;
+        read.map_err(|error| match error {
+            SourceError::Status { url, status } if status == StatusCode::NOT_FOUND => {
+                SourceError::ListsNothing { url }
+            }
+            other => other,
+        })
     }
 
     /// The picture `source`'s index lists as `picture`, an icon or a screenshot, as its file

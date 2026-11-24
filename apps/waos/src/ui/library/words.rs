@@ -47,7 +47,7 @@ pub(crate) const SEARCH_PROGRAMS: &str = "Search apps";
 /// On the home, while the user searches for a program and none installed is it.
 pub(crate) const NO_PROGRAMS_FOUND: &str = "No apps found.";
 pub(crate) const NO_SOURCES: &str = "No sources added.";
-pub(crate) const SOURCE_PLACEHOLDER: &str = "github.com/owner/repo, or an index.json's URL";
+pub(crate) const SOURCE_PLACEHOLDER: &str = "A website, as waos.app, or github.com/owner/repo";
 
 /// A question as the user is asked it: its title, what it says, and its two answers.
 pub(crate) struct Asked {

@@ -1,10 +1,14 @@
-//! A package source: where an `index.json` of programs is read from (the design's decision 45).
-//! Either an index at its own URL, or a GitHub repository, whose latest release carries the index
-//! and its packages as assets, read at `…/releases/latest/download/index.json` with no GitHub API.
+//! A package source: where apps are listed. Either a folder on the web, which holds an
+//! `index.json` with the packages and the pictures it lists beside it, or a GitHub repository,
+//! whose latest release carries the same as its assets, read at `…/releases/latest/download/`
+//! with no GitHub API. A website is a source by its address alone, as `waos.app`: its folder is
+//! `/.well-known/waos/`, where a site says what it offers one kind of client (RFC 8615).
 //!
-//! The invariant a later editor will break: an index is read over HTTPS, or over plain HTTP only
+//! The invariant a later editor will break: a source is read over HTTPS, or over plain HTTP only
 //! from this machine, since the index is not signed and says which package a first install
-//! trusts; a source's packages are found relative to the index's own URL.
+//! trusts; a source's packages are found relative to the index's own URL; and what a source
+//! shows as its address reads back as the same source, since that is how the list of sources is
+//! kept.
 
 use std::fmt;
 use std::str::FromStr;
@@ -16,14 +20,18 @@ use crate::SourceError;
 /// Where GitHub serves the assets of a repository's latest release, after the repository's path.
 const LATEST_RELEASE_ASSETS: &str = "releases/latest/download/";
 
-/// The index's name: the asset a GitHub source's latest release carries.
+/// The index's name in a source's folder, and among the assets of a GitHub source's release.
 const INDEX: &str = "index.json";
+
+/// The folder of a website that is a source by its address alone.
+const SITE_FOLDER: &str = "/.well-known/waos/";
 
 /// A package source.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Source {
-    /// An index at its own URL.
-    Index(Url),
+    /// A folder on the web, by its URL, which ends in `/`: a website's [`SITE_FOLDER`], or
+    /// any other its publisher names.
+    Folder(Url),
     /// A GitHub repository, `github.com/owner/repository`.
     GitHub { owner: String, repository: String },
 }
@@ -32,7 +40,7 @@ impl Source {
     /// Where the source's index is read.
     pub fn index_url(&self) -> Url {
         match self {
-            Source::Index(url) => url.clone(),
+            Source::Folder(folder) => folder.join(INDEX).expect("a folder's URL holds a file"),
             Source::GitHub { owner, repository } => {
                 let url = format!(
                     "https://github.com/{owner}/{repository}/{LATEST_RELEASE_ASSETS}{INDEX}"
@@ -65,9 +73,10 @@ impl Source {
     }
 }
 
-/// A source as the user types it: `github.com/owner/repository`, the repository's
-/// `https://github.com/owner/repository`, or the `https://` URL of an index; `http://` only for an
-/// index on this machine.
+/// A source as the user types it: a website's address, as `waos.app`; a folder's, as
+/// `example.com/apps`; or a GitHub repository, as `github.com/owner/repository` or its
+/// `https://` URL. An address with no scheme is read over `https://`; `http://` only for a source
+/// on this machine.
 impl FromStr for Source {
     type Err = SourceError;
 
@@ -80,37 +89,78 @@ impl FromStr for Source {
         if let Some(path) = text.strip_prefix("github.com/") {
             return github_repository(path).ok_or_else(|| not_a_source(NOT_A_REPOSITORY));
         }
-        let url = Url::parse(text).map_err(|_| not_a_source(NEITHER))?;
-        if url.scheme() == "https" && url.host_str() == Some("github.com") {
-            return github_repository(url.path().trim_start_matches('/'))
-                .map_or_else(|| index_at(url), Ok);
+        let address = if text.contains("://") {
+            text.to_owned()
+        } else {
+            format!("https://{text}")
+        };
+        let url = Url::parse(&address).map_err(|_| not_a_source(NEITHER))?;
+        if url.scheme() == "https"
+            && url.host_str() == Some("github.com")
+            && let Some(repository) = github_repository(url.path().trim_start_matches('/'))
+        {
+            return Ok(repository);
         }
         match url.scheme() {
-            "https" => index_at(url),
-            "http" if is_this_machine(&url) => index_at(url),
+            "https" if names_a_server(&url) => Ok(folder_at(url)),
+            "http" if is_this_machine(&url) => Ok(folder_at(url)),
             "http" => Err(not_a_source(PLAIN_HTTP)),
             _ => Err(not_a_source(NEITHER)),
         }
     }
 }
 
+/// The address a person types for the source, the shortest that reads back as it: a website's
+/// as `waos.app`, a folder's as `example.com/apps`, with `http://` before the one read so.
 impl fmt::Display for Source {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Source::Index(url) => f.write_str(url.as_str()),
+            Source::Folder(folder) => {
+                if folder.scheme() != "https" {
+                    write!(f, "{}://", folder.scheme())?;
+                }
+                f.write_str(folder.host_str().unwrap_or_default())?;
+                if let Some(port) = folder.port() {
+                    write!(f, ":{port}")?;
+                }
+                if folder.path() != SITE_FOLDER {
+                    f.write_str(folder.path().trim_end_matches('/'))?;
+                }
+                Ok(())
+            }
             Source::GitHub { owner, repository } => write!(f, "github.com/{owner}/{repository}"),
         }
     }
 }
 
-const NEITHER: &str =
-    "a source is an index's https:// URL, or a GitHub repository as github.com/owner/repository";
+const NEITHER: &str = "a source is a website's address, as waos.app, or a GitHub repository as github.com/owner/repository";
 const NOT_A_REPOSITORY: &str =
     "a GitHub repository is github.com/owner/repository, each of letters, digits, '-', '_' and '.'";
-const PLAIN_HTTP: &str = "an index is read over https://, or over http:// only from this machine";
+const PLAIN_HTTP: &str = "a source is read over https://, or over http:// only from this machine";
 
-fn index_at(url: Url) -> Result<Source, SourceError> {
-    Ok(Source::Index(url))
+/// The source `url` names: the folder at its path, or the website's own where it has none. What
+/// follows the path, a query or a fragment, names no folder and is left out.
+fn folder_at(mut url: Url) -> Source {
+    url.set_query(None);
+    url.set_fragment(None);
+    let path = url.path().trim_end_matches('/');
+    let folder = if path.is_empty() {
+        SITE_FOLDER.to_owned()
+    } else {
+        format!("{path}/")
+    };
+    url.set_path(&folder);
+    Source::Folder(url)
+}
+
+/// Whether `url` names a server as an address on the web does: a domain of more than one label,
+/// `localhost`, or an IP address; a lone word is something mistyped.
+fn names_a_server(url: &Url) -> bool {
+    match url.host() {
+        Some(Host::Domain(domain)) => domain == "localhost" || domain.contains('.'),
+        Some(Host::Ipv4(_) | Host::Ipv6(_)) => true,
+        None => false,
+    }
 }
 
 /// The repository `path` names, `owner/repository` with an optional `/` after it; none when it
@@ -190,16 +240,45 @@ mod tests {
     }
 
     #[test]
-    fn an_index_is_read_at_its_url_and_its_packages_beside_it() {
-        let index = source("https://example.com/waos/index.json");
-        assert_eq!(index, Source::Index(index.index_url()));
-        assert_eq!(index.to_string(), "https://example.com/waos/index.json");
+    fn a_website_is_a_source_by_its_address_read_at_its_well_known_folder() {
+        for text in [
+            "example.com",
+            "example.com/",
+            "https://example.com",
+            "https://example.com/?from=a-link#top",
+        ] {
+            let site = source(text);
+            assert_eq!(
+                site.index_url().as_str(),
+                "https://example.com/.well-known/waos/index.json",
+                "{text}"
+            );
+            assert_eq!(site.to_string(), "example.com", "{text}");
+        }
+    }
+
+    #[test]
+    fn a_folder_is_read_at_its_url_with_its_packages_beside_its_index() {
+        for text in [
+            "example.com/apps",
+            "https://example.com/apps/",
+            "https://example.com/apps",
+        ] {
+            let folder = source(text);
+            assert_eq!(
+                folder.index_url().as_str(),
+                "https://example.com/apps/index.json",
+                "{text}"
+            );
+            assert_eq!(folder.to_string(), "example.com/apps", "{text}");
+        }
+        let folder = source("example.com/apps");
         assert_eq!(
-            index.package_url("triangle-1.2.0.wapk").unwrap().as_str(),
-            "https://example.com/waos/triangle-1.2.0.wapk"
+            folder.package_url("triangle-1.2.0.wapk").unwrap().as_str(),
+            "https://example.com/apps/triangle-1.2.0.wapk"
         );
         assert_eq!(
-            index
+            folder
                 .package_url("https://cdn.example.com/triangle.wapk")
                 .unwrap()
                 .as_str(),
@@ -208,31 +287,33 @@ mod tests {
     }
 
     #[test]
-    fn a_github_url_that_is_not_a_repository_is_an_index() {
-        let asset = "https://github.com/example/triangle/releases/download/v1/index.json";
-        assert_eq!(source(asset), Source::Index(Url::parse(asset).unwrap()));
+    fn a_github_url_that_is_not_a_repository_is_a_folder() {
+        let release = source("https://github.com/example/triangle/releases/download/v1");
+        assert_eq!(
+            release.index_url().as_str(),
+            "https://github.com/example/triangle/releases/download/v1/index.json"
+        );
     }
 
     #[test]
     fn plain_http_is_read_only_from_this_machine() {
-        for local in [
-            "http://localhost:8000/index.json",
-            "http://127.0.0.1:8000/index.json",
-            "http://[::1]:8000/index.json",
+        for (local, shown) in [
+            ("http://localhost:8000", "http://localhost:8000"),
+            ("http://127.0.0.1:8000/", "http://127.0.0.1:8000"),
+            ("http://[::1]:8000/apps", "http://[::1]:8000/apps"),
         ] {
-            assert!(matches!(source(local), Source::Index(_)), "{local}");
+            assert_eq!(source(local).to_string(), shown);
         }
-        assert_eq!(reason("http://example.com/index.json"), PLAIN_HTTP);
+        assert_eq!(
+            source("http://localhost:8000").index_url().as_str(),
+            "http://localhost:8000/.well-known/waos/index.json"
+        );
+        assert_eq!(reason("http://example.com"), PLAIN_HTTP);
     }
 
     #[test]
     fn anything_else_is_not_a_source() {
-        for text in [
-            "",
-            "triangle",
-            "ftp://example.com/index.json",
-            "file:///index.json",
-        ] {
+        for text in ["", "triangle", "ftp://example.com", "file:///apps"] {
             assert_eq!(reason(text), NEITHER, "{text}");
         }
         for text in [
@@ -249,9 +330,13 @@ mod tests {
     fn a_source_reads_back_from_what_it_shows() {
         for text in [
             "github.com/example/triangle",
-            "https://example.com/waos/index.json",
-            "http://localhost:8000/index.json",
+            "example.com",
+            "example.com/apps",
+            "example.com:8443/apps",
+            "http://localhost:8000",
+            "http://localhost:8000/apps",
         ] {
+            assert_eq!(source(text).to_string(), text);
             assert_eq!(source(&source(text).to_string()), source(text));
         }
     }

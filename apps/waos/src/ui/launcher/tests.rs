@@ -258,7 +258,7 @@ fn a_running_program_has_its_dot_and_one_a_source_lists_newer_its_badge() {
     let server = Server::start();
     let newer = desktop.package(TRIANGLE, "Triangle", "1.1.0", b"\0asm");
     server.publish(TRIANGLE, &newer, "1.1.0");
-    let index = server.url("waos/index.json");
+    let index = server.source();
     desktop.update(|library, cx| library.add_source(&index, cx));
     desktop.settle_until("the update badged", |desktop| {
         desktop.count::<ProgramIcon>(|icon| icon.badge.is_some()) == 1

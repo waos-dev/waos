@@ -11,6 +11,10 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use waos_package::{Index, ListedProgram};
 
+/// Where a website keeps what it lists, after its address: the folder a source typed by its
+/// address alone is read in.
+const SOURCE_FOLDER: &str = ".well-known/waos/";
+
 /// An HTTP server on this machine, on a runtime of its own, answering `GET`s of the files
 /// published on it and 404 to anything else; it stops with its runtime.
 pub(crate) struct Server {
@@ -42,8 +46,8 @@ impl Server {
         }
     }
 
-    /// Lists `package`, of `id` at `version`, as the only program of `waos/index.json`, and
-    /// serves it beside the index.
+    /// Lists `package`, of `id` at `version`, as the only program of the index of the source the
+    /// server is ([`source`](Self::source)), and serves it beside the index.
     pub(crate) fn publish(&self, id: &str, package: &Path, version: &str) {
         self.publish_saying(id, package, version, |_| {});
     }
@@ -71,14 +75,23 @@ impl Server {
         };
         say(&mut index);
         let mut files = self.files.lock().unwrap();
-        files.insert(format!("waos/{file_name}"), bytes);
-        files.insert("waos/index.json".to_owned(), index.to_json().into_bytes());
+        files.insert(format!("{SOURCE_FOLDER}{file_name}"), bytes);
+        files.insert(
+            format!("{SOURCE_FOLDER}index.json"),
+            index.to_json().into_bytes(),
+        );
     }
 
     /// Serves `bytes` as the file `name` beside the index, as a source's picture is.
     pub(crate) fn serve_beside_index(&self, name: &str, bytes: &[u8]) {
         let mut files = self.files.lock().unwrap();
-        files.insert(format!("waos/{name}"), bytes.to_vec());
+        files.insert(format!("{SOURCE_FOLDER}{name}"), bytes.to_vec());
+    }
+
+    /// The server as a source, as its user types it: a website's address, whose apps are listed
+    /// where a website's are.
+    pub(crate) fn source(&self) -> String {
+        format!("http://{}", self.address)
     }
 
     /// The URL of the file `path` on this server.

@@ -72,7 +72,7 @@ fn install_on_the_phone(desktop: &mut LibraryDesktop, component: &[u8]) {
 fn source_listing_triangle(desktop: &mut LibraryDesktop, server: &Server, version: &str) -> String {
     let package = desktop.package(TRIANGLE, "Triangle", version, b"\0asm");
     server.publish(TRIANGLE, &package, version);
-    let index = server.url("waos/index.json");
+    let index = server.source();
     adds_source(desktop, &index);
     index
 }
@@ -322,7 +322,7 @@ fn the_get_page_says_installing_until_the_programs_code_is_ready() {
     let package = desktop.package(TRIANGLE, "Triangle", "1.0.0", &forever);
     let server = Server::start();
     server.publish(TRIANGLE, &package, "1.0.0");
-    let index = server.url("waos/index.json");
+    let index = server.source();
     desktop.update(|library, cx| library.add_source(&index, cx));
     desktop
         .update(|library, cx| library.show_page(crate::state::library::LibraryPage::AppStore, cx));

@@ -223,8 +223,8 @@ impl EventEmitter<ProgramOpened> for Library {}
 const WORK_THREADS: usize = 2;
 
 /// The source WaOS comes with, which its user removes as any other: the official source, the
-/// catalog of apps their own repositories release (`docs/proposals/2026-11-22-official-source.md`).
-const OFFICIAL_SOURCE: &str = "https://list.waos.app/index.json";
+/// catalog of apps their own repositories release.
+const OFFICIAL_SOURCE: &str = "list.waos.app";
 
 /// The sources the library starts with on a store whose list of sources was never made, as at
 /// WaOS's first start: the official source.
@@ -232,7 +232,7 @@ pub(crate) fn first_sources() -> Vec<Source> {
     vec![
         OFFICIAL_SOURCE
             .parse()
-            .expect("the official source is an index's URL"),
+            .expect("the official source is a website's address"),
     ]
 }
 
