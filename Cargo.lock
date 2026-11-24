@@ -8163,8 +8163,9 @@ dependencies = [
 
 [[package]]
 name = "waft"
-version = "0.11.0"
-source = "git+https://github.com/waos-dev/waft?branch=folder-handle-url#245bfb0ea89674e1589ffa3813cb948c10f5205e"
+version = "0.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a4673a40dd93ebf0fe9952108f97429ddfe90cc3e340ce4c6905a4d6261b5483"
 dependencies = [
  "waft-embedder",
  "waft-embedder-default",
@@ -8179,8 +8180,9 @@ dependencies = [
 
 [[package]]
 name = "waft-animation"
-version = "0.11.0"
-source = "git+https://github.com/waos-dev/waft?branch=folder-handle-url#245bfb0ea89674e1589ffa3813cb948c10f5205e"
+version = "0.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b4afd5a1281a544f23cb014f0df1069995c4b26023006e4a6402a7bc184f5d86"
 dependencies = [
  "waft-embedder",
  "waft-foundation",
@@ -8203,8 +8205,9 @@ dependencies = [
 
 [[package]]
 name = "waft-cupertino"
-version = "0.11.0"
-source = "git+https://github.com/waos-dev/waft?branch=folder-handle-url#245bfb0ea89674e1589ffa3813cb948c10f5205e"
+version = "0.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c3dc6c1ca5f6f4f1a2ae81aadbb156b075f0febddc28d0462131e837e4da29b2"
 dependencies = [
  "indexmap",
  "waft-animation",
@@ -8221,8 +8224,9 @@ dependencies = [
 
 [[package]]
 name = "waft-embedder"
-version = "0.11.0"
-source = "git+https://github.com/waos-dev/waft?branch=folder-handle-url#245bfb0ea89674e1589ffa3813cb948c10f5205e"
+version = "0.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3c41244057cc4df701fe50583cf23ffee263e630c20ab48ae14cfe6420a0caa2"
 dependencies = [
  "bytes",
  "http",
@@ -8242,8 +8246,9 @@ dependencies = [
 
 [[package]]
 name = "waft-embedder-android"
-version = "0.11.0"
-source = "git+https://github.com/waos-dev/waft?branch=folder-handle-url#245bfb0ea89674e1589ffa3813cb948c10f5205e"
+version = "0.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c3cd603dffe0b5e29786022c586ee56da35655b9102da3f09fdbab96e5e1e6bb"
 dependencies = [
  "ash",
  "jni",
@@ -8263,8 +8268,9 @@ dependencies = [
 
 [[package]]
 name = "waft-embedder-apple"
-version = "0.11.0"
-source = "git+https://github.com/waos-dev/waft?branch=folder-handle-url#245bfb0ea89674e1589ffa3813cb948c10f5205e"
+version = "0.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a1c6b8866d451812566702731efd4b6b26c152e246dca15e283209745ea9405b"
 dependencies = [
  "block2",
  "dispatch2",
@@ -8296,8 +8302,9 @@ dependencies = [
 
 [[package]]
 name = "waft-embedder-default"
-version = "0.11.0"
-source = "git+https://github.com/waos-dev/waft?branch=folder-handle-url#245bfb0ea89674e1589ffa3813cb948c10f5205e"
+version = "0.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6a851c2d65b9d5f1f69a082b288efd9ecac04f0c682ad075c8aff048f5ea9a76"
 dependencies = [
  "waft-embedder",
  "waft-embedder-android",
@@ -8308,8 +8315,9 @@ dependencies = [
 
 [[package]]
 name = "waft-embedder-ios"
-version = "0.11.0"
-source = "git+https://github.com/waos-dev/waft?branch=folder-handle-url#245bfb0ea89674e1589ffa3813cb948c10f5205e"
+version = "0.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6936ba3a799b6a3dbd33f7a7675ab220243abbab4de72476fa50d1b52702d429"
 dependencies = [
  "block2",
  "dispatch2",
@@ -8331,8 +8339,9 @@ dependencies = [
 
 [[package]]
 name = "waft-embedder-web"
-version = "0.11.0"
-source = "git+https://github.com/waos-dev/waft?branch=folder-handle-url#245bfb0ea89674e1589ffa3813cb948c10f5205e"
+version = "0.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d469ed18969cd162565db09cfd2074c5036c96f22521fd858536ccf455352aeb"
 dependencies = [
  "console_error_panic_hook",
  "getrandom 0.3.4",
@@ -8349,8 +8358,9 @@ dependencies = [
 
 [[package]]
 name = "waft-embedder-winit"
-version = "0.11.0"
-source = "git+https://github.com/waos-dev/waft?branch=folder-handle-url#245bfb0ea89674e1589ffa3813cb948c10f5205e"
+version = "0.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "217103071ce574913e2b657ddc2255bb72fcbd6f4faf61bf161351a1859e96d0"
 dependencies = [
  "arboard",
  "block2",
@@ -8389,8 +8399,9 @@ dependencies = [
 
 [[package]]
 name = "waft-foundation"
-version = "0.11.0"
-source = "git+https://github.com/waos-dev/waft?branch=folder-handle-url#245bfb0ea89674e1589ffa3813cb948c10f5205e"
+version = "0.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9f5ef6ccf393e022f1bd3128ce2bd83a15a2f0676a25935f5b1ec8e9bd36d3e3"
 dependencies = [
  "async-task",
  "indexmap",
@@ -8402,8 +8413,9 @@ dependencies = [
 
 [[package]]
 name = "waft-gestures"
-version = "0.11.0"
-source = "git+https://github.com/waos-dev/waft?branch=folder-handle-url#245bfb0ea89674e1589ffa3813cb948c10f5205e"
+version = "0.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6fa08b43ce3161650389edd3c8f21c1387ebc4735cddd44a78c33daa245c1261"
 dependencies = [
  "indexmap",
  "waft-embedder",
@@ -8449,8 +8461,9 @@ dependencies = [
 
 [[package]]
 name = "waft-macros"
-version = "0.11.0"
-source = "git+https://github.com/waos-dev/waft?branch=folder-handle-url#245bfb0ea89674e1589ffa3813cb948c10f5205e"
+version = "0.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c9679085d5867ec8e4d00268426039853c34549230d975a2cc0ba9d74f78afaa"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -8472,8 +8485,9 @@ dependencies = [
 
 [[package]]
 name = "waft-painting"
-version = "0.11.0"
-source = "git+https://github.com/waos-dev/waft?branch=folder-handle-url#245bfb0ea89674e1589ffa3813cb948c10f5205e"
+version = "0.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bf1f0a181dc31c73dea27dc469d38dce4ba50a6026da1d8cdd6d8d53dfaf715b"
 dependencies = [
  "http",
  "indexmap",
@@ -8487,16 +8501,18 @@ dependencies = [
 
 [[package]]
 name = "waft-physics"
-version = "0.11.0"
-source = "git+https://github.com/waos-dev/waft?branch=folder-handle-url#245bfb0ea89674e1589ffa3813cb948c10f5205e"
+version = "0.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fe776d785d2191b9643ef1698703ef29737c6672eff9d5a703a26510483de06f"
 dependencies = [
  "waft-embedder",
 ]
 
 [[package]]
 name = "waft-rendering"
-version = "0.11.0"
-source = "git+https://github.com/waos-dev/waft?branch=folder-handle-url#245bfb0ea89674e1589ffa3813cb948c10f5205e"
+version = "0.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f476b1fa6939034ccb4336ecdf65bf6280d94f9835d38a7913ddcc5773ee7678"
 dependencies = [
  "indexmap",
  "unicode-general-category",
@@ -8511,8 +8527,9 @@ dependencies = [
 
 [[package]]
 name = "waft-scheduler"
-version = "0.11.0"
-source = "git+https://github.com/waos-dev/waft?branch=folder-handle-url#245bfb0ea89674e1589ffa3813cb948c10f5205e"
+version = "0.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b4ff6a98dbc08ef844254a8ab6bca75f46540b12f590f56d6ff277199af7d2a1"
 dependencies = [
  "indexmap",
  "waft-embedder",
@@ -8521,8 +8538,9 @@ dependencies = [
 
 [[package]]
 name = "waft-service-protocol"
-version = "0.11.0"
-source = "git+https://github.com/waos-dev/waft?branch=folder-handle-url#245bfb0ea89674e1589ffa3813cb948c10f5205e"
+version = "0.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "85c84bed03263a721940c36755483afba424f62f7701505b97baff01eaa00c56"
 dependencies = [
  "serde",
  "serde_json",
@@ -8530,8 +8548,9 @@ dependencies = [
 
 [[package]]
 name = "waft-services"
-version = "0.11.0"
-source = "git+https://github.com/waos-dev/waft?branch=folder-handle-url#245bfb0ea89674e1589ffa3813cb948c10f5205e"
+version = "0.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8d598cd0d286e6d3cbfce76d49df65f9d3f53f4cea6a0cd106a45c1c28507c5c"
 dependencies = [
  "indexmap",
  "unicode-segmentation",
@@ -8543,8 +8562,9 @@ dependencies = [
 
 [[package]]
 name = "waft-shell"
-version = "0.11.0"
-source = "git+https://github.com/waos-dev/waft?branch=folder-handle-url#245bfb0ea89674e1589ffa3813cb948c10f5205e"
+version = "0.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ea78ad04ec3f79cd8998cc3265a26f7ea3a1e58a41c73b217593200e54985abe"
 dependencies = [
  "waft-embedder",
  "waft-foundation",
@@ -8557,8 +8577,9 @@ dependencies = [
 
 [[package]]
 name = "waft-single-instance"
-version = "0.11.0"
-source = "git+https://github.com/waos-dev/waft?branch=folder-handle-url#245bfb0ea89674e1589ffa3813cb948c10f5205e"
+version = "0.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9fd6a8ba2ccc3de6278a17a6f4dbf5ccae5439e68735958b8be7c400a356bb8f"
 dependencies = [
  "windows-sys 0.60.2",
  "zbus",
@@ -8566,8 +8587,9 @@ dependencies = [
 
 [[package]]
 name = "waft-test"
-version = "0.11.0"
-source = "git+https://github.com/waos-dev/waft?branch=folder-handle-url#245bfb0ea89674e1589ffa3813cb948c10f5205e"
+version = "0.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "40d72858aa62064cb69a95cf7b60f3847c14bead64c3f271ad928d2c0e383e07"
 dependencies = [
  "http",
  "valo-system-fonts",
@@ -8589,8 +8611,9 @@ dependencies = [
 
 [[package]]
 name = "waft-widgets"
-version = "0.11.0"
-source = "git+https://github.com/waos-dev/waft?branch=folder-handle-url#245bfb0ea89674e1589ffa3813cb948c10f5205e"
+version = "0.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2af4545148fa065be544d29b060efa4f5865bf1ea0d8ab5f80cf1d741b0fa859"
 dependencies = [
  "base64 0.22.1",
  "cssparser",
@@ -8611,8 +8634,9 @@ dependencies = [
 
 [[package]]
 name = "waft-winui"
-version = "0.11.0"
-source = "git+https://github.com/waos-dev/waft?branch=folder-handle-url#245bfb0ea89674e1589ffa3813cb948c10f5205e"
+version = "0.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "829adc399c781da8c542a5302486d6c64e16d672b799ecb4e3b5ded769416649"
 dependencies = [
  "waft-animation",
  "waft-embedder",
