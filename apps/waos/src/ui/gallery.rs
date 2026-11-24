@@ -290,6 +290,18 @@ fn walks_the_library(layout: &str, (mut desktop, view): (LibraryDesktop, ViewId)
         LibraryPage::Settings(SettingsPage::Permission(Permission::Network)),
     );
     scenes.draw(&mut desktop, "settings-network");
+    // Zed's own network: the switch, the button that follows the default again, the choice of
+    // domains and the field that names one.
+    let zed: waos_package::ProgramId = "dev.waos.zed".parse().expect("an app's id");
+    desktop.update(|library, cx| {
+        let of = SettingsOf::Program(zed.clone());
+        library.change_settings(&of, SettingChange::AddDomain("example.com".into()), cx);
+    });
+    shows(
+        &mut desktop,
+        LibraryPage::Settings(SettingsPage::AppPermission(zed, Permission::Network)),
+    );
+    scenes.draw(&mut desktop, "program-network");
     let program: waos_package::ProgramId = first.parse().expect("a program's id");
     // Its camera set otherwise, so its page says one kind is its own.
     desktop.update(|library, cx| {

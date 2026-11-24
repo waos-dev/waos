@@ -1,26 +1,24 @@
 //! WaOS's own settings at a desktop's width, in Fluent's controls: Back to the settings' first
-//! page and the page's title, then each setting this system offers under its name and what it
-//! does: whether apps show inside WaOS, whether WaOS is kept in the Dock or the taskbar, and
-//! whether WaOS reaches the phone's files, with the button that opens the system's page for it.
+//! page and the page's title, then a card for each setting this system offers, its name over
+//! what it does and its control at the trailing side: whether apps show inside WaOS, whether
+//! WaOS is kept in the Dock or the taskbar, and whether WaOS reaches the phone's files, with
+//! the button that opens the system's page for it.
 //!
 //! What it shows is the library's, read as it builds; it keeps nothing of its own.
 
 use std::rc::Rc;
 
 use waft::{
-    App, BuildContext, EdgeInsetsGeometry, Entity, IntoWidget, ListView, Listener, Padding, Row,
-    StatelessWidget, Text, WidgetRef,
+    App, BuildContext, Column, CrossAxisAlignment, EdgeInsetsGeometry, Entity, Expanded,
+    IntoWidget, ListView, Listener, StatelessWidget, WidgetRef,
 };
-use waft_winui::{
-    Button, ButtonStyle, FluentSymbol, FontIcon, TextBlockStyle, ThemeResources, ToggleSwitch,
-};
+use waft_winui::{Button, ThemeResources};
 
+use super::fluent_cards::{card, card_row, card_switch};
+use super::fluent_root::title_bar;
 use crate::state::library::Library;
 use crate::ui::library::home::fluent::MARGIN;
 use crate::ui::library::words;
-
-/// The room under a setting's name.
-const NAME_GAP: f64 = 4.0;
 
 /// WaOS's own settings, in Fluent's controls.
 #[derive(Debug)]
@@ -34,13 +32,23 @@ impl StatelessWidget for FluentGeneralSettings {
             library: self.library.clone(),
             resources: ThemeResources::of(app, context),
         };
-        let mut rows = vec![shown.title()];
-        rows.extend(shown.where_programs_open(app));
-        rows.extend(shown.where_waos_stays(app));
-        rows.extend(shown.phone_files(app));
-        ListView::new()
-            .padding(EdgeInsetsGeometry::all(MARGIN))
-            .children(rows)
+        let cards: Vec<WidgetRef> = [
+            shown.where_programs_open(app),
+            shown.where_waos_stays(app),
+            shown.phone_files(app),
+        ]
+        .into_iter()
+        .flatten()
+        .collect();
+        let list = ListView::new()
+            .padding(EdgeInsetsGeometry::from_ltrb(MARGIN, 8.0, MARGIN, MARGIN))
+            .children(cards);
+        Column::new()
+            .cross_axis_alignment(CrossAxisAlignment::Stretch)
+            .children([
+                title_bar(&self.library, &shown.resources, words::WAOS_SETTINGS),
+                Expanded::new(list).into_widget(),
+            ])
             .into_widget()
     }
 }
@@ -52,67 +60,42 @@ struct Shown {
 }
 
 impl Shown {
-    /// The page's title, after Back to the settings' first page.
-    fn title(&self) -> WidgetRef {
+    /// Where WaOS offers the choice, whether apps show inside WaOS, over what the choice does.
+    fn where_programs_open(&self, app: &App) -> Option<WidgetRef> {
+        let inside = self.library.read(app).programs_inside_waos()?;
         let library = self.library.clone();
-        let back = Listener::new(move |app| {
-            library.update(app, |library, cx| library.go_back(cx));
+        let toggle = card_switch(&self.resources, inside, move |app, inside| {
+            library.update(app, |library, cx| {
+                library.show_programs_inside_waos(inside, cx)
+            });
         });
-        let primary = self.resources.text_fill_color_primary;
-        Row::new()
-            .spacing(4.0)
-            .children([
-                Button::new(FontIcon::symbol(FluentSymbol::Back).font_size(16.0), back)
-                    .style(ButtonStyle::Subtle)
-                    .padding([8.0, 8.0, 8.0, 8.0])
-                    .into_widget(),
-                Text::new(words::WAOS_SETTINGS)
-                    .style(TextBlockStyle::Subtitle.text_style(&self.resources, primary))
-                    .into_widget(),
-            ])
-            .into_widget()
+        Some(self.setting(
+            words::PROGRAMS_INSIDE_WAOS,
+            words::PROGRAMS_INSIDE_WAOS_DETAIL,
+            toggle,
+        ))
     }
 
-    /// Where WaOS offers the choice, whether apps show inside WaOS, under what the choice does.
-    fn where_programs_open(&self, app: &App) -> Vec<WidgetRef> {
-        let Some(inside) = self.library.read(app).programs_inside_waos() else {
-            return Vec::new();
-        };
-        let library = self.library.clone();
-        vec![
-            self.setting_name(words::PROGRAMS_INSIDE_WAOS),
-            self.detail(words::PROGRAMS_INSIDE_WAOS_DETAIL),
-            self.toggle(inside, move |app, inside| {
-                library.update(app, |library, cx| {
-                    library.show_programs_inside_waos(inside, cx)
-                });
-            }),
-        ]
-    }
-
-    /// In a desktop's launcher, whether WaOS is kept in the Dock or the taskbar, under what
+    /// In a desktop's launcher, whether WaOS is kept in the Dock or the taskbar, over what
     /// turning it off does.
-    fn where_waos_stays(&self, app: &App) -> Vec<WidgetRef> {
-        let Some(kept) = self.library.read(app).kept_in_dock() else {
-            return Vec::new();
-        };
+    fn where_waos_stays(&self, app: &App) -> Option<WidgetRef> {
+        let kept = self.library.read(app).kept_in_dock()?;
         let platform = app.platform().target_platform();
         let library = self.library.clone();
-        vec![
-            self.setting_name(words::keep_in_dock(platform)),
-            self.detail(words::keep_in_dock_detail(platform)),
-            self.toggle(kept, move |app, kept| {
-                library.update(app, |library, cx| library.keep_in_dock(kept, cx));
-            }),
-        ]
+        let toggle = card_switch(&self.resources, kept, move |app, kept| {
+            library.update(app, |library, cx| library.keep_in_dock(kept, cx));
+        });
+        Some(self.setting(
+            words::keep_in_dock(platform),
+            words::keep_in_dock_detail(platform),
+            toggle,
+        ))
     }
 
     /// Where WaOS reaches the phone's files only as the user allows, whether it may, and a
     /// button that opens the system's page for it.
-    fn phone_files(&self, app: &App) -> Vec<WidgetRef> {
-        let Some(reachable) = self.library.read(app).phone_files_reachable(app) else {
-            return Vec::new();
-        };
+    fn phone_files(&self, app: &App) -> Option<WidgetRef> {
+        let reachable = self.library.read(app).phone_files_reachable(app)?;
         let library = self.library.clone();
         let open = Listener::new(move |app| {
             library.update(app, |library, cx| library.open_phone_files_page(cx));
@@ -122,39 +105,13 @@ impl Shown {
         } else {
             words::PHONE_FILES_OFF
         };
-        vec![
-            self.setting_name(words::PHONE_FILES),
-            self.detail(said),
-            Row::new()
-                .children([Button::text(words::OPEN_ANDROID_SETTINGS, open).into_widget()])
-                .into_widget(),
-        ]
+        let button = Button::text(words::OPEN_ANDROID_SETTINGS, open).into_widget();
+        Some(self.setting(words::PHONE_FILES, said, button))
     }
 
-    /// A setting's name, with the room over it that sets it apart from the one before.
-    fn setting_name(&self, name: &str) -> WidgetRef {
-        let primary = self.resources.text_fill_color_primary;
-        Padding::new(EdgeInsetsGeometry::only(0.0, MARGIN, 0.0, NAME_GAP))
-            .child(
-                Text::new(name)
-                    .style(TextBlockStyle::BodyStrong.text_style(&self.resources, primary)),
-            )
-            .into_widget()
-    }
-
-    /// What a setting does, under its name.
-    fn detail(&self, text: &str) -> WidgetRef {
-        let secondary = self.resources.text_fill_color_secondary;
-        Text::new(text)
-            .style(TextBlockStyle::Caption.text_style(&self.resources, secondary))
-            .into_widget()
-    }
-
-    /// A switch that is `on` or off, telling `changed` when the user flips it.
-    fn toggle(&self, on: bool, changed: impl Fn(&mut App, bool) + 'static) -> WidgetRef {
-        ToggleSwitch::new(on, changed)
-            .on_content(Text::new(words::ON))
-            .off_content(Text::new(words::OFF))
-            .into_widget()
+    /// A setting's card: its `name` over what it does, and its `control`.
+    fn setting(&self, name: &str, detail: &str, control: WidgetRef) -> WidgetRef {
+        let row = card_row(&self.resources, None, name, Some(detail), Some(control));
+        card(&self.resources, vec![row])
     }
 }

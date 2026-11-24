@@ -1,34 +1,33 @@
-//! A settings page in Fluent's controls: the global settings, or a program's, each setting with
-//! its controls, one section after another: on a program's page first the machines its user
-//! picked for it, under a warning that it acts on them as the user; the network switch with its
-//! rule of domains, the two clipboard switches, the folders mounted, and the answer each question
-//! gets; and on a program's page last its answers to opening links of its own schemes, and the
-//! answers set for its pickers and file dialogs, each Ask or what WaOS gives in place of asking. On a program's page, each setting says whether it follows the setting for every program,
-//! and one that does not can be set back to it; and while the system refuses the program its
-//! notifications, they say so, with a button that opens the system's settings at them. Where WaOS
-//! offers the choice, the global page first says whether programs show inside WaOS, or, in a
-//! desktop's launcher, whether WaOS is kept in the Dock or the taskbar, which are WaOS's own
-//! preferences rather than a program's settings.
+//! A settings page at a desktop's width, in Fluent's controls, made of cards as Windows's
+//! Settings is (`fluent_cards`): Back and the page's title over what scrolls. It is one of:
+//! a permission's page, its default over the apps set otherwise; an app's page, its permissions
+//! each with what it holds, then what is the app's alone, each leading to a page; an app's page
+//! for one permission, which follows the default or holds its own; and a page of what is the
+//! app's alone: its machines, its file pickers, its sound output, its links or its roles. A
+//! choice among named things is a drop-down in its card; a list, such as a rule's domains, is
+//! rows of the card under it, with the field that adds one. While the system refuses an app
+//! its notifications, their card says so, with a button that opens the system's settings.
 //!
 //! What the page keeps of its own is what is being typed: a domain, a folder and where it is
-//! seen, whether it is writable, and a path for each file dialog.
+//! seen, whether it is writable, and a path for each file picker; and which file pickers the
+//! user chose to simulate and has set no path for yet.
 
 use std::rc::Rc;
 
 use waft::{
     App, BuildContext, Column, CrossAxisAlignment, EdgeInsetsGeometry, Entity, Expanded, Handle,
-    IntoWidget, ListView, Listener, Padding, Ref, Row, State, StateData, StatefulWidget, Text,
-    TextEditingController, TextEditingControllerLeaf, WidgetRef,
+    IntoWidget, ListView, Listener, MainAxisSize, Padding, Ref, Row, State, StateData,
+    StatefulWidget, Text, TextEditingController, TextEditingControllerLeaf, WidgetRef,
 };
 use waft_winui::{
-    Button, ButtonStyle, CheckBox, FluentSymbol, FontIcon, InfoBar, InfoBarSeverity, RadioButton,
-    TextBlockStyle, TextBox, ThemeResources, ToggleSwitch,
+    Button, CheckBox, ComboBox, ComboBoxItem, InfoBar, InfoBarSeverity, TextBox, ThemeResources,
 };
 use waos::{FileDialog, SimulatedSound};
 use waos_activity::Activity;
 use waos_store::{Answer, DomainRule, Question, Role};
 
-use super::fluent_root::{MARK_SIDE, heading, link_card, permission_symbol, symbol};
+use super::fluent_cards::{card, card_row, card_switch, note};
+use super::fluent_root::{MARK_SIDE, heading, link_card, permission_symbol, symbol, title_bar};
 use super::{any_set_otherwise, app_details, app_permissions, reset_permissions, set_otherwise};
 use crate::logic::permissions::Permission;
 use crate::logic::setting_changes::{
@@ -37,12 +36,15 @@ use crate::logic::setting_changes::{
 };
 use crate::state::SIMULATED_CAMERA;
 use crate::state::library::{AppDetail, Library, SettingsPage};
+use crate::ui::library::home::fluent::MARGIN as PAGE_MARGIN;
 use crate::ui::library::program_icon::ProgramIcon;
 use crate::ui::library::words;
 use waft::SizedBox;
 
-const MARGIN: f64 = 16.0;
 const GAP: f64 = 8.0;
+
+/// How wide a card's drop-down is, so the drop-downs of a page line up.
+const DROP_DOWN_WIDTH: f64 = 200.0;
 
 /// The settings `of` shows.
 #[derive(Debug)]
@@ -135,7 +137,8 @@ impl State for FluentSettingsState {
             simulating: app.get(self).simulating.clone(),
             state: self,
         };
-        let mut rows = vec![page.title(widget.program_name.as_deref())];
+        let title = page.title(widget.program_name.as_deref());
+        let mut rows = page.over_the_default();
         let set_otherwise = page.kind_page().map(|only| page.set_otherwise(app, only));
         rows.extend(page.switch_asked(app));
         match page.library.read(app).settings(&page.of) {
@@ -144,12 +147,23 @@ impl State for FluentSettingsState {
                 let refused = page.notifications_refused(app);
                 rows.extend(page.sections(&shown, activity.as_ref(), refused));
             }
-            Err(why) => rows.push(caption(&why, &page.resources)),
+            Err(why) => rows.push(note(&page.resources, &why)),
         }
         rows.extend(set_otherwise.into_iter().flatten());
-        ListView::new()
-            .padding(EdgeInsetsGeometry::all(MARGIN))
-            .children(rows)
+        let list = ListView::new()
+            .padding(EdgeInsetsGeometry::from_ltrb(
+                PAGE_MARGIN,
+                8.0,
+                PAGE_MARGIN,
+                PAGE_MARGIN,
+            ))
+            .children(rows);
+        Column::new()
+            .cross_axis_alignment(CrossAxisAlignment::Stretch)
+            .children([
+                title_bar(&page.library, &page.resources, &title),
+                Expanded::new(list).into_widget(),
+            ])
             .into_widget()
     }
 }
@@ -186,42 +200,26 @@ struct Page {
 }
 
 impl Page {
-    /// The page's title, after Back to the settings' first page, over what the global page is
-    /// for.
-    fn title(&self, program_name: Option<&str>) -> WidgetRef {
-        let primary = self.resources.text_fill_color_primary;
-        let library = self.library.clone();
-        let back = Listener::new(move |app| {
-            library.update(app, |library, cx| library.go_back(cx));
-        });
-        let title = match (self.only, program_name) {
-            _ if self.detail.is_some() => {
-                words::app_detail_name(self.detail.expect("a detail's page")).to_owned()
-            }
-            (Some(only), _) => words::permission_name(only).to_owned(),
-            (None, Some(name)) => name.to_owned(),
-            (None, None) => words::GLOBAL_SETTINGS.to_owned(),
-        };
-        let bar = Row::new().spacing(4.0).children([
-            Button::new(FontIcon::symbol(FluentSymbol::Back).font_size(16.0), back)
-                .style(ButtonStyle::Subtle)
-                .padding([8.0, 8.0, 8.0, 8.0])
-                .into_widget(),
-            Text::new(title)
-                .style(TextBlockStyle::Subtitle.text_style(&self.resources, primary))
-                .into_widget(),
-        ]);
-        if self.kind_page().is_none() {
-            return bar.into_widget();
+    /// The page's title: the permission's, what of the app's alone it shows, or the app's name.
+    fn title(&self, program_name: Option<&str>) -> String {
+        match (self.detail, self.only, program_name) {
+            (Some(detail), ..) => words::app_detail_name(detail).to_owned(),
+            (None, Some(only), _) => words::permission_name(only).to_owned(),
+            (None, None, Some(name)) => name.to_owned(),
+            (None, None, None) => words::PERMISSIONS.to_owned(),
         }
-        Column::new()
-            .cross_axis_alignment(CrossAxisAlignment::Start)
-            .children([
-                bar.into_widget(),
-                self.setting_name(words::DEFAULT),
-                caption(words::DEFAULT_DETAIL, &self.resources),
-            ])
-            .into_widget()
+    }
+
+    /// On a permission's page, what is over its default: that it is the default, and what a
+    /// default is.
+    fn over_the_default(&self) -> Vec<WidgetRef> {
+        if self.kind_page().is_none() {
+            return Vec::new();
+        }
+        vec![
+            heading(words::DEFAULT, &self.resources),
+            self.said(words::DEFAULT_DETAIL),
+        ]
     }
 
     /// Whether the page shows the controls of `permission`: a kind's page, every app's or one
@@ -261,7 +259,7 @@ impl Page {
                     ])
                     .into_widget(),
             );
-            rows.push(caption(words::RESET_PERMISSIONS_DETAIL, &self.resources));
+            rows.push(note(&self.resources, words::RESET_PERMISSIONS_DETAIL));
         }
         rows
     }
@@ -272,7 +270,7 @@ impl Page {
         let SettingsOf::Program(id) = &self.of else {
             return Vec::new();
         };
-        let mut rows = vec![SizedBox::new().height(MARGIN).into_widget()];
+        let mut rows = vec![SizedBox::new().height(PAGE_MARGIN).into_widget()];
         for (detail, said) in app_details(shown) {
             rows.push(link_card(
                 &self.library,
@@ -303,11 +301,11 @@ impl Page {
     fn set_otherwise(&self, app: &App, permission: Permission) -> Vec<WidgetRef> {
         let mut rows = vec![
             heading(words::SET_OTHERWISE, &self.resources),
-            caption(words::SET_OTHERWISE_DETAIL, &self.resources),
+            note(&self.resources, words::SET_OTHERWISE_DETAIL),
         ];
         let apps = set_otherwise(self.library.read(app), permission);
         if apps.is_empty() {
-            rows.push(caption(words::NONE_SET_OTHERWISE, &self.resources));
+            rows.push(note(&self.resources, words::NONE_SET_OTHERWISE));
         }
         rows.push(SizedBox::new().height(GAP).into_widget());
         for (listed, value) in apps {
@@ -373,7 +371,6 @@ impl Page {
                 }
             }
             Some(AppDetail::SoundOutput) => {
-                sections.push(caption(words::SOUND_OUTPUT_DETAIL, &self.resources));
                 sections.extend(self.output_answer(&shown.answer_with, &shown.offered.outputs));
             }
             Some(AppDetail::Links) => sections.extend(self.link_schemes(&shown.link_schemes)),
@@ -385,6 +382,7 @@ impl Page {
         }
         if self.shows(Permission::LocalNetwork) {
             sections.extend(self.switch(
+                Permission::LocalNetwork,
                 words::LOCAL_NETWORK,
                 &shown.local_network,
                 Which::LocalNetwork,
@@ -393,12 +391,14 @@ impl Page {
         }
         if self.shows(Permission::Clipboard) {
             sections.extend(self.switch(
+                Permission::Clipboard,
                 words::CLIPBOARD_READ,
                 &shown.clipboard_read,
                 Which::ClipboardRead,
                 SettingChange::ClipboardRead,
             ));
             sections.extend(self.switch(
+                Permission::Clipboard,
                 words::CLIPBOARD_WRITE,
                 &shown.clipboard_write,
                 Which::ClipboardWrite,
@@ -419,8 +419,7 @@ impl Page {
                 continue;
             }
             let refused = question == Question::Notifications && notifications_refused;
-            sections.extend(self.question(question, shown.answers.get(question), refused));
-            sections.extend(self.simulated(question, shown));
+            sections.extend(self.question(question, shown, refused));
         }
         sections
     }
@@ -431,15 +430,14 @@ impl Page {
         if link_schemes.is_empty() {
             return Vec::new();
         }
-        let mut rows = vec![
-            self.setting_name(words::LINKS),
-            caption(words::LINKS_DETAIL, &self.resources),
-        ];
-        for (scheme, answer) in link_schemes {
-            let forget = SettingChange::LinkScheme(scheme.clone(), None);
-            rows.push(self.listed(&words::link_scheme(scheme, *answer), forget));
-        }
-        rows
+        let rows = link_schemes
+            .iter()
+            .map(|(scheme, answer)| {
+                let forget = SettingChange::LinkScheme(scheme.clone(), None);
+                self.listed(&words::link_scheme(scheme, *answer), forget)
+            })
+            .collect();
+        vec![self.said(words::LINKS_DETAIL), card(&self.resources, rows)]
     }
 
     /// The program's answers to holding the roles it asked for, each with Remove; nothing before
@@ -448,19 +446,18 @@ impl Page {
         if roles.is_empty() {
             return Vec::new();
         }
-        let mut rows = vec![
-            self.setting_name(words::ROLES),
-            caption(words::ROLES_DETAIL, &self.resources),
-        ];
-        for (role, answer) in roles {
-            let forget = SettingChange::Role(*role, None);
-            rows.push(self.listed(&words::role(*role, *answer), forget));
-        }
-        rows
+        let rows = roles
+            .iter()
+            .map(|(role, answer)| {
+                let forget = SettingChange::Role(*role, None);
+                self.listed(&words::role(*role, *answer), forget)
+            })
+            .collect();
+        vec![self.said(words::ROLES_DETAIL), card(&self.resources, rows)]
     }
 
-    /// Ask, or one of the machines offered, the one set among them, by its id when it is not
-    /// offered now.
+    /// Which computer the app is given when it asks for one: Ask, or one of the machines
+    /// offered, the one set among them, by its id when it is not offered now.
     fn machine_answer(
         &self,
         set: &ShownAnswerWith,
@@ -470,30 +467,34 @@ impl Page {
         let mut choices = vec![(
             words::ASK.to_owned(),
             set_id.is_none(),
-            SettingChange::MachineAnswer(None),
+            self.on(SettingChange::MachineAnswer(None)),
         )];
         for machine in offered {
             let change = SettingChange::MachineAnswer(Some(machine.id.clone()));
             choices.push((
                 machine.name.clone(),
                 set_id == Some(machine.id.as_str()),
-                change,
+                self.on(change),
             ));
         }
         if let Some(machine) = &set.machine
             && !offered.iter().any(|each| each.id == machine.id)
         {
             let change = SettingChange::MachineAnswer(Some(machine.id.clone()));
-            choices.push((words::not_offered(&machine.name), true, change));
+            choices.push((words::not_offered(&machine.name), true, self.on(change)));
         }
-        vec![
-            self.subsetting_name(words::WHICH_MACHINE),
-            self.radio_column(choices),
-        ]
+        let row = card_row(
+            &self.resources,
+            None,
+            words::WHICH_MACHINE,
+            None,
+            Some(self.drop_down(choices)),
+        );
+        vec![card(&self.resources, vec![row])]
     }
 
-    /// Ask, or one of the outputs offered, the one set among them, by its id when it is not
-    /// connected now.
+    /// Which sound output the app plays to: Ask, or one of the outputs offered, the one set
+    /// among them, by its id when it is not connected now.
     fn output_answer(
         &self,
         set: &ShownAnswerWith,
@@ -503,58 +504,64 @@ impl Page {
         let mut choices = vec![(
             words::ASK.to_owned(),
             set_id.is_none(),
-            SettingChange::AudioOutputAnswer(None),
+            self.on(SettingChange::AudioOutputAnswer(None)),
         )];
         for output in offered {
             let change = SettingChange::AudioOutputAnswer(Some(output.id.clone()));
             choices.push((
                 output.label.clone(),
                 set_id == Some(output.id.as_str()),
-                change,
+                self.on(change),
             ));
         }
         if let Some(output) = &set.audio_output
             && !offered.iter().any(|each| each.id == output.id)
         {
             let change = SettingChange::AudioOutputAnswer(Some(output.id.clone()));
-            choices.push((words::not_offered(&output.label), true, change));
+            choices.push((words::not_offered(&output.label), true, self.on(change)));
         }
-        vec![self.radio_column(choices)]
+        let row = card_row(
+            &self.resources,
+            None,
+            words::SOUND_OUTPUT,
+            Some(words::SOUND_OUTPUT_DETAIL),
+            Some(self.drop_down(choices)),
+        );
+        vec![card(&self.resources, vec![row])]
     }
 
-    /// One of the app's file pickers: Ask, which shows the picker to the user, or Simulated,
-    /// under which the path the app is given is set, as a simulated camera says what it shows.
+    /// One of the app's file pickers, a card: Ask, which shows the picker to the user, or
+    /// Simulated, under which the path the app is given is set, as a simulated camera says
+    /// what it shows.
     fn file_picker(&self, dialog: FileDialog, set: &ShownAnswerWith) -> Vec<WidgetRef> {
         let paths = set.paths.file_dialog(dialog).unwrap_or_default();
         let simulated = !paths.is_empty() || self.simulating.contains(&dialog);
-        let choice = |label: &str, chosen: bool, simulate: bool| {
+        let choice = |simulate: bool| {
             let (state, ask) = (
                 self.state,
                 self.on(SettingChange::FileDialogAnswer(dialog, Vec::new())),
             );
-            RadioButton::new(chosen, move |app| {
+            Listener::new(move |app| {
                 state.simulate(app, dialog, simulate);
                 if !simulate {
                     ask.call(app);
                 }
             })
-            .content(Text::new(label))
-            .into_widget()
         };
-        let mut rows = vec![
-            self.setting_name(words::file_dialog_name(dialog)),
-            Column::new()
-                .cross_axis_alignment(CrossAxisAlignment::Start)
-                .children([
-                    choice(words::ASK, !simulated, false),
-                    choice(words::SIMULATED, simulated, true),
-                ])
-                .into_widget(),
+        let choices = vec![
+            (words::ASK.to_owned(), !simulated, choice(false)),
+            (words::SIMULATED.to_owned(), simulated, choice(true)),
         ];
+        let mut rows = vec![card_row(
+            &self.resources,
+            None,
+            words::file_dialog_name(dialog),
+            simulated.then_some(words::SIMULATED_PICKER_DETAIL),
+            Some(self.drop_down(choices)),
+        )];
         if !simulated {
-            return rows;
+            return vec![card(&self.resources, rows)];
         }
-        rows.push(caption(words::SIMULATED_PICKER_DETAIL, &self.resources));
         let placeholder = words::file_dialog_placeholder(dialog);
         let typed = self.typed.path(dialog).clone();
         if dialog == FileDialog::OpenFiles {
@@ -562,9 +569,8 @@ impl Page {
                 let remove = SettingChange::RemoveFileToOpen(index);
                 rows.push(self.listed(&path.to_string_lossy(), remove));
             }
-            let add = self.adding(typed, placeholder, words::ADD, SettingChange::AddFileToOpen);
-            rows.push(add);
-            return rows;
+            rows.push(self.adding(typed, placeholder, words::ADD, SettingChange::AddFileToOpen));
+            return vec![card(&self.resources, rows)];
         }
         match paths.first() {
             Some(path) => {
@@ -585,53 +591,63 @@ impl Page {
                 rows.push(self.adding(typed, placeholder, words::SET, answer));
             }
         }
-        rows
+        vec![card(&self.resources, rows)]
     }
 
     /// The machines the user picked for the program, each with Remove, under the warning.
     fn machines(&self, machines: &[waos::MachineChoice]) -> Vec<WidgetRef> {
-        let primary = self.resources.text_fill_color_primary;
-        let title = Text::new(words::MACHINES)
-            .style(TextBlockStyle::BodyStrong.text_style(&self.resources, primary))
-            .into_widget();
-        let mut rows = vec![
-            Padding::new(EdgeInsetsGeometry::only(0.0, MARGIN, 0.0, GAP / 2.0))
-                .child(title)
-                .into_widget(),
-            caption(words::MACHINES_AS_YOU, &self.resources),
-        ];
-        if machines.is_empty() {
-            rows.push(caption(words::NO_MACHINES, &self.resources));
-        }
-        for machine in machines {
-            let remove = SettingChange::RemoveMachine(machine.id.clone());
-            rows.push(self.listed(&machine.name, remove));
-        }
-        rows
+        let rows: Vec<WidgetRef> = if machines.is_empty() {
+            vec![note(&self.resources, words::NO_MACHINES)]
+        } else {
+            machines
+                .iter()
+                .map(|machine| {
+                    let remove = SettingChange::RemoveMachine(machine.id.clone());
+                    self.listed(&machine.name, remove)
+                })
+                .collect()
+        };
+        vec![
+            self.said(words::MACHINES_AS_YOU),
+            card(&self.resources, rows),
+        ]
     }
 
+    /// The network's card: its switch; while it is on, which domains; and the domains named
+    /// where the choice names some, with the field that adds one.
     fn network(&self, shown: &Shown<waos_store::NetworkGrant>) -> Vec<WidgetRef> {
         let network = &shown.value;
-        let mut rows = self.header(words::NETWORK, shown.follows_global, Which::Network);
-        rows.push(self.toggle(network.on, SettingChange::NetworkOn));
+        let mut rows = vec![self.switch_row(
+            Permission::Network,
+            words::NETWORK,
+            None,
+            shown.follows_global,
+            Which::Network,
+            network.on,
+            SettingChange::NetworkOn,
+        )];
+        if !network.on {
+            return vec![card(&self.resources, rows)];
+        }
         let kind = domains_kind(&network.domains);
-        rows.push(self.radios(&[
+        let choice = |label: &str, of: DomainsKind| {
             (
-                words::ANY_DOMAIN,
-                kind == DomainsKind::Any,
-                SettingChange::Domains(DomainsKind::Any),
-            ),
-            (
-                words::ONLY_DOMAINS,
-                kind == DomainsKind::Only,
-                SettingChange::Domains(DomainsKind::Only),
-            ),
-            (
-                words::ANY_DOMAIN_BUT,
-                kind == DomainsKind::AnyBut,
-                SettingChange::Domains(DomainsKind::AnyBut),
-            ),
-        ]));
+                label.to_owned(),
+                kind == of,
+                self.on(SettingChange::Domains(of)),
+            )
+        };
+        rows.push(card_row(
+            &self.resources,
+            None,
+            words::WHICH_DOMAINS,
+            None,
+            Some(self.drop_down(vec![
+                choice(words::ANY_DOMAIN, DomainsKind::Any),
+                choice(words::ONLY_DOMAINS, DomainsKind::Only),
+                choice(words::ANY_DOMAIN_BUT, DomainsKind::AnyBut),
+            ])),
+        ));
         if let DomainRule::Only(domains) | DomainRule::AnyBut(domains) = &network.domains {
             for domain in domains {
                 let remove = SettingChange::RemoveDomain(domain.clone());
@@ -644,50 +660,84 @@ impl Page {
                 SettingChange::AddDomain,
             ));
         }
-        rows
+        vec![card(&self.resources, rows)]
     }
 
-    /// A switch of its own: the clipboard's.
+    /// A switch of its own, a card: the local network's, the clipboard's.
     fn switch(
         &self,
+        permission: Permission,
         name: &str,
         shown: &Shown<bool>,
         which: Which,
         change: fn(bool) -> SettingChange,
     ) -> Vec<WidgetRef> {
-        let mut rows = self.header(name, shown.follows_global, which);
-        rows.push(self.toggle(shown.value, change));
-        rows
+        let row = self.switch_row(
+            permission,
+            name,
+            None,
+            shown.follows_global,
+            which,
+            shown.value,
+            change,
+        );
+        vec![card(&self.resources, vec![row])]
     }
 
     /// Whether a record is kept of what the program does, with what the record is.
     fn record(&self, shown: &Shown<bool>) -> Vec<WidgetRef> {
         let (name, detail) = words::record(&self.of);
-        let mut rows = self.header(name, shown.follows_global, Which::Record);
-        rows.push(caption(detail, &self.resources));
-        rows.push(self.toggle(shown.value, SettingChange::Record));
-        rows
+        let row = self.switch_row(
+            Permission::ActivityRecord,
+            name,
+            Some(detail),
+            shown.follows_global,
+            Which::Record,
+            shown.value,
+            SettingChange::Record,
+        );
+        vec![card(&self.resources, vec![row])]
     }
 
     /// What the program did over the days kept of it, a line per capability; that none is kept
     /// while its record is off.
     fn last_days(&self, activity: &Activity, recorded: bool) -> Vec<WidgetRef> {
-        let mut rows = vec![self.setting_name(words::LAST_DAYS)];
         let lines = activity.short();
-        if !recorded {
-            rows.push(caption(words::NOTHING_RECORDED, &self.resources));
+        let rows: Vec<WidgetRef> = if !recorded {
+            vec![note(&self.resources, words::NOTHING_RECORDED)]
         } else if lines.is_empty() {
-            rows.push(caption(words::NOTHING_USED, &self.resources));
-        }
-        rows.extend(lines.iter().map(|line| caption(line, &self.resources)));
-        rows
+            vec![note(&self.resources, words::NOTHING_USED)]
+        } else {
+            lines
+                .iter()
+                .map(|line| card_row(&self.resources, None, line, None, None))
+                .collect()
+        };
+        vec![
+            heading(words::LAST_DAYS, &self.resources),
+            card(&self.resources, rows),
+        ]
     }
 
+    /// The folders mounted, a card: on an app's page whether they follow the default, each
+    /// folder with Remove, and the fields that add one.
     fn folders(&self, shown: &Shown<waos_store::FileSystemGrant>) -> Vec<WidgetRef> {
-        let mut rows = self.header(words::FOLDERS, shown.follows_global, Which::FileSystem);
-        rows.push(caption(words::FOLDERS_AT_ONCE, &self.resources));
+        let mut rows = Vec::new();
+        if self.of != SettingsOf::Global {
+            let (detail, control) = self.following(shown.follows_global, Which::FileSystem);
+            rows.push(card_row(
+                &self.resources,
+                Some(symbol(
+                    permission_symbol(Permission::Folders),
+                    &self.resources,
+                )),
+                words::FOLDERS,
+                detail,
+                control,
+            ));
+        }
         if shown.value.mounts.is_empty() {
-            rows.push(caption(words::NO_FOLDERS, &self.resources));
+            rows.push(note(&self.resources, words::NO_FOLDERS));
         }
         for (index, mount) in shown.value.mounts.iter().enumerate() {
             let said = words::mount(
@@ -698,28 +748,31 @@ impl Page {
             rows.push(self.listed(&said, SettingChange::RemoveMount(index)));
         }
         rows.push(self.adding_folder());
-        rows
+        vec![
+            self.said(words::FOLDERS_AT_ONCE),
+            card(&self.resources, rows),
+        ]
     }
 
-    /// The answer `question` gets; under it, where the system `refused` the program it, that it
-    /// does, with a button that opens the system's settings at it.
+    /// The answer `question` gets, a card: its choice; while it is simulated, what the device
+    /// of WaOS's own is; and where the system `refused` the program it, that it does, with a
+    /// button that opens the system's settings at it.
     fn question(
         &self,
         question: Question,
-        shown: &Shown<Option<Answer>>,
+        settings: &ShownSettings,
         refused: bool,
     ) -> Vec<WidgetRef> {
-        let name = words::question_name(question);
-        let mut rows = vec![self.setting_name(name)];
+        let shown = settings.answers.get(question);
         // On an app's page, following the default is the first choice, named with the default's
         // answer, as a browser's site settings name it.
         let global = self.of == SettingsOf::Global;
-        let mut choices: Vec<(String, bool, SettingChange)> = Vec::new();
+        let mut choices: Vec<(String, bool, Listener)> = Vec::new();
         if global {
             choices.push((
                 words::ASK.to_owned(),
                 shown.value.is_none(),
-                SettingChange::Answer(question, None),
+                self.on(SettingChange::Answer(question, None)),
             ));
         } else {
             let default = self.defaults.as_ref().map_or(words::ASK, |defaults| {
@@ -728,7 +781,7 @@ impl Page {
             choices.push((
                 words::defaulted(default),
                 shown.follows_global,
-                SettingChange::FollowGlobal(Which::Answer(question)),
+                self.on(SettingChange::FollowGlobal(Which::Answer(question))),
             ));
         }
         let mut answers = vec![
@@ -743,18 +796,22 @@ impl Page {
             choices.push((
                 label.to_owned(),
                 chosen,
-                SettingChange::Answer(question, Some(answer)),
+                self.on(SettingChange::Answer(question, Some(answer))),
             ));
         }
-        let choices: Vec<(&str, bool, SettingChange)> = choices
-            .iter()
-            .map(|(label, chosen, change)| (label.as_str(), *chosen, change.clone()))
-            .collect();
-        rows.push(self.radios(&choices));
+        let permission = Permission::of_question(question);
+        let mut rows = vec![card_row(
+            &self.resources,
+            Some(symbol(permission_symbol(permission), &self.resources)),
+            words::question_name(question),
+            None,
+            Some(self.drop_down(choices)),
+        )];
+        rows.extend(self.simulated(question, settings));
         if refused {
             rows.extend(self.refused_by_system());
         }
-        rows
+        vec![card(&self.resources, rows)]
     }
 
     /// While `question`'s answer is simulated, what the device of WaOS's own is, and for the
@@ -765,29 +822,41 @@ impl Page {
         }
         match question {
             Question::Camera if !SIMULATED_CAMERA => {
-                vec![caption(words::NO_SIMULATED_CAMERA, &self.resources)]
+                vec![note(&self.resources, words::NO_SIMULATED_CAMERA)]
             }
-            Question::Camera => vec![caption(words::SIMULATED_CAMERA_DETAIL, &self.resources)],
+            Question::Camera => vec![note(&self.resources, words::SIMULATED_CAMERA_DETAIL)],
             Question::Microphone => {
-                let sound = shown.simulated_microphone.value;
-                let choice = |label, kind| {
+                let sound = &shown.simulated_microphone;
+                let choice = |label: &str, kind| {
                     (
-                        label,
-                        sound == kind,
-                        SettingChange::SimulatedMicrophone(kind),
+                        label.to_owned(),
+                        sound.value == kind,
+                        self.on(SettingChange::SimulatedMicrophone(kind)),
                     )
                 };
-                let mut rows = vec![caption(words::SIMULATED_MICROPHONE_DETAIL, &self.resources)];
-                rows.extend(self.header(
-                    words::SIMULATED_RECORDS,
-                    shown.simulated_microphone.follows_global,
-                    Which::SimulatedMicrophone,
-                ));
-                rows.push(self.radios(&[
+                let records = self.drop_down(vec![
                     choice(words::QUIET_TONE, SimulatedSound::Tone),
                     choice(words::SILENCE, SimulatedSound::Silence),
-                ]));
-                rows
+                ]);
+                let (detail, use_default) = if self.of == SettingsOf::Global {
+                    (None, None)
+                } else {
+                    self.following(sound.follows_global, Which::SimulatedMicrophone)
+                };
+                let control = Row::new()
+                    .main_axis_size(MainAxisSize::Min)
+                    .spacing(GAP)
+                    .children(use_default.into_iter().chain([records]));
+                vec![
+                    note(&self.resources, words::SIMULATED_MICROPHONE_DETAIL),
+                    card_row(
+                        &self.resources,
+                        None,
+                        words::SIMULATED_RECORDS,
+                        detail,
+                        Some(control.into_widget()),
+                    ),
+                ]
             }
             Question::Notifications => Vec::new(),
         }
@@ -805,109 +874,128 @@ impl Page {
                 library.open_notification_settings(&id, cx)
             });
         });
-        vec![
-            caption(words::NOTIFICATIONS_REFUSED, &self.resources),
-            Row::new()
-                .children([Button::text(words::OPEN_SYSTEM_SETTINGS, open).into_widget()])
-                .into_widget(),
-        ]
+        vec![card_row(
+            &self.resources,
+            None,
+            words::NOTIFICATIONS_REFUSED,
+            None,
+            Some(Button::text(words::OPEN_SYSTEM_SETTINGS, open).into_widget()),
+        )]
     }
 
-    /// A setting's name, and on a program's page whether it follows the setting for every
-    /// program, or a button that makes it follow it again.
-    fn header(&self, name: &str, follows_global: bool, which: Which) -> Vec<WidgetRef> {
-        let mut rows = vec![self.setting_name(name)];
-        if self.of == SettingsOf::Global {
-            return rows;
-        }
-        if follows_global {
-            rows.push(caption(words::FOLLOWS_GLOBAL, &self.resources));
+    /// A row with a switch: the mark of `permission`, `name` over `detail`, and at its end the
+    /// switch, `on` or off; on an app's page, that it follows the default, or the button that
+    /// has it follow it again.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "one row's parts, each named at its call"
+    )]
+    fn switch_row(
+        &self,
+        permission: Permission,
+        name: &str,
+        detail: Option<&str>,
+        follows_global: bool,
+        which: Which,
+        on: bool,
+        change: fn(bool) -> SettingChange,
+    ) -> WidgetRef {
+        let (follows, use_default) = if self.of == SettingsOf::Global {
+            (None, None)
         } else {
-            let follow = self.on(SettingChange::FollowGlobal(which));
-            rows.push(
-                Row::new()
-                    .children([Button::text(words::USE_GLOBAL, follow).into_widget()])
-                    .into_widget(),
-            );
+            self.following(follows_global, which)
+        };
+        let detail = match (detail, follows) {
+            (Some(detail), Some(follows)) => Some(format!("{detail} {follows}")),
+            (Some(said), None) | (None, Some(said)) => Some(said.to_owned()),
+            (None, None) => None,
+        };
+        let control = Row::new()
+            .main_axis_size(MainAxisSize::Min)
+            .spacing(GAP)
+            .children(use_default.into_iter().chain([self.toggle(on, change)]));
+        card_row(
+            &self.resources,
+            Some(symbol(permission_symbol(permission), &self.resources)),
+            name,
+            detail.as_deref(),
+            Some(control.into_widget()),
+        )
+    }
+
+    /// On an app's page, what a setting says of the default: that it follows it, or the button
+    /// that has it follow it again.
+    fn following(
+        &self,
+        follows_global: bool,
+        which: Which,
+    ) -> (Option<&'static str>, Option<WidgetRef>) {
+        if follows_global {
+            return (Some(words::FOLLOWS_GLOBAL), None);
         }
-        rows
+        let follow = self.on(SettingChange::FollowGlobal(which));
+        (
+            None,
+            Some(Button::text(words::USE_GLOBAL, follow).into_widget()),
+        )
     }
 
-    /// The name of one of a setting's parts, over its controls.
-    fn subsetting_name(&self, name: &str) -> WidgetRef {
-        let primary = self.resources.text_fill_color_primary;
-        let title = Text::new(name)
-            .style(TextBlockStyle::Body.text_style(&self.resources, primary))
-            .into_widget();
-        Padding::new(EdgeInsetsGeometry::only(0.0, GAP, 0.0, GAP / 2.0))
-            .child(title)
+    /// What a page says over its cards: caption-sized, in the secondary colour, with the room
+    /// under it that sets it apart from them.
+    fn said(&self, text: &str) -> WidgetRef {
+        Padding::new(EdgeInsetsGeometry::only(0.0, 0.0, 0.0, GAP))
+            .child(note(&self.resources, text))
             .into_widget()
     }
 
-    /// A setting's name, over its controls.
-    fn setting_name(&self, name: &str) -> WidgetRef {
-        let primary = self.resources.text_fill_color_primary;
-        let title = Text::new(name)
-            .style(TextBlockStyle::BodyStrong.text_style(&self.resources, primary))
-            .into_widget();
-        Padding::new(EdgeInsetsGeometry::only(0.0, MARGIN, 0.0, GAP / 2.0))
-            .child(title)
-            .into_widget()
-    }
-
+    /// A card's switch that is `on` or off, changing the page's settings as `change` makes it.
     fn toggle(&self, on: bool, change: fn(bool) -> SettingChange) -> WidgetRef {
         let (library, of) = (self.library.clone(), self.of.clone());
-        ToggleSwitch::new(on, move |app, on| {
+        card_switch(&self.resources, on, move |app, on| {
             library.update(app, |library, cx| {
                 library.change_settings(&of, change(on), cx)
             });
         })
-        .on_content(Text::new(words::ON))
-        .off_content(Text::new(words::OFF))
-        .into_widget()
     }
 
-    fn radios(&self, choices: &[(&str, bool, SettingChange)]) -> WidgetRef {
-        // One under another, as WinUI's RadioButtons lays its choices out.
-        Column::new()
-            .cross_axis_alignment(CrossAxisAlignment::Start)
-            .children(choices.iter().map(|(label, checked, change)| {
-                let listener = self.on(change.clone());
-                RadioButton::new(*checked, move |app| listener.call(app))
-                    .content(Text::new(*label))
-                    .into_widget()
-            }))
+    /// A drop-down of `choices`, each its name, whether it is the one chosen, and what choosing
+    /// it does: as Windows's Settings offers a choice among named things in a card.
+    fn drop_down(&self, choices: Vec<(String, bool, Listener)>) -> WidgetRef {
+        let chosen = choices.iter().position(|(_, chosen, _)| *chosen);
+        let items = choices
+            .iter()
+            .enumerate()
+            .map(|(index, (name, ..))| ComboBoxItem::text(index.to_string(), name.clone()))
+            .collect();
+        let chooses: Vec<Listener> = choices.into_iter().map(|(.., choose)| choose).collect();
+        let pick = ComboBox::new(items, chosen, move |app, picked| {
+            let picked = picked.selected_index();
+            if picked != chosen
+                && let Some(choose) = picked.and_then(|index| chooses.get(index))
+            {
+                choose.call(app);
+            }
+        });
+        SizedBox::new()
+            .width(DROP_DOWN_WIDTH)
+            .child(pick)
             .into_widget()
     }
 
-    /// Choices one under another, one of them `checked`, each making its change.
-    fn radio_column(&self, choices: Vec<(String, bool, SettingChange)>) -> WidgetRef {
-        Column::new()
-            .cross_axis_alignment(CrossAxisAlignment::Start)
-            .spacing(GAP / 2.0)
-            .children(choices.into_iter().map(|(label, checked, change)| {
-                let listener = self.on(change);
-                RadioButton::new(checked, move |app| listener.call(app))
-                    .content(Text::new(label))
-                    .into_widget()
-            }))
-            .into_widget()
-    }
-
-    /// One of a rule's list, with Remove.
+    /// One of a list, a card's row: `text`, with Remove.
     fn listed(&self, text: &str, remove: SettingChange) -> WidgetRef {
         self.listed_with(text, words::REMOVE, self.on(remove))
     }
 
-    /// `text`, with a button `label` doing `click`.
+    /// A card's row: `text`, with a button `label` doing `click`.
     fn listed_with(&self, text: &str, label: &str, click: Listener) -> WidgetRef {
-        Row::new()
-            .spacing(GAP)
-            .children([
-                Expanded::new(Text::new(text)).into_widget(),
-                Button::text(label, click).into_widget(),
-            ])
-            .into_widget()
+        card_row(
+            &self.resources,
+            None,
+            text,
+            None,
+            Some(Button::text(label, click).into_widget()),
+        )
     }
 
     /// A field to type one more of a list in, and a button `confirm`, which adds it as `change`
@@ -978,7 +1066,7 @@ impl Page {
                 Row::new()
                     .spacing(GAP)
                     .children([
-                        writable_box.into_widget(),
+                        Expanded::new(writable_box).into_widget(),
                         Button::text(words::ADD, add).into_widget(),
                     ])
                     .into_widget(),
@@ -994,10 +1082,4 @@ impl Page {
             library.update(app, |library, cx| library.change_settings(&of, change, cx));
         })
     }
-}
-
-fn caption(text: &str, resources: &ThemeResources) -> WidgetRef {
-    Text::new(text)
-        .style(TextBlockStyle::Caption.text_style(resources, resources.text_fill_color_secondary))
-        .into_widget()
 }

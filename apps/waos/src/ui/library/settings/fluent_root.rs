@@ -131,7 +131,11 @@ fn titled(
 }
 
 /// Back to the page beneath, and the page's `title`.
-fn title_bar(library: &Entity<Library>, resources: &ThemeResources, title: &str) -> WidgetRef {
+pub(crate) fn title_bar(
+    library: &Entity<Library>,
+    resources: &ThemeResources,
+    title: &str,
+) -> WidgetRef {
     let library = library.clone();
     let back = Listener::new(move |app| {
         library.update(app, |library, cx| library.go_back(cx));

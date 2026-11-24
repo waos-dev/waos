@@ -121,6 +121,24 @@ fn open_app_detail(desktop: &mut LibraryDesktop, view: ViewId, name: &str, detai
     desktop.tap(view, row);
 }
 
+/// Chooses `to` where a choice among named things shows `from`: in the launcher, from the
+/// drop-down that shows `from`, which the tap opens; on the phone, by its row.
+fn pick(desktop: &mut LibraryDesktop, view: ViewId, from: &str, to: &str) {
+    if !desktop.has::<CupertinoNavigationBar>() {
+        desktop.tap(view, from);
+    }
+    desktop.tap(view, to);
+}
+
+/// [`pick`], on the last of a page's choices that each offer the same: the lowest drop-down
+/// showing `from`, or the lowest row saying `to`.
+fn pick_last(desktop: &mut LibraryDesktop, view: ViewId, from: &str, to: &str) {
+    if !desktop.has::<CupertinoNavigationBar>() {
+        desktop.tap_last(view, from);
+    }
+    desktop.tap_last(view, to);
+}
+
 /// Goes back to the home from a settings page, in either layout: to the settings' first page,
 /// and from there to the home.
 fn back(desktop: &mut LibraryDesktop, view: ViewId) {
@@ -181,7 +199,7 @@ fn a_permissions_default_changes_on_its_page_in_the_launcher_and_is_kept() {
         desktop.labels()
     );
     assert!(!desktop.shows(words::LOCAL_NETWORK), "one kind's page");
-    desktop.tap(view, words::ONLY_DOMAINS);
+    pick(&mut desktop, view, words::ANY_DOMAIN, words::ONLY_DOMAINS);
     assert_eq!(
         global_network(&desktop).domains,
         DomainRule::Only(Vec::new())
@@ -259,7 +277,7 @@ fn a_programs_settings_follow_those_for_every_program_until_changed_in_the_launc
         desktop.labels()
     );
     assert!(!desktop.shows(words::USE_GLOBAL));
-    desktop.tap(view, words::ONLY_DOMAINS);
+    pick(&mut desktop, view, words::ANY_DOMAIN, words::ONLY_DOMAINS);
     let own = desktop.store.program_settings(&triangle()).unwrap();
     assert_eq!(
         own.network,
@@ -355,7 +373,7 @@ fn simulates_saving(desktop: &mut LibraryDesktop, view: ViewId) -> &'static str 
         "no path to set while the picker asks: {:?}",
         desktop.labels()
     );
-    desktop.tap_last(view, words::SIMULATED);
+    pick_last(desktop, view, words::ASK, words::SIMULATED);
     desktop.scroll_until_visible(view, placeholder, saving, SCROLL_STEP);
     placeholder
 }
@@ -380,7 +398,7 @@ fn a_programs_file_pickers_ask_or_are_simulated_with_a_path_in_the_launcher() {
     );
     assert!(desktop.shows(&saved), "the path set shows");
 
-    desktop.tap_last(view, words::ASK);
+    pick_last(&mut desktop, view, words::SIMULATED, words::ASK);
     let own = desktop.store.program_settings(&triangle()).unwrap();
     assert_eq!(own.answer_with.save_file, None, "asked again");
     assert!(!desktop.shows(&saved) && !desktop.shows(placeholder));
@@ -394,6 +412,8 @@ fn a_programs_sound_output_and_computer_show_as_set_and_change_in_the_launcher()
     triangle_answered(&desktop, scratch.path());
     open_app_detail(&mut desktop, view, "Triangle", AppDetail::SoundOutput);
     let not_connected = words::not_offered("unplugged speakers");
+    // The output set shows in the drop-down, which opens on every output offered.
+    desktop.tap(view, &not_connected);
     for shown in [&not_connected, "Speakers", "Headphones"] {
         assert!(desktop.shows(shown), "{shown}: {:?}", desktop.labels());
     }
@@ -512,7 +532,7 @@ fn a_programs_answer_to_a_role_shows_and_is_forgotten_in_the_launcher() {
 fn the_camera_is_simulated_for_every_program_in_the_launcher() {
     let (mut desktop, view) = in_launcher();
     open_permission(&mut desktop, view, Permission::Camera);
-    desktop.tap(view, words::SIMULATED);
+    pick(&mut desktop, view, words::ASK, words::SIMULATED);
     let global = desktop.store.global_settings().unwrap();
     assert_eq!(global.answers.camera, Some(Answer::Simulated));
     let detail = if crate::state::SIMULATED_CAMERA {
@@ -540,7 +560,7 @@ fn a_programs_simulated_microphone_records_what_its_page_picks_in_the_launcher_a
             "{:?}",
             desktop.labels()
         );
-        desktop.tap(view, words::SILENCE);
+        pick(&mut desktop, view, words::QUIET_TONE, words::SILENCE);
         let own = desktop.store.program_settings(&triangle()).unwrap();
         assert_eq!(
             own.simulated_microphone,
@@ -631,7 +651,7 @@ fn a_permissions_default_changes_on_its_page_on_the_phone() {
     let (mut desktop, view) = on_phone();
     open_permission(&mut desktop, view, Permission::Network);
     assert!(desktop.shows(words::NETWORK), "{:?}", desktop.labels());
-    desktop.tap(view, words::ONLY_DOMAINS);
+    pick(&mut desktop, view, words::ANY_DOMAIN, words::ONLY_DOMAINS);
     assert_eq!(
         global_network(&desktop).domains,
         DomainRule::Only(Vec::new())
@@ -896,7 +916,11 @@ mod system_refusals {
         let (mut desktop, view) = in_tall_window();
         installs(&mut desktop, TRIANGLE, "Triangle", b"\0asm");
         open_app_permission(&mut desktop, view, "Triangle", Permission::Notifications);
-        assert!(desktop.shows(words::ALLOW), "{:?}", desktop.labels());
+        assert!(
+            desktop.shows(&words::defaulted(words::ASK)),
+            "{:?}",
+            desktop.labels()
+        );
         assert!(
             !desktop.shows(words::NOTIFICATIONS_REFUSED),
             "not until macOS says so"
