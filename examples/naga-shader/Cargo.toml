@@ -1,0 +1,21 @@
+[package]
+name = "naga-shader"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "A program that gives the GPU a shader as naga's module, not as WGSL text, as a program that builds its shaders in memory does, and prints what the shader computed. `cargo build -p naga-shader --target wasm32-wasip3`."
+
+[dependencies]
+# Reads the shader's WGSL into the module the program hands over; wgpu's own naga.
+naga = { version = "30.0.2", features = ["wgsl-in"] }
+wasdk.workspace = true
+wasdk-wgpu.workspace = true
+wgpu = { workspace = true, features = ["naga-ir"] }
+
+[lints]
+workspace = true
+
+# The id `waos run` runs this program as, with that program's settings and folders.
+[package.metadata.waos]
+id = "dev.waos.examples.nagashader"

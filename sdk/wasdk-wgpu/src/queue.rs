@@ -13,22 +13,26 @@ use wgpu::{BufferAddress, BufferSize, BufferUsages, WriteOnly};
 
 use crate::buffer::WasdkBuffer;
 use crate::command::WasdkCommandBuffer;
+use crate::convert;
 use crate::gap::wasi_gap;
+use crate::runtime::{Owed, OwedCallbacks};
 use crate::surface::WasdkSurfaceOutputDetail;
 use crate::texture::texel_copy_texture_to_wasi;
-use crate::{convert, runtime};
 
 #[derive(Debug)]
 pub struct WasdkQueue {
     queue: Arc<GpuQueue>,
+    /// The callbacks its device owes, its submitted work's among them.
+    owed: OwedCallbacks,
     /// Submissions so far: the index wgpu hands back for each.
     submissions: AtomicU64,
 }
 
 impl WasdkQueue {
-    pub(crate) fn new(queue: GpuQueue) -> Self {
+    pub(crate) fn new(queue: GpuQueue, owed: OwedCallbacks) -> Self {
         WasdkQueue {
             queue: Arc::new(queue),
+            owed,
             submissions: AtomicU64::new(0),
         }
     }
@@ -116,10 +120,9 @@ impl QueueInterface for WasdkQueue {
     }
 
     fn on_submitted_work_done(&self, callback: BoxSubmittedWorkDoneCallback) {
-        let queue = Arc::clone(&self.queue);
-        runtime::spawn(async move {
-            queue.on_submitted_work_done().await;
-            callback();
+        self.owed.owe(Owed::SubmittedWorkDone {
+            queue: Arc::clone(&self.queue),
+            callback,
         });
     }
 

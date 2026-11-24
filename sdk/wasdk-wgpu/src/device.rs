@@ -16,6 +16,7 @@ use wgpu::custom::{
 use wgpu::{AdapterInfo, Features, Limits};
 
 use crate::gap::wasi_gap;
+use crate::runtime::OwedCallbacks;
 use crate::{
     binding, buffer, command, convert, pass, pipeline, query, runtime, sampler, shader, texture,
 };
@@ -24,6 +25,8 @@ use crate::{
 #[derive(Debug)]
 pub struct WasdkDevice {
     device: Arc<GpuDevice>,
+    /// The callbacks it owes the program: its buffers' mappings and its queue's submitted work.
+    owed: OwedCallbacks,
     /// How many error scopes are open, so a pop out of order is caught here.
     open_error_scopes: AtomicU32,
 }
@@ -31,9 +34,10 @@ pub struct WasdkDevice {
 downcast!(WasdkDevice: api wgpu::Device, dispatch DispatchDevice);
 
 impl WasdkDevice {
-    pub(crate) fn new(device: GpuDevice) -> Self {
+    pub(crate) fn new(device: GpuDevice, owed: OwedCallbacks) -> Self {
         WasdkDevice {
             device: Arc::new(device),
+            owed,
             open_error_scopes: AtomicU32::new(0),
         }
     }
@@ -123,7 +127,7 @@ impl DeviceInterface for WasdkDevice {
     }
 
     fn create_buffer(&self, desc: &wgpu::BufferDescriptor<'_>) -> DispatchBuffer {
-        buffer::create_buffer(&self.device, desc)
+        buffer::create_buffer(&self.device, &self.owed, desc)
     }
 
     fn create_texture(&self, desc: &wgpu::TextureDescriptor<'_>) -> DispatchTexture {
@@ -222,12 +226,21 @@ impl DeviceInterface for WasdkDevice {
         // WebGPU has no capture API.
     }
 
+    /// `Wait` delivers every callback owed, each once the GPU has done its work, whatever
+    /// submission or timeout it names: the host waits on all of the device's work, with no limit.
+    /// `Poll` delivers none, since nothing here learns whether the GPU is done without waiting;
+    /// its callbacks run as the program yields.
     fn poll(
         &self,
-        _poll_type: wgpu::wgt::PollType<u64>,
+        poll_type: wgpu::wgt::PollType<u64>,
     ) -> Result<wgpu::PollStatus, wgpu::PollError> {
-        // The host drives the device; callbacks land when the program yields (see `runtime`).
-        Ok(wgpu::PollStatus::QueueEmpty)
+        match poll_type {
+            wgpu::wgt::PollType::Wait { .. } => {
+                self.owed.deliver();
+                Ok(wgpu::PollStatus::WaitSucceeded)
+            }
+            wgpu::wgt::PollType::Poll => Ok(wgpu::PollStatus::Poll),
+        }
     }
 
     fn get_internal_counters(&self) -> wgpu::InternalCounters {

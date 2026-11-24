@@ -10,11 +10,14 @@ use wgpu::custom::{
 };
 use wgpu::{BufferAddress, MapRangeError, WriteOnly};
 
-use crate::{convert, runtime};
+use crate::convert;
+use crate::runtime::{Owed, OwedCallbacks};
 
 #[derive(Debug)]
 pub struct WasdkBuffer {
     buffer: Arc<GpuBuffer>,
+    /// The callbacks its device owes, a mapping's among them.
+    owed: OwedCallbacks,
 }
 
 downcast!(WasdkBuffer: api wgpu::Buffer, dispatch DispatchBuffer);
@@ -27,6 +30,7 @@ impl WasdkBuffer {
 
 pub(crate) fn create_buffer(
     device: &GpuDevice,
+    owed: &OwedCallbacks,
     desc: &wgpu::BufferDescriptor<'_>,
 ) -> DispatchBuffer {
     let descriptor = GpuBufferDescriptor {
@@ -37,6 +41,7 @@ pub(crate) fn create_buffer(
     };
     DispatchBuffer::custom(WasdkBuffer {
         buffer: Arc::new(device.create_buffer(&descriptor)),
+        owed: owed.clone(),
     })
 }
 
@@ -58,13 +63,12 @@ impl BufferInterface for WasdkBuffer {
         range: Range<BufferAddress>,
         callback: BufferMapCallback,
     ) {
-        let buffer = Arc::clone(&self.buffer);
-        let mode = convert::map_mode_to_wasi(mode);
-        runtime::spawn(async move {
-            let mapped = buffer
-                .map_async(mode, Some(range.start), Some(range.end - range.start))
-                .await;
-            callback(mapped.map_err(|_| wgpu::BufferAsyncError));
+        self.owed.owe(Owed::Mapping {
+            buffer: Arc::clone(&self.buffer),
+            mode: convert::map_mode_to_wasi(mode),
+            offset: range.start,
+            size: range.end - range.start,
+            callback,
         });
     }
 

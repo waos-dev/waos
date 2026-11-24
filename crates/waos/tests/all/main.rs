@@ -59,6 +59,8 @@ mod notifications;
 mod opener;
 mod output;
 mod permissions;
+#[cfg(target_vendor = "apple")]
+mod readback;
 mod roles;
 mod storage;
 mod survey;
@@ -90,6 +92,16 @@ mod composition_layers {
         eprintln!(
             "the engine makes hardware buffers on Apple's systems; the composition layer tests do \
              not run here"
+        );
+    }
+}
+
+#[cfg(not(target_vendor = "apple"))]
+mod readback {
+    #[test]
+    fn a_buffer_is_not_read_back_on_this_system() {
+        eprintln!(
+            "the tests' machines have a GPU on Apple's systems; the readback test does not run here"
         );
     }
 }
