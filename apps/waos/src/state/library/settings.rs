@@ -18,6 +18,7 @@ use waft::{App, Context, Entity, WeakEntity};
 use waos::Switch;
 
 use crate::logic::activity::activity_of;
+use crate::logic::permissions::Permission;
 use waos_package::ProgramId;
 
 use super::{Library, WantsToBeSeen};
@@ -41,16 +42,19 @@ pub(crate) enum LibraryPage {
     Settings(SettingsPage),
 }
 
-/// A page of the library's settings.
+/// A page of the library's settings, as iOS's Settings leads to its own: General, Privacy &
+/// Security by kind, and each app.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum SettingsPage {
-    /// The first: what leads to each of the others, WaOS's own settings, those every app
-    /// follows, and each app's.
+    /// The first, which leads to each of the others.
     Root,
     /// WaOS's own settings: where apps open, where WaOS stays, the phone's files.
-    Waos,
-    /// The settings every app follows until its user sets its own.
-    EveryApp,
+    General,
+    /// The kinds of permission, each with its default.
+    Permissions,
+    /// One kind: its default, which every app follows until set otherwise, and the apps that
+    /// are, as a browser's site settings show a permission's.
+    Permission(Permission),
     /// One app's.
     App(ProgramId),
 }
@@ -66,6 +70,9 @@ impl LibraryPage {
                 Some(LibraryPage::Home)
             }
             LibraryPage::App(_) => Some(LibraryPage::AppStore),
+            LibraryPage::Settings(SettingsPage::Permission(_)) => {
+                Some(LibraryPage::Settings(SettingsPage::Permissions))
+            }
             LibraryPage::Settings(_) => Some(LibraryPage::Settings(SettingsPage::Root)),
         }
     }
@@ -251,7 +258,7 @@ impl Library {
 
     /// A program asks its user to change `switch`, and waits on `left` for the user to leave
     /// the page: its own page opens, under its name once installed and its id before; the
-    /// global one for a program the engine runs under no id.
+    /// switch's kind's, whose default it follows, for a program the engine runs under no id.
     fn settings_asked(&mut self, asked: SettingsOpened, cx: &mut Context<Library>) {
         let (page, name) = match asked.program.name().parse::<ProgramId>() {
             Ok(id) => {
@@ -260,7 +267,10 @@ impl Library {
                     .map_or_else(|| id.to_string(), |program| program.name());
                 (SettingsPage::App(id), name)
             }
-            Err(_) => (SettingsPage::EveryApp, asked.program.name().to_owned()),
+            Err(_) => (
+                SettingsPage::Permission(Permission::of_switch(asked.switch)),
+                asked.program.name().to_owned(),
+            ),
         };
         tracing::info!(name, switch = ?asked.switch, "a program asks its user to change a switch");
         self.show_page(LibraryPage::Settings(page), cx);

@@ -4,7 +4,8 @@ use waft::ui::TargetPlatform;
 use waos::{RecordingDevice, Switch};
 use waos_package::Category;
 
-use crate::logic::setting_changes::SettingsOf;
+use crate::logic::permissions::Permission;
+use crate::logic::setting_changes::{SettingsOf, ShownSettings};
 use crate::state::library::Question;
 
 /// The home's title.
@@ -136,16 +137,88 @@ pub(crate) fn unreadable(why: &str) -> String {
 }
 
 pub(crate) const SETTINGS: &str = "Settings";
-/// On the settings' first page: WaOS's own settings, those every app follows, and the apps.
-/// WaOS's own are General, as iOS names its own: on a phone the way back to the home is named
-/// WaOS already.
+/// On the settings' first page: WaOS's own settings, the permissions apps follow by default,
+/// and the apps. WaOS's own are General, as iOS names its own: on a phone the way back to the
+/// home is named WaOS already.
 pub(crate) const WAOS_SETTINGS: &str = "General";
 pub(crate) const WAOS_SETTINGS_DETAIL: &str = "Where apps open, and where WaOS stays.";
-pub(crate) const EVERY_APP: &str = "Every app";
+pub(crate) const PERMISSIONS: &str = "Permissions";
+pub(crate) const PERMISSIONS_DETAIL: &str = "What apps may use, by default and app by app.";
 pub(crate) const APPS: &str = "Apps";
+/// On a permission's page, as a browser's site settings say theirs.
+pub(crate) const DEFAULT: &str = "Default";
+pub(crate) const DEFAULT_DETAIL: &str = "Apps follow this, unless set otherwise.";
+pub(crate) const SET_OTHERWISE: &str = "Set otherwise";
+pub(crate) const SET_OTHERWISE_DETAIL: &str = "These apps follow a setting of their own.";
+pub(crate) const NONE_SET_OTHERWISE: &str = "Every app follows the default.";
+
+/// A kind of permission, as Settings lists it.
+pub(crate) fn permission_name(permission: Permission) -> &'static str {
+    match permission {
+        Permission::Network => NETWORK,
+        Permission::LocalNetwork => "Local network",
+        Permission::Clipboard => "Clipboard",
+        Permission::Folders => FOLDERS,
+        Permission::Notifications => "Notifications",
+        Permission::Camera => "Camera",
+        Permission::Microphone => "Microphone",
+        Permission::ActivityRecord => "Activity record",
+    }
+}
+
+/// What `shown` holds for `permission`, in a few words: the default on the list of kinds, an
+/// app's own on a kind's page.
+pub(crate) fn permission_value(permission: Permission, shown: &ShownSettings) -> String {
+    let allowed = |on: bool| if on { ALLOW } else { DONT_ALLOW };
+    let said = match permission {
+        Permission::Network => {
+            let network = &shown.network.value;
+            match (network.on, &network.domains) {
+                (false, _) => DONT_ALLOW,
+                (true, waos_store::DomainRule::Any) => ALLOW,
+                (true, waos_store::DomainRule::Only(_)) => "Only some domains",
+                (true, waos_store::DomainRule::AnyBut(_)) => "All but some domains",
+            }
+        }
+        Permission::LocalNetwork => allowed(shown.local_network.value),
+        Permission::Clipboard => match (shown.clipboard_read.value, shown.clipboard_write.value) {
+            (true, true) => "Reading and writing",
+            (true, false) => "Reading only",
+            (false, true) => "Writing only",
+            (false, false) => DONT_ALLOW,
+        },
+        Permission::Folders => {
+            return match shown.file_system.value.mounts.len() {
+                0 => NO_FOLDERS.trim_end_matches('.').to_owned(),
+                1 => "1 folder".to_owned(),
+                n => format!("{n} folders"),
+            };
+        }
+        Permission::Notifications => answer_said(shown.answers.notifications.value),
+        Permission::Camera => answer_said(shown.answers.camera.value),
+        Permission::Microphone => answer_said(shown.answers.microphone.value),
+        Permission::ActivityRecord => {
+            if shown.record.value {
+                ON
+            } else {
+                OFF
+            }
+        }
+    };
+    said.to_owned()
+}
+
+/// A question's answer, in a word: Ask where there is none.
+fn answer_said(answer: Option<waos_store::Answer>) -> &'static str {
+    match answer {
+        None => ASK,
+        Some(waos_store::Answer::Granted) => ALLOW,
+        Some(waos_store::Answer::Denied) => DONT_ALLOW,
+        Some(waos_store::Answer::Simulated) => SIMULATED,
+    }
+}
 pub(crate) const GLOBAL_SETTINGS: &str = "Every app's settings";
-pub(crate) const GLOBAL_DETAIL: &str = "What every app may use, until you set it for one app.";
-pub(crate) const FOLLOWS_GLOBAL: &str = "Follows the setting for every app.";
+pub(crate) const FOLLOWS_GLOBAL: &str = "Follows the default.";
 pub(crate) const WHERE_PROGRAMS_OPEN: &str = "Where apps open";
 pub(crate) const PROGRAMS_INSIDE_WAOS: &str = "Show apps inside WaOS";
 pub(crate) const PROGRAMS_INSIDE_WAOS_DETAIL: &str =
@@ -178,7 +251,7 @@ pub(crate) fn keep_in_dock_detail(platform: TargetPlatform) -> &'static str {
     }
 }
 
-pub(crate) const USE_GLOBAL: &str = "Use the setting for every app";
+pub(crate) const USE_GLOBAL: &str = "Use the default";
 pub(crate) const ON: &str = "On";
 pub(crate) const OFF: &str = "Off";
 pub(crate) const NETWORK: &str = "Network";

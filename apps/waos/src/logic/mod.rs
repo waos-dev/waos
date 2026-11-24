@@ -107,6 +107,7 @@ pub(crate) mod opened_package;
 pub(crate) mod opener_calls;
 pub(crate) mod opening;
 pub(crate) mod package_copies;
+pub(crate) mod permissions;
 pub(crate) mod phone_files;
 pub(crate) mod placement;
 pub(crate) mod player_states;

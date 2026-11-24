@@ -20,8 +20,8 @@ use super::home::cupertino::CupertinoHome;
 use super::program_name;
 use super::questions::cupertino::CupertinoAsked;
 use super::settings::cupertino::CupertinoSettings;
-use super::settings::cupertino_root::CupertinoSettingsRoot;
-use super::settings::cupertino_waos::CupertinoWaosSettings;
+use super::settings::cupertino_general::CupertinoGeneralSettings;
+use super::settings::cupertino_root::{CupertinoPermissions, CupertinoSettingsRoot};
 use super::{back_once_removed, page_key, words};
 use crate::logic::setting_changes::SettingsOf;
 use crate::state::library::{Library, LibraryPage, SettingsPage};
@@ -145,13 +145,17 @@ impl LibraryPages {
             LibraryPage::Settings(SettingsPage::Root) => {
                 CupertinoSettingsRoot { library }.into_widget()
             }
-            LibraryPage::Settings(SettingsPage::Waos) => {
-                CupertinoWaosSettings { library }.into_widget()
+            LibraryPage::Settings(SettingsPage::General) => {
+                CupertinoGeneralSettings { library }.into_widget()
             }
-            LibraryPage::Settings(SettingsPage::EveryApp) => CupertinoSettings {
+            LibraryPage::Settings(SettingsPage::Permissions) => {
+                CupertinoPermissions { library }.into_widget()
+            }
+            LibraryPage::Settings(SettingsPage::Permission(only)) => CupertinoSettings {
                 program_name: None,
                 library,
                 of: SettingsOf::Global,
+                only: Some(only),
             }
             .into_widget(),
             LibraryPage::Settings(SettingsPage::App(id)) => {
@@ -160,6 +164,7 @@ impl LibraryPages {
                     program_name: program_name(&library, &of, app),
                     library,
                     of,
+                    only: None,
                 }
                 .into_widget()
             }

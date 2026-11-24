@@ -28,13 +28,18 @@ use waos::{FileDialog, SimulatedSound};
 use waos_activity::Activity;
 use waos_store::{Answer, DomainRule, Question, Role};
 
+use super::fluent_root::{MARK_SIDE, heading, link_card};
+use super::set_otherwise;
+use crate::logic::permissions::Permission;
 use crate::logic::setting_changes::{
     DomainsKind, SettingChange, SettingsOf, Shown, ShownAnswerWith, ShownSettings, Which,
     domains_kind, simulatable,
 };
 use crate::state::SIMULATED_CAMERA;
-use crate::state::library::Library;
+use crate::state::library::{Library, SettingsPage};
+use crate::ui::library::program_icon::ProgramIcon;
 use crate::ui::library::words;
+use waft::SizedBox;
 
 const MARGIN: f64 = 16.0;
 const GAP: f64 = 8.0;
@@ -46,6 +51,9 @@ pub(crate) struct FluentSettings {
     pub(crate) of: SettingsOf,
     /// The page's title: the program's name, or none on the global page.
     pub(crate) program_name: Option<String>,
+    /// The kind of permission whose settings alone the page shows, with the apps that set it
+    /// otherwise: a kind's page, showing its default; none for an app's page, which shows all.
+    pub(crate) only: Option<Permission>,
 }
 
 impl StatefulWidget for FluentSettings {
@@ -113,12 +121,14 @@ impl State for FluentSettingsState {
         let page = Page {
             library: widget.library.clone(),
             of: widget.of.clone(),
+            only: widget.only,
             resources,
             typed: app.get(self).typed.clone().expect("an initialized page"),
             writable: app.get(self).writable,
             state: self,
         };
         let mut rows = vec![page.title(widget.program_name.as_deref())];
+        let set_otherwise = page.only.map(|only| page.set_otherwise(app, only));
         rows.extend(page.switch_asked(app));
         match page.library.read(app).settings(&page.of) {
             Ok(shown) => {
@@ -128,6 +138,7 @@ impl State for FluentSettingsState {
             }
             Err(why) => rows.push(caption(&why, &page.resources)),
         }
+        rows.extend(set_otherwise.into_iter().flatten());
         ListView::new()
             .padding(EdgeInsetsGeometry::all(MARGIN))
             .children(rows)
@@ -145,6 +156,7 @@ impl FluentSettingsState {
 struct Page {
     library: Entity<Library>,
     of: SettingsOf,
+    only: Option<Permission>,
     resources: Rc<ThemeResources>,
     typed: Typed,
     writable: bool,
@@ -160,9 +172,10 @@ impl Page {
         let back = Listener::new(move |app| {
             library.update(app, |library, cx| library.go_back(cx));
         });
-        let title = match program_name {
-            Some(name) => words::settings_of(name),
-            None => words::GLOBAL_SETTINGS.to_owned(),
+        let title = match (self.only, program_name) {
+            (Some(only), _) => words::permission_name(only).to_owned(),
+            (None, Some(name)) => words::settings_of(name),
+            (None, None) => words::GLOBAL_SETTINGS.to_owned(),
         };
         let bar = Row::new().spacing(4.0).children([
             Button::new(FontIcon::symbol(FluentSymbol::Back).font_size(16.0), back)
@@ -173,16 +186,51 @@ impl Page {
                 .style(TextBlockStyle::Subtitle.text_style(&self.resources, primary))
                 .into_widget(),
         ]);
-        if program_name.is_some() {
+        if self.only.is_none() {
             return bar.into_widget();
         }
         Column::new()
             .cross_axis_alignment(CrossAxisAlignment::Start)
             .children([
                 bar.into_widget(),
-                caption(words::GLOBAL_DETAIL, &self.resources),
+                self.setting_name(words::DEFAULT),
+                caption(words::DEFAULT_DETAIL, &self.resources),
             ])
             .into_widget()
+    }
+
+    /// Whether the page shows the settings of `permission`: an app's page shows every kind's.
+    fn shows(&self, permission: Permission) -> bool {
+        self.only.is_none_or(|only| only == permission)
+    }
+
+    /// On a kind's page, the apps that set `permission` otherwise than its default, each with
+    /// what it set and leading to its page; one line where every app follows the default.
+    fn set_otherwise(&self, app: &App, permission: Permission) -> Vec<WidgetRef> {
+        let mut rows = vec![
+            heading(words::SET_OTHERWISE, &self.resources),
+            caption(words::SET_OTHERWISE_DETAIL, &self.resources),
+        ];
+        let apps = set_otherwise(self.library.read(app), permission);
+        if apps.is_empty() {
+            rows.push(caption(words::NONE_SET_OTHERWISE, &self.resources));
+        }
+        rows.push(SizedBox::new().height(GAP).into_widget());
+        for (listed, value) in apps {
+            let icon = ProgramIcon {
+                png: listed.icon,
+                side: MARK_SIDE,
+            };
+            rows.push(link_card(
+                &self.library,
+                &self.resources,
+                Some(icon.into_widget()),
+                &listed.name,
+                Some(&value),
+                SettingsPage::App(listed.id),
+            ));
+        }
+        rows
     }
 
     /// What a program asked for, when it asked for one of its switches here.
@@ -219,31 +267,44 @@ impl Page {
         if self.of != SettingsOf::Global {
             sections.extend(self.machines(&shown.machines));
         }
-        sections.extend(self.network(&shown.network));
-        sections.extend(self.switch(
-            words::LOCAL_NETWORK,
-            &shown.local_network,
-            Which::LocalNetwork,
-            SettingChange::LocalNetwork,
-        ));
-        sections.extend(self.switch(
-            words::CLIPBOARD_READ,
-            &shown.clipboard_read,
-            Which::ClipboardRead,
-            SettingChange::ClipboardRead,
-        ));
-        sections.extend(self.switch(
-            words::CLIPBOARD_WRITE,
-            &shown.clipboard_write,
-            Which::ClipboardWrite,
-            SettingChange::ClipboardWrite,
-        ));
-        sections.extend(self.record(&shown.record));
-        if let Some(activity) = activity {
-            sections.extend(self.last_days(activity, shown.record.value));
+        if self.shows(Permission::Network) {
+            sections.extend(self.network(&shown.network));
         }
-        sections.extend(self.folders(&shown.file_system));
+        if self.shows(Permission::LocalNetwork) {
+            sections.extend(self.switch(
+                words::LOCAL_NETWORK,
+                &shown.local_network,
+                Which::LocalNetwork,
+                SettingChange::LocalNetwork,
+            ));
+        }
+        if self.shows(Permission::Clipboard) {
+            sections.extend(self.switch(
+                words::CLIPBOARD_READ,
+                &shown.clipboard_read,
+                Which::ClipboardRead,
+                SettingChange::ClipboardRead,
+            ));
+            sections.extend(self.switch(
+                words::CLIPBOARD_WRITE,
+                &shown.clipboard_write,
+                Which::ClipboardWrite,
+                SettingChange::ClipboardWrite,
+            ));
+        }
+        if self.shows(Permission::ActivityRecord) {
+            sections.extend(self.record(&shown.record));
+            if let Some(activity) = activity {
+                sections.extend(self.last_days(activity, shown.record.value));
+            }
+        }
+        if self.shows(Permission::Folders) {
+            sections.extend(self.folders(&shown.file_system));
+        }
         for question in Question::ALL {
+            if !self.shows(Permission::of_question(question)) {
+                continue;
+            }
             let refused = question == Question::Notifications && notifications_refused;
             sections.extend(self.question(question, shown.answers.get(question), refused));
             sections.extend(self.simulated(question, shown));

@@ -24,11 +24,11 @@ const NAME_GAP: f64 = 4.0;
 
 /// WaOS's own settings, in Fluent's controls.
 #[derive(Debug)]
-pub(crate) struct FluentWaosSettings {
+pub(crate) struct FluentGeneralSettings {
     pub(crate) library: Entity<Library>,
 }
 
-impl StatelessWidget for FluentWaosSettings {
+impl StatelessWidget for FluentGeneralSettings {
     fn build(&self, app: &mut App, context: BuildContext) -> WidgetRef {
         let shown = Shown {
             library: self.library.clone(),

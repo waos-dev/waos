@@ -19,6 +19,8 @@ use waft_widgets::testing::{capture_image, find};
 use waft_widgets::{View, downcast_widget};
 
 use crate::logic::app_store::AppStorePlace;
+use crate::logic::permissions::Permission;
+use crate::logic::setting_changes::{DomainsKind, SettingChange, SettingsOf};
 use crate::state::library::test_desktop::{DesktopKind, LibraryDesktop};
 use crate::state::library::test_server::Server;
 use crate::state::library::{LibraryPage, SettingsPage};
@@ -268,11 +270,24 @@ fn walks_the_library(layout: &str, (mut desktop, view): (LibraryDesktop, ViewId)
     scenes.draw(&mut desktop, "settings");
     // WaOS's own settings have a page where this desktop has any.
     if desktop.read(|library| library.kept_in_dock().is_some()) {
-        shows(&mut desktop, LibraryPage::Settings(SettingsPage::Waos));
+        shows(&mut desktop, LibraryPage::Settings(SettingsPage::General));
         scenes.draw(&mut desktop, "settings-general");
     }
-    shows(&mut desktop, LibraryPage::Settings(SettingsPage::EveryApp));
-    scenes.draw(&mut desktop, "settings-every-app");
+    shows(
+        &mut desktop,
+        LibraryPage::Settings(SettingsPage::Permissions),
+    );
+    scenes.draw(&mut desktop, "settings-permissions");
+    // Zed has set its own network, so the kind's page has an app set otherwise to show.
+    desktop.update(|library, cx| {
+        let zed = SettingsOf::Program("dev.waos.zed".parse().expect("an app's id"));
+        library.change_settings(&zed, SettingChange::Domains(DomainsKind::Only), cx);
+    });
+    shows(
+        &mut desktop,
+        LibraryPage::Settings(SettingsPage::Permission(Permission::Network)),
+    );
+    scenes.draw(&mut desktop, "settings-network");
     let program = first.parse().expect("a program's id");
     shows(
         &mut desktop,

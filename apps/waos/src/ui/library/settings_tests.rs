@@ -29,8 +29,9 @@ use waos_store::{Answer, DomainRule, GlobalSettings, NetworkGrant, Setting};
 use super::home::fluent::FluentHome;
 use super::test_steps::{in_launcher, in_launcher_of, installs, on_phone, on_phone_of};
 use super::{LaidOutLibrary, words};
+use crate::logic::permissions::Permission;
 use crate::logic::phone_files::TestPhone;
-use crate::logic::setting_changes::{SettingChange, SettingsOf};
+use crate::logic::setting_changes::{DomainsKind, SettingChange, SettingsOf};
 use crate::state::library::test_desktop::{DesktopKind, LibraryDesktop};
 use crate::state::library::{LibraryPage, SettingsPage};
 use crate::ui::launcher::home::LauncherHome;
@@ -46,10 +47,19 @@ fn global_network(desktop: &LibraryDesktop) -> NetworkGrant {
     desktop.store.global_settings().unwrap().network
 }
 
-/// Opens every program's settings: the settings, then Every app.
-fn open_global_settings(desktop: &mut LibraryDesktop, view: ViewId) {
+/// Opens the page of `permission`, which shows its default: the settings, Permissions, then the
+/// kind.
+fn open_permission(desktop: &mut LibraryDesktop, view: ViewId, permission: Permission) {
     open_settings(desktop, view);
-    desktop.tap(view, words::EVERY_APP);
+    desktop.tap(view, words::PERMISSIONS);
+    desktop.tap(view, words::permission_name(permission));
+}
+
+/// From a kind's page, opens the page of `permission` instead, as the user goes back to
+/// Permissions and on.
+fn go_to_permission(desktop: &mut LibraryDesktop, view: ViewId, permission: Permission) {
+    back_once(desktop, view);
+    desktop.tap(view, words::permission_name(permission));
 }
 
 /// Opens WaOS's own settings: the settings, then General.
@@ -102,6 +112,7 @@ fn back_once(desktop: &mut LibraryDesktop, view: ViewId) {
         let page = desktop.read(|library| library.page().clone());
         let beneath = match page {
             LibraryPage::Settings(SettingsPage::Root) => words::HOME_TITLE,
+            LibraryPage::Settings(SettingsPage::Permission(_)) => words::PERMISSIONS,
             _ => words::SETTINGS,
         };
         desktop.tap(view, beneath);
@@ -121,7 +132,7 @@ fn the_settings_first_page_leads_to_each_apps_settings_and_back_in_either_layout
         open_settings(&mut desktop, view);
         assert_eq!(page(&desktop), LibraryPage::Settings(SettingsPage::Root));
         assert!(
-            desktop.shows(words::EVERY_APP) && desktop.shows(words::APPS),
+            desktop.shows(words::PERMISSIONS) && desktop.shows(words::APPS),
             "{:?}",
             desktop.labels()
         );
@@ -143,15 +154,15 @@ fn the_settings_first_page_leads_to_each_apps_settings_and_back_in_either_layout
 }
 
 #[test]
-fn the_settings_for_every_program_change_in_the_launcher_and_are_kept() {
+fn a_permissions_default_changes_on_its_page_in_the_launcher_and_is_kept() {
     let (mut desktop, view) = in_launcher();
-    open_global_settings(&mut desktop, view);
+    open_permission(&mut desktop, view, Permission::Network);
     assert!(
-        desktop.shows(words::GLOBAL_SETTINGS),
+        desktop.shows(words::DEFAULT) && desktop.shows(words::ANY_DOMAIN),
         "{:?}",
         desktop.labels()
     );
-    assert!(desktop.shows(words::NETWORK) && desktop.shows(words::LOCAL_NETWORK));
+    assert!(!desktop.shows(words::LOCAL_NETWORK), "one kind's page");
     desktop.tap(view, words::ONLY_DOMAINS);
     assert_eq!(
         global_network(&desktop).domains,
@@ -170,16 +181,51 @@ fn the_settings_for_every_program_change_in_the_launcher_and_are_kept() {
         global_network(&desktop).domains,
         DomainRule::Only(Vec::new())
     );
-    desktop.scroll_until_visible(view, words::FOLDERS, words::NETWORK, 200.0);
-    assert!(desktop.shows(words::FOLDERS), "further down");
+    go_to_permission(&mut desktop, view, Permission::Folders);
+    assert!(desktop.shows(words::NO_FOLDERS), "{:?}", desktop.labels());
+}
+
+#[test]
+fn a_permissions_page_lists_the_apps_set_otherwise_each_leading_to_its_page() {
+    let layouts: [fn() -> (LibraryDesktop, ViewId); 2] = [in_launcher, on_phone];
+    for layout in layouts {
+        let (mut desktop, view) = layout();
+        installs(&mut desktop, TRIANGLE, "Triangle", b"\0asm");
+        open_permission(&mut desktop, view, Permission::Network);
+        assert!(
+            desktop.shows(words::NONE_SET_OTHERWISE) && !desktop.shows("Triangle"),
+            "{:?}",
+            desktop.labels()
+        );
+        desktop.update(|library, cx| {
+            let of = SettingsOf::Program(triangle());
+            library.change_settings(&of, SettingChange::Domains(DomainsKind::Only), cx);
+        });
+        assert!(
+            desktop.shows("Triangle") && desktop.shows("Only some domains"),
+            "{:?}",
+            desktop.labels()
+        );
+        desktop.tap(view, "Triangle");
+        assert_eq!(
+            desktop.read(|library| library.page().clone()),
+            LibraryPage::Settings(SettingsPage::App(triangle()))
+        );
+        desktop.tap(view, words::USE_GLOBAL);
+        back(&mut desktop, view);
+        open_permission(&mut desktop, view, Permission::Network);
+        assert!(
+            !desktop.shows("Triangle"),
+            "it follows the default again: {:?}",
+            desktop.labels()
+        );
+    }
 }
 
 #[test]
 fn a_programs_settings_follow_those_for_every_program_until_changed_in_the_launcher() {
     let (mut desktop, view) = in_launcher();
     installs(&mut desktop, TRIANGLE, "Triangle", b"\0asm");
-    open_global_settings(&mut desktop, view);
-    back(&mut desktop, view);
     let settings_of_triangle = || LibraryPage::Settings(SettingsPage::App(triangle()));
     desktop.update(|library, cx| library.show_page(settings_of_triangle(), cx));
     assert!(
@@ -377,9 +423,7 @@ fn a_programs_answer_to_a_role_shows_and_is_forgotten_in_the_launcher() {
 #[test]
 fn the_camera_is_simulated_for_every_program_in_the_launcher() {
     let (mut desktop, view) = in_launcher();
-    open_global_settings(&mut desktop, view);
-    let camera = words::question_name(waos_store::Question::Camera);
-    desktop.scroll_until_visible(view, camera, words::NETWORK, SCROLL_STEP);
+    open_permission(&mut desktop, view, Permission::Camera);
     desktop.tap(view, words::SIMULATED);
     let global = desktop.store.global_settings().unwrap();
     assert_eq!(global.answers.camera, Some(Answer::Simulated));
@@ -422,7 +466,7 @@ fn a_programs_simulated_microphone_records_what_its_page_picks_in_the_launcher_a
 fn no_page_offers_commands_in_the_launcher_or_on_the_phone() {
     let (mut desktop, view) = in_launcher();
     installs(&mut desktop, TRIANGLE, "Triangle", b"\0asm");
-    open_global_settings(&mut desktop, view);
+    open_permission(&mut desktop, view, Permission::Network);
     assert!(desktop.shows(words::NETWORK), "{:?}", desktop.labels());
     assert!(!desktop.shows("Commands") && !desktop.shows("Any command"));
     back(&mut desktop, view);
@@ -431,7 +475,7 @@ fn no_page_offers_commands_in_the_launcher_or_on_the_phone() {
     assert!(!desktop.shows("Commands") && !desktop.shows("Any command"));
 
     let (mut desktop, view) = on_phone();
-    open_global_settings(&mut desktop, view);
+    open_permission(&mut desktop, view, Permission::Network);
     assert!(desktop.shows(words::NETWORK), "{:?}", desktop.labels());
     assert!(!desktop.shows("Commands") && !desktop.shows("Any command"));
 }
@@ -492,15 +536,10 @@ fn a_program_asking_for_its_network_opens_its_page_and_hears_when_the_user_leave
 }
 
 #[test]
-fn the_settings_for_every_program_change_on_the_phone() {
+fn a_permissions_default_changes_on_its_page_on_the_phone() {
     let (mut desktop, view) = on_phone();
-    open_global_settings(&mut desktop, view);
+    open_permission(&mut desktop, view, Permission::Network);
     assert!(desktop.shows(words::NETWORK), "{:?}", desktop.labels());
-    assert!(
-        desktop.shows(words::LOCAL_NETWORK),
-        "{:?}",
-        desktop.labels()
-    );
     desktop.tap(view, words::ONLY_DOMAINS);
     assert_eq!(
         global_network(&desktop).domains,
@@ -538,14 +577,27 @@ fn a_programs_settings_change_on_the_phone_and_follow_again() {
 /// What reads one setting that is on or off from the settings for every program.
 type GlobalValue = fn(&GlobalSettings) -> bool;
 
-/// Each setting that is on or off, by the name its row shows, and its value for every program.
-fn on_off_settings() -> [(&'static str, GlobalValue); 5] {
+/// Each setting that is on or off, by the kind whose page shows it, the name its row shows, and
+/// its value for every program.
+fn on_off_settings() -> [(Permission, &'static str, GlobalValue); 5] {
     [
-        (words::NETWORK, |settings| settings.network.on),
-        (words::LOCAL_NETWORK, |settings| settings.local_network),
-        (words::CLIPBOARD_READ, |settings| settings.clipboard_read),
-        (words::CLIPBOARD_WRITE, |settings| settings.clipboard_write),
-        (words::RECORD_EVERY, |settings| settings.record),
+        (Permission::Network, words::NETWORK, |settings| {
+            settings.network.on
+        }),
+        (Permission::LocalNetwork, words::LOCAL_NETWORK, |settings| {
+            settings.local_network
+        }),
+        (Permission::Clipboard, words::CLIPBOARD_READ, |settings| {
+            settings.clipboard_read
+        }),
+        (Permission::Clipboard, words::CLIPBOARD_WRITE, |settings| {
+            settings.clipboard_write
+        }),
+        (
+            Permission::ActivityRecord,
+            words::RECORD_EVERY,
+            |settings| settings.record,
+        ),
     ]
 }
 
@@ -567,16 +619,14 @@ fn label_bounds(desktop: &LibraryDesktop, text: &str) -> Rect {
 #[test]
 fn each_setting_that_is_on_or_off_is_a_switch_on_a_row_naming_it_on_the_phone() {
     let (mut desktop, view) = on_phone();
-    open_global_settings(&mut desktop, view);
+    open_permission(&mut desktop, view, Permission::Network);
     assert!(!desktop.shows(words::ON) && !desktop.shows(words::OFF));
     assert!(
         desktop.shows(words::ANY_DOMAIN),
         "a choice among named things stays a segmented control"
     );
-    let mut above = words::NETWORK;
-    for (name, value) in on_off_settings() {
-        desktop.scroll_until_visible(view, name, above, 200.0);
-        above = name;
+    for (permission, name, value) in on_off_settings() {
+        go_to_permission(&mut desktop, view, permission);
         let global = desktop.store.global_settings().unwrap();
         assert_eq!(switch_shows(&desktop, name), value(&global), "{name}");
         let switch = desktop.bounds_beside::<CupertinoSwitch>(name).unwrap();
@@ -585,14 +635,14 @@ fn each_setting_that_is_on_or_off_is_a_switch_on_a_row_naming_it_on_the_phone() 
             "{name} spans its row up to the switch, so a name too long for it is cut with an ellipsis, not measured to nothing"
         );
     }
-    desktop.scroll_until_visible(view, words::ALLOW, above, 200.0);
+    go_to_permission(&mut desktop, view, Permission::Notifications);
     assert!(desktop.shows(words::ALLOW), "the notifications' choice too");
 }
 
 #[test]
 fn a_tap_on_a_switch_or_on_its_row_changes_the_setting_on_the_phone() {
     let (mut desktop, view) = on_phone();
-    open_global_settings(&mut desktop, view);
+    open_permission(&mut desktop, view, Permission::LocalNetwork);
     let local_network =
         |desktop: &LibraryDesktop| desktop.store.global_settings().unwrap().local_network;
     let before = local_network(&desktop);
@@ -807,7 +857,7 @@ mod system_refusals {
         );
         assert_eq!(opens_system_settings(&mut desktop, view).len(), 1);
         back(&mut desktop, view);
-        open_global_settings(&mut desktop, view);
+        open_permission(&mut desktop, view, Permission::Notifications);
         assert!(
             !desktop.shows(words::NOTIFICATIONS_REFUSED),
             "a program's alone"
@@ -848,7 +898,7 @@ fn the_global_page_says_whether_waos_reaches_the_phone_s_files_and_opens_android
 fn the_global_page_says_nothing_of_the_phone_s_files_where_waos_reaches_what_its_user_does() {
     let (mut desktop, view) = in_launcher();
     open_settings(&mut desktop, view);
-    assert!(desktop.shows(words::EVERY_APP), "{:?}", desktop.labels());
+    assert!(desktop.shows(words::PERMISSIONS), "{:?}", desktop.labels());
     assert!(
         !desktop.shows(words::WAOS_SETTINGS),
         "no page of WaOS's own settings where it has none: {:?}",

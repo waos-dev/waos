@@ -37,13 +37,17 @@ use waos::{FileDialog, SimulatedSound};
 use waos_activity::Activity;
 use waos_store::{Answer, DomainRule, FileSystemGrant, NetworkGrant, Question, Role};
 
+use super::cupertino_root::{ICON_SIDE, link_row};
+use super::set_otherwise;
+use crate::logic::permissions::Permission;
 use crate::logic::setting_changes::{
     DomainsKind, SettingChange, SettingsOf, Shown, ShownAnswerWith, ShownSettings, Which,
     domains_kind, simulatable,
 };
 use crate::state::SIMULATED_CAMERA;
-use crate::state::library::Library;
+use crate::state::library::{Library, SettingsPage};
 use crate::ui::library::cupertino::{back_to_page_beneath, under_bar};
+use crate::ui::library::program_icon::ProgramIcon;
 use crate::ui::library::words;
 
 /// The settings `of` shows, as a page of its own.
@@ -53,6 +57,9 @@ pub(crate) struct CupertinoSettings {
     pub(crate) of: SettingsOf,
     /// The program's name, or none on the global page.
     pub(crate) program_name: Option<String>,
+    /// The kind of permission whose settings alone the page shows, with the apps that set it
+    /// otherwise: a kind's page, showing its default; none for an app's page, which shows all.
+    pub(crate) only: Option<Permission>,
 }
 
 impl StatefulWidget for CupertinoSettings {
@@ -119,16 +126,21 @@ impl State for CupertinoSettingsState {
         let page = Page {
             library: widget.library.clone(),
             of: widget.of.clone(),
+            only: widget.only,
             typed: app.get(self).typed.clone().expect("an initialized page"),
             writable: app.get(self).writable,
             state: self,
         };
-        let title = match &widget.program_name {
-            Some(name) => words::settings_of(name),
-            None => words::GLOBAL_SETTINGS.to_owned(),
+        let (title, beneath) = match (page.only, &widget.program_name) {
+            (Some(only), _) => (words::permission_name(only).to_owned(), words::PERMISSIONS),
+            (None, Some(name)) => (words::settings_of(name), words::SETTINGS),
+            (None, None) => (words::GLOBAL_SETTINGS.to_owned(), words::SETTINGS),
         };
         let mut sections = Vec::new();
         sections.extend(page.switch_asked(app));
+        if page.only.is_some() {
+            sections.push(said_over_the_lists(words::DEFAULT_DETAIL));
+        }
         match page.library.read(app).settings(&page.of) {
             Ok(shown) => {
                 let activity = page.library.read(app).activity(&page.of);
@@ -137,8 +149,11 @@ impl State for CupertinoSettingsState {
             }
             Err(why) => sections.push(section(Some(words::SETTINGS), None, vec![note(&why)])),
         }
+        if let Some(only) = page.only {
+            sections.push(page.set_otherwise(app, only));
+        }
         let bar = CupertinoNavigationBar::new()
-            .leading(back_to_page_beneath(&page.library, words::SETTINGS))
+            .leading(back_to_page_beneath(&page.library, beneath))
             .middle(Text::new(title));
         CupertinoPageScaffold::new(under_bar(move |top| {
             ListView::new()
@@ -162,12 +177,46 @@ impl CupertinoSettingsState {
 struct Page {
     library: Entity<Library>,
     of: SettingsOf,
+    only: Option<Permission>,
     typed: Typed,
     writable: bool,
     state: Handle<CupertinoSettingsState>,
 }
 
 impl Page {
+    /// Whether the page shows the settings of `permission`: an app's page shows every kind's.
+    fn shows(&self, permission: Permission) -> bool {
+        self.only.is_none_or(|only| only == permission)
+    }
+
+    /// On a kind's page, the apps that set `permission` otherwise than its default, each with
+    /// what it set at the row's end and leading to its page; one line where every app follows
+    /// the default.
+    fn set_otherwise(&self, app: &App, permission: Permission) -> WidgetRef {
+        let mut rows: Vec<WidgetRef> = set_otherwise(self.library.read(app), permission)
+            .into_iter()
+            .map(|(listed, value)| {
+                let icon = ProgramIcon {
+                    png: listed.icon,
+                    side: ICON_SIDE,
+                };
+                link_row(&self.library, &listed.name, SettingsPage::App(listed.id))
+                    .leading(icon)
+                    .leading_size(ICON_SIDE)
+                    .additional_info(Text::new(value))
+                    .into_widget()
+            })
+            .collect();
+        if rows.is_empty() {
+            rows.push(note(words::NONE_SET_OTHERWISE));
+        }
+        section(
+            Some(words::SET_OTHERWISE),
+            Some(words::SET_OTHERWISE_DETAIL),
+            rows,
+        )
+    }
+
     /// What a program asked for, when it asked for one of its switches here.
     fn switch_asked(&self, app: &App) -> Option<WidgetRef> {
         let asked = self.library.read(app).switch_asked()?;
@@ -194,33 +243,44 @@ impl Page {
         if self.of != SettingsOf::Global {
             sections.push(self.machines(&shown.machines));
         }
-        sections.extend([
-            self.network(&shown.network),
-            self.switch(
+        if self.shows(Permission::Network) {
+            sections.push(self.network(&shown.network));
+        }
+        if self.shows(Permission::LocalNetwork) {
+            sections.push(self.switch(
                 words::LOCAL_NETWORK,
                 &shown.local_network,
                 Which::LocalNetwork,
                 SettingChange::LocalNetwork,
-            ),
-            self.switch(
+            ));
+        }
+        if self.shows(Permission::Clipboard) {
+            sections.push(self.switch(
                 words::CLIPBOARD_READ,
                 &shown.clipboard_read,
                 Which::ClipboardRead,
                 SettingChange::ClipboardRead,
-            ),
-            self.switch(
+            ));
+            sections.push(self.switch(
                 words::CLIPBOARD_WRITE,
                 &shown.clipboard_write,
                 Which::ClipboardWrite,
                 SettingChange::ClipboardWrite,
-            ),
-            self.record(&shown.record),
-        ]);
-        if let Some(activity) = activity {
-            sections.push(last_days(activity, shown.record.value));
+            ));
         }
-        sections.push(self.folders(&shown.file_system));
+        if self.shows(Permission::ActivityRecord) {
+            sections.push(self.record(&shown.record));
+            if let Some(activity) = activity {
+                sections.push(last_days(activity, shown.record.value));
+            }
+        }
+        if self.shows(Permission::Folders) {
+            sections.push(self.folders(&shown.file_system));
+        }
         for question in Question::ALL {
+            if !self.shows(Permission::of_question(question)) {
+                continue;
+            }
             let refused = question == Question::Notifications && notifications_refused;
             sections.push(self.question(question, shown, refused));
         }
@@ -784,6 +844,13 @@ fn last_days(activity: &Activity, recorded: bool) -> WidgetRef {
         lines.iter().map(|line| note(line)).collect()
     };
     section(Some(words::LAST_DAYS), None, tiles)
+}
+
+/// `text` over the page's lists, as a list's footer says it, in from the page's side.
+fn said_over_the_lists(text: &str) -> WidgetRef {
+    Padding::new(EdgeInsetsGeometry::from_ltrb(20.0, 16.0, 20.0, 0.0))
+        .child(Text::new(text))
+        .into_widget()
 }
 
 /// A tile that only says `text`.

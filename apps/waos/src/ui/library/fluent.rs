@@ -23,8 +23,8 @@ use super::home::fluent::FluentHome;
 use super::program_name;
 use super::questions::fluent::FluentAsked;
 use super::settings::fluent::FluentSettings;
-use super::settings::fluent_root::FluentSettingsRoot;
-use super::settings::fluent_waos::FluentWaosSettings;
+use super::settings::fluent_general::FluentGeneralSettings;
+use super::settings::fluent_root::{FluentPermissions, FluentSettingsRoot};
 use super::{back_once_removed, page_key, words};
 use crate::logic::setting_changes::SettingsOf;
 use crate::state::library::{Library, LibraryPage, SettingsPage};
@@ -137,13 +137,17 @@ impl LibraryPages {
             LibraryPage::Settings(SettingsPage::Root) => {
                 FluentSettingsRoot { library }.into_widget()
             }
-            LibraryPage::Settings(SettingsPage::Waos) => {
-                FluentWaosSettings { library }.into_widget()
+            LibraryPage::Settings(SettingsPage::General) => {
+                FluentGeneralSettings { library }.into_widget()
             }
-            LibraryPage::Settings(SettingsPage::EveryApp) => FluentSettings {
+            LibraryPage::Settings(SettingsPage::Permissions) => {
+                FluentPermissions { library }.into_widget()
+            }
+            LibraryPage::Settings(SettingsPage::Permission(only)) => FluentSettings {
                 program_name: None,
                 library,
                 of: SettingsOf::Global,
+                only: Some(only),
             }
             .into_widget(),
             LibraryPage::Settings(SettingsPage::App(id)) => {
@@ -152,6 +156,7 @@ impl LibraryPages {
                     program_name: program_name(&library, &of, app),
                     library,
                     of,
+                    only: None,
                 }
                 .into_widget()
             }

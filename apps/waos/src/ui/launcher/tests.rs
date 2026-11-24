@@ -655,7 +655,7 @@ fn more_reaches_getting_programs_and_the_settings_each_with_back_to_the_grid() {
     tap_symbol(&mut desktop, FluentSymbol::More);
     desktop.tap(view, words::SETTINGS);
     assert!(
-        desktop.shows(words::EVERY_APP) && desktop.shows("Triangle"),
+        desktop.shows(words::PERMISSIONS) && desktop.shows("Triangle"),
         "the settings' first page: {:?}",
         desktop.labels()
     );

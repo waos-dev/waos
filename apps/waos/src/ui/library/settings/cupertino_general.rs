@@ -23,11 +23,11 @@ use crate::ui::library::words;
 
 /// WaOS's own settings, in Cupertino's widgets.
 #[derive(Debug)]
-pub(crate) struct CupertinoWaosSettings {
+pub(crate) struct CupertinoGeneralSettings {
     pub(crate) library: Entity<Library>,
 }
 
-impl StatelessWidget for CupertinoWaosSettings {
+impl StatelessWidget for CupertinoGeneralSettings {
     fn build(&self, app: &mut App, _context: BuildContext) -> WidgetRef {
         let sections: Vec<WidgetRef> = [
             self.where_programs_open(app),
@@ -52,7 +52,7 @@ impl StatelessWidget for CupertinoWaosSettings {
     }
 }
 
-impl CupertinoWaosSettings {
+impl CupertinoGeneralSettings {
     /// Where WaOS offers the choice, whether apps show inside WaOS: a row whose switch, or a
     /// tap anywhere on it, changes it.
     fn where_programs_open(&self, app: &App) -> Option<WidgetRef> {
