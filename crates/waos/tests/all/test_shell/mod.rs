@@ -30,6 +30,7 @@ mod output;
 mod prompts;
 pub mod sound;
 pub mod system_permissions;
+pub mod video_decoders;
 pub mod video_frames;
 
 use std::future::Future;
@@ -100,6 +101,7 @@ pub struct TestShell {
     pub media_assets: Arc<TestMediaAssets>,
     pub image_codecs: Arc<TestImageCodecs>,
     pub video_frame_readers: Arc<TestVideoFrameReaders>,
+    pub video_decoders: Arc<video_decoders::TestVideoDecoders>,
     pub cameras: Arc<TestCameras>,
     pub simulated_cameras: Arc<TestCameras>,
     pub machine_picker: Arc<TestMachinePicker>,
@@ -125,6 +127,7 @@ impl TestShell {
             media_assets: Arc::default(),
             image_codecs: Arc::default(),
             video_frame_readers: Arc::default(),
+            video_decoders: Arc::default(),
             cameras: Arc::default(),
             simulated_cameras: Arc::new(TestCameras::simulated()),
             machine_picker: Arc::default(),
@@ -152,6 +155,9 @@ impl TestShell {
             image_codecs: Some(Arc::clone(&self.image_codecs) as Arc<dyn ShellImageCodecs>),
             video_frame_readers: Some(
                 Arc::clone(&self.video_frame_readers) as Arc<dyn ShellVideoFrameReaders>
+            ),
+            video_decoders: Some(
+                Arc::clone(&self.video_decoders) as Arc<dyn waos::ShellVideoDecoders>
             ),
             cameras: Some(Arc::clone(&self.cameras) as Arc<dyn ShellCameras>),
             simulated_cameras: Some(Arc::clone(&self.simulated_cameras) as Arc<dyn ShellCameras>),

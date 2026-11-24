@@ -94,6 +94,7 @@ mod system;
 pub mod targets;
 mod temporary_folders;
 mod trust;
+mod video_decoders;
 mod video_frames;
 mod views;
 mod wasi;
@@ -124,19 +125,20 @@ pub use service_extensions::{ExtensionAnswer, ExtensionError, ProgramServiceExte
 pub use shell::{
     AnswerFuture, AudioOutputPickedFuture, CameraChangeFuture, CameraListFuture, CameraOpenFuture,
     CaptureStartFuture, ClipboardReadFuture, ClipboardWriteFuture, Content, ContentFuture,
-    CopiedItem, FileDialogFuture, FileSink, FileWriteFuture, HardwareBuffer, ImageFuture,
-    LayerPicture, MachinePickedFuture, MediaAssetFuture, MenuChosenFuture, NoPrompts,
-    NotificationFuture, OnRefresh, OpenFuture, OpenedCamera, OpenedImage, PhotoFuture, PlacedView,
-    PlacedWindow, Prompts, RecordingDevice, SettingsClosedFuture, Shell, ShellAttachedMenu,
-    ShellAudioOutputPicker, ShellCamera, ShellCameras, ShellCaptureSession, ShellClipboard,
-    ShellClipboardItem, ShellCompositionLayer, ShellCompositor, ShellContextMenus,
+    CopiedItem, DecodedFrame, FileDialogFuture, FileSink, FileWriteFuture, HardwareBuffer,
+    ImageFuture, LayerPicture, MachinePickedFuture, MediaAssetFuture, MenuChosenFuture, NoPrompts,
+    NotificationFuture, OnRefresh, OpenFuture, OpenedCamera, OpenedImage, OpenedVideoDecoder,
+    PhotoFuture, PlacedView, PlacedWindow, Prompts, RecordingDevice, SettingsClosedFuture, Shell,
+    ShellAttachedMenu, ShellAudioOutputPicker, ShellCamera, ShellCameras, ShellCaptureSession,
+    ShellClipboard, ShellClipboardItem, ShellCompositionLayer, ShellCompositor, ShellContextMenus,
     ShellFileDialogs, ShellHardwareImageCodecs, ShellImageCodecs, ShellImageSource,
     ShellMachinePicker, ShellMediaAsset, ShellMediaAssets, ShellMediaPlayer, ShellMediaPlayers,
     ShellMenuAtIcon, ShellMenuBar, ShellNotificationScheduling, ShellNotifications, ShellOpener,
     ShellRecordingIndicator, ShellSystemPermissions, ShellTextInput, ShellTrayIcon, ShellTrayIcons,
-    ShellVideoFrameReader, ShellVideoFrameReaders, ShellView, ShellWindow, ShellWindowSizeLimits,
-    StartedSession, SystemPermission, SystemPermissionFuture, SystemPermissionState,
-    TrayIconAddFuture, VideoFrame, VideoOutput, VideoPicture, ViewPlacement, ViewRequest,
+    ShellVideoDecoder, ShellVideoDecoders, ShellVideoFrameReader, ShellVideoFrameReaders,
+    ShellView, ShellWindow, ShellWindowSizeLimits, StartedSession, SystemPermission,
+    SystemPermissionFuture, SystemPermissionState, TrayIconAddFuture, VideoDecoderFuture,
+    VideoDecoderOpenFuture, VideoFrame, VideoOutput, VideoPicture, ViewPlacement, ViewRequest,
     VsyncWaiter,
 };
 pub use simulated_input::{DragPath, Keyboard, Mouse, NoSuchChord, NothingEdited};

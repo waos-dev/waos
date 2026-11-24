@@ -38,10 +38,11 @@ use crate::bindings::wasdk::platform::hardware_buffers::{
 };
 use crate::gpu::{GpuInstance, submit_once_thawed, wait_for, wgpu_core, wgpu_types};
 use crate::lifecycle::Lifecycle;
-use crate::os::{self, FrameMemory, HardwareBufferMemory, LARGEST_SIDE};
+use crate::os::{self, HardwareBufferMemory, LARGEST_SIDE};
 use crate::shell::HardwareBuffer;
 use crate::stats::Stats;
 use crate::sync::locked;
+use crate::video_frames::LentFrame;
 
 /// `hardware-buffers.hardware-buffer`: a hardware buffer the program holds. Cloning it is another
 /// hold on the same buffer.
@@ -68,7 +69,7 @@ struct Pixels {
     memory: HardwareBufferMemory,
     /// The frame whose memory it is, kept with its slot in the decoder's pool; none for a buffer
     /// of the program's own.
-    _frame: Option<FrameMemory>,
+    _frame: Option<LentFrame>,
     /// The bytes the program is counted for holding it; none for a frame's.
     _counted: Option<CountedBytes>,
 }
@@ -128,8 +129,8 @@ impl ProgramHardwareBuffer {
 
     /// The buffer of `frame`, for what the system made it for, which keeps it. A failure is the
     /// shell's, which handed out a frame of a kind the engine does not take.
-    pub(crate) fn of_frame(frame: &FrameMemory) -> anyhow::Result<ProgramHardwareBuffer> {
-        let memory = frame.hardware_buffer()?;
+    pub(crate) fn of_frame(frame: &LentFrame) -> anyhow::Result<ProgramHardwareBuffer> {
+        let memory = frame.memory().hardware_buffer()?;
         Ok(ProgramHardwareBuffer::held(
             memory,
             None,
@@ -141,7 +142,7 @@ impl ProgramHardwareBuffer {
     fn held(
         memory: HardwareBufferMemory,
         asked: Option<HardwareBufferUsage>,
-        frame: Option<FrameMemory>,
+        frame: Option<LentFrame>,
         counted: Option<CountedBytes>,
     ) -> ProgramHardwareBuffer {
         ProgramHardwareBuffer(Arc::new(HeldBuffer {

@@ -92,7 +92,7 @@ impl HostVideoFrame for VideoFramesCtx<'_> {
         &mut self,
         frame: Resource<ProgramVideoFrame>,
     ) -> wasmtime::Result<Resource<ProgramHardwareBuffer>> {
-        let frame = self.table.get(&frame)?.memory();
+        let frame = self.table.get(&frame)?.lent();
         let buffer =
             ProgramHardwareBuffer::of_frame(frame).map_err(wasmtime::Error::from_anyhow)?;
         Ok(self.table.push(buffer)?)
@@ -106,13 +106,12 @@ impl HostVideoFrame for VideoFramesCtx<'_> {
         Ok(self.table.get(&frame)?.flip())
     }
 
-    /// None: a reader's frame comes for a display time, and carries no time of its own.
-    fn timestamp(&mut self, _frame: Resource<ProgramVideoFrame>) -> wasmtime::Result<Option<i64>> {
-        Ok(None)
+    fn timestamp(&mut self, frame: Resource<ProgramVideoFrame>) -> wasmtime::Result<Option<i64>> {
+        Ok(self.table.get(&frame)?.timestamp())
     }
 
-    fn duration(&mut self, _frame: Resource<ProgramVideoFrame>) -> wasmtime::Result<Option<u64>> {
-        Ok(None)
+    fn duration(&mut self, frame: Resource<ProgramVideoFrame>) -> wasmtime::Result<Option<u64>> {
+        Ok(self.table.get(&frame)?.duration())
     }
 
     fn visible_rect(&mut self, frame: Resource<ProgramVideoFrame>) -> wasmtime::Result<PixelRect> {
@@ -120,15 +119,11 @@ impl HostVideoFrame for VideoFramesCtx<'_> {
         frame.visible_rect().map_err(wasmtime::Error::from_anyhow)
     }
 
-    /// Square: a reader's frame is drawn for showing as it is.
     fn pixel_aspect(
         &mut self,
-        _frame: Resource<ProgramVideoFrame>,
+        frame: Resource<ProgramVideoFrame>,
     ) -> wasmtime::Result<PixelAspect> {
-        Ok(PixelAspect {
-            width: 1,
-            height: 1,
-        })
+        Ok(self.table.get(&frame)?.pixel_aspect())
     }
 
     fn planes(
@@ -144,12 +139,11 @@ impl HostVideoFrame for VideoFramesCtx<'_> {
         Ok(self.table.get(&frame)?.color())
     }
 
-    /// None: the shell is not told what a reader's frame was mastered for.
     fn hdr_metadata(
         &mut self,
-        _frame: Resource<ProgramVideoFrame>,
+        frame: Resource<ProgramVideoFrame>,
     ) -> wasmtime::Result<Option<HdrMetadata>> {
-        Ok(None)
+        Ok(self.table.get(&frame)?.hdr_metadata())
     }
 
     /// The program lets go of the frame; its hardware buffer and their textures still hold it.

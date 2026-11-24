@@ -40,6 +40,9 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
 
+use futures::future::BoxFuture;
+use futures::stream::BoxStream;
+
 use waos_capabilities::{Answer, AudioOutput, MachineChoice, Question, Role, Switch};
 
 use crate::bindings::wasdk::media::cameras::{CameraError, CameraFormat, CameraInfo, Photo};
@@ -47,6 +50,11 @@ use crate::bindings::wasdk::media::image_codecs::{ImageMetadata, ImageOrientatio
 use crate::bindings::wasdk::media::media_players::{
     MediaMetadata, MediaTrack, PlayerError, SeekTolerance,
 };
+use crate::bindings::wasdk::media::video_decoders::{
+    DecoderError, VideoDecodeSupport, VideoDecoderOptions, VideoStreamDescription,
+};
+use crate::bindings::wasdk::media::video_frames::{HdrMetadata, PixelAspect, VideoColor};
+use crate::bindings::wasdk::media::video_streams::{CodecKind, EncodedChunk, VideoStreamSetup};
 use crate::bindings::wasdk::platform::clipboard::ClipboardError;
 use crate::bindings::wasdk::platform::file_dialogs::DialogError;
 use crate::bindings::wasdk::platform::hardware_buffers::{ImageError, PixelBuffer};
@@ -125,6 +133,9 @@ pub struct Shell {
     /// The system's frame readers; none for a shell whose system hands out no frames, and then a
     /// program's `get-video-frame-readers` answers none.
     pub video_frame_readers: Option<Arc<dyn ShellVideoFrameReaders>>,
+    /// The system's video decoders; none for a shell without them, and then a program's
+    /// `get-video-decoders` answers none.
+    pub video_decoders: Option<Arc<dyn ShellVideoDecoders>>,
     /// The system's cameras; none for a shell without them, and then a program's `get-cameras`
     /// answers none.
     pub cameras: Option<Arc<dyn ShellCameras>>,
@@ -980,6 +991,71 @@ pub trait ShellVideoFrameReader: Any + Send + Sync {
     /// The frame to show at `display_time`: its source's frame for that moment of the video. None
     /// when it is the frame answered last, or none came. Called from the program's thread.
     fn frame_for(&self, display_time: Instant) -> Option<VideoFrame>;
+}
+
+/// The shell's side of `video-decoders.video-decoders`: the system's video decoders. Called from
+/// the program's thread.
+pub trait ShellVideoDecoders: Send + Sync {
+    /// What the system can tell, without trying, about decoding a stream like `description`.
+    fn support(&self, description: &VideoStreamDescription) -> VideoDecodeSupport;
+
+    /// Opens a decoder for the stream `setup` begins, as `options` ask, with a pool that lends
+    /// at least their `frame_limit` frames at once: `unsupported` where the system has none of
+    /// the kind chosen for it, `busy` where every such decoder is in use.
+    fn open(&self, setup: VideoStreamSetup, options: VideoDecoderOptions)
+    -> VideoDecoderOpenFuture;
+}
+
+pub type VideoDecoderOpenFuture =
+    Pin<Box<dyn Future<Output = Result<OpenedVideoDecoder, DecoderError>> + Send>>;
+
+/// A decoder the shell opened, with what comes out of it.
+pub struct OpenedVideoDecoder {
+    pub decoder: Arc<dyn ShellVideoDecoder>,
+    /// Where it runs.
+    pub kind: CodecKind,
+    /// The decoded pictures in the order they are shown, each taken as the engine asks for the
+    /// next, which it does only while the program holds fewer than it may; ends once the decoder
+    /// has.
+    pub frames: BoxStream<'static, DecodedFrame>,
+    /// Why the decoder ended by itself, as the system taking it away; never resolves for one
+    /// that ends only as the engine drops it.
+    pub ended: BoxFuture<'static, DecoderError>,
+}
+
+/// The shell's side of `video-decoders.video-decoder`, minus the rules the engine keeps: that a
+/// key frame begins a stream and follows a drain, a reset and a damaged chunk, and how many frames
+/// the program holds at once. Dropped once the engine lets go of it, which ends its frames.
+/// Called from the program's thread.
+pub trait ShellVideoDecoder: Send + Sync {
+    /// Hands `chunk` to the decoder, resolving once it has room for the next; `bad-data` for a
+    /// chunk it cannot decode, after which it drops what comes until a key frame.
+    fn decode(&self, chunk: EncodedChunk) -> VideoDecoderFuture;
+
+    /// Resolves once every chunk given has come out as a picture.
+    fn drain(&self) -> VideoDecoderFuture;
+
+    /// Drops every chunk and picture the decoder holds.
+    fn reset(&self);
+
+    /// The stream's setup from the next chunk on, of the same codec.
+    fn configure(&self, setup: VideoStreamSetup) -> VideoDecoderFuture;
+}
+
+pub type VideoDecoderFuture = Pin<Box<dyn Future<Output = Result<(), DecoderError>> + Send>>;
+
+/// A picture a decoder put out, with what its stream says of it.
+pub struct DecodedFrame {
+    pub frame: VideoFrame,
+    /// The timestamp of the chunk it came from, in nanoseconds on the stream's own timeline.
+    pub timestamp: i64,
+    /// How long it is shown, in nanoseconds, where the stream says.
+    pub duration: Option<u64>,
+    /// The part of its buffer that is picture, in the buffer's pixels.
+    pub visible_rect: crate::bindings::wasdk::media::video_frames::PixelRect,
+    pub pixel_aspect: PixelAspect,
+    pub color: VideoColor,
+    pub hdr_metadata: Option<HdrMetadata>,
 }
 
 /// The shell's side of `cameras.cameras`: the system's cameras, as Waft's `Cameras` are.

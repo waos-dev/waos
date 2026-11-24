@@ -293,6 +293,8 @@ pub(crate) fn start(
             .platform()
             .video_frame_readers()
             .map(|_| Arc::new(ReadersOnRequest) as Arc<dyn ShellVideoFrameReaders>),
+        // None until Waft has video decoders for WaOS to hand on.
+        video_decoders: None,
         cameras: cameras.as_ref().map(Cameras::shell),
         simulated_cameras: simulated_cameras(image_codecs.as_ref().map(ImageCodecs::shell)),
         // A machine is picked on a sheet put as a program's questions are.

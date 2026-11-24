@@ -60,8 +60,8 @@ use crate::service_extensions::ProgramServiceExtensions;
 use crate::shell::{
     PlacedView, Prompts, ShellAudioOutputPicker, ShellCameras, ShellCompositor, ShellFileDialogs,
     ShellImageCodecs, ShellMachinePicker, ShellMediaAssets, ShellMediaPlayers, ShellNotifications,
-    ShellOpener, ShellRecordingIndicator, ShellSystemPermissions, ShellVideoFrameReaders,
-    ViewPlacement,
+    ShellOpener, ShellRecordingIndicator, ShellSystemPermissions, ShellVideoDecoders,
+    ShellVideoFrameReaders, ViewPlacement,
 };
 use crate::simulated_input::Mouse;
 use crate::source_lines::ComponentFile;
@@ -205,6 +205,7 @@ pub(crate) struct ProgramStart {
     pub(crate) image_codecs: Option<Arc<dyn ShellImageCodecs>>,
     /// The system's frame readers, where the shell has them.
     pub(crate) video_frame_readers: Option<Arc<dyn ShellVideoFrameReaders>>,
+    pub(crate) video_decoders: Option<Arc<dyn ShellVideoDecoders>>,
     /// The system's cameras, where the shell has them.
     pub(crate) cameras: Option<Arc<dyn ShellCameras>>,
     /// The cameras of WaOS's own, where the shell has them.
