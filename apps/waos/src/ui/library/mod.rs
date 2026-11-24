@@ -11,6 +11,9 @@
 //! change of layout drops.
 
 pub(crate) mod app_store;
+#[cfg(test)]
+mod app_store_tests;
+mod category_chips;
 pub(crate) mod cupertino;
 pub(crate) mod fluent;
 pub(crate) mod home;

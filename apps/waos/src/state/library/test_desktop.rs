@@ -698,6 +698,34 @@ impl LibraryDesktop {
         self.click_at(view, bounds.center(), 1);
     }
 
+    /// Taps the label `text` nearest the height of the label `beside`, with the mouse: a row's
+    /// button, by the name on its row, where several rows have a button saying the same.
+    pub(crate) fn tap_beside_label(&mut self, view: ViewId, beside: &str, text: &str) {
+        let row = self.label_at(beside).dy();
+        let away = |at: &Offset| (at.dy() - row).abs();
+        let at = self
+            .every(text)
+            .into_iter()
+            .min_by(|one, other| away(one).total_cmp(&away(other)))
+            .unwrap_or_else(|| panic!("no label {text:?} on screen: {:?}", self.labels()));
+        self.click_at(view, at, 1);
+    }
+
+    /// Where the middle of each label showing `text` is, in its view.
+    fn every(&self, text: &str) -> Vec<Offset> {
+        let mut app = self.shell.app();
+        onstage_elements(&mut app)
+            .into_iter()
+            .filter(|element| label_of(&app, *element).as_deref() == Some(text))
+            .filter_map(|element| {
+                let label = element.render_object(&app)?.as_box()?;
+                let size = label.size(&app);
+                let middle = Offset::new(size.width() / 2.0, size.height() / 2.0);
+                Some(label.local_to_global(&app, middle, None))
+            })
+            .collect()
+    }
+
     /// The first widget of type `W` whose height spans the middle of the label `text`, and where
     /// it is.
     fn beside<W: Clone + 'static>(&self, text: &str) -> Option<(W, Rect)> {

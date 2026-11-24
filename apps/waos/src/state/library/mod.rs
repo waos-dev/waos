@@ -148,6 +148,8 @@ pub(crate) struct Library {
     app_store_search: String,
     /// The category whose apps alone the app store shows; none for every app.
     app_store_category: Option<Category>,
+    /// The source whose apps alone the app store shows; none for every source's.
+    app_store_source: Option<Source>,
     /// Where the installed programs' shortcuts are kept, on Android; none elsewhere.
     shortcuts: Option<Rc<dyn SystemShortcuts>>,
     /// Whether they are being made to match what is installed.
@@ -310,6 +312,7 @@ impl Library {
             app_store_place: AppStorePlace::default(),
             app_store_search: String::new(),
             app_store_category: None,
+            app_store_source: None,
             shortcuts: None,
             shortcuts_matching: ShortcutsMatching::Idle,
             phone_files: None,
@@ -440,15 +443,37 @@ impl Library {
         }
     }
 
+    /// The source whose apps alone the app store shows; none for every source's.
+    pub(crate) fn app_store_source(&self) -> Option<&SourceListing> {
+        let shown = self.app_store_source.as_ref()?;
+        self.sources.iter().find(|read| &read.source == shown)
+    }
+
+    /// The app store shows the apps of `source` alone from now on, on its first place; every
+    /// source's for `None`.
+    pub(crate) fn show_app_store_source(
+        &mut self,
+        source: Option<Source>,
+        cx: &mut Context<Library>,
+    ) {
+        if self.app_store_source != source {
+            self.app_store_source = source;
+            self.app_store_place = AppStorePlace::Discover;
+            cx.notify();
+        }
+    }
+
     /// The app store is as it opens: on its first place, with nothing searched and no category
     /// chosen. Whoever puts the library away asks, so the store comes back as it opens.
     pub(crate) fn reset_app_store(&mut self, cx: &mut Context<Library>) {
+        self.show_app_store_source(None, cx);
         self.show_app_store_place(AppStorePlace::default(), cx);
         self.search_app_store_for("", cx);
         self.show_app_store_category(None, cx);
     }
 
-    /// Every app the sources read so far list, each once, as the app store shows it.
+    /// Every app the sources read so far list, each once, as the app store shows it: the one
+    /// source's alone, while the store shows one.
     pub(crate) fn catalog(&self) -> Vec<CatalogApp> {
         catalog(&self.listed_sources())
     }
@@ -459,8 +484,22 @@ impl Library {
         featured(&sources, &catalog(&sources))
     }
 
-    /// The sources read so far, as the catalog is made of them, in the order they were added.
+    /// The installed apps any source lists a newer version of, whichever source the store shows.
+    pub(crate) fn updates(&self) -> Vec<CatalogApp> {
+        updates(&catalog(&self.every_listed_source()))
+    }
+
+    /// The sources read so far that the store shows, as the catalog is made of them.
     fn listed_sources(&self) -> Vec<ListedSource<'_>> {
+        let shown = self.app_store_source.as_ref();
+        self.every_listed_source()
+            .into_iter()
+            .filter(|listed| shown.is_none_or(|shown| listed.source == shown))
+            .collect()
+    }
+
+    /// The sources read so far, in the order they were added.
+    fn every_listed_source(&self) -> Vec<ListedSource<'_>> {
         self.sources
             .iter()
             .filter_map(|read| match &read.listing {
@@ -476,7 +515,7 @@ impl Library {
 
     /// Updates every installed app a source lists a newer version of.
     pub(crate) fn update_all(&mut self, cx: &mut Context<Library>) {
-        for app in updates(&self.catalog()) {
+        for app in self.updates() {
             self.install_from(&app.source, &app.listed, cx);
         }
     }
@@ -788,6 +827,9 @@ impl Library {
         match self.store.remove_source(source) {
             Ok(()) => {
                 self.sources.retain(|listing| &listing.source != source);
+                if self.app_store_source.as_ref() == Some(source) {
+                    self.app_store_source = None;
+                }
                 self.succeeded(cx);
             }
             Err(error) => self.failed(format!("{error}"), cx),

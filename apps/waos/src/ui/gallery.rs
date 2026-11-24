@@ -18,11 +18,12 @@ use waft_test::encode_png;
 use waft_widgets::testing::{capture_image, find};
 use waft_widgets::{View, downcast_widget};
 
+use crate::logic::app_store::AppStorePlace;
 use crate::logic::setting_changes::SettingsOf;
 use crate::state::library::LibraryPage;
 use crate::state::library::test_desktop::LibraryDesktop;
 use crate::state::library::test_server::Server;
-use waos_package::Category;
+use waos_package::{Category, Index, ListedProgram};
 
 use crate::ui::library::test_steps::{
     adds_source, in_launcher, installs, installs_showing, on_phone, started_yesterday,
@@ -83,8 +84,90 @@ const MORE: [(&str, &str); 9] = [
     ("dev.example.weather", "Weather"),
 ];
 
-/// The program a source lists, not installed.
+/// The program whose package the gallery's source serves, not installed.
 const LISTED: &str = "dev.example.triangle";
+
+/// An app as the gallery's source lists it beside [`LISTED`]: its id, name, version, what it
+/// is in a line, its category, and the file of its icon where the source serves one.
+type ListedApp = (
+    &'static str,
+    &'static str,
+    &'static str,
+    &'static str,
+    Category,
+    Option<&'static str>,
+);
+
+/// What the gallery's source lists: the built-in apps, two of them newer than the ones
+/// installed, and apps nobody has installed.
+const SOURCE_LISTS: [ListedApp; 7] = [
+    (
+        "dev.waos.notes",
+        "Notes",
+        "1.2.0",
+        "Notes, and a text editor for files anywhere",
+        Category::Productivity,
+        Some("notes.png"),
+    ),
+    (
+        "dev.waos.camera",
+        "Camera",
+        "1.0.0",
+        "A live camera with looks, and the photos you take",
+        Category::Photography,
+        Some("camera.png"),
+    ),
+    (
+        "dev.waos.videoplayer",
+        "Video Player",
+        "1.1.0",
+        "A video player with a library of your videos",
+        Category::Video,
+        Some("video-player.png"),
+    ),
+    (
+        "dev.waos.inspector",
+        "Inspector",
+        "1.0.0",
+        "See what each app has used, and what it is doing now",
+        Category::DeveloperTools,
+        Some("inspector.png"),
+    ),
+    (
+        "dev.example.maps",
+        "Maps",
+        "2.4.0",
+        "Find your way, and what is on it",
+        Category::Travel,
+        None,
+    ),
+    (
+        "dev.example.music",
+        "Music",
+        "1.3.1",
+        "Your songs, wherever they are kept",
+        Category::Music,
+        None,
+    ),
+    (
+        "dev.example.weather",
+        "Weather",
+        "1.0.4",
+        "Today's sky, and the week's",
+        Category::Weather,
+        None,
+    ),
+];
+
+/// The store's places as the gallery draws them, each with its scene's name.
+const STORE_SCENES: [(AppStorePlace, &str); 3] = [
+    (AppStorePlace::Discover, "store-discover"),
+    (AppStorePlace::Updates, "store-updates"),
+    (AppStorePlace::Sources, "store-sources"),
+];
+
+/// What the gallery's source puts forward.
+const SOURCE_FEATURES: [&str; 2] = ["dev.waos.notes", "dev.example.maps"];
 
 #[test]
 fn the_library_in_the_launcher() {
@@ -121,10 +204,19 @@ fn walks_the_library(layout: &str, (mut desktop, view): (LibraryDesktop, ViewId)
 
     let server = Server::start();
     let listed = desktop.package(LISTED, "Triangle", "1.0.0", b"\0asm");
-    server.publish(LISTED, &listed, "1.0.0");
+    server.publish_saying(LISTED, &listed, "1.0.0", says_what_a_store_shows);
+    for (_, _, built_in) in INSTALLED {
+        if let Some((category, icon)) = built_in {
+            server.serve_beside_index(&icon_file_of(category), icon);
+        }
+    }
     adds_source(&mut desktop, &server.url("waos/index.json"));
     shows(&mut desktop, LibraryPage::AppStore);
-    scenes.draw(&mut desktop, "get-programs");
+    reads_the_icons_listed(&mut desktop);
+    for (place, scene) in STORE_SCENES {
+        desktop.update(|library, cx| library.show_app_store_place(place, cx));
+        scenes.draw(&mut desktop, scene);
+    }
 
     shows(&mut desktop, LibraryPage::Settings(SettingsOf::Global));
     scenes.draw(&mut desktop, "settings");
@@ -150,6 +242,53 @@ fn walks_the_library(layout: &str, (mut desktop, view): (LibraryDesktop, ViewId)
 
     desktop.update(|library, cx| library.show_category(Some(Category::Productivity), cx));
     scenes.draw(&mut desktop, "one-category");
+}
+
+/// The gallery's source says of itself what a store shows: its name, what it puts forward, and
+/// of each app its line, its category and its icon.
+fn says_what_a_store_shows(index: &mut Index) {
+    index.name = Some("Example Apps".to_owned());
+    index.featured = SOURCE_FEATURES
+        .map(|id| id.parse().expect("an app's id"))
+        .to_vec();
+    let triangle = &mut index.programs[0];
+    triangle.summary = Some("One triangle, drawn well".to_owned());
+    triangle.category = Some(Category::GraphicsDesign);
+    for (id, name, version, summary, category, icon) in SOURCE_LISTS {
+        let mut listed = ListedProgram::new(
+            id.parse().expect("an app's id"),
+            name,
+            version.parse().expect("a version"),
+            format!("{id}-{version}.wapk"),
+            [0; 32],
+        );
+        listed.summary = Some(summary.to_owned());
+        listed.category = Some(category);
+        listed.publisher = Some("Example".to_owned());
+        listed.icon = icon.map(str::to_owned);
+        index.programs.push(listed);
+    }
+}
+
+/// The file the gallery's source serves the icon of the built-in app filed under `category` as.
+fn icon_file_of(category: Category) -> String {
+    let listed = SOURCE_LISTS
+        .iter()
+        .find(|(.., listed_under, icon)| *listed_under == category && icon.is_some());
+    let (.., icon) = listed.expect("the source lists every built-in app with an icon");
+    icon.expect("an icon's file").to_owned()
+}
+
+/// Waits until the library has read every icon its only source lists, as it does once the
+/// source is read.
+fn reads_the_icons_listed(desktop: &mut LibraryDesktop) {
+    desktop.settle_until("the icons the source lists", |desktop| {
+        desktop.read(|library| {
+            let source = &library.sources()[0].source;
+            let mut icons = SOURCE_LISTS.iter().filter_map(|(.., icon)| *icon);
+            icons.all(|icon| library.picture(source, icon).is_some())
+        })
+    });
 }
 
 /// The library goes to `page`.

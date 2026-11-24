@@ -644,7 +644,11 @@ fn more_reaches_getting_programs_and_the_settings_each_with_back_to_the_grid() {
     let view = launcher_view(&desktop);
     tap_symbol(&mut desktop, FluentSymbol::More);
     desktop.tap(view, words::GET_PROGRAMS);
-    assert!(desktop.shows(words::NO_SOURCES), "{:?}", desktop.labels());
+    assert!(
+        desktop.shows(words::NO_APPS_LISTED),
+        "{:?}",
+        desktop.labels()
+    );
     assert!(!desktop.has::<LauncherHome>());
     tap_symbol(&mut desktop, FluentSymbol::Back);
     assert!(desktop.has::<LauncherHome>());
@@ -670,10 +674,12 @@ fn a_page_rises_into_place_over_the_grid_as_winuis_pages_enter() {
     desktop.tap_in_motion(view, words::GET_PROGRAMS);
     desktop.frames(5);
     let rising = desktop
-        .find(words::NO_SOURCES)
+        .find(words::NO_APPS_LISTED)
         .expect("the page, on its way in");
     desktop.settle();
-    let settled = desktop.find(words::NO_SOURCES).expect("the page, in place");
+    let settled = desktop
+        .find(words::NO_APPS_LISTED)
+        .expect("the page, in place");
     assert!(
         rising.dy() > settled.dy() + 10.0,
         "from below: at {rising:?}, then {settled:?}"

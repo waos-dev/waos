@@ -1,11 +1,11 @@
-//! Getting programs, a page of its own behind the home's plus, with a way back: the field that adds
-//! a source, beside it what installs a package from a file the user picks, where the system has a
-//! file picker (`state::library`'s `pick_package`), and each source with each program it lists,
-//! its icon, name and version, and Get, Update, Installing… or Installed; what a source says while
-//! it is read or could not be read; and a way to remove each source. What is shared between the layouts is here: each listed program's
-//! row as the page shows it, read from the library; the controls are each layout's.
+//! The app store, a page of its own behind the home's plus, with a way back. What the layouts
+//! share is here, read from the library: Discover's apps, those the sources put forward and
+//! those a search or a category narrows them to ([`discover`]); the apps with a newer version
+//! ([`updates`]); each source as its row names it ([`source_rows`]); and what installs a package from a file the user picks, where the system
+//! has a file picker ([`PackagePicker`]). The controls are each layout's. The phone's page still
+//! shows each source with the programs it lists ([`listed_rows`]).
 //!
-//! The invariant: a program's row offers exactly what the library offers for it (`logic::offers`),
+//! The invariant: an app's row offers exactly what the library offers for it (`logic::offers`),
 //! and Installing… while the library installs it, whatever the offer, until its code is ready, as
 //! the home says.
 
@@ -16,9 +16,11 @@ use std::sync::Arc;
 
 use waft::ui::ViewId;
 use waft::{App, BuildContext, Entity, View};
-use waos_package::ListedProgram;
+use waos_package::{Category, ListedProgram};
+use waos_store::Source;
 
 use super::words;
+use crate::logic::app_store::{CatalogApp, categories, looked_for};
 use crate::logic::offers::Offer;
 use crate::state::library::{Library, Listing, SourceListing, picks_packages};
 
@@ -108,5 +110,132 @@ fn listed_row(program: &ListedProgram, offer: &Offer, library: &Library) -> List
         detail,
         icon: library.icon(&program.id).cloned(),
         action,
+    }
+}
+
+/// One app as the store shows it, in a row or a card: its icon, its name, a line under it, and
+/// what can be done with it.
+#[derive(Clone, Debug)]
+pub(crate) struct StoreApp {
+    pub(crate) app: CatalogApp,
+    /// The icon its source lists, once read; else its own where it is installed; none for one
+    /// neither has, which shows the default icon.
+    pub(crate) icon: Option<Arc<[u8]>>,
+    /// What its source says it is, in a line; its version where the source says none, and the
+    /// version installed where it updates one.
+    pub(crate) line: String,
+    pub(crate) action: RowAction,
+}
+
+/// What the store's first place shows: the apps the sources put forward, the categories to
+/// narrow by, and the apps listed, those the user looks for where they search or chose a
+/// category.
+#[derive(Clone, Debug)]
+pub(crate) struct Discover {
+    /// None while the user searches or chose a category, where the place shows what was asked
+    /// for alone.
+    pub(crate) featured: Vec<StoreApp>,
+    pub(crate) categories: Vec<Category>,
+    pub(crate) apps: Vec<StoreApp>,
+}
+
+/// What `library`'s app store shows on its first place.
+pub(crate) fn discover(library: &Library) -> Discover {
+    let catalog = library.catalog();
+    let (search, category) = (library.app_store_search(), library.app_store_category());
+    let asked = !search.trim().is_empty() || category.is_some();
+    let featured = if asked {
+        Vec::new()
+    } else {
+        library.featured()
+    };
+    let shown = |apps: Vec<CatalogApp>| -> Vec<StoreApp> {
+        apps.iter().map(|app| store_app(app, library)).collect()
+    };
+    Discover {
+        featured: shown(featured),
+        categories: categories(&catalog),
+        apps: shown(looked_for(&catalog, search, category)),
+    }
+}
+
+/// The apps `library`'s app store offers an update of.
+pub(crate) fn updates(library: &Library) -> Vec<StoreApp> {
+    library
+        .updates()
+        .iter()
+        .map(|app| store_app(app, library))
+        .collect()
+}
+
+fn store_app(app: &CatalogApp, library: &Library) -> StoreApp {
+    let listed = &app.listed;
+    let version = listed.version.to_string();
+    let (line, action) = match &app.offer {
+        Offer::Install => (listed.summary.clone().unwrap_or(version), RowAction::Get),
+        Offer::Update { installed } => {
+            (words::update_detail(&version, installed), RowAction::Update)
+        }
+        Offer::Installed => (
+            listed.summary.clone().unwrap_or(version),
+            RowAction::Installed,
+        ),
+    };
+    let action = if library.is_installing(&listed.id) || library.is_compiling(&listed.id) {
+        RowAction::Installing
+    } else {
+        action
+    };
+    let listed_icon = listed
+        .icon
+        .as_deref()
+        .and_then(|icon| library.picture(&app.source, icon));
+    StoreApp {
+        app: app.clone(),
+        icon: listed_icon.or_else(|| library.icon(&listed.id)).cloned(),
+        line,
+        action,
+    }
+}
+
+/// A source as the store's third place shows it: what it calls itself, its address, and how
+/// many apps it lists, or what it says while it has none to show.
+#[derive(Clone, Debug)]
+pub(crate) struct SourceRow {
+    pub(crate) source: Source,
+    /// What the source calls itself; its address where it says none.
+    pub(crate) name: String,
+    /// Its address, under a name of its own; none where the name is the address already.
+    pub(crate) address: Option<String>,
+    /// How many apps it lists; or that it is being read, or why it could not be.
+    pub(crate) lists: Result<usize, String>,
+}
+
+/// The sources `library` holds, as the store's third place shows them.
+pub(crate) fn source_rows(library: &Library) -> Vec<SourceRow> {
+    library.sources().iter().map(source_row).collect()
+}
+
+/// `read` as a row shows it.
+pub(crate) fn source_row(read: &SourceListing) -> SourceRow {
+    let address = read.source.to_string();
+    let lists = match &read.listing {
+        Listing::Reading => Err(words::READING.to_owned()),
+        Listing::Failed(why) => Err(words::unreadable(why)),
+        Listing::Read(apps) => Ok(apps.len()),
+    };
+    match read.name.clone() {
+        Some(name) => SourceRow {
+            source: read.source.clone(),
+            name,
+            address: Some(address),
+            lists,
+        },
+        None => SourceRow {
+            source: read.source.clone(),
+            name: address,
+            address: None,
+            lists,
+        },
     }
 }

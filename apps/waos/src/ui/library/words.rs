@@ -326,6 +326,26 @@ pub(crate) fn mount(host: &str, at: &str, writable: bool) -> String {
     }
 }
 
+pub(crate) const DISCOVER: &str = "Discover";
+pub(crate) const UPDATES: &str = "Updates";
+pub(crate) const SOURCES: &str = "Sources";
+pub(crate) const FEATURED: &str = "Featured";
+pub(crate) const ALL_APPS: &str = "All apps";
+pub(crate) const SEARCH_STORE: &str = "Search apps to get";
+pub(crate) const UPDATE_ALL: &str = "Update all";
+pub(crate) const SHOW_APPS: &str = "Show apps";
+pub(crate) const EVERY_SOURCE: &str = "Show every source";
+pub(crate) const UP_TO_DATE: &str = "Every app is up to date.";
+pub(crate) const NO_APPS_LISTED: &str = "No apps to get yet. Add a source in Sources.";
+
+/// How many apps a source lists, as its row says it.
+pub(crate) fn apps_listed(apps: usize) -> String {
+    match apps {
+        1 => "1 app".to_owned(),
+        apps => format!("{apps} apps"),
+    }
+}
+
 /// What a category is called on the chip that shows its apps alone, as the App Store names it.
 pub(crate) fn category(category: Category) -> &'static str {
     match category {

@@ -491,6 +491,7 @@ fn a_package_picked_from_a_file_in_fluents_layout_is_asked_about() {
     let dialogs = desktop.file_dialogs().answering_paths(vec![package]);
     on_the_get_page(&mut desktop);
     assert!(desktop.has::<FluentAppStore>(), "{:?}", desktop.labels());
+    desktop.tap(view, words::SOURCES);
     desktop.tap(view, words::INSTALL_FROM_FILE);
     assert_eq!(dialogs.asked(), [package_dialog(view)]);
     assert!(desktop.shows("Install Triangle?"), "{:?}", desktop.labels());
