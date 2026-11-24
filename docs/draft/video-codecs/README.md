@@ -1,14 +1,14 @@
 # Video codecs (draft)
 
-A draft of the interface for the system's video decoders and encoders, settled with the lead on 2026-11-24. None of it is in `wit/` yet: the decoding half goes there as it is built, the encoding half when an encoder is. Until then these files are the design, and what building finds wrong is changed here first.
+A draft of the interface for the system's video decoders and encoders, settled with the lead on 2026-11-24. The decoding half is in `wit/` as version 2.2.0, which is the contract now; the encoding half goes there when an encoder is built. Until then these files are its design, and what building finds wrong is changed here first.
 
 - [video-streams.wit](video-streams.wit): what the two halves share: the codec, how a stream is framed and set up, one encoded picture, hardware or software.
 - [video-decoders.wit](video-decoders.wit): the decoder.
 - [video-encoders.wit](video-encoders.wit): the encoder.
-- [video-frames.diff](video-frames.diff): what `video-frame` gains: its time, visible rectangle, planes, colour and HDR values, and `make-frame`.
+- [video-frames.diff](video-frames.diff): what `video-frame` gains: its time, visible rectangle, planes, colour and HDR values, `read-planes`, and `make-frame`.
 - [gpu-interop.diff](gpu-interop.diff): `import-plane`, a texture over one plane of a frame.
 
-The three `.wit` files parse beside the rest of the package, and the two patches apply to `wit/` (`git apply`). The `@since` markers and the versions (2.2.0) are added when it is written there.
+The three `.wit` files parse beside the rest of the package, and the two patches are against version 2.1.0, as it was before the decoding half was written. The `@since` markers and the versions (2.2.0) are added when a part is written to `wit/`.
 
 ## What was decided, and why
 
@@ -30,6 +30,7 @@ Each follows what the systems' own codecs take and give, so an app is not blocke
 - **One frame type for players, cameras and decoders,** as `CVPixelBuffer`, `AImage` and the web's `VideoFrame` are. An RGB picture is a frame with one plane.
 - **The stream's colour wins, and the app's fills in what it leaves unsaid,** as Chromium's decoder and FFmpeg do.
 - **A layout is its planes, not a named format,** so a layout no one named yet needs no new version.
+- **A frame's planes are copied into the app's memory as they are,** for an app that works on a picture with the CPU, as a software renderer does. Every system gives the planes this way (a lock on Apple and Android, a map on Linux and Windows, `copyTo` on the web); a picture converted to RGB is always made from them.
 - **Rate control is a kind with its own numbers.** The kinds cannot be mixed and each system has its own set; the web's variable rate has no peak.
 - **`encode` takes any frame.** On Android the engine draws it into the encoder's surface, one pass on the GPU.
 - **The app picks the encoder's framing, and the setup comes out as the type a decoder is opened with.**
@@ -38,6 +39,6 @@ Each follows what the systems' own codecs take and give, so an app is not blocke
 ## Left out, to add as functions when an app needs them
 
 - **Reading a frame whole,** as WebGPU's external texture: the one way to draw a frame with no planes. It needs an external texture in the WebGPU interface and a YCbCr sampler in wgpu's Vulkan backend. Until then an app on Android shows decoded frames on a layer and cannot draw them itself.
-- **A copy to RGB.** Apple has a call for it and Android has none, so the right shape is not settled.
+- **A copy to RGB.** Apple has a call for it and Android has none, so the right shape is not settled. An app mixes the planes it reads itself.
 - **A target from the encoder to draw into,** as Android's input surface and Apple's pixel buffer pool are.
 - **Side data on a chunk, dynamic HDR data, temporal layers and reference control, protected content, audio codecs.**

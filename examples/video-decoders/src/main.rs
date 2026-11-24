@@ -3,7 +3,8 @@
 //! A decoder takes a key frame first, and again after a drain, a reset and a damaged chunk; any
 //! other chunk is answered as bad data and the decoder goes on. Its frames are lent: holding as
 //! many as the program said it would stops the decoder until one is dropped. And a decoder the
-//! system takes away says so beside its frames.
+//! system takes away says so beside its frames. A frame's planes are read twice: by the GPU, each
+//! through a texture, and copied into the program's memory.
 //!
 //! The chunks here are no real video: under WaOS's tests the decoder is the test shell's, which
 //! puts a picture out for every chunk. A chunk whose first byte is [`DAMAGED`] it answers as
@@ -17,7 +18,7 @@ use wasdk::monotonic_clock;
 use wasdk::video_decoders::{
     self, DecodingPurpose, VideoDecoder, VideoDecoderOptions, VideoStreamDescription,
 };
-use wasdk::video_frames::VideoFrame;
+use wasdk::video_frames::{PlaneFormat, VideoFrame};
 use wasdk::video_streams::{
     ChromaSampling, CodecChoice, EncodedChunk, NalFormat, PictureSize, VideoCodec, VideoStreamSetup,
 };
@@ -90,6 +91,9 @@ async fn main() -> Result<(), String> {
     let fourth = next(&mut frames).await?;
     println!("{}", description(&fourth));
     for line in planes_read(&fourth).await? {
+        println!("{line}");
+    }
+    for line in planes_in_memory(&fourth).await? {
         println!("{line}");
     }
     drop(fourth);
@@ -203,6 +207,41 @@ async fn planes_read(frame: &VideoFrame) -> Result<Vec<String>, String> {
         ));
     }
     Ok(read)
+}
+
+/// Each of `frame`'s planes as it is copied into the program's memory: how many rows it has, and
+/// the one sample all of them hold, the test's picture being one colour.
+async fn planes_in_memory(frame: &VideoFrame) -> Result<Vec<String>, String> {
+    let planes = frame.planes().ok_or("the frame has no planes")?;
+    let copied = frame
+        .read_planes()
+        .await
+        .map_err(|error| format!("the planes were not read: {error:?}"))?;
+    let mut read = Vec::new();
+    for (index, (plane, pixels)) in planes.iter().zip(&copied).enumerate() {
+        let sample_bytes = sample_bytes(plane.format);
+        let rows = pixels.bytes.chunks(pixels.row_bytes as usize);
+        let row_count = rows.len();
+        let mut samples =
+            rows.flat_map(|row| row[..plane.width as usize * sample_bytes].chunks(sample_bytes));
+        let first = samples.next().ok_or("a plane with no samples")?;
+        if samples.any(|sample| sample != first) {
+            return Err(format!("plane {index}'s samples differ"));
+        }
+        read.push(format!(
+            "plane {index} in memory: {row_count} rows, every sample {first:?}"
+        ));
+    }
+    Ok(read)
+}
+
+/// The bytes one sample of a plane in `format` takes.
+fn sample_bytes(format: PlaneFormat) -> usize {
+    match format {
+        PlaneFormat::R8 => 1,
+        PlaneFormat::Rg8 | PlaneFormat::R16 => 2,
+        PlaneFormat::Rg16 | PlaneFormat::Rgba8 | PlaneFormat::Bgra8 => 4,
+    }
 }
 
 /// The engine's WebGPU device and its queue.

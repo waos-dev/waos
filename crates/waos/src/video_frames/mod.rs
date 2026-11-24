@@ -3,21 +3,25 @@
 //! picture's destination and asks for the frame of a display time ([`ShellVideoFrameReader`]); a
 //! frame the reader answers is the system's own, lent to the program as a [`ProgramVideoFrame`],
 //! whose hardware buffer it samples through a texture it imports (`hardware_buffers`,
-//! `gpu_interop`). The interface is served to a program by `host`.
+//! `gpu_interop`), and whose planes it copies into its own memory (`os`). The interface is served
+//! to a program by `host`.
 //!
-//! The invariant: a frame, its hardware buffer and the textures imported of it each hold the
-//! system's frame, so its decoder does not hand the frame's pixels out again while any of them is
+//! The invariant: a frame, its hardware buffer, the textures imported of it and a read of its
+//! planes each hold the system's frame, so its decoder does not hand the frame's pixels out again while any of them is
 //! held (decisions 3 and 35 of `docs/proposals/2026-11-02-program-media.md`).
 
 pub(crate) mod host;
 
+use std::future::Future;
 use std::sync::Arc;
 
 use tokio::sync::OwnedSemaphorePermit;
+use wasmtime_wasi::runtime::spawn_blocking;
 
 use crate::bindings::wasdk::media::video_frames::{
-    ColorRange, HdrMetadata, PixelAspect, PixelRect, VideoColor, VideoPlane,
+    ColorRange, HdrMetadata, PixelAspect, PixelRect, PlanePixels, VideoColor, VideoPlane,
 };
+use crate::bindings::wasdk::platform::hardware_buffers::{ImageError, ImageErrorKind};
 use crate::os::{self, FrameMemory};
 use crate::shell::{DecodedFrame, ShellVideoFrameReader, ShellVideoFrameReaders, VideoFrame};
 
@@ -140,6 +144,28 @@ impl ProgramVideoFrame {
     pub(crate) fn planes(&self) -> anyhow::Result<Option<Vec<VideoPlane>>> {
         let buffer = self.lent.memory.hardware_buffer()?;
         Ok(os::planes(&buffer))
+    }
+
+    /// The samples of each of its planes copied into the program's memory, off the program's
+    /// thread, since a picture is large: what answers them, to await. `unsupported` for a frame
+    /// with no planes, and a failure the shell's for a frame of a kind the engine does not take.
+    pub(crate) fn read_planes(
+        &self,
+    ) -> impl Future<Output = Result<Vec<PlanePixels>, ImageError>> + Send + 'static + use<> {
+        let buffer = self.lent.memory.hardware_buffer();
+        // The frame is held until its planes are read.
+        let lent = self.lent.clone();
+        async move {
+            let buffer = buffer.map_err(|error| ImageError {
+                kind: ImageErrorKind::Other,
+                message: format!("{error:#}"),
+            })?;
+            spawn_blocking(move || {
+                let _lent = lent;
+                os::read_planes(&buffer)
+            })
+            .await
+        }
     }
 
     /// The part of the buffer that is picture: what its decoder says, and all of a reader's

@@ -1,6 +1,15 @@
---- a/wit/deps/wasdk-media-2.1.0/video-frames.wit	2026-11-23 22:14:27
-+++ b/wit/deps/wasdk-media-2.1.0/video-frames.wit	2026-11-24 18:18:26
-@@ -31,8 +31,149 @@
+--- a/wit/deps/wasdk-media-2.1.0/video-frames.wit	2026-11-24 20:51:38
++++ b/wit/deps/wasdk-media-2.1.0/video-frames.wit	2026-11-24 20:51:38
+@@ -15,7 +15,7 @@
+ /// reusing them. Memory a program holds of its own, which no pool waits for, is a hardware buffer
+ /// it allocates or the hardware codecs decode (`wasdk:platform/hardware-buffers`).
+ interface video-frames {
+-  use wasdk:platform/hardware-buffers@2.1.0.{hardware-buffer};
++  use wasdk:platform/hardware-buffers@2.1.0.{hardware-buffer, image-error};
+   use wasdk:platform/views@2.1.0.{composition-layer, instant};
+ 
+   /// One picture of a video, lent with its slot in the system's pool until it, its buffer and
+@@ -31,8 +31,163 @@
      /// Whether the frame is shown flipped horizontally, after `rotation`, as the web's
      /// `VideoFrame.flip`: a camera that looks at its user, shown as a mirror.
      %flip: func() -> bool;
@@ -26,8 +35,22 @@
 +    /// The brightness the picture was mastered for, where its stream says: what a display needs
 +    /// to show an HDR picture.
 +    hdr-metadata: func() -> option<hdr-metadata>;
++    /// The picture's samples copied into the program's memory, a plane at a time, as `planes`
++    /// describes them: a copy, as Apple's and Android's locks and the web's `copyTo` give one.
++    /// Nothing is converted: a program that wants red, green and blue mixes them itself.
++    /// `unsupported` for a frame with no planes.
++    read-planes: async func() -> result<list<plane-pixels>, image-error>;
    }
  
++  /// One plane's samples in the program's memory: its rows from the top, each `row-bytes` long
++  /// and starting with the plane's width of samples. A row may end in padding, as a system lays
++  /// rows out.
++  record plane-pixels {
++    /// The bytes from one row's start to the next's.
++    row-bytes: u32,
++    bytes: list<u8>,
++  }
++
 +  /// A rectangle of a buffer's pixels, from its top-left corner.
 +  record pixel-rect {
 +    x: u32,
@@ -150,7 +173,7 @@
    /// The system's frame readers, where it hands out frames.
    resource video-frame-readers {
      /// A reader fed by nothing yet.
-@@ -41,6 +182,11 @@
+@@ -41,6 +196,11 @@
  
    get-video-frame-readers: func() -> option<video-frame-readers>;
  

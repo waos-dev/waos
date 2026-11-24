@@ -50,6 +50,11 @@ async fn main() -> Result<(), String> {
     let plane = wasdk_wgpu::import_plane(&device, &buffer, 0);
     let pixel = first_pixel(&device, &queue, &plane).await?;
     println!("first pixel through its plane {pixel:?}");
+    let copied = frame
+        .read_planes()
+        .await
+        .map_err(|error| format!("the planes were not read: {error:?}"))?;
+    println!("first pixel in memory {:?}", &copied[0].bytes[..4]);
     Ok(())
 }
 

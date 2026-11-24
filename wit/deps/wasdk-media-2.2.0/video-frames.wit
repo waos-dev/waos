@@ -15,7 +15,7 @@ package wasdk:media@2.2.0;
 /// reusing them. Memory a program holds of its own, which no pool waits for, is a hardware buffer
 /// it allocates or the hardware codecs decode (`wasdk:platform/hardware-buffers`).
 interface video-frames {
-  use wasdk:platform/hardware-buffers@2.2.0.{hardware-buffer};
+  use wasdk:platform/hardware-buffers@2.2.0.{hardware-buffer, image-error};
   use wasdk:platform/views@2.2.0.{composition-layer, instant};
 
   /// One picture of a video, lent with its slot in the system's pool until it, its buffer and
@@ -60,6 +60,22 @@ interface video-frames {
     /// to show an HDR picture.
     @since(version = 2.2.0)
     hdr-metadata: func() -> option<hdr-metadata>;
+    /// The picture's samples copied into the program's memory, a plane at a time, as `planes`
+    /// describes them: a copy, as Apple's and Android's locks and the web's `copyTo` give one.
+    /// Nothing is converted: a program that wants red, green and blue mixes them itself.
+    /// `unsupported` for a frame with no planes.
+    @since(version = 2.2.0)
+    read-planes: async func() -> result<list<plane-pixels>, image-error>;
+  }
+
+  /// One plane's samples in the program's memory: its rows from the top, each `row-bytes` long
+  /// and starting with the plane's width of samples. A row may end in padding, as a system lays
+  /// rows out.
+  @since(version = 2.2.0)
+  record plane-pixels {
+    /// The bytes from one row's start to the next's.
+    row-bytes: u32,
+    bytes: list<u8>,
   }
 
   /// A rectangle of a buffer's pixels, from its top-left corner.

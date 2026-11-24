@@ -14,7 +14,7 @@ use std::fs;
 
 use futures::join;
 use wasdk::video_decoders::{self, DecodingPurpose, VideoDecoder, VideoDecoderOptions};
-use wasdk::video_frames::VideoFrame;
+use wasdk::video_frames::{PlaneFormat, VideoFrame};
 use wasdk::video_streams::{CodecChoice, EncodedChunk, NalFormat, VideoStreamSetup};
 
 const STREAM: &str = "/data/clip.h264";
@@ -60,6 +60,7 @@ async fn main() -> Result<(), String> {
             println!("{}", description(&frame));
             if number == 0 {
                 println!("its first samples: {}", first_samples(&frame).await?);
+                println!("and in memory: {}", first_samples_in_memory(&frame).await?);
             }
         }
         Ok::<(), String>(())
@@ -178,6 +179,34 @@ async fn first_samples(frame: &VideoFrame) -> Result<String, String> {
         read.push(format!("{:?} {sample:?}", plane.content));
     }
     Ok(read.join(", "))
+}
+
+/// The first sample of each of `frame`'s planes, as the planes are copied into the program's
+/// memory.
+async fn first_samples_in_memory(frame: &VideoFrame) -> Result<String, String> {
+    let planes = frame.planes().ok_or("the frame has no planes")?;
+    let copied = frame
+        .read_planes()
+        .await
+        .map_err(|error| format!("the planes were not read: {error:?}"))?;
+    let read: Vec<String> = planes
+        .iter()
+        .zip(&copied)
+        .map(|(plane, pixels)| {
+            let sample = &pixels.bytes[..sample_bytes(plane.format)];
+            format!("{:?} {sample:?}", plane.content)
+        })
+        .collect();
+    Ok(read.join(", "))
+}
+
+/// The bytes one sample of a plane in `format` takes.
+fn sample_bytes(format: PlaneFormat) -> usize {
+    match format {
+        PlaneFormat::R8 => 1,
+        PlaneFormat::Rg8 | PlaneFormat::R16 => 2,
+        PlaneFormat::Rg16 | PlaneFormat::Rgba8 | PlaneFormat::Bgra8 => 4,
+    }
 }
 
 /// The engine's WebGPU device and its queue.

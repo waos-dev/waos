@@ -244,6 +244,7 @@ mod tests {
             // The clip's first pixel is black, which over video's range is these.
             "its first samples: PlaneContent::Luma [16], PlaneContent::Chroma [128, 128]"
                 .to_owned(),
+            "and in memory: PlaneContent::Luma [16], PlaneContent::Chroma [128, 128]".to_owned(),
         ];
         said.extend((1..12).map(|shown| format!("picture {shown}: 320x240 in 2 planes")));
         assert_eq!(lines.all(), said);

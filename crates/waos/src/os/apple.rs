@@ -38,7 +38,9 @@ use waos_webgpu_host::wasi::webgpu::webgpu::{
 use waos_webgpu_host::{Device, GpuObject, TextureAttributes};
 
 use crate::HardwareBufferMode;
-use crate::bindings::wasdk::media::video_frames::{PlaneContent, PlaneFormat, VideoPlane};
+use crate::bindings::wasdk::media::video_frames::{
+    PlaneContent, PlaneFormat, PlanePixels, VideoPlane,
+};
 use crate::bindings::wasdk::platform::hardware_buffers::{
     AlphaType, HardwareBufferUsage, ImageError, ImageErrorKind, PixelBuffer, PixelFormat,
 };
@@ -137,6 +139,63 @@ pub(crate) fn planes(buffer: &HardwareBufferMemory) -> Option<Vec<VideoPlane>> {
             })
             .collect(),
     )
+}
+
+/// The samples of each of `buffer`'s planes copied into the program's memory, rows as they lie,
+/// while its surface is locked for reading, as IOSurface asks before the CPU reads it;
+/// `unsupported` for a layout the engine tells no planes of.
+pub(crate) fn read_planes(buffer: &HardwareBufferMemory) -> Result<Vec<PlanePixels>, ImageError> {
+    let surface = &*buffer.surface;
+    let format = surface.pixel_format();
+    let Some(planes) = surface_planes(format) else {
+        return Err(ImageError {
+            kind: ImageErrorKind::Unsupported,
+            message: format!("a buffer in the pixel format {format:#x} has no planes to read"),
+        });
+    };
+    let options = IOSurfaceLockOptions::ReadOnly;
+    // SAFETY: a read-only lock with no seed, released below.
+    if unsafe { surface.lock(options, ptr::null_mut()) } != 0 {
+        return Err(ImageError {
+            kind: ImageErrorKind::Other,
+            message: "the system did not lock the buffer's pixels".to_owned(),
+        });
+    }
+    let read = planes
+        .iter()
+        .map(|plane| locked_plane_pixels(surface, plane))
+        .collect();
+    // SAFETY: the lock taken above, released once every plane is copied.
+    unsafe { surface.unlock(options, ptr::null_mut()) };
+    Ok(read)
+}
+
+/// The samples of `plane` of `surface`, which is locked for reading, copied out: its rows as they
+/// lie, each the plane's own row length, and the surface's where it has one plane.
+fn locked_plane_pixels(surface: &IOSurfaceRef, plane: &SurfacePlane) -> PlanePixels {
+    let (base, bytes_per_row, height) = if surface.plane_count() == 0 {
+        (
+            surface.base_address(),
+            surface.bytes_per_row(),
+            surface.height(),
+        )
+    } else {
+        (
+            surface.base_address_of_plane(plane.index),
+            surface.bytes_per_row_of_plane(plane.index),
+            surface.height_of_plane(plane.index),
+        )
+    };
+    // SAFETY: while the surface is locked, the plane's base address is mapped for `height` rows
+    // of `bytes_per_row`, which are copied before the caller unlocks it.
+    let bytes = unsafe {
+        let base = base.as_ptr().cast::<u8>().cast_const();
+        std::slice::from_raw_parts(base, bytes_per_row * height).to_vec()
+    };
+    PlanePixels {
+        row_bytes: bytes_per_row as u32,
+        bytes,
+    }
 }
 
 /// A texture over the plane at `index` of `buffer`'s memory on the program's `device` of `gpu`,

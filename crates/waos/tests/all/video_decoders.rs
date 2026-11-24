@@ -4,7 +4,7 @@
 //! since it was opened, drained, reset or told of damage; and a program holding as many frames as
 //! it said it would gets no more, and the shell is asked for none, until it drops one. A frame
 //! says what its decoder said of it and is the decoder's own picture, two planes the program
-//! reads each through a texture, and a decoder the system takes away says so beside its frames.
+//! reads each through a texture and copies into its memory, and a decoder the system takes away says so beside its frames.
 
 use std::path::Path;
 use std::sync::Arc;
@@ -77,6 +77,8 @@ fn a_decoder_takes_key_frames_first_lends_no_more_frames_than_asked_and_says_why
             "plane 1: PlaneContent::Chroma as PlaneFormat::Rg8, 32x24 of 8 bits, first sample \
              [102, 240]"
                 .to_owned(),
+            "plane 0 in memory: 48 rows, every sample [63]".to_owned(),
+            "plane 1 in memory: 24 rows, every sample [102, 240]".to_owned(),
             format!("a chunk that is no key frame after a drain: {KEY_FRAME_DUE}"),
             r#"a damaged chunk: Err(DecoderError::BadData("the test's damaged chunk"))"#.to_owned(),
             format!("the chunk after it: {KEY_FRAME_DUE}"),

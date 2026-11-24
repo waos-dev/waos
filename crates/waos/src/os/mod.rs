@@ -37,7 +37,7 @@ mod windows;
 pub(crate) use proxies::{SystemProxies, system_proxies};
 
 #[cfg(not(target_vendor = "apple"))]
-pub(crate) use one_plane::{plane_texture, planes};
+pub(crate) use one_plane::{plane_texture, planes, read_planes};
 
 #[cfg(target_os = "android")]
 pub use android::HardwareBuffer;

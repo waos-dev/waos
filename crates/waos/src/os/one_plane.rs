@@ -8,7 +8,10 @@ use anyhow::{Result, bail};
 use waos_webgpu_host::{Device, GpuObject, TextureAttributes};
 
 use super::{FORMAT, HardwareBufferMemory};
-use crate::bindings::wasdk::media::video_frames::{PlaneContent, PlaneFormat, VideoPlane};
+use crate::bindings::wasdk::media::video_frames::{
+    PlaneContent, PlaneFormat, PlanePixels, VideoPlane,
+};
+use crate::bindings::wasdk::platform::hardware_buffers::ImageError;
 use crate::gpu::{GpuInstance, wgpu_core, wgpu_types};
 
 /// The one plane of `buffer`'s picture: the whole of it, in the system's buffer format.
@@ -23,6 +26,16 @@ pub(crate) fn planes(buffer: &HardwareBufferMemory) -> Option<Vec<VideoPlane>> {
         format,
         content: PlaneContent::Rgba,
         bit_depth: 8,
+    }])
+}
+
+/// The samples of `buffer`'s one plane copied into the program's memory: its pixels, as the
+/// buffer reads them.
+pub(crate) fn read_planes(buffer: &HardwareBufferMemory) -> Result<Vec<PlanePixels>, ImageError> {
+    let pixels = buffer.read_pixels()?;
+    Ok(vec![PlanePixels {
+        row_bytes: pixels.row_bytes,
+        bytes: pixels.bytes,
     }])
 }
 
