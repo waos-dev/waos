@@ -147,6 +147,9 @@ fn walks_the_library(layout: &str, (mut desktop, view): (LibraryDesktop, ViewId)
         started_yesterday(&mut desktop, id, starts);
     }
     scenes.draw(&mut desktop, "often-used");
+
+    desktop.update(|library, cx| library.show_category(Some(Category::Productivity), cx));
+    scenes.draw(&mut desktop, "one-category");
 }
 
 /// The library goes to `page`.

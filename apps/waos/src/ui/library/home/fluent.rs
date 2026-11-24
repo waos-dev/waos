@@ -14,17 +14,17 @@ use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
 use waft::{
-    App, Axis, BorderRadiusGeometry, BoxDecoration, BuildContext, Center, Color, ColoredBox,
-    Column, CrossAxisAlignment, CustomScrollView, DecoratedBox, EdgeInsetsGeometry, Entity,
-    Expanded, GlobalKey, Handle, IntoWidget, KeyedSubtree, LayoutBuilder, Listener, MainAxisSize,
-    Padding, Row, SingleChildScrollView, SizedBox, SliverList, SliverPadding,
-    SliverPersistentHeader, SliverPersistentHeaderDelegate, SliverPersistentHeaderDelegateRef,
-    SliverToBoxAdapter, State, StateData, StatefulWidget, StatelessWidget, Text, TextAlign,
-    WidgetRef,
+    App, Axis, BorderRadiusGeometry, BorderSide, BoxDecoration, BuildContext, Center, Color,
+    ColoredBox, Column, CrossAxisAlignment, CustomScrollView, DecoratedBox, EdgeInsetsGeometry,
+    Entity, Expanded, GlobalKey, Handle, IntoWidget, KeyedSubtree, LayoutBuilder, Listener,
+    MainAxisSize, Padding, Row, ShapeDecoration, SingleChildScrollView, SizedBox, SliverList,
+    SliverPadding, SliverPersistentHeader, SliverPersistentHeaderDelegate,
+    SliverPersistentHeaderDelegateRef, SliverToBoxAdapter, StadiumBorder, State, StateData,
+    StatefulWidget, StatelessWidget, Text, TextAlign, WidgetRef,
 };
 use waft_winui::{
-    Button, ButtonStyle, FluentSymbol, FontIcon, InfoBadgeStyle, TextBlockStyle, ThemeResources,
-    ThemeScope, ToggleButton,
+    Button, ButtonStyle, CommonState, ControlStates, FluentSymbol, FontIcon, InfoBadgeStyle,
+    TextBlockStyle, ThemeResources, ThemeScope, ToggleButton,
 };
 
 use super::motion::SlidesIntoPlace;
@@ -48,6 +48,12 @@ const GRID_TOP: f64 = 12.0;
 /// The room between two category chips, and under their row.
 const CHIP_SPACING: f64 = 8.0;
 const CHIPS_GAP: f64 = 12.0;
+/// The room inside a chip around its name: across, and up and down.
+const CHIP_PADDING: [f64; 2] = [12.0, 4.0];
+/// How much of the text's colour fills a chip: at rest, on (or pressed), and on while pressed.
+const CHIP_FILL: f64 = 0.05;
+const CHIP_FILL_ON: f64 = 0.12;
+const CHIP_FILL_ON_PRESSED: f64 = 0.16;
 /// How thick the line between the home's sections is.
 const SECTION_LINE: f64 = 1.0;
 /// How round the highlight behind the icon the arrow keys are on is: WinUI's control corners.
@@ -120,6 +126,47 @@ impl FluentHome {
         ]))
         .into_widget()
     }
+}
+
+/// A category's chip as macOS's Apps draws its own, quiet beside the icons: a capsule with no
+/// border, a faint fill and the name in the secondary text colour; `on`, a stronger fill and the
+/// primary colour, and a shade stronger while pressed. The fill is the text's own colour, thinned,
+/// so it reads over the card whether the card is solid or a tint over the system's blur.
+fn category_chip(
+    app: &mut App,
+    context: BuildContext,
+    category: Category,
+    on: bool,
+    states: ControlStates,
+) -> WidgetRef {
+    let resources = ThemeResources::of(app, context);
+    let pressed = states.common == CommonState::Pressed;
+    let fill = match (on, pressed) {
+        (false, false) => CHIP_FILL,
+        (false, true) | (true, false) => CHIP_FILL_ON,
+        (true, true) => CHIP_FILL_ON_PRESSED,
+    };
+    let name_color = if on {
+        resources.text_fill_color_primary
+    } else {
+        resources.text_fill_color_secondary
+    };
+    let capsule = ShapeDecoration::new(StadiumBorder::new(BorderSide::NONE)).color(
+        resources
+            .text_fill_color_primary
+            .with_values(Some(fill), None, None, None, None),
+    );
+    let name = Text::new(words::category(category))
+        .style(TextBlockStyle::Body.text_style(&resources, name_color));
+    DecoratedBox::new(capsule)
+        .child(
+            Padding::new(EdgeInsetsGeometry::symmetric(
+                CHIP_PADDING[1],
+                CHIP_PADDING[0],
+            ))
+            .child(name),
+        )
+        .into_widget()
 }
 
 /// The hairline between the apps used often and all of them, inset as the icons are.
@@ -452,16 +499,20 @@ impl StatelessWidget for FluentHomeBody {
 impl FluentHomeBody {
     /// A chip for each of `categories`, which shows that category's apps alone while it is on,
     /// `shown` the one that is; a press on the one that is on shows every app again. The row
-    /// scrolls sideways where the chips outgrow it, as macOS's Apps scrolls its own.
+    /// scrolls sideways where the chips outgrow it, as macOS's Apps scrolls its own. Each is a
+    /// toggle button drawn by [`category_chip`].
     fn category_chips(&self, categories: &[Category], shown: Option<Category>) -> WidgetRef {
         let chips: Vec<WidgetRef> = categories
             .iter()
             .map(|&category| {
                 let library = self.library.clone();
                 let on = shown == Some(category);
-                ToggleButton::text(words::category(category), Some(on), move |app, _| {
+                ToggleButton::new(Some(on), move |app, _| {
                     let show = (!on).then_some(category);
                     library.update(app, |library, cx| library.show_category(show, cx));
+                })
+                .template(move |app, context, on, _content, states| {
+                    category_chip(app, context, category, on == Some(true), states)
                 })
                 .into_widget()
             })
