@@ -98,6 +98,7 @@ impl DevelopmentBuild<'_> {
         )
         .expect("a manifest's name is one already")
         .with_kind(manifest.kind())
+        .with_category(manifest.category())
     }
 }
 

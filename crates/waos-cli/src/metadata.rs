@@ -1,8 +1,8 @@
 //! A program's `[package.metadata.waos]`: what packaging it needs that Cargo's own fields do not
 //! say, the program's id, the name people see, its icon, whether it is an app or a tool, an app
 //! unless it says `kind = "tool"`, and what it is for, where it says a `category`; an install from
-//! its source needs the id and the kind alone, and takes the name and the icon where the table
-//! gives them.
+//! its source needs the id and the kind alone, and takes the name, the icon and the category
+//! where the table gives them.
 //!
 //! ```toml
 //! [package.metadata.waos]
@@ -46,6 +46,8 @@ pub struct InstallIdentity {
     pub name: Option<String>,
     /// The icon's PNG, beside the package's `Cargo.toml`.
     pub icon: Option<PathBuf>,
+    /// What the app is for, where the table says.
+    pub category: Option<Category>,
 }
 
 /// The table as `Cargo.toml` spells it, before its fields are checked.
@@ -65,6 +67,7 @@ struct InstallFields {
     kind: Option<String>,
     name: Option<String>,
     icon: Option<PathBuf>,
+    category: Option<String>,
 }
 
 /// The kind `kind` spells, an app where none is said.
@@ -107,6 +110,7 @@ impl WaosMetadata {
             kind: kind_of(fields.kind.as_deref())?,
             name: fields.name,
             icon: fields.icon.map(|icon| folder.join(icon)),
+            category: fields.category.as_deref().map(str::parse).transpose()?,
         })
     }
 

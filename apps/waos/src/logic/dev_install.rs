@@ -42,7 +42,13 @@ pub(crate) async fn install(
     context: &InstallContext,
 ) {
     let manifest = match Manifest::new(install.id.clone(), &install.name, install.version.clone()) {
-        Ok(manifest) => manifest.with_kind(install.kind),
+        // A category this WaOS does not know is a later `waos`'s: none, as a manifest's is.
+        Ok(manifest) => manifest.with_kind(install.kind).with_category(
+            install
+                .category
+                .as_deref()
+                .and_then(|category| category.parse().ok()),
+        ),
         Err(error) => {
             let refusal = Refusal::new(RefusalKind::BadInput, format!("{}: {error}", install.id));
             let _ = connection.send(&Upload::Refused(refusal)).await;

@@ -12,7 +12,7 @@ use anyhow::{Context, Result, bail};
 use waos_dev_protocol::{
     ClientStream, Connection, Install, InstallAnswer, Request, Upload, component_digest,
 };
-use waos_package::{ProgramId, ProgramKind, Version};
+use waos_package::{Category, ProgramId, ProgramKind, Version};
 
 use crate::asking;
 use crate::connecting::{WaOSStarter, connect_or_start};
@@ -30,6 +30,8 @@ pub struct InstallBuild {
     pub version: Version,
     /// Its icon's PNG, where its metadata names one.
     pub icon: Option<Vec<u8>>,
+    /// What it is for, where its metadata says.
+    pub category: Option<Category>,
     pub component: Vec<u8>,
 }
 
@@ -57,6 +59,7 @@ pub async fn install_on(
         name: build.name.clone(),
         version: build.version.clone(),
         icon: build.icon.clone(),
+        category: build.category.map(|category| category.as_str().to_owned()),
         length: build.component.len() as u64,
         digest: component_digest(&build.component),
     });
@@ -127,6 +130,7 @@ mod tests {
             name: "Notes".to_owned(),
             version: "0.1.0".parse().unwrap(),
             icon: Some(b"png".to_vec()),
+            category: Some(Category::Productivity),
             component: b"component bytes".to_vec(),
         }
     }
