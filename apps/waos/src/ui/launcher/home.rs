@@ -10,11 +10,13 @@
 //! is put in the field.
 
 use std::rc::Rc;
+use std::time::Duration;
 
 use waft::{
-    App, BuildContext, Builder, Color, Column, CrossAxisAlignment, EdgeInsetsGeometry, Entity,
-    Expanded, Focus, FocusNode, FocusNodeLeaf, FrameCallback, Handle, IntoWidget, KeyEventResult,
-    Listenable, Listener, OptionRetained, Padding, Ref, Row, SchedulerBinding, State, StateData,
+    App, BuildContext, Builder, Color, Column, CrossAxisAlignment, Curves, EdgeInsetsGeometry,
+    Entity, Expanded, Focus, FocusNode, FocusNodeLeaf, FrameCallback, GlobalKey, Handle,
+    IntoWidget, KeyEventResult, Listenable, Listener, MediaQuery, OptionRetained, Padding, Ref,
+    Row, SchedulerBinding, ScrollPositionAlignmentPolicy, Scrollable, State, StateData,
     StatefulWidget, Subscription, TextEditingController, TextEditingControllerLeaf, WidgetRef,
 };
 use waft_services::{KeyEvent, LogicalKeyboardKey};
@@ -22,13 +24,15 @@ use waft_winui::{
     Button, ButtonStyle, FluentSymbol, FlyoutTarget, FontIcon, MenuFlyout, MenuFlyoutItem, TextBox,
     ThemeResources, ThemeScope,
 };
+use waos_package::ProgramId;
 
+use crate::logic::icon_rows::{IconPlace, IconRows, Step, first_row};
 use crate::logic::setting_changes::SettingsOf;
 use crate::state::launcher::{Launcher, LauncherShown};
 use crate::state::library::{Library, LibraryPage};
 use crate::state::recordings::Recordings;
-use crate::ui::library::home::fluent::{FluentHomeBody, MARGIN, show};
-use crate::ui::library::home::home_entries;
+use crate::ui::library::home::fluent::{FluentHomeBody, Highlighted, MARGIN, columns_in, show};
+use crate::ui::library::home::{HomeEntry, home_entries, often_used_entries};
 use crate::ui::library::words;
 
 /// The size of the search row's text and icons.
@@ -69,6 +73,8 @@ impl StatefulWidget for LauncherHome {
             field: None,
             menu: None,
             followed: Vec::new(),
+            highlighted: None,
+            highlight_key: GlobalKey::new(),
         }
     }
 }
@@ -80,6 +86,10 @@ pub(crate) struct LauncherHomeState {
     menu: Option<Ref<MenuFlyout>>,
     /// The library's and the launcher's changes, heard while the home shows.
     followed: Vec<Subscription>,
+    /// The icon the arrow keys are on; none while the keys are the search field's.
+    highlighted: Option<IconPlace>,
+    /// What the highlight is built under, by which it is scrolled into sight.
+    highlight_key: GlobalKey,
 }
 
 /// What is typed in the search field, and what gives it the keyboard.
@@ -111,6 +121,7 @@ impl State for LauncherHomeState {
             app.subscribe(&launcher, move |app, _: &LauncherShown| {
                 self.give_the_keyboard_after_this_frame(app);
                 self.read_often_used(app);
+                self.clear_highlight(app);
             }),
         ];
         let state = app.get_mut(self);
@@ -134,9 +145,15 @@ impl State for LauncherHomeState {
     fn build(self: Handle<Self>, app: &mut App, context: BuildContext) -> WidgetRef {
         let resources = ThemeResources::of(app, context);
         let widget = self.widget(app);
+        let state = app.get(self);
+        let highlighted = state.highlighted.map(|place| Highlighted {
+            place,
+            key: state.highlight_key.clone(),
+        });
         let body = FluentHomeBody {
             library: widget.library.clone(),
             recordings: widget.recordings.clone(),
+            highlighted,
         };
         Column::new()
             .cross_axis_alignment(CrossAxisAlignment::Stretch)
@@ -180,7 +197,7 @@ impl LauncherHomeState {
         let opening_the_first = Focus::new(with_no_box(text_box))
             .skip_traversal(true)
             .can_request_focus(false)
-            .on_key_event(Rc::new(move |app, _, event| self.enter_opens(app, event)));
+            .on_key_event(Rc::new(move |app, _, event| self.key_pressed(app, event)));
         Padding::new(EdgeInsetsGeometry::from_ltrb(
             MARGIN,
             16.0,
@@ -229,18 +246,94 @@ impl LauncherHomeState {
         ]
     }
 
-    /// Enter pressed in the field opens the first program shown; every other key goes on.
-    fn enter_opens(self: Handle<Self>, app: &mut App, event: &KeyEvent) -> KeyEventResult {
-        let enter = [LogicalKeyboardKey::ENTER, LogicalKeyboardKey::NUMPAD_ENTER];
-        if !matches!(event, KeyEvent::Down(_)) || !enter.contains(&event.logical_key()) {
+    /// A key pressed in the field: an arrow moves the highlight over the icons, as Spotlight's
+    /// and GNOME's app grid's do, Down entering them and Up from the top row leaving them for
+    /// the field; Enter opens the icon highlighted, or the first shown; every other key goes on,
+    /// Left and Right among them while no icon is highlighted, where they are the field's.
+    fn key_pressed(self: Handle<Self>, app: &mut App, event: &KeyEvent) -> KeyEventResult {
+        if !matches!(event, KeyEvent::Down(_) | KeyEvent::Repeat(_)) {
             return KeyEventResult::Ignored;
         }
-        let library = self.widget(app).library.clone();
-        let first = home_entries(library.read(app)).into_iter().next();
-        if let Some(first) = first {
-            library.update(app, |library, cx| library.open(&first.id, cx));
+        let key = event.logical_key();
+        if [LogicalKeyboardKey::ENTER, LogicalKeyboardKey::NUMPAD_ENTER].contains(&key) {
+            self.open_highlighted_or_first(app);
+            return KeyEventResult::Handled;
         }
+        let step = match key {
+            LogicalKeyboardKey::ARROW_UP => Step::Up,
+            LogicalKeyboardKey::ARROW_DOWN => Step::Down,
+            LogicalKeyboardKey::ARROW_LEFT => Step::Left,
+            LogicalKeyboardKey::ARROW_RIGHT => Step::Right,
+            _ => return KeyEventResult::Ignored,
+        };
+        let highlighted = app.get(self).highlighted;
+        if highlighted.is_none() && step != Step::Down {
+            return KeyEventResult::Ignored;
+        }
+        let moved = self.icon_rows(app).after(highlighted, step);
+        self.set_state(app, |state| state.highlighted = moved);
+        self.bring_highlight_into_sight_after_this_frame(app, step);
         KeyEventResult::Handled
+    }
+
+    /// The home's rows of icons as it shows them now, each icon by its app's id.
+    fn icon_rows(self: Handle<Self>, app: &mut App) -> IconRows<ProgramId> {
+        let width = MediaQuery::size_of(app, self.context(app)).width();
+        let columns = columns_in(width);
+        let library = self.widget(app).library.read(app);
+        let ids = |entries: Vec<HomeEntry>| -> Vec<ProgramId> {
+            entries.into_iter().map(|entry| entry.id).collect()
+        };
+        let apps = ids(home_entries(library));
+        let often_used = ids(often_used_entries(library));
+        IconRows::new(first_row(&often_used, apps.len(), columns), &apps, columns)
+    }
+
+    /// Opens the app whose icon is highlighted, or the first shown where none is.
+    fn open_highlighted_or_first(self: Handle<Self>, app: &mut App) {
+        let rows = self.icon_rows(app);
+        let place = app
+            .get(self)
+            .highlighted
+            .unwrap_or(IconPlace { row: 0, column: 0 });
+        let Some(id) = rows.at(place).cloned() else {
+            return;
+        };
+        let library = self.widget(app).library.clone();
+        library.update(app, |library, cx| library.open(&id, cx));
+    }
+
+    /// Scrolls the icon highlighted into sight once this frame has built its highlight: to the
+    /// grid's end for a step down the icons, to its start for one up them.
+    fn bring_highlight_into_sight_after_this_frame(self: Handle<Self>, app: &mut App, step: Step) {
+        let policy = match step {
+            Step::Down | Step::Right => ScrollPositionAlignmentPolicy::KeepVisibleAtEnd,
+            Step::Up | Step::Left => ScrollPositionAlignmentPolicy::KeepVisibleAtStart,
+        };
+        let callback = FrameCallback::new(move |app, _| {
+            if !self.mounted(app) {
+                return;
+            }
+            let Some(highlight) = app.get(self).highlight_key.current_context(app) else {
+                return;
+            };
+            drop(Scrollable::ensure_visible(
+                app,
+                highlight,
+                0.0,
+                Duration::ZERO,
+                Curves::linear(),
+                policy,
+            ));
+        });
+        SchedulerBinding::add_post_frame_callback(app, callback, None);
+    }
+
+    /// No icon is highlighted: the keys are the search field's again.
+    fn clear_highlight(self: Handle<Self>, app: &mut App) {
+        if app.get(self).highlighted.is_some() {
+            self.set_state(app, |state| state.highlighted = None);
+        }
     }
 
     /// The launcher came into sight: the library reads again which apps are used often, so the
@@ -260,9 +353,15 @@ impl LauncherHomeState {
         }
         let typed = self.text(app).text_value(app).to_owned();
         let library = self.widget(app).library.clone();
+        let searched_before = library.read(app).search().to_owned();
         library.update(app, |library, cx| library.search_for(&typed, cx));
-        // The field shows its caret only while it holds something.
-        self.set_state(app, |_| {});
+        // The field shows its caret only while it holds something; and what is searched for
+        // changing changes the icons, so none of them is highlighted any more.
+        self.set_state(app, |state| {
+            if typed != searched_before {
+                state.highlighted = None;
+            }
+        });
     }
 
     /// The library changed: where its search is no longer what the field holds, it was changed

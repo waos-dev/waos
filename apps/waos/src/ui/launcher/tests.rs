@@ -19,6 +19,7 @@ use waft::ui::{
     HostWindow as _, Offset, TargetPlatform, View as _, ViewId, WindowBackground, WindowLevel,
 };
 use waft::{CustomScrollView, Entity};
+use waft_services::{LogicalKeyboardKey, PhysicalKeyboardKey};
 use waft_test::TestWindow;
 use waft_winui::{FluentSymbol, FontIcon};
 use waos_package::ProgramId;
@@ -30,7 +31,7 @@ use crate::state::library::test_desktop::{DesktopKind, LibraryDesktop};
 use crate::state::library::test_server::Server;
 use crate::state::waos_tray::WaosTray;
 use crate::ui::library::home::RunningDot;
-use crate::ui::library::home::fluent::SectionLine;
+use crate::ui::library::home::fluent::{IconHighlight, SectionLine};
 use crate::ui::library::program_icon::ProgramIcon;
 use crate::ui::library::test_steps::{installs, started_yesterday};
 use crate::ui::library::words;
@@ -411,6 +412,126 @@ fn the_line_stays_at_the_top_once_scrolled_there_and_searching_hides_the_first_r
         1,
         "{shown:?}"
     );
+}
+
+/// Presses an arrow key.
+fn press_arrow(desktop: &mut LibraryDesktop, arrow: Arrow) {
+    let (physical, logical) = match arrow {
+        Arrow::Up => (PhysicalKeyboardKey::ARROW_UP, LogicalKeyboardKey::ARROW_UP),
+        Arrow::Down => (
+            PhysicalKeyboardKey::ARROW_DOWN,
+            LogicalKeyboardKey::ARROW_DOWN,
+        ),
+        Arrow::Left => (
+            PhysicalKeyboardKey::ARROW_LEFT,
+            LogicalKeyboardKey::ARROW_LEFT,
+        ),
+        Arrow::Right => (
+            PhysicalKeyboardKey::ARROW_RIGHT,
+            LogicalKeyboardKey::ARROW_RIGHT,
+        ),
+    };
+    desktop.press(physical, logical);
+}
+
+#[derive(Clone, Copy)]
+enum Arrow {
+    Up,
+    Down,
+    Left,
+    Right,
+}
+
+/// The name under the icon the arrow keys are on; none while they are the search field's.
+fn highlighted(desktop: &LibraryDesktop) -> Option<String> {
+    let highlight = desktop.bounds_of::<IconHighlight>(&|_| true)?;
+    desktop
+        .labels()
+        .into_iter()
+        .find(|name| desktop.find(name).is_some_and(|at| highlight.contains(at)))
+}
+
+/// The arrow keys move a highlight over the icons, as Spotlight's results are crossed: Down
+/// enters them from the search field, the first row of apps used often first, the arrows move
+/// among them, and Up from the top row hands the keys back to the field.
+#[test]
+fn the_arrow_keys_move_a_highlight_over_the_icons_and_up_from_the_top_leaves_them() {
+    let mut desktop = with_apps(OVER_A_ROW);
+    started_yesterday(&mut desktop, &id_of("Hotel"), 3);
+    assert_eq!(highlighted(&desktop), None);
+    press_arrow(&mut desktop, Arrow::Right);
+    assert_eq!(highlighted(&desktop), None, "the field's own key");
+
+    press_arrow(&mut desktop, Arrow::Down);
+    assert_eq!(
+        highlighted(&desktop).as_deref(),
+        Some("Hotel"),
+        "the first row"
+    );
+    press_arrow(&mut desktop, Arrow::Down);
+    assert_eq!(highlighted(&desktop).as_deref(), Some("Alpha"), "the grid");
+    press_arrow(&mut desktop, Arrow::Right);
+    assert_eq!(highlighted(&desktop).as_deref(), Some("Bravo"));
+    press_arrow(&mut desktop, Arrow::Left);
+    press_arrow(&mut desktop, Arrow::Up);
+    assert_eq!(highlighted(&desktop).as_deref(), Some("Hotel"));
+    press_arrow(&mut desktop, Arrow::Up);
+    assert_eq!(highlighted(&desktop), None, "the field's again");
+}
+
+/// A highlight moved past what shows is scrolled into sight, down the grid and back up it.
+#[test]
+fn a_highlight_moved_out_of_sight_is_scrolled_into_it() {
+    let mut desktop = with_apps(MANY.len());
+    let in_sight = |desktop: &LibraryDesktop| {
+        let grid = desktop
+            .bounds_of::<CustomScrollView>(&|_| true)
+            .expect("the grid");
+        let highlight = desktop
+            .bounds_of::<IconHighlight>(&|_| true)
+            .expect("the highlight");
+        grid.top <= highlight.top && highlight.bottom <= grid.bottom
+    };
+    for _ in 0..5 {
+        press_arrow(&mut desktop, Arrow::Down);
+        assert!(in_sight(&desktop), "{:?}", highlighted(&desktop));
+    }
+    assert_eq!(
+        highlighted(&desktop).as_deref(),
+        Some("Yankee"),
+        "the last row"
+    );
+    for _ in 0..4 {
+        press_arrow(&mut desktop, Arrow::Up);
+        assert!(in_sight(&desktop), "{:?}", highlighted(&desktop));
+    }
+    assert_eq!(highlighted(&desktop).as_deref(), Some("Alpha"));
+}
+
+/// Enter opens the app whose icon is highlighted, and typing hands the keys back to the field.
+#[test]
+fn enter_opens_the_highlighted_app_and_typing_clears_the_highlight() {
+    let (mut desktop, _launcher) = desktop();
+    let forever = std::fs::read(waos_test_programs::FOREVER_SHOWN).unwrap();
+    install(&mut desktop, &id_of("Alpha"), "Alpha", "1.0.0", b"\0asm");
+    install(&mut desktop, &id_of("Bravo"), "Bravo", "1.0.0", &forever);
+    let view = launcher_view(&desktop);
+
+    press_arrow(&mut desktop, Arrow::Down);
+    assert_eq!(highlighted(&desktop).as_deref(), Some("Alpha"));
+    desktop.type_text(view, "b");
+    assert_eq!(highlighted(&desktop), None, "what shows changed");
+    desktop.type_text(view, "");
+
+    press_arrow(&mut desktop, Arrow::Down);
+    press_arrow(&mut desktop, Arrow::Right);
+    assert_eq!(highlighted(&desktop).as_deref(), Some("Bravo"));
+    desktop.press_enter();
+    let runs = Arc::clone(&desktop.runs);
+    desktop.settle_until("the highlighted app runs", |_| {
+        futures::executor::block_on(runs.names()) == [id_of("Bravo")]
+    });
+    futures::executor::block_on(desktop.runs.stop_all());
 }
 
 /// The grid lists the apps from A to Z by the names their user reads, whatever their case, not

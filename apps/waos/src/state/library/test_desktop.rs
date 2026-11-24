@@ -386,7 +386,7 @@ impl LibraryDesktop {
     }
 
     /// The key `physical`, meaning `logical`, pressed and released.
-    fn press(&mut self, physical: PhysicalKeyboardKey, logical: LogicalKeyboardKey) {
+    pub(crate) fn press(&mut self, physical: PhysicalKeyboardKey, logical: LogicalKeyboardKey) {
         for event_type in [KeyEventType::Down, KeyEventType::Up] {
             self.shell.key_data(KeyData {
                 time_stamp: self.elapsed,

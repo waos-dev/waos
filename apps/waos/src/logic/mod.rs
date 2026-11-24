@@ -79,6 +79,7 @@ pub(crate) mod forwarded_pointers;
 pub(crate) mod frame_readers;
 pub(crate) mod hardware_buffers;
 pub(crate) mod held_starts;
+pub(crate) mod icon_rows;
 pub(crate) mod image_codec_calls;
 pub(crate) mod image_values;
 pub(crate) mod inspected_programs;

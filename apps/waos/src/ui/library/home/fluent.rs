@@ -13,11 +13,12 @@ use std::any::Any;
 use std::rc::Rc;
 
 use waft::{
-    App, BuildContext, Center, Color, ColoredBox, Column, CrossAxisAlignment, CustomScrollView,
-    EdgeInsetsGeometry, Entity, Expanded, IntoWidget, LayoutBuilder, Listener, MainAxisSize,
-    Padding, Row, SizedBox, SliverList, SliverPadding, SliverPersistentHeader,
-    SliverPersistentHeaderDelegate, SliverPersistentHeaderDelegateRef, SliverToBoxAdapter,
-    StatelessWidget, Text, TextAlign, WidgetRef,
+    App, BorderRadiusGeometry, BoxDecoration, BuildContext, Center, Color, ColoredBox, Column,
+    CrossAxisAlignment, CustomScrollView, DecoratedBox, EdgeInsetsGeometry, Entity, Expanded,
+    GlobalKey, IntoWidget, KeyedSubtree, LayoutBuilder, Listener, MainAxisSize, Padding, Row,
+    SizedBox, SliverList, SliverPadding, SliverPersistentHeader, SliverPersistentHeaderDelegate,
+    SliverPersistentHeaderDelegateRef, SliverToBoxAdapter, StatelessWidget, Text, TextAlign,
+    WidgetRef,
 };
 use waft_winui::{
     Button, ButtonStyle, FluentSymbol, FontIcon, InfoBadgeStyle, TextBlockStyle, ThemeResources,
@@ -27,6 +28,7 @@ use waft_winui::{
 use super::{
     HomeEntry, IconTile, TileLook, badge_dot, grid_rows, home_entries, often_used_entries,
 };
+use crate::logic::icon_rows::{IconPlace, first_row};
 use crate::logic::setting_changes::SettingsOf;
 use crate::state::library::{Library, LibraryPage};
 use crate::state::recordings::Recordings;
@@ -41,6 +43,8 @@ pub(crate) const MARGIN: f64 = 24.0;
 const GRID_TOP: f64 = 12.0;
 /// How thick the line between the home's sections is.
 const SECTION_LINE: f64 = 1.0;
+/// How round the highlight behind the icon the arrow keys are on is: WinUI's control corners.
+const HIGHLIGHT_CORNER_RADIUS: f64 = 4.0;
 /// The size of the symbol over a home with nothing installed.
 const EMPTY_SYMBOL_SIZE: f64 = 48.0;
 const TITLE_TOP: f64 = 16.0;
@@ -72,6 +76,7 @@ impl StatelessWidget for FluentHome {
         let body = FluentHomeBody {
             library: self.library.clone(),
             recordings: self.recordings.clone(),
+            highlighted: None,
         };
         Column::new()
             .cross_axis_alignment(CrossAxisAlignment::Stretch)
@@ -167,6 +172,42 @@ impl SliverPersistentHeaderDelegate for PinnedSectionLine {
 pub(crate) struct FluentHomeBody {
     pub(crate) library: Entity<Library>,
     pub(crate) recordings: Entity<Recordings>,
+    /// The icon the arrow keys are on, where whoever shows the body moves a highlight by them.
+    pub(crate) highlighted: Option<Highlighted>,
+}
+
+/// The icon the arrow keys are on: its place among the home's rows, and the key its highlight
+/// is built under, by which whoever moved it scrolls it into sight.
+#[derive(Clone, Debug)]
+pub(crate) struct Highlighted {
+    pub(crate) place: IconPlace,
+    pub(crate) key: GlobalKey,
+}
+
+/// What shows that the arrow keys are on an icon: Fluent's subtle fill behind it, as the item
+/// the keyboard is on shows in a WinUI list.
+#[derive(Debug)]
+pub(crate) struct IconHighlight {
+    child: WidgetRef,
+}
+
+impl StatelessWidget for IconHighlight {
+    fn build(&self, app: &mut App, context: BuildContext) -> WidgetRef {
+        let resources = ThemeResources::of(app, context);
+        let fill = BoxDecoration {
+            color: Some(resources.subtle_fill_color_secondary.into()),
+            border_radius: Some(BorderRadiusGeometry::circular(HIGHLIGHT_CORNER_RADIUS)),
+            ..BoxDecoration::default()
+        };
+        DecoratedBox::new(fill)
+            .child(self.child.clone())
+            .into_widget()
+    }
+}
+
+/// How many columns of icons a home `width` wide holds.
+pub(crate) fn columns_in(width: f64) -> usize {
+    columns_for(width - 2.0 * (MARGIN - TILE_PADDING[0]))
 }
 
 impl StatelessWidget for FluentHomeBody {
@@ -225,13 +266,29 @@ impl FluentHomeBody {
         let line: SliverPersistentHeaderDelegateRef = Rc::new(PinnedSectionLine {
             color: resources.divider_stroke_color_default,
         });
+        let highlighted = self.highlighted.clone();
         LayoutBuilder::new(move |_app, _context, constraints| {
             let side = MARGIN - TILE_PADDING[0];
-            let columns = columns_for(constraints.max_width - 2.0 * side);
+            let columns = columns_in(constraints.max_width);
+            let mut first_row = first_row(&often_used, tiles.len(), columns);
+            let mut tiles = tiles.clone();
+            if let Some(Highlighted { place, key }) = &highlighted {
+                let rows_over_the_grid = usize::from(!first_row.is_empty());
+                let tile = if place.row < rows_over_the_grid {
+                    first_row.get_mut(place.column)
+                } else {
+                    tiles.get_mut((place.row - rows_over_the_grid) * columns + place.column)
+                };
+                if let Some(tile) = tile {
+                    *tile = KeyedSubtree::new(IconHighlight {
+                        child: tile.clone(),
+                    })
+                    .key(key.clone().into())
+                    .into_widget();
+                }
+            }
             let mut slivers = Vec::new();
-            // A row of the apps used often says nothing while every app is in sight in one row.
-            if tiles.len() > columns && !often_used.is_empty() {
-                let first_row: Vec<WidgetRef> = often_used.iter().take(columns).cloned().collect();
+            if !first_row.is_empty() {
                 let row = Column::new().children(grid_rows(first_row, columns, ROW_GAP));
                 slivers.push(
                     SliverPadding::new(EdgeInsetsGeometry::from_ltrb(
@@ -250,7 +307,7 @@ impl FluentHomeBody {
             // with no gap, where a gap outside the list would cut them short of it.
             slivers.push(
                 SliverPadding::new(EdgeInsetsGeometry::from_ltrb(side, GRID_TOP, side, MARGIN))
-                    .sliver(SliverList::list(grid_rows(tiles.clone(), columns, ROW_GAP)))
+                    .sliver(SliverList::list(grid_rows(tiles, columns, ROW_GAP)))
                     .into_widget(),
             );
             // An icon answers a press, as a button does, and shows nothing for the pointer
