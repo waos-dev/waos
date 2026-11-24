@@ -115,13 +115,11 @@ rustix = { version = "1", features = ["fs", "net", "time"] }
 # keeps the path beneath its folder, as `wasmtime-wasi`'s copy of cap-std's code sets them.
 rustix-linux-procfs = "0.1.1"
 # What the WebGPU host (`crates/waos-webgpu-host`), the wasi-gfx runtime's, is made of, at the
-# versions it names: wgpu-core and its types, which it serves `wasi:webgpu` over; the futures
-# wgpu-core's callbacks are awaited through, a buffer's mapping and a queue's work done; the
+# versions it names: wgpu-core and its types, which it serves `wasi:webgpu` over; the
 # channel a device's uncaptured errors are broadcast on; its logging; and the macro that pastes a
 # flag's name together.
 wgpu-core = "30"
 wgpu-types = "30"
-callback-future = "0.1"
 async-broadcast = "0.7"
 log = "0.4"
 pastey = "0.2"

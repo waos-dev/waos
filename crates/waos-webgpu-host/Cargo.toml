@@ -17,7 +17,6 @@ wasmtime.workspace = true
 wasmtime-wasi.workspace = true
 wgpu-core.workspace = true
 wgpu-types.workspace = true
-callback-future.workspace = true
 futures.workspace = true
 async-broadcast.workspace = true
 log.workspace = true
