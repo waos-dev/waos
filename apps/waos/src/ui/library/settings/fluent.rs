@@ -33,7 +33,7 @@ use crate::logic::setting_changes::{
     domains_kind, simulatable,
 };
 use crate::state::SIMULATED_CAMERA;
-use crate::state::library::{Library, LibraryPage};
+use crate::state::library::{DeniedBySystem, Library, LibraryPage};
 use crate::ui::library::words;
 
 const MARGIN: f64 = 16.0;
@@ -126,8 +126,8 @@ impl State for FluentSettingsState {
         match page.library.read(app).settings(&page.of) {
             Ok(shown) => {
                 let activity = page.library.read(app).activity(&page.of);
-                let refused = page.notifications_refused(app);
-                rows.extend(page.sections(&shown, activity.as_ref(), refused));
+                let denied = (page.library.read(app)).denied_by_system(&page.of, &shown, app);
+                rows.extend(page.sections(&shown, activity.as_ref(), denied));
             }
             Err(why) => rows.push(caption(&why, &page.resources)),
         }
@@ -202,20 +202,11 @@ impl Page {
         )
     }
 
-    /// Whether the system refuses the page's program its notifications; never on the global
-    /// page.
-    fn notifications_refused(&self, app: &App) -> bool {
-        match &self.of {
-            SettingsOf::Program(id) => self.library.read(app).notifications_refused(id),
-            SettingsOf::Global => false,
-        }
-    }
-
     fn sections(
         &self,
         shown: &ShownSettings,
         activity: Option<&Activity>,
-        notifications_refused: bool,
+        denied: DeniedBySystem,
     ) -> Vec<WidgetRef> {
         let mut sections = Vec::new();
         if self.of != SettingsOf::Global {
@@ -244,9 +235,9 @@ impl Page {
         if let Some(activity) = activity {
             sections.extend(self.last_days(activity, shown.record.value));
         }
-        sections.extend(self.folders(&shown.file_system));
+        sections.extend(self.folders(&shown.file_system, denied.folders));
         for question in Question::ALL {
-            let refused = question == Question::Notifications && notifications_refused;
+            let refused = question == Question::Notifications && denied.notifications;
             sections.extend(self.question(question, shown.answers.get(question), refused));
             sections.extend(self.simulated(question, shown));
         }
@@ -499,7 +490,9 @@ impl Page {
         rows
     }
 
-    fn folders(&self, shown: &Shown<waos_store::FileSystemGrant>) -> Vec<WidgetRef> {
+    /// The folders the page gives; under them, where the system `denied` WaOS one of them, that
+    /// it does, with a button that opens the system's settings at it.
+    fn folders(&self, shown: &Shown<waos_store::FileSystemGrant>, denied: bool) -> Vec<WidgetRef> {
         let mut rows = self.header(words::FOLDERS, shown.follows_global, Which::FileSystem);
         rows.push(caption(words::FOLDERS_AT_ONCE, &self.resources));
         if shown.value.mounts.is_empty() {
@@ -513,8 +506,26 @@ impl Page {
             );
             rows.push(self.listed(&said, SettingChange::RemoveMount(index)));
         }
+        if denied {
+            rows.extend(self.folders_denied_by_system());
+        }
         rows.push(self.adding_folder());
         rows
+    }
+
+    /// That the system keeps WaOS from the folders on the phone, and a button that opens the
+    /// system's settings where the user lets it reach them.
+    fn folders_denied_by_system(&self) -> Vec<WidgetRef> {
+        let library = self.library.clone();
+        let open = Listener::new(move |app| {
+            library.update(app, |library, cx| library.open_phone_files_page(cx));
+        });
+        vec![
+            caption(words::FOLDERS_DENIED, &self.resources),
+            Row::new()
+                .children([Button::text(words::OPEN_ANDROID_SETTINGS, open).into_widget()])
+                .into_widget(),
+        ]
     }
 
     /// The answer `question` gets; under it, where the system `refused` the program it, that it

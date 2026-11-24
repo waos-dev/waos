@@ -213,6 +213,10 @@ mod macos {
             return in_own_windows(own_windows);
         };
         keep_canvases(app, canvas_calls);
+        let permissions = apps.notification_permissions();
+        library.update(app, |library, _| {
+            library.read_notification_permissions(permissions)
+        });
         tell_system_permissions(app, library, notification_permission_readings);
         app_nap_exemption::follow_windows(app, activity.clone(), window_presences);
         if let Some(notifications) = notifications {
@@ -238,16 +242,13 @@ mod macos {
     ) {
         let library = library.downgrade();
         app.spawn(async move |cx| {
-            while let Some(NotificationPermissionReading { program, refuses }) =
-                readings.next().await
-            {
+            while let Some(reading) = readings.next().await {
                 let Some(library) = library.upgrade() else {
                     break;
                 };
                 cx.update(|app| {
-                    library.update(app, |library, cx| {
-                        library.system_permission_said(&program, refuses, cx)
-                    })
+                    tracing::info!(?reading, "the system said of a program's notifications");
+                    library.update(app, |library, cx| library.notification_permission_read(cx))
                 });
             }
         });

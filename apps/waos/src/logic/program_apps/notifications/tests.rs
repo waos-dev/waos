@@ -15,9 +15,9 @@ use waos_test_programs::CODE_CACHE;
 use waos_window_messages::{FromWindow, LaunchReason, PermissionRequestId, PostId, ToWindow};
 
 use super::*;
+use crate::logic::notification_permissions::NotificationPermissionReading;
 use crate::logic::program_apps::app_reach::LaunchAttempt;
 use crate::logic::program_apps::app_reach::tests::Launches;
-use crate::logic::program_apps::notification_permissions::NotificationPermissionReading;
 use crate::logic::program_apps::server::deliver_hello;
 use crate::logic::program_apps::window_process::WindowProcess;
 use crate::logic::program_apps::window_process::tests::{

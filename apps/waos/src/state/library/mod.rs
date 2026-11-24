@@ -43,7 +43,7 @@ pub(crate) mod test_server;
 #[cfg(test)]
 mod tests;
 
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap};
 use std::future::Future;
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -64,6 +64,7 @@ use waos_store::{InstalledProgram, Source, Store};
 
 use crate::logic::command_line::{Command, command};
 use crate::logic::installed_runs::{InstalledRuns, Opening};
+use crate::logic::notification_permissions::NotificationPermissions;
 use crate::logic::offers::{Offer, offer_of};
 use crate::logic::opened_package::OpenedPackage;
 use crate::logic::opening;
@@ -79,7 +80,9 @@ use crate::state::phone_files::PhoneFiles;
 pub(crate) use package_picker::picks_packages;
 pub(crate) use phone_files::show_phone_files;
 pub(crate) use programs_open::ProgramsOpen;
-pub(crate) use settings::{LeftSettings, LibraryPage, SwitchAsked, open_settings_when_asked};
+pub(crate) use settings::{
+    DeniedBySystem, LeftSettings, LibraryPage, SwitchAsked, open_settings_when_asked,
+};
 use shortcuts::ShortcutsMatching;
 use waos_program_window::ProgramFace;
 
@@ -127,8 +130,9 @@ pub(crate) struct Library {
     offered: Offered,
     /// The programs waiting for the user to leave the settings page the library is on.
     waiting_to_leave: Vec<LeftSettings>,
-    /// The programs the system refuses notifications, as their apps last said.
-    notifications_refused: HashSet<ProgramId>,
+    /// What the system said of each program's notifications, where a program's app of its own
+    /// says it; none where no app does.
+    notification_permissions: Option<NotificationPermissions>,
     /// What the user searches the installed programs for, as typed; empty for nothing.
     search: String,
     /// Where the installed programs' shortcuts are kept, on Android; none elsewhere.
@@ -281,7 +285,7 @@ impl Library {
             switch_asked: None,
             offered: Offered::default(),
             waiting_to_leave: Vec::new(),
-            notifications_refused: HashSet::new(),
+            notification_permissions: None,
             search: String::new(),
             shortcuts: None,
             shortcuts_matching: ShortcutsMatching::Idle,
@@ -846,7 +850,6 @@ impl Library {
     fn take_out(&mut self, id: &ProgramId, cx: &mut Context<Library>) {
         self.remove_code(id);
         let removed = self.store.remove(id);
-        self.notifications_refused.remove(id);
         match removed {
             Ok(()) => self.succeeded(cx),
             Err(error) => self.failed(format!("{error}"), cx),

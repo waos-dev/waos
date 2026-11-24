@@ -1,8 +1,10 @@
 //! What macOS says of each program's notifications, as the program's app reads it and tells WaOS:
 //! as WaOS welcomed the app, as macOS's question is answered, as the app or WaOS comes to the
-//! front, and as a post is answered. Kept here for the engine, which asks each time it reads the
-//! program's permission (`AppNotifications`, its `ShellSystemPermissions`), and each reading sent
-//! on to the main thread, where WaOS's settings page for the program says so.
+//! front, and as a post is answered. Kept here, the one place it is: the engine asks each time it
+//! reads the program's permission (`AppNotifications`, its `ShellSystemPermissions`), and WaOS's
+//! settings page for the program reads it too, shown again as each reading arrives on the main
+//! thread. Only a program's app of its own, as on macOS, says it; elsewhere nothing is said, and
+//! every program reads not asked.
 //!
 //! The invariant: only what an app said is kept, never what WaOS's user answered in WaOS, and a
 //! program whose app said nothing yet is not asked, so the engine has macOS asked for it.

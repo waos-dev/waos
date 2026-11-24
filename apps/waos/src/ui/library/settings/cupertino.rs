@@ -42,7 +42,7 @@ use crate::logic::setting_changes::{
     domains_kind, simulatable,
 };
 use crate::state::SIMULATED_CAMERA;
-use crate::state::library::Library;
+use crate::state::library::{DeniedBySystem, Library};
 use crate::ui::library::cupertino::{back_to_home, under_bar};
 use crate::ui::library::words;
 
@@ -135,8 +135,8 @@ impl State for CupertinoSettingsState {
         match page.library.read(app).settings(&page.of) {
             Ok(shown) => {
                 let activity = page.library.read(app).activity(&page.of);
-                let refused = page.notifications_refused(app);
-                sections.extend(page.sections(&shown, activity.as_ref(), refused));
+                let denied = (page.library.read(app)).denied_by_system(&page.of, &shown, app);
+                sections.extend(page.sections(&shown, activity.as_ref(), denied));
             }
             Err(why) => sections.push(section(Some(words::SETTINGS), None, vec![note(&why)])),
         }
@@ -258,20 +258,11 @@ impl Page {
         Some(section(Some(words::PHONE_FILES), Some(said), vec![row]))
     }
 
-    /// Whether the system refuses the page's program its notifications; never on the global
-    /// page.
-    fn notifications_refused(&self, app: &App) -> bool {
-        match &self.of {
-            SettingsOf::Program(id) => self.library.read(app).notifications_refused(id),
-            SettingsOf::Global => false,
-        }
-    }
-
     fn sections(
         &self,
         shown: &ShownSettings,
         activity: Option<&Activity>,
-        notifications_refused: bool,
+        denied: DeniedBySystem,
     ) -> Vec<WidgetRef> {
         let mut sections = Vec::new();
         if self.of != SettingsOf::Global {
@@ -302,9 +293,9 @@ impl Page {
         if let Some(activity) = activity {
             sections.push(last_days(activity, shown.record.value));
         }
-        sections.push(self.folders(&shown.file_system));
+        sections.push(self.folders(&shown.file_system, denied.folders));
         for question in Question::ALL {
-            let refused = question == Question::Notifications && notifications_refused;
+            let refused = question == Question::Notifications && denied.notifications;
             sections.push(self.question(question, shown, refused));
         }
         if self.of != SettingsOf::Global {
@@ -529,7 +520,9 @@ impl Page {
         self.setting(None, shown.follows_global, Which::Record, tiles)
     }
 
-    fn folders(&self, shown: &Shown<FileSystemGrant>) -> WidgetRef {
+    /// The folders the page gives; under them, where the system `denied` WaOS one of them, that
+    /// it does, with a button that opens the system's settings at it.
+    fn folders(&self, shown: &Shown<FileSystemGrant>, denied: bool) -> WidgetRef {
         let mut tiles = vec![note(words::FOLDERS_AT_ONCE)];
         for (index, mount) in shown.value.mounts.iter().enumerate() {
             let said = words::mount(
@@ -538,6 +531,9 @@ impl Page {
                 mount.writable,
             );
             tiles.push(self.listed(&said, SettingChange::RemoveMount(index)));
+        }
+        if denied {
+            tiles.extend(self.folders_denied_by_system());
         }
         tiles.extend(self.adding_folder());
         self.setting(
@@ -607,6 +603,24 @@ impl Page {
             }
             Question::Notifications => Vec::new(),
         }
+    }
+
+    /// That the system keeps WaOS from the folders on the phone, and a button that opens the
+    /// system's settings where the user lets it reach them.
+    fn folders_denied_by_system(&self) -> Vec<WidgetRef> {
+        let library = self.library.clone();
+        let open = Listener::new(move |app| {
+            library.update(app, |library, cx| library.open_phone_files_page(cx));
+        });
+        vec![
+            note(words::FOLDERS_DENIED),
+            CupertinoListTile::new(Text::new(""))
+                .trailing(CupertinoButton::new(
+                    Text::new(words::OPEN_ANDROID_SETTINGS).into_widget(),
+                    Some(open),
+                ))
+                .into_widget(),
+        ]
     }
 
     /// That the system refuses the program its notifications, and a button that opens the

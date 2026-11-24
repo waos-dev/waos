@@ -42,7 +42,7 @@ use waos::{
 };
 
 use super::app_reach::{AppReach, app_id};
-use super::notification_permissions::NotificationPermissions;
+use crate::logic::notification_permissions::NotificationPermissions;
 
 /// The engine's notifications on macOS: a program's posted, scheduled and removed in its app, and
 /// macOS's question for them put there, the app launched for them in the background when it does

@@ -49,7 +49,6 @@ mod bundles;
 mod canvas_pictures;
 mod canvases;
 mod file_dialogs;
-mod notification_permissions;
 mod notifications;
 mod server;
 mod window_process;
@@ -74,12 +73,14 @@ use crate::os::{
 
 use super::installed_runs::{InstalledRuns, Opening};
 use super::program_places::ProgramPlace;
+pub(crate) use crate::logic::notification_permissions::{
+    NotificationPermissionReading, NotificationPermissions,
+};
 pub(crate) use app_reach::LaunchAttempt;
 pub(crate) use app_reach::{AppReach, ReachedApp};
 use bundles::{BundleFolders, Bundles, KeptCodeHash, ProgramDescription, made_from};
 pub(crate) use canvas_pictures::{CanvasPictures, ToShow};
 pub(crate) use canvases::{CanvasCall, CanvasKey, CanvasPlace, CanvasesOnRequest};
-pub(crate) use notification_permissions::{NotificationPermissionReading, NotificationPermissions};
 pub(crate) use notifications::AppNotifications;
 use window_process::SendToWindow;
 pub(crate) use window_process::{

@@ -688,8 +688,10 @@ mod system_refusals {
 
     use waft::WindowConfig;
     use waft_test::Opened;
+    use waos::SystemPermissionState;
 
     use super::*;
+    use crate::logic::notification_permissions::NotificationPermissions;
     use crate::ui::every_window::LibraryWindow;
 
     /// The desktop with the library in a window of a desktop's width, tall enough to show a program's
@@ -718,9 +720,24 @@ mod system_refusals {
         (desktop, view)
     }
 
-    /// The library heard macOS refuse Triangle its notifications, as Triangle's app told it.
-    fn macos_refuses_triangle(desktop: &mut LibraryDesktop) {
-        desktop.update(|library, cx| library.system_permission_said(&triangle(), true, cx));
+    /// What macOS says of each program's notifications, which `desktop`'s library reads from now
+    /// on, as it reads what the programs' apps say.
+    fn macos_permissions(desktop: &mut LibraryDesktop) -> NotificationPermissions {
+        let (permissions, _readings) = NotificationPermissions::new();
+        let read = permissions.clone();
+        desktop.update(|library, _| library.read_notification_permissions(read));
+        permissions
+    }
+
+    /// Triangle's app read `state` of macOS's permission for its notifications, and the library
+    /// heard of the reading.
+    fn macos_says_of_triangle(
+        desktop: &mut LibraryDesktop,
+        permissions: &NotificationPermissions,
+        state: SystemPermissionState,
+    ) {
+        permissions.said(triangle(), state);
+        desktop.update(|library, cx| library.notification_permission_read(cx));
     }
 
     /// Taps Open System Settings, and answers what the app opened.
@@ -734,13 +751,14 @@ mod system_refusals {
      {
         let (mut desktop, view) = in_tall_window();
         installs(&mut desktop, TRIANGLE, "Triangle", b"\0asm");
+        let permissions = macos_permissions(&mut desktop);
         open_settings_from_icon(&mut desktop, view, "Triangle");
         assert!(desktop.shows(words::ALLOW), "{:?}", desktop.labels());
         assert!(
             !desktop.shows(words::NOTIFICATIONS_REFUSED),
             "not until macOS says so"
         );
-        macos_refuses_triangle(&mut desktop);
+        macos_says_of_triangle(&mut desktop, &permissions, SystemPermissionState::Denied);
         assert!(
             desktop.shows(words::NOTIFICATIONS_REFUSED),
             "{:?}",
@@ -760,7 +778,7 @@ mod system_refusals {
             "WaOS's own answer is as the user left it"
         );
 
-        desktop.update(|library, cx| library.system_permission_said(&triangle(), false, cx));
+        macos_says_of_triangle(&mut desktop, &permissions, SystemPermissionState::Allowed);
         assert!(
             !desktop.shows(words::NOTIFICATIONS_REFUSED),
             "macOS lets them again"
@@ -771,7 +789,8 @@ mod system_refusals {
     fn a_programs_page_says_the_system_refuses_its_notifications_on_the_phone() {
         let (mut desktop, view) = on_phone();
         installs(&mut desktop, TRIANGLE, "Triangle", b"\0asm");
-        macos_refuses_triangle(&mut desktop);
+        let permissions = macos_permissions(&mut desktop);
+        macos_says_of_triangle(&mut desktop, &permissions, SystemPermissionState::Denied);
         open_settings_from_icon(&mut desktop, view, "Triangle");
         desktop.scroll_until_visible(
             view,
@@ -817,6 +836,46 @@ fn the_global_page_says_whether_waos_reaches_the_phone_s_files_and_opens_android
         desktop.leave_and_come_back();
         assert!(
             desktop.shows(words::PHONE_FILES_ON),
+            "read again back in front: {:?}",
+            desktop.labels()
+        );
+    }
+}
+
+#[test]
+fn a_page_says_android_keeps_waos_from_a_folder_on_the_phone_while_all_files_access_is_off() {
+    let layouts: [fn(DesktopKind) -> (LibraryDesktop, ViewId); 2] = [in_launcher_of, on_phone_of];
+    for layout in layouts {
+        let phone = std::rc::Rc::new(TestPhone::reachable(false));
+        let kind = DesktopKind {
+            phone_files: Some(std::rc::Rc::clone(&phone) as _),
+            ..DesktopKind::default()
+        };
+        let (mut desktop, view) = layout(kind);
+        open_global_settings(&mut desktop, view);
+        assert!(
+            !desktop.shows(words::FOLDERS_DENIED),
+            "no folder on the phone is given yet: {:?}",
+            desktop.labels()
+        );
+        desktop.update(|library, cx| {
+            let music = SettingChange::AddMount {
+                host: format!("{}/Music", TestPhone::STORAGE),
+                at: String::new(),
+                writable: false,
+            };
+            library.change_settings(&SettingsOf::Global, music, cx);
+        });
+        assert!(
+            desktop.shows(words::FOLDERS_DENIED),
+            "{:?}",
+            desktop.labels()
+        );
+
+        phone.reachable.set(true);
+        desktop.leave_and_come_back();
+        assert!(
+            !desktop.shows(words::FOLDERS_DENIED),
             "read again back in front: {:?}",
             desktop.labels()
         );

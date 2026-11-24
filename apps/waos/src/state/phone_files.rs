@@ -7,7 +7,7 @@
 //! (`ReadAgain`) only once This computer's home is set from it, so a pick answered then starts its
 //! commands in the home the user just allowed.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use waft::{App, AppLifecycleListener, Context, Entity, EventEmitter};
@@ -17,10 +17,10 @@ use crate::logic::phone_files::{PhoneFilesAccess, SharedStorage, ThisComputerHom
 /// Whether WaOS may reach the phone's files, as last read.
 pub(crate) struct PhoneFiles {
     access: Rc<dyn PhoneFilesAccess>,
-    reachable: bool,
     /// What the programs' commands start in.
     home: ThisComputerHome,
-    /// Where the other threads read whether WaOS may reach the phone's storage.
+    /// Where the phone's shared storage is and whether WaOS may reach it, as last read, which the
+    /// other threads read too.
     storage: SharedStorage,
 }
 
@@ -32,7 +32,13 @@ impl EventEmitter<ReadAgain> for PhoneFiles {}
 impl PhoneFiles {
     /// Whether WaOS may reach the phone's files, as last read.
     pub(crate) fn reachable(&self) -> bool {
-        self.reachable
+        self.storage.reachable()
+    }
+
+    /// Whether the system keeps WaOS from `path`: it is on the phone's own storage, which WaOS
+    /// may not reach.
+    pub(crate) fn keeps_from(&self, path: &Path) -> bool {
+        self.storage.keeps_from(path)
     }
 
     /// This computer's home, which the programs' commands start in, set at each read.
@@ -47,10 +53,9 @@ impl PhoneFiles {
     }
 
     fn read_again(&mut self, cx: &mut Context<PhoneFiles>) {
-        self.reachable = self.access.reachable();
-        self.storage.set_reachable(self.reachable);
+        self.storage.set_reachable(self.access.reachable());
         self.home.set(self.access.home());
-        tracing::info!(reachable = self.reachable, home = ?self.home.get(), "the phone's files");
+        tracing::info!(reachable = self.reachable(), home = ?self.home.get(), "the phone's files");
         cx.emit(ReadAgain);
         cx.notify();
     }
@@ -65,7 +70,6 @@ pub(crate) fn follow_phone_files(
 ) -> Entity<PhoneFiles> {
     let phone_files = app.new_entity(|cx| {
         let mut phone_files = PhoneFiles {
-            reachable: false,
             access,
             home: ThisComputerHome::new(PathBuf::new()),
             storage,

@@ -76,7 +76,7 @@ use super::awaited_answers::{APP_GONE, AppGone, AwaitedAnswer, AwaitedAnswers};
 use super::canvas_pictures::CanvasPictures;
 use super::canvases::{CanvasKey, CanvasesOnRequest};
 use super::file_dialogs::failed;
-use super::notification_permissions::NotificationPermissions;
+use crate::logic::notification_permissions::NotificationPermissions;
 
 /// What sends a message to the window process.
 pub(crate) type SendToWindow = Arc<dyn Fn(ToWindow) + Send + Sync>;

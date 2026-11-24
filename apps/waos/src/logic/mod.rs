@@ -97,6 +97,14 @@ pub(crate) mod menu_bar;
 pub(crate) mod menu_calls;
 pub(crate) mod noted_file_dialogs;
 pub(crate) mod notification_calls;
+#[cfg_attr(
+    not(target_os = "macos"),
+    allow(
+        dead_code,
+        reason = "read on every system, written where a program has an app of its own"
+    )
+)]
+pub(crate) mod notification_permissions;
 pub(crate) mod offers;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(crate) mod open_command;
