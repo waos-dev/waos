@@ -350,12 +350,18 @@ fn walks_the_library(layout: &str, (mut desktop, view): (LibraryDesktop, ViewId)
         )),
     );
     scenes.draw(&mut desktop, "program-microphone");
-    // The folders every app is given: none yet, over the fields that add one.
+    // The folders every app is given: none yet, under what adds one.
     shows(
         &mut desktop,
         LibraryPage::Settings(SettingsPage::Permission(Permission::Folders)),
     );
     scenes.draw(&mut desktop, "settings-folders");
+    if layout == "launcher" {
+        // Add asks for the folder in a dialog over the page.
+        desktop.tap(view, crate::ui::library::words::ADD);
+        scenes.draw(&mut desktop, "settings-folders-adding");
+        desktop.press_escape();
+    }
     // The record's default: its switch, over what a record is.
     shows(
         &mut desktop,

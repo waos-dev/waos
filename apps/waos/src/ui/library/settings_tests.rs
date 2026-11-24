@@ -52,14 +52,49 @@ fn global_network(desktop: &LibraryDesktop) -> NetworkGrant {
 fn open_permission(desktop: &mut LibraryDesktop, view: ViewId, permission: Permission) {
     open_settings(desktop, view);
     desktop.tap(view, words::PERMISSIONS);
-    desktop.tap(view, words::permission_name(permission));
+    tap_permission(desktop, view, permission);
+}
+
+/// On the list of permissions, taps the row of `permission`, scrolled to where the list is
+/// longer than its page.
+fn tap_permission(desktop: &mut LibraryDesktop, view: ViewId, permission: Permission) {
+    let row = words::permission_name(permission);
+    if !desktop.shows(row) {
+        let first = words::permission_name(Permission::ALL[0]);
+        desktop.scroll_until_visible(view, row, first, SCROLL_STEP);
+    }
+    desktop.tap(view, row);
+}
+
+/// Whether `desktop` is the phone.
+fn is_phone(desktop: &LibraryDesktop) -> bool {
+    desktop.has::<CupertinoNavigationBar>()
+}
+
+/// Has the network of the app whose page for it shows follow the default again: in the
+/// launcher by its drop-down's first choice, on the phone by the row that says so.
+fn network_follows_the_default(desktop: &mut LibraryDesktop, view: ViewId) {
+    if is_phone(desktop) {
+        desktop.tap(view, words::USE_GLOBAL);
+    } else {
+        let default = words::defaulted(words::ALLOW);
+        pick(desktop, view, words::ALLOW, &default);
+    }
+}
+
+/// In the launcher, taps `button`, which asks in a dialog, types `typed` in the dialog's field
+/// and confirms with Return, the dialog's default button.
+fn answers_in_the_dialog(desktop: &mut LibraryDesktop, view: ViewId, button: &str, typed: &str) {
+    desktop.tap(view, button);
+    desktop.type_text(view, typed);
+    desktop.press_enter();
 }
 
 /// From a kind's page, opens the page of `permission` instead, as the user goes back to
 /// Permissions and on.
 fn go_to_permission(desktop: &mut LibraryDesktop, view: ViewId, permission: Permission) {
     back_once(desktop, view);
-    desktop.tap(view, words::permission_name(permission));
+    tap_permission(desktop, view, permission);
 }
 
 /// Opens WaOS's own settings: the settings, then General.
@@ -222,28 +257,44 @@ fn a_permissions_default_changes_on_its_page_in_the_launcher_and_is_kept() {
 }
 
 #[test]
-fn the_rows_under_a_card_fold_away_and_show_again_in_the_launcher() {
+fn what_a_list_gains_is_asked_for_in_a_dialog_and_listed_in_the_launcher() {
     let (mut desktop, view) = in_launcher();
     open_permission(&mut desktop, view, Permission::Network);
+    pick(&mut desktop, view, words::ANY_DOMAIN, words::ONLY_DOMAINS);
     assert!(
-        desktop.shows(words::WHICH_DOMAINS),
-        "{:?}",
+        desktop.shows(words::THESE_DOMAINS) && !desktop.shows(words::ADD_A_DOMAIN),
+        "the list, and no field on the page: {:?}",
         desktop.labels()
     );
-    // The card's own name, under the page's title of the same words.
-    desktop.tap_last(view, words::NETWORK);
+    desktop.tap(view, words::ADD);
+    assert!(desktop.shows(words::ADD_A_DOMAIN), "{:?}", desktop.labels());
+    desktop.type_text(view, "example.com");
+    desktop.press_escape();
+    assert_eq!(
+        global_network(&desktop).domains,
+        DomainRule::Only(Vec::new()),
+        "Cancel adds nothing"
+    );
+    // What was typed is still there, so Return alone adds it.
+    desktop.tap(view, words::ADD);
+    desktop.press_enter();
+    let DomainRule::Only(domains) = global_network(&desktop).domains else {
+        panic!("the rule still names its domains");
+    };
+    assert_eq!(domains.len(), 1);
     assert!(
-        !desktop.shows(words::WHICH_DOMAINS),
-        "{:?}",
+        desktop.shows("example.com") && !desktop.shows(words::ADD_A_DOMAIN),
+        "listed, and the dialog gone: {:?}",
         desktop.labels()
     );
-    assert!(global_network(&desktop).on, "folding sets nothing");
-    desktop.tap_last(view, words::NETWORK);
-    assert!(
-        desktop.shows(words::WHICH_DOMAINS),
-        "{:?}",
-        desktop.labels()
-    );
+
+    go_to_permission(&mut desktop, view, Permission::Folders);
+    let scratch = tempfile::tempdir().unwrap();
+    let folder = scratch.path().display().to_string();
+    answers_in_the_dialog(&mut desktop, view, words::ADD, &folder);
+    let mounts = desktop.store.global_settings().unwrap().file_system.mounts;
+    assert_eq!(mounts.len(), 1, "{:?}", desktop.labels());
+    assert!(!desktop.shows(words::NO_FOLDERS), "{:?}", desktop.labels());
 }
 
 #[test]
@@ -273,7 +324,7 @@ fn a_permissions_page_lists_the_apps_set_otherwise_each_leading_to_its_page() {
             LibraryPage::Settings(SettingsPage::App(triangle()))
         );
         desktop.tap(view, words::permission_name(Permission::Network));
-        desktop.tap(view, words::USE_GLOBAL);
+        network_follows_the_default(&mut desktop, view);
         back(&mut desktop, view);
         open_permission(&mut desktop, view, Permission::Network);
         assert!(
@@ -297,11 +348,10 @@ fn a_programs_settings_follow_those_for_every_program_until_changed_in_the_launc
     );
     desktop.tap(view, words::permission_name(Permission::Network));
     assert!(
-        desktop.shows(words::FOLLOWS_GLOBAL),
-        "{:?}",
+        desktop.shows(&words::defaulted(words::ALLOW)),
+        "its network follows the default: {:?}",
         desktop.labels()
     );
-    assert!(!desktop.shows(words::USE_GLOBAL));
     pick(&mut desktop, view, words::ANY_DOMAIN, words::ONLY_DOMAINS);
     let own = desktop.store.program_settings(&triangle()).unwrap();
     assert_eq!(
@@ -317,7 +367,7 @@ fn a_programs_settings_follow_those_for_every_program_until_changed_in_the_launc
         DomainRule::Any,
         "only this program's"
     );
-    desktop.tap(view, words::USE_GLOBAL);
+    network_follows_the_default(&mut desktop, view);
     let own = desktop.store.program_settings(&triangle()).unwrap();
     assert_eq!(own.network, Setting::Global);
     back(&mut desktop, view);
@@ -384,23 +434,28 @@ fn go_to_app_detail(desktop: &mut LibraryDesktop, view: ViewId, detail: AppDetai
     desktop.tap(view, row);
 }
 
-/// On Triangle's file pickers, has its save simulated, which shows the field its path is typed
-/// in; answers the field's placeholder.
+/// On Triangle's file pickers, has its save simulated, which shows what sets its path: in the
+/// launcher the row that says none is set, on the phone the field it is typed in, by its
+/// placeholder. Answers what that shows.
 fn simulates_saving(desktop: &mut LibraryDesktop, view: ViewId) -> &'static str {
     open_app_detail(desktop, view, "Triangle", AppDetail::FilePickers);
     let saving = words::file_dialog_name(FileDialog::SaveFile);
     let opening = words::file_dialog_name(FileDialog::OpenFile);
     desktop.scroll_until_visible(view, saving, opening, SCROLL_STEP);
     desktop.scroll_to_end(view, saving);
-    let placeholder = words::file_dialog_placeholder(FileDialog::SaveFile);
+    let sets_the_path = if is_phone(desktop) {
+        words::file_dialog_placeholder(FileDialog::SaveFile)
+    } else {
+        words::NO_PATH
+    };
     assert!(
-        !desktop.shows(placeholder),
+        !desktop.shows(sets_the_path),
         "no path to set while the picker asks: {:?}",
         desktop.labels()
     );
     pick_last(desktop, view, words::ASK, words::SIMULATED);
-    desktop.scroll_until_visible(view, placeholder, saving, SCROLL_STEP);
-    placeholder
+    desktop.scroll_until_visible(view, sets_the_path, saving, SCROLL_STEP);
+    sets_the_path
 }
 
 #[test]
@@ -409,11 +464,9 @@ fn a_programs_file_pickers_ask_or_are_simulated_with_a_path_in_the_launcher() {
     installs(&mut desktop, TRIANGLE, "Triangle", b"\0asm");
     let scratch = tempfile::tempdir().unwrap();
     let save = triangle_answered(&desktop, scratch.path());
-    let placeholder = simulates_saving(&mut desktop, view);
-    desktop.tap(view, placeholder);
+    simulates_saving(&mut desktop, view);
     let saved = save.display().to_string();
-    desktop.type_text(view, &saved);
-    desktop.tap(view, words::SET);
+    answers_in_the_dialog(&mut desktop, view, words::SET, &saved);
     let own = desktop.store.program_settings(&triangle()).unwrap();
     assert_eq!(
         own.answer_with.save_file.as_ref(),
@@ -426,7 +479,7 @@ fn a_programs_file_pickers_ask_or_are_simulated_with_a_path_in_the_launcher() {
     pick_last(&mut desktop, view, words::SIMULATED, words::ASK);
     let own = desktop.store.program_settings(&triangle()).unwrap();
     assert_eq!(own.answer_with.save_file, None, "asked again");
-    assert!(!desktop.shows(&saved) && !desktop.shows(placeholder));
+    assert!(!desktop.shows(&saved) && !desktop.shows(words::NO_PATH));
 }
 
 #[test]
@@ -465,11 +518,10 @@ fn a_path_no_dialog_could_choose_is_refused_and_kept_out_of_the_settings() {
     installs(&mut desktop, TRIANGLE, "Triangle", b"\0asm");
     let scratch = tempfile::tempdir().unwrap();
     triangle_answered(&desktop, scratch.path());
-    let placeholder = simulates_saving(&mut desktop, view);
-    desktop.tap(view, placeholder);
+    simulates_saving(&mut desktop, view);
     let nowhere = scratch.path().join("missing").join("out.pdf");
-    desktop.type_text(view, &nowhere.display().to_string());
-    desktop.tap(view, words::SET);
+    let typed = nowhere.display().to_string();
+    answers_in_the_dialog(&mut desktop, view, words::SET, &typed);
     let own = desktop.store.program_settings(&triangle()).unwrap();
     assert_eq!(own.answer_with.save_file, None);
     let problem = desktop.read(|library| library.problem().map(str::to_owned));
@@ -580,12 +632,18 @@ fn a_programs_simulated_microphone_records_what_its_page_picks_in_the_launcher_a
         });
         simulated.unwrap();
         open_app_permission(&mut desktop, view, "Triangle", Permission::Microphone);
+        // In the launcher the drop-down's first choice follows the default, and says what it is.
+        let records = if is_phone(&desktop) {
+            words::QUIET_TONE.to_owned()
+        } else {
+            words::defaulted(words::QUIET_TONE)
+        };
         assert!(
-            desktop.shows(words::SIMULATED_MICROPHONE_DETAIL) && desktop.shows(words::QUIET_TONE),
+            desktop.shows(words::SIMULATED_MICROPHONE_DETAIL) && desktop.shows(&records),
             "{:?}",
             desktop.labels()
         );
-        pick(&mut desktop, view, words::QUIET_TONE, words::SILENCE);
+        pick(&mut desktop, view, &records, words::SILENCE);
         let own = desktop.store.program_settings(&triangle()).unwrap();
         assert_eq!(
             own.simulated_microphone,

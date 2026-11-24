@@ -1,0 +1,370 @@
+//! What every desktop settings page is laid out with, so each reads on the same few edges, as
+//! Microsoft's guidance for a settings page has it: Back in a row of its own over the page's
+//! title, which starts where the cards do and names the page it came from before it; groups of
+//! settings cards under headings; one control at a card's end, a drop-down as wide as every
+//! other and a button no narrower than every other; and a list as a block, its rows starting
+//! where its card's words do.
+//!
+//! The invariant: a card's words start after its icon, after the room of one, or at the card's
+//! edge ([`Start`]), and one page uses the first two together or the last alone, so its words
+//! share one edge.
+
+use std::sync::Arc;
+
+use waft::{
+    App, Border, BorderRadiusGeometry, BorderSide, BorderStyle, BoxConstraints, BoxDecoration,
+    Color, Column, ConstrainedBox, CrossAxisAlignment, DecoratedBox, EdgeInsetsGeometry, Entity,
+    Expanded, FontWeight, IntoWidget, ListView, Listener, Padding, Row, SizedBox, Text, TextStyle,
+    WidgetRef,
+};
+use waft_winui::{
+    BreadcrumbBar, BreadcrumbBarItem, Button, ButtonStyle,
+    CLICKABLE_SETTINGS_EXPANDER_ITEM_PADDING, ComboBox, ComboBoxItem, FluentSymbol, FontIcon,
+    SETTINGS_CARD_HEADER_ICON_MAX_SIZE, SETTINGS_EXPANDER_ITEM_BORDER_THICKNESS,
+    SETTINGS_EXPANDER_ITEM_MIN_HEIGHT, SettingsCard, TextBlockStyle, ThemeResources, ThemeScope,
+    ToggleSwitch, right_aligned_compact_toggle_switch_style,
+};
+
+use crate::logic::permissions::Permission;
+use crate::state::library::{Library, LibraryPage, SettingsPage};
+use crate::ui::library::home::fluent::MARGIN;
+use crate::ui::library::program_icon::ProgramIcon;
+use crate::ui::library::words;
+
+/// The room between two cards, as the Toolkit's settings pages stack them.
+const CARD_SPACING: f64 = 4.0;
+
+/// How wide every drop-down at a card's end is, so they share both edges.
+const DROP_DOWN_WIDTH: f64 = 200.0;
+
+/// The least width of a button at a card's end, so Add, Remove and their like share both edges.
+const BUTTON_MIN_WIDTH: f64 = 96.0;
+
+/// The page's title: WinUI's Title, 28 on a line of 36, semibold.
+const TITLE_FONT_SIZE: f64 = 28.0;
+const TITLE_LINE_HEIGHT: f64 = 36.0;
+
+/// The chevron between two names of the title, in proportion to them.
+const TITLE_CHEVRON_FONT_SIZE: f64 = 16.0;
+
+/// The room over a heading, which parts its group from the one before, and under it.
+const HEADING_MARGIN: [f64; 2] = [24.0, 6.0];
+
+/// Where a card's words start.
+pub(crate) enum Start {
+    /// After the card's icon.
+    Icon(WidgetRef),
+    /// After the room of an icon, on a page whose other cards have one.
+    Room,
+    /// At the card's edge, on a page whose cards have no icons.
+    Edge,
+}
+
+impl Start {
+    /// After `symbol`.
+    pub(crate) fn symbol(symbol: FluentSymbol) -> Start {
+        Start::Icon(FontIcon::symbol(symbol).into_widget())
+    }
+
+    /// After an app's icon.
+    pub(crate) fn app_icon(png: Option<Arc<[u8]>>) -> Start {
+        let icon = ProgramIcon {
+            png,
+            side: SETTINGS_CARD_HEADER_ICON_MAX_SIZE,
+        };
+        Start::Icon(icon.into_widget())
+    }
+
+    /// What the card shows as its icon.
+    fn icon(self) -> Option<WidgetRef> {
+        match self {
+            Start::Icon(icon) => Some(icon),
+            Start::Room => Some(SizedBox::shrink().into_widget()),
+            Start::Edge => None,
+        }
+    }
+
+    /// Where the rows under a card starting so start, from the block's edge: where the card's
+    /// words do.
+    fn row_padding(&self) -> [f64; 4] {
+        let [after_icon, top, right, bottom] = CLICKABLE_SETTINGS_EXPANDER_ITEM_PADDING;
+        match self {
+            Start::Icon(_) | Start::Room => [after_icon, top, right, bottom],
+            Start::Edge => [right, top, right, bottom],
+        }
+    }
+}
+
+/// A settings page: Back, the title naming `trail`, the pages down to this one, and `rows` under
+/// it, which scroll.
+pub(crate) fn page(
+    library: &Entity<Library>,
+    resources: &ThemeResources,
+    trail: &[&str],
+    rows: Vec<WidgetRef>,
+) -> WidgetRef {
+    let list = ListView::new()
+        .padding(EdgeInsetsGeometry::from_ltrb(MARGIN, 0.0, MARGIN, MARGIN))
+        .children(rows);
+    Column::new()
+        .cross_axis_alignment(CrossAxisAlignment::Stretch)
+        .children([
+            back(library),
+            title(library, resources, trail),
+            Expanded::new(list).into_widget(),
+        ])
+        .into_widget()
+}
+
+/// Back to the page beneath, in a row of its own, its arrow over the cards' edge.
+fn back(library: &Entity<Library>) -> WidgetRef {
+    let library = library.clone();
+    let back = Listener::new(move |app| {
+        library.update(app, |library, cx| library.go_back(cx));
+    });
+    let button = Button::new(FontIcon::symbol(FluentSymbol::Back).font_size(16.0), back)
+        .style(ButtonStyle::Subtle)
+        .padding([8.0, 8.0, 8.0, 8.0]);
+    Padding::new(EdgeInsetsGeometry::from_ltrb(
+        MARGIN - 8.0,
+        8.0,
+        MARGIN,
+        0.0,
+    ))
+    .child(Row::new().children([button.into_widget()]))
+    .into_widget()
+}
+
+/// The page's title, starting where the cards do: the names of `trail`, the last the page's
+/// own, each before it leading back to its page, as Windows's Settings titles a page.
+fn title(library: &Entity<Library>, resources: &ThemeResources, trail: &[&str]) -> WidgetRef {
+    let named = TextStyle::new()
+        .font_size(TITLE_FONT_SIZE)
+        .font_weight(FontWeight::W600)
+        .height(TITLE_LINE_HEIGHT / TITLE_FONT_SIZE);
+    let items = trail
+        .iter()
+        .enumerate()
+        .map(|(index, name)| {
+            BreadcrumbBarItem::new(index.to_string(), Text::new(*name).style(named.clone()))
+        })
+        .collect();
+    let (library, pages) = (library.clone(), trail.len());
+    let names = BreadcrumbBar::new(items, move |app, clicked| {
+        let back_by = pages.saturating_sub(clicked.index + 1);
+        library.update(app, |library, cx| {
+            for _ in 0..back_by {
+                library.go_back(cx);
+            }
+        });
+    });
+    // WinUI's way to restyle one control: the resources its template reads. A page before this
+    // one is said more quietly than this one, as Windows's Settings says it.
+    let (secondary, primary) = (
+        resources.text_fill_color_secondary,
+        resources.text_fill_color_primary,
+    );
+    let names = ThemeScope::overriding(names).any(move |resources| {
+        resources.breadcrumb_bar_chevron_font_size = TITLE_CHEVRON_FONT_SIZE;
+        resources.breadcrumb_bar_normal_foreground_brush = secondary;
+        resources.breadcrumb_bar_hover_foreground_brush = primary;
+    });
+    Padding::new(EdgeInsetsGeometry::from_ltrb(MARGIN, 0.0, MARGIN, 16.0))
+        .child(Row::new().children([names.into_widget()]))
+        .into_widget()
+}
+
+/// A heading over a group of cards.
+pub(crate) fn heading(text: &str, resources: &ThemeResources) -> WidgetRef {
+    let primary = resources.text_fill_color_primary;
+    let [over, under] = HEADING_MARGIN;
+    Padding::new(EdgeInsetsGeometry::only(1.0, over, 0.0, under))
+        .child(Text::new(text).style(TextBlockStyle::BodyStrong.text_style(resources, primary)))
+        .into_widget()
+}
+
+/// What a page says over its cards: caption-sized, in the secondary colour, with the room under
+/// it that sets it apart from them.
+pub(crate) fn note(resources: &ThemeResources, text: &str) -> WidgetRef {
+    let secondary = resources.text_fill_color_secondary;
+    Padding::new(EdgeInsetsGeometry::only(1.0, 0.0, 0.0, 8.0))
+        .child(Text::new(text).style(TextBlockStyle::Caption.text_style(resources, secondary)))
+        .into_widget()
+}
+
+/// The room that parts a group of cards with no heading from the group before.
+pub(crate) fn gap() -> WidgetRef {
+    SizedBox::new().height(HEADING_MARGIN[0]).into_widget()
+}
+
+/// `card` with the room under it that parts it from the next.
+pub(crate) fn spaced<K>(card: impl IntoWidget<K>) -> WidgetRef {
+    Padding::new(EdgeInsetsGeometry::only(0.0, 0.0, 0.0, CARD_SPACING))
+        .child(card.into_widget())
+        .into_widget()
+}
+
+/// A settings card's parts: its words starting at `start`, `name` over `detail` where that is
+/// said, and `control` at its end where it has one.
+fn card(
+    start: Start,
+    name: &str,
+    detail: Option<&str>,
+    control: Option<WidgetRef>,
+) -> SettingsCard {
+    let mut card = SettingsCard::new().header(Text::new(name));
+    card.header_icon = start.icon();
+    card.description = detail.map(|detail| Text::new(detail).into_widget());
+    card.content = control;
+    card
+}
+
+/// One setting, a settings card: `name` over `detail` where that is said, and its one `control`
+/// at its end.
+pub(crate) fn setting_card(
+    start: Start,
+    name: &str,
+    detail: Option<&str>,
+    control: Option<WidgetRef>,
+) -> WidgetRef {
+    spaced(card(start, name, detail, control))
+}
+
+/// A settings card to click that leads to `page`: `name` over what it holds where that is said,
+/// and the chevron a card to click ends with.
+pub(crate) fn link_card(
+    library: &Entity<Library>,
+    start: Start,
+    name: &str,
+    detail: Option<&str>,
+    page: SettingsPage,
+) -> WidgetRef {
+    let library = library.clone();
+    let open = Listener::new(move |app| {
+        let page = LibraryPage::Settings(page.clone());
+        library.update(app, |library, cx| library.show_page(page, cx));
+    });
+    spaced(
+        card(start, name, detail, None)
+            .is_click_enabled(true)
+            .click(open),
+    )
+}
+
+/// One of a list: what it is, and the one control at its end where it has one.
+pub(crate) struct ListRow {
+    pub(crate) text: String,
+    pub(crate) control: Option<WidgetRef>,
+}
+
+/// A list as one block: a card saying what it lists (`name` over `detail`, `control` at its end,
+/// as [`setting_card`]), and under it its `rows`, each starting where the card's words do, a
+/// line between two.
+pub(crate) fn list_block(
+    resources: &ThemeResources,
+    start: Start,
+    name: &str,
+    detail: Option<&str>,
+    control: Option<WidgetRef>,
+    rows: Vec<ListRow>,
+) -> WidgetRef {
+    let row_padding = start.row_padding();
+    // The block draws the card's ground and edge once, around the card and its rows.
+    let head = card(start, name, detail, control)
+        .background(Color::from_argb(0, 0, 0, 0))
+        .border_thickness([0.0; 4]);
+    let rows = rows.into_iter().map(|row| {
+        let mut listed = SettingsCard::new()
+            .header(Text::new(row.text))
+            .background(Color::from_argb(0, 0, 0, 0))
+            .border_thickness(SETTINGS_EXPANDER_ITEM_BORDER_THICKNESS)
+            .corner_radius(0.0)
+            .min_height(SETTINGS_EXPANDER_ITEM_MIN_HEIGHT)
+            .padding(row_padding);
+        listed.content = row.control;
+        listed.into_widget()
+    });
+    let surface = BoxDecoration {
+        color: Some(resources.card_background_fill_color_default.into()),
+        border: Some(
+            Border::all(
+                resources.card_stroke_color_default,
+                1.0,
+                BorderStyle::Solid,
+                BorderSide::STROKE_ALIGN_INSIDE,
+            )
+            .into(),
+        ),
+        border_radius: Some(BorderRadiusGeometry::circular(
+            resources.control_corner_radius[0],
+        )),
+        ..BoxDecoration::default()
+    };
+    let block = Column::new()
+        .cross_axis_alignment(CrossAxisAlignment::Stretch)
+        .children([head.into_widget()].into_iter().chain(rows));
+    spaced(
+        DecoratedBox::new(surface).child(Padding::new(EdgeInsetsGeometry::all(1.0)).child(block)),
+    )
+}
+
+/// A switch that is `on` or off, in the style a settings card gives the switch at its end,
+/// telling `changed` when the user flips it.
+pub(crate) fn card_switch(on: bool, changed: impl Fn(&mut App, bool) + 'static) -> WidgetRef {
+    ToggleSwitch::new(on, changed)
+        .template(right_aligned_compact_toggle_switch_style)
+        .into_widget()
+}
+
+/// A button at a card's end, saying `label` and doing `click`, no narrower than every other.
+pub(crate) fn card_button(label: &str, click: Listener) -> WidgetRef {
+    ConstrainedBox::new(BoxConstraints::new().min_width(BUTTON_MIN_WIDTH))
+        .child(Button::text(label, click))
+        .into_widget()
+}
+
+/// A drop-down at a card's end, as wide as every other, of `choices`: each its name, whether it
+/// is the one chosen, and what choosing it does.
+pub(crate) fn drop_down(choices: Vec<(String, bool, Listener)>) -> WidgetRef {
+    let chosen = choices.iter().position(|(_, chosen, _)| *chosen);
+    let items = choices
+        .iter()
+        .enumerate()
+        .map(|(index, (name, ..))| ComboBoxItem::text(index.to_string(), name.clone()))
+        .collect();
+    let chooses: Vec<Listener> = choices.into_iter().map(|(.., choose)| choose).collect();
+    let pick = ComboBox::new(items, chosen, move |app, picked| {
+        let picked = picked.selected_index();
+        if picked != chosen
+            && let Some(choose) = picked.and_then(|index| chooses.get(index))
+        {
+            choose.call(app);
+        }
+    });
+    SizedBox::new()
+        .width(DROP_DOWN_WIDTH)
+        .child(pick)
+        .into_widget()
+}
+
+/// The symbol of `permission`, as Windows's Settings marks each of its privacy pages.
+pub(crate) fn permission_symbol(permission: Permission) -> FluentSymbol {
+    match permission {
+        Permission::Network => FluentSymbol::Globe,
+        Permission::LocalNetwork => FluentSymbol::Desktop,
+        Permission::Clipboard => FluentSymbol::Clipboard,
+        Permission::Folders => FluentSymbol::Folder,
+        Permission::Notifications => FluentSymbol::Alert,
+        Permission::Camera => FluentSymbol::Camera,
+        Permission::Microphone => FluentSymbol::Mic,
+        Permission::ActivityRecord => FluentSymbol::Pulse,
+    }
+}
+
+/// The words a setting that is on or off says for each.
+pub(crate) fn on_and_off(permission: Permission) -> (&'static str, &'static str) {
+    match permission {
+        Permission::ActivityRecord => (words::ON, words::OFF),
+        _ => (words::ALLOW, words::DONT_ALLOW),
+    }
+}

@@ -9,6 +9,7 @@ pub(crate) mod cupertino_general;
 pub(crate) mod cupertino_root;
 pub(crate) mod fluent;
 pub(crate) mod fluent_general;
+pub(crate) mod fluent_page;
 pub(crate) mod fluent_root;
 
 use std::sync::Arc;

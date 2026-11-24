@@ -266,6 +266,8 @@ pub(crate) fn keep_in_dock_detail(platform: TargetPlatform) -> &'static str {
 }
 
 pub(crate) const USE_GLOBAL: &str = "Use the default";
+/// Under the card that has an app's own setting follow the default again, in the launcher.
+pub(crate) const USE_GLOBAL_DETAIL: &str = "What is set here for this app goes.";
 pub(crate) const ON: &str = "On";
 pub(crate) const OFF: &str = "Off";
 pub(crate) const NETWORK: &str = "Network";
@@ -275,6 +277,9 @@ pub(crate) const ONLY_DOMAINS: &str = "Only these domains";
 pub(crate) const ANY_DOMAIN_BUT: &str = "All domains but these";
 pub(crate) const WHICH_DOMAINS: &str = "Which domains";
 pub(crate) const DOMAIN_PLACEHOLDER: &str = "example.com";
+/// The block that lists the domains a rule names, and the dialog that adds one, in the launcher.
+pub(crate) const THESE_DOMAINS: &str = "These domains";
+pub(crate) const ADD_A_DOMAIN: &str = "Add a domain";
 pub(crate) const CLIPBOARD_READ: &str = "Reading the clipboard";
 pub(crate) const CLIPBOARD_WRITE: &str = "Writing the clipboard";
 pub(crate) const RECORD: &str = "Keep a record of what it does";
@@ -296,6 +301,8 @@ pub(crate) const FOLDERS: &str = "Folders";
 pub(crate) const FOLDER_PLACEHOLDER: &str = "/Users/you/Documents";
 pub(crate) const FOLDER_AT_PLACEHOLDER: &str = "Where the app sees it: the same path when empty";
 pub(crate) const WRITABLE: &str = "Writable";
+/// The dialog that adds a folder, in the launcher.
+pub(crate) const ADD_A_FOLDER: &str = "Add a folder";
 pub(crate) const FOLDERS_AT_ONCE: &str =
     "A folder added or removed applies at once, to an app running too.";
 pub(crate) const NO_FOLDERS: &str = "No folders.";
@@ -323,6 +330,10 @@ pub(crate) const LINKS_DETAIL: &str = "What this app was answered when it asked 
 pub(crate) const ROLES: &str = "Roles";
 pub(crate) const ROLES_DETAIL: &str = "What this app was answered when it asked to be more than an app. Remove one to be asked again at its next start.";
 pub(crate) const FILE_PICKERS: &str = "File pickers";
+/// Under a simulated file picker, in the launcher: the row that adds a file, and the row of a
+/// picker with no path set yet.
+pub(crate) const ADD_A_FILE: &str = "Add a file";
+pub(crate) const NO_PATH: &str = "No path set";
 /// Under a file picker that is simulated, as under a simulated camera.
 pub(crate) const SIMULATED_PICKER_DETAIL: &str =
     "Simulated: no picker shows. The app is given the path set here, as if you had picked it.";

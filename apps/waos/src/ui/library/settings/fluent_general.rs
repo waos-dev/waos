@@ -6,15 +6,11 @@
 //!
 //! What it shows is the library's, read as it builds; it keeps nothing of its own.
 
-use waft::{
-    App, BuildContext, Column, CrossAxisAlignment, EdgeInsetsGeometry, Entity, Expanded,
-    IntoWidget, ListView, Listener, StatelessWidget, WidgetRef,
-};
-use waft_winui::{Button, ThemeResources};
+use waft::{App, BuildContext, Entity, Listener, StatelessWidget, WidgetRef};
+use waft_winui::ThemeResources;
 
-use super::fluent_root::{card_switch, setting_card, spaced, title_bar};
+use super::fluent_page::{Start, card_button, card_switch, page, setting_card};
 use crate::state::library::Library;
-use crate::ui::library::home::fluent::MARGIN;
 use crate::ui::library::words;
 
 /// WaOS's own settings, in Fluent's controls.
@@ -37,16 +33,7 @@ impl StatelessWidget for FluentGeneralSettings {
         .into_iter()
         .flatten()
         .collect();
-        let list = ListView::new()
-            .padding(EdgeInsetsGeometry::from_ltrb(MARGIN, 8.0, MARGIN, MARGIN))
-            .children(cards);
-        Column::new()
-            .cross_axis_alignment(CrossAxisAlignment::Stretch)
-            .children([
-                title_bar(&self.library, &resources, words::WAOS_SETTINGS),
-                Expanded::new(list).into_widget(),
-            ])
-            .into_widget()
+        page(&self.library, &resources, &[words::WAOS_SETTINGS], cards)
     }
 }
 
@@ -101,12 +88,12 @@ impl Shown {
         } else {
             words::PHONE_FILES_OFF
         };
-        let button = Button::text(words::OPEN_ANDROID_SETTINGS, open).into_widget();
+        let button = card_button(words::OPEN_ANDROID_SETTINGS, open);
         Some(self.setting(words::PHONE_FILES, said, button))
     }
 
     /// A setting's card: its `name` over what it does, and its `control`.
     fn setting(&self, name: &str, detail: &str, control: WidgetRef) -> WidgetRef {
-        spaced(setting_card(None, name, Some(detail), Some(control)))
+        setting_card(Start::Edge, name, Some(detail), Some(control))
     }
 }
