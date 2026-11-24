@@ -164,7 +164,7 @@ fn the_settings_first_page_leads_to_each_apps_settings_and_back_in_either_layout
             LibraryPage::Settings(SettingsPage::App(triangle()))
         );
         assert!(
-            desktop.shows(&"Triangle".to_owned()),
+            desktop.shows("Triangle"),
             "{:?}",
             desktop.labels()
         );
