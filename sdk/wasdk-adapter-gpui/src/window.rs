@@ -187,6 +187,9 @@ impl WindowShared {
             let origin = bounds_of(window.frame()).origin;
             self.state.borrow_mut().bounds.origin = origin;
         }
+        if let Some(style) = crate::status_bar::said() {
+            view.set_overlay_style(style);
+        }
         *self.view.borrow_mut() = Some(AttachedView {
             view,
             system_window,
@@ -196,6 +199,13 @@ impl WindowShared {
         self.resized(&metrics);
         self.request_frame();
         Ok(())
+    }
+
+    /// Shows the system's bars over the window in `style`, once its view has arrived.
+    pub(crate) fn set_overlay_style(&self, style: wasdk::views::OverlayStyle) {
+        if let Some(attached) = self.view.borrow().as_ref() {
+            attached.view.set_overlay_style(style);
+        }
     }
 
     /// One event of the window's view.
