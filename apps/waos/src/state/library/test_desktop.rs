@@ -29,8 +29,9 @@ use waft::{
     Shell, State as _, Text, WidgetsBinding, downcast_widget, run_widget,
 };
 use waft_cupertino::install_cupertino_icon_font;
-use waft_services::{LogicalKeyboardKey, PhysicalKeyboardKey, ServicesBinding};
 #[cfg(target_os = "macos")]
+use waft_rendering::RenderEditable;
+use waft_services::{LogicalKeyboardKey, PhysicalKeyboardKey, ServicesBinding};
 use waft_test::Opened;
 use waft_test::{
     MockFileDialogs, MockOpener, MockTrayIcons, ShownTrayIcon, TestPlatform, TestWindow,
@@ -668,6 +669,18 @@ impl LibraryDesktop {
             let widget = downcast_widget::<W>(element.widget(&app).as_ref())?.clone();
             let bounds = bounds(&app, element)?;
             (bounds.top <= middle && middle <= bounds.bottom).then_some((widget, bounds))
+        })
+    }
+
+    /// Whether the text field on screen draws its caret now: what its renderer is told, which
+    /// follows the caret's blink.
+    pub(crate) fn draws_a_caret(&self) -> bool {
+        let mut app = self.shell.app();
+        onstage_elements(&mut app).into_iter().any(|element| {
+            element
+                .render_object(&app)
+                .and_then(|render| render.downcast::<RenderEditable>(&app))
+                .is_some_and(|editable| *editable.show_cursor(&app).value(&app))
         })
     }
 

@@ -18,12 +18,12 @@ use std::sync::Arc;
 use waft::ui::{
     HostWindow as _, Offset, TargetPlatform, View as _, ViewId, WindowBackground, WindowLevel,
 };
-use waft::{EditableText, Entity};
+use waft::{Entity, ListView};
 use waft_test::TestWindow;
 use waft_winui::{FluentSymbol, FontIcon};
 use waos_package::ProgramId;
 
-use super::home::LauncherHome;
+use super::home::{LauncherHome, SearchRowLine};
 use super::launcher_window;
 use crate::state::launcher::Launcher;
 use crate::state::library::test_desktop::{DesktopKind, LibraryDesktop};
@@ -268,9 +268,13 @@ fn a_running_program_has_its_dot_and_one_a_source_lists_newer_its_badge() {
     futures::executor::block_on(desktop.runs.stop_all());
 }
 
-/// Whether the launcher's search field draws its caret now.
-fn search_draws_its_caret(desktop: &LibraryDesktop) -> bool {
-    desktop.count::<EditableText>(EditableText::effective_show_cursor) == 1
+/// Whether the launcher's search field draws its caret at any moment of a blink: over a second
+/// of frames, the caret's half-second on and half-second off.
+fn search_draws_its_caret(desktop: &mut LibraryDesktop) -> bool {
+    (0..20).any(|_| {
+        desktop.frames(1);
+        desktop.draws_a_caret()
+    })
 }
 
 /// No caret blinks in the launcher's empty search field, which has the keyboard all the same:
@@ -280,12 +284,32 @@ fn the_empty_search_field_shows_no_caret_and_takes_what_is_typed() {
     let (mut desktop, _launcher) = desktop();
     install(&mut desktop, TRIANGLE, "Triangle", "1.0.0", b"\0asm");
     let view = launcher_view(&desktop);
-    assert!(!search_draws_its_caret(&desktop), "empty");
+    assert!(!search_draws_its_caret(&mut desktop), "empty");
     desktop.type_text(view, "tri");
     assert_eq!(desktop.read(|library| library.search().to_owned()), "tri");
-    assert!(search_draws_its_caret(&desktop), "holding what was typed");
+    assert!(
+        search_draws_its_caret(&mut desktop),
+        "holding what was typed"
+    );
     desktop.type_text(view, "");
-    assert!(!search_draws_its_caret(&desktop), "empty again");
+    assert!(!search_draws_its_caret(&mut desktop), "empty again");
+}
+
+/// The grid scrolls right up to the line under the search row: the room above its first row is
+/// the grid's own, scrolling away with it, so no gap cuts the icons short of the line.
+#[test]
+fn the_grid_scrolls_up_to_the_line_under_the_search_row() {
+    let (mut desktop, _launcher) = desktop();
+    install(&mut desktop, TRIANGLE, "Triangle", "1.0.0", b"\0asm");
+    let line = desktop
+        .bounds_of::<SearchRowLine>(&|_| true)
+        .expect("the line");
+    let grid = desktop.bounds_of::<ListView>(&|_| true).expect("the grid");
+    let icon = desktop
+        .bounds_of::<ProgramIcon>(&|_| true)
+        .expect("an icon");
+    assert_eq!(grid.top, line.bottom, "no gap between them");
+    assert!(icon.top > grid.top, "room above the first row, inside");
 }
 
 /// The grid lists the apps from A to Z by the names their user reads, whatever their case, not

@@ -29,6 +29,8 @@ use crate::ui::library::words;
 
 /// The home's margins, as the Start menu's.
 pub(crate) const MARGIN: f64 = 24.0;
+/// The room above the grid's first row, which scrolls away with it.
+const GRID_TOP: f64 = 12.0;
 /// The size of the symbol over a home with nothing installed.
 const EMPTY_SYMBOL_SIZE: f64 = 48.0;
 const TITLE_TOP: f64 = 16.0;
@@ -151,9 +153,11 @@ impl FluentHomeBody {
         LayoutBuilder::new(move |_app, _context, constraints| {
             let columns = columns_for(constraints.max_width - 2.0 * (MARGIN - TILE_PADDING[0]));
             ListView::new()
+                // The room above the first row is the list's own, so the icons scroll up to what
+                // is over the list with no gap, where a gap outside it would cut them short of it.
                 .padding(EdgeInsetsGeometry::from_ltrb(
                     MARGIN - TILE_PADDING[0],
-                    0.0,
+                    GRID_TOP,
                     MARGIN - TILE_PADDING[0],
                     MARGIN,
                 ))

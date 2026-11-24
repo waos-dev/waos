@@ -15,8 +15,8 @@ use waft::{
     App, BuildContext, Builder, Color, ColoredBox, Column, CrossAxisAlignment, EdgeInsetsGeometry,
     Entity, Expanded, Focus, FocusNode, FocusNodeLeaf, FrameCallback, Handle, IntoWidget,
     KeyEventResult, Listenable, Listener, OptionRetained, Padding, Ref, Row, SchedulerBinding,
-    SizedBox, State, StateData, StatefulWidget, Subscription, TextEditingController,
-    TextEditingControllerLeaf, WidgetRef,
+    SizedBox, State, StateData, StatefulWidget, StatelessWidget, Subscription,
+    TextEditingController, TextEditingControllerLeaf, WidgetRef,
 };
 use waft_services::{KeyEvent, LogicalKeyboardKey};
 use waft_winui::{
@@ -35,8 +35,19 @@ use crate::ui::library::words;
 /// The size of the search row's text and icons.
 const SEARCH_FONT_SIZE: f64 = 18.0;
 const ICON_SIZE: f64 = 18.0;
-/// The room between the line under the search row and the grid.
-const GRID_GAP: f64 = 12.0;
+
+/// The hairline under the search row, which the grid's icons scroll up to.
+#[derive(Debug)]
+pub(crate) struct SearchRowLine;
+
+impl StatelessWidget for SearchRowLine {
+    fn build(&self, app: &mut App, context: BuildContext) -> WidgetRef {
+        let color = ThemeResources::of(app, context).divider_stroke_color_default;
+        ColoredBox::new(color)
+            .child(SizedBox::new().height(1.0))
+            .into_widget()
+    }
+}
 
 /// `text_box` with no box around it and no accent line under it, focused or not: a launcher's
 /// field is the launcher's own surface to type on, as Spotlight's and PowerToys Run's are. Done as
@@ -140,14 +151,11 @@ impl State for LauncherHomeState {
             library: widget.library.clone(),
             recordings: widget.recordings.clone(),
         };
-        let divider = ColoredBox::new(resources.divider_stroke_color_default)
-            .child(SizedBox::new().height(1.0));
         Column::new()
             .cross_axis_alignment(CrossAxisAlignment::Stretch)
             .children([
                 self.search_row(app, &resources),
-                divider.into_widget(),
-                SizedBox::new().height(GRID_GAP).into_widget(),
+                SearchRowLine.into_widget(),
                 Expanded::new(body).into_widget(),
             ])
             .into_widget()
