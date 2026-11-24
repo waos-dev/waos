@@ -65,12 +65,18 @@ enum WindowStep {
     Go(Dismissal),
 }
 
+/// How round the launcher's card is at its corners, and with it the backdrop behind it.
+pub(crate) const CARD_CORNER_RADIUS: f64 = 12.0;
+
 pub(crate) struct Launcher {
     rules: LauncherRules,
     /// The request for the window, while it is on its way.
     asked: Option<RequestId>,
     /// The window, once it has come.
     window: Option<WindowRef>,
+    /// Whether the system shows its blur or glass behind the window, where the card is tinted
+    /// rather than filled: on macOS, once the window has come.
+    backdrop_behind: bool,
     /// What the window is to do as it comes, as last decided before it came.
     waiting: Option<WindowStep>,
     /// The programs' windows, any of which takes the focus a hidden launcher hands back.
@@ -94,6 +100,7 @@ impl Launcher {
             rules: LauncherRules::new(when_dismissed),
             asked: None,
             window: None,
+            backdrop_behind: false,
             waiting: None,
             view_windows,
             library: library.downgrade(),
@@ -243,10 +250,18 @@ impl Launcher {
             tracing::warn!("the launcher's view came in no window, so the launcher cannot show");
             return;
         };
+        self.backdrop_behind = show_backdrop_behind(&window, cx);
         if let Some(step) = self.waiting.take() {
             do_step(&window, step, cx);
         }
         self.window = Some(window);
+        cx.notify();
+    }
+
+    /// Whether the system shows its blur or glass behind the launcher's window, so the card is
+    /// tinted over it rather than filled.
+    pub(crate) fn backdrop_behind(&self) -> bool {
+        self.backdrop_behind
     }
 
     /// The host removed `view`: where it was the launcher's, the next summons asks for another.
@@ -344,6 +359,40 @@ fn follow_library(app: &mut App, library: &Entity<Library>, launcher: &Entity<La
         }
     })
     .detach();
+}
+
+/// Has the system show its blur of what is behind `window`, the launcher's, rounded as the
+/// card is: Liquid Glass where macOS has it, else the blur a popover has. Answers whether it
+/// does, which is on macOS alone.
+#[cfg(target_os = "macos")]
+fn show_backdrop_behind(window: &WindowRef, app: &App) -> bool {
+    use waft_embedder_winit::{
+        MacosBackdrop, NSGlassEffectViewStyle, NSVisualEffectMaterial, NSVisualEffectState,
+    };
+
+    let backdrop = if MacosBackdrop::has_glass() {
+        MacosBackdrop::Glass {
+            style: NSGlassEffectViewStyle::Regular,
+            tint: None,
+            corner_radius: CARD_CORNER_RADIUS,
+        }
+    } else {
+        MacosBackdrop::VisualEffect {
+            material: NSVisualEffectMaterial::Popover,
+            state: NSVisualEffectState::Active,
+            corner_radius: CARD_CORNER_RADIUS,
+        }
+    };
+    with_macos(app, |macos| {
+        macos.set_window_backdrop(window, Some(&backdrop))
+    })
+    .is_some()
+}
+
+/// No system this host runs on but macOS has a backdrop to show yet.
+#[cfg(not(target_os = "macos"))]
+fn show_backdrop_behind(_window: &WindowRef, _app: &App) -> bool {
+    false
 }
 
 /// A click on WaOS's Dock icon, or WaOS opened again, summons the launcher, where the host says
