@@ -21,6 +21,7 @@ cargo xtask sync-wit                               # after editing wit/
 - **Before changing `wit/`, read [the interface's rules](docs/engine/interface.md).**
 - **The lead settles the WIT before it is written.** It is what every app is built against.
 - **`unsafe` only where a system API is wrapped**, so unsafe code stays in a few known places; a crate that needs it denies the lint rather than forbidding it.
+- **Names are the words anyone would use for the thing:** plain nouns for values (`request_id`, `granted_folder`), plain verbs for actions. Never a shorthand that reads only once you know the code: a verb or a loose word made into a type or field (`Pick`, `needs`, `gone_on`, `NotKept`).
 - **No `RefCell` unless the problem needs it.** Shared mutable state hides who changes what.
 - **An API agents use explains itself.** When an agent has to read the source to use one, its docs or its shape is the bug.
 - **Waft comes from crates.io.** To build against an unreleased Waft, a branch adds `[patch.crates-io]` until Waft releases.
