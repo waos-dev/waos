@@ -7,9 +7,11 @@ publish.workspace = true
 description = "A program that hands the system's video decoder chunks and prints what comes of each: the frames, held no more at once than it said, what a chunk that is no key frame or is damaged is answered, and why the decoder ended. `cargo build -p video-decoders --target wasm32-wasip3`."
 
 [dependencies]
-# Waiting for a frame and for a moment at once.
+# Waiting for a frame and for a moment at once, and for a buffer's mapping.
 futures.workspace = true
 wasdk.workspace = true
+wasdk-wgpu.workspace = true
+wgpu.workspace = true
 
 [lints]
 workspace = true

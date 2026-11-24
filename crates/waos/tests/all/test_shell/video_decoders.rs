@@ -1,6 +1,7 @@
 //! The system's video decoders as the test shell keeps them: each decoder opened recorded with
 //! what it was opened for and what it is asked, in order. A decoder puts a frame out for each
-//! chunk it is handed, at once and in the order handed, with the chunk's time; a chunk whose first
+//! chunk it is handed, at once and in the order handed, with the chunk's time, a decoder's own
+//! picture in two planes; a chunk whose first
 //! byte is [`DAMAGED`] it answers as damaged; and a test takes the decoder away as the system
 //! would.
 
@@ -16,7 +17,7 @@ use futures::stream::BoxStream;
 use waos::bindings::wasdk::media::video_decoders::{
     DecodeSupport, DecoderError, VideoDecodeSupport, VideoDecoderOptions, VideoStreamDescription,
 };
-use waos::bindings::wasdk::media::video_frames::{PixelAspect, PixelRect, VideoColor};
+use waos::bindings::wasdk::media::video_frames::{ColorRange, PixelAspect, PixelRect, VideoColor};
 use waos::bindings::wasdk::media::video_streams::{CodecKind, EncodedChunk, VideoStreamSetup};
 use waos::{
     DecodedFrame, OpenedVideoDecoder, ShellVideoDecoder, ShellVideoDecoders, VideoDecoderFuture,
@@ -33,6 +34,11 @@ pub const VISIBLE: PixelRect = PixelRect {
     width: 60,
     height: 40,
 };
+
+/// The brightness of every sample of a test decoder's pictures, and their colour, its blue
+/// difference and then its red: red, in BT.709 over video's range.
+pub const LUMA: u8 = 63;
+pub const CHROMA: [u8; 2] = [102, 240];
 
 /// Decoders that keep each one opened.
 #[derive(Default)]
@@ -138,7 +144,7 @@ impl TestDecoder {
     #[cfg(target_vendor = "apple")]
     fn put_out(&self, chunk: &EncodedChunk) {
         let sent = SentFrame {
-            picture: HeldFrame::new(super::video_frames::frame_of([0, 0, 255, 255])),
+            picture: HeldFrame::new(super::video_frames::two_plane_frame(LUMA, CHROMA)),
             timestamp: chunk.timestamp,
             duration: chunk.duration,
         };
@@ -200,8 +206,8 @@ impl SentFrame {
             color: VideoColor {
                 primaries: Some(1),
                 transfer: Some(1),
-                matrix: Some(0),
-                range: None,
+                matrix: Some(1),
+                range: Some(ColorRange::Limited),
                 chroma_location: None,
             },
             hdr_metadata: None,

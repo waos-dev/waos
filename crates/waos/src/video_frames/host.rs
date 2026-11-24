@@ -131,8 +131,7 @@ impl HostVideoFrame for VideoFramesCtx<'_> {
         frame: Resource<ProgramVideoFrame>,
     ) -> wasmtime::Result<Option<Vec<VideoPlane>>> {
         let frame = self.table.get(&frame)?;
-        let planes = frame.planes().map_err(wasmtime::Error::from_anyhow)?;
-        Ok(Some(planes))
+        frame.planes().map_err(wasmtime::Error::from_anyhow)
     }
 
     fn color(&mut self, frame: Resource<ProgramVideoFrame>) -> wasmtime::Result<VideoColor> {

@@ -28,7 +28,7 @@
 
 use std::sync::{Arc, Mutex};
 
-use waos_webgpu_host::{Device, GpuObject, Texture, WeakDevice};
+use waos_webgpu_host::{Device, GpuObject, Texture, TextureAttributes, WeakDevice};
 
 use super::Released;
 use super::counted_bytes::CountedBytes;
@@ -202,13 +202,51 @@ impl ProgramHardwareBuffer {
         device: &Device,
         usages: wgpu_types::TextureUsages,
     ) -> anyhow::Result<Texture> {
+        let (texture, attributes) =
+            self.0
+                .pixels
+                .memory
+                .program_texture(gpu, device, usages, self.release_of_pixels())?;
+        Ok(self.connected(texture, attributes, device, usages))
+    }
+
+    /// A texture over the plane at `index` of the buffer's memory on `device` of `gpu`, for
+    /// `usages`, holding the buffer until wgpu frees it. A plane the buffer does not have is the
+    /// program's mistake, and a failure the system answers the engine's.
+    pub(crate) fn plane_texture_on(
+        &self,
+        gpu: &GpuInstance,
+        device: &Device,
+        index: u32,
+        usages: wgpu_types::TextureUsages,
+    ) -> anyhow::Result<Texture> {
+        let (texture, attributes) = os::plane_texture(
+            &self.0.pixels.memory,
+            gpu,
+            device,
+            index,
+            usages,
+            self.release_of_pixels(),
+        )?;
+        Ok(self.connected(texture, attributes, device, usages))
+    }
+
+    /// What wgpu calls once it has freed a texture over the buffer: the buffer's memory, and its
+    /// frame, held until then.
+    fn release_of_pixels(&self) -> Box<dyn FnOnce() + Send + Sync> {
         let pixels = Arc::clone(&self.0.pixels);
-        let release = Box::new(move || drop(pixels));
-        let (texture, attributes) = self
-            .0
-            .pixels
-            .memory
-            .program_texture(gpu, device, usages, release)?;
+        Box::new(move || drop(pixels))
+    }
+
+    /// `texture`, made over the buffer on `device` for `usages`, as the program's, kept among the
+    /// buffer's textures and its devices.
+    fn connected(
+        &self,
+        texture: Arc<GpuObject<wgpu_core::id::TextureId>>,
+        attributes: TextureAttributes,
+        device: &Device,
+        usages: wgpu_types::TextureUsages,
+    ) -> Texture {
         {
             let mut textures = locked(&self.0.textures);
             if !os::HANDS_TEXTURES_OVER {
@@ -229,7 +267,7 @@ impl ProgramHardwareBuffer {
         }) {
             devices.push(device.downgrade());
         }
-        Ok(device.connect_texture(texture, attributes))
+        device.connect_texture(texture, attributes)
     }
 
     /// The buffer handed to a reader outside the program's GPU work, once the program of

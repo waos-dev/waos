@@ -33,6 +33,7 @@ What stands between today and a first stable release, in the order it blocks one
 - [ ] A stack for a hung app (`waos inspect`).
 - [ ] `block_on` waiting on tasks it did not start (wit-bindgen's shared queue).
 - [ ] Screenshots at a size larger than the screen.
+- [ ] A 10-bit decoded frame has no planes an app can read: its samples are 16 bits, a texture format WebGPU keeps behind a feature the interface does not pass on yet.
 - [ ] Simplify: starting a run is built three ways that have drifted (development, installed, inspector-held); file dialogs and questions are split by kind and folded back together everywhere; "Simulated" is offered for every kind of answer though only cameras and microphones have one; three counters keep an app thawed, all doing the same; a waiting question has a channel of its own only to say nobody waits any more.
 
 ## Solid

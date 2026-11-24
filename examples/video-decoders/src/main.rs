@@ -25,6 +25,9 @@ use wasdk::video_streams::{
 /// The first byte of a chunk the test shell's decoder answers as damaged.
 const DAMAGED: u8 = 0xBD;
 
+/// The bytes of a row a texture is copied out in: WebGPU's alignment for one.
+const COPY_ROW: u32 = 256;
+
 /// How long no third frame comes while two are held, before the program takes it that none
 /// will.
 const HELD_FOR: Duration = Duration::from_millis(300);
@@ -84,6 +87,9 @@ async fn main() -> Result<(), String> {
     drop((second, third));
     let fourth = next(&mut frames).await?;
     println!("{}", description(&fourth));
+    for line in planes_read(&fourth).await? {
+        println!("{line}");
+    }
     drop(fourth);
 
     decoder
@@ -177,6 +183,93 @@ async fn frame_once_one_is_dropped(
     third
         .await
         .ok_or_else(|| "the frames ended early".to_owned())
+}
+
+/// Each of `frame`'s planes, with its first sample as the GPU reads it through a texture
+/// imported of the plane.
+async fn planes_read(frame: &VideoFrame) -> Result<Vec<String>, String> {
+    let planes = frame.planes().ok_or("the frame has no planes")?;
+    let (device, queue) = gpu().await?;
+    let buffer = frame.hardware_buffer();
+    let mut read = Vec::new();
+    for (index, plane) in planes.iter().enumerate() {
+        let texture = wasdk_wgpu::import_plane(&device, &buffer, index as u32);
+        let sample = first_sample(&device, &queue, &texture).await?;
+        read.push(format!(
+            "plane {index}: {:?} as {:?}, {}x{} of {} bits, first sample {sample:?}",
+            plane.content, plane.format, plane.width, plane.height, plane.bit_depth
+        ));
+    }
+    Ok(read)
+}
+
+/// The engine's WebGPU device and its queue.
+async fn gpu() -> Result<(wgpu::Device, wgpu::Queue), String> {
+    let instance = wasdk_wgpu::instance();
+    let adapter = instance
+        .request_adapter(&wgpu::RequestAdapterOptions::default())
+        .await
+        .map_err(|error| format!("no WebGPU adapter: {error}"))?;
+    adapter
+        .request_device(&wgpu::DeviceDescriptor::default())
+        .await
+        .map_err(|error| format!("no WebGPU device: {error}"))
+}
+
+/// The bytes of `texture`'s first sample, copied out on the GPU: one for each of its channels.
+async fn first_sample(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    texture: &wgpu::Texture,
+) -> Result<Vec<u8>, String> {
+    let buffer = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("first sample"),
+        size: u64::from(COPY_ROW),
+        usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    });
+    let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+    encoder.copy_texture_to_buffer(
+        texture.as_image_copy(),
+        wgpu::TexelCopyBufferInfo {
+            buffer: &buffer,
+            layout: wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(COPY_ROW),
+                rows_per_image: Some(1),
+            },
+        },
+        wgpu::Extent3d {
+            width: 1,
+            height: 1,
+            depth_or_array_layers: 1,
+        },
+    );
+    let scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
+    queue.submit([encoder.finish()]);
+    if let Some(error) = scope.pop().await {
+        return Err(format!("the plane was not copied out: {error}"));
+    }
+    let (mapped, answered) = std::sync::mpsc::channel();
+    buffer
+        .slice(..)
+        .map_async(wgpu::MapMode::Read, move |result| {
+            let _ = mapped.send(result);
+        });
+    device
+        .poll(wgpu::PollType::wait_indefinitely())
+        .map_err(|error| format!("the device did not poll: {error}"))?;
+    answered
+        .try_recv()
+        .map_err(|_| "the mapping was not answered")?
+        .map_err(|error| format!("the buffer did not map: {error}"))?;
+    // A mapped range is read four bytes at a time, as WebGPU aligns one.
+    let bytes = buffer
+        .slice(..4)
+        .get_mapped_range()
+        .map_err(|error| format!("the sample cannot be read: {error}"))?;
+    let channels = usize::from(texture.format().components());
+    Ok(bytes[..channels].to_vec())
 }
 
 /// What `frame` says of itself, as its decoder said it.

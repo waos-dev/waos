@@ -23,7 +23,7 @@ use anyhow::{Context, Result, bail};
 use objc2::rc::Retained;
 use objc2::runtime::ProtocolObject;
 use objc2_core_foundation::{CFDictionary, CFNumber, CFRetained, CFString};
-use objc2_core_video::{CVPixelBufferGetIOSurface, CVPixelBufferGetPixelFormatType};
+use objc2_core_video::CVPixelBufferGetIOSurface;
 use objc2_io_surface::{
     IOSurfaceLockOptions, IOSurfaceRef, kIOSurfaceBytesPerElement, kIOSurfaceBytesPerRow,
     kIOSurfaceHeight, kIOSurfacePixelFormat, kIOSurfaceWidth,
@@ -38,6 +38,7 @@ use waos_webgpu_host::wasi::webgpu::webgpu::{
 use waos_webgpu_host::{Device, GpuObject, TextureAttributes};
 
 use crate::HardwareBufferMode;
+use crate::bindings::wasdk::media::video_frames::{PlaneContent, PlaneFormat, VideoPlane};
 use crate::bindings::wasdk::platform::hardware_buffers::{
     AlphaType, HardwareBufferUsage, ImageError, ImageErrorKind, PixelBuffer, PixelFormat,
 };
@@ -53,6 +54,140 @@ pub(crate) const FORMAT: wgpu_types::TextureFormat = wgpu_types::TextureFormat::
 
 /// The `OSType` for 32-bit BGRA, the layout Metal's `BGRA8Unorm` reads.
 const BGRA_OS_TYPE: i32 = 0x4247_5241;
+
+/// The `OSType`s of 8-bit 4:2:0 in two planes, brightness and then colour at half the size, in
+/// video's range (`420v`) and the whole range (`420f`): what VideoToolbox decodes 8-bit video
+/// into.
+const TWO_PLANE_8_BIT_OS_TYPES: [u32; 2] = [0x3432_3076, 0x3432_3066];
+
+/// One plane of a surface, as Metal, wgpu and a program each name its samples.
+#[derive(Clone, Copy)]
+struct SurfacePlane {
+    index: usize,
+    format: wgpu_types::TextureFormat,
+    metal_format: MTLPixelFormat,
+    gpu_format: GpuTextureFormat,
+    plane_format: PlaneFormat,
+    content: PlaneContent,
+    bit_depth: u8,
+}
+
+/// The one plane of a BGRA surface: the whole picture.
+const BGRA_PLANE: SurfacePlane = SurfacePlane {
+    index: 0,
+    format: FORMAT,
+    metal_format: MTLPixelFormat::BGRA8Unorm,
+    gpu_format: GpuTextureFormat::Bgra8unorm,
+    plane_format: PlaneFormat::Bgra8,
+    content: PlaneContent::Rgba,
+    bit_depth: 8,
+};
+
+/// The two planes of 8-bit 4:2:0: brightness, then colour's two differences in two channels.
+const TWO_PLANES_8_BIT: [SurfacePlane; 2] = [
+    SurfacePlane {
+        index: 0,
+        format: wgpu_types::TextureFormat::R8Unorm,
+        metal_format: MTLPixelFormat::R8Unorm,
+        gpu_format: GpuTextureFormat::R8unorm,
+        plane_format: PlaneFormat::R8,
+        content: PlaneContent::Luma,
+        bit_depth: 8,
+    },
+    SurfacePlane {
+        index: 1,
+        format: wgpu_types::TextureFormat::Rg8Unorm,
+        metal_format: MTLPixelFormat::RG8Unorm,
+        gpu_format: GpuTextureFormat::Rg8unorm,
+        plane_format: PlaneFormat::Rg8,
+        content: PlaneContent::Chroma,
+        bit_depth: 8,
+    },
+];
+
+/// The planes of a surface in `pixel_format`, as the engine makes textures of them; none for a
+/// layout it makes none of. Ten-bit video is one: its samples are 16 bits, which WebGPU keeps
+/// behind a feature the interface does not pass on yet.
+fn surface_planes(pixel_format: u32) -> Option<&'static [SurfacePlane]> {
+    if pixel_format == BGRA_OS_TYPE as u32 {
+        Some(&[BGRA_PLANE])
+    } else if TWO_PLANE_8_BIT_OS_TYPES.contains(&pixel_format) {
+        Some(&TWO_PLANES_8_BIT)
+    } else {
+        None
+    }
+}
+
+/// The planes of `buffer`'s picture, as a texture is made of each; none for a layout the engine
+/// makes no textures of.
+pub(crate) fn planes(buffer: &HardwareBufferMemory) -> Option<Vec<VideoPlane>> {
+    let planes = surface_planes(buffer.surface.pixel_format())?;
+    Some(
+        planes
+            .iter()
+            .map(|plane| {
+                let [width, height] = buffer.plane_size(plane);
+                VideoPlane {
+                    width,
+                    height,
+                    format: plane.plane_format,
+                    content: plane.content,
+                    bit_depth: plane.bit_depth,
+                }
+            })
+            .collect(),
+    )
+}
+
+/// A texture over the plane at `index` of `buffer`'s memory on the program's `device` of `gpu`,
+/// which the GPU samples and copies from, as the program's `gpu-texture` once connected to the
+/// device; `release` is called once wgpu has freed it. A plane the buffer does not have is the
+/// program's mistake, and a failure the system answers the engine's.
+///
+/// On a lost device the texture is invalid, as one made there is.
+pub(crate) fn plane_texture(
+    buffer: &HardwareBufferMemory,
+    gpu: &GpuInstance,
+    device: &Device,
+    index: u32,
+    usage: wgpu_types::TextureUsages,
+    release: wgpu_hal::DropCallback,
+) -> Result<(Arc<GpuObject<wgpu_core::id::TextureId>>, TextureAttributes)> {
+    let format = buffer.surface.pixel_format();
+    let Some(plane) = surface_planes(format).and_then(|planes| planes.get(index as usize)) else {
+        bail!("a hardware buffer in the format {format:#x} has no plane {index}")
+    };
+    let surface_texture = SurfaceTexture {
+        label: "waos program hardware buffer plane",
+        usage,
+        view_formats: &[],
+        metal_usage: MTLTextureUsage::ShaderRead,
+        arrives: wgpu_types::TextureUses::RESOURCE,
+        plane: *plane,
+    };
+    let size = buffer.plane_size(plane);
+    let texture = surface_texture.over(
+        &buffer.surface,
+        size,
+        gpu,
+        device.device_id(),
+        Some(release),
+    )?;
+    let attributes = TextureAttributes {
+        size: wgpu_types::Extent3d {
+            width: size[0],
+            height: size[1],
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: GpuTextureDimension::D2,
+        format: plane.gpu_format,
+        usage: gpu_usage(usage),
+        texture_binding_view_dimension: None,
+    };
+    Ok((Arc::new(GpuObject::new(texture, gpu)), attributes))
+}
 
 /// Bytes one pixel of that format occupies.
 const BYTES_PER_PIXEL: usize = 4;
@@ -151,6 +286,18 @@ impl HardwareBufferMemory {
         }
     }
 
+    /// The size of `plane` of the surface: the surface's own for its one plane, and what the
+    /// surface says of each where it has several.
+    fn plane_size(&self, plane: &SurfacePlane) -> [u32; 2] {
+        if self.surface.plane_count() == 0 {
+            return [self.width, self.height];
+        }
+        [
+            self.surface.width_of_plane(plane.index) as u32,
+            self.surface.height_of_plane(plane.index) as u32,
+        ]
+    }
+
     /// The hardware buffer as the shell shows it. A retain, not a copy.
     pub(crate) fn buffer(&self) -> HardwareBuffer {
         self.surface.clone()
@@ -241,6 +388,7 @@ impl HardwareBufferMemory {
             view_formats: &[],
             metal_usage,
             arrives: arriving_state(usage),
+            plane: BGRA_PLANE,
         };
         let size = [self.width, self.height];
         let texture =
@@ -280,6 +428,7 @@ impl HardwareBufferMemory {
             view_formats: &[],
             metal_usage: MTLTextureUsage::ShaderRead,
             arrives: wgpu_types::TextureUses::RESOURCE,
+            plane: BGRA_PLANE,
         };
         sampled.over(&self.surface, [self.width, self.height], gpu, device, None)
     }
@@ -326,6 +475,7 @@ impl HardwareBufferMemory {
             // It arrives holding the last frame's pixels, which nothing reads: the program draws
             // the whole canvas, so declaring it uninitialized licenses nothing it wanted.
             arrives: wgpu_types::TextureUses::UNINITIALIZED,
+            plane: BGRA_PLANE,
         };
         drawn.over(&self.surface, [self.width, self.height], gpu, device, None)
     }
@@ -453,12 +603,10 @@ impl FrameMemory {
     }
 
     /// The frame's memory: the `IOSurface` its pixel buffer is on, in 32-bit BGRA, as the readers
-    /// ask of their decoders. A failure is the shell's, which handed out a frame of another kind.
+    /// ask of their decoders, or in a decoder's own layout, whose planes a program reads where
+    /// the engine makes textures of them (`planes`). A failure is the shell's, which handed out
+    /// a frame on no surface.
     pub(crate) fn hardware_buffer(&self) -> Result<HardwareBufferMemory> {
-        let format = CVPixelBufferGetPixelFormatType(&self.frame);
-        if format != BGRA_OS_TYPE as u32 {
-            bail!("a video's frame is BGRA, asked of its decoder so, not the format {format:#x}")
-        }
         let Some(surface) = CVPixelBufferGetIOSurface(Some(&self.frame)) else {
             bail!("a video's frame is on an IOSurface, and this one is not")
         };
@@ -474,11 +622,13 @@ struct SurfaceTexture<'a> {
     view_formats: &'a [wgpu_types::TextureFormat],
     metal_usage: MTLTextureUsage,
     arrives: wgpu_types::TextureUses,
+    /// The plane of the surface it is over.
+    plane: SurfacePlane,
 }
 
 impl SurfaceTexture<'_> {
-    /// A wgpu texture over `surface`'s BGRA8 pixels, of `size`, on `device` of `gpu`, made through
-    /// a Metal texture on the surface; `release`, where given, is called once wgpu has freed it.
+    /// A wgpu texture over its plane of `surface`, of that plane's `size`, on `device` of `gpu`,
+    /// made through a Metal texture on the surface; `release`, where given, is called once wgpu has freed it.
     ///
     /// On a lost device wgpu-core answers an invalid texture, with the loss as its error: the
     /// texture is handed out as it is.
@@ -498,12 +648,12 @@ impl SurfaceTexture<'_> {
         };
         let metal = self.metal_texture(hal.raw_device(), surface, [width, height]);
         drop(hal);
-        // SAFETY: `metal` is a live 2D BGRA8 texture of exactly this size, with one mip level and
-        // one layer, made on `device`.
+        // SAFETY: `metal` is a live 2D texture in the plane's format, of exactly this size, with
+        // one mip level and one layer, made on `device`.
         let texture = unsafe {
             wgpu_hal::metal::Device::texture_from_raw(
                 metal,
-                FORMAT,
+                self.plane.format,
                 MTLTextureType::Type2D,
                 1,
                 1,
@@ -525,7 +675,7 @@ impl SurfaceTexture<'_> {
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu_types::TextureDimension::D2,
-            format: FORMAT,
+            format: self.plane.format,
             usage: self.usage,
             view_formats: self.view_formats.to_vec(),
         };
@@ -542,7 +692,7 @@ impl SurfaceTexture<'_> {
         }
     }
 
-    /// A Metal texture over `surface`, on `device`.
+    /// A Metal texture over its plane of `surface`, on `device`.
     fn metal_texture(
         &self,
         device: &ProtocolObject<dyn MTLDevice>,
@@ -551,8 +701,8 @@ impl SurfaceTexture<'_> {
     ) -> Retained<ProtocolObject<dyn MTLTexture>> {
         let descriptor = MTLTextureDescriptor::new();
         descriptor.setTextureType(MTLTextureType::Type2D);
-        descriptor.setPixelFormat(MTLPixelFormat::BGRA8Unorm);
-        // SAFETY: both fit an `NSUInteger`, and the surface is of this size.
+        descriptor.setPixelFormat(self.plane.metal_format);
+        // SAFETY: both fit an `NSUInteger`, and the surface's plane is of this size.
         unsafe {
             descriptor.setWidth(width as usize);
             descriptor.setHeight(height as usize);
@@ -562,7 +712,7 @@ impl SurfaceTexture<'_> {
         descriptor.setStorageMode(MTLStorageMode::Shared);
         descriptor.setUsage(self.metal_usage);
         device
-            .newTextureWithDescriptor_iosurface_plane(&descriptor, surface, 0)
+            .newTextureWithDescriptor_iosurface_plane(&descriptor, surface, self.plane.index)
             .expect("a Metal texture over an IOSurface of a size Metal allows")
     }
 }

@@ -2,7 +2,6 @@
 //! texture on its device, the WebGPU host's own `gpu-texture`, for what the buffer's usage allows.
 
 use waos_webgpu_host::{Device, Texture};
-use wasmtime::bail;
 use wasmtime::component::{HasData, Linker, Resource, ResourceTable};
 
 use super::texture_usages;
@@ -49,18 +48,20 @@ impl gpu_interop::Host for GpuInteropCtx<'_> {
         Ok(self.table.push(texture)?)
     }
 
-    /// A texture over one plane of the buffer. Every buffer the engine hands out today is one
-    /// plane, the plane `import_texture` makes its texture of; a plane it does not have is the
-    /// program's mistake, and traps it.
+    /// A texture over one plane of the buffer's memory on `device`, holding the buffer until the
+    /// GPU is done with it. A plane the buffer does not have is the program's mistake, and traps
+    /// it, as a failure the system answers does.
     fn import_plane(
         &mut self,
         device: Resource<Device>,
         buffer: Resource<ProgramHardwareBuffer>,
         index: u32,
     ) -> wasmtime::Result<Resource<Texture>> {
-        if index != 0 {
-            bail!("a hardware buffer of one plane has no plane {index}")
-        }
-        self.import_texture(device, buffer)
+        let buffer = self.table.get(&buffer)?;
+        let device = self.table.get(&device)?;
+        let texture = buffer
+            .plane_texture_on(self.gpu, device, index, texture_usages(buffer.usage()))
+            .map_err(wasmtime::Error::from_anyhow)?;
+        Ok(self.table.push(texture)?)
     }
 }

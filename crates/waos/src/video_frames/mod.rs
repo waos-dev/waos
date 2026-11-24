@@ -16,10 +16,8 @@ use std::sync::Arc;
 use tokio::sync::OwnedSemaphorePermit;
 
 use crate::bindings::wasdk::media::video_frames::{
-    ColorRange, HdrMetadata, PixelAspect, PixelRect, PlaneContent, PlaneFormat, VideoColor,
-    VideoPlane,
+    ColorRange, HdrMetadata, PixelAspect, PixelRect, VideoColor, VideoPlane,
 };
-use crate::gpu::wgpu_types;
 use crate::os::{self, FrameMemory};
 use crate::shell::{DecodedFrame, ShellVideoFrameReader, ShellVideoFrameReaders, VideoFrame};
 
@@ -135,18 +133,13 @@ impl ProgramVideoFrame {
         self.decoded.as_ref().and_then(|decoded| decoded.duration)
     }
 
-    /// The picture's planes. Every frame the engine takes today is red, green and blue in one
-    /// plane, the whole of its buffer. A failure is the shell's, which handed out a frame of a
-    /// kind the engine does not take.
-    pub(crate) fn planes(&self) -> anyhow::Result<Vec<VideoPlane>> {
+    /// The picture's planes, as a texture is imported of each: one of red, green and blue for a
+    /// reader's frame, a decoder's own two where the system hands them out, and none for a
+    /// layout the engine makes no textures of. A failure is the shell's, which handed out a frame
+    /// of a kind the engine does not take.
+    pub(crate) fn planes(&self) -> anyhow::Result<Option<Vec<VideoPlane>>> {
         let buffer = self.lent.memory.hardware_buffer()?;
-        Ok(vec![VideoPlane {
-            width: buffer.width(),
-            height: buffer.height(),
-            format: rgb_plane_format(),
-            content: PlaneContent::Rgba,
-            bit_depth: 8,
-        }])
+        Ok(os::planes(&buffer))
     }
 
     /// The part of the buffer that is picture: what its decoder says, and all of a reader's
@@ -203,11 +196,3 @@ impl ProgramVideoFrame {
 
 /// H.273's matrix code for samples that are red, green and blue already.
 const RGB_MATRIX: u8 = 0;
-
-/// The plane format of the system's hardware buffers, which a reader's frame is in.
-fn rgb_plane_format() -> PlaneFormat {
-    match os::FORMAT {
-        wgpu_types::TextureFormat::Rgba8Unorm => PlaneFormat::Rgba8,
-        _ => PlaneFormat::Bgra8,
-    }
-}

@@ -26,6 +26,8 @@ mod apple;
 mod generic;
 #[cfg(target_os = "linux")]
 mod linux;
+#[cfg(not(target_vendor = "apple"))]
+mod one_plane;
 mod proxies;
 #[cfg(any(target_os = "android", target_os = "linux"))]
 mod vulkan;
@@ -33,6 +35,9 @@ mod vulkan;
 mod windows;
 
 pub(crate) use proxies::{SystemProxies, system_proxies};
+
+#[cfg(not(target_vendor = "apple"))]
+pub(crate) use one_plane::{plane_texture, planes};
 
 #[cfg(target_os = "android")]
 pub use android::HardwareBuffer;
