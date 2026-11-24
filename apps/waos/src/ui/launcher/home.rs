@@ -3,7 +3,9 @@
 //! the user types in, which has the keyboard whenever the launcher shows, and "…", whose menu
 //! opens the rest of the library in the same card: getting programs and every program's settings.
 //! What is typed is what the library searches its programs for, so the grid filters as the user
-//! types, as the phone's home filters by its search pill; Enter opens the first program shown.
+//! types, as the phone's home filters by its search pill; Enter opens the first program shown. A
+//! category chosen shows in the field as a token before what is typed, which Backspace takes
+//! back (`ui::library::search_field`).
 //!
 //! The invariant: the field holds what the library searches for. What the user types goes to the
 //! library, and the library's search changed from elsewhere, as the launcher goes and empties it,
@@ -13,16 +15,16 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use waft::{
-    App, BuildContext, Builder, Color, Column, CrossAxisAlignment, Curves, EdgeInsetsGeometry,
-    Entity, Expanded, Focus, FocusNode, FocusNodeLeaf, FrameCallback, GlobalKey, Handle,
-    IntoWidget, KeyEventResult, Listenable, Listener, MediaQuery, OptionRetained, Padding, Ref,
-    Row, SchedulerBinding, ScrollPositionAlignmentPolicy, Scrollable, State, StateData,
-    StatefulWidget, Subscription, TextEditingController, TextEditingControllerLeaf, WidgetRef,
+    App, BuildContext, Builder, Column, CrossAxisAlignment, Curves, EdgeInsetsGeometry, Entity,
+    Expanded, Focus, FocusNode, FocusNodeLeaf, FrameCallback, GlobalKey, Handle, IntoWidget,
+    KeyEventResult, Listenable, Listener, MediaQuery, OptionRetained, Padding, Ref, Row,
+    SchedulerBinding, ScrollPositionAlignmentPolicy, Scrollable, State, StateData, StatefulWidget,
+    Subscription, TextEditingController, TextEditingControllerLeaf, WidgetRef,
 };
 use waft_services::{KeyEvent, LogicalKeyboardKey};
 use waft_winui::{
     Button, ButtonStyle, FluentSymbol, FlyoutTarget, FontIcon, MenuFlyout, MenuFlyoutItem, TextBox,
-    ThemeResources, ThemeScope,
+    ThemeResources,
 };
 use waos_package::ProgramId;
 
@@ -33,28 +35,12 @@ use crate::state::library::{Library, LibraryPage};
 use crate::state::recordings::Recordings;
 use crate::ui::library::home::fluent::{FluentHomeBody, Highlighted, MARGIN, columns_in, show};
 use crate::ui::library::home::{HomeEntry, home_entries, often_used_entries};
+use crate::ui::library::search_field::{search_token, takes_back_a_token, with_no_box};
 use crate::ui::library::words;
 
 /// The size of the search row's text and icons.
 const SEARCH_FONT_SIZE: f64 = 18.0;
 const ICON_SIZE: f64 = 18.0;
-
-/// `text_box` with no box around it and no accent line under it, focused or not: a launcher's
-/// field is the launcher's own surface to type on, as Spotlight's and PowerToys Run's are. Done as
-/// WinUI restyles one control, by overriding the resources its states read.
-fn with_no_box(text_box: TextBox) -> ThemeScope {
-    const NONE: Color = Color::from_argb(0, 0, 0, 0);
-    ThemeScope::overriding(text_box).any(|resources| {
-        resources.text_control_background = NONE;
-        resources.text_control_background_pointer_over = NONE;
-        resources.text_control_background_focused = NONE;
-        resources.text_control_border_brush = [(0.0, NONE), (1.0, NONE)];
-        resources.text_control_border_brush_pointer_over = [(0.0, NONE), (1.0, NONE)];
-        resources.text_control_border_brush_focused = [(0.0, NONE), (1.0, NONE)];
-        resources.text_control_border_theme_thickness_focused =
-            resources.text_control_border_theme_thickness;
-    })
-}
 
 /// The launcher's home, shown while the library is on its grid.
 #[derive(Debug)]
@@ -180,20 +166,28 @@ impl LauncherHomeState {
         self.field(app).focus.handle()
     }
 
-    /// The magnifier, the field and "…".
+    /// The magnifier, the category chosen as a token, the field and "…".
     fn search_row(self: Handle<Self>, app: &App, resources: &ThemeResources) -> WidgetRef {
         let field = self.field(app);
+        let category = self.widget(app).library.read(app).category();
         let magnifier = FontIcon::symbol(FluentSymbol::Search)
             .font_size(ICON_SIZE)
             .foreground(resources.text_fill_color_secondary);
-        // No caret blinks in the empty field: it shows once something is typed. The field has
-        // the keyboard all along, so the first key, an input method's among them, is its.
+        // No caret blinks in the empty field: it shows once something is typed, or after a
+        // token, which it can take back. The field has the keyboard all along, so the first
+        // key, an input method's among them, is its.
         let something_typed = !field.text.text_value(app).is_empty();
+        // A token says what is searched already, as macOS's Apps has it: no placeholder after it.
+        let placeholder = if category.is_some() {
+            ""
+        } else {
+            words::SEARCH_PROGRAMS
+        };
         let text_box = TextBox::new(field.text.erase())
             .focus_node(field.focus.erase())
-            .placeholder_text(words::SEARCH_PROGRAMS)
+            .placeholder_text(placeholder)
             .font_size(SEARCH_FONT_SIZE)
-            .show_cursor(something_typed);
+            .show_cursor(something_typed || category.is_some());
         let opening_the_first = Focus::new(with_no_box(text_box))
             .skip_traversal(true)
             .can_request_focus(false)
@@ -204,11 +198,19 @@ impl LauncherHomeState {
             MARGIN - 8.0,
             16.0,
         ))
-        .child(Row::new().spacing(12.0).children([
-            magnifier.into_widget(),
-            Expanded::new(opening_the_first).into_widget(),
-            self.more_button(),
-        ]))
+        .child(
+            Row::new().spacing(12.0).children(
+                [magnifier.into_widget()]
+                    .into_iter()
+                    .chain(category.map(|category| {
+                        search_token(words::category(category), SEARCH_FONT_SIZE, resources)
+                    }))
+                    .chain([
+                        Expanded::new(opening_the_first).into_widget(),
+                        self.more_button(),
+                    ]),
+            ),
+        )
         .into_widget()
     }
 
@@ -243,13 +245,18 @@ impl LauncherHomeState {
         ]
     }
 
-    /// A key pressed in the field: an arrow moves the highlight over the icons, as Spotlight's
+    /// A key pressed in the field: Backspace in an empty field takes back the category chosen,
+    /// as it takes back a character; an arrow moves the highlight over the icons, as Spotlight's
     /// and GNOME's app grid's do, Down entering them and Up from the top row leaving them for
     /// the field; Enter opens the icon highlighted, or the first shown; every other key goes on,
     /// Left and Right among them while no icon is highlighted, where they are the field's.
     fn key_pressed(self: Handle<Self>, app: &mut App, event: &KeyEvent) -> KeyEventResult {
         if !matches!(event, KeyEvent::Down(_) | KeyEvent::Repeat(_)) {
             return KeyEventResult::Ignored;
+        }
+        let typed = self.text(app).text_value(app).to_owned();
+        if takes_back_a_token(event, &typed) && self.takes_back_the_category(app) {
+            return KeyEventResult::Handled;
         }
         let key = event.logical_key();
         if [LogicalKeyboardKey::ENTER, LogicalKeyboardKey::NUMPAD_ENTER].contains(&key) {
@@ -271,6 +278,18 @@ impl LauncherHomeState {
         self.set_state(app, |state| state.highlighted = moved);
         self.bring_highlight_into_sight_after_this_frame(app, step);
         KeyEventResult::Handled
+    }
+
+    /// Shows every category's apps again where one category's show alone; says whether one's
+    /// did.
+    fn takes_back_the_category(self: Handle<Self>, app: &mut App) -> bool {
+        let library = self.widget(app).library.clone();
+        if library.read(app).category().is_none() {
+            return false;
+        }
+        library.update(app, |library, cx| library.show_category(None, cx));
+        self.clear_highlight(app);
+        true
     }
 
     /// The home's rows of icons as it shows them now, each icon by its app's id.

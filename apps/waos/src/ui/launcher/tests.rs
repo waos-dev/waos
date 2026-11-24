@@ -451,7 +451,7 @@ fn an_icon_slides_to_its_new_place_as_a_search_narrows_the_icons() {
 /// A chip for each category the installed apps are filed under shows that category's apps
 /// alone while it is on; pressed again, or the launcher dismissed, every app shows again.
 #[test]
-fn a_categorys_chip_shows_its_apps_alone_until_it_is_pressed_again_or_the_launcher_goes() {
+fn a_categorys_chip_shows_its_apps_alone_until_backspace_takes_it_back_or_the_launcher_goes() {
     let (mut desktop, launcher) = desktop();
     installs_filed(
         &mut desktop,
@@ -486,8 +486,17 @@ fn a_categorys_chip_shows_its_apps_alone_until_it_is_pressed_again_or_the_launch
 
     desktop.tap(view, "Productivity");
     assert_eq!(shown(&desktop), [true, false, true, false]);
-    desktop.tap(view, "Productivity");
-    assert_eq!(shown(&desktop), [true; 4], "pressed again");
+    assert!(
+        desktop.shows("Productivity") && !desktop.shows("Photography"),
+        "the category chosen is a token in the field, the chips gone: {:?}",
+        desktop.labels()
+    );
+    desktop.press_backspace();
+    assert_eq!(shown(&desktop), [true; 4], "taken back");
+    desktop.type_text(view, "a");
+    desktop.press_backspace();
+    desktop.type_text(view, "");
+    assert!(desktop.shows("Photography"), "the chips again");
 
     desktop.tap(view, "Photography");
     assert_eq!(shown(&desktop), [false, true, false, false]);

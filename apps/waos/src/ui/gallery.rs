@@ -217,6 +217,13 @@ fn walks_the_library(layout: &str, (mut desktop, view): (LibraryDesktop, ViewId)
         desktop.update(|library, cx| library.show_app_store_place(place, cx));
         scenes.draw(&mut desktop, scene);
     }
+    desktop.update(|library, cx| {
+        let source = library.sources()[0].source.clone();
+        library.show_app_store_source(Some(source), cx);
+        library.show_app_store_category(Some(Category::Productivity), cx);
+    });
+    scenes.draw(&mut desktop, "store-one-source-one-category");
+    desktop.update(|library, cx| library.reset_app_store(cx));
 
     shows(&mut desktop, LibraryPage::Settings(SettingsOf::Global));
     scenes.draw(&mut desktop, "settings");

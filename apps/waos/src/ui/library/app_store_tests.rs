@@ -93,8 +93,18 @@ fn a_search_or_a_category_shows_what_was_asked_for_alone() {
     desktop.tap(view, words::category(Category::GraphicsDesign));
     assert!(desktop.shows("Triangle"), "{:?}", desktop.labels());
     assert!(!desktop.shows("Maps") && !desktop.shows("Notes"));
-    desktop.tap(view, words::category(Category::GraphicsDesign));
+    assert!(
+        desktop.shows(words::category(Category::GraphicsDesign))
+            && !desktop.shows(words::category(Category::Travel)),
+        "the category chosen is a token in the field, the chips gone: {:?}",
+        desktop.labels()
+    );
+    desktop.press_backspace();
     assert!(desktop.shows("Notes"), "every app again");
+    assert!(
+        desktop.shows(words::category(Category::Travel)),
+        "and the chips"
+    );
 }
 
 #[test]
@@ -159,8 +169,12 @@ fn sources_names_each_source_and_shows_its_apps_alone() {
         "its apps, under its name: {:?}",
         desktop.labels()
     );
-    desktop.tap(view, words::EVERY_SOURCE);
-    assert!(desktop.shows("Maps") && !desktop.shows("Example Apps"));
+    desktop.press_backspace();
+    assert!(
+        desktop.shows("Maps") && !desktop.shows("Example Apps"),
+        "the source's token taken back: {:?}",
+        desktop.labels()
+    );
 
     desktop.tap(view, words::SOURCES);
     desktop.tap(view, words::REMOVE_SOURCE);

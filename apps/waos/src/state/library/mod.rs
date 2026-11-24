@@ -463,6 +463,20 @@ impl Library {
         }
     }
 
+    /// Takes back what last narrowed the app store's apps, the category before the source, as
+    /// Backspace takes back the last token of its search; says whether anything narrowed them.
+    pub(crate) fn widen_app_store(&mut self, cx: &mut Context<Library>) -> bool {
+        if self.app_store_category.is_some() {
+            self.show_app_store_category(None, cx);
+            true
+        } else if self.app_store_source.is_some() {
+            self.show_app_store_source(None, cx);
+            true
+        } else {
+            false
+        }
+    }
+
     /// The app store is as it opens: on its first place, with nothing searched and no category
     /// chosen. Whoever puts the library away asks, so the store comes back as it opens.
     pub(crate) fn reset_app_store(&mut self, cx: &mut Context<Library>) {

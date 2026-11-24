@@ -397,6 +397,14 @@ impl LibraryDesktop {
         self.press(PhysicalKeyboardKey::ESCAPE, LogicalKeyboardKey::ESCAPE);
     }
 
+    /// Backspace, pressed and released.
+    pub(crate) fn press_backspace(&mut self) {
+        self.press(
+            PhysicalKeyboardKey::BACKSPACE,
+            LogicalKeyboardKey::BACKSPACE,
+        );
+    }
+
     /// Return, pressed and released.
     pub(crate) fn press_enter(&mut self) {
         self.press(PhysicalKeyboardKey::ENTER, LogicalKeyboardKey::ENTER);

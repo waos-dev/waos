@@ -1,7 +1,7 @@
 //! The app store in the desktop's panel, in Fluent's controls: Back and the page's title, a
 //! selector bar of its three places, and the place it is on. Discover: a field that searches the
-//! apps, the source shown alone where one is, a chip a category, the apps the sources put
-//! forward as cards, and every app as a row, its icon, name and line, and Get or Update as a
+//! apps, with a token before what is typed for the source shown alone and for the category
+//! chosen, a chip a category while none is chosen, the apps the sources put forward as cards, and every app as a row, its icon, name and line, and Get or Update as a
 //! button, or Installing… or Installed as a caption. Updates: the apps with a newer version, and
 //! Update all. Sources: the field that adds a source with Add and, where the system has a file
 //! picker, Install from file… beside it, then each source with how many apps it lists, or what
@@ -14,9 +14,10 @@ use std::rc::Rc;
 
 use waft::{
     App, BorderRadiusGeometry, BoxDecoration, BuildContext, Column, CrossAxisAlignment,
-    DecoratedBox, EdgeInsetsGeometry, Entity, Expanded, Handle, IntoWidget, ListView, Listenable,
-    Listener, MainAxisSize, Padding, Ref, Row, SizedBox, State, StateData, StatefulWidget, Text,
-    TextEditingController, TextEditingControllerLeaf, TextOverflow, WidgetRef,
+    DecoratedBox, EdgeInsetsGeometry, Entity, Expanded, Focus, FocusNode, FocusNodeLeaf,
+    FrameCallback, Handle, IntoWidget, KeyEventResult, ListView, Listenable, Listener,
+    MainAxisSize, Padding, Ref, Row, SchedulerBinding, SizedBox, State, StateData, StatefulWidget,
+    Subscription, Text, TextEditingController, TextEditingControllerLeaf, TextOverflow, WidgetRef,
 };
 use waft_winui::{
     Button, ButtonStyle, FluentSymbol, FontIcon, InfoBadge, SelectorBar, SelectorBarItem,
@@ -32,9 +33,14 @@ use crate::state::library::{Library, LibraryPage};
 use crate::ui::library::category_chips::category_chips;
 use crate::ui::library::home::fluent::MARGIN;
 use crate::ui::library::program_icon::ProgramIcon;
+use crate::ui::library::search_field::{search_token, takes_back_a_token, with_no_box};
 use crate::ui::library::words;
 
 const GAP: f64 = 8.0;
+
+/// The size of the search row's text and of its magnifier.
+const SEARCH_FONT_SIZE: f64 = 14.0;
+const SEARCH_ICON_SIZE: f64 = 16.0;
 
 /// The side of an app's icon in a row, and in a card of the apps put forward.
 const ICON_SIDE: f64 = 40.0;
@@ -66,6 +72,8 @@ impl StatefulWidget for FluentAppStore {
         FluentAppStoreState {
             state: StateData::new(),
             typed: None,
+            followed: None,
+            place: AppStorePlace::default(),
         }
     }
 }
@@ -73,6 +81,10 @@ impl StatefulWidget for FluentAppStore {
 pub(crate) struct FluentAppStoreState {
     state: StateData<FluentAppStore>,
     typed: Option<Typed>,
+    /// The library's changes, heard while the page shows.
+    followed: Option<Subscription>,
+    /// The place the page was on when the library last changed.
+    place: AppStorePlace,
 }
 
 /// What is being typed on the page.
@@ -80,6 +92,8 @@ pub(crate) struct FluentAppStoreState {
 struct Typed {
     /// What the apps are searched for.
     search: Ref<TextEditingController>,
+    /// What gives the search field the keyboard.
+    search_focus: Ref<FocusNode>,
     /// A source to add.
     source: Ref<TextEditingController>,
 }
@@ -92,24 +106,33 @@ impl State for FluentAppStoreState {
         let library = self.widget(app).library.clone();
         let search = TextEditingController::new(app);
         search.set_text(app, library.read(app).app_store_search().to_owned());
-        let typed_in = search.handle();
+        let (typed_in, searched) = (search.handle(), library.clone());
         search.add_listener(
             app,
             Listener::new(move |app| {
                 let typed = typed_in.text_value(app).to_owned();
-                library.update(app, |library, cx| library.search_app_store_for(&typed, cx));
+                searched.update(app, |library, cx| library.search_app_store_for(&typed, cx));
             }),
         );
         let typed = Typed {
             search,
+            search_focus: FocusNode::new(app),
             source: TextEditingController::new(app),
         };
-        app.get_mut(self).typed = Some(typed);
+        let followed = app.observe(&library, move |app| self.place_changed(app));
+        let place = library.read(app).app_store_place();
+        let state = app.get_mut(self);
+        state.typed = Some(typed);
+        state.followed = Some(followed);
+        state.place = place;
+        self.give_search_the_keyboard_on_discover(app);
     }
 
     fn dispose(self: Handle<Self>, app: &mut App) {
+        app.get_mut(self).followed = None;
         if let Some(typed) = app.get_mut(self).typed.take() {
             typed.search.dispose(app);
+            typed.search_focus.dispose(app);
             typed.source.dispose(app);
         }
     }
@@ -136,6 +159,38 @@ impl State for FluentAppStoreState {
                 Expanded::new(shown).into_widget(),
             ])
             .into_widget()
+    }
+}
+
+impl FluentAppStoreState {
+    /// The library changed: where the page is on another place than before, the search field
+    /// takes the keyboard if that place is Discover, as it does when the page opens on it.
+    fn place_changed(self: Handle<Self>, app: &mut App) {
+        if !self.mounted(app) {
+            return;
+        }
+        let place = self.widget(app).library.read(app).app_store_place();
+        if app.get(self).place != place {
+            app.get_mut(self).place = place;
+            self.give_search_the_keyboard_on_discover(app);
+        }
+    }
+
+    /// On Discover, the search field takes the keyboard once this frame is drawn, the place
+    /// built, so typing searches at once, as the home's does.
+    fn give_search_the_keyboard_on_discover(self: Handle<Self>, app: &mut App) {
+        if app.get(self).place != AppStorePlace::Discover {
+            return;
+        }
+        let callback = FrameCallback::new(move |app, _| {
+            if !self.mounted(app) {
+                return;
+            }
+            if let Some(typed) = &app.get(self).typed {
+                typed.search_focus.handle().request_focus(app, None);
+            }
+        });
+        SchedulerBinding::add_post_frame_callback(app, callback, None);
     }
 }
 
@@ -214,8 +269,8 @@ impl Page {
         .into_widget()
     }
 
-    /// The first place: the search field, the source shown alone where one is, the categories'
-    /// chips, then the apps put forward and every app.
+    /// The first place: the search field, the categories' chips while none is chosen, then the
+    /// apps put forward and every app.
     fn discover(&self, app: &App) -> WidgetRef {
         let library = self.library.read(app);
         let Discover {
@@ -223,22 +278,15 @@ impl Page {
             categories,
             apps,
         } = discover(library);
-        let mut over = vec![self.search_row()];
-        if let Some(only) = library.app_store_source() {
-            over.push(self.only_source(&source_row(only)));
-        }
-        if !categories.is_empty() {
+        let mut over = vec![self.search_row(app)];
+        // A category chosen is a token in the search field; the chips are what chooses one.
+        if !categories.is_empty() && library.app_store_category().is_none() {
             let chosen = self.library.clone();
-            over.push(category_chips(
-                &categories,
-                library.app_store_category(),
-                MARGIN,
-                move |app, category| {
-                    chosen.update(app, |library, cx| {
-                        library.show_app_store_category(category, cx);
-                    });
-                },
-            ));
+            over.push(category_chips(&categories, MARGIN, move |app, category| {
+                chosen.update(app, |library, cx| {
+                    library.show_app_store_category(Some(category), cx);
+                });
+            }));
         }
         let mut rows = Vec::new();
         if !featured.is_empty() {
@@ -306,33 +354,58 @@ impl Page {
             .into_widget()
     }
 
-    /// The field the apps are searched in, which takes the keyboard as it shows.
-    fn search_row(&self) -> WidgetRef {
-        // The field has the keyboard as Discover shows, so typing searches at once, as the
-        // home's does.
-        let field = TextBox::new(self.typed.search.erase())
-            .placeholder_text(words::SEARCH_STORE)
-            .autofocus(true);
+    /// The magnifier, a token for the source shown alone and one for the category chosen, and
+    /// the field the apps are searched in.
+    fn search_row(&self, app: &App) -> WidgetRef {
+        let library = self.library.read(app);
+        let magnifier = FontIcon::symbol(FluentSymbol::Search)
+            .font_size(SEARCH_ICON_SIZE)
+            .foreground(self.resources.text_fill_color_secondary);
+        let source = library.app_store_source().map(|only| source_row(only).name);
+        let category = library
+            .app_store_category()
+            .map(|category| words::category(category).to_owned());
+        let narrowed_to: Vec<String> = source.into_iter().chain(category).collect();
+        let tokens = narrowed_to
+            .iter()
+            .map(|name| search_token(name, SEARCH_FONT_SIZE, &self.resources));
+        // A token says what is searched already, as macOS's Apps has it: no placeholder after it.
+        let placeholder = if narrowed_to.is_empty() {
+            words::SEARCH_STORE
+        } else {
+            ""
+        };
+        let row = [magnifier.into_widget()]
+            .into_iter()
+            .chain(tokens)
+            .chain([Expanded::new(self.search_field(placeholder)).into_widget()]);
         Padding::new(EdgeInsetsGeometry::from_ltrb(MARGIN, 0.0, MARGIN, 12.0))
-            .child(field)
+            .child(Row::new().spacing(GAP).children(row))
             .into_widget()
     }
 
-    /// The source whose apps alone show, and what shows every source's again.
-    fn only_source(&self, only: &SourceRow) -> WidgetRef {
-        let library = self.library.clone();
-        let every = Listener::new(move |app| {
-            library.update(app, |library, cx| library.show_app_store_source(None, cx));
-        });
-        Padding::new(EdgeInsetsGeometry::from_ltrb(MARGIN, 0.0, MARGIN, 12.0))
-            .child(
-                Row::new().spacing(GAP).children([
-                    Expanded::new(self.text(&only.name, TextBlockStyle::BodyStrong)).into_widget(),
-                    Button::text(words::EVERY_SOURCE, every)
-                        .style(ButtonStyle::Subtle)
-                        .into_widget(),
-                ]),
-            )
+    /// The field the apps are searched in, with no box, saying `placeholder` while nothing is
+    /// typed, where Backspace with nothing typed takes back the last token.
+    fn search_field(&self, placeholder: &str) -> WidgetRef {
+        let field = TextBox::new(self.typed.search.erase())
+            .focus_node(self.typed.search_focus.erase())
+            .placeholder_text(placeholder)
+            .font_size(SEARCH_FONT_SIZE);
+        let (library, typed) = (self.library.clone(), self.typed.search.handle());
+        Focus::new(with_no_box(field))
+            .skip_traversal(true)
+            .can_request_focus(false)
+            .on_key_event(Rc::new(move |app, _, event| {
+                let typed = typed.text_value(app).to_owned();
+                if !takes_back_a_token(event, &typed) {
+                    return KeyEventResult::Ignored;
+                }
+                if library.update(app, |library, cx| library.widen_app_store(cx)) {
+                    KeyEventResult::Handled
+                } else {
+                    KeyEventResult::Ignored
+                }
+            }))
             .into_widget()
     }
 

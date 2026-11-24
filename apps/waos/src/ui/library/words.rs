@@ -334,7 +334,6 @@ pub(crate) const ALL_APPS: &str = "All apps";
 pub(crate) const SEARCH_STORE: &str = "Search apps to get";
 pub(crate) const UPDATE_ALL: &str = "Update all";
 pub(crate) const SHOW_APPS: &str = "Show apps";
-pub(crate) const EVERY_SOURCE: &str = "Show every source";
 pub(crate) const UP_TO_DATE: &str = "Every app is up to date.";
 pub(crate) const NO_APPS_LISTED: &str = "No apps to get yet. Add a source in Sources.";
 

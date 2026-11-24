@@ -426,17 +426,16 @@ impl StatelessWidget for FluentHomeBody {
             );
         }
         let library = self.library.read(app);
+        // A category chosen is a token in the search field, which says what shows; the chips
+        // are what chooses one.
         let categories = library.categories();
-        if !categories.is_empty() {
+        if !categories.is_empty() && library.category().is_none() {
             let chosen = self.library.clone();
-            children.push(category_chips(
-                &categories,
-                library.category(),
-                MARGIN,
-                move |app, category| {
-                    chosen.update(app, |library, cx| library.show_category(category, cx));
-                },
-            ));
+            children.push(category_chips(&categories, MARGIN, move |app, category| {
+                chosen.update(app, |library, cx| {
+                    library.show_category(Some(category), cx);
+                });
+            }));
         }
         let entries = home_entries(library);
         let content = if !entries.is_empty() {

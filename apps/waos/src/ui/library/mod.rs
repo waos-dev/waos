@@ -23,6 +23,7 @@ pub(crate) mod questions;
 pub(crate) mod recording;
 #[cfg(test)]
 mod recording_tests;
+pub(crate) mod search_field;
 mod settings;
 #[cfg(test)]
 mod settings_tests;
