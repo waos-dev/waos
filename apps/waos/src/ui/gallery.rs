@@ -336,6 +336,26 @@ fn walks_the_library(layout: &str, (mut desktop, view): (LibraryDesktop, ViewId)
         )),
     );
     scenes.draw(&mut desktop, "program-file-pickers");
+    // Its microphone simulated, so its card has under it what the microphone records.
+    desktop.update(|library, cx| {
+        let of = SettingsOf::Program(program.clone());
+        let simulated = SettingChange::Answer(Question::Microphone, Some(Answer::Simulated));
+        library.change_settings(&of, simulated, cx);
+    });
+    shows(
+        &mut desktop,
+        LibraryPage::Settings(SettingsPage::AppPermission(
+            program.clone(),
+            Permission::Microphone,
+        )),
+    );
+    scenes.draw(&mut desktop, "program-microphone");
+    // The folders every app is given: none yet, over the fields that add one.
+    shows(
+        &mut desktop,
+        LibraryPage::Settings(SettingsPage::Permission(Permission::Folders)),
+    );
+    scenes.draw(&mut desktop, "settings-folders");
 
     shows(&mut desktop, LibraryPage::Home);
     for (id, name) in MORE {

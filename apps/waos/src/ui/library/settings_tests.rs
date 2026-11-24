@@ -222,6 +222,31 @@ fn a_permissions_default_changes_on_its_page_in_the_launcher_and_is_kept() {
 }
 
 #[test]
+fn the_rows_under_a_card_fold_away_and_show_again_in_the_launcher() {
+    let (mut desktop, view) = in_launcher();
+    open_permission(&mut desktop, view, Permission::Network);
+    assert!(
+        desktop.shows(words::WHICH_DOMAINS),
+        "{:?}",
+        desktop.labels()
+    );
+    // The card's own name, under the page's title of the same words.
+    desktop.tap_last(view, words::NETWORK);
+    assert!(
+        !desktop.shows(words::WHICH_DOMAINS),
+        "{:?}",
+        desktop.labels()
+    );
+    assert!(global_network(&desktop).on, "folding sets nothing");
+    desktop.tap_last(view, words::NETWORK);
+    assert!(
+        desktop.shows(words::WHICH_DOMAINS),
+        "{:?}",
+        desktop.labels()
+    );
+}
+
+#[test]
 fn a_permissions_page_lists_the_apps_set_otherwise_each_leading_to_its_page() {
     let layouts: [fn() -> (LibraryDesktop, ViewId); 2] = [in_launcher, on_phone];
     for layout in layouts {

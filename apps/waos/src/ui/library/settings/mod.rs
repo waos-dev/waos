@@ -8,7 +8,6 @@ pub(crate) mod cupertino;
 pub(crate) mod cupertino_general;
 pub(crate) mod cupertino_root;
 pub(crate) mod fluent;
-pub(crate) mod fluent_cards;
 pub(crate) mod fluent_general;
 pub(crate) mod fluent_root;
 

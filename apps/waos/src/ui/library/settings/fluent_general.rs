@@ -1,12 +1,10 @@
 //! WaOS's own settings at a desktop's width, in Fluent's controls: Back to the settings' first
-//! page and the page's title, then a card for each setting this system offers, its name over
-//! what it does and its control at the trailing side: whether apps show inside WaOS, whether
+//! page and the page's title, then a settings card for each setting this system offers, its name
+//! over what it does and its control at the end: whether apps show inside WaOS, whether
 //! WaOS is kept in the Dock or the taskbar, and whether WaOS reaches the phone's files, with
 //! the button that opens the system's page for it.
 //!
 //! What it shows is the library's, read as it builds; it keeps nothing of its own.
-
-use std::rc::Rc;
 
 use waft::{
     App, BuildContext, Column, CrossAxisAlignment, EdgeInsetsGeometry, Entity, Expanded,
@@ -14,8 +12,7 @@ use waft::{
 };
 use waft_winui::{Button, ThemeResources};
 
-use super::fluent_cards::{card, card_row, card_switch};
-use super::fluent_root::title_bar;
+use super::fluent_root::{card_switch, setting_card, spaced, title_bar};
 use crate::state::library::Library;
 use crate::ui::library::home::fluent::MARGIN;
 use crate::ui::library::words;
@@ -28,9 +25,9 @@ pub(crate) struct FluentGeneralSettings {
 
 impl StatelessWidget for FluentGeneralSettings {
     fn build(&self, app: &mut App, context: BuildContext) -> WidgetRef {
+        let resources = ThemeResources::of(app, context);
         let shown = Shown {
             library: self.library.clone(),
-            resources: ThemeResources::of(app, context),
         };
         let cards: Vec<WidgetRef> = [
             shown.where_programs_open(app),
@@ -46,7 +43,7 @@ impl StatelessWidget for FluentGeneralSettings {
         Column::new()
             .cross_axis_alignment(CrossAxisAlignment::Stretch)
             .children([
-                title_bar(&self.library, &shown.resources, words::WAOS_SETTINGS),
+                title_bar(&self.library, &resources, words::WAOS_SETTINGS),
                 Expanded::new(list).into_widget(),
             ])
             .into_widget()
@@ -56,7 +53,6 @@ impl StatelessWidget for FluentGeneralSettings {
 /// What one build of the page reads and writes.
 struct Shown {
     library: Entity<Library>,
-    resources: Rc<ThemeResources>,
 }
 
 impl Shown {
@@ -64,7 +60,7 @@ impl Shown {
     fn where_programs_open(&self, app: &App) -> Option<WidgetRef> {
         let inside = self.library.read(app).programs_inside_waos()?;
         let library = self.library.clone();
-        let toggle = card_switch(&self.resources, inside, move |app, inside| {
+        let toggle = card_switch(inside, move |app, inside| {
             library.update(app, |library, cx| {
                 library.show_programs_inside_waos(inside, cx)
             });
@@ -82,7 +78,7 @@ impl Shown {
         let kept = self.library.read(app).kept_in_dock()?;
         let platform = app.platform().target_platform();
         let library = self.library.clone();
-        let toggle = card_switch(&self.resources, kept, move |app, kept| {
+        let toggle = card_switch(kept, move |app, kept| {
             library.update(app, |library, cx| library.keep_in_dock(kept, cx));
         });
         Some(self.setting(
@@ -111,7 +107,6 @@ impl Shown {
 
     /// A setting's card: its `name` over what it does, and its `control`.
     fn setting(&self, name: &str, detail: &str, control: WidgetRef) -> WidgetRef {
-        let row = card_row(&self.resources, None, name, Some(detail), Some(control));
-        card(&self.resources, vec![row])
+        spaced(setting_card(None, name, Some(detail), Some(control)))
     }
 }

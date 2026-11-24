@@ -1,21 +1,22 @@
 //! The settings' pages that lead to others, at a desktop's width, in Fluent's controls, as
-//! Windows's Settings leads to its pages: a card for each place, its mark, its name and what it
-//! holds, and a chevron. The first page leads to General, where this system has settings of
+//! Windows's Settings leads to its pages: a settings card to click for each place, its icon, its
+//! name and what it holds. The first page leads to General, where this system has settings of
 //! WaOS's own, to Permissions, and, under Apps, to each installed app; Permissions leads to
-//! each kind, saying what its default is.
+//! each kind, saying what its default is. And what every desktop settings page is laid out
+//! with: its title bar, its headings and notes, and the room between its cards.
 //!
 //! What they show is the library's, read as they build; they keep nothing of their own.
 
 use std::rc::Rc;
+use std::sync::Arc;
 
 use waft::{
-    App, Border, BorderRadiusGeometry, BorderSide, BorderStyle, BoxDecoration, BuildContext,
-    Center, Column, CrossAxisAlignment, DecoratedBox, EdgeInsetsGeometry, Entity, Expanded,
-    IntoWidget, ListView, Listener, Padding, Row, SizedBox, StatelessWidget, Text, TextOverflow,
-    WidgetRef,
+    App, BuildContext, Column, CrossAxisAlignment, EdgeInsetsGeometry, Entity, Expanded,
+    IntoWidget, ListView, Listener, Padding, Row, StatelessWidget, Text, WidgetRef,
 };
 use waft_winui::{
-    Button, ButtonStyle, CommonState, FluentSymbol, FontIcon, TextBlockStyle, ThemeResources,
+    Button, ButtonStyle, FluentSymbol, FontIcon, SETTINGS_CARD_HEADER_ICON_MAX_SIZE, SettingsCard,
+    TextBlockStyle, ThemeResources, ToggleSwitch, right_aligned_compact_toggle_switch_style,
 };
 
 use super::{listed_apps, permission_defaults, waos_has_settings};
@@ -25,14 +26,8 @@ use crate::ui::library::home::fluent::MARGIN;
 use crate::ui::library::program_icon::ProgramIcon;
 use crate::ui::library::words;
 
-/// The side of what marks a card: an app's icon, or the room a symbol stands in.
-pub(crate) const MARK_SIDE: f64 = 32.0;
-
-/// How round a card's corners are: WinUI's control corners.
-const CARD_CORNER_RADIUS: f64 = 4.0;
-
-/// The room between two cards.
-const CARD_GAP: f64 = 4.0;
+/// The room between two cards, as the Toolkit's settings pages stack them.
+const CARD_SPACING: f64 = 4.0;
 
 /// The settings' first page, in Fluent's controls.
 #[derive(Debug)]
@@ -48,8 +43,7 @@ impl StatelessWidget for FluentSettingsRoot {
         if waos_has_settings(library, app) {
             rows.push(link_card(
                 &self.library,
-                &resources,
-                Some(symbol(FluentSymbol::Settings, &resources)),
+                Some(FontIcon::symbol(FluentSymbol::Settings).into_widget()),
                 words::WAOS_SETTINGS,
                 Some(words::WAOS_SETTINGS_DETAIL),
                 SettingsPage::General,
@@ -57,8 +51,7 @@ impl StatelessWidget for FluentSettingsRoot {
         }
         rows.push(link_card(
             &self.library,
-            &resources,
-            Some(symbol(FluentSymbol::Shield, &resources)),
+            Some(FontIcon::symbol(FluentSymbol::Shield).into_widget()),
             words::PERMISSIONS,
             Some(words::PERMISSIONS_DETAIL),
             SettingsPage::Permissions,
@@ -68,14 +61,9 @@ impl StatelessWidget for FluentSettingsRoot {
             rows.push(heading(words::APPS, &resources));
         }
         for listed in apps {
-            let icon = ProgramIcon {
-                png: listed.icon,
-                side: MARK_SIDE,
-            };
             rows.push(link_card(
                 &self.library,
-                &resources,
-                Some(icon.into_widget()),
+                Some(app_icon(listed.icon)),
                 &listed.name,
                 None,
                 SettingsPage::App(listed.id),
@@ -99,8 +87,7 @@ impl StatelessWidget for FluentPermissions {
             .map(|(permission, default)| {
                 link_card(
                     &self.library,
-                    &resources,
-                    Some(symbol(permission_symbol(permission), &resources)),
+                    Some(FontIcon::symbol(permission_symbol(permission)).into_widget()),
                     words::permission_name(permission),
                     Some(&default),
                     SettingsPage::Permission(permission),
@@ -183,90 +170,69 @@ pub(crate) fn permission_symbol(permission: Permission) -> FluentSymbol {
     }
 }
 
-/// `symbol` as a card's mark, in the room an app's icon takes.
-pub(crate) fn symbol(symbol: FluentSymbol, resources: &ThemeResources) -> WidgetRef {
-    let glyph = FontIcon::symbol(symbol)
-        .font_size(20.0)
-        .foreground(resources.text_fill_color_primary);
-    SizedBox::new()
-        .width(MARK_SIDE)
-        .height(MARK_SIDE)
-        .child(Center::new().child(glyph))
+/// An app's icon, at the side a settings card shows its icon.
+pub(crate) fn app_icon(png: Option<Arc<[u8]>>) -> WidgetRef {
+    ProgramIcon {
+        png,
+        side: SETTINGS_CARD_HEADER_ICON_MAX_SIZE,
+    }
+    .into_widget()
+}
+
+/// What a page says where it sets nothing: caption-sized, in the secondary colour.
+pub(crate) fn note(resources: &ThemeResources, text: &str) -> WidgetRef {
+    Text::new(text)
+        .style(TextBlockStyle::Caption.text_style(resources, resources.text_fill_color_secondary))
         .into_widget()
 }
 
-/// A card that leads to `page`: its `mark` where it has one, `name` over what it holds where
-/// that is said, and a chevron; a press anywhere on it opens the page.
+/// `card` with the room under it that parts it from the next.
+pub(crate) fn spaced<K>(card: impl IntoWidget<K>) -> WidgetRef {
+    Padding::new(EdgeInsetsGeometry::only(0.0, 0.0, 0.0, CARD_SPACING))
+        .child(card.into_widget())
+        .into_widget()
+}
+
+/// A settings card: `icon` where it has one, `name` over `detail` where that is said, and
+/// `control` at its end where it has one.
+pub(crate) fn setting_card(
+    icon: Option<WidgetRef>,
+    name: &str,
+    detail: Option<&str>,
+    control: Option<WidgetRef>,
+) -> SettingsCard {
+    let mut card = SettingsCard::new().header(Text::new(name));
+    card.header_icon = icon;
+    card.description = detail.map(|detail| Text::new(detail).into_widget());
+    card.content = control;
+    card
+}
+
+/// A settings card to click that leads to `page`: its `icon` where it has one, `name` over what
+/// it holds where that is said, and the chevron a card to click ends with.
 pub(crate) fn link_card(
     library: &Entity<Library>,
-    resources: &ThemeResources,
-    mark: Option<WidgetRef>,
+    icon: Option<WidgetRef>,
     name: &str,
     detail: Option<&str>,
     page: SettingsPage,
 ) -> WidgetRef {
-    let mut lines = vec![
-        Text::new(name)
-            .max_lines(1)
-            .overflow(TextOverflow::Ellipsis)
-            .style(TextBlockStyle::Body.text_style(resources, resources.text_fill_color_primary))
-            .into_widget(),
-    ];
-    if let Some(detail) = detail {
-        lines.push(
-            Text::new(detail)
-                .style(
-                    TextBlockStyle::Caption
-                        .text_style(resources, resources.text_fill_color_secondary),
-                )
-                .into_widget(),
-        );
-    }
-    let chevron = FontIcon::symbol(FluentSymbol::ChevronRight)
-        .font_size(12.0)
-        .foreground(resources.text_fill_color_secondary);
-    let text = Column::new()
-        .cross_axis_alignment(CrossAxisAlignment::Stretch)
-        .children(lines);
-    let said = Row::new().spacing(16.0).children(
-        mark.into_iter()
-            .chain([Expanded::new(text).into_widget(), chevron.into_widget()]),
-    );
     let library = library.clone();
     let open = Listener::new(move |app| {
         let page = LibraryPage::Settings(page.clone());
         library.update(app, |library, cx| library.show_page(page, cx));
     });
-    // A button for what it does, drawn as the card Windows's Settings leads on with.
-    let card = Button::new(said, open).template(|app, context, states, said| {
-        let resources = ThemeResources::of(app, context);
-        let fill = match states.common {
-            CommonState::PointerOver | CommonState::Pressed => {
-                resources.control_fill_color_secondary
-            }
-            CommonState::Normal | CommonState::Disabled => {
-                resources.card_background_fill_color_default
-            }
-        };
-        let surface = BoxDecoration {
-            color: Some(fill.into()),
-            border: Some(
-                Border::all(
-                    resources.card_stroke_color_default,
-                    1.0,
-                    BorderStyle::Solid,
-                    BorderSide::STROKE_ALIGN_INSIDE,
-                )
-                .into(),
-            ),
-            border_radius: Some(BorderRadiusGeometry::circular(CARD_CORNER_RADIUS)),
-            ..BoxDecoration::default()
-        };
-        DecoratedBox::new(surface)
-            .child(Padding::new(EdgeInsetsGeometry::symmetric(12.0, 16.0)).child(said))
-            .into_widget()
-    });
-    Padding::new(EdgeInsetsGeometry::only(0.0, 0.0, 0.0, CARD_GAP))
-        .child(card)
+    spaced(
+        setting_card(icon, name, detail, None)
+            .is_click_enabled(true)
+            .click(open),
+    )
+}
+
+/// A switch that is `on` or off, in the style a settings card gives the switch at its end,
+/// telling `changed` when the user flips it.
+pub(crate) fn card_switch(on: bool, changed: impl Fn(&mut App, bool) + 'static) -> WidgetRef {
+    ToggleSwitch::new(on, changed)
+        .template(right_aligned_compact_toggle_switch_style)
         .into_widget()
 }
