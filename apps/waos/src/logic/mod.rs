@@ -108,6 +108,7 @@ pub(crate) mod notification_permissions;
 pub(crate) mod offers;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(crate) mod open_command;
+pub(crate) mod open_video_decoders;
 pub(crate) mod opened_package;
 pub(crate) mod opener_calls;
 pub(crate) mod opening;
