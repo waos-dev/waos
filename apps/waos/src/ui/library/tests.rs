@@ -383,16 +383,15 @@ fn the_get_page_says_installing_until_the_programs_code_is_ready() {
 }
 
 #[test]
-fn an_icon_whose_program_a_source_lists_newer_is_badged() {
+fn on_a_phone_an_update_is_offered_in_the_store_and_marks_no_icon_of_the_home() {
     let mut desktop = desktop();
     install_on_the_phone(&mut desktop, b"\0asm");
-    assert_eq!(desktop.count::<ProgramIcon>(|icon| icon.badge.is_some()), 0);
     let server = Server::start();
     source_listing_triangle(&mut desktop, &server, "2.0.0");
     assert_eq!(
         desktop.count::<ProgramIcon>(|icon| icon.badge.is_some()),
-        1,
-        "{:?}",
+        0,
+        "a badge on a phone's icon reads as what waits in the app: {:?}",
         desktop.labels()
     );
     desktop

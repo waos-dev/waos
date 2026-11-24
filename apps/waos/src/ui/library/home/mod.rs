@@ -1,6 +1,6 @@
 //! The library's home: the programs installed as a grid of icons, each its icon with its name on
-//! one line beneath, a dot under the name while it runs and a badge on the icon while a source
-//! lists a newer version; while its code is compiled, as at its install, the icon dimmed and
+//! one line beneath, a dot under the name while it runs and, on the desktop, a badge on the icon
+//! while a source lists a newer version; while its code is compiled, as at its install, the icon dimmed and
 //! Installing… in place of its name, as iOS shows an app it installs; a tap opens it. With nothing
 //! installed, one line and a button to get programs; while the user searches, as a phone's deck lets them from its bar, only the programs
 //! searched for, and one line where none is. Above the grid, while any program records, who uses the microphone or the camera.

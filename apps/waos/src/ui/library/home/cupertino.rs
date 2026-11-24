@@ -19,7 +19,7 @@ use waft_cupertino::{
 };
 
 use super::icon_grid::{GridLook, IconGrid, SectionLineKind};
-use super::{HomeEntry, IconTile, TileLook, badge_dot, home_entries, often_used_entries};
+use super::{HomeEntry, IconTile, TileLook, home_entries, often_used_entries};
 use crate::logic::setting_changes::SettingsOf;
 use crate::state::library::{Library, LibraryPage};
 use crate::state::recordings::Recordings;
@@ -41,10 +41,6 @@ const TOP_MARGIN: f64 = 20.0;
 const NAME_GAP: f64 = 6.0;
 const NAME_SIZE: f64 = 12.0;
 const ROW_GAP: f64 = 28.0;
-
-/// The side of the badge on an icon whose program a source lists newer: iOS's, scaled down from a
-/// count to a mark.
-const BADGE_SIDE: f64 = 16.0;
 
 /// The home, in Cupertino's widgets.
 #[derive(Debug)]
@@ -88,14 +84,13 @@ impl StatelessWidget for CupertinoHome {
             });
             let often_used = often_used_entries(self.library.read(app));
             let look = self.tile_look(app, context);
-            let badge_color = resolved(CupertinoColors::SYSTEM_RED, app, context);
             let line_color = resolved(CupertinoColors::SEPARATOR, app, context);
             let tiles_of = |entries: Vec<HomeEntry>| -> Vec<(ProgramId, WidgetRef)> {
                 entries
                     .into_iter()
                     .map(|entry| {
                         let id = entry.id.clone();
-                        (id, self.tile(entry, &look, badge_color, context))
+                        (id, self.tile(entry, &look, context))
                     })
                     .collect()
             };
@@ -162,20 +157,13 @@ impl CupertinoHome {
     }
 
     /// The program's icon and name, which opens it at a tap.
-    fn tile(
-        &self,
-        entry: HomeEntry,
-        look: &TileLook,
-        badge_color: waft::Color,
-        context: BuildContext,
-    ) -> WidgetRef {
-        let badge = entry
-            .update_offered
-            .then(|| (badge_dot(badge_color, BADGE_SIDE), BADGE_SIDE));
+    fn tile(&self, entry: HomeEntry, look: &TileLook, context: BuildContext) -> WidgetRef {
+        // No mark for an update: on a phone a badge on an icon is read as what waits to be
+        // seen in the app, and the store's Updates says what has a newer version.
         let icon = ProgramIcon {
             png: entry.icon.clone(),
             side: ICON_SIDE,
-            badge,
+            badge: None,
         };
         let tile = IconTile {
             icon: icon.into_widget(),
