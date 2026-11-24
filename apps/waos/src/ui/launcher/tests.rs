@@ -18,7 +18,7 @@ use std::sync::Arc;
 use waft::ui::{
     HostWindow as _, Offset, TargetPlatform, View as _, ViewId, WindowBackground, WindowLevel,
 };
-use waft::{CustomScrollView, Entity};
+use waft::{CustomScrollView, Entity, Opacity};
 use waft_services::{LogicalKeyboardKey, PhysicalKeyboardKey};
 use waft_test::TestWindow;
 use waft_winui::{FluentSymbol, FontIcon};
@@ -412,6 +412,40 @@ fn the_line_stays_at_the_top_once_scrolled_there_and_searching_hides_the_first_r
         1,
         "{shown:?}"
     );
+}
+
+/// As a search narrows the icons, one still shown slides to its new place, and is there once the
+/// motion ends; an icon the search brings back fades in.
+#[test]
+fn an_icon_slides_to_its_new_place_as_a_search_narrows_the_icons() {
+    let mut desktop = with_apps(OVER_A_ROW);
+    let view = launcher_view(&desktop);
+    let fading_in = |desktop: &LibraryDesktop| desktop.count::<Opacity>(|icon| icon.opacity < 1.0);
+    let before = desktop.find("Hotel").expect("in the second row");
+    assert_eq!(
+        fading_in(&desktop),
+        0,
+        "the icons the launcher opens with are there at once"
+    );
+
+    // Delta, Foxtrot, Hotel and Juliett have a "t": Hotel goes up to the first row.
+    desktop.type_text_in_motion(view, "t");
+    desktop.frames(2);
+    let sliding = desktop.find("Hotel").expect("on its way");
+    desktop.settle();
+    let after = desktop.find("Hotel").expect("in the first row");
+    assert!(after.dy() < before.dy(), "{before:?} then {after:?}");
+    assert!(
+        after.dy() < sliding.dy() && sliding.dy() < before.dy(),
+        "between them: {sliding:?}"
+    );
+
+    desktop.type_text_in_motion(view, "");
+    desktop.frames(2);
+    assert!(fading_in(&desktop) > 0, "the icons that come back");
+    desktop.settle();
+    assert_eq!(fading_in(&desktop), 0);
+    assert_eq!(desktop.find("Hotel"), Some(before), "back in its place");
 }
 
 /// Presses an arrow key.

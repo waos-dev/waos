@@ -404,6 +404,13 @@ impl LibraryDesktop {
     /// The keyboard makes what is edited in the window of `view` read `text`, the caret after it,
     /// as typing it does.
     pub(crate) fn type_text(&mut self, view: ViewId, text: &str) {
+        self.type_text_in_motion(view, text);
+        self.settle();
+    }
+
+    /// Types as [`type_text`](Self::type_text) does, leaving what the typing starts in motion,
+    /// for [`frames`](Self::frames) to show it move.
+    pub(crate) fn type_text_in_motion(&mut self, view: ViewId, text: &str) {
         let typed = TextEditingValue::new()
             .text(text)
             .selection(TextSelection::collapsed(
@@ -411,7 +418,6 @@ impl LibraryDesktop {
                 TextAffinity::Downstream,
             ));
         self.shell.text_input_editing_value(view, typed);
-        self.settle();
     }
 
     /// Taps the label `text` shows in the window of `view`, with the mouse.
