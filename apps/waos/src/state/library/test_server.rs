@@ -75,6 +75,12 @@ impl Server {
         files.insert("waos/index.json".to_owned(), index.to_json().into_bytes());
     }
 
+    /// Serves `bytes` as the file `name` beside the index, as a source's picture is.
+    pub(crate) fn serve_beside_index(&self, name: &str, bytes: &[u8]) {
+        let mut files = self.files.lock().unwrap();
+        files.insert(format!("waos/{name}"), bytes.to_vec());
+    }
+
     /// The URL of the file `path` on this server.
     pub(crate) fn url(&self, path: &str) -> String {
         format!("http://{}/{path}", self.address)

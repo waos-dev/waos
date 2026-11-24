@@ -474,6 +474,32 @@ fn the_app_store_shows_what_a_source_says_and_updates_every_app_at_once() {
     );
 }
 
+/// The icon a source lists for an app is read once the source is, for the app store to show
+/// before the app is downloaded.
+#[test]
+fn a_listed_apps_icon_is_read_after_its_source() {
+    let library = TestLibrary::new();
+    let server = Server::start();
+    server.serve_beside_index("triangle.png", b"an icon");
+    let package = library.package(TRIANGLE, "1.0.0", b"\0asm");
+    server.publish_saying(TRIANGLE, &package, "1.0.0", |index| {
+        index.programs[0].icon = Some("triangle.png".to_owned());
+    });
+    let index = server.url("waos/index.json");
+    library.update(|library, cx| library.add_source(&index, cx));
+    library.wait_until("the icon", |library| {
+        let source = &library.sources()[0].source;
+        library.picture(source, "triangle.png").is_some()
+    });
+    let icon = library.read(|library| {
+        let source = &library.sources()[0].source;
+        library
+            .picture(source, "triangle.png")
+            .map(|icon| icon.to_vec())
+    });
+    assert_eq!(icon.as_deref(), Some(b"an icon".as_slice()));
+}
+
 fn install_what_the_source_lists(library: &TestLibrary) {
     let (source, listed) = library.read(|library| {
         let read = &library.sources()[0];

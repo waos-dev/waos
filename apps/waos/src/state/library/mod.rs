@@ -61,7 +61,7 @@ use waft_single_instance::{LaterLaunches, Launch};
 use waos::OpenRequest;
 use waos::bindings::wasdk::platform::notifications::Activation;
 use waos_package::{Category, ListedProgram, ProgramId, ProgramKind};
-use waos_store::{InstalledProgram, Source, Store};
+use waos_store::{InstalledProgram, Source, Store, Url};
 
 use crate::logic::app_store::{
     AppStorePlace, CatalogApp, ListedSource, catalog, featured, updates,
@@ -140,6 +140,8 @@ pub(crate) struct Library {
     category: Option<Category>,
     /// The installed apps their user starts most lately, the most started first, as last read.
     often_used: Vec<ProgramId>,
+    /// The sources' pictures read so far, icons and screenshots, each by its address.
+    pictures: HashMap<Url, Arc<[u8]>>,
     /// The app store's place the library is on.
     app_store_place: AppStorePlace,
     /// What the user searches the app store's apps for, as typed; empty for nothing.
@@ -304,6 +306,7 @@ impl Library {
             search: String::new(),
             category: None,
             often_used: Vec::new(),
+            pictures: HashMap::new(),
             app_store_place: AppStorePlace::default(),
             app_store_search: String::new(),
             app_store_category: None,
@@ -1080,16 +1083,81 @@ impl Library {
         self.questions.push(question);
     }
 
-    /// A source was read, as `read` says, unless it was removed meanwhile.
+    /// A source was read, as `read` says, unless it was removed meanwhile: its apps' icons are
+    /// read after it, and once every source is read, the pictures none lists any more go.
     fn source_read(&mut self, read: SourceListing, cx: &mut Context<Library>) {
-        let kept = self
+        let Some(kept) = self
             .sources
             .iter_mut()
-            .find(|kept| kept.source == read.source);
-        if let Some(kept) = kept {
-            *kept = read;
-            cx.notify();
+            .find(|kept| kept.source == read.source)
+        else {
+            return;
+        };
+        *kept = read;
+        let source = kept.source.clone();
+        let icons: Vec<String> = match &kept.listing {
+            Listing::Read(apps) => apps
+                .iter()
+                .filter_map(|(app, _)| app.icon.clone())
+                .collect(),
+            Listing::Reading | Listing::Failed(_) => Vec::new(),
+        };
+        for icon in icons {
+            self.read_picture(&source, icon, cx);
         }
+        self.keep_the_pictures_listed();
+        cx.notify();
+    }
+
+    /// The picture `source` lists as `picture`, an icon or a screenshot, once it was read; none
+    /// before, and none for one that could not be.
+    pub(crate) fn picture(&self, source: &Source, picture: &str) -> Option<&Arc<[u8]>> {
+        self.pictures.get(&source.picture_url(picture).ok()?)
+    }
+
+    /// Reads the picture `source` lists as `picture`, unless it was read already; whoever shows
+    /// it is told once it is there.
+    pub(crate) fn read_picture(
+        &mut self,
+        source: &Source,
+        picture: String,
+        cx: &mut Context<Library>,
+    ) {
+        let Ok(url) = source.picture_url(&picture) else {
+            return;
+        };
+        if self.pictures.contains_key(&url) {
+            return;
+        }
+        let (store, from) = (self.store.clone(), source.clone());
+        self.work_then(
+            async move { store.picture(&from, &picture).await },
+            move |library, read, cx| match read {
+                Ok(bytes) => {
+                    library.pictures.insert(url, Arc::from(bytes));
+                    cx.notify();
+                }
+                Err(error) => tracing::info!(%error, "a source's picture is not shown"),
+            },
+            cx,
+        );
+    }
+
+    /// Once every source is read, has the store let go of the pictures none lists any more.
+    fn keep_the_pictures_listed(&self) {
+        let mut listed = Vec::new();
+        for read in &self.sources {
+            let apps = match &read.listing {
+                Listing::Read(apps) => apps,
+                Listing::Reading => return,
+                Listing::Failed(_) => continue,
+            };
+            let pictures = apps
+                .iter()
+                .flat_map(|(app, _)| app.icon.iter().chain(&app.screenshots));
+            listed.extend(pictures.filter_map(|picture| read.source.picture_url(picture).ok()));
+        }
+        self.store.keep_pictures(&listed);
     }
 
     /// The store changed what is installed: read it again, and what each listing offers.
