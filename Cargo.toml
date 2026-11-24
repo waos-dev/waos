@@ -368,8 +368,9 @@ opt-level = 3
 [profile.dev.package.pulley-interpreter]
 opt-level = 3
 
-# Waft's FolderHandle::url (waos-dev/waft#154), until Waft releases it: an Android pick's URL,
-# from which WaOS tells where on the phone's storage it is.
+# Waft from waos-dev/waft#154, until Waft releases it: FolderHandle::url, an Android pick's URL,
+# from which WaOS tells where on the phone's storage it is; and show bringing a window's Android
+# task forward, as a program asks to see a window again.
 [patch.crates-io]
 waft = { git = "https://github.com/waos-dev/waft", branch = "folder-handle-url" }
 waft-animation = { git = "https://github.com/waos-dev/waft", branch = "folder-handle-url" }
