@@ -13,6 +13,6 @@
   - *Today:* every answer is kept until the user changes it; there's no "allow once". ([TODO](/TODO.md))
 - **The app's settings answer a question that's waiting.** Turn the camera on in the app's settings while "Allow Camera?" shows, and the dialog goes, the app gets its answer. ([asking.rs](/crates/waos/src/asking.rs))
 - **The system may refuse what the user allowed.** Where the system keeps its own permission, as macOS does for each app's notifications, allowing it in WaOS asks the system too, and the permission reads denied while the system refuses. ([system_refusal.rs](/crates/waos/src/permissions/system_refusal.rs))
-- **Every guarded use is decided in one place and recorded.** What an app uses is counted day by day, kept seven days on this device, for the inspector and the app's settings page. ([access](/crates/waos/src/access/mod.rs))
+- **Every guarded use is decided in one place and recorded.** What an app uses, and how often it's started, is counted day by day, kept seven days on this device, for the inspector, the app's settings page and the home's often-used apps. ([access](/crates/waos/src/access/mod.rs))
 - **A role comes only from what the app's code imports,** such as the inspector's, and the user grants it by name at the app's start. Refused, the app doesn't start, and is told why. ([roles.rs](/crates/waos/src/roles.rs))
   - *Why:* what an app can call is what it imports, so the role can't claim more or less than the code uses, and there's no declaration to keep in step with the code.
