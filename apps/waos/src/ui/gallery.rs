@@ -166,6 +166,13 @@ const STORE_SCENES: [(AppStorePlace, &str); 3] = [
     (AppStorePlace::Sources, "store-sources"),
 ];
 
+/// The files the gallery's source serves as the screenshots of the first app it lists, and
+/// what it says of that app at length.
+const SCREENSHOTS: [&str; 2] = ["notes-1.png", "notes-2.png"];
+const DESCRIPTION: &str = "Write a note, and find it again: every note is a file in a folder you \
+    choose, so other apps read them too.\n\nNotes opens any text file, wherever it is, and keeps \
+    your place in each.";
+
 /// The file the gallery's source serves as its own icon.
 const SOURCE_ICON: &str = "example-apps.png";
 
@@ -203,7 +210,7 @@ fn walks_the_library(layout: &str, (mut desktop, view): (LibraryDesktop, ViewId)
             None => installs(&mut desktop, id, name, b"\0asm"),
         }
     }
-    scenes.draw(&mut desktop, "programs");
+    let home_drawn = scenes.draw(&mut desktop, "programs");
 
     let server = Server::start();
     let listed = desktop.package(LISTED, "Triangle", "1.0.0", b"\0asm");
@@ -214,6 +221,10 @@ fn walks_the_library(layout: &str, (mut desktop, view): (LibraryDesktop, ViewId)
         }
     }
     server.serve_beside_index(SOURCE_ICON, include_bytes!("../../assets/icon.png"));
+    // An app's screenshots are pictures of something on screen: the home, as drawn above.
+    for screenshot in SCREENSHOTS {
+        server.serve_beside_index(screenshot, &home_drawn);
+    }
     adds_source(&mut desktop, &server.source());
     shows(&mut desktop, LibraryPage::AppStore);
     reads_the_icons_listed(&mut desktop);
@@ -233,6 +244,18 @@ fn walks_the_library(layout: &str, (mut desktop, view): (LibraryDesktop, ViewId)
     });
     scenes.draw(&mut desktop, "store-one-source-one-category");
     desktop.update(|library, cx| library.reset_app_store(cx));
+
+    let shown = SOURCE_LISTS[0].0.parse().expect("an app's id");
+    shows(&mut desktop, LibraryPage::App(shown));
+    desktop.settle_until("the app's screenshots", |desktop| {
+        desktop.read(|library| {
+            let source = &library.sources()[0].source;
+            SCREENSHOTS
+                .iter()
+                .all(|screenshot| library.picture(source, screenshot).is_some())
+        })
+    });
+    scenes.draw(&mut desktop, "store-app");
 
     shows(&mut desktop, LibraryPage::Settings(SettingsOf::Global));
     scenes.draw(&mut desktop, "settings");
@@ -285,6 +308,10 @@ fn says_what_a_store_shows(index: &mut Index) {
         listed.icon = icon.map(str::to_owned);
         index.programs.push(listed);
     }
+    let described = &mut index.programs[1];
+    described.description = Some(DESCRIPTION.to_owned());
+    described.released = Some("2026-11-23".parse().expect("a date"));
+    described.screenshots = SCREENSHOTS.map(str::to_owned).to_vec();
 }
 
 /// The file the gallery's source serves the icon of the built-in app filed under `category` as.
@@ -331,8 +358,8 @@ impl<'a> Scenes<'a> {
     }
 
     /// Reads back what the view shows once the desktop settles, written as `what` where
-    /// `WAOS_GALLERY_DIR` says.
-    fn draw(&mut self, desktop: &mut LibraryDesktop, what: &str) {
+    /// `WAOS_GALLERY_DIR` says; the picture drawn, as a PNG.
+    fn draw(&mut self, desktop: &mut LibraryDesktop, what: &str) -> Vec<u8> {
         desktop.settle();
         self.drawn += 1;
         let shown = self.view;
@@ -344,11 +371,12 @@ impl<'a> Scenes<'a> {
         let image = capture_image(&mut app, view).expect("the test platform draws images");
         let pixels = block_on(app.platform().read_image_pixels(&image))
             .unwrap_or_else(|error| panic!("{what} reads back: {error}"));
+        let png = encode_png(&pixels);
         if let Some(folder) = std::env::var_os("WAOS_GALLERY_DIR") {
             std::fs::create_dir_all(&folder).expect("the gallery's folder is made");
             let name = format!("{}-{:02}-{what}.png", self.layout, self.drawn);
-            std::fs::write(Path::new(&folder).join(name), encode_png(&pixels))
-                .expect("the scene is written");
+            std::fs::write(Path::new(&folder).join(name), &png).expect("the scene is written");
         }
+        png
     }
 }

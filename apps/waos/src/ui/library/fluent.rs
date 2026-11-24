@@ -18,6 +18,7 @@ use waft_widgets::{PageRouteBuilder, RouteSettingsRef};
 use waft_winui::{AccentPalette, FluentRoutePage, ThemeResources};
 
 use super::app_store::fluent::FluentAppStore;
+use super::app_store::fluent_app_page::FluentAppPage;
 use super::home::fluent::FluentHome;
 use super::program_name;
 use super::questions::fluent::FluentAsked;
@@ -129,6 +130,7 @@ impl LibraryPages {
                 .into_widget()
             }),
             LibraryPage::AppStore => FluentAppStore { library }.into_widget(),
+            LibraryPage::App(id) => FluentAppPage { library, id }.into_widget(),
             LibraryPage::Settings(of) => FluentSettings {
                 program_name: program_name(&library, &of, app),
                 library,

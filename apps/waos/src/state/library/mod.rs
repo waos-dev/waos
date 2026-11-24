@@ -515,6 +515,24 @@ impl Library {
         updates(&catalog(&self.every_listed_source()))
     }
 
+    /// The app `id` as its page in the app store shows it, whichever source the store shows
+    /// alone: none where no source read lists it.
+    pub(crate) fn listed_app(&self, id: &ProgramId) -> Option<CatalogApp> {
+        catalog(&self.every_listed_source())
+            .into_iter()
+            .find(|app| app.listed.id == *id)
+    }
+
+    /// Reads the screenshots the app `id`'s source lists, for its page to show.
+    fn read_screenshots_of(&mut self, id: &ProgramId, cx: &mut Context<Library>) {
+        let Some(app) = self.listed_app(id) else {
+            return;
+        };
+        for screenshot in app.listed.screenshots {
+            self.read_picture(&app.source, screenshot, cx);
+        }
+    }
+
     /// The sources read so far that the store shows, as the catalog is made of them.
     fn listed_sources(&self) -> Vec<ListedSource<'_>> {
         let shown = self.app_store_source.as_ref();

@@ -136,7 +136,12 @@ impl LibraryPages {
                 recordings: self.recordings.clone(),
             }
             .into_widget(),
-            LibraryPage::AppStore => CupertinoAppStore { library }.into_widget(),
+            // The phone's store has no page for an app yet, and nothing on it opens one: a
+            // desktop's window narrowed while on an app's page shows the store that page is
+            // over.
+            LibraryPage::AppStore | LibraryPage::App(_) => {
+                CupertinoAppStore { library }.into_widget()
+            }
             LibraryPage::Settings(of) => CupertinoSettings {
                 program_name: program_name(&library, &of, app),
                 library,

@@ -335,6 +335,13 @@ pub(crate) const SEARCH_STORE: &str = "Search apps to get";
 pub(crate) const UPDATE_ALL: &str = "Update all";
 pub(crate) const SHOW_APPS: &str = "Show apps";
 pub(crate) const SOURCE_ADDRESS: &str = "Address";
+/// On an installed app's page in the app store, which opens it.
+pub(crate) const OPEN: &str = "Open";
+pub(crate) const NO_LONGER_LISTED: &str = "No source lists this app any more.";
+pub(crate) const VERSION: &str = "Version";
+pub(crate) const RELEASED: &str = "Released";
+pub(crate) const CATEGORY: &str = "Category";
+pub(crate) const SOURCE: &str = "Source";
 pub(crate) const UP_TO_DATE: &str = "Every app is up to date.";
 pub(crate) const NO_APPS_LISTED: &str = "No apps to get yet. Add a source in Sources.";
 

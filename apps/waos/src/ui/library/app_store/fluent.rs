@@ -79,7 +79,7 @@ impl StatefulWidget for FluentAppStore {
             state: StateData::new(),
             typed: None,
             followed: None,
-            place: AppStorePlace::default(),
+            discover_in_sight: false,
             opened_source: None,
         }
     }
@@ -90,8 +90,9 @@ pub(crate) struct FluentAppStoreState {
     typed: Option<Typed>,
     /// The library's changes, heard while the page shows.
     followed: Option<Subscription>,
-    /// The place the page was on when the library last changed.
-    place: AppStorePlace,
+    /// Whether Discover was in sight when the library last changed: the store the page shown,
+    /// on that place.
+    discover_in_sight: bool,
     /// The source whose row is opened on its address, on Sources; none while every row is shut.
     opened_source: Option<Source>,
 }
@@ -128,13 +129,11 @@ impl State for FluentAppStoreState {
             search_focus: FocusNode::new(app),
             source: TextEditingController::new(app),
         };
-        let followed = app.observe(&library, move |app| self.place_changed(app));
-        let place = library.read(app).app_store_place();
+        let followed = app.observe(&library, move |app| self.library_changed(app));
         let state = app.get_mut(self);
         state.typed = Some(typed);
         state.followed = Some(followed);
-        state.place = place;
-        self.give_search_the_keyboard_on_discover(app);
+        self.library_changed(app);
     }
 
     fn dispose(self: Handle<Self>, app: &mut App) {
@@ -174,25 +173,24 @@ impl State for FluentAppStoreState {
 }
 
 impl FluentAppStoreState {
-    /// The library changed: where the page is on another place than before, the search field
-    /// takes the keyboard if that place is Discover, as it does when the page opens on it.
-    fn place_changed(self: Handle<Self>, app: &mut App) {
+    /// The library changed: where Discover came into sight, the store shown again or its
+    /// place chosen, the search field takes the keyboard, so typing searches at once, as the
+    /// home's does.
+    fn library_changed(self: Handle<Self>, app: &mut App) {
         if !self.mounted(app) {
             return;
         }
-        let place = self.widget(app).library.read(app).app_store_place();
-        if app.get(self).place != place {
-            app.get_mut(self).place = place;
-            self.give_search_the_keyboard_on_discover(app);
+        let library = self.widget(app).library.read(app);
+        let in_sight = *library.page() == LibraryPage::AppStore
+            && library.app_store_place() == AppStorePlace::Discover;
+        let was_in_sight = std::mem::replace(&mut app.get_mut(self).discover_in_sight, in_sight);
+        if in_sight && !was_in_sight {
+            self.give_search_the_keyboard_after_this_frame(app);
         }
     }
 
-    /// On Discover, the search field takes the keyboard once this frame is drawn, the place
-    /// built, so typing searches at once, as the home's does.
-    fn give_search_the_keyboard_on_discover(self: Handle<Self>, app: &mut App) {
-        if app.get(self).place != AppStorePlace::Discover {
-            return;
-        }
+    /// The search field takes the keyboard once this frame is drawn, the place built.
+    fn give_search_the_keyboard_after_this_frame(self: Handle<Self>, app: &mut App) {
         let callback = FrameCallback::new(move |app, _| {
             if !self.mounted(app) {
                 return;
@@ -475,7 +473,8 @@ impl Page {
             .into_widget()
     }
 
-    /// `app`'s icon, `side` across, its name over its line, and its action.
+    /// `app`'s icon, `side` across, and its name over its line, a press on which opens the
+    /// app's page; and its action.
     fn app_line(&self, app: StoreApp, side: f64) -> WidgetRef {
         let icon = ProgramIcon {
             png: app.icon.clone(),
@@ -488,13 +487,22 @@ impl Page {
                 self.text(&app.app.listed.name, TextBlockStyle::Body),
                 self.caption(&app.line),
             ]);
+        let (library, id) = (self.library.clone(), app.app.listed.id.clone());
+        let open_page = Listener::new(move |ui| {
+            let page = LibraryPage::App(id.clone());
+            library.update(ui, |library, cx| library.show_page(page, cx));
+        });
+        // A button for what it does, pressed or reached by the keyboard, drawn as the row it is.
+        let named = Button::new(
+            Row::new()
+                .spacing(12.0)
+                .children([icon.into_widget(), Expanded::new(text).into_widget()]),
+            open_page,
+        )
+        .template(|_, _, _, row| row);
         Row::new()
             .spacing(12.0)
-            .children([
-                icon.into_widget(),
-                Expanded::new(text).into_widget(),
-                self.action(&app),
-            ])
+            .children([Expanded::new(named).into_widget(), self.action(&app)])
             .into_widget()
     }
 

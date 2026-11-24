@@ -1,7 +1,8 @@
 //! The app store, a page of its own behind the home's plus, with a way back. What the layouts
 //! share is here, read from the library: Discover's apps, those the sources put forward and
 //! those a search or a category narrows them to ([`discover`]); the apps with a newer version
-//! ([`updates`]); each source as its row shows it ([`source_rows`]); and what installs a package from a file the user picks, where the system
+//! ([`updates`]); an app's own page ([`app_page`]); each source as its row shows it
+//! ([`source_rows`]); and what installs a package from a file the user picks, where the system
 //! has a file picker ([`PackagePicker`]). The controls are each layout's. The phone's page still
 //! shows each source with the programs it lists ([`listed_rows`]).
 //!
@@ -11,12 +12,13 @@
 
 pub(crate) mod cupertino;
 pub(crate) mod fluent;
+pub(crate) mod fluent_app_page;
 
 use std::sync::Arc;
 
 use waft::ui::ViewId;
 use waft::{App, BuildContext, Entity, View};
-use waos_package::{Category, ListedProgram};
+use waos_package::{Category, ListedProgram, ProgramId};
 use waos_store::Source;
 
 use super::words;
@@ -196,6 +198,75 @@ fn store_app(app: &CatalogApp, library: &Library) -> StoreApp {
         line,
         action,
     }
+}
+
+/// An app's page in the store, as each layout shows it: what its source says of it.
+#[derive(Clone, Debug)]
+pub(crate) struct AppPage {
+    /// The app as a row shows it: its icon, and what can be done with it.
+    pub(crate) app: StoreApp,
+    /// What it is, in a line.
+    pub(crate) summary: Option<String>,
+    pub(crate) publisher: Option<String>,
+    /// Its screenshots in the order its source lists them, each once it is read.
+    pub(crate) screenshots: Vec<Option<Arc<[u8]>>>,
+    /// What it is, at length, a paragraph each.
+    pub(crate) description: Vec<String>,
+    /// What else is known of it, each under its label: its version, when that was released,
+    /// its category and the source it is from.
+    pub(crate) details: Vec<(&'static str, String)>,
+}
+
+/// The page of the app `id` in `library`'s app store; none where no source read lists it.
+pub(crate) fn app_page(library: &Library, id: &ProgramId) -> Option<AppPage> {
+    let app = library.listed_app(id)?;
+    let listed = &app.listed;
+    let screenshots = listed
+        .screenshots
+        .iter()
+        .map(|screenshot| library.picture(&app.source, screenshot).cloned())
+        .collect();
+    let description = listed
+        .description
+        .iter()
+        .flat_map(|description| description.split("\n\n"))
+        .map(|paragraph| paragraph.trim().to_owned())
+        .filter(|paragraph| !paragraph.is_empty())
+        .collect();
+    let version = match &app.offer {
+        Offer::Update { installed } => words::update_detail(&listed.version.to_string(), installed),
+        Offer::Install | Offer::Installed => listed.version.to_string(),
+    };
+    let released = listed
+        .released
+        .map(|released| released.strftime("%-d %B %Y").to_string());
+    let source = library
+        .sources()
+        .iter()
+        .find(|read| read.source == app.source)
+        .map(source_name);
+    let details = [
+        (words::VERSION, Some(version)),
+        (words::RELEASED, released),
+        (
+            words::CATEGORY,
+            listed
+                .category
+                .map(|category| words::category(category).to_owned()),
+        ),
+        (words::SOURCE, source),
+    ];
+    Some(AppPage {
+        summary: listed.summary.clone(),
+        publisher: listed.publisher.clone(),
+        screenshots,
+        description,
+        details: details
+            .into_iter()
+            .filter_map(|(label, value)| Some((label, value?)))
+            .collect(),
+        app: store_app(&app, library),
+    })
 }
 
 /// A source as the store's third place shows it: its logo, what it calls itself and how many

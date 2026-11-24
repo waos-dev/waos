@@ -35,17 +35,20 @@ pub(crate) enum LibraryPage {
     Home,
     /// The app store: every app the sources list, the updates, and the sources.
     AppStore,
+    /// An app's page in the app store: what its source says of it, before it is got.
+    App(ProgramId),
     /// The global settings, or a program's.
     Settings(SettingsOf),
 }
 
 impl LibraryPage {
-    /// The page this one was opened over, which going back shows: every page is over the home;
-    /// none beneath the home.
+    /// The page this one was opened over, which going back shows: an app's page is over the
+    /// app store, every other page over the home; none beneath the home.
     pub(crate) fn beneath(&self) -> Option<LibraryPage> {
         match self {
             LibraryPage::Home => None,
             LibraryPage::AppStore | LibraryPage::Settings(_) => Some(LibraryPage::Home),
+            LibraryPage::App(_) => Some(LibraryPage::AppStore),
         }
     }
 
@@ -88,12 +91,16 @@ impl Library {
     }
 
     /// The library goes to `page`; a program waiting for the user to leave the page it was on
-    /// hears so.
+    /// hears so, and an app's page has its screenshots read.
     pub(crate) fn show_page(&mut self, page: LibraryPage, cx: &mut Context<Library>) {
         if page != self.page {
             self.left_settings();
-            if let LibraryPage::Settings(SettingsOf::Program(_)) = &page {
-                self.offered = self.runs.environments.offered();
+            match &page {
+                LibraryPage::Settings(SettingsOf::Program(_)) => {
+                    self.offered = self.runs.environments.offered();
+                }
+                LibraryPage::App(id) => self.read_screenshots_of(&id.clone(), cx),
+                LibraryPage::Home | LibraryPage::AppStore | LibraryPage::Settings(_) => {}
             }
             self.page = page;
             cx.notify();

@@ -19,7 +19,7 @@ What stands between today and a first stable release, in the order it blocks one
 - [ ] Rework how the user controls an app's network: today's switches, `localhost` and per-connection checks are naive.
 - [ ] A per-app setting for running in the background (music, a download), replacing today's rule that sound, recording or a camera keeps an app running, which an app playing silence abuses.
 - [ ] Accessibility: an app's semantics tree. Changes the views interface.
-- [ ] The phone's app store has Discover, Updates and Sources as the desktop's does; today it lists each source with its apps.
+- [ ] The phone's app store has Discover, Updates, Sources and a page for each app as the desktop's does; today it lists each source with its apps.
 
 ## Platforms
 - [ ] Android: a developer build that installs packages end to end; each app a task of its own.
