@@ -199,6 +199,13 @@ impl EventEmitter<ProgramOpened> for Library {}
 /// How many threads the library's runtime reads, downloads and loads on.
 const WORK_THREADS: usize = 2;
 
+/// `installed` from A to Z by the names their user sees, whatever their case, as a launcher lists
+/// its apps; two of one name by their ids, so the order never depends on how the store read them.
+fn by_name(mut installed: Vec<InstalledProgram>) -> Vec<InstalledProgram> {
+    installed.sort_by_cached_key(|app| (app.name().to_lowercase(), app.manifest.id().clone()));
+    installed
+}
+
 /// The source WaOS comes with, which its user removes as any other: the official source, the
 /// catalog of apps their own repositories release (`docs/proposals/2026-11-22-official-source.md`).
 const OFFICIAL_SOURCE: &str = "https://list.waos.app/index.json";
@@ -259,7 +266,7 @@ impl Library {
         cx: &mut Context<Library>,
     ) -> Library {
         let installed_at = *store.installed_changes().borrow();
-        let installed = store.installed();
+        let installed = by_name(store.installed());
         let mut library = Library {
             icons: icons_of(&store, &installed),
             installed,
@@ -335,7 +342,7 @@ impl Library {
         self.tabs = Some(tabs);
     }
 
-    /// The programs installed, by id.
+    /// The apps installed, from A to Z by the names their user sees.
     pub(crate) fn installed(&self) -> &[InstalledProgram] {
         &self.installed
     }
@@ -914,7 +921,7 @@ impl Library {
     /// The store changed what is installed: read it again, and what each listing offers.
     fn installed_changed(&mut self, cx: &mut Context<Library>) {
         self.installed_at = *self.store.installed_changes().borrow();
-        self.installed = self.store.installed();
+        self.installed = by_name(self.store.installed());
         self.icons = icons_of(&self.store, &self.installed);
         cx.emit(InstalledChanged);
         self.match_shortcuts(cx);

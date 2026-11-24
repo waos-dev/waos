@@ -12,15 +12,16 @@
 use std::rc::Rc;
 
 use waft::{
-    App, BuildContext, Builder, Column, CrossAxisAlignment, EdgeInsetsGeometry, Entity, Expanded,
-    Focus, FocusNode, FocusNodeLeaf, FrameCallback, Handle, IntoWidget, KeyEventResult, Listenable,
-    Listener, OptionRetained, Padding, Ref, Row, SchedulerBinding, State, StateData,
-    StatefulWidget, Subscription, TextEditingController, TextEditingControllerLeaf, WidgetRef,
+    App, BuildContext, Builder, Color, ColoredBox, Column, CrossAxisAlignment, EdgeInsetsGeometry,
+    Entity, Expanded, Focus, FocusNode, FocusNodeLeaf, FrameCallback, Handle, IntoWidget,
+    KeyEventResult, Listenable, Listener, OptionRetained, Padding, Ref, Row, SchedulerBinding,
+    SizedBox, State, StateData, StatefulWidget, Subscription, TextEditingController,
+    TextEditingControllerLeaf, WidgetRef,
 };
 use waft_services::{KeyEvent, LogicalKeyboardKey};
 use waft_winui::{
     Button, ButtonStyle, FluentSymbol, FlyoutTarget, FontIcon, MenuFlyout, MenuFlyoutItem, TextBox,
-    ThemeResources,
+    ThemeResources, ThemeScope,
 };
 
 use crate::logic::setting_changes::SettingsOf;
@@ -34,6 +35,25 @@ use crate::ui::library::words;
 /// The size of the search row's text and icons.
 const SEARCH_FONT_SIZE: f64 = 18.0;
 const ICON_SIZE: f64 = 18.0;
+/// The room between the line under the search row and the grid.
+const GRID_GAP: f64 = 12.0;
+
+/// `text_box` with no box around it and no accent line under it, focused or not: a launcher's
+/// field is the launcher's own surface to type on, as Spotlight's and PowerToys Run's are. Done as
+/// WinUI restyles one control, by overriding the resources its states read.
+fn with_no_box(text_box: TextBox) -> ThemeScope {
+    const NONE: Color = Color::from_argb(0, 0, 0, 0);
+    ThemeScope::overriding(text_box).any(|resources| {
+        resources.text_control_background = NONE;
+        resources.text_control_background_pointer_over = NONE;
+        resources.text_control_background_focused = NONE;
+        resources.text_control_border_brush = [(0.0, NONE), (1.0, NONE)];
+        resources.text_control_border_brush_pointer_over = [(0.0, NONE), (1.0, NONE)];
+        resources.text_control_border_brush_focused = [(0.0, NONE), (1.0, NONE)];
+        resources.text_control_border_theme_thickness_focused =
+            resources.text_control_border_theme_thickness;
+    })
+}
 
 /// The launcher's home, shown while the library is on its grid.
 #[derive(Debug)]
@@ -120,10 +140,14 @@ impl State for LauncherHomeState {
             library: widget.library.clone(),
             recordings: widget.recordings.clone(),
         };
+        let divider = ColoredBox::new(resources.divider_stroke_color_default)
+            .child(SizedBox::new().height(1.0));
         Column::new()
             .cross_axis_alignment(CrossAxisAlignment::Stretch)
             .children([
                 self.search_row(app, &resources),
+                divider.into_widget(),
+                SizedBox::new().height(GRID_GAP).into_widget(),
                 Expanded::new(body).into_widget(),
             ])
             .into_widget()
@@ -155,7 +179,7 @@ impl LauncherHomeState {
             .focus_node(field.focus.erase())
             .placeholder_text(words::SEARCH_PROGRAMS)
             .font_size(SEARCH_FONT_SIZE);
-        let opening_the_first = Focus::new(text_box)
+        let opening_the_first = Focus::new(with_no_box(text_box))
             .skip_traversal(true)
             .can_request_focus(false)
             .on_key_event(Rc::new(move |app, _, event| self.enter_opens(app, event)));

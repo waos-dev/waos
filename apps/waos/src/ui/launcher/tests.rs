@@ -268,6 +268,22 @@ fn a_running_program_has_its_dot_and_one_a_source_lists_newer_its_badge() {
     futures::executor::block_on(desktop.runs.stop_all());
 }
 
+/// The grid lists the apps from A to Z by the names their user reads, whatever their case, not
+/// by their ids.
+#[test]
+fn the_grid_lists_the_apps_from_a_to_z_by_name() {
+    let (mut desktop, _launcher) = desktop();
+    install(&mut desktop, "dev.example.a", "Zebra", "1.0.0", b"\0asm");
+    install(&mut desktop, "dev.example.b", "apple", "1.0.0", b"\0asm");
+    install(&mut desktop, "dev.example.c", "Mango", "1.0.0", b"\0asm");
+    let across = |name: &str| desktop.find(name).expect("in the grid").dx();
+    assert!(
+        across("apple") < across("Mango") && across("Mango") < across("Zebra"),
+        "{:?}",
+        desktop.labels()
+    );
+}
+
 #[test]
 fn more_reaches_getting_programs_and_the_settings_each_with_back_to_the_grid() {
     let (mut desktop, _launcher) = desktop();
