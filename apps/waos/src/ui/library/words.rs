@@ -6,6 +6,7 @@ use waos_package::Category;
 
 use crate::logic::permissions::Permission;
 use crate::logic::setting_changes::{SettingsOf, ShownSettings};
+use crate::state::library::AppDetail;
 use crate::state::library::Question;
 
 /// The home's title.
@@ -137,6 +138,9 @@ pub(crate) fn unreadable(why: &str) -> String {
 }
 
 pub(crate) const SETTINGS: &str = "Settings";
+pub(crate) const NONE: &str = "None";
+/// On an app's page, over what is the app's alone.
+pub(crate) const MORE: &str = "More";
 /// On the settings' first page: WaOS's own settings, the permissions apps follow by default,
 /// and the apps. WaOS's own are General, as iOS names its own: on a phone the way back to the
 /// home is named WaOS already.
@@ -325,9 +329,23 @@ pub(crate) const WHICH_OUTPUT: &str = "Which sound output";
 pub(crate) const ANSWER_WITH: &str = "Answer with";
 pub(crate) const ASK_INSTEAD: &str = "Ask instead";
 
-/// A program's settings page's title, `name` being the program's.
-pub(crate) fn settings_of(name: &str) -> String {
-    format!("{name}'s settings")
+/// What is one app's alone, as its page lists it and as the page of it is titled.
+pub(crate) fn app_detail_name(detail: AppDetail) -> &'static str {
+    match detail {
+        AppDetail::Machines => MACHINES,
+        AppDetail::Answers => ANSWERED_WITHOUT_ASKING,
+        AppDetail::Links => LINKS,
+        AppDetail::Roles => ROLES,
+    }
+}
+
+/// How many of a thing an app's page says it has, in a few words: None, or the count.
+pub(crate) fn how_many(count: usize, one: &str, many: &str) -> String {
+    match count {
+        0 => NONE.to_owned(),
+        1 => format!("1 {one}"),
+        n => format!("{n} {many}"),
+    }
 }
 
 /// What a program's question to its user is about, as its setting names it.

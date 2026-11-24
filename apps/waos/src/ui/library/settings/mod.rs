@@ -18,8 +18,9 @@ use waos_package::ProgramId;
 
 use crate::logic::permissions::Permission;
 use crate::logic::setting_changes::{SettingChange, SettingsOf, ShownSettings};
-use crate::state::library::Library;
+use crate::state::library::{AppDetail, Library};
 use crate::ui::library::words;
+use waos::FileDialog;
 
 /// An installed app as the settings' first page lists it.
 #[derive(Clone, Debug)]
@@ -93,6 +94,37 @@ pub(crate) fn app_permissions(shown: &ShownSettings) -> Vec<(Permission, String)
             (*permission, said)
         })
         .collect()
+}
+
+/// What is the app's alone, as its page lists it under its permissions, each with how many it
+/// has: its machines and its answers always, its links and roles where it was given any.
+pub(crate) fn app_details(shown: &ShownSettings) -> Vec<(AppDetail, String)> {
+    let set = &shown.answer_with;
+    let paths = FileDialog::ALL
+        .iter()
+        .filter(|dialog| set.paths.file_dialog(**dialog).is_some())
+        .count();
+    let answers =
+        paths + usize::from(set.machine.is_some()) + usize::from(set.audio_output.is_some());
+    let mut details = vec![
+        (
+            AppDetail::Machines,
+            words::how_many(shown.machines.len(), "machine", "machines"),
+        ),
+        (
+            AppDetail::Answers,
+            words::how_many(answers, "answer", "answers"),
+        ),
+    ];
+    if !shown.link_schemes.is_empty() {
+        let links = words::how_many(shown.link_schemes.len(), "kind of link", "kinds of link");
+        details.push((AppDetail::Links, links));
+    }
+    if !shown.roles.is_empty() {
+        let roles = words::how_many(shown.roles.len(), "role", "roles");
+        details.push((AppDetail::Roles, roles));
+    }
+    details
 }
 
 /// Whether any kind of permission of the app whose settings are `shown` is set otherwise than

@@ -148,6 +148,7 @@ impl LibraryPages {
                 library,
                 of: SettingsOf::Global,
                 only: Some(only),
+                detail: None,
             }
             .into_widget(),
             LibraryPage::Settings(SettingsPage::App(id)) => {
@@ -157,6 +158,7 @@ impl LibraryPages {
                     library,
                     of,
                     only: None,
+                    detail: None,
                 }
                 .into_widget()
             }
@@ -167,6 +169,18 @@ impl LibraryPages {
                     library,
                     of,
                     only: Some(only),
+                    detail: None,
+                }
+                .into_widget()
+            }
+            LibraryPage::Settings(SettingsPage::AppDetail(id, detail)) => {
+                let of = SettingsOf::Program(id);
+                FluentSettings {
+                    program_name: program_name(&library, &of, app),
+                    library,
+                    of,
+                    only: None,
+                    detail: Some(detail),
                 }
                 .into_widget()
             }

@@ -1623,7 +1623,7 @@ fn a_program_that_asks_for_a_switch_sends_the_deck_home_to_its_settings_page() {
     assert_eq!(phone.tab_kinds(), [TRIANGLE, "home"]);
     assert_eq!(phone.current_tab(), "home");
     assert!(
-        phone.shows("Triangle's settings"),
+        phone.shows("Triangle"),
         "its page, on the home: {:?}",
         phone.labels()
     );

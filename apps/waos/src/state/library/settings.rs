@@ -59,6 +59,21 @@ pub(crate) enum SettingsPage {
     App(ProgramId),
     /// One kind of permission for one app: what it holds, or that it follows the default.
     AppPermission(ProgramId, Permission),
+    /// What else is one app's alone, a page of each: the machines it acts on, what it is
+    /// answered without being asked, its links and its roles.
+    AppDetail(ProgramId, AppDetail),
+}
+
+/// What is one app's alone, beside its permissions, each on a page of its own under the app's.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(crate) enum AppDetail {
+    Machines,
+    /// What its pickers and file dialogs are answered with instead of asking.
+    Answers,
+    /// What it was answered when it asked to open links of its own kinds.
+    Links,
+    /// What it was answered when it asked to be more than an app.
+    Roles,
 }
 
 impl LibraryPage {
@@ -75,9 +90,9 @@ impl LibraryPage {
             LibraryPage::Settings(SettingsPage::Permission(_)) => {
                 Some(LibraryPage::Settings(SettingsPage::Permissions))
             }
-            LibraryPage::Settings(SettingsPage::AppPermission(id, _)) => {
-                Some(LibraryPage::Settings(SettingsPage::App(id.clone())))
-            }
+            LibraryPage::Settings(
+                SettingsPage::AppPermission(id, _) | SettingsPage::AppDetail(id, _),
+            ) => Some(LibraryPage::Settings(SettingsPage::App(id.clone()))),
             LibraryPage::Settings(_) => Some(LibraryPage::Settings(SettingsPage::Root)),
         }
     }
@@ -126,7 +141,11 @@ impl Library {
         if page != self.page {
             self.left_settings();
             match &page {
-                LibraryPage::Settings(SettingsPage::App(_) | SettingsPage::AppPermission(..)) => {
+                LibraryPage::Settings(
+                    SettingsPage::App(_)
+                    | SettingsPage::AppPermission(..)
+                    | SettingsPage::AppDetail(..),
+                ) => {
                     self.offered = self.runs.environments.offered();
                 }
                 LibraryPage::App(id) => self.read_screenshots_of(&id.clone(), cx),
@@ -262,15 +281,19 @@ impl Library {
     }
 
     /// A program asks its user to change `switch`, and waits on `left` for the user to leave
-    /// the page: its own page opens, under its name once installed and its id before; the
-    /// switch's kind's, whose default it follows, for a program the engine runs under no id.
+    /// the page: its own page of the switch's kind opens, under its name once installed and its
+    /// id before; the kind's page, whose default it follows, for a program the engine runs under
+    /// no id.
     fn settings_asked(&mut self, asked: SettingsOpened, cx: &mut Context<Library>) {
         let (page, name) = match asked.program.name().parse::<ProgramId>() {
             Ok(id) => {
                 let name = self
                     .installed_program(&id)
                     .map_or_else(|| id.to_string(), |program| program.name());
-                (SettingsPage::App(id), name)
+                (
+                    SettingsPage::AppPermission(id, Permission::of_switch(asked.switch)),
+                    name,
+                )
             }
             Err(_) => (
                 SettingsPage::Permission(Permission::of_switch(asked.switch)),

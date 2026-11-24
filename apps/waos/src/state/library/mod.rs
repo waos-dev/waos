@@ -85,7 +85,7 @@ pub(crate) use package_picker::picks_packages;
 pub(crate) use phone_files::show_phone_files;
 pub(crate) use programs_open::ProgramsOpen;
 pub(crate) use settings::{
-    LeftSettings, LibraryPage, SettingsPage, SwitchAsked, open_settings_when_asked,
+    AppDetail, LeftSettings, LibraryPage, SettingsPage, SwitchAsked, open_settings_when_asked,
 };
 use shortcuts::ShortcutsMatching;
 use waos_program_window::ProgramFace;

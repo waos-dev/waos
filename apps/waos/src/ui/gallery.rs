@@ -23,7 +23,7 @@ use crate::logic::permissions::Permission;
 use crate::logic::setting_changes::{DomainsKind, SettingChange, SettingsOf};
 use crate::state::library::test_desktop::{DesktopKind, LibraryDesktop};
 use crate::state::library::test_server::Server;
-use crate::state::library::{LibraryPage, SettingsPage};
+use crate::state::library::{AppDetail, LibraryPage, SettingsPage};
 use waos_package::{Category, Index, ListedProgram};
 use waos_store::{Answer, Question};
 
@@ -303,9 +303,17 @@ fn walks_the_library(layout: &str, (mut desktop, view): (LibraryDesktop, ViewId)
     scenes.draw(&mut desktop, "program-settings");
     shows(
         &mut desktop,
-        LibraryPage::Settings(SettingsPage::AppPermission(program, Permission::Camera)),
+        LibraryPage::Settings(SettingsPage::AppPermission(
+            program.clone(),
+            Permission::Camera,
+        )),
     );
     scenes.draw(&mut desktop, "program-camera");
+    shows(
+        &mut desktop,
+        LibraryPage::Settings(SettingsPage::AppDetail(program.clone(), AppDetail::Answers)),
+    );
+    scenes.draw(&mut desktop, "program-answers");
 
     shows(&mut desktop, LibraryPage::Home);
     for (id, name) in MORE {

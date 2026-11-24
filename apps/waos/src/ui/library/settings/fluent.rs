@@ -29,14 +29,14 @@ use waos_activity::Activity;
 use waos_store::{Answer, DomainRule, Question, Role};
 
 use super::fluent_root::{MARK_SIDE, heading, link_card, permission_symbol, symbol};
-use super::{any_set_otherwise, app_permissions, reset_permissions, set_otherwise};
+use super::{any_set_otherwise, app_details, app_permissions, reset_permissions, set_otherwise};
 use crate::logic::permissions::Permission;
 use crate::logic::setting_changes::{
     DomainsKind, SettingChange, SettingsOf, Shown, ShownAnswerWith, ShownSettings, Which,
     domains_kind, simulatable,
 };
 use crate::state::SIMULATED_CAMERA;
-use crate::state::library::{Library, SettingsPage};
+use crate::state::library::{AppDetail, Library, SettingsPage};
 use crate::ui::library::program_icon::ProgramIcon;
 use crate::ui::library::words;
 use waft::SizedBox;
@@ -54,6 +54,8 @@ pub(crate) struct FluentSettings {
     /// The kind of permission whose settings alone the page shows, with the apps that set it
     /// otherwise: a kind's page, showing its default; none for an app's page, which shows all.
     pub(crate) only: Option<Permission>,
+    /// What of the app's alone the page shows, on its page of it; none elsewhere.
+    pub(crate) detail: Option<AppDetail>,
 }
 
 impl StatefulWidget for FluentSettings {
@@ -122,6 +124,7 @@ impl State for FluentSettingsState {
             library: widget.library.clone(),
             of: widget.of.clone(),
             only: widget.only,
+            detail: widget.detail,
             defaults: widget.library.read(app).settings(&SettingsOf::Global).ok(),
             resources,
             typed: app.get(self).typed.clone().expect("an initialized page"),
@@ -158,6 +161,7 @@ struct Page {
     library: Entity<Library>,
     of: SettingsOf,
     only: Option<Permission>,
+    detail: Option<AppDetail>,
     /// The defaults, which an app's choice among answers names as its first: "Ask (default)".
     defaults: Option<ShownSettings>,
     resources: Rc<ThemeResources>,
@@ -176,8 +180,11 @@ impl Page {
             library.update(app, |library, cx| library.go_back(cx));
         });
         let title = match (self.only, program_name) {
+            _ if self.detail.is_some() => {
+                words::app_detail_name(self.detail.expect("a detail's page")).to_owned()
+            }
             (Some(only), _) => words::permission_name(only).to_owned(),
-            (None, Some(name)) => words::settings_of(name),
+            (None, Some(name)) => name.to_owned(),
             (None, None) => words::GLOBAL_SETTINGS.to_owned(),
         };
         let bar = Row::new().spacing(4.0).children([
@@ -240,6 +247,26 @@ impl Page {
                     .into_widget(),
             );
             rows.push(caption(words::RESET_PERMISSIONS_DETAIL, &self.resources));
+        }
+        rows
+    }
+
+    /// On an app's page, what is the app's alone, each with how many it has, each leading to its
+    /// page.
+    fn app_details(&self, shown: &ShownSettings) -> Vec<WidgetRef> {
+        let SettingsOf::Program(id) = &self.of else {
+            return Vec::new();
+        };
+        let mut rows = vec![heading(words::MORE, &self.resources)];
+        for (detail, said) in app_details(shown) {
+            rows.push(link_card(
+                &self.library,
+                &self.resources,
+                None,
+                words::app_detail_name(detail),
+                Some(&said),
+                SettingsPage::AppDetail(id.clone(), detail),
+            ));
         }
         rows
     }
@@ -316,16 +343,16 @@ impl Page {
         notifications_refused: bool,
     ) -> Vec<WidgetRef> {
         let mut sections = Vec::new();
-        let overview = self.only.is_none();
-        if overview {
-            sections.extend(self.machines(&shown.machines));
+        if self.only.is_none() && self.detail.is_none() {
             sections.extend(self.app_permissions(shown));
-            if notifications_refused {
-                sections.extend(self.refused_by_system());
-            }
-            if let Some(activity) = activity {
-                sections.extend(self.last_days(activity, shown.record.value));
-            }
+            sections.extend(self.app_details(shown));
+        }
+        match self.detail {
+            Some(AppDetail::Machines) => sections.extend(self.machines(&shown.machines)),
+            Some(AppDetail::Answers) => sections.extend(self.answered_without_asking(shown)),
+            Some(AppDetail::Links) => sections.extend(self.link_schemes(&shown.link_schemes)),
+            Some(AppDetail::Roles) => sections.extend(self.roles(&shown.roles)),
+            None => {}
         }
         if self.shows(Permission::Network) {
             sections.extend(self.network(&shown.network));
@@ -354,6 +381,9 @@ impl Page {
         }
         if self.shows(Permission::ActivityRecord) {
             sections.extend(self.record(&shown.record));
+            if let Some(activity) = activity {
+                sections.extend(self.last_days(activity, shown.record.value));
+            }
         }
         if self.shows(Permission::Folders) {
             sections.extend(self.folders(&shown.file_system));
@@ -365,11 +395,6 @@ impl Page {
             let refused = question == Question::Notifications && notifications_refused;
             sections.extend(self.question(question, shown.answers.get(question), refused));
             sections.extend(self.simulated(question, shown));
-        }
-        if overview {
-            sections.extend(self.link_schemes(&shown.link_schemes));
-            sections.extend(self.roles(&shown.roles));
-            sections.extend(self.answered_without_asking(shown));
         }
         sections
     }

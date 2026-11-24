@@ -37,14 +37,14 @@ use waos_activity::Activity;
 use waos_store::{Answer, DomainRule, FileSystemGrant, NetworkGrant, Question, Role};
 
 use super::cupertino_root::{ICON_SIDE, PERMISSION_ICON_SIDE, footnote, link_row, permission_icon};
-use super::{any_set_otherwise, app_permissions, reset_permissions, set_otherwise};
+use super::{any_set_otherwise, app_details, app_permissions, reset_permissions, set_otherwise};
 use crate::logic::permissions::Permission;
 use crate::logic::setting_changes::{
     DomainsKind, SettingChange, SettingsOf, Shown, ShownAnswerWith, ShownSettings, Which,
     domains_kind, simulatable,
 };
 use crate::state::SIMULATED_CAMERA;
-use crate::state::library::{Library, SettingsPage};
+use crate::state::library::{AppDetail, Library, SettingsPage};
 use crate::ui::library::cupertino::{back_to_page_beneath, under_bar};
 use crate::ui::library::home::cupertino::resolved;
 use crate::ui::library::program_icon::ProgramIcon;
@@ -60,6 +60,8 @@ pub(crate) struct CupertinoSettings {
     /// The kind of permission whose settings alone the page shows, with the apps that set it
     /// otherwise: a kind's page, showing its default; none for an app's page, which shows all.
     pub(crate) only: Option<Permission>,
+    /// What of the app's alone the page shows, on its page of it; none elsewhere.
+    pub(crate) detail: Option<AppDetail>,
 }
 
 impl StatefulWidget for CupertinoSettings {
@@ -127,21 +129,23 @@ impl State for CupertinoSettingsState {
             library: widget.library.clone(),
             of: widget.of.clone(),
             only: widget.only,
+            detail: widget.detail,
             defaults: widget.library.read(app).settings(&SettingsOf::Global).ok(),
             typed: app.get(self).typed.clone().expect("an initialized page"),
             writable: app.get(self).writable,
             state: self,
         };
         let (title, beneath) = match (page.only, &widget.program_name) {
-            (Some(only), Some(name)) => (
-                words::permission_name(only).to_owned(),
-                words::settings_of(name),
+            (_, Some(name)) if page.detail.is_some() => (
+                words::app_detail_name(page.detail.expect("a detail's page")).to_owned(),
+                name.clone(),
             ),
+            (Some(only), Some(name)) => (words::permission_name(only).to_owned(), name.clone()),
             (Some(only), None) => (
                 words::permission_name(only).to_owned(),
                 words::PERMISSIONS.to_owned(),
             ),
-            (None, Some(name)) => (words::settings_of(name), words::SETTINGS.to_owned()),
+            (None, Some(name)) => (name.clone(), words::SETTINGS.to_owned()),
             (None, None) => (
                 words::GLOBAL_SETTINGS.to_owned(),
                 words::SETTINGS.to_owned(),
@@ -189,6 +193,7 @@ struct Page {
     library: Entity<Library>,
     of: SettingsOf,
     only: Option<Permission>,
+    detail: Option<AppDetail>,
     /// The defaults, which an app's choice among answers names as its first: "Ask (default)".
     defaults: Option<ShownSettings>,
     typed: Typed,
@@ -280,6 +285,27 @@ impl Page {
         )
     }
 
+    /// On an app's page, what is the app's alone, each with how many it has, each leading to its
+    /// page.
+    fn app_details(&self, shown: &ShownSettings) -> Option<WidgetRef> {
+        let SettingsOf::Program(id) = &self.of else {
+            return None;
+        };
+        let rows = app_details(shown)
+            .into_iter()
+            .map(|(detail, said)| {
+                link_row(
+                    &self.library,
+                    words::app_detail_name(detail),
+                    SettingsPage::AppDetail(id.clone(), detail),
+                )
+                .additional_info(Text::new(said))
+                .into_widget()
+            })
+            .collect();
+        Some(section(Some(words::MORE), None, rows))
+    }
+
     /// What a program asked for, when it asked for one of its switches here.
     fn switch_asked(&self, app: &App) -> Option<WidgetRef> {
         let asked = self.library.read(app).switch_asked()?;
@@ -303,16 +329,16 @@ impl Page {
         notifications_refused: bool,
     ) -> Vec<WidgetRef> {
         let mut sections = Vec::new();
-        let overview = self.only.is_none();
-        if overview {
-            sections.push(self.machines(&shown.machines));
+        if self.only.is_none() && self.detail.is_none() {
             sections.extend(self.app_permissions(shown));
-            if notifications_refused {
-                sections.push(section(None, None, self.refused_by_system()));
-            }
-            if let Some(activity) = activity {
-                sections.push(last_days(activity, shown.record.value));
-            }
+            sections.extend(self.app_details(shown));
+        }
+        match self.detail {
+            Some(AppDetail::Machines) => sections.push(self.machines(&shown.machines)),
+            Some(AppDetail::Answers) => sections.extend(self.answered_without_asking(shown)),
+            Some(AppDetail::Links) => sections.extend(self.link_schemes(&shown.link_schemes)),
+            Some(AppDetail::Roles) => sections.extend(self.roles(&shown.roles)),
+            None => {}
         }
         if self.shows(Permission::Network) {
             sections.extend(self.network(&shown.network));
@@ -341,6 +367,9 @@ impl Page {
         }
         if self.shows(Permission::ActivityRecord) {
             sections.push(self.record(&shown.record));
+            if let Some(activity) = activity {
+                sections.push(last_days(activity, shown.record.value));
+            }
         }
         if self.shows(Permission::Folders) {
             sections.push(self.folders(&shown.file_system));
@@ -351,11 +380,6 @@ impl Page {
             }
             let refused = question == Question::Notifications && notifications_refused;
             sections.push(self.question(question, shown, refused));
-        }
-        if overview {
-            sections.extend(self.link_schemes(&shown.link_schemes));
-            sections.extend(self.roles(&shown.roles));
-            sections.extend(self.answered_without_asking(shown));
         }
         sections
     }
@@ -404,11 +428,7 @@ impl Page {
     /// section each, the first saying what they are.
     fn answered_without_asking(&self, shown: &ShownSettings) -> Vec<WidgetRef> {
         let set = &shown.answer_with;
-        let mut sections = vec![section(
-            Some(words::ANSWERED_WITHOUT_ASKING),
-            None,
-            vec![note(words::ANSWERED_WITHOUT_ASKING_DETAIL)],
-        )];
+        let mut sections = vec![said_over_the_lists(words::ANSWERED_WITHOUT_ASKING_DETAIL)];
         for dialog in FileDialog::ALL {
             sections.push(self.file_dialog_answer(dialog, set));
         }
@@ -952,9 +972,17 @@ fn last_days(activity: &Activity, recorded: bool) -> WidgetRef {
     } else if lines.is_empty() {
         vec![note(words::NOTHING_USED)]
     } else {
-        lines.iter().map(|line| note(line)).collect()
+        lines.iter().map(|line| wrapped(line)).collect()
     };
     section(Some(words::LAST_DAYS), None, tiles)
+}
+
+/// `text` in a list, on as many lines as it takes, where a row's title is cut to one: a file's
+/// path, a site's address.
+fn wrapped(text: &str) -> WidgetRef {
+    Padding::new(EdgeInsetsGeometry::symmetric(11.0, 20.0))
+        .child(SizedBox::new().width(f64::INFINITY).child(Text::new(text)))
+        .into_widget()
 }
 
 /// `text` over the page's lists, as a list's footer says it, in from the page's side.
