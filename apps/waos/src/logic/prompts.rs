@@ -1,7 +1,8 @@
 //! Where the programs' prompts go: each to the main thread, a question to be shown to the user
 //! (`state::questions`), a permission's, a link scheme's or a role's, which the engine's prompts ask, the
-//! output a program's sound plays on, which the shell's picker of outputs asks, or a machine for a
-//! program, which the shell's picker of machines asks; and a switch's
+//! output a program's sound plays on, which the shell's picker of outputs asks, a machine for a
+//! program, which the shell's picker of machines asks, or the phone's files for WaOS, which the
+//! system guards and a pick of the program's user needs (`PhoneFilesOnRequest`); and a switch's
 //! page to be opened in the library's settings (`state::library`). Each is noted as asked of the
 //! program's user until it is answered (`asking_now`), for an attach to the program to say. The engine asks from the
 //! program's thread and is answered later, through the future it was given: a question with the
@@ -12,7 +13,7 @@
 //! program waits for an answer that cannot come.
 
 use std::fmt;
-use std::future::Future;
+use std::future::{Future, ready};
 use std::sync::Arc;
 
 use futures::FutureExt;
@@ -21,11 +22,13 @@ use futures::channel::oneshot;
 use waos::{
     Answer, AnswerFuture, AudioOutput, AudioOutputPickedFuture, MachineChoice, MachinePickedFuture,
     Prompts, Question, Role, RunningProgram, SettingsClosedFuture, ShellAudioOutputPicker,
-    ShellMachinePicker, Switch,
+    ShellMachinePicker, ShellSystemPermissions, Switch, SystemPermission, SystemPermissionFuture,
+    SystemPermissionState,
 };
 use waos_dev_protocol::Asked as AskedNow;
 
 use super::asking_now::AskingNow;
+use super::phone_files::{SharedStorage, asks_for_phone_files};
 
 /// One program's question, on its way to the main thread.
 pub(crate) struct Asked {
@@ -52,6 +55,25 @@ pub(crate) enum Asking {
         machines: Vec<MachineChoice>,
         picked: oneshot::Sender<Option<String>>,
     },
+    /// Whether WaOS may reach the phone's files, which the system lets it only once its user
+    /// turned that on in the system's settings, and something the user gave the program needs:
+    /// whether WaOS may reach them once the user is done.
+    PhoneFiles {
+        /// Where the user is in it.
+        step: PhoneFilesStep,
+        reachable: oneshot::Sender<Option<bool>>,
+    },
+}
+
+/// Where the user is in letting WaOS reach the phone's files.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum PhoneFilesStep {
+    /// The sheet offers the system's page, or not now.
+    Offered,
+    /// The page is open: the phone's files are read again once WaOS is back in front.
+    PageOpen,
+    /// WaOS is back in front and still may not reach them: the sheet says so.
+    StillOff,
 }
 
 /// What a program asks its user, once, the answer kept in its settings.
@@ -77,6 +99,7 @@ impl fmt::Debug for Asking {
                     .field(&ids.collect::<Vec<_>>())
                     .finish()
             }
+            Asking::PhoneFiles { step, .. } => f.debug_tuple("PhoneFiles").field(step).finish(),
             Asking::Machine { machines, .. } => {
                 let ids = machines.iter().map(|machine| &machine.id);
                 f.debug_tuple("Machine")
@@ -96,6 +119,8 @@ pub(crate) enum Reply {
     Output(String),
     /// The id of the machine picked, to the picker of machines.
     Machine(String),
+    /// Whether WaOS may reach the phone's files now, once the user is done with letting it.
+    PhoneFiles(bool),
 }
 
 impl Asking {
@@ -110,8 +135,14 @@ impl Asking {
             | (Asking::Machine { picked, .. }, Some(Reply::Machine(id))) => {
                 let _ = picked.send(Some(id));
             }
+            (Asking::PhoneFiles { reachable, .. }, Some(Reply::PhoneFiles(now))) => {
+                let _ = reachable.send(Some(now));
+            }
             (Asking::Question { answer, .. }, _) => {
                 let _ = answer.send(None);
+            }
+            (Asking::PhoneFiles { reachable, .. }, _) => {
+                let _ = reachable.send(None);
             }
             (Asking::Output { picked, .. } | Asking::Machine { picked, .. }, _) => {
                 let _ = picked.send(None);
@@ -170,11 +201,26 @@ impl PromptsOnRequest {
         }
     }
 
-    /// The picker of machines, whose questions arrive with these prompts' questions.
-    pub(crate) fn machine_picker(&self) -> MachinePickerOnRequest {
+    /// The picker of machines, whose questions arrive with these prompts' questions; a pick of
+    /// This computer asks for the phone's files through `phone_files`, where WaOS reaches them
+    /// only as the user allows.
+    pub(crate) fn machine_picker(
+        &self,
+        phone_files: Option<PhoneFilesOnRequest>,
+    ) -> MachinePickerOnRequest {
         MachinePickerOnRequest {
             questions: self.questions.clone(),
             asking: Arc::clone(&self.asking),
+            phone_files,
+        }
+    }
+
+    /// What asks the user to let WaOS reach the phone's files, kept from it as `storage` says,
+    /// whose questions arrive with these prompts' questions.
+    pub(crate) fn phone_files(&self, storage: SharedStorage) -> PhoneFilesOnRequest {
+        PhoneFilesOnRequest {
+            questions: self.questions.clone(),
+            storage,
         }
     }
 }
@@ -244,10 +290,14 @@ impl ShellAudioOutputPicker for OutputPickerOnRequest {
 }
 
 /// The app's picker of machines, as the engine reaches it: each pick is a question, shown as the
-/// prompts' questions are.
+/// prompts' questions are. This computer picked while WaOS may not reach the phone's files asks
+/// for them before the pick is answered, and is answered whatever the user chose there: without
+/// them, This computer's home is WaOS's own folder.
 pub(crate) struct MachinePickerOnRequest {
     questions: UnboundedSender<Asked>,
     asking: Arc<AskingNow>,
+    /// What asks for the phone's files, where WaOS reaches them only as the user allows.
+    phone_files: Option<PhoneFilesOnRequest>,
 }
 
 impl ShellMachinePicker for MachinePickerOnRequest {
@@ -255,7 +305,86 @@ impl ShellMachinePicker for MachinePickerOnRequest {
         let (picked, picking) = oneshot::channel();
         let asking = Asking::Machine { machines, picked };
         let wait = send_and_wait(&self.questions, program, asking, picking);
-        Box::pin(self.asking.while_asked(program, AskedNow::Machine, wait))
+        let (phone_files, asked_for) = (self.phone_files.clone(), program.clone());
+        let picked = async move {
+            let picked = wait.await;
+            if let Some(phone_files) = phone_files
+                && asks_for_phone_files(picked.as_deref(), phone_files.reachable())
+            {
+                phone_files.request(&asked_for).await;
+            }
+            picked
+        };
+        Box::pin(self.asking.while_asked(program, AskedNow::Machine, picked))
+    }
+}
+
+/// What asks the user to let WaOS reach the phone's files, from any thread: the question, shown as
+/// the prompts' questions are, which offers the system's page for them, waits for the user to
+/// come back from it, and says so where they are still out of reach. It is the engine's system
+/// permissions on Android, whose All files access guards what a user picks on the phone's
+/// storage.
+#[derive(Clone)]
+pub(crate) struct PhoneFilesOnRequest {
+    questions: UnboundedSender<Asked>,
+    storage: SharedStorage,
+}
+
+impl PhoneFilesOnRequest {
+    /// Whether WaOS may reach the phone's files now.
+    pub(crate) fn reachable(&self) -> bool {
+        self.storage.reachable()
+    }
+
+    /// Asks `program`'s user to let WaOS reach the phone's files, and resolves to whether it may
+    /// once they are done; as it stands where nobody answered.
+    pub(crate) fn request(
+        &self,
+        program: &RunningProgram,
+    ) -> impl Future<Output = bool> + Send + use<> {
+        let (reachable, answered) = oneshot::channel();
+        let asking = Asking::PhoneFiles {
+            step: PhoneFilesStep::Offered,
+            reachable,
+        };
+        let wait = send_and_wait(&self.questions, program, asking, answered);
+        let storage = self.storage.clone();
+        async move { wait.await.unwrap_or_else(|| storage.reachable()) }
+    }
+}
+
+impl ShellSystemPermissions for PhoneFilesOnRequest {
+    fn state(
+        &self,
+        permission: SystemPermission<'_>,
+        _program: &RunningProgram,
+    ) -> SystemPermissionState {
+        match permission {
+            SystemPermission::Path(path) if self.storage.keeps_from(path) => {
+                SystemPermissionState::Denied
+            }
+            SystemPermission::Path(_) | SystemPermission::Notifications => {
+                SystemPermissionState::Allowed
+            }
+        }
+    }
+
+    fn request(
+        &self,
+        permission: SystemPermission<'_>,
+        program: &RunningProgram,
+    ) -> SystemPermissionFuture {
+        if self.state(permission, program) == SystemPermissionState::Allowed {
+            return Box::pin(ready(SystemPermissionState::Allowed));
+        }
+        let reachable = self.request(program);
+        Box::pin(async move {
+            if reachable.await {
+                SystemPermissionState::Allowed
+            } else {
+                SystemPermissionState::Denied
+            }
+        })
     }
 }
 

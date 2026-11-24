@@ -72,8 +72,8 @@ use waft_winui::install_icon_font;
 use waos::inspection::InspectedPrograms;
 use waos::{
     EngineTime, FreezePolicy, HttpProxy, OpenRequest, RunningProgram, Shell, ShellCompositor,
-    ShellFileDialogs, ShellRecordingIndicator, ShellVideoFrameReaders, VsyncWaiter, WaOS,
-    WaOSConfig,
+    ShellFileDialogs, ShellRecordingIndicator, ShellSystemPermissions, ShellVideoFrameReaders,
+    VsyncWaiter, WaOS, WaOSConfig,
 };
 use waos_local::LocalCapabilities;
 use waos_package::ProgramId;
@@ -94,7 +94,7 @@ use crate::logic::installed_runs::InstalledRuns;
 use crate::logic::machine_facts::platform_state;
 use crate::logic::noted_file_dialogs::NotedFileDialogs;
 use crate::logic::package_copies::PackageCopies;
-use crate::logic::phone_files::{PhoneFilesAccess, ThisComputerHome};
+use crate::logic::phone_files::{PhoneFilesAccess, SharedStorage, ThisComputerHome};
 use crate::logic::placement::WindowsOnRequest;
 use crate::logic::preferences::PreferencesFile;
 use crate::logic::program_faces::ProgramFaces;
@@ -231,7 +231,13 @@ pub(crate) fn start(
     let asking = AskingNow::new();
     let (prompts, prompted) = PromptsOnRequest::new(Arc::clone(&asking));
     let output_picker = prompts.output_picker();
-    let machine_picker = prompts.machine_picker();
+    let shared_storage = phone_files
+        .as_ref()
+        .map(|access| SharedStorage::at(access.storage()));
+    let phone_files_on_request = shared_storage
+        .clone()
+        .map(|storage| prompts.phone_files(storage));
+    let machine_picker = prompts.machine_picker(phone_files_on_request.clone());
     let (recording_indicator, recording_changes) = RecordingIndicatorOnRequest::new();
     let waiter = app
         .platform()
@@ -258,7 +264,9 @@ pub(crate) fn start(
         vsync: Arc::clone(&vsync) as Arc<dyn VsyncWaiter>,
         compositor,
         prompts: Arc::new(prompts),
-        system_permissions: program_apps::system_permissions(&program_apps),
+        system_permissions: phone_files_on_request
+            .map(|phone_files| Arc::new(phone_files) as Arc<dyn ShellSystemPermissions>)
+            .or_else(|| program_apps::system_permissions(&program_apps)),
         clipboard: clipboard.as_ref().map(Clipboard::shell),
         menu_bar: program_apps::menu_bar(&program_apps),
         context_menus: program_apps::context_menus(&program_apps, menus.context_menus()),
@@ -320,7 +328,12 @@ pub(crate) fn start(
     let view_windows = ViewWindows::listen(app, requests);
     let posted_as_programs =
         notifications.map(|notifications| notifications.serve(app, store.clone()));
-    let phone_files = phone_files.map(|access| follow_phone_files(app, access));
+    let phone_storage = shared_storage
+        .as_ref()
+        .map(|storage| storage.root().to_owned());
+    let phone_files = phone_files
+        .zip(shared_storage)
+        .map(|(access, storage)| follow_phone_files(app, access, storage));
     let home = phone_files
         .as_ref()
         .map(|phone_files| phone_files.read(app).home());
@@ -398,7 +411,7 @@ pub(crate) fn start(
         None => {}
     }
     open_settings_when_asked(app, &library, prompted.settings);
-    if let Some(phone_files) = phone_files {
+    if let Some(phone_files) = phone_files.clone() {
         show_phone_files(app, &library, phone_files);
     }
     let library_window = library_window(
@@ -432,7 +445,12 @@ pub(crate) fn start(
         // A phone shows a dialog only over a screen; a desktop's floats where its program has none.
         let screens_of_their_own = cfg!(any(target_os = "android", target_os = "ios"))
             .then(|| Rc::clone(&prompt_windows_for_dialogs));
-        file_dialogs.serve(app, view_windows.clone(), screens_of_their_own);
+        file_dialogs.serve(
+            app,
+            view_windows.clone(),
+            screens_of_their_own,
+            phone_storage,
+        );
     }
     if let Some(opener) = opener {
         opener.serve(app);

@@ -46,12 +46,14 @@ use crate::logic::installed_code::HeldCompiles;
 use crate::logic::installed_runs::InstalledRuns;
 use crate::logic::opened_package::tests::write_package;
 use crate::logic::package_copies::PackageCopies;
-use crate::logic::phone_files::PhoneFilesAccess;
+use crate::logic::phone_files::{PhoneFilesAccess, SharedStorage};
 use crate::logic::placement::WindowsOnRequest;
 use crate::logic::preferences::PreferencesFile;
 use crate::logic::program_faces::ProgramFaces;
 use crate::logic::program_places::{ProgramPlace, ProgramPlaces};
-use crate::logic::prompts::{MachinePickerOnRequest, OutputPickerOnRequest, PromptsOnRequest};
+use crate::logic::prompts::{
+    MachinePickerOnRequest, OutputPickerOnRequest, PhoneFilesOnRequest, PromptsOnRequest,
+};
 use crate::logic::recording_indicator::RecordingIndicatorOnRequest;
 use crate::logic::runs::Runs;
 use crate::logic::test_engine;
@@ -94,6 +96,8 @@ pub(crate) struct LibraryDesktop {
     pub(crate) output_picker: Arc<OutputPickerOnRequest>,
     /// What the engine shows its picker of machines through, for a test to pick as a program does.
     pub(crate) machine_picker: Arc<MachinePickerOnRequest>,
+    /// What asks for the phone's files, on a desktop with a phone's.
+    pub(crate) phone_files_on_request: Option<PhoneFilesOnRequest>,
     /// What the engine tells who records, for a test to tell as the engine does.
     pub(crate) recording_indicator: Arc<RecordingIndicatorOnRequest>,
     pub(crate) folder: TempDir,
@@ -167,7 +171,12 @@ impl LibraryDesktop {
         let (placement, requests) = WindowsOnRequest::new(ProgramFaces::new(store.clone(), None));
         let (prompts, prompted) = PromptsOnRequest::new(crate::logic::asking_now::AskingNow::new());
         let output_picker = Arc::new(prompts.output_picker());
-        let machine_picker = Arc::new(prompts.machine_picker());
+        let shared_storage =
+            (kind.phone_files.as_ref()).map(|access| SharedStorage::at(access.storage()));
+        let phone_files_on_request = shared_storage
+            .clone()
+            .map(|storage| prompts.phone_files(storage));
+        let machine_picker = Arc::new(prompts.machine_picker(phone_files_on_request.clone()));
         let (recording_indicator, recording_changes) = RecordingIndicatorOnRequest::new();
         let prompts = Arc::new(prompts);
         let engine = test_engine::engine_keeping_days(
@@ -198,7 +207,9 @@ impl LibraryDesktop {
                 view_windows.clone(),
                 ProgramFaces::new(store.clone(), None),
             );
-            let phone_files = phone_files.map(|access| follow_phone_files(app, access));
+            let phone_files = phone_files
+                .zip(shared_storage)
+                .map(|(access, storage)| follow_phone_files(app, access, storage));
             Questions::listen(
                 app,
                 prompted.questions,
@@ -240,6 +251,7 @@ impl LibraryDesktop {
             prompts,
             output_picker,
             machine_picker,
+            phone_files_on_request,
             recording_indicator: Arc::new(recording_indicator),
             folder,
             key: SigningKey::generate(),

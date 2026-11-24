@@ -87,6 +87,7 @@ fn sheet_parent(
 
 /// `kind`, shown through the host's file dialogs, a sheet on Waft's view `parent` where one is
 /// given; answers the paths picked once it closes; why not, where the host has no file dialogs.
+/// A program's window of its own is a desktop's, whose picks are paths.
 fn show(app: &App, parent: Option<ViewId>, kind: FileDialog) -> Result<PickedPaths, DialogError> {
     let platform = app.platform();
     let dialogs = platform.file_dialogs().ok_or_else(|| {
@@ -94,16 +95,17 @@ fn show(app: &App, parent: Option<ViewId>, kind: FileDialog) -> Result<PickedPat
     })?;
     Ok(match kind {
         FileDialog::OpenFile(options) => {
-            picked_file_paths(dialogs.open_file(parent, waft_open_options(options)))
+            picked_file_paths(dialogs.open_file(parent, waft_open_options(options)), None)
         }
         FileDialog::OpenFiles(options) => {
-            picked_file_paths(dialogs.open_files(parent, waft_open_options(options)))
+            picked_file_paths(dialogs.open_files(parent, waft_open_options(options)), None)
         }
-        FileDialog::OpenFolder(options) => {
-            picked_folder_path(dialogs.open_folder(parent, waft_folder_options(options)))
-        }
+        FileDialog::OpenFolder(options) => picked_folder_path(
+            dialogs.open_folder(parent, waft_folder_options(options)),
+            None,
+        ),
         FileDialog::SaveFile(options) => {
-            picked_file_paths(dialogs.save_file(parent, waft_save_options(options)))
+            picked_file_paths(dialogs.save_file(parent, waft_save_options(options)), None)
         }
     })
 }

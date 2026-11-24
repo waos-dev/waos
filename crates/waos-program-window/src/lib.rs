@@ -46,6 +46,7 @@ pub use logic::file_dialogs::{
 pub use logic::geometry::{metrics_of, rect_of};
 pub use logic::menu_entries::{waft_image, waft_menu};
 pub use logic::notifications::{activation_of, waft_notification};
+pub use logic::phone_storage::{is_on_phone_storage, path_on_phone_storage};
 pub use logic::restoration::{RestorableWindow, WindowRole};
 pub use logic::view_calls::{ViewCalls, WindowCalls};
 pub use prompt_placement::{PROMPT_SIZE, PromptPlacement, ShownPrompt};

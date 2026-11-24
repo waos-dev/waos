@@ -367,3 +367,31 @@ opt-level = 3
 # a release build, so a debug WaOS took minutes to show `examples/hello` in the simulator.
 [profile.dev.package.pulley-interpreter]
 opt-level = 3
+
+# Waft's FolderHandle::url (waos-dev/waft#154), until Waft releases it: an Android pick's URL,
+# from which WaOS tells where on the phone's storage it is.
+[patch.crates-io]
+waft = { git = "https://github.com/waos-dev/waft", branch = "folder-handle-url" }
+waft-animation = { git = "https://github.com/waos-dev/waft", branch = "folder-handle-url" }
+waft-cupertino = { git = "https://github.com/waos-dev/waft", branch = "folder-handle-url" }
+waft-embedder = { git = "https://github.com/waos-dev/waft", branch = "folder-handle-url" }
+waft-embedder-android = { git = "https://github.com/waos-dev/waft", branch = "folder-handle-url" }
+waft-embedder-apple = { git = "https://github.com/waos-dev/waft", branch = "folder-handle-url" }
+waft-embedder-default = { git = "https://github.com/waos-dev/waft", branch = "folder-handle-url" }
+waft-embedder-ios = { git = "https://github.com/waos-dev/waft", branch = "folder-handle-url" }
+waft-embedder-web = { git = "https://github.com/waos-dev/waft", branch = "folder-handle-url" }
+waft-embedder-winit = { git = "https://github.com/waos-dev/waft", branch = "folder-handle-url" }
+waft-foundation = { git = "https://github.com/waos-dev/waft", branch = "folder-handle-url" }
+waft-gestures = { git = "https://github.com/waos-dev/waft", branch = "folder-handle-url" }
+waft-macros = { git = "https://github.com/waos-dev/waft", branch = "folder-handle-url" }
+waft-painting = { git = "https://github.com/waos-dev/waft", branch = "folder-handle-url" }
+waft-physics = { git = "https://github.com/waos-dev/waft", branch = "folder-handle-url" }
+waft-rendering = { git = "https://github.com/waos-dev/waft", branch = "folder-handle-url" }
+waft-scheduler = { git = "https://github.com/waos-dev/waft", branch = "folder-handle-url" }
+waft-service-protocol = { git = "https://github.com/waos-dev/waft", branch = "folder-handle-url" }
+waft-services = { git = "https://github.com/waos-dev/waft", branch = "folder-handle-url" }
+waft-shell = { git = "https://github.com/waos-dev/waft", branch = "folder-handle-url" }
+waft-single-instance = { git = "https://github.com/waos-dev/waft", branch = "folder-handle-url" }
+waft-test = { git = "https://github.com/waos-dev/waft", branch = "folder-handle-url" }
+waft-widgets = { git = "https://github.com/waos-dev/waft", branch = "folder-handle-url" }
+waft-winui = { git = "https://github.com/waos-dev/waft", branch = "folder-handle-url" }

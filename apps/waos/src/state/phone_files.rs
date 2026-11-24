@@ -12,7 +12,7 @@ use std::rc::Rc;
 
 use waft::{App, AppLifecycleListener, Context, Entity, EventEmitter};
 
-use crate::logic::phone_files::{PhoneFilesAccess, ThisComputerHome};
+use crate::logic::phone_files::{PhoneFilesAccess, SharedStorage, ThisComputerHome};
 
 /// Whether WaOS may reach the phone's files, as last read.
 pub(crate) struct PhoneFiles {
@@ -20,6 +20,8 @@ pub(crate) struct PhoneFiles {
     reachable: bool,
     /// What the programs' commands start in.
     home: ThisComputerHome,
+    /// Where the other threads read whether WaOS may reach the phone's storage.
+    storage: SharedStorage,
 }
 
 /// The phone's files were read again: WaOS started, or came back to the front.
@@ -46,6 +48,7 @@ impl PhoneFiles {
 
     fn read_again(&mut self, cx: &mut Context<PhoneFiles>) {
         self.reachable = self.access.reachable();
+        self.storage.set_reachable(self.reachable);
         self.home.set(self.access.home());
         tracing::info!(reachable = self.reachable, home = ?self.home.get(), "the phone's files");
         cx.emit(ReadAgain);
@@ -53,16 +56,19 @@ impl PhoneFiles {
     }
 }
 
-/// The phone's files as `access` says, read now and again each time WaOS comes back to the front.
+/// The phone's files as `access` says, read now and again each time WaOS comes back to the front,
+/// whether WaOS may reach them told to `storage` at each read.
 pub(crate) fn follow_phone_files(
     app: &mut App,
     access: Rc<dyn PhoneFilesAccess>,
+    storage: SharedStorage,
 ) -> Entity<PhoneFiles> {
     let phone_files = app.new_entity(|cx| {
         let mut phone_files = PhoneFiles {
             reachable: false,
             access,
             home: ThisComputerHome::new(PathBuf::new()),
+            storage,
         };
         phone_files.read_again(cx);
         phone_files
