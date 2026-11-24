@@ -12,11 +12,10 @@
 use std::rc::Rc;
 
 use waft::{
-    App, BuildContext, Builder, Color, ColoredBox, Column, CrossAxisAlignment, EdgeInsetsGeometry,
-    Entity, Expanded, Focus, FocusNode, FocusNodeLeaf, FrameCallback, Handle, IntoWidget,
-    KeyEventResult, Listenable, Listener, OptionRetained, Padding, Ref, Row, SchedulerBinding,
-    SizedBox, State, StateData, StatefulWidget, StatelessWidget, Subscription,
-    TextEditingController, TextEditingControllerLeaf, WidgetRef,
+    App, BuildContext, Builder, Color, Column, CrossAxisAlignment, EdgeInsetsGeometry, Entity,
+    Expanded, Focus, FocusNode, FocusNodeLeaf, FrameCallback, Handle, IntoWidget, KeyEventResult,
+    Listenable, Listener, OptionRetained, Padding, Ref, Row, SchedulerBinding, State, StateData,
+    StatefulWidget, Subscription, TextEditingController, TextEditingControllerLeaf, WidgetRef,
 };
 use waft_services::{KeyEvent, LogicalKeyboardKey};
 use waft_winui::{
@@ -35,19 +34,6 @@ use crate::ui::library::words;
 /// The size of the search row's text and icons.
 const SEARCH_FONT_SIZE: f64 = 18.0;
 const ICON_SIZE: f64 = 18.0;
-
-/// The hairline under the search row, which the grid's icons scroll up to.
-#[derive(Debug)]
-pub(crate) struct SearchRowLine;
-
-impl StatelessWidget for SearchRowLine {
-    fn build(&self, app: &mut App, context: BuildContext) -> WidgetRef {
-        let color = ThemeResources::of(app, context).divider_stroke_color_default;
-        ColoredBox::new(color)
-            .child(SizedBox::new().height(1.0))
-            .into_widget()
-    }
-}
 
 /// `text_box` with no box around it and no accent line under it, focused or not: a launcher's
 /// field is the launcher's own surface to type on, as Spotlight's and PowerToys Run's are. Done as
@@ -123,7 +109,8 @@ impl State for LauncherHomeState {
         let followed = vec![
             app.observe(&library, move |app| self.search_changed_elsewhere(app)),
             app.subscribe(&launcher, move |app, _: &LauncherShown| {
-                self.give_the_keyboard_after_this_frame(app)
+                self.give_the_keyboard_after_this_frame(app);
+                self.read_often_used(app);
             }),
         ];
         let state = app.get_mut(self);
@@ -155,7 +142,6 @@ impl State for LauncherHomeState {
             .cross_axis_alignment(CrossAxisAlignment::Stretch)
             .children([
                 self.search_row(app, &resources),
-                SearchRowLine.into_widget(),
                 Expanded::new(body).into_widget(),
             ])
             .into_widget()
@@ -255,6 +241,16 @@ impl LauncherHomeState {
             library.update(app, |library, cx| library.open(&first.id, cx));
         }
         KeyEventResult::Handled
+    }
+
+    /// The launcher came into sight: the library reads again which apps are used often, so the
+    /// row is current as it shows and still while it is looked at.
+    fn read_often_used(self: Handle<Self>, app: &mut App) {
+        if !self.mounted(app) {
+            return;
+        }
+        let library = self.widget(app).library.clone();
+        library.update(app, |library, cx| library.read_often_used(cx));
     }
 
     /// The library searches for what the field holds now, and the field is built again for it.

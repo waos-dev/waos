@@ -98,6 +98,7 @@ pub(crate) mod menu_calls;
 pub(crate) mod noted_file_dialogs;
 pub(crate) mod notification_calls;
 pub(crate) mod offers;
+pub(crate) mod often_used;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(crate) mod open_command;
 pub(crate) mod opened_package;

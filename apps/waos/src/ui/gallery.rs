@@ -22,7 +22,9 @@ use crate::logic::setting_changes::SettingsOf;
 use crate::state::library::LibraryPage;
 use crate::state::library::test_desktop::LibraryDesktop;
 use crate::state::library::test_server::Server;
-use crate::ui::library::test_steps::{adds_source, in_launcher, installs, on_phone};
+use crate::ui::library::test_steps::{
+    adds_source, in_launcher, installs, on_phone, started_yesterday,
+};
 
 /// The programs the library has installed, as a user's might be.
 const INSTALLED: [(&str, &str); 5] = [
@@ -31,6 +33,19 @@ const INSTALLED: [(&str, &str); 5] = [
     ("dev.waos.videoplayer", "Video Player"),
     ("dev.waos.inspector", "Inspector"),
     ("dev.waos.zed", "Zed"),
+];
+
+/// More programs, enough to fill the home past one row.
+const MORE: [(&str, &str); 9] = [
+    ("dev.example.books", "Books"),
+    ("dev.example.calculator", "Calculator"),
+    ("dev.example.calendar", "Calendar"),
+    ("dev.example.maps", "Maps"),
+    ("dev.example.music", "Music"),
+    ("dev.example.photos", "Photos"),
+    ("dev.example.reminders", "Reminders"),
+    ("dev.example.terminal", "Terminal"),
+    ("dev.example.weather", "Weather"),
 ];
 
 /// The program a source lists, not installed.
@@ -78,6 +93,19 @@ fn walks_the_library(layout: &str, (mut desktop, view): (LibraryDesktop, ViewId)
         LibraryPage::Settings(SettingsOf::Program(program)),
     );
     scenes.draw(&mut desktop, "program-settings");
+
+    shows(&mut desktop, LibraryPage::Home);
+    for (id, name) in MORE {
+        installs(&mut desktop, id, name, b"\0asm");
+    }
+    for (id, starts) in [
+        ("dev.waos.zed", 9),
+        ("dev.waos.notes", 4),
+        ("dev.example.maps", 2),
+    ] {
+        started_yesterday(&mut desktop, id, starts);
+    }
+    scenes.draw(&mut desktop, "often-used");
 }
 
 /// The library goes to `page`.

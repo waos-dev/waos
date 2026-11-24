@@ -21,6 +21,7 @@ use waft::{
     StatelessWidget, Text, TextAlign, TextOverflow, TextStyle, WidgetRef,
 };
 use waos_package::ProgramId;
+use waos_store::InstalledProgram;
 
 use crate::state::library::Library;
 use crate::ui::library::words;
@@ -44,20 +45,40 @@ pub(crate) fn home_entries(library: &Library) -> Vec<HomeEntry> {
         .installed()
         .iter()
         .filter(|program| is_searched_for(&program.name(), library.search()))
-        .map(|program| {
-            let id = program.manifest.id();
-            HomeEntry {
-                id: id.clone(),
-                name: program.name(),
-                icon: library.icon(id).cloned(),
-                running: library.is_running(id),
-                update_offered: library.update_offered(id),
-                installing: library.is_compiling(id),
-            }
-        })
+        .map(|program| entry_of(library, program))
         .collect();
     entries.sort_by_cached_key(|entry| entry.name.to_lowercase());
     entries
+}
+
+/// The apps of the home's first row: those their user starts most lately, the most started
+/// first; none while the user searches, where the home shows what was searched for alone.
+pub(crate) fn often_used_entries(library: &Library) -> Vec<HomeEntry> {
+    if !library.search().trim().is_empty() {
+        return Vec::new();
+    }
+    library
+        .often_used()
+        .iter()
+        .filter_map(|id| {
+            let installed = library.installed().iter();
+            installed.clone().find(|app| app.manifest.id() == id)
+        })
+        .map(|app| entry_of(library, app))
+        .collect()
+}
+
+/// `app` as its icon on the home shows it.
+fn entry_of(library: &Library, app: &InstalledProgram) -> HomeEntry {
+    let id = app.manifest.id();
+    HomeEntry {
+        id: id.clone(),
+        name: app.name(),
+        icon: library.icon(id).cloned(),
+        running: library.is_running(id),
+        update_offered: library.update_offered(id),
+        installing: library.is_compiling(id),
+    }
 }
 
 /// Whether a program named `name` is one a user who typed `search` searches for: one whose name

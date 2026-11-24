@@ -48,6 +48,7 @@ use std::future::Future;
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
+use std::time::SystemTime;
 
 use anyhow::{Context as _, Result};
 use futures::StreamExt;
@@ -65,6 +66,7 @@ use waos_store::{InstalledProgram, Source, Store};
 use crate::logic::command_line::{Command, command};
 use crate::logic::installed_runs::{InstalledRuns, Opening};
 use crate::logic::offers::{Offer, offer_of};
+use crate::logic::often_used::{most_started, starts_lately};
 use crate::logic::opened_package::OpenedPackage;
 use crate::logic::opening;
 use crate::logic::package_copies::{PackageCopies, document_name};
@@ -131,6 +133,8 @@ pub(crate) struct Library {
     notifications_refused: HashSet<ProgramId>,
     /// What the user searches the installed programs for, as typed; empty for nothing.
     search: String,
+    /// The installed apps their user starts most lately, the most started first, as last read.
+    often_used: Vec<ProgramId>,
     /// Where the installed programs' shortcuts are kept, on Android; none elsewhere.
     shortcuts: Option<Rc<dyn SystemShortcuts>>,
     /// Whether they are being made to match what is installed.
@@ -199,13 +203,6 @@ impl EventEmitter<ProgramOpened> for Library {}
 /// How many threads the library's runtime reads, downloads and loads on.
 const WORK_THREADS: usize = 2;
 
-/// `installed` from A to Z by the names their user sees, whatever their case, as a launcher lists
-/// its apps; two of one name by their ids, so the order never depends on how the store read them.
-fn by_name(mut installed: Vec<InstalledProgram>) -> Vec<InstalledProgram> {
-    installed.sort_by_cached_key(|app| (app.name().to_lowercase(), app.manifest.id().clone()));
-    installed
-}
-
 /// The source WaOS comes with, which its user removes as any other: the official source, the
 /// catalog of apps their own repositories release (`docs/proposals/2026-11-22-official-source.md`).
 const OFFICIAL_SOURCE: &str = "https://list.waos.app/index.json";
@@ -266,7 +263,7 @@ impl Library {
         cx: &mut Context<Library>,
     ) -> Library {
         let installed_at = *store.installed_changes().borrow();
-        let installed = by_name(store.installed());
+        let installed = store.installed();
         let mut library = Library {
             icons: icons_of(&store, &installed),
             installed,
@@ -290,6 +287,7 @@ impl Library {
             waiting_to_leave: Vec::new(),
             notifications_refused: HashSet::new(),
             search: String::new(),
+            often_used: Vec::new(),
             shortcuts: None,
             shortcuts_matching: ShortcutsMatching::Idle,
             phone_files: None,
@@ -298,6 +296,7 @@ impl Library {
         library.follow_running(cx);
         library.follow_compiling(cx);
         library.follow_installed(cx);
+        library.often_used = library.most_started_lately();
         library
     }
 
@@ -342,7 +341,7 @@ impl Library {
         self.tabs = Some(tabs);
     }
 
-    /// The apps installed, from A to Z by the names their user sees.
+    /// The programs installed, by id.
     pub(crate) fn installed(&self) -> &[InstalledProgram] {
         &self.installed
     }
@@ -350,6 +349,38 @@ impl Library {
     /// The icon of the installed program `id`, a PNG; none where it cannot be read.
     pub(crate) fn icon(&self, id: &ProgramId) -> Option<&Arc<[u8]>> {
         self.icons.get(id)
+    }
+
+    /// The installed apps their user starts most lately, the most started first, as read when
+    /// the home last came into sight: none never started in the days the engine keeps.
+    pub(crate) fn often_used(&self) -> &[ProgramId] {
+        &self.often_used
+    }
+
+    /// Reads again which apps are started most lately. Whoever shows the home asks as it comes
+    /// into sight, and not while it shows, where an app changing place under the pointer would be
+    /// opened by mistake.
+    pub(crate) fn read_often_used(&mut self, cx: &mut Context<Library>) {
+        let often_used = self.most_started_lately();
+        if often_used != self.often_used {
+            self.often_used = often_used;
+            cx.notify();
+        }
+    }
+
+    /// The installed apps started in the days the engine keeps, the most started lately first.
+    fn most_started_lately(&self) -> Vec<ProgramId> {
+        let now = SystemTime::now();
+        let started_lately: Vec<(ProgramId, u32)> = self
+            .installed
+            .iter()
+            .map(|app| {
+                let id = app.manifest.id();
+                let days = self.runs.engine.days_of(id.as_str());
+                (id.clone(), starts_lately(&days, now))
+            })
+            .collect();
+        most_started(&started_lately)
     }
 
     /// What the user searches the installed programs for, as typed; empty for nothing.
@@ -921,8 +952,9 @@ impl Library {
     /// The store changed what is installed: read it again, and what each listing offers.
     fn installed_changed(&mut self, cx: &mut Context<Library>) {
         self.installed_at = *self.store.installed_changes().borrow();
-        self.installed = by_name(self.store.installed());
+        self.installed = self.store.installed();
         self.icons = icons_of(&self.store, &self.installed);
+        self.often_used = self.most_started_lately();
         cx.emit(InstalledChanged);
         self.match_shortcuts(cx);
         for read in &mut self.sources {

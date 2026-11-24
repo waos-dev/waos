@@ -9,16 +9,23 @@
 //!
 //! What it shows is the library's, read as it builds; it keeps nothing of its own.
 
+use std::any::Any;
+use std::rc::Rc;
+
 use waft::{
-    App, BuildContext, Center, Column, CrossAxisAlignment, EdgeInsetsGeometry, Entity, Expanded,
-    IntoWidget, LayoutBuilder, ListView, Listener, MainAxisSize, Padding, Row, SizedBox,
+    App, BuildContext, Center, Color, ColoredBox, Column, CrossAxisAlignment, CustomScrollView,
+    EdgeInsetsGeometry, Entity, Expanded, IntoWidget, LayoutBuilder, Listener, MainAxisSize,
+    Padding, Row, SizedBox, SliverList, SliverPadding, SliverPersistentHeader,
+    SliverPersistentHeaderDelegate, SliverPersistentHeaderDelegateRef, SliverToBoxAdapter,
     StatelessWidget, Text, TextAlign, WidgetRef,
 };
 use waft_winui::{
     Button, ButtonStyle, FluentSymbol, FontIcon, InfoBadgeStyle, TextBlockStyle, ThemeResources,
 };
 
-use super::{HomeEntry, IconTile, TileLook, badge_dot, grid_rows, home_entries};
+use super::{
+    HomeEntry, IconTile, TileLook, badge_dot, grid_rows, home_entries, often_used_entries,
+};
 use crate::logic::setting_changes::SettingsOf;
 use crate::state::library::{Library, LibraryPage};
 use crate::state::recordings::Recordings;
@@ -31,6 +38,8 @@ use crate::ui::library::words;
 pub(crate) const MARGIN: f64 = 24.0;
 /// The room above the grid's first row, which scrolls away with it.
 const GRID_TOP: f64 = 12.0;
+/// How thick the line between the home's sections is.
+const SECTION_LINE: f64 = 1.0;
 /// The size of the symbol over a home with nothing installed.
 const EMPTY_SYMBOL_SIZE: f64 = 48.0;
 const TITLE_TOP: f64 = 16.0;
@@ -100,6 +109,57 @@ impl FluentHome {
     }
 }
 
+/// The hairline between the apps used often and all of them, inset as the icons are.
+#[derive(Debug)]
+pub(crate) struct SectionLine {
+    color: Color,
+}
+
+impl StatelessWidget for SectionLine {
+    fn build(&self, _app: &mut App, _context: BuildContext) -> WidgetRef {
+        Padding::new(EdgeInsetsGeometry::from_ltrb(MARGIN, 0.0, MARGIN, 0.0))
+            .child(ColoredBox::new(self.color).child(SizedBox::expand()))
+            .into_widget()
+    }
+}
+
+/// The [`SectionLine`] as a header of the home's scrolling: it scrolls up with the icons and
+/// stays at the top of the grid once there, the icons passing beneath it.
+#[derive(Debug)]
+struct PinnedSectionLine {
+    color: Color,
+}
+
+impl SliverPersistentHeaderDelegate for PinnedSectionLine {
+    fn build(
+        &self,
+        _app: &mut App,
+        _context: BuildContext,
+        _shrink_offset: f64,
+        _overlaps_content: bool,
+    ) -> WidgetRef {
+        SectionLine { color: self.color }.into_widget()
+    }
+
+    fn min_extent(&self) -> f64 {
+        SECTION_LINE
+    }
+
+    fn max_extent(&self) -> f64 {
+        SECTION_LINE
+    }
+
+    fn should_rebuild(&self, old: &dyn SliverPersistentHeaderDelegate) -> bool {
+        old.as_any()
+            .downcast_ref::<PinnedSectionLine>()
+            .is_none_or(|old| old.color != self.color)
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+}
+
 /// The home under its top row: who records, then the installed programs' icons, or one line where
 /// there are none to show.
 #[derive(Debug)]
@@ -122,7 +182,7 @@ impl StatelessWidget for FluentHomeBody {
         let library = self.library.read(app);
         let entries = home_entries(library);
         let content = if !entries.is_empty() {
-            self.grid(entries, &resources)
+            self.grid(entries, often_used_entries(library), &resources)
         } else if library.search().trim().is_empty() {
             self.nothing_installed(&resources)
         } else {
@@ -137,8 +197,16 @@ impl StatelessWidget for FluentHomeBody {
 }
 
 impl FluentHomeBody {
-    /// The installed programs' icons, in as many columns as the panel's width holds.
-    fn grid(&self, entries: Vec<HomeEntry>, resources: &ThemeResources) -> WidgetRef {
+    /// The installed apps' icons, in as many columns as the panel's width holds, under a line
+    /// that stays at the top as they scroll beneath it; and over the line, where the apps fill
+    /// more than a row, a row of those `often_used`, which scrolls away, as macOS's Apps shows
+    /// its apps.
+    fn grid(
+        &self,
+        entries: Vec<HomeEntry>,
+        often_used: Vec<HomeEntry>,
+        resources: &ThemeResources,
+    ) -> WidgetRef {
         let look = TileLook {
             name_style: TextBlockStyle::Caption
                 .text_style(resources, resources.text_fill_color_primary),
@@ -146,23 +214,45 @@ impl FluentHomeBody {
             dot_color: resources.text_fill_color_secondary,
         };
         let badge_color = InfoBadgeStyle::Attention.background(resources);
-        let tiles: Vec<WidgetRef> = entries
-            .into_iter()
-            .map(|entry| self.tile(entry, &look, badge_color))
-            .collect();
+        let tiles_of = |entries: Vec<HomeEntry>| -> Vec<WidgetRef> {
+            entries
+                .into_iter()
+                .map(|entry| self.tile(entry, &look, badge_color))
+                .collect()
+        };
+        let (tiles, often_used) = (tiles_of(entries), tiles_of(often_used));
+        let line: SliverPersistentHeaderDelegateRef = Rc::new(PinnedSectionLine {
+            color: resources.divider_stroke_color_default,
+        });
         LayoutBuilder::new(move |_app, _context, constraints| {
-            let columns = columns_for(constraints.max_width - 2.0 * (MARGIN - TILE_PADDING[0]));
-            ListView::new()
-                // The room above the first row is the list's own, so the icons scroll up to what
-                // is over the list with no gap, where a gap outside it would cut them short of it.
-                .padding(EdgeInsetsGeometry::from_ltrb(
-                    MARGIN - TILE_PADDING[0],
-                    GRID_TOP,
-                    MARGIN - TILE_PADDING[0],
-                    MARGIN,
-                ))
-                .children(grid_rows(tiles.clone(), columns, ROW_GAP))
-                .into_widget()
+            let side = MARGIN - TILE_PADDING[0];
+            let columns = columns_for(constraints.max_width - 2.0 * side);
+            let mut slivers = Vec::new();
+            // A row of the apps used often says nothing while every app is in sight in one row.
+            if tiles.len() > columns && !often_used.is_empty() {
+                let first_row: Vec<WidgetRef> = often_used.iter().take(columns).cloned().collect();
+                let row = Column::new().children(grid_rows(first_row, columns, ROW_GAP));
+                slivers.push(
+                    SliverPadding::new(EdgeInsetsGeometry::from_ltrb(
+                        side, GRID_TOP, side, GRID_TOP,
+                    ))
+                    .sliver(SliverToBoxAdapter::new().child(row))
+                    .into_widget(),
+                );
+            }
+            slivers.push(
+                SliverPersistentHeader::new(Rc::clone(&line))
+                    .pinned(true)
+                    .into_widget(),
+            );
+            // The room above the first row is the list's own, so the icons scroll up to the line
+            // with no gap, where a gap outside the list would cut them short of it.
+            slivers.push(
+                SliverPadding::new(EdgeInsetsGeometry::from_ltrb(side, GRID_TOP, side, MARGIN))
+                    .sliver(SliverList::list(grid_rows(tiles.clone(), columns, ROW_GAP)))
+                    .into_widget(),
+            );
+            CustomScrollView::new().slivers(slivers).into_widget()
         })
         .into_widget()
     }

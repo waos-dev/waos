@@ -1,8 +1,11 @@
 //! Steps the library's tests take in the launcher and in a phone's window alike: showing the
-//! library in either, installing a program, and adding a source.
+//! library in either, installing a program, adding a source, and an app having been started.
+
+use std::time::{Duration, SystemTime};
 
 use waft::IntoWidget;
 use waft::ui::{View as _, ViewId};
+use waos::{AuditDay, AuditLog as _};
 
 use super::LaidOutLibrary;
 use crate::state::library::Listing;
@@ -62,4 +65,18 @@ pub(crate) fn adds_source(desktop: &mut LibraryDesktop, index: &str) {
                 .all(|read| !matches!(read.listing, Listing::Reading))
         })
     });
+}
+
+/// The app `id` was started `starts` times yesterday, as the engine's record of it says.
+pub(crate) fn started_yesterday(desktop: &mut LibraryDesktop, id: &str, starts: u32) {
+    const DAY: u64 = 24 * 60 * 60;
+    let now = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .expect("after 1970")
+        .as_secs();
+    let yesterday = SystemTime::UNIX_EPOCH + Duration::from_secs((now / DAY - 1) * DAY);
+    let mut day = AuditDay::starting(yesterday);
+    day.starts = starts;
+    desktop.store.keep(id, &day);
+    desktop.update(|library, cx| library.read_often_used(cx));
 }

@@ -18,19 +18,21 @@ use std::sync::Arc;
 use waft::ui::{
     HostWindow as _, Offset, TargetPlatform, View as _, ViewId, WindowBackground, WindowLevel,
 };
-use waft::{Entity, ListView};
+use waft::{CustomScrollView, Entity};
 use waft_test::TestWindow;
 use waft_winui::{FluentSymbol, FontIcon};
 use waos_package::ProgramId;
 
-use super::home::{LauncherHome, SearchRowLine};
+use super::home::LauncherHome;
 use super::launcher_window;
 use crate::state::launcher::Launcher;
 use crate::state::library::test_desktop::{DesktopKind, LibraryDesktop};
 use crate::state::library::test_server::Server;
 use crate::state::waos_tray::WaosTray;
 use crate::ui::library::home::RunningDot;
+use crate::ui::library::home::fluent::SectionLine;
 use crate::ui::library::program_icon::ProgramIcon;
+use crate::ui::library::test_steps::{installs, started_yesterday};
 use crate::ui::library::words;
 
 const TRIANGLE: &str = "dev.example.triangle";
@@ -295,21 +297,120 @@ fn the_empty_search_field_shows_no_caret_and_takes_what_is_typed() {
     assert!(!search_draws_its_caret(&mut desktop), "empty again");
 }
 
-/// The grid scrolls right up to the line under the search row: the room above its first row is
-/// the grid's own, scrolling away with it, so no gap cuts the icons short of the line.
-#[test]
-fn the_grid_scrolls_up_to_the_line_under_the_search_row() {
+/// Twenty-six apps, several rows more than the launcher shows without scrolling, named so their
+/// order is plain.
+const MANY: [&str; 26] = [
+    "Alpha", "Bravo", "Charlie", "Delta", "Echo", "Foxtrot", "Golf", "Hotel", "India", "Juliett",
+    "Kilo", "Lima", "Mike", "November", "Oscar", "Papa", "Quebec", "Romeo", "Sierra", "Tango",
+    "Uniform", "Victor", "Whiskey", "Xray", "Yankee", "Zulu",
+];
+
+fn id_of(name: &str) -> String {
+    format!("dev.example.{}", name.to_lowercase())
+}
+
+/// The launcher with the first `count` of [`MANY`] installed.
+fn with_apps(count: usize) -> LibraryDesktop {
     let (mut desktop, _launcher) = desktop();
-    install(&mut desktop, TRIANGLE, "Triangle", "1.0.0", b"\0asm");
+    for name in &MANY[..count] {
+        installs(&mut desktop, &id_of(name), name, b"\0asm");
+    }
+    desktop
+}
+
+/// More apps than one row of the launcher holds.
+const OVER_A_ROW: usize = 10;
+
+/// Where the grid scrolls, and where the line between its sections is.
+fn grid_and_line(desktop: &LibraryDesktop) -> (waft::Rect, waft::Rect) {
+    let grid = desktop
+        .bounds_of::<CustomScrollView>(&|_| true)
+        .expect("the grid");
     let line = desktop
-        .bounds_of::<SearchRowLine>(&|_| true)
+        .bounds_of::<SectionLine>(&|_| true)
         .expect("the line");
-    let grid = desktop.bounds_of::<ListView>(&|_| true).expect("the grid");
+    (grid, line)
+}
+
+/// With no app used often, the line is the grid's top, right under the search row, and the room
+/// above the first row is the grid's own, scrolling away with it, so the icons scroll up to the
+/// line with no gap.
+#[test]
+fn with_no_app_used_often_the_line_is_the_grids_top_and_the_icons_scroll_up_to_it() {
+    let desktop = with_apps(OVER_A_ROW);
+    let (grid, line) = grid_and_line(&desktop);
     let icon = desktop
         .bounds_of::<ProgramIcon>(&|_| true)
         .expect("an icon");
-    assert_eq!(grid.top, line.bottom, "no gap between them");
-    assert!(icon.top > grid.top, "room above the first row, inside");
+    assert_eq!(line.top, grid.top, "no gap over the line");
+    assert!(icon.top > line.bottom, "room above the first row, inside");
+    assert_eq!(
+        desktop
+            .labels()
+            .iter()
+            .filter(|label| *label == "Hotel")
+            .count(),
+        1,
+        "no first row"
+    );
+}
+
+/// The apps started most lately fill a first row over the line, the most started first, each
+/// still in its place from A to Z below.
+#[test]
+fn the_apps_started_most_lately_fill_a_first_row_over_the_line() {
+    let mut desktop = with_apps(OVER_A_ROW);
+    started_yesterday(&mut desktop, &id_of("Hotel"), 3);
+    started_yesterday(&mut desktop, &id_of("Bravo"), 1);
+    let (grid, line) = grid_and_line(&desktop);
+    let (hotel, bravo) = (
+        desktop.find("Hotel").expect("in the first row"),
+        desktop.find("Bravo").expect("in the first row"),
+    );
+    assert!(
+        grid.top < hotel.dy() && hotel.dy() < line.top,
+        "over the line"
+    );
+    assert!(hotel.dx() < bravo.dx(), "the most started first");
+    assert!((hotel.dy() - bravo.dy()).abs() < 1.0, "in one row");
+    let shown = |name: &str| {
+        desktop
+            .labels()
+            .iter()
+            .filter(|label| *label == name)
+            .count()
+    };
+    assert_eq!((shown("Hotel"), shown("Bravo")), (2, 2), "and in the grid");
+    assert_eq!(
+        shown("Alpha"),
+        1,
+        "an app never started is in the grid alone"
+    );
+}
+
+/// The line scrolls up with the first row and stays at the grid's top once there, the icons
+/// passing beneath it; and searching shows what was searched for alone, with no first row.
+#[test]
+fn the_line_stays_at_the_top_once_scrolled_there_and_searching_hides_the_first_row() {
+    let mut desktop = with_apps(MANY.len());
+    started_yesterday(&mut desktop, &id_of("Hotel"), 3);
+    let view = launcher_view(&desktop);
+    let (grid, line) = grid_and_line(&desktop);
+    assert!(line.top > grid.top, "under the first row");
+    desktop.scroll_until_visible(view, "Zulu", "Alpha", 200.0);
+    let (grid, line) = grid_and_line(&desktop);
+    assert_eq!(
+        line.top, grid.top,
+        "at the top, the first row gone above it"
+    );
+
+    desktop.type_text(view, "hot");
+    let shown: Vec<String> = desktop.labels();
+    assert_eq!(
+        shown.iter().filter(|label| *label == "Hotel").count(),
+        1,
+        "{shown:?}"
+    );
 }
 
 /// The grid lists the apps from A to Z by the names their user reads, whatever their case, not
