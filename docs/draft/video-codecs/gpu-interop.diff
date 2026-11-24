@@ -1,0 +1,13 @@
+--- a/wit/deps/wasdk-platform-2.1.0/gpu-interop.wit	2026-11-23 22:14:27
++++ b/wit/deps/wasdk-platform-2.1.0/gpu-interop.wit	2026-11-24 18:17:54
+@@ -16,4 +16,10 @@
+   /// and a video frame's buffer the frame, until the GPU is done with it. Native hosts share the
+   /// buffer's memory; a web host copies it.
+   import-texture: func(device: borrow<gpu-device>, buffer: borrow<hardware-buffer>) -> gpu-texture;
++
++  /// A texture on `device` over one plane of `buffer`'s memory, sampled and copied from: the
++  /// plane at `index` of a video frame's planes (`wasdk:media/video-frames`), of that plane's
++  /// size and format. It holds the buffer, and the frame, as `import-texture`'s does. A buffer
++  /// with one plane has only plane 0, which is `import-texture`'s texture.
++  import-plane: func(device: borrow<gpu-device>, buffer: borrow<hardware-buffer>, index: u32) -> gpu-texture;
+ }

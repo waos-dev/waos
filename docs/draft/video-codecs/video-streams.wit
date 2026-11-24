@@ -1,0 +1,94 @@
+package wasdk:media@2.1.0;
+
+/// Encoded video as the system's decoders take it and its encoders give it: which codec, how the
+/// stream is set up and framed, and one picture's bytes. These are the types `video-decoders` and
+/// `video-encoders` share, so an encoder's output opens a decoder, or fills a file's header, with
+/// nothing translated.
+///
+/// **A stream is its codec and its setup bytes.** Every system's decoder is configured from the
+/// bytes a container holds for the stream (`avcC`, `hvcC`, `vpcC`, `av1C`) or the stream carries
+/// itself, and reads the profile, the level and the picture's size out of them. Nothing here says
+/// those twice: there is no codec string beside the bytes, as WebCodecs has, for the two to
+/// disagree.
+interface video-streams {
+  /// A family of video streams.
+  enum video-codec {
+    h264,
+    hevc,
+    vp8,
+    vp9,
+    av1,
+  }
+
+  /// How an H.264 or HEVC stream frames its units, with its setup in that form. Files hold one
+  /// form and broadcasts, cameras and calls the other; each system's decoder takes one of them,
+  /// and the engine converts.
+  variant nal-format {
+    /// As MP4, FLV and Matroska hold it: each unit after its length. The configuration record
+    /// (`avcC`, `hvcC`) gives the length's size and the parameter sets, which the stream may
+    /// carry too.
+    length-prefixed(list<u8>),
+    /// Annex B, as transport streams, RTSP and cameras send it: each unit after a start code.
+    /// The parameter sets are in the stream, or given ahead here in the same form.
+    start-codes(option<list<u8>>),
+  }
+
+  /// A stream's codec with what a decoder needs to begin on it.
+  variant video-stream-setup {
+    h264(nal-format),
+    hevc(nal-format),
+    vp8,
+    /// With its `vpcC` record, where the container has one.
+    vp9(option<list<u8>>),
+    /// With its `av1C` record, where the container has one. The chunks are AV1's low-overhead
+    /// form, as MP4, WebM and WebCodecs hold them.
+    av1(option<list<u8>>),
+  }
+
+  /// One picture of a stream, encoded.
+  record encoded-chunk {
+    /// The whole of one picture (an access unit), framed as the stream's setup says.
+    data: list<u8>,
+    /// When the picture is shown, in nanoseconds on the stream's own timeline, which may begin
+    /// before zero. No two chunks of a stream share one: Android's decoders refuse that.
+    timestamp: s64,
+    /// How long it is shown, in nanoseconds, where the stream says.
+    duration: option<u64>,
+    /// Whether it decodes with nothing before it.
+    key-frame: bool,
+  }
+
+  /// Which of the system's codecs the app accepts.
+  enum codec-choice {
+    /// Whichever the system picks, hardware first.
+    any,
+    /// One that runs on the system's video hardware, or none.
+    hardware,
+    /// One that runs on the processor, or none.
+    software,
+  }
+
+  /// Where a codec runs.
+  enum codec-kind {
+    hardware,
+    software,
+  }
+
+  /// A picture's size in pixels.
+  record picture-size {
+    width: u32,
+    height: u32,
+  }
+
+  /// How much of a picture's colour is kept beside its brightness.
+  enum chroma-sampling {
+    /// Half in each direction, 4:2:0: nearly all video.
+    yuv420,
+    /// Half across, 4:2:2.
+    yuv422,
+    /// All of it, 4:4:4.
+    yuv444,
+    /// None: a grey picture.
+    gray,
+  }
+}
