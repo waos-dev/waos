@@ -9,22 +9,27 @@
 use std::rc::Rc;
 
 use waft::{
-    App, BuildContext, EdgeInsetsGeometry, Entity, IntoWidget, ListView, StatelessWidget, Task,
-    Text, WidgetRef,
+    App, BorderRadiusGeometry, BoxDecoration, BuildContext, Builder, Center, DecoratedBox,
+    EdgeInsetsGeometry, Entity, Icon, IntoWidget, ListView, SizedBox, StatelessWidget, Task, Text,
+    TextStyle, WidgetRef,
 };
 use waft_cupertino::{
-    CupertinoColors, CupertinoListSection, CupertinoListTile, CupertinoListTileChevron,
-    CupertinoNavigationBar, CupertinoPageScaffold, ObstructingPreferredSizeWidgetRef,
+    CupertinoColors, CupertinoIcons, CupertinoListSection, CupertinoListTile,
+    CupertinoListTileChevron, CupertinoNavigationBar, CupertinoPageScaffold,
+    ObstructingPreferredSizeWidgetRef,
 };
 
 use super::{listed_apps, permission_defaults, waos_has_settings};
+use crate::logic::permissions::Permission;
 use crate::state::library::{Library, LibraryPage, SettingsPage};
 use crate::ui::library::cupertino::{back_to_home, back_to_page_beneath, under_bar};
+use crate::ui::library::home::cupertino::resolved;
 use crate::ui::library::program_icon::ProgramIcon;
 use crate::ui::library::words;
 
-/// The side of an app's icon in its row, as iOS's Settings shows its apps.
+/// The side of an app's icon in its row, and of a permission's, as iOS's Settings shows them.
 pub(crate) const ICON_SIDE: f64 = 30.0;
+const PERMISSION_ICON_SIDE: f64 = 29.0;
 
 /// The settings' first page, in Cupertino's widgets.
 #[derive(Debug)]
@@ -65,7 +70,7 @@ impl StatelessWidget for CupertinoSettingsRoot {
         if !apps.is_empty() {
             sections.push(
                 CupertinoListSection::inset_grouped()
-                    .header(Text::new(words::APPS))
+                    .header(footnote(words::APPS))
                     .children(apps)
                     .into_widget(),
             );
@@ -91,6 +96,8 @@ impl StatelessWidget for CupertinoPermissions {
                     words::permission_name(permission),
                     SettingsPage::Permission(permission),
                 )
+                .leading(permission_icon(permission))
+                .leading_size(PERMISSION_ICON_SIDE)
                 .additional_info(Text::new(default))
                 .into_widget()
             })
@@ -98,7 +105,7 @@ impl StatelessWidget for CupertinoPermissions {
         let sections = vec![
             CupertinoListSection::inset_grouped()
                 .children(rows)
-                .footer(Text::new(words::PERMISSIONS_DETAIL))
+                .footer(footnote(words::PERMISSIONS_DETAIL))
                 .into_widget(),
         ];
         let back = back_to_page_beneath(&self.library, words::SETTINGS);
@@ -119,6 +126,53 @@ fn page(back: WidgetRef, title: &str, sections: Vec<WidgetRef>) -> WidgetRef {
     }))
     .navigation_bar(ObstructingPreferredSizeWidgetRef::new(bar))
     .background_color(CupertinoColors::SYSTEM_GROUPED_BACKGROUND)
+    .into_widget()
+}
+
+/// `text` as iOS's grouped lists say what is over or under them: footnote-sized, in the
+/// secondary label colour.
+pub(crate) fn footnote(text: &str) -> WidgetRef {
+    let text = text.to_owned();
+    Builder::new(move |app, context| {
+        let color = resolved(CupertinoColors::SECONDARY_LABEL, app, context);
+        Text::new(text.clone())
+            .style(TextStyle::new().font_size(13.0).color(color))
+            .into_widget()
+    })
+    .into_widget()
+}
+
+/// The icon of `permission` as iOS's Settings marks a row: a white symbol on a rounded square of
+/// the kind's colour.
+fn permission_icon(permission: Permission) -> WidgetRef {
+    let (symbol, color) = match permission {
+        Permission::Network => (CupertinoIcons::globe(), CupertinoColors::SYSTEM_BLUE),
+        Permission::LocalNetwork => (CupertinoIcons::wifi(), CupertinoColors::SYSTEM_TEAL),
+        Permission::Clipboard => (
+            CupertinoIcons::doc_on_clipboard(),
+            CupertinoColors::SYSTEM_ORANGE,
+        ),
+        Permission::Folders => (CupertinoIcons::folder(), CupertinoColors::SYSTEM_BLUE),
+        Permission::Notifications => (CupertinoIcons::bell(), CupertinoColors::SYSTEM_RED),
+        Permission::Camera => (CupertinoIcons::camera(), CupertinoColors::SYSTEM_GREY),
+        Permission::Microphone => (CupertinoIcons::mic(), CupertinoColors::SYSTEM_ORANGE),
+        Permission::ActivityRecord => (CupertinoIcons::chart_bar(), CupertinoColors::SYSTEM_INDIGO),
+    };
+    Builder::new(move |app, context| {
+        let ground = BoxDecoration {
+            color: Some(resolved(color.clone(), app, context).into()),
+            border_radius: Some(BorderRadiusGeometry::circular(PERMISSION_ICON_SIDE * 0.225)),
+            ..BoxDecoration::default()
+        };
+        let glyph = Icon::new(Some(symbol.clone()))
+            .size(PERMISSION_ICON_SIDE * 0.62)
+            .color(CupertinoColors::WHITE);
+        SizedBox::new()
+            .width(PERMISSION_ICON_SIDE)
+            .height(PERMISSION_ICON_SIDE)
+            .child(DecoratedBox::new(ground).child(Center::new().child(glyph)))
+            .into_widget()
+    })
     .into_widget()
 }
 

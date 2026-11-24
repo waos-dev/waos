@@ -259,6 +259,7 @@ pub(crate) const LOCAL_NETWORK: &str = "This computer and the local network";
 pub(crate) const ANY_DOMAIN: &str = "Any domain";
 pub(crate) const ONLY_DOMAINS: &str = "Only these domains";
 pub(crate) const ANY_DOMAIN_BUT: &str = "All domains but these";
+pub(crate) const WHICH_DOMAINS: &str = "Which domains";
 pub(crate) const DOMAIN_PLACEHOLDER: &str = "example.com";
 pub(crate) const CLIPBOARD_READ: &str = "Reading the clipboard";
 pub(crate) const CLIPBOARD_WRITE: &str = "Writing the clipboard";

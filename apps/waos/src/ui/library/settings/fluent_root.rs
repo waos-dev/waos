@@ -19,6 +19,7 @@ use waft_winui::{
 };
 
 use super::{listed_apps, permission_defaults, waos_has_settings};
+use crate::logic::permissions::Permission;
 use crate::state::library::{Library, LibraryPage, SettingsPage};
 use crate::ui::library::home::fluent::MARGIN;
 use crate::ui::library::program_icon::ProgramIcon;
@@ -99,7 +100,7 @@ impl StatelessWidget for FluentPermissions {
                 link_card(
                     &self.library,
                     &resources,
-                    None,
+                    Some(symbol(permission_symbol(permission), &resources)),
                     words::permission_name(permission),
                     Some(&default),
                     SettingsPage::Permission(permission),
@@ -162,6 +163,20 @@ pub(crate) fn heading(text: &str, resources: &ThemeResources) -> WidgetRef {
     Padding::new(EdgeInsetsGeometry::only(0.0, 16.0, 0.0, 8.0))
         .child(Text::new(text).style(TextBlockStyle::BodyStrong.text_style(resources, primary)))
         .into_widget()
+}
+
+/// The symbol of `permission`, as Windows's Settings marks each of its privacy pages.
+fn permission_symbol(permission: Permission) -> FluentSymbol {
+    match permission {
+        Permission::Network => FluentSymbol::Globe,
+        Permission::LocalNetwork => FluentSymbol::Desktop,
+        Permission::Clipboard => FluentSymbol::Clipboard,
+        Permission::Folders => FluentSymbol::Folder,
+        Permission::Notifications => FluentSymbol::Alert,
+        Permission::Camera => FluentSymbol::Camera,
+        Permission::Microphone => FluentSymbol::Mic,
+        Permission::ActivityRecord => FluentSymbol::Pulse,
+    }
 }
 
 /// `symbol` as a card's mark, in the room an app's icon takes.

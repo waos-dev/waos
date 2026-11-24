@@ -623,7 +623,7 @@ fn each_setting_that_is_on_or_off_is_a_switch_on_a_row_naming_it_on_the_phone() 
     assert!(!desktop.shows(words::ON) && !desktop.shows(words::OFF));
     assert!(
         desktop.shows(words::ANY_DOMAIN),
-        "a choice among named things stays a segmented control"
+        "a choice among named things is a list, its choice checked"
     );
     for (permission, name, value) in on_off_settings() {
         go_to_permission(&mut desktop, view, permission);

@@ -19,14 +19,13 @@
 //! seen, whether it is writable, and a path for each file dialog.
 
 use std::fmt::Debug;
-use std::hash::Hash;
 use std::rc::Rc;
 
 use indexmap::IndexMap;
 use waft::{
-    App, BuildContext, EdgeInsetsGeometry, Entity, Handle, Icon, IntoWidget, ListView, Listener,
-    Padding, Ref, SizedBox, State, StateData, StatefulWidget, Task, Text, TextEditingController,
-    TextEditingControllerLeaf, ValueChanged, WidgetRef,
+    App, BuildContext, Builder, EdgeInsetsGeometry, Entity, Handle, Icon, IntoWidget, ListView,
+    Listener, Padding, Ref, SizedBox, State, StateData, StatefulWidget, Task, Text,
+    TextEditingController, TextEditingControllerLeaf, ValueChanged, WidgetRef,
 };
 use waft_cupertino::{
     CupertinoButton, CupertinoColors, CupertinoIcons, CupertinoListSection, CupertinoListTile,
@@ -37,7 +36,7 @@ use waos::{FileDialog, SimulatedSound};
 use waos_activity::Activity;
 use waos_store::{Answer, DomainRule, FileSystemGrant, NetworkGrant, Question, Role};
 
-use super::cupertino_root::{ICON_SIDE, link_row};
+use super::cupertino_root::{ICON_SIDE, footnote, link_row};
 use super::set_otherwise;
 use crate::logic::permissions::Permission;
 use crate::logic::setting_changes::{
@@ -47,6 +46,7 @@ use crate::logic::setting_changes::{
 use crate::state::SIMULATED_CAMERA;
 use crate::state::library::{Library, SettingsPage};
 use crate::ui::library::cupertino::{back_to_page_beneath, under_bar};
+use crate::ui::library::home::cupertino::resolved;
 use crate::ui::library::program_icon::ProgramIcon;
 use crate::ui::library::words;
 
@@ -244,7 +244,7 @@ impl Page {
             sections.push(self.machines(&shown.machines));
         }
         if self.shows(Permission::Network) {
-            sections.push(self.network(&shown.network));
+            sections.extend(self.network(&shown.network));
         }
         if self.shows(Permission::LocalNetwork) {
             sections.push(self.switch(
@@ -455,19 +455,25 @@ impl Page {
     }
 
     /// The network's switch, its rule of domains beneath it.
-    fn network(&self, shown: &Shown<NetworkGrant>) -> WidgetRef {
+    /// The network's switch; and, while it is on, which domains, as a list of its own, with the
+    /// domains named where the choice names some.
+    fn network(&self, shown: &Shown<NetworkGrant>) -> Vec<WidgetRef> {
         let network = &shown.value;
-        let mut tiles = vec![self.switch_row(words::NETWORK, network.on, SettingChange::NetworkOn)];
+        let switch = vec![self.switch_row(words::NETWORK, network.on, SettingChange::NetworkOn)];
+        let mut sections = vec![self.setting(None, shown.follows_global, Which::Network, switch)];
+        if !network.on {
+            return sections;
+        }
         let choices = [
             (DomainsKind::Any, words::ANY_DOMAIN),
             (DomainsKind::Only, words::ONLY_DOMAINS),
             (DomainsKind::AnyBut, words::ANY_DOMAIN_BUT),
         ];
-        tiles.push(self.choice(
+        let mut tiles = self.checklist(
             &choices,
             domains_kind(&network.domains),
             SettingChange::Domains,
-        ));
+        );
         if let DomainRule::Only(domains) | DomainRule::AnyBut(domains) = &network.domains {
             for domain in domains {
                 tiles.push(
@@ -481,7 +487,8 @@ impl Page {
                 SettingChange::AddDomain,
             ));
         }
-        self.setting(None, shown.follows_global, Which::Network, tiles)
+        sections.push(section(Some(words::WHICH_DOMAINS), None, tiles));
+        sections
     }
 
     /// A setting that is only on or off: a section of its switch's row alone, which names it.
@@ -539,9 +546,9 @@ impl Page {
             choices.push((Some(Answer::Simulated), words::SIMULATED));
         }
         let answer = shown.value;
-        let mut tiles = vec![self.choice(&choices, answer, move |answer| {
+        let mut tiles = self.checklist(&choices, answer, move |answer| {
             SettingChange::Answer(question, answer)
-        })];
+        });
         if answer == Some(Answer::Simulated) {
             tiles.extend(self.simulated(question, &settings.simulated_microphone));
         }
@@ -565,10 +572,12 @@ impl Page {
                     (SimulatedSound::Tone, words::QUIET_TONE),
                     (SimulatedSound::Silence, words::SILENCE),
                 ];
-                let mut tiles = vec![
-                    note(words::SIMULATED_MICROPHONE_DETAIL),
-                    self.choice(&choices, sound.value, SettingChange::SimulatedMicrophone),
-                ];
+                let mut tiles = vec![note(words::SIMULATED_MICROPHONE_DETAIL)];
+                tiles.extend(self.checklist(
+                    &choices,
+                    sound.value,
+                    SettingChange::SimulatedMicrophone,
+                ));
                 if self.of != SettingsOf::Global && !sound.follows_global {
                     let follow = self.on(SettingChange::FollowGlobal(Which::SimulatedMicrophone));
                     tiles.push(
@@ -662,36 +671,38 @@ impl Page {
 
     /// A tile choosing one of `choices`, `selected` the one chosen, or none of them when it is
     /// none of them, each choice changing the settings as `change` makes it.
-    fn choice<T: Copy + Eq + Hash + Debug + 'static>(
+    /// A row for each of `choices`, a checkmark on `selected`'s, as iOS's Settings lists a
+    /// choice among named things; a tap on a row chooses it, the settings changing as `change`
+    /// makes it.
+    fn checklist<T: Copy + Eq + Debug + 'static>(
         &self,
         choices: &[(T, &str)],
         selected: T,
         change: impl Fn(T) -> SettingChange + 'static,
-    ) -> WidgetRef {
-        let segments: IndexMap<T, WidgetRef> = choices
+    ) -> Vec<WidgetRef> {
+        let change = Rc::new(change);
+        choices
             .iter()
-            .map(|(value, label)| {
-                let label = Padding::new(EdgeInsetsGeometry::symmetric(6.0, 10.0))
-                    .child(Text::new(*label))
-                    .into_widget();
-                (*value, label)
-            })
-            .collect();
-        let (library, of) = (self.library.clone(), self.of.clone());
-        let chosen = Rc::new(move |app: &mut App, value: T| {
-            if value != selected {
-                library.update(app, |library, cx| {
-                    library.change_settings(&of, change(value), cx)
+            .map(|&(value, label)| {
+                let (library, of, change) =
+                    (self.library.clone(), self.of.clone(), Rc::clone(&change));
+                let choose = Rc::new(move |app: &mut App| {
+                    if value != selected {
+                        library.update(app, |library, cx| {
+                            library.change_settings(&of, change(value), cx)
+                        });
+                    }
+                    Task::ready(())
                 });
-            }
-        });
-        let mut control = CupertinoSegmentedControl::new(segments, chosen);
-        if choices.iter().any(|(value, _)| *value == selected) {
-            control = control.group_value(selected);
-        }
-        Padding::new(EdgeInsetsGeometry::symmetric(8.0, 16.0))
-            .child(control)
-            .into_widget()
+                let tile = CupertinoListTile::new(Text::new(label)).on_tap(choose);
+                if value == selected {
+                    tile.trailing(checkmark())
+                } else {
+                    tile
+                }
+                .into_widget()
+            })
+            .collect()
     }
 
     /// One of a rule's list, with Remove.
@@ -813,13 +824,23 @@ impl Page {
 fn section(title: Option<&str>, footer: Option<&str>, tiles: Vec<WidgetRef>) -> WidgetRef {
     let section = CupertinoListSection::inset_grouped().children(tiles);
     let section = match title {
-        Some(title) => section.header(Text::new(title)),
+        Some(title) => section.header(footnote(title)),
         None => section,
     };
     match footer {
-        Some(footer) => section.footer(Text::new(footer)).into_widget(),
+        Some(footer) => section.footer(footnote(footer)).into_widget(),
         None => section.into_widget(),
     }
+}
+
+/// The checkmark on the row chosen, in the tint colour.
+fn checkmark() -> WidgetRef {
+    Builder::new(|app, context| {
+        Icon::new(Some(CupertinoIcons::check_mark()))
+            .color(resolved(CupertinoColors::ACTIVE_BLUE, app, context))
+            .into_widget()
+    })
+    .into_widget()
 }
 
 /// `text` across the whole width it is given: a list tile cuts its title to one line, and under a
@@ -849,7 +870,7 @@ fn last_days(activity: &Activity, recorded: bool) -> WidgetRef {
 /// `text` over the page's lists, as a list's footer says it, in from the page's side.
 fn said_over_the_lists(text: &str) -> WidgetRef {
     Padding::new(EdgeInsetsGeometry::from_ltrb(20.0, 16.0, 20.0, 0.0))
-        .child(Text::new(text))
+        .child(footnote(text))
         .into_widget()
 }
 
