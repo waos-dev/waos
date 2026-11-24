@@ -50,7 +50,8 @@ interface video-streams {
     /// The whole of one picture (an access unit), framed as the stream's setup says.
     data: list<u8>,
     /// When the picture is shown, in nanoseconds on the stream's own timeline, which may begin
-    /// before zero. No two chunks of a stream share one: Android's decoders refuse that.
+    /// before zero: carried to the picture's frame unchanged. A decoder does not order by it:
+    /// frames come out in the stream's own order, whatever the times say.
     timestamp: s64,
     /// How long it is shown, in nanoseconds, where the stream says.
     duration: option<u64>,

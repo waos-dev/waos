@@ -24,6 +24,7 @@ Each follows what the systems' own codecs take and give, so an app is not blocke
 - **`drain` and `reset`.** The web's `flush` means the opposite on Android.
 - **The same decoder takes a new setup.** Apple can ask a session whether it accepts a new format, and Android changes size in place when told the largest beforehand.
 - **"Can it decode?" answers yes, no or unknown, for hardware and for software.** Apple tells only whether a codec has hardware at all; a guess presented as a fact is how the web came to say "supported" and then decode in software.
+- **Frames come out in the stream's own order, and a chunk's time is a label.** Every system's decoder but Apple's orders pictures from the stream; VideoToolbox leaves it to its caller, so there the order is read from the stream for it. An app whose times are missing or wrong gets the same order everywhere.
 - **A chunk is its bytes, timestamp, duration and key flag.** No system's decoder takes an alpha side stream; an app runs two decoders and joins the planes itself.
 - **A purpose, not a latency flag.** Apple and Android tell three uses apart: live, played, and unwatched.
 - **A frame is the decoder's own picture.** Nothing is converted to RGB behind the app. It reads the planes where the system has them; where it keeps the layout to itself, as many Android decoders do, the frame has none and is shown on a composition layer.
