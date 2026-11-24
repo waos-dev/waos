@@ -367,3 +367,31 @@ opt-level = 3
 # a release build, so a debug WaOS took minutes to show `examples/hello` in the simulator.
 [profile.dev.package.pulley-interpreter]
 opt-level = 3
+
+# Waft from waos-dev/waft#160, until Waft releases it: the system's video decoders, VideoToolbox's
+# on macOS and iOS, which WaOS hands a program as its own.
+[patch.crates-io]
+waft = { git = "https://github.com/waos-dev/waft", branch = "video-decoders" }
+waft-animation = { git = "https://github.com/waos-dev/waft", branch = "video-decoders" }
+waft-cupertino = { git = "https://github.com/waos-dev/waft", branch = "video-decoders" }
+waft-embedder = { git = "https://github.com/waos-dev/waft", branch = "video-decoders" }
+waft-embedder-android = { git = "https://github.com/waos-dev/waft", branch = "video-decoders" }
+waft-embedder-apple = { git = "https://github.com/waos-dev/waft", branch = "video-decoders" }
+waft-embedder-default = { git = "https://github.com/waos-dev/waft", branch = "video-decoders" }
+waft-embedder-ios = { git = "https://github.com/waos-dev/waft", branch = "video-decoders" }
+waft-embedder-web = { git = "https://github.com/waos-dev/waft", branch = "video-decoders" }
+waft-embedder-winit = { git = "https://github.com/waos-dev/waft", branch = "video-decoders" }
+waft-foundation = { git = "https://github.com/waos-dev/waft", branch = "video-decoders" }
+waft-gestures = { git = "https://github.com/waos-dev/waft", branch = "video-decoders" }
+waft-macros = { git = "https://github.com/waos-dev/waft", branch = "video-decoders" }
+waft-painting = { git = "https://github.com/waos-dev/waft", branch = "video-decoders" }
+waft-physics = { git = "https://github.com/waos-dev/waft", branch = "video-decoders" }
+waft-rendering = { git = "https://github.com/waos-dev/waft", branch = "video-decoders" }
+waft-scheduler = { git = "https://github.com/waos-dev/waft", branch = "video-decoders" }
+waft-service-protocol = { git = "https://github.com/waos-dev/waft", branch = "video-decoders" }
+waft-services = { git = "https://github.com/waos-dev/waft", branch = "video-decoders" }
+waft-shell = { git = "https://github.com/waos-dev/waft", branch = "video-decoders" }
+waft-single-instance = { git = "https://github.com/waos-dev/waft", branch = "video-decoders" }
+waft-test = { git = "https://github.com/waos-dev/waft", branch = "video-decoders" }
+waft-widgets = { git = "https://github.com/waos-dev/waft", branch = "video-decoders" }
+waft-winui = { git = "https://github.com/waos-dev/waft", branch = "video-decoders" }

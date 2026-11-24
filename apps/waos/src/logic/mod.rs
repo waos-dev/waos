@@ -151,4 +151,6 @@ pub(crate) mod test_outputs;
 pub(crate) mod test_pattern;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(crate) mod tray_image;
+pub(crate) mod video_decoder_calls;
+pub(crate) mod video_values;
 pub(crate) mod vsync_waiter;
