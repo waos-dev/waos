@@ -1,7 +1,10 @@
 # Sources
 
-- **A source is a list of apps:** an `index.json` at a URL, or a GitHub repository's latest release. ([source.rs](/crates/waos-store/src/source.rs))
-- **A source says what a store shows of each app:** its icon, a line, a description, its category, who publishes it, when it was released and its screenshots, plus the source's own name and what it features. That's the source's word, for showing; what installs is still decided by the package's checksum and its publisher's key. ([index.rs](/crates/waos-package/src/index.rs))
+- **A source is a place that lists apps:** a website by its address (`waos.app`), a folder on one (`example.com/apps`), or a GitHub repository's latest release. ([source.rs](/crates/waos-store/src/source.rs))
+- **A website lists its apps under `/.well-known/waos/`:** an `index.json`, with the packages and pictures it names beside it. ([source.rs](/crates/waos-store/src/source.rs))
+  - *Why:* it's the standard place for what a site offers one kind of client (RFC 8615), so it never collides with the site's own pages.
+- **A source says what the app store shows of each app:** its icon, a line, a description, its category, who publishes it, when it was released and its screenshots, plus the source's own name, its icon and what it features. That's the source's word, for showing; what installs is still decided by the package's checksum and its publisher's key. ([index.rs](/crates/waos-package/src/index.rs))
+- **A source without an icon shows its site's:** the site's touch icon, or a GitHub owner's picture. ([source.rs](/crates/waos-store/src/source.rs))
 - **A source is read over HTTPS,** or over plain HTTP only from this machine. The list isn't signed, and it says which package a first install trusts. ([source.rs](/crates/waos-store/src/source.rs))
 - **A download must match the list.** The list gives each package's checksum; a file that doesn't match (corrupted in transit, or swapped on the server) isn't installed. The checksum only proves it's the file the list meant; whether it may replace an installed app is still decided by the publisher's key. ([store.rs](/crates/waos-store/src/store.rs))
 - **The official source comes with WaOS, and can be removed.** WaOS adds `list.waos.app` when the user has never had a list of sources; once removed, it never comes back. ([state::library](/apps/waos/src/state/library/mod.rs))
