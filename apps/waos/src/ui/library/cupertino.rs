@@ -15,6 +15,7 @@ use waft::{
 use waft_cupertino::{CupertinoApp, CupertinoButton, CupertinoIcons, CupertinoPage};
 
 use super::app_store::cupertino::CupertinoAppStore;
+use super::app_store::cupertino_app_page::CupertinoAppPage;
 use super::home::cupertino::CupertinoHome;
 use super::program_name;
 use super::questions::cupertino::CupertinoAsked;
@@ -136,12 +137,8 @@ impl LibraryPages {
                 recordings: self.recordings.clone(),
             }
             .into_widget(),
-            // The phone's store has no page for an app yet, and nothing on it opens one: a
-            // desktop's window narrowed while on an app's page shows the store that page is
-            // over.
-            LibraryPage::AppStore | LibraryPage::App(_) => {
-                CupertinoAppStore { library }.into_widget()
-            }
+            LibraryPage::AppStore => CupertinoAppStore { library }.into_widget(),
+            LibraryPage::App(id) => CupertinoAppPage { library, id }.into_widget(),
             LibraryPage::Settings(of) => CupertinoSettings {
                 program_name: program_name(&library, &of, app),
                 library,
@@ -162,16 +159,21 @@ pub(crate) fn under_bar(build: impl Fn(f64) -> WidgetRef + 'static) -> WidgetRef
 /// The navigation bar's way back to the home, named after it, as iOS names a back button after
 /// the page it goes back to.
 pub(crate) fn back_to_home(library: &Entity<Library>) -> WidgetRef {
+    back_to_page_beneath(library, words::HOME_TITLE)
+}
+
+/// The navigation bar's way back to the page the one shown was opened over, which `named` names.
+pub(crate) fn back_to_page_beneath(library: &Entity<Library>, named: &str) -> WidgetRef {
     let library = library.clone();
     let back = Listener::new(move |app| {
-        library.update(app, |library, cx| library.show_page(LibraryPage::Home, cx));
+        library.update(app, |library, cx| library.go_back(cx));
     });
     let label = Row::new()
         .main_axis_size(MainAxisSize::Min)
         .spacing(2.0)
         .children([
             Icon::new(Some(CupertinoIcons::back())).into_widget(),
-            Text::new(words::HOME_TITLE).into_widget(),
+            Text::new(named).into_widget(),
         ]);
     CupertinoButton::new(label.into_widget(), Some(back))
         .padding(EdgeInsetsGeometry::all(0.0))

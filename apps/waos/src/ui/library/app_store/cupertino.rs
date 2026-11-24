@@ -24,7 +24,7 @@ use waft_cupertino::{
 use waos_store::Source;
 
 use super::{ListedRow, PackagePicker, RowAction, listed_rows};
-use crate::state::library::Library;
+use crate::state::library::{Library, LibraryPage};
 use crate::ui::library::cupertino::{back_to_home, under_bar};
 use crate::ui::library::home::cupertino::resolved;
 use crate::ui::library::program_icon::ProgramIcon;
@@ -181,17 +181,25 @@ impl Page {
         section(Some(&source.to_string()), tiles)
     }
 
-    /// A program the source lists: its icon, name and version, and what can be done with it.
+    /// A program the source lists: its icon, name and version, and what can be done with it; a
+    /// tap on its row opens its page.
     fn listed(&self, source: &Source, row: ListedRow) -> WidgetRef {
         let icon = ProgramIcon {
             png: row.icon.clone(),
             side: ICON_SIDE,
             badge: None,
         };
+        let (library, id) = (self.library.clone(), row.program.id.clone());
+        let open_page = Rc::new(move |app: &mut App| {
+            let page = LibraryPage::App(id.clone());
+            library.update(app, |library, cx| library.show_page(page, cx));
+            Task::ready(())
+        });
         let tile = CupertinoListTile::new(Text::new(row.program.name.clone()))
             .subtitle(Text::new(row.detail.clone()))
             .leading(icon)
-            .leading_size(ICON_SIDE);
+            .leading_size(ICON_SIDE)
+            .on_tap(open_page);
         match row.action {
             RowAction::Installing => tile.additional_info(Text::new(words::INSTALLING)),
             RowAction::Installed => tile.additional_info(Text::new(words::INSTALLED)),

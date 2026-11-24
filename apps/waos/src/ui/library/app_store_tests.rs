@@ -5,7 +5,7 @@
 
 use waos_package::{Category, Index, ListedProgram};
 
-use super::test_steps::{adds_source, in_launcher};
+use super::test_steps::{adds_source, in_launcher, on_phone};
 use super::words;
 use crate::state::library::test_desktop::LibraryDesktop;
 use crate::state::library::test_server::Server;
@@ -50,7 +50,14 @@ fn says_what_a_store_shows(index: &mut Index) {
 
 /// The launcher on its app store, with the source of [`says_what_a_store_shows`] read.
 fn on_the_store() -> (LibraryDesktop, waft::ui::ViewId, Server) {
-    let (mut desktop, view) = in_launcher();
+    on_the_store_of(in_launcher())
+}
+
+/// The library of `desktop`, shown in `view`, on its app store, with the source of
+/// [`says_what_a_store_shows`] read.
+fn on_the_store_of(
+    (mut desktop, view): (LibraryDesktop, waft::ui::ViewId),
+) -> (LibraryDesktop, waft::ui::ViewId, Server) {
     let server = Server::start();
     let triangle = desktop.package(TRIANGLE, "Triangle", "1.0.0", b"\0asm");
     server.publish_saying(TRIANGLE, &triangle, "1.0.0", says_what_a_store_shows);
@@ -256,5 +263,39 @@ fn an_apps_row_opens_its_page_which_says_what_its_source_does_and_gets_it() {
         times_shown(&desktop, "Maps"),
         1,
         "the field has the keyboard"
+    );
+}
+
+#[test]
+fn on_a_phone_an_apps_row_opens_its_page_which_gets_it_and_goes_back_to_the_store() {
+    let (mut phone, view, _server) = on_the_store_of(on_phone());
+    phone.tap(view, "Triangle");
+    for said in [
+        "Triangle",
+        "Example",
+        "One triangle, drawn well",
+        "A triangle of one colour.",
+        words::VERSION,
+        "1.0.0",
+        words::SOURCE,
+        "Example Apps",
+    ] {
+        assert!(phone.shows(said), "{said}: {:?}", phone.labels());
+    }
+    assert!(!phone.shows("Maps"), "the page of one app");
+
+    phone.tap(view, words::GET);
+    phone.settle_until_code_is_ready();
+    assert!(
+        phone.shows(words::OPEN) && !phone.shows(words::GET),
+        "{:?}",
+        phone.labels()
+    );
+
+    phone.tap(view, words::GET_PROGRAMS);
+    assert!(
+        phone.shows("Maps") && phone.shows(words::ADD_SOURCE),
+        "back on the store: {:?}",
+        phone.labels()
     );
 }

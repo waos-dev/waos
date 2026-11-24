@@ -11,6 +11,7 @@
 //! the home says.
 
 pub(crate) mod cupertino;
+pub(crate) mod cupertino_app_page;
 pub(crate) mod fluent;
 pub(crate) mod fluent_app_page;
 
