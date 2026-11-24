@@ -30,6 +30,7 @@
 //! question answering nothing then), so no program waits on a notification nobody posts; and
 //! nothing here brings the app forward.
 
+use std::future::ready;
 use std::sync::Arc;
 use std::time::SystemTime;
 
@@ -152,26 +153,29 @@ impl ShellNotificationScheduling for AppNotifications {
     }
 }
 
-/// macOS's permission for each program's app, the one permission macOS guards a program's
-/// grants with here: read from what the app last said, and its question put in the program's app.
+/// macOS's permission for each program's app: read from what the app last said, and its question
+/// put in the program's app. A file or folder the user picked is allowed: macOS gives an app what
+/// its user picks in its dialog.
 impl ShellSystemPermissions for AppNotifications {
     fn state(
         &self,
-        permission: SystemPermission,
+        permission: SystemPermission<'_>,
         program: &RunningProgram,
     ) -> SystemPermissionState {
         match permission {
             SystemPermission::Notifications => self.permission_state(program),
+            SystemPermission::Path(_) => SystemPermissionState::Allowed,
         }
     }
 
     fn request(
         &self,
-        permission: SystemPermission,
+        permission: SystemPermission<'_>,
         program: &RunningProgram,
     ) -> SystemPermissionFuture {
         match permission {
             SystemPermission::Notifications => self.request_from_macos(program),
+            SystemPermission::Path(_) => Box::pin(ready(SystemPermissionState::Allowed)),
         }
     }
 }

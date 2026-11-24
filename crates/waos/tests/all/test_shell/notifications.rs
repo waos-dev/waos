@@ -4,7 +4,8 @@
 //! them away; refusing every program's notifications while a test says the system does; and,
 //! once a test says so, keeping a permission of its own for each program, as macOS keeps one for
 //! each program's app: not asked until its question is put or a post is answered, then denied or
-//! allowed as the system refused or took it, which is what the macOS shell learns and says.
+//! allowed as the system refused or took it, which is what the macOS shell learns and says
+//! (`system_permissions`).
 
 use std::collections::HashMap;
 use std::future::ready;
@@ -15,8 +16,7 @@ use std::time::SystemTime;
 use waos::bindings::wasdk::platform::notifications::NotificationError;
 use waos::{
     Notification, NotificationFuture, RunningProgram, ShellNotificationScheduling,
-    ShellNotifications, ShellSystemPermissions, SystemPermission, SystemPermissionFuture,
-    SystemPermissionState,
+    ShellNotifications, SystemPermissionState,
 };
 
 /// What the programs posted, removed and scheduled.
@@ -104,6 +104,22 @@ impl TestNotifications {
         refusing
     }
 
+    /// What the system last said of its permission for `program`'s notifications: allowed where it
+    /// keeps none for a program, not asked while it said nothing.
+    pub fn permission_state(&self, program: &RunningProgram) -> SystemPermissionState {
+        if !self.keeps_permissions.load(Ordering::SeqCst) {
+            return SystemPermissionState::Allowed;
+        }
+        let said = self.permissions.lock().unwrap();
+        (said.get(program.name()).copied()).unwrap_or(SystemPermissionState::NotAsked)
+    }
+
+    /// The system's question for `program`'s notifications, answered at once.
+    pub fn request_permission(&self, program: &RunningProgram) -> SystemPermissionState {
+        self.asked.lock().unwrap().push(program.name().to_owned());
+        self.read_permission(program)
+    }
+
     /// The system's permission for `program` as it stands now, which it has said from now on.
     fn read_permission(&self, program: &RunningProgram) -> SystemPermissionState {
         let state = if self.refusing.load(Ordering::SeqCst) {
@@ -168,31 +184,6 @@ impl ShellNotifications for TestNotifications {
     fn scheduling(&self) -> Option<&dyn ShellNotificationScheduling> {
         let offers = self.offers_scheduling.load(Ordering::SeqCst);
         offers.then_some(self as &dyn ShellNotificationScheduling)
-    }
-}
-
-/// The system's permission for each program's notifications: allowed where it keeps none, as it
-/// last said where it keeps one, and its question answered at once.
-impl ShellSystemPermissions for TestNotifications {
-    fn state(
-        &self,
-        _permission: SystemPermission,
-        program: &RunningProgram,
-    ) -> SystemPermissionState {
-        if !self.keeps_permissions.load(Ordering::SeqCst) {
-            return SystemPermissionState::Allowed;
-        }
-        let said = self.permissions.lock().unwrap();
-        (said.get(program.name()).copied()).unwrap_or(SystemPermissionState::NotAsked)
-    }
-
-    fn request(
-        &self,
-        _permission: SystemPermission,
-        program: &RunningProgram,
-    ) -> SystemPermissionFuture {
-        self.asked.lock().unwrap().push(program.name().to_owned());
-        Box::pin(ready(self.read_permission(program)))
     }
 }
 

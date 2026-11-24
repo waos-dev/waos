@@ -29,6 +29,7 @@ pub mod opener;
 mod output;
 mod prompts;
 pub mod sound;
+pub mod system_permissions;
 pub mod video_frames;
 
 use std::future::Future;
@@ -67,6 +68,7 @@ use opener::TestOpener;
 pub use output::RecordedOutput;
 pub use prompts::TestPrompts;
 use sound::TestSound;
+use system_permissions::TestSystemPermissions;
 use video_frames::TestVideoFrameReaders;
 
 /// How long a test waits for what it expects before it fails: long enough that only a broken
@@ -93,6 +95,7 @@ pub struct TestShell {
     pub file_dialogs: Arc<TestFileDialogs>,
     pub opener: Arc<TestOpener>,
     pub notifications: Arc<TestNotifications>,
+    pub system_permissions: Arc<TestSystemPermissions>,
     pub media_players: Arc<TestMediaPlayers>,
     pub media_assets: Arc<TestMediaAssets>,
     pub image_codecs: Arc<TestImageCodecs>,
@@ -106,6 +109,7 @@ impl TestShell {
     /// A shell over [`DISPLAY`], which refreshes as soon as a frame is asked for, nothing asked of
     /// any part yet.
     pub fn new() -> TestShell {
+        let notifications = Arc::<TestNotifications>::default();
         TestShell {
             headless: HeadlessShell::new(DISPLAY, Refreshes::WhenAsked),
             prompts: Arc::default(),
@@ -115,7 +119,8 @@ impl TestShell {
             sound: Arc::default(),
             file_dialogs: Arc::default(),
             opener: Arc::default(),
-            notifications: Arc::default(),
+            notifications: Arc::clone(&notifications),
+            system_permissions: Arc::new(TestSystemPermissions::new(notifications)),
             media_players: Arc::default(),
             media_assets: Arc::default(),
             image_codecs: Arc::default(),
@@ -140,7 +145,7 @@ impl TestShell {
             opener: Some(Arc::clone(&self.opener) as Arc<dyn ShellOpener>),
             notifications: Some(Arc::clone(&self.notifications) as Arc<dyn ShellNotifications>),
             system_permissions: Some(
-                Arc::clone(&self.notifications) as Arc<dyn ShellSystemPermissions>
+                Arc::clone(&self.system_permissions) as Arc<dyn ShellSystemPermissions>
             ),
             media_players: Some(Arc::clone(&self.media_players) as Arc<dyn ShellMediaPlayers>),
             media_assets: Some(Arc::clone(&self.media_assets) as Arc<dyn ShellMediaAssets>),

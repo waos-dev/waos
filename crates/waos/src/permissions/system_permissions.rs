@@ -1,6 +1,8 @@
 //! What the system says of one program's permissions, beside what its user allowed it in WaOS:
 //! read from the shell ([`ShellSystemPermissions`]) each time it is asked, and asked of the system
-//! once the user allowed the thing and the system does not allow it yet.
+//! once the user allowed the thing and the system does not allow it yet: the program's
+//! notifications as its user allows them (`permissions`), a file or folder as its user picks it
+//! (`file_dialogs`).
 //!
 //! The invariant: nothing here keeps what the system said. The shell alone holds it, so the user's
 //! answer in WaOS and the system's stay two layers, neither written into the other; and what
@@ -39,7 +41,7 @@ impl ProgramSystemPermissions {
     }
 
     /// What the system says of `permission` now; allowed where it guards nothing.
-    pub(crate) fn state(&self, permission: SystemPermission) -> SystemPermissionState {
+    pub(crate) fn state(&self, permission: SystemPermission<'_>) -> SystemPermissionState {
         match &self.shell {
             Some(shell) => shell.state(permission, &self.program),
             None => SystemPermissionState::Allowed,
@@ -48,7 +50,7 @@ impl ProgramSystemPermissions {
 
     /// Asks the system for `permission` in its own way, unless it allows it already, and resolves
     /// to what it says then.
-    pub(crate) async fn request(self, permission: SystemPermission) -> SystemPermissionState {
+    pub(crate) async fn request(&self, permission: SystemPermission<'_>) -> SystemPermissionState {
         let Some(shell) = &self.shell else {
             return SystemPermissionState::Allowed;
         };

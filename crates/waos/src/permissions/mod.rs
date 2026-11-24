@@ -30,8 +30,8 @@ use crate::access::{Happened, ProgramAccess, Prompt};
 use crate::asking::{Asked, Asking, ask_or_setting};
 use crate::bindings::wasdk::platform::permissions::State;
 use crate::running::RunningProgram;
-use crate::shell::{Prompts, ShellSystemPermissions, SystemPermission, SystemPermissionState};
-use system_permissions::ProgramSystemPermissions;
+use crate::shell::{Prompts, SystemPermission, SystemPermissionState};
+pub(crate) use system_permissions::ProgramSystemPermissions;
 
 /// One guarded capability: what a program's `permission` handle stands for.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -52,19 +52,15 @@ pub(crate) struct ProgramPermissions {
 
 impl ProgramPermissions {
     /// `program`'s permissions, from the grants `access` reads and what the system says, asked of
-    /// its user through `prompts` and of the system through `system_permissions`, where the
-    /// system has permissions of its own.
+    /// its user through `prompts` and of the system through `system`.
     pub(crate) fn new(
         access: ProgramAccess,
         prompts: Arc<dyn Prompts>,
-        system_permissions: Option<Arc<dyn ShellSystemPermissions>>,
+        system: ProgramSystemPermissions,
         program: RunningProgram,
     ) -> ProgramPermissions {
         ProgramPermissions {
-            decisions: Decisions {
-                access,
-                system: ProgramSystemPermissions::new(system_permissions, program.clone()),
-            },
+            decisions: Decisions { access, system },
             prompts,
             program,
             asking: Asking::default(),
@@ -202,7 +198,7 @@ impl Decisions {
 }
 
 /// The system's permission that guards `permission` too, where a system has one.
-fn system_permission(permission: Permission) -> Option<SystemPermission> {
+fn system_permission(permission: Permission) -> Option<SystemPermission<'static>> {
     match permission {
         Permission::Question(Question::Notifications) => Some(SystemPermission::Notifications),
         Permission::Question(Question::Camera | Question::Microphone) | Permission::Switch(_) => {

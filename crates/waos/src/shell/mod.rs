@@ -719,10 +719,14 @@ pub trait ShellNotifications: Send + Sync {
 /// Something a program's user allowed it in WaOS which the system may guard as well, with a
 /// permission of its own.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum SystemPermission {
+pub enum SystemPermission<'a> {
     /// The program's notifications, where the system keeps a permission for each program, as macOS
     /// does for each program's app.
     Notifications,
+    /// Reading and writing the file or folder at this path on the machine, which the user picked
+    /// for the program, where the system lets an app reach it only with a permission of its own,
+    /// as Android does the phone's shared storage.
+    Path(&'a Path),
 }
 
 /// What the system says of a [`SystemPermission`].
@@ -739,7 +743,8 @@ pub enum SystemPermissionState {
 /// answer in WaOS is one layer, the system's another, and a program has what both allow. Each
 /// system has its own way to be asked, which is the shell's: macOS keeps a permission for each
 /// program's notifications, asks its user for it once, and lets them change it later in System
-/// Settings. The engine reads [`state`](Self::state) each time it is asked where a permission
+/// Settings; Android lets an app reach the phone's shared storage only once its user turned that
+/// on for the app in the system's settings, where the shell sends them. The engine reads [`state`](Self::state) each time it is asked where a permission
 /// stands, keeping no copy, and asks through [`request`](Self::request) once the program's user
 /// allowed the thing in WaOS and the system does not allow it yet. No system tells an app that its
 /// user changed a permission in its settings, so nothing here does: the shell reads again as it
@@ -749,7 +754,7 @@ pub trait ShellSystemPermissions: Send + Sync {
     /// asking the user: allowed where the system guards nothing of it. Called from any thread.
     fn state(
         &self,
-        permission: SystemPermission,
+        permission: SystemPermission<'_>,
         program: &RunningProgram,
     ) -> SystemPermissionState;
 
@@ -759,7 +764,7 @@ pub trait ShellSystemPermissions: Send + Sync {
     /// said before where it could not be asked. Called from the program's thread.
     fn request(
         &self,
-        permission: SystemPermission,
+        permission: SystemPermission<'_>,
         program: &RunningProgram,
     ) -> SystemPermissionFuture;
 }
