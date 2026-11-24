@@ -49,6 +49,16 @@ pub(crate) fn on_phone_of(kind: DesktopKind) -> (LibraryDesktop, ViewId) {
 /// so, its code ready.
 pub(crate) fn installs(desktop: &mut LibraryDesktop, id: &str, name: &str, component: &[u8]) {
     let package = desktop.package(id, name, "1.0.0", component);
+    installs_package(desktop, package);
+}
+
+/// Installs `id` named `name`, with the PNG `icon` as its icon.
+pub(crate) fn installs_showing(desktop: &mut LibraryDesktop, id: &str, name: &str, icon: &[u8]) {
+    let package = desktop.package_showing(id, name, b"\0asm", icon);
+    installs_package(desktop, package);
+}
+
+fn installs_package(desktop: &mut LibraryDesktop, package: std::path::PathBuf) {
     desktop.update(|library, cx| library.open_files(vec![package], cx));
     desktop.update(|library, cx| library.answer(true, cx));
     desktop.settle_until_code_is_ready();

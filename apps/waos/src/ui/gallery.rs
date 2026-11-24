@@ -23,16 +23,37 @@ use crate::state::library::LibraryPage;
 use crate::state::library::test_desktop::LibraryDesktop;
 use crate::state::library::test_server::Server;
 use crate::ui::library::test_steps::{
-    adds_source, in_launcher, installs, on_phone, started_yesterday,
+    adds_source, in_launcher, installs, installs_showing, on_phone, started_yesterday,
 };
 
-/// The programs the library has installed, as a user's might be.
-const INSTALLED: [(&str, &str); 5] = [
-    ("dev.waos.notes", "Notes"),
-    ("dev.waos.camera", "Camera"),
-    ("dev.waos.videoplayer", "Video Player"),
-    ("dev.waos.inspector", "Inspector"),
-    ("dev.waos.zed", "Zed"),
+/// The programs the library has installed, as a user's might be, the built-in apps with the
+/// icons they ship with, so the pictures show icons as apps draw them.
+const INSTALLED: [(&str, &str, Option<&[u8]>); 5] = [
+    (
+        "dev.waos.notes",
+        "Notes",
+        Some(include_bytes!("../../../../builtin-apps/notes/icon.png")),
+    ),
+    (
+        "dev.waos.camera",
+        "Camera",
+        Some(include_bytes!("../../../../builtin-apps/camera/icon.png")),
+    ),
+    (
+        "dev.waos.videoplayer",
+        "Video Player",
+        Some(include_bytes!(
+            "../../../../builtin-apps/video-player/icon.png"
+        )),
+    ),
+    (
+        "dev.waos.inspector",
+        "Inspector",
+        Some(include_bytes!(
+            "../../../../builtin-apps/inspector/icon.png"
+        )),
+    ),
+    ("dev.waos.zed", "Zed", None),
 ];
 
 /// More programs, enough to fill the home past one row.
@@ -67,14 +88,22 @@ fn walks_the_library(layout: &str, (mut desktop, view): (LibraryDesktop, ViewId)
     let mut scenes = Scenes::new(layout, view);
     scenes.draw(&mut desktop, "empty");
 
-    let (first, first_name) = INSTALLED[0];
-    let package = desktop.package(first, first_name, "1.0.0", b"\0asm");
+    let (first, first_name, first_icon) = INSTALLED[0];
+    let package = desktop.package_showing(
+        first,
+        first_name,
+        b"\0asm",
+        first_icon.expect("the first has an icon"),
+    );
     desktop.update(|library, cx| library.open_files(vec![package], cx));
     scenes.draw(&mut desktop, "install-question");
     desktop.update(|library, cx| library.answer(true, cx));
     desktop.settle_until_code_is_ready();
-    for (id, name) in &INSTALLED[1..] {
-        installs(&mut desktop, id, name, b"\0asm");
+    for (id, name, icon) in &INSTALLED[1..] {
+        match icon {
+            Some(icon) => installs_showing(&mut desktop, id, name, icon),
+            None => installs(&mut desktop, id, name, b"\0asm"),
+        }
     }
     scenes.draw(&mut desktop, "programs");
 
