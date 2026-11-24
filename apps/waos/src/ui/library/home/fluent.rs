@@ -20,8 +20,7 @@ use waft_winui::{
 
 use super::icon_grid::{GridLook, Highlighted, IconGrid, SectionLineKind};
 use super::{HomeEntry, IconTile, TileLook, home_entries, often_used_entries};
-use crate::logic::setting_changes::SettingsOf;
-use crate::state::library::{Library, LibraryPage};
+use crate::state::library::{Library, LibraryPage, SettingsPage};
 use crate::state::recordings::Recordings;
 use crate::ui::library::category_chips::category_chips;
 use crate::ui::library::icon_actions::fluent::IconMenu;
@@ -96,7 +95,7 @@ impl FluentHome {
             ),
             bar_button(
                 FluentSymbol::Settings,
-                show(&self.library, LibraryPage::Settings(SettingsOf::Global)),
+                show(&self.library, LibraryPage::Settings(SettingsPage::Root)),
             ),
         ]))
         .into_widget()

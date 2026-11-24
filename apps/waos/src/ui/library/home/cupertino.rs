@@ -20,8 +20,7 @@ use waft_cupertino::{
 
 use super::icon_grid::{GridLook, IconGrid, SectionLineKind};
 use super::{HomeEntry, IconTile, TileLook, home_entries, often_used_entries};
-use crate::logic::setting_changes::SettingsOf;
-use crate::state::library::{Library, LibraryPage};
+use crate::state::library::{Library, LibraryPage, SettingsPage};
 use crate::state::recordings::Recordings;
 use crate::ui::library::cupertino::under_bar;
 use crate::ui::library::icon_actions::cupertino::show_icon_actions;
@@ -139,7 +138,7 @@ impl CupertinoHome {
                 bar_button(CupertinoIcons::add(), self.show(LibraryPage::AppStore)),
                 bar_button(
                     CupertinoIcons::gear_alt(),
-                    self.show(LibraryPage::Settings(SettingsOf::Global)),
+                    self.show(LibraryPage::Settings(SettingsPage::Root)),
                 ),
             ])
             .into_widget()

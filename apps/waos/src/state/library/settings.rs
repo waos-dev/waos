@@ -37,18 +37,36 @@ pub(crate) enum LibraryPage {
     AppStore,
     /// An app's page in the app store: what its source says of it, before it is got.
     App(ProgramId),
-    /// The global settings, or a program's.
-    Settings(SettingsOf),
+    /// A page of the settings.
+    Settings(SettingsPage),
+}
+
+/// A page of the library's settings.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub(crate) enum SettingsPage {
+    /// The first: what leads to each of the others, WaOS's own settings, those every app
+    /// follows, and each app's.
+    Root,
+    /// WaOS's own settings: where apps open, where WaOS stays, the phone's files.
+    Waos,
+    /// The settings every app follows until its user sets its own.
+    EveryApp,
+    /// One app's.
+    App(ProgramId),
 }
 
 impl LibraryPage {
     /// The page this one was opened over, which going back shows: an app's page is over the
-    /// app store, every other page over the home; none beneath the home.
+    /// app store, a page of the settings over their first, every other page over the home; none
+    /// beneath the home.
     pub(crate) fn beneath(&self) -> Option<LibraryPage> {
         match self {
             LibraryPage::Home => None,
-            LibraryPage::AppStore | LibraryPage::Settings(_) => Some(LibraryPage::Home),
+            LibraryPage::AppStore | LibraryPage::Settings(SettingsPage::Root) => {
+                Some(LibraryPage::Home)
+            }
             LibraryPage::App(_) => Some(LibraryPage::AppStore),
+            LibraryPage::Settings(_) => Some(LibraryPage::Settings(SettingsPage::Root)),
         }
     }
 
@@ -96,7 +114,7 @@ impl Library {
         if page != self.page {
             self.left_settings();
             match &page {
-                LibraryPage::Settings(SettingsOf::Program(_)) => {
+                LibraryPage::Settings(SettingsPage::App(_)) => {
                     self.offered = self.runs.environments.offered();
                 }
                 LibraryPage::App(id) => self.read_screenshots_of(&id.clone(), cx),
@@ -235,17 +253,17 @@ impl Library {
     /// the page: its own page opens, under its name once installed and its id before; the
     /// global one for a program the engine runs under no id.
     fn settings_asked(&mut self, asked: SettingsOpened, cx: &mut Context<Library>) {
-        let (of, name) = match asked.program.name().parse::<ProgramId>() {
+        let (page, name) = match asked.program.name().parse::<ProgramId>() {
             Ok(id) => {
                 let name = self
                     .installed_program(&id)
                     .map_or_else(|| id.to_string(), |program| program.name());
-                (SettingsOf::Program(id), name)
+                (SettingsPage::App(id), name)
             }
-            Err(_) => (SettingsOf::Global, asked.program.name().to_owned()),
+            Err(_) => (SettingsPage::EveryApp, asked.program.name().to_owned()),
         };
         tracing::info!(name, switch = ?asked.switch, "a program asks its user to change a switch");
-        self.show_page(LibraryPage::Settings(of), cx);
+        self.show_page(LibraryPage::Settings(page), cx);
         self.switch_asked = Some(SwitchAsked {
             name,
             switch: asked.switch,

@@ -136,6 +136,13 @@ pub(crate) fn unreadable(why: &str) -> String {
 }
 
 pub(crate) const SETTINGS: &str = "Settings";
+/// On the settings' first page: WaOS's own settings, those every app follows, and the apps.
+/// WaOS's own are General, as iOS names its own: on a phone the way back to the home is named
+/// WaOS already.
+pub(crate) const WAOS_SETTINGS: &str = "General";
+pub(crate) const WAOS_SETTINGS_DETAIL: &str = "Where apps open, and where WaOS stays.";
+pub(crate) const EVERY_APP: &str = "Every app";
+pub(crate) const APPS: &str = "Apps";
 pub(crate) const GLOBAL_SETTINGS: &str = "Every app's settings";
 pub(crate) const GLOBAL_DETAIL: &str = "What every app may use, until you set it for one app.";
 pub(crate) const FOLLOWS_GLOBAL: &str = "Follows the setting for every app.";

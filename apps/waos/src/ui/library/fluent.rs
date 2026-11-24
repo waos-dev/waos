@@ -23,8 +23,11 @@ use super::home::fluent::FluentHome;
 use super::program_name;
 use super::questions::fluent::FluentAsked;
 use super::settings::fluent::FluentSettings;
+use super::settings::fluent_root::FluentSettingsRoot;
+use super::settings::fluent_waos::FluentWaosSettings;
 use super::{back_once_removed, page_key, words};
-use crate::state::library::{Library, LibraryPage};
+use crate::logic::setting_changes::SettingsOf;
+use crate::state::library::{Library, LibraryPage, SettingsPage};
 use crate::state::recordings::Recordings;
 
 /// The library in Fluent's controls; Escape in it does `dismissed`, where given.
@@ -131,12 +134,27 @@ impl LibraryPages {
             }),
             LibraryPage::AppStore => FluentAppStore { library }.into_widget(),
             LibraryPage::App(id) => FluentAppPage { library, id }.into_widget(),
-            LibraryPage::Settings(of) => FluentSettings {
-                program_name: program_name(&library, &of, app),
+            LibraryPage::Settings(SettingsPage::Root) => {
+                FluentSettingsRoot { library }.into_widget()
+            }
+            LibraryPage::Settings(SettingsPage::Waos) => {
+                FluentWaosSettings { library }.into_widget()
+            }
+            LibraryPage::Settings(SettingsPage::EveryApp) => FluentSettings {
+                program_name: None,
                 library,
-                of,
+                of: SettingsOf::Global,
             }
             .into_widget(),
+            LibraryPage::Settings(SettingsPage::App(id)) => {
+                let of = SettingsOf::Program(id);
+                FluentSettings {
+                    program_name: program_name(&library, &of, app),
+                    library,
+                    of,
+                }
+                .into_widget()
+            }
         }
     }
 }

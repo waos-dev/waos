@@ -31,8 +31,8 @@ use super::test_steps::{in_launcher, in_launcher_of, installs, on_phone, on_phon
 use super::{LaidOutLibrary, words};
 use crate::logic::phone_files::TestPhone;
 use crate::logic::setting_changes::{SettingChange, SettingsOf};
-use crate::state::library::LibraryPage;
 use crate::state::library::test_desktop::{DesktopKind, LibraryDesktop};
+use crate::state::library::{LibraryPage, SettingsPage};
 use crate::ui::launcher::home::LauncherHome;
 
 const TRIANGLE: &str = "dev.example.triangle";
@@ -46,8 +46,20 @@ fn global_network(desktop: &LibraryDesktop) -> NetworkGrant {
     desktop.store.global_settings().unwrap().network
 }
 
-/// Opens every program's settings from the launcher's "…", or the home's gear, in either layout.
+/// Opens every program's settings: the settings, then Every app.
 fn open_global_settings(desktop: &mut LibraryDesktop, view: ViewId) {
+    open_settings(desktop, view);
+    desktop.tap(view, words::EVERY_APP);
+}
+
+/// Opens WaOS's own settings: the settings, then General.
+fn open_waos_settings(desktop: &mut LibraryDesktop, view: ViewId) {
+    open_settings(desktop, view);
+    desktop.tap(view, words::WAOS_SETTINGS);
+}
+
+/// Opens the settings' first page from the launcher's "…", or the home's gear, in either layout.
+fn open_settings(desktop: &mut LibraryDesktop, view: ViewId) {
     if desktop.has::<LauncherHome>() {
         let more = FluentSymbol::More.glyph().to_string();
         desktop.tap_widget::<FontIcon>(view, |icon| icon.glyph == more);
@@ -76,13 +88,57 @@ fn open_settings_from_icon(desktop: &mut LibraryDesktop, view: ViewId, name: &st
     desktop.tap(view, words::SETTINGS);
 }
 
-/// Goes back to the home from a settings page, in either layout.
+/// Goes back to the home from a settings page, in either layout: to the settings' first page,
+/// and from there to the home.
 fn back(desktop: &mut LibraryDesktop, view: ViewId) {
+    while desktop.read(|library| *library.page() != LibraryPage::Home) {
+        back_once(desktop, view);
+    }
+}
+
+/// Goes back from a settings page to the page it was opened over, in either layout.
+fn back_once(desktop: &mut LibraryDesktop, view: ViewId) {
     if desktop.has::<CupertinoNavigationBar>() {
-        desktop.tap(view, words::HOME_TITLE);
+        let page = desktop.read(|library| library.page().clone());
+        let beneath = match page {
+            LibraryPage::Settings(SettingsPage::Root) => words::HOME_TITLE,
+            _ => words::SETTINGS,
+        };
+        desktop.tap(view, beneath);
     } else {
         let back = FluentSymbol::Back.glyph().to_string();
         desktop.tap_widget::<FontIcon>(view, |icon| icon.glyph == back);
+    }
+}
+
+#[test]
+fn the_settings_first_page_leads_to_each_apps_settings_and_back_in_either_layout() {
+    let layouts: [fn() -> (LibraryDesktop, ViewId); 2] = [in_launcher, on_phone];
+    for layout in layouts {
+        let (mut desktop, view) = layout();
+        installs(&mut desktop, TRIANGLE, "Triangle", b"\0asm");
+        let page = |desktop: &LibraryDesktop| desktop.read(|library| library.page().clone());
+        open_settings(&mut desktop, view);
+        assert_eq!(page(&desktop), LibraryPage::Settings(SettingsPage::Root));
+        assert!(
+            desktop.shows(words::EVERY_APP) && desktop.shows(words::APPS),
+            "{:?}",
+            desktop.labels()
+        );
+        desktop.tap(view, "Triangle");
+        assert_eq!(
+            page(&desktop),
+            LibraryPage::Settings(SettingsPage::App(triangle()))
+        );
+        assert!(
+            desktop.shows(&words::settings_of("Triangle")),
+            "{:?}",
+            desktop.labels()
+        );
+        back_once(&mut desktop, view);
+        assert_eq!(page(&desktop), LibraryPage::Settings(SettingsPage::Root));
+        back_once(&mut desktop, view);
+        assert_eq!(page(&desktop), LibraryPage::Home);
     }
 }
 
@@ -124,7 +180,7 @@ fn a_programs_settings_follow_those_for_every_program_until_changed_in_the_launc
     installs(&mut desktop, TRIANGLE, "Triangle", b"\0asm");
     open_global_settings(&mut desktop, view);
     back(&mut desktop, view);
-    let settings_of_triangle = || LibraryPage::Settings(SettingsOf::Program(triangle()));
+    let settings_of_triangle = || LibraryPage::Settings(SettingsPage::App(triangle()));
     desktop.update(|library, cx| library.show_page(settings_of_triangle(), cx));
     assert!(
         desktop.shows("Triangle's settings"),
@@ -769,7 +825,7 @@ fn the_global_page_says_whether_waos_reaches_the_phone_s_files_and_opens_android
             ..DesktopKind::default()
         };
         let (mut desktop, view) = layout(kind);
-        open_global_settings(&mut desktop, view);
+        open_waos_settings(&mut desktop, view);
         assert!(
             desktop.shows(words::PHONE_FILES_OFF),
             "{:?}",
@@ -791,7 +847,11 @@ fn the_global_page_says_whether_waos_reaches_the_phone_s_files_and_opens_android
 #[test]
 fn the_global_page_says_nothing_of_the_phone_s_files_where_waos_reaches_what_its_user_does() {
     let (mut desktop, view) = in_launcher();
-    open_global_settings(&mut desktop, view);
-    assert!(desktop.shows(words::NETWORK), "{:?}", desktop.labels());
-    assert!(!desktop.shows(words::PHONE_FILES));
+    open_settings(&mut desktop, view);
+    assert!(desktop.shows(words::EVERY_APP), "{:?}", desktop.labels());
+    assert!(
+        !desktop.shows(words::WAOS_SETTINGS),
+        "no page of WaOS's own settings where it has none: {:?}",
+        desktop.labels()
+    );
 }

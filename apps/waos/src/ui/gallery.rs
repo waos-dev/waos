@@ -19,14 +19,13 @@ use waft_widgets::testing::{capture_image, find};
 use waft_widgets::{View, downcast_widget};
 
 use crate::logic::app_store::AppStorePlace;
-use crate::logic::setting_changes::SettingsOf;
-use crate::state::library::LibraryPage;
-use crate::state::library::test_desktop::LibraryDesktop;
+use crate::state::library::test_desktop::{DesktopKind, LibraryDesktop};
 use crate::state::library::test_server::Server;
+use crate::state::library::{LibraryPage, SettingsPage};
 use waos_package::{Category, Index, ListedProgram};
 
 use crate::ui::library::test_steps::{
-    adds_source, in_launcher, installs, installs_showing, on_phone, started_yesterday,
+    adds_source, in_launcher_of, installs, installs_showing, on_phone, started_yesterday,
 };
 
 /// What a built-in app ships with: the category it is filed under, and its icon's PNG.
@@ -184,7 +183,12 @@ const SOURCE_FEATURES: [&str; 2] = ["dev.waos.notes", "dev.example.maps"];
 
 #[test]
 fn the_library_in_the_launcher() {
-    walks_the_library("launcher", in_launcher());
+    // With preferences of its own, as the app has, so WaOS's own settings have a page to draw.
+    let as_the_app = DesktopKind {
+        own_preferences: true,
+        ..DesktopKind::default()
+    };
+    walks_the_library("launcher", in_launcher_of(as_the_app));
 }
 
 #[test]
@@ -260,12 +264,19 @@ fn walks_the_library(layout: &str, (mut desktop, view): (LibraryDesktop, ViewId)
     });
     scenes.draw(&mut desktop, "store-app");
 
-    shows(&mut desktop, LibraryPage::Settings(SettingsOf::Global));
+    shows(&mut desktop, LibraryPage::Settings(SettingsPage::Root));
     scenes.draw(&mut desktop, "settings");
+    // WaOS's own settings have a page where this desktop has any.
+    if desktop.read(|library| library.kept_in_dock().is_some()) {
+        shows(&mut desktop, LibraryPage::Settings(SettingsPage::Waos));
+        scenes.draw(&mut desktop, "settings-general");
+    }
+    shows(&mut desktop, LibraryPage::Settings(SettingsPage::EveryApp));
+    scenes.draw(&mut desktop, "settings-every-app");
     let program = first.parse().expect("a program's id");
     shows(
         &mut desktop,
-        LibraryPage::Settings(SettingsOf::Program(program)),
+        LibraryPage::Settings(SettingsPage::App(program)),
     );
     scenes.draw(&mut desktop, "program-settings");
 

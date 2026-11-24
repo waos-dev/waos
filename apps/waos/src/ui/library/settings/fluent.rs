@@ -33,7 +33,7 @@ use crate::logic::setting_changes::{
     domains_kind, simulatable,
 };
 use crate::state::SIMULATED_CAMERA;
-use crate::state::library::{Library, LibraryPage};
+use crate::state::library::Library;
 use crate::ui::library::words;
 
 const MARGIN: f64 = 16.0;
@@ -120,9 +120,6 @@ impl State for FluentSettingsState {
         };
         let mut rows = vec![page.title(widget.program_name.as_deref())];
         rows.extend(page.switch_asked(app));
-        rows.extend(page.where_programs_open(app));
-        rows.extend(page.where_waos_stays(app));
-        rows.extend(page.phone_files(app));
         match page.library.read(app).settings(&page.of) {
             Ok(shown) => {
                 let activity = page.library.read(app).activity(&page.of);
@@ -155,12 +152,13 @@ struct Page {
 }
 
 impl Page {
-    /// The page's title, after Back to the home, over what the global page is for.
+    /// The page's title, after Back to the settings' first page, over what the global page is
+    /// for.
     fn title(&self, program_name: Option<&str>) -> WidgetRef {
         let primary = self.resources.text_fill_color_primary;
         let library = self.library.clone();
         let back = Listener::new(move |app| {
-            library.update(app, |library, cx| library.show_page(LibraryPage::Home, cx));
+            library.update(app, |library, cx| library.go_back(cx));
         });
         let title = match program_name {
             Some(name) => words::settings_of(name),
@@ -656,81 +654,6 @@ impl Page {
         Padding::new(EdgeInsetsGeometry::only(0.0, MARGIN, 0.0, GAP / 2.0))
             .child(title)
             .into_widget()
-    }
-
-    /// On the global page, where WaOS offers the choice, whether programs show inside WaOS, under
-    /// what the choice does.
-    fn where_programs_open(&self, app: &App) -> Vec<WidgetRef> {
-        if self.of != SettingsOf::Global {
-            return Vec::new();
-        }
-        let Some(inside) = self.library.read(app).programs_inside_waos() else {
-            return Vec::new();
-        };
-        let mut rows = vec![self.setting_name(words::PROGRAMS_INSIDE_WAOS)];
-        rows.push(caption(words::PROGRAMS_INSIDE_WAOS_DETAIL, &self.resources));
-        let library = self.library.clone();
-        rows.push(
-            ToggleSwitch::new(inside, move |app, inside| {
-                library.update(app, |library, cx| {
-                    library.show_programs_inside_waos(inside, cx)
-                });
-            })
-            .on_content(Text::new(words::ON))
-            .off_content(Text::new(words::OFF))
-            .into_widget(),
-        );
-        rows
-    }
-
-    /// On the global page, in a desktop's launcher, whether WaOS is kept in the Dock or the
-    /// taskbar, under what turning it off does.
-    fn where_waos_stays(&self, app: &App) -> Vec<WidgetRef> {
-        if self.of != SettingsOf::Global {
-            return Vec::new();
-        }
-        let Some(kept) = self.library.read(app).kept_in_dock() else {
-            return Vec::new();
-        };
-        let platform = app.platform().target_platform();
-        let library = self.library.clone();
-        vec![
-            self.setting_name(words::keep_in_dock(platform)),
-            caption(words::keep_in_dock_detail(platform), &self.resources),
-            ToggleSwitch::new(kept, move |app, kept| {
-                library.update(app, |library, cx| library.keep_in_dock(kept, cx));
-            })
-            .on_content(Text::new(words::ON))
-            .off_content(Text::new(words::OFF))
-            .into_widget(),
-        ]
-    }
-
-    /// On the global page, where WaOS reaches the phone's files only as the user allows, whether
-    /// it may, and a button that opens the system's page for it.
-    fn phone_files(&self, app: &App) -> Vec<WidgetRef> {
-        if self.of != SettingsOf::Global {
-            return Vec::new();
-        }
-        let Some(reachable) = self.library.read(app).phone_files_reachable(app) else {
-            return Vec::new();
-        };
-        let library = self.library.clone();
-        let open = Listener::new(move |app| {
-            library.update(app, |library, cx| library.open_phone_files_page(cx));
-        });
-        let said = if reachable {
-            words::PHONE_FILES_ON
-        } else {
-            words::PHONE_FILES_OFF
-        };
-        vec![
-            self.setting_name(words::PHONE_FILES),
-            caption(said, &self.resources),
-            Row::new()
-                .children([Button::text(words::OPEN_ANDROID_SETTINGS, open).into_widget()])
-                .into_widget(),
-        ]
     }
 
     fn toggle(&self, on: bool, change: fn(bool) -> SettingChange) -> WidgetRef {

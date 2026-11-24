@@ -29,9 +29,8 @@ use waft_winui::{
 use waos_package::ProgramId;
 
 use crate::logic::icon_rows::{IconPlace, IconRows, Step, first_row};
-use crate::logic::setting_changes::SettingsOf;
 use crate::state::launcher::{Launcher, LauncherShown};
-use crate::state::library::{Library, LibraryPage};
+use crate::state::library::{Library, LibraryPage, SettingsPage};
 use crate::state::recordings::Recordings;
 use crate::ui::library::home::fluent::{FluentHomeBody, MARGIN, columns_in, show};
 use crate::ui::library::home::icon_grid::Highlighted;
@@ -241,7 +240,7 @@ impl LauncherHomeState {
             MenuFlyoutItem::new(words::GET_PROGRAMS, show(&library, LibraryPage::AppStore)),
             MenuFlyoutItem::new(
                 words::SETTINGS,
-                show(&library, LibraryPage::Settings(SettingsOf::Global)),
+                show(&library, LibraryPage::Settings(SettingsPage::Root)),
             ),
         ]
     }

@@ -20,8 +20,11 @@ use super::home::cupertino::CupertinoHome;
 use super::program_name;
 use super::questions::cupertino::CupertinoAsked;
 use super::settings::cupertino::CupertinoSettings;
+use super::settings::cupertino_root::CupertinoSettingsRoot;
+use super::settings::cupertino_waos::CupertinoWaosSettings;
 use super::{back_once_removed, page_key, words};
-use crate::state::library::{Library, LibraryPage};
+use crate::logic::setting_changes::SettingsOf;
+use crate::state::library::{Library, LibraryPage, SettingsPage};
 use crate::state::recordings::Recordings;
 
 /// The library in Cupertino's widgets.
@@ -139,12 +142,27 @@ impl LibraryPages {
             .into_widget(),
             LibraryPage::AppStore => CupertinoAppStore { library }.into_widget(),
             LibraryPage::App(id) => CupertinoAppPage { library, id }.into_widget(),
-            LibraryPage::Settings(of) => CupertinoSettings {
-                program_name: program_name(&library, &of, app),
+            LibraryPage::Settings(SettingsPage::Root) => {
+                CupertinoSettingsRoot { library }.into_widget()
+            }
+            LibraryPage::Settings(SettingsPage::Waos) => {
+                CupertinoWaosSettings { library }.into_widget()
+            }
+            LibraryPage::Settings(SettingsPage::EveryApp) => CupertinoSettings {
+                program_name: None,
                 library,
-                of,
+                of: SettingsOf::Global,
             }
             .into_widget(),
+            LibraryPage::Settings(SettingsPage::App(id)) => {
+                let of = SettingsOf::Program(id);
+                CupertinoSettings {
+                    program_name: program_name(&library, &of, app),
+                    library,
+                    of,
+                }
+                .into_widget()
+            }
         }
     }
 }

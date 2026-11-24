@@ -655,8 +655,8 @@ fn more_reaches_getting_programs_and_the_settings_each_with_back_to_the_grid() {
     tap_symbol(&mut desktop, FluentSymbol::More);
     desktop.tap(view, words::SETTINGS);
     assert!(
-        desktop.shows(words::GLOBAL_SETTINGS),
-        "{:?}",
+        desktop.shows(words::EVERY_APP) && desktop.shows("Triangle"),
+        "the settings' first page: {:?}",
         desktop.labels()
     );
     tap_symbol(&mut desktop, FluentSymbol::Back);
@@ -828,6 +828,7 @@ fn keep_in_dock(desktop: &mut LibraryDesktop, kept: bool, system: TargetPlatform
     let view = launcher_view(desktop);
     tap_symbol(desktop, FluentSymbol::More);
     desktop.tap(view, words::SETTINGS);
+    desktop.tap(view, words::WAOS_SETTINGS);
     assert!(
         desktop.shows(words::keep_in_dock(system)),
         "{:?}",
@@ -835,6 +836,8 @@ fn keep_in_dock(desktop: &mut LibraryDesktop, kept: bool, system: TargetPlatform
     );
     assert_eq!(desktop.read(|library| library.kept_in_dock()), Some(!kept));
     desktop.update(|library, cx| library.keep_in_dock(kept, cx));
+    // Back to the settings' first page, and from there to the grid.
+    tap_symbol(desktop, FluentSymbol::Back);
     tap_symbol(desktop, FluentSymbol::Back);
 }
 
