@@ -218,11 +218,13 @@ impl FluentHomeBody {
             },
         };
         // An icon answers a press, as a button does, and shows nothing for the pointer resting
-        // over it: WinUI's way to restyle a subtree's buttons.
+        // over it, neither a fill nor an edge: WinUI's way to restyle a subtree's buttons.
         ThemeScope::overriding(grid)
             .any(|resources| {
                 resources.subtle_button_background_pointer_over =
                     resources.subtle_button_background;
+                resources.subtle_button_border_brush_pointer_over =
+                    resources.subtle_button_border_brush;
             })
             .into_widget()
     }

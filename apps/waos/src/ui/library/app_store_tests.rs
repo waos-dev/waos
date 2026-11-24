@@ -72,6 +72,14 @@ fn on_the_store_of(
     (desktop, view, server)
 }
 
+/// Waits for the install a press on Get started: the app installed, and its code ready.
+fn the_install_is_done(desktop: &mut LibraryDesktop) {
+    desktop.settle_until("the install", |desktop| {
+        desktop.read(|library| !library.installed().is_empty())
+    });
+    desktop.settle_until_code_is_ready();
+}
+
 /// How many labels say `text`.
 fn times_shown(desktop: &LibraryDesktop, text: &str) -> usize {
     desktop
@@ -139,7 +147,7 @@ fn an_app_got_from_discover_is_installed_and_says_so() {
     );
     let row = desktop.find("Triangle").expect("its row").dy();
     desktop.tap_beside_label(view, "Triangle", words::GET);
-    desktop.settle_until_code_is_ready();
+    the_install_is_done(&mut desktop);
     assert_eq!(desktop.read(|library| library.installed().len()), 1);
     assert!(desktop.shows(words::INSTALLED), "{:?}", desktop.labels());
     let after = desktop.find("Triangle").expect("its row").dy();
@@ -154,7 +162,7 @@ fn updates_lists_what_has_a_newer_version_and_updates_them_all() {
 
     desktop.tap(view, words::DISCOVER);
     desktop.tap_beside_label(view, "Triangle", words::GET);
-    desktop.settle_until_code_is_ready();
+    the_install_is_done(&mut desktop);
     let newer = desktop.package(TRIANGLE, "Triangle", "1.1.0", b"\0asm");
     server.publish_saying(TRIANGLE, &newer, "1.1.0", says_what_a_store_shows);
     desktop.update(|library, cx| library.read_sources(cx));
@@ -244,7 +252,7 @@ fn an_apps_row_opens_its_page_which_says_what_its_source_does_and_gets_it() {
     });
 
     desktop.tap(view, words::GET);
-    desktop.settle_until_code_is_ready();
+    the_install_is_done(&mut desktop);
     assert_eq!(desktop.read(|library| library.installed().len()), 1);
     assert!(
         desktop.shows(words::OPEN) && !desktop.shows(words::GET),
@@ -285,7 +293,7 @@ fn on_a_phone_an_apps_row_opens_its_page_which_gets_it_and_goes_back_to_the_stor
     assert!(!phone.shows("Maps"), "the page of one app");
 
     phone.tap(view, words::GET);
-    phone.settle_until_code_is_ready();
+    the_install_is_done(&mut phone);
     assert!(
         phone.shows(words::OPEN) && !phone.shows(words::GET),
         "{:?}",

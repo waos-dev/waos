@@ -159,6 +159,9 @@ const SOURCE_LISTS: [ListedApp; 7] = [
     ),
 ];
 
+/// A point of the launcher's card with no icon under it: in its search row.
+const OFF_EVERY_ICON: waft::Offset = waft::Offset::new(600.0, 30.0);
+
 /// The store's places as the gallery draws them, each with its scene's name.
 const STORE_SCENES: [(AppStorePlace, &str); 3] = [
     (AppStorePlace::Discover, "store-discover"),
@@ -278,6 +281,18 @@ fn walks_the_library(layout: &str, (mut desktop, view): (LibraryDesktop, ViewId)
         started_yesterday(&mut desktop, id, starts);
     }
     scenes.draw(&mut desktop, "often-used");
+    // An icon shows nothing for the pointer resting over it: the desktop's mouse on one, the
+    // home is drawn as with the mouse off every icon.
+    if layout == "launcher" {
+        let on_an_icon = desktop.find("Maps").expect("an icon of the home");
+        desktop.hover_at(view, on_an_icon);
+        let under_the_pointer = scenes.picture(&mut desktop);
+        desktop.hover_at(view, OFF_EVERY_ICON);
+        assert!(
+            scenes.picture(&mut desktop) == under_the_pointer,
+            "an icon under the pointer is drawn as any other"
+        );
+    }
 
     desktop.update(|library, cx| library.show_category(Some(Category::Productivity), cx));
     scenes.draw(&mut desktop, "one-category");
@@ -360,8 +375,19 @@ impl<'a> Scenes<'a> {
     /// Reads back what the view shows once the desktop settles, written as `what` where
     /// `WAOS_GALLERY_DIR` says; the picture drawn, as a PNG.
     fn draw(&mut self, desktop: &mut LibraryDesktop, what: &str) -> Vec<u8> {
-        desktop.settle();
+        let png = self.picture(desktop);
         self.drawn += 1;
+        if let Some(folder) = std::env::var_os("WAOS_GALLERY_DIR") {
+            std::fs::create_dir_all(&folder).expect("the gallery's folder is made");
+            let name = format!("{}-{:02}-{what}.png", self.layout, self.drawn);
+            std::fs::write(Path::new(&folder).join(name), &png).expect("the scene is written");
+        }
+        png
+    }
+
+    /// What the view shows once the desktop settles, read back, as a PNG.
+    fn picture(&self, desktop: &mut LibraryDesktop) -> Vec<u8> {
+        desktop.settle();
         let shown = self.view;
         let mut app = desktop.shell.app();
         let view = find::by_widget_predicate("the library's view", move |_, widget| {
@@ -370,13 +396,7 @@ impl<'a> Scenes<'a> {
         .evaluate_in(&mut app)[0];
         let image = capture_image(&mut app, view).expect("the test platform draws images");
         let pixels = block_on(app.platform().read_image_pixels(&image))
-            .unwrap_or_else(|error| panic!("{what} reads back: {error}"));
-        let png = encode_png(&pixels);
-        if let Some(folder) = std::env::var_os("WAOS_GALLERY_DIR") {
-            std::fs::create_dir_all(&folder).expect("the gallery's folder is made");
-            let name = format!("{}-{:02}-{what}.png", self.layout, self.drawn);
-            std::fs::write(Path::new(&folder).join(name), &png).expect("the scene is written");
-        }
-        png
+            .unwrap_or_else(|error| panic!("the view reads back: {error}"));
+        encode_png(&pixels)
     }
 }

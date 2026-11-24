@@ -568,6 +568,21 @@ impl LibraryDesktop {
         }
     }
 
+    /// Moves the mouse to `at`, in the window of `view`, with no button down.
+    pub(crate) fn hover_at(&mut self, view: ViewId, at: Offset) {
+        self.shell.pointer_reports(vec![PointerReport {
+            view_id: view,
+            time_stamp: self.elapsed,
+            device: 1,
+            kind: PointerDeviceKind::Mouse,
+            position: [at.dx(), at.dy()],
+            change: ReportedChange::Hover { buttons: 0 },
+            contact: Contact::default(),
+        }]);
+        self.pump();
+        self.settle();
+    }
+
     /// Turns the mouse's wheel at `at`, in the window of `view`, by `delta` pixels, a positive
     /// one towards the content's end.
     fn wheel_at(&mut self, view: ViewId, at: Offset, delta: f64) {
