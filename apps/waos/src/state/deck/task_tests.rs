@@ -13,7 +13,7 @@ use std::time::Duration;
 use waft::Offset;
 use waft::ui::{HostWindow, View, ViewFocusState};
 use waos::{Prompts, Question};
-use waos_program_window::{RestorableWindow, WindowRole};
+use waos_program_window::{WindowRestoration, WindowRole};
 
 use super::test_phone::{BACK, PhoneKind, SURVEY, TRIANGLE, TestPhone};
 use crate::logic::opened_package::tests::{ICON_PIXEL, ICON_SIDE};
@@ -48,7 +48,7 @@ fn open_in_a_window(phone: &mut TestPhone, id: &str) {
 }
 
 fn first_window_of(id: &str) -> String {
-    RestorableWindow {
+    WindowRestoration {
         program: id.to_owned(),
         role: WindowRole::First,
     }
@@ -189,7 +189,7 @@ fn a_first_window_brought_back_is_followed_as_one_asked_for() {
 #[test]
 fn an_extra_window_brought_back_closes_at_once() {
     let mut phone = with_triangle_installed();
-    let extra = RestorableWindow {
+    let extra = WindowRestoration {
         program: TRIANGLE.to_owned(),
         role: WindowRole::Extra,
     };

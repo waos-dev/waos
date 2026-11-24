@@ -65,7 +65,7 @@ use crate::link::{OpenedView, ProgramFace, ProgramLink, ViewLink, WindowRequest}
 use crate::logic::canvas_layer::CanvasLayer;
 use crate::logic::geometry::{metrics_of, rect_of, waft_rect, waft_size};
 use crate::logic::presence::WindowStanding;
-use crate::logic::restoration::{RestorableWindow, WindowRole};
+use crate::logic::restoration::{WindowRestoration, WindowRole};
 use crate::logic::title_bar::title_bar_action_of;
 use crate::logic::view_calls::view_call_queue;
 use crate::logic::window_config::window_config_of;
@@ -379,7 +379,7 @@ impl<P: ProgramLink> ViewWindows<P> {
     ) -> Result<(), ViewError> {
         let activation_token = self.activation_tokens.remove(program);
         let config = window_config_of(&WindowConfig::default(), face, activation_token);
-        let first = RestorableWindow {
+        let first = WindowRestoration {
             program: program.to_owned(),
             role: WindowRole::First,
         };
@@ -430,7 +430,7 @@ impl<P: ProgramLink> ViewWindows<P> {
         }
         let activation_token = self.activation_tokens.remove(program.name());
         let config = window_config_of(&request.config, &face, activation_token);
-        let restorable = RestorableWindow {
+        let restorable = WindowRestoration {
             program: program.name().to_owned(),
             role: self.role_of_next(&program),
         };

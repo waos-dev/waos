@@ -275,7 +275,7 @@ dependencies = [
  "objc2-foundation",
  "parking_lot",
  "percent-encoding",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
  "x11rb 0.13.2",
 ]
 
@@ -2067,7 +2067,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e35d6e78f4cebb90e51d543db8fe41528851d6deeef6ef21ebd4bfdc1e784776"
 dependencies = [
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2669,7 +2669,7 @@ dependencies = [
  "log",
  "presser",
  "thiserror 2.0.21",
- "windows 0.57.0",
+ "windows 0.61.3",
 ]
 
 [[package]]
@@ -3122,7 +3122,7 @@ dependencies = [
  "js-sys",
  "log",
  "wasm-bindgen",
- "windows-core 0.57.0",
+ "windows-core 0.61.2",
 ]
 
 [[package]]
@@ -5291,7 +5291,7 @@ dependencies = [
  "once_cell",
  "socket2",
  "tracing",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -5890,7 +5890,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -5957,7 +5957,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -6621,7 +6621,7 @@ version = "0.2.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6c2499c2d826531388872b2268718aed907a39bd785ab0dcfe57fab26283f92e"
 dependencies = [
- "skrifa 0.40.0",
+ "skrifa 0.42.1",
  "yazi",
  "zeno",
 ]
@@ -7147,7 +7147,7 @@ dependencies = [
  "getrandom 0.4.3",
  "once_cell",
  "rustix",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -8065,7 +8065,7 @@ dependencies = [
 [[package]]
 name = "waft"
 version = "0.11.0"
-source = "git+https://github.com/waos-dev/waft?branch=folder-handle-url#ab4d1495a4b08491ff11db135987f8fff4a66cc0"
+source = "git+https://github.com/waos-dev/waft?branch=folder-handle-url#245bfb0ea89674e1589ffa3813cb948c10f5205e"
 dependencies = [
  "waft-embedder",
  "waft-embedder-default",
@@ -8081,7 +8081,7 @@ dependencies = [
 [[package]]
 name = "waft-animation"
 version = "0.11.0"
-source = "git+https://github.com/waos-dev/waft?branch=folder-handle-url#ab4d1495a4b08491ff11db135987f8fff4a66cc0"
+source = "git+https://github.com/waos-dev/waft?branch=folder-handle-url#245bfb0ea89674e1589ffa3813cb948c10f5205e"
 dependencies = [
  "waft-embedder",
  "waft-foundation",
@@ -8105,7 +8105,7 @@ dependencies = [
 [[package]]
 name = "waft-cupertino"
 version = "0.11.0"
-source = "git+https://github.com/waos-dev/waft?branch=folder-handle-url#ab4d1495a4b08491ff11db135987f8fff4a66cc0"
+source = "git+https://github.com/waos-dev/waft?branch=folder-handle-url#245bfb0ea89674e1589ffa3813cb948c10f5205e"
 dependencies = [
  "indexmap",
  "waft-animation",
@@ -8123,7 +8123,7 @@ dependencies = [
 [[package]]
 name = "waft-embedder"
 version = "0.11.0"
-source = "git+https://github.com/waos-dev/waft?branch=folder-handle-url#ab4d1495a4b08491ff11db135987f8fff4a66cc0"
+source = "git+https://github.com/waos-dev/waft?branch=folder-handle-url#245bfb0ea89674e1589ffa3813cb948c10f5205e"
 dependencies = [
  "bytes",
  "http",
@@ -8144,7 +8144,7 @@ dependencies = [
 [[package]]
 name = "waft-embedder-android"
 version = "0.11.0"
-source = "git+https://github.com/waos-dev/waft?branch=folder-handle-url#ab4d1495a4b08491ff11db135987f8fff4a66cc0"
+source = "git+https://github.com/waos-dev/waft?branch=folder-handle-url#245bfb0ea89674e1589ffa3813cb948c10f5205e"
 dependencies = [
  "ash",
  "jni",
@@ -8165,7 +8165,7 @@ dependencies = [
 [[package]]
 name = "waft-embedder-apple"
 version = "0.11.0"
-source = "git+https://github.com/waos-dev/waft?branch=folder-handle-url#ab4d1495a4b08491ff11db135987f8fff4a66cc0"
+source = "git+https://github.com/waos-dev/waft?branch=folder-handle-url#245bfb0ea89674e1589ffa3813cb948c10f5205e"
 dependencies = [
  "block2",
  "dispatch2",
@@ -8198,7 +8198,7 @@ dependencies = [
 [[package]]
 name = "waft-embedder-default"
 version = "0.11.0"
-source = "git+https://github.com/waos-dev/waft?branch=folder-handle-url#ab4d1495a4b08491ff11db135987f8fff4a66cc0"
+source = "git+https://github.com/waos-dev/waft?branch=folder-handle-url#245bfb0ea89674e1589ffa3813cb948c10f5205e"
 dependencies = [
  "waft-embedder",
  "waft-embedder-android",
@@ -8210,7 +8210,7 @@ dependencies = [
 [[package]]
 name = "waft-embedder-ios"
 version = "0.11.0"
-source = "git+https://github.com/waos-dev/waft?branch=folder-handle-url#ab4d1495a4b08491ff11db135987f8fff4a66cc0"
+source = "git+https://github.com/waos-dev/waft?branch=folder-handle-url#245bfb0ea89674e1589ffa3813cb948c10f5205e"
 dependencies = [
  "block2",
  "dispatch2",
@@ -8233,7 +8233,7 @@ dependencies = [
 [[package]]
 name = "waft-embedder-web"
 version = "0.11.0"
-source = "git+https://github.com/waos-dev/waft?branch=folder-handle-url#ab4d1495a4b08491ff11db135987f8fff4a66cc0"
+source = "git+https://github.com/waos-dev/waft?branch=folder-handle-url#245bfb0ea89674e1589ffa3813cb948c10f5205e"
 dependencies = [
  "console_error_panic_hook",
  "getrandom 0.3.4",
@@ -8251,7 +8251,7 @@ dependencies = [
 [[package]]
 name = "waft-embedder-winit"
 version = "0.11.0"
-source = "git+https://github.com/waos-dev/waft?branch=folder-handle-url#ab4d1495a4b08491ff11db135987f8fff4a66cc0"
+source = "git+https://github.com/waos-dev/waft?branch=folder-handle-url#245bfb0ea89674e1589ffa3813cb948c10f5205e"
 dependencies = [
  "arboard",
  "block2",
@@ -8291,7 +8291,7 @@ dependencies = [
 [[package]]
 name = "waft-foundation"
 version = "0.11.0"
-source = "git+https://github.com/waos-dev/waft?branch=folder-handle-url#ab4d1495a4b08491ff11db135987f8fff4a66cc0"
+source = "git+https://github.com/waos-dev/waft?branch=folder-handle-url#245bfb0ea89674e1589ffa3813cb948c10f5205e"
 dependencies = [
  "async-task",
  "indexmap",
@@ -8304,7 +8304,7 @@ dependencies = [
 [[package]]
 name = "waft-gestures"
 version = "0.11.0"
-source = "git+https://github.com/waos-dev/waft?branch=folder-handle-url#ab4d1495a4b08491ff11db135987f8fff4a66cc0"
+source = "git+https://github.com/waos-dev/waft?branch=folder-handle-url#245bfb0ea89674e1589ffa3813cb948c10f5205e"
 dependencies = [
  "indexmap",
  "waft-embedder",
@@ -8351,7 +8351,7 @@ dependencies = [
 [[package]]
 name = "waft-macros"
 version = "0.11.0"
-source = "git+https://github.com/waos-dev/waft?branch=folder-handle-url#ab4d1495a4b08491ff11db135987f8fff4a66cc0"
+source = "git+https://github.com/waos-dev/waft?branch=folder-handle-url#245bfb0ea89674e1589ffa3813cb948c10f5205e"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -8374,7 +8374,7 @@ dependencies = [
 [[package]]
 name = "waft-painting"
 version = "0.11.0"
-source = "git+https://github.com/waos-dev/waft?branch=folder-handle-url#ab4d1495a4b08491ff11db135987f8fff4a66cc0"
+source = "git+https://github.com/waos-dev/waft?branch=folder-handle-url#245bfb0ea89674e1589ffa3813cb948c10f5205e"
 dependencies = [
  "http",
  "indexmap",
@@ -8389,7 +8389,7 @@ dependencies = [
 [[package]]
 name = "waft-physics"
 version = "0.11.0"
-source = "git+https://github.com/waos-dev/waft?branch=folder-handle-url#ab4d1495a4b08491ff11db135987f8fff4a66cc0"
+source = "git+https://github.com/waos-dev/waft?branch=folder-handle-url#245bfb0ea89674e1589ffa3813cb948c10f5205e"
 dependencies = [
  "waft-embedder",
 ]
@@ -8397,7 +8397,7 @@ dependencies = [
 [[package]]
 name = "waft-rendering"
 version = "0.11.0"
-source = "git+https://github.com/waos-dev/waft?branch=folder-handle-url#ab4d1495a4b08491ff11db135987f8fff4a66cc0"
+source = "git+https://github.com/waos-dev/waft?branch=folder-handle-url#245bfb0ea89674e1589ffa3813cb948c10f5205e"
 dependencies = [
  "indexmap",
  "unicode-general-category",
@@ -8413,7 +8413,7 @@ dependencies = [
 [[package]]
 name = "waft-scheduler"
 version = "0.11.0"
-source = "git+https://github.com/waos-dev/waft?branch=folder-handle-url#ab4d1495a4b08491ff11db135987f8fff4a66cc0"
+source = "git+https://github.com/waos-dev/waft?branch=folder-handle-url#245bfb0ea89674e1589ffa3813cb948c10f5205e"
 dependencies = [
  "indexmap",
  "waft-embedder",
@@ -8423,7 +8423,7 @@ dependencies = [
 [[package]]
 name = "waft-service-protocol"
 version = "0.11.0"
-source = "git+https://github.com/waos-dev/waft?branch=folder-handle-url#ab4d1495a4b08491ff11db135987f8fff4a66cc0"
+source = "git+https://github.com/waos-dev/waft?branch=folder-handle-url#245bfb0ea89674e1589ffa3813cb948c10f5205e"
 dependencies = [
  "serde",
  "serde_json",
@@ -8432,7 +8432,7 @@ dependencies = [
 [[package]]
 name = "waft-services"
 version = "0.11.0"
-source = "git+https://github.com/waos-dev/waft?branch=folder-handle-url#ab4d1495a4b08491ff11db135987f8fff4a66cc0"
+source = "git+https://github.com/waos-dev/waft?branch=folder-handle-url#245bfb0ea89674e1589ffa3813cb948c10f5205e"
 dependencies = [
  "indexmap",
  "unicode-segmentation",
@@ -8445,7 +8445,7 @@ dependencies = [
 [[package]]
 name = "waft-shell"
 version = "0.11.0"
-source = "git+https://github.com/waos-dev/waft?branch=folder-handle-url#ab4d1495a4b08491ff11db135987f8fff4a66cc0"
+source = "git+https://github.com/waos-dev/waft?branch=folder-handle-url#245bfb0ea89674e1589ffa3813cb948c10f5205e"
 dependencies = [
  "waft-embedder",
  "waft-foundation",
@@ -8459,7 +8459,7 @@ dependencies = [
 [[package]]
 name = "waft-single-instance"
 version = "0.11.0"
-source = "git+https://github.com/waos-dev/waft?branch=folder-handle-url#ab4d1495a4b08491ff11db135987f8fff4a66cc0"
+source = "git+https://github.com/waos-dev/waft?branch=folder-handle-url#245bfb0ea89674e1589ffa3813cb948c10f5205e"
 dependencies = [
  "windows-sys 0.60.2",
  "zbus",
@@ -8468,7 +8468,7 @@ dependencies = [
 [[package]]
 name = "waft-test"
 version = "0.11.0"
-source = "git+https://github.com/waos-dev/waft?branch=folder-handle-url#ab4d1495a4b08491ff11db135987f8fff4a66cc0"
+source = "git+https://github.com/waos-dev/waft?branch=folder-handle-url#245bfb0ea89674e1589ffa3813cb948c10f5205e"
 dependencies = [
  "http",
  "valo-system-fonts",
@@ -8491,7 +8491,7 @@ dependencies = [
 [[package]]
 name = "waft-widgets"
 version = "0.11.0"
-source = "git+https://github.com/waos-dev/waft?branch=folder-handle-url#ab4d1495a4b08491ff11db135987f8fff4a66cc0"
+source = "git+https://github.com/waos-dev/waft?branch=folder-handle-url#245bfb0ea89674e1589ffa3813cb948c10f5205e"
 dependencies = [
  "base64 0.22.1",
  "cssparser",
@@ -8513,7 +8513,7 @@ dependencies = [
 [[package]]
 name = "waft-winui"
 version = "0.11.0"
-source = "git+https://github.com/waos-dev/waft?branch=folder-handle-url#ab4d1495a4b08491ff11db135987f8fff4a66cc0"
+source = "git+https://github.com/waos-dev/waft?branch=folder-handle-url#245bfb0ea89674e1589ffa3813cb948c10f5205e"
 dependencies = [
  "waft-animation",
  "waft-embedder",
@@ -9949,7 +9949,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
