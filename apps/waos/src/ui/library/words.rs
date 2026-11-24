@@ -139,8 +139,6 @@ pub(crate) fn unreadable(why: &str) -> String {
 
 pub(crate) const SETTINGS: &str = "Settings";
 pub(crate) const NONE: &str = "None";
-/// On an app's page, over what is the app's alone.
-pub(crate) const MORE: &str = "More";
 /// On the settings' first page: WaOS's own settings, the permissions apps follow by default,
 /// and the apps. WaOS's own are General, as iOS names its own: on a phone the way back to the
 /// home is named WaOS already.
@@ -321,19 +319,24 @@ pub(crate) const LINKS: &str = "Links";
 pub(crate) const LINKS_DETAIL: &str = "What this app was answered when it asked to open links of these kinds. Remove one to be asked again.";
 pub(crate) const ROLES: &str = "Roles";
 pub(crate) const ROLES_DETAIL: &str = "What this app was answered when it asked to be more than an app. Remove one to be asked again at its next start.";
-pub(crate) const ANSWERED_WITHOUT_ASKING: &str = "Answered without asking";
-pub(crate) const ANSWERED_WITHOUT_ASKING_DETAIL: &str =
-    "When this app asks for one of these, WaOS gives it what is set here instead of asking you.";
-pub(crate) const WHICH_MACHINE: &str = "Which computer";
-pub(crate) const WHICH_OUTPUT: &str = "Which sound output";
-pub(crate) const ANSWER_WITH: &str = "Answer with";
-pub(crate) const ASK_INSTEAD: &str = "Ask instead";
+pub(crate) const FILE_PICKERS: &str = "File pickers";
+/// Under a file picker that is simulated, as under a simulated camera.
+pub(crate) const SIMULATED_PICKER_DETAIL: &str =
+    "Simulated: no picker shows. The app is given the path set here, as if you had picked it.";
+pub(crate) const SOUND_OUTPUT: &str = "Sound output";
+pub(crate) const SOUND_OUTPUT_DETAIL: &str =
+    "Ask shows the app's choice of outputs to you; an output set here is given to it at once.";
+pub(crate) const WHICH_MACHINE: &str = "When it asks for a computer";
+/// On a simulated picker's path: sets it, and lets another be typed.
+pub(crate) const SET: &str = "Set";
+pub(crate) const CHANGE: &str = "Change";
 
 /// What is one app's alone, as its page lists it and as the page of it is titled.
 pub(crate) fn app_detail_name(detail: AppDetail) -> &'static str {
     match detail {
         AppDetail::Machines => MACHINES,
-        AppDetail::Answers => ANSWERED_WITHOUT_ASKING,
+        AppDetail::FilePickers => FILE_PICKERS,
+        AppDetail::SoundOutput => SOUND_OUTPUT,
         AppDetail::Links => LINKS,
         AppDetail::Roles => ROLES,
     }

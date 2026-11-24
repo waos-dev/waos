@@ -72,6 +72,7 @@ impl StatefulWidget for CupertinoSettings {
             state: StateData::new(),
             typed: None,
             writable: false,
+            simulating: Vec::new(),
         }
     }
 }
@@ -81,6 +82,8 @@ pub(crate) struct CupertinoSettingsState {
     typed: Option<Typed>,
     /// Whether a folder added is writable.
     writable: bool,
+    /// The file pickers the user chose to simulate and has set no path for yet.
+    simulating: Vec<FileDialog>,
 }
 
 /// What is being typed on the page.
@@ -133,6 +136,7 @@ impl State for CupertinoSettingsState {
             defaults: widget.library.read(app).settings(&SettingsOf::Global).ok(),
             typed: app.get(self).typed.clone().expect("an initialized page"),
             writable: app.get(self).writable,
+            simulating: app.get(self).simulating.clone(),
             state: self,
         };
         let (title, beneath) = match (page.only, &widget.program_name) {
@@ -186,6 +190,16 @@ impl CupertinoSettingsState {
     fn set_writable(self: Handle<Self>, app: &mut App, writable: bool) {
         self.set_state(app, |state| state.writable = writable);
     }
+
+    /// The user chose to simulate `dialog`, or not to: its path's field shows, or goes.
+    fn simulate(self: Handle<Self>, app: &mut App, dialog: FileDialog, simulated: bool) {
+        self.set_state(app, |state| {
+            state.simulating.retain(|each| *each != dialog);
+            if simulated {
+                state.simulating.push(dialog);
+            }
+        });
+    }
 }
 
 /// What one build of the page reads and writes.
@@ -198,6 +212,7 @@ struct Page {
     defaults: Option<ShownSettings>,
     typed: Typed,
     writable: bool,
+    simulating: Vec<FileDialog>,
     state: Handle<CupertinoSettingsState>,
 }
 
@@ -303,7 +318,7 @@ impl Page {
                 .into_widget()
             })
             .collect();
-        Some(section(Some(words::MORE), None, rows))
+        Some(section(None, None, rows))
     }
 
     /// What a program asked for, when it asked for one of its switches here.
@@ -334,8 +349,18 @@ impl Page {
             sections.extend(self.app_details(shown));
         }
         match self.detail {
-            Some(AppDetail::Machines) => sections.push(self.machines(&shown.machines)),
-            Some(AppDetail::Answers) => sections.extend(self.answered_without_asking(shown)),
+            Some(AppDetail::Machines) => {
+                sections.push(self.machines(&shown.machines));
+                sections.push(self.machine_answer(&shown.answer_with, &shown.offered.machines));
+            }
+            Some(AppDetail::FilePickers) => {
+                sections.extend(
+                    FileDialog::ALL.map(|dialog| self.file_picker(dialog, &shown.answer_with)),
+                );
+            }
+            Some(AppDetail::SoundOutput) => {
+                sections.push(self.output_answer(&shown.answer_with, &shown.offered.outputs));
+            }
             Some(AppDetail::Links) => sections.extend(self.link_schemes(&shown.link_schemes)),
             Some(AppDetail::Roles) => sections.extend(self.roles(&shown.roles)),
             None => {}
@@ -424,19 +449,6 @@ impl Page {
         ))
     }
 
-    /// What the program's pickers and file dialogs are answered with in place of asking: a
-    /// section each, the first saying what they are.
-    fn answered_without_asking(&self, shown: &ShownSettings) -> Vec<WidgetRef> {
-        let set = &shown.answer_with;
-        let mut sections = vec![said_over_the_lists(words::ANSWERED_WITHOUT_ASKING_DETAIL)];
-        for dialog in FileDialog::ALL {
-            sections.push(self.file_dialog_answer(dialog, set));
-        }
-        sections.push(self.output_answer(set, &shown.offered.outputs));
-        sections.push(self.machine_answer(set, &shown.offered.machines));
-        sections
-    }
-
     /// Ask, or one of the machines offered, the one set among them, by its id when it is not
     /// offered now.
     fn machine_answer(&self, set: &ShownAnswerWith, offered: &[waos::MachineChoice]) -> WidgetRef {
@@ -478,17 +490,23 @@ impl Page {
             let change = SettingChange::AudioOutputAnswer(Some(output.id.clone()));
             tiles.push(self.checked(&words::not_offered(&output.label), true, change));
         }
-        section(Some(words::WHICH_OUTPUT), None, tiles)
+        section(None, Some(words::SOUND_OUTPUT_DETAIL), tiles)
     }
 
-    /// The paths `dialog` is answered with, or a field to set one: for the dialog that opens
-    /// files, each path with Remove and a field to add one; for the others, the path with Ask
-    /// instead.
-    fn file_dialog_answer(&self, dialog: FileDialog, set: &ShownAnswerWith) -> WidgetRef {
+    /// One of the app's file pickers: Ask, which shows the picker to the user, or Simulated,
+    /// under which the path the app is given is set, as a simulated camera says what it shows.
+    fn file_picker(&self, dialog: FileDialog, set: &ShownAnswerWith) -> WidgetRef {
         let paths = set.paths.file_dialog(dialog).unwrap_or_default();
+        let simulated = !paths.is_empty() || self.simulating.contains(&dialog);
+        let mut tiles = vec![
+            self.picker_choice(words::ASK, !simulated, dialog, false),
+            self.picker_choice(words::SIMULATED, simulated, dialog, true),
+        ];
+        if !simulated {
+            return section(Some(words::file_dialog_name(dialog)), None, tiles);
+        }
         let placeholder = words::file_dialog_placeholder(dialog);
         let typed = self.typed.path(dialog).clone();
-        let mut tiles = Vec::new();
         if dialog == FileDialog::OpenFiles {
             for (index, path) in paths.iter().enumerate() {
                 let remove = SettingChange::RemoveFileToOpen(index);
@@ -498,17 +516,57 @@ impl Page {
         } else {
             match paths.first() {
                 Some(path) => {
-                    let ask = self.on(SettingChange::FileDialogAnswer(dialog, Vec::new()));
-                    tiles.push(self.listed_with(&path.to_string_lossy(), words::ASK_INSTEAD, ask));
+                    // Another path is typed in the field, which shows once this one is let go.
+                    let (state, ask) = (
+                        self.state,
+                        self.on(SettingChange::FileDialogAnswer(dialog, Vec::new())),
+                    );
+                    let change = Listener::new(move |app| {
+                        state.simulate(app, dialog, true);
+                        ask.call(app);
+                    });
+                    tiles.push(self.listed_with(&path.to_string_lossy(), words::CHANGE, change));
                 }
                 None => {
                     let answer =
                         move |typed: String| SettingChange::FileDialogAnswer(dialog, vec![typed]);
-                    tiles.push(self.adding(typed, placeholder, words::ANSWER_WITH, answer));
+                    tiles.push(self.adding(typed, placeholder, words::SET, answer));
                 }
             }
         }
-        section(Some(words::file_dialog_name(dialog)), None, tiles)
+        section(
+            Some(words::file_dialog_name(dialog)),
+            Some(words::SIMULATED_PICKER_DETAIL),
+            tiles,
+        )
+    }
+
+    /// A choice of a file picker, Ask or Simulated, checked where it is `chosen`: Simulated
+    /// shows the path's field, Ask lets go of the path set.
+    fn picker_choice(
+        &self,
+        label: &str,
+        chosen: bool,
+        dialog: FileDialog,
+        simulate: bool,
+    ) -> WidgetRef {
+        let (state, ask) = (
+            self.state,
+            self.on(SettingChange::FileDialogAnswer(dialog, Vec::new())),
+        );
+        let choose = Rc::new(move |app: &mut App| {
+            state.simulate(app, dialog, simulate);
+            if !simulate {
+                ask.call(app);
+            }
+            Task::ready(())
+        });
+        let tile = CupertinoListTile::new(Text::new(label)).on_tap(choose);
+        if chosen {
+            tile.trailing(checkmark()).into_widget()
+        } else {
+            tile.into_widget()
+        }
     }
 
     /// A row naming one choice, a check mark at its trailing side when it is the one `chosen`; a
@@ -520,8 +578,7 @@ impl Page {
             Task::ready(())
         }));
         if chosen {
-            tile.trailing(Icon::new(Some(CupertinoIcons::check_mark())))
-                .into_widget()
+            tile.trailing(checkmark()).into_widget()
         } else {
             tile.into_widget()
         }

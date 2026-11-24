@@ -163,11 +163,7 @@ fn the_settings_first_page_leads_to_each_apps_settings_and_back_in_either_layout
             page(&desktop),
             LibraryPage::Settings(SettingsPage::App(triangle()))
         );
-        assert!(
-            desktop.shows("Triangle"),
-            "{:?}",
-            desktop.labels()
-        );
+        assert!(desktop.shows("Triangle"), "{:?}", desktop.labels());
         back_once(&mut desktop, view);
         assert_eq!(page(&desktop), LibraryPage::Settings(SettingsPage::Root));
         back_once(&mut desktop, view);
@@ -333,24 +329,48 @@ fn triangle_answered(desktop: &LibraryDesktop, folder: &std::path::Path) -> std:
 /// How far the tests' wheel scrolls a settings page at a time.
 const SCROLL_STEP: f64 = 200.0;
 
+/// From a page under the app's, opens the page of `detail` instead, as the user goes back to
+/// the app's page and on.
+fn go_to_app_detail(desktop: &mut LibraryDesktop, view: ViewId, detail: AppDetail) {
+    back_once(desktop, view);
+    let row = words::app_detail_name(detail);
+    // The app's page is where it was left: scrolled to its rows, or at its top.
+    if !desktop.shows(row) {
+        desktop.scroll_until_visible(view, row, words::PERMISSIONS, SCROLL_STEP);
+    }
+    desktop.tap(view, row);
+}
+
+/// On Triangle's file pickers, has its save simulated, which shows the field its path is typed
+/// in; answers the field's placeholder.
+fn simulates_saving(desktop: &mut LibraryDesktop, view: ViewId) -> &'static str {
+    open_app_detail(desktop, view, "Triangle", AppDetail::FilePickers);
+    let saving = words::file_dialog_name(FileDialog::SaveFile);
+    let opening = words::file_dialog_name(FileDialog::OpenFile);
+    desktop.scroll_until_visible(view, saving, opening, SCROLL_STEP);
+    desktop.scroll_to_end(view, saving);
+    let placeholder = words::file_dialog_placeholder(FileDialog::SaveFile);
+    assert!(
+        !desktop.shows(placeholder),
+        "no path to set while the picker asks: {:?}",
+        desktop.labels()
+    );
+    desktop.tap_last(view, words::SIMULATED);
+    desktop.scroll_until_visible(view, placeholder, saving, SCROLL_STEP);
+    placeholder
+}
+
 #[test]
-fn a_programs_set_answers_show_as_they_are_and_change_in_the_launcher() {
+fn a_programs_file_pickers_ask_or_are_simulated_with_a_path_in_the_launcher() {
     let (mut desktop, view) = in_launcher();
     installs(&mut desktop, TRIANGLE, "Triangle", b"\0asm");
     let scratch = tempfile::tempdir().unwrap();
     let save = triangle_answered(&desktop, scratch.path());
-    open_app_detail(&mut desktop, view, "Triangle", AppDetail::Answers);
-    let placeholder = words::file_dialog_placeholder(FileDialog::SaveFile);
-    desktop.scroll_until_visible(
-        view,
-        placeholder,
-        words::ANSWERED_WITHOUT_ASKING_DETAIL,
-        SCROLL_STEP,
-    );
+    let placeholder = simulates_saving(&mut desktop, view);
     desktop.tap(view, placeholder);
     let saved = save.display().to_string();
     desktop.type_text(view, &saved);
-    desktop.tap(view, words::ANSWER_WITH);
+    desktop.tap(view, words::SET);
     let own = desktop.store.program_settings(&triangle()).unwrap();
     assert_eq!(
         own.answer_with.save_file.as_ref(),
@@ -358,10 +378,23 @@ fn a_programs_set_answers_show_as_they_are_and_change_in_the_launcher() {
         "{:?}",
         desktop.labels()
     );
+    assert!(desktop.shows(&saved), "the path set shows");
 
+    desktop.tap_last(view, words::ASK);
+    let own = desktop.store.program_settings(&triangle()).unwrap();
+    assert_eq!(own.answer_with.save_file, None, "asked again");
+    assert!(!desktop.shows(&saved) && !desktop.shows(placeholder));
+}
+
+#[test]
+fn a_programs_sound_output_and_computer_show_as_set_and_change_in_the_launcher() {
+    let (mut desktop, view) = in_launcher();
+    installs(&mut desktop, TRIANGLE, "Triangle", b"\0asm");
+    let scratch = tempfile::tempdir().unwrap();
+    triangle_answered(&desktop, scratch.path());
+    open_app_detail(&mut desktop, view, "Triangle", AppDetail::SoundOutput);
     let not_connected = words::not_offered("unplugged speakers");
-    desktop.scroll_until_visible(view, &not_connected, &saved, SCROLL_STEP);
-    for shown in [&not_connected, "Speakers", "Headphones", "This computer"] {
+    for shown in [&not_connected, "Speakers", "Headphones"] {
         assert!(desktop.shows(shown), "{shown}: {:?}", desktop.labels());
     }
     desktop.tap(view, words::ASK);
@@ -370,6 +403,14 @@ fn a_programs_set_answers_show_as_they_are_and_change_in_the_launcher() {
         own.answer_with.audio_output, None,
         "the output is asked again"
     );
+
+    go_to_app_detail(&mut desktop, view, AppDetail::Machines);
+    assert!(
+        desktop.shows(words::WHICH_MACHINE) && desktop.shows("This computer"),
+        "{:?}",
+        desktop.labels()
+    );
+    let own = desktop.store.program_settings(&triangle()).unwrap();
     assert_eq!(own.answer_with.machine.as_deref(), Some("this-computer"));
 }
 
@@ -379,18 +420,11 @@ fn a_path_no_dialog_could_choose_is_refused_and_kept_out_of_the_settings() {
     installs(&mut desktop, TRIANGLE, "Triangle", b"\0asm");
     let scratch = tempfile::tempdir().unwrap();
     triangle_answered(&desktop, scratch.path());
-    open_app_detail(&mut desktop, view, "Triangle", AppDetail::Answers);
-    let placeholder = words::file_dialog_placeholder(FileDialog::SaveFile);
-    desktop.scroll_until_visible(
-        view,
-        placeholder,
-        words::ANSWERED_WITHOUT_ASKING_DETAIL,
-        SCROLL_STEP,
-    );
+    let placeholder = simulates_saving(&mut desktop, view);
     desktop.tap(view, placeholder);
     let nowhere = scratch.path().join("missing").join("out.pdf");
     desktop.type_text(view, &nowhere.display().to_string());
-    desktop.tap(view, words::ANSWER_WITH);
+    desktop.tap(view, words::SET);
     let own = desktop.store.program_settings(&triangle()).unwrap();
     assert_eq!(own.answer_with.save_file, None);
     let problem = desktop.read(|library| library.problem().map(str::to_owned));
@@ -401,19 +435,13 @@ fn a_path_no_dialog_could_choose_is_refused_and_kept_out_of_the_settings() {
 }
 
 #[test]
-fn a_programs_set_answers_change_on_the_phone() {
+fn a_programs_sound_output_changes_on_the_phone() {
     let (mut desktop, view) = on_phone();
     installs(&mut desktop, TRIANGLE, "Triangle", b"\0asm");
     let scratch = tempfile::tempdir().unwrap();
     triangle_answered(&desktop, scratch.path());
-    open_app_detail(&mut desktop, view, "Triangle", AppDetail::Answers);
+    open_app_detail(&mut desktop, view, "Triangle", AppDetail::SoundOutput);
     let not_connected = words::not_offered("unplugged speakers");
-    desktop.scroll_until_visible(
-        view,
-        &not_connected,
-        words::ANSWERED_WITHOUT_ASKING_DETAIL,
-        SCROLL_STEP,
-    );
     let check = CupertinoIcons::check_mark().code_point;
     let is_check = |icon: &Icon| {
         icon.icon
@@ -436,6 +464,20 @@ fn a_programs_set_answers_change_on_the_phone() {
     desktop.tap(view, "Headphones");
     let own = desktop.store.program_settings(&triangle()).unwrap();
     assert_eq!(own.answer_with.audio_output.as_deref(), Some("headphones"));
+}
+
+#[test]
+fn a_programs_file_picker_is_simulated_with_a_path_on_the_phone() {
+    let (mut desktop, view) = on_phone();
+    installs(&mut desktop, TRIANGLE, "Triangle", b"\0asm");
+    let scratch = tempfile::tempdir().unwrap();
+    let save = triangle_answered(&desktop, scratch.path());
+    let placeholder = simulates_saving(&mut desktop, view);
+    desktop.tap(view, placeholder);
+    desktop.type_text(view, &save.display().to_string());
+    desktop.tap(view, words::SET);
+    let own = desktop.store.program_settings(&triangle()).unwrap();
+    assert_eq!(own.answer_with.save_file.as_ref(), Some(&save));
 }
 
 #[test]

@@ -734,6 +734,24 @@ impl LibraryDesktop {
         self.click_at(view, at, 1);
     }
 
+    /// Scrolls what the label `over` is in to its end, with the mouse's wheel.
+    pub(crate) fn scroll_to_end(&mut self, view: ViewId, over: &str) {
+        let at = self.label_at(over);
+        self.wheel_at(view, at, 100_000.0);
+        self.settle();
+    }
+
+    /// Taps the last of the labels showing `text`, the lowest on a page of sections that each
+    /// have one, with the mouse.
+    pub(crate) fn tap_last(&mut self, view: ViewId, text: &str) {
+        let at = self
+            .every(text)
+            .into_iter()
+            .max_by(|one, other| one.dy().total_cmp(&other.dy()))
+            .unwrap_or_else(|| panic!("no label {text:?} on screen: {:?}", self.labels()));
+        self.click_at(view, at, 1);
+    }
+
     /// Where the middle of each label showing `text` is, in its view.
     pub(crate) fn every(&self, text: &str) -> Vec<Offset> {
         let mut app = self.shell.app();

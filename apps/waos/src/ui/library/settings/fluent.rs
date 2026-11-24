@@ -66,6 +66,7 @@ impl StatefulWidget for FluentSettings {
             state: StateData::new(),
             typed: None,
             writable: false,
+            simulating: Vec::new(),
         }
     }
 }
@@ -75,6 +76,8 @@ pub(crate) struct FluentSettingsState {
     typed: Option<Typed>,
     /// Whether a folder added is writable.
     writable: bool,
+    /// The file pickers the user chose to simulate and has set no path for yet.
+    simulating: Vec<FileDialog>,
 }
 
 /// What is being typed on the page.
@@ -129,6 +132,7 @@ impl State for FluentSettingsState {
             resources,
             typed: app.get(self).typed.clone().expect("an initialized page"),
             writable: app.get(self).writable,
+            simulating: app.get(self).simulating.clone(),
             state: self,
         };
         let mut rows = vec![page.title(widget.program_name.as_deref())];
@@ -154,6 +158,16 @@ impl FluentSettingsState {
     fn set_writable(self: Handle<Self>, app: &mut App, writable: bool) {
         self.set_state(app, |state| state.writable = writable);
     }
+
+    /// The user chose to simulate `dialog`, or not to: its path's field shows, or goes.
+    fn simulate(self: Handle<Self>, app: &mut App, dialog: FileDialog, simulated: bool) {
+        self.set_state(app, |state| {
+            state.simulating.retain(|each| *each != dialog);
+            if simulated {
+                state.simulating.push(dialog);
+            }
+        });
+    }
 }
 
 /// What one build of the page reads and writes.
@@ -167,6 +181,7 @@ struct Page {
     resources: Rc<ThemeResources>,
     typed: Typed,
     writable: bool,
+    simulating: Vec<FileDialog>,
     state: Handle<FluentSettingsState>,
 }
 
@@ -257,7 +272,7 @@ impl Page {
         let SettingsOf::Program(id) = &self.of else {
             return Vec::new();
         };
-        let mut rows = vec![heading(words::MORE, &self.resources)];
+        let mut rows = vec![SizedBox::new().height(MARGIN).into_widget()];
         for (detail, said) in app_details(shown) {
             rows.push(link_card(
                 &self.library,
@@ -348,8 +363,19 @@ impl Page {
             sections.extend(self.app_details(shown));
         }
         match self.detail {
-            Some(AppDetail::Machines) => sections.extend(self.machines(&shown.machines)),
-            Some(AppDetail::Answers) => sections.extend(self.answered_without_asking(shown)),
+            Some(AppDetail::Machines) => {
+                sections.extend(self.machines(&shown.machines));
+                sections.extend(self.machine_answer(&shown.answer_with, &shown.offered.machines));
+            }
+            Some(AppDetail::FilePickers) => {
+                for dialog in FileDialog::ALL {
+                    sections.extend(self.file_picker(dialog, &shown.answer_with));
+                }
+            }
+            Some(AppDetail::SoundOutput) => {
+                sections.push(caption(words::SOUND_OUTPUT_DETAIL, &self.resources));
+                sections.extend(self.output_answer(&shown.answer_with, &shown.offered.outputs));
+            }
             Some(AppDetail::Links) => sections.extend(self.link_schemes(&shown.link_schemes)),
             Some(AppDetail::Roles) => sections.extend(self.roles(&shown.roles)),
             None => {}
@@ -433,21 +459,6 @@ impl Page {
         rows
     }
 
-    /// What the program's pickers and file dialogs are answered with in place of asking.
-    fn answered_without_asking(&self, shown: &ShownSettings) -> Vec<WidgetRef> {
-        let set = &shown.answer_with;
-        let mut rows = vec![
-            self.setting_name(words::ANSWERED_WITHOUT_ASKING),
-            caption(words::ANSWERED_WITHOUT_ASKING_DETAIL, &self.resources),
-        ];
-        for dialog in FileDialog::ALL {
-            rows.extend(self.file_dialog_answer(dialog, set));
-        }
-        rows.extend(self.output_answer(set, &shown.offered.outputs));
-        rows.extend(self.machine_answer(set, &shown.offered.machines));
-        rows
-    }
-
     /// Ask, or one of the machines offered, the one set among them, by its id when it is not
     /// offered now.
     fn machine_answer(
@@ -508,18 +519,42 @@ impl Page {
             let change = SettingChange::AudioOutputAnswer(Some(output.id.clone()));
             choices.push((words::not_offered(&output.label), true, change));
         }
-        vec![
-            self.subsetting_name(words::WHICH_OUTPUT),
-            self.radio_column(choices),
-        ]
+        vec![self.radio_column(choices)]
     }
 
-    /// The paths `dialog` is answered with, or a field to set one: for the dialog that opens
-    /// files, each path with Remove and a field to add one; for the others, the path with Ask
-    /// instead.
-    fn file_dialog_answer(&self, dialog: FileDialog, set: &ShownAnswerWith) -> Vec<WidgetRef> {
-        let mut rows = vec![self.subsetting_name(words::file_dialog_name(dialog))];
+    /// One of the app's file pickers: Ask, which shows the picker to the user, or Simulated,
+    /// under which the path the app is given is set, as a simulated camera says what it shows.
+    fn file_picker(&self, dialog: FileDialog, set: &ShownAnswerWith) -> Vec<WidgetRef> {
         let paths = set.paths.file_dialog(dialog).unwrap_or_default();
+        let simulated = !paths.is_empty() || self.simulating.contains(&dialog);
+        let choice = |label: &str, chosen: bool, simulate: bool| {
+            let (state, ask) = (
+                self.state,
+                self.on(SettingChange::FileDialogAnswer(dialog, Vec::new())),
+            );
+            RadioButton::new(chosen, move |app| {
+                state.simulate(app, dialog, simulate);
+                if !simulate {
+                    ask.call(app);
+                }
+            })
+            .content(Text::new(label))
+            .into_widget()
+        };
+        let mut rows = vec![
+            self.setting_name(words::file_dialog_name(dialog)),
+            Column::new()
+                .cross_axis_alignment(CrossAxisAlignment::Start)
+                .children([
+                    choice(words::ASK, !simulated, false),
+                    choice(words::SIMULATED, simulated, true),
+                ])
+                .into_widget(),
+        ];
+        if !simulated {
+            return rows;
+        }
+        rows.push(caption(words::SIMULATED_PICKER_DETAIL, &self.resources));
         let placeholder = words::file_dialog_placeholder(dialog);
         let typed = self.typed.path(dialog).clone();
         if dialog == FileDialog::OpenFiles {
@@ -533,13 +568,21 @@ impl Page {
         }
         match paths.first() {
             Some(path) => {
-                let ask = self.on(SettingChange::FileDialogAnswer(dialog, Vec::new()));
-                rows.push(self.listed_with(&path.to_string_lossy(), words::ASK_INSTEAD, ask));
+                // Another path is typed in the field, which shows once this one is let go.
+                let (state, ask) = (
+                    self.state,
+                    self.on(SettingChange::FileDialogAnswer(dialog, Vec::new())),
+                );
+                let change = Listener::new(move |app| {
+                    state.simulate(app, dialog, true);
+                    ask.call(app);
+                });
+                rows.push(self.listed_with(&path.to_string_lossy(), words::CHANGE, change));
             }
             None => {
                 let answer =
                     move |typed: String| SettingChange::FileDialogAnswer(dialog, vec![typed]);
-                rows.push(self.adding(typed, placeholder, words::ANSWER_WITH, answer));
+                rows.push(self.adding(typed, placeholder, words::SET, answer));
             }
         }
         rows

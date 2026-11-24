@@ -24,6 +24,7 @@ use crate::logic::setting_changes::{DomainsKind, SettingChange, SettingsOf};
 use crate::state::library::test_desktop::{DesktopKind, LibraryDesktop};
 use crate::state::library::test_server::Server;
 use crate::state::library::{AppDetail, LibraryPage, SettingsPage};
+use waos::FileDialog;
 use waos_package::{Category, Index, ListedProgram};
 use waos_store::{Answer, Question};
 
@@ -309,11 +310,20 @@ fn walks_the_library(layout: &str, (mut desktop, view): (LibraryDesktop, ViewId)
         )),
     );
     scenes.draw(&mut desktop, "program-camera");
+    // One of its file pickers simulated, so the page shows a path set beside pickers that ask.
+    desktop.update(|library, cx| {
+        let of = SettingsOf::Program(program.clone());
+        let folder = SettingChange::FileDialogAnswer(FileDialog::OpenFolder, vec!["/tmp".into()]);
+        library.change_settings(&of, folder, cx);
+    });
     shows(
         &mut desktop,
-        LibraryPage::Settings(SettingsPage::AppDetail(program.clone(), AppDetail::Answers)),
+        LibraryPage::Settings(SettingsPage::AppDetail(
+            program.clone(),
+            AppDetail::FilePickers,
+        )),
     );
-    scenes.draw(&mut desktop, "program-answers");
+    scenes.draw(&mut desktop, "program-file-pickers");
 
     shows(&mut desktop, LibraryPage::Home);
     for (id, name) in MORE {
