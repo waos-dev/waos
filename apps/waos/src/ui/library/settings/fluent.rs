@@ -34,13 +34,15 @@ use super::fluent_root::{
     app_icon, card_switch, heading, link_card, note, permission_symbol, setting_card, spaced,
     title_bar,
 };
-use super::{any_set_otherwise, app_details, app_permissions, reset_permissions, set_otherwise};
+use super::{
+    any_set_otherwise, app_details, app_permissions, reset_permissions, said_with, set_otherwise,
+    simulated_detail,
+};
 use crate::logic::permissions::Permission;
 use crate::logic::setting_changes::{
     DomainsKind, SettingChange, SettingsOf, Shown, ShownAnswerWith, ShownSettings, Which,
     domains_kind, simulatable,
 };
-use crate::state::SIMULATED_CAMERA;
 use crate::state::library::{AppDetail, Library, SettingsPage};
 use crate::ui::library::home::fluent::MARGIN as PAGE_MARGIN;
 use crate::ui::library::words;
@@ -1101,25 +1103,4 @@ fn across_its_card<K>(content: impl IntoWidget<K>) -> WidgetRef {
         .horizontal_content_alignment(HorizontalAlignment::Stretch)
         .content(content)
         .into_widget()
-}
-
-/// What a card says under its name: `detail`, then what it says of the `default`, whichever
-/// are said.
-fn said_with(detail: Option<&str>, default: Option<&str>) -> Option<String> {
-    match (detail, default) {
-        (Some(detail), Some(default)) => Some(format!("{detail} {default}")),
-        (Some(said), None) | (None, Some(said)) => Some(said.to_owned()),
-        (None, None) => None,
-    }
-}
-
-/// While the answer to `question` is simulated, what the device of WaOS's own is; for the
-/// camera, where this system has none, that it does not.
-fn simulated_detail(question: Question) -> Option<&'static str> {
-    match question {
-        Question::Camera if !SIMULATED_CAMERA => Some(words::NO_SIMULATED_CAMERA),
-        Question::Camera => Some(words::SIMULATED_CAMERA_DETAIL),
-        Question::Microphone => Some(words::SIMULATED_MICROPHONE_DETAIL),
-        Question::Notifications => None,
-    }
 }

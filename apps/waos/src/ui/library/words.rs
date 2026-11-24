@@ -28,6 +28,8 @@ pub(crate) const CANCEL: &str = "Cancel";
 /// Remove, on a program, which asks first.
 pub(crate) const ASK_TO_REMOVE: &str = "Remove…";
 pub(crate) const ADD: &str = "Add";
+/// The row that adds the folder typed, on the phone.
+pub(crate) const ADD_FOLDER: &str = "Add Folder";
 pub(crate) const REMOVE_SOURCE: &str = "Remove source";
 pub(crate) const OK: &str = "OK";
 pub(crate) const PROBLEM: &str = "Something went wrong";
@@ -294,7 +296,6 @@ pub(crate) const FOLDERS: &str = "Folders";
 pub(crate) const FOLDER_PLACEHOLDER: &str = "/Users/you/Documents";
 pub(crate) const FOLDER_AT_PLACEHOLDER: &str = "Where the app sees it: the same path when empty";
 pub(crate) const WRITABLE: &str = "Writable";
-pub(crate) const READ_ONLY: &str = "Read-only";
 pub(crate) const FOLDERS_AT_ONCE: &str =
     "A folder added or removed applies at once, to an app running too.";
 pub(crate) const NO_FOLDERS: &str = "No folders.";

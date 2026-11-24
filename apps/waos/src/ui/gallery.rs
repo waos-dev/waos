@@ -356,6 +356,12 @@ fn walks_the_library(layout: &str, (mut desktop, view): (LibraryDesktop, ViewId)
         LibraryPage::Settings(SettingsPage::Permission(Permission::Folders)),
     );
     scenes.draw(&mut desktop, "settings-folders");
+    // The record's default: its switch, over what a record is.
+    shows(
+        &mut desktop,
+        LibraryPage::Settings(SettingsPage::Permission(Permission::ActivityRecord)),
+    );
+    scenes.draw(&mut desktop, "settings-record");
 
     shows(&mut desktop, LibraryPage::Home);
     for (id, name) in MORE {

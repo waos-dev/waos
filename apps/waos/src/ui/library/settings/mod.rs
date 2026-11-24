@@ -15,9 +15,11 @@ use std::sync::Arc;
 
 use waft::App;
 use waos_package::ProgramId;
+use waos_store::Question;
 
 use crate::logic::permissions::Permission;
 use crate::logic::setting_changes::{SettingChange, SettingsOf, ShownSettings};
+use crate::state::SIMULATED_CAMERA;
 use crate::state::library::{AppDetail, Library};
 use crate::ui::library::words;
 use waos::FileDialog;
@@ -155,4 +157,25 @@ pub(crate) fn waos_has_settings(library: &Library, app: &App) -> bool {
     library.programs_inside_waos().is_some()
         || library.kept_in_dock().is_some()
         || library.phone_files_reachable(app).is_some()
+}
+
+/// What a setting says of itself: `detail`, then what it says of the `default`, whichever are
+/// said.
+pub(crate) fn said_with(detail: Option<&str>, default: Option<&str>) -> Option<String> {
+    match (detail, default) {
+        (Some(detail), Some(default)) => Some(format!("{detail} {default}")),
+        (Some(said), None) | (None, Some(said)) => Some(said.to_owned()),
+        (None, None) => None,
+    }
+}
+
+/// While the answer to `question` is simulated, what the device of WaOS's own is; for the
+/// camera, where this system has none, that it does not.
+pub(crate) fn simulated_detail(question: Question) -> Option<&'static str> {
+    match question {
+        Question::Camera if !SIMULATED_CAMERA => Some(words::NO_SIMULATED_CAMERA),
+        Question::Camera => Some(words::SIMULATED_CAMERA_DETAIL),
+        Question::Microphone => Some(words::SIMULATED_MICROPHONE_DETAIL),
+        Question::Notifications => None,
+    }
 }

@@ -21,7 +21,6 @@
 use std::fmt::Debug;
 use std::rc::Rc;
 
-use indexmap::IndexMap;
 use waft::{
     App, BuildContext, Builder, EdgeInsetsGeometry, Entity, Handle, Icon, IntoWidget, ListView,
     Listener, Padding, Ref, SizedBox, State, StateData, StatefulWidget, Task, Text,
@@ -29,21 +28,23 @@ use waft::{
 };
 use waft_cupertino::{
     CupertinoButton, CupertinoColors, CupertinoIcons, CupertinoListSection, CupertinoListTile,
-    CupertinoNavigationBar, CupertinoPageScaffold, CupertinoSegmentedControl, CupertinoSwitch,
-    CupertinoTextField, ObstructingPreferredSizeWidgetRef,
+    CupertinoNavigationBar, CupertinoPageScaffold, CupertinoSwitch, CupertinoTextField,
+    ObstructingPreferredSizeWidgetRef,
 };
 use waos::{FileDialog, SimulatedSound};
 use waos_activity::Activity;
 use waos_store::{Answer, DomainRule, FileSystemGrant, NetworkGrant, Question, Role};
 
 use super::cupertino_root::{ICON_SIDE, PERMISSION_ICON_SIDE, footnote, link_row, permission_icon};
-use super::{any_set_otherwise, app_details, app_permissions, reset_permissions, set_otherwise};
+use super::{
+    any_set_otherwise, app_details, app_permissions, reset_permissions, said_with, set_otherwise,
+    simulated_detail,
+};
 use crate::logic::permissions::Permission;
 use crate::logic::setting_changes::{
     DomainsKind, SettingChange, SettingsOf, Shown, ShownAnswerWith, ShownSettings, Which,
     domains_kind, simulatable,
 };
-use crate::state::SIMULATED_CAMERA;
 use crate::state::library::{AppDetail, Library, SettingsPage};
 use crate::ui::library::cupertino::{back_to_page_beneath, under_bar};
 use crate::ui::library::home::cupertino::resolved;
@@ -166,7 +167,7 @@ impl State for CupertinoSettingsState {
                 let refused = page.notifications_refused(app);
                 sections.extend(page.sections(&shown, activity.as_ref(), refused));
             }
-            Err(why) => sections.push(section(Some(words::SETTINGS), None, vec![note(&why)])),
+            Err(why) => sections.push(section(Some(words::SETTINGS), None, vec![wrapped(&why)])),
         }
         if let Some(only) = page.kind_page() {
             sections.push(page.set_otherwise(app, only));
@@ -249,7 +250,7 @@ impl Page {
                 .into_widget()
             })
             .collect();
-        let mut sections = vec![section(Some(words::PERMISSIONS), None, rows)];
+        let mut sections = vec![section_of_icons(Some(words::PERMISSIONS), None, rows)];
         if any_set_otherwise(shown) {
             let (library, of) = (self.library.clone(), self.of.clone());
             let reset = Rc::new(move |app: &mut App| {
@@ -291,9 +292,9 @@ impl Page {
             })
             .collect();
         if rows.is_empty() {
-            rows.push(note(words::NONE_SET_OTHERWISE));
+            rows.push(wrapped(words::NONE_SET_OTHERWISE));
         }
-        section(
+        section_of_icons(
             Some(words::SET_OTHERWISE),
             Some(words::SET_OTHERWISE_DETAIL),
             rows,
@@ -325,7 +326,11 @@ impl Page {
     fn switch_asked(&self, app: &App) -> Option<WidgetRef> {
         let asked = self.library.read(app).switch_asked()?;
         let message = words::switch_asked(&asked.name, asked.switch);
-        Some(section(Some(words::SETTINGS), None, vec![note(&message)]))
+        Some(section(
+            Some(words::SETTINGS),
+            None,
+            vec![wrapped(&message)],
+        ))
     }
 
     /// Whether the system refuses the page's program its notifications; never on the global
@@ -404,7 +409,7 @@ impl Page {
                 continue;
             }
             let refused = question == Question::Notifications && notifications_refused;
-            sections.push(self.question(question, shown, refused));
+            sections.extend(self.question(question, shown, refused));
         }
         sections
     }
@@ -594,7 +599,7 @@ impl Page {
             })
             .collect();
         if tiles.is_empty() {
-            tiles.push(note(words::NO_MACHINES));
+            tiles.push(wrapped(words::NO_MACHINES));
         }
         section(Some(words::MACHINES), Some(words::MACHINES_AS_YOU), tiles)
     }
@@ -605,7 +610,8 @@ impl Page {
     fn network(&self, shown: &Shown<NetworkGrant>) -> Vec<WidgetRef> {
         let network = &shown.value;
         let switch = vec![self.switch_row(words::NETWORK, network.on, SettingChange::NetworkOn)];
-        let mut sections = vec![self.setting(None, shown.follows_global, Which::Network, switch)];
+        let mut sections =
+            vec![self.setting(None, None, shown.follows_global, Which::Network, switch)];
         if !network.on {
             return sections;
         }
@@ -645,21 +651,26 @@ impl Page {
         change: fn(bool) -> SettingChange,
     ) -> WidgetRef {
         let tiles = vec![self.switch_row(name, shown.value, change)];
-        self.setting(None, shown.follows_global, which, tiles)
+        self.setting(None, None, shown.follows_global, which, tiles)
     }
 
-    /// Whether a record is kept of what the program does, with what the record is.
+    /// Whether a record is kept of what the program does, over what the record is.
     fn record(&self, shown: &Shown<bool>) -> WidgetRef {
         let (name, detail) = words::record(&self.of);
-        let tiles = vec![
-            self.switch_row(name, shown.value, SettingChange::Record),
-            note(detail),
-        ];
-        self.setting(None, shown.follows_global, Which::Record, tiles)
+        let tiles = vec![self.switch_row(name, shown.value, SettingChange::Record)];
+        self.setting(
+            None,
+            Some(detail),
+            shown.follows_global,
+            Which::Record,
+            tiles,
+        )
     }
 
+    /// The folders mounted, each with Remove, and the rows that add one, over when a change
+    /// applies.
     fn folders(&self, shown: &Shown<FileSystemGrant>) -> WidgetRef {
-        let mut tiles = vec![note(words::FOLDERS_AT_ONCE)];
+        let mut tiles = Vec::new();
         for (index, mount) in shown.value.mounts.iter().enumerate() {
             let said = words::mount(
                 &mount.host.to_string_lossy(),
@@ -671,15 +682,22 @@ impl Page {
         tiles.extend(self.adding_folder());
         self.setting(
             Some(words::FOLDERS),
+            Some(words::FOLDERS_AT_ONCE),
             shown.follows_global,
             Which::FileSystem,
             tiles,
         )
     }
 
-    /// The answer `question` gets; under it, where the system `refused` the program it, that it
-    /// does, with a button that opens the system's settings at it.
-    fn question(&self, question: Question, settings: &ShownSettings, refused: bool) -> WidgetRef {
+    /// The answer `question` gets, over what the device of WaOS's own is while it is simulated;
+    /// under a simulated microphone, what it records; and, where the system `refused` the
+    /// program it, the row that opens the system's settings at it.
+    fn question(
+        &self,
+        question: Question,
+        settings: &ShownSettings,
+        refused: bool,
+    ) -> Vec<WidgetRef> {
         let shown = settings.answers.get(question);
         // A choice is an answer, or, on an app's page, following the default: the first row,
         // named with the default's answer, as a browser's site settings name it.
@@ -705,87 +723,80 @@ impl Page {
         } else {
             None
         };
-        let mut tiles = self.checklist(&choices, chosen, move |choice| match choice {
+        let tiles = self.checklist(&choices, chosen, move |choice| match choice {
             Some(answer) => SettingChange::Answer(question, answer),
             None => SettingChange::FollowGlobal(Which::Answer(question)),
         });
-        if answer == Some(Answer::Simulated) {
-            tiles.extend(self.simulated(question, &settings.simulated_microphone));
+        let simulated = answer == Some(Answer::Simulated);
+        let footer = simulated.then(|| simulated_detail(question)).flatten();
+        let mut sections = vec![section(Some(words::question_name(question)), footer, tiles)];
+        if simulated && question == Question::Microphone {
+            sections.push(self.simulated_records(&settings.simulated_microphone));
         }
         if refused {
-            tiles.extend(self.refused_by_system());
+            sections.extend(self.refused_by_system());
         }
-        let name = words::question_name(question);
-        section(Some(name), None, tiles)
+        sections
     }
 
-    /// What `question`'s device of WaOS's own is, and for the microphone what it records, `sound`
-    /// now, which on a program's page that does not follow every program's can follow it again;
-    /// for the camera, where this system has none, that it does not.
-    fn simulated(&self, question: Question, sound: &Shown<SimulatedSound>) -> Vec<WidgetRef> {
-        match question {
-            Question::Camera if !SIMULATED_CAMERA => vec![note(words::NO_SIMULATED_CAMERA)],
-            Question::Camera => vec![note(words::SIMULATED_CAMERA_DETAIL)],
-            Question::Microphone => {
-                let choices = [
-                    (SimulatedSound::Tone, words::QUIET_TONE),
-                    (SimulatedSound::Silence, words::SILENCE),
-                ];
-                let mut tiles = vec![note(words::SIMULATED_MICROPHONE_DETAIL)];
-                tiles.extend(self.checklist(
-                    &choices,
-                    sound.value,
-                    SettingChange::SimulatedMicrophone,
-                ));
-                if self.of != SettingsOf::Global && !sound.follows_global {
-                    tiles.push(self.use_the_default(Which::SimulatedMicrophone));
-                }
-                tiles
-            }
-            Question::Notifications => Vec::new(),
-        }
+    /// What a simulated microphone records, `sound` now, a list of its own; on an app's page
+    /// that it follows the default, or the row that has it follow it again.
+    fn simulated_records(&self, sound: &Shown<SimulatedSound>) -> WidgetRef {
+        let choices = [
+            (SimulatedSound::Tone, words::QUIET_TONE),
+            (SimulatedSound::Silence, words::SILENCE),
+        ];
+        let tiles = self.checklist(&choices, sound.value, SettingChange::SimulatedMicrophone);
+        self.setting(
+            Some(words::SIMULATED_RECORDS),
+            None,
+            sound.follows_global,
+            Which::SimulatedMicrophone,
+            tiles,
+        )
     }
 
-    /// That the system refuses the program its notifications, and a button that opens the
-    /// system's settings at them.
-    fn refused_by_system(&self) -> Vec<WidgetRef> {
+    /// The row that opens the system's settings at the program's notifications, over that the
+    /// system refuses it them.
+    fn refused_by_system(&self) -> Option<WidgetRef> {
         let SettingsOf::Program(id) = &self.of else {
-            return Vec::new();
+            return None;
         };
         let (library, id) = (self.library.clone(), id.clone());
-        let open = Listener::new(move |app| {
-            library.update(app, |library, cx| {
-                library.open_notification_settings(&id, cx)
-            });
-        });
-        vec![
-            note(words::NOTIFICATIONS_REFUSED),
-            CupertinoListTile::new(Text::new(""))
-                .trailing(CupertinoButton::new(
-                    Text::new(words::OPEN_SYSTEM_SETTINGS).into_widget(),
-                    Some(open),
-                ))
-                .into_widget(),
-        ]
+        let open = CupertinoListTile::new(tinted(words::OPEN_SYSTEM_SETTINGS)).on_tap(Rc::new(
+            move |app: &mut App| {
+                library.update(app, |library, cx| {
+                    library.open_notification_settings(&id, cx)
+                });
+                Task::ready(())
+            },
+        ));
+        Some(section(
+            None,
+            Some(words::NOTIFICATIONS_REFUSED),
+            vec![open.into_widget()],
+        ))
     }
 
-    /// A setting's section, under `header` where given: on a program's page, it says whether it
-    /// follows the setting for every program, and offers to follow it again when it does not.
+    /// A setting's section, under `header` and over `footer` where given: on an app's page, its
+    /// footer says too that it follows the default, or its last row has it follow it again.
     fn setting(
         &self,
         header: Option<&str>,
+        footer: Option<&str>,
         follows_global: bool,
         which: Which,
         mut tiles: Vec<WidgetRef>,
     ) -> WidgetRef {
         if self.of == SettingsOf::Global {
-            return section(header, None, tiles);
+            return section(header, footer, tiles);
         }
         if follows_global {
-            return section(header, Some(words::FOLLOWS_GLOBAL), tiles);
+            let footer = said_with(footer, Some(words::FOLLOWS_GLOBAL));
+            return section(header, footer.as_deref(), tiles);
         }
         tiles.push(self.use_the_default(which));
-        section(header, None, tiles)
+        section(header, footer, tiles)
     }
 
     /// The row that has the page's app follow the default for `which` again, in the tint
@@ -895,10 +906,7 @@ impl Page {
                 typed.clear(app);
             }
         });
-        let field = CupertinoTextField::new()
-            .controller(controller)
-            .placeholder(placeholder);
-        CupertinoListTile::new(field)
+        CupertinoListTile::new(typed_in_a_row(controller, placeholder))
             .trailing(CupertinoButton::new(
                 Text::new(confirm).into_widget(),
                 Some(add),
@@ -906,7 +914,8 @@ impl Page {
             .into_widget()
     }
 
-    /// The fields of a folder to add, whether it is writable, and Add.
+    /// The rows that add a folder: its path, where the app sees it, whether it is writable, and
+    /// the row that adds it.
     fn adding_folder(&self) -> Vec<WidgetRef> {
         let (library, of, typed, writable) = (
             self.library.clone(),
@@ -928,39 +937,26 @@ impl Page {
             }
         });
         let state = self.state;
-        let segments: IndexMap<bool, WidgetRef> =
-            [(false, words::READ_ONLY), (true, words::WRITABLE)]
-                .into_iter()
-                .map(|(value, label)| {
-                    let label = Padding::new(EdgeInsetsGeometry::symmetric(6.0, 10.0))
-                        .child(Text::new(label))
-                        .into_widget();
-                    (value, label)
-                })
-                .collect();
-        let writable_choice = CupertinoSegmentedControl::new(
-            segments,
-            Rc::new(move |app: &mut App, writable: bool| state.set_writable(app, writable)),
-        )
-        .group_value(self.writable);
+        let set_writable: ValueChanged<bool> =
+            Rc::new(move |app: &mut App, writable: bool| state.set_writable(app, writable));
+        let flip = Rc::clone(&set_writable);
+        let writable = self.writable;
         vec![
-            CupertinoListTile::new(
-                CupertinoTextField::new()
-                    .controller(folder)
-                    .placeholder(words::FOLDER_PLACEHOLDER),
-            )
-            .into_widget(),
-            CupertinoListTile::new(
-                CupertinoTextField::new()
-                    .controller(folder_at)
-                    .placeholder(words::FOLDER_AT_PLACEHOLDER),
-            )
-            .into_widget(),
-            CupertinoListTile::new(writable_choice)
-                .trailing(CupertinoButton::new(
-                    Text::new(words::ADD).into_widget(),
-                    Some(add),
-                ))
+            CupertinoListTile::new(typed_in_a_row(folder, words::FOLDER_PLACEHOLDER)).into_widget(),
+            CupertinoListTile::new(typed_in_a_row(folder_at, words::FOLDER_AT_PLACEHOLDER))
+                .into_widget(),
+            CupertinoListTile::new(spanning(words::WRITABLE))
+                .trailing(CupertinoSwitch::new(writable, Some(set_writable)))
+                .on_tap(Rc::new(move |app: &mut App| {
+                    flip(app, !writable);
+                    Task::ready(())
+                }))
+                .into_widget(),
+            CupertinoListTile::new(tinted(words::ADD_FOLDER))
+                .on_tap(Rc::new(move |app: &mut App| {
+                    add.call(app);
+                    Task::ready(())
+                }))
                 .into_widget(),
         ]
     }
@@ -975,9 +971,28 @@ impl Page {
     }
 }
 
-/// An inset-grouped section, titled `title` and with `footer` under it where given.
+/// An inset-grouped section of rows that start with their words, titled `title` and with
+/// `footer` under it where given.
 fn section(title: Option<&str>, footer: Option<&str>, tiles: Vec<WidgetRef>) -> WidgetRef {
-    let section = CupertinoListSection::inset_grouped().children(tiles);
+    grouped(title, footer, tiles, false)
+}
+
+/// [`section`], of rows that each start with an icon: the line between two rows starts where
+/// their words do, as iOS's does.
+fn section_of_icons(title: Option<&str>, footer: Option<&str>, tiles: Vec<WidgetRef>) -> WidgetRef {
+    grouped(title, footer, tiles, true)
+}
+
+/// An inset-grouped section, whose rows start with an icon or not.
+fn grouped(
+    title: Option<&str>,
+    footer: Option<&str>,
+    tiles: Vec<WidgetRef>,
+    has_leading: bool,
+) -> WidgetRef {
+    let section = CupertinoListSection::inset_grouped()
+        .has_leading(has_leading)
+        .children(tiles);
     let section = match title {
         Some(title) => section.header(footnote(title)),
         None => section,
@@ -1025,9 +1040,9 @@ fn spanning(text: &str) -> WidgetRef {
 fn last_days(activity: &Activity, recorded: bool) -> WidgetRef {
     let lines = activity.short();
     let tiles = if !recorded {
-        vec![note(words::NOTHING_RECORDED)]
+        vec![wrapped(words::NOTHING_RECORDED)]
     } else if lines.is_empty() {
-        vec![note(words::NOTHING_USED)]
+        vec![wrapped(words::NOTHING_USED)]
     } else {
         lines.iter().map(|line| wrapped(line)).collect()
     };
@@ -1049,7 +1064,14 @@ fn said_over_the_lists(text: &str) -> WidgetRef {
         .into_widget()
 }
 
-/// A tile that only says `text`.
-fn note(text: &str) -> WidgetRef {
-    CupertinoListTile::new(Text::new(text)).into_widget()
+/// A field typed in as a row of a list, as iOS's Settings has one: no box of its own, its
+/// words where a row's are.
+fn typed_in_a_row(
+    controller: waft::TextEditingControllerRef,
+    placeholder: &str,
+) -> CupertinoTextField {
+    CupertinoTextField::borderless()
+        .controller(controller)
+        .placeholder(placeholder)
+        .padding(EdgeInsetsGeometry::all(0.0))
 }
