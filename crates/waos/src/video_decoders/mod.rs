@@ -24,10 +24,13 @@ use futures::{FutureExt, StreamExt};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 use crate::bindings::wasdk::media::video_decoders::{
-    DecoderError, VideoDecodeSupport, VideoDecoderOptions, VideoStreamDescription,
+    DecoderError, VideoDecoderOptions, VideoStreamDescription,
 };
 use crate::bindings::wasdk::media::video_streams::{CodecKind, EncodedChunk, VideoStreamSetup};
-use crate::shell::{DecodedFrame, OpenedVideoDecoder, ShellVideoDecoder, ShellVideoDecoders};
+use crate::shell::{
+    DecodedFrame, OpenedVideoDecoder, ShellVideoDecoder, ShellVideoDecoders,
+    VideoDecodeSupportFuture,
+};
 use crate::sync::locked;
 
 /// What a chunk that is not a key frame is answered while the decoder waits for one.
@@ -41,7 +44,7 @@ impl VideoDecoders {
         VideoDecoders(shell)
     }
 
-    pub(crate) fn support(&self, description: &VideoStreamDescription) -> VideoDecodeSupport {
+    pub(crate) fn support(&self, description: VideoStreamDescription) -> VideoDecodeSupportFuture {
         self.0.support(description)
     }
 

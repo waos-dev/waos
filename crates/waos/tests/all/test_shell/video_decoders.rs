@@ -20,8 +20,8 @@ use waos::bindings::wasdk::media::video_decoders::{
 use waos::bindings::wasdk::media::video_frames::{ColorRange, PixelAspect, PixelRect, VideoColor};
 use waos::bindings::wasdk::media::video_streams::{CodecKind, EncodedChunk, VideoStreamSetup};
 use waos::{
-    DecodedFrame, OpenedVideoDecoder, ShellVideoDecoder, ShellVideoDecoders, VideoDecoderFuture,
-    VideoDecoderOpenFuture,
+    DecodedFrame, OpenedVideoDecoder, ShellVideoDecoder, ShellVideoDecoders,
+    VideoDecodeSupportFuture, VideoDecoderFuture, VideoDecoderOpenFuture,
 };
 
 /// The first byte of a chunk a test decoder answers as damaged.
@@ -56,11 +56,11 @@ impl TestVideoDecoders {
 impl ShellVideoDecoders for TestVideoDecoders {
     /// As a system that lists its software decoders and says nothing of its hardware until
     /// tried.
-    fn support(&self, _description: &VideoStreamDescription) -> VideoDecodeSupport {
-        VideoDecodeSupport {
+    fn support(&self, _description: VideoStreamDescription) -> VideoDecodeSupportFuture {
+        Box::pin(ready(VideoDecodeSupport {
             hardware: DecodeSupport::Unknown,
             software: DecodeSupport::Yes,
-        }
+        }))
     }
 
     fn open(

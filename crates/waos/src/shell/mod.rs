@@ -997,7 +997,7 @@ pub trait ShellVideoFrameReader: Any + Send + Sync {
 /// the program's thread.
 pub trait ShellVideoDecoders: Send + Sync {
     /// What the system can tell, without trying, about decoding a stream like `description`.
-    fn support(&self, description: &VideoStreamDescription) -> VideoDecodeSupport;
+    fn support(&self, description: VideoStreamDescription) -> VideoDecodeSupportFuture;
 
     /// Opens a decoder for the stream `setup` begins, as `options` ask, with a pool that lends
     /// at least their `frame_limit` frames at once: `unsupported` where the system has none of
@@ -1005,6 +1005,8 @@ pub trait ShellVideoDecoders: Send + Sync {
     fn open(&self, setup: VideoStreamSetup, options: VideoDecoderOptions)
     -> VideoDecoderOpenFuture;
 }
+
+pub type VideoDecodeSupportFuture = Pin<Box<dyn Future<Output = VideoDecodeSupport> + Send>>;
 
 pub type VideoDecoderOpenFuture =
     Pin<Box<dyn Future<Output = Result<OpenedVideoDecoder, DecoderError>> + Send>>;

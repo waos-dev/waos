@@ -52,14 +52,6 @@ impl video_decoders::Host for VideoDecodersCtx<'_> {
 }
 
 impl HostVideoDecoders for VideoDecodersCtx<'_> {
-    fn support(
-        &mut self,
-        decoders: Resource<VideoDecoders>,
-        description: VideoStreamDescription,
-    ) -> wasmtime::Result<VideoDecodeSupport> {
-        Ok(self.table.get(&decoders)?.support(&description))
-    }
-
     fn drop(&mut self, decoders: Resource<VideoDecoders>) -> wasmtime::Result<()> {
         self.table.delete(decoders)?;
         Ok(())
@@ -67,6 +59,17 @@ impl HostVideoDecoders for VideoDecodersCtx<'_> {
 }
 
 impl<T: VideoDecodersCtxView + 'static> HostVideoDecodersWithStore<T> for HasVideoDecoders {
+    async fn support(
+        accessor: &Accessor<T, Self>,
+        decoders: Resource<VideoDecoders>,
+        description: VideoStreamDescription,
+    ) -> wasmtime::Result<VideoDecodeSupport> {
+        let asked = accessor.with(|mut access| {
+            wasmtime::Result::<_>::Ok(access.get().table.get(&decoders)?.support(description))
+        })?;
+        Ok(asked.await)
+    }
+
     /// A decoder that lends no frame could give the program none: a limit of none is the
     /// program's mistake, and traps it.
     async fn open(

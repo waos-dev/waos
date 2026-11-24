@@ -137,9 +137,9 @@ pub use shell::{
     ShellRecordingIndicator, ShellSystemPermissions, ShellTextInput, ShellTrayIcon, ShellTrayIcons,
     ShellVideoDecoder, ShellVideoDecoders, ShellVideoFrameReader, ShellVideoFrameReaders,
     ShellView, ShellWindow, ShellWindowSizeLimits, StartedSession, SystemPermission,
-    SystemPermissionFuture, SystemPermissionState, TrayIconAddFuture, VideoDecoderFuture,
-    VideoDecoderOpenFuture, VideoFrame, VideoOutput, VideoPicture, ViewPlacement, ViewRequest,
-    VsyncWaiter,
+    SystemPermissionFuture, SystemPermissionState, TrayIconAddFuture, VideoDecodeSupportFuture,
+    VideoDecoderFuture, VideoDecoderOpenFuture, VideoFrame, VideoOutput, VideoPicture,
+    ViewPlacement, ViewRequest, VsyncWaiter,
 };
 pub use simulated_input::{DragPath, Keyboard, Mouse, NoSuchChord, NothingEdited};
 pub use stats::Stats;

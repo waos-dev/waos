@@ -25,7 +25,8 @@ interface video-decoders {
 
   resource video-decoders {
     /// What the system can tell, without trying, about decoding a stream like `description`.
-    support: func(description: video-stream-description) -> video-decode-support;
+    /// Asked of the system, which may read its decoders' lists to answer.
+    support: async func(description: video-stream-description) -> video-decode-support;
     /// A decoder for the stream `setup` begins. `unsupported` where the system has no decoder
     /// of the kind chosen for it, `busy` where every such decoder is in use.
     open: async func(setup: video-stream-setup, options: video-decoder-options) -> result<video-decoder, decoder-error>;

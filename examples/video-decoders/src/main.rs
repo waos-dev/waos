@@ -38,18 +38,20 @@ async fn main() -> Result<(), String> {
         println!("video decoders: none");
         return Ok(());
     };
-    let support = decoders.support(VideoStreamDescription {
-        codec: VideoCodec::H264,
-        profile: Some(100),
-        level: Some(40),
-        bit_depth: 8,
-        chroma: ChromaSampling::Yuv420,
-        size: PictureSize {
-            width: 1920,
-            height: 1080,
-        },
-        frame_rate: Some(30.0),
-    });
+    let support = decoders
+        .support(VideoStreamDescription {
+            codec: VideoCodec::H264,
+            profile: Some(100),
+            level: Some(40),
+            bit_depth: 8,
+            chroma: ChromaSampling::Yuv420,
+            size: PictureSize {
+                width: 1920,
+                height: 1080,
+            },
+            frame_rate: Some(30.0),
+        })
+        .await;
     println!(
         "support: hardware {:?}, software {:?}",
         support.hardware, support.software
