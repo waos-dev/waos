@@ -33,3 +33,4 @@ workspace = true
 id = "dev.waos.notes"
 name = "Notes"
 icon = "icon.png"
+category = "productivity"

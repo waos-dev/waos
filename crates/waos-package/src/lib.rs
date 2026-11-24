@@ -20,6 +20,7 @@
 //! check the same entries against the same rules. The crate is the format and nothing else: it
 //! names no other crate of ours, and what is installed where is `waos-store`'s.
 
+mod category;
 mod entries;
 mod error;
 #[cfg(test)]
@@ -34,6 +35,7 @@ mod signed_message;
 mod transfer;
 mod write;
 
+pub use category::{Category, UnknownCategory};
 pub use entries::{COMPONENT, ICON, MANIFEST, PUBLISHER_KEY};
 pub use error::PackageError;
 pub use icon::MINIMUM_SIDE as ICON_MINIMUM_SIDE;

@@ -1,13 +1,15 @@
 //! A program's `[package.metadata.waos]`: what packaging it needs that Cargo's own fields do not
-//! say, the program's id, the name people see, its icon, and whether it is an app or a tool, an app
-//! unless it says `kind = "tool"`; an install from its source needs the id and the kind alone, and
-//! takes the name and the icon where the table gives them.
+//! say, the program's id, the name people see, its icon, whether it is an app or a tool, an app
+//! unless it says `kind = "tool"`, and what it is for, where it says a `category`; an install from
+//! its source needs the id and the kind alone, and takes the name and the icon where the table
+//! gives them.
 //!
 //! ```toml
 //! [package.metadata.waos]
 //! id = "dev.example.triangle"
 //! name = "Triangle"
 //! icon = "icon.png"
+//! category = "graphics-design"
 //! ```
 //!
 //! The invariant: the id is checked here, before anything is built, since every version of a
@@ -20,7 +22,7 @@ use anyhow::{Context, Result};
 use cargo_metadata::Package;
 use serde::Deserialize;
 use serde_json::Value;
-use waos_package::{ProgramId, ProgramKind};
+use waos_package::{Category, ProgramId, ProgramKind};
 
 /// What `[package.metadata.waos]` says of a program.
 #[derive(Debug)]
@@ -31,6 +33,8 @@ pub struct WaosMetadata {
     /// The icon's PNG.
     pub icon: PathBuf,
     pub kind: ProgramKind,
+    /// What the app is for, where the table says.
+    pub category: Option<Category>,
 }
 
 /// What an install from the program's source needs of `[package.metadata.waos]`: which program it
@@ -51,6 +55,7 @@ struct Fields {
     name: String,
     icon: PathBuf,
     kind: Option<String>,
+    category: Option<String>,
 }
 
 /// What an install needs of the table.
@@ -113,6 +118,9 @@ impl WaosMetadata {
             name: fields.name,
             icon: folder.join(fields.icon),
             kind: kind_of(fields.kind.as_deref())?,
+            // A category mistyped is refused here, with the categories there are, where a
+            // package read later would take it for one a later version knows.
+            category: fields.category.as_deref().map(str::parse).transpose()?,
         })
     }
 }
@@ -137,6 +145,21 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+
+    #[test]
+    fn the_table_says_what_the_app_is_for_and_a_category_mistyped_is_refused() {
+        let table = json!({"id": "dev.example.triangle", "name": "Triangle", "icon": "icon.png",
+            "category": "graphics-design"});
+        let metadata = WaosMetadata::from_table(&table, Path::new("/programs/triangle")).unwrap();
+        assert_eq!(metadata.category, Some(Category::GraphicsDesign));
+
+        let mistyped = json!({"id": "dev.example.triangle", "name": "Triangle",
+            "icon": "icon.png", "category": "graphics"});
+        let refusal = WaosMetadata::from_table(&mistyped, Path::new("/programs/triangle"))
+            .unwrap_err()
+            .to_string();
+        assert!(refusal.contains("`graphics` is no category"), "{refusal}");
+    }
 
     #[test]
     fn the_table_gives_the_id_the_name_and_the_icon_beside_the_manifest() {

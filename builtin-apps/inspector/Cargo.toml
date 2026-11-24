@@ -33,3 +33,4 @@ workspace = true
 id = "dev.waos.inspector"
 name = "Inspector"
 icon = "icon.png"
+category = "developer-tools"

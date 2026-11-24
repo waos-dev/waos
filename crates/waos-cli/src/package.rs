@@ -38,7 +38,8 @@ pub fn package(name: Option<&str>, features: &Features) -> Result<PackagedProgra
     warn_of_icon_breaches(&waos.icon)?;
     let manifest = Manifest::new(waos.id, waos.name, package.version.clone())
         .with_context(|| format!("the manifest of {}", package.name))?
-        .with_kind(waos.kind);
+        .with_kind(waos.kind)
+        .with_category(waos.category);
     let key = signing_key::signing_key()?;
     let built = build::build(&metadata, package, Profile::Release, features)?;
     warn_of_an_app_with_no_view(&manifest, &built.component)?;

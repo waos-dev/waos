@@ -35,3 +35,4 @@ workspace = true
 id = "dev.waos.camera"
 name = "Camera"
 icon = "icon.png"
+category = "photography"
