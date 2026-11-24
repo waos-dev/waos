@@ -1,0 +1,29 @@
+package wasdk:platform@2.2.0;
+
+/// Folders the program holds, shown in its own files where it says, so what reaches files by
+/// their paths reaches them there: `std::fs`, and every library built on the system's file calls.
+/// A folder the program holds is one it has a descriptor of: a machine's root and the folders
+/// opened from it, the folders the user picked for it, its own folders and its mounts. A program
+/// ported from a system whose files it reads by their paths mounts a machine's root at `/`, and
+/// reads that machine's files at the paths the machine's own commands name them by.
+///
+/// **The program's own folders stay over what it mounts**: its `/data`, `/cache` and `/tmp` are
+/// its own whatever is mounted at `/`, and a folder is never mounted inside one of them. A mount
+/// at a path the user's grants or picks mount something at already leaves that one in place. A
+/// mount lasts while the program holds its `mounted`, at most for the program's run; nothing of it
+/// is kept, and the next run mounts again.
+///
+/// Mounting gives the program nothing it did not have: the folder is one it holds already, read
+/// and written as its descriptor allows.
+interface mounts {
+  use wasi:filesystem/types@0.3.0.{descriptor, error-code};
+
+  /// A folder mounted, until this is dropped.
+  resource mounted {}
+
+  /// Mounts `folder` at `at`, an absolute path in the program's own files: `not-directory` for a
+  /// file, `not-permitted` for a path inside the program's own folders, `exist` for a path the
+  /// program mounted something at already, `invalid` for a path that is not absolute or holds
+  /// `.` or `..`.
+  mount: func(folder: borrow<descriptor>, at: string) -> result<mounted, error-code>;
+}

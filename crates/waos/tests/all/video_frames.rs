@@ -49,6 +49,16 @@ fn a_readers_frame_for_a_frames_display_time_reaches_the_program_and_its_device(
     reader.put_frame([0, 0, 255, 255]);
     let said = format!("frame {FRAME_WIDTH}x{FRAME_HEIGHT}, first pixel [0, 0, 255, 255]");
     run.output.wait_for(&said);
+    // A reader's frame says what it is: red, green and blue in one plane, the whole buffer
+    // picture, with no time of its own; and its one plane is the texture its buffer is.
+    let described = format!(
+        "planes [PlaneContent::Rgba PlaneFormat::Bgra8 {FRAME_WIDTH}x{FRAME_HEIGHT} of 8 bits], \
+         visible {FRAME_WIDTH}x{FRAME_HEIGHT} from 0,0, matrix Some(0) over \
+         Some(ColorRange::Full) range, time None"
+    );
+    run.output.wait_for(&described);
+    run.output
+        .wait_for("first pixel through its plane [0, 0, 255, 255]");
     // TODO(tests-without-the-clock): the headless shell keeps no refresh's display time, so this
     // checks only that each time asked is one of a refresh since the program started, the
     // headless screen's picture reaching it as it refreshes; the old shell's check was that each

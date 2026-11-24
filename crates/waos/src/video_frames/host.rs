@@ -8,7 +8,8 @@ use wasmtime::component::{HasData, Linker, Resource, ResourceTable};
 
 use super::{ProgramVideoFrame, VideoFrameReader, VideoFrameReaders};
 use crate::bindings::wasdk::media::video_frames::{
-    self, HostVideoFrame, HostVideoFrameReader, HostVideoFrameReaders, Instant,
+    self, HdrMetadata, HostVideoFrame, HostVideoFrameReader, HostVideoFrameReaders, Instant,
+    PixelAspect, PixelRect, VideoColor, VideoPlane,
 };
 use crate::clock::Clock;
 use crate::hardware_buffers::ProgramHardwareBuffer;
@@ -103,6 +104,52 @@ impl HostVideoFrame for VideoFramesCtx<'_> {
 
     fn flip(&mut self, frame: Resource<ProgramVideoFrame>) -> wasmtime::Result<bool> {
         Ok(self.table.get(&frame)?.flip())
+    }
+
+    /// None: a reader's frame comes for a display time, and carries no time of its own.
+    fn timestamp(&mut self, _frame: Resource<ProgramVideoFrame>) -> wasmtime::Result<Option<i64>> {
+        Ok(None)
+    }
+
+    fn duration(&mut self, _frame: Resource<ProgramVideoFrame>) -> wasmtime::Result<Option<u64>> {
+        Ok(None)
+    }
+
+    fn visible_rect(&mut self, frame: Resource<ProgramVideoFrame>) -> wasmtime::Result<PixelRect> {
+        let frame = self.table.get(&frame)?;
+        frame.visible_rect().map_err(wasmtime::Error::from_anyhow)
+    }
+
+    /// Square: a reader's frame is drawn for showing as it is.
+    fn pixel_aspect(
+        &mut self,
+        _frame: Resource<ProgramVideoFrame>,
+    ) -> wasmtime::Result<PixelAspect> {
+        Ok(PixelAspect {
+            width: 1,
+            height: 1,
+        })
+    }
+
+    fn planes(
+        &mut self,
+        frame: Resource<ProgramVideoFrame>,
+    ) -> wasmtime::Result<Option<Vec<VideoPlane>>> {
+        let frame = self.table.get(&frame)?;
+        let planes = frame.planes().map_err(wasmtime::Error::from_anyhow)?;
+        Ok(Some(planes))
+    }
+
+    fn color(&mut self, frame: Resource<ProgramVideoFrame>) -> wasmtime::Result<VideoColor> {
+        Ok(self.table.get(&frame)?.color())
+    }
+
+    /// None: the shell is not told what a reader's frame was mastered for.
+    fn hdr_metadata(
+        &mut self,
+        _frame: Resource<ProgramVideoFrame>,
+    ) -> wasmtime::Result<Option<HdrMetadata>> {
+        Ok(None)
     }
 
     /// The program lets go of the frame; its hardware buffer and their textures still hold it.

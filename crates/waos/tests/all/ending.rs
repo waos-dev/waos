@@ -86,7 +86,7 @@ fn a_program_built_against_an_earlier_minor_version_of_the_interface_is_linked()
     };
     assert!(
         error.downcast_ref::<IncompatibleProgram>().is_none(),
-        "`wasdk:platform/system@2.0.0` links against the 2.1.0 the engine serves: {error:#}"
+        "`wasdk:platform/system@2.0.0` links against the 2.2.0 the engine serves: {error:#}"
     );
 }
 

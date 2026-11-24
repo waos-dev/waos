@@ -81,7 +81,8 @@ pub mod keys;
 #[cfg(feature = "inspector")]
 pub use bindings::wasdk::inspect;
 pub use bindings::wasdk::media::{
-    cameras, caption_settings, image_codecs, media_assets, media_players, video_frames,
+    cameras, caption_settings, image_codecs, media_assets, media_players, video_decoders,
+    video_frames, video_streams,
 };
 pub use bindings::wasdk::platform::{
     audio, clipboard, file_dialogs, file_watching, fonts, gpu_interop, hardware_buffers, lifecycle,
