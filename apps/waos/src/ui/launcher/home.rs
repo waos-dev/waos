@@ -175,10 +175,14 @@ impl LauncherHomeState {
         let magnifier = FontIcon::symbol(FluentSymbol::Search)
             .font_size(ICON_SIZE)
             .foreground(resources.text_fill_color_secondary);
+        // No caret blinks in the empty field: it shows once something is typed. The field has
+        // the keyboard all along, so the first key, an input method's among them, is its.
+        let something_typed = !field.text.text_value(app).is_empty();
         let text_box = TextBox::new(field.text.erase())
             .focus_node(field.focus.erase())
             .placeholder_text(words::SEARCH_PROGRAMS)
-            .font_size(SEARCH_FONT_SIZE);
+            .font_size(SEARCH_FONT_SIZE)
+            .show_cursor(something_typed);
         let opening_the_first = Focus::new(with_no_box(text_box))
             .skip_traversal(true)
             .can_request_focus(false)
@@ -245,7 +249,7 @@ impl LauncherHomeState {
         KeyEventResult::Handled
     }
 
-    /// The library searches for what the field holds now.
+    /// The library searches for what the field holds now, and the field is built again for it.
     fn typed(self: Handle<Self>, app: &mut App) {
         if !self.mounted(app) {
             return;
@@ -253,6 +257,8 @@ impl LauncherHomeState {
         let typed = self.text(app).text_value(app).to_owned();
         let library = self.widget(app).library.clone();
         library.update(app, |library, cx| library.search_for(&typed, cx));
+        // The field shows its caret only while it holds something.
+        self.set_state(app, |_| {});
     }
 
     /// The library changed: where its search is no longer what the field holds, it was changed

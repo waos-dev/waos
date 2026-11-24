@@ -15,10 +15,10 @@
 use std::rc::Rc;
 use std::sync::Arc;
 
-use waft::Entity;
 use waft::ui::{
     HostWindow as _, Offset, TargetPlatform, View as _, ViewId, WindowBackground, WindowLevel,
 };
+use waft::{EditableText, Entity};
 use waft_test::TestWindow;
 use waft_winui::{FluentSymbol, FontIcon};
 use waos_package::ProgramId;
@@ -266,6 +266,26 @@ fn a_running_program_has_its_dot_and_one_a_source_lists_newer_its_badge() {
         desktop.count::<RunningDot>(|_| true) == 1
     });
     futures::executor::block_on(desktop.runs.stop_all());
+}
+
+/// Whether the launcher's search field draws its caret now.
+fn search_draws_its_caret(desktop: &LibraryDesktop) -> bool {
+    desktop.count::<EditableText>(EditableText::effective_show_cursor) == 1
+}
+
+/// No caret blinks in the launcher's empty search field, which has the keyboard all the same:
+/// what is typed goes into it, and its caret shows while it holds something.
+#[test]
+fn the_empty_search_field_shows_no_caret_and_takes_what_is_typed() {
+    let (mut desktop, _launcher) = desktop();
+    install(&mut desktop, TRIANGLE, "Triangle", "1.0.0", b"\0asm");
+    let view = launcher_view(&desktop);
+    assert!(!search_draws_its_caret(&desktop), "empty");
+    desktop.type_text(view, "tri");
+    assert_eq!(desktop.read(|library| library.search().to_owned()), "tri");
+    assert!(search_draws_its_caret(&desktop), "holding what was typed");
+    desktop.type_text(view, "");
+    assert!(!search_draws_its_caret(&desktop), "empty again");
 }
 
 /// The grid lists the apps from A to Z by the names their user reads, whatever their case, not
