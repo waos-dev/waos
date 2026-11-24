@@ -60,7 +60,7 @@ use waft::{App, Context, Entity, EventEmitter, OpenRequestedCallback, WeakEntity
 use waft_single_instance::{LaterLaunches, Launch};
 use waos::OpenRequest;
 use waos::bindings::wasdk::platform::notifications::Activation;
-use waos_package::{ListedProgram, ProgramId, ProgramKind};
+use waos_package::{Category, ListedProgram, ProgramId, ProgramKind};
 use waos_store::{InstalledProgram, Source, Store};
 
 use crate::logic::command_line::{Command, command};
@@ -133,6 +133,8 @@ pub(crate) struct Library {
     notifications_refused: HashSet<ProgramId>,
     /// What the user searches the installed programs for, as typed; empty for nothing.
     search: String,
+    /// The category whose apps alone the home shows; none for every app.
+    category: Option<Category>,
     /// The installed apps their user starts most lately, the most started first, as last read.
     often_used: Vec<ProgramId>,
     /// Where the installed programs' shortcuts are kept, on Android; none elsewhere.
@@ -287,6 +289,7 @@ impl Library {
             waiting_to_leave: Vec::new(),
             notifications_refused: HashSet::new(),
             search: String::new(),
+            category: None,
             often_used: Vec::new(),
             shortcuts: None,
             shortcuts_matching: ShortcutsMatching::Idle,
@@ -349,6 +352,30 @@ impl Library {
     /// The icon of the installed program `id`, a PNG; none where it cannot be read.
     pub(crate) fn icon(&self, id: &ProgramId) -> Option<&Arc<[u8]>> {
         self.icons.get(id)
+    }
+
+    /// The category whose apps alone the home shows; none for every app.
+    pub(crate) fn category(&self) -> Option<Category> {
+        self.category
+    }
+
+    /// The home shows the apps of `category` alone from now on; every app for `None`.
+    pub(crate) fn show_category(&mut self, category: Option<Category>, cx: &mut Context<Library>) {
+        if self.category != category {
+            self.category = category;
+            cx.notify();
+        }
+    }
+
+    /// The categories the installed apps are filed under, each once, in the order of their
+    /// spellings: the ones the home offers to show alone.
+    pub(crate) fn categories(&self) -> Vec<Category> {
+        let filed: BTreeSet<Category> = self
+            .installed
+            .iter()
+            .filter_map(|app| app.manifest.category())
+            .collect();
+        filed.into_iter().collect()
     }
 
     /// The installed apps their user starts most lately, the most started first, as read when
@@ -955,6 +982,12 @@ impl Library {
         self.installed = self.store.installed();
         self.icons = icons_of(&self.store, &self.installed);
         self.often_used = self.most_started_lately();
+        if self
+            .category
+            .is_some_and(|shown| !self.categories().contains(&shown))
+        {
+            self.category = None;
+        }
         cx.emit(InstalledChanged);
         self.match_shortcuts(cx);
         for read in &mut self.sources {

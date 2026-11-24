@@ -2,6 +2,7 @@
 
 use waft::ui::TargetPlatform;
 use waos::{RecordingDevice, Switch};
+use waos_package::Category;
 
 use crate::logic::setting_changes::SettingsOf;
 use crate::state::library::Question;
@@ -322,6 +323,33 @@ pub(crate) fn mount(host: &str, at: &str, writable: bool) -> String {
         format!("{host}, {may}")
     } else {
         format!("{host} at {at}, {may}")
+    }
+}
+
+/// What a category is called on the chip that shows its apps alone, as the App Store names it.
+pub(crate) fn category(category: Category) -> &'static str {
+    match category {
+        Category::Business => "Business",
+        Category::DeveloperTools => "Developer Tools",
+        Category::Education => "Education",
+        Category::Entertainment => "Entertainment",
+        Category::Finance => "Finance",
+        Category::Games => "Games",
+        Category::GraphicsDesign => "Graphics & Design",
+        Category::HealthcareFitness => "Health & Fitness",
+        Category::Lifestyle => "Lifestyle",
+        Category::Medical => "Medical",
+        Category::Music => "Music",
+        Category::News => "News",
+        Category::Photography => "Photography",
+        Category::Productivity => "Productivity",
+        Category::Reference => "Reference",
+        Category::SocialNetworking => "Social Networking",
+        Category::Sports => "Sports",
+        Category::Travel => "Travel",
+        Category::Utilities => "Utilities",
+        Category::Video => "Video",
+        Category::Weather => "Weather",
     }
 }
 

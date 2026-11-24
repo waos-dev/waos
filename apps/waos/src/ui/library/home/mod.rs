@@ -40,12 +40,18 @@ pub(crate) struct HomeEntry {
 }
 
 /// The programs `library` has installed, as the home shows them, in the order of their names:
-/// those the user searches for, while the user searches.
+/// those the user searches for, while the user searches, and those of the category the home
+/// shows alone, while it shows one.
 pub(crate) fn home_entries(library: &Library) -> Vec<HomeEntry> {
     let mut entries: Vec<HomeEntry> = library
         .installed()
         .iter()
         .filter(|program| is_searched_for(&program.name(), library.search()))
+        .filter(|program| {
+            library
+                .category()
+                .is_none_or(|shown| program.manifest.category() == Some(shown))
+        })
         .map(|program| entry_of(library, program))
         .collect();
     entries.sort_by_cached_key(|entry| entry.name.to_lowercase());
@@ -53,9 +59,10 @@ pub(crate) fn home_entries(library: &Library) -> Vec<HomeEntry> {
 }
 
 /// The apps of the home's first row: those their user starts most lately, the most started
-/// first; none while the user searches, where the home shows what was searched for alone.
+/// first; none while the user searches or the home shows one category, where it shows what was
+/// asked for alone.
 pub(crate) fn often_used_entries(library: &Library) -> Vec<HomeEntry> {
-    if !library.search().trim().is_empty() {
+    if !library.search().trim().is_empty() || library.category().is_some() {
         return Vec::new();
     }
     library

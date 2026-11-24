@@ -6,6 +6,7 @@ use std::time::{Duration, SystemTime};
 use waft::IntoWidget;
 use waft::ui::{View as _, ViewId};
 use waos::{AuditDay, AuditLog as _};
+use waos_package::Category;
 
 use super::LaidOutLibrary;
 use crate::state::library::Listing;
@@ -52,9 +53,26 @@ pub(crate) fn installs(desktop: &mut LibraryDesktop, id: &str, name: &str, compo
     installs_package(desktop, package);
 }
 
-/// Installs `id` named `name`, with the PNG `icon` as its icon.
-pub(crate) fn installs_showing(desktop: &mut LibraryDesktop, id: &str, name: &str, icon: &[u8]) {
-    let package = desktop.package_showing(id, name, b"\0asm", icon);
+/// Installs `id` named `name`, filed under `category`, with the PNG `icon` as its icon.
+pub(crate) fn installs_showing(
+    desktop: &mut LibraryDesktop,
+    id: &str,
+    name: &str,
+    category: Option<Category>,
+    icon: &[u8],
+) {
+    let package = desktop.package_showing(id, name, category, icon);
+    installs_package(desktop, package);
+}
+
+/// Installs `id` named `name`, filed under `category`.
+pub(crate) fn installs_filed(
+    desktop: &mut LibraryDesktop,
+    id: &str,
+    name: &str,
+    category: Category,
+) {
+    let package = desktop.package_filed(id, name, category);
     installs_package(desktop, package);
 }
 

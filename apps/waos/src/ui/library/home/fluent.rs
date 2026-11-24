@@ -14,16 +14,17 @@ use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
 use waft::{
-    App, BorderRadiusGeometry, BoxDecoration, BuildContext, Center, Color, ColoredBox, Column,
-    CrossAxisAlignment, CustomScrollView, DecoratedBox, EdgeInsetsGeometry, Entity, Expanded,
-    GlobalKey, Handle, IntoWidget, KeyedSubtree, LayoutBuilder, Listener, MainAxisSize, Padding,
-    Row, SizedBox, SliverList, SliverPadding, SliverPersistentHeader,
-    SliverPersistentHeaderDelegate, SliverPersistentHeaderDelegateRef, SliverToBoxAdapter, State,
-    StateData, StatefulWidget, StatelessWidget, Text, TextAlign, WidgetRef,
+    App, Axis, BorderRadiusGeometry, BoxDecoration, BuildContext, Center, Color, ColoredBox,
+    Column, CrossAxisAlignment, CustomScrollView, DecoratedBox, EdgeInsetsGeometry, Entity,
+    Expanded, GlobalKey, Handle, IntoWidget, KeyedSubtree, LayoutBuilder, Listener, MainAxisSize,
+    Padding, Row, SingleChildScrollView, SizedBox, SliverList, SliverPadding,
+    SliverPersistentHeader, SliverPersistentHeaderDelegate, SliverPersistentHeaderDelegateRef,
+    SliverToBoxAdapter, State, StateData, StatefulWidget, StatelessWidget, Text, TextAlign,
+    WidgetRef,
 };
 use waft_winui::{
     Button, ButtonStyle, FluentSymbol, FontIcon, InfoBadgeStyle, TextBlockStyle, ThemeResources,
-    ThemeScope,
+    ThemeScope, ToggleButton,
 };
 
 use super::motion::SlidesIntoPlace;
@@ -38,12 +39,15 @@ use crate::ui::library::icon_actions::fluent::IconMenu;
 use crate::ui::library::program_icon::ProgramIcon;
 use crate::ui::library::recording::fluent_recording;
 use crate::ui::library::words;
-use waos_package::ProgramId;
+use waos_package::{Category, ProgramId};
 
 /// The home's margins, as the Start menu's.
 pub(crate) const MARGIN: f64 = 24.0;
 /// The room above the grid's first row, which scrolls away with it.
 const GRID_TOP: f64 = 12.0;
+/// The room between two category chips, and under their row.
+const CHIP_SPACING: f64 = 8.0;
+const CHIPS_GAP: f64 = 12.0;
 /// How thick the line between the home's sections is.
 const SECTION_LINE: f64 = 1.0;
 /// How round the highlight behind the icon the arrow keys are on is: WinUI's control corners.
@@ -425,6 +429,10 @@ impl StatelessWidget for FluentHomeBody {
             );
         }
         let library = self.library.read(app);
+        let categories = library.categories();
+        if !categories.is_empty() {
+            children.push(self.category_chips(&categories, library.category()));
+        }
         let entries = home_entries(library);
         let content = if !entries.is_empty() {
             self.grid(entries, often_used_entries(library), &resources)
@@ -442,6 +450,31 @@ impl StatelessWidget for FluentHomeBody {
 }
 
 impl FluentHomeBody {
+    /// A chip for each of `categories`, which shows that category's apps alone while it is on,
+    /// `shown` the one that is; a press on the one that is on shows every app again. The row
+    /// scrolls sideways where the chips outgrow it, as macOS's Apps scrolls its own.
+    fn category_chips(&self, categories: &[Category], shown: Option<Category>) -> WidgetRef {
+        let chips: Vec<WidgetRef> = categories
+            .iter()
+            .map(|&category| {
+                let library = self.library.clone();
+                let on = shown == Some(category);
+                ToggleButton::text(words::category(category), Some(on), move |app, _| {
+                    let show = (!on).then_some(category);
+                    library.update(app, |library, cx| library.show_category(show, cx));
+                })
+                .into_widget()
+            })
+            .collect();
+        SingleChildScrollView::new()
+            .scroll_direction(Axis::Horizontal)
+            .padding(EdgeInsetsGeometry::from_ltrb(
+                MARGIN, 0.0, MARGIN, CHIPS_GAP,
+            ))
+            .child(Row::new().spacing(CHIP_SPACING).children(chips))
+            .into_widget()
+    }
+
     /// The installed apps' icons and, over them, those `often_used`, as an [`IconGrid`] shows
     /// them.
     fn grid(

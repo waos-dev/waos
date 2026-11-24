@@ -22,7 +22,7 @@ use waft::{CustomScrollView, Entity, Opacity};
 use waft_services::{LogicalKeyboardKey, PhysicalKeyboardKey};
 use waft_test::TestWindow;
 use waft_winui::{FluentSymbol, FontIcon};
-use waos_package::ProgramId;
+use waos_package::{Category, ProgramId};
 
 use super::home::LauncherHome;
 use super::launcher_window;
@@ -33,7 +33,7 @@ use crate::state::waos_tray::WaosTray;
 use crate::ui::library::home::RunningDot;
 use crate::ui::library::home::fluent::{IconHighlight, SectionLine};
 use crate::ui::library::program_icon::ProgramIcon;
-use crate::ui::library::test_steps::{installs, started_yesterday};
+use crate::ui::library::test_steps::{installs, installs_filed, started_yesterday};
 use crate::ui::library::words;
 
 const TRIANGLE: &str = "dev.example.triangle";
@@ -446,6 +446,58 @@ fn an_icon_slides_to_its_new_place_as_a_search_narrows_the_icons() {
     desktop.settle();
     assert_eq!(fading_in(&desktop), 0);
     assert_eq!(desktop.find("Hotel"), Some(before), "back in its place");
+}
+
+/// A chip for each category the installed apps are filed under shows that category's apps
+/// alone while it is on; pressed again, or the launcher dismissed, every app shows again.
+#[test]
+fn a_categorys_chip_shows_its_apps_alone_until_it_is_pressed_again_or_the_launcher_goes() {
+    let (mut desktop, launcher) = desktop();
+    installs_filed(
+        &mut desktop,
+        &id_of("Alpha"),
+        "Alpha",
+        Category::Productivity,
+    );
+    installs_filed(
+        &mut desktop,
+        &id_of("Bravo"),
+        "Bravo",
+        Category::Photography,
+    );
+    installs_filed(
+        &mut desktop,
+        &id_of("Charlie"),
+        "Charlie",
+        Category::Productivity,
+    );
+    installs(&mut desktop, &id_of("Delta"), "Delta", b"\0asm");
+    let view = launcher_view(&desktop);
+    let across = |desktop: &LibraryDesktop, chip: &str| desktop.find(chip).expect("a chip").dx();
+    assert!(
+        across(&desktop, "Photography") < across(&desktop, "Productivity"),
+        "one chip a category, in their order"
+    );
+    let shown = |desktop: &LibraryDesktop| -> Vec<bool> {
+        ["Alpha", "Bravo", "Charlie", "Delta"]
+            .map(|app| desktop.shows(app))
+            .to_vec()
+    };
+
+    desktop.tap(view, "Productivity");
+    assert_eq!(shown(&desktop), [true, false, true, false]);
+    desktop.tap(view, "Productivity");
+    assert_eq!(shown(&desktop), [true; 4], "pressed again");
+
+    desktop.tap(view, "Photography");
+    assert_eq!(shown(&desktop), [false, true, false, false]);
+    desktop.press_escape();
+    summon(&mut desktop, &launcher);
+    assert_eq!(
+        shown(&desktop),
+        [true; 4],
+        "the launcher comes back with every app"
+    );
 }
 
 /// Presses an arrow key.

@@ -22,35 +22,49 @@ use crate::logic::setting_changes::SettingsOf;
 use crate::state::library::LibraryPage;
 use crate::state::library::test_desktop::LibraryDesktop;
 use crate::state::library::test_server::Server;
+use waos_package::Category;
+
 use crate::ui::library::test_steps::{
     adds_source, in_launcher, installs, installs_showing, on_phone, started_yesterday,
 };
 
+/// What a built-in app ships with: the category it is filed under, and its icon's PNG.
+type BuiltIn = (Category, &'static [u8]);
+
 /// The programs the library has installed, as a user's might be, the built-in apps with the
-/// icons they ship with, so the pictures show icons as apps draw them.
-const INSTALLED: [(&str, &str, Option<&[u8]>); 5] = [
+/// categories they are filed under and the icons they ship with, so the pictures show apps as
+/// their authors make them.
+const INSTALLED: [(&str, &str, Option<BuiltIn>); 5] = [
     (
         "dev.waos.notes",
         "Notes",
-        Some(include_bytes!("../../../../builtin-apps/notes/icon.png")),
+        Some((
+            Category::Productivity,
+            include_bytes!("../../../../builtin-apps/notes/icon.png"),
+        )),
     ),
     (
         "dev.waos.camera",
         "Camera",
-        Some(include_bytes!("../../../../builtin-apps/camera/icon.png")),
+        Some((
+            Category::Photography,
+            include_bytes!("../../../../builtin-apps/camera/icon.png"),
+        )),
     ),
     (
         "dev.waos.videoplayer",
         "Video Player",
-        Some(include_bytes!(
-            "../../../../builtin-apps/video-player/icon.png"
+        Some((
+            Category::Video,
+            include_bytes!("../../../../builtin-apps/video-player/icon.png"),
         )),
     ),
     (
         "dev.waos.inspector",
         "Inspector",
-        Some(include_bytes!(
-            "../../../../builtin-apps/inspector/icon.png"
+        Some((
+            Category::DeveloperTools,
+            include_bytes!("../../../../builtin-apps/inspector/icon.png"),
         )),
     ),
     ("dev.waos.zed", "Zed", None),
@@ -88,20 +102,18 @@ fn walks_the_library(layout: &str, (mut desktop, view): (LibraryDesktop, ViewId)
     let mut scenes = Scenes::new(layout, view);
     scenes.draw(&mut desktop, "empty");
 
-    let (first, first_name, first_icon) = INSTALLED[0];
-    let package = desktop.package_showing(
-        first,
-        first_name,
-        b"\0asm",
-        first_icon.expect("the first has an icon"),
-    );
+    let (first, first_name, first_built_in) = INSTALLED[0];
+    let (first_category, first_icon) = first_built_in.expect("the first is a built-in app");
+    let package = desktop.package_showing(first, first_name, Some(first_category), first_icon);
     desktop.update(|library, cx| library.open_files(vec![package], cx));
     scenes.draw(&mut desktop, "install-question");
     desktop.update(|library, cx| library.answer(true, cx));
     desktop.settle_until_code_is_ready();
-    for (id, name, icon) in &INSTALLED[1..] {
-        match icon {
-            Some(icon) => installs_showing(&mut desktop, id, name, icon),
+    for (id, name, built_in) in &INSTALLED[1..] {
+        match built_in {
+            Some((category, icon)) => {
+                installs_showing(&mut desktop, id, name, Some(*category), icon);
+            }
             None => installs(&mut desktop, id, name, b"\0asm"),
         }
     }

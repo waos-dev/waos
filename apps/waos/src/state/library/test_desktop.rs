@@ -38,14 +38,14 @@ use waft_test::{
     TestWindows,
 };
 use waft_winui::install_icon_font;
-use waos_package::{Manifest, SigningKey};
+use waos_package::{Category, Manifest, SigningKey};
 use waos_store::{SourceProxy, Store};
 
 use super::{Library, ProgramsOpen, open_library, open_settings_when_asked, show_phone_files};
 use crate::logic::environments::ProgramEnvironments;
 use crate::logic::installed_code::HeldCompiles;
 use crate::logic::installed_runs::InstalledRuns;
-use crate::logic::opened_package::tests::{write_package, write_package_showing};
+use crate::logic::opened_package::tests::{write_package, write_package_of, write_package_showing};
 use crate::logic::package_copies::PackageCopies;
 use crate::logic::phone_files::PhoneFilesAccess;
 use crate::logic::placement::WindowsOnRequest;
@@ -266,19 +266,36 @@ impl LibraryDesktop {
         write_package(&packages, id, name, version, component, &self.key)
     }
 
-    /// A package of `id` named `name` at 1.0.0, made of `component`, whose icon is the PNG
-    /// `icon`, for a picture of the library with icons as apps draw them.
+    /// A package of `id` named `name` at 1.0.0, filed under `category`, whose icon is the PNG
+    /// `icon`, for a picture of the library with apps as their authors make them.
     pub(crate) fn package_showing(
         &self,
         id: &str,
         name: &str,
-        component: &[u8],
+        category: Option<Category>,
         icon: &[u8],
     ) -> std::path::PathBuf {
         let packages = self.folder.path().join("packages");
         std::fs::create_dir_all(&packages).unwrap();
-        let manifest = Manifest::new(id.parse().unwrap(), name, "1.0.0".parse().unwrap()).unwrap();
-        write_package_showing(&packages, &manifest, component, icon, &self.key)
+        let manifest = Manifest::new(id.parse().unwrap(), name, "1.0.0".parse().unwrap())
+            .unwrap()
+            .with_category(category);
+        write_package_showing(&packages, &manifest, b"\0asm", icon, &self.key)
+    }
+
+    /// A package of `id` named `name` at 1.0.0, filed under `category`.
+    pub(crate) fn package_filed(
+        &self,
+        id: &str,
+        name: &str,
+        category: Category,
+    ) -> std::path::PathBuf {
+        let packages = self.folder.path().join("packages");
+        std::fs::create_dir_all(&packages).unwrap();
+        let manifest = Manifest::new(id.parse().unwrap(), name, "1.0.0".parse().unwrap())
+            .unwrap()
+            .with_category(Some(category));
+        write_package_of(&packages, &manifest, b"\0asm", &self.key)
     }
 
     /// WaOS goes to the background and comes back to the front, as the user leaving it for the
