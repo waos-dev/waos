@@ -12,7 +12,7 @@
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::rc::Rc;
+use std::rc::{Rc, Weak};
 use std::sync::Arc;
 
 use anyhow::{Result, anyhow};
@@ -72,7 +72,23 @@ struct PlatformCallbacks {
     displays_changed: Slot<Box<dyn FnMut()>>,
 }
 
+thread_local! {
+    /// The platform the program's app runs on, for what an app says to it outside GPUI's
+    /// traits, as `gpui_ios`'s `current_platform`; none before `run` makes it, or after it ends.
+    static CURRENT: RefCell<Weak<WasdkPlatform>> = const { RefCell::new(Weak::new()) };
+}
+
 impl WasdkPlatform {
+    /// The platform the program's app runs on now.
+    pub(crate) fn current() -> Option<Rc<WasdkPlatform>> {
+        CURRENT.with_borrow(Weak::upgrade)
+    }
+
+    /// From now on, `platform` is the one the program's app runs on.
+    pub(crate) fn make_current(platform: &Rc<WasdkPlatform>) {
+        CURRENT.set(Rc::downgrade(platform));
+    }
+
     pub(crate) fn new(context: WgpuContext, notices: mpsc::UnboundedSender<Notice>) -> Self {
         let dispatcher = Arc::new(WasdkDispatcher::new(notices.clone()));
         WasdkPlatform {
