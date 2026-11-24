@@ -35,7 +35,7 @@ use crate::screens::Screens;
 use crate::shell::{
     Prompts, ShellAudioOutputPicker, ShellCameras, ShellCompositor, ShellFileDialogs,
     ShellImageCodecs, ShellMachinePicker, ShellMediaAssets, ShellMediaPlayers, ShellNotifications,
-    ShellOpener, ShellVideoFrameReaders, ViewPlacement,
+    ShellOpener, ShellSystemPermissions, ShellVideoFrameReaders, ViewPlacement,
 };
 use crate::source_lines::ComponentFile;
 use crate::system::SystemSettings;
@@ -55,6 +55,7 @@ pub(crate) struct ProgramInstances {
     /// The file its component was loaded from, which a worker's failure is located in.
     pub(super) file: ComponentFile,
     pub(super) prompts: Arc<dyn Prompts>,
+    pub(super) system_permissions: Option<Arc<dyn ShellSystemPermissions>>,
     pub(super) screens: Screens,
     pub(super) settings: SystemSettings,
     pub(super) caption_settings: Option<CaptionSettings>,
@@ -127,6 +128,7 @@ impl ProgramInstances {
             name: start.name,
             file: start.file,
             prompts: start.prompts,
+            system_permissions: start.system_permissions,
             screens: start.screens,
             settings: start.settings,
             caption_settings: start.caption_settings,

@@ -59,7 +59,8 @@ use waos::bindings::wasdk::platform::views::{
 };
 use waos::bindings::wasdk::platform::windows::{Rect, TitleBarAction};
 use waos::{
-    FolderOptions, Notification, OpenOptions, OpenRequest, Presence, SaveOptions, WindowConfig,
+    FolderOptions, Notification, OpenOptions, OpenRequest, Presence, SaveOptions,
+    SystemPermissionState, WindowConfig,
 };
 use waos_package::ProgramId;
 
@@ -67,8 +68,9 @@ pub use prompts::{PromptCall, PromptId, PromptReport};
 use records::{
     ActivationDef, AppExitResponseDef, EditCommandDef, FolderOptionsDef, KeyEventDef, MetricsDef,
     NotificationDef, OpenOptionsDef, OpenRequestDef, PointerEventDef, PresenceDef, RectDef,
-    SaveOptionsDef, TextEditingValueDef, TextInputActionDef, ViewErrorDef, ViewFocusEventDef,
-    WindowConfigDef, menu_entries, option_title_bar_action, picked_paths, posted,
+    SaveOptionsDef, SystemPermissionStateDef, TextEditingValueDef, TextInputActionDef,
+    ViewErrorDef, ViewFocusEventDef, WindowConfigDef, menu_entries, option_title_bar_action,
+    picked_paths, posted,
 };
 pub use view_calls::{TextInputCall, ViewCall, WindowCall};
 
@@ -77,7 +79,7 @@ pub use view_calls::{TextInputCall, ViewCall, WindowCall};
 /// and a WaOS of different builds refuse each other, each saying both numbers, rather than misread.
 /// The handshake's bytes are pinned to it by a test, which fails when [`Hello`] or [`Welcome`]
 /// changes and this does not.
-pub const PROTOCOL: u32 = 6;
+pub const PROTOCOL: u32 = 7;
 
 /// Names one key a window process sent, which WaOS's reply names back.
 pub type KeyId = u64;
@@ -278,16 +280,20 @@ pub enum FromWindow {
     /// The user clicked one of the program's notifications, or one of its actions, or replied,
     /// while the app ran, after its hello.
     NotificationActivated(#[serde(with = "ActivationDef")] Activation),
-    /// Whether macOS refuses the program its notifications, as the app read it: as WaOS welcomed
-    /// it, as macOS's question before its first post was answered, each time it comes to the
-    /// front, and each time WaOS asks ([`ToWindow::ReadNotificationPermission`]), the user having
-    /// perhaps changed it in System Settings meanwhile.
-    NotificationPermission { refused: bool },
-    /// macOS answered the question `request` asked for: whether it refuses the program its
-    /// notifications.
+    /// What macOS says of the program's notifications, as the app read it: as WaOS welcomed it, as
+    /// macOS's question before its first post was answered, each time it comes to the front, and
+    /// each time WaOS asks ([`ToWindow::ReadNotificationPermission`]), the user having perhaps
+    /// changed it in System Settings meanwhile.
+    NotificationPermission {
+        #[serde(with = "SystemPermissionStateDef")]
+        state: SystemPermissionState,
+    },
+    /// macOS answered the question `request` asked for: what it says of the program's
+    /// notifications now.
     NotificationPermissionAnswered {
         request: PermissionRequestId,
-        refused: bool,
+        #[serde(with = "SystemPermissionStateDef")]
+        state: SystemPermissionState,
     },
 }
 
@@ -455,14 +461,14 @@ impl Debug for FromWindow {
                 .debug_tuple("NotificationActivated")
                 .field(&TracedActivation(activation))
                 .finish(),
-            FromWindow::NotificationPermission { refused } => f
+            FromWindow::NotificationPermission { state } => f
                 .debug_struct("NotificationPermission")
-                .field("refused", refused)
+                .field("state", state)
                 .finish(),
-            FromWindow::NotificationPermissionAnswered { request, refused } => f
+            FromWindow::NotificationPermissionAnswered { request, state } => f
                 .debug_struct("NotificationPermissionAnswered")
                 .field("request", request)
-                .field("refused", refused)
+                .field("state", state)
                 .finish(),
         }
     }

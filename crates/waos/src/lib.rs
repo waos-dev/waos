@@ -133,10 +133,11 @@ pub use shell::{
     ShellFileDialogs, ShellHardwareImageCodecs, ShellImageCodecs, ShellImageSource,
     ShellMachinePicker, ShellMediaAsset, ShellMediaAssets, ShellMediaPlayer, ShellMediaPlayers,
     ShellMenuAtIcon, ShellMenuBar, ShellNotificationScheduling, ShellNotifications, ShellOpener,
-    ShellRecordingIndicator, ShellSystemPermission, ShellTextInput, ShellTrayIcon, ShellTrayIcons,
+    ShellRecordingIndicator, ShellSystemPermissions, ShellTextInput, ShellTrayIcon, ShellTrayIcons,
     ShellVideoFrameReader, ShellVideoFrameReaders, ShellView, ShellWindow, ShellWindowSizeLimits,
-    StartedSession, SystemPermissionFuture, TrayIconAddFuture, VideoFrame, VideoOutput,
-    VideoPicture, ViewPlacement, ViewRequest, VsyncWaiter,
+    StartedSession, SystemPermission, SystemPermissionFuture, SystemPermissionState,
+    TrayIconAddFuture, VideoFrame, VideoOutput, VideoPicture, ViewPlacement, ViewRequest,
+    VsyncWaiter,
 };
 pub use simulated_input::{DragPath, Keyboard, Mouse, NoSuchChord, NothingEdited};
 pub use stats::Stats;

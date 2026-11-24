@@ -2,9 +2,9 @@
 //! changes as the user would: the program reads where each permission stands, puts the question
 //! about notifications to its user once however often it asks, keeps the answer, opens its
 //! network page and reads the switch the user turned off there once the user leaves it, and
-//! hears each change, the system's refusal of its notifications and its letting them again among
-//! them, as the shell reports what the system says without a post. With no grants, nothing is
-//! granted and no question is put.
+//! hears each change its user makes. Where the system keeps a permission of its own for the
+//! program's notifications and denies it, asking reads denied and the program's stream of changes
+//! hears it, the user's answer kept. With no grants, nothing is granted and no question is put.
 
 use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -71,18 +71,6 @@ fn a_program_reads_its_permissions_asks_once_and_hears_each_change() {
         "kept"
     );
 
-    running.system_notifications_refused(true);
-    output.wait_for("notifications changed: denied");
-    assert_eq!(
-        grants.answer(Question::Notifications),
-        Some(Answer::Granted),
-        "the user's answer is kept while the system refuses"
-    );
-    running.system_notifications_refused(false);
-    output.wait_until("the system lets them again", |lines| {
-        count(lines, "notifications changed: granted") == 2
-    });
-
     wait_until("the network page opens", || {
         !shell.prompts.settings_opened().is_empty()
     });
@@ -103,6 +91,47 @@ fn a_program_reads_its_permissions_asks_once_and_hears_each_change() {
     output.wait_for("clipboard-write changed: denied");
     let end = within(running.ended());
     assert!(matches!(end, ProgramEnd::Returned(Ok(()))), "{end:?}");
+}
+
+#[test]
+fn notifications_the_user_allowed_read_denied_once_the_system_asked_after_denies_them() {
+    let shell = TestShell::new();
+    let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
+    shell.notifications.keep_permissions();
+    shell.notifications.refuse(true);
+    let program = engine
+        .load(Path::new(waos_test_programs::PERMISSIONS))
+        .unwrap();
+    let grants = Arc::new(TestGrants::new());
+    let output = Arc::new(RecordedOutput::default());
+    let environment = ProgramEnvironment {
+        grants: Some(Arc::clone(&grants) as Arc<dyn ProgramGrants>),
+        ..printing_to(&output)
+    };
+    let running = engine.run(&program, environment).unwrap();
+    output.wait_for("notifications: not asked");
+    wait_until("the question is put", || {
+        !shell.prompts.questions().is_empty()
+    });
+    assert!(
+        shell.notifications.asked().is_empty(),
+        "the system is not asked before the user allowed them in WaOS"
+    );
+    shell.prompts.answer_questions(Some(Answer::Granted));
+    output.wait_until("both asks answered", |lines| {
+        count(lines, "notifications asked: denied") == 2
+    });
+    output.wait_for("notifications changed: denied");
+    assert!(
+        !shell.notifications.asked().is_empty(),
+        "the system is asked once the user allowed them"
+    );
+    assert_eq!(
+        grants.answer(Question::Notifications),
+        Some(Answer::Granted),
+        "the user's answer is kept while the system denies"
+    );
+    running.stop();
 }
 
 #[test]

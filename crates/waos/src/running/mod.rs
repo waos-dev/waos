@@ -53,14 +53,15 @@ use crate::lifecycle::{FreezePolicy, Lifecycle, OpenRequest};
 use crate::menus::{MenuPlaces, ProgramMenus};
 use crate::network::HttpProxy;
 use crate::notifications::ProgramNotifications;
-use crate::permissions::{NothingGranted, SystemRefusal};
+use crate::permissions::NothingGranted;
 use crate::screens::Screens;
 use crate::screenshots::Screenshots;
 use crate::service_extensions::ProgramServiceExtensions;
 use crate::shell::{
     PlacedView, Prompts, ShellAudioOutputPicker, ShellCameras, ShellCompositor, ShellFileDialogs,
     ShellImageCodecs, ShellMachinePicker, ShellMediaAssets, ShellMediaPlayers, ShellNotifications,
-    ShellOpener, ShellRecordingIndicator, ShellVideoFrameReaders, ViewPlacement,
+    ShellOpener, ShellRecordingIndicator, ShellSystemPermissions, ShellVideoFrameReaders,
+    ViewPlacement,
 };
 use crate::simulated_input::Mouse;
 use crate::source_lines::ComponentFile;
@@ -118,8 +119,6 @@ struct Running {
     menus: ProgramMenus,
     /// What the user does to its notifications.
     notifications: ProgramNotifications,
-    /// Whether the system refuses it its notifications, as the shell last said.
-    notifications_refused: SystemRefusal,
     /// The engine's time, which its views' hardware buffers read.
     clock: EngineClock,
     stats: Arc<Stats>,
@@ -175,6 +174,9 @@ pub(crate) struct ProgramStart {
     pub(crate) compositor: Option<Arc<dyn ShellCompositor>>,
     /// What asks the program's user for what it may use.
     pub(crate) prompts: Arc<dyn Prompts>,
+    /// What the system itself allows of what the user allowed, where it has permissions of its
+    /// own.
+    pub(crate) system_permissions: Option<Arc<dyn ShellSystemPermissions>>,
     pub(crate) screens: Screens,
     /// The screens' refreshes the engine waits for, which the program's frames wait on.
     pub(crate) refreshes: ScreenRefreshes,
@@ -264,7 +266,6 @@ impl RunningProgram {
             views: program_views,
             menus: ProgramMenus::new(lifecycle.clone()),
             notifications: ProgramNotifications::new(lifecycle.clone()),
-            notifications_refused: SystemRefusal::default(),
             service_extensions: ProgramServiceExtensions::new(lifecycle.clone()),
             lifecycle,
             clock: start.clock.clone(),
@@ -383,16 +384,6 @@ impl RunningProgram {
         self.0.notifications.activated(activation);
     }
 
-    /// The system says whether it `refused` the program its notifications, where it keeps a
-    /// permission of its own for each program, as macOS does for each program's app
-    /// (`ShellSystemPermission`): the shell says so whenever it learns it, as the app connects, as
-    /// the system's question is answered, and as a post or a schedule is refused or taken. The
-    /// program's permission reads denied while the system refuses, whatever its user answered in
-    /// WaOS, the user's answer kept, and every stream of its changes hears it.
-    pub fn system_notifications_refused(&self, refused: bool) {
-        self.0.notifications_refused.set(refused);
-    }
-
     /// The menu bar the program set last, whole; none while it has set none, and then the
     /// platform's standard one is its own. What the shell shows where it shows this program's.
     pub fn menu_bar(&self) -> Option<Arc<[MenuEntry]>> {
@@ -500,10 +491,6 @@ impl RunningProgram {
 
     pub(crate) fn notifications(&self) -> &ProgramNotifications {
         &self.0.notifications
-    }
-
-    pub(crate) fn notifications_refused(&self) -> &SystemRefusal {
-        &self.0.notifications_refused
     }
 
     pub(crate) fn engine_clock(&self) -> &EngineClock {

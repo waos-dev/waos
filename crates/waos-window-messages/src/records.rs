@@ -30,7 +30,7 @@ use waos::bindings::wasdk::platform::windows::{
 };
 use waos::{
     FileType, FolderOptions, Notification, NotificationAction, OpenOptions, OpenRequest, Presence,
-    SaveOptions, WindowConfig,
+    SaveOptions, SystemPermissionState, WindowConfig,
 };
 
 /// An optional record, written as serde writes an option of it.
@@ -245,6 +245,14 @@ pub(crate) enum CursorDef {
 pub(crate) enum AppExitResponseDef {
     Exit,
     Cancel,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(remote = "SystemPermissionState")]
+pub(crate) enum SystemPermissionStateDef {
+    NotAsked,
+    Allowed,
+    Denied,
 }
 
 #[derive(Serialize, Deserialize)]

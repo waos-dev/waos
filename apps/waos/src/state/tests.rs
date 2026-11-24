@@ -126,6 +126,7 @@ impl Desktop {
                 Arc::clone(&platform.compositor) as Arc<dyn Compositor>,
             ))),
             prompts: Arc::new(prompts),
+            system_permissions: None,
             clipboard: Some(served.shell()),
             // A program's menu bar is its app's, never WaOS's own windows'.
             menu_bar: None,

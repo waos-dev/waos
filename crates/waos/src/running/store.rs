@@ -312,7 +312,7 @@ fn store_data(
     let permissions = ProgramPermissions::new(
         access.clone(),
         Arc::clone(&instances.prompts),
-        user_side.notifications.clone(),
+        instances.system_permissions.clone(),
         program.clone(),
     );
     let recordings_shown = user_side.recordings_shown;

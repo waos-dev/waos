@@ -9,15 +9,15 @@
 //! does to its notifications ([`ProgramNotifications`]), news kept until heard, so the activation
 //! that started a program waits for it to listen. Where the system keeps a permission of its own
 //! for each program, as macOS does for each program's app, the permission reads `denied` too while
-//! the system refuses, as the system answers its question and as the shell reports
-//! (`ShellSystemPermission`, `RunningProgram::system_notifications_refused`). The interface is
-//! served to a program by `host`.
+//! the system denies it, as the shell says each time it is read (`ShellSystemPermissions`). The
+//! interface is served to a program by `host`.
 //!
 //! The invariant: nothing reaches the shell's `post` or `schedule` for a program its user has not
 //! allowed notifications, and nothing asks the user on a post: a post without permission answers
 //! `denied`. A post the system refuses answers `denied` too, and says nothing to the permission:
-//! the system's refusal is what the shell says of it, never read from an answer. Posts still reach
-//! the shell while the system refuses, since it is the system that says whether it takes them.
+//! what the system says of the permission is the shell's to say, never read from an answer. Posts
+//! still reach the shell while the system refuses, since it is the system that says whether it
+//! takes them.
 
 pub(crate) mod host;
 

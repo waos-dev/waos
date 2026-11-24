@@ -80,6 +80,7 @@ pub(crate) fn shell(views: Arc<dyn ViewPlacement>, prompts: Arc<dyn Prompts>) ->
         vsync: Arc::new(NoRefreshes) as Arc<dyn VsyncWaiter>,
         compositor: None,
         prompts,
+        system_permissions: None,
         clipboard: None,
         menu_bar: None,
         context_menus: None,

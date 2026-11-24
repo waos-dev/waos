@@ -51,8 +51,8 @@ mod macos {
     use waft::ui::CompositionLayer;
     use waft::{App, AppLifecycleListener, Entity};
     use waos::{
-        ShellContextMenus, ShellFileDialogs, ShellMenuBar, ShellNotifications, ViewPlacement,
-        ViewRequest,
+        ShellContextMenus, ShellFileDialogs, ShellMenuBar, ShellNotifications,
+        ShellSystemPermissions, ViewPlacement, ViewRequest,
     };
     use waos_program_window::{CanvasLayer, PromptWindows};
     use waos_store::Store;
@@ -65,8 +65,8 @@ mod macos {
     use crate::logic::placement::WindowsOnRequest;
     use crate::logic::program_apps::{
         AppNotifications, AppsFolders, CanvasCall, CanvasKey, CanvasPictures, CanvasPlace,
-        CanvasesOnRequest, DialogReport, NoProgramApps, ProgramApps, SystemPermission, ToShow,
-        WindowPresence,
+        CanvasesOnRequest, DialogReport, NoProgramApps, NotificationPermissionReading,
+        NotificationPermissions, ProgramApps, ToShow, WindowPresence,
     };
     use crate::logic::runs::Runs;
     use crate::os::LayerContext;
@@ -84,7 +84,7 @@ mod macos {
         notifications: Option<Arc<AppNotifications>>,
         canvas_calls: UnboundedReceiver<CanvasCall>,
         dialog_reports: UnboundedReceiver<DialogReport>,
-        system_permissions: UnboundedReceiver<SystemPermission>,
+        notification_permission_readings: UnboundedReceiver<NotificationPermissionReading>,
         window_presences: UnboundedReceiver<WindowPresence>,
     }
 
@@ -97,14 +97,15 @@ mod macos {
         };
         let (canvases, canvas_calls) = CanvasesOnRequest::new();
         let (dialogs, dialog_reports) = mpsc::unbounded();
-        let (said, system_permissions) = mpsc::unbounded();
+        let (notification_permissions, notification_permission_readings) =
+            NotificationPermissions::new();
         let (presence, window_presences) = mpsc::unbounded();
         let apps = ProgramApps::start(
             apps_folders,
             store.clone(),
             canvases,
             dialogs,
-            said,
+            notification_permissions,
             presence,
         )
         .map_err(|error| {
@@ -112,16 +113,18 @@ mod macos {
             tracing::error!("no program's windows can be shown: {why}");
             why
         });
-        let notifications = apps
-            .as_ref()
-            .ok()
-            .map(|apps| Arc::new(AppNotifications::new(apps.reach())));
+        let notifications = apps.as_ref().ok().map(|apps| {
+            Arc::new(AppNotifications::new(
+                apps.reach(),
+                apps.notification_permissions(),
+            ))
+        });
         Started {
             apps,
             notifications,
             canvas_calls,
             dialog_reports,
-            system_permissions,
+            notification_permission_readings,
             window_presences,
         }
     }
@@ -176,6 +179,13 @@ mod macos {
         Some(notifications as Arc<dyn ShellNotifications>)
     }
 
+    /// What macOS itself allows of what a program's user allowed it: its permission for each
+    /// program's app's notifications; none where there are no apps.
+    pub(crate) fn system_permissions(started: &Started) -> Option<Arc<dyn ShellSystemPermissions>> {
+        let notifications = started.notifications.clone()?;
+        Some(notifications as Arc<dyn ShellSystemPermissions>)
+    }
+
     /// From now on, the canvases of the views in the programs' apps are kept on the main thread,
     /// the programs whose app the user opens alone are opened with `runs`, each program `library`
     /// has installed has its app, what macOS says of a program's notifications goes to `library`,
@@ -196,14 +206,14 @@ mod macos {
             notifications,
             canvas_calls,
             dialog_reports,
-            system_permissions,
+            notification_permission_readings,
             window_presences,
         } = started;
         let Ok(apps) = apps else {
             return in_own_windows(own_windows);
         };
         keep_canvases(app, canvas_calls);
-        tell_system_permissions(app, library, system_permissions);
+        tell_system_permissions(app, library, notification_permission_readings);
         app_nap_exemption::follow_windows(app, activity.clone(), window_presences);
         if let Some(notifications) = notifications {
             read_system_permissions_at_the_front(app, notifications, Arc::clone(&runs.runs));
@@ -224,11 +234,13 @@ mod macos {
     fn tell_system_permissions(
         app: &mut App,
         library: &Entity<Library>,
-        mut said: UnboundedReceiver<SystemPermission>,
+        mut readings: UnboundedReceiver<NotificationPermissionReading>,
     ) {
         let library = library.downgrade();
         app.spawn(async move |cx| {
-            while let Some(SystemPermission { program, refuses }) = said.next().await {
+            while let Some(NotificationPermissionReading { program, refuses }) =
+                readings.next().await
+            {
                 let Some(library) = library.upgrade() else {
                     break;
                 };
@@ -452,7 +464,8 @@ mod other {
 
     use waft::{App, Entity};
     use waos::{
-        ShellContextMenus, ShellFileDialogs, ShellMenuBar, ShellNotifications, ViewPlacement,
+        ShellContextMenus, ShellFileDialogs, ShellMenuBar, ShellNotifications,
+        ShellSystemPermissions, ViewPlacement,
     };
     use waos_program_window::PromptWindows;
     use waos_store::Store;
@@ -562,6 +575,14 @@ mod other {
         own: Option<Arc<dyn ShellNotifications>>,
     ) -> Option<Arc<dyn ShellNotifications>> {
         own
+    }
+
+    /// None: the system keeps no permission of its own for a program here, every program's
+    /// notifications being WaOS's, posted under its name.
+    pub(crate) fn system_permissions(
+        _started: &Started,
+    ) -> Option<Arc<dyn ShellSystemPermissions>> {
+        None
     }
 
     /// From now on, the installed programs' entries match what `library` has installed; answers

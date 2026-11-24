@@ -46,8 +46,8 @@ use waos::{
     ProgramOutput, ProgramView, Prompts, RunningProgram, Shell, ShellAudioOutputPicker,
     ShellCameras, ShellClipboard, ShellCompositor, ShellContextMenus, ShellFileDialogs,
     ShellImageCodecs, ShellMachinePicker, ShellMediaAssets, ShellMediaPlayers, ShellMenuBar,
-    ShellNotifications, ShellOpener, ShellRecordingIndicator, ShellTrayIcons,
-    ShellVideoFrameReaders, ShellView, ViewPlacement, ViewRequest, WaOSConfig,
+    ShellNotifications, ShellOpener, ShellRecordingIndicator, ShellSystemPermissions,
+    ShellTrayIcons, ShellVideoFrameReaders, ShellView, ViewPlacement, ViewRequest, WaOSConfig,
 };
 use waos_headless::{Display, HeadlessShell, Refreshes, SCREEN};
 
@@ -139,6 +139,9 @@ impl TestShell {
             file_dialogs: Some(Arc::clone(&self.file_dialogs) as Arc<dyn ShellFileDialogs>),
             opener: Some(Arc::clone(&self.opener) as Arc<dyn ShellOpener>),
             notifications: Some(Arc::clone(&self.notifications) as Arc<dyn ShellNotifications>),
+            system_permissions: Some(
+                Arc::clone(&self.notifications) as Arc<dyn ShellSystemPermissions>
+            ),
             media_players: Some(Arc::clone(&self.media_players) as Arc<dyn ShellMediaPlayers>),
             media_assets: Some(Arc::clone(&self.media_assets) as Arc<dyn ShellMediaAssets>),
             image_codecs: Some(Arc::clone(&self.image_codecs) as Arc<dyn ShellImageCodecs>),

@@ -92,6 +92,7 @@ impl HeadlessShell {
             vsync: Arc::clone(&self.refresher) as Arc<dyn VsyncWaiter>,
             compositor: None,
             prompts,
+            system_permissions: None,
             clipboard: None,
             menu_bar: None,
             context_menus: None,

@@ -258,6 +258,7 @@ pub(crate) fn start(
         vsync: Arc::clone(&vsync) as Arc<dyn VsyncWaiter>,
         compositor,
         prompts: Arc::new(prompts),
+        system_permissions: program_apps::system_permissions(&program_apps),
         clipboard: clipboard.as_ref().map(Clipboard::shell),
         menu_bar: program_apps::menu_bar(&program_apps),
         context_menus: program_apps::context_menus(&program_apps, menus.context_menus()),
