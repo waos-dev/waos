@@ -21,6 +21,7 @@ use waft::{
 };
 use waft_winui::{
     Button, ButtonStyle, FluentSymbol, FontIcon, InfoBadgeStyle, TextBlockStyle, ThemeResources,
+    ThemeScope,
 };
 
 use super::{
@@ -252,7 +253,14 @@ impl FluentHomeBody {
                     .sliver(SliverList::list(grid_rows(tiles.clone(), columns, ROW_GAP)))
                     .into_widget(),
             );
-            CustomScrollView::new().slivers(slivers).into_widget()
+            // An icon answers a press, as a button does, and shows nothing for the pointer
+            // resting over it: WinUI's way to restyle a subtree's buttons.
+            ThemeScope::overriding(CustomScrollView::new().slivers(slivers))
+                .any(|resources| {
+                    resources.subtle_button_background_pointer_over =
+                        resources.subtle_button_background;
+                })
+                .into_widget()
         })
         .into_widget()
     }
