@@ -119,7 +119,6 @@ impl Shown {
         let icon = ProgramIcon {
             png: page.app.icon.clone(),
             side: ICON_SIDE,
-            badge: None,
         };
         let mut lines = vec![self.line(&page.app.app.listed.name, TextBlockStyle::Subtitle)];
         if let Some(publisher) = &page.publisher {

@@ -567,7 +567,6 @@ impl Page {
         let icon = ProgramIcon {
             png: app.icon.clone(),
             side: CARD_ICON_SIDE,
-            badge: None,
         };
         let name = Text::new(app.app.listed.name.as_str())
             .max_lines(1)
@@ -607,7 +606,6 @@ impl Page {
         let icon = ProgramIcon {
             png: app.icon.clone(),
             side: ICON_SIDE,
-            badge: None,
         };
         let open = self.opens_the_page_of(&app);
         let open_page = Rc::new(move |app: &mut App| {
@@ -743,7 +741,6 @@ impl Page {
             return ProgramIcon {
                 png: logo,
                 side: SOURCE_LOGO_SIDE,
-                badge: None,
             }
             .into_widget();
         }

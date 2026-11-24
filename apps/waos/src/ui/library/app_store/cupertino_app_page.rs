@@ -121,7 +121,6 @@ impl Shown {
         let icon = ProgramIcon {
             png: page.app.icon.clone(),
             side: ICON_SIDE,
-            badge: None,
         };
         let name = Text::new(page.app.app.listed.name.as_str())
             .max_lines(2)

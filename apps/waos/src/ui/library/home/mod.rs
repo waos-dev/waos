@@ -1,6 +1,5 @@
 //! The library's home: the programs installed as a grid of icons, each its icon with its name on
-//! one line beneath, a dot under the name while it runs and, on the desktop, a badge on the icon
-//! while a source lists a newer version; while its code is compiled, as at its install, the icon dimmed and
+//! one line beneath and a dot under the name while it runs; while its code is compiled, as at its install, the icon dimmed and
 //! Installing… in place of its name, as iOS shows an app it installs; a tap opens it. With nothing
 //! installed, one line and a button to get programs; while the user searches, as a phone's deck lets them from its bar, only the programs
 //! searched for, and one line where none is. Above the grid, while any program records, who uses the microphone or the camera.
@@ -35,7 +34,6 @@ pub(crate) struct HomeEntry {
     pub(crate) name: String,
     pub(crate) icon: Option<Arc<[u8]>>,
     pub(crate) running: bool,
-    pub(crate) update_offered: bool,
     /// Its code is being compiled, as at its install: it is not ready to open.
     pub(crate) installing: bool,
 }
@@ -85,7 +83,6 @@ fn entry_of(library: &Library, app: &InstalledProgram) -> HomeEntry {
         name: app.name(),
         icon: library.icon(id).cloned(),
         running: library.is_running(id),
-        update_offered: library.update_offered(id),
         installing: library.is_compiling(id),
     }
 }
@@ -205,20 +202,6 @@ pub(crate) fn grid_rows(tiles: Vec<WidgetRef>, columns: usize, row_gap: f64) -> 
         );
     }
     rows
-}
-
-/// A badge's mark: a dot of `color`, `side` points across.
-pub(crate) fn badge_dot(color: Color, side: f64) -> WidgetRef {
-    let decoration = BoxDecoration {
-        color: Some(color.into()),
-        shape: BoxShape::Circle,
-        ..BoxDecoration::default()
-    };
-    SizedBox::new()
-        .width(side)
-        .height(side)
-        .child(DecoratedBox::new(decoration))
-        .into_widget()
 }
 
 /// A rounded square of `color`, for a quiet banner's ground.

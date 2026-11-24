@@ -156,7 +156,6 @@ fn title(said: &Said) -> WidgetRef {
     let icon = ProgramIcon {
         png: Some(Arc::clone(png)),
         side: ICON_SIDE,
-        badge: None,
     };
     Column::new()
         .main_axis_size(MainAxisSize::Min)

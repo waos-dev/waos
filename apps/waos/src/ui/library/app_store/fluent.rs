@@ -479,7 +479,6 @@ impl Page {
         let icon = ProgramIcon {
             png: app.icon.clone(),
             side,
-            badge: None,
         };
         let text = Column::new()
             .cross_axis_alignment(CrossAxisAlignment::Stretch)
@@ -606,7 +605,6 @@ impl Page {
             return ProgramIcon {
                 png: logo,
                 side: SOURCE_LOGO_SIDE,
-                badge: None,
             }
             .into_widget();
         }

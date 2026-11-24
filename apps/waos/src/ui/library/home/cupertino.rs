@@ -158,12 +158,9 @@ impl CupertinoHome {
 
     /// The program's icon and name, which opens it at a tap.
     fn tile(&self, entry: HomeEntry, look: &TileLook, context: BuildContext) -> WidgetRef {
-        // No mark for an update: on a phone a badge on an icon is read as what waits to be
-        // seen in the app, and the store's Updates says what has a newer version.
         let icon = ProgramIcon {
             png: entry.icon.clone(),
             side: ICON_SIDE,
-            badge: None,
         };
         let tile = IconTile {
             icon: icon.into_widget(),

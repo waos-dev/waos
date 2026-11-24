@@ -3,20 +3,18 @@
 //! an app's artwork in the system's own shape rather than each app drawing its own; where there is no picture to show, as for a program whose
 //! package has none or one a source lists before it is installed, WaOS's default icon, Apple's
 //! icon-template lines on blueprint blue (`assets/program-default.png`, drawn by
-//! `assets/draw_icons.py`), as a Mac shows its generic app icon; and a badge overhanging its
-//! trailing top corner where one is given. Plain Waft widgets: the badge itself is the layout's.
+//! `assets/draw_icons.py`), as a Mac shows its generic app icon. Plain Waft widgets.
 //!
 //! The invariant: the icon takes exactly `side` by `side` points whatever it shows, so a grid of
-//! icons lines up whether or not a picture decoded, and the badge takes no room of its own.
+//! icons lines up whether or not a picture decoded.
 
 use std::sync::Arc;
 
 use waft::ui::Brightness;
 use waft::{
     App, BlurStyle, BorderRadiusGeometry, BorderSide, BorderStyle, BoxFit, BoxShadow, BuildContext,
-    Clip, ClipRSuperellipse, Color, DecoratedBox, DecorationPosition, Image, IntoWidget,
-    MediaQuery, Offset, Positioned, RoundedSuperellipseBorder, ShapeDecoration, SizedBox, Stack,
-    StatelessWidget, WidgetRef,
+    ClipRSuperellipse, Color, DecoratedBox, DecorationPosition, Image, IntoWidget, MediaQuery,
+    Offset, RoundedSuperellipseBorder, ShapeDecoration, SizedBox, StatelessWidget, WidgetRef,
 };
 
 /// How round an icon's corners are, as a share of its side: iOS's home screen's, 13.5 points on
@@ -38,17 +36,12 @@ const RIM_ON_DARK: Color = Color::from_argb(46, 255, 255, 255);
 /// The icon a program with no picture of its own shows.
 const DEFAULT_PNG: &[u8] = include_bytes!("../../../assets/program-default.png");
 
-/// How far a badge overhangs the icon's corner, as a share of the badge's own side.
-const BADGE_OVERHANG_SHARE: f64 = 0.35;
-
 /// A program's icon.
 #[derive(Clone, Debug)]
 pub(crate) struct ProgramIcon {
     /// Its picture, a PNG; none to show the default icon.
     pub(crate) png: Option<Arc<[u8]>>,
     pub(crate) side: f64,
-    /// What overhangs its trailing top corner, with that badge's side; none for nothing.
-    pub(crate) badge: Option<(WidgetRef, f64)>,
 }
 
 impl StatelessWidget for ProgramIcon {
@@ -57,25 +50,7 @@ impl StatelessWidget for ProgramIcon {
             Brightness::Dark => RIM_ON_DARK,
             Brightness::Light => RIM_ON_LIGHT,
         };
-        let icon = self.rounded_square(rim);
-        let Some((badge, badge_side)) = self.badge.clone() else {
-            return icon;
-        };
-        let overhang = -badge_side * BADGE_OVERHANG_SHARE;
-        let badge = Positioned {
-            top: Some(overhang),
-            right: Some(overhang),
-            ..Positioned::new(badge)
-        };
-        SizedBox::new()
-            .width(self.side)
-            .height(self.side)
-            .child(
-                Stack::new()
-                    .clip_behavior(Clip::None)
-                    .children([icon, badge.into_widget()]),
-            )
-            .into_widget()
+        self.rounded_square(rim)
     }
 }
 

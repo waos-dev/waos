@@ -15,12 +15,11 @@ use waft::{
     Padding, Row, SizedBox, StatelessWidget, Text, TextAlign, WidgetRef,
 };
 use waft_winui::{
-    Button, ButtonStyle, FluentSymbol, FontIcon, InfoBadgeStyle, TextBlockStyle, ThemeResources,
-    ThemeScope,
+    Button, ButtonStyle, FluentSymbol, FontIcon, TextBlockStyle, ThemeResources, ThemeScope,
 };
 
 use super::icon_grid::{GridLook, Highlighted, IconGrid, SectionLineKind};
-use super::{HomeEntry, IconTile, TileLook, badge_dot, home_entries, often_used_entries};
+use super::{HomeEntry, IconTile, TileLook, home_entries, often_used_entries};
 use crate::logic::setting_changes::SettingsOf;
 use crate::state::library::{Library, LibraryPage};
 use crate::state::recordings::Recordings;
@@ -48,9 +47,6 @@ const MAX_COLUMNS: usize = 7;
 const NAME_GAP: f64 = 6.0;
 const ROW_GAP: f64 = 4.0;
 const TILE_PADDING: [f64; 4] = [4.0, 8.0, 4.0, 6.0];
-
-/// The badge on an icon whose program a source lists newer.
-const BADGE_SIDE: f64 = 12.0;
 
 /// The size of the title bar's icons.
 const BAR_ICON_SIZE: f64 = 16.0;
@@ -197,11 +193,10 @@ impl FluentHomeBody {
             name_gap: NAME_GAP,
             dot_color: resources.text_fill_color_secondary,
         };
-        let badge_color = InfoBadgeStyle::Attention.background(resources);
         let tiles_of = |entries: Vec<HomeEntry>| -> Vec<(ProgramId, WidgetRef)> {
             entries
                 .into_iter()
-                .map(|entry| (entry.id.clone(), self.tile(entry, &look, badge_color)))
+                .map(|entry| (entry.id.clone(), self.tile(entry, &look)))
                 .collect()
         };
         let grid = IconGrid {
@@ -233,14 +228,10 @@ impl FluentHomeBody {
     }
 
     /// The program's icon and name, a subtle button that opens it at a click.
-    fn tile(&self, entry: HomeEntry, look: &TileLook, badge_color: waft::Color) -> WidgetRef {
-        let badge = entry
-            .update_offered
-            .then(|| (badge_dot(badge_color, BADGE_SIDE), BADGE_SIDE));
+    fn tile(&self, entry: HomeEntry, look: &TileLook) -> WidgetRef {
         let icon = ProgramIcon {
             png: entry.icon.clone(),
             side: ICON_SIDE,
-            badge,
         };
         let tile = IconTile {
             icon: icon.into_widget(),

@@ -3,8 +3,7 @@
 //! see-through card with a shadow in the middle of the screen, showing the grid under its search
 //! row, and started closed it has no window until it is summoned; typing filters the grid and
 //! Enter opens the first program shown, which dismisses it; Escape, the system's close command
-//! and a click elsewhere dismiss it; a running program has its dot and one a source lists newer
-//! its badge; "…" reaches getting programs and the settings, each with Back to the grid; a package
+//! and a click elsewhere dismiss it; a running program has its dot; "…" reaches getting programs and the settings, each with Back to the grid; a package
 //! opened with WaOS summons it with the question; on Windows and Linux a dismissed launcher is
 //! minimized, its button kept, restored as the user brings it back, its search field given the
 //! keyboard again; and with WaOS no longer kept
@@ -28,7 +27,6 @@ use super::home::LauncherHome;
 use super::launcher_window;
 use crate::state::launcher::Launcher;
 use crate::state::library::test_desktop::{DesktopKind, LibraryDesktop};
-use crate::state::library::test_server::Server;
 use crate::state::waos_tray::WaosTray;
 use crate::ui::library::home::RunningDot;
 use crate::ui::library::home::fluent::IconHighlight;
@@ -251,19 +249,11 @@ fn a_click_elsewhere_dismisses_the_launcher_once_it_has_had_the_focus() {
 }
 
 #[test]
-fn a_running_program_has_its_dot_and_one_a_source_lists_newer_its_badge() {
+fn a_running_program_has_its_dot() {
     let (mut desktop, _launcher) = desktop();
     let forever = std::fs::read(waos_test_programs::FOREVER_SHOWN).unwrap();
     install(&mut desktop, TRIANGLE, "Triangle", "1.0.0", &forever);
     assert_eq!(desktop.count::<RunningDot>(|_| true), 0);
-    let server = Server::start();
-    let newer = desktop.package(TRIANGLE, "Triangle", "1.1.0", b"\0asm");
-    server.publish(TRIANGLE, &newer, "1.1.0");
-    let index = server.source();
-    desktop.update(|library, cx| library.add_source(&index, cx));
-    desktop.settle_until("the update badged", |desktop| {
-        desktop.count::<ProgramIcon>(|icon| icon.badge.is_some()) == 1
-    });
     let id: ProgramId = TRIANGLE.parse().unwrap();
     desktop.update(|library, cx| library.open(&id, cx));
     desktop.settle_until("the running dot", |desktop| {

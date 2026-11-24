@@ -5,8 +5,7 @@
 //! actions, and Remove asks before it removes; a tap opens a program, whose icon then has the
 //! running dot; an icon whose program installs is dimmed, with Installing… in place of its name,
 //! in either layout, and a tap meanwhile opens the program once its code is ready; a source's
-//! program installs from the page behind the plus, which says Installing… until its code is ready, and an icon whose program a source lists newer
-//! has a badge; a package picked from a file on that page, a path or a document without one, is
+//! program installs from the page behind the plus, which says Installing… until its code is ready, and offers an update a source lists; a package picked from a file on that page, a path or a document without one, is
 //! asked about as one opened with WaOS, in either layout, and a cancelled pick shows nothing. A
 //! window made as wide as a tablet's takes Fluent's.
 
@@ -383,17 +382,11 @@ fn the_get_page_says_installing_until_the_programs_code_is_ready() {
 }
 
 #[test]
-fn on_a_phone_an_update_is_offered_in_the_store_and_marks_no_icon_of_the_home() {
+fn an_update_a_source_lists_is_offered_in_the_store() {
     let mut desktop = desktop();
     install_on_the_phone(&mut desktop, b"\0asm");
     let server = Server::start();
     source_listing_triangle(&mut desktop, &server, "2.0.0");
-    assert_eq!(
-        desktop.count::<ProgramIcon>(|icon| icon.badge.is_some()),
-        0,
-        "a badge on a phone's icon reads as what waits in the app: {:?}",
-        desktop.labels()
-    );
     desktop
         .update(|library, cx| library.show_page(crate::state::library::LibraryPage::AppStore, cx));
     assert!(desktop.shows(words::UPDATE), "{:?}", desktop.labels());

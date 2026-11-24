@@ -621,16 +621,6 @@ impl Library {
         self.runs.code.is_compiling(id)
     }
 
-    /// Whether a source lists the installed program `id` at a newer version than installed.
-    pub(crate) fn update_offered(&self, id: &ProgramId) -> bool {
-        self.sources.iter().any(|read| match &read.listing {
-            Listing::Read(offers) => offers
-                .iter()
-                .any(|(program, offer)| &program.id == id && matches!(offer, Offer::Update { .. })),
-            Listing::Reading | Listing::Failed(_) => false,
-        })
-    }
-
     /// Whether the library closes the programs it opened: where they open in tabs; not where they
     /// open in windows, which are a program's own to close.
     pub(crate) fn closes_programs(&self) -> bool {
