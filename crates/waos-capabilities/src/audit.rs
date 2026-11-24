@@ -67,6 +67,8 @@ pub struct AuditDay {
     pub notifications: Uses,
     pub questions: Vec<AskedQuestion>,
     pub beyond_caps: Overflow,
+    /// How often the program was started.
+    pub starts: u32,
 }
 
 /// How often a use happened, how often it was refused, and when it first and last happened; no
@@ -196,6 +198,7 @@ impl AuditDay {
             notifications: Uses::default(),
             questions: Vec::new(),
             beyond_caps: Overflow::default(),
+            starts: 0,
         }
     }
 }
