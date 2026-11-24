@@ -19,6 +19,7 @@ pub(crate) mod keys;
 pub(crate) mod menu_entries;
 pub(crate) mod notifications;
 pub(crate) mod overlay_style;
+pub(crate) mod phone_storage;
 pub(crate) mod placements;
 pub(crate) mod pointer;
 pub(crate) mod presence;

@@ -9,13 +9,20 @@ homepage.workspace = true
 repository.workspace = true
 readme = "README.md"
 
+[features]
+# Shaders given as SPIR-V or as GLSL, read by naga and written as WGSL, as wgpu's backend for the
+# web does. A program that enables wgpu's feature of the same name enables this one with it.
+spirv = ["wgpu/spirv"]
+glsl = ["wgpu/glsl"]
+
 [dependencies]
 futures.workspace = true
 wasdk.workspace = true
 # `wgsl` names WGSL as a shader source, the one the boundary carries; the engine compiles it.
-# `webgpu` is on so wgpu's web-only trait items exist whichever features a program using this
-# crate unifies in; nothing of wgpu's browser backend is called, so none of it is linked.
-wgpu = { workspace = true, features = ["custom", "wgsl", "webgpu"] }
+# `naga-ir` names naga's module as one, which is written as WGSL here, with the writer `webgpu`
+# brings. `webgpu` is on so wgpu's web-only trait items exist whichever features a program using
+# this crate unifies in; nothing of wgpu's browser backend is called, so none of it is linked.
+wgpu = { workspace = true, features = ["custom", "wgsl", "naga-ir", "webgpu"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 # Only to name the type in the one web-only trait item that has no wasi counterpart.

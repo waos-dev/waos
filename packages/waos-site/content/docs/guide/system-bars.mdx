@@ -32,6 +32,20 @@ waft_winui::FluentPage::new()
 ```
 > `FluentPage` is WinUI's; `waft`'s `Page` is the `Navigator`'s, so a bare `Page` beside `use waft::*` is that one.
 
+## With GPUI
+
+GPUI has no word for the bars' style, so a GPUI app says it once, as it does on iOS with `gpui_ios::set_status_bar_style`: its icons light over a dark app, dark over a light one. Every window shows the style said last. What the bars and the keyboard cover is GPUI's window insets, which GPUI leaves to the app to keep its content clear of.
+
+```rust
+use wasdk_adapter_gpui::{StatusBarContentStyle, set_status_bar_style};
+
+set_status_bar_style(StatusBarContentStyle::Light);
+
+// In a window's root: padding by what the system covers, none on a desktop.
+let insets = window.insets().effective();
+div().pt(insets.top).pb(insets.bottom).pl(insets.left).pr(insets.right)
+```
+
 ## Where it's missing
 
 A desktop draws no bars over a view, and ignores the style. The bars' colours are not offered: Android ignores them for an app drawn under its bars.

@@ -31,7 +31,7 @@ pub trait ProgramLink: Clone + PartialEq + 'static {
     type View: ViewLink + Clone + 'static;
 
     /// The name the program runs under, which its windows' initial data names it by
-    /// (`RestorableWindow`).
+    /// (`WindowRestoration`).
     fn name(&self) -> &str;
 
     /// Resolves once the program has ended, when its windows close.

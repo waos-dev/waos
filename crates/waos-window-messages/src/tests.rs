@@ -795,20 +795,25 @@ fn the_question_of_macos_and_what_the_app_reads_of_its_permission_cross_with_the
     ));
     let answered = crosses(&FromWindow::NotificationPermissionAnswered {
         request: 6,
-        refused: true,
+        state: SystemPermissionState::Denied,
     });
     assert!(matches!(
         answered,
         FromWindow::NotificationPermissionAnswered {
             request: 6,
-            refused: true
+            state: SystemPermissionState::Denied
         }
     ));
-    let read = crosses(&FromWindow::NotificationPermission { refused: false });
-    assert!(matches!(
-        read,
-        FromWindow::NotificationPermission { refused: false }
-    ));
+    for state in [
+        SystemPermissionState::NotAsked,
+        SystemPermissionState::Allowed,
+        SystemPermissionState::Denied,
+    ] {
+        let read = crosses(&FromWindow::NotificationPermission { state });
+        assert!(
+            matches!(read, FromWindow::NotificationPermission { state: read } if read == state)
+        );
+    }
 }
 
 #[test]
@@ -859,7 +864,7 @@ fn the_handshake_is_as_this_protocol_says_it() {
         hex::encode(encode(&welcome)),
     );
     let pinned = (
-        6,
+        7,
         "00116465762e6578616d706c652e6e6f746573010000".to_owned(),
         "00054e6f746573".to_owned(),
     );

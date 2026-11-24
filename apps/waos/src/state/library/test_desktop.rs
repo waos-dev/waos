@@ -47,6 +47,7 @@ use crate::logic::installed_runs::InstalledRuns;
 use crate::logic::opened_package::tests::write_package;
 use crate::logic::package_copies::PackageCopies;
 use crate::logic::phone_files::PhoneFilesAccess;
+use crate::logic::phone_files::PhoneFilesOnRequest;
 use crate::logic::placement::WindowsOnRequest;
 use crate::logic::preferences::PreferencesFile;
 use crate::logic::program_faces::ProgramFaces;
@@ -57,7 +58,7 @@ use crate::logic::runs::Runs;
 use crate::logic::test_engine;
 use crate::logic::test_outputs::StatedOutputs;
 use crate::state::ViewWindows;
-use crate::state::phone_files::follow_phone_files;
+use crate::state::phone_files::{follow_phone_files, phone_files_on_request};
 use crate::state::questions::{self, Questions};
 use crate::state::recordings::Recordings;
 use crate::ui::every_window::{LibraryWindow, every_window, program_windows};
@@ -94,6 +95,8 @@ pub(crate) struct LibraryDesktop {
     pub(crate) output_picker: Arc<OutputPickerOnRequest>,
     /// What the engine shows its picker of machines through, for a test to pick as a program does.
     pub(crate) machine_picker: Arc<MachinePickerOnRequest>,
+    /// What asks for the phone's files, on a desktop with a phone's.
+    pub(crate) phone_files_on_request: Option<PhoneFilesOnRequest>,
     /// What the engine tells who records, for a test to tell as the engine does.
     pub(crate) recording_indicator: Arc<RecordingIndicatorOnRequest>,
     pub(crate) folder: TempDir,
@@ -167,7 +170,10 @@ impl LibraryDesktop {
         let (placement, requests) = WindowsOnRequest::new(ProgramFaces::new(store.clone(), None));
         let (prompts, prompted) = PromptsOnRequest::new(crate::logic::asking_now::AskingNow::new());
         let output_picker = Arc::new(prompts.output_picker());
-        let machine_picker = Arc::new(prompts.machine_picker());
+        let (phone_files_on_request, phone_files_followed) = (kind.phone_files.as_ref())
+            .map(|access| phone_files_on_request(access.as_ref(), prompts.phone_files_off()))
+            .unzip();
+        let machine_picker = Arc::new(prompts.machine_picker(phone_files_on_request.clone()));
         let (recording_indicator, recording_changes) = RecordingIndicatorOnRequest::new();
         let prompts = Arc::new(prompts);
         let engine = test_engine::engine_keeping_days(
@@ -198,13 +204,14 @@ impl LibraryDesktop {
                 view_windows.clone(),
                 ProgramFaces::new(store.clone(), None),
             );
-            let phone_files = phone_files.map(|access| follow_phone_files(app, access));
+            let phone_files = phone_files
+                .zip(phone_files_followed)
+                .map(|(access, followed)| follow_phone_files(app, access, followed));
             Questions::listen(
                 app,
                 prompted.questions,
                 prompt_windows.clone(),
                 store.clone(),
-                phone_files.clone(),
             );
             let recordings = Recordings::listen(app, recording_changes, store.clone());
             let library = open_library(
@@ -240,6 +247,7 @@ impl LibraryDesktop {
             prompts,
             output_picker,
             machine_picker,
+            phone_files_on_request,
             recording_indicator: Arc::new(recording_indicator),
             folder,
             key: SigningKey::generate(),

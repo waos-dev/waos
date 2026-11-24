@@ -12,13 +12,18 @@
 //! xterm.js): the input method composes in it, its finished text goes to the input as it arrives,
 //! what it deletes of that text is Backspace, and a new line is Enter ([`Scratch`]).
 //!
+//! What an input asks of the input method, its corrections, suggestions, capitals and the action on
+//! its Enter key, is GPUI's to say for each input (`TextInputConfiguration`), and is passed on as
+//! it is: the client starts with it, and hears it again only when it changes, since configuring a
+//! live input session may restart it.
+//!
 //! The invariant: an edit is read against the value last pushed or received, never the document
 //! as it is now, since the input method edited that copy; so every value received becomes the
 //! copy before the next push.
 
 use std::ops::Range;
 
-use gpui::{Bounds, Pixels, PlatformInputHandler, UTF16Selection};
+use gpui::{Autocapitalize, Bounds, Pixels, PlatformInputHandler, UTF16Selection};
 use wasdk::views::{
     PixelRect, TextAffinity, TextCapitalization, TextEditingValue, TextInput,
     TextInputAction as PlatformAction, TextInputConfiguration, TextInputType, TextRange,
@@ -142,11 +147,13 @@ impl Scratch {
 
 /// GPUI's names of the keys an edit means.
 const BACKSPACE: &str = "backspace";
-const ENTER: &str = "enter";
+pub(crate) const ENTER: &str = "enter";
 
 pub(crate) struct TextInputBridge {
     platform: TextInput,
     started: bool,
+    /// What the client was last told the input asks of the input method.
+    configuration: gpui::TextInputConfiguration,
     copy: Option<Copy>,
     /// The buffer of an input with no document, while one has the focus.
     scratch: Option<Scratch>,
@@ -159,15 +166,21 @@ impl TextInputBridge {
         TextInputBridge {
             platform,
             started: false,
+            configuration: gpui::TextInputConfiguration::default(),
             copy: None,
             scratch: None,
             caret: None,
         }
     }
 
-    /// Brings the input method up to date with `handler`, the focused input or none, at `scale`
-    /// physical pixels to a logical one.
-    pub(crate) fn sync(&mut self, handler: Option<&mut PlatformInputHandler>, scale: f32) {
+    /// Brings the input method up to date with `handler`, the focused input or none, which asks
+    /// `configuration` of it, at `scale` physical pixels to a logical one.
+    pub(crate) fn sync(
+        &mut self,
+        handler: Option<&mut PlatformInputHandler>,
+        configuration: &gpui::TextInputConfiguration,
+        scale: f32,
+    ) {
         let Some(handler) = handler else {
             self.stop();
             return;
@@ -176,11 +189,7 @@ impl TextInputBridge {
             self.stop();
             return;
         }
-        if !self.started {
-            self.platform.set_client(configuration());
-            self.platform.show();
-            self.started = true;
-        }
+        self.sync_configuration(configuration);
         if !has_document(handler) {
             self.copy = None;
             self.sync_scratch();
@@ -207,6 +216,23 @@ impl TextInputBridge {
         if let Some(caret) = caret {
             self.sync_caret(handler, caret, scale);
         }
+    }
+
+    /// Starts the client with `configuration` where it has none, and tells a client that has one
+    /// only a configuration other than the one it was told last.
+    fn sync_configuration(&mut self, configuration: &gpui::TextInputConfiguration) {
+        if !self.started {
+            self.platform
+                .set_client(platform_configuration(configuration));
+            self.platform.show();
+            self.started = true;
+        } else if &self.configuration != configuration {
+            self.platform
+                .update_config(platform_configuration(configuration));
+        } else {
+            return;
+        }
+        self.configuration = configuration.clone();
     }
 
     /// Pushes an empty buffer to the input method for an input with no document, where none was
@@ -313,15 +339,43 @@ impl TextInputBridge {
     }
 }
 
-fn configuration() -> TextInputConfiguration {
+/// What `configuration` asks, as the view's input method takes it. An input whose Enter is a new
+/// line is a multiline one, as Flutter pairs them; one whose Enter is an action is a line of text.
+fn platform_configuration(configuration: &gpui::TextInputConfiguration) -> TextInputConfiguration {
+    let input_action = platform_action(configuration.input_action);
+    let input_type = match input_action {
+        PlatformAction::Newline => TextInputType::Multiline,
+        _ => TextInputType::Text,
+    };
     TextInputConfiguration {
-        input_type: TextInputType::Multiline,
-        input_action: PlatformAction::Newline,
+        input_type,
+        input_action,
         obscure_text: false,
-        autocorrect: false,
-        enable_suggestions: false,
-        text_capitalization: TextCapitalization::None,
+        autocorrect: configuration.autocorrect,
+        enable_suggestions: configuration.suggestions,
+        text_capitalization: match configuration.autocapitalize {
+            Autocapitalize::None => TextCapitalization::None,
+            Autocapitalize::Words => TextCapitalization::Words,
+            Autocapitalize::Sentences => TextCapitalization::Sentences,
+            Autocapitalize::Characters => TextCapitalization::Characters,
+        },
         read_only: false,
+    }
+}
+
+/// The action GPUI has the Enter key advertise, as the view's input method names it: a new line
+/// where GPUI names none, since GPUI's inputs take Enter as a key.
+fn platform_action(action: gpui::TextInputAction) -> PlatformAction {
+    match action {
+        gpui::TextInputAction::Unspecified | gpui::TextInputAction::Enter => {
+            PlatformAction::Newline
+        }
+        gpui::TextInputAction::Done => PlatformAction::Done,
+        gpui::TextInputAction::Go => PlatformAction::Go,
+        gpui::TextInputAction::Next => PlatformAction::Next,
+        gpui::TextInputAction::Previous => PlatformAction::Previous,
+        gpui::TextInputAction::Search => PlatformAction::Search,
+        gpui::TextInputAction::Send => PlatformAction::Send,
     }
 }
 
@@ -434,6 +488,34 @@ mod tests {
 
     fn text(text: &str) -> Typing {
         Typing::Text(text.to_owned())
+    }
+
+    #[test]
+    fn what_an_input_asks_of_the_input_method_is_passed_on() {
+        let asked_of_none = platform_configuration(&gpui::TextInputConfiguration::default());
+        assert!(!asked_of_none.autocorrect && !asked_of_none.enable_suggestions);
+        assert!(matches!(asked_of_none.input_type, TextInputType::Multiline));
+        assert!(matches!(
+            asked_of_none.input_action,
+            PlatformAction::Newline
+        ));
+
+        let search = platform_configuration(&gpui::TextInputConfiguration {
+            autocorrect: true,
+            autocapitalize: Autocapitalize::Sentences,
+            suggestions: true,
+            input_action: gpui::TextInputAction::Search,
+        });
+        assert!(search.autocorrect && search.enable_suggestions);
+        assert!(matches!(
+            search.text_capitalization,
+            TextCapitalization::Sentences
+        ));
+        assert!(
+            matches!(search.input_type, TextInputType::Text),
+            "an Enter that is an action is a line of text's"
+        );
+        assert!(matches!(search.input_action, PlatformAction::Search));
     }
 
     #[test]

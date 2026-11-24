@@ -22,12 +22,13 @@
 //! window process goes (decision 13). Its notifications are posted, scheduled and removed there,
 //! under the app's bundle, each post answering the program's call once the system has it, or with
 //! why not once the window process goes, and what the user does to one there goes to the program
-//! (decision 14). macOS's own question for them is put there too, answering whether macOS refuses
-//! the program its notifications, or nothing once the window process goes; macOS's permission for
+//! (decision 14). macOS's own question for them is put there too, answering what macOS says of the
+//! program's notifications then, or nothing once the window process goes; macOS's permission for
 //! them is read there again when WaOS asks; and whatever the app says macOS said of them, as WaOS
 //! welcomed it, as the question is answered, as it comes to the front, as WaOS asks and as a post
-//! is answered, goes to the program, whose permission reads it, and on to the main thread, where
-//! WaOS's settings page for the program says so ([`SystemPermission`]).
+//! is answered, is kept for the engine, which reads it with the program's permission, and goes on
+//! to the main thread, where WaOS's settings page for the program says so
+//! ([`NotificationPermissions`]).
 //!
 //! Everything WaOS keeps of the window process while it is there, its windows, its prompts'
 //! dialogs and what it was asked and owes an answer to, is one [`Connected`], taken whole as it
@@ -60,7 +61,7 @@ use waos::bindings::wasdk::platform::notifications::NotificationError;
 use waos::bindings::wasdk::platform::views::{KeyEvent, Metrics, RequestId, ViewError, ViewId};
 use waos::{
     FileDialogFuture, HeldModifiers, MenuChosenFuture, Notification, NotificationFuture,
-    PlacedView, PlacedWindow, ProgramView, RunningProgram, SystemPermissionFuture, ViewRequest,
+    PlacedView, PlacedWindow, ProgramView, RunningProgram, SystemPermissionState, ViewRequest,
 };
 use waos_package::ProgramId;
 use waos_program_window::{CanvasLayer, CanvasView, ViewCalls, WindowCalls};
@@ -75,6 +76,7 @@ use super::awaited_answers::{APP_GONE, AppGone, AwaitedAnswer, AwaitedAnswers};
 use super::canvas_pictures::CanvasPictures;
 use super::canvases::{CanvasKey, CanvasesOnRequest};
 use super::file_dialogs::failed;
+use crate::logic::notification_permissions::NotificationPermissions;
 
 /// What sends a message to the window process.
 pub(crate) type SendToWindow = Arc<dyn Fn(ToWindow) + Send + Sync>;
@@ -87,17 +89,6 @@ pub(crate) struct DialogReport {
 
 /// Where the dialogs' reports go, on their way to the main thread.
 pub(crate) type DialogReports = UnboundedSender<DialogReport>;
-
-/// What macOS said of a program's notifications, as its app told it: that it refuses them, or lets
-/// them.
-#[derive(Debug, PartialEq, Eq)]
-pub(crate) struct SystemPermission {
-    pub(crate) program: ProgramId,
-    pub(crate) refuses: bool,
-}
-
-/// Where what macOS says of the programs' notifications goes, on its way to the main thread.
-pub(crate) type SystemPermissions = UnboundedSender<SystemPermission>;
 
 /// Whether one of a program's windows is in sight, as its window process says, on its way to the
 /// main thread, where the activity that keeps macOS from throttling WaOS follows it.
@@ -122,7 +113,8 @@ pub(crate) struct WindowProcess {
     /// whatever else is asked answers at once as an app that is gone.
     connected: Mutex<Option<Connected>>,
     dialog_reports: DialogReports,
-    system_permissions: SystemPermissions,
+    /// Where what the app says macOS said of the program's notifications is kept.
+    notification_permissions: NotificationPermissions,
     /// Whether each of the program's windows is in sight, on its way to the main thread.
     window_presences: WindowPresences,
     /// Held while the program's menu bar is read and sent, so the bar sent last is the one it set
@@ -151,7 +143,7 @@ struct Connected {
     notifications: AwaitedAnswers<Result<(), NotificationError>>,
     /// macOS's questions for the program's notifications being put there, each answering whether
     /// macOS refuses them.
-    notification_permissions: AwaitedAnswers<bool>,
+    notification_permissions: AwaitedAnswers<SystemPermissionState>,
 }
 
 impl Connected {
@@ -184,14 +176,14 @@ struct AppWindow {
 impl WindowProcess {
     /// `program`'s window process, which `send` reaches, its views' canvases kept by `canvases`,
     /// what its prompts' dialogs report sent to `dialog_reports`, what it says macOS said of the
-    /// program's notifications to `system_permissions`, and whether each of its windows is in
-    /// sight to `window_presences`; key replies are awaited on `runtime`.
+    /// program's notifications kept in `notification_permissions`, and whether each of its windows
+    /// is in sight to `window_presences`; key replies are awaited on `runtime`.
     pub(crate) fn new(
         program: RunningProgram,
         send: SendToWindow,
         canvases: Arc<CanvasesOnRequest>,
         dialog_reports: DialogReports,
-        system_permissions: SystemPermissions,
+        notification_permissions: NotificationPermissions,
         window_presences: WindowPresences,
         runtime: tokio::runtime::Handle,
     ) -> Arc<WindowProcess> {
@@ -202,7 +194,7 @@ impl WindowProcess {
             runtime,
             connected: Mutex::new(Some(Connected::default())),
             dialog_reports,
-            system_permissions,
+            notification_permissions,
             window_presences,
             menu_bar_sending: Mutex::default(),
             asking: Mutex::default(),
@@ -334,16 +326,18 @@ impl WindowProcess {
     }
 
     /// Puts macOS's own question for the program's notifications in the app, which asks the user
-    /// only if they were never asked, and answers whether macOS refuses them once it has answered;
+    /// only if they were never asked, and answers what macOS says of them once it has answered;
     /// nothing once the window process is gone.
-    pub(crate) fn request_notification_permission(&self) -> SystemPermissionFuture {
+    pub(crate) fn request_notification_permission(
+        &self,
+    ) -> impl Future<Output = Option<SystemPermissionState>> + Send + 'static + use<> {
         let _asking = self.asking_the_app();
         let asked = self.with_connected(|connected| connected.notification_permissions.ask());
-        let Some((request, answered)) = asked else {
-            return Box::pin(ready(None));
-        };
-        (self.send)(ToWindow::RequestNotificationPermission { request });
-        Box::pin(answered.map(Result::ok))
+        let asked = asked.map(|(request, answered)| {
+            (self.send)(ToWindow::RequestNotificationPermission { request });
+            answered
+        });
+        async move { asked?.await.ok() }
     }
 
     /// Has the app read macOS's permission for the program's notifications again, without asking
@@ -447,36 +441,29 @@ impl WindowProcess {
                 self.with_connected(|connected| connected.file_dialogs.answered(dialog, picked));
             }
             FromWindow::NotificationPosted { post, posted } => {
-                if let Some(refused) = system_refuses(&posted) {
-                    self.system_said(refused);
+                if let Some(state) = said_by_post(&posted) {
+                    self.macos_said(state);
                 }
                 self.with_connected(|connected| connected.notifications.answered(post, posted));
             }
             FromWindow::NotificationActivated(activation) => {
                 self.program.notification_activated(activation);
             }
-            FromWindow::NotificationPermission { refused } => self.system_said(refused),
-            FromWindow::NotificationPermissionAnswered { request, refused } => {
-                self.system_said(refused);
+            FromWindow::NotificationPermission { state } => self.macos_said(state),
+            FromWindow::NotificationPermissionAnswered { request, state } => {
+                self.macos_said(state);
                 self.with_connected(|connected| {
-                    connected
-                        .notification_permissions
-                        .answered(request, refused);
+                    connected.notification_permissions.answered(request, state);
                 });
             }
         }
     }
 
-    /// The app said whether macOS `refused` the program its notifications: the program's
-    /// permission reads it, and WaOS's settings page for the program hears it.
-    fn system_said(&self, refused: bool) {
-        self.program.system_notifications_refused(refused);
+    /// The app said what macOS says of the program's notifications: kept, for the program's
+    /// permission to read, and for WaOS's settings page for the program to hear.
+    fn macos_said(&self, state: SystemPermissionState) {
         if let Ok(program) = app_id(&self.program) {
-            let said = SystemPermission {
-                program,
-                refuses: refused,
-            };
-            let _ = self.system_permissions.unbounded_send(said);
+            self.notification_permissions.said(program, state);
         }
     }
 
@@ -756,12 +743,12 @@ impl Drop for WaitFileDialog {
     }
 }
 
-/// What the app's answer `posted` says of macOS: `denied`, that it refuses the program's
-/// notifications; taken, that it lets them; a failure, nothing.
-fn system_refuses(posted: &Result<(), NotificationError>) -> Option<bool> {
+/// What the app's answer `posted` says of macOS: `denied`, that it denies the program its
+/// notifications; taken, that it allows them; a failure, nothing.
+fn said_by_post(posted: &Result<(), NotificationError>) -> Option<SystemPermissionState> {
     match posted {
-        Ok(()) => Some(false),
-        Err(NotificationError::Denied) => Some(true),
+        Ok(()) => Some(SystemPermissionState::Allowed),
+        Err(NotificationError::Denied) => Some(SystemPermissionState::Denied),
         Err(NotificationError::Failed(_)) => None,
     }
 }

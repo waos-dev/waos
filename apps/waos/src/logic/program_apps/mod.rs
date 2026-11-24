@@ -17,8 +17,8 @@
 //! posted, scheduled or removed there, under the program's bundle, a post answered once the system
 //! has it, `denied` where macOS refuses the program, macOS's own question for them put there after
 //! WaOS's, and a click on one goes from there to the program (`notifications`); whatever the app
-//! says macOS said of them goes to the program's permission and to WaOS's settings
-//! (`window_process`), each app that runs reading it again when WaOS asks, as WaOS comes to the
+//! says macOS said of them is kept for the program's permission and told to WaOS's settings
+//! (`notification_permissions`), each app that runs reading it again when WaOS asks, as WaOS comes to the
 //! front.
 //!
 //! Everything that reaches a program's app goes through one getter (`app_reach`, decision 15):
@@ -73,6 +73,9 @@ use crate::os::{
 
 use super::installed_runs::{InstalledRuns, Opening};
 use super::program_places::ProgramPlace;
+pub(crate) use crate::logic::notification_permissions::{
+    NotificationPermissionReading, NotificationPermissions,
+};
 pub(crate) use app_reach::LaunchAttempt;
 pub(crate) use app_reach::{AppReach, ReachedApp};
 use bundles::{BundleFolders, Bundles, KeptCodeHash, ProgramDescription, made_from};
@@ -81,8 +84,7 @@ pub(crate) use canvases::{CanvasCall, CanvasKey, CanvasPlace, CanvasesOnRequest}
 pub(crate) use notifications::AppNotifications;
 use window_process::SendToWindow;
 pub(crate) use window_process::{
-    DialogReport, DialogReports, SystemPermission, SystemPermissions, WindowPresence,
-    WindowPresences, WindowProcess,
+    DialogReport, DialogReports, WindowPresence, WindowPresences, WindowProcess,
 };
 #[cfg(test)]
 pub(crate) use {
@@ -109,8 +111,8 @@ pub(crate) struct ProgramApps {
     canvases: Arc<CanvasesOnRequest>,
     /// Where what the dialogs of WaOS's prompts report goes, on the main thread.
     dialog_reports: DialogReports,
-    /// Where what the apps say macOS said of the programs' notifications goes, on the main thread.
-    system_permissions: SystemPermissions,
+    /// Where what the apps say macOS said of the programs' notifications is kept.
+    notification_permissions: NotificationPermissions,
     /// Where whether each of the programs' windows is in sight goes, on the main thread.
     window_presences: WindowPresences,
     /// What opens an installed program the user opened the app of, once the engine is made.
@@ -123,8 +125,8 @@ pub(crate) struct ProgramApps {
 impl ProgramApps {
     /// The programs' apps, their bundles in `folders`, the installed ones' read from `store`, the
     /// canvases of their views kept by `canvases`, what their prompts' dialogs report sent to
-    /// `dialog_reports`, what they say macOS said of the programs' notifications to
-    /// `system_permissions`, whether each of their windows is in sight to `window_presences`, and
+    /// `dialog_reports`, what they say macOS said of the programs' notifications kept in
+    /// `notification_permissions`, whether each of their windows is in sight to `window_presences`, and
     /// listening for their hellos from now on; every bundle is rebuilt if the system changed
     /// since it was signed.
     pub(crate) fn start(
@@ -132,7 +134,7 @@ impl ProgramApps {
         store: Store,
         canvases: CanvasesOnRequest,
         dialog_reports: DialogReports,
-        system_permissions: SystemPermissions,
+        notification_permissions: NotificationPermissions,
         window_presences: WindowPresences,
     ) -> Result<Arc<ProgramApps>> {
         let waos = waos_files(&folders.data)?;
@@ -170,7 +172,7 @@ impl ProgramApps {
                 store,
                 canvases: Arc::new(canvases),
                 dialog_reports,
-                system_permissions,
+                notification_permissions,
                 window_presences,
                 runs: OnceLock::new(),
                 runtime,
@@ -217,6 +219,11 @@ impl ProgramApps {
     /// prompts are shown.
     pub(crate) fn reach(&self) -> Arc<AppReach> {
         Arc::clone(&self.reach)
+    }
+
+    /// What the apps said macOS said of the programs' notifications.
+    pub(crate) fn notification_permissions(&self) -> NotificationPermissions {
+        self.notification_permissions.clone()
     }
 
     /// Launches `id`'s app through Launch Services, not brought forward, its bundle written first
@@ -360,7 +367,7 @@ impl ProgramApps {
             send,
             Arc::clone(&self.canvases),
             self.dialog_reports.clone(),
-            self.system_permissions.clone(),
+            self.notification_permissions.clone(),
             self.window_presences.clone(),
             self.runtime.handle().clone(),
         );

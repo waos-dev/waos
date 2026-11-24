@@ -260,6 +260,44 @@ fn import_reads_a_picked_text_file_into_a_note_and_export_writes_the_note_where_
 }
 
 #[test]
+fn a_pick_the_system_denies_waos_is_asked_of_the_system_and_mounted_only_once_it_allows_it() {
+    let shell = TestShell::new();
+    let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
+    let folders = Folders::new();
+    let grants = Arc::new(NotesGrants::default());
+    let scratch = TempDir::new().unwrap();
+    let scratch_path = fs::canonicalize(scratch.path()).unwrap();
+    let recipe = scratch_path.join("recipe.txt");
+    let pancakes = "Pancakes\nflour, eggs, milk";
+    fs::write(&recipe, pancakes).unwrap();
+    shell.system_permissions.deny_folder(&scratch_path);
+    let (running, _shown, window, _output) = launch(&engine, &shell, &folders, &grants);
+    let bar = wait_for_bar(&shell.menus);
+
+    shell.file_dialogs.answer_next(vec![recipe.clone()]);
+    running.menu_chosen(id_of(&bar, "File", "Import…"));
+    wait_until("the system is asked for the pick", || {
+        shell.system_permissions.paths_asked() == [recipe.clone()]
+    });
+
+    shell.system_permissions.allow_when_asked();
+    shell.file_dialogs.answer_next(vec![recipe.clone()]);
+    running.menu_chosen(id_of(&bar, "File", "Import…"));
+    wait_for_title(&window, "Pancakes");
+    assert_eq!(
+        kept_notes(&folders),
+        [kept(pancakes)],
+        "imported once: the pick the system still denied was answered as a dialog cancelled"
+    );
+    assert_eq!(
+        shell.system_permissions.paths_asked(),
+        [recipe.clone(), recipe],
+        "asked again at the second pick, and not once it allows it"
+    );
+    close(&running, &window);
+}
+
+#[test]
 fn a_reminder_is_scheduled_a_minute_later_with_the_notes_title_and_its_click_shows_the_note() {
     let shell = TestShell::new();
     let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();

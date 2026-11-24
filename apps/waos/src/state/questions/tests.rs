@@ -6,9 +6,9 @@
 //! which closes with it; a program's question about opening links of a scheme is put the same
 //! way; a question whose program ends goes unanswered; and the picker of a program's outputs, a
 //! question too, answers the output the user taps, or none when they cancel it, as the picker of a
-//! machine for it does; and This computer picked where WaOS may not reach the phone's files offers
-//! the system's page for them first, the pick answered as the user goes on without it, or comes
-//! back to WaOS from it.
+//! machine for it does; and the phone's files, where WaOS may not reach them: This computer
+//! picked, or a file or folder picked on the phone's storage, opens the system's page for them,
+//! with no question first, and the user is told where they come back with them still off.
 
 use std::rc::Rc;
 use std::sync::Arc;
@@ -19,7 +19,8 @@ use waft_test::TestWindow;
 use waos::bindings::wasdk::platform::notifications::Activation;
 use waos::{
     Answer, AnswerFuture, AudioOutput, AudioOutputPickedFuture, MachineChoice, Prompts, Question,
-    RunningProgram, ShellAudioOutputPicker, ShellMachinePicker,
+    RunningProgram, ShellAudioOutputPicker, ShellMachinePicker, ShellSystemPermissions,
+    SystemPermission, SystemPermissionState,
 };
 use waos_package::ProgramId;
 use waos_store::Setting;
@@ -337,11 +338,11 @@ fn a_picker_of_machines_answers_the_machine_tapped_or_none_when_cancelled() {
     futures::executor::block_on(desktop.runs.stop_all());
 }
 
-#[test]
-fn this_computer_picked_out_of_reach_of_the_phone_s_files_offers_their_page_first() {
-    let phone = std::rc::Rc::new(TestPhone::reachable(false));
+/// A desktop with a phone's files, out of WaOS's reach, and Forever running on it.
+fn desktop_with_a_phone() -> (LibraryDesktop, Rc<TestPhone>) {
+    let phone = Rc::new(TestPhone::reachable(false));
     let kind = DesktopKind {
-        phone_files: Some(std::rc::Rc::clone(&phone) as _),
+        phone_files: Some(Rc::clone(&phone) as _),
         ..DesktopKind::default()
     };
     let (mut desktop, ()) = LibraryDesktop::of(
@@ -354,45 +355,110 @@ fn this_computer_picked_out_of_reach_of_the_phone_s_files_offers_their_page_firs
         "Forever",
         waos_test_programs::FOREVER,
     );
+    (desktop, phone)
+}
+
+const PHONE_FILES_OFF: &str = "All files access is off";
+
+/// Taps `label` on the sheet Forever's question is put on.
+fn tap_on_the_sheet(desktop: &mut LibraryDesktop, label: &str) {
+    let window = window_titled(desktop, "Forever").expect("the question's window");
+    desktop.tap(view_of(&window), label);
+    desktop.settle_until("the tap", |_| true);
+}
+
+#[test]
+fn this_computer_picked_out_of_reach_of_the_phone_s_files_opens_their_page_first() {
+    let (mut desktop, phone) = desktop_with_a_phone();
     let this_computer = MachineChoice {
         id: "this-computer".to_owned(),
         name: "This computer".to_owned(),
     };
-    for (tapped, page_opened) in [("Not now", false), ("Open settings", true)] {
+    for (turned_on, pages_opened) in [(false, 1), (true, 2)] {
         let mut answered = desktop
             .machine_picker
             .pick(&the_program(&desktop), vec![this_computer.clone()]);
         desktop.settle_until("the machines to pick from", |desktop| {
             desktop.shows("Pick a machine for Forever")
         });
-        let window = window_titled(&desktop, "Forever").expect("the picker's window");
-        desktop.tap(view_of(&window), "This computer");
-        desktop.settle_until("the phone's files offered", |desktop| {
-            desktop.shows("Let WaOS reach this phone's files?")
+        tap_on_the_sheet(&mut desktop, "This computer");
+        assert_eq!(
+            answered.as_mut().now_or_never(),
+            None,
+            "answered before the phone's files were asked for"
+        );
+        desktop.settle_until("the system's page opened", |_| {
+            phone.pages_opened() == pages_opened
         });
         assert_eq!(
             answered.as_mut().now_or_never(),
             None,
-            "answered before the offer"
+            "answered with the page open"
         );
-        desktop.tap(view_of(&window), tapped);
-        desktop.settle_until("the tap", |_| true);
-        if page_opened {
-            assert_eq!(phone.pages_opened(), 1);
-            assert_eq!(
-                answered.as_mut().now_or_never(),
-                None,
-                "answered with the page open"
-            );
-            desktop.leave_and_come_back();
+        phone.reachable.set(turned_on);
+        desktop.leave_and_come_back();
+        if !turned_on {
+            desktop.settle_until("still off, said", |desktop| desktop.shows(PHONE_FILES_OFF));
+            assert_eq!(answered.as_mut().now_or_never(), None, "before it was read");
+            tap_on_the_sheet(&mut desktop, "OK");
         }
         let this_computer = Some("this-computer".to_owned());
         assert_eq!(
             answered.as_mut().now_or_never(),
             Some(this_computer),
-            "{tapped}"
+            "This computer is picked with or without the phone's files, and with nothing to \
+             read once they are on"
         );
+        phone.reachable.set(false);
+        desktop.leave_and_come_back();
     }
+    futures::executor::block_on(desktop.runs.stop_all());
+}
+
+#[test]
+fn a_pick_on_the_phone_s_storage_is_denied_by_the_system_until_the_user_turns_its_files_on() {
+    let (mut desktop, phone) = desktop_with_a_phone();
+    let system = desktop
+        .phone_files_on_request
+        .clone()
+        .expect("a phone's files");
+    let program = the_program(&desktop);
+    let music = SystemPermission::Path(std::path::Path::new("/storage/emulated/0/Music"));
+    let own = SystemPermission::Path(std::path::Path::new(TestPhone::OWN_FOLDER));
+    assert_eq!(system.state(music, &program), SystemPermissionState::Denied);
+    assert_eq!(
+        system.state(own, &program),
+        SystemPermissionState::Allowed,
+        "WaOS's own folder is its own"
+    );
+
+    let mut asked = ShellSystemPermissions::request(&system, music, &program);
+    desktop.settle_until("the system's page opened", |_| phone.pages_opened() == 1);
+    desktop.leave_and_come_back();
+    desktop.settle_until("still off, said", |desktop| desktop.shows(PHONE_FILES_OFF));
+    assert_eq!(asked.as_mut().now_or_never(), None, "before it was read");
+    tap_on_the_sheet(&mut desktop, "OK");
+    assert_eq!(
+        asked.as_mut().now_or_never(),
+        Some(SystemPermissionState::Denied),
+        "left off"
+    );
+
+    let mut asked = ShellSystemPermissions::request(&system, music, &program);
+    desktop.settle_until("the system's page opened again", |_| {
+        phone.pages_opened() == 2
+    });
+    phone.reachable.set(true);
+    desktop.leave_and_come_back();
+    assert_eq!(
+        asked.as_mut().now_or_never(),
+        Some(SystemPermissionState::Allowed),
+        "turned on in the system's settings: answered with nothing more to read"
+    );
+    assert_eq!(
+        system.state(music, &program),
+        SystemPermissionState::Allowed
+    );
     futures::executor::block_on(desktop.runs.stop_all());
 }
 

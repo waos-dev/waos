@@ -29,6 +29,7 @@ mod logging;
 mod platform;
 mod pointer;
 mod slot;
+mod status_bar;
 mod text_input;
 mod text_system;
 mod window;
@@ -40,6 +41,7 @@ use gpui::{App, Application};
 use gpui_wgpu::WgpuContext;
 
 pub use gpui;
+pub use status_bar::{StatusBarContentStyle, set_status_bar_style};
 
 use crate::event_loop::EventLoop;
 use crate::events::Events;
@@ -74,6 +76,7 @@ pub async fn run_with(
     let (notices, notices_received) = mpsc::unbounded();
     let events = Events::open(notices_received);
     let platform = Rc::new(WasdkPlatform::new(context, notices));
+    WasdkPlatform::make_current(&platform);
     let application = Application::with_platform(Rc::clone(&platform) as Rc<dyn gpui::Platform>);
     let _app = configure(application).run_embedded(on_launch);
     EventLoop::new(platform, events).run().await;

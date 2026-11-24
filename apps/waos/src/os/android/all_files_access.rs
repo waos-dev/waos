@@ -22,6 +22,9 @@ use crate::logic::phone_files::PhoneFilesAccess;
 /// The action of Android's page for one app's All files access.
 const SWITCH_PAGE: &str = "android.settings.MANAGE_APP_ALL_FILES_ACCESS_PERMISSION";
 
+/// Where Android keeps the shared storage of the phone's first user, which
+/// `Environment.getExternalStorageDirectory` answers there.
+const PRIMARY_USER_STORAGE: &str = "/storage/emulated/0";
 /// `Intent.FLAG_ACTIVITY_NEW_TASK`: a page started from the application, not an activity.
 const NEW_TASK: i32 = 0x1000_0000;
 
@@ -147,6 +150,13 @@ impl PhoneFilesAccess for AllFilesAccess {
 
     fn open_switch(&self) -> Result<(), String> {
         self.start_switch_page().map_err(|error| error.to_string())
+    }
+
+    fn storage(&self) -> PathBuf {
+        self.shared_storage().unwrap_or_else(|error| {
+            tracing::warn!("Android named no shared storage: {error}");
+            PathBuf::from(PRIMARY_USER_STORAGE)
+        })
     }
 
     fn home(&self) -> PathBuf {

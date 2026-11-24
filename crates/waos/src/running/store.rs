@@ -56,8 +56,8 @@ use crate::network::{ProgramHttp, ProgramNetwork};
 use crate::notifications::host::{NotificationsCtx, NotificationsCtxView};
 use crate::opener::LinkSchemes;
 use crate::opener::host::{OpenerCtx, OpenerCtxView};
-use crate::permissions::ProgramPermissions;
 use crate::permissions::host::{PermissionsCtx, PermissionsCtxView};
+use crate::permissions::{ProgramPermissions, ProgramSystemPermissions};
 use crate::roles;
 use crate::screens::Screens;
 use crate::screens::host::{ScreensCtx, ScreensCtxView};
@@ -309,10 +309,12 @@ fn store_data(
         user_side.machine_picker,
         (program.clone(), instances.commands.clone()),
     );
+    let system_permissions =
+        ProgramSystemPermissions::new(instances.system_permissions.clone(), program.clone());
     let permissions = ProgramPermissions::new(
         access.clone(),
         Arc::clone(&instances.prompts),
-        user_side.notifications.clone(),
+        system_permissions.clone(),
         program.clone(),
     );
     let recordings_shown = user_side.recordings_shown;
@@ -367,6 +369,7 @@ fn store_data(
         audio,
         file_dialogs: user_side.file_dialogs,
         picks,
+        system_permissions,
         opener: user_side.opener,
         links,
         notifications: user_side.notifications,
@@ -453,6 +456,9 @@ pub(crate) struct StoreData {
     /// files the user opens with the program.
     file_dialogs: Option<Arc<dyn ShellFileDialogs>>,
     picks: Picks,
+    /// What the system itself allows of what the user allowed the program, asked as the user
+    /// picks a file or folder for it.
+    system_permissions: ProgramSystemPermissions,
     /// The system's opener, where the shell has one, and which links the program may open.
     opener: Option<Arc<dyn ShellOpener>>,
     links: LinkSchemes,
@@ -648,6 +654,7 @@ impl FileDialogsCtxView for StoreData {
             dialogs: self.file_dialogs.as_ref(),
             files: &mut self.files,
             picks: &self.picks,
+            system_permissions: &self.system_permissions,
         }
     }
 }

@@ -99,6 +99,8 @@ pub type Adapter = Arc<GpuObject<id::AdapterId>>;
 #[derive(Clone)]
 pub struct Queue {
     pub(crate) queue: Arc<GpuObject<id::QueueId>>,
+    /// The device the queue is of, which is waited on for the queue's submitted work.
+    pub(crate) device: Arc<GpuObject<id::DeviceId>>,
     pub(crate) error_handler: Arc<ErrorHandler>,
 }
 impl Queue {

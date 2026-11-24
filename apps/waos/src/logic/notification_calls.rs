@@ -16,7 +16,7 @@ use futures::channel::oneshot;
 use waos::bindings::wasdk::platform::notifications::NotificationError;
 use waos::{
     Notification, NotificationFuture, RunningProgram, ShellNotificationScheduling,
-    ShellNotifications, ShellSystemPermission,
+    ShellNotifications,
 };
 
 /// One call of a program's, on its way to the main thread.
@@ -114,12 +114,6 @@ impl ShellNotifications for NotificationsOnRequest {
         self.offered
             .scheduling
             .then_some(self as &dyn ShellNotificationScheduling)
-    }
-
-    /// None: every program's notifications are WaOS's here, posted under its name, so the system
-    /// keeps no permission for a program.
-    fn system_permission(&self) -> Option<&dyn ShellSystemPermission> {
-        None
     }
 }
 

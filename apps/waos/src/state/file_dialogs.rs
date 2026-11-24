@@ -47,12 +47,15 @@ impl FileDialogs {
     /// From now on, each dialog a program asks for is shown through Waft's, on the window of
     /// the program's view in `view_windows` it names, or over the program's own screen; and, where
     /// `screens_of_their_own` places prompts in windows of their own, a phone's, over a screen
-    /// opened for the dialog where the program has none, closed once the dialog is answered.
+    /// opened for the dialog where the program has none, closed once the dialog is answered. A
+    /// pick Android gives without a path is answered by where it is on the phone's storage, shared
+    /// at `phone_storage`; none where the system's picks are paths.
     pub(crate) fn serve(
         self,
         app: &mut App,
         view_windows: Entity<ViewWindows>,
         screens_of_their_own: Option<Rc<PromptWindows>>,
+        phone_storage: Option<PathBuf>,
     ) {
         let mut arriving = self.arriving;
         app.spawn(async move |cx| {
@@ -74,7 +77,7 @@ impl FileDialogs {
                     }
                     (over, _) => (over, None),
                 };
-                let shown = cx.update(|app| show(app, over, dialog));
+                let shown = cx.update(|app| show(app, over, dialog, phone_storage.clone()));
                 cx.update(|app| {
                     app.spawn(async move |_cx| {
                         let mut shown = std::pin::pin!(shown);
@@ -136,18 +139,28 @@ fn screen_of_its_own(
     prompt_windows.show_on_a_screen_of_its_own(app, program, words, Rc::new(|_app| {}))
 }
 
-/// Shows `dialog` through Waft's, over the view `parent`, and answers the paths chosen.
+/// Shows `dialog` through Waft's, over the view `parent`, and answers the paths chosen, a pick
+/// without a path where it is on the phone's storage, shared at `phone_storage`.
 fn show(
     app: &mut App,
     parent: Option<ViewId>,
     dialog: Dialog,
+    phone_storage: Option<PathBuf>,
 ) -> impl Future<Output = Result<Vec<PathBuf>, DialogError>> + use<> {
     let platform = app.platform();
     let shown = platform.file_dialogs().map(|dialogs| match dialog {
-        Dialog::OpenFile(options) => picked_file_paths(dialogs.open_file(parent, options)),
-        Dialog::OpenFiles(options) => picked_file_paths(dialogs.open_files(parent, options)),
-        Dialog::OpenFolder(options) => picked_folder_path(dialogs.open_folder(parent, options)),
-        Dialog::SaveFile(options) => picked_file_paths(dialogs.save_file(parent, options)),
+        Dialog::OpenFile(options) => {
+            picked_file_paths(dialogs.open_file(parent, options), phone_storage)
+        }
+        Dialog::OpenFiles(options) => {
+            picked_file_paths(dialogs.open_files(parent, options), phone_storage)
+        }
+        Dialog::OpenFolder(options) => {
+            picked_folder_path(dialogs.open_folder(parent, options), phone_storage)
+        }
+        Dialog::SaveFile(options) => {
+            picked_file_paths(dialogs.save_file(parent, options), phone_storage)
+        }
     });
     async move {
         let Some(shown) = shown else {
@@ -253,7 +266,7 @@ mod tests {
             let dialogs = FileDialogs::of(&*app.platform()).expect("waft file dialogs");
             let windows = ViewWindows::listen(app, requests);
             *kept.borrow_mut() = Some(dialogs.shell());
-            dialogs.serve(app, windows, None);
+            dialogs.serve(app, windows, None, None);
         });
         let dialogs_shell = served.borrow_mut().take().unwrap();
         let future = dialogs_shell.open_file(&running, None, OpenOptions::default());

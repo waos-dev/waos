@@ -266,6 +266,7 @@ impl<'a> webgpu::HostGpuDevice for WasiWebGpuCtx<'a> {
         let device = self.table.get(&device)?;
         let queue = Queue {
             queue: Arc::clone(&device.queue),
+            device: Arc::clone(&device.device),
             error_handler: Arc::clone(&device.error_handler),
         };
         Ok(self.table.push(queue)?)
@@ -1191,17 +1192,27 @@ impl<T: Send> webgpu::HostGpuQueueWithStore<T> for crate::HasWasiWebGpuCtx {
         accessor: &Accessor<T, Self>,
         queue: Resource<webgpu::GpuQueue>,
     ) -> wasmtime::Result<()> {
-        accessor.with(|mut access| -> wasmtime::Result<_> {
-            let ctx = access.get();
-            let instance = Arc::clone(ctx.instance);
-            let queue_id = ctx.table.get(&queue)?.id();
-
-            CallbackFuture::new(Box::new(move |resolve: Box<dyn FnOnce(()) + Send>| {
-                instance.queue_on_submitted_work_done(queue_id, Box::new(move || resolve(())));
-            }));
-            Ok(())
-        })?;
-
+        // Resolves once everything submitted so far is done, waited on here, as a mapping is:
+        // nothing else polls the device for the program.
+        accessor
+            .with(|mut access| -> wasmtime::Result<_> {
+                let ctx = access.get();
+                let instance = Arc::clone(ctx.instance);
+                let queue = ctx.table.get(&queue)?;
+                let (queue_id, device_id) = (queue.id(), queue.device.id());
+                Ok(CallbackFuture::new(Box::new(
+                    move |resolve: Box<dyn FnOnce(()) + Send>| {
+                        instance
+                            .queue_on_submitted_work_done(queue_id, Box::new(move || resolve(())));
+                        if let Err(error) = instance
+                            .device_poll(device_id, wgpu_types::PollType::wait_indefinitely())
+                        {
+                            tracing::warn!("waiting for a queue's submitted work: {error}");
+                        }
+                    },
+                )))
+            })?
+            .await;
         Ok(())
     }
 }

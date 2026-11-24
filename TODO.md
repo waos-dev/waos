@@ -22,7 +22,7 @@ What stands between today and a first stable release, in the order it blocks one
 
 ## Platforms
 - [ ] Android: a developer build that installs packages end to end; each app a task of its own.
-- [ ] Android: a folder picked through the system's picker has no path, so WaOS can't mount it. Turn a pick in the phone's own storage into its path while WaOS has All files access; fail clearly for a cloud folder.
+- [ ] Android: read a pick through Android's own handle, so a pick needs no All files access and a cloud folder works. Today a pick in the phone's own storage is mounted by its path, which needs All files access, and any other pick fails.
 - [ ] iOS: developer builds (the App Store refuses downloaded code).
 - [ ] Windows, then Linux.
 - [ ] Machines over SSH, then other kinds; Termux on an Android phone as an SSH machine at `localhost`, for git, compilers and language servers on a phone.

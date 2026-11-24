@@ -115,7 +115,7 @@ impl HeadlessDaemon {
         let asking = AskingNow::new();
         let (prompts, prompted) = PromptsOnRequest::new(Arc::clone(&asking));
         let output_picker = prompts.output_picker();
-        let machine_picker = prompts.machine_picker();
+        let machine_picker = prompts.machine_picker(None);
         let headless = HeadlessShell::new(config.display, Refreshes::Every(REFRESH_INTERVAL));
         let mut shell = headless.shell(Arc::new(prompts));
         shell.audio_output_picker = Some(Arc::new(output_picker));

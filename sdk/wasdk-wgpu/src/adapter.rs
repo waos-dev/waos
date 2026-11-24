@@ -15,6 +15,7 @@ use wgpu::{
 use crate::convert;
 use crate::device::WasdkDevice;
 use crate::queue::WasdkQueue;
+use crate::runtime::OwedCallbacks;
 use crate::surface::WasdkSurface;
 
 #[derive(Debug)]
@@ -58,9 +59,10 @@ impl AdapterInterface for WasdkAdapter {
                     RequestDeviceError::from_message(format!("{:?}: {}", error.kind, error.message))
                 })?;
             let queue = device.queue();
+            let owed = OwedCallbacks::default();
             Ok((
-                DispatchDevice::custom(WasdkDevice::new(device)),
-                DispatchQueue::custom(WasdkQueue::new(queue)),
+                DispatchDevice::custom(WasdkDevice::new(device, owed.clone())),
+                DispatchQueue::custom(WasdkQueue::new(queue, owed)),
             ))
         })
     }

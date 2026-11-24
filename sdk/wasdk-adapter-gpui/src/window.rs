@@ -26,12 +26,14 @@ use gpui::{
     FrameRequestSource, GpuSpecs, KeyDownEvent, KeyUpEvent, Keystroke, Modifiers,
     ModifiersChangedEvent, Pixels, PlatformAtlas, PlatformDisplay, PlatformInput,
     PlatformInputHandler, PlatformWindow, Point, PromptButton, PromptLevel, RequestFrameOptions,
-    Scene, Size, WindowAppearance, WindowBackgroundAppearance, WindowBounds, WindowControlArea,
-    WindowInsets, WindowParams, WindowVisibility, px, size,
+    Scene, Size, TextInputConfiguration, WindowAppearance, WindowBackgroundAppearance,
+    WindowBounds, WindowControlArea, WindowInsets, WindowParams, WindowVisibility, px, size,
 };
 use gpui_wgpu::{WgpuAtlas, WgpuContext, WgpuRenderer, WgpuSurfaceConfig};
 use raw_window_handle::{HandleError, HasDisplayHandle, HasWindowHandle};
-use wasdk::views::{Insets, KeyInput, KeyKind, Metrics, View, ViewEvent, ViewFocusState};
+use wasdk::views::{
+    Insets, KeyInput, KeyKind, Metrics, TextInputAction, View, ViewEvent, ViewFocusState,
+};
 use wasdk::windows::Window as SystemWindow;
 use wasdk_wgpu::SharedView;
 
@@ -39,7 +41,7 @@ use crate::display::bounds_of;
 use crate::keys::{HeldModifiers, KeyMeaning};
 use crate::pointer::{Hover, PointerState};
 use crate::slot::Slot;
-use crate::text_input::{TextInputBridge, Typing};
+use crate::text_input::{ENTER, TextInputBridge, Typing};
 
 /// The window GPUI holds.
 pub(crate) struct WasdkWindow {
@@ -83,6 +85,8 @@ struct WindowState {
     pointer: PointerState,
     keys: HeldModifiers,
     input_handler: Option<PlatformInputHandler>,
+    /// What the focused input asks of the input method, as GPUI said it last.
+    text_input_configuration: TextInputConfiguration,
 }
 
 type ResizeCallback = Box<dyn FnMut(Size<Pixels>, f32)>;
@@ -138,6 +142,7 @@ impl WasdkWindow {
                 pointer: PointerState::default(),
                 keys: HeldModifiers::default(),
                 input_handler: None,
+                text_input_configuration: TextInputConfiguration::default(),
             }),
             callbacks: Callbacks::default(),
             frame_requested: Cell::new(false),
@@ -187,6 +192,9 @@ impl WindowShared {
             let origin = bounds_of(window.frame()).origin;
             self.state.borrow_mut().bounds.origin = origin;
         }
+        if let Some(style) = crate::status_bar::said() {
+            view.set_overlay_style(style);
+        }
         *self.view.borrow_mut() = Some(AttachedView {
             view,
             system_window,
@@ -196,6 +204,13 @@ impl WindowShared {
         self.resized(&metrics);
         self.request_frame();
         Ok(())
+    }
+
+    /// Shows the system's bars over the window in `style`, once its view has arrived.
+    pub(crate) fn set_overlay_style(&self, style: wasdk::views::OverlayStyle) {
+        if let Some(attached) = self.view.borrow().as_ref() {
+            attached.view.set_overlay_style(style);
+        }
     }
 
     /// One event of the window's view.
@@ -221,8 +236,11 @@ impl WindowShared {
                 self.with_text_input(|bridge, handler| bridge.closed(handler))
             }
             ViewEvent::CloseRequested => self.close_requested(),
-            ViewEvent::TextInputAction(_)
-            | ViewEvent::Copy(_)
+            // The action on the keyboard's Enter key is how the key looks: pressing it is Enter,
+            // as GPUI has it. A new line arrives as an edit of the value instead.
+            ViewEvent::TextInputAction(TextInputAction::Newline) => {}
+            ViewEvent::TextInputAction(_) => self.type_step(Typing::Key(ENTER)),
+            ViewEvent::Copy(_)
             | ViewEvent::Cut(_)
             | ViewEvent::Paste(_)
             | ViewEvent::Edit(_)
@@ -247,8 +265,11 @@ impl WindowShared {
     /// GPUI's input handler and the input method agree: called after each frame, when GPUI has
     /// set the focused input's handler.
     pub(crate) fn sync_text_input(&self) {
-        let scale = self.state.borrow().scale;
-        self.with_text_input(|bridge, handler| bridge.sync(handler, scale));
+        let (scale, configuration) = {
+            let state = self.state.borrow();
+            (state.scale, state.text_input_configuration.clone())
+        };
+        self.with_text_input(|bridge, handler| bridge.sync(handler, &configuration, scale));
     }
 
     fn frame_arrived(&self) {
@@ -556,6 +577,11 @@ impl PlatformWindow for WasdkWindow {
 
     fn take_input_handler(&mut self) -> Option<PlatformInputHandler> {
         self.shared.state.borrow_mut().input_handler.take()
+    }
+
+    /// Kept for the input method, which hears it after the frame GPUI says it in.
+    fn set_text_input_configuration(&mut self, configuration: TextInputConfiguration) {
+        self.shared.state.borrow_mut().text_input_configuration = configuration;
     }
 
     /// None: GPUI draws its own prompt in the window, as on the web.

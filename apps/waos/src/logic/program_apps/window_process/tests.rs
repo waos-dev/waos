@@ -41,28 +41,35 @@ pub(crate) struct Served {
     pub(crate) canvas_calls: UnboundedReceiver<CanvasCall>,
     /// What its prompts' dialogs reported.
     pub(crate) dialog_reports: UnboundedReceiver<DialogReport>,
-    /// What it said macOS said of the program's notifications.
-    pub(crate) system_permissions: UnboundedReceiver<SystemPermission>,
     /// Whether each of its windows is in sight.
     pub(crate) window_presences: UnboundedReceiver<WindowPresence>,
 }
 
 /// The window process of `program`'s app, as WaOS serves it once it said hello.
 pub(crate) fn window_process(program: RunningProgram) -> Served {
+    let (notification_permissions, _readings) = NotificationPermissions::new();
+    window_process_keeping(program, notification_permissions)
+}
+
+/// The same, what it says macOS said of the program's notifications kept in
+/// `notification_permissions`.
+pub(crate) fn window_process_keeping(
+    program: RunningProgram,
+    notification_permissions: NotificationPermissions,
+) -> Served {
     let (sent, arriving) = mpsc::unbounded();
     let send: SendToWindow = Arc::new(move |message| {
         let _ = sent.unbounded_send(message);
     });
     let (canvases, canvas_calls) = CanvasesOnRequest::new();
     let (dialog_reports, reported) = mpsc::unbounded();
-    let (system_permissions, said) = mpsc::unbounded();
     let (window_presences, presence) = mpsc::unbounded();
     let process = WindowProcess::new(
         program,
         send,
         Arc::new(canvases),
         dialog_reports,
-        system_permissions,
+        notification_permissions,
         window_presences,
         tokio::runtime::Handle::current(),
     );
@@ -71,7 +78,6 @@ pub(crate) fn window_process(program: RunningProgram) -> Served {
         sent: arriving,
         canvas_calls,
         dialog_reports: reported,
-        system_permissions: said,
         window_presences: presence,
     }
 }
