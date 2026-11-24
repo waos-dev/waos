@@ -40,4 +40,4 @@ What stands between today and a first stable release, in the order it blocks one
 - [ ] Every built-in app on a release build, end to end.
 - [ ] The Inspector's report counts by UTC day, so an event just after local midnight east of UTC lands in the previous day: count by the user's days.
 - [ ] The trial apps rebuilt from crates.io alone, as the last outside check.
-- [ ] WaOS's freezing tests hang now and then on Linux CI.
+- [ ] WaOS's freezing tests hang now and then on CI. One cause is found: a program told `paused` can run and wait again before the tick its freeze takes at, so it is frozen but never stops at its freeze. The two tests that wait for that stop are left out (`freezing.rs`, `TODO(freeze-takes-at-a-tick)`) until the freeze is designed again.

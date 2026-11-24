@@ -203,16 +203,20 @@ pub fn config() -> WaOSConfig {
     }
 }
 
-/// What `future` resolves with, failing after [`WITHIN`]: the one wait a test has, for what it
-/// expects. It blocks the test's thread; the programs run on threads of their own.
+/// What `future` resolves with, failing after [`WITHIN`] with the line that waited: the one wait a
+/// test has, for what it expects. It blocks the test's thread; the programs run on threads of
+/// their own.
+#[track_caller]
 pub fn within<T: Send + 'static>(future: impl Future<Output = T> + Send + 'static) -> T {
+    let waiting_at = std::panic::Location::caller();
     let (resolved, came) = mpsc::channel();
     thread::spawn(move || {
         // A test that timed out has dropped the receiver.
         let _ = resolved.send(futures::executor::block_on(future));
     });
-    came.recv_timeout(WITHIN)
-        .unwrap_or_else(|_| panic!("what the test waited for never came within {WITHIN:?}"))
+    came.recv_timeout(WITHIN).unwrap_or_else(|_| {
+        panic!("what the test waited for at {waiting_at} never came within {WITHIN:?}")
+    })
 }
 
 /// Waits until `done`, failing after [`WITHIN`] with `what` was awaited: for what a part of the
