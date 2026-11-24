@@ -151,6 +151,14 @@ pub(crate) const DEFAULT_DETAIL: &str = "Apps follow this, unless set otherwise.
 pub(crate) const SET_OTHERWISE: &str = "Set otherwise";
 pub(crate) const SET_OTHERWISE_DETAIL: &str = "These apps follow a setting of their own.";
 pub(crate) const NONE_SET_OTHERWISE: &str = "Every app follows the default.";
+/// On an app's page, as a browser's site settings put every permission of a site back.
+pub(crate) const RESET_PERMISSIONS: &str = "Reset permissions";
+pub(crate) const RESET_PERMISSIONS_DETAIL: &str = "Every permission follows the default again.";
+
+/// What a setting holds while it follows the default, as a browser says it: "Ask (default)".
+pub(crate) fn defaulted(value: &str) -> String {
+    format!("{value} (default)")
+}
 
 /// A kind of permission, as Settings lists it.
 pub(crate) fn permission_name(permission: Permission) -> &'static str {
@@ -182,7 +190,7 @@ pub(crate) fn permission_value(permission: Permission, shown: &ShownSettings) ->
         }
         Permission::LocalNetwork => allowed(shown.local_network.value),
         Permission::Clipboard => match (shown.clipboard_read.value, shown.clipboard_write.value) {
-            (true, true) => "Reading and writing",
+            (true, true) => ALLOW,
             (true, false) => "Reading only",
             (false, true) => "Writing only",
             (false, false) => DONT_ALLOW,
@@ -209,7 +217,7 @@ pub(crate) fn permission_value(permission: Permission, shown: &ShownSettings) ->
 }
 
 /// A question's answer, in a word: Ask where there is none.
-fn answer_said(answer: Option<waos_store::Answer>) -> &'static str {
+pub(crate) fn answer_said(answer: Option<waos_store::Answer>) -> &'static str {
     match answer {
         None => ASK,
         Some(waos_store::Answer::Granted) => ALLOW,

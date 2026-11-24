@@ -28,8 +28,8 @@ use waos::{FileDialog, SimulatedSound};
 use waos_activity::Activity;
 use waos_store::{Answer, DomainRule, Question, Role};
 
-use super::fluent_root::{MARK_SIDE, heading, link_card};
-use super::set_otherwise;
+use super::fluent_root::{MARK_SIDE, heading, link_card, permission_symbol, symbol};
+use super::{any_set_otherwise, app_permissions, reset_permissions, set_otherwise};
 use crate::logic::permissions::Permission;
 use crate::logic::setting_changes::{
     DomainsKind, SettingChange, SettingsOf, Shown, ShownAnswerWith, ShownSettings, Which,
@@ -122,13 +122,14 @@ impl State for FluentSettingsState {
             library: widget.library.clone(),
             of: widget.of.clone(),
             only: widget.only,
+            defaults: widget.library.read(app).settings(&SettingsOf::Global).ok(),
             resources,
             typed: app.get(self).typed.clone().expect("an initialized page"),
             writable: app.get(self).writable,
             state: self,
         };
         let mut rows = vec![page.title(widget.program_name.as_deref())];
-        let set_otherwise = page.only.map(|only| page.set_otherwise(app, only));
+        let set_otherwise = page.kind_page().map(|only| page.set_otherwise(app, only));
         rows.extend(page.switch_asked(app));
         match page.library.read(app).settings(&page.of) {
             Ok(shown) => {
@@ -157,6 +158,8 @@ struct Page {
     library: Entity<Library>,
     of: SettingsOf,
     only: Option<Permission>,
+    /// The defaults, which an app's choice among answers names as its first: "Ask (default)".
+    defaults: Option<ShownSettings>,
     resources: Rc<ThemeResources>,
     typed: Typed,
     writable: bool,
@@ -186,7 +189,7 @@ impl Page {
                 .style(TextBlockStyle::Subtitle.text_style(&self.resources, primary))
                 .into_widget(),
         ]);
-        if self.only.is_none() {
+        if self.kind_page().is_none() {
             return bar.into_widget();
         }
         Column::new()
@@ -199,9 +202,58 @@ impl Page {
             .into_widget()
     }
 
-    /// Whether the page shows the settings of `permission`: an app's page shows every kind's.
+    /// Whether the page shows the controls of `permission`: a kind's page, every app's or one
+    /// app's, those of its kind alone.
     fn shows(&self, permission: Permission) -> bool {
-        self.only.is_none_or(|only| only == permission)
+        self.only == Some(permission)
+    }
+
+    /// The kind whose default the page shows; none on an app's pages.
+    fn kind_page(&self) -> Option<Permission> {
+        self.only.filter(|_| self.of == SettingsOf::Global)
+    }
+
+    /// On an app's page, each kind of permission with what the app holds, each leading to the
+    /// app's page for that kind; and, where any is set otherwise, what resets them all.
+    fn app_permissions(&self, shown: &ShownSettings) -> Vec<WidgetRef> {
+        let SettingsOf::Program(id) = &self.of else {
+            return Vec::new();
+        };
+        let mut rows = vec![heading(words::PERMISSIONS, &self.resources)];
+        for (permission, said) in app_permissions(shown) {
+            rows.push(link_card(
+                &self.library,
+                &self.resources,
+                Some(symbol(permission_symbol(permission), &self.resources)),
+                words::permission_name(permission),
+                Some(&said),
+                SettingsPage::AppPermission(id.clone(), permission),
+            ));
+        }
+        if any_set_otherwise(shown) {
+            rows.push(SizedBox::new().height(GAP).into_widget());
+            rows.push(
+                Row::new()
+                    .children([
+                        Button::text(words::RESET_PERMISSIONS, self.resetting()).into_widget()
+                    ])
+                    .into_widget(),
+            );
+            rows.push(caption(words::RESET_PERMISSIONS_DETAIL, &self.resources));
+        }
+        rows
+    }
+
+    /// What puts every kind of permission of the page's app back on its default.
+    fn resetting(&self) -> Listener {
+        let (library, of) = (self.library.clone(), self.of.clone());
+        Listener::new(move |app| {
+            library.update(app, |library, cx| {
+                for change in reset_permissions() {
+                    library.change_settings(&of, change, cx);
+                }
+            });
+        })
     }
 
     /// On a kind's page, the apps that set `permission` otherwise than its default, each with
@@ -264,8 +316,16 @@ impl Page {
         notifications_refused: bool,
     ) -> Vec<WidgetRef> {
         let mut sections = Vec::new();
-        if self.of != SettingsOf::Global {
+        let overview = self.only.is_none();
+        if overview {
             sections.extend(self.machines(&shown.machines));
+            sections.extend(self.app_permissions(shown));
+            if notifications_refused {
+                sections.extend(self.refused_by_system());
+            }
+            if let Some(activity) = activity {
+                sections.extend(self.last_days(activity, shown.record.value));
+            }
         }
         if self.shows(Permission::Network) {
             sections.extend(self.network(&shown.network));
@@ -294,9 +354,6 @@ impl Page {
         }
         if self.shows(Permission::ActivityRecord) {
             sections.extend(self.record(&shown.record));
-            if let Some(activity) = activity {
-                sections.extend(self.last_days(activity, shown.record.value));
-            }
         }
         if self.shows(Permission::Folders) {
             sections.extend(self.folders(&shown.file_system));
@@ -309,7 +366,7 @@ impl Page {
             sections.extend(self.question(question, shown.answers.get(question), refused));
             sections.extend(self.simulated(question, shown));
         }
-        if self.of != SettingsOf::Global {
+        if overview {
             sections.extend(self.link_schemes(&shown.link_schemes));
             sections.extend(self.roles(&shown.roles));
             sections.extend(self.answered_without_asking(shown));
@@ -585,33 +642,46 @@ impl Page {
         refused: bool,
     ) -> Vec<WidgetRef> {
         let name = words::question_name(question);
-        let mut rows = self.header(name, shown.follows_global, Which::Answer(question));
-        let answer = shown.value;
-        let mut choices = Vec::new();
-        if self.of == SettingsOf::Global {
+        let mut rows = vec![self.setting_name(name)];
+        // On an app's page, following the default is the first choice, named with the default's
+        // answer, as a browser's site settings name it.
+        let global = self.of == SettingsOf::Global;
+        let mut choices: Vec<(String, bool, SettingChange)> = Vec::new();
+        if global {
             choices.push((
-                words::ASK,
-                answer.is_none(),
+                words::ASK.to_owned(),
+                shown.value.is_none(),
                 SettingChange::Answer(question, None),
             ));
-        }
-        choices.push((
-            words::ALLOW,
-            answer == Some(Answer::Granted),
-            SettingChange::Answer(question, Some(Answer::Granted)),
-        ));
-        choices.push((
-            words::DONT_ALLOW,
-            answer == Some(Answer::Denied),
-            SettingChange::Answer(question, Some(Answer::Denied)),
-        ));
-        if simulatable(question) {
+        } else {
+            let default = self.defaults.as_ref().map_or(words::ASK, |defaults| {
+                words::answer_said(defaults.answers.get(question).value)
+            });
             choices.push((
-                words::SIMULATED,
-                answer == Some(Answer::Simulated),
-                SettingChange::Answer(question, Some(Answer::Simulated)),
+                words::defaulted(default),
+                shown.follows_global,
+                SettingChange::FollowGlobal(Which::Answer(question)),
             ));
         }
+        let mut answers = vec![
+            (words::ALLOW, Answer::Granted),
+            (words::DONT_ALLOW, Answer::Denied),
+        ];
+        if simulatable(question) {
+            answers.push((words::SIMULATED, Answer::Simulated));
+        }
+        for (label, answer) in answers {
+            let chosen = shown.value == Some(answer) && (global || !shown.follows_global);
+            choices.push((
+                label.to_owned(),
+                chosen,
+                SettingChange::Answer(question, Some(answer)),
+            ));
+        }
+        let choices: Vec<(&str, bool, SettingChange)> = choices
+            .iter()
+            .map(|(label, chosen, change)| (label.as_str(), *chosen, change.clone()))
+            .collect();
         rows.push(self.radios(&choices));
         if refused {
             rows.extend(self.refused_by_system());
@@ -730,8 +800,9 @@ impl Page {
     }
 
     fn radios(&self, choices: &[(&str, bool, SettingChange)]) -> WidgetRef {
-        Row::new()
-            .spacing(MARGIN)
+        // One under another, as WinUI's RadioButtons lays its choices out.
+        Column::new()
+            .cross_axis_alignment(CrossAxisAlignment::Start)
             .children(choices.iter().map(|(label, checked, change)| {
                 let listener = self.on(change.clone());
                 RadioButton::new(*checked, move |app| listener.call(app))

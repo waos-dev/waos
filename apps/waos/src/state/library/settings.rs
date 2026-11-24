@@ -55,8 +55,10 @@ pub(crate) enum SettingsPage {
     /// One kind: its default, which every app follows until set otherwise, and the apps that
     /// are, as a browser's site settings show a permission's.
     Permission(Permission),
-    /// One app's.
+    /// One app's: each kind of permission with what it holds, and what is the app's alone.
     App(ProgramId),
+    /// One kind of permission for one app: what it holds, or that it follows the default.
+    AppPermission(ProgramId, Permission),
 }
 
 impl LibraryPage {
@@ -72,6 +74,9 @@ impl LibraryPage {
             LibraryPage::App(_) => Some(LibraryPage::AppStore),
             LibraryPage::Settings(SettingsPage::Permission(_)) => {
                 Some(LibraryPage::Settings(SettingsPage::Permissions))
+            }
+            LibraryPage::Settings(SettingsPage::AppPermission(id, _)) => {
+                Some(LibraryPage::Settings(SettingsPage::App(id.clone())))
             }
             LibraryPage::Settings(_) => Some(LibraryPage::Settings(SettingsPage::Root)),
         }
@@ -121,7 +126,7 @@ impl Library {
         if page != self.page {
             self.left_settings();
             match &page {
-                LibraryPage::Settings(SettingsPage::App(_)) => {
+                LibraryPage::Settings(SettingsPage::App(_) | SettingsPage::AppPermission(..)) => {
                     self.offered = self.runs.environments.offered();
                 }
                 LibraryPage::App(id) => self.read_screenshots_of(&id.clone(), cx),

@@ -98,6 +98,20 @@ fn open_settings_from_icon(desktop: &mut LibraryDesktop, view: ViewId, name: &st
     desktop.tap(view, words::SETTINGS);
 }
 
+/// Opens the page of `permission` for the app `name`: the app's page from its icon, then the
+/// kind.
+fn open_app_permission(
+    desktop: &mut LibraryDesktop,
+    view: ViewId,
+    name: &str,
+    permission: Permission,
+) {
+    open_settings_from_icon(desktop, view, name);
+    let kind = words::permission_name(permission);
+    desktop.scroll_until_visible(view, kind, words::PERMISSIONS, SCROLL_STEP);
+    desktop.tap(view, kind);
+}
+
 /// Goes back to the home from a settings page, in either layout: to the settings' first page,
 /// and from there to the home.
 fn back(desktop: &mut LibraryDesktop, view: ViewId) {
@@ -109,13 +123,12 @@ fn back(desktop: &mut LibraryDesktop, view: ViewId) {
 /// Goes back from a settings page to the page it was opened over, in either layout.
 fn back_once(desktop: &mut LibraryDesktop, view: ViewId) {
     if desktop.has::<CupertinoNavigationBar>() {
-        let page = desktop.read(|library| library.page().clone());
-        let beneath = match page {
-            LibraryPage::Settings(SettingsPage::Root) => words::HOME_TITLE,
-            LibraryPage::Settings(SettingsPage::Permission(_)) => words::PERMISSIONS,
-            _ => words::SETTINGS,
-        };
-        desktop.tap(view, beneath);
+        let back = CupertinoIcons::back().code_point;
+        desktop.tap_widget::<Icon>(view, |icon| {
+            icon.icon
+                .as_ref()
+                .is_some_and(|icon| icon.code_point == back)
+        });
     } else {
         let back = FluentSymbol::Back.glyph().to_string();
         desktop.tap_widget::<FontIcon>(view, |icon| icon.glyph == back);
@@ -211,6 +224,7 @@ fn a_permissions_page_lists_the_apps_set_otherwise_each_leading_to_its_page() {
             desktop.read(|library| library.page().clone()),
             LibraryPage::Settings(SettingsPage::App(triangle()))
         );
+        desktop.tap(view, words::permission_name(Permission::Network));
         desktop.tap(view, words::USE_GLOBAL);
         back(&mut desktop, view);
         open_permission(&mut desktop, view, Permission::Network);
@@ -229,11 +243,16 @@ fn a_programs_settings_follow_those_for_every_program_until_changed_in_the_launc
     let settings_of_triangle = || LibraryPage::Settings(SettingsPage::App(triangle()));
     desktop.update(|library, cx| library.show_page(settings_of_triangle(), cx));
     assert!(
-        desktop.shows("Triangle's settings"),
+        desktop.shows("Triangle's settings") && desktop.shows(&words::defaulted(words::ALLOW)),
+        "each kind with what it holds, said to be the default: {:?}",
+        desktop.labels()
+    );
+    desktop.tap(view, words::permission_name(Permission::Network));
+    assert!(
+        desktop.shows(words::FOLLOWS_GLOBAL),
         "{:?}",
         desktop.labels()
     );
-    assert!(desktop.shows(words::FOLLOWS_GLOBAL));
     assert!(!desktop.shows(words::USE_GLOBAL));
     desktop.tap(view, words::ONLY_DOMAINS);
     let own = desktop.store.program_settings(&triangle()).unwrap();
@@ -446,8 +465,7 @@ fn a_programs_simulated_microphone_records_what_its_page_picks_in_the_launcher_a
             );
         });
         simulated.unwrap();
-        open_settings_from_icon(&mut desktop, view, "Triangle");
-        desktop.scroll_until_visible(view, words::SILENCE, words::NETWORK, SCROLL_STEP);
+        open_app_permission(&mut desktop, view, "Triangle", Permission::Microphone);
         assert!(
             desktop.shows(words::SIMULATED_MICROPHONE_DETAIL) && desktop.shows(words::QUIET_TONE),
             "{:?}",
@@ -554,9 +572,9 @@ fn a_permissions_default_changes_on_its_page_on_the_phone() {
 fn a_programs_settings_change_on_the_phone_and_follow_again() {
     let (mut desktop, view) = on_phone();
     installs(&mut desktop, TRIANGLE, "Triangle", b"\0asm");
-    open_settings_from_icon(&mut desktop, view, "Triangle");
+    open_app_permission(&mut desktop, view, "Triangle", Permission::Network);
     assert!(
-        desktop.shows("Triangle's settings"),
+        desktop.shows(words::ANY_DOMAIN_BUT),
         "{:?}",
         desktop.labels()
     );
@@ -698,8 +716,7 @@ fn a_programs_record_turned_off_removes_what_was_kept_of_it_on_the_phone() {
     let day = waos::AuditDay::starting(std::time::SystemTime::UNIX_EPOCH);
     desktop.store.keep(triangle().as_str(), &day);
     assert_eq!(desktop.store.days(triangle().as_str()).len(), 1);
-    open_settings_from_icon(&mut desktop, view, "Triangle");
-    desktop.scroll_until_visible(view, words::RECORD, words::NETWORK, SCROLL_STEP);
+    open_app_permission(&mut desktop, view, "Triangle", Permission::ActivityRecord);
     assert!(
         switch_shows(&desktop, words::RECORD),
         "on, as for every program"
@@ -717,7 +734,7 @@ fn a_programs_record_turned_off_removes_what_was_kept_of_it_on_the_phone() {
 fn a_programs_switch_says_it_follows_the_setting_for_every_program_on_the_phone() {
     let (mut desktop, view) = on_phone();
     installs(&mut desktop, TRIANGLE, "Triangle", b"\0asm");
-    open_settings_from_icon(&mut desktop, view, "Triangle");
+    open_app_permission(&mut desktop, view, "Triangle", Permission::Network);
     let global = desktop.store.global_settings().unwrap();
     assert_eq!(switch_shows(&desktop, words::NETWORK), global.network.on);
     assert!(
@@ -805,7 +822,7 @@ mod system_refusals {
      {
         let (mut desktop, view) = in_tall_window();
         installs(&mut desktop, TRIANGLE, "Triangle", b"\0asm");
-        open_settings_from_icon(&mut desktop, view, "Triangle");
+        open_app_permission(&mut desktop, view, "Triangle", Permission::Notifications);
         assert!(desktop.shows(words::ALLOW), "{:?}", desktop.labels());
         assert!(
             !desktop.shows(words::NOTIFICATIONS_REFUSED),

@@ -29,7 +29,7 @@ use crate::ui::library::words;
 
 /// The side of an app's icon in its row, and of a permission's, as iOS's Settings shows them.
 pub(crate) const ICON_SIDE: f64 = 30.0;
-const PERMISSION_ICON_SIDE: f64 = 29.0;
+pub(crate) const PERMISSION_ICON_SIDE: f64 = 29.0;
 
 /// The settings' first page, in Cupertino's widgets.
 #[derive(Debug)]
@@ -144,7 +144,7 @@ pub(crate) fn footnote(text: &str) -> WidgetRef {
 
 /// The icon of `permission` as iOS's Settings marks a row: a white symbol on a rounded square of
 /// the kind's colour.
-fn permission_icon(permission: Permission) -> WidgetRef {
+pub(crate) fn permission_icon(permission: Permission) -> WidgetRef {
     let (symbol, color) = match permission {
         Permission::Network => (CupertinoIcons::globe(), CupertinoColors::SYSTEM_BLUE),
         Permission::LocalNetwork => (CupertinoIcons::wifi(), CupertinoColors::SYSTEM_TEAL),

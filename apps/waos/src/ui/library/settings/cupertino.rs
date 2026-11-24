@@ -36,8 +36,8 @@ use waos::{FileDialog, SimulatedSound};
 use waos_activity::Activity;
 use waos_store::{Answer, DomainRule, FileSystemGrant, NetworkGrant, Question, Role};
 
-use super::cupertino_root::{ICON_SIDE, footnote, link_row};
-use super::set_otherwise;
+use super::cupertino_root::{ICON_SIDE, PERMISSION_ICON_SIDE, footnote, link_row, permission_icon};
+use super::{any_set_otherwise, app_permissions, reset_permissions, set_otherwise};
 use crate::logic::permissions::Permission;
 use crate::logic::setting_changes::{
     DomainsKind, SettingChange, SettingsOf, Shown, ShownAnswerWith, ShownSettings, Which,
@@ -127,18 +127,29 @@ impl State for CupertinoSettingsState {
             library: widget.library.clone(),
             of: widget.of.clone(),
             only: widget.only,
+            defaults: widget.library.read(app).settings(&SettingsOf::Global).ok(),
             typed: app.get(self).typed.clone().expect("an initialized page"),
             writable: app.get(self).writable,
             state: self,
         };
         let (title, beneath) = match (page.only, &widget.program_name) {
-            (Some(only), _) => (words::permission_name(only).to_owned(), words::PERMISSIONS),
-            (None, Some(name)) => (words::settings_of(name), words::SETTINGS),
-            (None, None) => (words::GLOBAL_SETTINGS.to_owned(), words::SETTINGS),
+            (Some(only), Some(name)) => (
+                words::permission_name(only).to_owned(),
+                words::settings_of(name),
+            ),
+            (Some(only), None) => (
+                words::permission_name(only).to_owned(),
+                words::PERMISSIONS.to_owned(),
+            ),
+            (None, Some(name)) => (words::settings_of(name), words::SETTINGS.to_owned()),
+            (None, None) => (
+                words::GLOBAL_SETTINGS.to_owned(),
+                words::SETTINGS.to_owned(),
+            ),
         };
         let mut sections = Vec::new();
         sections.extend(page.switch_asked(app));
-        if page.only.is_some() {
+        if page.kind_page().is_some() {
             sections.push(said_over_the_lists(words::DEFAULT_DETAIL));
         }
         match page.library.read(app).settings(&page.of) {
@@ -149,11 +160,11 @@ impl State for CupertinoSettingsState {
             }
             Err(why) => sections.push(section(Some(words::SETTINGS), None, vec![note(&why)])),
         }
-        if let Some(only) = page.only {
+        if let Some(only) = page.kind_page() {
             sections.push(page.set_otherwise(app, only));
         }
         let bar = CupertinoNavigationBar::new()
-            .leading(back_to_page_beneath(&page.library, beneath))
+            .leading(back_to_page_beneath(&page.library, &beneath))
             .middle(Text::new(title));
         CupertinoPageScaffold::new(under_bar(move |top| {
             ListView::new()
@@ -178,15 +189,67 @@ struct Page {
     library: Entity<Library>,
     of: SettingsOf,
     only: Option<Permission>,
+    /// The defaults, which an app's choice among answers names as its first: "Ask (default)".
+    defaults: Option<ShownSettings>,
     typed: Typed,
     writable: bool,
     state: Handle<CupertinoSettingsState>,
 }
 
 impl Page {
-    /// Whether the page shows the settings of `permission`: an app's page shows every kind's.
+    /// Whether the page shows the controls of `permission`: a kind's page, every app's or one
+    /// app's, those of its kind alone.
     fn shows(&self, permission: Permission) -> bool {
-        self.only.is_none_or(|only| only == permission)
+        self.only == Some(permission)
+    }
+
+    /// The kind whose default the page shows; none on an app's pages.
+    fn kind_page(&self) -> Option<Permission> {
+        self.only.filter(|_| self.of == SettingsOf::Global)
+    }
+
+    /// On an app's page, each kind of permission with what the app holds at the row's end, each
+    /// leading to the app's page for that kind; and, where any is set otherwise, the row that
+    /// resets them all.
+    fn app_permissions(&self, shown: &ShownSettings) -> Vec<WidgetRef> {
+        let SettingsOf::Program(id) = &self.of else {
+            return Vec::new();
+        };
+        let rows = app_permissions(shown)
+            .into_iter()
+            .map(|(permission, said)| {
+                link_row(
+                    &self.library,
+                    words::permission_name(permission),
+                    SettingsPage::AppPermission(id.clone(), permission),
+                )
+                .leading(permission_icon(permission))
+                .leading_size(PERMISSION_ICON_SIDE)
+                .additional_info(Text::new(said))
+                .into_widget()
+            })
+            .collect();
+        let mut sections = vec![section(Some(words::PERMISSIONS), None, rows)];
+        if any_set_otherwise(shown) {
+            let (library, of) = (self.library.clone(), self.of.clone());
+            let reset = Rc::new(move |app: &mut App| {
+                library.update(app, |library, cx| {
+                    for change in reset_permissions() {
+                        library.change_settings(&of, change, cx);
+                    }
+                });
+                Task::ready(())
+            });
+            let row = CupertinoListTile::new(tinted(words::RESET_PERMISSIONS))
+                .on_tap(reset)
+                .into_widget();
+            sections.push(section(
+                None,
+                Some(words::RESET_PERMISSIONS_DETAIL),
+                vec![row],
+            ));
+        }
+        sections
     }
 
     /// On a kind's page, the apps that set `permission` otherwise than its default, each with
@@ -240,8 +303,16 @@ impl Page {
         notifications_refused: bool,
     ) -> Vec<WidgetRef> {
         let mut sections = Vec::new();
-        if self.of != SettingsOf::Global {
+        let overview = self.only.is_none();
+        if overview {
             sections.push(self.machines(&shown.machines));
+            sections.extend(self.app_permissions(shown));
+            if notifications_refused {
+                sections.push(section(None, None, self.refused_by_system()));
+            }
+            if let Some(activity) = activity {
+                sections.push(last_days(activity, shown.record.value));
+            }
         }
         if self.shows(Permission::Network) {
             sections.extend(self.network(&shown.network));
@@ -270,9 +341,6 @@ impl Page {
         }
         if self.shows(Permission::ActivityRecord) {
             sections.push(self.record(&shown.record));
-            if let Some(activity) = activity {
-                sections.push(last_days(activity, shown.record.value));
-            }
         }
         if self.shows(Permission::Folders) {
             sections.push(self.folders(&shown.file_system));
@@ -284,7 +352,7 @@ impl Page {
             let refused = question == Question::Notifications && notifications_refused;
             sections.push(self.question(question, shown, refused));
         }
-        if self.of != SettingsOf::Global {
+        if overview {
             sections.extend(self.link_schemes(&shown.link_schemes));
             sections.extend(self.roles(&shown.roles));
             sections.extend(self.answered_without_asking(shown));
@@ -536,18 +604,33 @@ impl Page {
     /// does, with a button that opens the system's settings at it.
     fn question(&self, question: Question, settings: &ShownSettings, refused: bool) -> WidgetRef {
         let shown = settings.answers.get(question);
-        let mut choices = Vec::new();
-        if self.of == SettingsOf::Global {
-            choices.push((None, words::ASK));
+        // A choice is an answer, or, on an app's page, following the default: the first row,
+        // named with the default's answer, as a browser's site settings name it.
+        let global = self.of == SettingsOf::Global;
+        let default = self.defaults.as_ref().map_or(words::ASK, |defaults| {
+            words::answer_said(defaults.answers.get(question).value)
+        });
+        let defaulted = words::defaulted(default);
+        let mut choices: Vec<(Option<Option<Answer>>, &str)> = Vec::new();
+        if global {
+            choices.push((Some(None), words::ASK));
+        } else {
+            choices.push((None, &defaulted));
         }
-        choices.push((Some(Answer::Granted), words::ALLOW));
-        choices.push((Some(Answer::Denied), words::DONT_ALLOW));
+        choices.push((Some(Some(Answer::Granted)), words::ALLOW));
+        choices.push((Some(Some(Answer::Denied)), words::DONT_ALLOW));
         if simulatable(question) {
-            choices.push((Some(Answer::Simulated), words::SIMULATED));
+            choices.push((Some(Some(Answer::Simulated)), words::SIMULATED));
         }
         let answer = shown.value;
-        let mut tiles = self.checklist(&choices, answer, move |answer| {
-            SettingChange::Answer(question, answer)
+        let chosen = if global || !shown.follows_global {
+            Some(answer)
+        } else {
+            None
+        };
+        let mut tiles = self.checklist(&choices, chosen, move |choice| match choice {
+            Some(answer) => SettingChange::Answer(question, answer),
+            None => SettingChange::FollowGlobal(Which::Answer(question)),
         });
         if answer == Some(Answer::Simulated) {
             tiles.extend(self.simulated(question, &settings.simulated_microphone));
@@ -556,8 +639,7 @@ impl Page {
             tiles.extend(self.refused_by_system());
         }
         let name = words::question_name(question);
-        let which = Which::Answer(question);
-        self.setting(Some(name), shown.follows_global, which, tiles)
+        section(Some(name), None, tiles)
     }
 
     /// What `question`'s device of WaOS's own is, and for the microphone what it records, `sound`
@@ -579,15 +661,7 @@ impl Page {
                     SettingChange::SimulatedMicrophone,
                 ));
                 if self.of != SettingsOf::Global && !sound.follows_global {
-                    let follow = self.on(SettingChange::FollowGlobal(Which::SimulatedMicrophone));
-                    tiles.push(
-                        CupertinoListTile::new(Text::new(""))
-                            .trailing(CupertinoButton::new(
-                                Text::new(words::USE_GLOBAL).into_widget(),
-                                Some(follow),
-                            ))
-                            .into_widget(),
-                    );
+                    tiles.push(self.use_the_default(Which::SimulatedMicrophone));
                 }
                 tiles
             }
@@ -633,16 +707,20 @@ impl Page {
         if follows_global {
             return section(header, Some(words::FOLLOWS_GLOBAL), tiles);
         }
-        let follow = self.on(SettingChange::FollowGlobal(which));
-        tiles.push(
-            CupertinoListTile::new(Text::new(""))
-                .trailing(CupertinoButton::new(
-                    Text::new(words::USE_GLOBAL).into_widget(),
-                    Some(follow),
-                ))
-                .into_widget(),
-        );
+        tiles.push(self.use_the_default(which));
         section(header, None, tiles)
+    }
+
+    /// The row that has the page's app follow the default for `which` again, in the tint
+    /// colour, as iOS's rows that act are.
+    fn use_the_default(&self, which: Which) -> WidgetRef {
+        let follow = self.on(SettingChange::FollowGlobal(which));
+        CupertinoListTile::new(tinted(words::USE_GLOBAL))
+            .on_tap(Rc::new(move |app: &mut App| {
+                follow.call(app);
+                Task::ready(())
+            }))
+            .into_widget()
     }
 
     /// A row naming a setting that is `on` or off, its switch at the trailing side; a tap on the
@@ -831,6 +909,18 @@ fn section(title: Option<&str>, footer: Option<&str>, tiles: Vec<WidgetRef>) -> 
         Some(footer) => section.footer(footnote(footer)).into_widget(),
         None => section.into_widget(),
     }
+}
+
+/// The words of a row that acts, in the tint colour, as iOS's rows that act are.
+fn tinted(text: &str) -> WidgetRef {
+    let text = text.to_owned();
+    Builder::new(move |app, context| {
+        let color = resolved(CupertinoColors::ACTIVE_BLUE, app, context);
+        Text::new(text.clone())
+            .style(waft::TextStyle::new().color(color))
+            .into_widget()
+    })
+    .into_widget()
 }
 
 /// The checkmark on the row chosen, in the tint colour.

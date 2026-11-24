@@ -160,6 +160,16 @@ impl LibraryPages {
                 }
                 .into_widget()
             }
+            LibraryPage::Settings(SettingsPage::AppPermission(id, only)) => {
+                let of = SettingsOf::Program(id);
+                FluentSettings {
+                    program_name: program_name(&library, &of, app),
+                    library,
+                    of,
+                    only: Some(only),
+                }
+                .into_widget()
+            }
         }
     }
 }

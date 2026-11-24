@@ -25,6 +25,7 @@ use crate::state::library::test_desktop::{DesktopKind, LibraryDesktop};
 use crate::state::library::test_server::Server;
 use crate::state::library::{LibraryPage, SettingsPage};
 use waos_package::{Category, Index, ListedProgram};
+use waos_store::{Answer, Question};
 
 use crate::ui::library::test_steps::{
     adds_source, in_launcher_of, installs, installs_showing, on_phone, started_yesterday,
@@ -288,12 +289,23 @@ fn walks_the_library(layout: &str, (mut desktop, view): (LibraryDesktop, ViewId)
         LibraryPage::Settings(SettingsPage::Permission(Permission::Network)),
     );
     scenes.draw(&mut desktop, "settings-network");
-    let program = first.parse().expect("a program's id");
+    let program: waos_package::ProgramId = first.parse().expect("a program's id");
+    // Its camera set otherwise, so its page says one kind is its own.
+    desktop.update(|library, cx| {
+        let of = SettingsOf::Program(program.clone());
+        let denied = SettingChange::Answer(Question::Camera, Some(Answer::Denied));
+        library.change_settings(&of, denied, cx);
+    });
     shows(
         &mut desktop,
-        LibraryPage::Settings(SettingsPage::App(program)),
+        LibraryPage::Settings(SettingsPage::App(program.clone())),
     );
     scenes.draw(&mut desktop, "program-settings");
+    shows(
+        &mut desktop,
+        LibraryPage::Settings(SettingsPage::AppPermission(program, Permission::Camera)),
+    );
+    scenes.draw(&mut desktop, "program-camera");
 
     shows(&mut desktop, LibraryPage::Home);
     for (id, name) in MORE {

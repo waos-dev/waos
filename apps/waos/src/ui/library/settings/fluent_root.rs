@@ -166,7 +166,7 @@ pub(crate) fn heading(text: &str, resources: &ThemeResources) -> WidgetRef {
 }
 
 /// The symbol of `permission`, as Windows's Settings marks each of its privacy pages.
-fn permission_symbol(permission: Permission) -> FluentSymbol {
+pub(crate) fn permission_symbol(permission: Permission) -> FluentSymbol {
     match permission {
         Permission::Network => FluentSymbol::Globe,
         Permission::LocalNetwork => FluentSymbol::Desktop,
@@ -180,7 +180,7 @@ fn permission_symbol(permission: Permission) -> FluentSymbol {
 }
 
 /// `symbol` as a card's mark, in the room an app's icon takes.
-fn symbol(symbol: FluentSymbol, resources: &ThemeResources) -> WidgetRef {
+pub(crate) fn symbol(symbol: FluentSymbol, resources: &ThemeResources) -> WidgetRef {
     let glyph = FontIcon::symbol(symbol)
         .font_size(20.0)
         .foreground(resources.text_fill_color_primary);

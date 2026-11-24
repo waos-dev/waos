@@ -17,7 +17,7 @@ use waft::App;
 use waos_package::ProgramId;
 
 use crate::logic::permissions::Permission;
-use crate::logic::setting_changes::SettingsOf;
+use crate::logic::setting_changes::{SettingChange, SettingsOf, ShownSettings};
 use crate::state::library::Library;
 use crate::ui::library::words;
 
@@ -75,6 +75,40 @@ pub(crate) fn set_otherwise(library: &Library, permission: Permission) -> Vec<(L
                 (listed, value)
             })
         })
+        .collect()
+}
+
+/// Each kind of permission as an app's page lists it: what the app holds, said with
+/// "(default)" while it follows the default, as a browser says a site's permission.
+pub(crate) fn app_permissions(shown: &ShownSettings) -> Vec<(Permission, String)> {
+    Permission::ALL
+        .iter()
+        .map(|permission| {
+            let value = words::permission_value(*permission, shown);
+            let said = if permission.set_its_own(shown) {
+                value
+            } else {
+                words::defaulted(&value)
+            };
+            (*permission, said)
+        })
+        .collect()
+}
+
+/// Whether any kind of permission of the app whose settings are `shown` is set otherwise than
+/// its default, so the app's page offers to reset them.
+pub(crate) fn any_set_otherwise(shown: &ShownSettings) -> bool {
+    Permission::ALL
+        .iter()
+        .any(|permission| permission.set_its_own(shown))
+}
+
+/// The changes that put every kind of permission of an app back on its default.
+pub(crate) fn reset_permissions() -> Vec<SettingChange> {
+    Permission::ALL
+        .iter()
+        .flat_map(|permission| permission.covers())
+        .map(|which| SettingChange::FollowGlobal(*which))
         .collect()
 }
 
