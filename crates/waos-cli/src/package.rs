@@ -1,16 +1,22 @@
 //! Packaging a program: its release component, signed with the user's signing key, written to
-//! `target/waos/<id>-<version>.wapk` and listed in `target/waos/index.json`, so `target/waos`
-//! holds what a package source serves, the index with its packages beside it.
+//! `target/waos/<id>-<version>.wapk` and listed in `target/waos/index.json` with what a store
+//! shows of it, its icon and screenshots copied beside the index as `<id>-<version>.png` and
+//! `<id>-<version>-<n>.png`, so `target/waos` holds what a package source serves: the index with
+//! its packages and their pictures beside it.
 //!
-//! The invariants a later editor will break: the index lists a package by its file name, beside
-//! it, with the SHA-256 of the file as written; and listing a program at a version the index
-//! lists already replaces that listing and keeps every other.
+//! The invariants a later editor will break: the index lists a package, and each picture, by its
+//! file name, beside it, the package with the SHA-256 of the file as written; listing a program
+//! at a version the index lists already replaces that listing and keeps every other, and what
+//! the source says of itself, its name and what it puts forward.
 
 use std::fs::{self, File};
 use std::io::{ErrorKind, Read};
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
+use jiff::Timestamp;
+use jiff::civil::Date;
+use jiff::tz::TimeZone;
 use sha2::{Digest, Sha256};
 use waos_package::{Index, ListedProgram, Manifest, ProgramKind};
 
@@ -48,7 +54,15 @@ pub fn package(name: Option<&str>, features: &Features) -> Result<PackagedProgra
     waos_package::write(&written, &manifest, &built.component, &waos.icon, &key)
         .with_context(|| format!("writing {}", written.display()))?;
     let index = folder.join(INDEX);
-    list_in_index(&index, &manifest, &written)?;
+    let shown = Shown {
+        icon: Some(waos.icon),
+        summary: waos.summary.or_else(|| package.description.clone()),
+        description: waos.description,
+        publisher: waos.publisher,
+        screenshots: waos.screenshots,
+        released: Some(today()),
+    };
+    list_in_index(&index, &manifest, &written, &shown)?;
     Ok(PackagedProgram {
         package: written,
         index,
@@ -85,18 +99,88 @@ fn warn_of_icon_breaches(icon: &Path) -> Result<()> {
     Ok(())
 }
 
+/// What a store shows of a program before it is downloaded, as its `[package.metadata.waos]`
+/// gives it, each where it does.
+#[derive(Debug, Default)]
+struct Shown {
+    /// Its icon's PNG.
+    icon: Option<PathBuf>,
+    summary: Option<String>,
+    /// The text file of its description.
+    description: Option<PathBuf>,
+    publisher: Option<String>,
+    /// Its screenshots, PNGs.
+    screenshots: Vec<PathBuf>,
+    released: Option<Date>,
+}
+
 /// Lists the package at `package`, whose manifest is `manifest`, in the index at `index`, which
-/// is made when there is none.
-fn list_in_index(index: &Path, manifest: &Manifest, package: &Path) -> Result<()> {
+/// is made when there is none, with what a store shows of it, `shown`, its pictures copied beside
+/// the index.
+fn list_in_index(index: &Path, manifest: &Manifest, package: &Path, shown: &Shown) -> Result<()> {
     let mut listing = read_index(index)?;
+    let folder = index.parent().expect("an index is in a folder");
+    let pictures = format!("{}-{}", manifest.id(), manifest.version());
+    let icon = shown
+        .icon
+        .as_deref()
+        .map(|icon| picture_beside_the_index(icon, folder, &format!("{pictures}.png")))
+        .transpose()?;
+    let screenshots = shown
+        .screenshots
+        .iter()
+        .enumerate()
+        .map(|(nth, screenshot)| {
+            let name = format!("{pictures}-{}.png", nth + 1);
+            picture_beside_the_index(screenshot, folder, &name)
+        })
+        .collect::<Result<Vec<String>>>()?;
+    let description = shown
+        .description
+        .as_deref()
+        .map(|text| fs::read_to_string(text).with_context(|| format!("reading {}", text.display())))
+        .transpose()?
+        .map(|text| text.trim().to_owned())
+        .filter(|text| !text.is_empty());
     listing.list(ListedProgram {
-        id: manifest.id().clone(),
-        name: manifest.name().to_owned(),
-        version: manifest.version().clone(),
-        package: file_name(package),
-        sha256: sha256_of_file(package)?,
+        icon,
+        summary: shown.summary.clone(),
+        description,
+        category: manifest.category(),
+        publisher: shown.publisher.clone(),
+        released: shown.released,
+        screenshots,
+        ..ListedProgram::new(
+            manifest.id().clone(),
+            manifest.name(),
+            manifest.version().clone(),
+            file_name(package),
+            sha256_of_file(package)?,
+        )
     });
     fs::write(index, listing.to_json()).with_context(|| format!("writing {}", index.display()))
+}
+
+/// Copies the PNG at `picture` into `folder` as `name`, and answers `name`, as the index lists
+/// it. A picture that is no PNG by its name is refused: a store shows PNGs, as an icon is.
+fn picture_beside_the_index(picture: &Path, folder: &Path, name: &str) -> Result<String> {
+    let is_png = picture
+        .extension()
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("png"));
+    if !is_png {
+        bail!(
+            "{} is not a PNG, which a store's pictures are",
+            picture.display()
+        );
+    }
+    fs::copy(picture, folder.join(name))
+        .with_context(|| format!("copying {} beside the index", picture.display()))?;
+    Ok(name.to_owned())
+}
+
+/// Today, as a release is dated: the day in UTC.
+fn today() -> Date {
+    Timestamp::now().to_zoned(TimeZone::UTC).date()
 }
 
 /// The index at `path`; an empty one when there is none.
@@ -168,7 +252,13 @@ mod tests {
         let scratch = tempfile::tempdir().unwrap();
         let index = scratch.path().join(INDEX);
         let package = package_file(scratch.path(), "dev.example.triangle-1.0.0.wapk", b"one");
-        list_in_index(&index, &manifest("dev.example.triangle", "1.0.0"), &package).unwrap();
+        list_in_index(
+            &index,
+            &manifest("dev.example.triangle", "1.0.0"),
+            &package,
+            &Shown::default(),
+        )
+        .unwrap();
         assert_eq!(
             listings(&index),
             [(
@@ -195,7 +285,7 @@ mod tests {
         for (id, version, bytes) in listed {
             let name = format!("{id}-{version}.wapk");
             let package = package_file(folder, &name, bytes.as_bytes());
-            list_in_index(&index, &manifest(id, version), &package).unwrap();
+            list_in_index(&index, &manifest(id, version), &package, &Shown::default()).unwrap();
         }
         let again = hex::encode(Sha256::digest(b"again"));
         let kept: Vec<(String, String)> = listings(&index)
@@ -219,13 +309,102 @@ mod tests {
     }
 
     #[test]
+    fn a_listing_says_what_a_store_shows_with_its_pictures_beside_the_index() {
+        let scratch = tempfile::tempdir().unwrap();
+        let folder = scratch.path();
+        let index = folder.join(INDEX);
+        let source = folder.join("source");
+        fs::create_dir(&source).unwrap();
+        for (file, bytes) in [
+            ("icon.png", "icon"),
+            ("one.png", "first"),
+            ("about.txt", "\nA triangle.\n\nNothing else.\n"),
+        ] {
+            fs::write(source.join(file), bytes).unwrap();
+        }
+        let package = package_file(folder, "dev.example.triangle-1.0.0.wapk", b"one");
+        let shown = Shown {
+            icon: Some(source.join("icon.png")),
+            summary: Some("One triangle".to_owned()),
+            description: Some(source.join("about.txt")),
+            publisher: Some("Example".to_owned()),
+            screenshots: vec![source.join("one.png")],
+            released: Some("2026-11-23".parse().unwrap()),
+        };
+        let manifest = manifest("dev.example.triangle", "1.0.0")
+            .with_category(Some(waos_package::Category::GraphicsDesign));
+        list_in_index(&index, &manifest, &package, &shown).unwrap();
+
+        let listed = Index::from_json(&fs::read(&index).unwrap())
+            .unwrap()
+            .programs
+            .remove(0);
+        assert_eq!(
+            listed.icon.as_deref(),
+            Some("dev.example.triangle-1.0.0.png")
+        );
+        assert_eq!(listed.screenshots, ["dev.example.triangle-1.0.0-1.png"]);
+        assert_eq!(
+            fs::read(folder.join("dev.example.triangle-1.0.0.png")).unwrap(),
+            b"icon"
+        );
+        assert_eq!(
+            fs::read(folder.join("dev.example.triangle-1.0.0-1.png")).unwrap(),
+            b"first"
+        );
+        assert_eq!(
+            listed.description.as_deref(),
+            Some("A triangle.\n\nNothing else.")
+        );
+        assert_eq!(listed.summary.as_deref(), Some("One triangle"));
+        assert_eq!(
+            listed.category,
+            Some(waos_package::Category::GraphicsDesign)
+        );
+        assert_eq!(listed.publisher.as_deref(), Some("Example"));
+        assert_eq!(listed.released, Some("2026-11-23".parse().unwrap()));
+    }
+
+    #[test]
+    fn a_screenshot_that_is_no_png_is_refused_and_what_the_source_says_of_itself_is_kept() {
+        let scratch = tempfile::tempdir().unwrap();
+        let folder = scratch.path();
+        let index = folder.join(INDEX);
+        fs::write(
+            &index,
+            r#"{"name": "Example Apps", "featured": ["dev.example.triangle"], "programs": []}"#,
+        )
+        .unwrap();
+        let package = package_file(folder, "dev.example.triangle-1.0.0.wapk", b"one");
+        fs::write(folder.join("shot.jpg"), "jpeg").unwrap();
+        let with_a_jpeg = Shown {
+            screenshots: vec![folder.join("shot.jpg")],
+            ..Shown::default()
+        };
+        let manifest = manifest("dev.example.triangle", "1.0.0");
+        let refusal = list_in_index(&index, &manifest, &package, &with_a_jpeg).unwrap_err();
+        assert!(refusal.to_string().contains("is not a PNG"), "{refusal}");
+
+        list_in_index(&index, &manifest, &package, &Shown::default()).unwrap();
+        let listing = Index::from_json(&fs::read(&index).unwrap()).unwrap();
+        assert_eq!(listing.name.as_deref(), Some("Example Apps"));
+        assert_eq!(listing.featured.len(), 1);
+        assert_eq!(listing.programs.len(), 1);
+    }
+
+    #[test]
     fn an_index_that_cannot_be_read_is_left_as_it_is() {
         let scratch = tempfile::tempdir().unwrap();
         let index = scratch.path().join(INDEX);
         fs::write(&index, "not json").unwrap();
         let package = package_file(scratch.path(), "dev.example.triangle-1.0.0.wapk", b"one");
-        let error = list_in_index(&index, &manifest("dev.example.triangle", "1.0.0"), &package)
-            .unwrap_err();
+        let error = list_in_index(
+            &index,
+            &manifest("dev.example.triangle", "1.0.0"),
+            &package,
+            &Shown::default(),
+        )
+        .unwrap_err();
         assert!(error.to_string().contains("not an index"), "{error}");
         assert_eq!(fs::read_to_string(&index).unwrap(), "not json");
     }

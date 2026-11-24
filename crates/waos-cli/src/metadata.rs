@@ -1,8 +1,9 @@
 //! A program's `[package.metadata.waos]`: what packaging it needs that Cargo's own fields do not
 //! say, the program's id, the name people see, its icon, whether it is an app or a tool, an app
-//! unless it says `kind = "tool"`, and what it is for, where it says a `category`; an install from
-//! its source needs the id and the kind alone, and takes the name, the icon and the category
-//! where the table gives them.
+//! unless it says `kind = "tool"`, what it is for, where it says a `category`, and what a store
+//! shows of it, where it says them: a line, a description's text file, who publishes it and its
+//! screenshots. An install from its source needs the id and the kind alone, and takes the name,
+//! the icon and the category where the table gives them.
 //!
 //! ```toml
 //! [package.metadata.waos]
@@ -10,6 +11,10 @@
 //! name = "Triangle"
 //! icon = "icon.png"
 //! category = "graphics-design"
+//! summary = "One triangle, drawn well"
+//! description = "store/description.txt"
+//! publisher = "Example"
+//! screenshots = ["store/triangle-1.png"]
 //! ```
 //!
 //! The invariant: the id is checked here, before anything is built, since every version of a
@@ -35,6 +40,14 @@ pub struct WaosMetadata {
     pub kind: ProgramKind,
     /// What the app is for, where the table says.
     pub category: Option<Category>,
+    /// What it is, in a line, where the table says; Cargo's `description` otherwise.
+    pub summary: Option<String>,
+    /// The text file that says what it is at length, where the table names one.
+    pub description: Option<PathBuf>,
+    /// Who publishes it, as a store names them, where the table says.
+    pub publisher: Option<String>,
+    /// Its screenshots, PNGs, in the order a store shows them.
+    pub screenshots: Vec<PathBuf>,
 }
 
 /// What an install from the program's source needs of `[package.metadata.waos]`: which program it
@@ -58,6 +71,11 @@ struct Fields {
     icon: PathBuf,
     kind: Option<String>,
     category: Option<String>,
+    summary: Option<String>,
+    description: Option<PathBuf>,
+    publisher: Option<String>,
+    #[serde(default)]
+    screenshots: Vec<PathBuf>,
 }
 
 /// What an install needs of the table.
@@ -125,6 +143,14 @@ impl WaosMetadata {
             // A category mistyped is refused here, with the categories there are, where a
             // package read later would take it for one a later version knows.
             category: fields.category.as_deref().map(str::parse).transpose()?,
+            summary: fields.summary,
+            description: fields.description.map(|text| folder.join(text)),
+            publisher: fields.publisher,
+            screenshots: fields
+                .screenshots
+                .into_iter()
+                .map(|screenshot| folder.join(screenshot))
+                .collect(),
         })
     }
 }
@@ -149,6 +175,27 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+
+    #[test]
+    fn the_table_says_what_a_store_shows_its_files_beside_the_manifest() {
+        let table = json!({"id": "dev.example.triangle", "name": "Triangle", "icon": "icon.png",
+            "summary": "One triangle", "description": "store/description.txt",
+            "publisher": "Example", "screenshots": ["store/one.png", "store/two.png"]});
+        let metadata = WaosMetadata::from_table(&table, Path::new("/programs/triangle")).unwrap();
+        assert_eq!(metadata.summary.as_deref(), Some("One triangle"));
+        assert_eq!(
+            metadata.description.as_deref(),
+            Some(Path::new("/programs/triangle/store/description.txt"))
+        );
+        assert_eq!(metadata.publisher.as_deref(), Some("Example"));
+        assert_eq!(
+            metadata.screenshots,
+            [
+                Path::new("/programs/triangle/store/one.png"),
+                Path::new("/programs/triangle/store/two.png")
+            ]
+        );
+    }
 
     #[test]
     fn the_table_says_what_the_app_is_for_and_a_category_mistyped_is_refused() {

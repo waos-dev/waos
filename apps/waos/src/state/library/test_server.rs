@@ -48,13 +48,14 @@ impl Server {
         let bytes = std::fs::read(package).unwrap();
         let file_name = package.file_name().unwrap().to_string_lossy().into_owned();
         let index = Index {
-            programs: vec![ListedProgram {
-                id: id.parse().unwrap(),
-                name: "Triangle".to_owned(),
-                version: version.parse().unwrap(),
-                package: file_name.clone(),
-                sha256: Sha256::digest(&bytes).into(),
-            }],
+            programs: vec![ListedProgram::new(
+                id.parse().unwrap(),
+                "Triangle",
+                version.parse().unwrap(),
+                file_name.clone(),
+                Sha256::digest(&bytes).into(),
+            )],
+            ..Index::default()
         };
         let mut files = self.files.lock().unwrap();
         files.insert(format!("waos/{file_name}"), bytes);

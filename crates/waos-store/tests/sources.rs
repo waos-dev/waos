@@ -72,6 +72,7 @@ async fn a_source_is_read_from_its_index() {
     let package = write_package(scratch.path(), TRIANGLE, "1.2.0", &key);
     let index = Index {
         programs: vec![listing(&package, TRIANGLE, "1.2.0")],
+        ..Index::default()
     };
     let server = Server::serve(vec![(
         "waos/index.json".to_owned(),
