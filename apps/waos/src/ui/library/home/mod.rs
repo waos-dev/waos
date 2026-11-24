@@ -12,6 +12,7 @@
 
 pub(crate) mod cupertino;
 pub(crate) mod fluent;
+pub(crate) mod icon_grid;
 pub(crate) mod motion;
 
 use std::sync::Arc;

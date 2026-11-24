@@ -720,7 +720,7 @@ impl LibraryDesktop {
     }
 
     /// Where the middle of each label showing `text` is, in its view.
-    fn every(&self, text: &str) -> Vec<Offset> {
+    pub(crate) fn every(&self, text: &str) -> Vec<Offset> {
         let mut app = self.shell.app();
         onstage_elements(&mut app)
             .into_iter()

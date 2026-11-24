@@ -9,28 +9,18 @@
 //!
 //! What it shows is the library's, read as it builds; it keeps nothing of its own.
 
-use std::any::Any;
-use std::collections::{HashMap, HashSet};
-use std::rc::Rc;
-
 use waft::{
-    App, BorderRadiusGeometry, BoxDecoration, BuildContext, Center, Color, ColoredBox, Column,
-    CrossAxisAlignment, CustomScrollView, DecoratedBox, EdgeInsetsGeometry, Entity, Expanded,
-    GlobalKey, Handle, IntoWidget, KeyedSubtree, LayoutBuilder, Listener, MainAxisSize, Padding,
-    Row, SizedBox, SliverList, SliverPadding, SliverPersistentHeader,
-    SliverPersistentHeaderDelegate, SliverPersistentHeaderDelegateRef, SliverToBoxAdapter, State,
-    StateData, StatefulWidget, StatelessWidget, Text, TextAlign, WidgetRef,
+    App, BorderRadiusGeometry, BoxDecoration, BuildContext, Center, Column, CrossAxisAlignment,
+    DecoratedBox, EdgeInsetsGeometry, Entity, Expanded, IntoWidget, Listener, MainAxisSize,
+    Padding, Row, SizedBox, StatelessWidget, Text, TextAlign, WidgetRef,
 };
 use waft_winui::{
     Button, ButtonStyle, FluentSymbol, FontIcon, InfoBadgeStyle, TextBlockStyle, ThemeResources,
     ThemeScope,
 };
 
-use super::motion::SlidesIntoPlace;
-use super::{
-    HomeEntry, IconTile, TileLook, badge_dot, grid_rows, home_entries, often_used_entries,
-};
-use crate::logic::icon_rows::{IconPlace, first_row};
+use super::icon_grid::{GridLook, Highlighted, IconGrid, SectionLineKind};
+use super::{HomeEntry, IconTile, TileLook, badge_dot, home_entries, often_used_entries};
 use crate::logic::setting_changes::SettingsOf;
 use crate::state::library::{Library, LibraryPage};
 use crate::state::recordings::Recordings;
@@ -45,8 +35,6 @@ use waos_package::ProgramId;
 pub(crate) const MARGIN: f64 = 24.0;
 /// The room above the grid's first row, which scrolls away with it.
 const GRID_TOP: f64 = 12.0;
-/// How thick the line between the home's sections is.
-const SECTION_LINE: f64 = 1.0;
 /// How round the highlight behind the icon the arrow keys are on is: WinUI's control corners.
 const HIGHLIGHT_CORNER_RADIUS: f64 = 4.0;
 /// The size of the symbol over a home with nothing installed.
@@ -119,257 +107,6 @@ impl FluentHome {
     }
 }
 
-/// The hairline between the apps used often and all of them, inset as the icons are.
-#[derive(Debug)]
-pub(crate) struct SectionLine {
-    color: Color,
-}
-
-impl StatelessWidget for SectionLine {
-    fn build(&self, _app: &mut App, _context: BuildContext) -> WidgetRef {
-        Padding::new(EdgeInsetsGeometry::from_ltrb(MARGIN, 0.0, MARGIN, 0.0))
-            .child(ColoredBox::new(self.color).child(SizedBox::expand()))
-            .into_widget()
-    }
-}
-
-/// The [`SectionLine`] as a header of the home's scrolling: it scrolls up with the icons and
-/// stays at the top of the grid once there, the icons passing beneath it.
-#[derive(Debug)]
-struct PinnedSectionLine {
-    color: Color,
-}
-
-impl SliverPersistentHeaderDelegate for PinnedSectionLine {
-    fn build(
-        &self,
-        _app: &mut App,
-        _context: BuildContext,
-        _shrink_offset: f64,
-        _overlaps_content: bool,
-    ) -> WidgetRef {
-        SectionLine { color: self.color }.into_widget()
-    }
-
-    fn min_extent(&self) -> f64 {
-        SECTION_LINE
-    }
-
-    fn max_extent(&self) -> f64 {
-        SECTION_LINE
-    }
-
-    fn should_rebuild(&self, old: &dyn SliverPersistentHeaderDelegate) -> bool {
-        old.as_any()
-            .downcast_ref::<PinnedSectionLine>()
-            .is_none_or(|old| old.color != self.color)
-    }
-
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-}
-
-/// The home's icons, scrolling: the installed `apps`, in as many columns as the width holds,
-/// under a line that stays at the top as they scroll beneath it; and over the line, where the
-/// apps fill more than a row, a row of those `often_used`, which scrolls away, as macOS's Apps
-/// shows its apps. Each icon slides to its place where the icons change (`motion`).
-#[derive(Debug)]
-struct IconGrid {
-    /// Each installed app's icon, by its id, in the home's order.
-    apps: Vec<(ProgramId, WidgetRef)>,
-    /// The icons of the apps used often, the most used first.
-    often_used: Vec<(ProgramId, WidgetRef)>,
-    highlighted: Option<Highlighted>,
-    line_color: Color,
-}
-
-/// Which of the home's two sections an icon is in: an app used often has one in each.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-enum Section {
-    OftenUsed,
-    Apps,
-}
-
-impl StatefulWidget for IconGrid {
-    type State = IconGridState;
-
-    fn create_state(&self) -> IconGridState {
-        IconGridState {
-            state: StateData::new(),
-            keys: HashMap::new(),
-            shown_before: false,
-        }
-    }
-}
-
-/// The key each icon's motion is kept under, so an icon moving to another row is the same icon.
-struct IconGridState {
-    state: StateData<IconGrid>,
-    keys: HashMap<(Section, ProgramId), GlobalKey>,
-    /// Whether the grid has shown icons before: only an icon that comes after fades in.
-    shown_before: bool,
-}
-
-/// An icon of the grid with what its motion needs: the key it is kept under, and whether it was
-/// not on the grid before.
-#[derive(Clone)]
-struct KeyedIcon {
-    key: GlobalKey,
-    appears: bool,
-    icon: WidgetRef,
-}
-
-impl IconGridState {
-    /// `icons` of `section`, each with its key, made for one the grid did not have.
-    fn keyed(
-        self: Handle<Self>,
-        app: &mut App,
-        section: Section,
-        icons: &[(ProgramId, WidgetRef)],
-    ) -> Vec<KeyedIcon> {
-        let state = app.get_mut(self);
-        let shown_before = state.shown_before;
-        icons
-            .iter()
-            .map(|(id, icon)| {
-                let mut appears = false;
-                let key = state.keys.entry((section, id.clone())).or_insert_with(|| {
-                    appears = shown_before;
-                    GlobalKey::new()
-                });
-                KeyedIcon {
-                    key: key.clone(),
-                    appears,
-                    icon: icon.clone(),
-                }
-            })
-            .collect()
-    }
-
-    /// Lets go of the keys of icons the grid no longer shows, so one that comes back fades in.
-    fn forget_icons_gone(self: Handle<Self>, app: &mut App) {
-        let widget = self.widget(app);
-        let shown: HashSet<(Section, ProgramId)> = widget
-            .apps
-            .iter()
-            .map(|(id, _)| (Section::Apps, id.clone()))
-            .chain(
-                widget
-                    .often_used
-                    .iter()
-                    .map(|(id, _)| (Section::OftenUsed, id.clone())),
-            )
-            .collect();
-        let state = app.get_mut(self);
-        state.keys.retain(|icon, _| shown.contains(icon));
-        state.shown_before = true;
-    }
-}
-
-impl State for IconGridState {
-    type Widget = IconGrid;
-    waft_widgets::state_accessors!();
-
-    fn build(self: Handle<Self>, app: &mut App, _context: BuildContext) -> WidgetRef {
-        let (apps, often_used, highlighted, line_color) = {
-            let widget = self.widget(app);
-            (
-                widget.apps.clone(),
-                widget.often_used.clone(),
-                widget.highlighted.clone(),
-                widget.line_color,
-            )
-        };
-        let apps = self.keyed(app, Section::Apps, &apps);
-        let often_used = self.keyed(app, Section::OftenUsed, &often_used);
-        self.forget_icons_gone(app);
-        let line: SliverPersistentHeaderDelegateRef =
-            Rc::new(PinnedSectionLine { color: line_color });
-        LayoutBuilder::new(move |_app, _context, constraints| {
-            let side = MARGIN - TILE_PADDING[0];
-            let columns = columns_in(constraints.max_width);
-            let cell_width = (constraints.max_width - 2.0 * side) / columns as f64;
-            let first_row = first_row(&often_used, apps.len(), columns);
-            let rows_over_the_grid = usize::from(!first_row.is_empty());
-            // Each icon in its place, highlighted where the arrow keys are on it, sliding there
-            // where its place changed.
-            let placed = |icons: &[KeyedIcon], rows_above: usize| -> Vec<WidgetRef> {
-                icons
-                    .iter()
-                    .enumerate()
-                    .map(|(index, keyed)| {
-                        let place = IconPlace {
-                            row: index / columns,
-                            column: index % columns,
-                        };
-                        let shown = IconPlace {
-                            row: place.row + rows_above,
-                            ..place
-                        };
-                        let icon = match &highlighted {
-                            Some(Highlighted { place, key }) if *place == shown => {
-                                KeyedSubtree::new(IconHighlight {
-                                    child: keyed.icon.clone(),
-                                })
-                                .key(key.clone().into())
-                                .into_widget()
-                            }
-                            _ => keyed.icon.clone(),
-                        };
-                        SlidesIntoPlace {
-                            key: keyed.key.clone().into(),
-                            place,
-                            cell_width,
-                            row_gap: ROW_GAP,
-                            appears: keyed.appears,
-                            child: icon,
-                        }
-                        .into_widget()
-                    })
-                    .collect()
-            };
-            let mut slivers = Vec::new();
-            if !first_row.is_empty() {
-                let row =
-                    Column::new().children(grid_rows(placed(&first_row, 0), columns, ROW_GAP));
-                slivers.push(
-                    SliverPadding::new(EdgeInsetsGeometry::from_ltrb(
-                        side, GRID_TOP, side, GRID_TOP,
-                    ))
-                    .sliver(SliverToBoxAdapter::new().child(row))
-                    .into_widget(),
-                );
-            }
-            slivers.push(
-                SliverPersistentHeader::new(Rc::clone(&line))
-                    .pinned(true)
-                    .into_widget(),
-            );
-            // The room above the first row is the list's own, so the icons scroll up to the line
-            // with no gap, where a gap outside the list would cut them short of it.
-            slivers.push(
-                SliverPadding::new(EdgeInsetsGeometry::from_ltrb(side, GRID_TOP, side, MARGIN))
-                    .sliver(SliverList::list(grid_rows(
-                        placed(&apps, rows_over_the_grid),
-                        columns,
-                        ROW_GAP,
-                    )))
-                    .into_widget(),
-            );
-            // An icon answers a press, as a button does, and shows nothing for the pointer
-            // resting over it: WinUI's way to restyle a subtree's buttons.
-            ThemeScope::overriding(CustomScrollView::new().slivers(slivers))
-                .any(|resources| {
-                    resources.subtle_button_background_pointer_over =
-                        resources.subtle_button_background;
-                })
-                .into_widget()
-        })
-        .into_widget()
-    }
-}
-
 /// The home under its top row: who records, then the installed programs' icons, or one line where
 /// there are none to show.
 #[derive(Debug)]
@@ -378,14 +115,6 @@ pub(crate) struct FluentHomeBody {
     pub(crate) recordings: Entity<Recordings>,
     /// The icon the arrow keys are on, where whoever shows the body moves a highlight by them.
     pub(crate) highlighted: Option<Highlighted>,
-}
-
-/// The icon the arrow keys are on: its place among the home's rows, and the key its highlight
-/// is built under, by which whoever moved it scrolls it into sight.
-#[derive(Clone, Debug)]
-pub(crate) struct Highlighted {
-    pub(crate) place: IconPlace,
-    pub(crate) key: GlobalKey,
 }
 
 /// What shows that the arrow keys are on an icon: Fluent's subtle fill behind it, as the item
@@ -475,13 +204,32 @@ impl FluentHomeBody {
                 .map(|entry| (entry.id.clone(), self.tile(entry, &look, badge_color)))
                 .collect()
         };
-        IconGrid {
+        let grid = IconGrid {
             apps: tiles_of(entries),
             often_used: tiles_of(often_used),
+            over: None,
             highlighted: self.highlighted.clone(),
-            line_color: resources.divider_stroke_color_default,
-        }
-        .into_widget()
+            look: GridLook {
+                columns: columns_in,
+                side: MARGIN - TILE_PADDING[0],
+                line_side: MARGIN,
+                under_a_bar: 0.0,
+                section_top: GRID_TOP,
+                row_gap: ROW_GAP,
+                bottom: MARGIN,
+                line: SectionLineKind::Stays,
+                line_color: resources.divider_stroke_color_default,
+                highlight: Some(|icon| IconHighlight { child: icon }.into_widget()),
+            },
+        };
+        // An icon answers a press, as a button does, and shows nothing for the pointer resting
+        // over it: WinUI's way to restyle a subtree's buttons.
+        ThemeScope::overriding(grid)
+            .any(|resources| {
+                resources.subtle_button_background_pointer_over =
+                    resources.subtle_button_background;
+            })
+            .into_widget()
     }
 
     /// The program's icon and name, a subtle button that opens it at a click.

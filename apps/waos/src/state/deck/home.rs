@@ -9,20 +9,22 @@
 //! The invariant: the library is on a page other than its grid of programs only while a home is
 //! open to show it.
 
+use std::cell::Cell;
+
 use waft::{App, Entity};
 
 use super::tabs::Tabs;
 use crate::state::library::{Library, LibraryPage, WantsToBeSeen};
 
 /// From now on the deck of `tabs` goes home when `library` has a settings page to show its user,
-/// and `library` hears when the home's page goes out of sight.
+/// and `library` hears when the home's page goes out of sight and comes back.
 pub(crate) fn keep_library_with_the_home(
     app: &mut App,
     library: &Entity<Library>,
     tabs: &Entity<Tabs>,
 ) {
     show_what_the_library_wants_seen(app, library, tabs);
-    tell_library_when_the_home_is_out_of_sight(app, library, tabs);
+    tell_library_when_the_home_goes_and_comes(app, library, tabs);
 }
 
 /// The deck's window comes forward whenever the library asks to be seen, and goes home where a
@@ -44,21 +46,30 @@ fn show_what_the_library_wants_seen(app: &mut App, library: &Entity<Library>, ta
     .detach();
 }
 
-fn tell_library_when_the_home_is_out_of_sight(
+/// The library hears when the home goes out of sight, and when it comes back into sight reads
+/// again which apps are used often, so their row is current as it shows, as the desktop's is
+/// when its launcher is summoned.
+fn tell_library_when_the_home_goes_and_comes(
     app: &mut App,
     library: &Entity<Library>,
     tabs: &Entity<Tabs>,
 ) {
     let (library, watched) = (library.downgrade(), tabs.downgrade());
+    let was_in_sight = Cell::new(true);
     app.observe(tabs, move |app| {
         let (Some(library), Some(tabs)) = (library.upgrade(), watched.upgrade()) else {
             return;
         };
         let list = tabs.read(app).list();
         let home = list.home();
-        if home.is_some_and(|home| list.in_sight(home)) {
+        let in_sight = home.is_some_and(|home| list.in_sight(home));
+        if in_sight {
+            if !was_in_sight.replace(true) {
+                library.update(app, |library, cx| library.read_often_used(cx));
+            }
             return;
         }
+        was_in_sight.set(false);
         library.update(app, |library, cx| {
             library.hidden(cx);
             if home.is_none() {

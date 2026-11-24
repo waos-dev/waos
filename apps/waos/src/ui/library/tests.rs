@@ -23,9 +23,10 @@ use waft_test::{AskedDialog, MemoryFile, TestWindow};
 use super::app_store::fluent::FluentAppStore;
 use super::home::cupertino::CupertinoHome;
 use super::home::fluent::FluentHome;
+use super::home::icon_grid::SectionLine;
 use super::home::{IconTile, RunningDot};
 use super::program_icon::ProgramIcon;
-use super::test_steps::adds_source;
+use super::test_steps::{adds_source, installs, started_yesterday};
 use super::{LaidOutLibrary, words};
 use crate::logic::app_store::AppStorePlace;
 use crate::logic::opened_package::package_file_type;
@@ -243,6 +244,31 @@ fn a_held_icon_offers_settings_and_remove_and_remove_asks_first() {
     desktop.tap(view, words::REMOVE);
     assert!(desktop.read(|library| library.installed().is_empty()));
     assert!(desktop.shows(words::NO_PROGRAMS));
+}
+
+/// On a phone the apps used often stand in a row of their own over a hairline, where the apps
+/// fill more than a row, as on the desktop.
+#[test]
+fn on_a_phone_the_apps_used_often_stand_in_a_row_over_the_others() {
+    let mut desktop = desktop();
+    for name in ["Alpha", "Bravo", "Charlie", "Delta", "Echo"] {
+        let id = format!("dev.example.{}", name.to_lowercase());
+        installs(&mut desktop, &id, name, b"\0asm");
+    }
+    assert!(!desktop.has::<SectionLine>(), "no row yet, so no line");
+    started_yesterday(&mut desktop, "dev.example.echo", 3);
+    let echoes: Vec<f64> = desktop
+        .every("Echo")
+        .iter()
+        .map(|label| label.dy())
+        .collect();
+    assert_eq!(echoes.len(), 2, "in its row and among every app");
+    let alpha = desktop.find("Alpha").expect("the first app").dy();
+    assert!(
+        echoes[0] < alpha && alpha < echoes[1],
+        "the row over the others: {echoes:?}, {alpha}"
+    );
+    assert!(desktop.has::<SectionLine>(), "a line between them");
 }
 
 #[test]

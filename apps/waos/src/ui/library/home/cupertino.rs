@@ -1,22 +1,25 @@
 //! The home at a phone's size, in Cupertino's widgets, in the proportions of iOS's home screen:
 //! a navigation bar saying WaOS with a plus, which gets programs, and a gear, which opens every
 //! program's settings, at its trailing end; under it four columns of 60-point icons, each name on
-//! one line in the caption size. A tap opens the program; holding it offers its actions
+//! one line in the caption size, the apps used often in a row of their own over a hairline where
+//! the apps fill more than a row, each icon sliding to its place as the icons change
+//! (`icon_grid`). A tap opens the program; holding it offers its actions
 //! (`icon_actions::cupertino`). While the user searches, only the programs searched for.
 //!
 //! What it shows is the library's, read as it builds; it keeps nothing of its own.
 
 use waft::{
     App, BuildContext, Center, Column, EdgeInsetsGeometry, Entity, Expanded, Icon, IntoWidget,
-    ListView, Listener, MainAxisSize, Padding, Row, Size, SizedBox, StatelessWidget, Text,
-    TextAlign, TextStyle, WidgetRef,
+    Listener, MainAxisSize, Padding, Row, Size, SizedBox, StatelessWidget, Text, TextAlign,
+    TextStyle, WidgetRef,
 };
 use waft_cupertino::{
     CupertinoButton, CupertinoColors, CupertinoDynamicColor, CupertinoIcons,
     CupertinoNavigationBar, CupertinoPageScaffold, ObstructingPreferredSizeWidgetRef,
 };
 
-use super::{HomeEntry, IconTile, TileLook, badge_dot, grid_rows, home_entries};
+use super::icon_grid::{GridLook, IconGrid, SectionLineKind};
+use super::{HomeEntry, IconTile, TileLook, badge_dot, home_entries, often_used_entries};
 use crate::logic::setting_changes::SettingsOf;
 use crate::state::library::{Library, LibraryPage};
 use crate::state::recordings::Recordings;
@@ -25,6 +28,7 @@ use crate::ui::library::icon_actions::cupertino::show_icon_actions;
 use crate::ui::library::program_icon::ProgramIcon;
 use crate::ui::library::recording::cupertino_recording;
 use crate::ui::library::words;
+use waos_package::ProgramId;
 
 /// iOS's home screen on a phone 390 points wide: four columns of 60-point icons, 27 points in
 /// from each side, a name 6 points under its icon in 12-point type, rows 28 points apart.
@@ -72,30 +76,50 @@ impl StatelessWidget for CupertinoHome {
                     .into_widget()
             })
         } else {
-            let mut children: Vec<WidgetRef> = banner
-                .map(|banner| {
-                    Padding::new(EdgeInsetsGeometry::from_ltrb(
-                        CELL_PADDING,
-                        0.0,
-                        CELL_PADDING,
-                        TOP_MARGIN,
-                    ))
-                    .child(banner)
-                    .into_widget()
-                })
-                .into_iter()
-                .collect();
-            children.extend(self.grid(entries, app, context));
+            let over = banner.map(|banner| {
+                Padding::new(EdgeInsetsGeometry::from_ltrb(
+                    SIDE_MARGIN,
+                    TOP_MARGIN,
+                    SIDE_MARGIN,
+                    0.0,
+                ))
+                .child(banner)
+                .into_widget()
+            });
+            let often_used = often_used_entries(self.library.read(app));
+            let look = self.tile_look(app, context);
+            let badge_color = resolved(CupertinoColors::SYSTEM_RED, app, context);
+            let line_color = resolved(CupertinoColors::SEPARATOR, app, context);
+            let tiles_of = |entries: Vec<HomeEntry>| -> Vec<(ProgramId, WidgetRef)> {
+                entries
+                    .into_iter()
+                    .map(|entry| {
+                        let id = entry.id.clone();
+                        (id, self.tile(entry, &look, badge_color, context))
+                    })
+                    .collect()
+            };
+            let (apps, often_used) = (tiles_of(entries), tiles_of(often_used));
             under_bar(move |top| {
-                ListView::new()
-                    .padding(EdgeInsetsGeometry::from_ltrb(
-                        SIDE_MARGIN - CELL_PADDING,
-                        top + TOP_MARGIN,
-                        SIDE_MARGIN - CELL_PADDING,
-                        TOP_MARGIN,
-                    ))
-                    .children(children.clone())
-                    .into_widget()
+                IconGrid {
+                    apps: apps.clone(),
+                    often_used: often_used.clone(),
+                    over: over.clone(),
+                    highlighted: None,
+                    look: GridLook {
+                        columns: |_| COLUMNS,
+                        side: SIDE_MARGIN - CELL_PADDING,
+                        line_side: SIDE_MARGIN,
+                        under_a_bar: top,
+                        section_top: TOP_MARGIN,
+                        row_gap: ROW_GAP,
+                        bottom: TOP_MARGIN,
+                        line: SectionLineKind::BetweenSections,
+                        line_color,
+                        highlight: None,
+                    },
+                }
+                .into_widget()
             })
         };
         let bar = CupertinoNavigationBar::new()
@@ -126,26 +150,15 @@ impl CupertinoHome {
             .into_widget()
     }
 
-    /// The installed programs' icons, four to a row.
-    fn grid(
-        &self,
-        entries: Vec<HomeEntry>,
-        app: &mut App,
-        context: BuildContext,
-    ) -> Vec<WidgetRef> {
-        let look = TileLook {
+    /// How an icon's name and running dot look.
+    fn tile_look(&self, app: &mut App, context: BuildContext) -> TileLook {
+        TileLook {
             name_style: TextStyle::new()
                 .color(resolved(CupertinoColors::LABEL, app, context))
                 .font_size(NAME_SIZE),
             name_gap: NAME_GAP,
             dot_color: resolved(CupertinoColors::SECONDARY_LABEL, app, context),
-        };
-        let badge_color = resolved(CupertinoColors::SYSTEM_RED, app, context);
-        let tiles = entries
-            .into_iter()
-            .map(|entry| self.tile(entry, &look, badge_color, context))
-            .collect();
-        grid_rows(tiles, COLUMNS, ROW_GAP)
+        }
     }
 
     /// The program's icon and name, which opens it at a tap.
