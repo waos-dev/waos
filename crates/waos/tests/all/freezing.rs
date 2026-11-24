@@ -167,7 +167,12 @@ fn the_app_suspending_resolves_once_every_program_has_stopped_and_resuming_lets_
 
     engine.app_resumed();
     first_report(&forever_output, forever_mark);
-    survey_output.wait_for("program: LifecycleState::Resumed");
+    // Survey says its state as it starts too, so the line waited for is one since the mark.
+    survey_output.wait_until("survey hears it was resumed", |lines| {
+        lines[survey_mark..]
+            .iter()
+            .any(|line| line == "program: LifecycleState::Resumed")
+    });
     assert_eq!(
         &survey_output.lines()[survey_mark..],
         [
