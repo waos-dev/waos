@@ -309,7 +309,6 @@ impl TestPhone {
                 prompted.questions,
                 prompt_windows.clone(),
                 served.clone(),
-                None,
             );
             let recordings = Recordings::listen(app, recording_changes, served.clone());
             let library = open_library(

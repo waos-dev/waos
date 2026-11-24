@@ -5,11 +5,8 @@
 //! own for a program with none; on macOS, in a dialog of the program's app). The reply goes back to
 //! the engine, which keeps a question's answer in the program's settings and lets the program play
 //! on the output picked; a question whose program ended, or whose prompt the user dismissed, goes
-//! unanswered. Where WaOS reaches the phone's files only as the user allows, the question of
-//! letting it offers the system's page for them, and is answered once the user says not now, or
-//! comes back to WaOS from the page and the phone's files are read again (`state::phone_files`):
-//! at once where WaOS may reach them now, and once the user has read that they are still off
-//! where it may not.
+//! unanswered. A prompt may ask nothing and only tell the user something, read once they reply:
+//! that WaOS still may not reach the phone's files (`state::phone_files`).
 //!
 //! The invariant: every question taken is answered, or dropped unanswered, exactly once, and a
 //! program's prompt is shown exactly while it has a question waiting.
@@ -29,9 +26,8 @@ use waos_store::Store;
 
 use crate::logic::program_faces::ProgramFaces;
 use crate::logic::program_name::program_name;
-use crate::logic::prompts::{Asked, Asking, PhoneFilesStep, Reply};
+use crate::logic::prompts::{Asked, Asking, Reply};
 use crate::state::ViewWindows;
-use crate::state::phone_files::{PhoneFiles, ReadAgain};
 use crate::ui::question_sheet::QuestionSheet;
 
 pub(crate) struct Questions {
@@ -44,8 +40,6 @@ pub(crate) struct Questions {
     shown: Vec<(RunningProgram, ShownPrompt)>,
     /// Where an installed program's name is read.
     store: Store,
-    /// Whether WaOS may reach the phone's files, where it reaches them only as the user allows.
-    phone_files: Option<Entity<PhoneFiles>>,
 }
 
 /// A question waiting for its reply.
@@ -61,33 +55,19 @@ pub(crate) struct Pending {
 impl Questions {
     /// The questions, which take each arriving on `asked` for as long as questions can
     /// arrive, each program's prompt shown by `placement`; an installed program's name is read
-    /// from `store`, and whether WaOS may reach the phone's files from `phone_files`, where it
-    /// reaches them only as the user allows.
+    /// from `store`.
     pub(crate) fn listen(
         app: &mut App,
         asked: UnboundedReceiver<Asked>,
         placement: Rc<dyn PromptPlacement>,
         store: Store,
-        phone_files: Option<Entity<PhoneFiles>>,
     ) {
-        let questions = app.new_entity(|cx| {
-            if let Some(phone_files) = &phone_files {
-                cx.subscribe(
-                    phone_files,
-                    |questions: &mut Questions, _, _: &ReadAgain, cx| {
-                        questions.phone_files_read_again(cx)
-                    },
-                )
-                .detach();
-            }
-            Questions {
-                asked: Vec::new(),
-                next_id: 1,
-                placement,
-                shown: Vec::new(),
-                store,
-                phone_files,
-            }
+        let questions = app.new_entity(|_cx| Questions {
+            asked: Vec::new(),
+            next_id: 1,
+            placement,
+            shown: Vec::new(),
+            store,
         });
         take_questions(app, questions, asked);
     }
@@ -107,84 +87,6 @@ impl Questions {
         cx: &mut Context<Questions>,
     ) {
         self.take_first_of(program, reply, cx);
-    }
-
-    /// `program`'s user is done with letting WaOS reach the phone's files, having said not now or
-    /// read that they are still off: the question is answered with whether WaOS may reach them.
-    pub(crate) fn leave_phone_files(
-        &mut self,
-        program: &RunningProgram,
-        cx: &mut Context<Questions>,
-    ) {
-        let reachable = self.phone_files_reachable(cx);
-        self.take_first_of(program, Some(Reply::PhoneFiles(reachable)), cx);
-    }
-
-    /// `program`'s user opens the system's page for the phone's files: the question is answered
-    /// once WaOS is back in front, or at once if the page does not open.
-    pub(crate) fn open_phone_files_page(
-        &mut self,
-        program: &RunningProgram,
-        cx: &mut Context<Questions>,
-    ) {
-        let Some(phone_files) = &self.phone_files else {
-            return;
-        };
-        match phone_files.read(cx).open_switch() {
-            Ok(()) => {
-                if self.set_phone_files_step(program, PhoneFilesStep::PageOpen) {
-                    cx.notify();
-                }
-            }
-            Err(why) => {
-                tracing::warn!(
-                    program = program.name(),
-                    why,
-                    "the phone's files' page did not open"
-                );
-                self.leave_phone_files(program, cx);
-            }
-        }
-    }
-
-    /// The phone's files were read again, as WaOS came back to the front from the system's page
-    /// for them: each question waiting on the page is answered where WaOS may reach them now, and
-    /// says they are still off where it may not.
-    fn phone_files_read_again(&mut self, cx: &mut Context<Questions>) {
-        let waiting: Vec<RunningProgram> = (self.asked.iter())
-            .filter(|pending| phone_files_step(&pending.asking) == Some(PhoneFilesStep::PageOpen))
-            .map(|pending| pending.program.clone())
-            .collect();
-        let reachable = self.phone_files_reachable(cx);
-        for program in waiting {
-            if reachable {
-                self.take_first_of(&program, Some(Reply::PhoneFiles(true)), cx);
-            } else {
-                self.set_phone_files_step(&program, PhoneFilesStep::StillOff);
-            }
-        }
-        cx.notify();
-    }
-
-    /// Whether WaOS may reach the phone's files, as last read; never where nothing reads them.
-    fn phone_files_reachable(&self, cx: &Context<Questions>) -> bool {
-        (self.phone_files.as_ref()).is_some_and(|phone_files| phone_files.read(cx).reachable())
-    }
-
-    /// `program`'s question asked now, of the phone's files, stands at `step`; whether it asks
-    /// that now.
-    fn set_phone_files_step(&mut self, program: &RunningProgram, step: PhoneFilesStep) -> bool {
-        let asked_now = self
-            .asked
-            .iter_mut()
-            .find(|pending| &pending.program == program);
-        let Some(Asking::PhoneFiles { step: at, .. }) =
-            asked_now.map(|pending| &mut pending.asking)
-        else {
-            return false;
-        };
-        *at = step;
-        true
     }
 
     /// A question arrived: it waits its turn in its program's prompt, shown now if the program
@@ -306,14 +208,6 @@ fn take_questions(
             });
         }
     });
-}
-
-/// Where the user is in the question of the phone's files `asking` is, if it is one.
-fn phone_files_step(asking: &Asking) -> Option<PhoneFilesStep> {
-    match asking {
-        Asking::PhoneFiles { step, .. } => Some(*step),
-        Asking::Question { .. } | Asking::Output { .. } | Asking::Machine { .. } => None,
-    }
 }
 
 /// Removes `id` once the engine drops its wait on it.

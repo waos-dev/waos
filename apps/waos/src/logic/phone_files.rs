@@ -2,10 +2,11 @@
 //! Android is the user's to allow, as "All files access" (`MANAGE_EXTERNAL_STORAGE`), on a page of
 //! Android's settings; and so This computer's home, that storage once WaOS may reach it, WaOS's own
 //! folder before (the projects on machines proposal's decisions 4 and 5). It is the system's own
-//! permission beside what a program's user allowed it in WaOS: WaOS asks for it as the user picks
-//! This computer for a program, or a file or folder on the phone's storage (`PhoneFilesOnRequest`,
-//! one question for both), and its settings say whether it is on. Only Android has it; elsewhere
-//! WaOS reaches what its user does.
+//! permission beside what a program's user allowed it in WaOS: as the user picks This computer for
+//! a program, or a file or folder on the phone's storage, WaOS opens the system's page for it
+//! (`PhoneFilesOnRequest`, one request for both), and tells them where they come back with it
+//! still off; its settings say whether it is on. Only Android has it; elsewhere WaOS reaches what
+//! its user does.
 //!
 //! The invariant: the system is asked only on the main thread (`state::phone_files`), as WaOS
 //! starts and each time it comes back to the front, which is enough, since the user changes the
@@ -13,10 +14,17 @@
 //! where any thread reads it: This computer's home in a [`ThisComputerHome`], and whether WaOS may
 //! reach the phone's storage in a [`SharedStorage`].
 
+use std::future::{Future, ready};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, PoisonError, RwLock};
 
+use futures::channel::mpsc::{self, UnboundedReceiver, UnboundedSender};
+use futures::channel::oneshot;
+use waos::{
+    RunningProgram, ShellSystemPermissions, SystemPermission, SystemPermissionFuture,
+    SystemPermissionState,
+};
 use waos_local::THIS_COMPUTER;
 use waos_program_window::is_on_phone_storage;
 
@@ -101,8 +109,98 @@ impl SharedStorage {
     }
 }
 
+/// One request to let WaOS reach the phone's files, for something `program`'s user gave it, on its
+/// way to the main thread.
+pub(crate) struct PhoneFilesRequest {
+    pub(crate) program: RunningProgram,
+    /// Where whether WaOS may reach them goes, once the user is back from the system's page.
+    pub(crate) reachable: oneshot::Sender<bool>,
+}
+
+/// What asks the system to let WaOS reach the phone's files, from any thread: each request goes to
+/// the main thread, which opens the system's page for them and answers once the user is back
+/// (`state::phone_files`). It is the engine's system permissions on Android, whose All files
+/// access guards what a user picks on the phone's storage.
+#[derive(Clone)]
+pub(crate) struct PhoneFilesOnRequest {
+    requests: UnboundedSender<PhoneFilesRequest>,
+    storage: SharedStorage,
+}
+
+impl PhoneFilesOnRequest {
+    /// What asks for the phone's files, kept from WaOS as `storage` says, and where its requests
+    /// arrive on the main thread.
+    pub(crate) fn new(
+        storage: SharedStorage,
+    ) -> (PhoneFilesOnRequest, UnboundedReceiver<PhoneFilesRequest>) {
+        let (requests, arriving) = mpsc::unbounded();
+        (PhoneFilesOnRequest { requests, storage }, arriving)
+    }
+
+    /// Whether WaOS may reach the phone's files now.
+    pub(crate) fn reachable(&self) -> bool {
+        self.storage.reachable()
+    }
+
+    /// Asks the system to let WaOS reach the phone's files, for `program`, and resolves to whether
+    /// it may once its user is back; as it stands where nobody answers.
+    pub(crate) fn request(
+        &self,
+        program: &RunningProgram,
+    ) -> impl Future<Output = bool> + Send + use<> {
+        let (reachable, answered) = oneshot::channel();
+        let request = PhoneFilesRequest {
+            program: program.clone(),
+            reachable,
+        };
+        if self.requests.unbounded_send(request).is_err() {
+            tracing::info!(
+                program = program.name(),
+                "WaOS is quitting: no phone's files"
+            );
+        }
+        let storage = self.storage.clone();
+        async move { answered.await.unwrap_or_else(|_| storage.reachable()) }
+    }
+}
+
+impl ShellSystemPermissions for PhoneFilesOnRequest {
+    fn state(
+        &self,
+        permission: SystemPermission<'_>,
+        _program: &RunningProgram,
+    ) -> SystemPermissionState {
+        match permission {
+            SystemPermission::Path(path) if self.storage.keeps_from(path) => {
+                SystemPermissionState::Denied
+            }
+            SystemPermission::Path(_) | SystemPermission::Notifications => {
+                SystemPermissionState::Allowed
+            }
+        }
+    }
+
+    fn request(
+        &self,
+        permission: SystemPermission<'_>,
+        program: &RunningProgram,
+    ) -> SystemPermissionFuture {
+        if self.state(permission, program) == SystemPermissionState::Allowed {
+            return Box::pin(ready(SystemPermissionState::Allowed));
+        }
+        let reachable = self.request(program);
+        Box::pin(async move {
+            if reachable.await {
+                SystemPermissionState::Allowed
+            } else {
+                SystemPermissionState::Denied
+            }
+        })
+    }
+}
+
 /// Whether a program's picker of machines, answered `picked`, picks This computer while WaOS may
-/// not reach the phone's files, so the user is asked to let it first.
+/// not reach the phone's files, so the system is asked for them first.
 pub(crate) fn asks_for_phone_files(picked: Option<&str>, reachable: bool) -> bool {
     picked == Some(THIS_COMPUTER) && !reachable
 }

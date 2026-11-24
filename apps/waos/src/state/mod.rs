@@ -94,7 +94,7 @@ use crate::logic::installed_runs::InstalledRuns;
 use crate::logic::machine_facts::platform_state;
 use crate::logic::noted_file_dialogs::NotedFileDialogs;
 use crate::logic::package_copies::PackageCopies;
-use crate::logic::phone_files::{PhoneFilesAccess, SharedStorage, ThisComputerHome};
+use crate::logic::phone_files::{PhoneFilesAccess, ThisComputerHome};
 use crate::logic::placement::WindowsOnRequest;
 use crate::logic::preferences::PreferencesFile;
 use crate::logic::program_faces::ProgramFaces;
@@ -130,7 +130,7 @@ use media_players::MediaPlayers;
 use menus::Menus;
 use notifications::Notifications;
 use opener::Opener;
-use phone_files::follow_phone_files;
+use phone_files::{follow_phone_files, phone_files_on_request};
 use phone_window::in_phone_window;
 use questions::Questions;
 use recordings::Recordings;
@@ -231,12 +231,10 @@ pub(crate) fn start(
     let asking = AskingNow::new();
     let (prompts, prompted) = PromptsOnRequest::new(Arc::clone(&asking));
     let output_picker = prompts.output_picker();
-    let shared_storage = phone_files
+    let (phone_files_on_request, phone_files_followed) = phone_files
         .as_ref()
-        .map(|access| SharedStorage::at(access.storage()));
-    let phone_files_on_request = shared_storage
-        .clone()
-        .map(|storage| prompts.phone_files(storage));
+        .map(|access| phone_files_on_request(access.as_ref(), prompts.phone_files_off()))
+        .unzip();
     let machine_picker = prompts.machine_picker(phone_files_on_request.clone());
     let (recording_indicator, recording_changes) = RecordingIndicatorOnRequest::new();
     let waiter = app
@@ -328,12 +326,12 @@ pub(crate) fn start(
     let view_windows = ViewWindows::listen(app, requests);
     let posted_as_programs =
         notifications.map(|notifications| notifications.serve(app, store.clone()));
-    let phone_storage = shared_storage
+    let phone_storage = phone_files_followed
         .as_ref()
-        .map(|storage| storage.root().to_owned());
+        .map(|followed| followed.storage.root().to_owned());
     let phone_files = phone_files
-        .zip(shared_storage)
-        .map(|(access, storage)| follow_phone_files(app, access, storage));
+        .zip(phone_files_followed)
+        .map(|(access, followed)| follow_phone_files(app, access, followed));
     let home = phone_files
         .as_ref()
         .map(|phone_files| phone_files.read(app).home());
@@ -385,13 +383,7 @@ pub(crate) fn start(
         &library,
         Rc::clone(&prompt_windows),
     );
-    Questions::listen(
-        app,
-        prompted.questions,
-        prompts.placement,
-        questions_store,
-        phone_files.clone(),
-    );
+    Questions::listen(app, prompted.questions, prompts.placement, questions_store);
     match opened {
         Some(OpenedAtStart::WithProgram { id, request }) => {
             library.update(app, |library, cx| library.open_with(&id, request, cx));

@@ -46,20 +46,19 @@ use crate::logic::installed_code::HeldCompiles;
 use crate::logic::installed_runs::InstalledRuns;
 use crate::logic::opened_package::tests::write_package;
 use crate::logic::package_copies::PackageCopies;
-use crate::logic::phone_files::{PhoneFilesAccess, SharedStorage};
+use crate::logic::phone_files::PhoneFilesAccess;
+use crate::logic::phone_files::PhoneFilesOnRequest;
 use crate::logic::placement::WindowsOnRequest;
 use crate::logic::preferences::PreferencesFile;
 use crate::logic::program_faces::ProgramFaces;
 use crate::logic::program_places::{ProgramPlace, ProgramPlaces};
-use crate::logic::prompts::{
-    MachinePickerOnRequest, OutputPickerOnRequest, PhoneFilesOnRequest, PromptsOnRequest,
-};
+use crate::logic::prompts::{MachinePickerOnRequest, OutputPickerOnRequest, PromptsOnRequest};
 use crate::logic::recording_indicator::RecordingIndicatorOnRequest;
 use crate::logic::runs::Runs;
 use crate::logic::test_engine;
 use crate::logic::test_outputs::StatedOutputs;
 use crate::state::ViewWindows;
-use crate::state::phone_files::follow_phone_files;
+use crate::state::phone_files::{follow_phone_files, phone_files_on_request};
 use crate::state::questions::{self, Questions};
 use crate::state::recordings::Recordings;
 use crate::ui::every_window::{LibraryWindow, every_window, program_windows};
@@ -171,11 +170,9 @@ impl LibraryDesktop {
         let (placement, requests) = WindowsOnRequest::new(ProgramFaces::new(store.clone(), None));
         let (prompts, prompted) = PromptsOnRequest::new(crate::logic::asking_now::AskingNow::new());
         let output_picker = Arc::new(prompts.output_picker());
-        let shared_storage =
-            (kind.phone_files.as_ref()).map(|access| SharedStorage::at(access.storage()));
-        let phone_files_on_request = shared_storage
-            .clone()
-            .map(|storage| prompts.phone_files(storage));
+        let (phone_files_on_request, phone_files_followed) = (kind.phone_files.as_ref())
+            .map(|access| phone_files_on_request(access.as_ref(), prompts.phone_files_off()))
+            .unzip();
         let machine_picker = Arc::new(prompts.machine_picker(phone_files_on_request.clone()));
         let (recording_indicator, recording_changes) = RecordingIndicatorOnRequest::new();
         let prompts = Arc::new(prompts);
@@ -208,14 +205,13 @@ impl LibraryDesktop {
                 ProgramFaces::new(store.clone(), None),
             );
             let phone_files = phone_files
-                .zip(shared_storage)
-                .map(|(access, storage)| follow_phone_files(app, access, storage));
+                .zip(phone_files_followed)
+                .map(|(access, followed)| follow_phone_files(app, access, followed));
             Questions::listen(
                 app,
                 prompted.questions,
                 prompt_windows.clone(),
                 store.clone(),
-                phone_files.clone(),
             );
             let recordings = Recordings::listen(app, recording_changes, store.clone());
             let library = open_library(
