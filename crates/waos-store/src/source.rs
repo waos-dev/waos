@@ -60,6 +60,17 @@ impl Source {
             })
     }
 
+    /// The picture that stands for where the source is, as [`picture_url`](Self::picture_url)
+    /// reads one, for a store to show where the source lists no icon of its own: a website's
+    /// touch icon, the PNG Safari reads at a site's root, and the picture of a GitHub
+    /// repository's owner. A place that has none answers that it is not found.
+    pub fn site_picture(&self) -> String {
+        match self {
+            Source::Folder(_) => "/apple-touch-icon.png".to_owned(),
+            Source::GitHub { owner, .. } => format!("/{owner}.png"),
+        }
+    }
+
     /// Where the picture the index lists as `picture` is: that, relative to the index's URL, and
     /// on the index's own server, since a source's word is no leave to read from anywhere: a
     /// picture's address could otherwise be a device of the user's own network.
@@ -283,6 +294,22 @@ mod tests {
                 .unwrap()
                 .as_str(),
             "https://cdn.example.com/triangle.wapk"
+        );
+    }
+
+    #[test]
+    fn a_sources_site_has_a_picture_on_the_sources_own_server() {
+        let picture_of = |text: &str| {
+            let source = source(text);
+            source.picture_url(&source.site_picture()).unwrap()
+        };
+        assert_eq!(
+            picture_of("example.com/apps").as_str(),
+            "https://example.com/apple-touch-icon.png"
+        );
+        assert_eq!(
+            picture_of("github.com/example/triangle").as_str(),
+            "https://github.com/example.png"
         );
     }
 

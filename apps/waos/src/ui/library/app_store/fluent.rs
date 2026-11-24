@@ -4,28 +4,30 @@
 //! chosen, a chip a category while none is chosen, the apps the sources put forward as cards, and every app as a row, its icon, name and line, and Get or Update as a
 //! button, or Installing… or Installed as a caption. Updates: the apps with a newer version, and
 //! Update all. Sources: the field that adds a source with Add and, where the system has a file
-//! picker, Install from file… beside it, then each source with how many apps it lists, or what
-//! it says while it is read or could not be, Show apps and Remove.
+//! picker, Install from file… beside it, then each source with its logo, its name and how many
+//! apps it lists, or what it says while it is read or could not be, and Show apps; a row opens
+//! on the source's address and Remove.
 //!
 //! What the page keeps of its own is the text being typed, a search or a source to add; what it
 //! shows is the library's, read through the store's shared rows (`app_store`).
 
 use std::rc::Rc;
+use std::sync::Arc;
 
 use waft::{
-    App, BorderRadiusGeometry, BoxDecoration, BuildContext, Column, CrossAxisAlignment,
+    App, BorderRadiusGeometry, BoxDecoration, BuildContext, Center, Column, CrossAxisAlignment,
     DecoratedBox, EdgeInsetsGeometry, Entity, Expanded, Focus, FocusNode, FocusNodeLeaf,
     FrameCallback, Handle, IntoWidget, KeyEventResult, ListView, Listenable, Listener,
     MainAxisSize, Padding, Ref, Row, SchedulerBinding, SizedBox, State, StateData, StatefulWidget,
     Subscription, Text, TextEditingController, TextEditingControllerLeaf, TextOverflow, WidgetRef,
 };
 use waft_winui::{
-    Button, ButtonStyle, FluentSymbol, FontIcon, InfoBadge, SelectorBar, SelectorBarItem,
+    Button, ButtonStyle, Expander, FluentSymbol, FontIcon, InfoBadge, SelectorBar, SelectorBarItem,
     TextBlockStyle, TextBox, ThemeResources,
 };
 
 use super::{
-    Discover, PackagePicker, RowAction, SourceRow, StoreApp, discover, source_row, source_rows,
+    Discover, PackagePicker, RowAction, SourceRow, StoreApp, discover, source_name, source_rows,
     updates,
 };
 use crate::logic::app_store::AppStorePlace;
@@ -35,6 +37,7 @@ use crate::ui::library::home::fluent::MARGIN;
 use crate::ui::library::program_icon::ProgramIcon;
 use crate::ui::library::search_field::{search_token, takes_back_a_token, with_no_box};
 use crate::ui::library::words;
+use waos_store::Source;
 
 const GAP: f64 = 8.0;
 
@@ -48,6 +51,9 @@ const CARD_ICON_SIDE: f64 = 48.0;
 
 /// How many cards of the apps put forward stand side by side.
 const CARDS_ACROSS: usize = 2;
+
+/// The side of a source's logo in its row.
+const SOURCE_LOGO_SIDE: f64 = 32.0;
 
 /// How round a card's corners are: WinUI's overlay corners.
 const CARD_CORNER_RADIUS: f64 = 8.0;
@@ -74,6 +80,7 @@ impl StatefulWidget for FluentAppStore {
             typed: None,
             followed: None,
             place: AppStorePlace::default(),
+            opened_source: None,
         }
     }
 }
@@ -85,6 +92,8 @@ pub(crate) struct FluentAppStoreState {
     followed: Option<Subscription>,
     /// The place the page was on when the library last changed.
     place: AppStorePlace,
+    /// The source whose row is opened on its address, on Sources; none while every row is shut.
+    opened_source: Option<Source>,
 }
 
 /// What is being typed on the page.
@@ -140,6 +149,8 @@ impl State for FluentAppStoreState {
     fn build(self: Handle<Self>, app: &mut App, context: BuildContext) -> WidgetRef {
         let library = self.widget(app).library.clone();
         let page = Page {
+            page: self,
+            opened_source: app.get(self).opened_source.clone(),
             package_picker: PackagePicker::of(&library, app, context),
             library,
             typed: app.get(self).typed.clone().expect("an initialized page"),
@@ -196,6 +207,9 @@ impl FluentAppStoreState {
 
 /// What one build of the page reads and writes.
 struct Page {
+    /// The page's own state, which a source's row opens and shuts.
+    page: Handle<FluentAppStoreState>,
+    opened_source: Option<Source>,
     library: Entity<Library>,
     typed: Typed,
     /// What Install from file… shows; none where the system has no file picker.
@@ -361,7 +375,7 @@ impl Page {
         let magnifier = FontIcon::symbol(FluentSymbol::Search)
             .font_size(SEARCH_ICON_SIZE)
             .foreground(self.resources.text_fill_color_secondary);
-        let source = library.app_store_source().map(|only| source_row(only).name);
+        let source = library.app_store_source().map(source_name);
         let category = library
             .app_store_category()
             .map(|category| words::category(category).to_owned());
@@ -535,24 +549,24 @@ impl Page {
         Some(Button::text(words::INSTALL_FROM_FILE, pick).into_widget())
     }
 
-    /// A source: what it calls itself over its address and how many apps it lists, or what it
-    /// says; Show apps, where it lists any, and Remove.
+    /// A source, as Windows's Settings shows a thing with more to say: its logo, what it calls
+    /// itself and how many apps it lists, or what it says, with Show apps where it lists any;
+    /// and, opened, its address and Remove.
     fn source(&self, row: SourceRow) -> WidgetRef {
         let said = match &row.lists {
             Ok(apps) => words::apps_listed(*apps),
             Err(said) => said.clone(),
         };
-        let under_name = match &row.address {
-            Some(address) => format!("{address} · {said}"),
-            None => said,
-        };
         let text = Column::new()
             .cross_axis_alignment(CrossAxisAlignment::Stretch)
             .children([
                 self.text(&row.name, TextBlockStyle::BodyStrong),
-                self.caption(&under_name),
+                self.caption(&said),
             ]);
-        let mut controls = vec![Expanded::new(text).into_widget()];
+        let mut header = vec![
+            self.source_logo(row.logo.clone()),
+            Expanded::new(text).into_widget(),
+        ];
         if row.lists.as_ref().is_ok_and(|apps| *apps > 0) {
             let (library, shown) = (self.library.clone(), row.source.clone());
             let show = Listener::new(move |app| {
@@ -560,19 +574,68 @@ impl Page {
                     library.show_app_store_source(Some(shown.clone()), cx);
                 });
             });
-            controls.push(Button::text(words::SHOW_APPS, show).into_widget());
+            header.push(Button::text(words::SHOW_APPS, show).into_widget());
         }
-        let (library, removed) = (self.library.clone(), row.source);
+        let opened = self.opened_source.as_ref() == Some(&row.source);
+        let (page, source) = (self.page, row.source.clone());
+        let expander = Expander::new(opened, move |app, opened| {
+            let source = opened.then(|| source.clone());
+            page.set_state(app, |state| state.opened_source = source);
+        })
+        .header(
+            Padding::new(EdgeInsetsGeometry::symmetric(8.0, 0.0))
+                .child(Row::new().spacing(12.0).children(header)),
+        )
+        .content(self.source_details(&row));
+        Padding::new(EdgeInsetsGeometry::only(0.0, 0.0, 0.0, GAP))
+            .child(expander)
+            .into_widget()
+    }
+
+    /// A source's logo, or a globe on a faint square for a source that has none.
+    fn source_logo(&self, logo: Option<Arc<[u8]>>) -> WidgetRef {
+        if logo.is_some() {
+            return ProgramIcon {
+                png: logo,
+                side: SOURCE_LOGO_SIDE,
+                badge: None,
+            }
+            .into_widget();
+        }
+        let resources = &self.resources;
+        let square = BoxDecoration {
+            color: Some(resources.subtle_fill_color_secondary.into()),
+            border_radius: Some(BorderRadiusGeometry::circular(CARD_CORNER_RADIUS)),
+            ..BoxDecoration::default()
+        };
+        let globe = FontIcon::symbol(FluentSymbol::Globe)
+            .font_size(SOURCE_LOGO_SIDE / 2.0)
+            .foreground(resources.text_fill_color_secondary);
+        SizedBox::new()
+            .width(SOURCE_LOGO_SIDE)
+            .height(SOURCE_LOGO_SIDE)
+            .child(DecoratedBox::new(square).child(Center::new().child(globe)))
+            .into_widget()
+    }
+
+    /// What a source's row says once opened: its address, and Remove.
+    fn source_details(&self, row: &SourceRow) -> WidgetRef {
+        let (library, removed) = (self.library.clone(), row.source.clone());
         let remove = Listener::new(move |app| {
             library.update(app, |library, cx| library.remove_source(&removed, cx));
         });
-        controls.push(
-            Button::text(words::REMOVE_SOURCE, remove)
-                .style(ButtonStyle::Subtle)
-                .into_widget(),
-        );
-        Padding::new(EdgeInsetsGeometry::symmetric(8.0, 0.0))
-            .child(Row::new().spacing(GAP).children(controls))
+        let address = Column::new()
+            .cross_axis_alignment(CrossAxisAlignment::Stretch)
+            .children([
+                self.caption(words::SOURCE_ADDRESS),
+                self.text(&row.address, TextBlockStyle::Body),
+            ]);
+        Row::new()
+            .spacing(GAP)
+            .children([
+                Expanded::new(address).into_widget(),
+                Button::text(words::REMOVE_SOURCE, remove).into_widget(),
+            ])
             .into_widget()
     }
 

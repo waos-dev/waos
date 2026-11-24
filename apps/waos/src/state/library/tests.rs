@@ -500,6 +500,37 @@ fn a_listed_apps_icon_is_read_after_its_source() {
     assert_eq!(icon.as_deref(), Some(b"an icon".as_slice()));
 }
 
+/// A source's logo is the icon it lists; one that lists none shows the picture of the site it
+/// is on.
+#[test]
+fn a_sources_logo_is_its_own_icon_or_its_sites_picture() {
+    let library = TestLibrary::new();
+    let server = Server::start();
+    server.serve_at("apple-touch-icon.png", b"the site's");
+    server.serve_beside_index("logo.png", b"the source's");
+    let package = library.package(TRIANGLE, "1.0.0", b"\0asm");
+    server.publish(TRIANGLE, &package, "1.0.0");
+    library.update(|library, cx| library.add_source(&server.source(), cx));
+    let logo = |library: &Library| {
+        library
+            .source_logo(&library.sources()[0])
+            .map(|logo| logo.to_vec())
+    };
+    library.wait_until("the site's picture", |library| logo(library).is_some());
+    assert_eq!(
+        library.read(logo).as_deref(),
+        Some(b"the site's".as_slice())
+    );
+
+    server.publish_saying(TRIANGLE, &package, "1.0.0", |index| {
+        index.icon = Some("logo.png".to_owned());
+    });
+    library.update(|library, cx| library.read_sources(cx));
+    library.wait_until("the source's own icon", |library| {
+        logo(library).as_deref() == Some(b"the source's".as_slice())
+    });
+}
+
 fn install_what_the_source_lists(library: &TestLibrary) {
     let (source, listed) = library.read(|library| {
         let read = &library.sources()[0];

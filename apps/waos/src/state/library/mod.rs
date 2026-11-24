@@ -164,8 +164,20 @@ pub(crate) struct SourceListing {
     pub(crate) listing: Listing,
     /// What the source calls itself, where its index says; none before it is read.
     pub(crate) name: Option<String>,
+    /// The icon the source lists as its own, where its index says; none before it is read.
+    pub(crate) icon: Option<String>,
     /// The apps the source puts forward, by their ids, the first the most.
     pub(crate) featured: Vec<ProgramId>,
+}
+
+impl SourceListing {
+    /// The picture that stands for the source, as the source's pictures are named: the icon it
+    /// lists, or its site's own where it lists none.
+    pub(crate) fn logo(&self) -> String {
+        self.icon
+            .clone()
+            .unwrap_or_else(|| self.source.site_picture())
+    }
 }
 
 /// What a source lists, as far as it has been read.
@@ -859,6 +871,7 @@ impl Library {
                 source: source.clone(),
                 listing: Listing::Reading,
                 name: None,
+                icon: None,
                 featured: Vec::new(),
             })
             .collect();
@@ -872,12 +885,14 @@ impl Library {
                         Ok(index) => SourceListing {
                             listing: Listing::Read(offers_of(index.programs, &library.installed)),
                             name: index.name,
+                            icon: index.icon,
                             featured: index.featured,
                             source: source.clone(),
                         },
                         Err(error) => SourceListing {
                             listing: Listing::Failed(format!("{error}")),
                             name: None,
+                            icon: None,
                             featured: Vec::new(),
                             source: source.clone(),
                         },
@@ -1139,8 +1154,9 @@ impl Library {
         self.questions.push(question);
     }
 
-    /// A source was read, as `read` says, unless it was removed meanwhile: its apps' icons are
-    /// read after it, and once every source is read, the pictures none lists any more go.
+    /// A source was read, as `read` says, unless it was removed meanwhile: its logo and its
+    /// apps' icons are read after it, and once every source is read, the pictures none lists any
+    /// more go.
     fn source_read(&mut self, read: SourceListing, cx: &mut Context<Library>) {
         let Some(kept) = self
             .sources
@@ -1155,6 +1171,7 @@ impl Library {
             Listing::Read(apps) => apps
                 .iter()
                 .filter_map(|(app, _)| app.icon.clone())
+                .chain([kept.logo()])
                 .collect(),
             Listing::Reading | Listing::Failed(_) => Vec::new(),
         };
@@ -1163,6 +1180,12 @@ impl Library {
         }
         self.keep_the_pictures_listed();
         cx.notify();
+    }
+
+    /// The picture that stands for the source `read`, once it was read; none before, and none
+    /// for a source that lists no icon on a site that has no picture of its own.
+    pub(crate) fn source_logo(&self, read: &SourceListing) -> Option<&Arc<[u8]>> {
+        self.picture(&read.source, &read.logo())
     }
 
     /// The picture `source` lists as `picture`, an icon or a screenshot, once it was read; none
@@ -1208,9 +1231,11 @@ impl Library {
                 Listing::Reading => return,
                 Listing::Failed(_) => continue,
             };
+            let logo = read.logo();
             let pictures = apps
                 .iter()
-                .flat_map(|(app, _)| app.icon.iter().chain(&app.screenshots));
+                .flat_map(|(app, _)| app.icon.iter().chain(&app.screenshots))
+                .chain([&logo]);
             listed.extend(pictures.filter_map(|picture| read.source.picture_url(picture).ok()));
         }
         self.store.keep_pictures(&listed);

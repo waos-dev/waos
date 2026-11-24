@@ -1,12 +1,13 @@
 //! A package source's `index.json`: each program it offers, at a version, with its package and
 //! that package's SHA-256 (the design's decision 45), and what a store shows of it before it is
 //! downloaded: its icon, a line and a description, its category, who publishes it, when this
-//! version was released and its screenshots; with what the source calls itself and the apps it
-//! puts forward.
+//! version was released and its screenshots; with what the source calls itself, its own icon
+//! and the apps it puts forward.
 //!
 //! ```json
 //! {
 //!   "name": "Example Apps",
+//!   "icon": "example-apps.png",
 //!   "featured": ["dev.example.triangle"],
 //!   "programs": [
 //!     {
@@ -54,6 +55,10 @@ pub struct Index {
     /// What the source calls itself; a store shows its address where it says none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+    /// The source's own icon's URL, a PNG, relative to the index's own; a store shows the
+    /// picture of where the source is where it says none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
     /// The programs the source puts forward, the first the most, by their ids.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub featured: Vec<ProgramId>,
@@ -251,6 +256,7 @@ mod tests {
         };
         let index = Index {
             name: Some("Example Apps".to_owned()),
+            icon: Some("example-apps.png".to_owned()),
             featured: vec!["dev.example.triangle".parse().unwrap()],
             programs: vec![shown],
         };

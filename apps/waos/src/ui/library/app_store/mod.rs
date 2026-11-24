@@ -1,7 +1,7 @@
 //! The app store, a page of its own behind the home's plus, with a way back. What the layouts
 //! share is here, read from the library: Discover's apps, those the sources put forward and
 //! those a search or a category narrows them to ([`discover`]); the apps with a newer version
-//! ([`updates`]); each source as its row names it ([`source_rows`]); and what installs a package from a file the user picks, where the system
+//! ([`updates`]); each source as its row shows it ([`source_rows`]); and what installs a package from a file the user picks, where the system
 //! has a file picker ([`PackagePicker`]). The controls are each layout's. The phone's page still
 //! shows each source with the programs it lists ([`listed_rows`]).
 //!
@@ -198,44 +198,39 @@ fn store_app(app: &CatalogApp, library: &Library) -> StoreApp {
     }
 }
 
-/// A source as the store's third place shows it: what it calls itself, its address, and how
-/// many apps it lists, or what it says while it has none to show.
+/// A source as the store's third place shows it: its logo, what it calls itself and how many
+/// apps it lists, or what it says while it has none to show; and its address, for whoever asks.
 #[derive(Clone, Debug)]
 pub(crate) struct SourceRow {
     pub(crate) source: Source,
-    /// What the source calls itself; its address where it says none.
+    /// The picture that stands for it, once read; none for one that has none, which shows a
+    /// plain mark.
+    pub(crate) logo: Option<Arc<[u8]>>,
     pub(crate) name: String,
-    /// Its address, under a name of its own; none where the name is the address already.
-    pub(crate) address: Option<String>,
+    /// Its address, as its user types it.
+    pub(crate) address: String,
     /// How many apps it lists; or that it is being read, or why it could not be.
     pub(crate) lists: Result<usize, String>,
 }
 
 /// The sources `library` holds, as the store's third place shows them.
 pub(crate) fn source_rows(library: &Library) -> Vec<SourceRow> {
-    library.sources().iter().map(source_row).collect()
+    let row = |read: &SourceListing| SourceRow {
+        source: read.source.clone(),
+        logo: library.source_logo(read).cloned(),
+        name: source_name(read),
+        address: read.source.to_string(),
+        lists: match &read.listing {
+            Listing::Reading => Err(words::READING.to_owned()),
+            Listing::Failed(why) => Err(words::unreadable(why)),
+            Listing::Read(apps) => Ok(apps.len()),
+        },
+    };
+    library.sources().iter().map(row).collect()
 }
 
-/// `read` as a row shows it.
-pub(crate) fn source_row(read: &SourceListing) -> SourceRow {
-    let address = read.source.to_string();
-    let lists = match &read.listing {
-        Listing::Reading => Err(words::READING.to_owned()),
-        Listing::Failed(why) => Err(words::unreadable(why)),
-        Listing::Read(apps) => Ok(apps.len()),
-    };
-    match read.name.clone() {
-        Some(name) => SourceRow {
-            source: read.source.clone(),
-            name,
-            address: Some(address),
-            lists,
-        },
-        None => SourceRow {
-            source: read.source.clone(),
-            name: address,
-            address: None,
-            lists,
-        },
-    }
+/// What the store calls the source `read`: what it calls itself, or its address where it says
+/// nothing, or was not read.
+pub(crate) fn source_name(read: &SourceListing) -> String {
+    read.name.clone().unwrap_or_else(|| read.source.to_string())
 }

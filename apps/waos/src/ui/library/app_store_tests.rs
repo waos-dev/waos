@@ -153,15 +153,20 @@ fn updates_lists_what_has_a_newer_version_and_updates_them_all() {
 
 #[test]
 fn sources_names_each_source_and_shows_its_apps_alone() {
-    let (mut desktop, view, _server) = on_the_store();
+    let (mut desktop, view, server) = on_the_store();
     desktop.tap(view, words::SOURCES);
     assert!(desktop.shows("Example Apps"), "{:?}", desktop.labels());
     assert!(desktop.shows(words::ADD) && !desktop.shows("Triangle"));
-    let said = desktop
-        .labels()
-        .into_iter()
-        .find(|label| label.ends_with(&words::apps_listed(3)));
-    assert!(said.is_some(), "how many it lists: {:?}", desktop.labels());
+    assert!(
+        desktop.shows(&words::apps_listed(3)),
+        "how many it lists: {:?}",
+        desktop.labels()
+    );
+    assert!(
+        !desktop.shows(&server.source()),
+        "its address shows once its row is opened: {:?}",
+        desktop.labels()
+    );
 
     desktop.tap(view, words::SHOW_APPS);
     assert!(
@@ -177,6 +182,12 @@ fn sources_names_each_source_and_shows_its_apps_alone() {
     );
 
     desktop.tap(view, words::SOURCES);
+    desktop.tap(view, "Example Apps");
+    assert!(
+        desktop.shows(&server.source()),
+        "the row opened on its address: {:?}",
+        desktop.labels()
+    );
     desktop.tap(view, words::REMOVE_SOURCE);
     assert!(desktop.shows(words::NO_SOURCES), "{:?}", desktop.labels());
 }

@@ -166,6 +166,9 @@ const STORE_SCENES: [(AppStorePlace, &str); 3] = [
     (AppStorePlace::Sources, "store-sources"),
 ];
 
+/// The file the gallery's source serves as its own icon.
+const SOURCE_ICON: &str = "example-apps.png";
+
 /// What the gallery's source puts forward.
 const SOURCE_FEATURES: [&str; 2] = ["dev.waos.notes", "dev.example.maps"];
 
@@ -210,12 +213,18 @@ fn walks_the_library(layout: &str, (mut desktop, view): (LibraryDesktop, ViewId)
             server.serve_beside_index(&icon_file_of(category), icon);
         }
     }
+    server.serve_beside_index(SOURCE_ICON, include_bytes!("../../assets/icon.png"));
     adds_source(&mut desktop, &server.source());
     shows(&mut desktop, LibraryPage::AppStore);
     reads_the_icons_listed(&mut desktop);
     for (place, scene) in STORE_SCENES {
         desktop.update(|library, cx| library.show_app_store_place(place, cx));
         scenes.draw(&mut desktop, scene);
+    }
+    // A source's row opens on a press, which the desktop's layout alone has.
+    if layout == "launcher" {
+        desktop.tap(view, "Example Apps");
+        scenes.draw(&mut desktop, "store-source-opened");
     }
     desktop.update(|library, cx| {
         let source = library.sources()[0].source.clone();
@@ -255,6 +264,7 @@ fn walks_the_library(layout: &str, (mut desktop, view): (LibraryDesktop, ViewId)
 /// of each app its line, its category and its icon.
 fn says_what_a_store_shows(index: &mut Index) {
     index.name = Some("Example Apps".to_owned());
+    index.icon = Some(SOURCE_ICON.to_owned());
     index.featured = SOURCE_FEATURES
         .map(|id| id.parse().expect("an app's id"))
         .to_vec();
@@ -286,14 +296,15 @@ fn icon_file_of(category: Category) -> String {
     icon.expect("an icon's file").to_owned()
 }
 
-/// Waits until the library has read every icon its only source lists, as it does once the
-/// source is read.
+/// Waits until the library has read every icon its only source lists, its own among them, as
+/// it does once the source is read.
 fn reads_the_icons_listed(desktop: &mut LibraryDesktop) {
     desktop.settle_until("the icons the source lists", |desktop| {
         desktop.read(|library| {
             let source = &library.sources()[0].source;
             let mut icons = SOURCE_LISTS.iter().filter_map(|(.., icon)| *icon);
             icons.all(|icon| library.picture(source, icon).is_some())
+                && library.source_logo(&library.sources()[0]).is_some()
         })
     });
 }

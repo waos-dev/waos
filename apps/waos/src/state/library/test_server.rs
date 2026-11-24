@@ -88,6 +88,13 @@ impl Server {
         files.insert(format!("{SOURCE_FOLDER}{name}"), bytes.to_vec());
     }
 
+    /// Serves `bytes` at `path` on the server, outside the source's folder, as a website's own
+    /// picture is.
+    pub(crate) fn serve_at(&self, path: &str, bytes: &[u8]) {
+        let mut files = self.files.lock().unwrap();
+        files.insert(path.to_owned(), bytes.to_vec());
+    }
+
     /// The server as a source, as its user types it: a website's address, whose apps are listed
     /// where a website's are.
     pub(crate) fn source(&self) -> String {
