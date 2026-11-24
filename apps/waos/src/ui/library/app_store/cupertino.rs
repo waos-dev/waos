@@ -56,6 +56,14 @@ const ICON_SIDE: f64 = 44.0;
 const CARD_ICON_SIDE: f64 = 56.0;
 const SOURCE_LOGO_SIDE: f64 = 32.0;
 
+/// The room above and below an app's icon in its row, so one row's icon stands clear of the
+/// next's, as the App Store's rows keep theirs; the sides are a list row's own.
+const APP_ROW_PADDING: [f64; 4] = [20.0, 10.0, 14.0, 10.0];
+
+/// The side of a tab's icon in the store's bar: a tab bar's glyph as iOS draws it, smaller
+/// than the kit's own default.
+const TAB_ICON_SIDE: f64 = 24.0;
+
 /// How wide a card of the apps put forward is, so the next one shows at the screen's edge, and
 /// how round its corners are.
 const CARD_WIDTH: f64 = 300.0;
@@ -155,11 +163,13 @@ impl State for CupertinoAppStoreState {
         let waiting = library.read(app).updates().len();
         let badge = resolved(CupertinoColors::SYSTEM_RED, app, context);
         let chosen = library.clone();
-        let bar = CupertinoTabBar::new(tabs(waiting, badge)).on_tap(move |app, tab| {
-            if let Some(place) = PLACES.get(tab) {
-                chosen.update(app, |library, cx| library.show_app_store_place(*place, cx));
-            }
-        });
+        let bar = CupertinoTabBar::new(tabs(waiting, badge))
+            .icon_size(TAB_ICON_SIDE)
+            .on_tap(move |app, tab| {
+                if let Some(place) = PLACES.get(tab) {
+                    chosen.update(app, |library, cx| library.show_app_store_place(*place, cx));
+                }
+            });
         let tabs = kept.tabs.clone();
         CupertinoTabScaffold::new(bar, move |_, _, tab| {
             StorePlace {
@@ -608,6 +618,12 @@ impl Page {
             .subtitle(Text::new(app.line.clone()))
             .leading(icon)
             .leading_size(ICON_SIDE)
+            .padding(EdgeInsetsGeometry::directional(
+                APP_ROW_PADDING[0],
+                APP_ROW_PADDING[1],
+                APP_ROW_PADDING[2],
+                APP_ROW_PADDING[3],
+            ))
             .trailing(self.action(&app))
             .on_tap(open_page)
             .into_widget()
