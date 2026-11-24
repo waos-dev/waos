@@ -13,6 +13,8 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
+use waos_package::Category;
+
 use super::{ProgramEntry, SystemEntries};
 use crate::logic::program_identities::{Identities, relaunch_arguments};
 
@@ -64,9 +66,37 @@ pub(crate) fn desktop_entry(entry: &ProgramEntry, waos: &Path, icon: Option<&Pat
     if let Some(icon) = icon {
         lines.push(format!("Icon={}", string_value(&icon.to_string_lossy())));
     }
+    if let Some(category) = entry.category {
+        lines.push(format!("Categories={}", menu_categories(category)));
+    }
     lines.push(format!("StartupWMClass={}", entry.app_id));
     lines.push("StartupNotify=true".to_owned());
     lines.join("\n") + "\n"
+}
+
+/// The desktop menu's categories `category` is filed under, as `Categories` lists them: the
+/// freedesktop menu specification's main categories, which every desktop's menus know, and with
+/// Audio or Video the AudioVideo the specification asks beside them. They are coarser than the
+/// manifest's, so several of those share one.
+fn menu_categories(category: Category) -> &'static str {
+    match category {
+        Category::Business | Category::Finance | Category::Productivity => "Office;",
+        Category::DeveloperTools => "Development;",
+        Category::Education | Category::Reference => "Education;",
+        Category::Entertainment => "AudioVideo;",
+        Category::Games => "Game;",
+        Category::GraphicsDesign | Category::Photography => "Graphics;",
+        Category::Medical => "Science;",
+        Category::Music => "AudioVideo;Audio;",
+        Category::News | Category::SocialNetworking => "Network;",
+        Category::Video => "AudioVideo;Video;",
+        Category::HealthcareFitness
+        | Category::Lifestyle
+        | Category::Sports
+        | Category::Travel
+        | Category::Utilities
+        | Category::Weather => "Utility;",
+    }
 }
 
 /// `argument` as `Exec` holds it: bare where it has none of the characters the specification
@@ -130,7 +160,22 @@ mod tests {
             name: name.to_owned(),
             version: "1.0.0".to_owned(),
             icon,
+            category: None,
         }
+    }
+
+    #[test]
+    fn an_app_filed_under_a_category_is_under_the_menus_own_and_one_filed_under_none_says_none() {
+        let waos = Path::new("/opt/waos/waos");
+        let filed = |category| ProgramEntry {
+            category,
+            ..entry("Notes", None)
+        };
+        let music = desktop_entry(&filed(Some(Category::Music)), waos, None);
+        assert!(music.contains("Categories=AudioVideo;Audio;\n"), "{music}");
+        let tools = desktop_entry(&filed(Some(Category::DeveloperTools)), waos, None);
+        assert!(tools.contains("Categories=Development;\n"), "{tools}");
+        assert!(!desktop_entry(&filed(None), waos, None).contains("Categories="));
     }
 
     #[test]

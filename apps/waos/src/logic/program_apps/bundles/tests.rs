@@ -33,6 +33,7 @@ fn installed(id: &str, name: &str) -> ProgramDescription {
         name: name.to_owned(),
         version: "1.0.0".to_owned(),
         icon: None,
+        category: None,
     }
 }
 

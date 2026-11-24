@@ -18,7 +18,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use waos_package::ProgramId;
+use waos_package::{Category, ProgramId};
 use waos_window_messages::bundle::{DATA_FOLDER_KEY, PROGRAM_ID_KEY, WAOS_KEY, WINDOW_LIBRARY_KEY};
 
 use super::code_signature;
@@ -39,6 +39,8 @@ pub(crate) struct BundleContents<'a> {
     pub(crate) version: &'a str,
     /// The package's icon, a square PNG; none for a program run in development.
     pub(crate) icon: Option<&'a Path>,
+    /// What the app is for, where its author said: the heading macOS files it under.
+    pub(crate) category: Option<Category>,
     /// WaOS's files the bundle refers to.
     pub(crate) waos: &'a WaosFiles,
 }
@@ -117,6 +119,13 @@ fn info_plist(contents: &BundleContents) -> String {
     ];
     if contents.icon.is_some() {
         entries.push(("CFBundleIconFile", ICON.to_owned()));
+    }
+    if let Some(category) = contents.category {
+        // Apple's identifier is the manifest's spelling under its prefix.
+        entries.push((
+            "LSApplicationCategoryType",
+            format!("public.app-category.{category}"),
+        ));
     }
     let strings: String = entries
         .iter()

@@ -398,6 +398,7 @@ impl ProgramApps {
             name: program.name(),
             version: program.manifest.version().to_string(),
             icon: self.store.icon(id),
+            category: program.manifest.category(),
         })
     }
 
