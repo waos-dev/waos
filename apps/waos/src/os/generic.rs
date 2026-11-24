@@ -1,7 +1,11 @@
 //! A system other than macOS: it keeps no program's notifications in its settings, since a
 //! program has no app of its own there, and its notifications are WaOS's. And, not built yet,
-//! nothing hears the user's time zone change on Android, Windows or Linux.
+//! nothing hears the user's time zone change on Android, Windows or Linux, and Waft has no video
+//! decoders for them.
 
+use std::rc::Rc;
+
+use waft::ui::video_decoders::VideoDecoders;
 use waos_package::ProgramId;
 
 /// No page of the system's settings holds a program's notifications.
@@ -21,5 +25,10 @@ pub(crate) enum TimeZoneChanges {}
 pub(crate) fn watch_time_zone(
     _changed: impl Fn() + Send + Sync + 'static,
 ) -> Option<TimeZoneChanges> {
+    None
+}
+
+/// None: Waft decodes video on Apple's systems only so far.
+pub(crate) fn video_decoders() -> Option<Rc<dyn VideoDecoders>> {
     None
 }
