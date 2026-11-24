@@ -27,9 +27,10 @@
 //! program it shows and whether it is the program's first window or an extra one
 //! (`logic::restoration`), so a window the system restores to a process started afresh, as Android
 //! does a task from Recents, says what goes in it. The user's Back
-//! in a window goes to its program where the program handles Back, and otherwise sends the window
-//! to the background, as Android sends an app's first screen there (decision 14 of
-//! `docs/proposals/2026-11-12-phone-programs-and-library.md`); a desktop sends no Back.
+//! in a window goes to its program where the program handles Back, and otherwise asks the program
+//! to close the window, as a desktop's close button does: Android's own default for Back is to
+//! finish the screen it is in, and the program decides, as it does on a desktop. A desktop sends
+//! no Back.
 //!
 //! The invariant: every request taken is answered exactly once while its program runs, by
 //! `add_view` or by `view_request_failed`, and every view added is taken away once with
@@ -669,30 +670,21 @@ impl<P: ProgramLink> ViewWindows<P> {
     }
 
     /// The user's Back in `view`: to its program, where the program goes back within itself, and
-    /// otherwise the window goes to the background, its program running on. Answers whether a
-    /// program's window it was.
-    fn go_back(&mut self, view: ViewId, cx: &mut Context<ViewWindows<P>>) -> bool {
-        let Some(window) = self
-            .shown
-            .iter_mut()
-            .find(|window| window.waft_view.id() == view)
-        else {
+    /// otherwise the program is asked to close the window, as the user asking to close it is
+    /// passed on. Answers whether a program's window it was.
+    fn go_back(&self, view: ViewId, cx: &Context<ViewWindows<P>>) -> bool {
+        let Some(window) = self.shown_in(view) else {
             return false;
         };
-        let handled = {
-            let shown = window.shown.read(cx);
-            if shown.handles_back() {
-                shown.pop_route();
-            }
-            shown.handles_back()
-        };
-        if !handled {
+        let shown = window.shown.read(cx);
+        if shown.handles_back() {
+            shown.pop_route();
+        } else {
             tracing::info!(
                 program = window.program.name(),
-                "Back at the program's first screen: its window goes to the background"
+                "Back at the program's first screen: it is asked to close the window"
             );
-            window.window.set_minimized(true);
-            window.window_changed(cx);
+            shown.view().close_requested();
         }
         true
     }

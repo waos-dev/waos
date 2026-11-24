@@ -3,8 +3,8 @@
 //! each made with the program's name and icon and naming the program and whether it is its first
 //! window, and none takes a tab; one opened again while it runs brings its window forward; a first
 //! window the system brings back starts its program again in it, and an extra one closes; Back
-//! goes to a program that handles it, and otherwise sends its window to the background, the
-//! program running on; a window swiped away ends its view, and the program with its last; and with
+//! goes to a program that handles it, and otherwise asks the program to close the window, as a
+//! desktop's close button does; a window swiped away ends its view, and the program with its last; and with
 //! programs shown inside WaOS, which the user's preferences keep, a program opened after takes a
 //! tab, as in the deck's own tests.
 
@@ -200,17 +200,18 @@ fn an_extra_window_brought_back_closes_at_once() {
 }
 
 #[test]
-fn back_at_a_programs_first_screen_sends_its_window_to_the_background_and_it_runs_on() {
+fn back_at_a_programs_first_screen_asks_it_to_close_its_window() {
     let mut phone = with_triangle_installed();
     open_in_a_window(&mut phone, TRIANGLE);
     let window = phone.windows_of(TRIANGLE).remove(0);
     assert!(phone.back_in(window.test_view().id()), "WaOS handled it");
-    phone.settle();
-    assert!(HostWindow::is_minimized(&*window));
-    assert_eq!(window.closes(), 0);
-    assert!(phone.runs(TRIANGLE));
-    let views = phone.program_views(TRIANGLE);
-    assert!(!views[0].presence().on_screen, "{:?}", views[0].presence());
+    phone.settle_until("its program closes the window, as it decides", |_| {
+        window.closes() == 1
+    });
+    assert!(
+        !HostWindow::is_minimized(&*window),
+        "closed, not sent to the background"
+    );
 }
 
 #[test]
@@ -227,10 +228,7 @@ fn back_in_a_program_that_handles_it_is_the_programs() {
     phone.settle_until("it went back to its first page", |phone| {
         !phone.program_views(BACK)[0].handles_back()
     });
-    assert!(
-        !HostWindow::is_minimized(&*window),
-        "the program's own Back"
-    );
+    assert_eq!(window.closes(), 0, "the program's own Back");
 }
 
 #[test]
