@@ -1644,7 +1644,7 @@ fn a_program_that_asks_for_a_switch_sends_the_deck_home_to_its_settings_page() {
 fn a_home_opened_after_the_last_one_went_starts_on_the_grid_of_programs() {
     let mut phone = home_with_triangle_installed();
     phone.library.update(&mut phone.shell.app(), |library, cx| {
-        library.show_page(LibraryPage::GetPrograms, cx)
+        library.show_page(LibraryPage::AppStore, cx)
     });
     phone.settle();
     assert!(phone.shows(words::GET_PROGRAMS), "{:?}", phone.labels());
@@ -2473,7 +2473,7 @@ fn back_once_a_program_has_nowhere_left_to_go_back_to_goes_home() {
 fn back_on_the_home_goes_to_its_first_page_and_from_there_is_the_systems() {
     let mut phone = home_with_triangle_installed();
     phone.library.update(&mut phone.shell.app(), |library, cx| {
-        library.show_page(LibraryPage::GetPrograms, cx)
+        library.show_page(LibraryPage::AppStore, cx)
     });
     phone.settle();
     assert!(phone.shows(words::GET_PROGRAMS), "{:?}", phone.labels());

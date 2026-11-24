@@ -117,7 +117,7 @@ impl CupertinoHome {
         Row::new()
             .main_axis_size(MainAxisSize::Min)
             .children([
-                bar_button(CupertinoIcons::add(), self.show(LibraryPage::GetPrograms)),
+                bar_button(CupertinoIcons::add(), self.show(LibraryPage::AppStore)),
                 bar_button(
                     CupertinoIcons::gear_alt(),
                     self.show(LibraryPage::Settings(SettingsOf::Global)),
@@ -204,7 +204,7 @@ impl CupertinoHome {
             .style(TextStyle::new().font_size(15.0).color(secondary));
         let get = CupertinoButton::tinted(
             Text::new(words::GET_PROGRAMS).into_widget(),
-            Some(self.show(LibraryPage::GetPrograms)),
+            Some(self.show(LibraryPage::AppStore)),
         );
         Center::new()
             .child(Padding::new(EdgeInsetsGeometry::all(SIDE_MARGIN)).child(

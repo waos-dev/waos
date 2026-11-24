@@ -20,7 +20,7 @@ use waft_cupertino::{
 };
 use waft_test::{AskedDialog, MemoryFile, TestWindow};
 
-use super::get_programs::fluent::FluentGetPrograms;
+use super::app_store::fluent::FluentAppStore;
 use super::home::cupertino::CupertinoHome;
 use super::home::fluent::FluentHome;
 use super::home::{IconTile, RunningDot};
@@ -324,9 +324,8 @@ fn the_get_page_says_installing_until_the_programs_code_is_ready() {
     server.publish(TRIANGLE, &package, "1.0.0");
     let index = server.url("waos/index.json");
     desktop.update(|library, cx| library.add_source(&index, cx));
-    desktop.update(|library, cx| {
-        library.show_page(crate::state::library::LibraryPage::GetPrograms, cx)
-    });
+    desktop
+        .update(|library, cx| library.show_page(crate::state::library::LibraryPage::AppStore, cx));
     desktop.settle_until("the source's listing", |desktop| desktop.shows(words::GET));
     let held = desktop.hold_compiles();
     let view = phone_view(&desktop);
@@ -357,9 +356,8 @@ fn an_icon_whose_program_a_source_lists_newer_is_badged() {
         "{:?}",
         desktop.labels()
     );
-    desktop.update(|library, cx| {
-        library.show_page(crate::state::library::LibraryPage::GetPrograms, cx)
-    });
+    desktop
+        .update(|library, cx| library.show_page(crate::state::library::LibraryPage::AppStore, cx));
     assert!(desktop.shows(words::UPDATE), "{:?}", desktop.labels());
     assert!(desktop.shows(&words::update_detail("2.0.0", "1.0.0")));
 }
@@ -401,7 +399,7 @@ fn a_long_name_is_laid_out_across_its_tile() {
 
 /// The page that gets programs, shown.
 fn on_the_get_page(desktop: &mut LibraryDesktop) {
-    desktop.update(|library, cx| library.show_page(LibraryPage::GetPrograms, cx));
+    desktop.update(|library, cx| library.show_page(LibraryPage::AppStore, cx));
 }
 
 /// The dialog Install from file asks for, on the window of `view`: one file, of WaOS's packages.
@@ -492,7 +490,7 @@ fn a_package_picked_from_a_file_in_fluents_layout_is_asked_about() {
     let package = desktop.package(TRIANGLE, "Triangle", "1.0.0", b"\0asm");
     let dialogs = desktop.file_dialogs().answering_paths(vec![package]);
     on_the_get_page(&mut desktop);
-    assert!(desktop.has::<FluentGetPrograms>(), "{:?}", desktop.labels());
+    assert!(desktop.has::<FluentAppStore>(), "{:?}", desktop.labels());
     desktop.tap(view, words::INSTALL_FROM_FILE);
     assert_eq!(dialogs.asked(), [package_dialog(view)]);
     assert!(desktop.shows("Install Triangle?"), "{:?}", desktop.labels());

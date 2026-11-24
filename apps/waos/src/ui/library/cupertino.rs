@@ -14,7 +14,7 @@ use waft::{
 };
 use waft_cupertino::{CupertinoApp, CupertinoButton, CupertinoIcons, CupertinoPage};
 
-use super::get_programs::cupertino::CupertinoGetPrograms;
+use super::app_store::cupertino::CupertinoAppStore;
 use super::home::cupertino::CupertinoHome;
 use super::program_name;
 use super::questions::cupertino::CupertinoAsked;
@@ -136,7 +136,7 @@ impl LibraryPages {
                 recordings: self.recordings.clone(),
             }
             .into_widget(),
-            LibraryPage::GetPrograms => CupertinoGetPrograms { library }.into_widget(),
+            LibraryPage::AppStore => CupertinoAppStore { library }.into_widget(),
             LibraryPage::Settings(of) => CupertinoSettings {
                 program_name: program_name(&library, &of, app),
                 library,

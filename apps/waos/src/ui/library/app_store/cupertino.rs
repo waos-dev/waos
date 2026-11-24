@@ -35,29 +35,29 @@ const ICON_SIDE: f64 = 40.0;
 
 /// Getting programs, in Cupertino's widgets.
 #[derive(Debug)]
-pub(crate) struct CupertinoGetPrograms {
+pub(crate) struct CupertinoAppStore {
     pub(crate) library: Entity<Library>,
 }
 
-impl StatefulWidget for CupertinoGetPrograms {
-    type State = CupertinoGetProgramsState;
+impl StatefulWidget for CupertinoAppStore {
+    type State = CupertinoAppStoreState;
 
-    fn create_state(&self) -> CupertinoGetProgramsState {
-        CupertinoGetProgramsState {
+    fn create_state(&self) -> CupertinoAppStoreState {
+        CupertinoAppStoreState {
             state: StateData::new(),
             source_text: None,
         }
     }
 }
 
-pub(crate) struct CupertinoGetProgramsState {
-    state: StateData<CupertinoGetPrograms>,
+pub(crate) struct CupertinoAppStoreState {
+    state: StateData<CupertinoAppStore>,
     /// What is typed as a source to add.
     source_text: Option<Ref<TextEditingController>>,
 }
 
-impl State for CupertinoGetProgramsState {
-    type Widget = CupertinoGetPrograms;
+impl State for CupertinoAppStoreState {
+    type Widget = CupertinoAppStore;
     waft_widgets::state_accessors!();
 
     fn init_state(self: Handle<Self>, app: &mut App) {

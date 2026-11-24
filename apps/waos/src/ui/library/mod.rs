@@ -2,7 +2,7 @@
 //! width takes (`logic::library_layout`), Fluent's or Cupertino's. Each screen is a module of its
 //! own, with a submodule per control set and what is not about controls shared above them: the
 //! home of program icons (`home`), an icon's actions (`icon_actions`), getting programs
-//! (`get_programs`), what the library asks or says, as a dialog over what shows (`questions`), and
+//! (`app_store`), what the library asks or says, as a dialog over what shows (`questions`), and
 //! the settings pages (`settings`); with a program's icon (`program_icon`), the banner of who
 //! records (`recording`), and the words every layout says (`words`).
 //!
@@ -10,9 +10,9 @@
 //! layout keeps of its own is only what the user is typing and where they are in it, which a
 //! change of layout drops.
 
+pub(crate) mod app_store;
 pub(crate) mod cupertino;
 pub(crate) mod fluent;
-pub(crate) mod get_programs;
 pub(crate) mod home;
 pub(crate) mod icon_actions;
 pub(crate) mod program_icon;

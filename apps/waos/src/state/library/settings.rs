@@ -33,8 +33,8 @@ use crate::os::notification_settings_link;
 pub(crate) enum LibraryPage {
     /// The home: the programs installed, as icons.
     Home,
-    /// Getting programs: the sources added, with what each lists, and the field that adds one.
-    GetPrograms,
+    /// The app store: every app the sources list, the updates, and the sources.
+    AppStore,
     /// The global settings, or a program's.
     Settings(SettingsOf),
 }
@@ -45,7 +45,7 @@ impl LibraryPage {
     pub(crate) fn beneath(&self) -> Option<LibraryPage> {
         match self {
             LibraryPage::Home => None,
-            LibraryPage::GetPrograms | LibraryPage::Settings(_) => Some(LibraryPage::Home),
+            LibraryPage::AppStore | LibraryPage::Settings(_) => Some(LibraryPage::Home),
         }
     }
 

@@ -235,10 +235,7 @@ impl LauncherHomeState {
     fn menu_items(self: Handle<Self>, app: &App) -> Vec<MenuFlyoutItem> {
         let library = self.widget(app).library.clone();
         vec![
-            MenuFlyoutItem::new(
-                words::GET_PROGRAMS,
-                show(&library, LibraryPage::GetPrograms),
-            ),
+            MenuFlyoutItem::new(words::GET_PROGRAMS, show(&library, LibraryPage::AppStore)),
             MenuFlyoutItem::new(
                 words::SETTINGS,
                 show(&library, LibraryPage::Settings(SettingsOf::Global)),

@@ -30,29 +30,29 @@ const ICON_SIDE: f64 = 32.0;
 
 /// Getting programs, in Fluent's controls.
 #[derive(Debug)]
-pub(crate) struct FluentGetPrograms {
+pub(crate) struct FluentAppStore {
     pub(crate) library: Entity<Library>,
 }
 
-impl StatefulWidget for FluentGetPrograms {
-    type State = FluentGetProgramsState;
+impl StatefulWidget for FluentAppStore {
+    type State = FluentAppStoreState;
 
-    fn create_state(&self) -> FluentGetProgramsState {
-        FluentGetProgramsState {
+    fn create_state(&self) -> FluentAppStoreState {
+        FluentAppStoreState {
             state: StateData::new(),
             source_text: None,
         }
     }
 }
 
-pub(crate) struct FluentGetProgramsState {
-    state: StateData<FluentGetPrograms>,
+pub(crate) struct FluentAppStoreState {
+    state: StateData<FluentAppStore>,
     /// What is typed as a source to add.
     source_text: Option<Ref<TextEditingController>>,
 }
 
-impl State for FluentGetProgramsState {
-    type Widget = FluentGetPrograms;
+impl State for FluentAppStoreState {
+    type Widget = FluentAppStore;
     waft_widgets::state_accessors!();
 
     fn init_state(self: Handle<Self>, app: &mut App) {

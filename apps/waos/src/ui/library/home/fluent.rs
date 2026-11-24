@@ -117,7 +117,7 @@ impl FluentHome {
             Expanded::new(title).into_widget(),
             bar_button(
                 FluentSymbol::Add,
-                show(&self.library, LibraryPage::GetPrograms),
+                show(&self.library, LibraryPage::AppStore),
             ),
             bar_button(
                 FluentSymbol::Settings,
@@ -604,7 +604,7 @@ impl FluentHomeBody {
             .style(TextBlockStyle::Body.text_style(resources, resources.text_fill_color_secondary));
         let get = Button::text(
             words::GET_PROGRAMS,
-            show(&self.library, LibraryPage::GetPrograms),
+            show(&self.library, LibraryPage::AppStore),
         )
         .style(ButtonStyle::Accent);
         Center::new()

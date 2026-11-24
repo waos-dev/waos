@@ -123,7 +123,7 @@ fn walks_the_library(layout: &str, (mut desktop, view): (LibraryDesktop, ViewId)
     let listed = desktop.package(LISTED, "Triangle", "1.0.0", b"\0asm");
     server.publish(LISTED, &listed, "1.0.0");
     adds_source(&mut desktop, &server.url("waos/index.json"));
-    shows(&mut desktop, LibraryPage::GetPrograms);
+    shows(&mut desktop, LibraryPage::AppStore);
     scenes.draw(&mut desktop, "get-programs");
 
     shows(&mut desktop, LibraryPage::Settings(SettingsOf::Global));
