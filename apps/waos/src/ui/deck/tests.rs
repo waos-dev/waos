@@ -1675,6 +1675,29 @@ fn home_shows(phone: &TestPhone, name: &str) -> bool {
         .is_some_and(|icon| icon.bottom < page_box().bottom)
 }
 
+/// The app store is laid out as an app of its own on the home's page: its tab bar is the
+/// page's foot, over the deck's bar and its pill.
+#[test]
+fn the_app_stores_tab_bar_sits_over_the_decks_bar() {
+    let mut phone = home_with_triangle_installed();
+    phone.library.update(&mut phone.shell.app(), |library, cx| {
+        library.show_page(LibraryPage::AppStore, cx)
+    });
+    phone.settle();
+    let page = page_box();
+    let pill = phone
+        .label_bounds(words::SEARCH_PROGRAMS)
+        .expect("the deck's pill");
+    for tab in [words::DISCOVER, words::UPDATES, words::SOURCES] {
+        let tab = phone.label_bounds(tab).expect("a tab of the store's bar");
+        assert!(
+            tab.bottom <= page.bottom && tab.top > page.bottom - 50.0,
+            "at the page's foot: {tab:?} in {page:?}"
+        );
+        assert!(tab.bottom <= pill.top, "over the pill: {tab:?}, {pill:?}");
+    }
+}
+
 #[test]
 fn on_the_home_the_pill_is_a_search_field_that_filters_the_programs_as_the_user_types() {
     let mut phone = home_with_two_installed();

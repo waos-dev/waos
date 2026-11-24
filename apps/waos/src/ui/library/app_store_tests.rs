@@ -294,8 +294,50 @@ fn on_a_phone_an_apps_row_opens_its_page_which_gets_it_and_goes_back_to_the_stor
 
     phone.tap(view, words::GET_PROGRAMS);
     assert!(
-        phone.shows("Maps") && phone.shows(words::ADD_SOURCE),
+        phone.shows("Maps") && phone.shows(words::FEATURED),
         "back on the store: {:?}",
         phone.labels()
     );
+}
+
+#[test]
+fn on_a_phone_the_tab_bar_shows_each_place_and_a_tap_takes_a_token_back() {
+    let (mut phone, view, server) = on_the_store_of(on_phone());
+    assert!(phone.shows(words::FEATURED), "{:?}", phone.labels());
+
+    let chosen = words::category(Category::GraphicsDesign);
+    phone.tap(view, chosen);
+    assert!(phone.shows("Triangle") && !phone.shows("Maps"));
+    assert!(
+        phone.shows(chosen) && !phone.shows(words::category(Category::Travel)),
+        "the category chosen is a token in the field, the chips gone: {:?}",
+        phone.labels()
+    );
+    phone.tap(view, chosen);
+    assert!(
+        phone.shows("Notes") && phone.shows(words::category(Category::Travel)),
+        "the token tapped, every app again: {:?}",
+        phone.labels()
+    );
+
+    phone.tap(view, words::SOURCES);
+    for said in [
+        "Example Apps",
+        &words::apps_listed(3),
+        &server.source(),
+        words::ADD_SOURCE,
+    ] {
+        assert!(phone.shows(said), "{said}: {:?}", phone.labels());
+    }
+    phone.tap(view, "Example Apps");
+    assert!(
+        phone.shows(words::FEATURED) && phone.shows("Example Apps"),
+        "its apps on Discover, under its token: {:?}",
+        phone.labels()
+    );
+    phone.tap(view, "Example Apps");
+    assert!(phone.shows("Maps") && !phone.shows("Example Apps"));
+
+    phone.tap(view, words::UPDATES);
+    assert!(phone.shows(words::UP_TO_DATE), "{:?}", phone.labels());
 }

@@ -27,6 +27,7 @@ use super::home::{IconTile, RunningDot};
 use super::program_icon::ProgramIcon;
 use super::test_steps::adds_source;
 use super::{LaidOutLibrary, words};
+use crate::logic::app_store::AppStorePlace;
 use crate::logic::opened_package::package_file_type;
 use crate::state::library::LibraryPage;
 use crate::state::library::test_desktop::LibraryDesktop;
@@ -92,8 +93,8 @@ fn the_empty_homes_button_gets_programs() {
     let mut desktop = desktop();
     let view = phone_view(&desktop);
     desktop.tap(view, words::GET_PROGRAMS);
-    assert!(desktop.shows(words::ADD_SOURCE), "{:?}", desktop.labels());
-    assert!(desktop.shows(words::NO_SOURCES));
+    assert!(desktop.shows(words::DISCOVER), "{:?}", desktop.labels());
+    assert!(desktop.shows(words::NO_APPS_LISTED));
     desktop.tap(view, words::HOME_TITLE);
     assert!(desktop.shows(words::NO_PROGRAMS), "back on the home");
 }
@@ -107,11 +108,13 @@ fn a_page_slides_in_over_the_home_and_its_back_button_slides_it_out() {
     desktop.tap_in_motion(view, words::GET_PROGRAMS);
     desktop.frames(2);
     let sliding = desktop
-        .find(words::ADD_SOURCE)
+        .find(words::SEARCH_STORE)
         .expect("the page, on its way in");
     assert!(desktop.shows(words::NO_PROGRAMS), "the home, under it");
     desktop.settle();
-    let settled = desktop.find(words::ADD_SOURCE).expect("the page, in place");
+    let settled = desktop
+        .find(words::SEARCH_STORE)
+        .expect("the page, in place");
     assert!(
         sliding.dx() > settled.dx() + 50.0,
         "from the right: at {sliding:?}, then {settled:?}"
@@ -124,14 +127,18 @@ fn a_page_slides_in_over_the_home_and_its_back_button_slides_it_out() {
     );
     desktop.frames(2);
     let leaving = desktop
-        .find(words::ADD_SOURCE)
+        .find(words::SEARCH_STORE)
         .expect("the page, on its way out");
     assert!(
         leaving.dx() > settled.dx() + 50.0,
         "to the right: at {leaving:?}"
     );
     desktop.settle();
-    assert!(!desktop.shows(words::ADD_SOURCE), "{:?}", desktop.labels());
+    assert!(
+        !desktop.shows(words::SEARCH_STORE),
+        "{:?}",
+        desktop.labels()
+    );
     assert!(desktop.shows(words::NO_PROGRAMS), "back on the home");
 }
 
@@ -153,7 +160,11 @@ fn a_swipe_from_the_left_edge_takes_a_page_back_to_the_home() {
         desktop.read(|library| library.page().clone()),
         LibraryPage::Home
     );
-    assert!(!desktop.shows(words::ADD_SOURCE), "{:?}", desktop.labels());
+    assert!(
+        !desktop.shows(words::SEARCH_STORE),
+        "{:?}",
+        desktop.labels()
+    );
     assert!(desktop.shows(words::NO_PROGRAMS), "back on the home");
 }
 
@@ -307,10 +318,12 @@ fn a_sources_program_installs_from_the_page_behind_the_plus() {
     });
     let server = Server::start();
     let index = source_listing_triangle(&mut desktop, &server, "1.0.0");
-    assert!(desktop.shows(&index), "{:?}", desktop.labels());
+    assert!(desktop.shows("Triangle"), "{:?}", desktop.labels());
     desktop.tap(view, words::GET);
     desktop.settle_until("the install", |desktop| desktop.shows(words::INSTALLED));
     assert_eq!(desktop.read(|library| library.installed().len()), 1);
+    desktop.tap(view, words::SOURCES);
+    assert!(desktop.shows(&index), "{:?}", desktop.labels());
     desktop.tap(view, words::REMOVE_SOURCE);
     assert!(desktop.shows(words::NO_SOURCES), "{:?}", desktop.labels());
 }
@@ -402,6 +415,14 @@ fn on_the_get_page(desktop: &mut LibraryDesktop) {
     desktop.update(|library, cx| library.show_page(LibraryPage::AppStore, cx));
 }
 
+/// The page that gets programs, shown on its sources, where a package is installed from a file.
+fn on_the_get_pages_sources(desktop: &mut LibraryDesktop) {
+    desktop.update(|library, cx| {
+        library.show_page(LibraryPage::AppStore, cx);
+        library.show_app_store_place(AppStorePlace::Sources, cx);
+    });
+}
+
 /// The dialog Install from file asks for, on the window of `view`: one file, of WaOS's packages.
 fn package_dialog(view: ViewId) -> AskedDialog {
     AskedDialog::OpenFile(
@@ -418,7 +439,7 @@ fn a_package_picked_from_a_file_is_asked_about_and_installed_once_the_user_says_
     let mut desktop = desktop();
     let package = desktop.package(TRIANGLE, "Triangle", "1.0.0", b"\0asm");
     let dialogs = desktop.file_dialogs().answering_paths(vec![package]);
-    on_the_get_page(&mut desktop);
+    on_the_get_pages_sources(&mut desktop);
     let view = phone_view(&desktop);
     desktop.tap(view, words::INSTALL_FROM_FILE_ROW);
     assert_eq!(dialogs.asked(), [package_dialog(view)]);
@@ -437,7 +458,7 @@ fn a_package_picked_from_a_file_is_asked_about_and_installed_once_the_user_says_
 fn a_cancelled_pick_shows_nothing() {
     let mut desktop = desktop();
     let dialogs = desktop.file_dialogs();
-    on_the_get_page(&mut desktop);
+    on_the_get_pages_sources(&mut desktop);
     let view = phone_view(&desktop);
     desktop.tap(view, words::INSTALL_FROM_FILE_ROW);
     assert_eq!(dialogs.asked().len(), 1, "the picker was shown");
@@ -471,7 +492,7 @@ fn a_package_picked_without_a_path_is_copied_and_asked_about() {
     desktop
         .file_dialogs()
         .answering(move || vec![document.picked()]);
-    on_the_get_page(&mut desktop);
+    on_the_get_pages_sources(&mut desktop);
     let view = phone_view(&desktop);
     desktop.tap(view, words::INSTALL_FROM_FILE_ROW);
     desktop.settle_until("the question", |desktop| desktop.shows("Install Triangle?"));

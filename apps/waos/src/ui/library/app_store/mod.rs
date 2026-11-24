@@ -3,8 +3,7 @@
 //! those a search or a category narrows them to ([`discover`]); the apps with a newer version
 //! ([`updates`]); an app's own page ([`app_page`]); each source as its row shows it
 //! ([`source_rows`]); and what installs a package from a file the user picks, where the system
-//! has a file picker ([`PackagePicker`]). The controls are each layout's. The phone's page still
-//! shows each source with the programs it lists ([`listed_rows`]).
+//! has a file picker ([`PackagePicker`]). The controls are each layout's.
 //!
 //! The invariant: an app's row offers exactly what the library offers for it (`logic::offers`),
 //! and Installing… while the library installs it, whatever the offer, until its code is ready, as
@@ -19,7 +18,7 @@ use std::sync::Arc;
 
 use waft::ui::ViewId;
 use waft::{App, BuildContext, Entity, View};
-use waos_package::{Category, ListedProgram, ProgramId};
+use waos_package::{Category, ProgramId};
 use waos_store::Source;
 
 use super::words;
@@ -58,16 +57,6 @@ impl PackagePicker {
     }
 }
 
-/// A program a source lists, as its row shows it.
-pub(crate) struct ListedRow {
-    pub(crate) program: ListedProgram,
-    /// Its version, and the version installed where it updates one.
-    pub(crate) detail: String,
-    /// Its icon where it is installed; none for one not installed, whose icon is in its package.
-    pub(crate) icon: Option<Arc<[u8]>>,
-    pub(crate) action: RowAction,
-}
-
 /// What a listed program's row offers, or says.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum RowAction {
@@ -75,45 +64,6 @@ pub(crate) enum RowAction {
     Update,
     Installing,
     Installed,
-}
-
-/// The rows of what `listing` lists, or what the source says while it has none to show: that it
-/// is being read, or why it could not be.
-pub(crate) fn listed_rows(
-    listing: &SourceListing,
-    library: &Library,
-) -> Result<Vec<ListedRow>, String> {
-    let offers = match &listing.listing {
-        Listing::Reading => return Err(words::READING.to_owned()),
-        Listing::Failed(why) => return Err(words::unreadable(why)),
-        Listing::Read(offers) => offers,
-    };
-    Ok(offers
-        .iter()
-        .map(|(program, offer)| listed_row(program, offer, library))
-        .collect())
-}
-
-fn listed_row(program: &ListedProgram, offer: &Offer, library: &Library) -> ListedRow {
-    let version = program.version.to_string();
-    let (detail, action) = match offer {
-        Offer::Install => (version, RowAction::Get),
-        Offer::Update { installed } => {
-            (words::update_detail(&version, installed), RowAction::Update)
-        }
-        Offer::Installed => (version, RowAction::Installed),
-    };
-    let action = if library.is_installing(&program.id) || library.is_compiling(&program.id) {
-        RowAction::Installing
-    } else {
-        action
-    };
-    ListedRow {
-        program: program.clone(),
-        detail,
-        icon: library.icon(&program.id).cloned(),
-        action,
-    }
 }
 
 /// One app as the store shows it, in a row or a card: its icon, its name, a line under it, and
