@@ -157,6 +157,11 @@ pub enum SourceError {
     Status { url: Url, status: StatusCode },
     /// The index at `url` is larger than `limit` bytes, the most the store reads of one.
     IndexTooLarge { url: Url, limit: u64 },
+    /// The index lists a picture at `url`, which is on another server than the index: a
+    /// source's pictures are read from where its index is, and nowhere else.
+    PictureElsewhere { url: Url },
+    /// The picture at `url` is larger than `limit` bytes, the most the store reads of one.
+    PictureTooLarge { url: Url, limit: u64 },
     /// What `url` answered is not an index.
     NotAnIndex { url: Url, error: IndexError },
     /// The index lists a package whose place is not a URL.
@@ -196,6 +201,15 @@ impl fmt::Display for SourceError {
             SourceError::IndexTooLarge { url, limit } => write!(
                 f,
                 "the index at {url} is larger than {} MiB, the most WaOS reads of one",
+                limit / (1024 * 1024)
+            ),
+            SourceError::PictureElsewhere { url } => write!(
+                f,
+                "the index lists a picture at {url}, on another server than the index, which WaOS does not read"
+            ),
+            SourceError::PictureTooLarge { url, limit } => write!(
+                f,
+                "the picture at {url} is larger than {} MiB, the most WaOS reads of one",
                 limit / (1024 * 1024)
             ),
             SourceError::NotAnIndex { url, error } => write!(f, "{url}: {error}"),

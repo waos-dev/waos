@@ -51,6 +51,18 @@ impl Source {
                 error,
             })
     }
+
+    /// Where the picture the index lists as `picture` is: that, relative to the index's URL, and
+    /// on the index's own server, since a source's word is no leave to read from anywhere: a
+    /// picture's address could otherwise be a device of the user's own network.
+    pub fn picture_url(&self, picture: &str) -> Result<Url, SourceError> {
+        let index = self.index_url();
+        let url = self.package_url(picture)?;
+        if url.origin() != index.origin() {
+            return Err(SourceError::PictureElsewhere { url });
+        }
+        Ok(url)
+    }
 }
 
 /// A source as the user types it: `github.com/owner/repository`, the repository's

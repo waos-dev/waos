@@ -14,6 +14,7 @@
 //!   audit/
 //!     dev.example.triangle/
 //!       2026-11-15.postcard  what the program did that day, its last seven days kept
+//!   pictures/             the sources' icons and screenshots, kept as read, by their addresses
 //!   removing/             a program being removed, moved here whole first
 //!   sources.toml          the sources the user added, in the order added
 //!   settings.toml         the global settings, which every program follows until it has its own

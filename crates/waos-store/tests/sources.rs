@@ -88,6 +88,46 @@ async fn a_source_is_read_from_its_index() {
 }
 
 #[tokio::test]
+async fn a_sources_picture_is_read_from_its_server_and_kept_while_a_source_lists_it() {
+    let scratch = tempfile::tempdir().unwrap();
+    let server = Server::serve(vec![("waos/icon.png".to_owned(), b"an icon".to_vec())]).await;
+    let store = Store::open(&scratch.path().join("store"), SourceProxy::None).unwrap();
+    let from = source(&server.url("waos/index.json"));
+    let kept = || -> Vec<Vec<u8>> {
+        std::fs::read_dir(scratch.path().join("store/pictures"))
+            .map(|files| {
+                files
+                    .map(|file| std::fs::read(file.unwrap().path()).unwrap())
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+    assert!(kept().is_empty());
+    assert_eq!(store.picture(&from, "icon.png").await.unwrap(), b"an icon");
+    assert_eq!(kept(), [b"an icon".to_vec()], "kept as read");
+
+    store.keep_pictures(&[from.picture_url("icon.png").unwrap()]);
+    assert_eq!(kept().len(), 1, "a source lists it still");
+    store.keep_pictures(&[]);
+    assert!(kept().is_empty(), "no source lists it any more");
+}
+
+#[tokio::test]
+async fn a_picture_on_another_server_than_its_index_is_not_read() {
+    let scratch = tempfile::tempdir().unwrap();
+    let store = Store::open(&scratch.path().join("store"), SourceProxy::None).unwrap();
+    let from = source("https://apps.example/waos/index.json");
+    let elsewhere = store
+        .picture(&from, "http://192.168.1.1/admin.png")
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(elsewhere, SourceError::PictureElsewhere { .. }),
+        "{elsewhere}"
+    );
+}
+
+#[tokio::test]
 async fn a_source_with_no_index_says_what_the_server_answered() {
     let scratch = tempfile::tempdir().unwrap();
     let server = Server::serve(vec![("index.json".to_owned(), b"<html>".to_vec())]).await;

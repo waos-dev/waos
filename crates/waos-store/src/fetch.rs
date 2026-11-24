@@ -1,5 +1,6 @@
-//! Reading from a package source over HTTP: an index, whole within a cap, and a package, streamed
-//! to a temporary file and checked against the SHA-256 its listing gives before anything opens it.
+//! Reading from a package source over HTTP: an index and a picture, each whole within a cap, and
+//! a package, streamed to a temporary file and checked against the SHA-256 its listing gives
+//! before anything opens it.
 //!
 //! The invariant a later editor will break: a download is handed on only when its SHA-256 is the
 //! one listed; one that is not is removed with its temporary file.
@@ -17,6 +18,9 @@ use crate::{SourceError, StoreError};
 
 /// The most of an index the store reads: tens of thousands of listings.
 const INDEX_LIMIT: u64 = 4 * 1024 * 1024;
+
+/// The most of a picture the store reads: an icon at its largest, several times over.
+const PICTURE_LIMIT: u64 = 8 * 1024 * 1024;
 
 /// How long a server may take to accept a connection, and then to send each next part of an
 /// answer, before a read fails rather than waits on.
@@ -67,6 +71,26 @@ pub(crate) async fn read_index(http: &Client, url: &Url) -> Result<Index, Source
         url: url.clone(),
         error,
     })
+}
+
+/// The picture at `url`, whole.
+pub(crate) async fn read_picture(http: &Client, url: &Url) -> Result<Vec<u8>, SourceError> {
+    let mut response = get(http, url).await?;
+    let mut picture = Vec::new();
+    while let Some(chunk) = response
+        .chunk()
+        .await
+        .map_err(SourceError::unreachable_at(url))?
+    {
+        if (picture.len() + chunk.len()) as u64 > PICTURE_LIMIT {
+            return Err(SourceError::PictureTooLarge {
+                url: url.clone(),
+                limit: PICTURE_LIMIT,
+            });
+        }
+        picture.extend_from_slice(&chunk);
+    }
+    Ok(picture)
 }
 
 /// Downloads the package at `url` into a temporary file, removed when dropped, and refuses it
