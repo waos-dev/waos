@@ -11,6 +11,7 @@ readme = "README.md"
 
 [dependencies]
 tokio.workspace = true
+url.workspace = true
 waos.workspace = true
 
 [lints]
