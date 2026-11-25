@@ -254,7 +254,8 @@ const AFTER_HIDDEN: Duration = Duration::from_millis(300);
 fn a_program_is_unfrozen_while_it_plays_frozen_while_its_tone_waits_and_trapped_starting_twice() {
     let time = ManualTime::new();
     let policy = FreezePolicy {
-        after_hidden: Some(AFTER_HIDDEN),
+        freeze_hidden_after: Some(AFTER_HIDDEN),
+        ..FreezePolicy::default()
     };
     let shell = TestShell::new();
     let config = WaOSConfig {

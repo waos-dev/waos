@@ -1,12 +1,16 @@
 //! What the engine lets an app do now, its execution state, and the one rule that decides it.
 //! The name is the systems' own: Windows' `ApplicationExecutionState`, Apple's execution states.
 //!
-//! An app in sight runs. One out of sight is frozen: a hidden one once it has stayed hidden for
-//! the policy's delay, so that switching back and forth costs nothing and an app told it is
-//! hidden has time to save what it must not lose; a paused one at once, since the system itself
-//! sent WaOS away. Whatever inhibits its freeze keeps it running meanwhile (`freeze_inhibitor`),
-//! and the delay runs again from the moment the last inhibitor went. Why, and what was measured:
-//! a frozen app uses no CPU, and gives back the driver's GPU memory about a second later.
+//! An app in sight runs. One out of sight is frozen after a time to save what it must not lose,
+//! since a frozen app may be ended with no further word: a hidden one once it has stayed hidden
+//! for the policy's delay, so that switching back and forth costs nothing; a paused one, WaOS
+//! itself suspended by the system, once the policy's grace period is over, as iOS gives an app
+//! five seconds and Android freezes one ten seconds after it left the screen. Whatever inhibits
+//! its freeze keeps it running meanwhile (`freeze_inhibitor`), and the time runs again from the
+//! moment the last inhibitor went. While WaOS is suspended an app that still runs draws
+//! nothing: nothing is on screen, and iOS refuses GPU work from a suspended app. Why, and what
+//! was measured: a frozen app uses no CPU, and gives back the driver's GPU memory about a second
+//! later.
 //!
 //! The lifecycle publishes the state, and every part of the engine that behaves differently for
 //! an app that is not running reads it there, at its own door: the app's thread, which does not
@@ -22,8 +26,11 @@ use crate::bindings::wasdk::platform::lifecycle::LifecycleState;
 /// What the engine lets an app do now.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ExecutionState {
-    /// Its code runs.
+    /// Its code runs, and it may draw.
     Running,
+    /// Its code runs and it draws nothing: WaOS is suspended, and the grace period or what
+    /// inhibits its freeze keeps it running. The name is iOS's for this state.
+    Background,
     /// None of its code runs, until it is unfrozen.
     Frozen,
 }
@@ -31,11 +38,14 @@ pub(crate) enum ExecutionState {
 /// When the engine freezes an app it keeps out of sight.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct FreezePolicy {
-    /// How long an app stays hidden before the engine freezes it on its own; none: only when
-    /// WaOS is suspended, which is the default. A hidden app's window may be one the user can
-    /// still reach and close, a card in Android's Recents, and an app frozen alone hears nothing
-    /// of it until it is shown again.
-    pub after_hidden: Option<Duration>,
+    /// How long a hidden app runs on before the engine freezes it; none never freezes it, which
+    /// is the default and what a desktop does, where a hidden window is still at work. A hidden
+    /// app's window may be one the user can still reach and close, a card in Android's Recents,
+    /// and an app frozen alone hears nothing of it until it is shown again.
+    pub freeze_hidden_after: Option<Duration>,
+    /// How long apps run on once WaOS is suspended, before they are frozen: under what the
+    /// system gives WaOS itself. None at all by default.
+    pub suspend_grace_period: Duration,
 }
 
 /// What the rule weighs of an app, beside the policy.
@@ -54,17 +64,22 @@ pub(super) struct FreezeFacts {
 
 /// The execution state of an app `facts` are true of, under `policy`.
 pub(super) fn execution_state(facts: FreezeFacts, policy: &FreezePolicy) -> ExecutionState {
+    // What it is while it is not frozen: `paused` is WaOS suspended.
+    let unfrozen = match facts.state {
+        LifecycleState::Paused => ExecutionState::Background,
+        _ => ExecutionState::Running,
+    };
     if facts.inhibited {
-        return ExecutionState::Running;
+        return unfrozen;
     }
     // A hidden app's delay runs through a suspension of WaOS; a paused one's from the suspension.
     let (delay, waited) = match facts.state {
-        LifecycleState::Resumed | LifecycleState::Inactive => return ExecutionState::Running,
-        LifecycleState::Hidden => match policy.after_hidden {
+        LifecycleState::Resumed | LifecycleState::Inactive => return unfrozen,
+        LifecycleState::Hidden => match policy.freeze_hidden_after {
             Some(delay) => (delay, facts.out_of_sight_for),
-            None => return ExecutionState::Running,
+            None => return unfrozen,
         },
-        LifecycleState::Paused => (Duration::ZERO, facts.in_state_for),
+        LifecycleState::Paused => (policy.suspend_grace_period, facts.in_state_for),
     };
     // The delay runs from the later moment: that one, or when its last inhibitor went.
     let out_of_use_for = match facts.uninhibited_for {
@@ -74,21 +89,29 @@ pub(super) fn execution_state(facts: FreezeFacts, policy: &FreezePolicy) -> Exec
     if out_of_use_for >= delay {
         ExecutionState::Frozen
     } else {
-        ExecutionState::Running
+        unfrozen
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ExecutionState::{Frozen, Running};
+    use ExecutionState::{Background, Frozen, Running};
     use LifecycleState::{Hidden, Inactive, Paused, Resumed};
 
     const DELAY: Duration = Duration::from_secs(5);
     const A_MOMENT: Duration = Duration::from_millis(1);
 
+    const GRACE_PERIOD: Duration = Duration::from_secs(3);
+
     const AFTER_DELAY: FreezePolicy = FreezePolicy {
-        after_hidden: Some(DELAY),
+        freeze_hidden_after: Some(DELAY),
+        suspend_grace_period: Duration::ZERO,
+    };
+
+    const WITH_GRACE_PERIOD: FreezePolicy = FreezePolicy {
+        freeze_hidden_after: Some(DELAY),
+        suspend_grace_period: GRACE_PERIOD,
     };
 
     /// An app in `state` for `in_state_for`, in sight before, nothing inhibiting its freeze, nor
@@ -137,14 +160,37 @@ mod tests {
     }
 
     #[test]
+    fn a_paused_app_runs_through_the_grace_period_drawing_nothing_and_is_frozen_after() {
+        let during = app(Paused, GRACE_PERIOD - A_MOMENT);
+        assert_eq!(execution_state(during, &WITH_GRACE_PERIOD), Background);
+        let after = app(Paused, GRACE_PERIOD);
+        assert_eq!(execution_state(after, &WITH_GRACE_PERIOD), Frozen);
+    }
+
+    #[test]
     fn an_inhibitor_keeps_an_app_running_hidden_or_paused() {
-        for state in [Hidden, Paused] {
-            let inhibited = FreezeFacts {
-                inhibited: true,
-                ..app(state, DELAY * 2)
-            };
-            assert_eq!(execution_state(inhibited, &AFTER_DELAY), Running);
-        }
+        let inhibited = |state| FreezeFacts {
+            inhibited: true,
+            ..app(state, DELAY * 2)
+        };
+        assert_eq!(execution_state(inhibited(Hidden), &AFTER_DELAY), Running);
+        assert_eq!(
+            execution_state(inhibited(Paused), &AFTER_DELAY),
+            Background,
+            "running, and drawing nothing while WaOS is suspended"
+        );
+    }
+
+    #[test]
+    fn a_paused_app_whose_last_inhibitor_went_gets_the_grace_period_again() {
+        let silent_for = |uninhibited_for| FreezeFacts {
+            uninhibited_for: Some(uninhibited_for),
+            ..app(Paused, DELAY * 10)
+        };
+        let just_silent = silent_for(A_MOMENT);
+        assert_eq!(execution_state(just_silent, &WITH_GRACE_PERIOD), Background);
+        let silent = silent_for(GRACE_PERIOD);
+        assert_eq!(execution_state(silent, &WITH_GRACE_PERIOD), Frozen);
     }
 
     /// An app hidden long ago that fell silent a moment ago: the gap between two sounds.

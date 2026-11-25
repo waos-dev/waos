@@ -36,7 +36,7 @@ use crate::HardwareBufferMode;
 use crate::bindings::wasdk::platform::hardware_buffers::{
     HardwareBufferUsage, ImageError, ImageErrorKind, PixelBuffer, PixelFormat,
 };
-use crate::gpu::{GpuInstance, submit_once_unfrozen, wait_for, wgpu_core, wgpu_types};
+use crate::gpu::{GpuInstance, submit_once_running, wait_for, wgpu_core, wgpu_types};
 use crate::lifecycle::Lifecycle;
 use crate::os::{self, FrameMemory, HardwareBufferMemory, LARGEST_SIDE};
 use crate::shell::HardwareBuffer;
@@ -237,7 +237,7 @@ impl ProgramHardwareBuffer {
     /// each live texture's memory over (`os::hand_to_compositor`); answers the work to wait for,
     /// nothing for a buffer no texture was made of. The reader gives it back with `take_back`.
     pub(crate) async fn hand_out(&self, gpu: &GpuInstance, lifecycle: &Lifecycle) -> SubmittedWork {
-        submit_once_unfrozen(lifecycle, || {
+        submit_once_running(lifecycle, || {
             let mut readers = locked(&self.0.readers);
             *readers += 1;
             let mut work = if *readers == 1 {
@@ -261,7 +261,7 @@ impl ProgramHardwareBuffer {
     /// texture is taken back for the program's device (`os::take_back_from_compositor`), once the
     /// program of `lifecycle` may submit, before the caller tells the program the buffer is back.
     pub(crate) async fn take_back(&self, gpu: &GpuInstance, lifecycle: &Lifecycle) {
-        submit_once_unfrozen(lifecycle, || {
+        submit_once_running(lifecycle, || {
             let mut readers = locked(&self.0.readers);
             *readers = readers.saturating_sub(1);
             if *readers == 0 {

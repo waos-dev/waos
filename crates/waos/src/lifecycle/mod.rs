@@ -2,7 +2,7 @@
 //! asking whether it may end, what the user opened with it, and the freeze that follows from them.
 //!
 //! A program's [`Lifecycle`] is held by its views, which derive its state from how they stand on
-//! screen; by the engine, which puts every program in `paused` while the app is suspended, asks
+//! screen; by the engine, which puts every program in `paused` while WaOS is suspended, asks
 //! through it before the platform quits, and keeps its freeze by the engine's clock, at each of
 //! its ticks; and by the program's store, which stops at an epoch tick while it is frozen. The
 //! program reads its state and the requests from its side. When the program was hidden or shown
@@ -18,7 +18,7 @@
 //!
 //! The invariant: the state is never reported from outside. It follows the views' presence by
 //! the rule in `state_of_views`, so a program with no view keeps the state it had, and `paused`
-//! has one way in, the app suspending (`state`). The execution state is published from one place,
+//! has one way in, WaOS being suspended (`state`). The execution state is published from one place,
 //! here, under the lock its facts are kept under, with the state read inside it, so whoever
 //! applies the rule last sees the latest state. Nothing here knows who reads it: the program's
 //! thread, which does not enter a frozen program's code (`running`), and whoever submits its GPU
@@ -136,16 +136,17 @@ impl Lifecycle {
         }
     }
 
-    /// The app is suspending: the program is `paused`, and frozen at once.
-    pub(crate) fn app_suspending(&self) {
-        self.0.state.app_suspending();
+    /// WaOS is suspended: the program is `paused`, and frozen once the policy's grace period is
+    /// over.
+    pub(crate) fn waos_suspended(&self) {
+        self.0.state.waos_suspended();
         self.publish_execution_state();
     }
 
-    /// The app resumed: the program is back in the state its views give, and unfrozen if that
+    /// WaOS resumed: the program is back in the state its views give, and unfrozen if that
     /// shows it.
-    pub(crate) fn app_resumed(&self) {
-        self.0.state.app_resumed();
+    pub(crate) fn waos_resumed(&self) {
+        self.0.state.waos_resumed();
         self.publish_execution_state();
     }
 
@@ -279,7 +280,8 @@ mod tests {
 
     fn lifecycle() -> Lifecycle {
         let policy = FreezePolicy {
-            after_hidden: Some(DELAY),
+            freeze_hidden_after: Some(DELAY),
+            ..FreezePolicy::default()
         };
         Lifecycle::new(policy, EngineClock::real())
     }
@@ -322,10 +324,10 @@ mod tests {
     fn the_app_suspending_pauses_and_freezes_at_once_and_resuming_unfreezes_what_is_shown() {
         let lifecycle = lifecycle();
         let mut states = lifecycle.state_changes();
-        lifecycle.app_suspending();
+        lifecycle.waos_suspended();
         assert_eq!(lifecycle.state(), LifecycleState::Paused);
         assert!(lifecycle.is_frozen());
-        lifecycle.app_resumed();
+        lifecycle.waos_resumed();
         assert_eq!(lifecycle.state(), LifecycleState::Resumed);
         assert!(!lifecycle.is_frozen());
         let heard: Vec<_> = std::iter::from_fn(|| states.try_recv().ok()).collect();
@@ -336,9 +338,9 @@ mod tests {
     fn a_hidden_programs_delay_runs_through_a_suspension() {
         let lifecycle = lifecycle();
         lifecycle.follow_views([OFF_SCREEN]);
-        lifecycle.app_suspending();
+        lifecycle.waos_suspended();
         assert!(lifecycle.is_frozen(), "paused, it is frozen at once");
-        lifecycle.app_resumed();
+        lifecycle.waos_resumed();
         assert_eq!(lifecycle.state(), LifecycleState::Hidden);
         assert!(!lifecycle.is_frozen(), "hidden for less than the delay");
         lifecycle.freeze_if_due(Instant::now() + DELAY);
@@ -352,7 +354,7 @@ mod tests {
     fn a_frozen_program_is_unfrozen_to_answer_and_frozen_again_once_it_has() {
         let lifecycle = lifecycle();
         let mut requests = lifecycle.exit_requests();
-        lifecycle.app_suspending();
+        lifecycle.waos_suspended();
         assert!(lifecycle.is_frozen());
         let mut answer = lifecycle.request_exit().boxed();
         assert!(!lifecycle.is_frozen(), "unfrozen to answer");
@@ -369,7 +371,7 @@ mod tests {
     fn a_question_let_go_applies_the_rule_again() {
         let lifecycle = lifecycle();
         let _requests = lifecycle.exit_requests();
-        lifecycle.app_suspending();
+        lifecycle.waos_suspended();
         let answer = lifecycle.request_exit();
         assert!(!lifecycle.is_frozen());
         drop(answer);
@@ -381,10 +383,10 @@ mod tests {
         let lifecycle = lifecycle();
         let mut published = lifecycle.execution_state();
         assert_eq!(*published.borrow_and_update(), ExecutionState::Running);
-        lifecycle.app_suspending();
+        lifecycle.waos_suspended();
         assert_eq!(published.has_changed().ok(), Some(true));
         assert_eq!(*published.borrow_and_update(), ExecutionState::Frozen);
-        lifecycle.app_suspending();
+        lifecycle.waos_suspended();
         assert_eq!(
             published.has_changed().ok(),
             Some(false),
@@ -395,7 +397,7 @@ mod tests {
     #[test]
     fn an_inhibitor_unfreezes_a_frozen_program_until_it_is_dropped() {
         let lifecycle = lifecycle();
-        lifecycle.app_suspending();
+        lifecycle.waos_suspended();
         assert!(lifecycle.is_frozen());
         let audible = lifecycle.inhibit_freeze(FreezeInhibitorKind::AudioPlayback);
         assert!(!lifecycle.is_frozen(), "unfrozen at once");

@@ -423,7 +423,7 @@ pub(super) mod tests {
     /// A program's lifecycle, frozen as the app suspends.
     fn frozen() -> Lifecycle {
         let lifecycle = Lifecycle::default();
-        lifecycle.app_suspending();
+        lifecycle.waos_suspended();
         assert!(lifecycle.is_frozen());
         lifecycle
     }

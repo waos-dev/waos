@@ -23,7 +23,7 @@ use crate::HardwareBufferMode;
 use crate::bindings::wasdk::platform::views::ViewId;
 use crate::engine_time::{EngineClock, Timer};
 use crate::gpu::{
-    GpuInstance, InFlight, submit_once_unfrozen, submit_unless_frozen, wgpu_core, wgpu_types,
+    GpuInstance, InFlight, submit_once_running, submit_while_running, wgpu_core, wgpu_types,
 };
 use crate::lifecycle::Lifecycle;
 use crate::os::{self, FORMAT};
@@ -111,7 +111,7 @@ impl ViewCanvas {
         else {
             return Ok(false);
         };
-        let hand_over_work = submit_once_unfrozen(&self.buffers.lifecycle, || {
+        let hand_over_work = submit_once_running(&self.buffers.lifecycle, || {
             os::hand_to_compositor(&self.gpu, &device, &memory, texture.id(), usage)
         })
         .await;
@@ -247,7 +247,7 @@ impl CanvasSurface for ViewCanvas {
         let (device, usage) = (allocation.device.clone(), allocation.usage);
         let memory = allocation.pool.memory(index).clone();
         drop(guard);
-        let taken = submit_unless_frozen(&self.buffers.lifecycle, &mut || {
+        let taken = submit_while_running(&self.buffers.lifecycle, &mut || {
             os::take_from_compositor(&self.gpu, &device, &memory, texture.id(), usage);
         });
         if !taken {

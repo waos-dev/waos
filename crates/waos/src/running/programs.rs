@@ -3,7 +3,7 @@
 //! screen's refresh.
 //!
 //! The invariant: a program joins before its code runs, under the lock that holds whether the
-//! app is suspended, so one started while the app is suspended starts paused and frozen; one
+//! app is suspended, so one started while WaOS is suspended starts paused and frozen; one
 //! that ended is forgotten once every handle on it is dropped, and until then is told what every
 //! program is told, which does nothing to a program with no store.
 
@@ -24,17 +24,17 @@ pub(crate) struct Programs(Arc<Mutex<Roster>>);
 #[derive(Default)]
 struct Roster {
     programs: Vec<Weak<Running>>,
-    app_suspended: bool,
+    waos_is_suspended: bool,
 }
 
 impl Programs {
     /// `program` joins: told what every program is told from now on, and paused and frozen at
-    /// once while the app is suspended.
+    /// once while WaOS is suspended.
     pub(crate) fn add(&self, program: &RunningProgram) {
         let mut roster = locked(&self.0);
         roster.programs.push(Arc::downgrade(&program.0));
-        if roster.app_suspended {
-            program.lifecycle().app_suspending();
+        if roster.waos_is_suspended {
+            program.lifecycle().waos_suspended();
         }
     }
 
@@ -48,28 +48,29 @@ impl Programs {
             .find(|program| program.name() == name && !program.has_ended())
     }
 
-    /// The app is suspending: every program is paused and frozen at once. Answers, for each,
-    /// when it has stopped.
+    /// WaOS is suspended: every program is paused and draws nothing from now, and is frozen
+    /// once the policy's grace period is over. Answers, for each, when none of its GPU work is
+    /// in flight any more.
     pub(crate) fn suspend(&self) -> Vec<impl Future<Output = ()> + Send + 'static + use<>> {
         let mut roster = locked(&self.0);
-        roster.app_suspended = true;
+        roster.waos_is_suspended = true;
         roster
             .live()
             .iter()
             .map(|program| {
-                program.lifecycle().app_suspending();
-                program.idle()
+                program.lifecycle().waos_suspended();
+                program.gpu_work_done()
             })
             .collect()
     }
 
-    /// The app resumed: every program is back in the state its views give, and unfrozen if that
+    /// WaOS resumed: every program is back in the state its views give, and unfrozen if that
     /// shows it.
     pub(crate) fn resume(&self) {
         let mut roster = locked(&self.0);
-        roster.app_suspended = false;
+        roster.waos_is_suspended = false;
         for program in roster.live() {
-            program.lifecycle().app_resumed();
+            program.lifecycle().waos_resumed();
         }
     }
 

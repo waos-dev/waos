@@ -189,7 +189,7 @@ fn a_request_made_before_the_program_listens_is_heard_once_it_does_its_files_mou
 #[test]
 fn an_open_request_unfreezes_a_frozen_program_until_it_has_read_it() {
     let time = ManualTime::new();
-    let only_when_suspended = FreezePolicy { after_hidden: None };
+    let only_when_suspended = FreezePolicy::default();
     let shell = TestShell::new();
     let config = WaOSConfig {
         time: EngineTime::Manual(time.clone()),
@@ -203,7 +203,7 @@ fn an_open_request_unfreezes_a_frozen_program_until_it_has_read_it() {
     let (running, _own) = run(&engine, scratch.path(), &grants, &output);
     output.wait_for("listening for open requests");
 
-    within(engine.app_suspending());
+    within(engine.suspend());
     within(running.frozen());
     // A tick past the moment it last ran: woken without a unfreeze, it would stop at its next epoch
     // check, before it could say what it heard.
@@ -215,7 +215,7 @@ fn an_open_request_unfreezes_a_frozen_program_until_it_has_read_it() {
     output.wait_for("opened link: notes://while-frozen");
     within(running.frozen());
 
-    engine.app_resumed();
+    engine.resume();
     running.stop();
     within(running.ended());
 }

@@ -115,40 +115,41 @@ pub(crate) fn wait_for(
 }
 
 /// Runs `submit`, GPU work the engine submits on the program's behalf, once the program may
-/// submit, as the program's own `queue.submit` does: at once while the program is not frozen and
-/// once it is unfrozen while it is. `submit` asks nothing of the lifecycle.
-pub(crate) async fn submit_once_unfrozen<R>(
+/// draw, as the program's own `queue.submit` does: at once while the program is running, and
+/// once it is again otherwise. `submit` asks nothing of the lifecycle.
+pub(crate) async fn submit_once_running<R>(
     lifecycle: &Lifecycle,
     mut submit: impl FnMut() -> R,
 ) -> R {
     loop {
-        until_unfrozen(lifecycle).await;
+        until_running(lifecycle).await;
         let mut submitted = None;
-        submit_unless_frozen(lifecycle, &mut || submitted = Some(submit()));
+        submit_while_running(lifecycle, &mut || submitted = Some(submit()));
         if let Some(submitted) = submitted {
             return submitted;
         }
     }
 }
 
-/// Resolves at once while the program is not frozen, and once it is unfrozen while it is.
-fn until_unfrozen(lifecycle: &Lifecycle) -> impl Future<Output = ()> + Send + 'static + use<> {
+/// Resolves at once while the program is running, and once it is again otherwise: no program
+/// draws while WaOS is suspended or it is frozen.
+fn until_running(lifecycle: &Lifecycle) -> impl Future<Output = ()> + Send + 'static + use<> {
     let mut execution_state = lifecycle.execution_state();
     async move {
         // A lifecycle gone is a program gone, whose work nobody waits for.
-        let unfrozen = |state: &ExecutionState| *state != ExecutionState::Frozen;
-        let _ = execution_state.wait_for(unfrozen).await;
+        let running = |state: &ExecutionState| *state == ExecutionState::Running;
+        let _ = execution_state.wait_for(running).await;
     }
 }
 
-/// Runs `submit` unless the program is frozen, and answers whether it ran. The program's
-/// execution state is held as it is meanwhile, so a freeze decided while `submit` runs waits the
-/// moment it takes, and no GPU work starts once a freeze has taken. `submit` asks nothing of the
-/// lifecycle, which would wait on this.
-pub(crate) fn submit_unless_frozen(lifecycle: &Lifecycle, submit: &mut dyn FnMut()) -> bool {
+/// Runs `submit` if the program is running, and answers whether it ran. The program's execution
+/// state is held as it is meanwhile, so a suspension or a freeze decided while `submit` runs
+/// waits the moment it takes, and no GPU work starts once either has taken. `submit` asks
+/// nothing of the lifecycle, which would wait on this.
+pub(crate) fn submit_while_running(lifecycle: &Lifecycle, submit: &mut dyn FnMut()) -> bool {
     let execution_state = lifecycle.execution_state();
     let held = execution_state.borrow();
-    if *held == ExecutionState::Frozen {
+    if *held != ExecutionState::Running {
         return false;
     }
     submit();
@@ -198,16 +199,16 @@ pub(crate) fn open_device(
     }
 }
 
-/// A program's submissions wait while it is frozen: iOS refuses GPU work from the background,
-/// and what the engine does for a frozen program, a frame it presented coming through, could
-/// reach one. Unfrozen, the submission goes through, and none starts once a freeze has taken
-/// ([`submit_unless_frozen`]).
+/// A program's submissions wait while it is not running: no program draws while WaOS is
+/// suspended, since nothing is on screen and iOS refuses GPU work from a suspended app, and what
+/// the engine does for a frozen program, a frame it presented coming through, could reach one.
+/// Running again, the submission goes through ([`submit_while_running`]).
 impl SubmissionGate for Lifecycle {
     fn until_allowed(&self) -> Pin<Box<dyn Future<Output = ()> + Send + 'static>> {
-        Box::pin(until_unfrozen(self))
+        Box::pin(until_running(self))
     }
 
     fn while_allowed(&self, submit: &mut dyn FnMut()) -> bool {
-        submit_unless_frozen(self, submit)
+        submit_while_running(self, submit)
     }
 }

@@ -534,19 +534,26 @@ impl RunningProgram {
     }
 
     /// Resolves once the program is not running its code at this moment, each of its instances
-    /// standing at its freeze, waiting in a host call or ended, and none of its GPU work is in
-    /// flight. It says
+    /// frozen, waiting in a host call or ended, and none of its GPU work is in flight. It says
     /// nothing of the next moment: what keeps a program from running again is its freeze. What
-    /// the app's suspending awaits for each program, and what a test waits on to see a frozen
-    /// program has stopped, rather than watching it for a while. Once a frozen program stands
-    /// still nothing more is submitted, so what is on the GPU then is all there is: every device
-    /// the program opened is waited for, and that wait is over with the frames it presented.
+    /// a test waits on to see a program at rest, rather than watching it for a while.
     pub fn idle(&self) -> impl Future<Output = ()> + Send + 'static + use<> {
         let idle = self.0.activity.idle();
+        let gpu_work_done = self.gpu_work_done();
+        async move {
+            idle.await;
+            gpu_work_done.await;
+        }
+    }
+
+    /// Resolves once none of the program's GPU work is in flight: every device it opened is
+    /// waited for, and that wait is over with the frames it presented. For a program that
+    /// submits no more, as none does while WaOS is suspended, what is on the GPU then is all
+    /// there is.
+    pub(crate) fn gpu_work_done(&self) -> impl Future<Output = ()> + Send + 'static + use<> {
         let devices = Arc::clone(&self.0.devices);
         let in_flight = Arc::clone(&self.0.in_flight);
         async move {
-            idle.await;
             devices.wait_for_all(&in_flight);
             in_flight.none().await;
         }

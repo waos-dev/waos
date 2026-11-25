@@ -37,6 +37,9 @@ const AFTER_HIDDEN: Duration = Duration::from_millis(300);
 /// The engine's tick, at which a freeze takes.
 const TICK: Duration = Duration::from_millis(100);
 
+/// How long the programs of a test with a grace period run on once WaOS is suspended.
+const GRACE_PERIOD: Duration = Duration::from_millis(300);
+
 /// How many steps forever counts between two reports, as `examples/forever-shown` says.
 const REPORT_EVERY: u64 = 1 << 20;
 
@@ -148,7 +151,7 @@ fn the_app_suspending_resolves_once_every_program_has_stopped_and_resuming_lets_
     first_report(&forever_output, 0);
     let survey_mark = survey_output.lines().len();
 
-    within(engine.app_suspending());
+    within(engine.suspend());
     within(survey.frozen());
     let forever_mark = forever_output.lines().len();
     let survey_frozen_mark = survey_output.lines().len();
@@ -165,7 +168,7 @@ fn the_app_suspending_resolves_once_every_program_has_stopped_and_resuming_lets_
         "frozen, survey says nothing"
     );
 
-    engine.app_resumed();
+    engine.resume();
     first_report(&forever_output, forever_mark);
     // Survey says its state as it starts too, so the line waited for is one since the mark.
     survey_output.wait_until("survey hears it was resumed", |lines| {
@@ -189,10 +192,67 @@ fn the_app_suspending_resolves_once_every_program_has_stopped_and_resuming_lets_
     assert!(matches!(within(survey.ended()), ProgramEnd::Stopped));
 }
 
+/// With a grace period, a program is told it is paused first, runs on to save what it must not
+/// lose, and is frozen once the period is over: as a phone's system gives an app a moment.
+#[test]
+fn suspended_with_a_grace_period_a_program_hears_it_is_paused_runs_on_and_is_frozen_after() {
+    let time = ManualTime::new();
+    let shell = TestShell::new();
+    let engine = WaOS::new(
+        WaOSConfig {
+            freeze: FreezePolicy {
+                suspend_grace_period: GRACE_PERIOD,
+                ..FreezePolicy::default()
+            },
+            time: EngineTime::Manual(time.clone()),
+            ..config()
+        },
+        shell.shell(),
+        shell.platform(),
+    )
+    .unwrap();
+    let (forever, _, forever_output) = run_forever_shown(&engine, &shell, 0);
+    let (survey, _, survey_output) = run_survey_shown(&engine, &shell, 1);
+    first_report(&forever_output, 0);
+    let survey_mark = survey_output.lines().len();
+
+    within(engine.suspend());
+    survey_output.wait_until("survey hears it is paused, still running", |lines| {
+        lines[survey_mark..]
+            .iter()
+            .any(|line| line == "program: LifecycleState::Paused")
+    });
+    let counted_at_suspension = forever_output.lines().len();
+    time.elapse(GRACE_PERIOD - TICK);
+    first_report(&forever_output, counted_at_suspension);
+
+    time.elapse(TICK);
+    within(forever.frozen());
+    within(survey.frozen());
+    let forever_mark = forever_output.lines().len();
+    time.elapse(GRACE_PERIOD);
+    assert!(
+        reports_since(&forever_output, forever_mark).is_empty(),
+        "the grace period over, forever counts nothing"
+    );
+
+    engine.resume();
+    first_report(&forever_output, forever_mark);
+    survey_output.wait_until("survey hears it was resumed", |lines| {
+        lines[survey_mark..]
+            .iter()
+            .any(|line| line == "program: LifecycleState::Resumed")
+    });
+    forever.stop();
+    survey.stop();
+    assert!(matches!(within(forever.ended()), ProgramEnd::Stopped));
+    assert!(matches!(within(survey.ended()), ProgramEnd::Stopped));
+}
+
 #[test]
 fn a_program_started_while_the_app_is_suspended_runs_nothing_until_it_resumes() {
     let (engine, _shell, time) = engine();
-    within(engine.app_suspending());
+    within(engine.suspend());
     let forever = engine
         .load(Path::new(waos_test_programs::FOREVER_SHOWN))
         .unwrap();
@@ -205,7 +265,7 @@ fn a_program_started_while_the_app_is_suspended_runs_nothing_until_it_resumes() 
         Vec::<String>::new(),
         "frozen before its code runs, it has said nothing"
     );
-    engine.app_resumed();
+    engine.resume();
     first_report(&output, 0);
     running.stop();
     assert!(matches!(within(running.ended()), ProgramEnd::Stopped));
@@ -256,7 +316,7 @@ fn a_program_asked_to_exit_while_frozen_answers_and_is_frozen_again_once_it_has(
 fn a_frozen_program_whose_last_view_is_taken_away_hears_it_and_ends() {
     let (engine, shell, _time) = engine();
     let (running, view, output) = run_survey_shown(&engine, &shell, 0);
-    within(engine.app_suspending());
+    within(engine.suspend());
     within(running.frozen());
 
     let mark = output.lines().len();
@@ -284,7 +344,8 @@ fn a_frozen_program_asked_to_close_its_view_hears_it_and_is_frozen_again_once_it
     let engine = WaOS::new(
         WaOSConfig {
             freeze: FreezePolicy {
-                after_hidden: Some(AFTER_HIDDEN),
+                freeze_hidden_after: Some(AFTER_HIDDEN),
+                ..FreezePolicy::default()
             },
             time: EngineTime::Manual(time),
             ..config()
@@ -304,7 +365,7 @@ fn a_frozen_program_asked_to_close_its_view_hears_it_and_is_frozen_again_once_it
             .iter()
             .any(|line| line.starts_with("view 1: 1600x1000"))
     });
-    within(engine.app_suspending());
+    within(engine.suspend());
     within(running.frozen());
 
     view.close_requested();
@@ -338,7 +399,8 @@ fn engine() -> (WaOS, TestShell, ManualTime) {
     let engine = WaOS::new(
         WaOSConfig {
             freeze: FreezePolicy {
-                after_hidden: Some(AFTER_HIDDEN),
+                freeze_hidden_after: Some(AFTER_HIDDEN),
+                ..FreezePolicy::default()
             },
             time: EngineTime::Manual(time.clone()),
             ..config()

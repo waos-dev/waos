@@ -126,7 +126,7 @@ mod tests {
     #[test]
     fn kept_news_unfreezes_a_frozen_program_only_once_a_stream_carries_it() {
         let lifecycle = Lifecycle::default();
-        lifecycle.app_suspending();
+        lifecycle.waos_suspended();
         let news = KeptNews::default();
         news.tell("opened", &lifecycle);
         assert!(lifecycle.is_frozen(), "nothing carries it yet");

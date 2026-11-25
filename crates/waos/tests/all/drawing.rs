@@ -266,7 +266,8 @@ fn freezing_engine() -> (WaOS, TestShell, ManualTime) {
     let engine = WaOS::new(
         WaOSConfig {
             freeze: FreezePolicy {
-                after_hidden: Some(AFTER_HIDDEN),
+                freeze_hidden_after: Some(AFTER_HIDDEN),
+                ..FreezePolicy::default()
             },
             time: EngineTime::Manual(time.clone()),
             ..config()
@@ -336,7 +337,7 @@ fn app_suspending_with_triangle_drawing_resolves_with_no_gpu_work_in_flight() {
         .expect("triangle asks for its view");
     assert!(within(view.picture_after_events()), "triangle is drawing");
 
-    within(engine.app_suspending());
+    within(engine.suspend());
     let presented = running.stats().frames_presented();
     time.elapse(AFTER_HIDDEN);
     within(running.idle());
@@ -346,7 +347,7 @@ fn app_suspending_with_triangle_drawing_resolves_with_no_gpu_work_in_flight() {
         "no frame reaches the shell after the app suspended: none was in flight"
     );
 
-    engine.app_resumed();
+    engine.resume();
     wait_until("resumed, triangle draws again", || {
         running.stats().frames_presented() > presented
     });

@@ -187,7 +187,7 @@ fn a_running_camera_keeps_its_program_from_freezing_until_it_lets_the_session_go
     let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
     let run = Run::start(&engine, Run::allowed());
     run.output.wait_for("state: running");
-    within(engine.app_suspending());
+    within(engine.suspend());
     assert!(
         run.running.frozen().now_or_never().is_none(),
         "paused with its camera running, it is not frozen"
@@ -196,7 +196,7 @@ fn a_running_camera_keeps_its_program_from_freezing_until_it_lets_the_session_go
     run.output.wait_for("state: ended (unplugged)");
     let end = within(run.running.ended());
     assert!(matches!(end, ProgramEnd::Returned(Ok(()))), "{end:?}");
-    engine.app_resumed();
+    engine.resume();
 }
 
 #[test]

@@ -276,7 +276,7 @@ fn a_click_made_before_the_program_listens_reaches_its_first_stream_and_later_on
 #[test]
 fn an_activation_unfreezes_a_frozen_program_until_it_has_read_it() {
     let time = ManualTime::new();
-    let only_when_suspended = FreezePolicy { after_hidden: None };
+    let only_when_suspended = FreezePolicy::default();
     let shell = TestShell::new();
     let config = WaOSConfig {
         time: EngineTime::Manual(time.clone()),
@@ -293,7 +293,7 @@ fn an_activation_unfreezes_a_frozen_program_until_it_has_read_it() {
     );
     output.wait_for("listening for activations");
 
-    within(engine.app_suspending());
+    within(engine.suspend());
     within(running.frozen());
     // A tick past the moment it last ran: woken without a unfreeze, it would stop at its next epoch
     // check, before it could say what it heard.
@@ -303,7 +303,7 @@ fn an_activation_unfreezes_a_frozen_program_until_it_has_read_it() {
     output.wait_for("heard again: greeting Some(\"later\")");
     within(running.frozen());
 
-    engine.app_resumed();
+    engine.resume();
     stop(&running);
 }
 

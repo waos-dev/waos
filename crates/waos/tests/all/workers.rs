@@ -135,7 +135,8 @@ fn a_frozen_programs_worker_stops_counting_until_the_unfreeze() {
     let config = WaOSConfig {
         time: EngineTime::Manual(time.clone()),
         freeze: FreezePolicy {
-            after_hidden: Some(AFTER_HIDDEN),
+            freeze_hidden_after: Some(AFTER_HIDDEN),
+            ..FreezePolicy::default()
         },
         ..config()
     };

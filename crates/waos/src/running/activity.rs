@@ -254,14 +254,14 @@ mod tests {
         assert!(Pin::new(&mut run).poll(&mut context).is_pending());
         assert_eq!(polls.load(Ordering::SeqCst), 1, "running, it is polled");
 
-        lifecycle.app_suspending();
+        lifecycle.waos_suspended();
         assert!(Pin::new(&mut run).poll(&mut context).is_pending());
         assert!(Pin::new(&mut run).poll(&mut context).is_pending());
         assert_eq!(polls.load(Ordering::SeqCst), 1, "frozen, it is not");
         assert_eq!(activity.idle().now_or_never(), Some(()));
         assert_eq!(wakes.0.load(Ordering::SeqCst), 0, "nothing wakes it yet");
 
-        lifecycle.app_resumed();
+        lifecycle.waos_resumed();
         assert_eq!(
             wakes.0.load(Ordering::SeqCst),
             1,

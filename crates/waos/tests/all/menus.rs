@@ -274,7 +274,7 @@ fn every_stream_of_a_tray_icons_events_hears_each_event() {
 #[test]
 fn an_event_on_a_frozen_programs_tray_icon_unfreezes_it_until_it_has_handled_the_event() {
     let time = ManualTime::new();
-    let only_when_suspended = FreezePolicy { after_hidden: None };
+    let only_when_suspended = FreezePolicy::default();
     let shell = TestShell::new();
     let config = WaOSConfig {
         time: EngineTime::Manual(time.clone()),
@@ -286,7 +286,7 @@ fn an_event_on_a_frozen_programs_tray_icon_unfreezes_it_until_it_has_handled_the
     let (running, window) = run(&engine, &shell, &output);
     output.wait_for("tray icon: added");
     let icon = shell.menus.wait_for_icon(1);
-    within(engine.app_suspending());
+    within(engine.suspend());
     edit_while_frozen(&running, &time, &window, EditCommand::Undo);
     assert!(!output.has("edit: EditCommand::Undo"), "frozen");
 
@@ -306,7 +306,7 @@ fn an_event_on_a_frozen_programs_tray_icon_unfreezes_it_until_it_has_handled_the
         !output.has("edit: EditCommand::Redo"),
         "handled, it is frozen again"
     );
-    engine.app_resumed();
+    engine.resume();
     output.wait_for("edit: EditCommand::Redo");
     running.stop();
     assert!(matches!(within(running.ended()), ProgramEnd::Stopped));

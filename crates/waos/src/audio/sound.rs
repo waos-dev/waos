@@ -161,7 +161,7 @@ pub(super) mod tests {
                 .start(&engine, &Programs::default())
                 .expect("one engine for this time");
             let lifecycle = Lifecycle::new(FreezePolicy::default(), clock.clone());
-            lifecycle.app_suspending();
+            lifecycle.waos_suspended();
             PausedProgram {
                 time,
                 clock,
