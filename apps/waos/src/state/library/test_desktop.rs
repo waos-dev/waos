@@ -29,9 +29,9 @@ use waft::{
     Shell, State as _, Text, WidgetsBinding, downcast_widget, run_widget,
 };
 use waft_cupertino::install_cupertino_icon_font;
-#[cfg(target_os = "macos")]
 use waft_rendering::RenderEditable;
 use waft_services::{LogicalKeyboardKey, PhysicalKeyboardKey, ServicesBinding};
+#[cfg(target_os = "macos")]
 use waft_test::Opened;
 use waft_test::{
     MockFileDialogs, MockOpener, MockTrayIcons, ShownTrayIcon, TestPlatform, TestWindow,
