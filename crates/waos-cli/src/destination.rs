@@ -1,6 +1,8 @@
 //! Which WaOS a command goes to: the one on this machine, at its socket, or, with `--device` or
 //! `WAOS_DEVICE`, a device's this computer is paired with, across the network over `wss://` to
-//! the certificate it pinned, each hello carrying the device's token.
+//! the certificate it pinned, each hello carrying the device's token. A paired device is looked
+//! for on the local network first, by the fingerprint its announcement names, so one paired at an
+//! address it no longer has is still reached; the address kept is used when none answers.
 //!
 //! The invariant a later editor will break: a device is reached only once paired, by the
 //! fingerprint and token `devices.toml` keeps, so no command reaches one it does not recognize;
@@ -9,12 +11,18 @@
 use std::fmt;
 use std::io;
 use std::path::PathBuf;
+use std::time::Duration;
 
 use anyhow::{Result, bail};
 use waos_dev_protocol::{ClientConnection, Hello, connect_across_network};
 
 use crate::asking::BUILD;
 use crate::devices::{Devices, PairedDevice};
+use crate::found::{self, FoundDevice};
+
+/// How long a command looks for a paired device on the local network before it takes the
+/// address kept.
+const LOOKING: Duration = Duration::from_millis(1500);
 
 /// Which WaOS a command goes to.
 pub enum Destination {
@@ -39,7 +47,7 @@ impl Destination {
             return Ok(Destination::this_machine());
         };
         match Devices::of_this_user()?.find(named)? {
-            Some(device) => Ok(Destination::Device(device)),
+            Some(device) => Ok(Destination::Device(where_now(device))),
             None => bail!(
                 "this computer is not paired with {named}: turn on Developer access in its WaOS's settings, then pair with `waos pair {named}`"
             ),
@@ -66,6 +74,26 @@ impl Destination {
         }
         hello
     }
+}
+
+/// `device` at the address it announces now on the local network, found by its fingerprint; at
+/// the address kept where none answers, or mDNS cannot be listened to here.
+fn where_now(device: PairedDevice) -> PairedDevice {
+    let is_it = |found: &FoundDevice| found.announced.fingerprint == device.fingerprint;
+    // Where mDNS cannot be listened to, the address kept is all there is.
+    let found = found::browse(LOOKING, |found| found.iter().any(is_it)).unwrap_or_default();
+    at_found_address(device, &found)
+}
+
+/// `device`, at the address of the one among `found` with its fingerprint, if any.
+fn at_found_address(mut device: PairedDevice, found: &[FoundDevice]) -> PairedDevice {
+    if let Some(announced) = found
+        .iter()
+        .find(|found| found.announced.fingerprint == device.fingerprint)
+    {
+        device.address = announced.address.clone();
+    }
+    device
 }
 
 impl fmt::Display for Destination {
@@ -115,6 +143,29 @@ mod tests {
             fingerprint,
             token: Token::new("the device's token"),
         })
+    }
+
+    #[test]
+    fn a_paired_device_is_reached_where_its_fingerprint_is_announced_now() {
+        let kept = PairedDevice {
+            name: "pixel".to_owned(),
+            address: "192.168.1.9".parse().unwrap(),
+            fingerprint: Fingerprint([1; 32]),
+            token: Token::new("t"),
+        };
+        let found = |address: &str, fingerprint: u8| FoundDevice {
+            name: "Pixel".to_owned(),
+            address: address.parse().unwrap(),
+            announced: waos_dev_protocol::Announced::new(Fingerprint([fingerprint; 32]), "android"),
+        };
+        let elsewhere = [found("10.0.0.7:7352", 2), found("10.0.0.8", 1)];
+        let now = at_found_address(kept.clone(), &elsewhere);
+        assert_eq!(now.address, "10.0.0.8".parse().unwrap());
+        let unseen = at_found_address(kept.clone(), &elsewhere[..1]);
+        assert_eq!(
+            unseen.address, kept.address,
+            "the address kept where none answers"
+        );
     }
 
     #[tokio::test]

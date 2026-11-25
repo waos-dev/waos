@@ -59,10 +59,7 @@ fn found_device(service: &mdns_sd::ResolvedService) -> Option<FoundDevice> {
         .iter()
         .map(|address| address.to_ip_addr())
         .collect();
-    // An IPv4 address where there is one: a link-local IPv6 one needs its interface named.
-    let ip = (addresses.iter().find(|ip| ip.is_ipv4()))
-        .or_else(|| addresses.first())
-        .copied()?;
+    let ip = reachable_address(&addresses)?;
     Some(FoundDevice {
         name: mdns_sd::instance_name_unescaped(service.get_fullname()),
         address: DeviceAddress {
@@ -72,4 +69,33 @@ fn found_device(service: &mdns_sd::ResolvedService) -> Option<FoundDevice> {
         },
         announced,
     })
+}
+
+/// The address of `addresses` another machine reaches best: an IPv4 one not the loopback, as a
+/// link-local IPv6 one needs its interface named; else any.
+fn reachable_address(addresses: &[IpAddr]) -> Option<IpAddr> {
+    let elsewhere = |ip: &&IpAddr| !ip.is_loopback();
+    (addresses.iter().filter(elsewhere).find(|ip| ip.is_ipv4()))
+        .or_else(|| addresses.iter().find(elsewhere))
+        .or_else(|| addresses.first())
+        .copied()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_address_taken_is_one_another_machine_reaches() {
+        let ips =
+            |all: &[&str]| -> Vec<IpAddr> { all.iter().map(|ip| ip.parse().unwrap()).collect() };
+        let taken = |all: &[&str]| reachable_address(&ips(all)).map(|ip| ip.to_string());
+        assert_eq!(
+            taken(&["127.0.0.1", "fe80::1", "192.168.1.20"]).as_deref(),
+            Some("192.168.1.20")
+        );
+        assert_eq!(taken(&["127.0.0.1", "fe80::1"]).as_deref(), Some("fe80::1"));
+        assert_eq!(taken(&["127.0.0.1"]).as_deref(), Some("127.0.0.1"));
+        assert_eq!(taken(&[]), None);
+    }
 }
