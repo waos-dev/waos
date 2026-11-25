@@ -298,6 +298,50 @@ fn what_a_list_gains_is_asked_for_in_a_dialog_and_listed_in_the_launcher() {
 }
 
 #[test]
+fn an_apps_page_says_what_it_is_and_whether_it_runs_and_removes_it_in_either_layout() {
+    let layouts: [fn() -> (LibraryDesktop, ViewId); 2] = [in_launcher, on_phone];
+    for layout in layouts {
+        let (mut desktop, view) = layout();
+        let forever = std::fs::read(waos_test_programs::FOREVER_SHOWN).unwrap();
+        installs(&mut desktop, TRIANGLE, "Triangle", &forever);
+        desktop.settle_until_code_is_ready();
+        let its_page = LibraryPage::Settings(SettingsPage::App(triangle()));
+        desktop.update(|library, cx| library.show_page(its_page.clone(), cx));
+        assert!(
+            desktop.shows(&words::version_from("1.0.0", None)) && !desktop.shows(words::RUNNING),
+            "{:?}",
+            desktop.labels()
+        );
+        desktop.tap(view, words::OPEN);
+        desktop.settle_until("it runs", |desktop| {
+            desktop.read(|library| library.is_running(&triangle()))
+        });
+        // Opening it leaves the library for the app; back on its page, the page says it runs.
+        desktop.update(|library, cx| library.show_page(its_page.clone(), cx));
+        assert!(desktop.shows(words::RUNNING), "{:?}", desktop.labels());
+        futures::executor::block_on(desktop.runs.stop_all());
+        desktop.settle_until("it says so no more", |desktop| {
+            !desktop.shows(words::RUNNING)
+        });
+
+        if is_phone(&desktop) {
+            desktop.scroll_to_end(view, words::OPEN);
+        }
+        desktop.tap(view, words::ASK_TO_REMOVE);
+        assert!(desktop.shows("Remove Triangle?"), "{:?}", desktop.labels());
+        desktop.tap(view, words::REMOVE);
+        desktop.settle_until("it is removed", |desktop| {
+            desktop.read(|library| library.installed().is_empty())
+        });
+        assert_eq!(
+            desktop.read(|library| library.page().clone()),
+            LibraryPage::Settings(SettingsPage::Root),
+            "nothing of it is left to show"
+        );
+    }
+}
+
+#[test]
 fn a_permissions_page_lists_the_apps_set_otherwise_each_leading_to_its_page() {
     let layouts: [fn() -> (LibraryDesktop, ViewId); 2] = [in_launcher, on_phone];
     for layout in layouts {

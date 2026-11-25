@@ -14,14 +14,17 @@ pub(crate) mod fluent_root;
 
 use std::sync::Arc;
 
-use waft::App;
+use waft::{App, Entity};
 use waos_package::ProgramId;
 use waos_store::Question;
 
+use crate::logic::app_store::CatalogApp;
+use crate::logic::offers::Offer;
 use crate::logic::permissions::Permission;
 use crate::logic::setting_changes::{SettingChange, SettingsOf, ShownSettings};
 use crate::state::SIMULATED_CAMERA;
 use crate::state::library::{AppDetail, Library};
+use crate::ui::library::app_store::source_name;
 use crate::ui::library::words;
 use waos::FileDialog;
 
@@ -51,6 +54,94 @@ pub(crate) fn listed_apps(library: &Library) -> Vec<ListedApp> {
         .collect();
     apps.sort_by_key(|app| app.name.to_lowercase());
     apps
+}
+
+/// An installed app as its settings page says it over its settings: what it is, whether it
+/// runs, and what can be done with it now.
+#[derive(Clone, Debug)]
+pub(crate) struct AppInfo {
+    pub(crate) name: String,
+    /// Its icon, a PNG; none to show the default one.
+    pub(crate) icon: Option<Arc<[u8]>>,
+    /// Its version, and the source that lists it where one does.
+    pub(crate) version: String,
+    /// What it is doing now, where that is worth saying: being installed anew, or running.
+    pub(crate) status: Option<&'static str>,
+    pub(crate) actions: Vec<AppAction>,
+}
+
+/// What an app's settings page offers to do with the app.
+#[derive(Clone, Debug)]
+pub(crate) enum AppAction {
+    Open,
+    /// Installs the newer version a source lists, the app as that source lists it.
+    Update(Box<CatalogApp>),
+    /// Ends it, where the library closes the apps it opened.
+    Close,
+    /// Asks whether to remove it.
+    Remove,
+}
+
+impl AppAction {
+    pub(crate) fn label(&self) -> &'static str {
+        match self {
+            AppAction::Open => words::OPEN,
+            AppAction::Update(_) => words::UPDATE,
+            AppAction::Close => words::CLOSE,
+            AppAction::Remove => words::ASK_TO_REMOVE,
+        }
+    }
+
+    /// Does the action to the app `id` through `library`.
+    pub(crate) fn carry_out(&self, library: &Entity<Library>, id: &ProgramId, app: &mut App) {
+        library.update(app, |library, cx| match self {
+            AppAction::Open => library.open(id, cx),
+            AppAction::Update(listed) => library.install_from(&listed.source, &listed.listed, cx),
+            AppAction::Close => library.close(id, cx),
+            AppAction::Remove => library.ask_to_remove(id, cx),
+        });
+    }
+}
+
+/// The installed app `id` as its settings page says it; none once it is no longer installed.
+pub(crate) fn app_info(library: &Library, id: &ProgramId) -> Option<AppInfo> {
+    let program = library
+        .installed()
+        .iter()
+        .find(|program| program.manifest.id() == id)?;
+    let listed = library.listed_app(id);
+    let source = listed.as_ref().and_then(|listed| {
+        let read = library
+            .sources()
+            .iter()
+            .find(|read| read.source == listed.source)?;
+        Some(source_name(read))
+    });
+    let (installing, running) = (library.is_installing(id), library.is_running(id));
+    let update = listed
+        .filter(|listed| !installing && matches!(listed.offer, Offer::Update { .. }))
+        .map(|listed| AppAction::Update(Box::new(listed)));
+    let close = (running && library.closes_programs()).then_some(AppAction::Close);
+    let status = if installing {
+        Some(words::INSTALLING)
+    } else {
+        running.then_some(words::RUNNING)
+    };
+    Some(AppInfo {
+        name: program.name(),
+        icon: library.icon(id).cloned(),
+        version: words::version_from(&program.manifest.version().to_string(), source.as_deref()),
+        status,
+        actions: [
+            update,
+            Some(AppAction::Open),
+            close,
+            Some(AppAction::Remove),
+        ]
+        .into_iter()
+        .flatten()
+        .collect(),
+    })
 }
 
 /// Each kind of permission with what its default holds, as the list of kinds shows them; none

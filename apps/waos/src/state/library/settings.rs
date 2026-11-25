@@ -130,6 +130,26 @@ impl Library {
         self.switch_asked.as_ref()
     }
 
+    /// Where the library is on a settings page of an app no longer installed, it goes to the
+    /// settings' first page: that app has nothing left to show.
+    pub(super) fn leave_a_removed_apps_page(&mut self, cx: &mut Context<Library>) {
+        let LibraryPage::Settings(
+            SettingsPage::App(id)
+            | SettingsPage::AppPermission(id, _)
+            | SettingsPage::AppDetail(id, _),
+        ) = &self.page
+        else {
+            return;
+        };
+        if self
+            .installed()
+            .iter()
+            .all(|program| program.manifest.id() != id)
+        {
+            self.show_page(LibraryPage::Settings(SettingsPage::Root), cx);
+        }
+    }
+
     /// The library goes back to the page the one it is on was opened over; nowhere from the
     /// home.
     pub(crate) fn go_back(&mut self, cx: &mut Context<Library>) {

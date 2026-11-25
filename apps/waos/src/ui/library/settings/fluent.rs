@@ -29,12 +29,13 @@ use waos_activity::Activity;
 use waos_store::{Answer, DomainRule, Question, Role};
 
 use super::fluent_page::{
-    ListRow, Start, card_button, card_switch, detail_glyph, drop_down, gap, heading, link_card,
-    list_block, note, on_and_off, page, permission_symbol, setting_card, spaced,
+    ListRow, Start, app_header, app_page, card_button, card_switch, detail_glyph, drop_down, gap,
+    heading, link_card, list_block, note, on_and_off, page, permission_symbol, setting_card,
+    spaced,
 };
 use super::{
-    any_set_otherwise, app_details, app_permissions, reset_permissions, said_with, set_otherwise,
-    simulated_detail,
+    any_set_otherwise, app_details, app_info, app_permissions, reset_permissions, said_with,
+    set_otherwise, simulated_detail,
 };
 use crate::logic::permissions::Permission;
 use crate::logic::setting_changes::{
@@ -165,7 +166,10 @@ impl State for FluentSettingsState {
             Err(why) => rows.push(note(&shown.resources, &why)),
         }
         rows.extend(set_otherwise.into_iter().flatten());
-        page(&shown.library, &shown.resources, &trail, rows)
+        match shown.app_header(app) {
+            Some(header) => app_page(&shown.library, header, rows),
+            None => page(&shown.library, &shown.resources, &trail, rows),
+        }
     }
 }
 
@@ -239,6 +243,19 @@ impl Page {
         };
         let over = program_name.unwrap_or(words::PERMISSIONS);
         [Some(over), own].into_iter().flatten().collect()
+    }
+
+    /// On an app's own page, what the app is, which heads the page in place of a title; none on
+    /// the pages under it, and on a permission's.
+    fn app_header(&self, app: &App) -> Option<WidgetRef> {
+        let SettingsOf::Program(id) = &self.of else {
+            return None;
+        };
+        if self.only.is_some() || self.detail.is_some() {
+            return None;
+        }
+        let info = app_info(self.library.read(app), id)?;
+        Some(app_header(&self.library, &self.resources, id, &info))
     }
 
     /// On a permission's page, what is over its default: that it is the default, and what a
@@ -823,7 +840,7 @@ impl Page {
             cards.push(setting_card(
                 Start::Room,
                 words::USE_GLOBAL,
-                Some(words::USE_GLOBAL_DETAIL),
+                None,
                 Some(card_button(words::RESET, follow)),
             ));
         }

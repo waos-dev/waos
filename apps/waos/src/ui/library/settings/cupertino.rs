@@ -22,9 +22,10 @@ use std::fmt::Debug;
 use std::rc::Rc;
 
 use waft::{
-    App, BuildContext, Builder, EdgeInsetsGeometry, Entity, Handle, Icon, IntoWidget, ListView,
-    Listener, Padding, Ref, SizedBox, State, StateData, StatefulWidget, Task, Text,
-    TextEditingController, TextEditingControllerLeaf, ValueChanged, WidgetRef,
+    AnyColor, App, BuildContext, Builder, Column, CrossAxisAlignment, EdgeInsetsGeometry, Entity,
+    Expanded, Handle, Icon, IntoWidget, ListView, Listener, Padding, Ref, Row, SizedBox, State,
+    StateData, StatefulWidget, Task, Text, TextEditingController, TextEditingControllerLeaf,
+    ValueChanged, WidgetRef,
 };
 use waft_cupertino::{
     CupertinoButton, CupertinoColors, CupertinoIcons, CupertinoListSection, CupertinoListTile,
@@ -33,14 +34,15 @@ use waft_cupertino::{
 };
 use waos::{FileDialog, SimulatedSound};
 use waos_activity::Activity;
+use waos_package::ProgramId;
 use waos_store::{Answer, DomainRule, FileSystemGrant, NetworkGrant, Question, Role};
 
 use super::cupertino_root::{
     ICON_SIDE, PERMISSION_ICON_SIDE, detail_icon, footnote, link_row, permission_icon,
 };
 use super::{
-    any_set_otherwise, app_details, app_permissions, reset_permissions, said_with, set_otherwise,
-    simulated_detail,
+    AppAction, AppInfo, any_set_otherwise, app_details, app_info, app_permissions,
+    reset_permissions, said_with, set_otherwise, simulated_detail,
 };
 use crate::logic::permissions::Permission;
 use crate::logic::setting_changes::{
@@ -160,6 +162,10 @@ impl State for CupertinoSettingsState {
         };
         let mut sections = Vec::new();
         sections.extend(page.switch_asked(app));
+        let info = page.app_info(app);
+        if let Some((id, info)) = &info {
+            sections.extend(page.said_of_the_app(id, info));
+        }
         if page.kind_page().is_some() {
             sections.push(said_over_the_lists(words::DEFAULT_DETAIL));
         }
@@ -173,6 +179,10 @@ impl State for CupertinoSettingsState {
         }
         if let Some(only) = page.kind_page() {
             sections.push(page.set_otherwise(app, only));
+        }
+        if let Some((id, _)) = &info {
+            let remove = page.action_row(id, &AppAction::Remove);
+            sections.push(section(None, None, vec![remove]));
         }
         let bar = CupertinoNavigationBar::new()
             .leading(back_to_page_beneath(&page.library, &beneath))
@@ -324,6 +334,70 @@ impl Page {
             })
             .collect();
         Some(section_of_icons(None, None, rows))
+    }
+
+    /// On an app's own page, the app and what its page says of it; none on the pages under it,
+    /// and on a permission's.
+    fn app_info(&self, app: &App) -> Option<(ProgramId, AppInfo)> {
+        let SettingsOf::Program(id) = &self.of else {
+            return None;
+        };
+        if self.only.is_some() || self.detail.is_some() {
+            return None;
+        }
+        let info = app_info(self.library.read(app), id)?;
+        Some((id.clone(), info))
+    }
+
+    /// Over an app's settings, what the app is, as iOS's Settings says an app whose storage it
+    /// shows: its icon beside its name, its version and what it is doing now; then a row for
+    /// each thing that can be done with it but removing it, which ends the page.
+    fn said_of_the_app(&self, id: &ProgramId, info: &AppInfo) -> Vec<WidgetRef> {
+        let icon = ProgramIcon {
+            png: info.icon.clone(),
+            side: APP_ICON_SIDE,
+        };
+        let name = Text::new(info.name.clone())
+            .style(waft::TextStyle::new().font_weight(waft::FontWeight::W600));
+        let lines = [name.into_widget(), footnote(&info.version)]
+            .into_iter()
+            .chain(info.status.map(footnote));
+        let said = Column::new()
+            .cross_axis_alignment(CrossAxisAlignment::Stretch)
+            .children(lines);
+        let app = Padding::new(EdgeInsetsGeometry::symmetric(12.0, 20.0)).child(
+            Row::new()
+                .spacing(14.0)
+                .children([icon.into_widget(), Expanded::new(said).into_widget()]),
+        );
+        let actions = info
+            .actions
+            .iter()
+            .filter(|action| !matches!(action, AppAction::Remove))
+            .map(|action| self.action_row(id, action))
+            .collect();
+        vec![
+            section(None, None, vec![app.into_widget()]),
+            section(None, None, actions),
+        ]
+    }
+
+    /// A row that does `action` to the app `id`: in the tint colour, as iOS's rows that act are,
+    /// and in red for the one that removes it.
+    fn action_row(&self, id: &ProgramId, action: &AppAction) -> WidgetRef {
+        let color = match action {
+            AppAction::Remove => CupertinoColors::DESTRUCTIVE_RED,
+            AppAction::Open | AppAction::Update(_) | AppAction::Close => {
+                CupertinoColors::ACTIVE_BLUE
+            }
+        };
+        let (library, id, does) = (self.library.clone(), id.clone(), action.clone());
+        CupertinoListTile::new(colored(action.label(), color))
+            .on_tap(Rc::new(move |app: &mut App| {
+                does.carry_out(&library, &id, app);
+                Task::ready(())
+            }))
+            .into_widget()
     }
 
     /// What a program asked for, when it asked for one of its switches here.
@@ -975,6 +1049,10 @@ impl Page {
     }
 }
 
+/// The side of an app's icon over its settings, as iOS's Settings shows an app whose storage it
+/// shows.
+const APP_ICON_SIDE: f64 = 60.0;
+
 /// An inset-grouped section of rows that start with their words, titled `title` and with
 /// `footer` under it where given.
 fn section(title: Option<&str>, footer: Option<&str>, tiles: Vec<WidgetRef>) -> WidgetRef {
@@ -1009,9 +1087,14 @@ fn grouped(
 
 /// The words of a row that acts, in the tint colour, as iOS's rows that act are.
 fn tinted(text: &str) -> WidgetRef {
+    colored(text, CupertinoColors::ACTIVE_BLUE)
+}
+
+/// `text` in `color`, as it is in the light or the dark.
+fn colored(text: &str, color: AnyColor) -> WidgetRef {
     let text = text.to_owned();
     Builder::new(move |app, context| {
-        let color = resolved(CupertinoColors::ACTIVE_BLUE, app, context);
+        let color = resolved(color.clone(), app, context);
         Text::new(text.clone())
             .style(waft::TextStyle::new().color(color))
             .into_widget()

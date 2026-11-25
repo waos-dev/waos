@@ -1271,6 +1271,7 @@ impl Library {
                 *offers = offers_of(listed, &self.installed);
             }
         }
+        self.leave_a_removed_apps_page(cx);
         cx.notify();
     }
 

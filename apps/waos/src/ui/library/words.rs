@@ -266,8 +266,6 @@ pub(crate) fn keep_in_dock_detail(platform: TargetPlatform) -> &'static str {
 }
 
 pub(crate) const USE_GLOBAL: &str = "Use the default";
-/// Under the card that has an app's own setting follow the default again, in the launcher.
-pub(crate) const USE_GLOBAL_DETAIL: &str = "What is set here for this app goes.";
 pub(crate) const ON: &str = "On";
 pub(crate) const OFF: &str = "Off";
 pub(crate) const NETWORK: &str = "Network";
@@ -462,6 +460,16 @@ pub(crate) const SOURCE_ADDRESS: &str = "Address";
 pub(crate) const OPEN: &str = "Open";
 pub(crate) const NO_LONGER_LISTED: &str = "No source lists this app any more.";
 pub(crate) const VERSION: &str = "Version";
+/// Under an app's name on its settings page: its version, and the source that lists it where
+/// one does.
+pub(crate) fn version_from(version: &str, source: Option<&str>) -> String {
+    match source {
+        Some(source) => format!("{VERSION} {version} · {source}"),
+        None => format!("{VERSION} {version}"),
+    }
+}
+/// On an app's settings page, while the app runs.
+pub(crate) const RUNNING: &str = "Running";
 pub(crate) const RELEASED: &str = "Released";
 pub(crate) const CATEGORY: &str = "Category";
 pub(crate) const SOURCE: &str = "Source";

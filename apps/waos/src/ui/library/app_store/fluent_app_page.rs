@@ -25,7 +25,7 @@ use crate::ui::library::program_icon::ProgramIcon;
 use crate::ui::library::words;
 
 /// The side of the app's icon at the page's top.
-const ICON_SIDE: f64 = 72.0;
+pub(crate) const ICON_SIDE: f64 = 72.0;
 
 /// How tall the strip of screenshots is, how round a screenshot's corners are, and how wide one
 /// not read yet is taken to be, as a share of that height.

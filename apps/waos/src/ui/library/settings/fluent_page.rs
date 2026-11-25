@@ -11,11 +11,13 @@
 
 use std::sync::Arc;
 
+use waos_package::ProgramId;
+
 use waft::{
     App, Border, BorderRadiusGeometry, BorderSide, BorderStyle, BoxConstraints, BoxDecoration,
     Color, Column, ConstrainedBox, CrossAxisAlignment, DecoratedBox, EdgeInsetsGeometry, Entity,
     Expanded, FontWeight, IntoWidget, ListView, Listener, OverflowBox, Padding, Row, SizedBox,
-    Text, TextStyle, WidgetRef,
+    Text, TextOverflow, TextStyle, WidgetRef,
 };
 use waft_winui::{
     BreadcrumbBar, BreadcrumbBarItem, Button, ButtonStyle,
@@ -25,8 +27,10 @@ use waft_winui::{
     ToggleSwitch, right_aligned_compact_toggle_switch_style,
 };
 
+use super::{AppAction, AppInfo};
 use crate::logic::permissions::Permission;
 use crate::state::library::{AppDetail, Library, LibraryPage, SettingsPage};
+use crate::ui::library::app_store::fluent_app_page::ICON_SIDE as APP_ICON_SIDE;
 use crate::ui::library::home::fluent::MARGIN;
 use crate::ui::library::program_icon::ProgramIcon;
 use crate::ui::library::words;
@@ -133,6 +137,82 @@ pub(crate) fn page(
             title(library, resources, trail),
             Expanded::new(list).into_widget(),
         ])
+        .into_widget()
+}
+
+/// An app's own settings page: Back, and under it what scrolls, `header`, which says what the
+/// app is, over `rows`.
+pub(crate) fn app_page(
+    library: &Entity<Library>,
+    header: WidgetRef,
+    rows: Vec<WidgetRef>,
+) -> WidgetRef {
+    let list = ListView::new()
+        .padding(EdgeInsetsGeometry::from_ltrb(MARGIN, 4.0, MARGIN, MARGIN))
+        .children([header].into_iter().chain(rows));
+    Column::new()
+        .cross_axis_alignment(CrossAxisAlignment::Stretch)
+        .children([back(library), Expanded::new(list).into_widget()])
+        .into_widget()
+}
+
+/// What the app `id` is, over its settings, as the app store's page says an app: its icon, and
+/// beside it its name over its version and what it is doing now, then a button for each thing
+/// that can be done with it.
+pub(crate) fn app_header(
+    library: &Entity<Library>,
+    resources: &ThemeResources,
+    id: &ProgramId,
+    info: &AppInfo,
+) -> WidgetRef {
+    let icon = ProgramIcon {
+        png: info.icon.clone(),
+        side: APP_ICON_SIDE,
+    };
+    let (primary, secondary) = (
+        resources.text_fill_color_primary,
+        resources.text_fill_color_secondary,
+    );
+    let mut lines = vec![
+        Text::new(info.name.clone())
+            .max_lines(1)
+            .overflow(TextOverflow::Ellipsis)
+            .style(TextBlockStyle::Subtitle.text_style(resources, primary))
+            .into_widget(),
+        Text::new(info.version.clone())
+            .style(TextBlockStyle::Body.text_style(resources, secondary))
+            .into_widget(),
+    ];
+    if let Some(status) = info.status {
+        lines.push(
+            Text::new(status)
+                .style(TextBlockStyle::Body.text_style(resources, primary))
+                .into_widget(),
+        );
+    }
+    let buttons = info.actions.iter().map(|action| {
+        let (library, id, does) = (library.clone(), id.clone(), action.clone());
+        let click = Listener::new(move |app| does.carry_out(&library, &id, app));
+        let style = match action {
+            AppAction::Update(_) => ButtonStyle::Accent,
+            AppAction::Open | AppAction::Close | AppAction::Remove => ButtonStyle::Default,
+        };
+        ConstrainedBox::new(BoxConstraints::new().min_width(BUTTON_MIN_WIDTH))
+            .child(Button::text(action.label(), click).style(style))
+            .into_widget()
+    });
+    lines.push(
+        Padding::new(EdgeInsetsGeometry::only(0.0, 12.0, 0.0, 0.0))
+            .child(Row::new().spacing(8.0).children(buttons))
+            .into_widget(),
+    );
+    let said = Column::new()
+        .cross_axis_alignment(CrossAxisAlignment::Stretch)
+        .children(lines);
+    Row::new()
+        .cross_axis_alignment(CrossAxisAlignment::Start)
+        .spacing(16.0)
+        .children([icon.into_widget(), Expanded::new(said).into_widget()])
         .into_widget()
 }
 
