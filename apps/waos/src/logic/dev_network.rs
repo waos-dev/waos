@@ -1,6 +1,7 @@
 //! Where the dev server takes connections from the network: a listener bound while developer
 //! access is on and dropped once it is turned off, saying to developer access whether it listens
-//! and on which port.
+//! and on which port, and announced on the local network while it listens on every address
+//! (`dev_announce`).
 //!
 //! The invariant a later editor will break: a connection from the network is served only while
 //! access is on, so turning it off closes the listener before anything else is accepted.
@@ -10,6 +11,7 @@ use std::io;
 use tokio::sync::watch;
 use waos_dev_protocol::{Incoming, NetworkListener};
 
+use super::dev_announce::{self, Announcement};
 use super::developer_access::{DeveloperAccess, Listening, ListeningPlace};
 
 /// The dev server's listener for the network, following developer access.
@@ -17,6 +19,8 @@ pub(crate) struct NetworkDoor {
     access: DeveloperAccess,
     turned: watch::Receiver<bool>,
     listener: Option<NetworkListener>,
+    /// The listener's announcement, while it has one.
+    announcement: Option<Announcement>,
     /// Whether access was on when it was last followed; none before the first time.
     followed: Option<bool>,
 }
@@ -28,6 +32,7 @@ impl NetworkDoor {
             access,
             turned,
             listener: None,
+            announcement: None,
             followed: None,
         }
     }
@@ -54,6 +59,7 @@ impl NetworkDoor {
 
     /// Listens, or stops listening, as access is `on`, and says so.
     async fn follow(&mut self, on: bool) {
+        self.announcement = None;
         self.listener = None;
         let listening = if on {
             match self.bind().await {
@@ -61,6 +67,7 @@ impl NetworkDoor {
                     let port = listener.port();
                     tracing::info!(port, "listening for developer access from the network");
                     self.listener = Some(listener);
+                    self.announcement = self.announce(port).await;
                     Listening::On { port }
                 }
                 Err(error) => {
@@ -73,6 +80,22 @@ impl NetworkDoor {
         };
         self.access.listens(listening);
         self.followed = Some(on);
+    }
+
+    /// The announcement of the listener on `port`, where it listens on every address; none on the
+    /// loopback, or where the system does not announce it, which is said.
+    async fn announce(&self, port: u16) -> Option<Announcement> {
+        if self.access.place() != ListeningPlace::EveryAddress {
+            return None;
+        }
+        let fingerprint = self.access.identity().ok()?.fingerprint();
+        match dev_announce::announce(port, fingerprint).await {
+            Ok(announcement) => Some(announcement),
+            Err(error) => {
+                tracing::warn!(%error, "the dev server is not announced on the local network");
+                None
+            }
+        }
     }
 
     async fn bind(&self) -> io::Result<NetworkListener> {

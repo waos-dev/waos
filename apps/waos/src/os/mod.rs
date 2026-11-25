@@ -9,7 +9,8 @@
 //! activity calls, the app's folders, the system's log, the simulated camera's frames and the
 //! programs' shortcuts, through Waft's Android host; on
 //! Windows, the user's local application data folder and the Start menu's folder of programs, as
-//! the shell names them, and a program's Start menu shortcut. Each system has a module with the same
+//! the shell names them, and a program's Start menu shortcut; and on each desktop the dev server
+//! announced on the local network, as the system announces its services. Each system has a module with the same
 //! names for what every system answers, and the target picks the module; a system other than macOS
 //! gets the generic answers.
 //!
@@ -17,14 +18,16 @@
 //! in `macos`'s code signature, Launch Services, layer contexts, hardware buffers and time zone
 //! changes, which wrap Security's, the system's, Core Animation's, IOSurface's and Foundation's
 //! APIs, and in `android`'s entry,
-//! folders, log and pattern frames, which wrap the activity's glue, JNI, liblog and hardware buffers, and in `windows`' known folders
-//! and shortcuts, which wrap the shell's calls and its COM objects.
+//! folders, log and pattern frames, which wrap the activity's glue, JNI, liblog and hardware buffers, and in `windows`' known folders,
+//! shortcuts and dev announcement, which wrap the shell's calls, its COM objects and DNS-SD's.
 
 #[cfg(target_os = "android")]
 mod android;
 mod freeze_policy;
 #[cfg(not(target_os = "macos"))]
 mod generic;
+#[cfg(target_os = "linux")]
+mod linux;
 #[cfg(target_os = "macos")]
 mod macos;
 mod time_zone;
@@ -36,6 +39,8 @@ pub(crate) use android::*;
 pub(crate) use freeze_policy::freeze_policy;
 #[cfg(not(target_os = "macos"))]
 pub(crate) use generic::*;
+#[cfg(target_os = "linux")]
+pub(crate) use linux::*;
 #[cfg(target_os = "macos")]
 pub(crate) use macos::*;
 pub(crate) use time_zone::time_zone;

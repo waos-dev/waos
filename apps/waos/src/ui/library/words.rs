@@ -256,8 +256,7 @@ pub(crate) fn developer_access_failed(why: &str) -> String {
 /// Under developer access, the button that shows a code for a computer to pair with, and what it
 /// says before and while one is shown.
 pub(crate) const PAIR_A_COMPUTER: &str = "Pair a computer";
-pub(crate) const PAIR_A_COMPUTER_DETAIL: &str =
-    "Shows a code to type into `waos pair` on your computer, for two minutes.";
+pub(crate) const PAIR_A_COMPUTER_DETAIL: &str = "Shows a code to type into `waos pair` on your computer, for two minutes; `waos devices` there lists this device.";
 pub(crate) const SHOW_A_CODE: &str = "Show a code";
 /// What a pairing's `code` says while it is shown.
 pub(crate) fn pairing_code(code: &str) -> String {

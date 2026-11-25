@@ -1,6 +1,6 @@
 //! `waos pair <device>`, `waos unpair <device>` and `waos devices`: this computer paired with a
-//! device's WaOS, by the code the device shows under Developer access, and the devices it is
-//! paired with. Pairing agrees a key with the device over the code (SPAKE2), so the code never
+//! device's WaOS, by the code the device shows under Developer access, and the devices found on
+//! the local network and paired with. Pairing agrees a key with the device over the code (SPAKE2), so the code never
 //! crosses the network; the device proves with the key which certificate it answered with, and
 //! this computer keeps that certificate's fingerprint and the token the key makes in
 //! `devices.toml`, which every later command to the device uses (`--device`).
@@ -20,13 +20,12 @@ use waos_dev_protocol::{
 
 use crate::asking::{self, BUILD};
 use crate::devices::{Devices, PairedDevice};
+use crate::found::{self, BROWSE, FoundDevice};
 
-/// Pairs this computer with the WaOS at `named`, an address, by `code`, or the code typed when
-/// none is given, and keeps the device as `named`.
+/// Pairs this computer with the WaOS `named` names, a device found on the local network or an
+/// address, by `code`, or the code typed when none is given, and keeps the device as `named`.
 pub async fn pair(named: &str, code: Option<&str>) -> Result<ExitCode> {
-    let address: DeviceAddress = named
-        .parse()
-        .map_err(|why| anyhow::anyhow!("{named} is not a device's address: {why}"))?;
+    let address = address_of(named)?;
     if !address.secure {
         bail!(
             "a pairing goes over wss://, whose certificate it learns: pair with wss://{}:{}",
@@ -52,6 +51,22 @@ pub async fn pair(named: &str, code: Option<&str>) -> Result<ExitCode> {
     Devices::of_this_user()?.keep(device)?;
     eprintln!("waos: paired with {named}; `waos --device {named} run` runs a program there");
     Ok(ExitCode::SUCCESS)
+}
+
+/// The address of the device `named` names: the one found on the local network by that name, or
+/// else `named` read as an address.
+fn address_of(named: &str) -> Result<DeviceAddress> {
+    let found = found::browse(BROWSE, |found| {
+        found.iter().any(|device| device.name == named)
+    })?;
+    if let Some(device) = found.into_iter().find(|device| device.name == named) {
+        return Ok(device.address);
+    }
+    named.parse().map_err(|why| {
+        anyhow::anyhow!(
+            "no device on the local network is named {named}, and it is no address: {why}"
+        )
+    })
 }
 
 /// The key the exchange over `connection` agrees with the device by `code`, once the device's
@@ -142,18 +157,46 @@ pub fn unpair(named: &str) -> Result<ExitCode> {
     Ok(ExitCode::SUCCESS)
 }
 
-/// Prints the devices this computer is paired with, a line each: its name and its address.
+/// Prints the devices found on the local network and those paired with, a line each: its name,
+/// its address, and whether it is paired.
 pub fn devices() -> Result<ExitCode> {
     let paired = Devices::of_this_user()?.paired()?;
-    for device in &paired {
-        println!("{}  {}", device.name, device.address);
+    let found = found::browse(BROWSE, |_| false)?;
+    let lines = device_lines(&found, &paired);
+    for line in &lines {
+        println!("{line}");
     }
-    if paired.is_empty() {
+    if lines.is_empty() {
         eprintln!(
-            "waos: no device is paired: turn on Developer access in a device's WaOS settings, then `waos pair <its address>`"
+            "waos: no device is found or paired: turn on Developer access in a device's WaOS settings, then `waos pair <its name>`"
         );
     }
     Ok(ExitCode::SUCCESS)
+}
+
+/// The lines `devices` prints of `found` and `paired`: each device found, as paired where its
+/// fingerprint is one paired with, then each paired device not found.
+fn device_lines(found: &[FoundDevice], paired: &[PairedDevice]) -> Vec<String> {
+    let paired_as = |device: &FoundDevice| {
+        paired
+            .iter()
+            .find(|kept| kept.fingerprint == device.announced.fingerprint)
+    };
+    let found_lines = found.iter().map(|device| match paired_as(device) {
+        Some(kept) => format!(
+            "{}  {}  paired as {}",
+            device.name, device.address, kept.name
+        ),
+        None => format!("{}  {}  not paired", device.name, device.address),
+    });
+    let unseen = paired.iter().filter(|kept| {
+        !found
+            .iter()
+            .any(|device| device.announced.fingerprint == kept.fingerprint)
+    });
+    let paired_lines =
+        unseen.map(|kept| format!("{}  {}  paired, not found now", kept.name, kept.address));
+    found_lines.chain(paired_lines).collect()
 }
 
 #[cfg(test)]
@@ -209,6 +252,33 @@ mod tests {
     async fn connected(address: &DeviceAddress) -> (ClientConnection, Fingerprint) {
         let (connection, seen) = connect_across_network(address, None).await.unwrap();
         (connection, seen.unwrap())
+    }
+
+    #[test]
+    fn a_device_found_is_listed_as_paired_by_its_fingerprint_and_one_not_found_after() {
+        let found = |name: &str, fingerprint: u8| FoundDevice {
+            name: name.to_owned(),
+            address: "192.168.1.20".parse().unwrap(),
+            announced: waos_dev_protocol::Announced::new(Fingerprint([fingerprint; 32]), "macos"),
+        };
+        let kept = |name: &str, fingerprint: u8| PairedDevice {
+            name: name.to_owned(),
+            address: "192.168.1.9".parse().unwrap(),
+            fingerprint: Fingerprint([fingerprint; 32]),
+            token: waos_dev_protocol::Token::new("t"),
+        };
+        let lines = device_lines(
+            &[found("Mac mini", 1), found("Pixel", 2)],
+            &[kept("mini", 1), kept("laptop", 3)],
+        );
+        assert_eq!(
+            lines,
+            [
+                "Mac mini  wss://192.168.1.20:7351  paired as mini",
+                "Pixel  wss://192.168.1.20:7351  not paired",
+                "laptop  wss://192.168.1.9:7351  paired, not found now",
+            ]
+        );
     }
 
     #[tokio::test]

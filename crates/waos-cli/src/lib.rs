@@ -31,6 +31,7 @@ mod destination;
 mod devices;
 mod docs;
 mod ext;
+mod found;
 mod icon_rule;
 mod input;
 mod inspect;
@@ -260,15 +261,17 @@ enum Command {
     Pair(PairArgs),
     /// Forgets a device this computer is paired with.
     Unpair(UnpairArgs),
-    /// Lists the devices this computer is paired with, a line each: the name `--device` takes,
-    /// and its address.
+    /// Lists the devices whose WaOS announces Developer access on the local network and those
+    /// this computer is paired with, a line each: the name `pair` and `--device` take, its
+    /// address, and whether it is paired.
     Devices,
 }
 
 #[derive(Args)]
 struct PairArgs {
-    /// The device's address: its name on the network or its IP address, host:port, or a wss://
-    /// URL; port 7351 when none is given. It is the name `--device` takes after.
+    /// The device: its name as `waos devices` lists it, its name on the network or its IP
+    /// address, host:port, or a wss:// URL; port 7351 when none is given. It is the name
+    /// `--device` takes after.
     device: String,
     /// The six digits the device shows; asked for when not given.
     #[arg(long)]

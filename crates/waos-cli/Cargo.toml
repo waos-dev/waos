@@ -34,6 +34,8 @@ serde_json.workspace = true
 # this computer by.
 toml.workspace = true
 gethostname = "1"
+# The devices announcing developer access on the local network, which `waos devices` lists.
+mdns-sd = "0.22"
 # The SHA-256 of a package, which the index lists.
 sha2.workspace = true
 # The workspace a new program is made in, edited as `cargo new` edits it: its root manifest in

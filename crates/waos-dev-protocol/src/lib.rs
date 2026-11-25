@@ -37,6 +37,7 @@
 //!   CBOR [`Hello`] on the first frame.
 
 mod adjacent;
+mod announcement;
 mod component;
 mod connection;
 mod hello;
@@ -53,6 +54,7 @@ mod socket;
 mod test_place;
 mod token;
 
+pub use announcement::{Announced, SERVICE};
 pub use component::{CHUNK_BYTES, component_digest};
 pub use connection::{
     Connection, Frames, Locality, MAX_FRAME_BYTES, ReceiveFrames, SendFrames, StreamFrames,

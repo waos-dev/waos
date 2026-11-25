@@ -121,10 +121,16 @@ objc2-core-video = { version = "0.3", default-features = false, features = ["std
 # The user's application data folders, as Windows' shell names them, where the app's folders are,
 # and the Start menu's folder of programs; and the shell's shortcut, a COM object windows-sys does
 # not carry, with its property store, where a program's shortcut carries its AppUserModelID, at
-# the version Waft's host builds.
+# the version Waft's host builds; and DNS-SD's registration, which announces the dev server.
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Com", "Win32_UI_Shell"] }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_NetworkManagement_Dns", "Win32_System_Com", "Win32_UI_Shell"] }
 windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Security", "Win32_Storage_EnhancedStorage", "Win32_System_Com", "Win32_System_Com_StructuredStorage", "Win32_System_Registry", "Win32_System_Variant", "Win32_UI_Shell", "Win32_UI_Shell_PropertiesSystem"] }
+
+# The dev server announced on the local network: through Avahi, over D-Bus at the zbus Waft's host
+# speaks, or where Avahi does not answer, an mDNS responder of WaOS's own.
+[target.'cfg(target_os = "linux")'.dependencies]
+zbus = "5"
+mdns-sd = "0.22"
 
 # The app's folders, which only the activity's Java context names on Android, and the system's log,
 # where WaOS's traces go there; Waft's buffer over an `AHardwareBuffer`, which a program's
@@ -206,9 +212,9 @@ entitlements = "macos/waos.entitlements"
 helpers = [{ package = "waos-window", bin = "waos-program-loader" }]
 libraries = [{ package = "waos-window", lib = "waos_window" }]
 
-# `os/macos` wraps Security's code signing, Launch Services' answers, a process's end and an
-# `IOSurface` handed between threads, `os/android` the activity's entry, JNI and liblog, and
-# `os/windows` the shell's known folders, its shortcut's COM object and the registry, unsafe APIs;
-# the rest of the app has no `unsafe`.
+# `os/macos` wraps Security's code signing, Launch Services' answers, a process's end, an
+# `IOSurface` handed between threads and Bonjour's registration, `os/android` the activity's entry,
+# JNI and liblog, and `os/windows` the shell's known folders, its shortcut's COM object, the
+# registry and DNS-SD's registration, unsafe APIs; the rest of the app has no `unsafe`.
 [lints.rust]
 unsafe_code = "deny"

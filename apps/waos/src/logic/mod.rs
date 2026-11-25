@@ -51,6 +51,8 @@ pub(crate) mod command_line;
 pub(crate) mod cues;
 pub(crate) mod deck_geometry;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
+pub(crate) mod dev_announce;
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(crate) mod dev_attach;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(crate) mod dev_extensions;
