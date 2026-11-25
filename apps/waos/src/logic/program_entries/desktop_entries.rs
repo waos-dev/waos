@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 
 use waos_package::Category;
 
-use super::{ProgramEntry, SystemEntries};
+use super::{ProgramEntry, SystemEntries, Written};
 use crate::logic::program_identities::{Identities, relaunch_arguments};
 
 /// The desktop entries in `applications`, the user's applications folder.
@@ -30,7 +30,7 @@ impl SystemEntries for DesktopEntries {
         entry: &ProgramEntry,
         identities: &Identities,
         _others: &[PathBuf],
-    ) -> io::Result<Vec<PathBuf>> {
+    ) -> io::Result<Written> {
         let mut files = Vec::new();
         let icon = match &entry.icon {
             Some(png) => {
@@ -45,7 +45,10 @@ impl SystemEntries for DesktopEntries {
         let text = desktop_entry(entry, &identities.waos, icon.as_deref());
         write_in_place(&path, text.as_bytes())?;
         files.push(path);
-        Ok(files)
+        Ok(Written {
+            files,
+            settings: Vec::new(),
+        })
     }
 }
 
@@ -231,7 +234,8 @@ mod tests {
         };
         let files = entries
             .write(&entry("Notes", Some(png)), &identities, &[])
-            .unwrap();
+            .unwrap()
+            .files;
         let copy = folder
             .path()
             .join("icons/dev.waos.app.dev.example.notes.png");

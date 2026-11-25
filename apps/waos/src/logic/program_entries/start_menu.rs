@@ -11,7 +11,7 @@
 use std::io;
 use std::path::{Path, PathBuf};
 
-use super::{ProgramEntry, SystemEntries};
+use super::{ProgramEntry, SystemEntries, Written};
 use crate::logic::program_identities::{Identities, relaunch_arguments, windows_arguments};
 
 /// What a program's shortcut holds.
@@ -42,7 +42,7 @@ impl SystemEntries for StartMenu {
         entry: &ProgramEntry,
         identities: &Identities,
         others: &[PathBuf],
-    ) -> io::Result<Vec<PathBuf>> {
+    ) -> io::Result<Written> {
         let mut files = Vec::new();
         let icon = match &entry.icon {
             Some(png) => {
@@ -58,7 +58,10 @@ impl SystemEntries for StartMenu {
         let shortcut = shortcut_of(entry, identities, &self.folder, others, icon);
         write_shortcut(&shortcut)?;
         files.push(shortcut.path);
-        Ok(files)
+        Ok(Written {
+            files,
+            settings: Vec::new(),
+        })
     }
 }
 

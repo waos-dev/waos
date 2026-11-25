@@ -16,12 +16,15 @@ impl SystemEntries for NamedFiles {
         entry: &ProgramEntry,
         identities: &Identities,
         _others: &[PathBuf],
-    ) -> io::Result<Vec<PathBuf>> {
+    ) -> io::Result<Written> {
         self.writes.fetch_add(1, Ordering::SeqCst);
         let file = self.folder.join(format!("{}.entry", entry.name));
         fs::create_dir_all(&self.folder)?;
         fs::write(&file, identities.waos.to_string_lossy().as_bytes())?;
-        Ok(vec![file])
+        Ok(Written {
+            files: vec![file],
+            settings: Vec::new(),
+        })
     }
 }
 
@@ -161,4 +164,56 @@ fn an_entry_whose_file_went_or_that_starts_another_waos_is_written_again() {
     assert_eq!(entries.writes(), 3);
     let text = fs::read_to_string(entries.folder.path().join("menu/Notes.entry")).unwrap();
     assert_eq!(text, "/opt/waos/waos");
+}
+
+/// Entries that make one registry setting each, named after the program's version, and keep what
+/// is taken back.
+struct VersionSettings {
+    taken_back: Arc<Mutex<Vec<RegistrySetting>>>,
+}
+
+impl SystemEntries for VersionSettings {
+    fn write(
+        &self,
+        entry: &ProgramEntry,
+        _identities: &Identities,
+        _others: &[PathBuf],
+    ) -> io::Result<Written> {
+        Ok(Written {
+            files: Vec::new(),
+            settings: vec![RegistrySetting::Key(format!("Classes\\{}", entry.version))],
+        })
+    }
+
+    fn take_back(&self, settings: &[RegistrySetting]) -> io::Result<()> {
+        self.taken_back.lock().unwrap().extend_from_slice(settings);
+        Ok(())
+    }
+}
+
+#[test]
+fn a_setting_an_update_no_longer_makes_and_a_removed_programs_settings_are_taken_back() {
+    let folder = tempfile::tempdir().unwrap();
+    let taken_back = Arc::new(Mutex::new(Vec::new()));
+    let system = VersionSettings {
+        taken_back: Arc::clone(&taken_back),
+    };
+    let identities = Identities {
+        waos: PathBuf::from("C:\\WaOS\\waos.exe"),
+        icons: folder.path().join("icons"),
+    };
+    let kept = ProgramEntries::open(Box::new(system), identities, folder.path());
+    kept.match_installed(&[entry("dev.example.notes", "Notes", "1.0.0")]);
+    assert!(taken_back.lock().unwrap().is_empty());
+    kept.match_installed(&[entry("dev.example.notes", "Notes", "1.1.0")]);
+    assert_eq!(
+        *taken_back.lock().unwrap(),
+        [RegistrySetting::Key("Classes\\1.0.0".to_owned())]
+    );
+    kept.match_installed(&[]);
+    assert_eq!(
+        taken_back.lock().unwrap().last(),
+        Some(&RegistrySetting::Key("Classes\\1.1.0".to_owned())),
+        "the removed program's own"
+    );
 }
