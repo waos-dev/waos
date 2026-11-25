@@ -135,7 +135,7 @@ fn a_new_note_is_kept_as_it_is_typed_and_found_by_its_text() {
     wait_for_title(&window, "New Note");
 
     running.menu_chosen(id_of(&bar, "Edit", "Search"));
-    paste(&engine, &window, "eggs");
+    paste(&engine, &shell, &window, "eggs");
     wait_for_title(&window, SHOPPING_TITLE);
     close(&running, &window);
 }
@@ -189,7 +189,7 @@ fn at_a_phones_width_the_list_is_a_pane_over_the_note_that_search_opens() {
         "the search field has the focus, once the pane has opened",
         || matches!(shown.text_input_type(), Some(TextInputType::Text)),
     );
-    paste(&engine, &window, "milk");
+    paste(&engine, &shell, &window, "milk");
     wait_for_title(&window, SHOPPING_TITLE);
     close(&running, &window);
 }
@@ -399,7 +399,7 @@ fn a_text_file_opened_from_the_open_dialog_is_edited_where_it_is_and_closed_from
     shell.file_dialogs.answer_next(vec![todo.path.clone()]);
     running.menu_chosen(id_of(&bar, "File", "Open…"));
     wait_for_title(&window, "todo.txt");
-    paste(&engine, &window, "eggs, ");
+    paste(&engine, &shell, &window, "eggs, ");
     wait_until("the file is saved where it is as it is typed", || {
         todo.text() == "eggs, milk"
     });
@@ -429,7 +429,7 @@ fn a_text_file_the_system_opens_notes_with_arrives_through_an_open_request() {
         links: Vec::new(),
     });
     wait_for_title(&window, "letter.txt");
-    paste(&engine, &window, "Hello. ");
+    paste(&engine, &shell, &window, "Hello. ");
     wait_until("the file is saved where it is as it is typed", || {
         letter.text() == "Hello. Dear Sam,"
     });
@@ -523,13 +523,14 @@ fn type_new_note(
     assert!(within(window.picture_after_events()), "notes draws");
     running.menu_chosen(id_of(&wait_for_bar(&shell.menus), "File", "New Note"));
     wait_for_title(window, "New Note");
-    paste(engine, window, text);
+    paste(engine, shell, window, text);
     wait_for_title(window, title);
 }
 
 /// Pastes `text` where the window's focus is.
-fn paste(engine: &WaOS, window: &ProgramView, text: &str) {
-    engine.set_clipboard(vec![CopiedText::item(text)]);
+fn paste(engine: &WaOS, shell: &TestShell, window: &ProgramView, text: &str) {
+    let copied = vec![CopiedText::item(text)];
+    shell.clipboard.another_application_copies(engine, copied);
     window.paste();
 }
 

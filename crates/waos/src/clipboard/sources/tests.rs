@@ -5,7 +5,7 @@ use futures::StreamExt;
 use futures::executor::block_on;
 
 use super::*;
-use crate::clipboard::tests::{ListingShell, TestItem, now};
+use crate::clipboard::tests::{TestClipboard, TestItem, now};
 
 fn form(item: u32, mime: &str) -> PromisedForm {
     PromisedForm {
@@ -56,7 +56,7 @@ fn next_request(requests: &mut BoxStream<'static, Request>) -> Request {
 
 #[test]
 fn a_paste_of_a_promised_form_is_a_request_the_program_answers() {
-    let platform = PlatformClipboard::new(Some(Arc::new(ListingShell)));
+    let platform = PlatformClipboard::new(Some(Arc::new(TestClipboard::default())));
     let source = written_source(&platform, vec![form(0, "image/png")]);
     let mut requests = source.requests();
     let produce = source.producer(form(0, "image/png"));
@@ -76,7 +76,7 @@ fn a_paste_of_a_promised_form_is_a_request_the_program_answers() {
 
 #[test]
 fn a_request_dropped_unanswered_fails_the_paste() {
-    let platform = PlatformClipboard::new(Some(Arc::new(ListingShell)));
+    let platform = PlatformClipboard::new(Some(Arc::new(TestClipboard::default())));
     let source = written_source(&platform, vec![form(0, "text/html")]);
     let mut requests = source.requests();
     let produce = source.producer(form(0, "text/html"));
@@ -92,7 +92,7 @@ fn a_request_dropped_unanswered_fails_the_paste() {
 
 #[test]
 fn a_form_whose_done_fails_or_never_comes_fails_the_paste() {
-    let platform = PlatformClipboard::new(Some(Arc::new(ListingShell)));
+    let platform = PlatformClipboard::new(Some(Arc::new(TestClipboard::default())));
     let source = written_source(&platform, vec![form(0, "text/rtf")]);
     let mut requests = source.requests();
     let produce = source.producer(form(0, "text/rtf"));
@@ -106,7 +106,7 @@ fn a_form_whose_done_fails_or_never_comes_fails_the_paste() {
 
 #[test]
 fn a_promised_file_is_written_into_the_sink_as_it_comes_and_fails_unless_done_says_ok() {
-    let platform = PlatformClipboard::new(Some(Arc::new(ListingShell)));
+    let platform = PlatformClipboard::new(Some(Arc::new(TestClipboard::default())));
     let source = written_source(&platform, Vec::new());
     let mut requests = source.requests();
     let produce = source.file_producer(form(1, "image/png"));
@@ -136,7 +136,7 @@ fn a_promised_file_is_written_into_the_sink_as_it_comes_and_fails_unless_done_sa
 
 #[test]
 fn the_requests_end_once_another_copy_replaces_the_source() {
-    let platform = PlatformClipboard::new(Some(Arc::new(ListingShell)));
+    let platform = PlatformClipboard::new(Some(Arc::new(TestClipboard::default())));
     let source = written_source(&platform, vec![form(0, "text/html")]);
     let mut requests = source.requests();
     assert!(now(requests.next()).is_none(), "no paste yet");
@@ -150,7 +150,7 @@ fn the_requests_end_once_another_copy_replaces_the_source() {
 
 #[test]
 fn what_the_program_gave_before_its_end_answers_later_pastes_without_it() {
-    let platform = PlatformClipboard::new(Some(Arc::new(ListingShell)));
+    let platform = PlatformClipboard::new(Some(Arc::new(TestClipboard::default())));
     let source = written_source(&platform, vec![form(0, "text/html"), form(1, "image/png")]);
     let sources = ProgramSources::default();
     sources.wrote(source.clone());
@@ -177,7 +177,7 @@ fn what_the_program_gave_before_its_end_answers_later_pastes_without_it() {
 
 #[test]
 fn a_replaced_copy_is_not_asked_for_before_the_end() {
-    let platform = PlatformClipboard::new(Some(Arc::new(ListingShell)));
+    let platform = PlatformClipboard::new(Some(Arc::new(TestClipboard::default())));
     let source = written_source(&platform, vec![form(0, "text/html")]);
     let sources = ProgramSources::default();
     sources.wrote(source.clone());

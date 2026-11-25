@@ -8,35 +8,42 @@
 
 use std::future::ready;
 use std::path::PathBuf;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 
 use waos::bindings::wasdk::platform::clipboard::ClipboardError;
 use waos::{
-    ClipboardReadFuture, ClipboardWriteFuture, Content, ContentFuture, CopiedItem, CopyOptions,
-    ShellClipboard, ShellClipboardItem,
+    ClipboardItemsFuture, ClipboardReadFuture, ClipboardWriteFuture, Content, ContentFuture,
+    CopiedItem, CopyOptions, ShellClipboard, ShellClipboardItem,
 };
 
 /// The type a file is listed and read in: its `file:` URL.
 const URI_LIST: &str = "text/uri-list";
 
-/// The clipboard: how many copies it has taken, the last of which is the one on it.
+/// The clipboard: the items of the copy on it, and how many copies it has taken, the last of
+/// which is that one.
 #[derive(Default)]
 pub struct HeadlessClipboard {
+    held: Mutex<Vec<Arc<dyn ShellClipboardItem>>>,
     copies: Arc<AtomicU64>,
 }
 
 impl ShellClipboard for HeadlessClipboard {
+    fn items(&self) -> ClipboardItemsFuture {
+        Box::pin(ready(self.held.lock().unwrap().clone()))
+    }
+
     /// Takes the copy in place of the one before, and lists an item for each written, in the
     /// types written, a file's as `text/uri-list`. How the copy is to be treated is not kept:
     /// this clipboard has no history, no other devices, and ends with its WaOS.
     fn write(&self, items: Vec<CopiedItem>, _options: CopyOptions) -> ClipboardWriteFuture {
+        let mut held = self.held.lock().unwrap();
         let copy = self.copies.fetch_add(1, Ordering::SeqCst) + 1;
-        let listed = items
+        *held = items
             .into_iter()
             .map(|item| HeldItem::of(item, copy, &self.copies))
             .collect();
-        Box::pin(ready(Ok(listed)))
+        Box::pin(ready(Ok(held.clone())))
     }
 }
 
@@ -174,6 +181,21 @@ mod tests {
             now(listed[0].read("image/png")),
             Err(ClipboardError::NotFound)
         ));
+    }
+
+    #[test]
+    fn what_is_on_the_clipboard_is_listed_whenever_it_is_asked() {
+        let clipboard = HeadlessClipboard::default();
+        assert!(now(clipboard.items()).is_empty(), "nothing copied yet");
+        copied(&clipboard, vec![text("milk")]);
+        copied(&clipboard, vec![text("eggs")]);
+        let listed = now(clipboard.items());
+        assert_eq!(listed.len(), 1);
+        assert_eq!(
+            now(listed[0].read("text/plain")).ok(),
+            Some(b"eggs".to_vec()),
+            "the copy on it now"
+        );
     }
 
     #[test]

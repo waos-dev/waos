@@ -25,7 +25,7 @@ use crate::access::Cause;
 use crate::bindings::wasdk::platform::clipboard::{
     self, ClipboardError, Content, HostClipboard, HostClipboardItem, HostClipboardItemWithStore,
     HostClipboardWithStore, HostCopyOptions, HostCopyRequest, HostCopyRequestWithStore, HostPaste,
-    HostRequest, HostRequestWithStore, HostSource, HostSourceWithStore,
+    HostPasteWithStore, HostRequest, HostRequestWithStore, HostSource, HostSourceWithStore,
 };
 use crate::files::ProgramFiles;
 use crate::lifecycle::Lifecycle;
@@ -78,14 +78,6 @@ impl ClipboardCtx<'_> {
 }
 
 impl HostClipboard for ClipboardCtx<'_> {
-    fn items(
-        &mut self,
-        _clipboard: Resource<PlatformClipboard>,
-    ) -> wasmtime::Result<Vec<Resource<ListedItem>>> {
-        let items = self.clipboard.items();
-        self.handles(items)
-    }
-
     fn drop(&mut self, clipboard: Resource<PlatformClipboard>) -> wasmtime::Result<()> {
         self.table.delete(clipboard)?;
         Ok(())
@@ -93,6 +85,16 @@ impl HostClipboard for ClipboardCtx<'_> {
 }
 
 impl<T: ClipboardCtxView + 'static> HostClipboardWithStore<T> for HasClipboard {
+    /// The shell is asked as the program calls, and the program's store waits for its answer: to
+    /// the program this is a plain call.
+    async fn items(
+        mut host: Access<'_, T, Self>,
+        _clipboard: Resource<PlatformClipboard>,
+    ) -> wasmtime::Result<Vec<Resource<ListedItem>>> {
+        let items = host.get().clipboard.items().await;
+        host.get().handles(items)
+    }
+
     /// Each listing enters the table as the program reads it, so a change it never reads makes
     /// no handle.
     fn changes(
@@ -425,13 +427,20 @@ impl<T: ClipboardCtxView + 'static> HostCopyRequestWithStore<T> for HasClipboard
 }
 
 impl HostPaste for ClipboardCtx<'_> {
-    fn items(&mut self, paste: Resource<Paste>) -> wasmtime::Result<Vec<Resource<ListedItem>>> {
-        let items = self.table.get(&paste)?.items();
-        self.handles(items)
-    }
-
     fn drop(&mut self, paste: Resource<Paste>) -> wasmtime::Result<()> {
         self.table.delete(paste)?;
         Ok(())
+    }
+}
+
+impl<T: ClipboardCtxView + 'static> HostPasteWithStore<T> for HasClipboard {
+    /// The shell was asked as the user pasted, and the program's store waits for its answer: to
+    /// the program this is a plain call.
+    async fn items(
+        mut host: Access<'_, T, Self>,
+        paste: Resource<Paste>,
+    ) -> wasmtime::Result<Vec<Resource<ListedItem>>> {
+        let items = host.get().table.get(&paste)?.items().await;
+        host.get().handles(items)
     }
 }

@@ -218,7 +218,8 @@ impl WaOS {
     /// What is on the platform's clipboard now, as the shell lists it, each time a writer other
     /// than the engine's programs changes it: a change, which replaces the copy before it.
     /// Programs with a focused view hear of it. A program's own write is not reported here: the
-    /// shell answers it with its listing (`ShellClipboard::write`).
+    /// shell answers it with its listing (`ShellClipboard::write`). What a program lists or the
+    /// user pastes is not taken from here: the shell is asked then (`ShellClipboard::items`).
     pub fn set_clipboard(&self, items: Vec<Arc<dyn ShellClipboardItem>>) {
         self.clipboard.set(items);
     }

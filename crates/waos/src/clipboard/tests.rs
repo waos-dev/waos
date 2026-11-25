@@ -1,7 +1,7 @@
 use std::future::{Future, pending, ready};
 use std::pin::pin;
-use std::sync::Weak;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Mutex, Weak};
 use std::task::{Context, Poll, Waker};
 
 use futures::StreamExt;
@@ -15,27 +15,44 @@ use crate::clock::Clock;
 use crate::lifecycle::{Lifecycle, Presence};
 use crate::screens::Screens;
 use crate::shell::tests::Headless;
-use crate::shell::{ClipboardReadFuture, ClipboardWriteFuture, Content, PlacedView, ShellView};
+use crate::shell::{
+    ClipboardItemsFuture, ClipboardReadFuture, ClipboardWriteFuture, Content, PlacedView, ShellView,
+};
 use crate::views::{ProgramView, ScreenRefreshes};
 
-/// An item on the test's clipboard: its types, each read as its own name.
-pub(super) struct TestItem(Vec<String>);
+/// An item on the test's clipboard: its types, each read as its own name, until the clipboard
+/// it was listed on holds another copy.
+pub(super) struct TestItem {
+    types: Vec<String>,
+    /// The copy it is of, among those its clipboard has held.
+    copy: u64,
+    copies: Arc<AtomicU64>,
+}
 
 impl TestItem {
+    /// An item of a clipboard nothing else is copied onto.
     pub(super) fn offering(types: &[&str]) -> Arc<dyn ShellClipboardItem> {
-        Arc::new(TestItem(
-            types.iter().map(|mime| mime.to_string()).collect(),
-        ))
+        TestItem::of_copy(types, 0, Arc::default())
+    }
+
+    fn of_copy(types: &[&str], copy: u64, copies: Arc<AtomicU64>) -> Arc<dyn ShellClipboardItem> {
+        Arc::new(TestItem {
+            types: types.iter().map(|mime| mime.to_string()).collect(),
+            copy,
+            copies,
+        })
     }
 }
 
 impl ShellClipboardItem for TestItem {
     fn types(&self) -> &[String] {
-        &self.0
+        &self.types
     }
 
     fn read(&self, mime: &str) -> ClipboardReadFuture {
-        let read = if self.0.iter().any(|offered| offered == mime) {
+        let read = if self.copies.load(Ordering::SeqCst) != self.copy {
+            Err(ClipboardError::Changed)
+        } else if self.types.iter().any(|offered| offered == mime) {
             Ok(mime.as_bytes().to_vec())
         } else {
             Err(ClipboardError::NotFound)
@@ -44,24 +61,58 @@ impl ShellClipboardItem for TestItem {
     }
 }
 
-/// A shell whose write lists one item of each item written, in the types written.
-pub(super) struct ListingShell;
+/// The platform's clipboard of a test: the types of each item on it, and how many copies it has
+/// held. A write lists one item of each item written, in the types written.
+#[derive(Default)]
+pub(super) struct TestClipboard {
+    held: Mutex<Vec<Vec<String>>>,
+    copies: Arc<AtomicU64>,
+}
 
-impl ShellClipboard for ListingShell {
+impl TestClipboard {
+    /// Another writer copies items offered in `items`' types; answers them as the shell lists
+    /// them, for a test whose shell tells the engine of the change.
+    pub(super) fn copy(&self, items: &[&[&str]]) -> Vec<Arc<dyn ShellClipboardItem>> {
+        let types = |item: &&[&str]| item.iter().map(|mime| mime.to_string()).collect();
+        *self.held.lock().unwrap() = items.iter().map(types).collect();
+        self.copies.fetch_add(1, Ordering::SeqCst);
+        self.listed()
+    }
+
+    fn listed(&self) -> Vec<Arc<dyn ShellClipboardItem>> {
+        let copy = self.copies.load(Ordering::SeqCst);
+        let held = self.held.lock().unwrap();
+        let item = |types: &Vec<String>| {
+            let types: Vec<&str> = types.iter().map(String::as_str).collect();
+            TestItem::of_copy(&types, copy, Arc::clone(&self.copies))
+        };
+        held.iter().map(item).collect()
+    }
+}
+
+impl ShellClipboard for TestClipboard {
+    fn items(&self) -> ClipboardItemsFuture {
+        Box::pin(ready(self.listed()))
+    }
+
     fn write(&self, items: Vec<CopiedItem>, _options: CopyOptions) -> ClipboardWriteFuture {
-        let listed = items
+        let written: Vec<Vec<&str>> = items
             .iter()
             .map(|item| {
-                let types: Vec<&str> = item
-                    .representations
-                    .iter()
-                    .map(|(mime, _)| mime.as_str())
-                    .collect();
-                TestItem::offering(&types)
+                let types = item.representations.iter();
+                types.map(|(mime, _)| mime.as_str()).collect()
             })
             .collect();
-        Box::pin(ready(Ok(listed)))
+        let written: Vec<&[&str]> = written.iter().map(Vec::as_slice).collect();
+        Box::pin(ready(Ok(self.copy(&written))))
     }
+}
+
+/// The engine's clipboard over a test's, which the test copies onto as another writer would.
+fn platform() -> (PlatformClipboard, Arc<TestClipboard>) {
+    let shell = Arc::new(TestClipboard::default());
+    let platform = PlatformClipboard::new(Some(Arc::clone(&shell) as Arc<dyn ShellClipboard>));
+    (platform, shell)
 }
 
 /// The clipboard switches, which a test turns as the user would; nothing else is granted.
@@ -188,26 +239,67 @@ pub(super) fn now<T>(future: impl Future<Output = T>) -> Option<T> {
 
 #[test]
 fn a_pasted_item_reads_whatever_the_read_switch_says_until_the_clipboard_changes() {
-    let platform = PlatformClipboard::new(Some(Arc::new(ListingShell)));
-    platform.set(vec![TestItem::offering(&["text/plain"])]);
+    let (platform, shell) = platform();
+    shell.copy(&[&["text/plain"]]);
     let (clipboard, view) = program(&platform, Arc::default());
     view.presence_changed(FOCUSED);
-    let listed = clipboard.items();
+    let listed = block_on(clipboard.items());
     let read = |item: &ListedItem| block_on(clipboard.read(item, "text/plain"));
     assert!(
         matches!(read(&listed[0]), Err(ClipboardError::Denied)),
         "the switch is off"
     );
-    let pasted = platform.pasted().items();
+    let pasted = block_on(platform.pasted().items());
     assert_eq!(
         read(&pasted[0]).ok(),
         Some(b"text/plain".to_vec()),
         "the user pasted it"
     );
-    platform.set(vec![TestItem::offering(&["text/plain"])]);
+    shell.copy(&[&["text/plain"]]);
     assert!(
         matches!(read(&pasted[0]), Err(ClipboardError::Changed)),
         "what the user pasted was replaced"
+    );
+}
+
+#[test]
+fn a_program_lists_what_another_writer_copied_though_the_shell_told_of_no_change() {
+    let (platform, shell) = platform();
+    let switches = Arc::new(Switches::default());
+    switches.read.store(true, Ordering::SeqCst);
+    let (clipboard, view) = program(&platform, switches);
+    view.presence_changed(FOCUSED);
+    assert!(block_on(clipboard.items()).is_empty(), "nothing copied yet");
+
+    shell.copy(&[&["text/html", "text/plain"]]);
+    let listed = block_on(clipboard.items());
+    assert_eq!(types_of(&listed), [["text/html", "text/plain"]]);
+    let read = block_on(clipboard.read(&listed[0], "text/plain"));
+    assert_eq!(read.ok(), Some(b"text/plain".to_vec()));
+    assert_eq!(platform.change(), 0, "and no change was told");
+}
+
+#[test]
+fn a_paste_is_the_clipboard_as_it_was_when_the_user_pasted() {
+    let (platform, shell) = platform();
+    let (clipboard, _view) = program(&platform, Arc::default());
+    shell.copy(&[&["text/plain"]]);
+    let paste = platform.pasted();
+    shell.copy(&[&["image/png"]]);
+
+    let pasted = block_on(paste.items());
+    assert_eq!(types_of(&pasted), [["text/plain"]], "not the later copy");
+    assert!(
+        matches!(
+            block_on(clipboard.read(&pasted[0], "text/plain")),
+            Err(ClipboardError::Changed)
+        ),
+        "and what the user pasted is gone"
+    );
+    assert_eq!(
+        types_of(&block_on(paste.items())),
+        [["text/plain"]],
+        "a paste kept lists nothing newer"
     );
 }
 
@@ -220,20 +312,21 @@ fn a_copy_request_writes_once() {
 
 #[test]
 fn what_is_on_the_clipboard_is_seen_only_while_a_view_has_the_focus() {
-    let platform = PlatformClipboard::new(Some(Arc::new(ListingShell)));
-    platform.set(vec![TestItem::offering(&["text/plain"])]);
+    let (platform, shell) = platform();
+    shell.copy(&[&["text/plain"]]);
     let (clipboard, view) = program(&platform, Arc::default());
-    assert!(clipboard.items().is_empty(), "no view has the focus");
+    let items = || block_on(clipboard.items());
+    assert!(items().is_empty(), "no view has the focus");
 
     view.presence_changed(FOCUSED);
-    assert_eq!(types_of(&clipboard.items()), [["text/plain"]]);
+    assert_eq!(types_of(&items()), [["text/plain"]]);
     view.presence_changed(ON_SCREEN);
-    assert!(clipboard.items().is_empty());
+    assert!(items().is_empty());
 }
 
 #[test]
 fn changes_arrive_while_focused_and_one_made_unfocused_as_the_focus_comes() {
-    let platform = PlatformClipboard::new(Some(Arc::new(ListingShell)));
+    let (platform, _shell) = platform();
     let (clipboard, view) = program(&platform, Arc::default());
     view.presence_changed(FOCUSED);
     let mut changes = clipboard.changes();
@@ -262,25 +355,25 @@ fn changes_arrive_while_focused_and_one_made_unfocused_as_the_focus_comes() {
 
 #[test]
 fn a_read_is_the_read_switchs_and_fails_once_the_clipboard_changed() {
-    let platform = PlatformClipboard::new(Some(Arc::new(ListingShell)));
-    platform.set(vec![TestItem::offering(&["text/plain"])]);
+    let (platform, shell) = platform();
+    shell.copy(&[&["text/plain"]]);
     let switches = Arc::new(Switches::default());
     let (clipboard, view) = program(&platform, Arc::clone(&switches));
     view.presence_changed(FOCUSED);
-    let items = clipboard.items();
+    let items = block_on(clipboard.items());
 
     let read = || block_on(clipboard.read(&items[0], "text/plain"));
     assert!(matches!(read(), Err(ClipboardError::Denied)));
     switches.read.store(true, Ordering::SeqCst);
     assert_eq!(read().ok(), Some(b"text/plain".to_vec()));
-    platform.set(Vec::new());
+    shell.copy(&[]);
     assert!(matches!(read(), Err(ClipboardError::Changed)));
 }
 
 #[test]
 fn the_write_switch_is_read_at_each_write() {
     let switches = Arc::new(Switches::default());
-    let platform = PlatformClipboard::new(Some(Arc::new(ListingShell)));
+    let (platform, _shell) = platform();
     let (clipboard, _view) = program(&platform, Arc::clone(&switches));
     assert!(!clipboard.may_write(&["text/plain"]));
     switches.write.store(true, Ordering::SeqCst);
@@ -289,11 +382,11 @@ fn the_write_switch_is_read_at_each_write() {
 
 #[test]
 fn a_read_and_a_write_the_switches_refuse_are_told_refused_by_them() {
-    let platform = PlatformClipboard::new(Some(Arc::new(ListingShell)));
-    platform.set(vec![TestItem::offering(&["text/plain"])]);
+    let (platform, shell) = platform();
+    shell.copy(&[&["text/plain"]]);
     let (clipboard, view) = program(&platform, Arc::default());
     view.presence_changed(FOCUSED);
-    let listed = clipboard.items();
+    let listed = block_on(clipboard.items());
 
     assert!(block_on(clipboard.read(&listed[0], "text/plain")).is_err());
     assert!(!clipboard.may_write(&["text/plain"]));
@@ -301,7 +394,7 @@ fn a_read_and_a_write_the_switches_refuse_are_told_refused_by_them() {
         clipboard.access.refusals(),
         ["clipboard-read", "clipboard-write"]
     );
-    let pasted = platform.pasted().items();
+    let pasted = block_on(platform.pasted().items());
     assert!(block_on(clipboard.read(&pasted[0], "text/plain")).is_ok());
     assert!(
         matches!(clipboard.access.told().last(), Some(Told::Allowed(..))),
@@ -310,8 +403,8 @@ fn a_read_and_a_write_the_switches_refuse_are_told_refused_by_them() {
 }
 
 #[test]
-fn a_write_is_the_clipboards_listing_from_then_on_and_counts_as_a_change() {
-    let platform = PlatformClipboard::new(Some(Arc::new(ListingShell)));
+fn a_write_is_what_programs_are_told_from_then_on_and_counts_as_a_change() {
+    let (platform, _shell) = platform();
     let before = platform.change();
     let item = CopiedItem {
         representations: vec![("text/plain".to_owned(), Content::Data(b"hi".to_vec()))],

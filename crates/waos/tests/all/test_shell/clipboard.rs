@@ -1,28 +1,63 @@
 //! The shell's clipboard: what a program writes, held in memory as the platform holds it and
 //! listed back after each write, and pastes a test makes of it as another application would,
-//! each form given, promised or a file; and what another application copies, which a test sets
-//! on the engine.
+//! each form given, promised or a file; and what another application copies, which replaces
+//! what is on it and which the shell tells the engine of.
+//!
+//! An item listed reads only while the copy it is of is the one on the clipboard.
 
 use std::future::{Future, ready};
 use std::io;
 use std::path::PathBuf;
 use std::pin::Pin;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use futures::executor::block_on;
 use waos::bindings::wasdk::platform::clipboard::ClipboardError;
 use waos::{
-    ClipboardReadFuture, ClipboardWriteFuture, Content, CopiedItem, CopyOptions, FileSink,
-    ShellClipboard, ShellClipboardItem,
+    ClipboardItemsFuture, ClipboardReadFuture, ClipboardWriteFuture, Content, CopiedItem,
+    CopyOptions, FileSink, ShellClipboard, ShellClipboardItem, WaOS,
 };
 
-/// What the last program to write put on the clipboard, and how it is to be treated.
+/// What the last program to write put on the clipboard, and how it is to be treated; and what
+/// is on the clipboard now, a program's copy or another application's, as it is listed.
 #[derive(Default)]
 pub struct TestClipboard {
     copy: Mutex<Option<(Vec<CopiedItem>, CopyOptions)>>,
+    listed: Mutex<Vec<Arc<dyn ShellClipboardItem>>>,
+    /// How many copies the clipboard has held, the last being the one on it.
+    copies: Arc<AtomicU64>,
 }
 
 impl TestClipboard {
+    /// Another application copies `items`: they are what is on the clipboard, and `engine` is
+    /// told of the change, as a shell tells it.
+    pub fn another_application_copies(
+        &self,
+        engine: &WaOS,
+        items: Vec<Arc<dyn ShellClipboardItem>>,
+    ) {
+        engine.set_clipboard(self.hold(items));
+    }
+
+    /// Another application copies `items` and the shell does not hear of it, as no system tells
+    /// an application of a copy made while it is in the background: they are what is on the
+    /// clipboard, and the engine is told nothing.
+    pub fn another_application_copies_unheard(&self, items: Vec<Arc<dyn ShellClipboardItem>>) {
+        self.hold(items);
+    }
+
+    /// `items` are what is on the clipboard from now on; answers them as it lists them.
+    fn hold(&self, items: Vec<Arc<dyn ShellClipboardItem>>) -> Vec<Arc<dyn ShellClipboardItem>> {
+        let mut listed = self.listed.lock().unwrap();
+        let copy = self.copies.fetch_add(1, Ordering::SeqCst) + 1;
+        *listed = items
+            .into_iter()
+            .map(|item| OfCopy::of(item, copy, &self.copies))
+            .collect();
+        listed.clone()
+    }
+
     /// How the copy on the clipboard is to be treated.
     pub fn options(&self) -> CopyOptions {
         self.copy.lock().unwrap().as_ref().expect("a copy").1
@@ -111,12 +146,51 @@ fn form<'a>(item: &'a CopiedItem, mime: &str) -> &'a Content {
 }
 
 impl ShellClipboard for TestClipboard {
+    fn items(&self) -> ClipboardItemsFuture {
+        Box::pin(ready(self.listed.lock().unwrap().clone()))
+    }
+
     /// Holds the copy, and lists one item for each written, in the types written, a file's as
     /// `text/uri-list`.
     fn write(&self, items: Vec<CopiedItem>, options: CopyOptions) -> ClipboardWriteFuture {
-        let listed = items.iter().map(ListedCopy::of).collect::<Vec<_>>();
+        let listed = self.hold(items.iter().map(ListedCopy::of).collect());
         *self.copy.lock().unwrap() = Some((items, options));
         Box::pin(ready(Ok(listed)))
+    }
+}
+
+/// An item as the clipboard lists it: `item`, read only while the copy it is of is the one on
+/// the clipboard.
+struct OfCopy {
+    item: Arc<dyn ShellClipboardItem>,
+    copy: u64,
+    copies: Arc<AtomicU64>,
+}
+
+impl OfCopy {
+    fn of(
+        item: Arc<dyn ShellClipboardItem>,
+        copy: u64,
+        copies: &Arc<AtomicU64>,
+    ) -> Arc<dyn ShellClipboardItem> {
+        Arc::new(OfCopy {
+            item,
+            copy,
+            copies: Arc::clone(copies),
+        })
+    }
+}
+
+impl ShellClipboardItem for OfCopy {
+    fn types(&self) -> &[String] {
+        self.item.types()
+    }
+
+    fn read(&self, mime: &str) -> ClipboardReadFuture {
+        if self.copies.load(Ordering::SeqCst) != self.copy {
+            return Box::pin(ready(Err(ClipboardError::Changed)));
+        }
+        self.item.read(mime)
     }
 }
 

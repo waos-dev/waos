@@ -68,9 +68,17 @@ fn the_users_copy_cut_and_paste_are_free_of_the_switches() {
     let output = Arc::new(RecordedOutput::default());
     let (running, window) = run(&engine, &shell, &output);
 
-    engine.set_clipboard(vec![CopiedText::item("from another app")]);
+    shell
+        .clipboard
+        .another_application_copies(&engine, vec![CopiedText::item("from another app")]);
     window.paste();
     output.wait_for("paste: from another app");
+
+    shell
+        .clipboard
+        .another_application_copies_unheard(vec![CopiedText::item("copied unheard")]);
+    window.paste();
+    output.wait_for("paste: copied unheard");
 
     window.copy();
     output.wait_for("copy: written");
@@ -101,7 +109,9 @@ fn a_file_the_user_pasted_is_read_and_not_written() {
     let file = fs::canonicalize(folder.path()).unwrap().join("pasted.txt");
     fs::write(&file, "a pasted line").unwrap();
 
-    engine.set_clipboard(vec![CopiedFile::item(&file)]);
+    shell
+        .clipboard
+        .another_application_copies(&engine, vec![CopiedFile::item(&file)]);
     window.paste();
     output.wait_for("pasted file: a pasted line");
     output.wait_for("pasted file written to: no");
