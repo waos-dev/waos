@@ -24,9 +24,11 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Instant;
 
-use egui::{Event, Key, Modifiers, ViewportId};
+use egui::{Event, Key, Modifiers, SafeAreaInsets, ViewportId, epaint::MarginF32};
 use wasdk::system::{self, OperatingSystem};
-use wasdk::views::{EditCommand, KeyEvent, KeyInput, KeyKind, View, ViewEvent, ViewFocusState};
+use wasdk::views::{
+    EditCommand, KeyEvent, KeyInput, KeyKind, Metrics, View, ViewEvent, ViewFocusState,
+};
 
 use self::clipboard::PendingCopy;
 use self::keys::Keyboard;
@@ -183,6 +185,7 @@ impl State {
             viewport_id: ViewportId::ROOT,
             viewports: std::iter::once((ViewportId::ROOT, viewport)).collect(),
             screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, size)),
+            safe_area_insets: Some(covered_by_the_system(&metrics)),
             max_texture_side: self.max_texture_side,
             time: Some(self.start_time.elapsed().as_secs_f64()),
             events: std::mem::take(&mut *self.events.borrow_mut()),
@@ -313,4 +316,49 @@ fn open_link(link: String) {
             tracing::warn!("{link} was not opened: {error}");
         }
     });
+}
+
+/// What the system's bars and the keyboard cover of a view with `metrics`, in points: nothing on
+/// a desktop.
+fn covered_by_the_system(metrics: &Metrics) -> SafeAreaInsets {
+    let pixels_per_point = metrics.device_pixel_ratio as f32;
+    let (bars, keyboard) = (metrics.padding, metrics.view_insets);
+    let covered = |bar: f64, keys: f64| (bar + keys) as f32 / pixels_per_point;
+    SafeAreaInsets(MarginF32 {
+        left: covered(bars.left, keyboard.left),
+        right: covered(bars.right, keyboard.right),
+        top: covered(bars.top, keyboard.top),
+        bottom: covered(bars.bottom, keyboard.bottom),
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use wasdk::views::{Insets, Metrics};
+
+    use super::covered_by_the_system;
+
+    fn insets(top: f64, bottom: f64) -> Insets {
+        Insets {
+            left: 0.0,
+            top,
+            right: 0.0,
+            bottom,
+        }
+    }
+
+    #[test]
+    fn egui_keeps_clear_of_the_bars_and_the_keyboard_in_points() {
+        let metrics = Metrics {
+            width: 1080,
+            height: 2400,
+            device_pixel_ratio: 3.0,
+            padding: insets(90.0, 0.0),
+            view_padding: insets(90.0, 60.0),
+            view_insets: insets(0.0, 900.0),
+        };
+        let covered = covered_by_the_system(&metrics).0;
+        assert_eq!((covered.top, covered.bottom), (30.0, 300.0));
+        assert_eq!((covered.left, covered.right), (0.0, 0.0));
+    }
 }
