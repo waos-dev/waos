@@ -18,7 +18,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 /// The programs built, by package name.
-const PROGRAMS: [&str; 46] = [
+const PROGRAMS: [&str; 47] = [
     "survey",
     "forever",
     "forever-shown",
@@ -55,6 +55,7 @@ const PROGRAMS: [&str; 46] = [
     "notes",
     "video-player",
     "input",
+    "egui-widgets",
     "back",
     "waft-back",
     "waft-image",
