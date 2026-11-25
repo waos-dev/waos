@@ -958,6 +958,15 @@ fn waos_own_bar_stays_while_a_programs_window_is_in_front_and_edits_commands_rea
         .shell
         .clipboard_event(view, ClipboardEvent::Paste(Vec::new()));
     desktop.pump_until("the user's paste", |_| output.has("paste: copied by menus"));
+    desktop
+        .clipboard
+        .set_clipboard_data(Some("copied unheard".to_owned()));
+    desktop
+        .shell
+        .clipboard_event(view, ClipboardEvent::Paste(Vec::new()));
+    desktop.pump_until("a paste of a copy Waft told nothing of", |_| {
+        output.has("paste: copied unheard")
+    });
     desktop.shell.edit_command(view, EditCommand::SelectAll);
     desktop.pump_until("select all", |_| output.has("edit: EditCommand::SelectAll"));
 

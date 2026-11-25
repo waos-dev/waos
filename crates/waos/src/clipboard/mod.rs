@@ -1,21 +1,29 @@
 //! `wasdk:platform/clipboard`: the platform's clipboard as every program sees it
-//! ([`PlatformClipboard`]: what is on it, as the shell last listed it, and the shell that writes
-//! it), and as one program reaches it ([`ProgramClipboard`]): what is on it and its changes,
-//! seen only while one of the program's views has the focus, and its reads and writes, as its
-//! switches say at each one, each decided and told through the program's access (`access`). The
-//! user's own commands are free of the switches (the clipboard proposal's decisions 4 to 6): a
-//! [`CopyRequest`], the user's copy or cut, writes once whatever the write switch says, and a
-//! [`Paste`], the clipboard as the user pasted it, reads whatever the read switch says, each file
-//! pasted mounted read-only at its own path as its `text/uri-list` is read. What a program writes
-//! is made into what the shell writes in `written`, and what it put on the clipboard, its
-//! `source`, answering the pastes of its promised forms and files while it is there, is
-//! `sources`, each paste's answer `answers`. The interface is served to a program by [`host`].
+//! ([`PlatformClipboard`]: the shell that lists and writes it, and what programs are told it
+//! changed to), and as one program reaches it ([`ProgramClipboard`]): what is on it and its
+//! changes, seen only while one of the program's views has the focus, and its reads and writes,
+//! as its switches say at each one, each decided and told through the program's access
+//! (`access`). The user's own commands are free of the switches (the clipboard proposal's
+//! decisions 4 to 6): a [`CopyRequest`], the user's copy or cut, writes once whatever the write
+//! switch says, and a [`Paste`], the clipboard as the user pasted it, reads whatever the read
+//! switch says, each file pasted mounted read-only at its own path as its `text/uri-list` is
+//! read. What a program writes is made into what the shell writes in `written`, and what it put
+//! on the clipboard, its `source`, answering the pastes of its promised forms and files while it
+//! is there, is `sources`, each paste's answer `answers`. The interface is served to a program
+//! by [`host`].
 //!
-//! The invariant: the listing changes only by the shell's word, `WaOS::set_clipboard` for another
-//! writer's copy and a write's answer for a program's own, so a change counted after a program's
-//! write is a copy that replaced it; a switch is read at each read and each write, inside its
-//! decision, never copied; and only a paste's items read past the read switch, and only as long
-//! as the clipboard is what the user pasted, since a read of an item listed before a change fails.
+//! What is on the clipboard is asked of the shell when a program lists it and when the user
+//! pastes, never answered from what the engine keeps: the platform's clipboard changes without
+//! the shell hearing of it at once, and a paste must be what the user sees there. What the
+//! engine keeps, the listing the shell last told it, serves two things only: the changes
+//! programs are told, and a program's copy being replaced.
+//!
+//! The invariant: the kept listing changes only by the shell's word, `WaOS::set_clipboard` for
+//! another writer's copy and a write's answer for a program's own, so a change counted after a
+//! program's write is a copy that replaced it; a switch is read at each read and each write,
+//! inside its decision, never copied; and only a paste's items read past the read switch, and
+//! only as long as the clipboard is what the user pasted, since the shell's item fails a read
+//! once the clipboard has changed since it was listed.
 
 mod answers;
 pub(crate) mod host;
@@ -26,7 +34,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
-use futures::future::BoxFuture;
+use futures::FutureExt;
+use futures::future::{BoxFuture, Shared};
 use futures::stream::{self, BoxStream, StreamExt};
 use tokio::sync::watch;
 use waos_capabilities::ProgramGrants;
@@ -34,7 +43,7 @@ use waos_capabilities::ProgramGrants;
 use crate::access::{Asked, ProgramAccess, Refusal};
 use crate::bindings::wasdk::platform::clipboard::ClipboardError;
 use crate::files::{HandedFiles, machine_paths};
-use crate::shell::{CopiedItem, ShellClipboard, ShellClipboardItem};
+use crate::shell::{ClipboardItemsFuture, CopiedItem, ShellClipboard, ShellClipboardItem};
 use crate::views::ProgramViews;
 
 pub(crate) use sources::ProgramSources;
@@ -52,8 +61,8 @@ pub struct CopyOptions {
     pub expires_after: Option<Duration>,
 }
 
-/// What is on the platform's clipboard, as the shell last listed it, and how many times it has
-/// changed since the engine started.
+/// What the shell last told the engine is on the platform's clipboard, and how many times it
+/// has told of a change since the engine started.
 #[derive(Clone)]
 pub(crate) struct Listing {
     items: Arc<[Arc<dyn ShellClipboardItem>]>,
@@ -63,8 +72,6 @@ pub(crate) struct Listing {
 /// One item of the clipboard as a program listed it: the value behind its `clipboard-item`.
 pub struct ListedItem {
     item: Arc<dyn ShellClipboardItem>,
-    /// The listing it is in.
-    change: u64,
     /// Whether the user pasted it: read whatever the read switch says, its files handed over.
     pasted: bool,
 }
@@ -85,13 +92,15 @@ impl CopyRequest {
 
 /// The clipboard as the user pasted it, in a view of the program: the value behind its `paste`.
 pub struct Paste {
-    listing: Listing,
+    /// The shell's listing, asked for as the user pasted, on its way or arrived.
+    items: Shared<ClipboardItemsFuture>,
 }
 
 impl Paste {
     /// What was on the clipboard when the user pasted, each item read as the user's.
-    pub(crate) fn items(&self) -> Vec<ListedItem> {
-        listed(&self.listing, true)
+    pub(crate) fn items(&self) -> BoxFuture<'static, Vec<ListedItem>> {
+        let items = self.items.clone();
+        Box::pin(async move { listed(&items.await, true) })
     }
 }
 
@@ -112,8 +121,8 @@ struct Platform {
 }
 
 impl PlatformClipboard {
-    /// The clipboard `shell` writes, empty until the shell lists what is on it; with none, no
-    /// program has a clipboard.
+    /// The clipboard `shell` lists and writes, no change told yet; with none, no program has a
+    /// clipboard.
     pub(crate) fn new(shell: Option<Arc<dyn ShellClipboard>>) -> PlatformClipboard {
         let empty = Listing {
             items: Arc::from([]),
@@ -130,15 +139,25 @@ impl PlatformClipboard {
         self.0.shell.is_some()
     }
 
-    /// What is on the clipboard now, as the user pastes it.
+    /// What is on the clipboard now, as the user pastes it: the shell is asked here, as the
+    /// user pastes, whenever the program reads the answer.
     pub(crate) fn pasted(&self) -> Paste {
         Paste {
-            listing: self.listing(),
+            items: self.items().shared(),
         }
     }
 
-    /// What is on the clipboard now, as the shell listed it: a change, which replaces the copy
-    /// before it. Answers the change's number.
+    /// What is on the clipboard as this is called, asked of the shell; nothing on a platform
+    /// without a clipboard.
+    fn items(&self) -> ClipboardItemsFuture {
+        match &self.0.shell {
+            Some(shell) => shell.items(),
+            None => Box::pin(std::future::ready(Vec::new())),
+        }
+    }
+
+    /// What the shell says is on the clipboard now: a change, which replaces the copy before
+    /// it, and which programs are told. Answers the change's number.
     pub(crate) fn set(&self, items: Vec<Arc<dyn ShellClipboardItem>>) -> u64 {
         let mut change = 0;
         self.0.listing.send_modify(|listing| {
@@ -149,6 +168,7 @@ impl PlatformClipboard {
         change
     }
 
+    /// What the shell last told is on the clipboard.
     fn listing(&self) -> Listing {
         self.0.listing.borrow().clone()
     }
@@ -157,7 +177,7 @@ impl PlatformClipboard {
         self.0.listing.subscribe()
     }
 
-    /// The number of the change that put what is on the clipboard now.
+    /// The number of the change the shell last told.
     fn change(&self) -> u64 {
         self.0.listing.borrow().change
     }
@@ -219,13 +239,14 @@ impl ProgramClipboard {
         &self.platform
     }
 
-    /// What is on the clipboard now, while one of the program's views has the focus; nothing
-    /// otherwise.
-    pub(crate) fn items(&self) -> Vec<ListedItem> {
+    /// What is on the clipboard as this is called, while one of the program's views has the
+    /// focus; nothing otherwise.
+    pub(crate) fn items(&self) -> BoxFuture<'static, Vec<ListedItem>> {
         if !*self.views.focus().borrow() {
-            return Vec::new();
+            return Box::pin(std::future::ready(Vec::new()));
         }
-        listed(&self.platform.listing(), false)
+        let items = self.platform.items();
+        Box::pin(async move { listed(&items.await, false) })
     }
 
     /// What is on the clipboard at each change from now on, while one of the program's views
@@ -239,10 +260,10 @@ impl ProgramClipboard {
         stream::unfold(watch, ChangesWatch::next_change).boxed()
     }
 
-    /// `item`'s content in `mime`, if the read switch is on or the user pasted the item, and the
-    /// clipboard has not changed since `item` was listed. Each file of a pasted item's
-    /// `text/uri-list` is mounted read-only at its own path before the content is answered, and
-    /// named in it by that path ([`program_uri_list`]).
+    /// `item`'s content in `mime`, if the read switch is on or the user pasted the item, and, as
+    /// the shell's item says, the clipboard has not changed since it was listed. Each file of a
+    /// pasted item's `text/uri-list` is mounted read-only at its own path before the content is
+    /// answered, and named in it by that path ([`program_uri_list`]).
     pub(crate) fn read(
         &self,
         item: &ListedItem,
@@ -261,9 +282,6 @@ impl ProgramClipboard {
         };
         if self.access.decide(used, pasted_or_switched_on).is_err() {
             return Box::pin(std::future::ready(Err(ClipboardError::Denied)));
-        }
-        if item.change != self.platform.change() {
-            return Box::pin(std::future::ready(Err(ClipboardError::Changed)));
         }
         let read = item.item.read(mime);
         if !(item.pasted && mime == URI_LIST) {
@@ -292,17 +310,13 @@ impl ProgramClipboard {
     }
 }
 
-/// Each item of `listing`, as a program lists it, or the user pasted it where `pasted`.
-fn listed(listing: &Listing, pasted: bool) -> Vec<ListedItem> {
-    listing
-        .items
-        .iter()
-        .map(|item| ListedItem {
-            item: Arc::clone(item),
-            change: listing.change,
-            pasted,
-        })
-        .collect()
+/// Each of `items`, as a program lists it, or the user pasted it where `pasted`.
+fn listed(items: &[Arc<dyn ShellClipboardItem>], pasted: bool) -> Vec<ListedItem> {
+    let listed = items.iter().map(|item| ListedItem {
+        item: Arc::clone(item),
+        pasted,
+    });
+    listed.collect()
 }
 
 /// The type a file on the clipboard is read in: its `file:` URL, one per line.
@@ -364,7 +378,7 @@ impl ChangesWatch {
             let focused = *self.focus.borrow_and_update();
             if focused && listing.change != self.told {
                 self.told = listing.change;
-                return Some((listed(&listing, false), self));
+                return Some((listed(&listing.items, false), self));
             }
             tokio::select! {
                 changed = self.listing.changed() => changed.ok()?,

@@ -62,7 +62,9 @@ fn a_program_reads_a_copy_and_answers_the_pastes_of_its_own_until_another_replac
     assert_eq!(picture.unwrap(), b"PNG");
     output.wait_for("asked for: 1 image/png");
 
-    engine.set_clipboard(vec![CopiedText::item("another copy")]);
+    shell
+        .clipboard
+        .another_application_copies(&engine, vec![CopiedText::item("another copy")]);
     output.wait_for("replaced");
     window.close_requested();
     output.wait_for("flushed");
@@ -156,7 +158,9 @@ fn a_program_whose_switches_are_off_reads_and_writes_nothing() {
     let output = Arc::new(RecordedOutput::default());
     let running = start(&engine, &folders, &output, Switches::off());
     output.wait_for("a window");
-    engine.set_clipboard(vec![CopiedText::item("from another app")]);
+    shell
+        .clipboard
+        .another_application_copies(&engine, vec![CopiedText::item("from another app")]);
     output.wait_for("read refused: denied");
     output.wait_for("write refused: denied");
     let end = within(running.ended());
@@ -213,7 +217,9 @@ fn an_waft_app_hears_another_applications_copy_and_reads_it() {
         .expect("copy-paste asks for its window");
 
     output.wait_for("clipboard changed: copied by copy-paste");
-    engine.set_clipboard(vec![CopiedText::item("another copy")]);
+    shell
+        .clipboard
+        .another_application_copies(&engine, vec![CopiedText::item("another copy")]);
     output.wait_for("clipboard changed: another copy");
     window.close_requested();
     let end = within(running.ended());
@@ -234,7 +240,9 @@ fn run_until_written(
         .and_then(|shown| shown.view())
         .expect("the program asks for its window");
     output.wait_for("a window");
-    engine.set_clipboard(vec![CopiedText::item("from another app")]);
+    shell
+        .clipboard
+        .another_application_copies(engine, vec![CopiedText::item("from another app")]);
     output.wait_for("changed: text/plain");
     output.wait_for("read: from another app");
     output.wait_for("written");

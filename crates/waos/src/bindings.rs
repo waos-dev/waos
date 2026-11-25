@@ -58,6 +58,9 @@ wasmtime::component::bindgen!({
         "wasdk:platform/fonts.[method]typeface.open-stream": store | tracing | trappable,
         "wasdk:platform/permissions.[method]permission.request": store | tracing | trappable,
         "wasdk:platform/permissions.[method]permission.changes": store | tracing | trappable,
+        // Waits for the shell's listing of the clipboard; to the program a plain call.
+        "wasdk:platform/clipboard.[method]clipboard.items": async | store | tracing | trappable,
+        "wasdk:platform/clipboard.[method]paste.items": async | store | tracing | trappable,
         "wasdk:platform/clipboard.[method]clipboard.changes": store | tracing | trappable,
         "wasdk:platform/clipboard.[method]source.requests": store | tracing | trappable,
         "wasdk:platform/clipboard.[method]request.provide": store | tracing | trappable,

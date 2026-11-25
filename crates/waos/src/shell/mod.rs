@@ -440,17 +440,29 @@ pub trait ShellWindowSizeLimits: Send + Sync {
     fn set_max_size(&self, size: Option<Size>);
 }
 
-/// The shell's side of `clipboard.clipboard`, minus what the engine keeps (what is on the
-/// clipboard, the focus, the switches): writing the platform's clipboard. What is on it the shell
-/// sets whole each time it hears another writer changed it (`WaOS::set_clipboard`).
+/// The shell's side of `clipboard.clipboard`, minus what the engine keeps (the focus, the
+/// switches, and what programs are told changed): listing and writing the platform's clipboard.
+/// What another writer put on it the shell also sets on the engine each time it hears of the
+/// change (`WaOS::set_clipboard`), which is when programs are told; a listing waits for no such
+/// word.
 pub trait ShellClipboard: Send + Sync {
+    /// What is on the platform's clipboard at this call, as the shell lists it: the platform is
+    /// asked as the call is made, not as the answer is first awaited, so a paste is the
+    /// clipboard as it was when the user pasted. Called from the program's thread as it lists
+    /// the clipboard, and from the thread the shell reports the user's paste on.
+    fn items(&self) -> ClipboardItemsFuture;
+
     /// Replaces the platform's clipboard with `items`, each in its forms, treated as `options`
-    /// says, and resolves with what is on it then, as the shell lists it: the clipboard's listing
-    /// from then on, as `WaOS::set_clipboard` sets one. The shell reports no change for this
+    /// says, and resolves with what is on it then, as the shell lists it: what programs are told
+    /// it changed to, as `WaOS::set_clipboard` sets one. The shell reports no change for this
     /// write: a change it reports after it is another writer's, which replaces the program's
     /// copy. Called from the program's thread.
     fn write(&self, items: Vec<CopiedItem>, options: CopyOptions) -> ClipboardWriteFuture;
 }
+
+/// What [`ShellClipboard::items`] answers: what is on the clipboard.
+pub type ClipboardItemsFuture =
+    Pin<Box<dyn Future<Output = Vec<Arc<dyn ShellClipboardItem>>> + Send>>;
 
 /// What [`ShellClipboard::write`] answers: what is on the clipboard after the write.
 pub type ClipboardWriteFuture =
@@ -464,8 +476,9 @@ pub trait ShellClipboardItem: Send + Sync {
     fn types(&self) -> &[String];
 
     /// Its content in `mime`, one of its types: a file as its `file:` URL. Fails with `changed`
-    /// once the platform's clipboard has changed since the shell listed it. Called from the
-    /// program's thread.
+    /// once the platform's clipboard has changed since the shell listed it, which is all that
+    /// keeps a read from landing on a later copy: the engine does not check again. Called from
+    /// the program's thread.
     fn read(&self, mime: &str) -> ClipboardReadFuture;
 }
 

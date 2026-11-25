@@ -181,7 +181,9 @@ fn its_text_field_leaves_command_c_to_the_host_and_acts_on_edits_commands() {
         Some(LINE.as_bytes()),
         "all of the field's line, selected"
     );
-    engine.set_clipboard(vec![CopiedText::item("pasted by the user")]);
+    shell
+        .clipboard
+        .another_application_copies(&engine, vec![CopiedText::item("pasted by the user")]);
     window.paste();
     output.wait_for("field: pasted by the user");
     close(&running, &window);
