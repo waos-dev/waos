@@ -32,7 +32,8 @@
 //! checked: the process that sent it must be the program's bundle as WaOS signed it, by the code
 //! hash WaOS kept, which the record's HMAC must vouch for first. A launch that fails, or an app that ends
 //! before its hello, has its bundle rebuilt and is launched once more, as Chrome does; a second
-//! failure fails everything that waited.
+//! failure fails everything that waited. An app that ends after its hello, while its program
+//! runs, was crashed or force quit: the program ends with it, as nothing could show it any more.
 //!
 //! Where there can be no apps, as when WaOS finds no window library or loader, or the system lacks
 //! the layer contexts a window shows its view's layers through, every window a program asks for
@@ -388,11 +389,14 @@ impl ProgramApps {
         });
     }
 
-    /// `process`'s app is gone: every view shown there goes with it.
+    /// `process`'s app is gone: every view shown there goes with it, and so does the program,
+    /// which nothing could show any more. WaOS ends an app only once its program has ended, so an
+    /// app gone first was ended by the system or the user: a crash, or Force Quit.
     fn disconnected(&self, id: &ProgramId, process: &Arc<WindowProcess>) {
-        tracing::info!(program = %id, "the program's app is gone");
+        tracing::info!(program = %id, "the program's app is gone: the program ends with it");
         process.gone();
         self.reach.forget(id, process);
+        process.program().stop();
     }
 
     /// What `id`'s bundle is written from: its install, a development install's as any other's;

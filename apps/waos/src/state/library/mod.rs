@@ -640,6 +640,14 @@ impl Library {
         }
     }
 
+    /// Stops the program `id` where it stands, without asking it: what ends a program that does
+    /// not answer a quit. Nothing where it does not run.
+    pub(crate) fn force_quit(&self, id: &ProgramId) {
+        let (runs, id) = (Arc::clone(&self.runs.runs), id.clone());
+        // The run is ended whether or not the task's handle is kept.
+        drop(self.work.spawn(async move { runs.stop(&id).await }));
+    }
+
     /// The sources added, in the order added, with what each lists.
     pub(crate) fn sources(&self) -> &[SourceListing] {
         &self.sources
