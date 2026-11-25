@@ -9174,6 +9174,7 @@ name = "waos-headless"
 version = "0.7.1"
 dependencies = [
  "tokio",
+ "url",
  "waos",
 ]
 

@@ -25,11 +25,12 @@
 //! The invariant: programs write against the generated bindings, and this crate adds only what
 //! generation cannot produce: [`main`], the entry; [`worker`], a worker's entry, which the
 //! program's one `worker-entry` export finds by name; [`spawn`], the executor every call runs on,
-//! and [`block_on`], which runs a future to its end where code that cannot await needs its answer;
+//! and [`block_on`], which runs a future to its end where code that cannot await needs its answer,
+//! and waits for every task started inside it, so one that runs on is never started there;
 //! the runtime's stream and future types the signatures name; [`keys`], Flutter's names of
 //! the numbers a key event carries, as plain constants; and, with the `raw-window-handle`
 //! feature, a view as the window other libraries take, `raw-window-handle`'s traits on
-//! [`views::View`] and [`view_of_window_handle`] to read one back. No hand-written wrapper over a
+//! [`views::View`] and `view_of_window_handle` to read one back. No hand-written wrapper over a
 //! generated type. It names nothing of the engine or the capabilities, and pins one wit-bindgen
 //! per release.
 //!
@@ -126,7 +127,22 @@ pub use bindings::wasi::sockets;
 pub use bindings::wasi::webgpu::webgpu;
 pub use bindings::{wit_future, wit_stream};
 pub use wasdk_macros::{main, worker};
+/// Runs `future` to its end on the program's thread, and answers what it answers: how code that
+/// cannot await, a library's plain function, gets an answer from the platform.
+///
+/// It runs every task started with [`spawn`] inside it too, and returns only once each of them
+/// has ended; with this wit-bindgen it also takes up the tasks started since the program last
+/// awaited. So a task that runs on, a listener or a loop, must not be started inside a `block_on`
+/// or just before one: the wait would never return. Start such a task from the program's own
+/// async code and await once, as with [`yield_async`], before the first `block_on`; a program
+/// whose loop is a library's, as winit's is, starts its tasks on that loop.
+pub use wit_bindgen::rt::async_support::block_on;
+/// Starts `task` beside the one running, on the program's one thread: it runs whenever the
+/// program awaits.
+///
+/// Whichever task or [`block_on`] is running takes the task up, and a `block_on` does not return
+/// while a task it took up still runs. See [`block_on`] for what follows from that.
+pub use wit_bindgen::rt::async_support::spawn_local as spawn;
 pub use wit_bindgen::rt::async_support::{
-    FutureReader, FutureWriter, StreamReader, StreamResult, StreamWriter, block_on,
-    spawn_local as spawn, yield_async,
+    FutureReader, FutureWriter, StreamReader, StreamResult, StreamWriter, yield_async,
 };
