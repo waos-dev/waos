@@ -1,6 +1,7 @@
 # When an app runs, pauses and freezes
 
 - **An app's state follows its windows.** Focused window: resumed. On screen but not focused: inactive. None on screen: hidden. WaOS going to the background pauses every app, as a phone pauses an app that leaves the screen. ([state_of_views.rs](/crates/waos/src/lifecycle/state_of_views.rs))
-- **In the background, an app runs only as its user allows.** Out of sight, an app is frozen, saving CPU, battery and GPU memory, unless its user lets it keep working there (music, a download). ([freeze_rule.rs](/crates/waos/src/lifecycle/freeze_rule.rs))
-  - *Today:* there's no such setting. An app keeps running while it plays or records sound or runs a camera, so an app playing silence stays alive. ([TODO](/TODO.md))
-- **A frozen app wakes to answer:** a quit request, a paste of a format it promised, a menu choice, its window closing. It can't answer while frozen. ([lifecycle](/crates/waos/src/lifecycle/mod.rs))
+- **In the background, an app runs only as its user allows.** On a phone, an app out of sight is frozen after a moment, saving CPU, battery and GPU memory, unless its user lets it keep working there (music, a download). On a desktop a hidden app runs on, as any hidden window does. ([execution_state.rs](/crates/waos/src/lifecycle/execution_state.rs))
+  - *Today:* there's no such setting. An app keeps running while it plays or records sound or runs a camera, so an app playing silence stays alive. When a phone suspends WaOS itself, sound stops too: WaOS does not yet ask the system to let it keep running. ([TODO](/TODO.md))
+- **An app is told before it is frozen.** It hears `hidden` or `paused` and runs on for a short time. *Why:* a frozen app can be ended without another word, so that is when it saves. ([execution_state.rs](/crates/waos/src/lifecycle/execution_state.rs))
+- **A frozen app is unfrozen to answer:** a quit request, a paste of a format it promised, a menu choice, its window closing. It can't answer while frozen. ([freeze_inhibitor.rs](/crates/waos/src/lifecycle/freeze_inhibitor.rs))
