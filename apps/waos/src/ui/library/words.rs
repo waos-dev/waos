@@ -245,9 +245,24 @@ pub(crate) const WHERE_WAOS_STAYS: &str = "Where WaOS stays";
 /// what it says: what it does, then whether the dev server listens.
 pub(crate) const DEVELOPER_ACCESS: &str = "Developer access";
 pub(crate) const DEVELOPER_ACCESS_DETAIL: &str = "Computers on this network that you pair with this device can install, run and inspect apps here with `waos --device`.";
-/// What [`DEVELOPER_ACCESS`] says while the dev server listens on `port`.
-pub(crate) fn developer_access_listening(port: u16) -> String {
-    format!("{DEVELOPER_ACCESS_DETAIL} WaOS listens on port {port}.")
+/// What [`DEVELOPER_ACCESS`] says while the dev server listens on `port` at `addresses`, this
+/// device's on its networks.
+pub(crate) fn developer_access_listening(port: u16, addresses: &[std::net::IpAddr]) -> String {
+    let at: Vec<String> = addresses
+        .iter()
+        .map(|address| match address {
+            std::net::IpAddr::V4(v4) => format!("{v4}:{port}"),
+            std::net::IpAddr::V6(v6) => format!("[{v6}]:{port}"),
+        })
+        .collect();
+    match at.as_slice() {
+        [] => format!("{DEVELOPER_ACCESS_DETAIL} WaOS listens on port {port}."),
+        [only] => format!("{DEVELOPER_ACCESS_DETAIL} This device is at {only}."),
+        [first @ .., last] => format!(
+            "{DEVELOPER_ACCESS_DETAIL} This device is at {} and {last}.",
+            first.join(", ")
+        ),
+    }
 }
 /// What [`DEVELOPER_ACCESS`] says while it is on but the dev server cannot listen, for `why`.
 pub(crate) fn developer_access_failed(why: &str) -> String {
@@ -598,5 +613,16 @@ mod tests {
                 "Scanner is using the camera. Camera is using the camera (simulated). Memo is using the microphone (simulated)."
             )
         );
+    }
+
+    #[test]
+    fn developer_access_says_the_addresses_the_device_is_at() {
+        let addresses = ["192.168.1.20", "fd00::1"].map(|address| address.parse().unwrap());
+        let said = developer_access_listening(7351, &addresses);
+        assert!(
+            said.ends_with("This device is at 192.168.1.20:7351 and [fd00::1]:7351."),
+            "{said}"
+        );
+        assert!(developer_access_listening(7352, &[]).ends_with("WaOS listens on port 7352."));
     }
 }

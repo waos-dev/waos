@@ -81,6 +81,8 @@ image = { version = "0.25", default-features = false, features = ["png"] }
 [target.'cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))'.dependencies]
 waft-embedder-winit.workspace = true
 waos-cli.workspace = true
+# This device's addresses, which the Developer card shows, at the version mdns-sd reads them with.
+if-addrs = "0.15"
 
 # Waft's buffer over an `IOSurface` and its Core Video frame, which a program's hardware buffers
 # and its readers' frames go between Waft and the engine as on macOS and iOS.

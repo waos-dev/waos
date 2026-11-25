@@ -105,6 +105,8 @@ pub(crate) mod media_asset_calls;
 pub(crate) mod media_player_calls;
 pub(crate) mod menu_bar;
 pub(crate) mod menu_calls;
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+pub(crate) mod network_addresses;
 pub(crate) mod noted_file_dialogs;
 pub(crate) mod notification_calls;
 #[cfg_attr(

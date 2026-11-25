@@ -21,6 +21,8 @@ use waos_store::Question;
 use crate::logic::app_store::CatalogApp;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 use crate::logic::developer_access::Listening;
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+use crate::logic::network_addresses::network_addresses;
 use crate::logic::offers::Offer;
 use crate::logic::permissions::Permission;
 use crate::logic::setting_changes::{SettingChange, SettingsOf, ShownSettings};
@@ -288,7 +290,9 @@ fn developer_access_offered(_library: &Library) -> bool {
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(crate) fn developer_access_said(listening: Option<Listening>) -> String {
     match listening {
-        Some(Listening::On { port }) => words::developer_access_listening(port),
+        Some(Listening::On { port }) => {
+            words::developer_access_listening(port, &network_addresses())
+        }
         Some(Listening::Failed(why)) => words::developer_access_failed(&why),
         Some(Listening::Not) | None => words::DEVELOPER_ACCESS_DETAIL.to_owned(),
     }
