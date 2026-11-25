@@ -372,3 +372,30 @@ opt-level = 3
 # a release build, so a debug WaOS took minutes to show `examples/hello` in the simulator.
 [profile.dev.package.pulley-interpreter]
 opt-level = 3
+
+# Waft with the system bars (waos-dev/waft branch `system-ui-mode`), until it is released.
+[patch.crates-io]
+waft = { git = "https://github.com/waos-dev/waft", branch = "system-ui-mode" }
+waft-animation = { git = "https://github.com/waos-dev/waft", branch = "system-ui-mode" }
+waft-cupertino = { git = "https://github.com/waos-dev/waft", branch = "system-ui-mode" }
+waft-embedder = { git = "https://github.com/waos-dev/waft", branch = "system-ui-mode" }
+waft-embedder-android = { git = "https://github.com/waos-dev/waft", branch = "system-ui-mode" }
+waft-embedder-apple = { git = "https://github.com/waos-dev/waft", branch = "system-ui-mode" }
+waft-embedder-default = { git = "https://github.com/waos-dev/waft", branch = "system-ui-mode" }
+waft-embedder-ios = { git = "https://github.com/waos-dev/waft", branch = "system-ui-mode" }
+waft-embedder-web = { git = "https://github.com/waos-dev/waft", branch = "system-ui-mode" }
+waft-embedder-winit = { git = "https://github.com/waos-dev/waft", branch = "system-ui-mode" }
+waft-foundation = { git = "https://github.com/waos-dev/waft", branch = "system-ui-mode" }
+waft-gestures = { git = "https://github.com/waos-dev/waft", branch = "system-ui-mode" }
+waft-macros = { git = "https://github.com/waos-dev/waft", branch = "system-ui-mode" }
+waft-painting = { git = "https://github.com/waos-dev/waft", branch = "system-ui-mode" }
+waft-physics = { git = "https://github.com/waos-dev/waft", branch = "system-ui-mode" }
+waft-rendering = { git = "https://github.com/waos-dev/waft", branch = "system-ui-mode" }
+waft-scheduler = { git = "https://github.com/waos-dev/waft", branch = "system-ui-mode" }
+waft-service-protocol = { git = "https://github.com/waos-dev/waft", branch = "system-ui-mode" }
+waft-services = { git = "https://github.com/waos-dev/waft", branch = "system-ui-mode" }
+waft-shell = { git = "https://github.com/waos-dev/waft", branch = "system-ui-mode" }
+waft-single-instance = { git = "https://github.com/waos-dev/waft", branch = "system-ui-mode" }
+waft-test = { git = "https://github.com/waos-dev/waft", branch = "system-ui-mode" }
+waft-widgets = { git = "https://github.com/waos-dev/waft", branch = "system-ui-mode" }
+waft-winui = { git = "https://github.com/waos-dev/waft", branch = "system-ui-mode" }
