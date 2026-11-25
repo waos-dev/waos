@@ -33,3 +33,6 @@ workspace = true
 id = "dev.waos.notes"
 name = "Notes"
 icon = "icon.png"
+category = "productivity"
+summary = "Notes, and a text editor for files anywhere"
+publisher = "WaOS"

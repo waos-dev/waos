@@ -546,8 +546,9 @@ pub(crate) mod tests {
                 .await
         }
 
-        /// What WaOS answers an install of `component` as the program `id`, announced as `digest`
-        /// and sent in parts of at most `parts` bytes, unless WaOS holds it.
+        /// What WaOS answers an install of `component` as the program `id`, filed under
+        /// productivity, announced as `digest` and sent in parts of at most `parts` bytes, unless
+        /// WaOS holds it.
         pub(crate) async fn install_in_parts_of(
             &self,
             id: &str,
@@ -563,6 +564,7 @@ pub(crate) mod tests {
                     name: id.to_owned(),
                     version: "0.1.0".parse().unwrap(),
                     icon: None,
+                    category: Some("productivity".to_owned()),
                     length: component.len() as u64,
                     digest,
                 }))
@@ -874,6 +876,7 @@ pub(crate) mod tests {
                 name: FOREVER.to_owned(),
                 version: "0.1.0".parse().unwrap(),
                 icon: None,
+                category: None,
                 length: component.len() as u64,
                 digest: component_digest(&component),
             }))
@@ -1004,8 +1007,16 @@ pub(crate) mod tests {
         assert!(program.join("cache").is_dir());
         let names = server.runs.programs().await;
         assert_eq!(names[0].name(), FOREVER_DEVELOPMENT);
-        let development = server.store.installed_program(&development(FOREVER));
-        assert!(development.is_some_and(|installed| installed.is_development()));
+        let development = server
+            .store
+            .installed_program(&development(FOREVER))
+            .expect("its development install");
+        assert!(development.is_development());
+        assert_eq!(
+            development.manifest.category(),
+            Some(waos_package::Category::Productivity),
+            "filed as its source says"
+        );
         let published = server.store.installed_program(&FOREVER.parse().unwrap());
         assert_eq!(
             published.and_then(|installed| installed.publisher()),

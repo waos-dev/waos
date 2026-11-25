@@ -92,6 +92,7 @@ fn install(id: &waos_package::ProgramId, length: u64, digest: [u8; 32]) -> Insta
         name: "Triangle".to_owned(),
         version: "0.1.0".parse().unwrap(),
         icon: None,
+        category: None,
         length,
         digest,
     }

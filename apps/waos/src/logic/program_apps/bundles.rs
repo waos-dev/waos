@@ -29,7 +29,7 @@ use std::sync::{Mutex, PoisonError};
 use hmac::{Hmac, KeyInit, Mac};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use waos_package::ProgramId;
+use waos_package::{Category, ProgramId};
 
 use crate::os::{BundleContents, WaosFiles, delete_bundle, write_bundle};
 
@@ -45,6 +45,8 @@ pub(crate) struct ProgramDescription {
     pub(crate) version: String,
     /// Its icon, as its install keeps it; none for a development build that had none.
     pub(crate) icon: Option<PathBuf>,
+    /// What it is for, where its author said, which macOS groups its apps by.
+    pub(crate) category: Option<Category>,
 }
 
 /// Where the bundles go.
@@ -183,6 +185,7 @@ impl Bundles {
             name: &program.name,
             version: &program.version,
             icon: program.icon.as_deref(),
+            category: program.category,
             waos: &self.waos,
         };
         if let Some(before) = self.kept(&program.id).filter(|before| before.path != path) {

@@ -75,6 +75,7 @@ fn entry(id: &str, name: &str, version: &str) -> ProgramEntry {
         name: name.to_owned(),
         version: version.to_owned(),
         icon: None,
+        category: None,
     }
 }
 

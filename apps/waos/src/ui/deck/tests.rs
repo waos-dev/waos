@@ -18,6 +18,7 @@ use crate::state::deck::test_phone::{
     TestPhone,
 };
 use crate::state::library::{LibraryPage, open_settings_when_asked};
+use crate::ui::library::words;
 
 /// Which picture is which program's, in the order the tests open them.
 const TRIANGLES: usize = 0;
@@ -1622,7 +1623,7 @@ fn a_program_that_asks_for_a_switch_sends_the_deck_home_to_its_settings_page() {
     assert_eq!(phone.tab_kinds(), [TRIANGLE, "home"]);
     assert_eq!(phone.current_tab(), "home");
     assert!(
-        phone.shows("Triangle's settings"),
+        phone.shows("Triangle"),
         "its page, on the home: {:?}",
         phone.labels()
     );
@@ -1643,10 +1644,10 @@ fn a_program_that_asks_for_a_switch_sends_the_deck_home_to_its_settings_page() {
 fn a_home_opened_after_the_last_one_went_starts_on_the_grid_of_programs() {
     let mut phone = home_with_triangle_installed();
     phone.library.update(&mut phone.shell.app(), |library, cx| {
-        library.show_page(LibraryPage::GetPrograms, cx)
+        library.show_page(LibraryPage::AppStore, cx)
     });
     phone.settle();
-    assert!(phone.shows("Get programs"), "{:?}", phone.labels());
+    assert!(phone.shows(words::GET_PROGRAMS), "{:?}", phone.labels());
     phone.open(TRIANGLE);
     phone.show(None);
     assert_eq!(phone.current_tab(), "home");
@@ -1674,11 +1675,34 @@ fn home_shows(phone: &TestPhone, name: &str) -> bool {
         .is_some_and(|icon| icon.bottom < page_box().bottom)
 }
 
+/// The app store is laid out as an app of its own on the home's page: its tab bar is the
+/// page's foot, over the deck's bar and its pill.
+#[test]
+fn the_app_stores_tab_bar_sits_over_the_decks_bar() {
+    let mut phone = home_with_triangle_installed();
+    phone.library.update(&mut phone.shell.app(), |library, cx| {
+        library.show_page(LibraryPage::AppStore, cx)
+    });
+    phone.settle();
+    let page = page_box();
+    let pill = phone
+        .label_bounds(words::SEARCH_PROGRAMS)
+        .expect("the deck's pill");
+    for tab in [words::DISCOVER, words::UPDATES, words::SOURCES] {
+        let tab = phone.label_bounds(tab).expect("a tab of the store's bar");
+        assert!(
+            tab.bottom <= page.bottom && tab.top > page.bottom - 50.0,
+            "at the page's foot: {tab:?} in {page:?}"
+        );
+        assert!(tab.bottom <= pill.top, "over the pill: {tab:?}, {pill:?}");
+    }
+}
+
 #[test]
 fn on_the_home_the_pill_is_a_search_field_that_filters_the_programs_as_the_user_types() {
     let mut phone = home_with_two_installed();
     let pill = phone
-        .label_bounds("Search programs")
+        .label_bounds(words::SEARCH_PROGRAMS)
         .expect("the search field, in the bar");
     assert!(pill.top > page_box().bottom, "{pill:?}");
     assert!(!phone.keyboard_asked_for());
@@ -1694,7 +1718,11 @@ fn on_the_home_the_pill_is_a_search_field_that_filters_the_programs_as_the_user_
     assert!(!home_shows(&phone, "Triangle") && home_shows(&phone, "Survey"));
     phone.type_text("neither");
     assert!(!home_shows(&phone, "Triangle") && !home_shows(&phone, "Survey"));
-    assert!(phone.shows("No programs found."), "{:?}", phone.labels());
+    assert!(
+        phone.shows(words::NO_PROGRAMS_FOUND),
+        "{:?}",
+        phone.labels()
+    );
     phone.type_text("");
     assert!(home_shows(&phone, "Triangle") && home_shows(&phone, "Survey"));
 }
@@ -1751,7 +1779,7 @@ fn a_program_found_by_searching_takes_the_homes_tab_and_the_next_home_searches_f
         "every program again: {:?}",
         phone.labels()
     );
-    assert!(phone.shows("Search programs"), "an empty field");
+    assert!(phone.shows(words::SEARCH_PROGRAMS), "an empty field");
 }
 
 #[test]
@@ -2468,10 +2496,10 @@ fn back_once_a_program_has_nowhere_left_to_go_back_to_goes_home() {
 fn back_on_the_home_goes_to_its_first_page_and_from_there_is_the_systems() {
     let mut phone = home_with_triangle_installed();
     phone.library.update(&mut phone.shell.app(), |library, cx| {
-        library.show_page(LibraryPage::GetPrograms, cx)
+        library.show_page(LibraryPage::AppStore, cx)
     });
     phone.settle();
-    assert!(phone.shows("Get programs"), "{:?}", phone.labels());
+    assert!(phone.shows(words::GET_PROGRAMS), "{:?}", phone.labels());
     assert!(phone.back());
     phone.settle();
     assert!(

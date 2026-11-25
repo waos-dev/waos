@@ -14,6 +14,7 @@
 //!   audit/
 //!     dev.example.triangle/
 //!       2026-11-15.postcard  what the program did that day, its last seven days kept
+//!   pictures/             the sources' icons and screenshots, kept as read, by their addresses
 //!   removing/             a program being removed, moved here whole first
 //!   sources.toml          the sources the user added, in the order added
 //!   settings.toml         the global settings, which every program follows until it has its own
@@ -59,6 +60,8 @@ pub use fetch::SourceProxy;
 pub use settings::{AnswerWith, GlobalSettings, PerQuestion, ProgramSettings};
 pub use source::Source;
 pub use store::{DevelopmentBuild, Download, InstalledProgram, Origin, Store};
+/// The addresses a source's files are at, which [`Source::picture_url`] answers.
+pub use url::Url;
 /// What the settings are made of, as `waos-capabilities` names them.
 pub use waos_capabilities::{
     Answer, Domain, DomainError, DomainRule, FileDialog, FileSystemGrant, Mount, NetworkGrant,

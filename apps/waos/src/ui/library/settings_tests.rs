@@ -27,56 +27,17 @@ use waos_package::ProgramId;
 use waos_store::{Answer, DomainRule, GlobalSettings, NetworkGrant, Setting};
 
 use super::home::fluent::FluentHome;
+use super::test_steps::{in_launcher, in_launcher_of, installs, on_phone, on_phone_of};
 use super::{LaidOutLibrary, words};
+use crate::logic::permissions::Permission;
 use crate::logic::phone_files::TestPhone;
-use crate::logic::setting_changes::{SettingChange, SettingsOf};
-use crate::state::library::LibraryPage;
+use crate::logic::setting_changes::{DomainsKind, SettingChange, SettingsOf};
 use crate::state::library::test_desktop::{DesktopKind, LibraryDesktop};
-use crate::state::phone_window::in_phone_window;
+use crate::state::library::{AppDetail, LibraryPage, SettingsPage};
 use crate::ui::launcher::home::LauncherHome;
-use crate::ui::launcher::tests::{Start, launcher_desktop, launcher_view};
 
 const TRIANGLE: &str = "dev.example.triangle";
 const PERMISSIONS: &str = "dev.example.permissions";
-
-/// The desktop with the library in its launcher, shown.
-fn in_launcher() -> (LibraryDesktop, ViewId) {
-    in_launcher_of(DesktopKind::default())
-}
-
-/// The desktop of `kind` with the library in its launcher, shown.
-fn in_launcher_of(kind: DesktopKind) -> (LibraryDesktop, ViewId) {
-    let (desktop, _launcher) = launcher_desktop(kind, Start::Shown);
-    let view = launcher_view(&desktop);
-    (desktop, view)
-}
-
-/// The desktop with the library in a window of a phone's size.
-fn on_phone() -> (LibraryDesktop, ViewId) {
-    on_phone_of(DesktopKind::default())
-}
-
-/// The desktop of `kind` with the library in a window of a phone's size.
-fn on_phone_of(kind: DesktopKind) -> (LibraryDesktop, ViewId) {
-    let show = |app: &mut waft::App, library: &_, recordings: &_, _view_windows: &_| {
-        let page = LaidOutLibrary {
-            library: Clone::clone(library),
-            recordings: Clone::clone(recordings),
-            questions_here: true,
-        };
-        (Some(in_phone_window(app, page.into_widget())), ())
-    };
-    let (desktop, ()) = LibraryDesktop::of(kind, Box::new(show));
-    let view = desktop.windows()[0].test_view().id();
-    (desktop, view)
-}
-
-fn installs(desktop: &mut LibraryDesktop, id: &str, name: &str, component: &[u8]) {
-    let package = desktop.package(id, name, "1.0.0", component);
-    desktop.update(|library, cx| library.open_files(vec![package], cx));
-    desktop.update(|library, cx| library.answer(true, cx));
-    desktop.settle_until_code_is_ready();
-}
 
 fn triangle() -> ProgramId {
     TRIANGLE.parse().unwrap()
@@ -86,8 +47,64 @@ fn global_network(desktop: &LibraryDesktop) -> NetworkGrant {
     desktop.store.global_settings().unwrap().network
 }
 
-/// Opens every program's settings from the launcher's "…", or the home's gear, in either layout.
-fn open_global_settings(desktop: &mut LibraryDesktop, view: ViewId) {
+/// Opens the page of `permission`, which shows its default: the settings, Permissions, then the
+/// kind.
+fn open_permission(desktop: &mut LibraryDesktop, view: ViewId, permission: Permission) {
+    open_settings(desktop, view);
+    desktop.tap(view, words::PERMISSIONS);
+    tap_permission(desktop, view, permission);
+}
+
+/// On the list of permissions, taps the row of `permission`, scrolled to where the list is
+/// longer than its page.
+fn tap_permission(desktop: &mut LibraryDesktop, view: ViewId, permission: Permission) {
+    let row = words::permission_name(permission);
+    if !desktop.shows(row) {
+        let first = words::permission_name(Permission::ALL[0]);
+        desktop.scroll_until_visible(view, row, first, SCROLL_STEP);
+    }
+    desktop.tap(view, row);
+}
+
+/// Whether `desktop` is the phone.
+fn is_phone(desktop: &LibraryDesktop) -> bool {
+    desktop.has::<CupertinoNavigationBar>()
+}
+
+/// Has the network of the app whose page for it shows follow the default again: in the
+/// launcher by its drop-down's first choice, on the phone by the row that says so.
+fn network_follows_the_default(desktop: &mut LibraryDesktop, view: ViewId) {
+    if is_phone(desktop) {
+        desktop.tap(view, words::USE_GLOBAL);
+    } else {
+        let default = words::defaulted(words::ALLOW);
+        pick(desktop, view, words::ALLOW, &default);
+    }
+}
+
+/// In the launcher, taps `button`, which asks in a dialog, types `typed` in the dialog's field
+/// and confirms with Return, the dialog's default button.
+fn answers_in_the_dialog(desktop: &mut LibraryDesktop, view: ViewId, button: &str, typed: &str) {
+    desktop.tap(view, button);
+    desktop.type_text(view, typed);
+    desktop.press_enter();
+}
+
+/// From a kind's page, opens the page of `permission` instead, as the user goes back to
+/// Permissions and on.
+fn go_to_permission(desktop: &mut LibraryDesktop, view: ViewId, permission: Permission) {
+    back_once(desktop, view);
+    tap_permission(desktop, view, permission);
+}
+
+/// Opens WaOS's own settings: the settings, then General.
+fn open_waos_settings(desktop: &mut LibraryDesktop, view: ViewId) {
+    open_settings(desktop, view);
+    desktop.tap(view, words::WAOS_SETTINGS);
+}
+
+/// Opens the settings' first page from the launcher's "…", or the home's gear, in either layout.
+fn open_settings(desktop: &mut LibraryDesktop, view: ViewId) {
     if desktop.has::<LauncherHome>() {
         let more = FluentSymbol::More.glyph().to_string();
         desktop.tap_widget::<FontIcon>(view, |icon| icon.glyph == more);
@@ -116,10 +133,64 @@ fn open_settings_from_icon(desktop: &mut LibraryDesktop, view: ViewId, name: &st
     desktop.tap(view, words::SETTINGS);
 }
 
-/// Goes back to the home from a settings page, in either layout.
+/// Opens the page of `permission` for the app `name`: the app's page from its icon, then the
+/// kind.
+fn open_app_permission(
+    desktop: &mut LibraryDesktop,
+    view: ViewId,
+    name: &str,
+    permission: Permission,
+) {
+    open_settings_from_icon(desktop, view, name);
+    let kind = words::permission_name(permission);
+    desktop.scroll_until_visible(view, kind, words::PERMISSIONS, SCROLL_STEP);
+    desktop.tap(view, kind);
+}
+
+/// Opens the page of what is the app `name`'s alone, `detail`: the app's page from its icon,
+/// then the row.
+fn open_app_detail(desktop: &mut LibraryDesktop, view: ViewId, name: &str, detail: AppDetail) {
+    open_settings_from_icon(desktop, view, name);
+    let row = words::app_detail_name(detail);
+    desktop.scroll_until_visible(view, row, words::PERMISSIONS, SCROLL_STEP);
+    desktop.tap(view, row);
+}
+
+/// Chooses `to` where a choice among named things shows `from`: in the launcher, from the
+/// drop-down that shows `from`, which the tap opens; on the phone, by its row.
+fn pick(desktop: &mut LibraryDesktop, view: ViewId, from: &str, to: &str) {
+    if !desktop.has::<CupertinoNavigationBar>() {
+        desktop.tap(view, from);
+    }
+    desktop.tap(view, to);
+}
+
+/// [`pick`], on the last of a page's choices that each offer the same: the lowest drop-down
+/// showing `from`, or the lowest row saying `to`.
+fn pick_last(desktop: &mut LibraryDesktop, view: ViewId, from: &str, to: &str) {
+    if !desktop.has::<CupertinoNavigationBar>() {
+        desktop.tap_last(view, from);
+    }
+    desktop.tap_last(view, to);
+}
+
+/// Goes back to the home from a settings page, in either layout: to the settings' first page,
+/// and from there to the home.
 fn back(desktop: &mut LibraryDesktop, view: ViewId) {
+    while desktop.read(|library| *library.page() != LibraryPage::Home) {
+        back_once(desktop, view);
+    }
+}
+
+/// Goes back from a settings page to the page it was opened over, in either layout.
+fn back_once(desktop: &mut LibraryDesktop, view: ViewId) {
     if desktop.has::<CupertinoNavigationBar>() {
-        desktop.tap(view, words::HOME_TITLE);
+        let back = CupertinoIcons::back().code_point;
+        desktop.tap_widget::<Icon>(view, |icon| {
+            icon.icon
+                .as_ref()
+                .is_some_and(|icon| icon.code_point == back)
+        });
     } else {
         let back = FluentSymbol::Back.glyph().to_string();
         desktop.tap_widget::<FontIcon>(view, |icon| icon.glyph == back);
@@ -127,17 +198,43 @@ fn back(desktop: &mut LibraryDesktop, view: ViewId) {
 }
 
 #[test]
-fn the_settings_for_every_program_change_in_the_launcher_and_are_kept() {
+fn the_settings_first_page_leads_to_each_apps_settings_and_back_in_either_layout() {
+    let layouts: [fn() -> (LibraryDesktop, ViewId); 2] = [in_launcher, on_phone];
+    for layout in layouts {
+        let (mut desktop, view) = layout();
+        installs(&mut desktop, TRIANGLE, "Triangle", b"\0asm");
+        let page = |desktop: &LibraryDesktop| desktop.read(|library| library.page().clone());
+        open_settings(&mut desktop, view);
+        assert_eq!(page(&desktop), LibraryPage::Settings(SettingsPage::Root));
+        assert!(
+            desktop.shows(words::PERMISSIONS) && desktop.shows(words::APPS),
+            "{:?}",
+            desktop.labels()
+        );
+        desktop.tap(view, "Triangle");
+        assert_eq!(
+            page(&desktop),
+            LibraryPage::Settings(SettingsPage::App(triangle()))
+        );
+        assert!(desktop.shows("Triangle"), "{:?}", desktop.labels());
+        back_once(&mut desktop, view);
+        assert_eq!(page(&desktop), LibraryPage::Settings(SettingsPage::Root));
+        back_once(&mut desktop, view);
+        assert_eq!(page(&desktop), LibraryPage::Home);
+    }
+}
+
+#[test]
+fn a_permissions_default_changes_on_its_page_in_the_launcher_and_is_kept() {
     let (mut desktop, view) = in_launcher();
-    open_global_settings(&mut desktop, view);
+    open_permission(&mut desktop, view, Permission::Network);
     assert!(
-        desktop.shows(words::GLOBAL_SETTINGS),
+        desktop.shows(words::DEFAULT) && desktop.shows(words::ANY_DOMAIN),
         "{:?}",
         desktop.labels()
     );
-    assert!(desktop.shows(words::NETWORK) && desktop.shows(words::FOLDERS));
-    assert!(desktop.shows(words::LOCAL_NETWORK));
-    desktop.tap(view, words::ONLY_DOMAINS);
+    assert!(!desktop.shows(words::LOCAL_NETWORK), "one kind's page");
+    pick(&mut desktop, view, words::ANY_DOMAIN, words::ONLY_DOMAINS);
     assert_eq!(
         global_network(&desktop).domains,
         DomainRule::Only(Vec::new())
@@ -155,24 +252,156 @@ fn the_settings_for_every_program_change_in_the_launcher_and_are_kept() {
         global_network(&desktop).domains,
         DomainRule::Only(Vec::new())
     );
+    go_to_permission(&mut desktop, view, Permission::Folders);
+    assert!(desktop.shows(words::NO_FOLDERS), "{:?}", desktop.labels());
+}
+
+#[test]
+fn what_a_list_gains_is_asked_for_in_a_dialog_and_listed_in_the_launcher() {
+    let (mut desktop, view) = in_launcher();
+    open_permission(&mut desktop, view, Permission::Network);
+    pick(&mut desktop, view, words::ANY_DOMAIN, words::ONLY_DOMAINS);
+    assert!(
+        desktop.shows(words::THESE_DOMAINS) && !desktop.shows(words::ADD_A_DOMAIN),
+        "the list, and no field on the page: {:?}",
+        desktop.labels()
+    );
+    desktop.tap(view, words::ADD);
+    assert!(desktop.shows(words::ADD_A_DOMAIN), "{:?}", desktop.labels());
+    desktop.type_text(view, "example.com");
+    desktop.press_escape();
+    assert_eq!(
+        global_network(&desktop).domains,
+        DomainRule::Only(Vec::new()),
+        "Cancel adds nothing"
+    );
+    // What was typed is still there, so Return alone adds it.
+    desktop.tap(view, words::ADD);
+    desktop.press_enter();
+    let DomainRule::Only(domains) = global_network(&desktop).domains else {
+        panic!("the rule still names its domains");
+    };
+    assert_eq!(domains.len(), 1);
+    assert!(
+        desktop.shows("example.com") && !desktop.shows(words::ADD_A_DOMAIN),
+        "listed, and the dialog gone: {:?}",
+        desktop.labels()
+    );
+
+    go_to_permission(&mut desktop, view, Permission::Folders);
+    let scratch = tempfile::tempdir().unwrap();
+    let folder = scratch.path().display().to_string();
+    answers_in_the_dialog(&mut desktop, view, words::ADD, &folder);
+    let mounts = desktop.store.global_settings().unwrap().file_system.mounts;
+    assert_eq!(mounts.len(), 1, "{:?}", desktop.labels());
+    assert!(!desktop.shows(words::NO_FOLDERS), "{:?}", desktop.labels());
+}
+
+#[test]
+fn an_apps_page_says_what_it_is_and_whether_it_runs_and_removes_it_in_either_layout() {
+    let layouts: [fn() -> (LibraryDesktop, ViewId); 2] = [in_launcher, on_phone];
+    for layout in layouts {
+        let (mut desktop, view) = layout();
+        let forever = std::fs::read(waos_test_programs::FOREVER_SHOWN).unwrap();
+        installs(&mut desktop, TRIANGLE, "Triangle", &forever);
+        desktop.settle_until_code_is_ready();
+        let its_page = LibraryPage::Settings(SettingsPage::App(triangle()));
+        desktop.update(|library, cx| library.show_page(its_page.clone(), cx));
+        assert!(
+            desktop.shows(&words::version_from("1.0.0", None)) && !desktop.shows(words::RUNNING),
+            "{:?}",
+            desktop.labels()
+        );
+        desktop.tap(view, words::OPEN);
+        desktop.settle_until("it runs", |desktop| {
+            desktop.read(|library| library.is_running(&triangle()))
+        });
+        // Opening it leaves the library for the app; back on its page, the page says it runs.
+        desktop.update(|library, cx| library.show_page(its_page.clone(), cx));
+        assert!(desktop.shows(words::RUNNING), "{:?}", desktop.labels());
+        futures::executor::block_on(desktop.runs.stop_all());
+        desktop.settle_until("it says so no more", |desktop| {
+            !desktop.shows(words::RUNNING)
+        });
+
+        // What removes it ends the page, in either layout; in the launcher, in a card that
+        // unfolds.
+        desktop.scroll_to_end(view, words::OPEN);
+        if !is_phone(&desktop) {
+            assert!(!desktop.shows(words::ASK_TO_REMOVE), "folded away");
+            desktop.tap(view, words::ADVANCED);
+            desktop.scroll_to_end(view, words::ADVANCED);
+        }
+        desktop.tap(view, words::ASK_TO_REMOVE);
+        assert!(desktop.shows("Remove Triangle?"), "{:?}", desktop.labels());
+        desktop.tap(view, words::REMOVE);
+        desktop.settle_until("it is removed", |desktop| {
+            desktop.read(|library| library.installed().is_empty())
+        });
+        assert_eq!(
+            desktop.read(|library| library.page().clone()),
+            LibraryPage::Settings(SettingsPage::Root),
+            "nothing of it is left to show"
+        );
+    }
+}
+
+#[test]
+fn a_permissions_page_lists_the_apps_set_otherwise_each_leading_to_its_page() {
+    let layouts: [fn() -> (LibraryDesktop, ViewId); 2] = [in_launcher, on_phone];
+    for layout in layouts {
+        let (mut desktop, view) = layout();
+        installs(&mut desktop, TRIANGLE, "Triangle", b"\0asm");
+        open_permission(&mut desktop, view, Permission::Network);
+        assert!(
+            desktop.shows(words::NONE_SET_OTHERWISE) && !desktop.shows("Triangle"),
+            "{:?}",
+            desktop.labels()
+        );
+        desktop.update(|library, cx| {
+            let of = SettingsOf::Program(triangle());
+            library.change_settings(&of, SettingChange::Domains(DomainsKind::Only), cx);
+        });
+        assert!(
+            desktop.shows("Triangle") && desktop.shows("Only some domains"),
+            "{:?}",
+            desktop.labels()
+        );
+        desktop.tap(view, "Triangle");
+        assert_eq!(
+            desktop.read(|library| library.page().clone()),
+            LibraryPage::Settings(SettingsPage::App(triangle()))
+        );
+        desktop.tap(view, words::permission_name(Permission::Network));
+        network_follows_the_default(&mut desktop, view);
+        back(&mut desktop, view);
+        open_permission(&mut desktop, view, Permission::Network);
+        assert!(
+            !desktop.shows("Triangle"),
+            "it follows the default again: {:?}",
+            desktop.labels()
+        );
+    }
 }
 
 #[test]
 fn a_programs_settings_follow_those_for_every_program_until_changed_in_the_launcher() {
     let (mut desktop, view) = in_launcher();
     installs(&mut desktop, TRIANGLE, "Triangle", b"\0asm");
-    open_global_settings(&mut desktop, view);
-    back(&mut desktop, view);
-    let settings_of_triangle = || LibraryPage::Settings(SettingsOf::Program(triangle()));
+    let settings_of_triangle = || LibraryPage::Settings(SettingsPage::App(triangle()));
     desktop.update(|library, cx| library.show_page(settings_of_triangle(), cx));
     assert!(
-        desktop.shows("Triangle's settings"),
-        "{:?}",
+        desktop.shows("Triangle") && desktop.shows(&words::defaulted(words::ALLOW)),
+        "each kind with what it holds, said to be the default: {:?}",
         desktop.labels()
     );
-    assert!(desktop.shows(words::FOLLOWS_GLOBAL));
-    assert!(!desktop.shows(words::USE_GLOBAL));
-    desktop.tap(view, words::ONLY_DOMAINS);
+    desktop.tap(view, words::permission_name(Permission::Network));
+    assert!(
+        desktop.shows(&words::defaulted(words::ALLOW)),
+        "its network follows the default: {:?}",
+        desktop.labels()
+    );
+    pick(&mut desktop, view, words::ANY_DOMAIN, words::ONLY_DOMAINS);
     let own = desktop.store.program_settings(&triangle()).unwrap();
     assert_eq!(
         own.network,
@@ -187,7 +416,7 @@ fn a_programs_settings_follow_those_for_every_program_until_changed_in_the_launc
         DomainRule::Any,
         "only this program's"
     );
-    desktop.tap(view, words::USE_GLOBAL);
+    network_follows_the_default(&mut desktop, view);
     let own = desktop.store.program_settings(&triangle()).unwrap();
     assert_eq!(own.network, Setting::Global);
     back(&mut desktop, view);
@@ -206,6 +435,9 @@ fn a_programs_machines_are_shown_under_the_warning_and_taken_back_in_the_launche
         .grants(&triangle())
         .keep_machine("this-computer");
     open_settings_from_icon(&mut desktop, view, "Triangle");
+    desktop.scroll_until_visible(view, "1 machine", words::PERMISSIONS, SCROLL_STEP);
+    assert!(desktop.shows("1 machine"), "how many, on the app's page");
+    desktop.tap(view, words::MACHINES);
     for shown in [words::MACHINES, words::MACHINES_AS_YOU, "This computer"] {
         assert!(desktop.shows(shown), "{shown}: {:?}", desktop.labels());
     }
@@ -239,19 +471,51 @@ fn triangle_answered(desktop: &LibraryDesktop, folder: &std::path::Path) -> std:
 /// How far the tests' wheel scrolls a settings page at a time.
 const SCROLL_STEP: f64 = 200.0;
 
+/// From a page under the app's, opens the page of `detail` instead, as the user goes back to
+/// the app's page and on.
+fn go_to_app_detail(desktop: &mut LibraryDesktop, view: ViewId, detail: AppDetail) {
+    back_once(desktop, view);
+    let row = words::app_detail_name(detail);
+    // The app's page is where it was left: scrolled to its rows, or at its top.
+    if !desktop.shows(row) {
+        desktop.scroll_until_visible(view, row, words::PERMISSIONS, SCROLL_STEP);
+    }
+    desktop.tap(view, row);
+}
+
+/// On Triangle's file pickers, has its save simulated, which shows what sets its path: in the
+/// launcher the row that says none is set, on the phone the field it is typed in, by its
+/// placeholder. Answers what that shows.
+fn simulates_saving(desktop: &mut LibraryDesktop, view: ViewId) -> &'static str {
+    open_app_detail(desktop, view, "Triangle", AppDetail::FilePickers);
+    let saving = words::file_dialog_name(FileDialog::SaveFile);
+    let opening = words::file_dialog_name(FileDialog::OpenFile);
+    desktop.scroll_until_visible(view, saving, opening, SCROLL_STEP);
+    desktop.scroll_to_end(view, saving);
+    let sets_the_path = if is_phone(desktop) {
+        words::file_dialog_placeholder(FileDialog::SaveFile)
+    } else {
+        words::NO_PATH
+    };
+    assert!(
+        !desktop.shows(sets_the_path),
+        "no path to set while the picker asks: {:?}",
+        desktop.labels()
+    );
+    pick_last(desktop, view, words::ASK, words::SIMULATED);
+    desktop.scroll_until_visible(view, sets_the_path, saving, SCROLL_STEP);
+    sets_the_path
+}
+
 #[test]
-fn a_programs_set_answers_show_as_they_are_and_change_in_the_launcher() {
+fn a_programs_file_pickers_ask_or_are_simulated_with_a_path_in_the_launcher() {
     let (mut desktop, view) = in_launcher();
     installs(&mut desktop, TRIANGLE, "Triangle", b"\0asm");
     let scratch = tempfile::tempdir().unwrap();
     let save = triangle_answered(&desktop, scratch.path());
-    open_settings_from_icon(&mut desktop, view, "Triangle");
-    let placeholder = words::file_dialog_placeholder(FileDialog::SaveFile);
-    desktop.scroll_until_visible(view, placeholder, words::NETWORK, SCROLL_STEP);
-    desktop.tap(view, placeholder);
+    simulates_saving(&mut desktop, view);
     let saved = save.display().to_string();
-    desktop.type_text(view, &saved);
-    desktop.tap(view, words::ANSWER_WITH);
+    answers_in_the_dialog(&mut desktop, view, words::SET, &saved);
     let own = desktop.store.program_settings(&triangle()).unwrap();
     assert_eq!(
         own.answer_with.save_file.as_ref(),
@@ -259,10 +523,25 @@ fn a_programs_set_answers_show_as_they_are_and_change_in_the_launcher() {
         "{:?}",
         desktop.labels()
     );
+    assert!(desktop.shows(&saved), "the path set shows");
 
+    pick_last(&mut desktop, view, words::SIMULATED, words::ASK);
+    let own = desktop.store.program_settings(&triangle()).unwrap();
+    assert_eq!(own.answer_with.save_file, None, "asked again");
+    assert!(!desktop.shows(&saved) && !desktop.shows(words::NO_PATH));
+}
+
+#[test]
+fn a_programs_sound_output_and_computer_show_as_set_and_change_in_the_launcher() {
+    let (mut desktop, view) = in_launcher();
+    installs(&mut desktop, TRIANGLE, "Triangle", b"\0asm");
+    let scratch = tempfile::tempdir().unwrap();
+    triangle_answered(&desktop, scratch.path());
+    open_app_detail(&mut desktop, view, "Triangle", AppDetail::SoundOutput);
     let not_connected = words::not_offered("unplugged speakers");
-    desktop.scroll_until_visible(view, &not_connected, &saved, SCROLL_STEP);
-    for shown in [&not_connected, "Speakers", "Headphones", "This computer"] {
+    // The output set shows in the drop-down, which opens on every output offered.
+    desktop.tap(view, &not_connected);
+    for shown in [&not_connected, "Speakers", "Headphones"] {
         assert!(desktop.shows(shown), "{shown}: {:?}", desktop.labels());
     }
     desktop.tap(view, words::ASK);
@@ -271,6 +550,14 @@ fn a_programs_set_answers_show_as_they_are_and_change_in_the_launcher() {
         own.answer_with.audio_output, None,
         "the output is asked again"
     );
+
+    go_to_app_detail(&mut desktop, view, AppDetail::Machines);
+    assert!(
+        desktop.shows(words::WHICH_MACHINE) && desktop.shows("This computer"),
+        "{:?}",
+        desktop.labels()
+    );
+    let own = desktop.store.program_settings(&triangle()).unwrap();
     assert_eq!(own.answer_with.machine.as_deref(), Some("this-computer"));
 }
 
@@ -280,13 +567,10 @@ fn a_path_no_dialog_could_choose_is_refused_and_kept_out_of_the_settings() {
     installs(&mut desktop, TRIANGLE, "Triangle", b"\0asm");
     let scratch = tempfile::tempdir().unwrap();
     triangle_answered(&desktop, scratch.path());
-    open_settings_from_icon(&mut desktop, view, "Triangle");
-    let placeholder = words::file_dialog_placeholder(FileDialog::SaveFile);
-    desktop.scroll_until_visible(view, placeholder, words::NETWORK, SCROLL_STEP);
-    desktop.tap(view, placeholder);
+    simulates_saving(&mut desktop, view);
     let nowhere = scratch.path().join("missing").join("out.pdf");
-    desktop.type_text(view, &nowhere.display().to_string());
-    desktop.tap(view, words::ANSWER_WITH);
+    let typed = nowhere.display().to_string();
+    answers_in_the_dialog(&mut desktop, view, words::SET, &typed);
     let own = desktop.store.program_settings(&triangle()).unwrap();
     assert_eq!(own.answer_with.save_file, None);
     let problem = desktop.read(|library| library.problem().map(str::to_owned));
@@ -297,14 +581,13 @@ fn a_path_no_dialog_could_choose_is_refused_and_kept_out_of_the_settings() {
 }
 
 #[test]
-fn a_programs_set_answers_change_on_the_phone() {
+fn a_programs_sound_output_changes_on_the_phone() {
     let (mut desktop, view) = on_phone();
     installs(&mut desktop, TRIANGLE, "Triangle", b"\0asm");
     let scratch = tempfile::tempdir().unwrap();
     triangle_answered(&desktop, scratch.path());
-    open_settings_from_icon(&mut desktop, view, "Triangle");
+    open_app_detail(&mut desktop, view, "Triangle", AppDetail::SoundOutput);
     let not_connected = words::not_offered("unplugged speakers");
-    desktop.scroll_until_visible(view, &not_connected, words::NETWORK, SCROLL_STEP);
     let check = CupertinoIcons::check_mark().code_point;
     let is_check = |icon: &Icon| {
         icon.icon
@@ -330,14 +613,28 @@ fn a_programs_set_answers_change_on_the_phone() {
 }
 
 #[test]
+fn a_programs_file_picker_is_simulated_with_a_path_on_the_phone() {
+    let (mut desktop, view) = on_phone();
+    installs(&mut desktop, TRIANGLE, "Triangle", b"\0asm");
+    let scratch = tempfile::tempdir().unwrap();
+    let save = triangle_answered(&desktop, scratch.path());
+    let placeholder = simulates_saving(&mut desktop, view);
+    desktop.tap(view, placeholder);
+    desktop.type_text(view, &save.display().to_string());
+    desktop.tap(view, words::SET);
+    let own = desktop.store.program_settings(&triangle()).unwrap();
+    assert_eq!(own.answer_with.save_file.as_ref(), Some(&save));
+}
+
+#[test]
 fn a_programs_answer_to_a_link_scheme_shows_and_is_forgotten_in_the_launcher() {
     let (mut desktop, view) = in_launcher();
     installs(&mut desktop, TRIANGLE, "Triangle", b"\0asm");
     let scratch = tempfile::tempdir().unwrap();
     triangle_answered(&desktop, scratch.path());
-    open_settings_from_icon(&mut desktop, view, "Triangle");
+    open_app_detail(&mut desktop, view, "Triangle", AppDetail::Links);
     let link = words::link_scheme("zoommtg", Answer::Granted);
-    desktop.scroll_until_visible(view, &link, words::NETWORK, SCROLL_STEP);
+    desktop.scroll_until_visible(view, &link, words::LINKS_DETAIL, SCROLL_STEP);
     desktop.tap_beside::<waft_winui::Button>(view, &link);
     let own = desktop.store.program_settings(&triangle()).unwrap();
     assert!(own.link_schemes.is_empty(), "asked again at its next link");
@@ -349,9 +646,9 @@ fn a_programs_answer_to_a_role_shows_and_is_forgotten_in_the_launcher() {
     installs(&mut desktop, TRIANGLE, "Triangle", b"\0asm");
     let scratch = tempfile::tempdir().unwrap();
     triangle_answered(&desktop, scratch.path());
-    open_settings_from_icon(&mut desktop, view, "Triangle");
+    open_app_detail(&mut desktop, view, "Triangle", AppDetail::Roles);
     let role = words::role(waos_store::Role::Inspector, Answer::Denied);
-    desktop.scroll_until_visible(view, &role, words::NETWORK, SCROLL_STEP);
+    desktop.scroll_until_visible(view, &role, words::ROLES_DETAIL, SCROLL_STEP);
     desktop.tap_beside::<waft_winui::Button>(view, &role);
     let own = desktop.store.program_settings(&triangle()).unwrap();
     assert!(own.roles.is_empty(), "asked again at its next start");
@@ -360,10 +657,8 @@ fn a_programs_answer_to_a_role_shows_and_is_forgotten_in_the_launcher() {
 #[test]
 fn the_camera_is_simulated_for_every_program_in_the_launcher() {
     let (mut desktop, view) = in_launcher();
-    open_global_settings(&mut desktop, view);
-    let camera = words::question_name(waos_store::Question::Camera);
-    desktop.scroll_until_visible(view, camera, words::NETWORK, SCROLL_STEP);
-    desktop.tap(view, words::SIMULATED);
+    open_permission(&mut desktop, view, Permission::Camera);
+    pick(&mut desktop, view, words::ASK, words::SIMULATED);
     let global = desktop.store.global_settings().unwrap();
     assert_eq!(global.answers.camera, Some(Answer::Simulated));
     let detail = if crate::state::SIMULATED_CAMERA {
@@ -385,14 +680,19 @@ fn a_programs_simulated_microphone_records_what_its_page_picks_in_the_launcher_a
             );
         });
         simulated.unwrap();
-        open_settings_from_icon(&mut desktop, view, "Triangle");
-        desktop.scroll_until_visible(view, words::SILENCE, words::NETWORK, SCROLL_STEP);
+        open_app_permission(&mut desktop, view, "Triangle", Permission::Microphone);
+        // In the launcher the drop-down's first choice follows the default, and says what it is.
+        let records = if is_phone(&desktop) {
+            words::QUIET_TONE.to_owned()
+        } else {
+            words::defaulted(words::QUIET_TONE)
+        };
         assert!(
-            desktop.shows(words::SIMULATED_MICROPHONE_DETAIL) && desktop.shows(words::QUIET_TONE),
+            desktop.shows(words::SIMULATED_MICROPHONE_DETAIL) && desktop.shows(&records),
             "{:?}",
             desktop.labels()
         );
-        desktop.tap(view, words::SILENCE);
+        pick(&mut desktop, view, &records, words::SILENCE);
         let own = desktop.store.program_settings(&triangle()).unwrap();
         assert_eq!(
             own.simulated_microphone,
@@ -405,16 +705,20 @@ fn a_programs_simulated_microphone_records_what_its_page_picks_in_the_launcher_a
 fn no_page_offers_commands_in_the_launcher_or_on_the_phone() {
     let (mut desktop, view) = in_launcher();
     installs(&mut desktop, TRIANGLE, "Triangle", b"\0asm");
-    open_global_settings(&mut desktop, view);
+    open_permission(&mut desktop, view, Permission::Network);
     assert!(desktop.shows(words::NETWORK), "{:?}", desktop.labels());
     assert!(!desktop.shows("Commands") && !desktop.shows("Any command"));
     back(&mut desktop, view);
-    open_settings_from_icon(&mut desktop, view, "Triangle");
-    assert!(desktop.shows(words::MACHINES), "{:?}", desktop.labels());
+    open_app_detail(&mut desktop, view, "Triangle", AppDetail::Machines);
+    assert!(
+        desktop.shows(words::MACHINES_AS_YOU),
+        "{:?}",
+        desktop.labels()
+    );
     assert!(!desktop.shows("Commands") && !desktop.shows("Any command"));
 
     let (mut desktop, view) = on_phone();
-    open_global_settings(&mut desktop, view);
+    open_permission(&mut desktop, view, Permission::Network);
     assert!(desktop.shows(words::NETWORK), "{:?}", desktop.labels());
     assert!(!desktop.shows("Commands") && !desktop.shows("Any command"));
 }
@@ -424,11 +728,7 @@ fn a_programs_settings_open_from_its_icon_in_the_launcher() {
     let (mut desktop, view) = in_launcher();
     installs(&mut desktop, TRIANGLE, "Triangle", b"\0asm");
     open_settings_from_icon(&mut desktop, view, "Triangle");
-    assert!(
-        desktop.shows("Triangle's settings"),
-        "{:?}",
-        desktop.labels()
-    );
+    assert!(desktop.shows("Triangle"), "{:?}", desktop.labels());
 }
 
 #[test]
@@ -451,9 +751,13 @@ fn a_program_asking_for_its_network_opens_its_page_and_hears_when_the_user_leave
     desktop.update(|library, cx| library.open(&id, cx));
     let asked = words::switch_asked("Permissions", waos::Switch::Network);
     desktop.settle_until("the program's page", |desktop| desktop.shows(&asked));
-    assert!(
-        desktop.shows("Permissions's settings"),
-        "{:?}",
+    assert_eq!(
+        desktop.read(|library| library.page().clone()),
+        LibraryPage::Settings(SettingsPage::AppPermission(
+            PERMISSIONS.parse().unwrap(),
+            Permission::Network
+        )),
+        "the app's page for what it asks for: {:?}",
         desktop.labels()
     );
     assert!(desktop.windows()[0].is_shown(), "the launcher shows for it");
@@ -475,16 +779,11 @@ fn a_program_asking_for_its_network_opens_its_page_and_hears_when_the_user_leave
 }
 
 #[test]
-fn the_settings_for_every_program_change_on_the_phone() {
+fn a_permissions_default_changes_on_its_page_on_the_phone() {
     let (mut desktop, view) = on_phone();
-    open_global_settings(&mut desktop, view);
+    open_permission(&mut desktop, view, Permission::Network);
     assert!(desktop.shows(words::NETWORK), "{:?}", desktop.labels());
-    assert!(
-        desktop.shows(words::LOCAL_NETWORK),
-        "{:?}",
-        desktop.labels()
-    );
-    desktop.tap(view, words::ONLY_DOMAINS);
+    pick(&mut desktop, view, words::ANY_DOMAIN, words::ONLY_DOMAINS);
     assert_eq!(
         global_network(&desktop).domains,
         DomainRule::Only(Vec::new())
@@ -498,9 +797,9 @@ fn the_settings_for_every_program_change_on_the_phone() {
 fn a_programs_settings_change_on_the_phone_and_follow_again() {
     let (mut desktop, view) = on_phone();
     installs(&mut desktop, TRIANGLE, "Triangle", b"\0asm");
-    open_settings_from_icon(&mut desktop, view, "Triangle");
+    open_app_permission(&mut desktop, view, "Triangle", Permission::Network);
     assert!(
-        desktop.shows("Triangle's settings"),
+        desktop.shows(words::ANY_DOMAIN_BUT),
         "{:?}",
         desktop.labels()
     );
@@ -521,14 +820,27 @@ fn a_programs_settings_change_on_the_phone_and_follow_again() {
 /// What reads one setting that is on or off from the settings for every program.
 type GlobalValue = fn(&GlobalSettings) -> bool;
 
-/// Each setting that is on or off, by the name its row shows, and its value for every program.
-fn on_off_settings() -> [(&'static str, GlobalValue); 5] {
+/// Each setting that is on or off, by the kind whose page shows it, the name its row shows, and
+/// its value for every program.
+fn on_off_settings() -> [(Permission, &'static str, GlobalValue); 5] {
     [
-        (words::NETWORK, |settings| settings.network.on),
-        (words::LOCAL_NETWORK, |settings| settings.local_network),
-        (words::CLIPBOARD_READ, |settings| settings.clipboard_read),
-        (words::CLIPBOARD_WRITE, |settings| settings.clipboard_write),
-        (words::RECORD_EVERY, |settings| settings.record),
+        (Permission::Network, words::NETWORK, |settings| {
+            settings.network.on
+        }),
+        (Permission::LocalNetwork, words::LOCAL_NETWORK, |settings| {
+            settings.local_network
+        }),
+        (Permission::Clipboard, words::CLIPBOARD_READ, |settings| {
+            settings.clipboard_read
+        }),
+        (Permission::Clipboard, words::CLIPBOARD_WRITE, |settings| {
+            settings.clipboard_write
+        }),
+        (
+            Permission::ActivityRecord,
+            words::RECORD_EVERY,
+            |settings| settings.record,
+        ),
     ]
 }
 
@@ -550,10 +862,14 @@ fn label_bounds(desktop: &LibraryDesktop, text: &str) -> Rect {
 #[test]
 fn each_setting_that_is_on_or_off_is_a_switch_on_a_row_naming_it_on_the_phone() {
     let (mut desktop, view) = on_phone();
-    open_global_settings(&mut desktop, view);
+    open_permission(&mut desktop, view, Permission::Network);
     assert!(!desktop.shows(words::ON) && !desktop.shows(words::OFF));
-    for (name, value) in on_off_settings() {
-        desktop.scroll_to_end_at(view, words::NETWORK);
+    assert!(
+        desktop.shows(words::ANY_DOMAIN),
+        "a choice among named things is a list, its choice checked"
+    );
+    for (permission, name, value) in on_off_settings() {
+        go_to_permission(&mut desktop, view, permission);
         let global = desktop.store.global_settings().unwrap();
         assert_eq!(switch_shows(&desktop, name), value(&global), "{name}");
         let switch = desktop.bounds_beside::<CupertinoSwitch>(name).unwrap();
@@ -562,16 +878,14 @@ fn each_setting_that_is_on_or_off_is_a_switch_on_a_row_naming_it_on_the_phone() 
             "{name} spans its row up to the switch, so a name too long for it is cut with an ellipsis, not measured to nothing"
         );
     }
-    assert!(
-        desktop.shows(words::ANY_DOMAIN) && desktop.shows(words::ALLOW),
-        "a choice among named things stays a segmented control"
-    );
+    go_to_permission(&mut desktop, view, Permission::Notifications);
+    assert!(desktop.shows(words::ALLOW), "the notifications' choice too");
 }
 
 #[test]
 fn a_tap_on_a_switch_or_on_its_row_changes_the_setting_on_the_phone() {
     let (mut desktop, view) = on_phone();
-    open_global_settings(&mut desktop, view);
+    open_permission(&mut desktop, view, Permission::LocalNetwork);
     let local_network =
         |desktop: &LibraryDesktop| desktop.store.global_settings().unwrap().local_network;
     let before = local_network(&desktop);
@@ -596,8 +910,8 @@ fn a_programs_last_seven_days_are_said_on_its_page_on_the_phone() {
     let (mut desktop, view) = on_phone();
     installs(&mut desktop, TRIANGLE, "Triangle", b"\0asm");
     triangle_posted_once(&desktop);
-    open_settings_from_icon(&mut desktop, view, "Triangle");
-    desktop.scroll_until_visible(view, words::LAST_DAYS, words::NETWORK, SCROLL_STEP);
+    open_app_permission(&mut desktop, view, "Triangle", Permission::ActivityRecord);
+    desktop.scroll_until_visible(view, words::LAST_DAYS, words::RECORD, SCROLL_STEP);
     assert!(
         desktop.shows("Notifications: Posted once"),
         "{:?}",
@@ -610,11 +924,11 @@ fn a_programs_last_seven_days_are_said_on_its_page_in_the_launcher() {
     let (mut desktop, view) = in_launcher();
     installs(&mut desktop, TRIANGLE, "Triangle", b"\0asm");
     triangle_posted_once(&desktop);
-    open_settings_from_icon(&mut desktop, view, "Triangle");
+    open_app_permission(&mut desktop, view, "Triangle", Permission::ActivityRecord);
     desktop.scroll_until_visible(
         view,
         "Notifications: Posted once",
-        words::NETWORK,
+        words::RECORD,
         SCROLL_STEP,
     );
 }
@@ -627,8 +941,7 @@ fn a_programs_record_turned_off_removes_what_was_kept_of_it_on_the_phone() {
     let day = waos::AuditDay::starting(std::time::SystemTime::UNIX_EPOCH);
     desktop.store.keep(triangle().as_str(), &day);
     assert_eq!(desktop.store.days(triangle().as_str()).len(), 1);
-    open_settings_from_icon(&mut desktop, view, "Triangle");
-    desktop.scroll_until_visible(view, words::RECORD, words::NETWORK, SCROLL_STEP);
+    open_app_permission(&mut desktop, view, "Triangle", Permission::ActivityRecord);
     assert!(
         switch_shows(&desktop, words::RECORD),
         "on, as for every program"
@@ -646,7 +959,7 @@ fn a_programs_record_turned_off_removes_what_was_kept_of_it_on_the_phone() {
 fn a_programs_switch_says_it_follows_the_setting_for_every_program_on_the_phone() {
     let (mut desktop, view) = on_phone();
     installs(&mut desktop, TRIANGLE, "Triangle", b"\0asm");
-    open_settings_from_icon(&mut desktop, view, "Triangle");
+    open_app_permission(&mut desktop, view, "Triangle", Permission::Network);
     let global = desktop.store.global_settings().unwrap();
     assert_eq!(switch_shows(&desktop, words::NETWORK), global.network.on);
     assert!(
@@ -752,8 +1065,12 @@ mod system_refusals {
         let (mut desktop, view) = in_tall_window();
         installs(&mut desktop, TRIANGLE, "Triangle", b"\0asm");
         let permissions = macos_permissions(&mut desktop);
-        open_settings_from_icon(&mut desktop, view, "Triangle");
-        assert!(desktop.shows(words::ALLOW), "{:?}", desktop.labels());
+        open_app_permission(&mut desktop, view, "Triangle", Permission::Notifications);
+        assert!(
+            desktop.shows(&words::defaulted(words::ASK)),
+            "{:?}",
+            desktop.labels()
+        );
         assert!(
             !desktop.shows(words::NOTIFICATIONS_REFUSED),
             "not until macOS says so"
@@ -791,11 +1108,11 @@ mod system_refusals {
         installs(&mut desktop, TRIANGLE, "Triangle", b"\0asm");
         let permissions = macos_permissions(&mut desktop);
         macos_says_of_triangle(&mut desktop, &permissions, SystemPermissionState::Denied);
-        open_settings_from_icon(&mut desktop, view, "Triangle");
+        open_app_permission(&mut desktop, view, "Triangle", Permission::Notifications);
         desktop.scroll_until_visible(
             view,
             words::OPEN_SYSTEM_SETTINGS,
-            words::NETWORK,
+            words::question_name(waos_store::Question::Notifications),
             SCROLL_STEP,
         );
         assert!(
@@ -805,7 +1122,7 @@ mod system_refusals {
         );
         assert_eq!(opens_system_settings(&mut desktop, view).len(), 1);
         back(&mut desktop, view);
-        open_global_settings(&mut desktop, view);
+        open_permission(&mut desktop, view, Permission::Notifications);
         assert!(
             !desktop.shows(words::NOTIFICATIONS_REFUSED),
             "a program's alone"
@@ -823,7 +1140,7 @@ fn the_global_page_says_whether_waos_reaches_the_phone_s_files_and_opens_android
             ..DesktopKind::default()
         };
         let (mut desktop, view) = layout(kind);
-        open_global_settings(&mut desktop, view);
+        open_waos_settings(&mut desktop, view);
         assert!(
             desktop.shows(words::PHONE_FILES_OFF),
             "{:?}",
@@ -852,7 +1169,7 @@ fn a_page_says_android_keeps_waos_from_a_folder_on_the_phone_while_all_files_acc
             ..DesktopKind::default()
         };
         let (mut desktop, view) = layout(kind);
-        open_global_settings(&mut desktop, view);
+        open_permission(&mut desktop, view, Permission::Folders);
         assert!(
             !desktop.shows(words::FOLDERS_DENIED),
             "no folder on the phone is given yet: {:?}",
@@ -885,7 +1202,11 @@ fn a_page_says_android_keeps_waos_from_a_folder_on_the_phone_while_all_files_acc
 #[test]
 fn the_global_page_says_nothing_of_the_phone_s_files_where_waos_reaches_what_its_user_does() {
     let (mut desktop, view) = in_launcher();
-    open_global_settings(&mut desktop, view);
-    assert!(desktop.shows(words::NETWORK), "{:?}", desktop.labels());
-    assert!(!desktop.shows(words::PHONE_FILES));
+    open_settings(&mut desktop, view);
+    assert!(desktop.shows(words::PERMISSIONS), "{:?}", desktop.labels());
+    assert!(
+        !desktop.shows(words::WAOS_SETTINGS),
+        "no page of WaOS's own settings where it has none: {:?}",
+        desktop.labels()
+    );
 }

@@ -40,6 +40,7 @@
 //! application is `state`'s.
 
 pub(crate) mod activity;
+pub(crate) mod app_store;
 pub(crate) mod asking_now;
 pub(crate) mod camera_calls;
 pub(crate) mod camera_values;
@@ -79,6 +80,7 @@ pub(crate) mod forwarded_pointers;
 pub(crate) mod frame_readers;
 pub(crate) mod hardware_buffers;
 pub(crate) mod held_starts;
+pub(crate) mod icon_rows;
 pub(crate) mod image_codec_calls;
 pub(crate) mod image_values;
 pub(crate) mod inspected_programs;
@@ -106,6 +108,7 @@ pub(crate) mod notification_calls;
 )]
 pub(crate) mod notification_permissions;
 pub(crate) mod offers;
+pub(crate) mod often_used;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(crate) mod open_command;
 pub(crate) mod open_video_decoders;
@@ -113,6 +116,7 @@ pub(crate) mod opened_package;
 pub(crate) mod opener_calls;
 pub(crate) mod opening;
 pub(crate) mod package_copies;
+pub(crate) mod permissions;
 pub(crate) mod phone_files;
 pub(crate) mod placement;
 pub(crate) mod player_states;

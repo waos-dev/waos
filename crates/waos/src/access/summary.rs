@@ -57,7 +57,8 @@ struct Recording {
 
 impl Summary {
     /// The summary of a run with `grants`, counting into its program's day where `kept` keeps
-    /// its days, which every run of it shares; into a day of its own in memory otherwise.
+    /// its days, which every run of it shares; into a day of its own in memory otherwise. The run
+    /// is counted there as a start of the program.
     pub(super) fn new(kept: Option<KeptIn>, grants: Arc<dyn ProgramGrants>) -> Summary {
         let grants_changed = grants.changed();
         let recorded = grants.keeps_record();
@@ -66,7 +67,7 @@ impl Summary {
             None => ProgramDay::in_memory(),
         };
         day.follow(Arc::clone(&grants));
-        Summary {
+        let summary = Summary {
             day,
             kept,
             grants,
@@ -75,7 +76,10 @@ impl Summary {
                 grants_changed,
             }),
             recorded_now: AtomicBool::new(recorded),
-        }
+        };
+        // A run is a start of its program, which its day counts as it counts its uses.
+        summary.change(|day, _| day.starts += 1);
+        summary
     }
 
     /// Counts `asked`, allowed where `resolution` says what it resolved to, refused or failed
@@ -772,7 +776,9 @@ mod tests {
     fn a_failure_no_setting_decided_is_no_use() {
         let summary = summary();
         summary.decided(&Asked::PostNotification, None, None);
-        assert_eq!(summary.today(), AuditDay::starting(summary.today().start));
+        let mut the_run_alone = AuditDay::starting(summary.today().start);
+        the_run_alone.starts = 1;
+        assert_eq!(summary.today(), the_run_alone);
     }
 
     /// The days of programs whose days `log` keeps, and a run's summary of `program` among them.
@@ -839,6 +845,33 @@ mod tests {
         assert_eq!(kept.len(), 1);
         assert_eq!(kept[0].0, "dev.waos.notes");
         assert_eq!(kept[0].1.notifications.allowed, 1);
+    }
+
+    /// Each run of a program is a start its day counts, the launcher's often-used apps reading
+    /// them; not while its user keeps no record of it.
+    #[test]
+    fn each_run_is_counted_as_a_start_of_its_program() {
+        let log = Arc::new(Kept::default());
+        let days = days_kept_in(&log);
+        for _ in 0..2 {
+            drop(Summary::new(
+                kept_in(&days, "dev.waos.notes"),
+                Arc::new(Answers::default()),
+            ));
+        }
+        assert_eq!(days.days_of("dev.waos.notes")[0].starts, 2);
+        let unrecorded = Arc::new(Answers::default());
+        unrecorded.keep_record(false);
+        drop(Summary::new(
+            kept_in(&days, "dev.waos.camera"),
+            Arc::clone(&unrecorded) as Arc<dyn ProgramGrants>,
+        ));
+        let starts_of_camera: u32 = days
+            .days_of("dev.waos.camera")
+            .iter()
+            .map(|day| day.starts)
+            .sum();
+        assert_eq!(starts_of_camera, 0, "no record kept");
     }
 
     #[test]

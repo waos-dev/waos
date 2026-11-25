@@ -114,6 +114,7 @@ mod tests {
             name: "Triangle".into(),
             version: "0.1.0".parse().unwrap(),
             icon: None,
+            category: None,
             length,
             digest,
         }

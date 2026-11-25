@@ -8,11 +8,15 @@
 //! (`waos-package` refuses one, and a source's listing of one is refused before its download).
 
 use std::cmp::Ordering;
+use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
+use reqwest::StatusCode;
+use sha2::{Digest, Sha256};
 use tokio::sync::watch;
+use url::Url;
 use waos_capabilities::{ChangedFuture, ProgramFolders, ProgramGrants};
 use waos_package::{
     COMPONENT, ICON, Index, ListedProgram, Manifest, Package, PackageError, ProgramId, PublisherKey,
@@ -98,6 +102,7 @@ impl DevelopmentBuild<'_> {
         )
         .expect("a manifest's name is one already")
         .with_kind(manifest.kind())
+        .with_category(manifest.category())
     }
 }
 
@@ -465,8 +470,61 @@ impl Store {
     }
 
     /// The index `source` serves: the programs it offers, each at a version, with its package.
+    /// An address that answers but has no index is told apart from one that could not be read:
+    /// it is no source, as a website that lists no apps.
     pub async fn read_source(&self, source: &Source) -> Result<Index, SourceError> {
-        fetch::read_index(&self.http, &source.index_url()).await
+        let read = fetch::read_index(&self.http, &source.index_url()).await;
+        read.map_err(|error| match error {
+            SourceError::Status { url, status } if status == StatusCode::NOT_FOUND => {
+                SourceError::ListsNothing { url }
+            }
+            other => other,
+        })
+    }
+
+    /// The picture `source`'s index lists as `picture`, an icon or a screenshot, as its file
+    /// holds it: read from the source's own server the first time and kept in the store's
+    /// `pictures/`, by its address, from then on, so a store shows it at once and offline. A
+    /// picture's address names its app's version, so a new version's is another file.
+    pub async fn picture(&self, source: &Source, picture: &str) -> Result<Vec<u8>, SourceError> {
+        let url = source.picture_url(picture)?;
+        let kept = self.kept_picture(&url);
+        if let Ok(bytes) = fs::read(&kept) {
+            return Ok(bytes);
+        }
+        let bytes = fetch::read_picture(&self.http, &url).await?;
+        // A picture that cannot be kept is still shown; it is read again next time.
+        let keeping = fs::create_dir_all(self.pictures())
+            .and_then(|()| crate::files::write_whole(&kept, &bytes));
+        if let Err(error) = keeping {
+            tracing::warn!(path = %kept.display(), %error, "a source's picture is not kept");
+        }
+        Ok(bytes)
+    }
+
+    /// Removes the pictures kept that are none of `shown`, the addresses the sources read now
+    /// list: an app's older version's, and a removed source's.
+    pub fn keep_pictures(&self, shown: &[Url]) {
+        let kept: HashSet<PathBuf> = shown.iter().map(|url| self.kept_picture(url)).collect();
+        let Ok(files) = fs::read_dir(self.pictures()) else {
+            return;
+        };
+        for file in files.flatten() {
+            if !kept.contains(&file.path()) {
+                let _ = fs::remove_file(file.path());
+            }
+        }
+    }
+
+    /// Where the picture at `url` is kept: a file named by its address's SHA-256.
+    fn kept_picture(&self, url: &Url) -> PathBuf {
+        let name = hex::encode(Sha256::digest(url.as_str().as_bytes()));
+        self.pictures().join(name)
+    }
+
+    /// The folder of the sources' pictures.
+    fn pictures(&self) -> PathBuf {
+        self.directory.join("pictures")
     }
 
     /// Opens the package downloaded at `download` and installs it, if it is the program and

@@ -953,6 +953,7 @@ fn install_build(
         name: identity.name.unwrap_or_else(|| package.name.to_string()),
         version: package.version.clone(),
         icon: identity.icon.as_deref().map(read).transpose()?,
+        category: identity.category,
         component: read(&built.component)?,
     })
 }

@@ -185,6 +185,10 @@ pub struct Install {
     /// Its icon, a square PNG; none for a program whose metadata names none.
     #[serde(default, with = "serde_bytes")]
     pub icon: Option<Vec<u8>>,
+    /// What it is for, as a manifest spells a category, where its metadata says one. One this
+    /// WaOS does not know, a later `waos`'s, counts as none.
+    #[serde(default)]
+    pub category: Option<String>,
     /// The component's bytes, which the parts that follow carry together.
     pub length: u64,
     /// The component's SHA-256, checked once its bytes are all there.
@@ -746,6 +750,7 @@ mod tests {
                 name: "Notes".into(),
                 version: "0.1.0".parse().unwrap(),
                 icon: Some(vec![0x89; 64]),
+                category: None,
                 length: 1024,
                 digest: [0xab; 32],
             }),
@@ -1131,6 +1136,7 @@ mod tests {
             name: "Triangle".into(),
             version: "0.1.0".parse().unwrap(),
             icon: None,
+            category: None,
             length: 1024,
             digest: [0xab; 32],
         };

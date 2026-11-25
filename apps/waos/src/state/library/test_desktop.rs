@@ -20,31 +20,32 @@ use waft::ui::{CompositionLayer, Compositor, HardwareBuffer, LayerPicture, Place
 use waft::ui::{
     Contact, Dispatcher, EmbedderClient, Frame, KeyData, KeyEventDeviceType, KeyEventType, Offset,
     Platform, PlatformRef, PointerDeviceKind, PointerReport, Rect, ReportedChange, RequestId,
-    Screen, ScreenId, Screens, SystemFontSource, TargetPlatform, TextAffinity, TextEditingValue,
-    TextSelection, TrayIconEvent, TrayIconId, View as _, ViewError, ViewFocusDirection,
-    ViewFocusEvent, ViewFocusState, ViewId, ViewRef, WindowConfig,
+    Screen, ScreenId, Screens, TargetPlatform, TextAffinity, TextEditingValue, TextSelection,
+    TrayIconEvent, TrayIconId, View as _, ViewError, ViewFocusDirection, ViewFocusEvent,
+    ViewFocusState, ViewId, ViewRef, WindowConfig,
 };
 use waft::{
-    AnyElement, App, AppLifecycleState, Curves, Entity, Offstage, ScrollPositionAlignmentPolicy,
-    Scrollable, Shell, State as _, Text, WidgetsBinding, downcast_widget, run_widget,
+    AnyElement, App, AppLifecycleState, Curves, Entity, ScrollPositionAlignmentPolicy, Scrollable,
+    Shell, State as _, Text, WidgetsBinding, downcast_widget, run_widget,
 };
 use waft_cupertino::install_cupertino_icon_font;
-use waft_services::{LogicalKeyboardKey, PhysicalKeyboardKey, ServicesBinding};
 #[cfg(target_os = "macos")]
+use waft_rendering::RenderEditable;
+use waft_services::{LogicalKeyboardKey, PhysicalKeyboardKey, ServicesBinding};
 use waft_test::Opened;
 use waft_test::{
     MockFileDialogs, MockOpener, MockTrayIcons, ShownTrayIcon, TestPlatform, TestWindow,
     TestWindows,
 };
 use waft_winui::install_icon_font;
-use waos_package::SigningKey;
+use waos_package::{Category, Manifest, SigningKey};
 use waos_store::{SourceProxy, Store};
 
 use super::{Library, ProgramsOpen, open_library, open_settings_when_asked, show_phone_files};
 use crate::logic::environments::ProgramEnvironments;
 use crate::logic::installed_code::HeldCompiles;
 use crate::logic::installed_runs::InstalledRuns;
-use crate::logic::opened_package::tests::write_package;
+use crate::logic::opened_package::tests::{write_package, write_package_of, write_package_showing};
 use crate::logic::package_copies::PackageCopies;
 use crate::logic::phone_files::PhoneFilesAccess;
 use crate::logic::phone_files::PhoneFilesOnRequest;
@@ -273,6 +274,38 @@ impl LibraryDesktop {
         write_package(&packages, id, name, version, component, &self.key)
     }
 
+    /// A package of `id` named `name` at 1.0.0, filed under `category`, whose icon is the PNG
+    /// `icon`, for a picture of the library with apps as their authors make them.
+    pub(crate) fn package_showing(
+        &self,
+        id: &str,
+        name: &str,
+        category: Option<Category>,
+        icon: &[u8],
+    ) -> std::path::PathBuf {
+        let packages = self.folder.path().join("packages");
+        std::fs::create_dir_all(&packages).unwrap();
+        let manifest = Manifest::new(id.parse().unwrap(), name, "1.0.0".parse().unwrap())
+            .unwrap()
+            .with_category(category);
+        write_package_showing(&packages, &manifest, b"\0asm", icon, &self.key)
+    }
+
+    /// A package of `id` named `name` at 1.0.0, filed under `category`.
+    pub(crate) fn package_filed(
+        &self,
+        id: &str,
+        name: &str,
+        category: Category,
+    ) -> std::path::PathBuf {
+        let packages = self.folder.path().join("packages");
+        std::fs::create_dir_all(&packages).unwrap();
+        let manifest = Manifest::new(id.parse().unwrap(), name, "1.0.0".parse().unwrap())
+            .unwrap()
+            .with_category(Some(category));
+        write_package_of(&packages, &manifest, b"\0asm", &self.key)
+    }
+
     /// WaOS goes to the background and comes back to the front, as the user leaving it for the
     /// system's settings and coming back does, then the frames it asks for.
     pub(crate) fn leave_and_come_back(&mut self) {
@@ -372,13 +405,21 @@ impl LibraryDesktop {
         self.press(PhysicalKeyboardKey::ESCAPE, LogicalKeyboardKey::ESCAPE);
     }
 
+    /// Backspace, pressed and released.
+    pub(crate) fn press_backspace(&mut self) {
+        self.press(
+            PhysicalKeyboardKey::BACKSPACE,
+            LogicalKeyboardKey::BACKSPACE,
+        );
+    }
+
     /// Return, pressed and released.
     pub(crate) fn press_enter(&mut self) {
         self.press(PhysicalKeyboardKey::ENTER, LogicalKeyboardKey::ENTER);
     }
 
     /// The key `physical`, meaning `logical`, pressed and released.
-    fn press(&mut self, physical: PhysicalKeyboardKey, logical: LogicalKeyboardKey) {
+    pub(crate) fn press(&mut self, physical: PhysicalKeyboardKey, logical: LogicalKeyboardKey) {
         for event_type in [KeyEventType::Down, KeyEventType::Up] {
             self.shell.key_data(KeyData {
                 time_stamp: self.elapsed,
@@ -396,6 +437,13 @@ impl LibraryDesktop {
     /// The keyboard makes what is edited in the window of `view` read `text`, the caret after it,
     /// as typing it does.
     pub(crate) fn type_text(&mut self, view: ViewId, text: &str) {
+        self.type_text_in_motion(view, text);
+        self.settle();
+    }
+
+    /// Types as [`type_text`](Self::type_text) does, leaving what the typing starts in motion,
+    /// for [`frames`](Self::frames) to show it move.
+    pub(crate) fn type_text_in_motion(&mut self, view: ViewId, text: &str) {
         let typed = TextEditingValue::new()
             .text(text)
             .selection(TextSelection::collapsed(
@@ -403,13 +451,53 @@ impl LibraryDesktop {
                 TextAffinity::Downstream,
             ));
         self.shell.text_input_editing_value(view, typed);
-        self.settle();
     }
 
     /// Taps the label `text` shows in the window of `view`, with the mouse.
     pub(crate) fn tap(&mut self, view: ViewId, text: &str) {
         let at = self.label_at(text);
         self.click_at(view, at, 1);
+    }
+
+    /// Taps the label `text` shows in the window of `view`, with the mouse, leaving what the tap
+    /// starts in motion, for [`frames`](Self::frames) to show it move.
+    pub(crate) fn tap_in_motion(&mut self, view: ViewId, text: &str) {
+        let at = self.label_at(text);
+        self.press_at(view, at, 1);
+    }
+
+    /// Draws `count` frames, each [`FRAME_INTERVAL`] after the last.
+    pub(crate) fn frames(&mut self, count: usize) {
+        for _ in 0..count {
+            self.pump();
+        }
+    }
+
+    /// Swipes a finger from `from` to `to` in the window of `view`, a frame's move at a time over
+    /// half a second, then lifts it, as a swipe across a phone's screen.
+    pub(crate) fn swipe(&mut self, view: ViewId, from: Offset, to: Offset) {
+        const MOVES: usize = 10;
+        let touch = |desktop: &mut LibraryDesktop, at: Offset, change| {
+            desktop.shell.pointer_reports(vec![PointerReport {
+                view_id: view,
+                time_stamp: desktop.elapsed,
+                device: 2,
+                kind: PointerDeviceKind::Touch,
+                position: [at.dx(), at.dy()],
+                change,
+                contact: Contact::default(),
+            }]);
+            desktop.pump();
+        };
+        touch(self, from, ReportedChange::Add);
+        touch(self, from, ReportedChange::Down { buttons: 1 });
+        for step in 1..=MOVES {
+            let at = from + (to - from) * (step as f64 / MOVES as f64);
+            touch(self, at, ReportedChange::Move { buttons: 1 });
+        }
+        touch(self, to, ReportedChange::Up { buttons: 0 });
+        touch(self, to, ReportedChange::Remove);
+        self.settle();
     }
 
     /// Clicks the label `text` shows in the window of `view` with the mouse's secondary button, as
@@ -457,8 +545,15 @@ impl LibraryDesktop {
             .unwrap_or_else(|| panic!("no label {text:?} on screen: {:?}", self.labels()))
     }
 
-    /// Clicks at `at` in the window of `view` with the mouse's `buttons`.
+    /// Clicks at `at` in the window of `view` with the mouse's `buttons`, then lets what it
+    /// started settle.
     fn click_at(&mut self, view: ViewId, at: Offset, buttons: i64) {
+        self.press_at(view, at, buttons);
+        self.settle();
+    }
+
+    /// Clicks at `at` in the window of `view` with the mouse's `buttons`.
+    fn press_at(&mut self, view: ViewId, at: Offset, buttons: i64) {
         let mut changes = vec![
             ReportedChange::Hover { buttons: 0 },
             ReportedChange::Down { buttons },
@@ -479,14 +574,21 @@ impl LibraryDesktop {
             }]);
             self.pump();
         }
-        self.settle();
     }
 
-    /// Scrolls what holds the label `text` shows, in the window of `view`, to its end, with the
-    /// mouse's wheel over the label.
-    pub(crate) fn scroll_to_end_at(&mut self, view: ViewId, text: &str) {
-        let at = self.label_at(text);
-        self.wheel_at(view, at, 100_000.0);
+    /// Moves the mouse to `at`, in the window of `view`, with no button down.
+    pub(crate) fn hover_at(&mut self, view: ViewId, at: Offset) {
+        self.shell.pointer_reports(vec![PointerReport {
+            view_id: view,
+            time_stamp: self.elapsed,
+            device: 1,
+            kind: PointerDeviceKind::Mouse,
+            position: [at.dx(), at.dy()],
+            change: ReportedChange::Hover { buttons: 0 },
+            contact: Contact::default(),
+        }]);
+        self.pump();
+        self.settle();
     }
 
     /// Turns the mouse's wheel at `at`, in the window of `view`, by `delta` pixels, a positive
@@ -513,7 +615,6 @@ impl LibraryDesktop {
             }]);
             self.pump();
         }
-        self.settle();
     }
 
     /// Scrolls what holds the label `over` shows, in the window of `view`, by `delta` pixels at a
@@ -628,6 +729,52 @@ impl LibraryDesktop {
         self.click_at(view, bounds.center(), 1);
     }
 
+    /// Taps the label `text` nearest the height of the label `beside`, with the mouse: a row's
+    /// button, by the name on its row, where several rows have a button saying the same.
+    pub(crate) fn tap_beside_label(&mut self, view: ViewId, beside: &str, text: &str) {
+        let row = self.label_at(beside).dy();
+        let away = |at: &Offset| (at.dy() - row).abs();
+        let at = self
+            .every(text)
+            .into_iter()
+            .min_by(|one, other| away(one).total_cmp(&away(other)))
+            .unwrap_or_else(|| panic!("no label {text:?} on screen: {:?}", self.labels()));
+        self.click_at(view, at, 1);
+    }
+
+    /// Scrolls what the label `over` is in to its end, with the mouse's wheel.
+    pub(crate) fn scroll_to_end(&mut self, view: ViewId, over: &str) {
+        let at = self.label_at(over);
+        self.wheel_at(view, at, 100_000.0);
+        self.settle();
+    }
+
+    /// Taps the last of the labels showing `text`, the lowest on a page of sections that each
+    /// have one, with the mouse.
+    pub(crate) fn tap_last(&mut self, view: ViewId, text: &str) {
+        let at = self
+            .every(text)
+            .into_iter()
+            .max_by(|one, other| one.dy().total_cmp(&other.dy()))
+            .unwrap_or_else(|| panic!("no label {text:?} on screen: {:?}", self.labels()));
+        self.click_at(view, at, 1);
+    }
+
+    /// Where the middle of each label showing `text` is, in its view.
+    pub(crate) fn every(&self, text: &str) -> Vec<Offset> {
+        let mut app = self.shell.app();
+        onstage_elements(&mut app)
+            .into_iter()
+            .filter(|element| label_of(&app, *element).as_deref() == Some(text))
+            .filter_map(|element| {
+                let label = element.render_object(&app)?.as_box()?;
+                let size = label.size(&app);
+                let middle = Offset::new(size.width() / 2.0, size.height() / 2.0);
+                Some(label.local_to_global(&app, middle, None))
+            })
+            .collect()
+    }
+
     /// The first widget of type `W` whose height spans the middle of the label `text`, and where
     /// it is.
     fn beside<W: Clone + 'static>(&self, text: &str) -> Option<(W, Rect)> {
@@ -637,6 +784,18 @@ impl LibraryDesktop {
             let widget = downcast_widget::<W>(element.widget(&app).as_ref())?.clone();
             let bounds = bounds(&app, element)?;
             (bounds.top <= middle && middle <= bounds.bottom).then_some((widget, bounds))
+        })
+    }
+
+    /// Whether the text field on screen draws its caret now: what its renderer is told, which
+    /// follows the caret's blink.
+    pub(crate) fn draws_a_caret(&self) -> bool {
+        let mut app = self.shell.app();
+        onstage_elements(&mut app).into_iter().any(|element| {
+            element
+                .render_object(&app)
+                .and_then(|render| render.downcast::<RenderEditable>(&app))
+                .is_some_and(|editable| *editable.show_cursor(&app).value(&app))
         })
     }
 
@@ -662,8 +821,8 @@ impl LibraryDesktop {
             .find(|element| label_of(&app, *element).as_deref() == Some(text))
     }
 
-    /// Where the label showing `text` is, in its view.
-    fn find(&self, text: &str) -> Option<Offset> {
+    /// Where the middle of the label showing `text` is, in its view.
+    pub(crate) fn find(&self, text: &str) -> Option<Offset> {
         let element = self.label_element(text)?;
         let app = self.shell.app();
         let label = element.render_object(&app)?.as_box()?;
@@ -716,23 +875,15 @@ impl LibraryDesktop {
     }
 }
 
-/// Every element mounted and not offstage.
+/// Every element mounted and onstage, as a finder skipping offstage widgets walks them: none in
+/// an `Offstage`, and none of a route kept alive under an opaque one.
 pub(crate) fn onstage_elements(app: &mut App) -> Vec<AnyElement> {
     let Some(root) = WidgetsBinding::instance(app).root_element(app) else {
         return Vec::new();
     };
-    let mut elements = vec![root];
-    let mut index = 0;
-    while index < elements.len() {
-        let element = elements[index];
-        let offstage = downcast_widget::<Offstage>(element.widget(app).as_ref())
-            .is_some_and(|widget| widget.offstage);
-        if !offstage {
-            elements.extend(element.children(app));
-        }
-        index += 1;
-    }
-    elements
+    std::iter::once(root)
+        .chain(root.descendants(app, true))
+        .collect()
 }
 
 /// Where `element` is drawn, in its view, when it is a box.
@@ -779,7 +930,8 @@ impl LibraryPlatform {
             inner: TestPlatform::new()
                 .on(system)
                 .with_windows(Rc::clone(&windows))
-                .with_font_source(|| Box::new(SystemFontSource::new(valo_fontmgr::platform())))
+                .with_system_fonts()
+                .with_gpu()
                 .with_opener(Rc::new(opener.clone()))
                 .with_tray_icons(Rc::new(tray.clone()))
                 .with_file_dialogs(Rc::new(file_dialogs.clone())),
@@ -832,6 +984,30 @@ impl Platform for LibraryPlatform {
 
     fn font_source(&self) -> Option<Box<dyn waft::ui::FontSource>> {
         self.inner.font_source()
+    }
+
+    fn open_image_codec(&self, bytes: Arc<[u8]>) -> waft::ui::ImageCodecFuture {
+        self.inner.open_image_codec(bytes)
+    }
+
+    fn import_pixels(&self, pixels: waft::ui::valo::PixelBuffer) -> Option<waft::ui::Image> {
+        self.inner.import_pixels(pixels)
+    }
+
+    fn picture_to_image_sync(
+        &self,
+        picture: &waft::ui::Picture,
+        width: u32,
+        height: u32,
+    ) -> Option<waft::ui::Image> {
+        self.inner.picture_to_image_sync(picture, width, height)
+    }
+
+    fn read_image_pixels(
+        &self,
+        image: &waft::ui::Image,
+    ) -> waft::ui::image_codecs::ImageFuture<waft::ui::valo::PixelBuffer> {
+        self.inner.read_image_pixels(image)
     }
 
     fn tray_icons(&self) -> Option<&dyn waft::ui::TrayIcons> {

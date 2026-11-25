@@ -5,8 +5,7 @@
 //! actions, and Remove asks before it removes; a tap opens a program, whose icon then has the
 //! running dot; an icon whose program installs is dimmed, with Installing… in place of its name,
 //! in either layout, and a tap meanwhile opens the program once its code is ready; a source's
-//! program installs from the page behind the plus, which says Installing… until its code is ready, and an icon whose program a source lists newer
-//! has a badge; a package picked from a file on that page, a path or a document without one, is
+//! program installs from the page behind the plus, which says Installing… until its code is ready, and offers an update a source lists; a package picked from a file on that page, a path or a document without one, is
 //! asked about as one opened with WaOS, in either layout, and a cancelled pick shows nothing. A
 //! window made as wide as a tablet's takes Fluent's.
 
@@ -14,18 +13,21 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use waft::ui::{EmbedderClient as _, OpenOptions, View as _, ViewId};
-use waft::{Icon, IntoWidget};
+use waft::{Icon, IntoWidget, Offset};
 use waft_cupertino::{
     CupertinoActionSheet, CupertinoAlertDialog, CupertinoIcons, CupertinoNavigationBar,
 };
 use waft_test::{AskedDialog, MemoryFile, TestWindow};
 
-use super::get_programs::fluent::FluentGetPrograms;
+use super::app_store::fluent::FluentAppStore;
 use super::home::cupertino::CupertinoHome;
 use super::home::fluent::FluentHome;
+use super::home::icon_grid::SectionLine;
 use super::home::{IconTile, RunningDot};
 use super::program_icon::ProgramIcon;
+use super::test_steps::{adds_source, installs, started_yesterday};
 use super::{LaidOutLibrary, words};
+use crate::logic::app_store::AppStorePlace;
 use crate::logic::opened_package::package_file_type;
 use crate::state::library::LibraryPage;
 use crate::state::library::test_desktop::LibraryDesktop;
@@ -71,16 +73,8 @@ fn install_on_the_phone(desktop: &mut LibraryDesktop, component: &[u8]) {
 fn source_listing_triangle(desktop: &mut LibraryDesktop, server: &Server, version: &str) -> String {
     let package = desktop.package(TRIANGLE, "Triangle", version, b"\0asm");
     server.publish(TRIANGLE, &package, version);
-    let index = server.url("waos/index.json");
-    desktop.update(|library, cx| library.add_source(&index, cx));
-    desktop.settle_until("the source's listing", |desktop| {
-        desktop.read(|library| {
-            library
-                .sources()
-                .iter()
-                .all(|read| !matches!(read.listing, crate::state::library::Listing::Reading))
-        })
-    });
+    let index = server.source();
+    adds_source(desktop, &index);
     index
 }
 
@@ -99,9 +93,78 @@ fn the_empty_homes_button_gets_programs() {
     let mut desktop = desktop();
     let view = phone_view(&desktop);
     desktop.tap(view, words::GET_PROGRAMS);
-    assert!(desktop.shows(words::ADD_SOURCE), "{:?}", desktop.labels());
-    assert!(desktop.shows(words::NO_SOURCES));
+    assert!(desktop.shows(words::DISCOVER), "{:?}", desktop.labels());
+    assert!(desktop.shows(words::NO_APPS_LISTED));
     desktop.tap(view, words::HOME_TITLE);
+    assert!(desktop.shows(words::NO_PROGRAMS), "back on the home");
+}
+
+/// A page opened from the home slides in from the right over it, as iOS pushes a page, and its
+/// back button slides it out again, the library home at once.
+#[test]
+fn a_page_slides_in_over_the_home_and_its_back_button_slides_it_out() {
+    let mut desktop = desktop();
+    let view = phone_view(&desktop);
+    desktop.tap_in_motion(view, words::GET_PROGRAMS);
+    desktop.frames(2);
+    let sliding = desktop
+        .find(words::SEARCH_STORE)
+        .expect("the page, on its way in");
+    assert!(desktop.shows(words::NO_PROGRAMS), "the home, under it");
+    desktop.settle();
+    let settled = desktop
+        .find(words::SEARCH_STORE)
+        .expect("the page, in place");
+    assert!(
+        sliding.dx() > settled.dx() + 50.0,
+        "from the right: at {sliding:?}, then {settled:?}"
+    );
+
+    desktop.tap_in_motion(view, words::HOME_TITLE);
+    assert_eq!(
+        desktop.read(|library| library.page().clone()),
+        LibraryPage::Home
+    );
+    desktop.frames(2);
+    let leaving = desktop
+        .find(words::SEARCH_STORE)
+        .expect("the page, on its way out");
+    assert!(
+        leaving.dx() > settled.dx() + 50.0,
+        "to the right: at {leaving:?}"
+    );
+    desktop.settle();
+    assert!(
+        !desktop.shows(words::SEARCH_STORE),
+        "{:?}",
+        desktop.labels()
+    );
+    assert!(desktop.shows(words::NO_PROGRAMS), "back on the home");
+}
+
+/// A swipe from the screen's left edge takes a page back to the home, as on iOS, and the library
+/// with it.
+#[test]
+fn a_swipe_from_the_left_edge_takes_a_page_back_to_the_home() {
+    let mut desktop = desktop();
+    let view = phone_view(&desktop);
+    desktop.tap(view, words::GET_PROGRAMS);
+    let [width, height] = PHONE_SCREEN;
+    let middle = height / 2.0;
+    desktop.swipe(
+        view,
+        Offset::new(5.0, middle),
+        Offset::new(width * 0.8, middle),
+    );
+    assert_eq!(
+        desktop.read(|library| library.page().clone()),
+        LibraryPage::Home
+    );
+    assert!(
+        !desktop.shows(words::SEARCH_STORE),
+        "{:?}",
+        desktop.labels()
+    );
     assert!(desktop.shows(words::NO_PROGRAMS), "back on the home");
 }
 
@@ -182,6 +245,31 @@ fn a_held_icon_offers_settings_and_remove_and_remove_asks_first() {
     assert!(desktop.shows(words::NO_PROGRAMS));
 }
 
+/// On a phone the apps used often stand in a row of their own over a hairline, where the apps
+/// fill more than a row, as on the desktop.
+#[test]
+fn on_a_phone_the_apps_used_often_stand_in_a_row_over_the_others() {
+    let mut desktop = desktop();
+    for name in ["Alpha", "Bravo", "Charlie", "Delta", "Echo"] {
+        let id = format!("dev.example.{}", name.to_lowercase());
+        installs(&mut desktop, &id, name, b"\0asm");
+    }
+    assert!(!desktop.has::<SectionLine>(), "no row yet, so no line");
+    started_yesterday(&mut desktop, "dev.example.echo", 3);
+    let echoes: Vec<f64> = desktop
+        .every("Echo")
+        .iter()
+        .map(|label| label.dy())
+        .collect();
+    assert_eq!(echoes.len(), 2, "in its row and among every app");
+    let alpha = desktop.find("Alpha").expect("the first app").dy();
+    assert!(
+        echoes[0] < alpha && alpha < echoes[1],
+        "the row over the others: {echoes:?}, {alpha}"
+    );
+    assert!(desktop.has::<SectionLine>(), "a line between them");
+}
+
 #[test]
 fn a_tapped_icon_opens_its_program_which_is_marked_running() {
     let mut desktop = desktop();
@@ -255,10 +343,12 @@ fn a_sources_program_installs_from_the_page_behind_the_plus() {
     });
     let server = Server::start();
     let index = source_listing_triangle(&mut desktop, &server, "1.0.0");
-    assert!(desktop.shows(&index), "{:?}", desktop.labels());
+    assert!(desktop.shows("Triangle"), "{:?}", desktop.labels());
     desktop.tap(view, words::GET);
     desktop.settle_until("the install", |desktop| desktop.shows(words::INSTALLED));
     assert_eq!(desktop.read(|library| library.installed().len()), 1);
+    desktop.tap(view, words::SOURCES);
+    assert!(desktop.shows(&index), "{:?}", desktop.labels());
     desktop.tap(view, words::REMOVE_SOURCE);
     assert!(desktop.shows(words::NO_SOURCES), "{:?}", desktop.labels());
 }
@@ -270,11 +360,10 @@ fn the_get_page_says_installing_until_the_programs_code_is_ready() {
     let package = desktop.package(TRIANGLE, "Triangle", "1.0.0", &forever);
     let server = Server::start();
     server.publish(TRIANGLE, &package, "1.0.0");
-    let index = server.url("waos/index.json");
+    let index = server.source();
     desktop.update(|library, cx| library.add_source(&index, cx));
-    desktop.update(|library, cx| {
-        library.show_page(crate::state::library::LibraryPage::GetPrograms, cx)
-    });
+    desktop
+        .update(|library, cx| library.show_page(crate::state::library::LibraryPage::AppStore, cx));
     desktop.settle_until("the source's listing", |desktop| desktop.shows(words::GET));
     let held = desktop.hold_compiles();
     let view = phone_view(&desktop);
@@ -293,21 +382,13 @@ fn the_get_page_says_installing_until_the_programs_code_is_ready() {
 }
 
 #[test]
-fn an_icon_whose_program_a_source_lists_newer_is_badged() {
+fn an_update_a_source_lists_is_offered_in_the_store() {
     let mut desktop = desktop();
     install_on_the_phone(&mut desktop, b"\0asm");
-    assert_eq!(desktop.count::<ProgramIcon>(|icon| icon.badge.is_some()), 0);
     let server = Server::start();
     source_listing_triangle(&mut desktop, &server, "2.0.0");
-    assert_eq!(
-        desktop.count::<ProgramIcon>(|icon| icon.badge.is_some()),
-        1,
-        "{:?}",
-        desktop.labels()
-    );
-    desktop.update(|library, cx| {
-        library.show_page(crate::state::library::LibraryPage::GetPrograms, cx)
-    });
+    desktop
+        .update(|library, cx| library.show_page(crate::state::library::LibraryPage::AppStore, cx));
     assert!(desktop.shows(words::UPDATE), "{:?}", desktop.labels());
     assert!(desktop.shows(&words::update_detail("2.0.0", "1.0.0")));
 }
@@ -349,7 +430,15 @@ fn a_long_name_is_laid_out_across_its_tile() {
 
 /// The page that gets programs, shown.
 fn on_the_get_page(desktop: &mut LibraryDesktop) {
-    desktop.update(|library, cx| library.show_page(LibraryPage::GetPrograms, cx));
+    desktop.update(|library, cx| library.show_page(LibraryPage::AppStore, cx));
+}
+
+/// The page that gets programs, shown on its sources, where a package is installed from a file.
+fn on_the_get_pages_sources(desktop: &mut LibraryDesktop) {
+    desktop.update(|library, cx| {
+        library.show_page(LibraryPage::AppStore, cx);
+        library.show_app_store_place(AppStorePlace::Sources, cx);
+    });
 }
 
 /// The dialog Install from file asks for, on the window of `view`: one file, of WaOS's packages.
@@ -368,7 +457,7 @@ fn a_package_picked_from_a_file_is_asked_about_and_installed_once_the_user_says_
     let mut desktop = desktop();
     let package = desktop.package(TRIANGLE, "Triangle", "1.0.0", b"\0asm");
     let dialogs = desktop.file_dialogs().answering_paths(vec![package]);
-    on_the_get_page(&mut desktop);
+    on_the_get_pages_sources(&mut desktop);
     let view = phone_view(&desktop);
     desktop.tap(view, words::INSTALL_FROM_FILE_ROW);
     assert_eq!(dialogs.asked(), [package_dialog(view)]);
@@ -387,7 +476,7 @@ fn a_package_picked_from_a_file_is_asked_about_and_installed_once_the_user_says_
 fn a_cancelled_pick_shows_nothing() {
     let mut desktop = desktop();
     let dialogs = desktop.file_dialogs();
-    on_the_get_page(&mut desktop);
+    on_the_get_pages_sources(&mut desktop);
     let view = phone_view(&desktop);
     desktop.tap(view, words::INSTALL_FROM_FILE_ROW);
     assert_eq!(dialogs.asked().len(), 1, "the picker was shown");
@@ -421,7 +510,7 @@ fn a_package_picked_without_a_path_is_copied_and_asked_about() {
     desktop
         .file_dialogs()
         .answering(move || vec![document.picked()]);
-    on_the_get_page(&mut desktop);
+    on_the_get_pages_sources(&mut desktop);
     let view = phone_view(&desktop);
     desktop.tap(view, words::INSTALL_FROM_FILE_ROW);
     desktop.settle_until("the question", |desktop| desktop.shows("Install Triangle?"));
@@ -440,7 +529,8 @@ fn a_package_picked_from_a_file_in_fluents_layout_is_asked_about() {
     let package = desktop.package(TRIANGLE, "Triangle", "1.0.0", b"\0asm");
     let dialogs = desktop.file_dialogs().answering_paths(vec![package]);
     on_the_get_page(&mut desktop);
-    assert!(desktop.has::<FluentGetPrograms>(), "{:?}", desktop.labels());
+    assert!(desktop.has::<FluentAppStore>(), "{:?}", desktop.labels());
+    desktop.tap(view, words::SOURCES);
     desktop.tap(view, words::INSTALL_FROM_FILE);
     assert_eq!(dialogs.asked(), [package_dialog(view)]);
     assert!(desktop.shows("Install Triangle?"), "{:?}", desktop.labels());

@@ -2,7 +2,7 @@
 //! order they were added:
 //!
 //! ```toml
-//! sources = ["github.com/example/triangle", "https://example.com/waos/index.json"]
+//! sources = ["github.com/example/triangle", "example.com"]
 //! ```
 //!
 //! The invariant: the file, once made, is the list, whatever it holds; an empty list is the
@@ -60,13 +60,10 @@ mod tests {
         let scratch = tempfile::tempdir().unwrap();
         let path = scratch.path().join("sources.toml");
         assert!(read(&path).unwrap().is_empty());
-        let sources: Vec<Source> = [
-            "https://example.com/index.json",
-            "github.com/example/triangle",
-        ]
-        .iter()
-        .map(|text| text.parse().unwrap())
-        .collect();
+        let sources: Vec<Source> = ["example.com", "github.com/example/triangle"]
+            .iter()
+            .map(|text| text.parse().unwrap())
+            .collect();
         write(&path, &sources).unwrap();
         assert_eq!(read(&path).unwrap(), sources);
     }

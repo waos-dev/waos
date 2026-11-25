@@ -31,3 +31,6 @@ workspace = true
 id = "dev.waos.videoplayer"
 name = "Video Player"
 icon = "icon.png"
+category = "video"
+summary = "A video player with a library of your videos"
+publisher = "WaOS"

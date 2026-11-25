@@ -149,14 +149,23 @@ impl From<SourceError> for InstallError {
 /// Why text is not a source, or a source could not be read or downloaded from.
 #[derive(Debug)]
 pub enum SourceError {
-    /// The text is neither an index's URL nor a GitHub repository, for `reason`.
+    /// The text is neither a website's or a folder's address nor a GitHub repository, for
+    /// `reason`.
     NotASource { text: String, reason: &'static str },
     /// No answer came from `url`, in the HTTP client's words.
     Unreachable { url: Url, error: reqwest::Error },
     /// `url` answered with a status other than success.
     Status { url: Url, status: StatusCode },
+    /// Nothing is at `url`, where the source's index would be: the website, the folder or the
+    /// repository's latest release is no source.
+    ListsNothing { url: Url },
     /// The index at `url` is larger than `limit` bytes, the most the store reads of one.
     IndexTooLarge { url: Url, limit: u64 },
+    /// The index lists a picture at `url`, which is on another server than the index: a
+    /// source's pictures are read from where its index is, and nowhere else.
+    PictureElsewhere { url: Url },
+    /// The picture at `url` is larger than `limit` bytes, the most the store reads of one.
+    PictureTooLarge { url: Url, limit: u64 },
     /// What `url` answered is not an index.
     NotAnIndex { url: Url, error: IndexError },
     /// The index lists a package whose place is not a URL.
@@ -193,9 +202,21 @@ impl fmt::Display for SourceError {
                 write!(f, "no answer from {url}: {}", with_causes(error))
             }
             SourceError::Status { url, status } => write!(f, "{url} answered {status}"),
+            SourceError::ListsNothing { url } => {
+                write!(f, "it lists no apps for WaOS: nothing is at {url}")
+            }
             SourceError::IndexTooLarge { url, limit } => write!(
                 f,
                 "the index at {url} is larger than {} MiB, the most WaOS reads of one",
+                limit / (1024 * 1024)
+            ),
+            SourceError::PictureElsewhere { url } => write!(
+                f,
+                "the index lists a picture at {url}, on another server than the index, which WaOS does not read"
+            ),
+            SourceError::PictureTooLarge { url, limit } => write!(
+                f,
+                "the picture at {url} is larger than {} MiB, the most WaOS reads of one",
                 limit / (1024 * 1024)
             ),
             SourceError::NotAnIndex { url, error } => write!(f, "{url}: {error}"),

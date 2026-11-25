@@ -1,12 +1,14 @@
-//! A program's manifest: its id, the name the user sees, its version, and whether it is an app or
-//! a tool, as TOML. An app writes no `kind`, so a manifest from before kinds reads as an app.
+//! A program's manifest: its id, the name the user sees, its version, whether it is an app or a
+//! tool, and what it is for, as TOML. An app writes no `kind`, so a manifest from before kinds
+//! reads as an app; a `category` is written only where the author gave one, and one this version
+//! does not know reads as none, so a later version's categories break nothing.
 
 use std::fmt;
 
 use semver::Version;
 use serde::{Deserialize, Serialize};
 
-use crate::{IdError, ProgramId};
+use crate::{Category, IdError, ProgramId};
 
 /// A program's identity: what an installer files it under, shows the user, and compares to
 /// tell an update from the version installed; and what kind of program it is.
@@ -16,6 +18,7 @@ pub struct Manifest {
     name: String,
     version: Version,
     kind: ProgramKind,
+    category: Option<Category>,
 }
 
 /// What a program is to its user, as its author declares it (decision 3 of
@@ -69,6 +72,7 @@ impl Manifest {
             name,
             version,
             kind: ProgramKind::App,
+            category: None,
         })
     }
 
@@ -86,6 +90,11 @@ impl Manifest {
         Manifest { kind, ..self }
     }
 
+    /// The same manifest, of an app for `category`; of none where `None`.
+    pub fn with_category(self, category: Option<Category>) -> Manifest {
+        Manifest { category, ..self }
+    }
+
     /// Reads a manifest from its TOML. Fields this version does not know are ignored, so a
     /// later version can add its own.
     pub fn from_toml(text: &str) -> Result<Manifest, ManifestError> {
@@ -97,7 +106,11 @@ impl Manifest {
             Some(kind) => kind.parse()?,
             None => ProgramKind::App,
         };
-        Ok(Manifest::new(id, fields.name, version)?.with_kind(kind))
+        // A category this version does not know is a later version's: it reads as none.
+        let category = fields.category.and_then(|category| category.parse().ok());
+        Ok(Manifest::new(id, fields.name, version)?
+            .with_kind(kind)
+            .with_category(category))
     }
 
     /// The manifest as TOML, as a package holds it.
@@ -107,6 +120,7 @@ impl Manifest {
             name: self.name.clone(),
             version: self.version.to_string(),
             kind: (self.kind != ProgramKind::App).then(|| self.kind.as_str().to_owned()),
+            category: self.category.map(|category| category.as_str().to_owned()),
         };
         toml::to_string(&fields).expect("a table of strings is TOML")
     }
@@ -127,6 +141,11 @@ impl Manifest {
     pub fn kind(&self) -> ProgramKind {
         self.kind
     }
+
+    /// What the app is for, where its author said.
+    pub fn category(&self) -> Option<Category> {
+        self.category
+    }
 }
 
 /// A manifest as TOML spells it, before its fields are checked.
@@ -138,6 +157,9 @@ struct ManifestFields {
     /// None for an app.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     kind: Option<String>,
+    /// None where the author gave no category.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    category: Option<String>,
 }
 
 fn parse_version(version: &str) -> Result<Version, ManifestError> {
@@ -213,6 +235,23 @@ mod tests {
         let manifest = Manifest::from_toml(TRIANGLE).unwrap();
         assert_eq!(manifest.kind(), ProgramKind::App);
         assert_eq!(manifest.to_toml(), TRIANGLE);
+    }
+
+    #[test]
+    fn a_category_reads_back_and_a_manifest_with_none_writes_none() {
+        let filed = Manifest::from_toml(TRIANGLE)
+            .unwrap()
+            .with_category(Some(Category::DeveloperTools));
+        assert!(filed.to_toml().contains("category = \"developer-tools\""));
+        let read = Manifest::from_toml(&filed.to_toml()).unwrap();
+        assert_eq!(read.category(), Some(Category::DeveloperTools));
+        assert_eq!(Manifest::from_toml(TRIANGLE).unwrap().category(), None);
+    }
+
+    #[test]
+    fn a_category_this_version_does_not_know_reads_as_none() {
+        let later = format!("{TRIANGLE}category = \"astronomy\"\n");
+        assert_eq!(Manifest::from_toml(&later).unwrap().category(), None);
     }
 
     #[test]

@@ -75,7 +75,6 @@ impl NamedProgram {
         ProgramIcon {
             png: self.icon.clone(),
             side,
-            badge: None,
         }
         .into_widget()
     }

@@ -18,6 +18,7 @@ use waft::{App, Context, Entity, WeakEntity};
 use waos::{Switch, SystemPermissionState};
 
 use crate::logic::activity::activity_of;
+use crate::logic::permissions::Permission;
 use waos_package::ProgramId;
 
 use super::{Library, WantsToBeSeen};
@@ -45,10 +46,81 @@ pub(crate) struct DeniedBySystem {
 pub(crate) enum LibraryPage {
     /// The home: the programs installed, as icons.
     Home,
-    /// Getting programs: the sources added, with what each lists, and the field that adds one.
-    GetPrograms,
-    /// The global settings, or a program's.
-    Settings(SettingsOf),
+    /// The app store: every app the sources list, the updates, and the sources.
+    AppStore,
+    /// An app's page in the app store: what its source says of it, before it is got.
+    App(ProgramId),
+    /// A page of the settings.
+    Settings(SettingsPage),
+}
+
+/// A page of the library's settings, as iOS's Settings leads to its own: General, Privacy &
+/// Security by kind, and each app.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub(crate) enum SettingsPage {
+    /// The first, which leads to each of the others.
+    Root,
+    /// WaOS's own settings: where apps open, where WaOS stays, the phone's files.
+    General,
+    /// The kinds of permission, each with its default.
+    Permissions,
+    /// One kind: its default, which every app follows until set otherwise, and the apps that
+    /// are, as a browser's site settings show a permission's.
+    Permission(Permission),
+    /// One app's: each kind of permission with what it holds, and what is the app's alone.
+    App(ProgramId),
+    /// One kind of permission for one app: what it holds, or that it follows the default.
+    AppPermission(ProgramId, Permission),
+    /// What else is one app's alone, a page of each: the machines it acts on, its file pickers,
+    /// its sound output, its links and its roles.
+    AppDetail(ProgramId, AppDetail),
+}
+
+/// What is one app's alone, beside its permissions, each on a page of its own under the app's.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(crate) enum AppDetail {
+    /// The machines it acts on, and which one answers when it asks for a computer.
+    Machines,
+    /// Its file pickers, each asking its user or simulated: answered with a path set here.
+    FilePickers,
+    /// Which sound output it plays to: asked, or one set here.
+    SoundOutput,
+    /// What it was answered when it asked to open links of its own kinds.
+    Links,
+    /// What it was answered when it asked to be more than an app.
+    Roles,
+}
+
+impl LibraryPage {
+    /// The page this one was opened over, which going back shows: an app's page is over the
+    /// app store, a page of the settings over their first, every other page over the home; none
+    /// beneath the home.
+    pub(crate) fn beneath(&self) -> Option<LibraryPage> {
+        match self {
+            LibraryPage::Home => None,
+            LibraryPage::AppStore | LibraryPage::Settings(SettingsPage::Root) => {
+                Some(LibraryPage::Home)
+            }
+            LibraryPage::App(_) => Some(LibraryPage::AppStore),
+            LibraryPage::Settings(SettingsPage::Permission(_)) => {
+                Some(LibraryPage::Settings(SettingsPage::Permissions))
+            }
+            LibraryPage::Settings(
+                SettingsPage::AppPermission(id, _) | SettingsPage::AppDetail(id, _),
+            ) => Some(LibraryPage::Settings(SettingsPage::App(id.clone()))),
+            LibraryPage::Settings(_) => Some(LibraryPage::Settings(SettingsPage::Root)),
+        }
+    }
+
+    /// The pages open up to this one, the home first: what a navigator stacks to show it.
+    pub(crate) fn stacked(&self) -> Vec<LibraryPage> {
+        let mut pages = vec![self.clone()];
+        while let Some(beneath) = pages.last().and_then(LibraryPage::beneath) {
+            pages.push(beneath);
+        }
+        pages.reverse();
+        pages
+    }
 }
 
 /// A program asked the user to change one of its switches, on the page open for it.
@@ -70,13 +142,49 @@ impl Library {
         self.switch_asked.as_ref()
     }
 
+    /// Where the library is on a settings page of an app no longer installed, it goes to the
+    /// settings' first page: that app has nothing left to show.
+    pub(super) fn leave_a_removed_apps_page(&mut self, cx: &mut Context<Library>) {
+        let LibraryPage::Settings(
+            SettingsPage::App(id)
+            | SettingsPage::AppPermission(id, _)
+            | SettingsPage::AppDetail(id, _),
+        ) = &self.page
+        else {
+            return;
+        };
+        if self
+            .installed()
+            .iter()
+            .all(|program| program.manifest.id() != id)
+        {
+            self.show_page(LibraryPage::Settings(SettingsPage::Root), cx);
+        }
+    }
+
+    /// The library goes back to the page the one it is on was opened over; nowhere from the
+    /// home.
+    pub(crate) fn go_back(&mut self, cx: &mut Context<Library>) {
+        if let Some(beneath) = self.page.beneath() {
+            self.show_page(beneath, cx);
+        }
+    }
+
     /// The library goes to `page`; a program waiting for the user to leave the page it was on
-    /// hears so.
+    /// hears so, and an app's page has its screenshots read.
     pub(crate) fn show_page(&mut self, page: LibraryPage, cx: &mut Context<Library>) {
         if page != self.page {
             self.left_settings();
-            if let LibraryPage::Settings(SettingsOf::Program(_)) = &page {
-                self.offered = self.runs.environments.offered();
+            match &page {
+                LibraryPage::Settings(
+                    SettingsPage::App(_)
+                    | SettingsPage::AppPermission(..)
+                    | SettingsPage::AppDetail(..),
+                ) => {
+                    self.offered = self.runs.environments.offered();
+                }
+                LibraryPage::App(id) => self.read_screenshots_of(&id.clone(), cx),
+                LibraryPage::Home | LibraryPage::AppStore | LibraryPage::Settings(_) => {}
             }
             self.page = page;
             cx.notify();
@@ -222,20 +330,27 @@ impl Library {
     }
 
     /// A program asks its user to change `switch`, and waits on `left` for the user to leave
-    /// the page: its own page opens, under its name once installed and its id before; the
-    /// global one for a program the engine runs under no id.
+    /// the page: its own page of the switch's kind opens, under its name once installed and its
+    /// id before; the kind's page, whose default it follows, for a program the engine runs under
+    /// no id.
     fn settings_asked(&mut self, asked: SettingsOpened, cx: &mut Context<Library>) {
-        let (of, name) = match asked.program.name().parse::<ProgramId>() {
+        let (page, name) = match asked.program.name().parse::<ProgramId>() {
             Ok(id) => {
                 let name = self
                     .installed_program(&id)
                     .map_or_else(|| id.to_string(), |program| program.name());
-                (SettingsOf::Program(id), name)
+                (
+                    SettingsPage::AppPermission(id, Permission::of_switch(asked.switch)),
+                    name,
+                )
             }
-            Err(_) => (SettingsOf::Global, asked.program.name().to_owned()),
+            Err(_) => (
+                SettingsPage::Permission(Permission::of_switch(asked.switch)),
+                asked.program.name().to_owned(),
+            ),
         };
         tracing::info!(name, switch = ?asked.switch, "a program asks its user to change a switch");
-        self.show_page(LibraryPage::Settings(of), cx);
+        self.show_page(LibraryPage::Settings(page), cx);
         self.switch_asked = Some(SwitchAsked {
             name,
             switch: asked.switch,

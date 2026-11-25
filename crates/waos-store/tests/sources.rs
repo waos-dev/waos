@@ -21,7 +21,7 @@ fn sources_are_kept_in_the_order_added() {
     let directory = scratch.path().join("store");
     let store = Store::open(&directory, SourceProxy::None).unwrap();
     let github = source("github.com/example/triangle");
-    let index = source("https://example.com/waos/index.json");
+    let index = source("example.com/apps");
     store.add_source(github.clone()).unwrap();
     store.add_source(index.clone()).unwrap();
     store.add_source(github.clone()).unwrap();
@@ -45,7 +45,7 @@ fn the_first_sources_are_made_once_and_a_removed_one_never_comes_back() {
     let scratch = tempfile::tempdir().unwrap();
     let directory = scratch.path().join("store");
     let store = Store::open(&directory, SourceProxy::None).unwrap();
-    let first = [source("https://list.waos.app/index.json")];
+    let first = [source("list.waos.app")];
     store.start_sources_with(&first).unwrap();
     assert_eq!(store.sources(), first);
     store.remove_source(&first[0]).unwrap();
@@ -60,7 +60,7 @@ fn the_first_sources_leave_a_list_added_to_already_as_it_is() {
     let github = source("github.com/example/triangle");
     store.add_source(github.clone()).unwrap();
     store
-        .start_sources_with(&[source("https://list.waos.app/index.json")])
+        .start_sources_with(&[source("list.waos.app")])
         .unwrap();
     assert_eq!(store.sources(), [github]);
 }
@@ -72,6 +72,7 @@ async fn a_source_is_read_from_its_index() {
     let package = write_package(scratch.path(), TRIANGLE, "1.2.0", &key);
     let index = Index {
         programs: vec![listing(&package, TRIANGLE, "1.2.0")],
+        ..Index::default()
     };
     let server = Server::serve(vec![(
         "waos/index.json".to_owned(),
@@ -80,25 +81,73 @@ async fn a_source_is_read_from_its_index() {
     .await;
     let store = Store::open(&scratch.path().join("store"), SourceProxy::None).unwrap();
     let read = store
-        .read_source(&source(&server.url("waos/index.json")))
+        .read_source(&source(&server.url("waos")))
         .await
         .unwrap();
     assert_eq!(read, index);
 }
 
 #[tokio::test]
-async fn a_source_with_no_index_says_what_the_server_answered() {
+async fn a_sources_picture_is_read_from_its_server_and_kept_while_a_source_lists_it() {
     let scratch = tempfile::tempdir().unwrap();
-    let server = Server::serve(vec![("index.json".to_owned(), b"<html>".to_vec())]).await;
+    let server = Server::serve(vec![("waos/icon.png".to_owned(), b"an icon".to_vec())]).await;
     let store = Store::open(&scratch.path().join("store"), SourceProxy::None).unwrap();
-    let missing = store
-        .read_source(&source(&server.url("missing/index.json")))
+    let from = source(&server.url("waos"));
+    let kept = || -> Vec<Vec<u8>> {
+        std::fs::read_dir(scratch.path().join("store/pictures"))
+            .map(|files| {
+                files
+                    .map(|file| std::fs::read(file.unwrap().path()).unwrap())
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+    assert!(kept().is_empty());
+    assert_eq!(store.picture(&from, "icon.png").await.unwrap(), b"an icon");
+    assert_eq!(kept(), [b"an icon".to_vec()], "kept as read");
+
+    store.keep_pictures(&[from.picture_url("icon.png").unwrap()]);
+    assert_eq!(kept().len(), 1, "a source lists it still");
+    store.keep_pictures(&[]);
+    assert!(kept().is_empty(), "no source lists it any more");
+}
+
+#[tokio::test]
+async fn a_picture_on_another_server_than_its_index_is_not_read() {
+    let scratch = tempfile::tempdir().unwrap();
+    let store = Store::open(&scratch.path().join("store"), SourceProxy::None).unwrap();
+    let from = source("apps.example/waos");
+    let elsewhere = store
+        .picture(&from, "http://192.168.1.1/admin.png")
         .await
         .unwrap_err();
-    assert!(matches!(missing, SourceError::Status { .. }), "{missing}");
-    assert!(missing.to_string().contains("404 Not Found"), "{missing}");
+    assert!(
+        matches!(elsewhere, SourceError::PictureElsewhere { .. }),
+        "{elsewhere}"
+    );
+}
+
+#[tokio::test]
+async fn an_address_with_no_index_is_told_it_lists_no_apps() {
+    let scratch = tempfile::tempdir().unwrap();
+    let server = Server::serve(vec![("apps/index.json".to_owned(), b"<html>".to_vec())]).await;
+    let store = Store::open(&scratch.path().join("store"), SourceProxy::None).unwrap();
+    let missing = store
+        .read_source(&source(&server.url("missing")))
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(missing, SourceError::ListsNothing { .. }),
+        "{missing}"
+    );
+    let site = store
+        .read_source(&source(&server.url("")))
+        .await
+        .unwrap_err();
+    let looked_at = server.url(".well-known/waos/index.json");
+    assert!(site.to_string().ends_with(&looked_at), "{site}");
     let not_an_index = store
-        .read_source(&source(&server.url("index.json")))
+        .read_source(&source(&server.url("apps")))
         .await
         .unwrap_err();
     assert!(
@@ -119,7 +168,7 @@ async fn a_listed_package_is_downloaded_and_installed() {
     )])
     .await;
     let store = Store::open(&scratch.path().join("store"), SourceProxy::None).unwrap();
-    let source = source(&server.url("waos/index.json"));
+    let source = source(&server.url("waos"));
     let installed = store.install_from(&source, &listed).await.unwrap();
     assert_eq!(installed.publisher(), Some(key.publisher()));
     let component = store.program(&TRIANGLE.parse().unwrap()).unwrap();
@@ -136,13 +185,13 @@ async fn a_download_unlike_its_listing_is_refused_before_it_is_opened() {
     let mut listed = listing(&package, TRIANGLE, "1.2.0");
     listed.sha256[0] ^= 1;
     let server = Server::serve(vec![(
-        listed.package.clone(),
+        format!("apps/{}", listed.package),
         std::fs::read(&package).unwrap(),
     )])
     .await;
     let store = Store::open(&scratch.path().join("store"), SourceProxy::None).unwrap();
     let error = store
-        .install_from(&source(&server.url("index.json")), &listed)
+        .install_from(&source(&server.url("apps")), &listed)
         .await
         .unwrap_err();
     assert!(
@@ -169,13 +218,13 @@ async fn a_package_that_is_not_the_program_listed_is_refused() {
         ..listing(&square, "dev.example.square", "1.2.0")
     };
     let server = Server::serve(vec![(
-        listed.package.clone(),
+        format!("apps/{}", listed.package),
         std::fs::read(&square).unwrap(),
     )])
     .await;
     let store = Store::open(&scratch.path().join("store"), SourceProxy::None).unwrap();
     let error = store
-        .install_from(&source(&server.url("index.json")), &listed)
+        .install_from(&source(&server.url("apps")), &listed)
         .await
         .unwrap_err();
     assert!(matches!(error, InstallError::NotAsListed { .. }), "{error}");
@@ -193,12 +242,12 @@ async fn an_update_from_a_source_must_be_signed_with_the_installed_key() {
     let other = write_package(scratch.path(), TRIANGLE, "2.0.0", &SigningKey::generate());
     let listed = listing(&other, TRIANGLE, "2.0.0");
     let server = Server::serve(vec![(
-        listed.package.clone(),
+        format!("apps/{}", listed.package),
         std::fs::read(&other).unwrap(),
     )])
     .await;
     let error = store
-        .install_from(&source(&server.url("index.json")), &listed)
+        .install_from(&source(&server.url("apps")), &listed)
         .await
         .unwrap_err();
     assert!(
@@ -241,11 +290,11 @@ async fn an_update_from_a_source_never_touches_a_development_install() {
         ..update_listed.clone()
     };
     let server = Server::serve(vec![(
-        update_listed.package.clone(),
+        format!("apps/{}", update_listed.package),
         std::fs::read(&update).unwrap(),
     )])
     .await;
-    let source = source(&server.url("index.json"));
+    let source = source(&server.url("apps"));
 
     store.install_from(&source, &update_listed).await.unwrap();
     let error = store

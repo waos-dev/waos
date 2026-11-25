@@ -8938,6 +8938,8 @@ dependencies = [
  "waft-rendering",
  "waft-scheduler",
  "waft-services",
+ "waft-shell",
+ "waft-test",
 ]
 
 [[package]]
@@ -9084,7 +9086,6 @@ dependencies = [
  "toml 1.2.2+spec-1.1.0",
  "tracing",
  "tracing-subscriber",
- "valo-fontmgr",
  "waft",
  "waft-cupertino",
  "waft-embedder-android",
@@ -9135,6 +9136,7 @@ dependencies = [
  "flate2",
  "glob",
  "hex",
+ "jiff",
  "png 0.18.1",
  "reqwest",
  "serde",
@@ -9231,6 +9233,7 @@ dependencies = [
  "ed25519-dalek",
  "getrandom 0.4.3",
  "hex",
+ "jiff",
  "semver",
  "serde",
  "serde_json",

@@ -1,13 +1,20 @@
 //! A program's `[package.metadata.waos]`: what packaging it needs that Cargo's own fields do not
-//! say, the program's id, the name people see, its icon, and whether it is an app or a tool, an app
-//! unless it says `kind = "tool"`; an install from its source needs the id and the kind alone, and
-//! takes the name and the icon where the table gives them.
+//! say, the program's id, the name people see, its icon, whether it is an app or a tool, an app
+//! unless it says `kind = "tool"`, what it is for, where it says a `category`, and what a store
+//! shows of it, where it says them: a line, a description's text file, who publishes it and its
+//! screenshots. An install from its source needs the id and the kind alone, and takes the name,
+//! the icon and the category where the table gives them.
 //!
 //! ```toml
 //! [package.metadata.waos]
 //! id = "dev.example.triangle"
 //! name = "Triangle"
 //! icon = "icon.png"
+//! category = "graphics-design"
+//! summary = "One triangle, drawn well"
+//! description = "store/description.txt"
+//! publisher = "Example"
+//! screenshots = ["store/triangle-1.png"]
 //! ```
 //!
 //! The invariant: the id is checked here, before anything is built, since every version of a
@@ -20,7 +27,7 @@ use anyhow::{Context, Result};
 use cargo_metadata::Package;
 use serde::Deserialize;
 use serde_json::Value;
-use waos_package::{ProgramId, ProgramKind};
+use waos_package::{Category, ProgramId, ProgramKind};
 
 /// What `[package.metadata.waos]` says of a program.
 #[derive(Debug)]
@@ -31,6 +38,16 @@ pub struct WaosMetadata {
     /// The icon's PNG.
     pub icon: PathBuf,
     pub kind: ProgramKind,
+    /// What the app is for, where the table says.
+    pub category: Option<Category>,
+    /// What it is, in a line, where the table says; Cargo's `description` otherwise.
+    pub summary: Option<String>,
+    /// The text file that says what it is at length, where the table names one.
+    pub description: Option<PathBuf>,
+    /// Who publishes it, as a store names them, where the table says.
+    pub publisher: Option<String>,
+    /// Its screenshots, PNGs, in the order a store shows them.
+    pub screenshots: Vec<PathBuf>,
 }
 
 /// What an install from the program's source needs of `[package.metadata.waos]`: which program it
@@ -42,6 +59,8 @@ pub struct InstallIdentity {
     pub name: Option<String>,
     /// The icon's PNG, beside the package's `Cargo.toml`.
     pub icon: Option<PathBuf>,
+    /// What the app is for, where the table says.
+    pub category: Option<Category>,
 }
 
 /// The table as `Cargo.toml` spells it, before its fields are checked.
@@ -51,6 +70,12 @@ struct Fields {
     name: String,
     icon: PathBuf,
     kind: Option<String>,
+    category: Option<String>,
+    summary: Option<String>,
+    description: Option<PathBuf>,
+    publisher: Option<String>,
+    #[serde(default)]
+    screenshots: Vec<PathBuf>,
 }
 
 /// What an install needs of the table.
@@ -60,6 +85,7 @@ struct InstallFields {
     kind: Option<String>,
     name: Option<String>,
     icon: Option<PathBuf>,
+    category: Option<String>,
 }
 
 /// The kind `kind` spells, an app where none is said.
@@ -102,6 +128,7 @@ impl WaosMetadata {
             kind: kind_of(fields.kind.as_deref())?,
             name: fields.name,
             icon: fields.icon.map(|icon| folder.join(icon)),
+            category: fields.category.as_deref().map(str::parse).transpose()?,
         })
     }
 
@@ -113,6 +140,17 @@ impl WaosMetadata {
             name: fields.name,
             icon: folder.join(fields.icon),
             kind: kind_of(fields.kind.as_deref())?,
+            // A category mistyped is refused here, with the categories there are, where a
+            // package read later would take it for one a later version knows.
+            category: fields.category.as_deref().map(str::parse).transpose()?,
+            summary: fields.summary,
+            description: fields.description.map(|text| folder.join(text)),
+            publisher: fields.publisher,
+            screenshots: fields
+                .screenshots
+                .into_iter()
+                .map(|screenshot| folder.join(screenshot))
+                .collect(),
         })
     }
 }
@@ -137,6 +175,42 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+
+    #[test]
+    fn the_table_says_what_a_store_shows_its_files_beside_the_manifest() {
+        let table = json!({"id": "dev.example.triangle", "name": "Triangle", "icon": "icon.png",
+            "summary": "One triangle", "description": "store/description.txt",
+            "publisher": "Example", "screenshots": ["store/one.png", "store/two.png"]});
+        let metadata = WaosMetadata::from_table(&table, Path::new("/programs/triangle")).unwrap();
+        assert_eq!(metadata.summary.as_deref(), Some("One triangle"));
+        assert_eq!(
+            metadata.description.as_deref(),
+            Some(Path::new("/programs/triangle/store/description.txt"))
+        );
+        assert_eq!(metadata.publisher.as_deref(), Some("Example"));
+        assert_eq!(
+            metadata.screenshots,
+            [
+                Path::new("/programs/triangle/store/one.png"),
+                Path::new("/programs/triangle/store/two.png")
+            ]
+        );
+    }
+
+    #[test]
+    fn the_table_says_what_the_app_is_for_and_a_category_mistyped_is_refused() {
+        let table = json!({"id": "dev.example.triangle", "name": "Triangle", "icon": "icon.png",
+            "category": "graphics-design"});
+        let metadata = WaosMetadata::from_table(&table, Path::new("/programs/triangle")).unwrap();
+        assert_eq!(metadata.category, Some(Category::GraphicsDesign));
+
+        let mistyped = json!({"id": "dev.example.triangle", "name": "Triangle",
+            "icon": "icon.png", "category": "graphics"});
+        let refusal = WaosMetadata::from_table(&mistyped, Path::new("/programs/triangle"))
+            .unwrap_err()
+            .to_string();
+        assert!(refusal.contains("`graphics` is no category"), "{refusal}");
+    }
 
     #[test]
     fn the_table_gives_the_id_the_name_and_the_icon_beside_the_manifest() {

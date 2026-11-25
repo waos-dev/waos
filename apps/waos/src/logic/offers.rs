@@ -61,13 +61,13 @@ mod tests {
     }
 
     fn listed(id: &str, version: &str) -> ListedProgram {
-        ListedProgram {
-            id: id.parse().unwrap(),
-            name: "Triangle".to_owned(),
-            version: version.parse().unwrap(),
-            package: format!("{id}-{version}.wapk"),
-            sha256: [0; 32],
-        }
+        ListedProgram::new(
+            id.parse().unwrap(),
+            "Triangle",
+            version.parse().unwrap(),
+            format!("{id}-{version}.wapk"),
+            [0; 32],
+        )
     }
 
     #[test]

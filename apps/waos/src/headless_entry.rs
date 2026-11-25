@@ -370,6 +370,7 @@ mod tests {
             name: id.to_string(),
             version: "0.1.0".parse().unwrap(),
             icon: None,
+            category: None,
             length: component.len() as u64,
             digest: component_digest(&component),
         }))

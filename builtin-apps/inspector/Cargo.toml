@@ -33,3 +33,6 @@ workspace = true
 id = "dev.waos.inspector"
 name = "Inspector"
 icon = "icon.png"
+category = "developer-tools"
+summary = "See what each app has used, and what it is doing now"
+publisher = "WaOS"

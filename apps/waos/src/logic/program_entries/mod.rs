@@ -44,7 +44,7 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Mutex, PoisonError};
 
 use serde::{Deserialize, Serialize};
-use waos_package::ProgramId;
+use waos_package::{Category, ProgramId};
 use waos_store::Store;
 
 #[cfg(any(windows, target_os = "linux"))]
@@ -65,6 +65,8 @@ pub(crate) struct ProgramEntry {
     pub(crate) version: String,
     /// Its package's icon, a PNG, where it has one.
     pub(crate) icon: Option<PathBuf>,
+    /// What it is for, where its author said, which a desktop's menus file it under.
+    pub(crate) category: Option<Category>,
 }
 
 impl ProgramEntry {
@@ -80,6 +82,7 @@ impl ProgramEntry {
                     name: program.name(),
                     version: program.manifest.version().to_string(),
                     icon: store.icon(&id),
+                    category: program.manifest.category(),
                     id,
                 })
             })

@@ -15,8 +15,7 @@ use waft::{App, Entity};
 use waos_package::ProgramId;
 
 use super::words;
-use crate::logic::setting_changes::SettingsOf;
-use crate::state::library::{Library, LibraryPage};
+use crate::state::library::{Library, LibraryPage, SettingsPage};
 
 /// An action on a program, from its icon.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -46,7 +45,7 @@ impl IconAction {
         library.update(app, |library, cx| match self {
             IconAction::AddToHomeScreen => library.add_to_home_screen(id, cx),
             IconAction::Settings => {
-                library.show_page(LibraryPage::Settings(SettingsOf::Program(id.clone())), cx);
+                library.show_page(LibraryPage::Settings(SettingsPage::App(id.clone())), cx);
             }
             IconAction::Close => library.close(id, cx),
             IconAction::Remove => library.ask_to_remove(id, cx),

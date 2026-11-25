@@ -2,7 +2,7 @@
 //! width takes (`logic::library_layout`), Fluent's or Cupertino's. Each screen is a module of its
 //! own, with a submodule per control set and what is not about controls shared above them: the
 //! home of program icons (`home`), an icon's actions (`icon_actions`), getting programs
-//! (`get_programs`), what the library asks or says, as a dialog over what shows (`questions`), and
+//! (`app_store`), what the library asks or says, as a dialog over what shows (`questions`), and
 //! the settings pages (`settings`); with a program's icon (`program_icon`), the banner of who
 //! records (`recording`), and the words every layout says (`words`).
 //!
@@ -10,9 +10,12 @@
 //! layout keeps of its own is only what the user is typing and where they are in it, which a
 //! change of layout drops.
 
+pub(crate) mod app_store;
+#[cfg(test)]
+mod app_store_tests;
+mod category_chips;
 pub(crate) mod cupertino;
 pub(crate) mod fluent;
-pub(crate) mod get_programs;
 pub(crate) mod home;
 pub(crate) mod icon_actions;
 pub(crate) mod program_icon;
@@ -20,18 +23,24 @@ pub(crate) mod questions;
 pub(crate) mod recording;
 #[cfg(test)]
 mod recording_tests;
+pub(crate) mod search_field;
 mod settings;
 #[cfg(test)]
 mod settings_tests;
 #[cfg(test)]
+pub(crate) mod test_steps;
+#[cfg(test)]
 mod tests;
 pub(crate) mod words;
 
-use waft::{App, BuildContext, Entity, IntoWidget, MediaQuery, StatelessWidget, WidgetRef};
+use waft::{
+    App, BuildContext, Entity, IntoWidget, KeyRef, MediaQuery, PageRef, StatelessWidget, ValueKey,
+    WidgetRef,
+};
 
 use crate::logic::library_layout::LibraryLayout;
 use crate::logic::setting_changes::SettingsOf;
-use crate::state::library::Library;
+use crate::state::library::{Library, LibraryPage};
 use crate::state::recordings::Recordings;
 use cupertino::CupertinoLibrary;
 use fluent::FluentLibrary;
@@ -68,6 +77,25 @@ impl StatelessWidget for LaidOutLibrary {
         }
     }
 }
+/// The key of the navigator's page that shows `page`: the library's pages tell apart as the
+/// library tells them, so a page given again updates the one shown.
+fn page_key(page: &LibraryPage) -> KeyRef {
+    ValueKey::new(page.clone()).into()
+}
+
+/// What a kit's navigator calls when it removes a page by itself, as a swipe back does: when the
+/// library was on that page, it goes back to the page beneath, so its pages no longer list the
+/// one removed, as the navigator asks.
+fn back_once_removed(library: &Entity<Library>) -> impl Fn(&mut App, PageRef) + 'static {
+    let library = library.clone();
+    move |app, removed| {
+        let shown = page_key(library.read(app).page());
+        if removed.key() == Some(&shown) {
+            library.update(app, |library, cx| library.go_back(cx));
+        }
+    }
+}
+
 /// The name of the program whose settings `of` shows, as its user knows it, or its id once it is
 /// no longer installed; none on the global page.
 fn program_name(library: &Entity<Library>, of: &SettingsOf, app: &App) -> Option<String> {

@@ -48,6 +48,7 @@ use std::future::Future;
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
+use std::time::SystemTime;
 
 use anyhow::{Context as _, Result};
 use futures::StreamExt;
@@ -59,13 +60,17 @@ use waft::{App, Context, Entity, EventEmitter, OpenRequestedCallback, WeakEntity
 use waft_single_instance::{LaterLaunches, Launch};
 use waos::OpenRequest;
 use waos::bindings::wasdk::platform::notifications::Activation;
-use waos_package::{ListedProgram, ProgramId, ProgramKind};
-use waos_store::{InstalledProgram, Source, Store};
+use waos_package::{Category, ListedProgram, ProgramId, ProgramKind};
+use waos_store::{InstalledProgram, Source, Store, Url};
 
+use crate::logic::app_store::{
+    AppStorePlace, CatalogApp, ListedSource, catalog, featured, updates,
+};
 use crate::logic::command_line::{Command, command};
 use crate::logic::installed_runs::{InstalledRuns, Opening};
 use crate::logic::notification_permissions::NotificationPermissions;
 use crate::logic::offers::{Offer, offer_of};
+use crate::logic::often_used::{most_started, starts_lately};
 use crate::logic::opened_package::OpenedPackage;
 use crate::logic::opening;
 use crate::logic::package_copies::{PackageCopies, document_name};
@@ -81,7 +86,8 @@ pub(crate) use package_picker::picks_packages;
 pub(crate) use phone_files::show_phone_files;
 pub(crate) use programs_open::ProgramsOpen;
 pub(crate) use settings::{
-    DeniedBySystem, LeftSettings, LibraryPage, SwitchAsked, open_settings_when_asked,
+    AppDetail, DeniedBySystem, LeftSettings, LibraryPage, SettingsPage, SwitchAsked,
+    open_settings_when_asked,
 };
 use shortcuts::ShortcutsMatching;
 use waos_program_window::ProgramFace;
@@ -135,6 +141,20 @@ pub(crate) struct Library {
     notification_permissions: Option<NotificationPermissions>,
     /// What the user searches the installed programs for, as typed; empty for nothing.
     search: String,
+    /// The category whose apps alone the home shows; none for every app.
+    category: Option<Category>,
+    /// The installed apps their user starts most lately, the most started first, as last read.
+    often_used: Vec<ProgramId>,
+    /// The sources' pictures read so far, icons and screenshots, each by its address.
+    pictures: HashMap<Url, Arc<[u8]>>,
+    /// The app store's place the library is on.
+    app_store_place: AppStorePlace,
+    /// What the user searches the app store's apps for, as typed; empty for nothing.
+    app_store_search: String,
+    /// The category whose apps alone the app store shows; none for every app.
+    app_store_category: Option<Category>,
+    /// The source whose apps alone the app store shows; none for every source's.
+    app_store_source: Option<Source>,
     /// Where the installed programs' shortcuts are kept, on Android; none elsewhere.
     shortcuts: Option<Rc<dyn SystemShortcuts>>,
     /// Whether they are being made to match what is installed.
@@ -147,6 +167,22 @@ pub(crate) struct Library {
 pub(crate) struct SourceListing {
     pub(crate) source: Source,
     pub(crate) listing: Listing,
+    /// What the source calls itself, where its index says; none before it is read.
+    pub(crate) name: Option<String>,
+    /// The icon the source lists as its own, where its index says; none before it is read.
+    pub(crate) icon: Option<String>,
+    /// The apps the source puts forward, by their ids, the first the most.
+    pub(crate) featured: Vec<ProgramId>,
+}
+
+impl SourceListing {
+    /// The picture that stands for the source, as the source's pictures are named: the icon it
+    /// lists, or its site's own where it lists none.
+    pub(crate) fn logo(&self) -> String {
+        self.icon
+            .clone()
+            .unwrap_or_else(|| self.source.site_picture())
+    }
 }
 
 /// What a source lists, as far as it has been read.
@@ -204,8 +240,8 @@ impl EventEmitter<ProgramOpened> for Library {}
 const WORK_THREADS: usize = 2;
 
 /// The source WaOS comes with, which its user removes as any other: the official source, the
-/// catalog of apps their own repositories release (`docs/proposals/2026-11-22-official-source.md`).
-const OFFICIAL_SOURCE: &str = "https://list.waos.app/index.json";
+/// catalog of apps their own repositories release.
+const OFFICIAL_SOURCE: &str = "list.waos.app";
 
 /// The sources the library starts with on a store whose list of sources was never made, as at
 /// WaOS's first start: the official source.
@@ -213,7 +249,7 @@ pub(crate) fn first_sources() -> Vec<Source> {
     vec![
         OFFICIAL_SOURCE
             .parse()
-            .expect("the official source is an index's URL"),
+            .expect("the official source is a website's address"),
     ]
 }
 
@@ -287,6 +323,13 @@ impl Library {
             waiting_to_leave: Vec::new(),
             notification_permissions: None,
             search: String::new(),
+            category: None,
+            often_used: Vec::new(),
+            pictures: HashMap::new(),
+            app_store_place: AppStorePlace::default(),
+            app_store_search: String::new(),
+            app_store_category: None,
+            app_store_source: None,
             shortcuts: None,
             shortcuts_matching: ShortcutsMatching::Idle,
             phone_files: None,
@@ -295,6 +338,7 @@ impl Library {
         library.follow_running(cx);
         library.follow_compiling(cx);
         library.follow_installed(cx);
+        library.often_used = library.most_started_lately();
         library
     }
 
@@ -349,6 +393,214 @@ impl Library {
         self.icons.get(id)
     }
 
+    /// The category whose apps alone the home shows; none for every app.
+    pub(crate) fn category(&self) -> Option<Category> {
+        self.category
+    }
+
+    /// The home shows the apps of `category` alone from now on; every app for `None`.
+    pub(crate) fn show_category(&mut self, category: Option<Category>, cx: &mut Context<Library>) {
+        if self.category != category {
+            self.category = category;
+            cx.notify();
+        }
+    }
+
+    /// The categories the installed apps are filed under, each once, in the order of their
+    /// spellings: the ones the home offers to show alone.
+    pub(crate) fn categories(&self) -> Vec<Category> {
+        let filed: BTreeSet<Category> = self
+            .installed
+            .iter()
+            .filter_map(|app| app.manifest.category())
+            .collect();
+        filed.into_iter().collect()
+    }
+
+    /// The app store's place the library is on.
+    pub(crate) fn app_store_place(&self) -> AppStorePlace {
+        self.app_store_place
+    }
+
+    /// The app store shows `place` from now on.
+    pub(crate) fn show_app_store_place(&mut self, place: AppStorePlace, cx: &mut Context<Library>) {
+        if self.app_store_place != place {
+            self.app_store_place = place;
+            cx.notify();
+        }
+    }
+
+    /// What the user searches the app store's apps for, as typed; empty for nothing.
+    pub(crate) fn app_store_search(&self) -> &str {
+        &self.app_store_search
+    }
+
+    /// The user searches the app store's apps for `typed` from now on.
+    pub(crate) fn search_app_store_for(&mut self, typed: &str, cx: &mut Context<Library>) {
+        if self.app_store_search != typed {
+            typed.clone_into(&mut self.app_store_search);
+            cx.notify();
+        }
+    }
+
+    /// The category whose apps alone the app store shows; none for every app.
+    pub(crate) fn app_store_category(&self) -> Option<Category> {
+        self.app_store_category
+    }
+
+    /// The app store shows the apps of `category` alone from now on; every app for `None`.
+    pub(crate) fn show_app_store_category(
+        &mut self,
+        category: Option<Category>,
+        cx: &mut Context<Library>,
+    ) {
+        if self.app_store_category != category {
+            self.app_store_category = category;
+            cx.notify();
+        }
+    }
+
+    /// The source whose apps alone the app store shows; none for every source's.
+    pub(crate) fn app_store_source(&self) -> Option<&SourceListing> {
+        let shown = self.app_store_source.as_ref()?;
+        self.sources.iter().find(|read| &read.source == shown)
+    }
+
+    /// The app store shows the apps of `source` alone from now on, on its first place; every
+    /// source's for `None`.
+    pub(crate) fn show_app_store_source(
+        &mut self,
+        source: Option<Source>,
+        cx: &mut Context<Library>,
+    ) {
+        if self.app_store_source != source {
+            self.app_store_source = source;
+            self.app_store_place = AppStorePlace::Discover;
+            cx.notify();
+        }
+    }
+
+    /// Takes back what last narrowed the app store's apps, the category before the source, as
+    /// Backspace takes back the last token of its search; says whether anything narrowed them.
+    pub(crate) fn widen_app_store(&mut self, cx: &mut Context<Library>) -> bool {
+        if self.app_store_category.is_some() {
+            self.show_app_store_category(None, cx);
+            true
+        } else if self.app_store_source.is_some() {
+            self.show_app_store_source(None, cx);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// The app store is as it opens: on its first place, with nothing searched and no category
+    /// chosen. Whoever puts the library away asks, so the store comes back as it opens.
+    pub(crate) fn reset_app_store(&mut self, cx: &mut Context<Library>) {
+        self.show_app_store_source(None, cx);
+        self.show_app_store_place(AppStorePlace::default(), cx);
+        self.search_app_store_for("", cx);
+        self.show_app_store_category(None, cx);
+    }
+
+    /// Every app the sources read so far list, each once, as the app store shows it: the one
+    /// source's alone, while the store shows one.
+    pub(crate) fn catalog(&self) -> Vec<CatalogApp> {
+        catalog(&self.listed_sources())
+    }
+
+    /// The apps the sources put forward, as the app store shows them first.
+    pub(crate) fn featured(&self) -> Vec<CatalogApp> {
+        let sources = self.listed_sources();
+        featured(&sources, &catalog(&sources))
+    }
+
+    /// The installed apps any source lists a newer version of, whichever source the store shows.
+    pub(crate) fn updates(&self) -> Vec<CatalogApp> {
+        updates(&catalog(&self.every_listed_source()))
+    }
+
+    /// The app `id` as its page in the app store shows it, whichever source the store shows
+    /// alone: none where no source read lists it.
+    pub(crate) fn listed_app(&self, id: &ProgramId) -> Option<CatalogApp> {
+        catalog(&self.every_listed_source())
+            .into_iter()
+            .find(|app| app.listed.id == *id)
+    }
+
+    /// Reads the screenshots the app `id`'s source lists, for its page to show.
+    fn read_screenshots_of(&mut self, id: &ProgramId, cx: &mut Context<Library>) {
+        let Some(app) = self.listed_app(id) else {
+            return;
+        };
+        for screenshot in app.listed.screenshots {
+            self.read_picture(&app.source, screenshot, cx);
+        }
+    }
+
+    /// The sources read so far that the store shows, as the catalog is made of them.
+    fn listed_sources(&self) -> Vec<ListedSource<'_>> {
+        let shown = self.app_store_source.as_ref();
+        self.every_listed_source()
+            .into_iter()
+            .filter(|listed| shown.is_none_or(|shown| listed.source == shown))
+            .collect()
+    }
+
+    /// The sources read so far, in the order they were added.
+    fn every_listed_source(&self) -> Vec<ListedSource<'_>> {
+        self.sources
+            .iter()
+            .filter_map(|read| match &read.listing {
+                Listing::Read(apps) => Some(ListedSource {
+                    source: &read.source,
+                    featured: &read.featured,
+                    apps,
+                }),
+                Listing::Reading | Listing::Failed(_) => None,
+            })
+            .collect()
+    }
+
+    /// Updates every installed app a source lists a newer version of.
+    pub(crate) fn update_all(&mut self, cx: &mut Context<Library>) {
+        for app in self.updates() {
+            self.install_from(&app.source, &app.listed, cx);
+        }
+    }
+
+    /// The installed apps their user starts most lately, the most started first, as read when
+    /// the home last came into sight: none never started in the days the engine keeps.
+    pub(crate) fn often_used(&self) -> &[ProgramId] {
+        &self.often_used
+    }
+
+    /// Reads again which apps are started most lately. Whoever shows the home asks as it comes
+    /// into sight, and not while it shows, where an app changing place under the pointer would be
+    /// opened by mistake.
+    pub(crate) fn read_often_used(&mut self, cx: &mut Context<Library>) {
+        let often_used = self.most_started_lately();
+        if often_used != self.often_used {
+            self.often_used = often_used;
+            cx.notify();
+        }
+    }
+
+    /// The installed apps started in the days the engine keeps, the most started lately first.
+    fn most_started_lately(&self) -> Vec<ProgramId> {
+        let now = SystemTime::now();
+        let started_lately: Vec<(ProgramId, u32)> = self
+            .installed
+            .iter()
+            .map(|app| {
+                let id = app.manifest.id();
+                let days = self.runs.engine.days_of(id.as_str());
+                (id.clone(), starts_lately(&days, now))
+            })
+            .collect();
+        most_started(&started_lately)
+    }
+
     /// What the user searches the installed programs for, as typed; empty for nothing.
     pub(crate) fn search(&self) -> &str {
         &self.search
@@ -372,16 +624,6 @@ impl Library {
     /// open, and an open waits for it.
     pub(crate) fn is_compiling(&self, id: &ProgramId) -> bool {
         self.runs.code.is_compiling(id)
-    }
-
-    /// Whether a source lists the installed program `id` at a newer version than installed.
-    pub(crate) fn update_offered(&self, id: &ProgramId) -> bool {
-        self.sources.iter().any(|read| match &read.listing {
-            Listing::Read(offers) => offers
-                .iter()
-                .any(|(program, offer)| &program.id == id && matches!(offer, Offer::Update { .. })),
-            Listing::Reading | Listing::Failed(_) => false,
-        })
     }
 
     /// Whether the library closes the programs it opened: where they open in tabs; not where they
@@ -624,6 +866,9 @@ impl Library {
         match self.store.remove_source(source) {
             Ok(()) => {
                 self.sources.retain(|listing| &listing.source != source);
+                if self.app_store_source.as_ref() == Some(source) {
+                    self.app_store_source = None;
+                }
                 self.succeeded(cx);
             }
             Err(error) => self.failed(format!("{error}"), cx),
@@ -638,6 +883,9 @@ impl Library {
             .map(|source| SourceListing {
                 source: source.clone(),
                 listing: Listing::Reading,
+                name: None,
+                icon: None,
+                featured: Vec::new(),
             })
             .collect();
         for source in sources {
@@ -646,11 +894,23 @@ impl Library {
             self.work_then(
                 async move { store.read_source(&read).await },
                 move |library, index, cx| {
-                    let listing = match index {
-                        Ok(index) => Listing::Read(offers_of(index.programs, &library.installed)),
-                        Err(error) => Listing::Failed(format!("{error}")),
+                    let read = match index {
+                        Ok(index) => SourceListing {
+                            listing: Listing::Read(offers_of(index.programs, &library.installed)),
+                            name: index.name,
+                            icon: index.icon,
+                            featured: index.featured,
+                            source: source.clone(),
+                        },
+                        Err(error) => SourceListing {
+                            listing: Listing::Failed(format!("{error}")),
+                            name: None,
+                            icon: None,
+                            featured: Vec::new(),
+                            source: source.clone(),
+                        },
                     };
-                    library.listing_read(&source, listing, cx);
+                    library.source_read(read, cx);
                 },
                 cx,
             );
@@ -906,12 +1166,91 @@ impl Library {
         self.questions.push(question);
     }
 
-    /// What `source` lists is `listing` now, unless the source was removed meanwhile.
-    fn listing_read(&mut self, source: &Source, listing: Listing, cx: &mut Context<Library>) {
-        if let Some(read) = self.sources.iter_mut().find(|read| &read.source == source) {
-            read.listing = listing;
-            cx.notify();
+    /// A source was read, as `read` says, unless it was removed meanwhile: its logo and its
+    /// apps' icons are read after it, and once every source is read, the pictures none lists any
+    /// more go.
+    fn source_read(&mut self, read: SourceListing, cx: &mut Context<Library>) {
+        let Some(kept) = self
+            .sources
+            .iter_mut()
+            .find(|kept| kept.source == read.source)
+        else {
+            return;
+        };
+        *kept = read;
+        let source = kept.source.clone();
+        let icons: Vec<String> = match &kept.listing {
+            Listing::Read(apps) => apps
+                .iter()
+                .filter_map(|(app, _)| app.icon.clone())
+                .chain([kept.logo()])
+                .collect(),
+            Listing::Reading | Listing::Failed(_) => Vec::new(),
+        };
+        for icon in icons {
+            self.read_picture(&source, icon, cx);
         }
+        self.keep_the_pictures_listed();
+        cx.notify();
+    }
+
+    /// The picture that stands for the source `read`, once it was read; none before, and none
+    /// for a source that lists no icon on a site that has no picture of its own.
+    pub(crate) fn source_logo(&self, read: &SourceListing) -> Option<&Arc<[u8]>> {
+        self.picture(&read.source, &read.logo())
+    }
+
+    /// The picture `source` lists as `picture`, an icon or a screenshot, once it was read; none
+    /// before, and none for one that could not be.
+    pub(crate) fn picture(&self, source: &Source, picture: &str) -> Option<&Arc<[u8]>> {
+        self.pictures.get(&source.picture_url(picture).ok()?)
+    }
+
+    /// Reads the picture `source` lists as `picture`, unless it was read already; whoever shows
+    /// it is told once it is there.
+    pub(crate) fn read_picture(
+        &mut self,
+        source: &Source,
+        picture: String,
+        cx: &mut Context<Library>,
+    ) {
+        let Ok(url) = source.picture_url(&picture) else {
+            return;
+        };
+        if self.pictures.contains_key(&url) {
+            return;
+        }
+        let (store, from) = (self.store.clone(), source.clone());
+        self.work_then(
+            async move { store.picture(&from, &picture).await },
+            move |library, read, cx| match read {
+                Ok(bytes) => {
+                    library.pictures.insert(url, Arc::from(bytes));
+                    cx.notify();
+                }
+                Err(error) => tracing::info!(%error, "a source's picture is not shown"),
+            },
+            cx,
+        );
+    }
+
+    /// Once every source is read, has the store let go of the pictures none lists any more.
+    fn keep_the_pictures_listed(&self) {
+        let mut listed = Vec::new();
+        for read in &self.sources {
+            let apps = match &read.listing {
+                Listing::Read(apps) => apps,
+                Listing::Reading => return,
+                Listing::Failed(_) => continue,
+            };
+            let logo = read.logo();
+            let pictures = apps
+                .iter()
+                .flat_map(|(app, _)| app.icon.iter().chain(&app.screenshots))
+                .chain([&logo]);
+            listed.extend(pictures.filter_map(|picture| read.source.picture_url(picture).ok()));
+        }
+        self.store.keep_pictures(&listed);
     }
 
     /// The store changed what is installed: read it again, and what each listing offers.
@@ -919,6 +1258,13 @@ impl Library {
         self.installed_at = *self.store.installed_changes().borrow();
         self.installed = self.store.installed();
         self.icons = icons_of(&self.store, &self.installed);
+        self.often_used = self.most_started_lately();
+        if self
+            .category
+            .is_some_and(|shown| !self.categories().contains(&shown))
+        {
+            self.category = None;
+        }
         cx.emit(InstalledChanged);
         self.match_shortcuts(cx);
         for read in &mut self.sources {
@@ -927,6 +1273,7 @@ impl Library {
                 *offers = offers_of(listed, &self.installed);
             }
         }
+        self.leave_a_removed_apps_page(cx);
         cx.notify();
     }
 

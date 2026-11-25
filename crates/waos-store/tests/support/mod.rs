@@ -35,13 +35,13 @@ pub fn write_package(folder: &Path, id: &str, version: &str, key: &SigningKey) -
 
 /// The listing of the package at `path`, of `id` at `version`, by its file name.
 pub fn listing(path: &Path, id: &str, version: &str) -> ListedProgram {
-    ListedProgram {
-        id: id.parse().unwrap(),
-        name: "Triangle".to_owned(),
-        version: version.parse().unwrap(),
-        package: path.file_name().unwrap().to_string_lossy().into_owned(),
-        sha256: Sha256::digest(fs::read(path).unwrap()).into(),
-    }
+    ListedProgram::new(
+        id.parse().unwrap(),
+        "Triangle",
+        version.parse().unwrap(),
+        path.file_name().unwrap().to_string_lossy(),
+        Sha256::digest(fs::read(path).unwrap()).into(),
+    )
 }
 
 /// The start of a PNG of `side` by `side`, all an icon's check reads.

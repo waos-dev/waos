@@ -17,6 +17,8 @@ name = "waos"
 path = "src/main.rs"
 
 [dependencies]
+# The day a package is listed as released.
+jiff.workspace = true
 waos-dev-protocol.workspace = true
 # Reads which interfaces a component imports, for what packaging warns of.
 wasmparser.workspace = true

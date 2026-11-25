@@ -1,6 +1,5 @@
 //! The library's home: the programs installed as a grid of icons, each its icon with its name on
-//! one line beneath, a dot under the name while it runs and a badge on the icon while a source
-//! lists a newer version; while its code is compiled, as at its install, the icon dimmed and
+//! one line beneath and a dot under the name while it runs; while its code is compiled, as at its install, the icon dimmed and
 //! Installing… in place of its name, as iOS shows an app it installs; a tap opens it. With nothing
 //! installed, one line and a button to get programs; while the user searches, as a phone's deck lets them from its bar, only the programs
 //! searched for, and one line where none is. Above the grid, while any program records, who uses the microphone or the camera.
@@ -12,6 +11,8 @@
 
 pub(crate) mod cupertino;
 pub(crate) mod fluent;
+pub(crate) mod icon_grid;
+pub(crate) mod motion;
 
 use std::sync::Arc;
 
@@ -21,6 +22,7 @@ use waft::{
     StatelessWidget, Text, TextAlign, TextOverflow, TextStyle, WidgetRef,
 };
 use waos_package::ProgramId;
+use waos_store::InstalledProgram;
 
 use crate::state::library::Library;
 use crate::ui::library::words;
@@ -32,32 +34,57 @@ pub(crate) struct HomeEntry {
     pub(crate) name: String,
     pub(crate) icon: Option<Arc<[u8]>>,
     pub(crate) running: bool,
-    pub(crate) update_offered: bool,
     /// Its code is being compiled, as at its install: it is not ready to open.
     pub(crate) installing: bool,
 }
 
 /// The programs `library` has installed, as the home shows them, in the order of their names:
-/// those the user searches for, while the user searches.
+/// those the user searches for, while the user searches, and those of the category the home
+/// shows alone, while it shows one.
 pub(crate) fn home_entries(library: &Library) -> Vec<HomeEntry> {
     let mut entries: Vec<HomeEntry> = library
         .installed()
         .iter()
         .filter(|program| is_searched_for(&program.name(), library.search()))
-        .map(|program| {
-            let id = program.manifest.id();
-            HomeEntry {
-                id: id.clone(),
-                name: program.name(),
-                icon: library.icon(id).cloned(),
-                running: library.is_running(id),
-                update_offered: library.update_offered(id),
-                installing: library.is_compiling(id),
-            }
+        .filter(|program| {
+            library
+                .category()
+                .is_none_or(|shown| program.manifest.category() == Some(shown))
         })
+        .map(|program| entry_of(library, program))
         .collect();
     entries.sort_by_cached_key(|entry| entry.name.to_lowercase());
     entries
+}
+
+/// The apps of the home's first row: those their user starts most lately, the most started
+/// first; none while the user searches or the home shows one category, where it shows what was
+/// asked for alone.
+pub(crate) fn often_used_entries(library: &Library) -> Vec<HomeEntry> {
+    if !library.search().trim().is_empty() || library.category().is_some() {
+        return Vec::new();
+    }
+    library
+        .often_used()
+        .iter()
+        .filter_map(|id| {
+            let installed = library.installed().iter();
+            installed.clone().find(|app| app.manifest.id() == id)
+        })
+        .map(|app| entry_of(library, app))
+        .collect()
+}
+
+/// `app` as its icon on the home shows it.
+fn entry_of(library: &Library, app: &InstalledProgram) -> HomeEntry {
+    let id = app.manifest.id();
+    HomeEntry {
+        id: id.clone(),
+        name: app.name(),
+        icon: library.icon(id).cloned(),
+        running: library.is_running(id),
+        installing: library.is_compiling(id),
+    }
 }
 
 /// Whether a program named `name` is one a user who typed `search` searches for: one whose name
@@ -175,20 +202,6 @@ pub(crate) fn grid_rows(tiles: Vec<WidgetRef>, columns: usize, row_gap: f64) -> 
         );
     }
     rows
-}
-
-/// A badge's mark: a dot of `color`, `side` points across.
-pub(crate) fn badge_dot(color: Color, side: f64) -> WidgetRef {
-    let decoration = BoxDecoration {
-        color: Some(color.into()),
-        shape: BoxShape::Circle,
-        ..BoxDecoration::default()
-    };
-    SizedBox::new()
-        .width(side)
-        .height(side)
-        .child(DecoratedBox::new(decoration))
-        .into_widget()
 }
 
 /// A rounded square of `color`, for a quiet banner's ground.

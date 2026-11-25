@@ -35,3 +35,6 @@ workspace = true
 id = "dev.waos.camera"
 name = "Camera"
 icon = "icon.png"
+category = "photography"
+summary = "A live camera with looks, and the photos you take"
+publisher = "WaOS"

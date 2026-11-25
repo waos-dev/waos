@@ -42,6 +42,7 @@ fn a_bundle_says_which_program_it_is_and_where_waos_is() {
         name: "Notes & Things",
         version: "1.2.0",
         icon: None,
+        category: Some(Category::Productivity),
         waos: &waos,
     };
     write_files(&bundle, &contents).unwrap();
@@ -51,6 +52,10 @@ fn a_bundle_says_which_program_it_is_and_where_waos_is() {
         "dev.waos.program.dev.example.notes"
     );
     assert_eq!(plist_value(&plist, "CFBundleName"), "Notes & Things");
+    assert_eq!(
+        plist_value(&plist, "LSApplicationCategoryType"),
+        "public.app-category.productivity"
+    );
     assert_eq!(plist_value(&plist, "CFBundleShortVersionString"), "1.2.0");
     assert_eq!(plist_value(&plist, "CFBundleExecutable"), LOADER);
     assert_eq!(plist_value(&plist, PROGRAM_ID_KEY), "dev.example.notes");
@@ -74,6 +79,7 @@ fn a_bundle_carries_the_packages_icon_at_every_size() {
         name: "Notes",
         version: "1.0.0",
         icon: Some(&icon),
+        category: None,
         waos: &waos,
     };
     write_files(&bundle, &contents).unwrap();
@@ -94,6 +100,7 @@ fn a_signed_bundle_has_a_code_hash_that_changes_with_it() {
         name: "Notes",
         version: "1.0.0",
         icon: None,
+        category: None,
         waos: &waos,
     };
     write_files(&bundle, &contents).unwrap();
