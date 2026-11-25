@@ -6,14 +6,17 @@
 //! so the computer pins that one.
 //!
 //! The messages: the computer's `Pair(PairStart)`; the device's [`PairAnswer::Spake`], with its
-//! half of SPAKE2 and its proof of the certificate; the computer's [`PairConfirm`], its own
+//! half of SPAKE2, its certificate's fingerprint and its proof of it; the computer's [`PairConfirm`], its own
 //! proof of the key, which a wrong code fails; and the device's [`PairAnswer::Paired`].
 //!
 //! The invariants a later editor will break:
 //! - The code never leaves either side, and the token never crosses the network: each side
 //!   derives it from the key.
 //! - The computer keeps the certificate's fingerprint only once the device's proof of it holds,
-//!   so one that answered in the device's place is never pinned.
+//!   so one that answered in the device's place is never pinned. The proof is a MAC under the key
+//!   only the code makes, so it proves the fingerprint without TLS too: over `ws://` from the
+//!   device itself, as through `adb forward`, the computer learns it from the device's word, and
+//!   over `wss://` that word must name the certificate it saw.
 //! - Each proof names its side, so one side's proof never passes for the other's.
 
 use std::fmt;
@@ -58,6 +61,8 @@ pub enum PairAnswer {
     Spake {
         #[serde(with = "serde_bytes")]
         spake: Vec<u8>,
+        /// The certificate the device answers `wss://` with, which `confirmation` proves.
+        fingerprint: Fingerprint,
         #[serde(with = "serde_bytes")]
         confirmation: Vec<u8>,
     },

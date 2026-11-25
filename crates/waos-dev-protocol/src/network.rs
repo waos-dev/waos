@@ -78,6 +78,22 @@ impl fmt::Debug for Fingerprint {
     }
 }
 
+/// A fingerprint in a message: its 32 bytes.
+impl serde::Serialize for Fingerprint {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serde_bytes::Bytes::new(&self.0).serialize(serializer)
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for Fingerprint {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Fingerprint, D::Error> {
+        let bytes = serde_bytes::ByteBuf::deserialize(deserializer)?;
+        <[u8; 32]>::try_from(bytes.as_slice())
+            .map(Fingerprint)
+            .map_err(|_| serde::de::Error::custom("a fingerprint is 32 bytes"))
+    }
+}
+
 impl FromStr for Fingerprint {
     type Err = String;
 

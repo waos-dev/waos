@@ -52,9 +52,11 @@ async fn paired(
     let identity = access.identity().map_err(failed)?;
     let (pairing, ours) = Pairing::start(&code);
     let key = pairing.finish(&start.spake).map_err(failed)?;
+    let fingerprint = identity.fingerprint();
     let spake = PairAnswer::Spake {
         spake: ours,
-        confirmation: key.device_proof(identity.fingerprint()),
+        fingerprint,
+        confirmation: key.device_proof(fingerprint),
     };
     connection.send(&spake).await.map_err(failed)?;
     let confirm = tokio::time::timeout(CONFIRM_WAIT, connection.receive::<PairConfirm>())

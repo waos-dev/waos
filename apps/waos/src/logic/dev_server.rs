@@ -774,14 +774,27 @@ pub(crate) mod tests {
             client
         }
 
-        /// A pairing begun from the network with `code`, unpinned as pairing is: the connection,
-        /// the fingerprint the server answered with, this side's half, and the server's answer.
+        /// A pairing begun from the network over `wss://` with `code`, unpinned as pairing is: the
+        /// connection, the fingerprint the server answered with, this side's half, and the
+        /// server's answer.
         async fn pairing_with(
             &self,
             code: &str,
         ) -> (ClientConnection, Fingerprint, Pairing, PairAnswer) {
+            let (client, seen, pairing, answer) = self.pairing_over("wss", code).await;
+            (client, seen.expect("a certificate"), pairing, answer)
+        }
+
+        /// A pairing begun from the loopback at `scheme` with `code`: the connection, the
+        /// fingerprint of the certificate it saw over `wss://`, this side's half, and the
+        /// server's answer.
+        async fn pairing_over(
+            &self,
+            scheme: &str,
+            code: &str,
+        ) -> (ClientConnection, Option<Fingerprint>, Pairing, PairAnswer) {
             let port = self.listening_port().await;
-            let address: DeviceAddress = format!("wss://127.0.0.1:{port}").parse().unwrap();
+            let address: DeviceAddress = format!("{scheme}://127.0.0.1:{port}").parse().unwrap();
             let (mut client, seen) = connect_across_network(&address, None).await.unwrap();
             client.hello(&Hello::command("waos test")).await.unwrap();
             let (pairing, ours) = Pairing::start(&PairingCode::parse(code).unwrap());
@@ -791,7 +804,7 @@ pub(crate) mod tests {
             };
             client.send(&Request::Pair(start)).await.unwrap();
             let answer = next::<PairAnswer>(&mut client).await;
-            (client, seen.expect("a certificate"), pairing, answer)
+            (client, seen, pairing, answer)
         }
 
         /// The port the server listens on for the network, developer access turned on.
@@ -1787,6 +1800,7 @@ pub(crate) mod tests {
         let PairAnswer::Spake {
             spake,
             confirmation,
+            ..
         } = answer
         else {
             panic!("the device's half, not {answer:?}");
@@ -1814,6 +1828,31 @@ pub(crate) mod tests {
     }
 
     #[tokio::test]
+    async fn a_pairing_over_ws_from_this_machine_proves_the_certificate_without_tls() {
+        let server = TestServer::start("pairing-ws");
+        let code = server.access.show_code().unwrap();
+        let (mut client, seen, pairing, answer) = server.pairing_over("ws", code.as_str()).await;
+        assert_eq!(seen, None, "no certificate over ws://");
+        let PairAnswer::Spake {
+            spake,
+            fingerprint,
+            confirmation,
+        } = answer
+        else {
+            panic!("the device's half, not {answer:?}");
+        };
+        let key = pairing.finish(&spake).unwrap();
+        assert!(key.holds_for_device(fingerprint, &confirmation));
+        assert_eq!(fingerprint, server.access.identity().unwrap().fingerprint());
+        let confirm = PairConfirm {
+            confirmation: key.computer_proof(),
+        };
+        client.send(&confirm).await.unwrap();
+        assert_eq!(next::<PairAnswer>(&mut client).await, PairAnswer::Paired);
+        assert!(server.access.knows(&key.token()));
+    }
+
+    #[tokio::test]
     async fn a_pairing_with_another_code_is_refused_and_pairs_nothing() {
         let server = TestServer::start("pairing-wrong");
         let shown = server.access.show_code().unwrap();
@@ -1826,6 +1865,7 @@ pub(crate) mod tests {
         let PairAnswer::Spake {
             spake,
             confirmation,
+            ..
         } = answer
         else {
             panic!("the device's half, not {answer:?}");

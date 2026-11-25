@@ -7,7 +7,9 @@
 //!
 //! The invariant a later editor will break: the fingerprint is kept only once the device's proof
 //! of it holds, so a machine that answered in the device's place, which saw no code, is never
-//! trusted after.
+//! trusted after. The proof needs no TLS, so a pairing over `ws://` from the device itself, as
+//! through `adb forward`, pins it as well as one over `wss://`, where the certificate seen must be
+//! the one the device names.
 
 use std::io::{self, BufRead, Write};
 use std::process::ExitCode;
@@ -26,13 +28,6 @@ use crate::found::{self, BROWSE, FoundDevice};
 /// address, by `code`, or the code typed when none is given, and keeps the device as `named`.
 pub async fn pair(named: &str, code: Option<&str>) -> Result<ExitCode> {
     let address = address_of(named)?;
-    if !address.secure {
-        bail!(
-            "a pairing goes over wss://, whose certificate it learns: pair with wss://{}:{}",
-            address.host,
-            address.port
-        );
-    }
     let code = match code {
         Some(code) => PairingCode::parse(code).map_err(anyhow::Error::msg)?,
         None => typed_code(named)?,
@@ -40,8 +35,7 @@ pub async fn pair(named: &str, code: Option<&str>) -> Result<ExitCode> {
     let (connection, seen) = connect_across_network(&address, None)
         .await
         .with_context(|| format!("connecting to WaOS at {address}"))?;
-    let fingerprint = seen.context("the device answered with no certificate")?;
-    let key = paired(connection, &code, fingerprint).await?;
+    let (key, fingerprint) = paired(connection, &code, seen).await?;
     let device = PairedDevice {
         name: named.to_owned(),
         address,
@@ -69,13 +63,14 @@ fn address_of(named: &str) -> Result<DeviceAddress> {
     })
 }
 
-/// The key the exchange over `connection` agrees with the device by `code`, once the device's
-/// proof of the certificate `fingerprint` names holds and it says the two are paired.
+/// The key the exchange over `connection` agrees with the device by `code`, and the fingerprint
+/// of its certificate, once the device's proof of it holds and it says the two are paired; `seen`
+/// is the certificate's over `wss://`, which the device's word must name.
 async fn paired(
     connection: ClientConnection,
     code: &PairingCode,
-    fingerprint: Fingerprint,
-) -> Result<PairingKey> {
+    seen: Option<Fingerprint>,
+) -> Result<(PairingKey, Fingerprint)> {
     let (pairing, ours) = Pairing::start(code);
     let request = Request::Pair(PairStart {
         computer: this_computer(),
@@ -83,13 +78,19 @@ async fn paired(
     });
     let mut connection = asking::greeted_with(connection, &Hello::command(BUILD), &request).await?;
     connection.send(&request).await.context("sending to WaOS")?;
-    let (spake, confirmation) = match answer(&mut connection).await? {
+    let (spake, fingerprint, confirmation) = match answer(&mut connection).await? {
         PairAnswer::Spake {
             spake,
+            fingerprint,
             confirmation,
-        } => (spake, confirmation),
+        } => (spake, fingerprint, confirmation),
         other => return Err(unexpected(other)),
     };
+    if seen.is_some_and(|seen| seen != fingerprint) {
+        bail!(
+            "another machine answered in the device's place: its certificate is not the one the device names"
+        );
+    }
     let key = pairing
         .finish(&spake)
         .context("the device's half of the pairing")?;
@@ -103,7 +104,7 @@ async fn paired(
     };
     connection.send(&confirm).await.context("sending to WaOS")?;
     match answer(&mut connection).await? {
-        PairAnswer::Paired => Ok(key),
+        PairAnswer::Paired => Ok((key, fingerprint)),
         other => Err(unexpected(other)),
     }
 }
@@ -207,10 +208,13 @@ mod tests {
 
     use super::*;
 
-    /// A device of the test's own on the loopback, showing `shown`, answering one pairing as a
-    /// WaOS does: its address and fingerprint, and the token it kept, once the pairing ended.
+    /// A device of the test's own on the loopback, at `scheme`, showing `shown`, answering one
+    /// pairing as a WaOS does, saying its certificate is `claimed`'s, its own without one: its
+    /// address and fingerprint, and the token it kept, once the pairing ended.
     async fn device(
+        scheme: &str,
         shown: &'static str,
+        claimed: Option<Fingerprint>,
     ) -> (
         DeviceAddress,
         Fingerprint,
@@ -218,9 +222,10 @@ mod tests {
     ) {
         let identity = Identity::make().unwrap();
         let fingerprint = identity.fingerprint();
+        let said = claimed.unwrap_or(fingerprint);
         let loopback = SocketAddr::from((Ipv4Addr::LOCALHOST, 0));
         let mut listener = NetworkListener::bind_at(&identity, loopback).await.unwrap();
-        let address = format!("wss://127.0.0.1:{}", listener.port())
+        let address = format!("{scheme}://127.0.0.1:{}", listener.port())
             .parse()
             .unwrap();
         let served = tokio::spawn(async move {
@@ -236,7 +241,8 @@ mod tests {
             let key = pairing.finish(&start.spake).unwrap();
             let spake = PairAnswer::Spake {
                 spake: ours,
-                confirmation: key.device_proof(fingerprint),
+                fingerprint: said,
+                confirmation: key.device_proof(said),
             };
             connection.send(&spake).await.unwrap();
             let confirm = connection.receive::<PairConfirm>().await.ok()??;
@@ -249,9 +255,8 @@ mod tests {
         (address, fingerprint, served)
     }
 
-    async fn connected(address: &DeviceAddress) -> (ClientConnection, Fingerprint) {
-        let (connection, seen) = connect_across_network(address, None).await.unwrap();
-        (connection, seen.unwrap())
+    async fn connected(address: &DeviceAddress) -> (ClientConnection, Option<Fingerprint>) {
+        connect_across_network(address, None).await.unwrap()
     }
 
     #[test]
@@ -283,17 +288,29 @@ mod tests {
 
     #[tokio::test]
     async fn the_code_shown_pairs_and_both_sides_hold_the_same_token() {
-        let (address, fingerprint, served) = device("123456").await;
+        let (address, fingerprint, served) = device("wss", "123456", None).await;
         let (connection, seen) = connected(&address).await;
-        assert_eq!(seen, fingerprint);
+        assert_eq!(seen, Some(fingerprint));
         let code = PairingCode::parse("123 456").unwrap();
-        let key = paired(connection, &code, seen).await.unwrap();
+        let (key, pinned) = paired(connection, &code, seen).await.unwrap();
+        assert_eq!(pinned, fingerprint);
+        assert_eq!(served.await.unwrap().as_deref(), Some(key.token().as_str()));
+    }
+
+    #[tokio::test]
+    async fn a_pairing_over_ws_from_the_device_itself_pins_the_certificate_its_proof_names() {
+        let (address, fingerprint, served) = device("ws", "123456", None).await;
+        let (connection, seen) = connected(&address).await;
+        assert_eq!(seen, None, "no certificate over ws://");
+        let code = PairingCode::parse("123456").unwrap();
+        let (key, pinned) = paired(connection, &code, seen).await.unwrap();
+        assert_eq!(pinned, fingerprint);
         assert_eq!(served.await.unwrap().as_deref(), Some(key.token().as_str()));
     }
 
     #[tokio::test]
     async fn another_code_pairs_nothing_and_says_to_type_the_one_shown() {
-        let (address, _, served) = device("123456").await;
+        let (address, _, served) = device("wss", "123456", None).await;
         let (connection, seen) = connected(&address).await;
         let code = PairingCode::parse("654321").unwrap();
         let refused = paired(connection, &code, seen).await.unwrap_err();
@@ -302,13 +319,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_device_whose_proof_names_another_certificate_is_not_trusted() {
-        let (address, _, served) = device("123456").await;
-        let (connection, _) = connected(&address).await;
+    async fn a_device_naming_another_certificate_than_it_answered_with_is_not_trusted() {
+        let (address, _, served) = device("wss", "123456", Some(Fingerprint([7; 32]))).await;
+        let (connection, seen) = connected(&address).await;
         let code = PairingCode::parse("123456").unwrap();
-        let refused = paired(connection, &code, Fingerprint([7; 32]))
-            .await
-            .unwrap_err();
+        let refused = paired(connection, &code, seen).await.unwrap_err();
         assert!(
             format!("{refused:#}").contains("another machine"),
             "{refused:#}"
