@@ -317,7 +317,7 @@ mod tests {
 
     use tempfile::TempDir;
     use waos_dev_protocol::{
-        Answer, ClientStream, Connection, Hello, Input, InputAnswer, InputDone, Install,
+        Answer, ClientConnection, Connection, Hello, Input, InputAnswer, InputDone, Install,
         InstallAnswer, Launch, LaunchAnswer, Request, ResizeAnswer, Role, Row, RunEvent,
         ScreenshotAnswer, SettingsAnswer, StopAnswer, Upload, WindowId, component_digest,
     };
@@ -347,7 +347,7 @@ mod tests {
         }
     }
 
-    async fn connect(socket: &Path) -> Connection<ClientStream> {
+    async fn connect(socket: &Path) -> ClientConnection {
         let mut conn = Connection::connect(socket).await.expect("connect");
         conn.hello(&Hello::command("headless-test"))
             .await
@@ -361,7 +361,7 @@ mod tests {
         socket: &Path,
         id: ProgramId,
         component_path: &Path,
-    ) -> (Connection<ClientStream>, ProgramId) {
+    ) -> (ClientConnection, ProgramId) {
         let component = std::fs::read(component_path).expect("read component");
         let mut conn = connect(socket).await;
         conn.send(&Request::Install(Install {

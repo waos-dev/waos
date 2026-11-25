@@ -1,10 +1,11 @@
-//! One connection, as frames over a stream: each message as CBOR encodes it, behind a four-byte
-//! little-endian count of its bytes, so the reader knows how much to wait for before it allocates
-//! anything, and refuses a frame over [`MAX_FRAME_BYTES`] on the count alone. CBOR names each
-//! variant and field, so a message added or a field added is read by a side that knows it, and
-//! ignored by one that does not. The first frame each way is the [`Hello`], which says the build
-//! and the protocol's major, so the two halves find out before either reads a request it would
-//! misread.
+//! One connection, as messages: each message as CBOR encodes it, carried whole by its frames
+//! (`Frames`). Over a stream, as the socket and the pipe are, a frame is the message behind a
+//! four-byte little-endian count of its bytes, so the reader knows how much to wait for before it
+//! allocates anything, and refuses a frame over [`MAX_FRAME_BYTES`] on the count alone
+//! ([`StreamFrames`]). CBOR names each variant and field, so a message added or a field added is
+//! read by a side that knows it, and ignored by one that does not. The first message each way is
+//! the [`Hello`], which says the build and the protocol's major, so the two halves find out before
+//! either reads a request it would misread.
 //!
 //! The invariants a later editor will break:
 //! - After `send` or `receive` fails, the connection is done. A frame cut short, or one refused,
@@ -13,6 +14,7 @@
 //! - The hello's shape is frozen: a field is added with `#[serde(default)]`, and only a real break
 //!   raises the major.
 
+use std::future::Future;
 use std::io::{self, ErrorKind};
 
 use serde::Serialize;
@@ -41,136 +43,70 @@ pub enum Locality {
     Network,
 }
 
-/// One connection: length-prefixed CBOR frames over `S`, the stream that carries them on this
-/// machine ([`ClientStream`](crate::ClientStream) and [`ServerStream`](crate::ServerStream)).
-/// Split into its halves, each is a `Connection` that only sends or only receives, so a WaOS
-/// sends a program's output on one task while another watches for the connection closing.
+/// What sends a connection's messages: each message's bytes, whole, as one frame.
+pub trait SendFrames: Send {
+    /// Sends `frame`, one message's bytes, at most [`MAX_FRAME_BYTES`].
+    fn send_frame(&mut self, frame: Vec<u8>) -> impl Future<Output = io::Result<()>> + Send;
+}
+
+/// What receives a connection's messages: each message's bytes, whole.
+pub trait ReceiveFrames: Send {
+    /// The next message's bytes, refused over [`MAX_FRAME_BYTES`]; none once the other side
+    /// closed between messages.
+    fn receive_frame(&mut self) -> impl Future<Output = io::Result<Option<Vec<u8>>>> + Send;
+}
+
+/// What carries a connection's messages both ways, and parts into the half that receives and
+/// the half that sends.
+pub trait Frames: SendFrames + ReceiveFrames {
+    type Receiving: ReceiveFrames;
+    type Sending: SendFrames;
+
+    fn split(self) -> (Self::Receiving, Self::Sending);
+}
+
+/// Frames over a byte stream: each message behind a four-byte little-endian count of its bytes.
 #[derive(Debug)]
-pub struct Connection<S> {
-    stream: S,
-    locality: Locality,
-}
+pub struct StreamFrames<S>(S);
 
-impl<S> Connection<S> {
-    /// A connection over `stream`, which stays on this machine.
-    pub fn new(stream: S) -> Connection<S> {
-        Connection {
-            stream,
-            locality: Locality::ThisMachine,
-        }
-    }
-
-    /// A connection over `stream`, which is `locality`'s: a network transport says
-    /// [`Locality::Network`], and nothing else may send `Open` over it.
-    pub fn over(stream: S, locality: Locality) -> Connection<S> {
-        Connection { stream, locality }
-    }
-
-    /// Whether the connection stays on this machine.
-    pub fn locality(&self) -> Locality {
-        self.locality
+impl<S: AsyncWrite + Unpin + Send> SendFrames for StreamFrames<S> {
+    async fn send_frame(&mut self, frame: Vec<u8>) -> io::Result<()> {
+        // Within the limit, so within a `u32`.
+        let count = (accepted(frame.len())? as u32).to_le_bytes();
+        self.0.write_all(&count).await?;
+        self.0.write_all(&frame).await
     }
 }
 
-impl<S: AsyncRead + AsyncWrite> Connection<S> {
-    /// The two halves, to receive on one task while another sends.
-    pub fn into_split(self) -> (Connection<ReadHalf<S>>, Connection<WriteHalf<S>>) {
-        let (reading, writing) = tokio::io::split(self.stream);
-        (
-            Connection::over(reading, self.locality),
-            Connection::over(writing, self.locality),
-        )
-    }
-}
-
-impl<S: AsyncRead + AsyncWrite + Unpin> Connection<S> {
-    /// The client's first frame each way: says `ours`, and reads the WaOS's hello before anything
-    /// else. An other side that closed before saying one is `UnexpectedEof`, or `BrokenPipe` when
-    /// it was gone before this side's frame went out; an older WaOS speaking the 4-byte protocol
-    /// number of WaOS 0.2 is `Unsupported` naming WaOS 0.2 and how to update.
-    pub async fn hello(&mut self, ours: &Hello) -> io::Result<Hello> {
-        self.send(ours).await?;
-        let Some(len) = self.read_prefix().await? else {
-            return Err(io::Error::new(
-                ErrorKind::UnexpectedEof,
-                "the other side closed before saying its hello",
-            ));
-        };
-        if len == LEGACY_PROTOCOL_BYTES {
-            let mut number = [0; LEGACY_PROTOCOL_BYTES];
-            self.stream.read_exact(&mut number).await?;
-            return Err(io::Error::new(
-                ErrorKind::Unsupported,
-                "this WaOS speaks the dev protocol of WaOS 0.2; update WaOS from https://waos.app",
-            ));
-        }
-        let mut body = vec![0; len];
-        self.stream.read_exact(&mut body).await?;
-        ciborium::from_reader(body.as_slice()).map_err(invalid_data)
-    }
-
-    /// WaOS's side of the hello: reads the client's first frame first, and answers with `ours`;
-    /// when a `waos` of WaOS 0.2 sends its 4-byte protocol number, answers a 4-byte number
-    /// frame of our own so the old client prints its mismatch naming both numbers, and returns
-    /// `Unsupported`.
-    pub async fn accept_hello(&mut self, ours: &Hello) -> io::Result<Hello> {
-        let Some(len) = self.read_prefix().await? else {
-            return Err(io::Error::new(
-                ErrorKind::UnexpectedEof,
-                "the other side closed before saying its hello",
-            ));
-        };
-        if len == LEGACY_PROTOCOL_BYTES {
-            let mut number = [0; LEGACY_PROTOCOL_BYTES];
-            self.stream.read_exact(&mut number).await?;
-            let theirs = u32::from_le_bytes(number);
-            let mut frame = Vec::with_capacity(PREFIX_BYTES + LEGACY_PROTOCOL_BYTES);
-            frame.extend_from_slice(&(LEGACY_PROTOCOL_BYTES as u32).to_le_bytes());
-            frame.extend_from_slice(&LEGACY_REPLY_PROTOCOL.to_le_bytes());
-            let _ = self.stream.write_all(&frame).await;
-            return Err(io::Error::new(
-                ErrorKind::Unsupported,
-                format!(
-                    "a waos of WaOS 0.2 speaks legacy dev protocol {theirs}; this WaOS speaks {MAJOR}"
-                ),
-            ));
-        }
-        let mut body = vec![0; len];
-        self.stream.read_exact(&mut body).await?;
-        let theirs: Hello = ciborium::from_reader(body.as_slice()).map_err(invalid_data)?;
-        self.send(ours).await?;
-        Ok(theirs)
-    }
-}
-
-impl<S: AsyncWrite + Unpin> Connection<S> {
-    /// Sends `message` as one frame; refused, unsent, when it is over the limit.
-    pub async fn send(&mut self, message: &impl Serialize) -> io::Result<()> {
-        let frame = frame(message)?;
-        self.stream.write_all(&frame).await
-    }
-}
-
-impl<S: AsyncRead + Unpin> Connection<S> {
-    /// The next message; none once the other side closed between frames.
-    pub async fn receive<M: DeserializeOwned>(&mut self) -> io::Result<Option<M>> {
+impl<S: AsyncRead + Unpin + Send> ReceiveFrames for StreamFrames<S> {
+    async fn receive_frame(&mut self) -> io::Result<Option<Vec<u8>>> {
         let Some(len) = self.read_prefix().await? else {
             return Ok(None);
         };
         let mut body = vec![0; len];
-        self.stream.read_exact(&mut body).await?;
-        ciborium::from_reader(body.as_slice())
-            .map(Some)
-            .map_err(invalid_data)
+        self.0.read_exact(&mut body).await?;
+        Ok(Some(body))
     }
+}
 
+impl<S: AsyncRead + AsyncWrite + Unpin + Send> Frames for StreamFrames<S> {
+    type Receiving = StreamFrames<ReadHalf<S>>;
+    type Sending = StreamFrames<WriteHalf<S>>;
+
+    fn split(self) -> (Self::Receiving, Self::Sending) {
+        let (reading, writing) = tokio::io::split(self.0);
+        (StreamFrames(reading), StreamFrames(writing))
+    }
+}
+
+impl<S: AsyncRead + Unpin> StreamFrames<S> {
     /// The next frame's byte count, checked against the limit; none when the other side closed
     /// between frames.
     async fn read_prefix(&mut self) -> io::Result<Option<usize>> {
         let mut prefix = [0; PREFIX_BYTES];
         let mut filled = 0;
         while filled < PREFIX_BYTES {
-            match self.stream.read(&mut prefix[filled..]).await? {
+            match self.0.read(&mut prefix[filled..]).await? {
                 0 if filled == 0 => return Ok(None),
                 0 => return Err(cut_short()),
                 read => filled += read,
@@ -180,13 +116,131 @@ impl<S: AsyncRead + Unpin> Connection<S> {
     }
 }
 
-/// `message` as one frame: its byte count, then its CBOR.
-fn frame(message: &impl Serialize) -> io::Result<Vec<u8>> {
-    let mut frame = vec![0; PREFIX_BYTES];
+/// One connection: CBOR messages carried by `F`, its frames, over a stream on this machine
+/// ([`StreamFrames`] of [`ClientStream`](crate::ClientStream) and
+/// [`ServerStream`](crate::ServerStream)). Split into its halves, each is a `Connection` that
+/// only sends or only receives, so a WaOS sends a program's output on one task while another
+/// watches for the connection closing.
+#[derive(Debug)]
+pub struct Connection<F> {
+    frames: F,
+    locality: Locality,
+}
+
+impl<S> Connection<StreamFrames<S>> {
+    /// A connection over `stream`, which stays on this machine.
+    pub fn new(stream: S) -> Connection<StreamFrames<S>> {
+        Connection::over(stream, Locality::ThisMachine)
+    }
+
+    /// A connection over `stream`, which is `locality`'s: a network transport says
+    /// [`Locality::Network`], and nothing else may send `Open` over it.
+    pub fn over(stream: S, locality: Locality) -> Connection<StreamFrames<S>> {
+        Connection {
+            frames: StreamFrames(stream),
+            locality,
+        }
+    }
+}
+
+impl<F> Connection<F> {
+    /// Whether the connection stays on this machine.
+    pub fn locality(&self) -> Locality {
+        self.locality
+    }
+}
+
+impl<F: Frames> Connection<F> {
+    /// The two halves, to receive on one task while another sends.
+    pub fn into_split(self) -> (Connection<F::Receiving>, Connection<F::Sending>) {
+        let (receiving, sending) = self.frames.split();
+        (
+            Connection {
+                frames: receiving,
+                locality: self.locality,
+            },
+            Connection {
+                frames: sending,
+                locality: self.locality,
+            },
+        )
+    }
+
+    /// The client's first message each way: says `ours`, and reads the WaOS's hello before
+    /// anything else. An other side that closed before saying one is `UnexpectedEof`, or
+    /// `BrokenPipe` when it was gone before this side's message went out; an older WaOS speaking
+    /// the 4-byte protocol number of WaOS 0.2 is `Unsupported` naming WaOS 0.2 and how to update.
+    pub async fn hello(&mut self, ours: &Hello) -> io::Result<Hello> {
+        self.send(ours).await?;
+        let Some(frame) = self.frames.receive_frame().await? else {
+            return Err(closed_before_hello());
+        };
+        if frame.len() == LEGACY_PROTOCOL_BYTES {
+            return Err(io::Error::new(
+                ErrorKind::Unsupported,
+                "this WaOS speaks the dev protocol of WaOS 0.2; update WaOS from https://waos.app",
+            ));
+        }
+        ciborium::from_reader(frame.as_slice()).map_err(invalid_data)
+    }
+
+    /// WaOS's side of the hello: reads the client's first message first, and answers with `ours`;
+    /// when a `waos` of WaOS 0.2 sends its 4-byte protocol number, answers a 4-byte number
+    /// frame of our own so the old client prints its mismatch naming both numbers, and returns
+    /// `Unsupported`.
+    pub async fn accept_hello(&mut self, ours: &Hello) -> io::Result<Hello> {
+        let Some(frame) = self.frames.receive_frame().await? else {
+            return Err(closed_before_hello());
+        };
+        if let Ok(number) = <[u8; LEGACY_PROTOCOL_BYTES]>::try_from(frame.as_slice()) {
+            let theirs = u32::from_le_bytes(number);
+            let reply = LEGACY_REPLY_PROTOCOL.to_le_bytes().to_vec();
+            let _ = self.frames.send_frame(reply).await;
+            return Err(io::Error::new(
+                ErrorKind::Unsupported,
+                format!(
+                    "a waos of WaOS 0.2 speaks legacy dev protocol {theirs}; this WaOS speaks {MAJOR}"
+                ),
+            ));
+        }
+        let theirs: Hello = ciborium::from_reader(frame.as_slice()).map_err(invalid_data)?;
+        self.send(ours).await?;
+        Ok(theirs)
+    }
+}
+
+impl<F: SendFrames> Connection<F> {
+    /// Sends `message` as one frame; refused, unsent, when it is over the limit.
+    pub async fn send(&mut self, message: &impl Serialize) -> io::Result<()> {
+        let frame = encoded(message)?;
+        self.frames.send_frame(frame).await
+    }
+}
+
+impl<F: ReceiveFrames> Connection<F> {
+    /// The next message; none once the other side closed between frames.
+    pub async fn receive<M: DeserializeOwned>(&mut self) -> io::Result<Option<M>> {
+        let Some(frame) = self.frames.receive_frame().await? else {
+            return Ok(None);
+        };
+        ciborium::from_reader(frame.as_slice())
+            .map(Some)
+            .map_err(invalid_data)
+    }
+}
+
+fn closed_before_hello() -> io::Error {
+    io::Error::new(
+        ErrorKind::UnexpectedEof,
+        "the other side closed before saying its hello",
+    )
+}
+
+/// `message` as CBOR, checked against the limit.
+fn encoded(message: &impl Serialize) -> io::Result<Vec<u8>> {
+    let mut frame = Vec::new();
     ciborium::into_writer(message, &mut frame).map_err(invalid_data)?;
-    let len = accepted(frame.len() - PREFIX_BYTES)?;
-    // Within the limit, so within a `u32`.
-    frame[..PREFIX_BYTES].copy_from_slice(&(len as u32).to_le_bytes());
+    accepted(frame.len())?;
     Ok(frame)
 }
 
@@ -221,7 +275,10 @@ mod tests {
 
     use crate::messages::Component;
 
-    fn pair() -> (Connection<DuplexStream>, Connection<DuplexStream>) {
+    fn pair() -> (
+        Connection<StreamFrames<DuplexStream>>,
+        Connection<StreamFrames<DuplexStream>>,
+    ) {
         let (one, other) = tokio::io::duplex(64);
         (Connection::new(one), Connection::new(other))
     }
@@ -258,7 +315,7 @@ mod tests {
             let mut frame = Vec::new();
             frame.extend_from_slice(&4u32.to_le_bytes());
             frame.extend_from_slice(&10u32.to_le_bytes());
-            legacy_server.stream.write_all(&frame).await.unwrap();
+            legacy_server.frames.0.write_all(&frame).await.unwrap();
         });
         let error = client.hello(&hello()).await.unwrap_err();
         assert_eq!(error.kind(), ErrorKind::Unsupported);
@@ -274,7 +331,7 @@ mod tests {
         let mut frame = Vec::new();
         frame.extend_from_slice(&4u32.to_le_bytes());
         frame.extend_from_slice(&10u32.to_le_bytes());
-        legacy_client.stream.write_all(&frame).await.unwrap();
+        legacy_client.frames.0.write_all(&frame).await.unwrap();
         let error = server
             .accept_hello(&Hello::waos("WaOS 0.3.0"))
             .await
@@ -283,7 +340,7 @@ mod tests {
         assert!(error.to_string().contains("10"), "{error}");
 
         let mut reply = [0u8; 8];
-        legacy_client.stream.read_exact(&mut reply).await.unwrap();
+        legacy_client.frames.0.read_exact(&mut reply).await.unwrap();
         assert_eq!(u32::from_le_bytes(reply[..4].try_into().unwrap()), 4);
         assert_eq!(
             u32::from_le_bytes(reply[4..].try_into().unwrap()),
@@ -305,12 +362,18 @@ mod tests {
         );
     }
 
-    #[test]
-    fn the_count_is_four_bytes_little_endian_before_the_message() {
-        let frame = frame(&Component {
-            bytes: vec![1, 2, 3],
-        })
-        .unwrap();
+    #[tokio::test]
+    async fn the_count_is_four_bytes_little_endian_before_the_message() {
+        let (mut sender, mut receiver) = pair();
+        tokio::spawn(async move {
+            sender
+                .send(&Component {
+                    bytes: vec![1, 2, 3],
+                })
+                .await
+        });
+        let mut frame = [0; 15];
+        receiver.frames.0.read_exact(&mut frame).await.unwrap();
         assert_eq!(&frame[..4], &11u32.to_le_bytes());
         // CBOR writes the struct as a map, and its bytes as a byte string: `{"bytes": h'010203'}`.
         assert_eq!(
@@ -323,7 +386,8 @@ mod tests {
     async fn a_count_over_the_limit_is_refused_before_a_body_is_read() {
         let (mut sender, mut receiver) = pair();
         sender
-            .stream
+            .frames
+            .0
             .write_all(&u32::MAX.to_le_bytes())
             .await
             .unwrap();
@@ -355,7 +419,7 @@ mod tests {
     #[tokio::test]
     async fn closing_inside_a_frame_is_an_error() {
         let (mut sender, mut receiver) = pair();
-        sender.stream.write_all(&[8, 0]).await.unwrap();
+        sender.frames.0.write_all(&[8, 0]).await.unwrap();
         drop(sender);
         let error = receiver.receive::<u32>().await.unwrap_err();
         assert_eq!(error.kind(), ErrorKind::UnexpectedEof);

@@ -8,7 +8,7 @@
 //! and `waos stop` ends it.
 
 use anyhow::{Context, Result, bail};
-use waos_dev_protocol::{ClientStream, Connection, Launch, LaunchAnswer, Request};
+use waos_dev_protocol::{ClientConnection, Launch, LaunchAnswer, Request};
 use waos_package::ProgramId;
 
 use crate::asking;
@@ -40,7 +40,7 @@ pub async fn launch(
 /// Launches the installed program `id`, `name` to its user, over `connection`, after saying its
 /// hello, with `arguments` and `variables` for this launch alone; returns once it runs.
 pub async fn launch_on(
-    connection: Connection<ClientStream>,
+    connection: ClientConnection,
     id: &ProgramId,
     name: &str,
     arguments: &[String],
@@ -100,7 +100,7 @@ mod tests {
             }
             launch
         });
-        let client = Connection::connect(&socket).await.unwrap();
+        let client = ClientConnection::connect(&socket).await.unwrap();
         let id: ProgramId = "dev.example.notes.development".parse().unwrap();
         let arguments = ["--port".to_owned(), "8080".to_owned()];
         let variables = [("RUST_LOG".to_owned(), "debug".to_owned())];

@@ -10,8 +10,8 @@
 
 use waos::{ExtensionError, RunningProgram};
 use waos_dev_protocol::{
-    Connection, ExtensionAnswer, Refusal, RefusalKind, ServerStream, ServingProgram,
-    ServingPrograms, ServingProgramsAnswer,
+    ExtensionAnswer, Refusal, RefusalKind, ServerConnection, ServingProgram, ServingPrograms,
+    ServingProgramsAnswer,
 };
 use waos_package::ProgramId;
 use waos_store::Store;
@@ -22,7 +22,7 @@ use super::runs::Runs;
 /// Answers a connection's `Extension`: the extension `name` of the program `id` called with
 /// `params`, and its answer, or why there is none.
 pub(crate) async fn call(
-    mut connection: Connection<ServerStream>,
+    mut connection: ServerConnection,
     runs: &Runs,
     id: &ProgramId,
     name: &str,
@@ -45,7 +45,7 @@ pub(crate) async fn call(
 
 /// Answers a connection's `ServingPrograms`: each program running that serves extensions, by the
 /// name `store` gives it, in this WaOS's process.
-pub(crate) async fn serving(mut connection: Connection<ServerStream>, runs: &Runs, store: &Store) {
+pub(crate) async fn serving(mut connection: ServerConnection, runs: &Runs, store: &Store) {
     let programs = runs
         .programs()
         .await

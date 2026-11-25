@@ -12,7 +12,7 @@
 use futures::StreamExt;
 use futures::stream::{self, BoxStream};
 use waos::{RunningProgram, TraceKind, WaOS};
-use waos_dev_protocol::{Connection, InspectAnswer, Inspection, ServerStream, TracedCapability};
+use waos_dev_protocol::{InspectAnswer, Inspection, ServerConnection, TracedCapability};
 use waos_package::ProgramId;
 
 use super::dev_refusal;
@@ -27,7 +27,7 @@ pub(crate) struct InspectionContext<'a> {
 
 /// Answers a connection's `Inspect`: what `asked` asks of the program `id`.
 pub(crate) async fn answer(
-    mut connection: Connection<ServerStream>,
+    mut connection: ServerConnection,
     context: InspectionContext<'_>,
     id: &ProgramId,
     asked: Inspection,
@@ -83,11 +83,7 @@ fn summary(engine: &WaOS, id: &ProgramId, days: u32) -> Vec<String> {
 
 /// Sends each event of `program`'s uses of `kinds` as it comes, until the connection closes or
 /// the program ends.
-async fn trace(
-    connection: Connection<ServerStream>,
-    program: &RunningProgram,
-    kinds: &[TraceKind],
-) {
+async fn trace(connection: ServerConnection, program: &RunningProgram, kinds: &[TraceKind]) {
     let streams: Vec<BoxStream<'static, waos::TraceEvent>> = kinds
         .iter()
         .filter_map(|kind| program.trace(*kind))
@@ -100,7 +96,7 @@ async fn trace(
 /// Sends `first`, where there is anything, then each of `lines` as it comes, a line an
 /// `Inspected`, until the connection closes or the lines end.
 async fn send_lines(
-    connection: Connection<ServerStream>,
+    connection: ServerConnection,
     first: Vec<String>,
     mut lines: BoxStream<'static, String>,
 ) {

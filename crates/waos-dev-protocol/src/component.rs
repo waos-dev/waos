@@ -16,18 +16,16 @@
 
 use std::io;
 
-use sha2::{Digest as _, Sha256};
-use tokio::io::{AsyncRead, AsyncWrite};
-
-use crate::connection::{Connection, invalid_data};
+use crate::connection::{Connection, ReceiveFrames, SendFrames, invalid_data};
 use crate::messages::Component;
+use sha2::{Digest as _, Sha256};
 
 /// How many bytes of a component each `Component` frame carries, at most: far under the largest
 /// frame a connection accepts, so the cap keeps guarding each frame while the whole component is
 /// as large as it likes.
 pub const CHUNK_BYTES: usize = 8 << 20;
 
-impl<S: AsyncWrite + Unpin> Connection<S> {
+impl<F: SendFrames> Connection<F> {
     /// Sends `component` as the `Component` frames its `Install` announced: the parts in order, each
     /// at most [`CHUNK_BYTES`].
     pub async fn send_component(&mut self, component: &[u8]) -> io::Result<()> {
@@ -41,7 +39,7 @@ impl<S: AsyncWrite + Unpin> Connection<S> {
     }
 }
 
-impl<S: AsyncRead + Unpin> Connection<S> {
+impl<F: ReceiveFrames> Connection<F> {
     /// The component an `Install` announced as `length` bytes of `digest`: the `Component` frames
     /// that follow, assembled and checked. A frame that is not a part of the component, or more
     /// bytes than the length announced, is an error, and so is a digest that does not hold once
@@ -95,10 +93,13 @@ mod tests {
     use tokio::io::DuplexStream;
 
     use super::*;
+    use crate::connection::StreamFrames;
     use crate::messages::Install;
     use waos_package::ProgramId;
 
-    fn pair() -> (Connection<DuplexStream>, Connection<DuplexStream>) {
+    type Duplex = Connection<StreamFrames<DuplexStream>>;
+
+    fn pair() -> (Duplex, Duplex) {
         let (one, other) = tokio::io::duplex(64);
         (Connection::new(one), Connection::new(other))
     }
@@ -122,9 +123,7 @@ mod tests {
     }
 
     /// The `Install` at the other end of `receiver`, whose component the test reads.
-    async fn announced(
-        mut receiver: Connection<DuplexStream>,
-    ) -> (Connection<DuplexStream>, u64, [u8; 32]) {
+    async fn announced(mut receiver: Duplex) -> (Duplex, u64, [u8; 32]) {
         let install: Install = receiver.receive().await.unwrap().expect("an install");
         (receiver, install.length, install.digest)
     }

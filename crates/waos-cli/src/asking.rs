@@ -9,7 +9,7 @@
 
 use anyhow::{Context, Result, anyhow, bail};
 use serde::de::DeserializeOwned;
-use waos_dev_protocol::{ClientStream, Connection, Hello, Request};
+use waos_dev_protocol::{ClientConnection, Connection, Hello, Request};
 
 use crate::connecting::{WaOSStarter, nobody_answers};
 
@@ -33,7 +33,7 @@ pub async fn ask_starting<A: DeserializeOwned>(
 /// What the WaOS at the other end of `connection` answers `request`, its hello read and checked
 /// first.
 pub async fn answer<A: DeserializeOwned>(
-    connection: Connection<ClientStream>,
+    connection: ClientConnection,
     request: &Request,
 ) -> Result<A> {
     let mut connection = greeted(connection, request).await?;
@@ -48,9 +48,9 @@ pub async fn answer<A: DeserializeOwned>(
 /// `connection` with WaOS's hello read and checked against `request`, as this build's: a mismatch
 /// is the error, in the words naming both builds and which one to update.
 pub async fn greeted(
-    mut connection: Connection<ClientStream>,
+    mut connection: ClientConnection,
     request: &Request,
-) -> Result<Connection<ClientStream>> {
+) -> Result<ClientConnection> {
     let ours = Hello::command(BUILD);
     let theirs = connection
         .hello(&ours)
@@ -82,12 +82,12 @@ pub async fn ask_if_answered<A: DeserializeOwned>(request: &Request) -> Result<U
 }
 
 /// A connection to the WaOS running, never started.
-pub async fn connect() -> Result<Connection<ClientStream>> {
+pub async fn connect() -> Result<ClientConnection> {
     connect_at(&waos_dev_protocol::listener_path()).await
 }
 
 /// A connection to the WaOS running at `socket`, never started.
-pub async fn connect_at(socket: &std::path::Path) -> Result<Connection<ClientStream>> {
+pub async fn connect_at(socket: &std::path::Path) -> Result<ClientConnection> {
     match Connection::connect(socket).await {
         Ok(connection) => Ok(connection),
         Err(error) if nobody_answers(&error) => {

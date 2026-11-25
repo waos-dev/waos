@@ -12,7 +12,7 @@ use std::io::{self, Write};
 use std::process::ExitCode;
 
 use anyhow::{Context, Result, bail};
-use waos_dev_protocol::{ClientStream, Connection, OutputStream, Request, RunEnd, RunEvent};
+use waos_dev_protocol::{ClientConnection, OutputStream, Request, RunEnd, RunEvent};
 use waos_package::ProgramId;
 
 use crate::{asked, asking, stop};
@@ -32,7 +32,7 @@ pub enum OnInterrupt {
 /// Attaches over `connection` to the program `id`, `name` to its user, after saying its hello,
 /// and writes what it writes until it ends, or until Ctrl-C, which does what `on_interrupt` says.
 pub async fn attach_on(
-    connection: Connection<ClientStream>,
+    connection: ClientConnection,
     id: &ProgramId,
     name: &str,
     on_interrupt: OnInterrupt,
@@ -282,7 +282,7 @@ mod tests {
                 .await
                 .unwrap();
         });
-        let client = Connection::connect(&socket).await.unwrap();
+        let client = ClientConnection::connect(&socket).await.unwrap();
         let id: ProgramId = "dev.example.notes.development".parse().unwrap();
         let status = attach_on(client, &id, "notes", OnInterrupt::Detach)
             .await
@@ -313,7 +313,7 @@ mod tests {
                 .await
                 .unwrap();
         });
-        let client = Connection::connect(&socket).await.unwrap();
+        let client = ClientConnection::connect(&socket).await.unwrap();
         let id: ProgramId = "dev.example.notes.development".parse().unwrap();
         let status = attach_on(client, &id, "notes", OnInterrupt::Stop)
             .await

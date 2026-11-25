@@ -10,7 +10,7 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
-use waos_dev_protocol::{ClientStream, Connection};
+use waos_dev_protocol::{ClientConnection, Connection};
 
 use crate::waos_app;
 
@@ -37,7 +37,7 @@ impl WaOSStarter for DefaultStarter {
 
 /// The WaOS on this machine: connected to at once when one answers, and started via `starter` and
 /// waited for otherwise.
-pub async fn connect_or_start(starter: &dyn WaOSStarter) -> Result<Connection<ClientStream>> {
+pub async fn connect_or_start(starter: &dyn WaOSStarter) -> Result<ClientConnection> {
     let socket = waos_dev_protocol::listener_path();
     match Connection::connect(&socket).await {
         Ok(connection) => return Ok(connection),

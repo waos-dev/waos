@@ -12,7 +12,7 @@ use anyhow::{Context, Result};
 use waos::bindings::wasdk::platform::notifications::Activation;
 use waos::{OpenRequest, RunningProgram};
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
-use waos_dev_protocol::{Connection, OpenAnswer, Refusal, RefusalKind, ServerStream};
+use waos_dev_protocol::{OpenAnswer, Refusal, RefusalKind, ServerConnection};
 use waos_package::ProgramId;
 use waos_store::Store;
 
@@ -76,7 +76,7 @@ pub(crate) async fn program_named(
 /// not.
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(crate) async fn answer(
-    mut connection: Connection<ServerStream>,
+    mut connection: ServerConnection,
     installed: &InstalledRuns,
     store: &Store,
     id: &ProgramId,

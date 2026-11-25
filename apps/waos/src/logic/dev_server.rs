@@ -36,7 +36,7 @@ use tokio::sync::{oneshot, watch};
 use tokio::task::JoinSet;
 use waos::OpenRequest;
 use waos::bindings::wasdk::platform::windows::Size;
-use waos_dev_protocol::{Connection, Hello, Listener, MAJOR, RefusedAnswer, Request, ServerStream};
+use waos_dev_protocol::{Hello, Listener, MAJOR, RefusedAnswer, Request, ServerConnection};
 use waos_store::Store;
 
 /// This build, as its hello names it: "WaOS 0.3.0".
@@ -256,7 +256,7 @@ impl ConnectionContext {
 
 /// Serves `connection` to its end: the request its first message asks for, or nothing when it
 /// asks for none, after the hellos say the two halves speak the same protocol.
-async fn serve_connection(mut connection: Connection<ServerStream>, context: ConnectionContext) {
+async fn serve_connection(mut connection: ServerConnection, context: ConnectionContext) {
     let theirs = match connection.accept_hello(&Hello::waos(BUILD)).await {
         Ok(theirs) => theirs,
         Err(error) if error.kind() == io::ErrorKind::Unsupported => {
@@ -359,11 +359,12 @@ pub(crate) mod tests {
 
     use serde::de::DeserializeOwned;
     use waos::{RunningProgram, WaOS};
-    use waos_dev_protocol::ClientStream;
+
     use waos_dev_protocol::{
-        Answer, Asked, Component, Connection, FileDialog, Hello, Install, InstallAnswer, Launch,
-        LaunchAnswer, Locality, OpenAnswer, OutputStream, Question, RefusalKind, Request, Row,
-        RunEnd, RunEvent, StopAnswer, UninstallAnswer, Upload, component_digest,
+        Answer, Asked, ClientConnection, Component, Connection, FileDialog, Hello, Install,
+        InstallAnswer, Launch, LaunchAnswer, Locality, OpenAnswer, OutputStream, Question,
+        RefusalKind, Request, Row, RunEnd, RunEvent, StopAnswer, UninstallAnswer, Upload,
+        component_digest,
     };
     use waos_package::ProgramId;
 
@@ -495,7 +496,7 @@ pub(crate) mod tests {
 
         /// `component` installed, launched and attached to as the program `id`, as `waos run`
         /// runs it: the attach's connection, the program running as `id`'s development id.
-        pub(crate) async fn run(&self, id: &str, component: &Path) -> Connection<ClientStream> {
+        pub(crate) async fn run(&self, id: &str, component: &Path) -> ClientConnection {
             self.run_with(id, component, Vec::new(), Vec::new()).await
         }
 
@@ -505,7 +506,7 @@ pub(crate) mod tests {
             id: &str,
             component: &Path,
             variables: Vec<(String, String)>,
-        ) -> Connection<ClientStream> {
+        ) -> ClientConnection {
             self.run_with(id, component, Vec::new(), variables).await
         }
 
@@ -515,7 +516,7 @@ pub(crate) mod tests {
             id: &str,
             component: &Path,
             arguments: Vec<String>,
-        ) -> Connection<ClientStream> {
+        ) -> ClientConnection {
             self.run_with(id, component, arguments, Vec::new()).await
         }
 
@@ -525,7 +526,7 @@ pub(crate) mod tests {
             component: &Path,
             arguments: Vec<String>,
             variables: Vec<(String, String)>,
-        ) -> Connection<ClientStream> {
+        ) -> ClientConnection {
             let component = fs::read(component).unwrap();
             let installed = self.install(id, &component).await;
             assert_eq!(
@@ -613,7 +614,7 @@ pub(crate) mod tests {
         }
 
         /// An attach to the program `id`, its request sent.
-        pub(crate) async fn attach(&self, id: &ProgramId) -> Connection<ClientStream> {
+        pub(crate) async fn attach(&self, id: &ProgramId) -> ClientConnection {
             let mut client = self.client().await;
             client
                 .send(&Request::Attach { id: id.clone() })
@@ -623,7 +624,7 @@ pub(crate) mod tests {
         }
 
         /// A client connected, its hello and WaOS's exchanged.
-        async fn client(&self) -> Connection<ClientStream> {
+        async fn client(&self) -> ClientConnection {
             let mut client = Connection::connect(&self.socket).await.unwrap();
             client.hello(&Hello::command("waos test")).await.unwrap();
             client
@@ -638,7 +639,7 @@ pub(crate) mod tests {
 
         /// A client connected over a network transport and agreed.
         #[cfg(unix)]
-        async fn network_client(&self) -> Connection<ClientStream> {
+        async fn network_client(&self) -> ClientConnection {
             let (client, server) = tokio::net::UnixStream::pair().unwrap();
             let context = ConnectionContext {
                 installed: self.installed.clone(),
@@ -685,7 +686,7 @@ pub(crate) mod tests {
     }
 
     /// The next frame, within the time a test waits; a connection closed is a failure.
-    pub(crate) async fn next<A: DeserializeOwned>(client: &mut Connection<ClientStream>) -> A {
+    pub(crate) async fn next<A: DeserializeOwned>(client: &mut ClientConnection) -> A {
         tokio::time::timeout(WITHIN, client.receive::<A>())
             .await
             .expect("a frame in time")
@@ -694,13 +695,13 @@ pub(crate) mod tests {
     }
 
     /// The first frame of an attach to a program that runs.
-    pub(crate) async fn started(client: &mut Connection<ClientStream>) {
+    pub(crate) async fn started(client: &mut ClientConnection) {
         assert_eq!(next::<RunEvent>(client).await, RunEvent::Started);
     }
 
     /// Every frame up to and including the first `wanted` accepts.
     async fn frames_until(
-        client: &mut Connection<ClientStream>,
+        client: &mut ClientConnection,
         wanted: impl Fn(&RunEvent) -> bool,
     ) -> Vec<RunEvent> {
         let mut frames = Vec::new();

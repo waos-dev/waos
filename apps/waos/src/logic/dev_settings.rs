@@ -10,9 +10,9 @@
 use std::sync::Arc;
 
 use waos_dev_protocol::{
-    ASK, AUDIO_OUTPUT, Answer, Connection, FileDialog, LINK_SCHEME, MACHINE, Offered, Question,
-    Refusal, RefusalKind, Role, Row, SIMULATED_MICROPHONE, ServerStream, SettingRow,
-    SettingsAnswer, SimulatedSound, Switch,
+    ASK, AUDIO_OUTPUT, Answer, FileDialog, LINK_SCHEME, MACHINE, Offered, Question, Refusal,
+    RefusalKind, Role, Row, SIMULATED_MICROPHONE, ServerConnection, SettingRow, SettingsAnswer,
+    SimulatedSound, Switch,
 };
 use waos_package::ProgramId;
 use waos_store::{ProgramSettings, Store, StoreError};
@@ -33,7 +33,7 @@ pub(crate) struct SettingsContext {
 /// Answers a connection's `Settings`, with `set` none, or its `Set`: the rows of the program
 /// `id`'s settings, after the change where one is, or why it could not answer.
 pub(crate) async fn answer(
-    mut connection: Connection<ServerStream>,
+    mut connection: ServerConnection,
     context: &SettingsContext,
     id: &ProgramId,
     set: Option<Row>,

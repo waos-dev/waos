@@ -29,6 +29,7 @@ use windows_sys::Win32::Foundation::{ERROR_ACCESS_DENIED, ERROR_PIPE_BUSY};
 
 use crate::connection::Connection;
 use crate::os::windows::{UserOnly, owner_sid, user_sid};
+use crate::{ClientConnection, ServerConnection};
 
 /// The stream of a connection `waos` made: a named pipe's client end.
 pub type ClientStream = NamedPipeClient;
@@ -50,10 +51,10 @@ pub fn listener_path() -> PathBuf {
     PathBuf::from(format!(r"\\.\pipe\waos-dev-{user}"))
 }
 
-impl Connection<ClientStream> {
+impl ClientConnection {
     /// Connects to the WaOS listening at `path`: `NotFound` when none is, and `PermissionDenied`
     /// when the pipe there is another user's.
-    pub async fn connect(path: &Path) -> io::Result<Connection<ClientStream>> {
+    pub async fn connect(path: &Path) -> io::Result<ClientConnection> {
         let pipe = open_when_free(path.as_os_str()).await?;
         refuse_another_users(&pipe, path)?;
         Ok(Connection::new(pipe))
@@ -126,7 +127,7 @@ impl Listener {
     }
 
     /// The next connection: one run. The next instance is made before it is handed out.
-    pub async fn accept(&mut self) -> io::Result<Connection<ServerStream>> {
+    pub async fn accept(&mut self) -> io::Result<ServerConnection> {
         self.waiting.connect().await?;
         let next = self
             .security

@@ -51,7 +51,9 @@ mod socket;
 mod test_place;
 
 pub use component::{CHUNK_BYTES, component_digest};
-pub use connection::{Connection, Locality, MAX_FRAME_BYTES};
+pub use connection::{
+    Connection, Frames, Locality, MAX_FRAME_BYTES, ReceiveFrames, SendFrames, StreamFrames,
+};
 pub use hello::{Hello, MAJOR, Mismatch, Peer, SERVED};
 pub use messages::{
     Component, ExtensionAnswer, Input, InputAnswer, InputDone, InspectAnswer, Inspection, Install,
@@ -70,3 +72,15 @@ pub use settings_rows::{
 #[cfg(unix)]
 pub use socket::{ClientStream, Listener, ServerStream, listener_path};
 pub use test_place::TestPlace;
+
+/// A connection `waos` made to the WaOS on this machine.
+pub type ClientConnection = Connection<StreamFrames<ClientStream>>;
+
+/// A connection a WaOS accepted.
+pub type ServerConnection = Connection<StreamFrames<ServerStream>>;
+
+/// The half of a [`ServerConnection`] that receives.
+pub type ServerReadHalf = Connection<StreamFrames<tokio::io::ReadHalf<ServerStream>>>;
+
+/// The half of a [`ServerConnection`] that sends.
+pub type ServerWriteHalf = Connection<StreamFrames<tokio::io::WriteHalf<ServerStream>>>;

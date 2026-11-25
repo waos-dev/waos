@@ -10,7 +10,7 @@
 
 use anyhow::{Context, Result, bail};
 use waos_dev_protocol::{
-    ClientStream, Connection, Install, InstallAnswer, Request, Upload, component_digest,
+    ClientConnection, Install, InstallAnswer, Request, Upload, component_digest,
 };
 use waos_package::{Category, FileAssociation, ProgramId, ProgramKind, Version};
 
@@ -51,10 +51,7 @@ pub async fn install(build: &InstallBuild, starter: &dyn WaOSStarter) -> Result<
 
 /// Installs `build` over `connection` as its program's development install, after saying its
 /// hello; answers the id it is installed under.
-pub async fn install_on(
-    connection: Connection<ClientStream>,
-    build: &InstallBuild,
-) -> Result<ProgramId> {
+pub async fn install_on(connection: ClientConnection, build: &InstallBuild) -> Result<ProgramId> {
     let request = Request::Install(Install {
         id: build.id.clone(),
         kind: build.kind,
@@ -88,11 +85,7 @@ pub async fn install_on(
 }
 
 /// Sends `component` unless WaOS answers that the development install holds it.
-async fn upload(
-    connection: &mut Connection<ClientStream>,
-    name: &str,
-    component: &[u8],
-) -> Result<()> {
+async fn upload(connection: &mut ClientConnection, name: &str, component: &[u8]) -> Result<()> {
     match connection
         .receive::<Upload>()
         .await
@@ -176,7 +169,7 @@ mod tests {
             assert_eq!(server.receive::<Component>().await.unwrap(), None);
             (install, component)
         });
-        let client = Connection::connect(&socket).await.unwrap();
+        let client = ClientConnection::connect(&socket).await.unwrap();
         let id = install_on(client, &build()).await.unwrap();
         assert_eq!(id.as_str(), "dev.example.notes.development");
         served.await.unwrap()

@@ -12,10 +12,12 @@
 
 use std::sync::Arc;
 
-use tokio::io::{ReadHalf, WriteHalf};
 use tokio::sync::broadcast::{self, error::RecvError};
 use waos::Watching;
-use waos_dev_protocol::{Asked, Connection, Refusal, RefusalKind, Request, RunEvent, ServerStream};
+use waos_dev_protocol::{
+    Asked, Refusal, RefusalKind, Request, RunEvent, ServerConnection, ServerReadHalf,
+    ServerWriteHalf,
+};
 use waos_package::ProgramId;
 
 use super::asking_now::AskingNow;
@@ -33,7 +35,7 @@ pub(crate) struct AttachContext<'a> {
 /// Serves a connection's `Attach` to its end: the program `id`'s output until it ends or the
 /// connection closes, or why there is none.
 pub(crate) async fn serve(
-    mut connection: Connection<ServerStream>,
+    mut connection: ServerConnection,
     id: &ProgramId,
     context: AttachContext<'_>,
 ) {
@@ -89,7 +91,7 @@ fn attached_to(
 
 /// Sends every frame queued, in order, until the queue is closed and drained; a connection gone
 /// ends it.
-async fn send_frames(mut writing: Connection<WriteHalf<ServerStream>>, frames: Arc<Frames>) {
+async fn send_frames(mut writing: ServerWriteHalf, frames: Arc<Frames>) {
     while let Some(frame) = frames.next().await {
         if writing.send(&frame).await.is_err() {
             break;
@@ -121,7 +123,7 @@ async fn tell_asking(
 
 /// Resolves once the other side closed. What it sends after its `Attach` is not part of the
 /// protocol and is dropped.
-async fn closed(mut reading: Connection<ReadHalf<ServerStream>>) {
+async fn closed(mut reading: ServerReadHalf) {
     loop {
         match reading.receive::<Request>().await {
             Ok(Some(message)) => tracing::warn!(?message, "a message after the attach was asked"),
