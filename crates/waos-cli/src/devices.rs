@@ -120,6 +120,8 @@ fn write(path: &Path, file: &DevicesFile) -> Result<()> {
         let mut written = create_private_file(&new)?;
         written.write_all(text.as_bytes())?;
         written.sync_all()?;
+        // Windows refuses to move a file that is still open.
+        drop(written);
         fs::rename(&new, path)
     };
     write().with_context(|| format!("writing {}", path.display()))
