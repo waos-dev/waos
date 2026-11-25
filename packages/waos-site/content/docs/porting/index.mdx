@@ -27,6 +27,14 @@ What a program cannot have: the browser's APIs (web-sys, js-sys), a process of i
 6. **Patch the crates that refuse WASI 0.3,** each as a copy under `waos/patched/`, `[patch]`ed in the manifest, with a README saying what changed and from which version. Most ports need the ones in the table below.
 7. **Run it, and read what it says.** `waos run --release --env RUST_LOG=debug` shows the app's log; `waos ui screenshot`, `tap`, `type` and `key` drive it without a person ([The tools](/docs/tools)); `waos inspect` shows each file, machine command and watch it used.
 
+## Libraries with a WaOS backend
+
+An app written against one of these takes WaOS's fork through `[patch.crates-io]` and keeps its own code. Each fork's `WAOS.md` says what it does and leaves out. Before porting a library by hand, look here; when you add a WaOS backend to one, fork it under `github.com/waos-dev` and add its row.
+
+| Library | Fork | Serves |
+|---|---|---|
+| winit 0.30 | `waos-dev/winit`, branch `waos` | windows, input, the event loop |
+
 ## What every port meets
 
 | What | Why | What ports do |
@@ -38,5 +46,5 @@ What a program cannot have: the browser's APIs (web-sys, js-sys), a process of i
 | tokio's `rt-multi-thread`, `fs`, `net` don't build | tokio refuses them on wasm | `--cfg tokio_unstable` builds them; the I/O driver has no WASI 0.3 backend, so a runtime enables time alone |
 | tokio's timers hold up other threads | tokio takes a wasm target without `atomics` for one without threads, and sleeps out each timed park with its lock held | A copy whose `park_timeout` waits on its condvar on `wasm32-wasip3` (Hummingbird's `waos/patched/tokio`) |
 | A thread that blocks for another (`block_on` on the main thread, an in-place `blocking` pool) never returns | Before threads, everything ran on one thread | With [threads](/docs/guide/threads), the crate's own threads run; without, the work runs in place |
-| A platform's own crates (`cpal`, `mimalloc`, Discord's IPC, `rfd`, `open`) | No backend for WASI | Gate them, and give the app WaOS's own: [audio](/docs/guide/audio), [dialogs](/docs/guide/file-dialogs), [opener](/docs/guide/opener) |
+| A platform's own crates (`cpal`, `mimalloc`, Discord's IPC, `rfd`, `open`) | No backend for WASI | Take the library's fork where it has a [WaOS backend](#libraries-with-a-waos-backend); otherwise gate them, and give the app WaOS's own: [audio](/docs/guide/audio), [dialogs](/docs/guide/file-dialogs), [opener](/docs/guide/opener) |
 | A crate's wasm build is the browser's (reqwest, `gpui_web`) | `target_family = "wasm"` taken for the browser | Gate the feature off, or use WASI's own (`wasi:http` through `wasdk`) |
