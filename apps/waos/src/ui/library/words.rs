@@ -24,6 +24,9 @@ pub(crate) const REMOVE: &str = "Remove";
 pub(crate) const ADD_TO_HOME_SCREEN: &str = "Add to Home Screen";
 /// On a running program's icon, which stops it.
 pub(crate) const CLOSE: &str = "Close";
+/// On a running program's icon on a desktop, which stops it where it stands, as the system's own
+/// Force Quit does.
+pub(crate) const FORCE_QUIT: &str = "Force Quit";
 pub(crate) const CANCEL: &str = "Cancel";
 /// Remove, on a program, which asks first.
 pub(crate) const ASK_TO_REMOVE: &str = "Remove…";

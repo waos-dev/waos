@@ -715,6 +715,31 @@ fn a_package_opened_with_waos_summons_the_launcher_with_the_question() {
 }
 
 #[test]
+fn a_running_program_is_force_quit_from_its_icons_menu() {
+    let (mut desktop, launcher) = desktop();
+    let forever = std::fs::read(waos_test_programs::FOREVER_SHOWN).unwrap();
+    install(&mut desktop, TRIANGLE, "Triangle", "1.0.0", &forever);
+    let view = launcher_view(&desktop);
+    desktop.right_click(view, "Triangle");
+    assert!(
+        !desktop.shows(words::FORCE_QUIT),
+        "nothing to force quit while it does not run"
+    );
+    desktop.press_escape();
+    let id: ProgramId = TRIANGLE.parse().unwrap();
+    desktop.update(|library, cx| library.open(&id, cx));
+    desktop.settle_until("it runs", |desktop| {
+        desktop.count::<RunningDot>(|_| true) == 1
+    });
+    summon(&mut desktop, &launcher);
+    desktop.right_click(view, "Triangle");
+    desktop.tap(view, words::FORCE_QUIT);
+    desktop.settle_until("it no longer runs", |desktop| {
+        desktop.count::<RunningDot>(|_| true) == 0
+    });
+}
+
+#[test]
 fn a_program_is_removed_from_its_icons_menu_once_the_user_says_so() {
     let (mut desktop, _launcher) = desktop();
     install(&mut desktop, TRIANGLE, "Triangle", "1.0.0", b"\0asm");

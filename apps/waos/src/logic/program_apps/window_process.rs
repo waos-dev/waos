@@ -399,9 +399,12 @@ impl WindowProcess {
         self.program.view_request_failed(request.id, error);
     }
 
-    /// The program ended: the window process closes its windows and ends.
+    /// The program ended: the window process closes its windows and ends. Nothing is sent to one
+    /// already gone, as when the program ended because its app did.
     pub(crate) fn program_ended(&self) {
-        (self.send)(ToWindow::ProgramEnded);
+        if self.connected().is_some() {
+            (self.send)(ToWindow::ProgramEnded);
+        }
     }
 
     /// Carries out what the window process sent, with the ports that came with it.
