@@ -13,13 +13,13 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use waos::bindings::wasdk::platform::screens::ScreenId;
 use waos::bindings::wasdk::platform::views::{
-    Cursor, EdgeSwipe, OverlayStyle, PixelRect, TextEditingValue, TextInputConfiguration,
+    Cursor, OverlayStyle, PixelRect, SystemBarsBehavior, TextEditingValue, TextInputConfiguration,
     ViewFocusDirection, ViewFocusState,
 };
 use waos::bindings::wasdk::platform::windows::{Rect, Size};
 
 use crate::records::{
-    CursorDef, EdgeSwipeDef, OverlayStyleDef, PixelRectDef, RectDef, TextEditingValueDef,
+    CursorDef, OverlayStyleDef, PixelRectDef, RectDef, SystemBarsBehaviorDef, TextEditingValueDef,
     TextInputConfigurationDef, ViewFocusDirectionDef, ViewFocusStateDef, option_size,
 };
 
@@ -42,7 +42,7 @@ pub enum ViewCall {
 #[derive(Debug, Serialize, Deserialize)]
 pub enum SystemBarsCall {
     SetOverlayStyle(#[serde(with = "OverlayStyleDef")] OverlayStyle),
-    Hide(#[serde(with = "EdgeSwipeDef")] EdgeSwipe),
+    Hide(#[serde(with = "SystemBarsBehaviorDef")] SystemBarsBehavior),
     Show,
 }
 

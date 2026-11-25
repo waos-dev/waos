@@ -27,13 +27,13 @@ use std::sync::Arc;
 use futures::StreamExt;
 use futures::channel::mpsc::UnboundedReceiver;
 use waft::ui::{
-    CompositionLayer, EdgeSwipe as WaftEdgeSwipe, SystemUiOverlayStyle, ViewFocusState, ViewId,
-    ViewMetrics, ViewRef,
+    CompositionLayer, SystemBarsBehavior as WaftSystemBarsBehavior, SystemUiOverlayStyle,
+    ViewFocusState, ViewId, ViewMetrics, ViewRef,
 };
 use waft::{App, Context, Entity, EventEmitter, WeakEntity};
 use waos::Presence;
 use waos::bindings::wasdk::platform::views::{
-    Cursor, EdgeSwipe, OverlayStyle, ViewFocusState as ProgramFocusState,
+    Cursor, OverlayStyle, SystemBarsBehavior, ViewFocusState as ProgramFocusState,
 };
 use waos_window_messages::{SystemBarsCall, TextInputCall, ViewCall, WindowCall};
 
@@ -52,11 +52,11 @@ pub struct ShownView {
     /// The style of the system's bars over the view, each field as the program said it last;
     /// none until it says one.
     overlay_style: Option<OverlayStyle>,
-    /// Whether the program hid the bars over the view, and what an edge swipe does meanwhile;
+    /// Whether the program hid the bars over the view, and what a swipe from an edge does then;
     /// none while it wants them shown.
-    bars_hidden: Option<EdgeSwipe>,
+    bars_hidden: Option<SystemBarsBehavior>,
     /// What the bars over the Waft view were last told: hidden, and how, or none for shown.
-    bars_told: Option<EdgeSwipe>,
+    bars_told: Option<SystemBarsBehavior>,
     /// What the program was last told of how the view stands.
     presence: Presence,
     /// What the program was last told of the view's metrics, as Waft reported them.
@@ -145,14 +145,14 @@ impl ShownView {
             ViewCall::SystemBars(SystemBarsCall::SetOverlayStyle(style)) => {
                 self.set_overlay_style(style, cx);
             }
-            ViewCall::SystemBars(SystemBarsCall::Hide(swipe)) => self.hide_bars(Some(swipe)),
+            ViewCall::SystemBars(SystemBarsCall::Hide(behavior)) => self.hide_bars(Some(behavior)),
             ViewCall::SystemBars(SystemBarsCall::Show) => self.hide_bars(None),
             ViewCall::Window(call) => cx.emit(call),
         }
     }
 
     /// The program hid the bars over the view, or showed them again where `hidden` is none.
-    fn hide_bars(&mut self, hidden: Option<EdgeSwipe>) {
+    fn hide_bars(&mut self, hidden: Option<SystemBarsBehavior>) {
         self.bars_hidden = hidden;
         self.tell_the_bars();
     }
@@ -170,7 +170,7 @@ impl ShownView {
             return;
         };
         match wanted {
-            Some(swipe) => bars.hide(waft_edge_swipe(swipe)),
+            Some(behavior) => bars.hide(waft_system_bars_behavior(behavior)),
             None => bars.show(),
         }
     }
@@ -264,10 +264,12 @@ impl ShownView {
     }
 }
 
-fn waft_edge_swipe(swipe: EdgeSwipe) -> WaftEdgeSwipe {
-    match swipe {
-        EdgeSwipe::System => WaftEdgeSwipe::System,
-        EdgeSwipe::Deferred => WaftEdgeSwipe::Deferred,
+fn waft_system_bars_behavior(behavior: SystemBarsBehavior) -> WaftSystemBarsBehavior {
+    match behavior {
+        SystemBarsBehavior::ShowBarsBySwipe => WaftSystemBarsBehavior::ShowBarsBySwipe,
+        SystemBarsBehavior::ShowTransientBarsBySwipe => {
+            WaftSystemBarsBehavior::ShowTransientBarsBySwipe
+        }
     }
 }
 

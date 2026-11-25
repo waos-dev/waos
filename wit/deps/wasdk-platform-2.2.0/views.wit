@@ -251,22 +251,24 @@ interface views {
     /// `SystemChrome.setSystemUIOverlayStyle`.
     set-overlay-style: func(style: overlay-style);
     /// Hides the bars over the view until `show`; what a swipe from a screen's edge does
-    /// meanwhile is `swipe`'s. Flutter's `SystemUiMode.immersive` is `hide(system)`,
-    /// `immersiveSticky` is `hide(deferred)`.
-    hide: func(swipe: edge-swipe);
+    /// meanwhile is `behavior`'s. Flutter's `SystemUiMode.immersive` is
+    /// `hide(show-bars-by-swipe)`, `immersiveSticky` is `hide(show-transient-bars-by-swipe)`.
+    hide: func(behavior: system-bars-behavior);
     /// Shows the bars again, drawn over the view: how a view starts. Flutter's
     /// `SystemUiMode.edgeToEdge`.
     show: func();
   }
 
+  /// What a swipe from a screen's edge does while the bars are hidden: Android's
+  /// `WindowInsetsController.setSystemBarsBehavior`.
   @since(version = 2.2.0)
-  enum edge-swipe {
-    /// The system acts on it as it always does, the bars coming back with it.
-    system,
-    /// The first swipe only shows the bars, for a moment, and the view keeps the touch; a
-    /// second swipe acts: Android's transient bars, iOS's deferred edge gestures. For a game,
-    /// where a stray swipe must not leave it.
-    deferred,
+  enum system-bars-behavior {
+    /// The swipe brings the bars back, and they stay; the system acts on it as usual.
+    show-bars-by-swipe,
+    /// The swipe shows the bars for a moment, over the view, which keeps the touch; a
+    /// second swipe acts. iOS's deferred edge gestures. For a game, where a stray swipe
+    /// must not leave it.
+    show-transient-bars-by-swipe,
   }
 
   /// The style of the system's bars over a view: Flutter's `SystemUiOverlayStyle` without the

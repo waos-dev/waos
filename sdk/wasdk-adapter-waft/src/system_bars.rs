@@ -3,7 +3,7 @@
 //! `SystemUiOverlayStyle` without the bars' colours, which the interface does not carry, and
 //! hides and shows them.
 
-use waft_embedder::{Brightness, EdgeSwipe, SystemBars, SystemUiOverlayStyle};
+use waft_embedder::{Brightness, SystemBars, SystemBarsBehavior, SystemUiOverlayStyle};
 use wasdk::system;
 use wasdk::views::{self, OverlayStyle};
 
@@ -15,8 +15,8 @@ impl SystemBars for WasdkSystemBars {
         self.0.set_overlay_style(platform_overlay_style(style));
     }
 
-    fn hide(&self, swipe: EdgeSwipe) {
-        self.0.hide(platform_edge_swipe(swipe));
+    fn hide(&self, behavior: SystemBarsBehavior) {
+        self.0.hide(platform_system_bars_behavior(behavior));
     }
 
     fn show(&self) {
@@ -24,10 +24,12 @@ impl SystemBars for WasdkSystemBars {
     }
 }
 
-fn platform_edge_swipe(swipe: EdgeSwipe) -> views::EdgeSwipe {
-    match swipe {
-        EdgeSwipe::System => views::EdgeSwipe::System,
-        EdgeSwipe::Deferred => views::EdgeSwipe::Deferred,
+fn platform_system_bars_behavior(behavior: SystemBarsBehavior) -> views::SystemBarsBehavior {
+    match behavior {
+        SystemBarsBehavior::ShowBarsBySwipe => views::SystemBarsBehavior::ShowBarsBySwipe,
+        SystemBarsBehavior::ShowTransientBarsBySwipe => {
+            views::SystemBarsBehavior::ShowTransientBarsBySwipe
+        }
     }
 }
 

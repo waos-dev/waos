@@ -63,8 +63,9 @@ use crate::bindings::wasdk::platform::notifications::NotificationError;
 use crate::bindings::wasdk::platform::opener::OpenError;
 use crate::bindings::wasdk::platform::screens::ScreenId;
 use crate::bindings::wasdk::platform::views::{
-    Cursor, EdgeSwipe, Metrics, OverlayStyle, PixelRect, Placement, RequestId, TextEditingValue,
-    TextInputConfiguration, ViewError, ViewFocusDirection, ViewFocusState, ViewId,
+    Cursor, Metrics, OverlayStyle, PixelRect, Placement, RequestId, SystemBarsBehavior,
+    TextEditingValue, TextInputConfiguration, ViewError, ViewFocusDirection, ViewFocusState,
+    ViewId,
 };
 use crate::bindings::wasdk::platform::windows::{Rect, Size, TitleBarAction};
 use crate::cameras::{CameraOutputs, CaptureSessionReports};
@@ -320,9 +321,9 @@ pub trait ShellSystemBars: Send + Sync {
     /// Styles the bars as `style` says, a field left out keeping what they have.
     fn set_overlay_style(&self, style: OverlayStyle);
 
-    /// Hides the bars until [`show`](Self::show), a swipe from a screen's edge acting as `swipe`
-    /// says meanwhile.
-    fn hide(&self, swipe: EdgeSwipe);
+    /// Hides the bars until [`show`](Self::show), a swipe from a screen's edge acting as
+    /// `behavior` says meanwhile.
+    fn hide(&self, behavior: SystemBarsBehavior);
 
     /// Shows the bars again, drawn over the view, as a view starts.
     fn show(&self);

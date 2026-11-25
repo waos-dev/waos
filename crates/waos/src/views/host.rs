@@ -25,11 +25,11 @@ use wasmtime::component::{
 };
 
 use crate::bindings::wasdk::platform::views::{
-    self, Cursor, EdgeSwipe, HostCompositionLayer, HostCompositionLayerWithStore, HostCompositor,
+    self, Cursor, HostCompositionLayer, HostCompositionLayerWithStore, HostCompositor,
     HostKeyReply, HostSystemBars, HostTextInput, HostView, HostViewWithStore, HostWithStore,
     KeyInput, Metrics, Mutator, OverlayStyle, PixelRect, PlacedLayer, Placement, RequestId,
-    TextEditingValue, TextInputConfiguration, ViewError, ViewEvent, ViewFocusDirection,
-    ViewFocusState, ViewId,
+    SystemBarsBehavior, TextEditingValue, TextInputConfiguration, ViewError, ViewEvent,
+    ViewFocusDirection, ViewFocusState, ViewId,
 };
 use crate::gpu::{Finishing, GpuInstance};
 use crate::hardware_buffers::{Canvases, ProgramHardwareBuffer, SubmittedWork, ViewCanvas};
@@ -466,8 +466,12 @@ impl HostSystemBars for ViewsCtx<'_> {
         Ok(())
     }
 
-    fn hide(&mut self, bars: Resource<SystemBars>, swipe: EdgeSwipe) -> wasmtime::Result<()> {
-        self.table.get(&bars)?.0.hide(swipe);
+    fn hide(
+        &mut self,
+        bars: Resource<SystemBars>,
+        behavior: SystemBarsBehavior,
+    ) -> wasmtime::Result<()> {
+        self.table.get(&bars)?.0.hide(behavior);
         Ok(())
     }
 

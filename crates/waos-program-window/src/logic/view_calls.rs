@@ -10,7 +10,7 @@ use std::time::Duration;
 use futures::channel::mpsc::{self, UnboundedReceiver, UnboundedSender};
 use waos::bindings::wasdk::platform::screens::ScreenId;
 use waos::bindings::wasdk::platform::views::{
-    EdgeSwipe, OverlayStyle, PixelRect, TextEditingValue, TextInputConfiguration,
+    OverlayStyle, PixelRect, SystemBarsBehavior, TextEditingValue, TextInputConfiguration,
 };
 use waos::bindings::wasdk::platform::windows::{Rect, Size};
 use waos::{ShellSystemBars, ShellTextInput, ShellWindow, ShellWindowSizeLimits};
@@ -57,8 +57,8 @@ impl ShellSystemBars for ViewCalls {
         self.system_bars(SystemBarsCall::SetOverlayStyle(style));
     }
 
-    fn hide(&self, swipe: EdgeSwipe) {
-        self.system_bars(SystemBarsCall::Hide(swipe));
+    fn hide(&self, behavior: SystemBarsBehavior) {
+        self.system_bars(SystemBarsCall::Hide(behavior));
     }
 
     fn show(&self) {

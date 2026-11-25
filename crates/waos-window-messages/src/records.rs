@@ -19,9 +19,9 @@ use waos::bindings::wasdk::platform::menus::{
 use waos::bindings::wasdk::platform::notifications::{Activation, NotificationError};
 use waos::bindings::wasdk::platform::system::Brightness;
 use waos::bindings::wasdk::platform::views::{
-    Cursor, EdgeSwipe, EditCommand, Insets, KeyDevice, KeyEvent, KeyKind, Metrics, NumberFormat,
-    OverlayStyle, PixelRect, PointerButtons, PointerChange, PointerDeviceKind, PointerEvent,
-    PointerSignalKind, TextAffinity, TextCapitalization, TextEditingValue, TextInputAction,
+    Cursor, EditCommand, Insets, KeyDevice, KeyEvent, KeyKind, Metrics, NumberFormat, OverlayStyle,
+    PixelRect, PointerButtons, PointerChange, PointerDeviceKind, PointerEvent, PointerSignalKind,
+    SystemBarsBehavior, TextAffinity, TextCapitalization, TextEditingValue, TextInputAction,
     TextInputConfiguration, TextInputType, TextRange, TextSelection, ViewError, ViewFocusDirection,
     ViewFocusEvent, ViewFocusState,
 };
@@ -278,10 +278,10 @@ pub(crate) enum BrightnessDef {
 }
 
 #[derive(Serialize, Deserialize)]
-#[serde(remote = "EdgeSwipe")]
-pub(crate) enum EdgeSwipeDef {
-    System,
-    Deferred,
+#[serde(remote = "SystemBarsBehavior")]
+pub(crate) enum SystemBarsBehaviorDef {
+    ShowBarsBySwipe,
+    ShowTransientBarsBySwipe,
 }
 
 #[derive(Serialize, Deserialize)]

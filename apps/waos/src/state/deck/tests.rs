@@ -12,11 +12,11 @@
 use std::time::Duration;
 
 use futures::FutureExt;
-use waft::ui::{EdgeSwipe as WaftEdgeSwipe, View};
+use waft::ui::{SystemBarsBehavior as WaftSystemBarsBehavior, View};
 use waft_cupertino::CupertinoAlertDialog;
 use waft_test::BarsShown;
 use waos::ProgramEnd;
-use waos::bindings::wasdk::platform::views::EdgeSwipe;
+use waos::bindings::wasdk::platform::views::SystemBarsBehavior;
 use waos_package::ProgramId;
 use waos_program_window::{ProgramCanvas, ProgramPicture};
 
@@ -219,11 +219,13 @@ fn a_tab_in_front_hides_the_bars_its_program_hid() {
     let bars = program_view
         .system_bars()
         .expect("a phone's tab has bars over it");
-    bars.hide(EdgeSwipe::Deferred);
+    bars.hide(SystemBarsBehavior::ShowTransientBarsBySwipe);
     phone.settle();
     assert_eq!(
         phone.bars_shown(),
-        [BarsShown::Hidden(WaftEdgeSwipe::Deferred)]
+        [BarsShown::Hidden(
+            WaftSystemBarsBehavior::ShowTransientBarsBySwipe
+        )]
     );
     phone.show(None);
     phone.show(Some(TRIANGLE));
@@ -231,9 +233,9 @@ fn a_tab_in_front_hides_the_bars_its_program_hid() {
     assert_eq!(
         phone.bars_shown(),
         [
-            BarsShown::Hidden(WaftEdgeSwipe::Deferred),
+            BarsShown::Hidden(WaftSystemBarsBehavior::ShowTransientBarsBySwipe),
             BarsShown::Shown,
-            BarsShown::Hidden(WaftEdgeSwipe::Deferred),
+            BarsShown::Hidden(WaftSystemBarsBehavior::ShowTransientBarsBySwipe),
             BarsShown::Shown,
         ]
     );

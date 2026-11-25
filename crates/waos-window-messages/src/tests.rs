@@ -7,8 +7,8 @@ use waos::bindings::wasdk::platform::menus::{
 };
 use waos::bindings::wasdk::platform::system::Brightness;
 use waos::bindings::wasdk::platform::views::{
-    Cursor, EdgeSwipe, Insets, KeyDevice, KeyKind, NumberFormat, OverlayStyle, PointerButtons,
-    PointerChange, PointerDeviceKind, PointerSignalKind, TextAffinity, TextCapitalization,
+    Cursor, Insets, KeyDevice, KeyKind, NumberFormat, OverlayStyle, PointerButtons, PointerChange,
+    PointerDeviceKind, PointerSignalKind, SystemBarsBehavior, TextAffinity, TextCapitalization,
     TextInputConfiguration, TextInputType, TextRange, TextSelection, ViewFocusDirection,
     ViewFocusState,
 };
@@ -160,7 +160,9 @@ fn the_programs_calls_on_a_view_cross_as_they_are() {
             status_bar_contrast_enforced: Some(false),
             navigation_bar_contrast_enforced: None,
         })),
-        ViewCall::SystemBars(SystemBarsCall::Hide(EdgeSwipe::Deferred)),
+        ViewCall::SystemBars(SystemBarsCall::Hide(
+            SystemBarsBehavior::ShowTransientBarsBySwipe,
+        )),
         ViewCall::SystemBars(SystemBarsCall::Show),
         ViewCall::TextInput(TextInputCall::SetClient(configuration)),
         ViewCall::TextInput(TextInputCall::SetEditingState(editing_value("hello"))),
