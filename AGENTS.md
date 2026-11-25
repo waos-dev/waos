@@ -8,6 +8,7 @@ The code calls an app a "program", the older word; rename it to "app" in what a 
 
 ```bash
 cargo build                                        # what runs on this machine; no app
+cargo waft run -p waos-app                         # the WaOS app, built with the loader and window library its apps' windows run in
 cargo test --workspace
 cargo clippy --workspace --all-targets
 cargo build -p <app> --target wasm32-wasip3        # an app, as a component

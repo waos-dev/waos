@@ -4,15 +4,18 @@
 //! asked or a set time after; each view keeps the picture presented last until the next replaces
 //! it, which the engine reads back (`ProgramView::picture`); and what the engine told each view and
 //! its window, its title, its size limits, whether it is maximized or full screen, is kept for whoever reads it,
-//! as a window system knows its windows. What `waos --headless` runs on, and the tests that run a
-//! program. Every other part of the engine's shell, the questions it asks among them, is its
-//! maker's to plug in, real or a test's own.
+//! as a window system knows its windows. It has a clipboard of its own, held in memory
+//! (`clipboard`), so programs copy and paste without the machine's clipboard changing. What
+//! `waos --headless` runs on, and the tests that run a program. Every other part of the engine's
+//! shell, the questions it asks among them, is its maker's to plug in, real or a test's own.
 //!
 //! The invariants a later editor will break: nothing here touches a window system; a view's last
 //! picture is released only once the next is presented or the view is gone, so a screenshot can
 //! always read it; the shell reaches its views only weakly, so it keeps nothing of a view the
 //! engine let go of; and a refresh reaches the engine only from the shell's own thread, never from
 //! inside the engine's call that asked for it.
+
+mod clipboard;
 
 use std::future::Future;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -22,6 +25,8 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use tokio::sync::watch;
+
+use self::clipboard::HeadlessClipboard;
 use waos::bindings::wasdk::platform::screens::{PixelSize, ScreenId};
 use waos::bindings::wasdk::platform::views::{
     Cursor, Insets, Metrics, OverlayStyle, PixelRect, Placement, TextEditingValue,
@@ -93,7 +98,7 @@ impl HeadlessShell {
             compositor: None,
             prompts,
             system_permissions: None,
-            clipboard: None,
+            clipboard: Some(Arc::new(HeadlessClipboard::default())),
             menu_bar: None,
             context_menus: None,
             tray_icons: None,
