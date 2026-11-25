@@ -15,7 +15,7 @@
 use std::time::Duration;
 
 use waos::bindings::wasdk::platform::windows::Size;
-use waos_dev_protocol::{Connection, Refusal, ResizeAnswer, Resized, ServerStream, WindowId};
+use waos_dev_protocol::{Refusal, ResizeAnswer, Resized, ServerConnection, WindowId};
 use waos_package::ProgramId;
 
 use super::dev_refusal;
@@ -28,7 +28,7 @@ const REPORT_WAIT: Duration = Duration::from_secs(2);
 /// Answers a connection's `Resize`: the window `window` of the program `id` sized so its view is
 /// `size` logical points, then `Resized` with the size it took, or why it reached none.
 pub(crate) async fn answer(
-    mut connection: Connection<ServerStream>,
+    mut connection: ServerConnection,
     runs: &Runs,
     id: &ProgramId,
     window: Option<WindowId>,

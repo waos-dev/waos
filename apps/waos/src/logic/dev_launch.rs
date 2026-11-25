@@ -17,11 +17,11 @@
 use std::sync::Arc;
 
 use anyhow::Context as _;
-use tokio::io::{ReadHalf, WriteHalf};
 use tracing::Instrument;
 use waos::ProgramEnvironment;
 use waos_dev_protocol::{
-    Connection, Launch, LaunchAnswer, Refusal, RefusalKind, ServerStream, StopAnswer,
+    Launch, LaunchAnswer, Refusal, RefusalKind, ServerConnection, ServerReadHalf, ServerWriteHalf,
+    StopAnswer,
 };
 use waos_package::ProgramId;
 use waos_store::Store;
@@ -39,11 +39,7 @@ pub(crate) struct LaunchContext {
 
 /// Serves a connection's `Launch`: the program started, answered `Launched`, or why not, after
 /// `Compiling` where its code is compiled first.
-pub(crate) async fn launch(
-    connection: Connection<ServerStream>,
-    launch: Launch,
-    context: &LaunchContext,
-) {
+pub(crate) async fn launch(connection: ServerConnection, launch: Launch, context: &LaunchContext) {
     let id = launch.id.clone();
     let (reading, mut writing) = connection.into_split();
     let span = tracing::info_span!("run", name = id.as_str());
@@ -64,8 +60,8 @@ pub(crate) async fn launch(
 /// Starts the installed program `launch` names, its code compiled first, telling `writing`
 /// `Compiling` where it is; not started where `reading` closes while it compiles.
 async fn start(
-    writing: &mut Connection<WriteHalf<ServerStream>>,
-    reading: Connection<ReadHalf<ServerStream>>,
+    writing: &mut ServerWriteHalf,
+    reading: ServerReadHalf,
     launch: Launch,
     context: &LaunchContext,
 ) -> Result<(), Refusal> {
@@ -121,7 +117,7 @@ async fn start(
 /// Resolves once the code of the program `id`, whose component is at `component`, is in the
 /// cache, telling `connection` `Compiling` first where it is not.
 async fn code_ready(
-    connection: &mut Connection<WriteHalf<ServerStream>>,
+    connection: &mut ServerWriteHalf,
     installed: &InstalledRuns,
     id: &ProgramId,
     component: &std::path::Path,
@@ -140,7 +136,7 @@ async fn code_ready(
 
 /// Resolves once the other side closed. What it sends after its `Launch` is not part of the
 /// protocol and is dropped.
-async fn closed(mut reading: Connection<ReadHalf<ServerStream>>) {
+async fn closed(mut reading: ServerReadHalf) {
     loop {
         match reading.receive::<waos_dev_protocol::Request>().await {
             Ok(Some(message)) => tracing::warn!(?message, "a message after the launch was asked"),
@@ -150,7 +146,7 @@ async fn closed(mut reading: Connection<ReadHalf<ServerStream>>) {
 }
 
 /// Serves a connection's `Stop`: the program `id` ended, however it was started, or why not.
-pub(crate) async fn stop(mut connection: Connection<ServerStream>, id: &ProgramId, runs: &Runs) {
+pub(crate) async fn stop(mut connection: ServerConnection, id: &ProgramId, runs: &Runs) {
     let answer = if runs.stop(id).await {
         StopAnswer::Stopped
     } else {

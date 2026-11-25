@@ -31,6 +31,8 @@
 //! changes; which programs run is the runs' own list, as it last changed; and which programs'
 //! code is compiled is the compiles' own list, read as the library is shown.
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+mod developer_access;
 mod package_picker;
 mod phone_files;
 mod programs_open;
@@ -67,6 +69,8 @@ use crate::logic::app_store::{
     AppStorePlace, CatalogApp, ListedSource, catalog, featured, updates,
 };
 use crate::logic::command_line::{Command, command};
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+use crate::logic::developer_access::DeveloperAccess;
 use crate::logic::installed_runs::{InstalledRuns, Opening};
 use crate::logic::notification_permissions::NotificationPermissions;
 use crate::logic::offers::{Offer, offer_of};
@@ -82,6 +86,8 @@ use crate::logic::setting_changes::Offered;
 use crate::logic::system_notifications::program_activation;
 use crate::state::deck::tabs::Tabs;
 use crate::state::phone_files::PhoneFiles;
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+pub(crate) use developer_access::offer_developer_access;
 pub(crate) use package_picker::picks_packages;
 pub(crate) use phone_files::show_phone_files;
 pub(crate) use programs_open::ProgramsOpen;
@@ -161,6 +167,9 @@ pub(crate) struct Library {
     shortcuts_matching: ShortcutsMatching,
     /// Whether WaOS may reach the phone's files, where it reaches them only as the user allows.
     phone_files: Option<Entity<PhoneFiles>>,
+    /// Whether computers on the network may reach WaOS's dev server, where WaOS offers it.
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    developer_access: Option<DeveloperAccess>,
 }
 
 /// A source the user added, and what it lists.
@@ -333,6 +342,8 @@ impl Library {
             shortcuts: None,
             shortcuts_matching: ShortcutsMatching::Idle,
             phone_files: None,
+            #[cfg(not(any(target_os = "android", target_os = "ios")))]
+            developer_access: None,
         };
         library.read_sources(cx);
         library.follow_running(cx);

@@ -12,9 +12,10 @@ use std::io::{self, Write};
 use std::process::ExitCode;
 
 use anyhow::{Context, Result, bail};
-use waos_dev_protocol::{ClientStream, Connection, OutputStream, Request, RunEnd, RunEvent};
+use waos_dev_protocol::{ClientConnection, OutputStream, Request, RunEnd, RunEvent};
 use waos_package::ProgramId;
 
+use crate::destination::Destination;
 use crate::{asked, asking, stop};
 
 /// The exit status of an attach Ctrl-C ended: the shell's for a command the interrupt ended.
@@ -29,16 +30,18 @@ pub enum OnInterrupt {
     Stop,
 }
 
-/// Attaches over `connection` to the program `id`, `name` to its user, after saying its hello,
-/// and writes what it writes until it ends, or until Ctrl-C, which does what `on_interrupt` says.
+/// Attaches over `connection` to `destination` to the program `id`, `name` to its user, after
+/// saying its hello, and writes what it writes until it ends, or until Ctrl-C, which does what
+/// `on_interrupt` says.
 pub async fn attach_on(
-    connection: Connection<ClientStream>,
+    connection: ClientConnection,
+    destination: &Destination,
     id: &ProgramId,
     name: &str,
     on_interrupt: OnInterrupt,
 ) -> Result<ExitCode> {
     let request = Request::Attach { id: id.clone() };
-    let mut connection = asking::greeted(connection, &request).await?;
+    let mut connection = asking::greeted(connection, destination, &request).await?;
     connection
         .send(&request)
         .await
@@ -69,17 +72,23 @@ pub async fn attach_on(
             },
             () = &mut interrupted => {
                 drop(connection);
-                return interrupt(id, name, on_interrupt).await;
+                return interrupt(destination, id, name, on_interrupt).await;
             }
         }
     }
 }
 
-/// What Ctrl-C comes to: the program stopped or left running, as `on_interrupt` says, and said.
-async fn interrupt(id: &ProgramId, name: &str, on_interrupt: OnInterrupt) -> Result<ExitCode> {
+/// What Ctrl-C comes to: the program at `destination` stopped or left running, as `on_interrupt`
+/// says, and said.
+async fn interrupt(
+    destination: &Destination,
+    id: &ProgramId,
+    name: &str,
+    on_interrupt: OnInterrupt,
+) -> Result<ExitCode> {
     match on_interrupt {
         OnInterrupt::Stop => {
-            stop::stop_quietly(id).await?;
+            stop::stop_quietly(destination, id).await?;
             eprintln!("waos: {name} stopped");
         }
         OnInterrupt::Detach => {
@@ -282,9 +291,10 @@ mod tests {
                 .await
                 .unwrap();
         });
-        let client = Connection::connect(&socket).await.unwrap();
+        let client = ClientConnection::connect(&socket).await.unwrap();
         let id: ProgramId = "dev.example.notes.development".parse().unwrap();
-        let status = attach_on(client, &id, "notes", OnInterrupt::Detach)
+        let destination = Destination::ThisMachine { socket };
+        let status = attach_on(client, &destination, &id, "notes", OnInterrupt::Detach)
             .await
             .unwrap();
         assert_eq!(
@@ -313,9 +323,10 @@ mod tests {
                 .await
                 .unwrap();
         });
-        let client = Connection::connect(&socket).await.unwrap();
+        let client = ClientConnection::connect(&socket).await.unwrap();
         let id: ProgramId = "dev.example.notes.development".parse().unwrap();
-        let status = attach_on(client, &id, "notes", OnInterrupt::Stop)
+        let destination = Destination::ThisMachine { socket };
+        let status = attach_on(client, &destination, &id, "notes", OnInterrupt::Stop)
             .await
             .unwrap();
         assert_eq!(status, ExitCode::FAILURE);

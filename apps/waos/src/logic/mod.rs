@@ -51,6 +51,8 @@ pub(crate) mod command_line;
 pub(crate) mod cues;
 pub(crate) mod deck_geometry;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
+pub(crate) mod dev_announce;
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(crate) mod dev_attach;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(crate) mod dev_extensions;
@@ -63,6 +65,10 @@ pub(crate) mod dev_install;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(crate) mod dev_launch;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
+pub(crate) mod dev_network;
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+pub(crate) mod dev_pairing;
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(crate) mod dev_refusal;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(crate) mod dev_resize;
@@ -72,6 +78,8 @@ pub(crate) mod dev_screenshot;
 pub(crate) mod dev_server;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(crate) mod dev_settings;
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+pub(crate) mod developer_access;
 pub(crate) mod environments;
 pub(crate) mod file_dialog_calls;
 pub(crate) mod folders;
@@ -97,6 +105,8 @@ pub(crate) mod media_asset_calls;
 pub(crate) mod media_player_calls;
 pub(crate) mod menu_bar;
 pub(crate) mod menu_calls;
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+pub(crate) mod network_addresses;
 pub(crate) mod noted_file_dialogs;
 pub(crate) mod notification_calls;
 #[cfg_attr(

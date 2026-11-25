@@ -11,9 +11,7 @@
 //! a person's click goes to the question first, and the answer says what is asked.
 
 use waos::{DragPath, Keyboard, ProgramView};
-use waos_dev_protocol::{
-    Connection, Input, InputAnswer, InputDone, Refusal, ServerStream, WindowId,
-};
+use waos_dev_protocol::{Input, InputAnswer, InputDone, Refusal, ServerConnection, WindowId};
 use waos_package::ProgramId;
 
 use super::asking_now::AskingNow;
@@ -24,7 +22,7 @@ use super::runs::{DrivenProgram, Runs};
 /// Answers a connection's `Input`: `input` given to the window `window` of the program `id`, then
 /// `InputDone` with whether the window was in sight, or why it reached none.
 pub(crate) async fn answer(
-    mut connection: Connection<ServerStream>,
+    mut connection: ServerConnection,
     runs: &Runs,
     asking: &AskingNow,
     id: &ProgramId,

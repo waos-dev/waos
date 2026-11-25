@@ -16,8 +16,7 @@
 use waos::ProgramView;
 use waos::bindings::wasdk::platform::hardware_buffers::PixelBuffer;
 use waos_dev_protocol::{
-    Asked, Connection, Refusal, RefusalKind, ScreenshotAnswer, ServerStream, WindowId,
-    WindowPicture,
+    Asked, Refusal, RefusalKind, ScreenshotAnswer, ServerConnection, WindowId, WindowPicture,
 };
 use waos_package::ProgramId;
 
@@ -28,7 +27,7 @@ use super::runs::{DrivenProgram, Runs};
 /// Answers a connection's `Screenshot`: the pictures of the windows of the program `id`, or of
 /// `window` alone, or why neither was taken.
 pub(crate) async fn answer(
-    mut connection: Connection<ServerStream>,
+    mut connection: ServerConnection,
     runs: &Runs,
     asking: &AskingNow,
     id: &ProgramId,

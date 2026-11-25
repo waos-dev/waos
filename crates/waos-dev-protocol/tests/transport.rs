@@ -7,11 +7,11 @@ use std::io::ErrorKind;
 use std::path::Path;
 
 use waos_dev_protocol::{
-    Asked, CHUNK_BYTES, ClientStream, Connection, Hello, Input, InputAnswer, InputDone,
-    InspectAnswer, Install, InstallAnswer, Launch, LaunchAnswer, Listener, MAJOR, MAX_FRAME_BYTES,
-    Mismatch, OpenAnswer, OutputStream, Question, Request, ResizeAnswer, Resized, RunEnd, RunEvent,
-    ScreenshotAnswer, ServerStream, SettingRow, SettingsAnswer, TestPlace, Upload, WindowId,
-    WindowPicture, component_digest,
+    Asked, CHUNK_BYTES, ClientConnection, ClientStream, Connection, Hello, Input, InputAnswer,
+    InputDone, InspectAnswer, Install, InstallAnswer, Launch, LaunchAnswer, Listener, MAJOR,
+    MAX_FRAME_BYTES, Mismatch, OpenAnswer, OutputStream, Question, Request, ResizeAnswer, Resized,
+    RunEnd, RunEvent, ScreenshotAnswer, ServerConnection, SettingRow, SettingsAnswer, TestPlace,
+    Upload, WindowId, WindowPicture, component_digest,
 };
 
 /// A stream to the WaOS at `path` with nothing said on it, as a client of another build opens it.
@@ -37,7 +37,7 @@ fn waos_hello() -> Hello {
 
 /// A listener at `path` and a connection to it, with the listener's end of that connection,
 /// the two sides having said their hellos.
-async fn connected(path: &Path) -> (Listener, Connection<ClientStream>, Connection<ServerStream>) {
+async fn connected(path: &Path) -> (Listener, ClientConnection, ServerConnection) {
     let mut listener = Listener::bind(path).await.unwrap();
     let (client, server) = tokio::join!(Connection::connect(path), listener.accept());
     let (mut client, mut server) = (client.unwrap(), server.unwrap());

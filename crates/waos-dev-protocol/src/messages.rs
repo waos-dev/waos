@@ -19,6 +19,7 @@ use serde::{Deserialize, Serialize};
 use waos_package::{FileAssociation, ProgramId, ProgramKind, Version};
 
 use crate::adjacent::adjacent_unknown;
+use crate::pairing::PairStart;
 use crate::refusal::Refusal;
 use crate::settings_rows::{Asked, Row, SettingRow};
 
@@ -107,6 +108,8 @@ pub enum Request {
     /// The programs running that serve service extensions, for a development tool's list of what
     /// it can call.
     ServingPrograms,
+    /// Pairs this computer with the device, by the code it shows: see [`PairStart`].
+    Pair(PairStart),
     #[serde(skip)]
     Unknown,
 }
@@ -131,6 +134,7 @@ impl Request {
             Request::Uninstall { .. } => "uninstall",
             Request::Extension { .. } => "extension",
             Request::ServingPrograms => "serving-programs",
+            Request::Pair(_) => "pair",
             Request::Unknown => "unknown",
         }
     }

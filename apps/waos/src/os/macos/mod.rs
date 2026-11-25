@@ -9,15 +9,16 @@
 //! waits for (`hardware_buffers`), System Settings at the notifications of a program's app
 //! (`system_settings`), each change of the user's time zone (`time_zone_changes`), the frames
 //! of WaOS's simulated camera, `IOSurface`s under `CVPixelBuffer`s drawn by the CPU
-//! (`pattern_frames`), and Waft's video decoders for a WaOS that is no Waft app
-//! (`video_decoders`).
+//! (`pattern_frames`), Waft's video decoders for a WaOS that is no Waft app
+//! (`video_decoders`), and the dev server announced through Bonjour (`dev_announcement`).
 //!
 //! The invariant: wrapping the system is what this module is for, and `code_signature`,
-//! `launch_services`, `layer_contexts`, `hardware_buffers`, `time_zone_changes` and `pattern_frames` are the places
-//! in the app where `unsafe` is written.
+//! `launch_services`, `layer_contexts`, `hardware_buffers`, `time_zone_changes`, `pattern_frames`
+//! and `dev_announcement` are the places in the app where `unsafe` is written.
 
 mod activation;
 mod code_signature;
+mod dev_announcement;
 mod hardware_buffers;
 mod keychain;
 mod launch_services;
@@ -31,6 +32,7 @@ mod video_decoders;
 
 pub(crate) use activation::yield_activation_to;
 pub(crate) use code_signature::code_hash_of_process;
+pub(crate) use dev_announcement::{DevServerAnnouncement, announce_dev_server};
 pub(crate) use hardware_buffers::CrossThreadBuffer;
 #[cfg(test)]
 pub(crate) use hardware_buffers::test_buffer;

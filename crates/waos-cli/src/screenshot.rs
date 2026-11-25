@@ -26,6 +26,7 @@ use waos_package::ProgramId;
 
 use crate::asked;
 use crate::asking::ask;
+use crate::destination::Destination;
 
 /// The prefix and the extension of a window's picture's file.
 const PREFIX: &str = "window-";
@@ -63,15 +64,19 @@ fn names_folder(path: &Path) -> bool {
 /// Asks for the pictures of the windows of the program `id`, or of `window` alone, writes them
 /// where `out` asks, or in `default` without it, and prints each.
 pub async fn take(
+    destination: &Destination,
     id: ProgramId,
     out: Option<&Path>,
     window: Option<WindowId>,
     default: &Path,
 ) -> Result<ExitCode> {
-    let answer = ask(&Request::Screenshot {
-        id: id.clone(),
-        window,
-    })
+    let answer = ask(
+        destination,
+        &Request::Screenshot {
+            id: id.clone(),
+            window,
+        },
+    )
     .await?;
     let pictures = match answer {
         ScreenshotAnswer::Pictures(pictures) => pictures,

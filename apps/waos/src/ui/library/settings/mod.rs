@@ -19,6 +19,10 @@ use waos_package::ProgramId;
 use waos_store::Question;
 
 use crate::logic::app_store::CatalogApp;
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+use crate::logic::developer_access::Listening;
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+use crate::logic::network_addresses::network_addresses;
 use crate::logic::offers::Offer;
 use crate::logic::permissions::Permission;
 use crate::logic::setting_changes::{SettingChange, SettingsOf, ShownSettings};
@@ -263,12 +267,35 @@ pub(crate) fn reset_permissions() -> Vec<SettingChange> {
         .collect()
 }
 
-/// Whether WaOS has settings of its own to show here: where apps open, where WaOS stays, or
-/// the phone's files, each only where this system offers the choice.
+/// Whether WaOS has settings of its own to show here: where apps open, where WaOS stays, the
+/// phone's files, or developer access, each only where this system offers the choice.
 pub(crate) fn waos_has_settings(library: &Library, app: &App) -> bool {
     library.programs_inside_waos().is_some()
         || library.kept_in_dock().is_some()
         || library.phone_files_reachable(app).is_some()
+        || developer_access_offered(library)
+}
+
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+fn developer_access_offered(library: &Library) -> bool {
+    library.developer_access_on().is_some()
+}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+fn developer_access_offered(_library: &Library) -> bool {
+    false
+}
+
+/// What developer access says: what it does, then whether WaOS listens, as `listening` says.
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+pub(crate) fn developer_access_said(listening: Option<Listening>) -> String {
+    match listening {
+        Some(Listening::On { port }) => {
+            words::developer_access_listening(port, &network_addresses())
+        }
+        Some(Listening::Failed(why)) => words::developer_access_failed(&why),
+        Some(Listening::Not) | None => words::DEVELOPER_ACCESS_DETAIL.to_owned(),
+    }
 }
 
 /// What a setting says of itself: `detail`, then what it says of the `default`, whichever are

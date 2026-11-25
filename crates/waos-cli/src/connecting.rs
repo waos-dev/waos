@@ -1,17 +1,19 @@
-//! The WaOS on this machine, connected to over `waos-dev-protocol`'s connection: at once when one
-//! answers, and otherwise started through the caller's [`WaOSStarter`] and waited for, for a run
-//! and for a program's settings, which are WaOS's to keep whether or not a run is on.
+//! The WaOS a command goes to, connected to over `waos-dev-protocol`'s connection: at once when one
+//! answers, and otherwise, on this machine, started through the caller's [`WaOSStarter`] and
+//! waited for, for a run and for a program's settings, which are WaOS's to keep whether or not a
+//! run is on.
 //!
-//! The invariant: a WaOS is started only when nothing answers where WaOS listens, never beside
-//! one that does.
+//! The invariant: a WaOS is started only on this machine, when nothing answers where WaOS listens,
+//! never beside one that does.
 
 use std::io::{self, ErrorKind};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
-use waos_dev_protocol::{ClientStream, Connection};
+use waos_dev_protocol::ClientConnection;
 
+use crate::destination::Destination;
 use crate::waos_app;
 
 /// How long a WaOS just started may take to answer, and how often it is tried.
@@ -35,11 +37,25 @@ impl WaOSStarter for DefaultStarter {
     }
 }
 
-/// The WaOS on this machine: connected to at once when one answers, and started via `starter` and
-/// waited for otherwise.
-pub async fn connect_or_start(starter: &dyn WaOSStarter) -> Result<Connection<ClientStream>> {
-    let socket = waos_dev_protocol::listener_path();
-    match Connection::connect(&socket).await {
+/// The WaOS at `destination`: connected to at once when one answers, and, on this machine,
+/// started via `starter` and waited for otherwise.
+pub async fn connect_or_start(
+    destination: &Destination,
+    starter: &dyn WaOSStarter,
+) -> Result<ClientConnection> {
+    match destination {
+        Destination::ThisMachine { socket } => connect_or_start_at(socket, starter).await,
+        Destination::Device(_) => destination
+            .connect()
+            .await
+            .with_context(|| format!("connecting to WaOS at {destination}")),
+    }
+}
+
+/// The WaOS listening at `socket`: connected to at once when one answers, and started via
+/// `starter` and waited for otherwise.
+async fn connect_or_start_at(socket: &Path, starter: &dyn WaOSStarter) -> Result<ClientConnection> {
+    match ClientConnection::connect(socket).await {
         Ok(connection) => return Ok(connection),
         Err(error) if nobody_answers(&error) => {}
         Err(error) => {
@@ -53,7 +69,7 @@ pub async fn connect_or_start(starter: &dyn WaOSStarter) -> Result<Connection<Cl
     let deadline = Instant::now() + START_WAIT;
     loop {
         tokio::time::sleep(RETRY_EVERY).await;
-        match Connection::connect(&socket).await {
+        match ClientConnection::connect(socket).await {
             Ok(connection) => return Ok(connection),
             Err(error) if nobody_answers(&error) && Instant::now() < deadline => {}
             Err(error) => {

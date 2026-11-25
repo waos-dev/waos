@@ -12,8 +12,8 @@ use std::time::{Duration, Instant};
 
 use waos::{Mouse, Presence};
 use waos_dev_protocol::{
-    ClientStream, Connection, Input, InputAnswer, InputDone, Refusal, RefusalKind, Request,
-    RunEvent, ScreenshotAnswer, WindowId,
+    ClientConnection, Input, InputAnswer, InputDone, Refusal, RefusalKind, Request, RunEvent,
+    ScreenshotAnswer, WindowId,
 };
 
 use crate::logic::dev_server::tests::{TestServer, WITHIN, development, next, stdout_of};
@@ -24,7 +24,7 @@ pub(crate) const INPUT: &str = "dev.waos.examples.input";
 
 /// `examples/input` running under `server`, its window showing its first picture; its run's
 /// connection, and what came on it so far.
-pub(crate) async fn run_input(server: &TestServer) -> (Connection<ClientStream>, Vec<RunEvent>) {
+pub(crate) async fn run_input(server: &TestServer) -> (ClientConnection, Vec<RunEvent>) {
     let mut client = server
         .run(INPUT, Path::new(waos_test_programs::INPUT))
         .await;
@@ -59,11 +59,7 @@ async fn wait_for_first_picture(server: &TestServer) {
 }
 
 /// Reads the run's connection until the program has written `line`.
-async fn wait_for_line(
-    client: &mut Connection<ClientStream>,
-    frames: &mut Vec<RunEvent>,
-    line: &str,
-) {
+async fn wait_for_line(client: &mut ClientConnection, frames: &mut Vec<RunEvent>, line: &str) {
     while !stdout_of(frames).lines().any(|written| written == line) {
         frames.push(next(client).await);
     }

@@ -9,34 +9,39 @@
 
 use anyhow::{Context, Result, anyhow, bail};
 use serde::de::DeserializeOwned;
-use waos_dev_protocol::{ClientStream, Connection, Hello, Request};
+use waos_dev_protocol::{ClientConnection, Hello, Request};
 
 use crate::connecting::{WaOSStarter, nobody_answers};
+use crate::destination::Destination;
 
 /// This build, as its hello names it: "waos 0.4.1".
 pub const BUILD: &str = concat!("waos ", env!("CARGO_PKG_VERSION"));
 
-/// What the WaOS running answers `request`, its hello read and checked first.
-pub async fn ask<A: DeserializeOwned>(request: &Request) -> Result<A> {
-    answer(connect().await?, request).await
+/// What the WaOS running at `destination` answers `request`, its hello read and checked first.
+pub async fn ask<A: DeserializeOwned>(destination: &Destination, request: &Request) -> Result<A> {
+    answer(connect(destination).await?, destination, request).await
 }
 
-/// What the WaOS running, or the one started when none answers, answers `request`, its hello read
-/// and checked first: the settings are set before the run that needs them.
+/// What the WaOS running at `destination`, or the one started on this machine when none answers,
+/// answers `request`, its hello read and checked first: the settings are set before the run that
+/// needs them.
 pub async fn ask_starting<A: DeserializeOwned>(
+    destination: &Destination,
     request: &Request,
     starter: &dyn WaOSStarter,
 ) -> Result<A> {
-    answer(crate::connecting::connect_or_start(starter).await?, request).await
+    let connection = crate::connecting::connect_or_start(destination, starter).await?;
+    answer(connection, destination, request).await
 }
 
-/// What the WaOS at the other end of `connection` answers `request`, its hello read and checked
-/// first.
+/// What the WaOS at the other end of `connection`, at `destination`, answers `request`, its hello
+/// read and checked first.
 pub async fn answer<A: DeserializeOwned>(
-    connection: Connection<ClientStream>,
+    connection: ClientConnection,
+    destination: &Destination,
     request: &Request,
 ) -> Result<A> {
-    let mut connection = greeted(connection, request).await?;
+    let mut connection = greeted(connection, destination, request).await?;
     connection.send(request).await.context("sending to WaOS")?;
     connection
         .receive::<A>()
@@ -45,60 +50,67 @@ pub async fn answer<A: DeserializeOwned>(
         .context("WaOS closed the connection without an answer")
 }
 
-/// `connection` with WaOS's hello read and checked against `request`, as this build's: a mismatch
-/// is the error, in the words naming both builds and which one to update.
+/// `connection`, to `destination`, with WaOS's hello read and checked against `request`, as this
+/// build's: a mismatch is the error, in the words naming both builds and which one to update.
 pub async fn greeted(
-    mut connection: Connection<ClientStream>,
+    connection: ClientConnection,
+    destination: &Destination,
     request: &Request,
-) -> Result<Connection<ClientStream>> {
-    let ours = Hello::command(BUILD);
+) -> Result<ClientConnection> {
+    greeted_with(connection, &destination.hello(), request).await
+}
+
+/// `connection` with our hello, `ours`, said and WaOS's read and checked against `request`: a
+/// mismatch is the error, in the words naming both builds and which one to update.
+pub async fn greeted_with(
+    mut connection: ClientConnection,
+    ours: &Hello,
+    request: &Request,
+) -> Result<ClientConnection> {
     let theirs = connection
-        .hello(&ours)
+        .hello(ours)
         .await
         .context("the WaOS that answered")?;
     theirs
-        .accepts(&ours, request)
+        .accepts(ours, request)
         .map_err(|mismatch| anyhow!("{mismatch}"))?;
     Ok(connection)
 }
 
-/// What a request to the WaOS on this machine came to: its answer, or nobody answering.
+/// What a request to a WaOS came to: its answer, or nobody answering.
 pub enum Unreached<A> {
     Answered(A),
     NobodyAnswers,
 }
 
-/// What the WaOS running answers `request`, its hello read and checked first; or that none
-/// answers, which for a list of what runs there is an answer of its own: nothing runs.
-pub async fn ask_if_answered<A: DeserializeOwned>(request: &Request) -> Result<Unreached<A>> {
-    let socket = waos_dev_protocol::listener_path();
-    match Connection::connect(&socket).await {
-        Ok(connection) => Ok(Unreached::Answered(answer(connection, request).await?)),
+/// What the WaOS running at `destination` answers `request`, its hello read and checked first; or
+/// that none answers, which for a list of what runs there is an answer of its own: nothing runs.
+pub async fn ask_if_answered<A: DeserializeOwned>(
+    destination: &Destination,
+    request: &Request,
+) -> Result<Unreached<A>> {
+    match destination.connect().await {
+        Ok(connection) => Ok(Unreached::Answered(
+            answer(connection, destination, request).await?,
+        )),
         Err(error) if nobody_answers(&error) => Ok(Unreached::NobodyAnswers),
-        Err(error) => {
-            Err(error).with_context(|| format!("connecting to WaOS at {}", socket.display()))
-        }
+        Err(error) => Err(error).with_context(|| format!("connecting to WaOS at {destination}")),
     }
 }
 
-/// A connection to the WaOS running, never started.
-pub async fn connect() -> Result<Connection<ClientStream>> {
-    connect_at(&waos_dev_protocol::listener_path()).await
-}
-
-/// A connection to the WaOS running at `socket`, never started.
-pub async fn connect_at(socket: &std::path::Path) -> Result<Connection<ClientStream>> {
-    match Connection::connect(socket).await {
+/// A connection to the WaOS running at `destination`, never started.
+pub async fn connect(destination: &Destination) -> Result<ClientConnection> {
+    match destination.connect().await {
         Ok(connection) => Ok(connection),
-        Err(error) if nobody_answers(&error) => {
-            bail!(
-                "no WaOS answers at {}: start the program with `waos run` or `waos launch` first",
-                socket.display()
-            )
-        }
-        Err(error) => {
-            Err(error).with_context(|| format!("connecting to WaOS at {}", socket.display()))
-        }
+        Err(error) if nobody_answers(&error) => match destination {
+            Destination::ThisMachine { .. } => bail!(
+                "no WaOS answers at {destination}: start the program with `waos run` or `waos launch` first"
+            ),
+            Destination::Device(_) => bail!(
+                "no WaOS answers at {destination}: is WaOS open there, with Developer access on in its settings?"
+            ),
+        },
+        Err(error) => Err(error).with_context(|| format!("connecting to WaOS at {destination}")),
     }
 }
 
@@ -131,8 +143,11 @@ mod tests {
             server.accept_hello(&older).await.unwrap();
             server.receive::<Request>().await.unwrap()
         });
-        let client = Connection::connect(&socket).await.unwrap();
-        let error = answer::<ResizeAnswer>(client, &resize()).await.unwrap_err();
+        let client = ClientConnection::connect(&socket).await.unwrap();
+        let destination = Destination::ThisMachine { socket };
+        let error = answer::<ResizeAnswer>(client, &destination, &resize())
+            .await
+            .unwrap_err();
         let said = error.to_string();
         assert!(said.contains("WaOS 0.3.0"), "{said}");
         assert!(said.contains("resize"), "{said}");
@@ -158,8 +173,11 @@ mod tests {
             server.accept_hello(&newer).await.unwrap();
             server.receive::<Request>().await.unwrap()
         });
-        let client = Connection::connect(&socket).await.unwrap();
-        let error = answer::<ResizeAnswer>(client, &resize()).await.unwrap_err();
+        let client = ClientConnection::connect(&socket).await.unwrap();
+        let destination = Destination::ThisMachine { socket };
+        let error = answer::<ResizeAnswer>(client, &destination, &resize())
+            .await
+            .unwrap_err();
         let said = error.to_string();
         assert!(said.contains("WaOS 0.4.0"), "{said}");
         assert!(said.contains(BUILD), "{said}");

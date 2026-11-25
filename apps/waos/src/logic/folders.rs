@@ -42,6 +42,11 @@ pub(crate) struct AppFolders {
     /// WaOS writes neither.
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     pub(crate) data: PathBuf,
+    /// Where developer access keeps the device's identity and the computers paired with it
+    /// (`logic::developer_access`), the user's alone; not on a phone yet, where `waos` reaches no
+    /// WaOS.
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    pub(crate) developer_access: PathBuf,
     /// The installed programs' apps, among the user's applications, as Chrome puts its web apps in
     /// `~/Applications/Chrome Apps`.
     #[cfg(target_os = "macos")]
@@ -70,6 +75,8 @@ pub(crate) fn app_folders() -> AppFolders {
         start_menu: start_menu_programs().join("WaOS Programs"),
         #[cfg(not(target_os = "ios"))]
         data: data_folder(),
+        #[cfg(not(target_os = "ios"))]
+        developer_access: data_folder().join("developer"),
         #[cfg(target_os = "macos")]
         #[cfg(target_os = "macos")]
         installed_apps: home().join("Applications/WaOS Programs"),

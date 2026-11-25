@@ -3,7 +3,8 @@
 //! in the deck's tabs, rather than each as a task of its own, which Android alone offers a choice
 //! of (decision 2 of `docs/proposals/2026-11-12-phone-programs-and-library.md`), and whether WaOS
 //! is kept in a desktop's Dock or taskbar, or else only has an icon in the menu bar or the tray
-//! (decisions 16 and 17); and the preferences as chosen, each kept in the file before it holds (`KeptPreferences`).
+//! (decisions 16 and 17), and whether computers on the network may reach WaOS's dev server
+//! (`logic::developer_access`); and the preferences as chosen, each kept in the file before it holds (`KeptPreferences`).
 //!
 //! The invariant: a file that is missing or cannot be read gives the defaults, which is said, so
 //! WaOS always starts; a preference the file does not name takes its default, so a file written by
@@ -25,6 +26,9 @@ pub(crate) struct Preferences {
     /// Whether WaOS is kept in a desktop's Dock or taskbar; on by default, and off, WaOS has only
     /// an icon in the menu bar or the tray.
     pub(crate) kept_in_dock: bool,
+    /// Whether computers on the network may reach WaOS's dev server, once paired; off by
+    /// default.
+    pub(crate) developer_access: bool,
 }
 
 impl Default for Preferences {
@@ -32,6 +36,7 @@ impl Default for Preferences {
         Preferences {
             programs_inside_waos: false,
             kept_in_dock: true,
+            developer_access: false,
         }
     }
 }
@@ -129,12 +134,29 @@ mod tests {
     }
 
     #[test]
+    fn computers_on_the_network_are_kept_out_until_the_user_says_otherwise() {
+        let folder = tempfile::tempdir().unwrap();
+        let file = PreferencesFile::at(folder.path().join("preferences.toml"));
+        assert!(!file.read().developer_access);
+        std::fs::write(
+            folder.path().join("preferences.toml"),
+            "kept_in_dock = false\n",
+        )
+        .unwrap();
+        assert!(
+            !file.read().developer_access,
+            "a file from before the choice"
+        );
+    }
+
+    #[test]
     fn what_is_written_reads_back() {
         let folder = tempfile::tempdir().unwrap();
         let file = PreferencesFile::at(folder.path().join("waos").join("preferences.toml"));
         let inside = Preferences {
             programs_inside_waos: true,
             kept_in_dock: false,
+            developer_access: true,
         };
         file.write(&inside).unwrap();
         assert_eq!(file.read(), inside);

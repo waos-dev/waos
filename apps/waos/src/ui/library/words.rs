@@ -241,6 +241,47 @@ pub(crate) const PROGRAMS_INSIDE_WAOS_DETAIL: &str =
     "Apps you open from now on show in WaOS's tabs, rather than each on its own.";
 /// On the global page of a desktop's launcher, the choice of how WaOS stays on the desktop.
 pub(crate) const WHERE_WAOS_STAYS: &str = "Where WaOS stays";
+/// The global settings' switch that lets computers on the network reach WaOS's dev server, and
+/// what it says: what it does, then whether the dev server listens.
+pub(crate) const DEVELOPER_ACCESS: &str = "Developer access";
+pub(crate) const DEVELOPER_ACCESS_DETAIL: &str = "Computers on this network that you pair with this device can install, run and inspect apps here with `waos --device`.";
+/// What [`DEVELOPER_ACCESS`] says while the dev server listens on `port` at `addresses`, this
+/// device's on its networks.
+pub(crate) fn developer_access_listening(port: u16, addresses: &[std::net::IpAddr]) -> String {
+    let at: Vec<String> = addresses
+        .iter()
+        .map(|address| match address {
+            std::net::IpAddr::V4(v4) => format!("{v4}:{port}"),
+            std::net::IpAddr::V6(v6) => format!("[{v6}]:{port}"),
+        })
+        .collect();
+    match at.as_slice() {
+        [] => format!("{DEVELOPER_ACCESS_DETAIL} WaOS listens on port {port}."),
+        [only] => format!("{DEVELOPER_ACCESS_DETAIL} This device is at {only}."),
+        [first @ .., last] => format!(
+            "{DEVELOPER_ACCESS_DETAIL} This device is at {} and {last}.",
+            first.join(", ")
+        ),
+    }
+}
+/// What [`DEVELOPER_ACCESS`] says while it is on but the dev server cannot listen, for `why`.
+pub(crate) fn developer_access_failed(why: &str) -> String {
+    format!("{DEVELOPER_ACCESS_DETAIL} WaOS cannot listen: {why}.")
+}
+/// Under developer access, the button that shows a code for a computer to pair with, and what it
+/// says before and while one is shown.
+pub(crate) const PAIR_A_COMPUTER: &str = "Pair a computer";
+pub(crate) const PAIR_A_COMPUTER_DETAIL: &str = "Shows a code to type into `waos pair` on your computer, for two minutes; `waos devices` there lists this device.";
+pub(crate) const SHOW_A_CODE: &str = "Show a code";
+/// What a pairing's `code` says while it is shown.
+pub(crate) fn pairing_code(code: &str) -> String {
+    let (first, last) = code.split_at(code.len() / 2);
+    format!("{first} {last}: type it into `waos pair` on your computer within two minutes.")
+}
+/// The computers paired with this device, each of which the user may remove, and what is said
+/// while there are none.
+pub(crate) const PAIRED_COMPUTERS: &str = "Paired computers";
+pub(crate) const NO_PAIRED_COMPUTERS: &str = "None yet.";
 /// The global settings' line on the phone's files, where WaOS reaches them only as the user
 /// allows, and what it says while WaOS may reach them or not.
 pub(crate) const PHONE_FILES: &str = "This phone's files";
@@ -572,5 +613,16 @@ mod tests {
                 "Scanner is using the camera. Camera is using the camera (simulated). Memo is using the microphone (simulated)."
             )
         );
+    }
+
+    #[test]
+    fn developer_access_says_the_addresses_the_device_is_at() {
+        let addresses = ["192.168.1.20", "fd00::1"].map(|address| address.parse().unwrap());
+        let said = developer_access_listening(7351, &addresses);
+        assert!(
+            said.ends_with("This device is at 192.168.1.20:7351 and [fd00::1]:7351."),
+            "{said}"
+        );
+        assert!(developer_access_listening(7352, &[]).ends_with("WaOS listens on port 7352."));
     }
 }

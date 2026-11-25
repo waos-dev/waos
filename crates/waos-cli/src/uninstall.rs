@@ -13,11 +13,17 @@ use waos_package::ProgramId;
 
 use crate::asking::ask_starting;
 use crate::connecting::WaOSStarter;
+use crate::destination::Destination;
 
 /// Uninstalls the program `id`, in the WaOS running or the one started when none answers, and says
 /// so; one not installed is said, with the exit status 1.
-pub async fn uninstall(id: ProgramId, starter: &dyn WaOSStarter) -> Result<ExitCode> {
-    match ask_starting(&Request::Uninstall { id: id.clone() }, starter).await? {
+pub async fn uninstall(
+    destination: &Destination,
+    id: ProgramId,
+    starter: &dyn WaOSStarter,
+) -> Result<ExitCode> {
+    let request = Request::Uninstall { id: id.clone() };
+    match ask_starting(destination, &request, starter).await? {
         UninstallAnswer::Uninstalled => {
             eprintln!("waos: {id} uninstalled, with its settings and its data");
             Ok(ExitCode::SUCCESS)

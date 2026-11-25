@@ -21,13 +21,17 @@ mod asking;
 mod attach;
 mod build;
 mod component_imports;
+mod configuration;
 mod connecting;
 // Linux's alone; its tests run everywhere.
 #[cfg(any(target_os = "linux", test))]
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 mod desktop_entries;
+mod destination;
+mod devices;
 mod docs;
 mod ext;
+mod found;
 mod icon_rule;
 mod input;
 mod inspect;
@@ -37,6 +41,7 @@ mod metadata;
 mod new;
 mod os;
 mod package;
+mod pair;
 mod resize;
 mod run;
 mod screenshot;
@@ -63,6 +68,7 @@ use waos_package::{ProgramId, PublisherKey};
 
 use crate::attach::OnInterrupt;
 use crate::build::{BuiltProgram, Features, Profile};
+use crate::destination::Destination;
 use crate::input::Pair;
 use crate::install::InstallBuild;
 use crate::metadata::{InstallIdentity, WaosMetadata};
@@ -87,6 +93,9 @@ pub const CLI_COMMANDS: &[&str] = &[
     "inspect",
     "ext",
     "docs",
+    "pair",
+    "unpair",
+    "devices",
     "help",
 ];
 
@@ -127,7 +136,7 @@ pub fn run_from_args(
             return ExitCode::FAILURE;
         }
     };
-    dispatch(cli.command, starter).unwrap_or_else(|error| {
+    dispatch(cli.command, cli.device.as_deref(), starter).unwrap_or_else(|error| {
         eprintln!("waos: {error:#}");
         ExitCode::FAILURE
     })
@@ -149,6 +158,10 @@ fn build_clap_command(app_help: Option<&'static str>) -> clap::Command {
     version
 )]
 struct Cli {
+    /// The device whose WaOS the command goes to, by the name or the address it was paired with
+    /// (`waos pair`); the WaOS on this machine without one.
+    #[arg(long, global = true, env = "WAOS_DEVICE", value_name = "DEVICE")]
+    device: Option<String>,
     #[command(subcommand)]
     command: Command,
 }
@@ -242,6 +255,33 @@ enum Command {
     /// Without a page, prints the map of WaOS's docs; with a page, prints that page as Markdown;
     /// with --search, prints every matching line as <page>:<line>: <text>.
     Docs(DocsArgs),
+    /// Pairs this computer with a device's WaOS, by the code the device shows: in its WaOS's
+    /// settings, turn on Developer access and choose Pair a computer. Every command then reaches
+    /// it with `--device <name>`.
+    Pair(PairArgs),
+    /// Forgets a device this computer is paired with.
+    Unpair(UnpairArgs),
+    /// Lists the devices whose WaOS announces Developer access on the local network and those
+    /// this computer is paired with, a line each: the name `pair` and `--device` take, its
+    /// address, and whether it is paired.
+    Devices,
+}
+
+#[derive(Args)]
+struct PairArgs {
+    /// The device: its name as `waos devices` lists it, its name on the network or its IP
+    /// address, host:port, or a wss:// URL; port 7351 when none is given. It is the name
+    /// `--device` takes after.
+    device: String,
+    /// The six digits the device shows; asked for when not given.
+    #[arg(long)]
+    code: Option<String>,
+}
+
+#[derive(Args)]
+struct UnpairArgs {
+    /// The device, by the name or the address it was paired with.
+    device: String,
 }
 
 #[derive(Args)]
@@ -742,36 +782,50 @@ impl BuildArgs {
     }
 }
 
-fn dispatch(command: Command, starter: &dyn WaOSStarter) -> Result<ExitCode> {
+/// Runs `command`, on the WaOS of the paired `device` where it names one, and on this machine's
+/// otherwise.
+fn dispatch(command: Command, device: Option<&str>, starter: &dyn WaOSStarter) -> Result<ExitCode> {
+    let destination = || Destination::named(device);
     match command {
         Command::New(new) => new_program(&new),
         Command::Build(build) => build_only(&build),
-        Command::Install(build) => build_and_install(&build, starter),
+        Command::Install(build) => build_and_install(&destination()?, &build, starter),
         Command::Launch(launch) => {
+            let destination = destination()?;
             let (id, name) = target_of(&launch.target)?;
-            let launching = launch::launch(&id, &name, &launch.args, &launch.env, starter);
+            let launching =
+                launch::launch(&destination, &id, &name, &launch.args, &launch.env, starter);
             on_this_thread(launching).map(|()| ExitCode::SUCCESS)
         }
         Command::Attach(target) => {
+            let destination = destination()?;
             let (id, name) = target_of(&target)?;
             on_this_thread(async {
-                let connection = asking::connect().await?;
-                attach::attach_on(connection, &id, &name, OnInterrupt::Detach).await
+                let connection = asking::connect(&destination).await?;
+                attach::attach_on(connection, &destination, &id, &name, OnInterrupt::Detach).await
             })
         }
-        Command::Stop(target) => on_this_thread(stop::stop(target_of(&target)?.0)),
-        Command::Uninstall(target) => {
-            on_this_thread(uninstall::uninstall(target_of(&target)?.0, starter))
+        Command::Stop(target) => {
+            let destination = destination()?;
+            on_this_thread(stop::stop(&destination, target_of(&target)?.0))
         }
-        Command::Run(run) => build_and_run(&run, starter),
+        Command::Uninstall(target) => {
+            let destination = destination()?;
+            let id = target_of(&target)?.0;
+            on_this_thread(uninstall::uninstall(&destination, id, starter))
+        }
+        Command::Run(run) => build_and_run(&destination()?, &run, starter),
         Command::Package(args) => match args.command {
             Some(PackageCommand::Verify(verify)) => verify_package(&verify),
             None => package(&args.program, &args.features),
         },
-        Command::Ui(ui) => dispatch_ui(ui.command),
-        Command::Settings(settings) => dispatch_settings(settings, starter),
-        Command::Inspect(inspect) => dispatch_inspect(inspect),
-        Command::Ext(ext) => dispatch_ext(ext),
+        Command::Ui(ui) => dispatch_ui(&destination()?, ui.command),
+        Command::Settings(settings) => dispatch_settings(&destination()?, settings, starter),
+        Command::Inspect(inspect) => dispatch_inspect(&destination()?, inspect),
+        Command::Ext(ext) => dispatch_ext(&destination()?, ext),
+        Command::Pair(args) => on_this_thread(pair::pair(&args.device, args.code.as_deref())),
+        Command::Unpair(args) => pair::unpair(&args.device),
+        Command::Devices => pair::devices(),
         Command::Docs(docs) => match docs.command {
             Some(DocsCommand::Skill(SkillArgs {
                 command: SkillCommand::Install { dir },
@@ -781,10 +835,11 @@ fn dispatch(command: Command, starter: &dyn WaOSStarter) -> Result<ExitCode> {
     }
 }
 
-fn dispatch_ui(command: UiCommand) -> Result<ExitCode> {
+fn dispatch_ui(destination: &Destination, command: UiCommand) -> Result<ExitCode> {
+    let give = |window: &WindowArgs, input: Input| give(destination, window, input);
     match command {
-        UiCommand::Screenshot(shot) => screenshot(&shot),
-        UiCommand::Resize(resize) => resize_window(&resize),
+        UiCommand::Screenshot(shot) => screenshot(destination, &shot),
+        UiCommand::Resize(resize) => resize_window(destination, &resize),
         UiCommand::Tap(tap) => give(
             &tap.window,
             Input::Tap {
@@ -824,31 +879,36 @@ fn dispatch_ui(command: UiCommand) -> Result<ExitCode> {
     }
 }
 
-fn dispatch_settings(args: SettingsArgs, starter: &dyn WaOSStarter) -> Result<ExitCode> {
+fn dispatch_settings(
+    destination: &Destination,
+    args: SettingsArgs,
+    starter: &dyn WaOSStarter,
+) -> Result<ExitCode> {
+    let show = |id| on_this_thread(settings::show(destination, id, starter));
     match args.command {
-        None => target_id(&args.target).and_then(|id| on_this_thread(settings::show(id, starter))),
-        Some(SettingsCommand::List(target)) => {
-            let target = target.or(&args.target);
-            target_id(&target).and_then(|id| on_this_thread(settings::show(id, starter)))
-        }
+        None => target_id(&args.target).and_then(show),
+        Some(SettingsCommand::List(target)) => target_id(&target.or(&args.target)).and_then(show),
         Some(SettingsCommand::Set(set)) => {
             let target = set.target.clone().or(&args.target);
-            target_id(&target).and_then(|id| on_this_thread(settings::set(id, &set.row, starter)))
+            let id = target_id(&target)?;
+            on_this_thread(settings::set(destination, id, &set.row, starter))
         }
     }
 }
 
-fn dispatch_ext(args: ExtArgs) -> Result<ExitCode> {
+fn dispatch_ext(destination: &Destination, args: ExtArgs) -> Result<ExitCode> {
     match args.command {
-        Some(ExtCommand::List { json }) => on_this_thread(ext::list(json)),
-        None if args.stdio => on_this_thread(ext::relay_stdio(target_id(&args.target)?)),
+        Some(ExtCommand::List { json }) => on_this_thread(ext::list(destination, json)),
+        None if args.stdio => {
+            on_this_thread(ext::relay_stdio(destination, target_id(&args.target)?))
+        }
         None => anyhow::bail!(
             "`waos ext` relays with --stdio (`waos ext --stdio`, `waos ext --id <id> --stdio`), or lists the programs serving extensions (`waos ext list`)"
         ),
     }
 }
 
-fn dispatch_inspect(args: InspectArgs) -> Result<ExitCode> {
+fn dispatch_inspect(destination: &Destination, args: InspectArgs) -> Result<ExitCode> {
     let (target, asked) = match args.command {
         InspectCommand::Summary(summary) => (
             summary.target.or(&args.target),
@@ -866,7 +926,7 @@ fn dispatch_inspect(args: InspectArgs) -> Result<ExitCode> {
         }
     };
     let id = target_id(&target)?;
-    on_this_thread(inspect::inspect(id, asked))
+    on_this_thread(inspect::inspect(destination, id, asked))
 }
 
 /// Writes a new program in a folder of this directory's, says which workspace's members it was
@@ -900,7 +960,11 @@ fn build_only(args: &BuildArgs) -> Result<ExitCode> {
 
 /// Builds the program and installs it as its development install, on a runtime of this
 /// thread's. A package with no id is refused before anything is built.
-fn build_and_install(args: &BuildArgs, starter: &dyn WaOSStarter) -> Result<ExitCode> {
+fn build_and_install(
+    destination: &Destination,
+    args: &BuildArgs,
+    starter: &dyn WaOSStarter,
+) -> Result<ExitCode> {
     let metadata = workspace::metadata()?;
     let package = workspace::chosen_package(&metadata, args.program.package.as_deref())?;
     let identity = WaosMetadata::install_identity_of(package)?;
@@ -911,13 +975,17 @@ fn build_and_install(args: &BuildArgs, starter: &dyn WaOSStarter) -> Result<Exit
         &args.features.features(),
     )?;
     let build = install_build(identity, package, &built)?;
-    on_this_thread(install::install(&build, starter)).map(|()| ExitCode::SUCCESS)
+    on_this_thread(install::install(destination, &build, starter)).map(|()| ExitCode::SUCCESS)
 }
 
 /// Builds the program, installs it as its development install, launches it and attaches to it
 /// until it ends, on a runtime of this thread's. A package with no id is refused before anything
 /// is built.
-fn build_and_run(args: &RunArgs, starter: &dyn WaOSStarter) -> Result<ExitCode> {
+fn build_and_run(
+    destination: &Destination,
+    args: &RunArgs,
+    starter: &dyn WaOSStarter,
+) -> Result<ExitCode> {
     let metadata = workspace::metadata()?;
     let package = workspace::chosen_package(&metadata, args.build.program.package.as_deref())?;
     let identity = WaosMetadata::install_identity_of(package)?;
@@ -933,6 +1001,7 @@ fn build_and_run(args: &RunArgs, starter: &dyn WaOSStarter) -> Result<ExitCode> 
         &built.name,
         &args.env,
         &args.args,
+        destination,
         starter,
     ))
 }
@@ -961,10 +1030,11 @@ fn install_build(
 
 /// Writes the pictures of the program's windows under target/waos/screenshots/<package>, or
 /// <id> for one --id names, or where --out asks, as the WaOS running it answers.
-fn screenshot(args: &ScreenshotArgs) -> Result<ExitCode> {
+fn screenshot(destination: &Destination, args: &ScreenshotArgs) -> Result<ExitCode> {
     let (id, name) = target_of(&args.target)?;
     let default = screenshots_folder(&name);
     on_this_thread(screenshot::take(
+        destination,
         id,
         args.out.as_deref(),
         args.window,
@@ -973,15 +1043,15 @@ fn screenshot(args: &ScreenshotArgs) -> Result<ExitCode> {
 }
 
 /// Gives `input` to the window the arguments choose, and waits for WaOS's answer.
-fn give(window: &WindowArgs, input: Input) -> Result<ExitCode> {
+fn give(destination: &Destination, window: &WindowArgs, input: Input) -> Result<ExitCode> {
     let id = target_id(&window.target)?;
-    on_this_thread(input::give(id, window.window, input))
+    on_this_thread(input::give(destination, id, window.window, input))
 }
 
 /// Sizes the window the arguments choose, and waits for WaOS's answer.
-fn resize_window(args: &ResizeArgs) -> Result<ExitCode> {
+fn resize_window(destination: &Destination, args: &ResizeArgs) -> Result<ExitCode> {
     let id = target_id(&args.window.target)?;
-    on_this_thread(resize::resize(id, args.window.window, args.to))
+    on_this_thread(resize::resize(destination, id, args.window.window, args.to))
 }
 
 /// The program `target` names and how its output is named: the id given, by itself, or else the

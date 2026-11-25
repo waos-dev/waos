@@ -10,12 +10,13 @@
 
 use anyhow::{Context, Result, bail};
 use waos_dev_protocol::{
-    ClientStream, Connection, Install, InstallAnswer, Request, Upload, component_digest,
+    ClientConnection, Install, InstallAnswer, Request, Upload, component_digest,
 };
 use waos_package::{Category, FileAssociation, ProgramId, ProgramKind, Version};
 
 use crate::asking;
 use crate::connecting::{WaOSStarter, connect_or_start};
+use crate::destination::Destination;
 
 /// Over this many bytes, sending a component takes noticeable time, so the install says how much
 /// it is sending. A debug build is hundreds of megabytes; a release one is under this.
@@ -39,8 +40,13 @@ pub struct InstallBuild {
 
 /// Installs `build` as its program's development install, in the WaOS running or the one started
 /// when none answers, and says what it is installed as.
-pub async fn install(build: &InstallBuild, starter: &dyn WaOSStarter) -> Result<()> {
-    let id = install_on(connect_or_start(starter).await?, build).await?;
+pub async fn install(
+    destination: &Destination,
+    build: &InstallBuild,
+    starter: &dyn WaOSStarter,
+) -> Result<()> {
+    let connection = connect_or_start(destination, starter).await?;
+    let id = install_on(connection, destination, build).await?;
     eprintln!(
         "waos: installed {} as {id}; `waos launch` starts it",
         build.name
@@ -49,10 +55,11 @@ pub async fn install(build: &InstallBuild, starter: &dyn WaOSStarter) -> Result<
     Ok(())
 }
 
-/// Installs `build` over `connection` as its program's development install, after saying its
-/// hello; answers the id it is installed under.
+/// Installs `build` over `connection` to `destination` as its program's development install,
+/// after saying its hello; answers the id it is installed under.
 pub async fn install_on(
-    connection: Connection<ClientStream>,
+    connection: ClientConnection,
+    destination: &Destination,
     build: &InstallBuild,
 ) -> Result<ProgramId> {
     let request = Request::Install(Install {
@@ -66,7 +73,7 @@ pub async fn install_on(
         length: build.component.len() as u64,
         digest: component_digest(&build.component),
     });
-    let mut connection = asking::greeted(connection, &request).await?;
+    let mut connection = asking::greeted(connection, destination, &request).await?;
     let name = &build.name;
     connection
         .send(&request)
@@ -88,11 +95,7 @@ pub async fn install_on(
 }
 
 /// Sends `component` unless WaOS answers that the development install holds it.
-async fn upload(
-    connection: &mut Connection<ClientStream>,
-    name: &str,
-    component: &[u8],
-) -> Result<()> {
+async fn upload(connection: &mut ClientConnection, name: &str, component: &[u8]) -> Result<()> {
     match connection
         .receive::<Upload>()
         .await
@@ -176,8 +179,9 @@ mod tests {
             assert_eq!(server.receive::<Component>().await.unwrap(), None);
             (install, component)
         });
-        let client = Connection::connect(&socket).await.unwrap();
-        let id = install_on(client, &build()).await.unwrap();
+        let client = ClientConnection::connect(&socket).await.unwrap();
+        let destination = Destination::ThisMachine { socket };
+        let id = install_on(client, &destination, &build()).await.unwrap();
         assert_eq!(id.as_str(), "dev.example.notes.development");
         served.await.unwrap()
     }

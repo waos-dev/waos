@@ -24,12 +24,18 @@ waos-dev-protocol.workspace = true
 wasmparser.workspace = true
 waos-package.workspace = true
 anyhow.workspace = true
-# The command line, as `waos <command>`.
-clap.workspace = true
+# The command line, as `waos <command>`, and `--device` read from `WAOS_DEVICE` too.
+clap = { workspace = true, features = ["env"] }
 # Which package a program is, where cargo put its component, and its `[package.metadata.waos]`.
 cargo_metadata.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+# The devices this computer is paired with, kept in `devices.toml`, and the name a device lists
+# this computer by.
+toml.workspace = true
+gethostname = "1"
+# The devices announcing developer access on the local network, which `waos devices` lists.
+mdns-sd = "0.22"
 # The SHA-256 of a package, which the index lists.
 sha2.workspace = true
 # The workspace a new program is made in, edited as `cargo new` edits it: its root manifest in

@@ -15,6 +15,7 @@ use waos_dev_protocol::{Input, InputAnswer, InputDone, Request, WindowId};
 use waos_package::ProgramId;
 
 use crate::asking::ask;
+use crate::destination::Destination;
 
 /// Two numbers written `<a>,<b>`: a point in a window's pixels, or how far to scroll.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -35,8 +36,13 @@ impl FromStr for Pair {
 }
 
 /// Gives `input` to the window `window` of the program `id`, and waits for WaOS's answer.
-pub async fn give(id: ProgramId, window: Option<WindowId>, input: Input) -> Result<ExitCode> {
-    let answer = ask(&Request::Input { id, window, input }).await?;
+pub async fn give(
+    destination: &Destination,
+    id: ProgramId,
+    window: Option<WindowId>,
+    input: Input,
+) -> Result<ExitCode> {
+    let answer = ask(destination, &Request::Input { id, window, input }).await?;
     match answer {
         InputAnswer::Done(InputDone { in_sight }) => {
             if !in_sight {

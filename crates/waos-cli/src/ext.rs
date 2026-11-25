@@ -1,4 +1,4 @@
-//! `waos ext`: the service extensions of the programs running in the WaOS on this machine, as
+//! `waos ext`: the service extensions of the programs running in the WaOS a command goes to, as
 //! Waft's CLI (`cargo waft ext`) reaches an app's, so WaOS is a platform to it and `waos` only
 //! carries the messages (the design's decision 70). `waos ext list --json` lists each program
 //! running that serves extensions as Waft's discovery lists an app, its address the command that
@@ -9,9 +9,9 @@
 //!
 //! The invariants: every request read is answered with one response line, whatever WaOS says or
 //! fails to, so a client never waits for one; and a hello is taken and not forwarded, since what
-//! the relay trusts is WaOS's own socket, the user's alone, not a token.
+//! the relay trusts is WaOS's own socket, the user's alone, or a paired device's token, which the
+//! relay reads itself, never one a client gives.
 
-use std::path::Path;
 use std::process::ExitCode;
 
 use anyhow::{Context, Result, bail};
@@ -28,14 +28,15 @@ use waos_dev_protocol::{
 use waos_package::ProgramId;
 
 use crate::asking::{self, Unreached};
+use crate::destination::Destination;
 
-/// The device a listing names: the WaOS on this machine.
-const DEVICE: &str = "WaOS";
+/// The device a listing names for the WaOS on this machine.
+const THIS_MACHINE: &str = "WaOS";
 
 /// Prints each program running that serves extensions: as Waft's listing, a JSON object a line,
 /// with `json`, and a line of its name and id otherwise. With no WaOS answering, none runs.
-pub async fn list(json: bool) -> Result<ExitCode> {
-    let serving = match asking::ask_if_answered(&WaosRequest::ServingPrograms).await? {
+pub async fn list(destination: &Destination, json: bool) -> Result<ExitCode> {
+    let serving = match asking::ask_if_answered(destination, &WaosRequest::ServingPrograms).await? {
         Unreached::Answered(ServingProgramsAnswer::Programs(serving)) => serving,
         Unreached::Answered(ServingProgramsAnswer::Refused(refusal)) => bail!("{refusal}"),
         Unreached::Answered(ServingProgramsAnswer::Unknown) => bail!(
@@ -43,7 +44,7 @@ pub async fn list(json: bool) -> Result<ExitCode> {
         ),
         Unreached::NobodyAnswers => ServingPrograms::default(),
     };
-    for line in listing(&serving, json) {
+    for line in listing(&serving, destination, json) {
         println!("{line}");
     }
     if !json && serving.programs.is_empty() {
@@ -52,57 +53,60 @@ pub async fn list(json: bool) -> Result<ExitCode> {
     Ok(ExitCode::SUCCESS)
 }
 
-/// The lines `list` prints of `serving`.
-fn listing(serving: &ServingPrograms, json: bool) -> Vec<String> {
+/// The lines `list` prints of `serving`, at `destination`.
+fn listing(serving: &ServingPrograms, destination: &Destination, json: bool) -> Vec<String> {
     serving
         .programs
         .iter()
         .map(|program| match json {
-            true => listed(program, serving.pid),
+            true => listed(program, serving.pid, destination),
             false => format!("{}  {}", program.name, program.id),
         })
         .collect()
 }
 
-/// `program`, in the WaOS of process `pid`, as one line of Waft's listing.
-fn listed(program: &ServingProgram, pid: u32) -> String {
-    listed_app(program, pid).to_json().to_string()
+/// `program`, in the WaOS of process `pid` at `destination`, as one line of Waft's listing.
+fn listed(program: &ServingProgram, pid: u32, destination: &Destination) -> String {
+    listed_app(program, pid, destination).to_json().to_string()
 }
 
-/// `program`, in the WaOS of process `pid`, as Waft's discovery lists an app: reached through the
-/// relay, with no token, WaOS's socket being the user's alone.
-fn listed_app(program: &ServingProgram, pid: u32) -> ListedApp {
+/// `program`, in the WaOS of process `pid` at `destination`, as Waft's discovery lists an app:
+/// reached through the relay, to the same device, with no token, the relay reading its own.
+fn listed_app(program: &ServingProgram, pid: u32, destination: &Destination) -> ListedApp {
     let id = program.id.as_str();
-    let relay = ["waos", "ext", "--id", id, "--stdio"].map(String::from);
+    let mut relay = ["waos", "ext", "--id", id, "--stdio"]
+        .map(String::from)
+        .to_vec();
+    let device = match destination {
+        Destination::ThisMachine { .. } => THIS_MACHINE.to_owned(),
+        Destination::Device(device) => {
+            relay.extend(["--device".to_owned(), device.name.clone()]);
+            device.name.clone()
+        }
+    };
     ListedApp {
         app: program.name.clone(),
         identifier: Some(id.to_owned()),
-        device: Some(DEVICE.to_owned()),
+        device: Some(device),
         pid,
-        address: Address::Command(relay.to_vec()),
+        address: Address::Command(relay),
         token: String::new(),
     }
 }
 
-/// Relays between stdin and stdout and the program `id` in the WaOS on this machine, until stdin
-/// closes.
-pub async fn relay_stdio(id: ProgramId) -> Result<ExitCode> {
+/// Relays between stdin and stdout and the program `id` in the WaOS at `destination`, until
+/// stdin closes.
+pub async fn relay_stdio(destination: &Destination, id: ProgramId) -> Result<ExitCode> {
     let input = tokio::io::BufReader::new(tokio::io::stdin());
-    relay(
-        &id,
-        &waos_dev_protocol::listener_path(),
-        input,
-        tokio::io::stdout(),
-    )
-    .await?;
+    relay(&id, destination, input, tokio::io::stdout()).await?;
     Ok(ExitCode::SUCCESS)
 }
 
-/// Relays the messages `input` holds, one a line, to the program `id` in the WaOS listening at
-/// `socket`, writing each answer to `output` as a line, until `input` ends.
+/// Relays the messages `input` holds, one a line, to the program `id` in the WaOS at
+/// `destination`, writing each answer to `output` as a line, until `input` ends.
 pub async fn relay(
     id: &ProgramId,
-    socket: &Path,
+    destination: &Destination,
     input: impl AsyncBufRead + Unpin,
     mut output: impl AsyncWrite + Unpin,
 ) -> Result<()> {
@@ -111,7 +115,7 @@ pub async fn relay(
         if line.trim().is_empty() {
             continue;
         }
-        let Some(response) = answer_of(id, socket, &line).await else {
+        let Some(response) = answer_of(id, destination, &line).await else {
             continue;
         };
         let mut text = Message::Response(response).to_text();
@@ -126,11 +130,11 @@ pub async fn relay(
 }
 
 /// The response the message `line` holds is answered with; none for a hello, which is taken.
-async fn answer_of(id: &ProgramId, socket: &Path, line: &str) -> Option<Response> {
+async fn answer_of(id: &ProgramId, destination: &Destination, line: &str) -> Option<Response> {
     match Message::from_text(line) {
         Err(unreadable) => Some(unreadable),
         Ok(Message::Hello { .. }) => None,
-        Ok(Message::Request(request)) => Some(called(id, socket, request).await),
+        Ok(Message::Request(request)) => Some(called(id, destination, request).await),
         Ok(Message::Response(response)) => Some(Response::error(
             response.id,
             RpcError::new(
@@ -142,7 +146,7 @@ async fn answer_of(id: &ProgramId, socket: &Path, line: &str) -> Option<Response
 }
 
 /// `request` called of the program `id` as one `Extension`, and the response its answer is.
-async fn called(id: &ProgramId, socket: &Path, request: Request) -> Response {
+async fn called(id: &ProgramId, destination: &Destination, request: Request) -> Response {
     let Request {
         id: call,
         method,
@@ -153,9 +157,9 @@ async fn called(id: &ProgramId, socket: &Path, request: Request) -> Response {
         name: method.clone(),
         params: params.into_iter().collect(),
     };
-    let answer = asking::connect_at(socket)
+    let answer = asking::connect(destination)
         .await
-        .map(|connection| asking::answer::<ExtensionAnswer>(connection, &extension));
+        .map(|connection| asking::answer::<ExtensionAnswer>(connection, destination, &extension));
     let answer = match answer {
         Ok(answering) => answering.await,
         Err(error) => Err(error),
@@ -210,18 +214,21 @@ mod tests {
                 running: true,
             }],
         };
-        let [line] = listing(&serving, true).try_into().expect("one line");
+        let here = Destination::this_machine();
+        let [line] = listing(&serving, &here, true).try_into().expect("one line");
         assert_eq!(
             ListedApp::from_json(&line),
-            Some(listed_app(&serving.programs[0], 4242)),
+            Some(listed_app(&serving.programs[0], 4242, &here)),
             "the line Waft reads back"
         );
         assert_eq!(
-            listed_app(&serving.programs[0], 4242).address.to_string(),
+            listed_app(&serving.programs[0], 4242, &here)
+                .address
+                .to_string(),
             r#"command:["waos","ext","--id","dev.example.notes.development","--stdio"]"#
         );
         assert_eq!(
-            listing(&serving, false),
+            listing(&serving, &here, false),
             ["Notes (Development)  dev.example.notes.development"]
         );
     }
@@ -255,7 +262,10 @@ mod tests {
     /// What the relay writes, a line each, for `input`.
     async fn relayed(place: &TestPlace, input: &str) -> Vec<Value> {
         let mut output = Vec::new();
-        relay(&notes(), place.path(), input.as_bytes(), &mut output)
+        let destination = Destination::ThisMachine {
+            socket: place.path().to_owned(),
+        };
+        relay(&notes(), &destination, input.as_bytes(), &mut output)
             .await
             .unwrap();
         String::from_utf8(output)

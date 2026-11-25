@@ -17,7 +17,7 @@ use std::sync::Arc;
 use anyhow::Context as _;
 use tokio::sync::Mutex;
 use waos_dev_protocol::{
-    Connection, Install, InstallAnswer, Refusal, RefusalKind, ServerStream, UninstallAnswer, Upload,
+    Install, InstallAnswer, Refusal, RefusalKind, ServerConnection, UninstallAnswer, Upload,
 };
 use waos_package::{Manifest, ProgramId};
 use waos_store::{DevelopmentBuild, Origin, Store};
@@ -37,7 +37,7 @@ pub(crate) struct InstallContext {
 /// Serves a connection's `Install` to its end: the upload WaOS answers, the component's parts,
 /// then the install, answered with the development id it is installed under, or why not.
 pub(crate) async fn install(
-    mut connection: Connection<ServerStream>,
+    mut connection: ServerConnection,
     install: Install,
     context: &InstallContext,
 ) {
@@ -172,7 +172,7 @@ async fn put_in_place(
 /// Serves a connection's `Uninstall`: the installed program `id` removed, with its settings and
 /// its own folders, its run stopped first, or why not.
 pub(crate) async fn uninstall(
-    mut connection: Connection<ServerStream>,
+    mut connection: ServerConnection,
     id: &ProgramId,
     context: &InstallContext,
 ) {

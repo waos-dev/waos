@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::adjacent::adjacent_unknown;
 use crate::messages::Request;
+use crate::token::Token;
 
 /// The protocol's major, which each hello says: raised only by a real break in the messages'
 /// meaning, while a field or a message added leaves it as it is. 3 since a run became its steps,
@@ -19,7 +20,7 @@ use crate::messages::Request;
 pub const MAJOR: u32 = 3;
 
 /// Every request a WaOS serves, by [`Request::name`]: what its hello lists.
-pub const SERVED: [&str; 14] = [
+pub const SERVED: [&str; 15] = [
     "screenshot",
     "input",
     "resize",
@@ -34,6 +35,7 @@ pub const SERVED: [&str; 14] = [
     "uninstall",
     "extension",
     "serving-programs",
+    "pair",
 ];
 
 /// Which half of the protocol sent a [`Hello`].
@@ -63,6 +65,10 @@ pub struct Hello {
     /// Which binary sent this hello.
     #[serde(default)]
     pub peer: Peer,
+    /// `waos`'s across the network: the token the device gave this computer when the two paired,
+    /// without which the device answers nothing. None on this machine's socket.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub token: Option<Token>,
 }
 
 impl Hello {
@@ -73,6 +79,7 @@ impl Hello {
             build: build.into(),
             serves: SERVED.iter().map(|request| request.to_string()).collect(),
             peer: Peer::WaOS,
+            token: None,
         }
     }
 
@@ -83,6 +90,7 @@ impl Hello {
             build: build.into(),
             serves: Vec::new(),
             peer: Peer::Command,
+            token: None,
         }
     }
 
@@ -93,6 +101,7 @@ impl Hello {
             build: build.into(),
             serves: Vec::new(),
             peer: Peer::WaosOpen,
+            token: None,
         }
     }
 
@@ -101,13 +110,13 @@ impl Hello {
     pub fn accepts(&self, ours: &Hello, request: &Request) -> Result<(), Mismatch> {
         if self.major != ours.major {
             return Err(Mismatch::Major {
-                theirs: self.clone(),
-                ours: ours.clone(),
+                theirs: Box::new(self.clone()),
+                ours: Box::new(ours.clone()),
             });
         }
         if !self.serves.iter().any(|served| served == request.name()) {
             return Err(Mismatch::NotServed {
-                theirs: self.clone(),
+                theirs: Box::new(self.clone()),
                 request: request.name(),
             });
         }
@@ -119,10 +128,13 @@ impl Hello {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Mismatch {
     /// The protocol's major differs: each side's hello.
-    Major { theirs: Hello, ours: Hello },
+    Major {
+        theirs: Box<Hello>,
+        ours: Box<Hello>,
+    },
     /// WaOS does not serve the request: its hello, and the request's name.
     NotServed {
-        theirs: Hello,
+        theirs: Box<Hello>,
         request: &'static str,
     },
 }
@@ -166,6 +178,7 @@ mod tests {
     use std::path::PathBuf;
 
     use crate::messages::{Input, Inspection, Install, Launch, Request, WindowId};
+    use crate::pairing::PairStart;
     use crate::settings_rows::Row;
     use waos_package::ProgramId;
 
@@ -245,6 +258,10 @@ mod tests {
                 params: Vec::new(),
             },
             Request::ServingPrograms,
+            Request::Pair(PairStart {
+                computer: "mac".to_owned(),
+                spake: vec![1, 2, 3],
+            }),
         ];
         // Match exhaustively so adding a `Request` variant fails to compile here until `all` and
         // `SERVED` list it too.
@@ -264,6 +281,7 @@ mod tests {
                 | Request::Uninstall { .. }
                 | Request::Extension { .. }
                 | Request::ServingPrograms
+                | Request::Pair(_)
                 | Request::Unknown => {}
             }
         }

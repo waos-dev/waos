@@ -37,11 +37,14 @@
 //!   CBOR [`Hello`] on the first frame.
 
 mod adjacent;
+mod announcement;
 mod component;
 mod connection;
 mod hello;
 mod messages;
+mod network;
 mod os;
+mod pairing;
 #[cfg(windows)]
 mod pipe;
 mod refusal;
@@ -49,9 +52,14 @@ mod settings_rows;
 #[cfg(unix)]
 mod socket;
 mod test_place;
+mod token;
 
+pub use announcement::{Announced, SERVICE};
 pub use component::{CHUNK_BYTES, component_digest};
-pub use connection::{Connection, Locality, MAX_FRAME_BYTES};
+pub use connection::{
+    Connection, Frames, Locality, MAX_FRAME_BYTES, ReceiveFrames, SendFrames, StreamFrames,
+    TransportFrames,
+};
 pub use hello::{Hello, MAJOR, Mismatch, Peer, SERVED};
 pub use messages::{
     Component, ExtensionAnswer, Input, InputAnswer, InputDone, InspectAnswer, Inspection, Install,
@@ -60,6 +68,12 @@ pub use messages::{
     ServingProgramsAnswer, SettingsAnswer, StopAnswer, TracedCapability, UninstallAnswer, Upload,
     WindowId, WindowPicture,
 };
+pub use network::{
+    ClientNetworkStream, DeviceAddress, Fingerprint, Identity, Incoming, NetworkListener,
+    NetworkStream, PORT, ServerNetworkStream, WebSocketFrames, WebSocketReceiving,
+    WebSocketSending, connect as connect_across_network,
+};
+pub use pairing::{PairAnswer, PairConfirm, PairStart, Pairing, PairingCode, PairingKey};
 #[cfg(windows)]
 pub use pipe::{ClientStream, Listener, ServerStream, listener_path};
 pub use refusal::{Refusal, RefusalKind};
@@ -70,3 +84,26 @@ pub use settings_rows::{
 #[cfg(unix)]
 pub use socket::{ClientStream, Listener, ServerStream, listener_path};
 pub use test_place::TestPlace;
+pub use token::Token;
+
+/// The frames of a connection `waos` made: over the stream on this machine, or across the
+/// network.
+pub type ClientFrames =
+    TransportFrames<StreamFrames<ClientStream>, WebSocketFrames<ClientNetworkStream>>;
+
+/// The frames of a connection a WaOS accepted: over the stream on this machine, or across the
+/// network.
+pub type ServerFrames =
+    TransportFrames<StreamFrames<ServerStream>, WebSocketFrames<ServerNetworkStream>>;
+
+/// A connection `waos` made to a WaOS.
+pub type ClientConnection = Connection<ClientFrames>;
+
+/// A connection a WaOS accepted.
+pub type ServerConnection = Connection<ServerFrames>;
+
+/// The half of a [`ServerConnection`] that receives.
+pub type ServerReadHalf = Connection<<ServerFrames as Frames>::Receiving>;
+
+/// The half of a [`ServerConnection`] that sends.
+pub type ServerWriteHalf = Connection<<ServerFrames as Frames>::Sending>;
