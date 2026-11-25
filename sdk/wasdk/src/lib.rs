@@ -26,9 +26,11 @@
 //! generation cannot produce: [`main`], the entry; [`worker`], a worker's entry, which the
 //! program's one `worker-entry` export finds by name; [`spawn`], the executor every call runs on,
 //! and [`block_on`], which runs a future to its end where code that cannot await needs its answer;
-//! the runtime's stream and future types the signatures name; and [`keys`], Flutter's names of
-//! the numbers a key event carries, as plain constants. No hand-written wrapper over a generated
-//! type. It names nothing of the engine or the capabilities, and pins one wit-bindgen
+//! the runtime's stream and future types the signatures name; [`keys`], Flutter's names of
+//! the numbers a key event carries, as plain constants; and, with the `raw-window-handle`
+//! feature, a view as the window other libraries take, `raw-window-handle`'s traits on
+//! [`views::View`] and [`view_of_window_handle`] to read one back. No hand-written wrapper over a
+//! generated type. It names nothing of the engine or the capabilities, and pins one wit-bindgen
 //! per release.
 //!
 //! ```ignore
@@ -73,6 +75,11 @@ pub mod bindings {
 pub mod __entry;
 
 pub mod keys;
+
+#[cfg(feature = "raw-window-handle")]
+mod window_handle;
+#[cfg(feature = "raw-window-handle")]
+pub use window_handle::view_of_window_handle;
 
 /// `wasdk:inspect`, what a program with the inspector role sees of the others: the devices and
 /// the programs on each, their audit summaries and their live traces. Calling any of it asks for

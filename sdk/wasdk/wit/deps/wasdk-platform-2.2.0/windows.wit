@@ -2,7 +2,7 @@ package wasdk:platform@2.2.0;
 
 /// What only a desktop can do with a view: put a frame around it, a title on it, a place on
 /// screen, and limits on the size its user resizes it to; move it from a press, maximize it and
-/// minimize it, for a program that draws its own title bar. A window is what a desktop's shell,
+/// minimize it, for a program that draws its own title bar; have it fill a screen. A window is what a desktop's shell,
 /// or Android's, shows a view in. A program reaches a window from its view (`view.window` in `views`), and
 /// asks for one with `views.request-view`, whose `window-config` says how the window is made. A
 /// view in a phone's tab has no window: its `window` answers none, and the shell refuses requests.
@@ -43,6 +43,30 @@ interface windows {
     /// draws its own: macOS's "Double-click a window's title bar to". None where the system has
     /// no such setting.
     title-bar-double-click-action: func() -> option<title-bar-action>;
+    /// Whether the window is full screen: Flutter's `WindowController.isFullscreen`. It fills a
+    /// screen without its title bar, over the system's bars; on macOS, in a Space of its own.
+    /// A full-screen window is not maximized.
+    @since(version = 2.2.0)
+    is-fullscreen: func() -> bool;
+    /// Has the window fill a screen, or returns it to how it was before: Flutter's
+    /// `WindowController.setFullscreen`. `screen` is the id of the screen to fill
+    /// (`screens.screen.id`), the window's own where none; it is not read on the way back.
+    /// The system may take a while, or refuse: `changes` tells once it has.
+    @since(version = 2.2.0)
+    set-fullscreen: func(fullscreen: bool, screen: option<u64>);
+    /// What changes of the window from now on, whoever asked: the program, or the user by the
+    /// system's own means.
+    @since(version = 2.2.0)
+    changes: func() -> stream<window-change>;
+  }
+
+  /// A change of a window's (`window.changes`).
+  @since(version = 2.2.0)
+  variant window-change {
+    /// The window is maximized now, or no longer.
+    maximized(bool),
+    /// The window is full screen now, or no longer.
+    fullscreen(bool),
   }
 
   /// What a double-click on a window's title bar does.

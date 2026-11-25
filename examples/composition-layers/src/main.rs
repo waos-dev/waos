@@ -12,12 +12,13 @@
 //! cargo build -p composition-layers --target wasm32-wasip3
 //! ```
 
+use std::sync::Arc;
+
 use wasdk::views::{
     self, CompositionLayer, Compositor, Mutator, PlacedLayer, Placement, RoundedRect, View,
     ViewChange, ViewEvent,
 };
 use wasdk::windows::{Point, Rect, Size, WindowConfig};
-use wasdk_wgpu::SharedView;
 
 /// What each frame draws: nothing at all, so every layer shows through it.
 const CLEAR: wgpu::Color = wgpu::Color::TRANSPARENT;
@@ -37,7 +38,7 @@ async fn main() -> Result<(), String> {
         .await
         .map_err(|error| format!("no WebGPU device: {error}"))?;
 
-    let view = SharedView::new(first_view().await?);
+    let view = Arc::new(first_view().await?);
     let surface = configured_surface(&instance, &adapter, &device, &view)?;
     let layers = views::get_compositor().map(|compositor| Layers::on(&compositor));
     println!(
@@ -171,7 +172,7 @@ fn configured_surface(
     instance: &wgpu::Instance,
     adapter: &wgpu::Adapter,
     device: &wgpu::Device,
-    view: &SharedView,
+    view: &Arc<View>,
 ) -> Result<wgpu::Surface<'static>, String> {
     let surface = instance
         .create_surface(view.clone())

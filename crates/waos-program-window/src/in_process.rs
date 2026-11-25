@@ -62,6 +62,7 @@ pub fn placed_view(opened: OpenedView) -> PlacedView {
             window: Arc::new(WindowCalls::new(calls, opened.size_limits)),
             frame: opened.frame,
             maximized: opened.maximized,
+            fullscreen: opened.fullscreen,
             title_bar_double_click_action: opened.title_bar_double_click_action,
         }),
         metrics: opened.metrics,
@@ -137,6 +138,10 @@ impl ViewLink for ProgramView {
 
     fn window_maximized_changed(&self, maximized: bool) {
         ProgramView::window_maximized_changed(self, maximized);
+    }
+
+    fn window_fullscreen_changed(&self, fullscreen: bool) {
+        ProgramView::window_fullscreen_changed(self, fullscreen);
     }
 
     fn title_bar_double_click_action_changed(&self, action: Option<TitleBarAction>) {

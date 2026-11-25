@@ -366,6 +366,14 @@ impl ProgramView {
         }
     }
 
+    /// The window the view is in is full screen now, or no longer. Nothing for a view in no
+    /// window.
+    pub fn window_fullscreen_changed(&self, fullscreen: bool) {
+        if let Some(window) = self.reported_window("whether it is full screen") {
+            window.fullscreen_changed(fullscreen);
+        }
+    }
+
     /// The system's settings say a double-click on the title bar of the window the view is in
     /// does `action` now; none where the system has no such setting. Nothing for a view in no
     /// window.
@@ -1183,6 +1191,13 @@ pub(super) mod tests {
         let view = view_in_window(&Arc::new(Headless::default()));
         view.window_maximized_changed(true);
         assert!(view.window().unwrap().is_maximized());
+    }
+
+    #[test]
+    fn whether_the_window_is_full_screen_is_read_back_from_the_window() {
+        let view = view_in_window(&Arc::new(Headless::default()));
+        view.window_fullscreen_changed(true);
+        assert!(view.window().unwrap().is_fullscreen());
     }
 
     #[test]

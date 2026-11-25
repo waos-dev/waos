@@ -117,7 +117,7 @@ fn asks_for_a_view_sees_it_arrive_and_ends_when_it_is_taken_away() {
 }
 
 #[test]
-fn moves_maximizes_and_minimizes_its_window_from_the_band_it_treats_as_its_title_bar() {
+fn moves_maximizes_minimizes_and_takes_full_screen_its_window_from_its_title_bar() {
     let Survey {
         running,
         shown,
@@ -161,6 +161,22 @@ fn moves_maximizes_and_minimizes_its_window_from_the_band_it_treats_as_its_title
     view.metrics_changed(metrics(1600, 1000));
     output.wait_for("view 1: its window is no longer maximized");
 
+    secondary_press(&view, ON_TITLE_BAR, 1500 * MS);
+    output.wait_for("view 1: secondary press on its title bar: full screen true");
+    wait_until("survey asks for its window full screen", || {
+        window.is_fullscreen()
+    });
+    view.window_fullscreen_changed(true);
+    output.wait_for("view 1: its window is full screen");
+    // The user leaves it by the system's own means: survey hears, having asked for nothing.
+    view.window_fullscreen_changed(false);
+    output.wait_for("view 1: its window is no longer full screen");
+    assert_eq!(
+        output.count("view 1: its window is full screen"),
+        1,
+        "a change is told once"
+    );
+
     view.title_bar_double_click_action_changed(Some(TitleBarAction::Minimize));
     double_click(&view, 2000 * MS);
     wait_until("survey minimizes its window", || window.is_minimized());
@@ -194,6 +210,24 @@ fn press(view: &ProgramView, at: (f64, f64), time: u64) {
     let held = HeldModifiers::default();
     view.pointer(
         mouse(PointerChange::Down, PointerButtons::PRIMARY, at, time),
+        &held,
+    );
+    view.pointer(
+        mouse(
+            PointerChange::Up,
+            PointerButtons::empty(),
+            at,
+            time + 50 * MS,
+        ),
+        &held,
+    );
+}
+
+/// A press of the mouse's secondary button at `at`, and its release.
+fn secondary_press(view: &ProgramView, at: (f64, f64), time: u64) {
+    let held = HeldModifiers::default();
+    view.pointer(
+        mouse(PointerChange::Down, PointerButtons::SECONDARY, at, time),
         &held,
     );
     view.pointer(

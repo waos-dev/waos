@@ -11,6 +11,7 @@ use std::fmt::{self, Debug};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
+use waos::bindings::wasdk::platform::screens::ScreenId;
 use waos::bindings::wasdk::platform::views::{
     Cursor, OverlayStyle, PixelRect, TextEditingValue, TextInputConfiguration, ViewFocusDirection,
     ViewFocusState,
@@ -64,6 +65,8 @@ pub enum WindowCall {
     Drag,
     SetMaximized(bool),
     SetMinimized(bool),
+    /// Full screen or back, and the screen to fill, the window's own where none.
+    SetFullscreen(bool, Option<ScreenId>),
 }
 
 /// Written without the text, which may be a password: calls are traced.

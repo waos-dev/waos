@@ -6,14 +6,15 @@
 //! The WIT's `window` does not say whether the window is minimized or occluded, nor that it
 //! moved; the framework hears neither (`is_minimized` and `is_occluded` answer false, as on
 //! Wayland, the design's decision 35), and a view off screen gets no frames. Whether it is
-//! maximized, and what a double-click on a title bar does, are read from the WIT at each call.
+//! maximized or full screen, and what a double-click on a title bar does, are read from the WIT
+//! at each call.
 
 use std::rc::Rc;
 use std::time::Duration;
 
 use waft_embedder::{
-    HostWindow, IconImage, MacosTitleBar, RawWindowHandle, Rect, TitleBarAction, ViewError,
-    ViewRef, WindowBackground, WindowConfig, WindowLevel, WindowSizeLimits,
+    HostWindow, IconImage, MacosTitleBar, RawWindowHandle, Rect, ScreenId, TitleBarAction,
+    ViewError, ViewRef, WindowBackground, WindowConfig, WindowLevel, WindowSizeLimits,
 };
 use wasdk::views;
 use wasdk::windows::{self, Point, Size};
@@ -121,6 +122,15 @@ impl HostWindow for WasdkWindow {
 
     fn set_minimized(&self, minimized: bool) {
         self.window.set_minimized(minimized);
+    }
+
+    fn is_fullscreen(&self) -> bool {
+        self.window.is_fullscreen()
+    }
+
+    fn set_fullscreen(&self, fullscreen: bool, screen: Option<ScreenId>) {
+        self.window
+            .set_fullscreen(fullscreen, screen.map(|screen| screen.0));
     }
 
     /// `Unknown` where the WIT answers none, the system having no such setting.

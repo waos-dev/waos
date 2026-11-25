@@ -196,6 +196,7 @@ fn opened() -> OpenedWindow {
         },
         size_limits: false,
         maximized: false,
+        fullscreen: false,
         title_bar_double_click_action: Some(TitleBarAction::Maximize),
     }
 }

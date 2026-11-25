@@ -48,6 +48,7 @@ wasmtime::component::bindgen!({
         // Waits while the program is frozen, as a submission does; to the program a plain call.
         "wasdk:platform/views.[method]composition-layer.present": async | store | tracing | trappable,
         "wasdk:platform/screens.screen-changes": store | tracing | trappable,
+        "wasdk:platform/windows.[method]window.changes": store | tracing | trappable,
         "wasdk:platform/system.changes": store | tracing | trappable,
         "wasdk:platform/lifecycle.state-changes": store | tracing | trappable,
         "wasdk:platform/lifecycle.exit-requests": store | tracing | trappable,

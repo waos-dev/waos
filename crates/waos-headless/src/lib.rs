@@ -3,7 +3,7 @@
 //! none, focused and in sight; frames are refreshed by one thread of the shell's own, as soon as
 //! asked or a set time after; each view keeps the picture presented last until the next replaces
 //! it, which the engine reads back (`ProgramView::picture`); and what the engine told each view and
-//! its window, its title, its size limits, whether it is maximized, is kept for whoever reads it,
+//! its window, its title, its size limits, whether it is maximized or full screen, is kept for whoever reads it,
 //! as a window system knows its windows. What `waos --headless` runs on, and the tests that run a
 //! program. Every other part of the engine's shell, the questions it asks among them, is its
 //! maker's to plug in, real or a test's own.
@@ -22,7 +22,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use tokio::sync::watch;
-use waos::bindings::wasdk::platform::screens::PixelSize;
+use waos::bindings::wasdk::platform::screens::{PixelSize, ScreenId};
 use waos::bindings::wasdk::platform::views::{
     Cursor, Insets, Metrics, OverlayStyle, PixelRect, Placement, TextEditingValue,
     TextInputConfiguration, TextInputType, ViewError, ViewFocusDirection, ViewFocusState,
@@ -239,6 +239,7 @@ pub struct HeadlessWindow {
     max_size: Mutex<Option<Size>>,
     maximized: AtomicBool,
     minimized: AtomicBool,
+    fullscreen: AtomicBool,
     drags: AtomicUsize,
 }
 
@@ -267,6 +268,11 @@ impl HeadlessWindow {
     /// Whether the program last asked for the window minimized.
     pub fn is_minimized(&self) -> bool {
         self.minimized.load(Ordering::SeqCst)
+    }
+
+    /// Whether the program last asked for the window full screen.
+    pub fn is_fullscreen(&self) -> bool {
+        self.fullscreen.load(Ordering::SeqCst)
     }
 
     /// How many moves of the window from a press the program asked for, as a window system starts
@@ -320,6 +326,10 @@ impl ShellWindow for HeadlessWindow {
 
     fn set_minimized(&self, minimized: bool) {
         self.minimized.store(minimized, Ordering::SeqCst);
+    }
+
+    fn set_fullscreen(&self, fullscreen: bool, _screen: Option<ScreenId>) {
+        self.fullscreen.store(fullscreen, Ordering::SeqCst);
     }
 }
 
@@ -398,6 +408,7 @@ impl GivenViews {
                 max_size: Mutex::default(),
                 maximized: AtomicBool::new(false),
                 minimized: AtomicBool::new(false),
+                fullscreen: AtomicBool::new(false),
                 drags: AtomicUsize::new(0),
             })
         });
@@ -420,6 +431,7 @@ impl GivenViews {
                     window: Arc::clone(window) as Arc<dyn ShellWindow>,
                     frame: display.screen().frame,
                     maximized: false,
+                    fullscreen: false,
                     title_bar_double_click_action: None,
                 }),
                 metrics: display.metrics(),

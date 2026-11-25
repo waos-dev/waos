@@ -5,10 +5,11 @@
 //! ([`ProgramGlyphs`]).
 
 use std::cell::RefCell;
+use std::sync::Arc;
 
 use waft_embedder::Picture;
 use waft_embedder::{HardwareBuffer, VideoFrame};
-use wasdk_wgpu::SharedView;
+use wasdk::views::View;
 
 use crate::fonts::ProgramGlyphs;
 use crate::gpu_interop;
@@ -70,7 +71,7 @@ impl Renderer {
     /// # Panics
     ///
     /// When the engine makes no surface on the view: a view is the one window a program has.
-    pub(crate) fn surface(&self, view: &SharedView) -> wgpu::Surface<'static> {
+    pub(crate) fn surface(&self, view: &Arc<View>) -> wgpu::Surface<'static> {
         let surface = self
             .instance
             .create_surface(view.clone())

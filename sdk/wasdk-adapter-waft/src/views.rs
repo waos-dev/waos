@@ -21,7 +21,6 @@ use waft_embedder::{
 };
 use wasdk::monotonic_clock;
 use wasdk::views::{self, Insets, Instant, Metrics};
-use wasdk_wgpu::SharedView;
 
 use crate::composition::placed_layers;
 use crate::focus::{platform_focus_direction, platform_focus_state};
@@ -36,8 +35,8 @@ use crate::windows::WasdkWindow;
 /// One view of the program, as the framework holds it.
 pub(crate) struct WasdkView {
     id: ViewId,
-    view: SharedView,
-    /// What the view is drawn on, which holds the view too.
+    view: Arc<views::View>,
+    /// What the view is drawn on, which holds a handle of its own to the view.
     surface: wgpu::Surface<'static>,
     renderer: Rc<Renderer>,
     /// Shared with the text input, which scales its rectangles by the device pixel ratio.
@@ -75,7 +74,7 @@ impl WasdkView {
         clear: valo::Color,
         host_edit_commands: bool,
     ) -> WasdkView {
-        let view = SharedView::new(view);
+        let view = Arc::new(view);
         let surface = renderer.surface(&view);
         let metrics = Rc::new(Cell::new(view_metrics(view.metrics(), screen_of(&view))));
         let text_input = view.text_input().map(|input| {

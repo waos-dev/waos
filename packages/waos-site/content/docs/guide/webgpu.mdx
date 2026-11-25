@@ -12,7 +12,7 @@ let instance = wasdk_wgpu::instance();
 let adapter = instance.request_adapter(&wgpu::RequestAdapterOptions::default()).await?;
 let (device, queue) = adapter.request_device(&wgpu::DeviceDescriptor::default()).await?;
 // one of views::views(), or from views::view_changes()
-let view = SharedView::new(view);
+let view = std::sync::Arc::new(view);
 let surface = instance.create_surface(view.clone())?;
 let metrics = view.metrics();
 let config = surface.get_default_config(&adapter, metrics.width, metrics.height).unwrap();

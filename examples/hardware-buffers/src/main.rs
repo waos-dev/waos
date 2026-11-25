@@ -28,6 +28,7 @@
 
 use std::cell::Cell;
 use std::rc::Rc;
+use std::sync::Arc;
 
 use wasdk::hardware_buffers::{
     self, AlphaType, HardwareBuffer, HardwareBufferAllocator, HardwareBufferUsage, ImageError,
@@ -38,7 +39,6 @@ use wasdk::views::{
     self, CompositionLayer, Mutator, PlacedLayer, Placement, View, ViewChange, ViewEvent,
 };
 use wasdk::windows::{Point, Rect, Size, WindowConfig};
-use wasdk_wgpu::SharedView;
 
 /// Each buffer's size, in pixels.
 const WIDTH: u32 = 64;
@@ -91,7 +91,7 @@ async fn main() -> Result<(), String> {
     println!("{}", read_back(&green).await);
     println!("{}", encoded(&red).await);
 
-    let view = SharedView::new(first_view().await?);
+    let view = Arc::new(first_view().await?);
     let surface = gpu.surface_on(&view)?;
     let Some(compositor) = views::get_compositor() else {
         println!("no compositor");
@@ -214,7 +214,7 @@ async fn encoded(buffer: &HardwareBuffer) -> String {
 async fn show_green_until_red_is_back(
     gpu: &Gpu,
     surface: &wgpu::Surface<'static>,
-    view: &SharedView,
+    view: &Arc<View>,
     layer: &CompositionLayer,
     green: &HardwareBuffer,
     red_back: &Cell<bool>,
@@ -375,7 +375,7 @@ impl Gpu {
 
     /// A surface on `view`, configured at the view's size in the surface's preferred format, for
     /// drawing into and copying into.
-    fn surface_on(&self, view: &SharedView) -> Result<wgpu::Surface<'static>, String> {
+    fn surface_on(&self, view: &Arc<View>) -> Result<wgpu::Surface<'static>, String> {
         let surface = self
             .instance
             .create_surface(view.clone())

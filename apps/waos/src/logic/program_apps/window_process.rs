@@ -548,6 +548,7 @@ impl WindowProcess {
                     window: Arc::new(WindowCalls::new(calls, opened.size_limits)),
                     frame: opened.frame,
                     maximized: opened.maximized,
+                    fullscreen: opened.fullscreen,
                     title_bar_double_click_action: opened.title_bar_double_click_action,
                 }),
                 metrics: opened.metrics,
@@ -774,6 +775,9 @@ fn report_to(view: &ProgramView, report: ViewReport) {
         ViewReport::PresenceChanged(presence) => view.presence_changed(presence),
         ViewReport::WindowFrameChanged(frame) => view.window_frame_changed(frame),
         ViewReport::WindowMaximizedChanged(maximized) => view.window_maximized_changed(maximized),
+        ViewReport::WindowFullscreenChanged(fullscreen) => {
+            view.window_fullscreen_changed(fullscreen);
+        }
         ViewReport::TitleBarDoubleClickActionChanged(action) => {
             view.title_bar_double_click_action_changed(action);
         }

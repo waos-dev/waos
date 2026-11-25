@@ -8,6 +8,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use futures::channel::mpsc::{self, UnboundedReceiver, UnboundedSender};
+use waos::bindings::wasdk::platform::screens::ScreenId;
 use waos::bindings::wasdk::platform::views::{PixelRect, TextEditingValue, TextInputConfiguration};
 use waos::bindings::wasdk::platform::windows::{Rect, Size};
 use waos::{ShellTextInput, ShellWindow, ShellWindowSizeLimits};
@@ -134,6 +135,10 @@ impl ShellWindow for WindowCalls {
 
     fn set_minimized(&self, minimized: bool) {
         self.send(WindowCall::SetMinimized(minimized));
+    }
+
+    fn set_fullscreen(&self, fullscreen: bool, screen: Option<ScreenId>) {
+        self.send(WindowCall::SetFullscreen(fullscreen, screen));
     }
 }
 

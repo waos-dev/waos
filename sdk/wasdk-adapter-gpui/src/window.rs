@@ -35,7 +35,6 @@ use wasdk::views::{
     Insets, KeyInput, KeyKind, Metrics, TextInputAction, View, ViewEvent, ViewFocusState,
 };
 use wasdk::windows::Window as SystemWindow;
-use wasdk_wgpu::SharedView;
 
 use crate::display::bounds_of;
 use crate::keys::{HeldModifiers, KeyMeaning};
@@ -67,7 +66,7 @@ pub(crate) struct WindowShared {
 }
 
 struct AttachedView {
-    view: SharedView,
+    view: Arc<View>,
     system_window: Option<SystemWindow>,
     renderer: RefCell<WgpuRenderer>,
     text_input: Option<RefCell<TextInputBridge>>,
@@ -164,7 +163,7 @@ impl WindowShared {
         let text_input = view
             .text_input()
             .map(|input| RefCell::new(TextInputBridge::new(input)));
-        let view = SharedView::new(view);
+        let view = Arc::new(view);
         let metrics = view.metrics();
         let surface = self
             .context
@@ -667,10 +666,25 @@ impl PlatformWindow for WasdkWindow {
         }
     }
 
-    fn toggle_fullscreen(&self) {}
+    fn toggle_fullscreen(&self) {
+        if let Some(window) = self
+            .shared
+            .view
+            .borrow()
+            .as_ref()
+            .and_then(|attached| attached.system_window.as_ref())
+        {
+            window.set_fullscreen(!window.is_fullscreen(), None);
+        }
+    }
 
     fn is_fullscreen(&self) -> bool {
-        false
+        self.shared
+            .view
+            .borrow()
+            .as_ref()
+            .and_then(|attached| attached.system_window.as_ref())
+            .is_some_and(|window| window.is_fullscreen())
     }
 
     fn frame_waker(&self) -> Option<Rc<dyn Fn()>> {

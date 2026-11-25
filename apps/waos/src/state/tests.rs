@@ -753,6 +753,45 @@ fn a_press_on_surveys_title_bar_moves_its_window_and_survey_hears_it_maximized()
     survey.stop();
 }
 
+#[test]
+fn a_secondary_press_on_surveys_title_bar_takes_its_window_full_screen_and_survey_hears_it() {
+    let mut desktop = Desktop::new("full-screen");
+    let output = Arc::new(Lines::default());
+    let survey = desktop.run(waos_test_programs::SURVEY, &output);
+    desktop.pump_until("survey's view arriving", |_| {
+        output
+            .all()
+            .iter()
+            .any(|line| line.starts_with("view 1: 900x600"))
+    });
+    let window = Rc::clone(&desktop.platform.windows.made()[0]);
+    let view = window.test_view().id();
+
+    desktop.shell.pointer_reports(vec![PointerReport {
+        view_id: view,
+        time_stamp: Duration::ZERO,
+        device: 1,
+        kind: PointerDeviceKind::Mouse,
+        position: [100.0, 10.0],
+        change: ReportedChange::Down { buttons: 2 },
+        contact: Contact::default(),
+    }]);
+    desktop.pump_until("survey's window going full screen", |_| {
+        window.is_fullscreen()
+    });
+    desktop.pump_until("survey hearing its window full screen", |_| {
+        output.has("view 1: its window is full screen")
+    });
+
+    // The user leaves full screen by the system's own means: Waft says the window changed.
+    window.set_fullscreen(false, None);
+    desktop.shell.window_changed(view);
+    desktop.pump_until("survey hearing its window no longer full screen", |_| {
+        output.has("view 1: its window is no longer full screen")
+    });
+    survey.stop();
+}
+
 /// What the host reports in the presence test: the window's focus, and the window changing as it
 /// is covered or uncovered, minimized or restored.
 enum Step {

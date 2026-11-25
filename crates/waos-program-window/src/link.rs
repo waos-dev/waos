@@ -103,6 +103,9 @@ pub trait ViewLink {
     /// The window the view is in is maximized now, on macOS zoomed, or no longer.
     fn window_maximized_changed(&self, maximized: bool);
 
+    /// The window the view is in is full screen now, or no longer.
+    fn window_fullscreen_changed(&self, fullscreen: bool);
+
     /// The system's settings say a double-click on a title bar does `action` now; none where the
     /// system has no such setting.
     fn title_bar_double_click_action_changed(&self, action: Option<TitleBarAction>);
@@ -126,6 +129,8 @@ pub struct OpenedView {
     pub size_limits: bool,
     /// Whether the window is maximized; on macOS, zoomed.
     pub maximized: bool,
+    /// Whether the window is full screen.
+    pub fullscreen: bool,
     /// What the system's settings say a double-click on a title bar does; none where the system
     /// has no such setting.
     pub title_bar_double_click_action: Option<TitleBarAction>,
