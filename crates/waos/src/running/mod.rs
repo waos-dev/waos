@@ -46,7 +46,7 @@ use crate::clipboard::{PlatformClipboard, ProgramSources};
 use crate::clock::Clock;
 use crate::engine_time::EngineClock;
 use crate::files::HandedFiles;
-use crate::gpu::{GpuInstance, InFlight, OpenedDevices};
+use crate::gpu::{GpuInstance, InFlight, OpenedDevices, ProgramsAdapter};
 use crate::hardware_buffers::UnaskedRead;
 use crate::inspection::ProgramStorage;
 use crate::lifecycle::{ExecutionState, FreezePolicy, Lifecycle, OpenRequest};
@@ -134,8 +134,10 @@ struct Running {
     sources: ProgramSources,
     /// What of its GPU work is in flight.
     in_flight: Arc<InFlight>,
-    /// The resolved hardware buffer backing mode for the engine this program runs on.
+    /// What its pictures are kept in, as the engine chose.
     hardware_buffers: BufferKind,
+    /// The adapter its `request-adapter` gives, as the engine chose.
+    programs_adapter: ProgramsAdapter,
     /// Whether it has been warned of reading a hardware buffer it did not ask to read.
     unasked_read: UnaskedRead,
     /// Taken by the first `stop`.
@@ -160,8 +162,10 @@ type Ended =
 pub(crate) struct ProgramStart {
     pub(crate) engine: Engine,
     pub(crate) gpu: GpuInstance,
-    /// The resolved hardware buffer backing mode.
+    /// What its pictures are kept in.
     pub(crate) hardware_buffers: BufferKind,
+    /// The adapter its `request-adapter` gives.
+    pub(crate) programs_adapter: ProgramsAdapter,
     /// What draws the screenshots of the program's views.
     pub(crate) screenshots: Arc<Screenshots>,
     pub(crate) component: Component,
@@ -278,6 +282,7 @@ impl RunningProgram {
             sources: ProgramSources::default(),
             in_flight: InFlight::new(),
             hardware_buffers: start.hardware_buffers,
+            programs_adapter: start.programs_adapter,
             unasked_read: UnaskedRead::default(),
             stop: Mutex::new(Some(stop)),
             ended: ended.map(end_of_thread as fn(_) -> _).shared(),
@@ -437,9 +442,14 @@ impl RunningProgram {
         ))
     }
 
-    /// The resolved hardware buffer backing mode for the engine this program runs on.
+    /// What its pictures are kept in, as the engine chose.
     pub(crate) fn hardware_buffers(&self) -> BufferKind {
         self.0.hardware_buffers
+    }
+
+    /// The adapter its `request-adapter` gives, as the engine chose.
+    pub(crate) fn programs_adapter(&self) -> &ProgramsAdapter {
+        &self.0.programs_adapter
     }
 
     /// Its access, from its start on.

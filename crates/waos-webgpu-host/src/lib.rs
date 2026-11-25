@@ -125,6 +125,9 @@ pub struct WasiWebGpuCtx<'a> {
     // wrapped in arc to allow cloning for async. might be able to remove
     pub instance: &'a Arc<wgpu_core::global::Global>,
     pub table: &'a mut wasmtime_wasi::ResourceTable,
+    /// Which adapter `request-adapter` gives: the embedder's choice, or wgpu-core's
+    /// `request_adapter` when there is none.
+    pub adapters: Option<&'a dyn AdapterChooser>,
     /// How `request-device` opens a device once it has checked what the program asks: the
     /// embedder's way, or wgpu-core's `adapter_request_device` when there is none.
     pub device_opener: Option<&'a dyn DeviceOpener>,
@@ -133,6 +136,19 @@ pub struct WasiWebGpuCtx<'a> {
     pub submissions: Option<&'a dyn SubmissionGate>,
     /// Who is told of each device the program opens, or none.
     pub devices: Option<&'a dyn DeviceListener>,
+}
+
+/// How an embedder chooses the adapter a program's `request-adapter` gives, as WebGPU leaves a
+/// browser to (https://www.w3.org/TR/webgpu/#dom-gpu-requestadapter): an embedder whose frames
+/// the system's compositor shows puts programs on the GPU it shows from.
+pub trait AdapterChooser: Send + Sync {
+    /// The adapter of `instance` a program asking with `options` gets; none where there is none
+    /// to give, which the program is answered as null.
+    fn choose(
+        &self,
+        instance: &wgpu_core::global::Global,
+        options: &wgpu_types::RequestAdapterOptions<wgpu_core::id::SurfaceId>,
+    ) -> Option<wgpu_core::id::AdapterId>;
 }
 
 /// What an embedder is told of a program's devices: each one `request-device` opens, as the

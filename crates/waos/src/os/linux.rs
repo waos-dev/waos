@@ -44,14 +44,15 @@ use crate::bindings::wasdk::platform::hardware_buffers::{
     AlphaType, HardwareBufferUsage, ImageError, ImageErrorKind, PixelBuffer, PixelFormat,
 };
 use crate::gpu::wgpu_types::error::{ErrorType, WebGpuError};
-use crate::gpu::{GpuInstance, wgpu_core, wgpu_types};
+use crate::gpu::{GpuInstance, ProgramsAdapter, wgpu_core, wgpu_types};
 use crate::hardware_buffers::Released;
 use crate::os::{FinishHandOver, HandOver};
 use crate::shell::{AcceptedBuffers, VideoPicture};
 use crate::sync::locked;
 
 pub(crate) use super::vulkan::device_opener::HardwareBufferImports;
-use super::vulkan::device_opener::adapter_can_import;
+use super::vulkan::device_opener::programs_adapter_imports;
+pub(crate) use super::vulkan::device_opener::render_node as adapter_gpu;
 use super::vulkan::queue_ownership::{Transfer, handed_state, submit_transfer};
 use dmabuf::Dmabuf;
 use imported_image::ImportedTexture;
@@ -85,13 +86,21 @@ pub(crate) const HANDS_TEXTURES_OVER: bool = true;
 const COPY_ALIGN: u32 = wgpu_types::COPY_BYTES_PER_ROW_ALIGNMENT;
 
 /// What programs' pictures are kept in, chosen once as the engine starts: dmabufs where the
-/// compositor imports a linear BGRA8 one, GBM allocates one and the engine's adapter imports it;
+/// compositor imports a linear BGRA8 one, GBM allocates one, and the programs' adapter imports it
+/// and is on the GPU the compositor shows from;
 /// shared memory otherwise, said once, and where there is no compositor to show them.
-pub(crate) fn buffer_kind(gpu: &GpuInstance, accepted: Option<&AcceptedBuffers>) -> BufferKind {
+pub(crate) fn buffer_kind(
+    gpu: &GpuInstance,
+    accepted: Option<&AcceptedBuffers>,
+    programs_adapter: &ProgramsAdapter,
+) -> BufferKind {
     let Some(accepted) = accepted else {
         return BufferKind::SharedMemory;
     };
-    if imports_linear_bgra(accepted) && Dmabuf::can_allocate() && adapter_can_import(gpu) {
+    if imports_linear_bgra(accepted)
+        && Dmabuf::can_allocate()
+        && programs_adapter_imports(gpu, programs_adapter)
+    {
         return BufferKind::GpuMemory;
     }
     if accepted.shared_memory {

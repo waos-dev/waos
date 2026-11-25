@@ -59,6 +59,22 @@ pub(crate) const LARGEST_SIDE: u32 = 16384;
 /// is moved to the common state another device's use starts from.
 pub(crate) const HANDS_TEXTURES_OVER: bool = true;
 
+/// The LUID of `adapter`'s DXGI adapter, where it is D3D12's.
+pub(crate) fn adapter_gpu(
+    instance: &wgpu_core::global::Global,
+    adapter: wgpu_core::id::AdapterId,
+) -> Option<crate::shell::GpuId> {
+    // SAFETY: the adapter is only asked for its description, and let go before this returns.
+    let luid = unsafe {
+        let hal = instance.adapter_as_hal::<wgpu_hal::api::Dx12>(adapter)?;
+        hal.raw_adapter().GetDesc1().ok()?.AdapterLuid
+    };
+    Some(crate::shell::GpuId::Luid {
+        low: luid.LowPart,
+        high: luid.HighPart,
+    })
+}
+
 /// GPU memory the system's compositor can show, as the shell hands it and is handed it: a D3D12
 /// texture's NT handle, B8G8R8A8, which Waft's Windows host opens. Cloning it is a hold more on
 /// the same handle.

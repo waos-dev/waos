@@ -87,6 +87,17 @@ impl HandOver {
 pub(crate) fn buffer_kind(
     _gpu: &crate::gpu::GpuInstance,
     _accepted: Option<&crate::shell::AcceptedBuffers>,
+    _programs_adapter: &crate::gpu::ProgramsAdapter,
 ) -> crate::BufferKind {
     crate::BufferKind::GpuMemory
+}
+
+/// The GPU `adapter` is, as the system names it to its compositor: none on a system that names
+/// none, as Apple's and Android do.
+#[cfg(not(any(target_os = "linux", windows)))]
+pub(crate) fn adapter_gpu(
+    _instance: &crate::gpu::wgpu_core::global::Global,
+    _adapter: crate::gpu::wgpu_core::id::AdapterId,
+) -> Option<crate::shell::GpuId> {
+    None
 }

@@ -11,6 +11,7 @@
 
 mod devices;
 mod in_flight;
+mod programs_adapter;
 
 use std::future::Future;
 use std::pin::Pin;
@@ -21,6 +22,7 @@ use waos_webgpu_host::{DeviceOpener, SubmissionGate};
 
 pub(crate) use devices::OpenedDevices;
 pub(crate) use in_flight::{Finishing, InFlight};
+pub(crate) use programs_adapter::ProgramsAdapter;
 
 use crate::BufferKind;
 use crate::lifecycle::{ExecutionState, Lifecycle};

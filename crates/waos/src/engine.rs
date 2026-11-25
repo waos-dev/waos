@@ -27,7 +27,7 @@ use crate::caption_settings::CaptionSettings;
 use crate::clipboard::PlatformClipboard;
 use crate::code_cache;
 use crate::engine_time::{EngineClock, EngineTime};
-use crate::gpu::{self, GpuInstance};
+use crate::gpu::{self, GpuInstance, ProgramsAdapter};
 use crate::inspection::InspectedPrograms;
 use crate::lifecycle::FreezePolicy;
 use crate::menus::MenuPlaces;
@@ -36,7 +36,7 @@ use crate::program::Program;
 use crate::running::{HeldProgram, Hold, ProgramStart, Programs, RunningProgram};
 use crate::screens::{Screen, Screens};
 use crate::screenshots::Screenshots;
-use crate::shell::{Shell, ShellClipboardItem};
+use crate::shell::{AcceptedBuffers, Shell, ShellClipboardItem};
 use crate::source_lines::ComponentFile;
 use crate::system::SystemSettings;
 use crate::temporary_folders::TemporaryFolders;
@@ -111,6 +111,8 @@ pub struct WaOS {
     gpu: GpuInstance,
     /// What programs' pictures are kept in.
     hardware_buffers: BufferKind,
+    /// The adapter programs draw on.
+    programs_adapter: ProgramsAdapter,
     /// What draws the screenshots of every program's views, on the same instance.
     screenshots: Arc<Screenshots>,
     shell: Shell,
@@ -151,7 +153,9 @@ impl WaOS {
             .as_ref()
             .map(|compositor| compositor.accepted_buffers());
         tracing::info!(?accepted, "what the shell's compositor shows");
-        let hardware_buffers = crate::os::buffer_kind(&gpu, accepted.as_ref());
+        let programs_adapter =
+            ProgramsAdapter::new(accepted.as_ref().and_then(AcceptedBuffers::gpu));
+        let hardware_buffers = crate::os::buffer_kind(&gpu, accepted.as_ref(), &programs_adapter);
         tracing::info!(?hardware_buffers, "what programs' pictures are kept in");
         let screens = Screens::new(platform.screens);
         let days = config
@@ -164,6 +168,7 @@ impl WaOS {
             screenshots: Arc::new(Screenshots::new(Arc::clone(&gpu), hardware_buffers)),
             gpu,
             hardware_buffers,
+            programs_adapter,
             refreshes: ScreenRefreshes::new(
                 Arc::clone(&shell.vsync),
                 screens.clone(),
@@ -319,6 +324,7 @@ impl WaOS {
             engine: Engine::clone(&self.engine),
             gpu: Arc::clone(&self.gpu),
             hardware_buffers: self.hardware_buffers,
+            programs_adapter: self.programs_adapter,
             screenshots: Arc::clone(&self.screenshots),
             component: program.component().clone(),
             name: program.name().to_owned(),

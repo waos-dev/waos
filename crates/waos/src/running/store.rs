@@ -512,6 +512,7 @@ impl WasiWebGpuCtxView for StoreData {
         WasiWebGpuCtx {
             instance: &self.gpu,
             table: &mut self.table,
+            adapters: Some(self.program.programs_adapter()),
             device_opener: gpu::device_opener(self.program.hardware_buffers()),
             submissions: Some(self.program.lifecycle()),
             devices: Some(self.devices.as_ref()),

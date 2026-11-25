@@ -1770,43 +1770,24 @@ impl<T: Send> webgpu::HostGpuWithStore<T> for crate::HasWasiWebGpuCtx {
             let options = options
                 .map(|o| o.to_core(ctx.table))
                 .unwrap_or(wgpu_types::RequestAdapterOptions::default());
-            let adapter = ctx.instance.request_adapter(
-                &on_the_shells_adapter(options),
-                wgpu_types::Backends::all(),
-                None,
-            );
+            let adapter = match ctx.adapters {
+                Some(adapters) => adapters.choose(ctx.instance, &options),
+                None => ctx
+                    .instance
+                    .request_adapter(&options, wgpu_types::Backends::all(), None)
+                    .map_err(|error| log::warn!("no GPU adapter: {error}"))
+                    .ok(),
+            };
             // WebGPU answers null when no adapter can be had, whatever the reason:
             // https://www.w3.org/TR/webgpu/#dom-gpu-requestadapter
             match adapter {
-                Ok(adapter) => {
+                Some(adapter) => {
                     let adapter = Arc::new(GpuObject::new(adapter, ctx.instance));
                     Ok(Some(ctx.table.push(adapter)?))
                 }
-                Err(error) => {
-                    log::warn!("no GPU adapter: {error}");
-                    Ok(None)
-                }
+                None => Ok(None),
             }
         })
-    }
-}
-
-/// `options` as Windows serves them: every program on the same adapter, the one the shell and the
-/// engine's hardware buffers are on (D3D12's, at high performance), since a texture shared by NT
-/// handle opens only on the adapter it was made on; WebGPU lets a browser choose so
-/// (https://www.w3.org/TR/webgpu/#dom-gpurequestadapteroptions-powerpreference). Elsewhere as
-/// asked.
-fn on_the_shells_adapter(
-    options: wgpu_types::RequestAdapterOptions<wgpu_core::id::SurfaceId>,
-) -> wgpu_types::RequestAdapterOptions<wgpu_core::id::SurfaceId> {
-    if cfg!(windows) {
-        wgpu_types::RequestAdapterOptions {
-            power_preference: wgpu_types::PowerPreference::HighPerformance,
-            force_fallback_adapter: false,
-            ..options
-        }
-    } else {
-        options
     }
 }
 
