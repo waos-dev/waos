@@ -29,14 +29,11 @@ use waos_activity::Activity;
 use waos_store::{Answer, DomainRule, Question, Role};
 
 use super::fluent_page::{
-    ListRow, Start, app_header, app_page, card_button, card_switch, detail_glyph, drop_down, gap,
+    ListRow, Start, app_header, app_page, card_button, card_switch, detail_glyph, drop_down,
     heading, link_card, list_block, note, on_and_off, page, permission_symbol, setting_card,
     spaced,
 };
-use super::{
-    any_set_otherwise, app_details, app_info, app_permissions, reset_permissions, said_with,
-    set_otherwise, simulated_detail,
-};
+use super::{app_details, app_info, app_permissions, said_with, set_otherwise, simulated_detail};
 use crate::logic::permissions::Permission;
 use crate::logic::setting_changes::{
     DomainsKind, SettingChange, SettingsOf, Shown, ShownAnswerWith, ShownSettings, Which,
@@ -286,7 +283,7 @@ impl Page {
     }
 
     /// On an app's page, each permission with what the app holds, each leading to the app's
-    /// page for it; and, where any is set otherwise, what resets them all.
+    /// page for it.
     fn app_permissions(&self, shown: &ShownSettings) -> Vec<WidgetRef> {
         let SettingsOf::Program(id) = &self.of else {
             return Vec::new();
@@ -301,24 +298,16 @@ impl Page {
                 SettingsPage::AppPermission(id.clone(), permission),
             ));
         }
-        if any_set_otherwise(shown) {
-            rows.push(setting_card(
-                Start::Room,
-                words::RESET_PERMISSIONS,
-                Some(words::RESET_PERMISSIONS_DETAIL),
-                Some(card_button(words::RESET, self.resetting())),
-            ));
-        }
         rows
     }
 
     /// On an app's page, what is the app's alone, each with how many it has, each leading to its
-    /// page: a group of its own under the permissions.
+    /// page: more of the same list as its permissions.
     fn app_details(&self, shown: &ShownSettings) -> Vec<WidgetRef> {
         let SettingsOf::Program(id) = &self.of else {
             return Vec::new();
         };
-        let mut rows = vec![gap()];
+        let mut rows = Vec::new();
         for (detail, said) in app_details(shown) {
             rows.push(link_card(
                 &self.library,
@@ -329,18 +318,6 @@ impl Page {
             ));
         }
         rows
-    }
-
-    /// What puts every permission of the page's app back on its default.
-    fn resetting(&self) -> Listener {
-        let (library, of) = (self.library.clone(), self.of.clone());
-        Listener::new(move |app| {
-            library.update(app, |library, cx| {
-                for change in reset_permissions() {
-                    library.change_settings(&of, change, cx);
-                }
-            });
-        })
     }
 
     /// On a permission's page, the apps that set it otherwise than its default, each with what

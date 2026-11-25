@@ -157,7 +157,6 @@ pub(crate) const SET_OTHERWISE_DETAIL: &str = "These apps follow a setting of th
 pub(crate) const NONE_SET_OTHERWISE: &str = "Every app follows the default.";
 /// On an app's page, as a browser's site settings put every permission of a site back.
 pub(crate) const RESET_PERMISSIONS: &str = "Reset permissions";
-pub(crate) const RESET_PERMISSIONS_DETAIL: &str = "Every permission follows the default again.";
 /// The button of the card that resets an app's permissions, in the launcher.
 pub(crate) const RESET: &str = "Reset";
 

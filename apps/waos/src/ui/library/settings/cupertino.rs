@@ -23,9 +23,9 @@ use std::rc::Rc;
 
 use waft::{
     AnyColor, App, BuildContext, Builder, Column, CrossAxisAlignment, EdgeInsetsGeometry, Entity,
-    Expanded, Handle, Icon, IntoWidget, ListView, Listener, Padding, Ref, Row, SizedBox, State,
-    StateData, StatefulWidget, Task, Text, TextEditingController, TextEditingControllerLeaf,
-    ValueChanged, WidgetRef,
+    Handle, Icon, IntoWidget, ListView, Listener, Padding, Ref, SizedBox, State, StateData,
+    StatefulWidget, Task, Text, TextEditingController, TextEditingControllerLeaf, ValueChanged,
+    WidgetRef,
 };
 use waft_cupertino::{
     CupertinoButton, CupertinoColors, CupertinoIcons, CupertinoListSection, CupertinoListTile,
@@ -41,8 +41,8 @@ use super::cupertino_root::{
     ICON_SIDE, PERMISSION_ICON_SIDE, detail_icon, footnote, link_row, permission_icon,
 };
 use super::{
-    AppAction, AppInfo, any_set_otherwise, app_details, app_info, app_permissions,
-    reset_permissions, said_with, set_otherwise, simulated_detail,
+    AppAction, AppInfo, app_details, app_info, app_permissions, said_with, set_otherwise,
+    simulated_detail,
 };
 use crate::logic::permissions::Permission;
 use crate::logic::setting_changes::{
@@ -180,9 +180,8 @@ impl State for CupertinoSettingsState {
         if let Some(only) = page.kind_page() {
             sections.push(page.set_otherwise(app, only));
         }
-        if let Some((id, _)) = &info {
-            let remove = page.action_row(id, &AppAction::Remove);
-            sections.push(section(None, None, vec![remove]));
+        if let Some((id, info)) = &info {
+            sections.push(page.of_the_app_as_a_whole(id, info));
         }
         let bar = CupertinoNavigationBar::new()
             .leading(back_to_page_beneath(&page.library, &beneath))
@@ -241,12 +240,11 @@ impl Page {
         self.only.filter(|_| self.of == SettingsOf::Global)
     }
 
-    /// On an app's page, each kind of permission with what the app holds at the row's end, each
-    /// leading to the app's page for that kind; and, where any is set otherwise, the row that
-    /// resets them all.
-    fn app_permissions(&self, shown: &ShownSettings) -> Vec<WidgetRef> {
+    /// On an app's page, each permission with what the app holds at the row's end, each leading
+    /// to the app's page for it; and, in the same list, what is the app's alone.
+    fn app_permissions(&self, shown: &ShownSettings) -> Option<WidgetRef> {
         let SettingsOf::Program(id) = &self.of else {
-            return Vec::new();
+            return None;
         };
         let rows = app_permissions(shown)
             .into_iter()
@@ -260,29 +258,9 @@ impl Page {
                 .leading_size(PERMISSION_ICON_SIDE)
                 .additional_info(Text::new(said))
                 .into_widget()
-            })
-            .collect();
-        let mut sections = vec![section_of_icons(Some(words::PERMISSIONS), None, rows)];
-        if any_set_otherwise(shown) {
-            let (library, of) = (self.library.clone(), self.of.clone());
-            let reset = Rc::new(move |app: &mut App| {
-                library.update(app, |library, cx| {
-                    for change in reset_permissions() {
-                        library.change_settings(&of, change, cx);
-                    }
-                });
-                Task::ready(())
             });
-            let row = CupertinoListTile::new(tinted(words::RESET_PERMISSIONS))
-                .on_tap(reset)
-                .into_widget();
-            sections.push(section(
-                None,
-                Some(words::RESET_PERMISSIONS_DETAIL),
-                vec![row],
-            ));
-        }
-        sections
+        let rows = rows.chain(self.app_details(id, shown)).collect();
+        Some(section_of_icons(Some(words::PERMISSIONS), None, rows))
     }
 
     /// On a kind's page, the apps that set `permission` otherwise than its default, each with
@@ -313,13 +291,9 @@ impl Page {
         )
     }
 
-    /// On an app's page, what is the app's alone, each with how many it has, each leading to its
-    /// page.
-    fn app_details(&self, shown: &ShownSettings) -> Option<WidgetRef> {
-        let SettingsOf::Program(id) = &self.of else {
-            return None;
-        };
-        let rows = app_details(shown)
+    /// What is the app `id`'s alone, each with how many it has, each a row leading to its page.
+    fn app_details(&self, id: &ProgramId, shown: &ShownSettings) -> Vec<WidgetRef> {
+        app_details(shown)
             .into_iter()
             .map(|(detail, said)| {
                 link_row(
@@ -332,8 +306,7 @@ impl Page {
                 .additional_info(Text::new(said))
                 .into_widget()
             })
-            .collect();
-        Some(section_of_icons(None, None, rows))
+            .collect()
     }
 
     /// On an app's own page, the app and what its page says of it; none on the pages under it,
@@ -349,37 +322,51 @@ impl Page {
         Some((id.clone(), info))
     }
 
-    /// Over an app's settings, what the app is, as iOS's Settings says an app whose storage it
-    /// shows: its icon beside its name, its version and what it is doing now; then a row for
-    /// each thing that can be done with it but removing it, which ends the page.
+    /// Over an app's settings, what the app is, in the middle of the page as iOS's App Store
+    /// heads an app's page: its icon over its name, its version and what it is doing now; then
+    /// a row for each thing to do with it now.
     fn said_of_the_app(&self, id: &ProgramId, info: &AppInfo) -> Vec<WidgetRef> {
         let icon = ProgramIcon {
             png: info.icon.clone(),
             side: APP_ICON_SIDE,
         };
-        let name = Text::new(info.name.clone())
-            .style(waft::TextStyle::new().font_weight(waft::FontWeight::W600));
-        let lines = [name.into_widget(), footnote(&info.version)]
-            .into_iter()
-            .chain(info.status.map(footnote));
-        let said = Column::new()
-            .cross_axis_alignment(CrossAxisAlignment::Stretch)
-            .children(lines);
-        let app = Padding::new(EdgeInsetsGeometry::symmetric(12.0, 20.0)).child(
-            Row::new()
-                .spacing(14.0)
-                .children([icon.into_widget(), Expanded::new(said).into_widget()]),
+        let name = Text::new(info.name.clone()).style(
+            waft::TextStyle::new()
+                .font_size(22.0)
+                .font_weight(waft::FontWeight::W700),
+        );
+        let lines = [
+            icon.into_widget(),
+            SizedBox::new().height(10.0).into_widget(),
+            name.into_widget(),
+            footnote(&info.version),
+        ]
+        .into_iter()
+        .chain(info.status.map(footnote));
+        let app = Padding::new(EdgeInsetsGeometry::from_ltrb(20.0, 12.0, 20.0, 4.0)).child(
+            Column::new()
+                .cross_axis_alignment(CrossAxisAlignment::Center)
+                .children(lines),
         );
         let actions = info
             .actions
             .iter()
-            .filter(|action| !matches!(action, AppAction::Remove))
+            .filter(|action| !ends_the_page(action))
             .map(|action| self.action_row(id, action))
             .collect();
-        vec![
-            section(None, None, vec![app.into_widget()]),
-            section(None, None, actions),
-        ]
+        vec![app.into_widget(), section(None, None, actions)]
+    }
+
+    /// Under an app's settings, what is done to the app as a whole: its permissions reset, where
+    /// any is set otherwise, and the app removed.
+    fn of_the_app_as_a_whole(&self, id: &ProgramId, info: &AppInfo) -> WidgetRef {
+        let rows = info
+            .actions
+            .iter()
+            .filter(|action| ends_the_page(action))
+            .map(|action| self.action_row(id, action))
+            .collect();
+        section(None, None, rows)
     }
 
     /// A row that does `action` to the app `id`: in the tint colour, as iOS's rows that act are,
@@ -387,9 +374,10 @@ impl Page {
     fn action_row(&self, id: &ProgramId, action: &AppAction) -> WidgetRef {
         let color = match action {
             AppAction::Remove => CupertinoColors::DESTRUCTIVE_RED,
-            AppAction::Open | AppAction::Update(_) | AppAction::Close => {
-                CupertinoColors::ACTIVE_BLUE
-            }
+            AppAction::Open
+            | AppAction::Update(_)
+            | AppAction::Close
+            | AppAction::ResetPermissions => CupertinoColors::ACTIVE_BLUE,
         };
         let (library, id, does) = (self.library.clone(), id.clone(), action.clone());
         CupertinoListTile::new(colored(action.label(), color))
@@ -429,7 +417,6 @@ impl Page {
         let mut sections = Vec::new();
         if self.only.is_none() && self.detail.is_none() {
             sections.extend(self.app_permissions(shown));
-            sections.extend(self.app_details(shown));
         }
         match self.detail {
             Some(AppDetail::Machines) => {
@@ -1049,9 +1036,14 @@ impl Page {
     }
 }
 
-/// The side of an app's icon over its settings, as iOS's Settings shows an app whose storage it
-/// shows.
-const APP_ICON_SIDE: f64 = 60.0;
+/// The side of an app's icon over its settings.
+const APP_ICON_SIDE: f64 = 64.0;
+
+/// Whether `action` is done to the app as a whole, and so ends its page, where the others head
+/// it.
+fn ends_the_page(action: &AppAction) -> bool {
+    matches!(action, AppAction::ResetPermissions | AppAction::Remove)
+}
 
 /// An inset-grouped section of rows that start with their words, titled `title` and with
 /// `footer` under it where given.

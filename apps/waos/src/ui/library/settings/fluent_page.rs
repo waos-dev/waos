@@ -195,7 +195,10 @@ pub(crate) fn app_header(
         let click = Listener::new(move |app| does.carry_out(&library, &id, app));
         let style = match action {
             AppAction::Update(_) => ButtonStyle::Accent,
-            AppAction::Open | AppAction::Close | AppAction::Remove => ButtonStyle::Default,
+            AppAction::Open
+            | AppAction::Close
+            | AppAction::ResetPermissions
+            | AppAction::Remove => ButtonStyle::Default,
         };
         ConstrainedBox::new(BoxConstraints::new().min_width(BUTTON_MIN_WIDTH))
             .child(Button::text(action.label(), click).style(style))
@@ -290,11 +293,6 @@ pub(crate) fn note(resources: &ThemeResources, text: &str) -> WidgetRef {
     Padding::new(EdgeInsetsGeometry::only(1.0, 0.0, 0.0, 8.0))
         .child(Text::new(text).style(TextBlockStyle::Caption.text_style(resources, secondary)))
         .into_widget()
-}
-
-/// The room that parts a group of cards with no heading from the group before.
-pub(crate) fn gap() -> WidgetRef {
-    SizedBox::new().height(HEADING_MARGIN[0]).into_widget()
 }
 
 /// `card` with the room under it that parts it from the next.

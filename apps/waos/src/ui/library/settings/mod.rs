@@ -78,6 +78,8 @@ pub(crate) enum AppAction {
     Update(Box<CatalogApp>),
     /// Ends it, where the library closes the apps it opened.
     Close,
+    /// Puts every permission it set otherwise back on its default.
+    ResetPermissions,
     /// Asks whether to remove it.
     Remove,
 }
@@ -88,6 +90,7 @@ impl AppAction {
             AppAction::Open => words::OPEN,
             AppAction::Update(_) => words::UPDATE,
             AppAction::Close => words::CLOSE,
+            AppAction::ResetPermissions => words::RESET_PERMISSIONS,
             AppAction::Remove => words::ASK_TO_REMOVE,
         }
     }
@@ -98,6 +101,12 @@ impl AppAction {
             AppAction::Open => library.open(id, cx),
             AppAction::Update(listed) => library.install_from(&listed.source, &listed.listed, cx),
             AppAction::Close => library.close(id, cx),
+            AppAction::ResetPermissions => {
+                let of = SettingsOf::Program(id.clone());
+                for change in reset_permissions() {
+                    library.change_settings(&of, change, cx);
+                }
+            }
             AppAction::Remove => library.ask_to_remove(id, cx),
         });
     }
@@ -122,6 +131,10 @@ pub(crate) fn app_info(library: &Library, id: &ProgramId) -> Option<AppInfo> {
         .filter(|listed| !installing && matches!(listed.offer, Offer::Update { .. }))
         .map(|listed| AppAction::Update(Box::new(listed)));
     let close = (running && library.closes_programs()).then_some(AppAction::Close);
+    let reset = library
+        .settings(&SettingsOf::Program(id.clone()))
+        .is_ok_and(|shown| any_set_otherwise(&shown))
+        .then_some(AppAction::ResetPermissions);
     let status = if installing {
         Some(words::INSTALLING)
     } else {
@@ -136,6 +149,7 @@ pub(crate) fn app_info(library: &Library, id: &ProgramId) -> Option<AppInfo> {
             update,
             Some(AppAction::Open),
             close,
+            reset,
             Some(AppAction::Remove),
         ]
         .into_iter()
