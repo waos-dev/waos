@@ -9,6 +9,8 @@
 //! - The identity is made once and kept: a computer pinned its certificate, and a new one would
 //!   make every paired computer refuse the device.
 //! - The files keep the tokens' digests, never the tokens, so reading them reaches nothing.
+//! - Access withdrawn is withdrawn from connections already open too: [`DeveloperAccess::withdrawn`]
+//!   ends once access is off or the computer is removed, and the dev server ends the connection.
 //! - A code is shown for [`CODE_LIFE`] and [`CODE_TRIES`] pairings at most, each pairing that
 //!   takes it counting whether or not it finishes, and it ends once a computer pairs with it: each
 //!   pairing is one guess at most, and a code few.
@@ -279,6 +281,26 @@ impl DeveloperAccess {
             kept.code = None;
             drop(kept);
             self.changed();
+        }
+    }
+
+    /// Resolves once a connection from the network whose hello carried `token`, none for a
+    /// pairing, may be answered no longer: access turned off, or its computer removed.
+    pub(crate) async fn withdrawn(&self, token: Option<&Token>) {
+        let mut turned = self.turned();
+        let mut changes = self.changes();
+        loop {
+            let on = *turned.borrow_and_update();
+            changes.borrow_and_update();
+            let removed = token.is_some_and(|token| !self.knows(token));
+            if !on || removed {
+                return;
+            }
+            // The access outlives every connection, so its senders never go.
+            tokio::select! {
+                _ = turned.changed() => {}
+                _ = changes.changed() => {}
+            }
         }
     }
 

@@ -15,7 +15,7 @@
 //! The invariants: the server's thread owns the listener, so the socket file goes with the
 //! thread, and dropping the server returns only once the thread has: a WaOS that quit leaves no
 //! socket file behind. A connection from the network is refused anything but a pairing before its
-//! token is known.
+//! token is known, and ends once access is withdrawn: turned off, or its computer removed.
 
 use std::io;
 use std::path::{Path, PathBuf};
@@ -321,7 +321,18 @@ async fn serve_connection(mut connection: ServerConnection, context: ConnectionC
         let _ = connection.send(&RefusedAnswer::Refused(refusal)).await;
         return;
     }
-    serve_request(connection, request, &context).await;
+    match connection.locality() {
+        Locality::ThisMachine => serve_request(connection, request, &context).await,
+        Locality::Network => {
+            let token = theirs.token.as_ref();
+            tokio::select! {
+                () = serve_request(connection, request, &context) => {}
+                () = context.access.withdrawn(token) => {
+                    tracing::info!("a connection from the network ended: its access was withdrawn");
+                }
+            }
+        }
+    }
 }
 
 /// Their hello, once the two halves agree they speak the same protocol; none when they do not.
@@ -1841,6 +1852,49 @@ pub(crate) mod tests {
             panic!("refused, not {answer:?}");
         };
         assert_eq!(refusal.kind, RefusalKind::PairingClosed);
+    }
+
+    /// An attach from the network, by a paired computer, to a program running on `server`.
+    async fn attached_from_the_network(server: &TestServer) -> ClientConnection {
+        let mut local = server
+            .run(FOREVER, Path::new(waos_test_programs::FOREVER))
+            .await;
+        started(&mut local).await;
+        let mut client = server.network_client().await;
+        let id = development(FOREVER);
+        client.send(&Request::Attach { id }).await.unwrap();
+        next::<RunEvent>(&mut client).await;
+        client
+    }
+
+    /// Whether `client`'s connection ends within the time a test waits, whatever it held.
+    async fn ends(client: &mut ClientConnection) -> bool {
+        let deadline = Instant::now() + WITHIN;
+        while Instant::now() < deadline {
+            match tokio::time::timeout(WITHIN, client.receive::<RunEvent>()).await {
+                Ok(Ok(None) | Err(_)) => return true,
+                Ok(Ok(Some(_))) => {}
+                Err(_) => return false,
+            }
+        }
+        false
+    }
+
+    #[tokio::test]
+    async fn a_removed_computers_open_attach_ends_and_the_program_runs_on() {
+        let server = TestServer::start("network-removed");
+        let mut client = attached_from_the_network(&server).await;
+        server.access.remove("test").unwrap();
+        assert!(ends(&mut client).await, "the attach ended");
+        server.wait_for_runs(&[FOREVER_DEVELOPMENT]).await;
+    }
+
+    #[tokio::test]
+    async fn turning_developer_access_off_ends_the_open_connections_from_the_network() {
+        let server = TestServer::start("network-off-open");
+        let mut client = attached_from_the_network(&server).await;
+        server.access.set_on(false);
+        assert!(ends(&mut client).await, "the attach ended");
     }
 
     #[tokio::test]
