@@ -9,7 +9,7 @@
 //!
 //! What the user opens with the program reaches it: a request made before it listens waits until
 //! it does, each file mounted writable at its own path and kept among its picks; and a request
-//! thaws a frozen program until it has read it, on time the test moves (`EngineTime::Manual`),
+//! unfreezes a frozen program until it has read it, on time the test moves (`EngineTime::Manual`),
 //! the program frozen again once it reads on (`RunningProgram::frozen`).
 
 use std::collections::HashMap;
@@ -187,7 +187,7 @@ fn a_request_made_before_the_program_listens_is_heard_once_it_does_its_files_mou
 }
 
 #[test]
-fn an_open_request_thaws_a_frozen_program_until_it_has_read_it() {
+fn an_open_request_unfreezes_a_frozen_program_until_it_has_read_it() {
     let time = ManualTime::new();
     let only_when_suspended = FreezePolicy { after_hidden: None };
     let shell = TestShell::new();
@@ -205,7 +205,7 @@ fn an_open_request_thaws_a_frozen_program_until_it_has_read_it() {
 
     within(engine.app_suspending());
     within(running.frozen());
-    // A tick past the moment it last ran: woken without a thaw, it would stop at its next epoch
+    // A tick past the moment it last ran: woken without a unfreeze, it would stop at its next epoch
     // check, before it could say what it heard.
     time.elapse(TICK);
     running.open_requested(OpenRequest {

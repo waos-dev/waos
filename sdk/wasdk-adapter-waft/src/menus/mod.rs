@@ -7,7 +7,7 @@
 //! What the user chooses in the menu bar and does to a tray icon reaches the loop on streams it
 //! reads ([`events`](crate::events)): the menu bar's, opened as the loop starts, and each icon's,
 //! handed to the loop as the icon is added. The loop reads each next item only once it has pushed
-//! the one before into the client, so a frozen program the engine thawed for an item stays thawed
+//! the one before into the client, so a frozen program the engine unfrozen for an item stays unfrozen
 //! until the app has handled it.
 
 mod entries;

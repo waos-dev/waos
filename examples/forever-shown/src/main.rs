@@ -1,7 +1,7 @@
 //! Forever with a view: it asks for one view, as a program shown in a window does, draws nothing
 //! in it, and counts, and keeps counting, saying its count every [`REPORT_EVERY`] steps. What the
 //! engine's tests see a freeze on, since a program is frozen for its views being out of sight:
-//! its view hidden, the reports stop, and go on from the same count after the thaw. `forever`
+//! its view hidden, the reports stop, and go on from the same count after the unfreeze. `forever`
 //! is the same with no view, a program nothing freezes.
 //!
 //! ```text

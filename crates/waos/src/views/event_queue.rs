@@ -10,9 +10,9 @@
 //! were queued at some moment knows when the program has read up to there.
 //!
 //! What decides whether the program goes on, a request to close the view and the view's going, holds
-//! the program thawed until it has handled it: the request until the program reads again, the end
+//! the program unfrozen until it has handled it: the request until the program reads again, the end
 //! until it drops the stream; and only where the stream was taken, so a program that reads nothing
-//! is not thawed for nothing.
+//! is not unfrozen for nothing.
 
 use std::collections::VecDeque;
 use std::pin::Pin;
@@ -25,8 +25,8 @@ use crate::bindings::wasdk::platform::views::{
     KeyEvent, PointerChange, PointerEvent, PointerSignalKind, ViewEvent,
 };
 use crate::clipboard::{CopyRequest, Paste};
-use crate::lifecycle::{AnswerOwed, Lifecycle};
-use crate::news::MaybeThawing;
+use crate::lifecycle::{FreezeInhibitor, FreezeInhibitorKind, Lifecycle};
+use crate::news::MaybeInhibiting;
 use crate::sync::locked;
 
 use super::key_reply::KeyReply;
@@ -51,25 +51,25 @@ pub(super) struct EventQueue(Arc<Mutex<Queued>>);
 
 #[derive(Default)]
 struct Queued {
-    events: VecDeque<MaybeThawing<QueuedEvent>>,
+    events: VecDeque<MaybeInhibiting<QueuedEvent>>,
     /// The program's task, waiting for the next event.
     reader: Option<Waker>,
     /// Whether the stream was handed out: a view has one reader.
     taken: bool,
     /// The view is gone: what is queued is read, and then the stream ends.
     ended: bool,
-    /// What holds the program thawed from the view's going until it drops the stream.
-    end_thaw: Option<Arc<AnswerOwed>>,
+    /// What holds the program unfrozen from the view's going until it drops the stream.
+    end_inhibitor: Option<Arc<FreezeInhibitor>>,
     /// How many events were queued, and how many of them the program read.
     queued: u64,
     read: u64,
 }
 
-/// A view's events, as the program reads them, each with what holds the program thawed while it
-/// handles it; and once they end, what holds it thawed until it drops them.
+/// A view's events, as the program reads them, each with what holds the program unfrozen while it
+/// handles it; and once they end, what holds it unfrozen until it drops them.
 pub(crate) struct ViewEvents {
     queue: EventQueue,
-    end_thaw: Option<Arc<AnswerOwed>>,
+    end_inhibitor: Option<Arc<FreezeInhibitor>>,
 }
 
 impl EventQueue {
@@ -87,14 +87,14 @@ impl EventQueue {
     }
 
     /// Queues `event`, which decides whether the program goes on, after every event before it,
-    /// the program, whose lifecycle is `lifecycle`, thawed until it has handled it.
+    /// the program, whose lifecycle is `lifecycle`, unfrozen until it has handled it.
     pub(super) fn push_waking(&self, event: QueuedEvent, lifecycle: &Lifecycle) {
         let mut queued = locked(&self.0);
         if queued.ended {
             return;
         }
-        let thaw = thaw_if_read(&queued, lifecycle);
-        queued.events.push_back((event, thaw));
+        let unfreeze = inhibitor_if_read(&queued, lifecycle);
+        queued.events.push_back((event, unfreeze));
         queued.queued += 1;
         wake(&mut queued);
     }
@@ -110,14 +110,14 @@ impl EventQueue {
     }
 
     /// The view is gone, which decides whether the program goes on: the stream ends once what is
-    /// queued has been read, the program, whose lifecycle is `lifecycle`, thawed until it has
+    /// queued has been read, the program, whose lifecycle is `lifecycle`, unfrozen until it has
     /// read the end and dropped the stream.
     pub(super) fn end(&self, lifecycle: &Lifecycle) {
         let mut queued = locked(&self.0);
         if queued.ended {
             return;
         }
-        queued.end_thaw = thaw_if_read(&queued, lifecycle);
+        queued.end_inhibitor = inhibitor_if_read(&queued, lifecycle);
         queued.ended = true;
         wake(&mut queued);
     }
@@ -130,24 +130,26 @@ impl EventQueue {
         }
         Some(ViewEvents {
             queue: self.clone(),
-            end_thaw: None,
+            end_inhibitor: None,
         })
     }
 }
 
-/// What holds the program, whose lifecycle is `lifecycle`, thawed for an item of `queued`'s, where
+/// What holds the program, whose lifecycle is `lifecycle`, unfrozen for an item of `queued`'s, where
 /// its stream was taken, so someone will read it.
-fn thaw_if_read(queued: &Queued, lifecycle: &Lifecycle) -> Option<Arc<AnswerOwed>> {
-    queued.taken.then(|| Arc::new(lifecycle.owe_answer()))
+fn inhibitor_if_read(queued: &Queued, lifecycle: &Lifecycle) -> Option<Arc<FreezeInhibitor>> {
+    queued
+        .taken
+        .then(|| Arc::new(lifecycle.inhibit_freeze(FreezeInhibitorKind::PendingRequest)))
 }
 
 impl Stream for ViewEvents {
-    type Item = MaybeThawing<QueuedEvent>;
+    type Item = MaybeInhibiting<QueuedEvent>;
 
     fn poll_next(
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,
-    ) -> Poll<Option<MaybeThawing<QueuedEvent>>> {
+    ) -> Poll<Option<MaybeInhibiting<QueuedEvent>>> {
         let this = self.get_mut();
         let mut queued = locked(&this.queue.0);
         if let Some(event) = queued.events.pop_front() {
@@ -156,8 +158,8 @@ impl Stream for ViewEvents {
         }
         if queued.ended {
             // Held until the stream is dropped: the program decides what its view's going means.
-            if let Some(end_thaw) = queued.end_thaw.take() {
-                this.end_thaw = Some(end_thaw);
+            if let Some(end_inhibitor) = queued.end_inhibitor.take() {
+                this.end_inhibitor = Some(end_inhibitor);
             }
             return Poll::Ready(None);
         }
@@ -175,7 +177,10 @@ fn wake(queued: &mut Queued) {
 /// Merges `event` into the last event queued when both say where something is now, not what
 /// happened: a change of geometry after a change of geometry, a pointer's move after its move.
 /// Answers whether it did.
-fn merged_into_last(events: &mut VecDeque<MaybeThawing<QueuedEvent>>, event: &QueuedEvent) -> bool {
+fn merged_into_last(
+    events: &mut VecDeque<MaybeInhibiting<QueuedEvent>>,
+    event: &QueuedEvent,
+) -> bool {
     let (Some((QueuedEvent::Plain(last), None)), QueuedEvent::Plain(event)) =
         (events.back_mut(), event)
     else {
@@ -280,11 +285,11 @@ pub(super) mod tests {
 
     /// Everything `events` will have, once its view is gone, as the program hears it.
     pub(in crate::views) fn heard(mut events: ViewEvents) -> Vec<Heard> {
-        let events: Vec<MaybeThawing<QueuedEvent>> =
+        let events: Vec<MaybeInhibiting<QueuedEvent>> =
             block_on(async { events.by_ref().collect().await });
         events
             .into_iter()
-            .map(|(event, _thaw)| match event {
+            .map(|(event, _unfreeze)| match event {
                 QueuedEvent::Plain(event) => Heard::Plain(event),
                 QueuedEvent::Key(event, _reply) => Heard::Key(event),
                 QueuedEvent::Copy(_) => Heard::Copy,
@@ -424,40 +429,40 @@ pub(super) mod tests {
     }
 
     #[test]
-    fn a_close_request_thaws_the_program_until_it_reads_again() {
+    fn a_close_request_unfreezes_the_program_until_it_reads_again() {
         let lifecycle = frozen();
         let queue = EventQueue::default();
         let mut events = queue.take().expect("the stream is taken once");
         queue.push_waking(plain(ViewEvent::CloseRequested), &lifecycle);
-        assert!(!lifecycle.is_frozen(), "thawed to hear it");
-        let (event, thaw) = block_on(events.next()).expect("the request");
+        assert!(!lifecycle.is_frozen(), "unfrozen to hear it");
+        let (event, unfreeze) = block_on(events.next()).expect("the request");
         assert!(matches!(
             event,
             QueuedEvent::Plain(ViewEvent::CloseRequested)
         ));
-        assert!(!lifecycle.is_frozen(), "thawed while it handles it");
-        drop(thaw);
+        assert!(!lifecycle.is_frozen(), "unfrozen while it handles it");
+        drop(unfreeze);
         assert!(lifecycle.is_frozen(), "handled, the rule applies again");
     }
 
     #[test]
-    fn the_views_going_thaws_the_program_until_it_drops_the_stream() {
+    fn the_views_going_unfreezes_the_program_until_it_drops_the_stream() {
         let lifecycle = frozen();
         let queue = EventQueue::default();
         let mut events = queue.take().expect("the stream is taken once");
         queue.end(&lifecycle);
-        assert!(!lifecycle.is_frozen(), "thawed to hear it");
+        assert!(!lifecycle.is_frozen(), "unfrozen to hear it");
         assert!(block_on(events.next()).is_none(), "the end");
         assert!(
             !lifecycle.is_frozen(),
-            "thawed while it decides what the end means"
+            "unfrozen while it decides what the end means"
         );
         drop(events);
         assert!(lifecycle.is_frozen());
     }
 
     #[test]
-    fn what_nobody_reads_thaws_nothing() {
+    fn what_nobody_reads_unfreezes_nothing() {
         let lifecycle = frozen();
         let queue = EventQueue::default();
         queue.push_waking(plain(ViewEvent::CloseRequested), &lifecycle);

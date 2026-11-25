@@ -2,7 +2,7 @@
 //! time someone pastes one of its promised forms or files, and the requests' answers (`answers`).
 //!
 //! A paste waits for the program's answer as the platform's own pastes wait for a promised form:
-//! the program is thawed while it owes one; a form's paste fails once [`PROMISE_DEADLINE`] has
+//! the program is unfrozen while it owes one; a form's paste fails once [`PROMISE_DEADLINE`] has
 //! passed without the whole of it, as WinRT's data provider deadline fails one, and a file's once
 //! it has passed without the program beginning to answer, after which the file is written as the
 //! program streams it, as `NSFilePromiseProvider` waits for its writer; and a request dropped
@@ -30,7 +30,7 @@ use tokio::sync::watch;
 
 use super::answers::{self, Answer, Answering};
 use super::{Listing, PlatformClipboard};
-use crate::lifecycle::Lifecycle;
+use crate::lifecycle::{FreezeInhibitorKind, Lifecycle};
 use crate::shell::{ContentFuture, FileSink, FileWriteFuture};
 use crate::sync::locked;
 
@@ -65,7 +65,7 @@ struct SourceState {
 }
 
 impl Source {
-    /// A copy promising `forms`, files aside, of the program whose `lifecycle` thaws it to answer.
+    /// A copy promising `forms`, files aside, of the program whose `lifecycle` unfreezes it to answer.
     pub(crate) fn new(
         platform: PlatformClipboard,
         forms: Vec<PromisedForm>,
@@ -128,21 +128,27 @@ impl Source {
         move |sink| Box::pin(source.clone().produce_file(form.clone(), sink))
     }
 
-    /// `form`'s content: kept, or asked of the program, which is thawed while it owes it; none
+    /// `form`'s content: kept, or asked of the program, which is unfrozen while it owes it; none
     /// when it gave nothing whole in time.
     async fn produce(self, form: PromisedForm) -> Option<Vec<u8>> {
         if let Some(kept) = locked(&self.0.kept).get(&form) {
             return Some(kept.clone());
         }
-        let _owed = self.0.lifecycle.owe_answer();
+        let _pending = self
+            .0
+            .lifecycle
+            .inhibit_freeze(FreezeInhibitorKind::PendingRequest);
         let answer = self.ask(form)?;
         within(PROMISE_DEADLINE, answer.whole()).await.flatten()
     }
 
     /// The promised file `form`, written into `sink` as the program streams it, once it begins
-    /// to answer in time; the program is thawed until the file is whole.
+    /// to answer in time; the program is unfrozen until the file is whole.
     async fn produce_file(self, form: PromisedForm, mut sink: Box<dyn FileSink>) -> io::Result<()> {
-        let _owed = self.0.lifecycle.owe_answer();
+        let _pending = self
+            .0
+            .lifecycle
+            .inhibit_freeze(FreezeInhibitorKind::PendingRequest);
         let Some(mut answer) = self.ask(form) else {
             return Err(io::Error::other("the program has ended"));
         };

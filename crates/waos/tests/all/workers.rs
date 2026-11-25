@@ -4,7 +4,7 @@
 //! traps ends failed; a worker starts workers of its own; a worker asking for the user's side gets
 //! none of it; a worker dropped mid-work ends; a program that ends, or is stopped, with a worker
 //! running is told ended once the worker has ended too; and a frozen program's worker stops
-//! counting until the thaw.
+//! counting until the unfreeze.
 //!
 //! The program runs its steps in order and prints each, and ends by starting a counting worker
 //! and waiting to be asked to exit; a test reads the step it is about, then ends it.
@@ -129,7 +129,7 @@ fn a_program_stopped_with_a_worker_running_is_told_stopped_once_the_worker_has_e
 }
 
 #[test]
-fn a_frozen_programs_worker_stops_counting_until_the_thaw() {
+fn a_frozen_programs_worker_stops_counting_until_the_unfreeze() {
     let time = ManualTime::new();
     let shell = TestShell::new();
     let config = WaOSConfig {
@@ -152,10 +152,10 @@ fn a_frozen_programs_worker_stops_counting_until_the_thaw() {
 
     view.presence_changed(OFF_SCREEN);
     time.elapse(AFTER_HIDDEN);
-    within(running.stopped_at_freeze());
+    within(running.frozen());
     let frozen_at = counts(&output.lines());
     time.elapse(AFTER_HIDDEN);
-    within(running.stopped_at_freeze());
+    within(running.frozen());
     assert_eq!(
         counts(&output.lines()),
         frozen_at,
@@ -163,7 +163,7 @@ fn a_frozen_programs_worker_stops_counting_until_the_thaw() {
     );
 
     view.presence_changed(FOCUSED);
-    output.wait_until("thawed, the worker counts on", |lines| {
+    output.wait_until("unfrozen, the worker counts on", |lines| {
         counts(lines) > frozen_at
     });
     end(&running);

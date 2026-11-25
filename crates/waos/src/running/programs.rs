@@ -63,7 +63,7 @@ impl Programs {
             .collect()
     }
 
-    /// The app resumed: every program is back in the state its views give, and thawed if that
+    /// The app resumed: every program is back in the state its views give, and unfrozen if that
     /// shows it.
     pub(crate) fn resume(&self) {
         let mut roster = locked(&self.0);

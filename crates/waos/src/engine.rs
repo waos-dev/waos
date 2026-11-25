@@ -369,7 +369,7 @@ impl WaOS {
     }
 
     /// The platform brought the app back to the foreground: every program is back in the state
-    /// its views give, and thawed if that shows it.
+    /// its views give, and unfrozen if that shows it.
     pub fn app_resumed(&self) {
         self.programs.resume();
     }

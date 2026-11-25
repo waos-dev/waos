@@ -6,7 +6,7 @@
 //! changes of its state, `base_context`'s; each node, as its kind's handle and as any node,
 //! `nodes`', each kind's handle named in [`handles`]; a scheduled source, with its end,
 //! `sources`'; the platform's own inputs `stream_input`'s and `microphone`'s; which outputs a
-//! program may play on `outputs`'; what of its sound keeps it thawed, read at each tick of the
+//! program may play on `outputs`'; what of its sound keeps it unfrozen, read at each tick of the
 //! engine's time, `sound`'s; a file decoded, within what a buffer holds, `decoding`'s; the spec's
 //! enumerations `enumerations`'; and how a mistake of the program's, which the crate reports by
 //! panicking, ends it, `mistakes`'. The interface is served to a program by [`host`].
@@ -46,7 +46,7 @@ use crate::access::{ActiveUseKind, Asked, ProgramAccess, Refusal};
 use crate::bindings::wasdk::platform::audio::{AudioError, MediaDeviceInfo};
 use crate::bindings::wasdk::platform::permissions::State;
 use crate::engine_time::EngineClock;
-use crate::lifecycle::Lifecycle;
+use crate::lifecycle::{FreezeInhibitorKind, Lifecycle};
 use crate::permissions::{Permission, ProgramPermissions, state_of};
 use crate::running::RunningProgram;
 use crate::shell::{RecordingDevice, ShellAudioOutputPicker};
@@ -217,7 +217,13 @@ impl ProgramAudio {
                     RecordingDevice::Microphone
                 };
                 let recording = self.access.hold(ActiveUseKind::Recording(device));
-                Microphone::new(source, stream, recording, self.lifecycle.sounding())
+                Microphone::new(
+                    source,
+                    stream,
+                    recording,
+                    self.lifecycle
+                        .inhibit_freeze(FreezeInhibitorKind::AudioCapture),
+                )
             })
             .map_err(AudioError::InvalidState))
     }

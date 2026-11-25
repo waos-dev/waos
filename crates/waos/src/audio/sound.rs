@@ -1,9 +1,9 @@
-//! What of a context's sound keeps its program thawed: the context is audible while it runs with
+//! What of a context's sound keeps its program unfrozen: the context is audible while it runs with
 //! sound playing now, a source whose start its clock has reached and which has not ended, or a
 //! stream input open. web-audio-api reads no output level, so this is read against the context's
 //! clock at each tick of the engine's time, and each time a source is scheduled or ends or the
-//! context is suspended or resumed: a source scheduled far ahead keeps nothing thawed until it
-//! starts. Recording keeps the program thawed on its own, through `microphone`.
+//! context is suspended or resumed: a source scheduled far ahead keeps nothing unfrozen until it
+//! starts. Recording keeps the program unfrozen on its own, through `microphone`.
 //!
 //! The invariant: the program holds one `Sounding` for the context while it is audible and none
 //! otherwise, decided under the context's lock each time the sound is read; the `Sounding` is let
@@ -12,7 +12,7 @@
 use std::sync::{Arc, Mutex, Weak};
 
 use crate::engine_time::{EngineClock, Timer};
-use crate::lifecycle::{Lifecycle, Sounding};
+use crate::lifecycle::{FreezeInhibitor, FreezeInhibitorKind, Lifecycle};
 use crate::sync::locked;
 
 /// One context's sound, as its program's freeze weighs it.
@@ -31,7 +31,7 @@ struct SoundState {
     /// When each source scheduled and not ended starts, on the context's clock.
     starts: Vec<f64>,
     /// Held while the context is audible.
-    sounding: Option<Sounding>,
+    freeze_inhibitor: Option<FreezeInhibitor>,
 }
 
 impl SoundState {
@@ -63,7 +63,7 @@ impl ContextSound {
                 state: Mutex::new(SoundState {
                     running: true,
                     starts: Vec::new(),
-                    sounding: None,
+                    freeze_inhibitor: None,
                 }),
                 _read_at_each_tick: read_at_each_tick,
             }
@@ -96,19 +96,22 @@ impl ContextSound {
         self.change(|_| {});
     }
 
-    /// Changes what the sound depends on, and holds the program thawed while the context is
+    /// Changes what the sound depends on, and holds the program unfrozen while the context is
     /// audible.
     fn change(&self, change: impl FnOnce(&mut SoundState)) {
         let released = {
             let mut state = locked(&self.state);
             change(&mut state);
             if state.audible((self.clock)()) {
-                if state.sounding.is_none() {
-                    state.sounding = Some(self.lifecycle.sounding());
+                if state.freeze_inhibitor.is_none() {
+                    state.freeze_inhibitor = Some(
+                        self.lifecycle
+                            .inhibit_freeze(FreezeInhibitorKind::AudioPlayback),
+                    );
                 }
                 None
             } else {
-                state.sounding.take()
+                state.freeze_inhibitor.take()
             }
         };
         drop(released);
@@ -176,7 +179,7 @@ pub(super) mod tests {
     }
 
     #[test]
-    fn a_running_context_with_a_source_playing_keeps_its_program_thawed() {
+    fn a_running_context_with_a_source_playing_keeps_its_program_unfrozen() {
         let PausedProgram {
             clock, lifecycle, ..
         } = &PausedProgram::new();

@@ -23,7 +23,7 @@ pub(crate) use devices::OpenedDevices;
 pub(crate) use in_flight::{Finishing, InFlight};
 
 use crate::HardwareBufferMode;
-use crate::lifecycle::Lifecycle;
+use crate::lifecycle::{ExecutionState, Lifecycle};
 
 /// The instance a program's device is opened on: wgpu-core's, over every backend this machine
 /// offers, D3D12's alone on Windows.
@@ -115,21 +115,44 @@ pub(crate) fn wait_for(
 }
 
 /// Runs `submit`, GPU work the engine submits on the program's behalf, once the program may
-/// submit, as the program's own `queue.submit` does: inside the lock a freeze takes, at once while
-/// the program is not frozen and after its thaw while it is. `submit` takes no lock of the
-/// lifecycle's.
-pub(crate) async fn submit_once_thawed<R>(
+/// submit, as the program's own `queue.submit` does: at once while the program is not frozen and
+/// once it is unfrozen while it is. `submit` asks nothing of the lifecycle.
+pub(crate) async fn submit_once_unfrozen<R>(
     lifecycle: &Lifecycle,
     mut submit: impl FnMut() -> R,
 ) -> R {
     loop {
-        lifecycle.until_thawed().await;
+        until_unfrozen(lifecycle).await;
         let mut submitted = None;
-        lifecycle.while_thawed(&mut || submitted = Some(submit()));
+        submit_unless_frozen(lifecycle, &mut || submitted = Some(submit()));
         if let Some(submitted) = submitted {
             return submitted;
         }
     }
+}
+
+/// Resolves at once while the program is not frozen, and once it is unfrozen while it is.
+fn until_unfrozen(lifecycle: &Lifecycle) -> impl Future<Output = ()> + Send + 'static + use<> {
+    let mut execution_state = lifecycle.execution_state();
+    async move {
+        // A lifecycle gone is a program gone, whose work nobody waits for.
+        let unfrozen = |state: &ExecutionState| *state != ExecutionState::Frozen;
+        let _ = execution_state.wait_for(unfrozen).await;
+    }
+}
+
+/// Runs `submit` unless the program is frozen, and answers whether it ran. The program's
+/// execution state is held as it is meanwhile, so a freeze decided while `submit` runs waits the
+/// moment it takes, and no GPU work starts once a freeze has taken. `submit` asks nothing of the
+/// lifecycle, which would wait on this.
+pub(crate) fn submit_unless_frozen(lifecycle: &Lifecycle, submit: &mut dyn FnMut()) -> bool {
+    let execution_state = lifecycle.execution_state();
+    let held = execution_state.borrow();
+    if *held == ExecutionState::Frozen {
+        return false;
+    }
+    submit();
+    true
 }
 
 /// How the WebGPU host opens a program's device: on Android with the extensions that import an
@@ -176,15 +199,15 @@ pub(crate) fn open_device(
 }
 
 /// A program's submissions wait while it is frozen: iOS refuses GPU work from the background,
-/// and a program waiting in a host call when the app suspends could reach a submission before
-/// its first epoch check stopped it. Thawed, the submission goes through, under the lock a
-/// freeze takes, so none starts once a freeze has taken.
+/// and what the engine does for a frozen program, a frame it presented coming through, could
+/// reach one. Unfrozen, the submission goes through, and none starts once a freeze has taken
+/// ([`submit_unless_frozen`]).
 impl SubmissionGate for Lifecycle {
     fn until_allowed(&self) -> Pin<Box<dyn Future<Output = ()> + Send + 'static>> {
-        Box::pin(self.until_thawed())
+        Box::pin(until_unfrozen(self))
     }
 
     fn while_allowed(&self, submit: &mut dyn FnMut()) -> bool {
-        self.while_thawed(submit)
+        submit_unless_frozen(self, submit)
     }
 }

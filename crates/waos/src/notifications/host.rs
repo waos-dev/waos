@@ -3,7 +3,7 @@
 //! action added to the notification the engine keeps, and the activations of the program's
 //! notifications, each a stream of its own.
 //!
-//! Every stream of activations holds the program thawed for the activation it delivered last,
+//! Every stream of activations holds the program unfrozen for the activation it delivered last,
 //! until the program reads again or drops it (`stream_holding`).
 
 use std::future::ready;
