@@ -2,7 +2,8 @@
 //! the program, which Start's search finds by that name, carrying the program's identity as its
 //! AppUserModelID, so a pin of the program's taskbar button is that shortcut; it starts
 //! `waos.exe open --program <id>`, and its icon is the program's `.ico` among WaOS's
-//! (`Identities::ico_of`), written from its package's PNG (`ico`).
+//! (`Identities::ico_of`), written from its package's PNG (`ico`). Beside it, the kinds of file
+//! the program opens are registered in the user's classes (`file_associations`).
 //!
 //! The invariant a later editor will break: the shortcut carries its AppUserModelID from the moment
 //! it is written, as Microsoft asks, and two programs of the same name never share a file: the one
@@ -11,7 +12,8 @@
 use std::io;
 use std::path::{Path, PathBuf};
 
-use super::{ProgramEntry, SystemEntries, Written};
+use super::file_associations::{RegistryValue, registry_of};
+use super::{ProgramEntry, RegistrySetting, SystemEntries, Written};
 use crate::logic::program_identities::{Identities, relaunch_arguments, windows_arguments};
 
 /// What a program's shortcut holds.
@@ -55,13 +57,16 @@ impl SystemEntries for StartMenu {
             }
             None => None,
         };
+        let (values, settings) = registry_of(entry, identities, icon.as_deref());
         let shortcut = shortcut_of(entry, identities, &self.folder, others, icon);
         write_shortcut(&shortcut)?;
         files.push(shortcut.path);
-        Ok(Written {
-            files,
-            settings: Vec::new(),
-        })
+        set_registry_values(&values)?;
+        Ok(Written { files, settings })
+    }
+
+    fn take_back(&self, settings: &[RegistrySetting]) -> io::Result<()> {
+        delete_registry_settings(settings)
     }
 }
 
@@ -136,6 +141,42 @@ fn write_shortcut(_shortcut: &Shortcut) -> io::Result<()> {
     Err(io::Error::other("a Start menu shortcut is Windows' alone"))
 }
 
+/// Sets `values`, and tells the shell file associations changed; nothing for none.
+#[cfg(windows)]
+fn set_registry_values(values: &[RegistryValue]) -> io::Result<()> {
+    if values.is_empty() {
+        return Ok(());
+    }
+    crate::os::set_registry_values(values)
+}
+
+/// The registry is Windows' alone; the tests elsewhere set nothing.
+#[cfg(not(windows))]
+fn set_registry_values(values: &[RegistryValue]) -> io::Result<()> {
+    if values.is_empty() {
+        return Ok(());
+    }
+    Err(io::Error::other("the registry is Windows' alone"))
+}
+
+/// Takes back `settings`, and tells the shell file associations changed; nothing for none.
+#[cfg(windows)]
+fn delete_registry_settings(settings: &[RegistrySetting]) -> io::Result<()> {
+    if settings.is_empty() {
+        return Ok(());
+    }
+    crate::os::delete_registry_settings(settings)
+}
+
+/// The registry is Windows' alone; the tests elsewhere take back nothing.
+#[cfg(not(windows))]
+fn delete_registry_settings(settings: &[RegistrySetting]) -> io::Result<()> {
+    if settings.is_empty() {
+        return Ok(());
+    }
+    Err(io::Error::other("the registry is Windows' alone"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -148,6 +189,7 @@ mod tests {
             version: "1.0.0".to_owned(),
             icon: None,
             category: None,
+            file_associations: Vec::new(),
         }
     }
 

@@ -6,7 +6,9 @@
 //! written when its program is installed or updated, deleted when it is removed, and the entries
 //! are made to match the store as WaOS starts, for a program installed while an older WaOS ran. A
 //! development run writes none: it shares the installed program's entry, and a program never
-//! installed has none.
+//! installed has none. An entry also offers its program for the kinds of file it opens: a
+//! desktop entry names their MIME types, and on Windows they are registered in the user's classes
+//! (`file_associations`).
 //!
 //! WaOS keeps the record of the entries it wrote in its data folder: each one's files and what it
 //! set in the registry, and what they were written from, its program's name, version and the WaOS
@@ -29,6 +31,12 @@ pub(crate) mod desktop_entries;
     not(windows),
     allow(dead_code, reason = "tested on every desktop, written on Windows")
 )]
+pub(crate) mod file_associations;
+#[cfg(any(windows, test))]
+#[cfg_attr(
+    not(windows),
+    allow(dead_code, reason = "tested on every desktop, written on Windows")
+)]
 pub(crate) mod ico;
 #[cfg(any(windows, test))]
 #[cfg_attr(
@@ -45,7 +53,7 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Mutex, PoisonError};
 
 use serde::{Deserialize, Serialize};
-use waos_package::{Category, ProgramId};
+use waos_package::{Category, FileAssociation, ProgramId};
 use waos_store::Store;
 
 #[cfg(any(windows, target_os = "linux"))]
@@ -68,6 +76,8 @@ pub(crate) struct ProgramEntry {
     pub(crate) icon: Option<PathBuf>,
     /// What it is for, where its author said, which a desktop's menus file it under.
     pub(crate) category: Option<Category>,
+    /// The kinds of file it opens, which the system offers it for.
+    pub(crate) file_associations: Vec<FileAssociation>,
 }
 
 impl ProgramEntry {
@@ -84,6 +94,7 @@ impl ProgramEntry {
                     version: program.manifest.version().to_string(),
                     icon: store.icon(&id),
                     category: program.manifest.category(),
+                    file_associations: program.manifest.file_associations().to_vec(),
                     id,
                 })
             })
@@ -150,6 +161,10 @@ struct KeptEntry {
     settings: Vec<RegistrySetting>,
     name: String,
     version: String,
+    /// The kinds of file it was written to open; none for an entry recorded before WaOS kept
+    /// them, which opened none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    file_associations: Vec<FileAssociation>,
     /// The WaOS it starts.
     waos: PathBuf,
 }
@@ -241,6 +256,7 @@ impl ProgramEntries {
         record.entries.get(entry.id.as_str()).is_some_and(|kept| {
             kept.name == entry.name
                 && kept.version == entry.version
+                && kept.file_associations == entry.file_associations
                 && kept.waos == self.identities.waos
                 && kept.files.iter().all(|file| file.exists())
         })
@@ -268,6 +284,7 @@ impl ProgramEntries {
             settings,
             name: entry.name.clone(),
             version: entry.version.clone(),
+            file_associations: entry.file_associations.clone(),
             waos: self.identities.waos.clone(),
         };
         self.change_record(|record| {

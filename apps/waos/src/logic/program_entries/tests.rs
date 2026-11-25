@@ -79,6 +79,7 @@ fn entry(id: &str, name: &str, version: &str) -> ProgramEntry {
         version: version.to_owned(),
         icon: None,
         category: None,
+        file_associations: Vec::new(),
     }
 }
 
@@ -215,5 +216,27 @@ fn a_setting_an_update_no_longer_makes_and_a_removed_programs_settings_are_taken
         taken_back.lock().unwrap().last(),
         Some(&RegistrySetting::Key("Classes\\1.1.0".to_owned())),
         "the removed program's own"
+    );
+}
+
+#[test]
+fn an_entry_opening_other_kinds_of_file_than_its_program_does_now_is_written_again() {
+    let entries = Entries::new();
+    let kept = entries.opened_by("/usr/bin/waos");
+    let notes = entry("dev.example.notes", "Notes", "1.0.0");
+    kept.match_installed(std::slice::from_ref(&notes));
+    let opening = ProgramEntry {
+        file_associations: vec![FileAssociation {
+            extensions: vec!["note".to_owned()],
+            name: "Note".to_owned(),
+            mime_type: Some("text/x-note".to_owned()),
+        }],
+        ..notes
+    };
+    kept.match_installed(&[opening]);
+    assert_eq!(
+        entries.writes(),
+        2,
+        "the same version, opening a kind of file it did not"
     );
 }
