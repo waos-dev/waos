@@ -27,7 +27,7 @@ use tokio::net::windows::named_pipe::{
 };
 use windows_sys::Win32::Foundation::{ERROR_ACCESS_DENIED, ERROR_PIPE_BUSY};
 
-use crate::connection::Connection;
+use crate::connection::{Connection, Locality, StreamFrames, TransportFrames};
 use crate::os::windows::{UserOnly, owner_sid, user_sid};
 use crate::{ClientConnection, ServerConnection};
 
