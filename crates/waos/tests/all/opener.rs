@@ -9,7 +9,7 @@
 //!
 //! What the user opens with the program reaches it: a request made before it listens waits until
 //! it does, each file mounted writable at its own path and kept among its picks; and a request
-//! thaws a frozen program until it has read it, on time the test moves (`EngineTime::Manual`),
+//! unfreezes a frozen program until it has read it, on time the test moves (`EngineTime::Manual`),
 //! the program frozen again once it reads on (`RunningProgram::frozen`).
 
 use std::collections::HashMap;
@@ -187,9 +187,9 @@ fn a_request_made_before_the_program_listens_is_heard_once_it_does_its_files_mou
 }
 
 #[test]
-fn an_open_request_thaws_a_frozen_program_until_it_has_read_it() {
+fn an_open_request_unfreezes_a_frozen_program_until_it_has_read_it() {
     let time = ManualTime::new();
-    let only_when_suspended = FreezePolicy { after_hidden: None };
+    let only_when_suspended = FreezePolicy::default();
     let shell = TestShell::new();
     let config = WaOSConfig {
         time: EngineTime::Manual(time.clone()),
@@ -203,9 +203,9 @@ fn an_open_request_thaws_a_frozen_program_until_it_has_read_it() {
     let (running, _own) = run(&engine, scratch.path(), &grants, &output);
     output.wait_for("listening for open requests");
 
-    within(engine.app_suspending());
+    within(engine.suspend());
     within(running.frozen());
-    // A tick past the moment it last ran: woken without a thaw, it would stop at its next epoch
+    // A tick past the moment it last ran: woken without a unfreeze, it would stop at its next epoch
     // check, before it could say what it heard.
     time.elapse(TICK);
     running.open_requested(OpenRequest {
@@ -215,7 +215,7 @@ fn an_open_request_thaws_a_frozen_program_until_it_has_read_it() {
     output.wait_for("opened link: notes://while-frozen");
     within(running.frozen());
 
-    engine.app_resumed();
+    engine.resume();
     running.stop();
     within(running.ended());
 }

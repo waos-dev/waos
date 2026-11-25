@@ -1,6 +1,6 @@
 //! Quitting while programs run, by the rule of `logic::quit_question`: Waft's host asks the app
 //! whether it may quit, and the app asks every program running through `request_exit`, each
-//! thawed by the engine while it owes the answer. Once every one has answered, the app answers
+//! unfrozen by the engine while it owes the answer. Once every one has answered, the app answers
 //! the host: exit if every one agreed, having stopped every run, stopped listening, so the
 //! socket file is gone, and kept every program's day; cancel if any refused, and nothing closes.
 //! Every quit asks again, even while the programs decide an earlier one, and each is decided on

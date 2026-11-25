@@ -7,11 +7,11 @@
 //! view and answers the choice; its tray icon, once added, says the menus it offers, or why the
 //! platform refused it, reports what the user does to it, to every stream of its events, its menus
 //! answer the choices, and it goes when the program ends; an event on the
-//! icon of a frozen program thaws
+//! icon of a frozen program unfreezes
 //! it until it has handled the event; and a shell without menus gives the program none.
 //!
 //! Freezing is the app's suspension, on time the test moves (`EngineTime::Manual`): a suspended
-//! program is frozen at once, and again as soon as it has answered what thawed it, which the test
+//! program is frozen at once, and again as soon as it has answered what unfrozen it, which the test
 //! sees as it happens (`RunningProgram::frozen`); and a frozen program woken by an event stands at
 //! its next epoch check before it hears the event (`RunningProgram::stopped_at_freeze`,
 //! `freezing`), once a tick has passed since it last ran.
@@ -272,9 +272,9 @@ fn every_stream_of_a_tray_icons_events_hears_each_event() {
 }
 
 #[test]
-fn an_event_on_a_frozen_programs_tray_icon_thaws_it_until_it_has_handled_the_event() {
+fn an_event_on_a_frozen_programs_tray_icon_unfreezes_it_until_it_has_handled_the_event() {
     let time = ManualTime::new();
-    let only_when_suspended = FreezePolicy { after_hidden: None };
+    let only_when_suspended = FreezePolicy::default();
     let shell = TestShell::new();
     let config = WaOSConfig {
         time: EngineTime::Manual(time.clone()),
@@ -286,7 +286,7 @@ fn an_event_on_a_frozen_programs_tray_icon_thaws_it_until_it_has_handled_the_eve
     let (running, window) = run(&engine, &shell, &output);
     output.wait_for("tray icon: added");
     let icon = shell.menus.wait_for_icon(1);
-    within(engine.app_suspending());
+    within(engine.suspend());
     edit_while_frozen(&running, &time, &window, EditCommand::Undo);
     assert!(!output.has("edit: EditCommand::Undo"), "frozen");
 
@@ -300,13 +300,13 @@ fn an_event_on_a_frozen_programs_tray_icon_thaws_it_until_it_has_handled_the_eve
     shell.menus.choose(1, Some(30));
     output.wait_for("menu at icon chose: Some(30)");
 
-    // Its next read of the icon's events lets the thaw go: from then on it is frozen.
+    // Its next read of the icon's events lets the unfreeze go: from then on it is frozen.
     edit_while_frozen(&running, &time, &window, EditCommand::Redo);
     assert!(
         !output.has("edit: EditCommand::Redo"),
         "handled, it is frozen again"
     );
-    engine.app_resumed();
+    engine.resume();
     output.wait_for("edit: EditCommand::Redo");
     running.stop();
     assert!(matches!(within(running.ended()), ProgramEnd::Stopped));
@@ -342,7 +342,7 @@ fn edit_while_frozen(
     within(running.frozen());
     time.elapse(TICK);
     window.edit(command);
-    within(running.stopped_at_freeze());
+    within(running.frozen());
 }
 
 /// The id of each of `entries`, in order.

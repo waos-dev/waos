@@ -388,7 +388,7 @@ fn store_data(
 }
 
 /// Arms the store's fuel and its epoch tick, at which the fuel it burned since the last tick is
-/// counted into the program's stats and a frozen program stops until its thaw.
+/// counted into the program's stats and a frozen program stops until its unfreeze.
 pub(super) fn arm(store: &mut Store<StoreData>) -> wasmtime::Result<()> {
     let stats = store.data().program.shared_stats();
     let lifecycle = store.data().program.lifecycle().clone();
@@ -402,9 +402,12 @@ pub(super) fn arm(store: &mut Store<StoreData>) -> wasmtime::Result<()> {
         let burned = u64::MAX - store.as_context().get_fuel()?;
         stats.fuel_burned(burned - counted);
         counted = burned;
-        Ok(match lifecycle.at_tick() {
-            None => UpdateDeadline::Continue(1),
-            Some(until_thawed) => UpdateDeadline::YieldCustom(1, Box::pin(until_thawed)),
+        // A frozen program steps out of its code here: its thread does not come back in
+        // (`activity`).
+        Ok(if lifecycle.is_frozen() {
+            UpdateDeadline::Yield(1)
+        } else {
+            UpdateDeadline::Continue(1)
         })
     });
     Ok(())

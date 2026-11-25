@@ -94,6 +94,8 @@
 //! - **Mapping copies.** The boundary shares no memory: `get_mapped_range` copies the range into
 //!   the component (`get-mapped-range-get-with-copy`), and a mutable view is copied back when it
 //!   is dropped (`get-mapped-range-set-with-copy`); drop every `BufferViewMut` before `unmap`.
+//!   The first range of a buffer made mapped (`mapped_at_creation`) is not copied in: it is
+//!   zeros, which the program makes itself, so `create_buffer_init` sends its data once.
 //! - **A mapping's and submitted work's callbacks run at `Device::poll` with `Wait`, or as the
 //!   program yields**, whichever comes first, each once: code written for native wgpu, which
 //!   asks, polls and reads at once, and code written for the web, which awaits, both work. They

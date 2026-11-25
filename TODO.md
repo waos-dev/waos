@@ -18,6 +18,7 @@ What stands between today and a first stable release, in the order it blocks one
 - [ ] Opening a link or a file in another app asks the user, as a link of another scheme does today.
 - [ ] Rework how the user controls an app's network: today's switches, `localhost` and per-connection checks are naive.
 - [ ] A per-app setting for running in the background (music, a download), replacing today's rule that sound, recording or a camera keeps an app running, which an app playing silence abuses.
+- [ ] Asking the system to keep WaOS running while an app's freeze is inhibited: a foreground service on Android, a background task on iOS, an activity on macOS, where App Nap slows a hidden WaOS as a whole. Until then an app's sound stops when a phone suspends WaOS. Needs new services in Waft ([design](docs/draft/app-freeze/README.md)).
 - [ ] Accessibility: an app's semantics tree. Changes the views interface.
 
 ## Platforms
@@ -40,4 +41,3 @@ What stands between today and a first stable release, in the order it blocks one
 - [ ] Every built-in app on a release build, end to end.
 - [ ] The Inspector's report counts by UTC day, so an event just after local midnight east of UTC lands in the previous day: count by the user's days.
 - [ ] The trial apps rebuilt from crates.io alone, as the last outside check.
-- [ ] WaOS's freezing tests hang now and then on CI. One cause is found: a program told `paused` can run and wait again before the tick its freeze takes at, so it is frozen but never stops at its freeze. The two tests that wait for that stop are left out (`freezing.rs`, `TODO(freeze-takes-at-a-tick)`) until the freeze is designed again.

@@ -49,7 +49,7 @@ use crate::files::HandedFiles;
 use crate::gpu::{GpuInstance, InFlight, OpenedDevices};
 use crate::hardware_buffers::UnaskedRead;
 use crate::inspection::ProgramStorage;
-use crate::lifecycle::{FreezePolicy, Lifecycle, OpenRequest};
+use crate::lifecycle::{ExecutionState, FreezePolicy, Lifecycle, OpenRequest};
 use crate::menus::{MenuPlaces, ProgramMenus};
 use crate::network::HttpProxy;
 use crate::notifications::ProgramNotifications;
@@ -370,7 +370,7 @@ impl RunningProgram {
 
     /// The user opened `request`'s files and links with the program: every stream of its open
     /// requests hears it, or, while none is open, as before the program has started listening,
-    /// the next one it opens; the program thawed until it has read it. Each file is mounted
+    /// the next one it opens; the program unfrozen until it has read it. Each file is mounted
     /// writable at its own path as the program reads the request, and kept among its mounts as a
     /// pick is.
     pub fn open_requested(&self, request: OpenRequest) {
@@ -379,7 +379,7 @@ impl RunningProgram {
 
     /// The user did `activation` to one of the program's notifications, at launch or while it
     /// runs: every stream of its activations hears it, or, while none is open, as before the
-    /// program has started listening, the next one it opens; the program thawed until it has read
+    /// program has started listening, the next one it opens; the program unfrozen until it has read
     /// it.
     pub fn notification_activated(&self, activation: Activation) {
         self.0.notifications.activated(activation);
@@ -392,7 +392,7 @@ impl RunningProgram {
     }
 
     /// The user chose the item `id` in the program's menu bar: every stream of its choices hears
-    /// it, the program thawed until it has handled it.
+    /// it, the program unfrozen until it has handled it.
     pub fn menu_chosen(&self, id: u32) {
         self.0.menus.chosen(id);
     }
@@ -519,36 +519,42 @@ impl RunningProgram {
         &self.0.in_flight
     }
 
-    /// Resolves once the program is frozen, at once while it is, whether or not it has stopped
-    /// yet ([`stopped_at_freeze`](Self::stopped_at_freeze)). What a test waits on to see the rule
-    /// freeze a program, as it does once the program has answered what thawed it.
+    /// Resolves once the program is frozen and none of its instances is in its code, at once
+    /// while that is so: from then on nothing of it runs until it is unfrozen. Code busy when the
+    /// freeze was decided steps out at the next epoch tick. What the app's suspending awaits of
+    /// each program, and what a test waits on to see a program frozen.
     pub fn frozen(&self) -> impl Future<Output = ()> + Send + 'static + use<> {
-        self.0.lifecycle.until_frozen()
-    }
-
-    /// Resolves once the program stands at its freeze: one of its instances, the main one or a
-    /// worker, stopped by it at an epoch check, until the thaw. What a test waits on to see a
-    /// frozen program has stopped, where [`idle`](Self::idle) also resolves at a moment a running
-    /// program yields; it never resolves for a program that is not frozen, or one whose every
-    /// instance was frozen while it waits in a host call, until something wakes one.
-    pub fn stopped_at_freeze(&self) -> impl Future<Output = ()> + Send + 'static + use<> {
-        self.0.lifecycle.stopped_at_freeze()
+        let mut execution_state = self.0.lifecycle.execution_state();
+        let activity = Arc::clone(&self.0.activity);
+        async move {
+            // A lifecycle gone is a program gone, which runs nothing.
+            let frozen = |state: &ExecutionState| *state == ExecutionState::Frozen;
+            let _ = execution_state.wait_for(frozen).await;
+            activity.idle().await;
+        }
     }
 
     /// Resolves once the program is not running its code at this moment, each of its instances
-    /// standing at its freeze, waiting in a host call or ended, and none of its GPU work is in
-    /// flight. It says
+    /// frozen, waiting in a host call or ended, and none of its GPU work is in flight. It says
     /// nothing of the next moment: what keeps a program from running again is its freeze. What
-    /// the app's suspending awaits for each program, and what a test waits on to see a frozen
-    /// program has stopped, rather than watching it for a while. Once a frozen program stands
-    /// still nothing more is submitted, so what is on the GPU then is all there is: every device
-    /// the program opened is waited for, and that wait is over with the frames it presented.
+    /// a test waits on to see a program at rest, rather than watching it for a while.
     pub fn idle(&self) -> impl Future<Output = ()> + Send + 'static + use<> {
         let idle = self.0.activity.idle();
+        let gpu_work_done = self.gpu_work_done();
+        async move {
+            idle.await;
+            gpu_work_done.await;
+        }
+    }
+
+    /// Resolves once none of the program's GPU work is in flight: every device it opened is
+    /// waited for, and that wait is over with the frames it presented. For a program that
+    /// submits no more, as none does while WaOS is suspended, what is on the GPU then is all
+    /// there is.
+    pub(crate) fn gpu_work_done(&self) -> impl Future<Output = ()> + Send + 'static + use<> {
         let devices = Arc::clone(&self.0.devices);
         let in_flight = Arc::clone(&self.0.in_flight);
         async move {
-            idle.await;
             devices.wait_for_all(&in_flight);
             in_flight.none().await;
         }
@@ -602,7 +608,8 @@ async fn run_until_stopped(
 ) -> ProgramEnd {
     let activity = Arc::clone(&program.0.activity);
     let sources = program.0.sources.clone();
-    let mut run = pin!(activity.watch(store::run(start, program, access, clock)));
+    let lifecycle = program.lifecycle().clone();
+    let mut run = pin!(activity.watch(store::run(start, program, access, clock), &lifecycle));
     tokio::select! {
         end = &mut run => return end,
         () = stop_asked(stopped) => {}

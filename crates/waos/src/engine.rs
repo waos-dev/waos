@@ -355,23 +355,23 @@ impl WaOS {
         RunningProgram::start(start, temporary)
     }
 
-    /// The platform sent the whole app to the background (iOS's `didEnterBackground`, Android's
-    /// `ProcessLifecycleOwner` `ON_STOP`): every program is `paused` and freezes now, and one
-    /// started before the app resumes starts so. Resolves once none runs: each stands frozen,
-    /// waits in a host call, or has ended. Awaited inside the platform's grace period. Step 4c,
-    /// drawing, adds to what each program's stop means: and none of its GPU work is in flight
-    /// (`RunningProgram::idle`).
-    pub fn app_suspending(&self) -> impl Future<Output = ()> + Send + 'static + use<> {
-        let stopped = self.programs.suspend();
-        // A freeze takes at an epoch tick: this one, rather than the next tick of the engine's
-        // time.
+    /// The system suspended WaOS (iOS's `didEnterBackground`, Android's `ProcessLifecycleOwner`
+    /// `ON_STOP`): every program is `paused` and draws nothing from now, runs on for the
+    /// policy's grace period, and is frozen then; one started before WaOS resumes starts so.
+    /// Resolves once no GPU work of any program is in flight, which the shell awaits before it
+    /// lets the system suspend WaOS: iOS refuses GPU work from a suspended app. What tells a
+    /// program has frozen is [`RunningProgram::frozen`].
+    pub fn suspend(&self) -> impl Future<Output = ()> + Send + 'static + use<> {
+        let gpu_work_done = self.programs.suspend();
+        // A program frozen at once steps out of its code at an epoch tick: this one, rather
+        // than the next tick of the engine's time.
         self.engine.increment_epoch();
-        join_all(stopped).map(|_: Vec<()>| ())
+        join_all(gpu_work_done).map(|_: Vec<()>| ())
     }
 
-    /// The platform brought the app back to the foreground: every program is back in the state
-    /// its views give, and thawed if that shows it.
-    pub fn app_resumed(&self) {
+    /// The system resumed WaOS: every program is back in the state its views give, and unfrozen
+    /// if that shows it.
+    pub fn resume(&self) {
         self.programs.resume();
     }
 }

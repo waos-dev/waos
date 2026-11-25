@@ -27,8 +27,8 @@ use crate::bindings::wasdk::platform::views::{RequestFailure, RequestId, ViewErr
 use crate::channel::Channel;
 use crate::clipboard::PlatformClipboard;
 use crate::clock::Clock;
-use crate::lifecycle::Lifecycle;
-use crate::news::MaybeThawing;
+use crate::lifecycle::{FreezeInhibitorKind, Lifecycle};
+use crate::news::MaybeInhibiting;
 use crate::screenshots::Screenshots;
 use crate::shell::PlacedView;
 use crate::sync::locked;
@@ -63,9 +63,9 @@ pub(super) struct ViewsState {
     /// What each request still unanswered attached, and its window's title, for the view that
     /// arrives for it.
     requests: Mutex<HashMap<RequestId, Requested>>,
-    /// What changes among the views, a view's going holding the program thawed until it has
+    /// What changes among the views, a view's going holding the program unfrozen until it has
     /// handled it on each stream.
-    changes: Channel<MaybeThawing<ViewChange>>,
+    changes: Channel<MaybeInhibiting<ViewChange>>,
     /// Whether one of the views has the input focus.
     focused: watch::Sender<bool>,
     /// The layers the views hold, which the program's store keeps; gone once the program has
@@ -147,9 +147,9 @@ impl ProgramViews {
     }
 
     /// What changes among the views from now on, on a stream of its own, a view's going with what
-    /// holds the program thawed until it has handled it, since it decides whether the program
+    /// holds the program unfrozen until it has handled it, since it decides whether the program
     /// goes on.
-    pub(crate) fn changes(&self) -> mpsc::UnboundedReceiver<MaybeThawing<ViewChange>> {
+    pub(crate) fn changes(&self) -> mpsc::UnboundedReceiver<MaybeInhibiting<ViewChange>> {
         self.0.changes.subscribe()
     }
 
@@ -205,12 +205,14 @@ impl ProgramViews {
         let mut views = locked(&self.0.views);
         let index = views.iter().position(|view| view.id() == id)?;
         let removed = views.remove(index);
-        let thaw = self
-            .0
-            .changes
-            .is_heard()
-            .then(|| Arc::new(self.0.lifecycle.owe_answer()));
-        self.0.changes.send((ViewChange::Removed(id), thaw));
+        let unfreeze = self.0.changes.is_heard().then(|| {
+            Arc::new(
+                self.0
+                    .lifecycle
+                    .inhibit_freeze(FreezeInhibitorKind::PendingRequest),
+            )
+        });
+        self.0.changes.send((ViewChange::Removed(id), unfreeze));
         Some(removed)
     }
 
@@ -289,7 +291,7 @@ impl ProgramViews {
 }
 
 impl ViewsState {
-    /// The program's lifecycle, which a request to close a view thaws.
+    /// The program's lifecycle, which a request to close a view unfreezes.
     pub(super) fn lifecycle(&self) -> &Lifecycle {
         &self.lifecycle
     }
@@ -453,7 +455,7 @@ mod tests {
         let listed = views.views();
         assert_eq!(listed.len(), 1);
         assert_eq!(listed[0].id(), view.id());
-        let (ViewChange::Added(heard), _thaw) = changes.try_recv().unwrap() else {
+        let (ViewChange::Added(heard), _unfreeze) = changes.try_recv().unwrap() else {
             panic!("the view is announced");
         };
         assert_eq!(heard.id(), view.id());

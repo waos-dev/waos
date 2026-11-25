@@ -41,7 +41,7 @@ impl BaseContext {
         }
     }
 
-    /// What of its sources' sound keeps its program thawed; none where nothing plays aloud.
+    /// What of its sources' sound keeps its program unfrozen; none where nothing plays aloud.
     pub(super) fn sound(&self) -> Option<&Arc<ContextSound>> {
         match self {
             BaseContext::Playing(context) => Some(context.sound()),

@@ -4,7 +4,7 @@
 //!
 //! The program listens through [`ProgramServiceExtensions::calls`], each call a stream of its own.
 //! The shell calls through [`ProgramServiceExtensions::call`], which hands the call to the stream
-//! opened last that is still open, and resolves with the program's answer, the program thawed
+//! opened last that is still open, and resolves with the program's answer, the program unfrozen
 //! until it has answered, as it is while it owes an answer to a request to end; with none open, it
 //! answers `unknown` with no names at once. A call dropped without an answer answers `failed`.
 //! Whether a program serves extensions now, for a tool's list of them, is
@@ -24,7 +24,7 @@ use futures::FutureExt;
 use futures::channel::{mpsc, oneshot};
 
 pub use crate::bindings::wasdk::platform::service_extensions::ExtensionError;
-use crate::lifecycle::Lifecycle;
+use crate::lifecycle::{FreezeInhibitorKind, Lifecycle};
 use crate::sync::locked;
 
 /// What a call is answered with: the answer's JSON text, or why there is none.
@@ -53,7 +53,7 @@ const LET_GO: &str = "the program let go of the call without answering it";
 #[derive(Clone)]
 pub struct ProgramServiceExtensions {
     streams: Arc<Mutex<Vec<mpsc::UnboundedSender<ExtensionCall>>>>,
-    /// The program's lifecycle, which a call keeps it thawed in until it is answered.
+    /// The program's lifecycle, which a call keeps it unfrozen in until it is answered.
     lifecycle: Lifecycle,
 }
 
@@ -82,7 +82,7 @@ impl ProgramServiceExtensions {
     }
 
     /// Calls the extension `name` with `params`: resolves with the program's answer, once it
-    /// answers, thawed until it has; at once with `unknown` and no names when it has no stream
+    /// answers, unfrozen until it has; at once with `unknown` and no names when it has no stream
     /// open; and with `failed` when it lets go of the call without answering.
     pub fn call(
         &self,
@@ -95,7 +95,9 @@ impl ProgramServiceExtensions {
             params,
             reply,
         };
-        let owed = self.lifecycle.owe_answer();
+        let owed = self
+            .lifecycle
+            .inhibit_freeze(FreezeInhibitorKind::PendingRequest);
         let sent = self.send_to_newest(call);
         async move {
             if !sent {

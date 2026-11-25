@@ -3,7 +3,7 @@
 //! holds every hardware buffer gets another, and the spares go once the view has drawn nothing for
 //! a while; a triangle other windows cover draws only while a tool watches it, and not minimized,
 //! watched or not; a frozen triangle stops presenting, keeps one hardware buffer or two, and draws
-//! again after the thaw; and `app_suspending` with triangle drawing resolves with no GPU work in
+//! again after the unfreeze; and `app_suspending` with triangle drawing resolves with no GPU work in
 //! flight, so no frame reaches the shell after it.
 //!
 //! Hardware buffers are made on Apple's systems, where these tests run; elsewhere one test in their
@@ -266,7 +266,8 @@ fn freezing_engine() -> (WaOS, TestShell, ManualTime) {
     let engine = WaOS::new(
         WaOSConfig {
             freeze: FreezePolicy {
-                after_hidden: Some(AFTER_HIDDEN),
+                freeze_hidden_after: Some(AFTER_HIDDEN),
+                ..FreezePolicy::default()
             },
             time: EngineTime::Manual(time.clone()),
             ..config()
@@ -279,7 +280,7 @@ fn freezing_engine() -> (WaOS, TestShell, ManualTime) {
 }
 
 #[test]
-fn a_frozen_triangle_keeps_one_hardware_buffer_and_draws_again_after_the_thaw() {
+fn a_frozen_triangle_keeps_one_hardware_buffer_and_draws_again_after_the_unfreeze() {
     let (engine, shell, time) = freezing_engine();
     let triangle = engine
         .load(Path::new(waos_test_programs::TRIANGLE))
@@ -310,13 +311,13 @@ fn a_frozen_triangle_keeps_one_hardware_buffer_and_draws_again_after_the_thaw() 
     );
 
     view.presence_changed(FOCUSED);
-    wait_until("thawed, triangle draws again", || {
+    wait_until("unfrozen, triangle draws again", || {
         running.stats().frames_presented() > presented
     });
-    let thawed = running.stats().hardware_buffer_bytes() / HARDWARE_BUFFER_BYTES;
+    let unfrozen = running.stats().hardware_buffer_bytes() / HARDWARE_BUFFER_BYTES;
     assert!(
-        thawed >= 2,
-        "thawed, the view has a hardware buffer to draw into beside the one on screen, not {thawed}"
+        unfrozen >= 2,
+        "unfrozen, the view has a hardware buffer to draw into beside the one on screen, not {unfrozen}"
     );
     running.stop();
     assert!(matches!(within(running.ended()), ProgramEnd::Stopped));
@@ -336,7 +337,7 @@ fn app_suspending_with_triangle_drawing_resolves_with_no_gpu_work_in_flight() {
         .expect("triangle asks for its view");
     assert!(within(view.picture_after_events()), "triangle is drawing");
 
-    within(engine.app_suspending());
+    within(engine.suspend());
     let presented = running.stats().frames_presented();
     time.elapse(AFTER_HIDDEN);
     within(running.idle());
@@ -346,7 +347,7 @@ fn app_suspending_with_triangle_drawing_resolves_with_no_gpu_work_in_flight() {
         "no frame reaches the shell after the app suspended: none was in flight"
     );
 
-    engine.app_resumed();
+    engine.resume();
     wait_until("resumed, triangle draws again", || {
         running.stats().frames_presented() > presented
     });

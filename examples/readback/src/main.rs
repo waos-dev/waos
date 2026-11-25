@@ -4,11 +4,13 @@
 //! the answer at once: the callback has run before `poll` returns. Code written for the web never
 //! polls: it awaits, and the callback runs as the program yields. Both hold on WaOS, and so does
 //! the order wgpu promises: a queue's submitted work is told done after the mappings asked before
-//! it.
+//! it. What is read back was written through a buffer made mapped, as `create_buffer_init` writes
+//! a buffer's first data.
 
 use std::sync::mpsc;
 
 use futures::channel::oneshot;
+use wgpu::util::DeviceExt;
 
 /// What is written to the GPU and read back.
 const WRITTEN: [u8; 8] = [1, 2, 3, 4, 5, 6, 7, 8];
@@ -67,14 +69,14 @@ async fn device() -> Result<(wgpu::Device, wgpu::Queue), String> {
         .map_err(|error| format!("no WebGPU device: {error}"))
 }
 
-/// A buffer the GPU copied [`WRITTEN`] into, its copy submitted and not yet waited on.
+/// A buffer the GPU copied [`WRITTEN`] into, its copy submitted and not yet waited on. What is
+/// copied is written the way a buffer is given its first data: made mapped, written, unmapped.
 fn copy_of_written(device: &wgpu::Device, queue: &wgpu::Queue) -> wgpu::Buffer {
     let size = WRITTEN.len() as u64;
-    let written = device.create_buffer(&wgpu::BufferDescriptor {
+    let written = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: Some("written"),
-        size,
-        usage: wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::COPY_DST,
-        mapped_at_creation: false,
+        contents: &WRITTEN,
+        usage: wgpu::BufferUsages::COPY_SRC,
     });
     let copy = device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("copy"),
@@ -82,7 +84,6 @@ fn copy_of_written(device: &wgpu::Device, queue: &wgpu::Queue) -> wgpu::Buffer {
         usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
         mapped_at_creation: false,
     });
-    queue.write_buffer(&written, 0, &WRITTEN);
     let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
     encoder.copy_buffer_to_buffer(&written, 0, &copy, 0, size);
     queue.submit([encoder.finish()]);
