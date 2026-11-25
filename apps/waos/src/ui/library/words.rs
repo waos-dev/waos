@@ -469,7 +469,7 @@ pub(crate) fn version_from(version: &str, source: Option<&str>) -> String {
 }
 /// The card at the end of an app's settings page in the launcher, which unfolds to what resets
 /// its permissions and what removes it.
-pub(crate) const RESET_OR_REMOVE: &str = "Reset or remove";
+pub(crate) const ADVANCED: &str = "Advanced";
 /// Under that card, the row that removes the app.
 pub(crate) fn remove_app(name: &str) -> String {
     format!("Remove {name}")

@@ -260,9 +260,9 @@ pub(crate) fn app_endings(
             .into_widget()
     });
     let mut card = SettingsExpander::new(shown, changed)
-        .header(Text::new(words::RESET_OR_REMOVE))
+        .header(Text::new(words::ADVANCED))
         .items(rows);
-    card.header_icon = Start::symbol(FluentSymbol::ArrowRepeatAll).icon();
+    card.header_icon = Start::symbol(FluentSymbol::Options).icon();
     let apart = SizedBox::new().height(HEADING_MARGIN[0]).into_widget();
     vec![apart, spaced(card)]
 }
