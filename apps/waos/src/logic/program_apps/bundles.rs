@@ -1,8 +1,10 @@
 //! Each program's app bundle as WaOS keeps it, as Chrome keeps its app shims: an installed
 //! program's in a folder of the user's applications, named after the program, with its package's
-//! name, version and icon, a development install's as any other's, since every program that runs
-//! is installed (the design's decision 70). Each is written at install, or at the first launch that finds none,
-//! rewritten when the program is updated, and when WaOS's files it is made from are not those it
+//! name, version and icon and the kinds of file it opens, a development install's as any other's,
+//! since every program that runs is installed (the design's decision 70). Each is written at
+//! install, or at the first launch that finds none, rewritten when the program is updated or the
+//! kinds of file it opens change, as a development install again may change them at the same
+//! version, and when WaOS's files it is made from are not those it
 //! was written from, as Chrome rewrites its shims when Chrome updates: the loader it carries a copy
 //! of, by its SHA-256, and the window library and the WaOS it names, by their paths
 //! ([`made_from`]); and deleted when it is removed. WaOS keeps, in its data
@@ -29,7 +31,7 @@ use std::sync::{Mutex, PoisonError};
 use hmac::{Hmac, KeyInit, Mac};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use waos_package::{Category, ProgramId};
+use waos_package::{Category, FileAssociation, ProgramId};
 
 use crate::os::{BundleContents, WaosFiles, delete_bundle, write_bundle};
 
@@ -47,6 +49,8 @@ pub(crate) struct ProgramDescription {
     pub(crate) icon: Option<PathBuf>,
     /// What it is for, where its author said, which macOS groups its apps by.
     pub(crate) category: Option<Category>,
+    /// The kinds of file it opens, which the Finder offers its app for.
+    pub(crate) file_associations: Vec<FileAssociation>,
 }
 
 /// Where the bundles go.
@@ -100,6 +104,10 @@ pub(crate) struct KeptBundle {
     code_hash_hmac: String,
     /// The program's version it was written for.
     version: String,
+    /// The kinds of file it was written to open; none for a bundle written before WaOS kept them,
+    /// which opened none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    file_associations: Vec<FileAssociation>,
     /// What WaOS's files it was made from were ([`made_from`]); none for a bundle written before
     /// WaOS kept it, which is made again.
     #[serde(default)]
@@ -160,21 +168,23 @@ impl Bundles {
             .collect()
     }
 
-    /// The bundle of `program`, as WaOS wrote it, at the version it is now, from WaOS's files as
-    /// they are now; written now if there is none, or it is of another version, or made from
-    /// other files.
+    /// The bundle of `program`, as WaOS wrote it, at the version it is now, opening the kinds of
+    /// file it opens now, from WaOS's files as they are now; written now if there is none, or it
+    /// is of another version, opens other kinds of file, or is made from other files.
     pub(crate) fn ensure(&self, program: &ProgramDescription) -> io::Result<KeptBundle> {
-        let kept = self.kept(&program.id);
-        match kept {
-            Some(kept)
-                if kept.version == program.version
-                    && kept.made_from == self.made_from
-                    && kept.path.exists() =>
-            {
-                Ok(kept)
-            }
+        match self.kept(&program.id) {
+            Some(kept) if self.is_current(&kept, program) => Ok(kept),
             _ => self.write(program),
         }
+    }
+
+    /// Whether `kept`, `program`'s bundle, is written as it is now: at its version, opening the
+    /// kinds of file it opens, from WaOS's files as they are now, and in place.
+    fn is_current(&self, kept: &KeptBundle, program: &ProgramDescription) -> bool {
+        kept.version == program.version
+            && kept.file_associations == program.file_associations
+            && kept.made_from == self.made_from
+            && kept.path.exists()
     }
 
     /// Writes the bundle of `program` again, in place of the one there.
@@ -186,6 +196,7 @@ impl Bundles {
             version: &program.version,
             icon: program.icon.as_deref(),
             category: program.category,
+            file_associations: &program.file_associations,
             waos: &self.waos,
         };
         if let Some(before) = self.kept(&program.id).filter(|before| before.path != path) {
@@ -197,6 +208,7 @@ impl Bundles {
             code_hash_hmac: hex::encode(self.hmac(&code_hash).finalize().into_bytes()),
             code_hash: hex::encode(code_hash),
             version: program.version.clone(),
+            file_associations: program.file_associations.clone(),
             made_from: self.made_from.clone(),
         };
         tracing::info!(program = %program.id, path = %kept.path.display(), "the program's app was written");

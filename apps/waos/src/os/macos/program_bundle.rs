@@ -1,11 +1,14 @@
 //! A program's app bundle, as Chrome writes an app shim (`docs/proposals/2026-10-29-macos-app-
 //! shims-research.md`, §1): an `Info.plist` with the namespaced bundle id `dev.waos.program.<id>`,
 //! the program's name and version, and the keys its window process reads
-//! (`waos_window_messages::bundle`); its icon, made from the package's PNG with the system's own
-//! `sips` and `iconutil`; a copy of WaOS's loader as its executable; signed ad hoc with the
-//! hardened runtime and the one entitlement the loader needs to load WaOS's library,
+//! (`waos_window_messages::bundle`); the kinds of file the program opens, each a document type
+//! matched by its extensions and ranked `Alternate`, so the Finder offers the app in Open With and
+//! never takes a type's double-click from the app the user opens it with; its icon, made from the
+//! package's PNG with the system's own `sips` and `iconutil`; a copy of WaOS's loader as its
+//! executable; signed ad hoc with the hardened runtime and the one entitlement the loader needs to load WaOS's library,
 //! `com.apple.security.cs.disable-library-validation`, measured necessary (without it a hardened
-//! loader cannot load the library); and registered with Launch Services.
+//! loader cannot load the library); and registered with Launch Services, each time it is written,
+//! which is how the system learns the kinds of file it opens.
 //! Deleting one resets what the system granted it first, since `tccutil` finds a bundle id
 //! through Launch Services, then unregisters it and removes it whole.
 //!
@@ -18,7 +21,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use waos_package::{Category, ProgramId};
+use waos_package::{Category, FileAssociation, ProgramId};
 use waos_window_messages::bundle::{DATA_FOLDER_KEY, PROGRAM_ID_KEY, WAOS_KEY, WINDOW_LIBRARY_KEY};
 
 use super::code_signature;
@@ -41,6 +44,8 @@ pub(crate) struct BundleContents<'a> {
     pub(crate) icon: Option<&'a Path>,
     /// What the app is for, where its author said: the heading macOS files it under.
     pub(crate) category: Option<Category>,
+    /// The kinds of file the program opens, which the Finder offers it for.
+    pub(crate) file_associations: &'a [FileAssociation],
     /// WaOS's files the bundle refers to.
     pub(crate) waos: &'a WaosFiles,
 }
@@ -137,13 +142,45 @@ fn info_plist(contents: &BundleContents) -> String {
             )
         })
         .collect();
+    let document_types = document_types(contents.file_associations);
     format!(
         "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\
          <!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \
          \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n\
-         <plist version=\"1.0\">\n<dict>\n{strings}\
+         <plist version=\"1.0\">\n<dict>\n{strings}{document_types}\
          \t<key>NSHighResolutionCapable</key>\n\t<true/>\n</dict>\n</plist>\n"
     )
+}
+
+/// `CFBundleDocumentTypes`, one entry for each kind of file the program opens, matched by its
+/// extensions, as an app that does not define the type is matched (Waft's apps' rule for a type
+/// with no identifier): the app views such a file, and ranks `Alternate`, offered in the Finder's
+/// Open With and never the app a double-click opens it with unless the user makes it so. Nothing
+/// for a program that opens none.
+fn document_types(associations: &[FileAssociation]) -> String {
+    if associations.is_empty() {
+        return String::new();
+    }
+    let entries: String = associations
+        .iter()
+        .map(|association| {
+            let extensions: String = association
+                .extensions
+                .iter()
+                .map(|extension| format!("\t\t\t\t<string>{}</string>\n", escaped(extension)))
+                .collect();
+            format!(
+                "\t\t<dict>\n\
+                 \t\t\t<key>CFBundleTypeName</key>\n\t\t\t<string>{}</string>\n\
+                 \t\t\t<key>CFBundleTypeRole</key>\n\t\t\t<string>Viewer</string>\n\
+                 \t\t\t<key>LSHandlerRank</key>\n\t\t\t<string>Alternate</string>\n\
+                 \t\t\t<key>CFBundleTypeExtensions</key>\n\t\t\t<array>\n{extensions}\t\t\t</array>\n\
+                 \t\t</dict>\n",
+                escaped(&association.name)
+            )
+        })
+        .collect();
+    format!("\t<key>CFBundleDocumentTypes</key>\n\t<array>\n{entries}\t</array>\n")
 }
 
 fn path_string(path: &Path) -> String {

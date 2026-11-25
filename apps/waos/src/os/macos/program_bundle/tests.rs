@@ -43,6 +43,7 @@ fn a_bundle_says_which_program_it_is_and_where_waos_is() {
         version: "1.2.0",
         icon: None,
         category: Some(Category::Productivity),
+        file_associations: &[],
         waos: &waos,
     };
     write_files(&bundle, &contents).unwrap();
@@ -80,6 +81,7 @@ fn a_bundle_carries_the_packages_icon_at_every_size() {
         version: "1.0.0",
         icon: Some(&icon),
         category: None,
+        file_associations: &[],
         waos: &waos,
     };
     write_files(&bundle, &contents).unwrap();
@@ -101,6 +103,7 @@ fn a_signed_bundle_has_a_code_hash_that_changes_with_it() {
         version: "1.0.0",
         icon: None,
         category: None,
+        file_associations: &[],
         waos: &waos,
     };
     write_files(&bundle, &contents).unwrap();
@@ -118,4 +121,52 @@ fn a_signed_bundle_has_a_code_hash_that_changes_with_it() {
 fn an_app_is_named_apart_from_the_apps_it_could_pose_as() {
     let program = ProgramId::try_from("com.apple.safari".to_owned()).unwrap();
     assert_eq!(bundle_id(&program), "dev.waos.program.com.apple.safari");
+}
+
+#[test]
+fn a_bundle_offers_its_app_for_the_kinds_of_file_its_program_opens_never_as_their_default() {
+    let folder = tempfile::tempdir().unwrap();
+    let program = ProgramId::try_from("dev.example.ruffle".to_owned()).unwrap();
+    let waos = waos_files(folder.path());
+    let bundle = folder.path().join("Ruffle.app");
+    let flash = FileAssociation {
+        extensions: vec!["swf".to_owned(), "spl".to_owned()],
+        name: "Flash movie".to_owned(),
+        mime_type: Some("application/x-shockwave-flash".to_owned()),
+    };
+    let contents = BundleContents {
+        program: &program,
+        name: "Ruffle",
+        version: "1.0.0",
+        icon: None,
+        category: None,
+        file_associations: std::slice::from_ref(&flash),
+        waos: &waos,
+    };
+    write_files(&bundle, &contents).unwrap();
+    let plist = bundle.join("Contents/Info.plist");
+    assert_eq!(
+        plist_value(&plist, "CFBundleDocumentTypes.0.CFBundleTypeName"),
+        "Flash movie"
+    );
+    assert_eq!(
+        plist_value(&plist, "CFBundleDocumentTypes.0.CFBundleTypeExtensions.1"),
+        "spl"
+    );
+    assert_eq!(
+        plist_value(&plist, "CFBundleDocumentTypes.0.LSHandlerRank"),
+        "Alternate"
+    );
+    assert_eq!(
+        plist_value(&plist, "CFBundleDocumentTypes.0.CFBundleTypeRole"),
+        "Viewer"
+    );
+    let plain = folder.path().join("Notes.app");
+    let contents = BundleContents {
+        file_associations: &[],
+        ..contents
+    };
+    write_files(&plain, &contents).unwrap();
+    let text = fs::read_to_string(plain.join("Contents/Info.plist")).unwrap();
+    assert!(!text.contains("CFBundleDocumentTypes"), "{text}");
 }

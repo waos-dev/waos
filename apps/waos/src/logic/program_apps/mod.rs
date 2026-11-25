@@ -410,6 +410,7 @@ impl ProgramApps {
             version: program.manifest.version().to_string(),
             icon: self.store.icon(id),
             category: program.manifest.category(),
+            file_associations: program.manifest.file_associations().to_vec(),
         })
     }
 
