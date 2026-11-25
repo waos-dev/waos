@@ -17,6 +17,7 @@ use waos_dev_protocol::{InspectAnswer, Inspection, Request, TracedCapability};
 use waos_package::ProgramId;
 
 use crate::asking::{self, connect};
+use crate::destination::Destination;
 
 /// What `what` asks of a program, with a summary's `days`: `summary`, `active-uses`, `all`, or the
 /// capabilities to trace by name.
@@ -43,13 +44,18 @@ pub fn inspection_of(what: &[String], days: u32) -> Result<Inspection> {
 }
 
 /// Prints what WaOS answers `asked` of the program `id`, a line a value, until it has answered.
-pub async fn inspect(id: ProgramId, asked: Inspection) -> Result<ExitCode> {
+pub async fn inspect(
+    destination: &Destination,
+    id: ProgramId,
+    asked: Inspection,
+) -> Result<ExitCode> {
     let summary = matches!(asked, Inspection::Summary { .. });
     let inspect = Request::Inspect {
         id: id.clone(),
         asked,
     };
-    let mut connection = asking::greeted(connect().await?, &inspect).await?;
+    let connection = connect(destination).await?;
+    let mut connection = asking::greeted(connection, destination, &inspect).await?;
     connection.send(&inspect).await.context("sending to WaOS")?;
     let mut printed = false;
     let mut stdout = std::io::stdout().lock();

@@ -16,6 +16,7 @@ use waos_package::ProgramId;
 
 use crate::attach::{self, OnInterrupt};
 use crate::connecting::{WaOSStarter, connect_or_start};
+use crate::destination::Destination;
 use crate::install::{InstallBuild, install_on};
 use crate::launch::launch_on;
 use crate::{asking, stop};
@@ -28,20 +29,24 @@ pub async fn run(
     name: &str,
     variables: &[(String, String)],
     args: &[String],
+    destination: &Destination,
     starter: &dyn WaOSStarter,
 ) -> Result<ExitCode> {
-    let id = install_on(connect_or_start(starter).await?, build).await?;
-    let launching = launch_on(asking::connect().await?, &id, name, args, variables);
+    let connection = connect_or_start(destination, starter).await?;
+    let id = install_on(connection, destination, build).await?;
+    let connection = asking::connect(destination).await?;
+    let launching = launch_on(connection, destination, &id, name, args, variables);
     tokio::select! {
         launched = launching => launched?,
-        () = attach::interrupted() => return stopped(&id, name).await,
+        () = attach::interrupted() => return stopped(destination, &id, name).await,
     }
-    attach::attach_on(asking::connect().await?, &id, name, OnInterrupt::Stop).await
+    let connection = asking::connect(destination).await?;
+    attach::attach_on(connection, destination, &id, name, OnInterrupt::Stop).await
 }
 
 /// Stops the program `id` a Ctrl-C ended the run of before it was attached to, and says so.
-async fn stopped(id: &ProgramId, name: &str) -> Result<ExitCode> {
-    stop::stop_quietly(id).await?;
+async fn stopped(destination: &Destination, id: &ProgramId, name: &str) -> Result<ExitCode> {
+    stop::stop_quietly(destination, id).await?;
     eprintln!("waos: {name} stopped");
     Ok(ExitCode::from(attach::INTERRUPTED))
 }

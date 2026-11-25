@@ -16,6 +16,7 @@ use waos_package::{Category, FileAssociation, ProgramId, ProgramKind, Version};
 
 use crate::asking;
 use crate::connecting::{WaOSStarter, connect_or_start};
+use crate::destination::Destination;
 
 /// Over this many bytes, sending a component takes noticeable time, so the install says how much
 /// it is sending. A debug build is hundreds of megabytes; a release one is under this.
@@ -39,8 +40,13 @@ pub struct InstallBuild {
 
 /// Installs `build` as its program's development install, in the WaOS running or the one started
 /// when none answers, and says what it is installed as.
-pub async fn install(build: &InstallBuild, starter: &dyn WaOSStarter) -> Result<()> {
-    let id = install_on(connect_or_start(starter).await?, build).await?;
+pub async fn install(
+    destination: &Destination,
+    build: &InstallBuild,
+    starter: &dyn WaOSStarter,
+) -> Result<()> {
+    let connection = connect_or_start(destination, starter).await?;
+    let id = install_on(connection, destination, build).await?;
     eprintln!(
         "waos: installed {} as {id}; `waos launch` starts it",
         build.name
@@ -49,9 +55,13 @@ pub async fn install(build: &InstallBuild, starter: &dyn WaOSStarter) -> Result<
     Ok(())
 }
 
-/// Installs `build` over `connection` as its program's development install, after saying its
-/// hello; answers the id it is installed under.
-pub async fn install_on(connection: ClientConnection, build: &InstallBuild) -> Result<ProgramId> {
+/// Installs `build` over `connection` to `destination` as its program's development install,
+/// after saying its hello; answers the id it is installed under.
+pub async fn install_on(
+    connection: ClientConnection,
+    destination: &Destination,
+    build: &InstallBuild,
+) -> Result<ProgramId> {
     let request = Request::Install(Install {
         id: build.id.clone(),
         kind: build.kind,
@@ -63,7 +73,7 @@ pub async fn install_on(connection: ClientConnection, build: &InstallBuild) -> R
         length: build.component.len() as u64,
         digest: component_digest(&build.component),
     });
-    let mut connection = asking::greeted(connection, &request).await?;
+    let mut connection = asking::greeted(connection, destination, &request).await?;
     let name = &build.name;
     connection
         .send(&request)
@@ -170,7 +180,8 @@ mod tests {
             (install, component)
         });
         let client = ClientConnection::connect(&socket).await.unwrap();
-        let id = install_on(client, &build()).await.unwrap();
+        let destination = Destination::ThisMachine { socket };
+        let id = install_on(client, &destination, &build()).await.unwrap();
         assert_eq!(id.as_str(), "dev.example.notes.development");
         served.await.unwrap()
     }

@@ -19,17 +19,29 @@ use waos_package::ProgramId;
 
 use crate::asking::ask_starting;
 use crate::connecting::WaOSStarter;
+use crate::destination::Destination;
 
 /// Prints the rows of the program `id`'s settings.
-pub async fn show(id: ProgramId, starter: &dyn WaOSStarter) -> Result<ExitCode> {
-    let answer = ask_starting(&Request::Settings { id: id.clone() }, starter).await?;
+pub async fn show(
+    destination: &Destination,
+    id: ProgramId,
+    starter: &dyn WaOSStarter,
+) -> Result<ExitCode> {
+    let request = Request::Settings { id: id.clone() };
+    let answer = ask_starting(destination, &request, starter).await?;
     answered(answer, None)
 }
 
 /// Sets the row `words` name among the program `id`'s settings, and prints the rows after it.
-pub async fn set(id: ProgramId, words: &[String], starter: &dyn WaOSStarter) -> Result<ExitCode> {
+pub async fn set(
+    destination: &Destination,
+    id: ProgramId,
+    words: &[String],
+    starter: &dyn WaOSStarter,
+) -> Result<ExitCode> {
     let row = whole_paths(Row::parse(words)?)?;
     let answer = ask_starting(
+        destination,
         &Request::Set {
             id: id.clone(),
             row: row.clone(),

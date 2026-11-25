@@ -57,7 +57,7 @@ impl ClientConnection {
     pub async fn connect(path: &Path) -> io::Result<ClientConnection> {
         let pipe = open_when_free(path.as_os_str()).await?;
         refuse_another_users(&pipe, path)?;
-        Ok(Connection::new(pipe))
+        Ok(local(pipe))
     }
 }
 
@@ -132,7 +132,7 @@ impl Listener {
         let next = self
             .security
             .create_pipe(&ServerOptions::new(), self.path.as_os_str())?;
-        Ok(Connection::new(std::mem::replace(&mut self.waiting, next)))
+        Ok(local(std::mem::replace(&mut self.waiting, next)))
     }
 }
 
@@ -147,6 +147,14 @@ fn refused_as_second(error: io::Error, path: &Path) -> io::Error {
             "another WaOS answers at {}, or another program made a pipe of its name",
             path.display()
         ),
+    )
+}
+
+/// A connection over `stream`, which stays on this machine.
+fn local<S, N>(stream: S) -> Connection<TransportFrames<StreamFrames<S>, N>> {
+    Connection::carried(
+        TransportFrames::Local(StreamFrames::new(stream)),
+        Locality::ThisMachine,
     )
 }
 

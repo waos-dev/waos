@@ -69,6 +69,62 @@ pub trait Frames: SendFrames + ReceiveFrames {
 #[derive(Debug)]
 pub struct StreamFrames<S>(S);
 
+impl<S> StreamFrames<S> {
+    pub fn new(stream: S) -> StreamFrames<S> {
+        StreamFrames(stream)
+    }
+}
+
+/// The frames of a connection that came over either of two transports: the stream on this
+/// machine, or the network's.
+#[derive(Debug)]
+pub enum TransportFrames<L, N> {
+    Local(L),
+    Network(N),
+}
+
+impl<L: SendFrames, N: SendFrames> SendFrames for TransportFrames<L, N> {
+    async fn send_frame(&mut self, frame: Vec<u8>) -> io::Result<()> {
+        match self {
+            TransportFrames::Local(frames) => frames.send_frame(frame).await,
+            TransportFrames::Network(frames) => frames.send_frame(frame).await,
+        }
+    }
+}
+
+impl<L: ReceiveFrames, N: ReceiveFrames> ReceiveFrames for TransportFrames<L, N> {
+    async fn receive_frame(&mut self) -> io::Result<Option<Vec<u8>>> {
+        match self {
+            TransportFrames::Local(frames) => frames.receive_frame().await,
+            TransportFrames::Network(frames) => frames.receive_frame().await,
+        }
+    }
+}
+
+impl<L: Frames, N: Frames> Frames for TransportFrames<L, N> {
+    type Receiving = TransportFrames<L::Receiving, N::Receiving>;
+    type Sending = TransportFrames<L::Sending, N::Sending>;
+
+    fn split(self) -> (Self::Receiving, Self::Sending) {
+        match self {
+            TransportFrames::Local(frames) => {
+                let (receiving, sending) = frames.split();
+                (
+                    TransportFrames::Local(receiving),
+                    TransportFrames::Local(sending),
+                )
+            }
+            TransportFrames::Network(frames) => {
+                let (receiving, sending) = frames.split();
+                (
+                    TransportFrames::Network(receiving),
+                    TransportFrames::Network(sending),
+                )
+            }
+        }
+    }
+}
+
 impl<S: AsyncWrite + Unpin + Send> SendFrames for StreamFrames<S> {
     async fn send_frame(&mut self, frame: Vec<u8>) -> io::Result<()> {
         // Within the limit, so within a `u32`.
@@ -144,6 +200,11 @@ impl<S> Connection<StreamFrames<S>> {
 }
 
 impl<F> Connection<F> {
+    /// A connection whose messages `frames` carry, which is `locality`'s.
+    pub fn carried(frames: F, locality: Locality) -> Connection<F> {
+        Connection { frames, locality }
+    }
+
     /// Whether the connection stays on this machine.
     pub fn locality(&self) -> Locality {
         self.locality

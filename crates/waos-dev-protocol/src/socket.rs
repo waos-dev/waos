@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 
 use tokio::net::{UnixListener, UnixStream};
 
-use crate::connection::Connection;
+use crate::connection::{Connection, Locality, StreamFrames, TransportFrames};
 use crate::{ClientConnection, ServerConnection};
 
 /// The stream of a connection `waos` made: a Unix socket's.
@@ -57,7 +57,7 @@ fn home() -> PathBuf {
 impl ClientConnection {
     /// Connects to the WaOS listening at `path`: `NotFound` or `ConnectionRefused` when none is.
     pub async fn connect(path: &Path) -> io::Result<ClientConnection> {
-        Ok(Connection::new(UnixStream::connect(path).await?))
+        Ok(local(UnixStream::connect(path).await?))
     }
 }
 
@@ -87,7 +87,7 @@ impl Listener {
     /// The next connection: one run.
     pub async fn accept(&mut self) -> io::Result<ServerConnection> {
         let (stream, _) = self.listener.accept().await?;
-        Ok(Connection::new(stream))
+        Ok(local(stream))
     }
 }
 
@@ -121,6 +121,14 @@ async fn clear_stale_socket(path: &Path) -> io::Result<()> {
         }
         Err(error) => Err(error),
     }
+}
+
+/// A connection over `stream`, which stays on this machine.
+fn local<S, N>(stream: S) -> Connection<TransportFrames<StreamFrames<S>, N>> {
+    Connection::carried(
+        TransportFrames::Local(StreamFrames::new(stream)),
+        Locality::ThisMachine,
+    )
 }
 
 #[cfg(test)]

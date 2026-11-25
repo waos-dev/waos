@@ -16,6 +16,7 @@ use waos_dev_protocol::{Request, ResizeAnswer, WindowId};
 use waos_package::ProgramId;
 
 use crate::asking::ask;
+use crate::destination::Destination;
 
 /// A size in logical points, written `<width>x<height>`.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -60,13 +61,21 @@ impl fmt::Display for Points {
 
 /// Sizes the window `window` of the program `id` so its view is `size`, waits for WaOS's
 /// answer, and says the size the window took.
-pub async fn resize(id: ProgramId, window: Option<WindowId>, size: Points) -> Result<ExitCode> {
-    let answer = ask(&Request::Resize {
-        id,
-        window,
-        width: size.width,
-        height: size.height,
-    })
+pub async fn resize(
+    destination: &Destination,
+    id: ProgramId,
+    window: Option<WindowId>,
+    size: Points,
+) -> Result<ExitCode> {
+    let answer = ask(
+        destination,
+        &Request::Resize {
+            id,
+            window,
+            width: size.width,
+            height: size.height,
+        },
+    )
     .await?;
     match answer {
         ResizeAnswer::Done(waos_dev_protocol::Resized {

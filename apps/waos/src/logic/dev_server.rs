@@ -6,13 +6,16 @@
 //! the programs serving them (`dev_extensions`), one opening of files with a program (`opening`), one screenshot of the windows
 //! of a program running (`dev_screenshot`), one input to one of them (`dev_input`), a size for one
 //! of them (`dev_resize`), a program's settings read or one of them set (`dev_settings`), or an
-//! inspection of a program (`dev_inspect`). A connection of another protocol's major, or with a
-//! hello this build cannot read, ends before it asks anything. Stopping the server stops every
-//! run, waits for each connection to say so, and removes the socket file.
+//! inspection of a program (`dev_inspect`). While developer access is on, it takes connections
+//! from the network too (`dev_network`), each answered only once its hello carries a paired
+//! computer's token. A connection of another protocol's major, or with a hello this build cannot
+//! read, ends before it asks anything. Stopping the server stops every run, waits for each
+//! connection to say so, and removes the socket file.
 //!
-//! The invariant: the server's thread owns the listener, so the socket file goes with the
+//! The invariants: the server's thread owns the listener, so the socket file goes with the
 //! thread, and dropping the server returns only once the thread has: a WaOS that quit leaves no
-//! socket file behind.
+//! socket file behind. A connection from the network is refused anything before its token is
+//! known, whatever it asks.
 
 use std::io;
 use std::path::{Path, PathBuf};
@@ -27,8 +30,10 @@ use super::dev_extensions;
 use super::dev_inspect::{self, InspectionContext};
 use super::dev_install::{self, InstallContext};
 use super::dev_launch::{self, LaunchContext};
+use super::dev_network::NetworkDoor;
 use super::dev_refusal;
 use super::dev_settings::{self, SettingsContext};
+use super::developer_access::DeveloperAccess;
 use super::installed_runs::InstalledRuns;
 use super::opening;
 use super::{dev_input, dev_resize, dev_screenshot};
@@ -36,7 +41,9 @@ use tokio::sync::{oneshot, watch};
 use tokio::task::JoinSet;
 use waos::OpenRequest;
 use waos::bindings::wasdk::platform::windows::Size;
-use waos_dev_protocol::{Hello, Listener, MAJOR, RefusedAnswer, Request, ServerConnection};
+use waos_dev_protocol::{
+    Hello, Incoming, Listener, Locality, MAJOR, RefusedAnswer, Request, ServerConnection,
+};
 use waos_store::Store;
 
 /// This build, as its hello names it: "WaOS 0.3.0".
@@ -44,6 +51,9 @@ pub(crate) const BUILD: &str = concat!("WaOS ", env!("CARGO_PKG_VERSION"));
 
 /// How long the connections may take to say their runs ended, once every program is stopped.
 const CLOSING_WAIT: Duration = Duration::from_secs(2);
+
+/// How long a connection from the network may take over its TLS and WebSocket handshakes.
+const HANDSHAKE_WAIT: Duration = Duration::from_secs(10);
 
 /// The server, listening until dropped. Dropping it stops every run, waits for the connections
 /// to hear so, removes the socket file, and returns once all that is done.
@@ -61,13 +71,15 @@ impl DevServer {
     /// environments say, among its runs, and telling each attach what `asking` says its program's
     /// user is asked; opening files with a program, installed in `store`, opened as `installed`
     /// opens it, or running; reading and driving any program running; and reading and setting the
-    /// settings `store` keeps of a development program. Refused, as `Listener::bind` refuses,
-    /// while another WaOS answers there.
+    /// settings `store` keeps of a development program. Takes connections from the network too
+    /// while `access` is on. Refused, as `Listener::bind` refuses, while another WaOS answers
+    /// there.
     pub(crate) fn start(
         installed: InstalledRuns,
         store: Store,
         asking: Arc<AskingNow>,
         socket: &Path,
+        access: DeveloperAccess,
     ) -> io::Result<DevServer> {
         let (stop, stopped) = oneshot::channel();
         let (bound, binding) = mpsc::channel();
@@ -77,6 +89,7 @@ impl DevServer {
             store,
             asking,
             socket: socket.to_owned(),
+            access,
             installing: Arc::default(),
             connections: Arc::new(connections_tx),
         };
@@ -131,6 +144,8 @@ struct ServerContext {
     /// What each program's user is asked now.
     asking: Arc<AskingNow>,
     socket: PathBuf,
+    /// Whether computers on the network may connect, and which.
+    access: DeveloperAccess,
     /// Held by an install or uninstall, one at a time.
     installing: Arc<tokio::sync::Mutex<()>>,
     /// Number of currently open client connections.
@@ -170,6 +185,7 @@ fn serve_on_this_thread(
 /// close.
 async fn serve(mut listener: Listener, context: ServerContext, mut stopped: oneshot::Receiver<()>) {
     let mut connections = JoinSet::new();
+    let mut network = NetworkDoor::new(context.access.clone());
     loop {
         tokio::select! {
             accepted = listener.accept() => match accepted {
@@ -183,6 +199,20 @@ async fn serve(mut listener: Listener, context: ServerContext, mut stopped: ones
                 }
                 Err(error) => {
                     tracing::warn!(%error, "accepting a connection");
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                }
+            },
+            incoming = network.next() => match incoming {
+                Ok(incoming) => {
+                    let guard = ActiveConnection::enter(Arc::clone(&context.connections));
+                    let conn_ctx = connection_context(&context);
+                    connections.spawn(async move {
+                        let _guard = guard;
+                        serve_from_network(incoming, conn_ctx).await;
+                    });
+                }
+                Err(error) => {
+                    tracing::warn!(%error, "accepting a connection from the network");
                     tokio::time::sleep(Duration::from_millis(100)).await;
                 }
             },
@@ -218,6 +248,7 @@ struct ConnectionContext {
     installed: InstalledRuns,
     store: Store,
     asking: Arc<AskingNow>,
+    access: DeveloperAccess,
     installing: Arc<tokio::sync::Mutex<()>>,
 }
 
@@ -226,6 +257,7 @@ fn connection_context(context: &ServerContext) -> ConnectionContext {
         installed: context.installed.clone(),
         store: context.store.clone(),
         asking: Arc::clone(&context.asking),
+        access: context.access.clone(),
         installing: Arc::clone(&context.installing),
     }
 }
@@ -254,18 +286,54 @@ impl ConnectionContext {
     }
 }
 
+/// Serves a connection from the network once its handshakes are done, as one from this machine.
+async fn serve_from_network(incoming: Incoming, context: ConnectionContext) {
+    let peer = incoming.peer();
+    match tokio::time::timeout(HANDSHAKE_WAIT, incoming.handshake()).await {
+        Ok(Ok(connection)) => serve_connection(connection, context).await,
+        Ok(Err(error)) => {
+            tracing::info!(%peer, %error, "a connection from the network failed its handshake")
+        }
+        Err(_) => {
+            tracing::info!(%peer, "a connection from the network took too long over its handshake")
+        }
+    }
+}
+
 /// Serves `connection` to its end: the request its first message asks for, or nothing when it
-/// asks for none, after the hellos say the two halves speak the same protocol.
+/// asks for none, after the hellos say the two halves speak the same protocol and, from the
+/// network, that the computer is paired.
 async fn serve_connection(mut connection: ServerConnection, context: ConnectionContext) {
+    let Some(theirs) = greeted(&mut connection).await else {
+        return;
+    };
+    let request = match connection.receive::<Request>().await {
+        Ok(Some(request)) => request,
+        Ok(None) => return,
+        Err(error) => {
+            tracing::warn!(%error, "a connection ended before it asked anything");
+            return;
+        }
+    };
+    if !admitted(&connection, &theirs, &context.access) {
+        let refusal = dev_refusal::not_paired();
+        let _ = connection.send(&RefusedAnswer::Refused(refusal)).await;
+        return;
+    }
+    serve_request(connection, request, &context).await;
+}
+
+/// Their hello, once the two halves agree they speak the same protocol; none when they do not.
+async fn greeted(connection: &mut ServerConnection) -> Option<Hello> {
     let theirs = match connection.accept_hello(&Hello::waos(BUILD)).await {
         Ok(theirs) => theirs,
         Err(error) if error.kind() == io::ErrorKind::Unsupported => {
             tracing::info!("{error}");
-            return;
+            return None;
         }
         Err(error) => {
             tracing::info!(%error, "a connection ended before it said its hello");
-            return;
+            return None;
         }
     };
     if theirs.major != MAJOR {
@@ -274,21 +342,42 @@ async fn serve_connection(mut connection: ServerConnection, context: ConnectionC
             major = theirs.major,
             "a connection speaks another protocol's major"
         );
-        return;
+        return None;
     }
+    Some(theirs)
+}
+
+/// Whether `connection` may be answered: one from this machine always; one from the network once
+/// its hello carries a paired computer's token.
+fn admitted(connection: &ServerConnection, theirs: &Hello, access: &DeveloperAccess) -> bool {
+    match connection.locality() {
+        Locality::ThisMachine => true,
+        Locality::Network => theirs
+            .token
+            .as_ref()
+            .is_some_and(|token| access.knows(token)),
+    }
+}
+
+/// Answers `request` on `connection`.
+async fn serve_request(
+    mut connection: ServerConnection,
+    request: Request,
+    context: &ConnectionContext,
+) {
     let runs = &context.installed.runs;
-    match connection.receive::<Request>().await {
-        Ok(Some(Request::Install(install))) => {
+    match request {
+        Request::Install(install) => {
             dev_install::install(connection, install, &context.install()).await;
         }
-        Ok(Some(Request::Uninstall { id })) => {
+        Request::Uninstall { id } => {
             dev_install::uninstall(connection, &id, &context.install()).await;
         }
-        Ok(Some(Request::Launch(launch))) => {
+        Request::Launch(launch) => {
             dev_launch::launch(connection, launch, &context.launch()).await;
         }
-        Ok(Some(Request::Stop { id })) => dev_launch::stop(connection, &id, runs).await,
-        Ok(Some(Request::Attach { id })) => {
+        Request::Stop { id } => dev_launch::stop(connection, &id, runs).await,
+        Request::Attach { id } => {
             let attach = AttachContext {
                 runs,
                 outputs: &context.installed.outputs,
@@ -296,13 +385,13 @@ async fn serve_connection(mut connection: ServerConnection, context: ConnectionC
             };
             dev_attach::serve(connection, &id, attach).await;
         }
-        Ok(Some(Request::Extension { id, name, params })) => {
+        Request::Extension { id, name, params } => {
             dev_extensions::call(connection, runs, &id, &name, params).await;
         }
-        Ok(Some(Request::ServingPrograms)) => {
+        Request::ServingPrograms => {
             dev_extensions::serving(connection, runs, &context.store).await;
         }
-        Ok(Some(Request::Open { id, files })) => {
+        Request::Open { id, files } => {
             if let Some(answer) = dev_refusal::elsewhere(connection.locality(), &id) {
                 let _ = connection.send(&answer).await;
                 return;
@@ -314,40 +403,38 @@ async fn serve_connection(mut connection: ServerConnection, context: ConnectionC
             let (installed, store) = (&context.installed, &context.store);
             opening::answer(connection, installed, store, &id, request).await;
         }
-        Ok(Some(Request::Screenshot { id, window })) => {
+        Request::Screenshot { id, window } => {
             dev_screenshot::answer(connection, runs, &context.asking, &id, window).await;
         }
-        Ok(Some(Request::Input { id, window, input })) => {
+        Request::Input { id, window, input } => {
             dev_input::answer(connection, runs, &context.asking, &id, window, input).await;
         }
-        Ok(Some(Request::Settings { id })) => {
+        Request::Settings { id } => {
             dev_settings::answer(connection, &context.settings(), &id, None).await;
         }
-        Ok(Some(Request::Set { id, row })) => {
+        Request::Set { id, row } => {
             dev_settings::answer(connection, &context.settings(), &id, Some(row)).await;
         }
-        Ok(Some(Request::Inspect { id, asked })) => {
+        Request::Inspect { id, asked } => {
             let inspection = InspectionContext {
                 runs,
                 engine: &context.installed.engine,
             };
             dev_inspect::answer(connection, inspection, &id, asked).await;
         }
-        Ok(Some(Request::Resize {
+        Request::Resize {
             id,
             window,
             width,
             height,
-        })) => {
+        } => {
             let size = Size { width, height };
             dev_resize::answer(connection, runs, &id, window, size).await;
         }
-        Ok(Some(Request::Unknown)) => {
+        Request::Unknown => {
             let refusal = dev_refusal::unsupported(BUILD, "request");
             let _ = connection.send(&RefusedAnswer::Refused(refusal)).await;
         }
-        Ok(None) => {}
-        Err(error) => tracing::warn!(%error, "a connection ended before it asked anything"),
     }
 }
 
@@ -361,14 +448,15 @@ pub(crate) mod tests {
     use waos::{RunningProgram, WaOS};
 
     use waos_dev_protocol::{
-        Answer, Asked, ClientConnection, Component, Connection, FileDialog, Hello, Install,
-        InstallAnswer, Launch, LaunchAnswer, Locality, OpenAnswer, OutputStream, Question,
-        RefusalKind, Request, Row, RunEnd, RunEvent, StopAnswer, UninstallAnswer, Upload,
-        component_digest,
+        Answer, Asked, ClientConnection, Component, DeviceAddress, FileDialog, Hello, Install,
+        InstallAnswer, Launch, LaunchAnswer, OpenAnswer, OutputStream, Question, RefusalKind,
+        Request, Row, RunEnd, RunEvent, ServingProgramsAnswer, StopAnswer, Token, UninstallAnswer,
+        Upload, component_digest, connect_across_network,
     };
     use waos_package::ProgramId;
 
     use super::*;
+    use crate::logic::developer_access::Listening;
     use crate::logic::environments::ProgramEnvironments;
     use crate::logic::open_command::{self, Sent};
     use crate::logic::opened_package::tests::write_package;
@@ -396,6 +484,8 @@ pub(crate) mod tests {
         /// What the server's programs' users are asked, which a test notes as the prompts do.
         pub(crate) asking: Arc<AskingNow>,
         installed: InstalledRuns,
+        /// Its developer access, off until a test turns it on, listening on the loopback.
+        pub(crate) access: DeveloperAccess,
         server: Option<DevServer>,
     }
 
@@ -461,11 +551,13 @@ pub(crate) mod tests {
                 Arc::clone(&runs),
                 ProgramPlaces::new(ProgramPlace::Windows),
             );
+            let access = DeveloperAccess::on_loopback(folder.join("developer"));
             let server = DevServer::start(
                 installed.clone(),
                 store.clone(),
                 Arc::clone(&asking),
                 &socket,
+                access.clone(),
             )
             .expect("the server binds");
             TestServer {
@@ -475,6 +567,7 @@ pub(crate) mod tests {
                 store,
                 asking,
                 installed,
+                access,
                 server: Some(server),
             }
         }
@@ -625,7 +718,7 @@ pub(crate) mod tests {
 
         /// A client connected, its hello and WaOS's exchanged.
         async fn client(&self) -> ClientConnection {
-            let mut client = Connection::connect(&self.socket).await.unwrap();
+            let mut client = ClientConnection::connect(&self.socket).await.unwrap();
             client.hello(&Hello::command("waos test")).await.unwrap();
             client
         }
@@ -637,25 +730,45 @@ pub(crate) mod tests {
             next(&mut client).await
         }
 
-        /// A client connected over a network transport and agreed.
-        #[cfg(unix)]
+        /// A computer paired with the server, connected from the network with its token, its
+        /// hello and WaOS's exchanged.
         async fn network_client(&self) -> ClientConnection {
-            let (client, server) = tokio::net::UnixStream::pair().unwrap();
-            let context = ConnectionContext {
-                installed: self.installed.clone(),
-                store: self.store.clone(),
-                asking: Arc::clone(&self.asking),
-                installing: Arc::default(),
-            };
-            tokio::spawn(serve_connection(
-                Connection::over(server, Locality::Network),
-                context,
-            ));
-            let mut client = Connection::over(client, Locality::Network);
-            let ours = Hello::command("waos 0.3.0");
+            let token = Token::new("a token of the test's");
+            self.access.pair("test", &token).unwrap();
+            self.network_client_with(Some(token)).await
+        }
+
+        /// A client connected from the network over `wss://`, pinning the server's certificate,
+        /// its hello carrying `token`, and exchanged with WaOS's.
+        async fn network_client_with(&self, token: Option<Token>) -> ClientConnection {
+            let port = self.listening_port().await;
+            let address: DeviceAddress = format!("wss://127.0.0.1:{port}").parse().unwrap();
+            let fingerprint = self.access.identity().unwrap().fingerprint();
+            let (mut client, _) = connect_across_network(&address, Some(fingerprint))
+                .await
+                .unwrap();
+            let mut ours = Hello::command("waos test");
+            ours.token = token;
             let theirs = client.hello(&ours).await.unwrap();
             assert_eq!(theirs.major, waos_dev_protocol::MAJOR);
             client
+        }
+
+        /// The port the server listens on for the network, developer access turned on.
+        async fn listening_port(&self) -> u16 {
+            self.access.set_on(true);
+            let mut listening = self.access.listening();
+            loop {
+                match listening.borrow_and_update().clone() {
+                    Listening::On { port } => return port,
+                    Listening::Failed(why) => panic!("the server cannot listen: {why}"),
+                    Listening::Not => {}
+                }
+                tokio::time::timeout(WITHIN, listening.changed())
+                    .await
+                    .expect("the server listens in time")
+                    .unwrap();
+            }
         }
 
         /// The programs running now, in no order.
@@ -934,7 +1047,7 @@ pub(crate) mod tests {
         let launching = {
             let (socket, id) = (server.socket.clone(), development(OPENER));
             tokio::spawn(async move {
-                let mut client = Connection::connect(&socket).await.unwrap();
+                let mut client = ClientConnection::connect(&socket).await.unwrap();
                 client.hello(&Hello::command("waos test")).await.unwrap();
                 client
                     .send(&Request::Launch(Launch {
@@ -1501,7 +1614,7 @@ pub(crate) mod tests {
     #[tokio::test]
     async fn a_client_of_another_protocol_major_is_refused() {
         let server = TestServer::start("protocol");
-        let mut client = Connection::connect(&server.socket).await.unwrap();
+        let mut client = ClientConnection::connect(&server.socket).await.unwrap();
         let mut newer = Hello::command("waos 0.4.0");
         newer.major = waos_dev_protocol::MAJOR + 1;
         let theirs = client.hello(&newer).await.unwrap();
@@ -1580,7 +1693,6 @@ pub(crate) mod tests {
         server.wait_for_runs(&[]).await;
     }
 
-    #[cfg(unix)]
     #[tokio::test]
     async fn opening_files_over_a_network_connection_is_refused_local_only() {
         let server = TestServer::start("open-network");
@@ -1598,6 +1710,49 @@ pub(crate) mod tests {
         };
         assert_eq!(refusal.kind, RefusalKind::LocalOnly);
         server.wait_for_runs(&[]).await;
+    }
+
+    #[tokio::test]
+    async fn a_paired_computer_is_answered_from_the_network() {
+        let server = TestServer::start("network-paired");
+        let mut client = server.network_client().await;
+        client.send(&Request::ServingPrograms).await.unwrap();
+        let answer = next::<ServingProgramsAnswer>(&mut client).await;
+        assert!(
+            matches!(answer, ServingProgramsAnswer::Programs(_)),
+            "{answer:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_computer_not_paired_is_refused_whatever_it_asks() {
+        let server = TestServer::start("network-unpaired");
+        server.access.pair("test", &Token::new("paired")).unwrap();
+        for token in [None, Some(Token::new("not paired"))] {
+            let mut client = server.network_client_with(token).await;
+            client.send(&Request::ServingPrograms).await.unwrap();
+            let ServingProgramsAnswer::Refused(refusal) = next(&mut client).await else {
+                panic!("refused");
+            };
+            assert_eq!(refusal.kind, RefusalKind::NotPaired);
+            assert!(refusal.message.contains("waos pair"), "{}", refusal.message);
+        }
+    }
+
+    #[tokio::test]
+    async fn turning_developer_access_off_stops_listening_for_the_network() {
+        let server = TestServer::start("network-off");
+        let port = server.listening_port().await;
+        server.access.set_on(false);
+        let mut listening = server.access.listening();
+        while *listening.borrow_and_update() != Listening::Not {
+            tokio::time::timeout(WITHIN, listening.changed())
+                .await
+                .expect("the server stops listening in time")
+                .unwrap();
+        }
+        let address: DeviceAddress = format!("ws://127.0.0.1:{port}").parse().unwrap();
+        assert!(connect_across_network(&address, None).await.is_err());
     }
 
     #[tokio::test]
@@ -1794,7 +1949,7 @@ pub(crate) mod tests {
             );
         };
 
-        let mut client = Connection::connect(&server.socket).await.unwrap();
+        let mut client = ClientConnection::connect(&server.socket).await.unwrap();
         client.hello(&Hello::command("waos 0.9.0")).await.unwrap();
         client
             .send(&FutureOuter::NewCommand { x: 1 })
@@ -1808,7 +1963,7 @@ pub(crate) mod tests {
         let future = || FutureVariant::BrandNew {
             detail: "v9".to_owned(),
         };
-        let mut client = Connection::connect(&server.socket).await.unwrap();
+        let mut client = ClientConnection::connect(&server.socket).await.unwrap();
         client.hello(&Hello::command("waos 0.9.0")).await.unwrap();
         client
             .send(&FutureRequestInner::Input {
@@ -1825,7 +1980,7 @@ pub(crate) mod tests {
         };
         assert_unsupported(refusal);
 
-        let mut client = Connection::connect(&server.socket).await.unwrap();
+        let mut client = ClientConnection::connect(&server.socket).await.unwrap();
         client.hello(&Hello::command("waos 0.9.0")).await.unwrap();
         client
             .send(&FutureRequestInner::Set {
@@ -1841,7 +1996,7 @@ pub(crate) mod tests {
         };
         assert_unsupported(refusal);
 
-        let mut client = Connection::connect(&server.socket).await.unwrap();
+        let mut client = ClientConnection::connect(&server.socket).await.unwrap();
         client.hello(&Hello::command("waos 0.9.0")).await.unwrap();
         client
             .send(&FutureRequestInner::Inspect {
@@ -1857,7 +2012,7 @@ pub(crate) mod tests {
         };
         assert_unsupported(refusal);
 
-        let mut client = Connection::connect(&server.socket).await.unwrap();
+        let mut client = ClientConnection::connect(&server.socket).await.unwrap();
         client.hello(&Hello::command("waos 0.9.0")).await.unwrap();
         client
             .send(&FutureRequestInner::InspectTrace {

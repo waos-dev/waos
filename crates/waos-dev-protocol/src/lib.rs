@@ -41,6 +41,7 @@ mod component;
 mod connection;
 mod hello;
 mod messages;
+mod network;
 mod os;
 #[cfg(windows)]
 mod pipe;
@@ -49,10 +50,12 @@ mod settings_rows;
 #[cfg(unix)]
 mod socket;
 mod test_place;
+mod token;
 
 pub use component::{CHUNK_BYTES, component_digest};
 pub use connection::{
     Connection, Frames, Locality, MAX_FRAME_BYTES, ReceiveFrames, SendFrames, StreamFrames,
+    TransportFrames,
 };
 pub use hello::{Hello, MAJOR, Mismatch, Peer, SERVED};
 pub use messages::{
@@ -61,6 +64,11 @@ pub use messages::{
     ResizeAnswer, Resized, RunEnd, RunEvent, ScreenshotAnswer, ServingProgram, ServingPrograms,
     ServingProgramsAnswer, SettingsAnswer, StopAnswer, TracedCapability, UninstallAnswer, Upload,
     WindowId, WindowPicture,
+};
+pub use network::{
+    ClientNetworkStream, DeviceAddress, Fingerprint, Identity, Incoming, NetworkListener,
+    NetworkStream, PORT, ServerNetworkStream, WebSocketFrames, WebSocketReceiving,
+    WebSocketSending, connect as connect_across_network,
 };
 #[cfg(windows)]
 pub use pipe::{ClientStream, Listener, ServerStream, listener_path};
@@ -72,15 +80,26 @@ pub use settings_rows::{
 #[cfg(unix)]
 pub use socket::{ClientStream, Listener, ServerStream, listener_path};
 pub use test_place::TestPlace;
+pub use token::Token;
 
-/// A connection `waos` made to the WaOS on this machine.
-pub type ClientConnection = Connection<StreamFrames<ClientStream>>;
+/// The frames of a connection `waos` made: over the stream on this machine, or across the
+/// network.
+pub type ClientFrames =
+    TransportFrames<StreamFrames<ClientStream>, WebSocketFrames<ClientNetworkStream>>;
+
+/// The frames of a connection a WaOS accepted: over the stream on this machine, or across the
+/// network.
+pub type ServerFrames =
+    TransportFrames<StreamFrames<ServerStream>, WebSocketFrames<ServerNetworkStream>>;
+
+/// A connection `waos` made to a WaOS.
+pub type ClientConnection = Connection<ClientFrames>;
 
 /// A connection a WaOS accepted.
-pub type ServerConnection = Connection<StreamFrames<ServerStream>>;
+pub type ServerConnection = Connection<ServerFrames>;
 
 /// The half of a [`ServerConnection`] that receives.
-pub type ServerReadHalf = Connection<StreamFrames<tokio::io::ReadHalf<ServerStream>>>;
+pub type ServerReadHalf = Connection<<ServerFrames as Frames>::Receiving>;
 
 /// The half of a [`ServerConnection`] that sends.
-pub type ServerWriteHalf = Connection<StreamFrames<tokio::io::WriteHalf<ServerStream>>>;
+pub type ServerWriteHalf = Connection<<ServerFrames as Frames>::Sending>;

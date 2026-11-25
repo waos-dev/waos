@@ -1,7 +1,8 @@
 //! WaOS's own settings at a phone's size, in Cupertino's widgets: Back to the settings' first
 //! page, then an inset list for each setting this system offers, under its name and over what
 //! it does: whether apps show inside WaOS, whether WaOS is kept in the Dock or the taskbar, and
-//! whether WaOS reaches the phone's files, with the button that opens the system's page for it.
+//! whether WaOS reaches the phone's files, with the button that opens the system's page for it,
+//! and whether computers on the network may reach WaOS's dev server.
 //!
 //! What it shows is the library's, read as it builds; it keeps nothing of its own.
 
@@ -17,6 +18,8 @@ use waft_cupertino::{
     ObstructingPreferredSizeWidgetRef,
 };
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+use super::developer_access_said;
 use crate::state::library::Library;
 use crate::ui::library::cupertino::{back_to_page_beneath, under_bar};
 use crate::ui::library::words;
@@ -33,6 +36,8 @@ impl StatelessWidget for CupertinoGeneralSettings {
             self.where_programs_open(app),
             self.where_waos_stays(app),
             self.phone_files(app),
+            #[cfg(not(any(target_os = "android", target_os = "ios")))]
+            self.developer_access(app),
         ]
         .into_iter()
         .flatten()
@@ -114,6 +119,25 @@ impl CupertinoGeneralSettings {
             ))
             .into_widget();
         Some(section(words::PHONE_FILES, said, row))
+    }
+
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    /// Where WaOS offers it, whether computers on the network may reach WaOS's dev server: a row
+    /// whose switch, or a tap anywhere on it, changes it, over what that does and whether it
+    /// listens.
+    fn developer_access(&self, app: &App) -> Option<WidgetRef> {
+        let library = self.library.read(app);
+        let on = library.developer_access_on()?;
+        let said = developer_access_said(library.developer_listening());
+        let library = self.library.clone();
+        let row = switch_row(
+            words::DEVELOPER_ACCESS,
+            on,
+            Rc::new(move |app: &mut App, on: bool| {
+                library.update(app, |library, cx| library.turn_developer_access(on, cx));
+            }),
+        );
+        Some(section(words::DEVELOPER_ACCESS, &said, row))
     }
 }
 

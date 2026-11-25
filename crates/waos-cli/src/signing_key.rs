@@ -26,6 +26,8 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, bail};
 use waos_package::SigningKey;
 
+use crate::configuration;
+
 #[cfg(windows)]
 use crate::os::windows::{create_private_file, make_private_folder};
 
@@ -83,33 +85,10 @@ fn key_in_file(path: &Path, on_ci: bool) -> Result<SigningKey> {
     Ok(key)
 }
 
-/// `signing.key` in the user's configuration folder: `$XDG_CONFIG_HOME/waos`, or else the
-/// system's own, where command-line tools keep theirs ([`system_configuration`]). It is apart from
-/// the WaOS app's own folder, so removing the app and its data never takes the key with it.
+/// `signing.key` in the user's configuration folder ([`configuration::folder`]), apart from the
+/// WaOS app's own folder, so removing the app and its data never takes the key with it.
 fn key_path() -> Result<PathBuf> {
-    let configuration = match env::var_os("XDG_CONFIG_HOME") {
-        Some(folder) if Path::new(&folder).is_absolute() => PathBuf::from(folder),
-        _ => system_configuration()?,
-    };
-    Ok(configuration.join("waos").join(KEY_FILE))
-}
-
-/// `~/.config` on macOS and Linux.
-#[cfg(not(windows))]
-fn system_configuration() -> Result<PathBuf> {
-    Ok(env::home_dir()
-        .context("this system names no home folder to keep the signing key in")?
-        .join(".config"))
-}
-
-/// `%APPDATA%` on Windows, the user's roaming application data, which follows the user to every
-/// machine of their domain, as a key that must not be lost should.
-#[cfg(windows)]
-fn system_configuration() -> Result<PathBuf> {
-    env::var_os("APPDATA")
-        .map(PathBuf::from)
-        .filter(|folder| folder.is_absolute())
-        .context("Windows names no APPDATA folder to keep the signing key in")
+    Ok(configuration::folder()?.join(KEY_FILE))
 }
 
 /// The key in the file at `path`; none when there is no file.

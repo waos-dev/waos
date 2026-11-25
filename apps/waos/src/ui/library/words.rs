@@ -241,6 +241,18 @@ pub(crate) const PROGRAMS_INSIDE_WAOS_DETAIL: &str =
     "Apps you open from now on show in WaOS's tabs, rather than each on its own.";
 /// On the global page of a desktop's launcher, the choice of how WaOS stays on the desktop.
 pub(crate) const WHERE_WAOS_STAYS: &str = "Where WaOS stays";
+/// The global settings' switch that lets computers on the network reach WaOS's dev server, and
+/// what it says: what it does, then whether the dev server listens.
+pub(crate) const DEVELOPER_ACCESS: &str = "Developer access";
+pub(crate) const DEVELOPER_ACCESS_DETAIL: &str = "Computers on this network that you pair with this device can install, run and inspect apps here with `waos --device`.";
+/// What [`DEVELOPER_ACCESS`] says while the dev server listens on `port`.
+pub(crate) fn developer_access_listening(port: u16) -> String {
+    format!("{DEVELOPER_ACCESS_DETAIL} WaOS listens on port {port}.")
+}
+/// What [`DEVELOPER_ACCESS`] says while it is on but the dev server cannot listen, for `why`.
+pub(crate) fn developer_access_failed(why: &str) -> String {
+    format!("{DEVELOPER_ACCESS_DETAIL} WaOS cannot listen: {why}.")
+}
 /// The global settings' line on the phone's files, where WaOS reaches them only as the user
 /// allows, and what it says while WaOS may reach them or not.
 pub(crate) const PHONE_FILES: &str = "This phone's files";

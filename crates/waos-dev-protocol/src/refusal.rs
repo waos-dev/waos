@@ -82,6 +82,9 @@ pub enum RefusalKind {
     /// The request itself could not be carried out, as a store that cannot be read or a picture
     /// that cannot be taken: the message says what failed.
     Failed,
+    /// A connection across the network came without a token this WaOS gave a paired computer:
+    /// the computer is to pair first.
+    NotPaired,
     #[serde(skip)]
     Unknown,
 }

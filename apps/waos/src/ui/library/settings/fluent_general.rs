@@ -1,14 +1,17 @@
 //! WaOS's own settings at a desktop's width, in Fluent's controls: Back to the settings' first
 //! page and the page's title, then a settings card for each setting this system offers, its name
 //! over what it does and its control at the end: whether apps show inside WaOS, whether
-//! WaOS is kept in the Dock or the taskbar, and whether WaOS reaches the phone's files, with
-//! the button that opens the system's page for it.
+//! WaOS is kept in the Dock or the taskbar, whether WaOS reaches the phone's files, with
+//! the button that opens the system's page for it, and whether computers on the network may reach
+//! WaOS's dev server.
 //!
 //! What it shows is the library's, read as it builds; it keeps nothing of its own.
 
 use waft::{App, BuildContext, Entity, Listener, StatelessWidget, WidgetRef};
 use waft_winui::ThemeResources;
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+use super::developer_access_said;
 use super::fluent_page::{Start, card_button, card_switch, page, setting_card};
 use crate::state::library::Library;
 use crate::ui::library::words;
@@ -29,6 +32,8 @@ impl StatelessWidget for FluentGeneralSettings {
             shown.where_programs_open(app),
             shown.where_waos_stays(app),
             shown.phone_files(app),
+            #[cfg(not(any(target_os = "android", target_os = "ios")))]
+            shown.developer_access(app),
         ]
         .into_iter()
         .flatten()
@@ -90,6 +95,20 @@ impl Shown {
         };
         let button = card_button(words::OPEN_ANDROID_SETTINGS, open);
         Some(self.setting(words::PHONE_FILES, said, button))
+    }
+
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    /// Where WaOS offers it, whether computers on the network may reach WaOS's dev server, over
+    /// what that does and whether it listens.
+    fn developer_access(&self, app: &App) -> Option<WidgetRef> {
+        let library = self.library.read(app);
+        let on = library.developer_access_on()?;
+        let said = developer_access_said(library.developer_listening());
+        let library = self.library.clone();
+        let toggle = card_switch(on, move |app, on| {
+            library.update(app, |library, cx| library.turn_developer_access(on, cx));
+        });
+        Some(self.setting(words::DEVELOPER_ACCESS, &said, toggle))
     }
 
     /// A setting's card: its `name` over what it does, and its `control`.

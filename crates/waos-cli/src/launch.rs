@@ -13,10 +13,12 @@ use waos_package::ProgramId;
 
 use crate::asking;
 use crate::connecting::{WaOSStarter, connect_or_start};
+use crate::destination::Destination;
 
 /// Launches the installed program `id`, `name` to its user, in the WaOS running or the one started
 /// when none answers, with `arguments` and `variables` for this launch alone, and says so.
 pub async fn launch(
+    destination: &Destination,
     id: &ProgramId,
     name: &str,
     arguments: &[String],
@@ -24,7 +26,8 @@ pub async fn launch(
     starter: &dyn WaOSStarter,
 ) -> Result<()> {
     launch_on(
-        connect_or_start(starter).await?,
+        connect_or_start(destination, starter).await?,
+        destination,
         id,
         name,
         arguments,
@@ -37,10 +40,12 @@ pub async fn launch(
     Ok(())
 }
 
-/// Launches the installed program `id`, `name` to its user, over `connection`, after saying its
-/// hello, with `arguments` and `variables` for this launch alone; returns once it runs.
+/// Launches the installed program `id`, `name` to its user, over `connection` to `destination`,
+/// after saying its hello, with `arguments` and `variables` for this launch alone; returns once it
+/// runs.
 pub async fn launch_on(
     connection: ClientConnection,
+    destination: &Destination,
     id: &ProgramId,
     name: &str,
     arguments: &[String],
@@ -51,7 +56,7 @@ pub async fn launch_on(
         arguments: arguments.to_vec(),
         variables: variables.to_vec(),
     });
-    let mut connection = asking::greeted(connection, &request).await?;
+    let mut connection = asking::greeted(connection, destination, &request).await?;
     connection
         .send(&request)
         .await
@@ -104,7 +109,8 @@ mod tests {
         let id: ProgramId = "dev.example.notes.development".parse().unwrap();
         let arguments = ["--port".to_owned(), "8080".to_owned()];
         let variables = [("RUST_LOG".to_owned(), "debug".to_owned())];
-        let launched = launch_on(client, &id, "notes", &arguments, &variables).await;
+        let destination = Destination::ThisMachine { socket };
+        let launched = launch_on(client, &destination, &id, "notes", &arguments, &variables).await;
         let launch = served.await.unwrap();
         launched.map(|()| launch)
     }

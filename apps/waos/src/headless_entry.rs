@@ -27,6 +27,7 @@ use waos_store::{SourceProxy, Store};
 
 use crate::logic::asking_now::AskingNow;
 use crate::logic::dev_server::DevServer;
+use crate::logic::developer_access::DeveloperAccess;
 use crate::logic::environments::ProgramEnvironments;
 use crate::logic::folders::{self, AppFolders};
 use crate::logic::held_starts::HeldStarts;
@@ -164,8 +165,10 @@ impl HeadlessDaemon {
         let (stop_prompts, stop_prompts_rx) = oneshot::channel();
         runtime.spawn(hold_prompts(prompted, stop_prompts_rx));
 
-        let server =
-            DevServer::start(installed, store, asking, &config.socket).with_context(|| {
+        // Developer access stays off: a headless WaOS is reached from this machine alone.
+        let access = DeveloperAccess::at(config.folders.developer_access.clone());
+        let server = DevServer::start(installed, store, asking, &config.socket, access)
+            .with_context(|| {
                 format!("listening for dev commands at {}", config.socket.display())
             })?;
         tracing::info!(socket = %config.socket.display(), "headless WaOS listening");
@@ -342,6 +345,7 @@ mod tests {
             #[cfg(windows)]
             start_menu: root.join("start-menu"),
             data: root.join("data"),
+            developer_access: root.join("developer"),
             #[cfg(target_os = "macos")]
             installed_apps: root.join("installed-apps"),
         }

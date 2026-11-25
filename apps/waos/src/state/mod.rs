@@ -87,6 +87,8 @@ use crate::logic::command_line::LibraryPlace;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 use crate::logic::dev_server::DevServer;
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+use crate::logic::developer_access::DeveloperAccess;
 use crate::logic::environments::ProgramEnvironments;
 use crate::logic::folders::AppFolders;
 use crate::logic::frame_readers::ReadersOnRequest;
@@ -122,6 +124,8 @@ use given_views::follow_given_views;
 use image_codecs::ImageCodecs;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 use launcher::Launcher;
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+use library::offer_developer_access;
 use library::{
     FirstWindowWanted, InstalledChanged, Library, ProgramOpened, ProgramsOpen, open_library,
     open_settings_when_asked, request_to_open_with_waos, show_phone_files,
@@ -353,7 +357,15 @@ pub(crate) fn start(
         installed_runs.code.compiling_ids(),
     );
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
-    listen_for_the_command(app, installed_runs.clone(), &store, asking)?;
+    let developer_access = DeveloperAccess::at(folders.developer_access.clone());
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    listen_for_the_command(
+        app,
+        installed_runs.clone(),
+        &store,
+        asking,
+        developer_access.clone(),
+    )?;
     let starts = HeldStarts {
         installed: installed_runs.clone(),
         store: store.clone(),
@@ -369,6 +381,8 @@ pub(crate) fn start(
         programs_open,
         preferences,
     )?;
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    offer_developer_access(app, &library, developer_access);
     bring_opened_programs_forward(app, &library, &view_windows);
     inspected.serve_starts(starts, library.read(app).runtime());
     tell_installs_to_inspectors(app, &library, inspected);
@@ -475,21 +489,22 @@ pub(crate) fn start(
 /// Listens for `waos` on the socket `waos-dev-protocol` names, installing what it sends into
 /// `store` and launching it on `installed`'s engine with its environments, counted in its runs,
 /// its code compiled as an install's, and opening files with an installed program as `installed`
-/// opens it; and
-/// makes a quit ask every program in its runs first, stopping the server and keeping the
-/// engine's days once they agree. Not on
-/// a phone: `waos` reaches none yet, and the system ends an app there without asking it.
+/// opens it, and from computers on the network too while `access` is on; and makes a quit ask
+/// every program in its runs first, stopping the server and keeping the engine's days once they
+/// agree. Not on a phone: `waos` reaches none yet, and the system ends an app there without
+/// asking it.
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn listen_for_the_command(
     app: &mut App,
     installed: InstalledRuns,
     store: &Store,
     asking: Arc<AskingNow>,
+    access: DeveloperAccess,
 ) -> Result<()> {
     let socket = waos_dev_protocol::listener_path();
     let runs = Arc::clone(&installed.runs);
     let engine = Arc::clone(&installed.engine);
-    let server = DevServer::start(installed, store.clone(), asking, &socket)
+    let server = DevServer::start(installed, store.clone(), asking, &socket, access)
         .with_context(|| format!("listening for waos at {}", socket.display()))?;
     tracing::info!(socket = %socket.display(), "WaOS listens for waos");
     quitting::ask_programs_before_quitting(app, runs, server, engine);

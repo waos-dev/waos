@@ -1,6 +1,7 @@
 //! The refusals the dev server gives, each in words a person can act on, beside a kind an agent
 //! acts on: the program that does not run or is not installed, the window that is not there or is a tab in no window, the point outside it, the input that cannot be given, the component that does not load, and the opening a connection not
-//! on this machine asks for, which only one here may have.
+//! on this machine asks for, which only one here may have, and the connection from the network of
+//! a computer not paired.
 
 use waos_dev_protocol::{Asked, Locality, OpenAnswer, Refusal, RefusalKind, WindowId};
 use waos_package::ProgramId;
@@ -106,6 +107,14 @@ pub(crate) fn local_only(id: &ProgramId) -> Refusal {
         format!(
             "opening {id}'s files names paths on this machine, and this connection is not on this machine"
         ),
+    )
+}
+
+/// A connection from the network came without a paired computer's token.
+pub(crate) fn not_paired() -> Refusal {
+    Refusal::new(
+        RefusalKind::NotPaired,
+        "this computer is not paired with this device: pair it with `waos pair <device>` and the code the device shows in WaOS's settings, under Developer",
     )
 }
 
