@@ -8,9 +8,10 @@
 //! cargo build -p triangle --target wasm32-wasip3
 //! ```
 
+use std::sync::Arc;
+
 use wasdk::views::{self, View, ViewChange, ViewEvent};
 use wasdk::windows::WindowConfig;
-use wasdk_wgpu::SharedView;
 
 /// What the triangle is drawn over.
 const CLEAR: wgpu::Color = wgpu::Color {
@@ -32,7 +33,7 @@ async fn main() -> Result<(), String> {
         .await
         .map_err(|error| format!("no WebGPU device: {error}"))?;
 
-    let view = SharedView::new(first_view().await?);
+    let view = Arc::new(first_view().await?);
     let (surface, config) = configured_surface(&instance, &adapter, &device, &view)?;
     let pipeline = build_pipeline(&device, config.format);
     let mut events = view
@@ -75,7 +76,7 @@ fn configured_surface(
     instance: &wgpu::Instance,
     adapter: &wgpu::Adapter,
     device: &wgpu::Device,
-    view: &SharedView,
+    view: &Arc<View>,
 ) -> Result<(wgpu::Surface<'static>, wgpu::SurfaceConfiguration), String> {
     let surface = instance
         .create_surface(view.clone())

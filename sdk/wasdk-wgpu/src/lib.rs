@@ -12,8 +12,8 @@
 //! let adapter = instance.request_adapter(&wgpu::RequestAdapterOptions::default()).await?;
 //! let (device, queue) = adapter.request_device(&wgpu::DeviceDescriptor::default()).await?;
 //!
-//! // A view is the window a surface is made for, shared by the program and the surface:
-//! let view = wasdk_wgpu::SharedView::new(view);
+//! // A view is the window a surface is made for, shared with it as any window is:
+//! let view = std::sync::Arc::new(view);
 //! let surface = instance.create_surface(view.clone())?;
 //! let metrics = view.metrics();
 //! let config = surface.get_default_config(&adapter, metrics.width, metrics.height).unwrap();
@@ -32,10 +32,9 @@
 //! # Drawing on a view
 //!
 //! A view is drawn on through wgpu's surface, the one way this crate draws on one, as a browser's
-//! canvas is (`surface`): a
-//! [`SharedView`] is the window `Instance::create_surface` takes, its handle a
-//! `WebCanvasWindowHandle` pointing at it, so a framework's renderer that makes its surface from
-//! a window's handles runs unchanged. The surface offers the engine's canvas format, which the
+//! canvas is (`surface`): a view is the window `Instance::create_surface` takes, by the window
+//! handle `wasdk` gives it, or any window over one that answers the view's handle as its own, so
+//! a framework's renderer that makes its surface from a window's handles runs unchanged. The surface offers the engine's canvas format, which the
 //! canvas is drawn in, `PresentMode::Fifo`, opaque and premultiplied alpha, and drawing into,
 //! sampling and copying its textures; `configure` sets the view's canvas to the size configured,
 //! which its textures are from then on whatever the view's own size, and configures a canvas
@@ -50,7 +49,7 @@
 //! wgpu signature has one. The complete list:
 //!
 //! - **Surfaces on anything but a view.** `Instance::create_surface` with a window handle that is
-//!   not a [`SharedView`]'s, or a target that is not a window handle: wgpu gives a backend of its
+//!   not a view's, or a target that is not a window handle: wgpu gives a backend of its
 //!   own no way to make the `CreateSurfaceError` it would answer. A surface's present modes but
 //!   `Fifo` and the automatic ones, its alpha modes `PostMultiplied` and `Inherit`, and colour
 //!   spaces a WebGPU canvas has no name for (`ExtendedSrgbLinear`, `Bt2100Pq`, `Bt2100Hlg`).
@@ -175,7 +174,7 @@ use wgpu::custom::InstanceInterface;
 
 pub use device::WasdkDevice;
 pub use instance::WasdkInstance;
-pub use surface::{SharedView, WasdkSurface, WasdkSurfaceOutputDetail};
+pub use surface::{WasdkSurface, WasdkSurfaceOutputDetail};
 pub use texture::WasdkTexture;
 
 /// The wgpu instance over the engine's WebGPU. `wgpu::Instance::new` on this target has no

@@ -9331,6 +9331,7 @@ name = "wasdk"
 version = "0.7.1"
 dependencies = [
  "inventory",
+ "raw-window-handle",
  "wasdk-macros",
  "wit-bindgen 0.63.0",
 ]
@@ -9342,7 +9343,6 @@ dependencies = [
  "egui",
  "tracing",
  "wasdk",
- "wasdk-wgpu",
 ]
 
 [[package]]

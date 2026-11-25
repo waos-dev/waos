@@ -15,14 +15,23 @@ readme = "README.md"
 [features]
 # `wasdk::inspect`, the inspector role's interfaces, shown only to a program that asks for it.
 inspector = []
+# A view as the window other libraries take: raw-window-handle's traits on `views::View`, and
+# `view_of_window_handle`, the view a window handle points at.
+raw-window-handle = ["dep:raw-window-handle"]
 
 [dependencies]
 wasdk-macros.workspace = true
 wit-bindgen.workspace = true
 inventory.workspace = true
+# `alloc` gives a view shared in an `Arc` or an `Rc` the traits too, as a program shares one with
+# its surface.
+raw-window-handle = { workspace = true, optional = true, features = ["alloc"] }
 
-[lints]
-workspace = true
+# A view's window handle is made with raw-window-handle's `WindowHandle::borrow_raw`, the one way
+# to make one, and read back by following its pointer to the view, as a windowing library does
+# for its own window. The crate denies the lint and allows it exactly there (`window_handle`).
+[lints.rust]
+unsafe_code = "deny"
 
 [package.metadata.docs.rs]
 all-features = true

@@ -1,21 +1,18 @@
 //! Surfaces: wgpu's way to draw on a window, here on a program's view, as wgpu's browser backend
-//! draws on a canvas. The window is a [`SharedView`], the program's view shared with the surfaces
-//! made on it, and its window handle a `WebCanvasWindowHandle` pointing at it, as a browser's
-//! points at a canvas: a component has no browser canvas for one to point at, and a view's id is
-//! a `u64`, which the numbered `WebWindowHandle` cannot carry. A surface configures a canvas
-//! context of the view's, hands out the context's texture each frame, and the frame's present
-//! presents the view (`Queue::present`, in `queue`).
+//! draws on a canvas. The window is the view itself, or any window over one: `wasdk` gives a
+//! view its window handle, and the view a handle points at (`wasdk::view_of_window_handle`),
+//! which is how a surface finds its view (`instance`). A surface configures a canvas context of
+//! the view's, hands out the context's texture each frame, and the frame's present presents the
+//! view (`Queue::present`, in `queue`).
 //!
 //! The canvas is the size the surface is configured at: `configure` sets the view's canvas to its
 //! width and height, so every frame's texture is the size wgpu tells for it, and a program
 //! configures again as its view's size changes, as it would a window's surface anywhere.
 //!
-//! The invariant: the handle's pointer is read only in `create_surface`, while the window it was
-//! taken from lends it; from there the surface, and each frame it hands out, hold the view through
-//! its `Arc`, so nothing after needs the pointer.
+//! The invariant: a surface holds a handle of its own to the view, taken as it is made, and each
+//! frame it hands out holds the view through it, so the window the surface was made from may go
+//! first.
 
-use std::ops::Deref;
-use std::ptr::NonNull;
 use std::sync::Arc;
 
 use wasdk::views::View;
@@ -23,10 +20,6 @@ use wasdk::webgpu::{GpuCanvasConfiguration, GpuCanvasContext};
 use wgpu::custom::{
     DispatchAdapter, DispatchDevice, DispatchSurfaceOutputDetail, DispatchTexture,
     SurfaceInterface, SurfaceOutputDetailInterface,
-};
-use wgpu::rwh::{
-    DisplayHandle, HandleError, HasDisplayHandle, HasWindowHandle, RawWindowHandle,
-    WebCanvasWindowHandle, WindowHandle,
 };
 use wgpu::{
     CompositeAlphaMode, PresentMode, SurfaceCapabilities, SurfaceColorSpaces,
@@ -37,62 +30,6 @@ use crate::convert;
 use crate::device::WasdkDevice;
 use crate::gap::wasi_gap;
 use crate::texture::WasdkTexture;
-
-/// A program's view, shared by the program and the surfaces made on it: the window wgpu makes a
-/// surface for, as an HTML canvas is on the web. It is the view's `Arc` with the window handle
-/// Rust's orphan rule keeps off `Arc<View>`, so it dereferences to the view; every clone is the
-/// same view.
-///
-/// ```ignore
-/// let view = wasdk_wgpu::SharedView::new(view);
-/// let surface = instance.create_surface(view.clone())?;
-/// view.request_frame();
-/// ```
-#[derive(Clone, Debug)]
-pub struct SharedView(Arc<View>);
-
-impl SharedView {
-    pub fn new(view: View) -> SharedView {
-        SharedView(Arc::new(view))
-    }
-}
-
-impl Deref for SharedView {
-    type Target = View;
-
-    fn deref(&self) -> &View {
-        &self.0
-    }
-}
-
-impl HasWindowHandle for SharedView {
-    /// A `WebCanvas` handle pointing at this view.
-    #[allow(unsafe_code)]
-    fn window_handle(&self) -> Result<WindowHandle<'_>, HandleError> {
-        let handle = WebCanvasWindowHandle::new(NonNull::from(self).cast());
-        // SAFETY: the handle points at `self`, which the handle borrows for as long as it lives.
-        Ok(unsafe { WindowHandle::borrow_raw(handle.into()) })
-    }
-}
-
-impl HasDisplayHandle for SharedView {
-    /// The web's display, which carries nothing: the view is reached through its window handle.
-    fn display_handle(&self) -> Result<DisplayHandle<'_>, HandleError> {
-        Ok(DisplayHandle::web())
-    }
-}
-
-/// Where the view a window handle points at is: a `WebCanvas` handle's object, which in a
-/// component is a [`SharedView`], since a component has no browser canvas. Any other handle is a
-/// gap: wgpu gives a backend of its own no way to make the `CreateSurfaceError` it would answer.
-pub(crate) fn shared_view_of(handle: RawWindowHandle) -> NonNull<SharedView> {
-    match handle {
-        RawWindowHandle::WebCanvas(handle) => handle.obj.cast(),
-        other => wasi_gap(format_args!(
-            "a surface from a window handle other than a view's (a {other:?})"
-        )),
-    }
-}
 
 /// What the view's canvas serves: its one format, presented at the view's frames, blended as
 /// WebGPU's canvas blends, for drawing into, sampling and copying to and from.
@@ -137,10 +74,10 @@ pub struct WasdkSurface {
 
 impl WasdkSurface {
     /// A surface on `view`, through a canvas context of its own, drawn in `format`.
-    pub(crate) fn new(view: &SharedView, format: TextureFormat) -> WasdkSurface {
+    pub(crate) fn new(view: View, format: TextureFormat) -> WasdkSurface {
         WasdkSurface {
-            view: Arc::clone(&view.0),
             context: view.context(),
+            view: Arc::new(view),
             format,
         }
     }
@@ -221,8 +158,6 @@ impl SurfaceOutputDetailInterface for WasdkSurfaceOutputDetail {
 
 #[cfg(test)]
 mod tests {
-    use wgpu::rwh::{AppKitWindowHandle, WebWindowHandle};
-
     use super::*;
 
     #[test]
@@ -259,28 +194,8 @@ mod tests {
     #[test]
     fn a_shared_view_is_a_window_wgpu_makes_a_surface_for() {
         fn surface_target<T: Into<wgpu::SurfaceTarget<'static>>>() {}
-        fn window<T: wgpu::WindowHandle + HasDisplayHandle>() {}
-        surface_target::<SharedView>();
-        window::<SharedView>();
-    }
-
-    #[test]
-    fn a_web_canvas_handle_points_at_the_shared_view() {
-        let pointer = NonNull::<SharedView>::dangling();
-        let handle = WebCanvasWindowHandle::new(pointer.cast());
-        assert_eq!(shared_view_of(handle.into()), pointer);
-    }
-
-    #[test]
-    #[should_panic(expected = "other than a view's")]
-    fn a_numbered_web_handle_is_not_a_view() {
-        shared_view_of(WebWindowHandle::new(1).into());
-    }
-
-    #[test]
-    #[should_panic(expected = "other than a view's")]
-    fn a_native_window_is_not_a_view() {
-        let window = NonNull::<u8>::dangling().cast();
-        shared_view_of(AppKitWindowHandle::new(window).into());
+        fn window<T: wgpu::WindowHandle + wgpu::rwh::HasDisplayHandle>() {}
+        surface_target::<Arc<View>>();
+        window::<Arc<View>>();
     }
 }

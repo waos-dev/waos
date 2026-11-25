@@ -21,12 +21,12 @@ mod text;
 
 use std::cell::RefCell;
 use std::rc::Rc;
+use std::sync::Arc;
 use std::time::Instant;
 
 use egui::{Event, Key, Modifiers, ViewportId};
 use wasdk::system::{self, OperatingSystem};
-use wasdk::views::{EditCommand, KeyEvent, KeyInput, KeyKind, ViewEvent, ViewFocusState};
-use wasdk_wgpu::SharedView;
+use wasdk::views::{EditCommand, KeyEvent, KeyInput, KeyKind, View, ViewEvent, ViewFocusState};
 
 use self::clipboard::PendingCopy;
 use self::keys::Keyboard;
@@ -36,7 +36,7 @@ use self::text::TextSession;
 /// egui's side of one view: what `egui_winit::State` is for a winit window.
 pub struct State {
     egui_ctx: egui::Context,
-    view: SharedView,
+    view: Arc<View>,
     start_time: Instant,
     keyboard: Keyboard,
     pointers: Pointers,
@@ -68,7 +68,7 @@ impl EventResponse {
 
 impl State {
     /// egui's side of `view`, feeding `egui_ctx`.
-    pub fn new(egui_ctx: egui::Context, view: SharedView) -> State {
+    pub fn new(egui_ctx: egui::Context, view: Arc<View>) -> State {
         State {
             egui_ctx,
             text: TextSession::new(&view),

@@ -8,12 +8,13 @@ use wgpu::custom::{
     DispatchAdapter, DispatchSurface, EnumerateAdapterFuture, InstanceInterface,
     RequestAdapterFuture,
 };
+use wgpu::rwh::WindowHandle;
 use wgpu::{Backends, RequestAdapterError, WgslLanguageFeatures};
 
 use crate::adapter::WasdkAdapter;
 use crate::convert;
 use crate::gap::wasi_gap;
-use crate::surface::{SharedView, WasdkSurface, shared_view_of};
+use crate::surface::WasdkSurface;
 
 /// The instance behind a [`wgpu::Instance`] from this backend:
 /// `instance.as_custom::<WasdkInstance>()`.
@@ -58,7 +59,7 @@ const WGSL_LANGUAGE_FEATURES: &[(WgslLanguageFeatures, &str)] = &[
     ),
 ];
 
-// `create_surface` is `unsafe` in the trait, and reads the view its window handle points at.
+// `create_surface` is `unsafe` in the trait, and vouches for the window handle it is given.
 #[allow(unsafe_code)]
 impl InstanceInterface for WasdkInstance {
     fn new(desc: wgpu::InstanceDescriptor) -> Self {
@@ -68,8 +69,10 @@ impl InstanceInterface for WasdkInstance {
         }
     }
 
-    /// A surface on the view a [`SharedView`]'s window handle points at, holding the view from
-    /// here on; any other handle is a gap (`surface`).
+    /// A surface on the view the target's window handle points at, holding a handle of its own
+    /// to the view from here on; a target that is no window handle, or a handle that is no
+    /// view's, is a gap: wgpu gives a backend of its own no way to make the `CreateSurfaceError`
+    /// it would answer.
     unsafe fn create_surface(
         &self,
         target: wgpu::SurfaceTargetUnsafe,
@@ -80,10 +83,13 @@ impl InstanceInterface for WasdkInstance {
         else {
             wasi_gap("a surface from a target other than a window handle")
         };
-        let pointer = shared_view_of(raw_window_handle);
-        // SAFETY: wgpu's contract for the target is that its window is alive for the call, and a
-        // `WebCanvas` handle in a component is only ever a `SharedView`'s, pointing at it.
-        let view: &SharedView = unsafe { pointer.as_ref() };
+        // SAFETY: wgpu's contract for the target is that its window is alive for the call.
+        let handle = unsafe { WindowHandle::borrow_raw(raw_window_handle) };
+        let Some(view) = wasdk::view_of_window_handle(handle) else {
+            wasi_gap(format_args!(
+                "a surface from a window handle other than a view's (a {raw_window_handle:?})"
+            ))
+        };
         let surface = WasdkSurface::new(view, self.preferred_canvas_format());
         Ok(DispatchSurface::custom(surface))
     }

@@ -11,10 +11,11 @@
 //! cargo build -p egui-widgets --target wasm32-wasip3
 //! ```
 
+use std::sync::Arc;
+
 use wasdk::views::{self, View, ViewChange, ViewEvent};
 use wasdk::windows::WindowConfig;
 use wasdk_adapter_egui::State;
-use wasdk_wgpu::SharedView;
 
 #[wasdk::main]
 async fn main() -> Result<(), String> {
@@ -28,7 +29,7 @@ async fn main() -> Result<(), String> {
         .await
         .map_err(|error| format!("no WebGPU device: {error}"))?;
 
-    let view = SharedView::new(first_view().await?);
+    let view = Arc::new(first_view().await?);
     let (surface, mut config) = configured_surface(&instance, &adapter, &device, &view)?;
     let egui_ctx = egui::Context::default();
     let mut egui_state = State::new(egui_ctx.clone(), view.clone());
@@ -210,7 +211,7 @@ fn configured_surface(
     instance: &wgpu::Instance,
     adapter: &wgpu::Adapter,
     device: &wgpu::Device,
-    view: &SharedView,
+    view: &Arc<View>,
 ) -> Result<(wgpu::Surface<'static>, wgpu::SurfaceConfiguration), String> {
     let surface = instance
         .create_surface(view.clone())

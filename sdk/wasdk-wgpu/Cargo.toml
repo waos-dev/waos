@@ -17,7 +17,8 @@ glsl = ["wgpu/glsl"]
 
 [dependencies]
 futures.workspace = true
-wasdk.workspace = true
+# The view a window handle points at, which a surface is made on (`instance`).
+wasdk = { workspace = true, features = ["raw-window-handle"] }
 # `wgsl` names WGSL as a shader source, the one the boundary carries; the engine compiles it.
 # `naga-ir` names naga's module as one, which is written as WGSL here, with the writer `webgpu`
 # brings. `webgpu` is on so wgpu's web-only trait items exist whichever features a program using
@@ -29,11 +30,8 @@ wgpu = { workspace = true, features = ["custom", "wgsl", "naga-ir", "webgpu"] }
 js-sys = "0.3"
 
 # Eight methods of wgpu's dispatch traits are declared `unsafe`, so implementing them writes
-# the keyword: an implementation of a trait whose owner declares its methods `unsafe`, which
-# AGENTS.md allows. Only one body does anything unsafe, `Instance::create_surface`, which reads
-# the view its window handle points at; and a view's window handle is made with
-# raw-window-handle's `WindowHandle::borrow_raw`, the one way to make one, which wraps the handle
-# into raw-window-handle's safe API (`surface`). The crate denies the lint and allows it exactly
-# there.
+# the keyword. Only one body does anything unsafe, `Instance::create_surface`, which vouches, as
+# wgpu's contract for it says, that the window handle it is given is of a window alive for the
+# call. The crate denies the lint and allows it exactly there.
 [lints.rust]
 unsafe_code = "deny"

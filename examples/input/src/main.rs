@@ -9,13 +9,14 @@
 //! cargo build -p input --target wasm32-wasip3
 //! ```
 
+use std::sync::Arc;
+
 use wasdk::views::{
     self, KeyInput, PointerChange, PointerEvent, PointerSignalKind, TextAffinity,
     TextCapitalization, TextEditingValue, TextInput, TextInputAction, TextInputConfiguration,
     TextInputType, View, ViewChange, ViewEvent,
 };
 use wasdk::windows::WindowConfig;
-use wasdk_wgpu::SharedView;
 
 /// The colours the window is drawn in, in turn: a dark blue, an orange, a green and a purple.
 const COLOURS: [wgpu::Color; 4] = [
@@ -57,7 +58,7 @@ async fn main() -> Result<(), String> {
         .await
         .map_err(|error| format!("no WebGPU device: {error}"))?;
 
-    let view = SharedView::new(open_window().await?);
+    let view = Arc::new(open_window().await?);
     let (surface, config) = configured_surface(&instance, &adapter, &device, &view)?;
     let mut events = view
         .events()
@@ -130,7 +131,7 @@ fn configured_surface(
     instance: &wgpu::Instance,
     adapter: &wgpu::Adapter,
     device: &wgpu::Device,
-    view: &SharedView,
+    view: &Arc<View>,
 ) -> Result<(wgpu::Surface<'static>, wgpu::SurfaceConfiguration), String> {
     let surface = instance
         .create_surface(view.clone())

@@ -13,7 +13,6 @@ readme = "README.md"
 egui = { workspace = true }
 tracing.workspace = true
 wasdk.workspace = true
-wasdk-wgpu.workspace = true
 
 [lints]
 workspace = true
