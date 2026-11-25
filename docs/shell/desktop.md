@@ -3,7 +3,8 @@
 - **On a desktop, WaOS is a launcher that comes and goes,** as Spotlight does. Its Dock or taskbar icon, its tray icon, or starting it again summons it; Escape, a click outside, or opening an app dismisses it. ([launcher_rules.rs](/apps/waos/src/logic/launcher_rules.rs))
 - **On macOS, each running app is an app of its own,** with its own Dock icon, windows and menu bar, as Chrome's app shims are; its code still runs in WaOS. ([program_apps](/apps/waos/src/logic/program_apps/mod.rs))
   - *Why:* the user finds, switches and quits WaOS apps as they do native ones.
-- **If an app's window process crashes, the app doesn't hang:** whatever it was waiting on is answered (no window, a dialog cancelled). ([window_process.rs](/apps/waos/src/logic/program_apps/window_process.rs))
+- **An app whose window process crashes or is force quit ends with it,** nothing being left to show it; whatever it was waiting on is answered first (no window, a dialog cancelled). ([program_apps](/apps/waos/src/logic/program_apps/mod.rs))
+- **A running app can be force quit from its icon in the launcher,** stopped where it stands without being asked: what ends an app that doesn't answer a quit. ([icon_actions](/apps/waos/src/ui/library/icon_actions/mod.rs))
 - **On Windows and Linux, each installed app has its own entry** in the Start menu or the app list, so the user finds and pins it by its name. ([program_entries](/apps/waos/src/logic/program_entries/mod.rs))
 - **WaOS can stay out of the Dock and the taskbar,** with an icon in the menu bar or the tray instead. ([waos_tray.rs](/apps/waos/src/state/waos_tray.rs))
   - *Today:* on macOS its Dock icon stays, since Waft can't make it an accessory app yet. ([TODO](/TODO.md))
