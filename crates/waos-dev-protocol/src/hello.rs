@@ -20,7 +20,7 @@ use crate::token::Token;
 pub const MAJOR: u32 = 3;
 
 /// Every request a WaOS serves, by [`Request::name`]: what its hello lists.
-pub const SERVED: [&str; 14] = [
+pub const SERVED: [&str; 15] = [
     "screenshot",
     "input",
     "resize",
@@ -35,6 +35,7 @@ pub const SERVED: [&str; 14] = [
     "uninstall",
     "extension",
     "serving-programs",
+    "pair",
 ];
 
 /// Which half of the protocol sent a [`Hello`].
@@ -177,6 +178,7 @@ mod tests {
     use std::path::PathBuf;
 
     use crate::messages::{Input, Inspection, Install, Launch, Request, WindowId};
+    use crate::pairing::PairStart;
     use crate::settings_rows::Row;
     use waos_package::ProgramId;
 
@@ -256,6 +258,10 @@ mod tests {
                 params: Vec::new(),
             },
             Request::ServingPrograms,
+            Request::Pair(PairStart {
+                computer: "mac".to_owned(),
+                spake: vec![1, 2, 3],
+            }),
         ];
         // Match exhaustively so adding a `Request` variant fails to compile here until `all` and
         // `SERVED` list it too.
@@ -275,6 +281,7 @@ mod tests {
                 | Request::Uninstall { .. }
                 | Request::Extension { .. }
                 | Request::ServingPrograms
+                | Request::Pair(_)
                 | Request::Unknown => {}
             }
         }

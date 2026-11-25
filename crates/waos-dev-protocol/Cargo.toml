@@ -22,14 +22,16 @@ sha2.workspace = true
 # pipe.
 tokio = { workspace = true, features = ["io-util", "net"] }
 # Across the network (`network`): a WebSocket, inside TLS for `wss://`, its certificate the
-# device's own, made with rcgen and pinned by its fingerprint (hex); a token's digest with
-# aws-lc-rs, rustls's own cryptography.
+# device's own, made with rcgen and pinned by its fingerprint (hex); pairing (`pairing`) agrees a
+# key with SPAKE2 over the code the device shows, and derives the token from it with aws-lc-rs,
+# rustls's own cryptography, which takes a token's digest too.
 tokio-tungstenite = { version = "0.30", default-features = false, features = ["handshake"] }
 futures.workspace = true
 rustls.workspace = true
 tokio-rustls.workspace = true
 rcgen.workspace = true
 hex.workspace = true
+spake2 = "0.4"
 aws-lc-rs = "1"
 
 # The Unix socket, which logs replacing a file a WaOS that died left.

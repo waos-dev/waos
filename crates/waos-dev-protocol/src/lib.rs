@@ -43,6 +43,7 @@ mod hello;
 mod messages;
 mod network;
 mod os;
+mod pairing;
 #[cfg(windows)]
 mod pipe;
 mod refusal;
@@ -70,6 +71,7 @@ pub use network::{
     NetworkStream, PORT, ServerNetworkStream, WebSocketFrames, WebSocketReceiving,
     WebSocketSending, connect as connect_across_network,
 };
+pub use pairing::{PairAnswer, PairConfirm, PairStart, Pairing, PairingCode, PairingKey};
 #[cfg(windows)]
 pub use pipe::{ClientStream, Listener, ServerStream, listener_path};
 pub use refusal::{Refusal, RefusalKind};

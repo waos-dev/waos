@@ -3,7 +3,8 @@
 //! over what it does and its control at the end: whether apps show inside WaOS, whether
 //! WaOS is kept in the Dock or the taskbar, whether WaOS reaches the phone's files, with
 //! the button that opens the system's page for it, and whether computers on the network may reach
-//! WaOS's dev server.
+//! WaOS's dev server, with, while they may, the button that shows a code to pair one with and the
+//! computers paired, each with a button that removes it.
 //!
 //! What it shows is the library's, read as it builds; it keeps nothing of its own.
 
@@ -12,7 +13,11 @@ use waft_winui::ThemeResources;
 
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 use super::developer_access_said;
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+use super::fluent_page::{ListRow, list_block};
 use super::fluent_page::{Start, card_button, card_switch, page, setting_card};
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+use crate::logic::developer_access::PairedComputer;
 use crate::state::library::Library;
 use crate::ui::library::words;
 
@@ -28,16 +33,16 @@ impl StatelessWidget for FluentGeneralSettings {
         let shown = Shown {
             library: self.library.clone(),
         };
-        let cards: Vec<WidgetRef> = [
+        let cards = [
             shown.where_programs_open(app),
             shown.where_waos_stays(app),
             shown.phone_files(app),
-            #[cfg(not(any(target_os = "android", target_os = "ios")))]
-            shown.developer_access(app),
         ]
         .into_iter()
-        .flatten()
-        .collect();
+        .flatten();
+        #[cfg(not(any(target_os = "android", target_os = "ios")))]
+        let cards = cards.chain(shown.developer_access(app, &resources));
+        let cards: Vec<WidgetRef> = cards.collect();
         page(&self.library, &resources, &[words::WAOS_SETTINGS], cards)
     }
 }
@@ -99,16 +104,72 @@ impl Shown {
 
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     /// Where WaOS offers it, whether computers on the network may reach WaOS's dev server, over
-    /// what that does and whether it listens.
-    fn developer_access(&self, app: &App) -> Option<WidgetRef> {
+    /// what that does and whether it listens; and while they may, pairing a computer and the
+    /// computers paired.
+    fn developer_access(&self, app: &App, resources: &ThemeResources) -> Vec<WidgetRef> {
         let library = self.library.read(app);
-        let on = library.developer_access_on()?;
+        let Some(on) = library.developer_access_on() else {
+            return Vec::new();
+        };
         let said = developer_access_said(library.developer_listening());
-        let library = self.library.clone();
+        let entity = self.library.clone();
         let toggle = card_switch(on, move |app, on| {
-            library.update(app, |library, cx| library.turn_developer_access(on, cx));
+            entity.update(app, |library, cx| library.turn_developer_access(on, cx));
         });
-        Some(self.setting(words::DEVELOPER_ACCESS, &said, toggle))
+        let switch = self.setting(words::DEVELOPER_ACCESS, &said, toggle);
+        if !on {
+            return vec![switch];
+        }
+        let paired = library.paired_computers().unwrap_or_default();
+        let pairing = self.pairing(library.pairing_code());
+        vec![switch, pairing, self.paired_computers(paired, resources)]
+    }
+
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    /// The code shown for a computer to pair with, or the button that shows one.
+    fn pairing(&self, code: Option<waos_dev_protocol::PairingCode>) -> WidgetRef {
+        let library = self.library.clone();
+        let show = Listener::new(move |app| {
+            library.update(app, |library, cx| library.show_pairing_code(cx));
+        });
+        let said = match &code {
+            Some(code) => words::pairing_code(code.as_str()),
+            None => words::PAIR_A_COMPUTER_DETAIL.to_owned(),
+        };
+        let button = card_button(words::SHOW_A_CODE, show);
+        self.setting(words::PAIR_A_COMPUTER, &said, button)
+    }
+
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    /// The computers `paired`, each with the button that removes it; or that there are none.
+    fn paired_computers(
+        &self,
+        paired: Vec<PairedComputer>,
+        resources: &ThemeResources,
+    ) -> WidgetRef {
+        let detail = paired.is_empty().then_some(words::NO_PAIRED_COMPUTERS);
+        let rows = paired
+            .into_iter()
+            .map(|computer| {
+                let library = self.library.clone();
+                let name = computer.name.clone();
+                let remove = Listener::new(move |app| {
+                    library.update(app, |library, cx| library.remove_paired_computer(&name, cx));
+                });
+                ListRow {
+                    text: computer.name,
+                    control: Some(card_button(words::REMOVE, remove)),
+                }
+            })
+            .collect();
+        list_block(
+            resources,
+            Start::Edge,
+            words::PAIRED_COMPUTERS,
+            detail,
+            None,
+            rows,
+        )
     }
 
     /// A setting's card: its `name` over what it does, and its `control`.

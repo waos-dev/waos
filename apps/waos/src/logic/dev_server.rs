@@ -8,14 +8,14 @@
 //! of them (`dev_resize`), a program's settings read or one of them set (`dev_settings`), or an
 //! inspection of a program (`dev_inspect`). While developer access is on, it takes connections
 //! from the network too (`dev_network`), each answered only once its hello carries a paired
-//! computer's token. A connection of another protocol's major, or with a hello this build cannot
+//! computer's token, but for a pairing, which makes one (`dev_pairing`). A connection of another protocol's major, or with a hello this build cannot
 //! read, ends before it asks anything. Stopping the server stops every run, waits for each
 //! connection to say so, and removes the socket file.
 //!
 //! The invariants: the server's thread owns the listener, so the socket file goes with the
 //! thread, and dropping the server returns only once the thread has: a WaOS that quit leaves no
-//! socket file behind. A connection from the network is refused anything before its token is
-//! known, whatever it asks.
+//! socket file behind. A connection from the network is refused anything but a pairing before its
+//! token is known.
 
 use std::io;
 use std::path::{Path, PathBuf};
@@ -31,6 +31,7 @@ use super::dev_inspect::{self, InspectionContext};
 use super::dev_install::{self, InstallContext};
 use super::dev_launch::{self, LaunchContext};
 use super::dev_network::NetworkDoor;
+use super::dev_pairing;
 use super::dev_refusal;
 use super::dev_settings::{self, SettingsContext};
 use super::developer_access::DeveloperAccess;
@@ -315,7 +316,7 @@ async fn serve_connection(mut connection: ServerConnection, context: ConnectionC
             return;
         }
     };
-    if !admitted(&connection, &theirs, &context.access) {
+    if !admitted(&connection, &theirs, &request, &context.access) {
         let refusal = dev_refusal::not_paired();
         let _ = connection.send(&RefusedAnswer::Refused(refusal)).await;
         return;
@@ -347,11 +348,17 @@ async fn greeted(connection: &mut ServerConnection) -> Option<Hello> {
     Some(theirs)
 }
 
-/// Whether `connection` may be answered: one from this machine always; one from the network once
-/// its hello carries a paired computer's token.
-fn admitted(connection: &ServerConnection, theirs: &Hello, access: &DeveloperAccess) -> bool {
+/// Whether `connection` may be answered `request`: one from this machine always; one from the
+/// network a pairing, or anything once its hello carries a paired computer's token.
+fn admitted(
+    connection: &ServerConnection,
+    theirs: &Hello,
+    request: &Request,
+    access: &DeveloperAccess,
+) -> bool {
     match connection.locality() {
         Locality::ThisMachine => true,
+        Locality::Network if matches!(request, Request::Pair(_)) => true,
         Locality::Network => theirs
             .token
             .as_ref()
@@ -431,6 +438,7 @@ async fn serve_request(
             let size = Size { width, height };
             dev_resize::answer(connection, runs, &id, window, size).await;
         }
+        Request::Pair(start) => dev_pairing::pair(connection, start, &context.access).await,
         Request::Unknown => {
             let refusal = dev_refusal::unsupported(BUILD, "request");
             let _ = connection.send(&RefusedAnswer::Refused(refusal)).await;
@@ -448,10 +456,11 @@ pub(crate) mod tests {
     use waos::{RunningProgram, WaOS};
 
     use waos_dev_protocol::{
-        Answer, Asked, ClientConnection, Component, DeviceAddress, FileDialog, Hello, Install,
-        InstallAnswer, Launch, LaunchAnswer, OpenAnswer, OutputStream, Question, RefusalKind,
-        Request, Row, RunEnd, RunEvent, ServingProgramsAnswer, StopAnswer, Token, UninstallAnswer,
-        Upload, component_digest, connect_across_network,
+        Answer, Asked, ClientConnection, Component, DeviceAddress, FileDialog, Fingerprint, Hello,
+        Install, InstallAnswer, Launch, LaunchAnswer, OpenAnswer, OutputStream, PairAnswer,
+        PairConfirm, PairStart, Pairing, PairingCode, Question, RefusalKind, Request, Row, RunEnd,
+        RunEvent, ServingProgramsAnswer, StopAnswer, Token, UninstallAnswer, Upload,
+        component_digest, connect_across_network,
     };
     use waos_package::ProgramId;
 
@@ -752,6 +761,26 @@ pub(crate) mod tests {
             let theirs = client.hello(&ours).await.unwrap();
             assert_eq!(theirs.major, waos_dev_protocol::MAJOR);
             client
+        }
+
+        /// A pairing begun from the network with `code`, unpinned as pairing is: the connection,
+        /// the fingerprint the server answered with, this side's half, and the server's answer.
+        async fn pairing_with(
+            &self,
+            code: &str,
+        ) -> (ClientConnection, Fingerprint, Pairing, PairAnswer) {
+            let port = self.listening_port().await;
+            let address: DeviceAddress = format!("wss://127.0.0.1:{port}").parse().unwrap();
+            let (mut client, seen) = connect_across_network(&address, None).await.unwrap();
+            client.hello(&Hello::command("waos test")).await.unwrap();
+            let (pairing, ours) = Pairing::start(&PairingCode::parse(code).unwrap());
+            let start = PairStart {
+                computer: "test computer".to_owned(),
+                spake: ours,
+            };
+            client.send(&Request::Pair(start)).await.unwrap();
+            let answer = next::<PairAnswer>(&mut client).await;
+            (client, seen.expect("a certificate"), pairing, answer)
         }
 
         /// The port the server listens on for the network, developer access turned on.
@@ -1737,6 +1766,81 @@ pub(crate) mod tests {
             assert_eq!(refusal.kind, RefusalKind::NotPaired);
             assert!(refusal.message.contains("waos pair"), "{}", refusal.message);
         }
+    }
+
+    #[tokio::test]
+    async fn a_computer_pairs_with_the_code_shown_and_its_token_is_answered_from_then_on() {
+        let server = TestServer::start("pairing");
+        let code = server.access.show_code().unwrap();
+        let (mut client, seen, pairing, answer) = server.pairing_with(code.as_str()).await;
+        let PairAnswer::Spake {
+            spake,
+            confirmation,
+        } = answer
+        else {
+            panic!("the device's half, not {answer:?}");
+        };
+        let key = pairing.finish(&spake).unwrap();
+        assert!(key.holds_for_device(seen, &confirmation));
+        assert_eq!(seen, server.access.identity().unwrap().fingerprint());
+        let confirm = PairConfirm {
+            confirmation: key.computer_proof(),
+        };
+        client.send(&confirm).await.unwrap();
+        assert_eq!(next::<PairAnswer>(&mut client).await, PairAnswer::Paired);
+        assert_eq!(server.access.shown_code(), None, "the code ends");
+        let names: Vec<String> = (server.access.paired().into_iter())
+            .map(|computer| computer.name)
+            .collect();
+        assert_eq!(names, ["test computer"]);
+        let mut paired = server.network_client_with(Some(key.token())).await;
+        paired.send(&Request::ServingPrograms).await.unwrap();
+        let answer = next::<ServingProgramsAnswer>(&mut paired).await;
+        assert!(
+            matches!(answer, ServingProgramsAnswer::Programs(_)),
+            "{answer:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_pairing_with_another_code_is_refused_and_pairs_nothing() {
+        let server = TestServer::start("pairing-wrong");
+        let shown = server.access.show_code().unwrap();
+        let other = if shown.as_str() == "000000" {
+            "111111"
+        } else {
+            "000000"
+        };
+        let (mut client, seen, pairing, answer) = server.pairing_with(other).await;
+        let PairAnswer::Spake {
+            spake,
+            confirmation,
+        } = answer
+        else {
+            panic!("the device's half, not {answer:?}");
+        };
+        let key = pairing.finish(&spake).unwrap();
+        assert!(!key.holds_for_device(seen, &confirmation));
+        let confirm = PairConfirm {
+            confirmation: key.computer_proof(),
+        };
+        client.send(&confirm).await.unwrap();
+        let PairAnswer::Refused(refusal) = next::<PairAnswer>(&mut client).await else {
+            panic!("refused");
+        };
+        assert_eq!(refusal.kind, RefusalKind::WrongCode);
+        assert!(server.access.paired().is_empty());
+        assert!(!server.access.knows(&key.token()));
+    }
+
+    #[tokio::test]
+    async fn a_pairing_while_no_code_is_shown_is_refused() {
+        let server = TestServer::start("pairing-closed");
+        let (_client, _, _, answer) = server.pairing_with("123456").await;
+        let PairAnswer::Refused(refusal) = answer else {
+            panic!("refused, not {answer:?}");
+        };
+        assert_eq!(refusal.kind, RefusalKind::PairingClosed);
     }
 
     #[tokio::test]

@@ -85,6 +85,10 @@ pub enum RefusalKind {
     /// A connection across the network came without a token this WaOS gave a paired computer:
     /// the computer is to pair first.
     NotPaired,
+    /// A pairing came while the device shows no code, or after the code it showed ended.
+    PairingClosed,
+    /// A pairing's code was not the one the device shows.
+    WrongCode,
     #[serde(skip)]
     Unknown,
 }

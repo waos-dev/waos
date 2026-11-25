@@ -9,7 +9,7 @@
 
 use anyhow::{Context, Result, anyhow, bail};
 use serde::de::DeserializeOwned;
-use waos_dev_protocol::{ClientConnection, Request};
+use waos_dev_protocol::{ClientConnection, Hello, Request};
 
 use crate::connecting::{WaOSStarter, nobody_answers};
 use crate::destination::Destination;
@@ -53,17 +53,26 @@ pub async fn answer<A: DeserializeOwned>(
 /// `connection`, to `destination`, with WaOS's hello read and checked against `request`, as this
 /// build's: a mismatch is the error, in the words naming both builds and which one to update.
 pub async fn greeted(
-    mut connection: ClientConnection,
+    connection: ClientConnection,
     destination: &Destination,
     request: &Request,
 ) -> Result<ClientConnection> {
-    let ours = destination.hello();
+    greeted_with(connection, &destination.hello(), request).await
+}
+
+/// `connection` with our hello, `ours`, said and WaOS's read and checked against `request`: a
+/// mismatch is the error, in the words naming both builds and which one to update.
+pub async fn greeted_with(
+    mut connection: ClientConnection,
+    ours: &Hello,
+    request: &Request,
+) -> Result<ClientConnection> {
     let theirs = connection
-        .hello(&ours)
+        .hello(ours)
         .await
         .context("the WaOS that answered")?;
     theirs
-        .accepts(&ours, request)
+        .accepts(ours, request)
         .map_err(|mismatch| anyhow!("{mismatch}"))?;
     Ok(connection)
 }
@@ -107,7 +116,7 @@ pub async fn connect(destination: &Destination) -> Result<ClientConnection> {
 
 #[cfg(test)]
 mod tests {
-    use waos_dev_protocol::{Hello, Listener, MAJOR, ResizeAnswer, TestPlace};
+    use waos_dev_protocol::{Listener, MAJOR, ResizeAnswer, TestPlace};
 
     use super::*;
 

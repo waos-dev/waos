@@ -1,23 +1,33 @@
 //! Developer access: whether computers on the network may reach this WaOS's dev server, as `waos
 //! --device` does, and what lets one in: the device's identity, the certificate it answers
-//! `wss://` with; and the computers paired with it, each recognized by its token's digest. It is
-//! kept in a folder of WaOS's data, the user's alone: `identity.der` and `key.der`, made the first
-//! time access is turned on, and `paired.toml`.
+//! `wss://` with; the computers paired with it, each recognized by its token's digest; and the
+//! code the device shows while a computer pairs (`dev_pairing`). It is kept in a folder of WaOS's
+//! data, the user's alone: `identity.der` and `key.der`, made the first time access is turned on,
+//! and `paired.toml`.
 //!
 //! The invariants a later editor will break:
 //! - The identity is made once and kept: a computer pinned its certificate, and a new one would
 //!   make every paired computer refuse the device.
 //! - The files keep the tokens' digests, never the tokens, so reading them reaches nothing.
+//! - A code is shown for [`CODE_LIFE`] and [`CODE_TRIES`] pairings at most, each pairing that
+//!   takes it counting whether or not it finishes, and it ends once a computer pairs with it: each
+//!   pairing is one guess at most, and a code few.
 
 use std::fs::{self, OpenOptions};
 use std::io::{self, ErrorKind, Write as _};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 use tokio::sync::watch;
-use waos_dev_protocol::{Identity, Token};
+use waos_dev_protocol::{Identity, PairingCode, Token};
+
+/// How long a code is shown before it ends.
+pub(crate) const CODE_LIFE: Duration = Duration::from_secs(120);
+
+/// How many pairings a code is taken by before it ends.
+pub(crate) const CODE_TRIES: u32 = 3;
 
 const CERTIFICATE_FILE: &str = "identity.der";
 const KEY_FILE: &str = "key.der";
@@ -36,6 +46,9 @@ struct Inner {
     on: watch::Sender<bool>,
     /// Whether the dev server listens for the network, which the settings show.
     listening: watch::Sender<Listening>,
+    /// Bumped at each change the settings show: a code shown or ended, a computer paired or
+    /// removed.
+    changes: watch::Sender<u64>,
 }
 
 /// Where the dev server listens for the network.
@@ -59,10 +72,18 @@ pub(crate) enum Listening {
     Failed(String),
 }
 
-/// What the folder keeps, as read.
+/// What the folder keeps, as read, and the code shown now.
 struct Kept {
     identity: Option<Identity>,
     paired: Vec<PairedComputer>,
+    code: Option<ShownCode>,
+}
+
+/// The code shown, until when, and how many pairings took it.
+struct ShownCode {
+    code: PairingCode,
+    until: Instant,
+    tries: u32,
 }
 
 /// A computer paired with this device.
@@ -103,17 +124,22 @@ impl DeveloperAccess {
             kept: Mutex::new(Kept {
                 identity: None,
                 paired,
+                code: None,
             }),
             on: watch::Sender::new(false),
             listening: watch::Sender::new(Listening::Not),
+            changes: watch::Sender::new(0),
         }))
     }
 
-    /// Turns access on or off; the dev server follows.
+    /// Turns access on or off; the dev server follows. Turned off, it ends the code shown.
     pub(crate) fn set_on(&self, on: bool) {
         self.0
             .on
             .send_if_modified(|was| std::mem::replace(was, on) != on);
+        if !on {
+            self.end_code();
+        }
     }
 
     /// Whether access is on, as it changes.
@@ -153,6 +179,11 @@ impl DeveloperAccess {
         Ok(identity)
     }
 
+    /// The computers paired, in the order they paired.
+    pub(crate) fn paired(&self) -> Vec<PairedComputer> {
+        self.kept().paired.clone()
+    }
+
     /// Whether `token` is a paired computer's.
     pub(crate) fn knows(&self, token: &Token) -> bool {
         let digest = token.digest();
@@ -163,11 +194,7 @@ impl DeveloperAccess {
     }
 
     /// Keeps the computer `name` as paired, its token `token`, in place of one of the same name
-    /// paired before.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "pairing, the next step, keeps computers")
-    )]
+    /// paired before; the code shown ends.
     pub(crate) fn pair(&self, name: &str, token: &Token) -> io::Result<()> {
         let mut kept = self.kept();
         let mut paired = kept.paired.clone();
@@ -179,7 +206,89 @@ impl DeveloperAccess {
         });
         write_paired(&self.0.folder, &paired)?;
         kept.paired = paired;
+        kept.code = None;
+        drop(kept);
+        self.changed();
         Ok(())
+    }
+
+    /// Forgets the computer `name`: its token is refused from now on.
+    pub(crate) fn remove(&self, name: &str) -> io::Result<()> {
+        let mut kept = self.kept();
+        let mut paired = kept.paired.clone();
+        paired.retain(|computer| computer.name != name);
+        write_paired(&self.0.folder, &paired)?;
+        kept.paired = paired;
+        drop(kept);
+        self.changed();
+        Ok(())
+    }
+
+    /// Shows a new code, in place of any shown, for [`CODE_LIFE`]; answers it.
+    pub(crate) fn show_code(&self) -> io::Result<PairingCode> {
+        let code = PairingCode::make()?;
+        self.kept().code = Some(ShownCode {
+            code: code.clone(),
+            until: Instant::now() + CODE_LIFE,
+            tries: 0,
+        });
+        self.changed();
+        Ok(code)
+    }
+
+    /// The code shown now; none once it ended.
+    pub(crate) fn shown_code(&self) -> Option<PairingCode> {
+        let kept = self.kept();
+        let shown = kept.code.as_ref()?;
+        (shown.until > Instant::now()).then(|| shown.code.clone())
+    }
+
+    /// The code shown, for a pairing to try, counted as one of its [`CODE_TRIES`]; none while
+    /// none is shown, or once it ended.
+    pub(crate) fn take_code(&self) -> Option<PairingCode> {
+        let mut kept = self.kept();
+        let shown = kept.code.as_mut()?;
+        if shown.until <= Instant::now() {
+            return None;
+        }
+        shown.tries += 1;
+        let code = shown.code.clone();
+        if shown.tries >= CODE_TRIES {
+            kept.code = None;
+            drop(kept);
+            self.changed();
+        }
+        Some(code)
+    }
+
+    /// Ends the code shown, if any.
+    pub(crate) fn end_code(&self) {
+        if self.kept().code.take().is_some() {
+            self.changed();
+        }
+    }
+
+    /// Ends the code shown once its time is up: what a timer calls as the code's life ends.
+    pub(crate) fn end_expired_code(&self) {
+        let mut kept = self.kept();
+        if kept
+            .code
+            .as_ref()
+            .is_some_and(|shown| shown.until <= Instant::now())
+        {
+            kept.code = None;
+            drop(kept);
+            self.changed();
+        }
+    }
+
+    /// Each change the settings show, from now on.
+    pub(crate) fn changes(&self) -> watch::Receiver<u64> {
+        self.0.changes.subscribe()
+    }
+
+    fn changed(&self) {
+        self.0.changes.send_modify(|count| *count += 1);
     }
 
     fn kept(&self) -> MutexGuard<'_, Kept> {
@@ -310,6 +419,40 @@ mod tests {
         let again = DeveloperAccess::at(folder.path().join("developer"));
         assert!(again.knows(&token));
         assert!(!again.knows(&Token::new("other")));
+    }
+
+    #[test]
+    fn a_computer_removed_is_known_no_longer() {
+        let (folder, access) = access();
+        let token = Token::new("a1b2");
+        access.pair("mac", &token).unwrap();
+        access.remove("mac").unwrap();
+        assert!(!access.knows(&token));
+        let again = DeveloperAccess::at(folder.path().join("developer"));
+        assert!(!again.knows(&token), "removed across a restart");
+    }
+
+    #[test]
+    fn a_code_ends_after_its_tries_and_once_a_computer_pairs() {
+        let (_folder, access) = access();
+        let shown = access.show_code().unwrap();
+        for _ in 0..CODE_TRIES {
+            assert_eq!(access.take_code(), Some(shown.clone()));
+        }
+        assert_eq!(access.take_code(), None);
+        assert_eq!(access.shown_code(), None);
+        access.show_code().unwrap();
+        access.pair("mac", &Token::new("t")).unwrap();
+        assert_eq!(access.shown_code(), None);
+    }
+
+    #[test]
+    fn turning_access_off_ends_the_code() {
+        let (_folder, access) = access();
+        access.set_on(true);
+        access.show_code().unwrap();
+        access.set_on(false);
+        assert_eq!(access.shown_code(), None);
     }
 
     #[test]

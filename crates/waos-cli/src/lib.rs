@@ -40,6 +40,7 @@ mod metadata;
 mod new;
 mod os;
 mod package;
+mod pair;
 mod resize;
 mod run;
 mod screenshot;
@@ -91,6 +92,9 @@ pub const CLI_COMMANDS: &[&str] = &[
     "inspect",
     "ext",
     "docs",
+    "pair",
+    "unpair",
+    "devices",
     "help",
 ];
 
@@ -250,6 +254,31 @@ enum Command {
     /// Without a page, prints the map of WaOS's docs; with a page, prints that page as Markdown;
     /// with --search, prints every matching line as <page>:<line>: <text>.
     Docs(DocsArgs),
+    /// Pairs this computer with a device's WaOS, by the code the device shows: in its WaOS's
+    /// settings, turn on Developer access and choose Pair a computer. Every command then reaches
+    /// it with `--device <name>`.
+    Pair(PairArgs),
+    /// Forgets a device this computer is paired with.
+    Unpair(UnpairArgs),
+    /// Lists the devices this computer is paired with, a line each: the name `--device` takes,
+    /// and its address.
+    Devices,
+}
+
+#[derive(Args)]
+struct PairArgs {
+    /// The device's address: its name on the network or its IP address, host:port, or a wss://
+    /// URL; port 7351 when none is given. It is the name `--device` takes after.
+    device: String,
+    /// The six digits the device shows; asked for when not given.
+    #[arg(long)]
+    code: Option<String>,
+}
+
+#[derive(Args)]
+struct UnpairArgs {
+    /// The device, by the name or the address it was paired with.
+    device: String,
 }
 
 #[derive(Args)]
@@ -791,6 +820,9 @@ fn dispatch(command: Command, device: Option<&str>, starter: &dyn WaOSStarter) -
         Command::Settings(settings) => dispatch_settings(&destination()?, settings, starter),
         Command::Inspect(inspect) => dispatch_inspect(&destination()?, inspect),
         Command::Ext(ext) => dispatch_ext(&destination()?, ext),
+        Command::Pair(args) => on_this_thread(pair::pair(&args.device, args.code.as_deref())),
+        Command::Unpair(args) => pair::unpair(&args.device),
+        Command::Devices => pair::devices(),
         Command::Docs(docs) => match docs.command {
             Some(DocsCommand::Skill(SkillArgs {
                 command: SkillCommand::Install { dir },

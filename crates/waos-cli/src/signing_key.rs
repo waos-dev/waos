@@ -14,22 +14,13 @@
 
 use std::env::{self, VarError};
 use std::fs;
-#[cfg(unix)]
-use std::fs::{DirBuilder, File, OpenOptions};
-#[cfg(unix)]
-use std::io;
 use std::io::{ErrorKind, Write};
-#[cfg(unix)]
-use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 use waos_package::SigningKey;
 
-use crate::configuration;
-
-#[cfg(windows)]
-use crate::os::windows::{create_private_file, make_private_folder};
+use crate::configuration::{self, create_private_file, make_private_folder};
 
 /// The variable the key is read from on CI, holding what the key file holds.
 const VARIABLE: &str = "WAOS_SIGNING_KEY";
@@ -119,24 +110,6 @@ fn make_key(path: &Path) -> Result<SigningKey> {
     };
     write().with_context(|| format!("writing a signing key at {}", path.display()))?;
     Ok(key)
-}
-
-/// Makes `folder` and its parents, the folder for the user alone (`0700`); one already there is
-/// left as it is.
-#[cfg(unix)]
-fn make_private_folder(folder: &Path) -> io::Result<()> {
-    DirBuilder::new().recursive(true).mode(0o700).create(folder)
-}
-
-/// A new file at `path`, to write, which the user alone may read (`0600`); `AlreadyExists` when
-/// there is one.
-#[cfg(unix)]
-fn create_private_file(path: &Path) -> io::Result<File> {
-    OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(0o600)
-        .open(path)
 }
 
 /// Tells the user a key was made, where, the publisher key its packages carry, and that it must

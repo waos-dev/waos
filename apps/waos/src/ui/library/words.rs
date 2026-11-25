@@ -253,6 +253,21 @@ pub(crate) fn developer_access_listening(port: u16) -> String {
 pub(crate) fn developer_access_failed(why: &str) -> String {
     format!("{DEVELOPER_ACCESS_DETAIL} WaOS cannot listen: {why}.")
 }
+/// Under developer access, the button that shows a code for a computer to pair with, and what it
+/// says before and while one is shown.
+pub(crate) const PAIR_A_COMPUTER: &str = "Pair a computer";
+pub(crate) const PAIR_A_COMPUTER_DETAIL: &str =
+    "Shows a code to type into `waos pair` on your computer, for two minutes.";
+pub(crate) const SHOW_A_CODE: &str = "Show a code";
+/// What a pairing's `code` says while it is shown.
+pub(crate) fn pairing_code(code: &str) -> String {
+    let (first, last) = code.split_at(code.len() / 2);
+    format!("{first} {last}: type it into `waos pair` on your computer within two minutes.")
+}
+/// The computers paired with this device, each of which the user may remove, and what is said
+/// while there are none.
+pub(crate) const PAIRED_COMPUTERS: &str = "Paired computers";
+pub(crate) const NO_PAIRED_COMPUTERS: &str = "None yet.";
 /// The global settings' line on the phone's files, where WaOS reaches them only as the user
 /// allows, and what it says while WaOS may reach them or not.
 pub(crate) const PHONE_FILES: &str = "This phone's files";

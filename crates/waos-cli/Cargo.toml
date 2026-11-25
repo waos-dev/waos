@@ -30,8 +30,10 @@ clap = { workspace = true, features = ["env"] }
 cargo_metadata.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-# The devices this computer is paired with, kept in `devices.toml`.
+# The devices this computer is paired with, kept in `devices.toml`, and the name a device lists
+# this computer by.
 toml.workspace = true
+gethostname = "1"
 # The SHA-256 of a package, which the index lists.
 sha2.workspace = true
 # The workspace a new program is made in, edited as `cargo new` edits it: its root manifest in

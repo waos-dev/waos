@@ -65,6 +65,8 @@ pub(crate) mod dev_launch;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(crate) mod dev_network;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
+pub(crate) mod dev_pairing;
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(crate) mod dev_refusal;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(crate) mod dev_resize;
