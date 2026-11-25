@@ -57,8 +57,8 @@ pub(crate) mod recordings;
 pub(crate) mod test_system;
 #[cfg(test)]
 mod tests;
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(crate) mod video_decoders;
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(crate) mod waos_tray;
 
 use std::path::PathBuf;
