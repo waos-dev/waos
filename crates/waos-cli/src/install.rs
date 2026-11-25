@@ -12,7 +12,7 @@ use anyhow::{Context, Result, bail};
 use waos_dev_protocol::{
     ClientStream, Connection, Install, InstallAnswer, Request, Upload, component_digest,
 };
-use waos_package::{Category, ProgramId, ProgramKind, Version};
+use waos_package::{Category, FileAssociation, ProgramId, ProgramKind, Version};
 
 use crate::asking;
 use crate::connecting::{WaOSStarter, connect_or_start};
@@ -32,6 +32,8 @@ pub struct InstallBuild {
     pub icon: Option<Vec<u8>>,
     /// What it is for, where its metadata says.
     pub category: Option<Category>,
+    /// The kinds of file it opens; none where its metadata declares none.
+    pub file_associations: Vec<FileAssociation>,
     pub component: Vec<u8>,
 }
 
@@ -60,6 +62,7 @@ pub async fn install_on(
         version: build.version.clone(),
         icon: build.icon.clone(),
         category: build.category.map(|category| category.as_str().to_owned()),
+        file_associations: build.file_associations.clone(),
         length: build.component.len() as u64,
         digest: component_digest(&build.component),
     });
@@ -131,6 +134,7 @@ mod tests {
             version: "0.1.0".parse().unwrap(),
             icon: Some(b"png".to_vec()),
             category: Some(Category::Productivity),
+            file_associations: Vec::new(),
             component: b"component bytes".to_vec(),
         }
     }

@@ -1,14 +1,16 @@
 //! A program's manifest: its id, the name the user sees, its version, whether it is an app or a
-//! tool, and what it is for, as TOML. An app writes no `kind`, so a manifest from before kinds
-//! reads as an app; a `category` is written only where the author gave one, and one this version
-//! does not know reads as none, so a later version's categories break nothing.
+//! tool, what it is for, and the kinds of file it opens, as TOML. An app writes no `kind`, so a
+//! manifest from before kinds reads as an app; a `category` is written only where the author gave
+//! one, and one this version does not know reads as none, so a later version's categories break
+//! nothing; and `file_associations` only where the author declared some, a manifest without them
+//! opening none.
 
 use std::fmt;
 
 use semver::Version;
 use serde::{Deserialize, Serialize};
 
-use crate::{Category, IdError, ProgramId};
+use crate::{Category, FileAssociation, FileAssociationError, IdError, ProgramId};
 
 /// A program's identity: what an installer files it under, shows the user, and compares to
 /// tell an update from the version installed; and what kind of program it is.
@@ -19,6 +21,7 @@ pub struct Manifest {
     version: Version,
     kind: ProgramKind,
     category: Option<Category>,
+    file_associations: Vec<FileAssociation>,
 }
 
 /// What a program is to its user, as its author declares it (decision 3 of
@@ -73,6 +76,7 @@ impl Manifest {
             version,
             kind: ProgramKind::App,
             category: None,
+            file_associations: Vec::new(),
         })
     }
 
@@ -95,6 +99,23 @@ impl Manifest {
         Manifest { category, ..self }
     }
 
+    /// The same manifest, of a program that opens the kinds of file `file_associations` declare;
+    /// refused where one of them could match no file.
+    pub fn with_file_associations(
+        self,
+        file_associations: Vec<FileAssociation>,
+    ) -> Result<Manifest, ManifestError> {
+        for association in &file_associations {
+            association
+                .check()
+                .map_err(ManifestError::InvalidFileAssociation)?;
+        }
+        Ok(Manifest {
+            file_associations,
+            ..self
+        })
+    }
+
     /// Reads a manifest from its TOML. Fields this version does not know are ignored, so a
     /// later version can add its own.
     pub fn from_toml(text: &str) -> Result<Manifest, ManifestError> {
@@ -108,9 +129,10 @@ impl Manifest {
         };
         // A category this version does not know is a later version's: it reads as none.
         let category = fields.category.and_then(|category| category.parse().ok());
-        Ok(Manifest::new(id, fields.name, version)?
+        Manifest::new(id, fields.name, version)?
             .with_kind(kind)
-            .with_category(category))
+            .with_category(category)
+            .with_file_associations(fields.file_associations)
     }
 
     /// The manifest as TOML, as a package holds it.
@@ -121,6 +143,7 @@ impl Manifest {
             version: self.version.to_string(),
             kind: (self.kind != ProgramKind::App).then(|| self.kind.as_str().to_owned()),
             category: self.category.map(|category| category.as_str().to_owned()),
+            file_associations: self.file_associations.clone(),
         };
         toml::to_string(&fields).expect("a table of strings is TOML")
     }
@@ -146,6 +169,12 @@ impl Manifest {
     pub fn category(&self) -> Option<Category> {
         self.category
     }
+
+    /// The kinds of file the program opens, as its author declared them; none where it declared
+    /// none.
+    pub fn file_associations(&self) -> &[FileAssociation] {
+        &self.file_associations
+    }
 }
 
 /// A manifest as TOML spells it, before its fields are checked.
@@ -160,6 +189,9 @@ struct ManifestFields {
     /// None where the author gave no category.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     category: Option<String>,
+    /// None where the author declared none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    file_associations: Vec<FileAssociation>,
 }
 
 fn parse_version(version: &str) -> Result<Version, ManifestError> {
@@ -184,6 +216,8 @@ pub enum ManifestError {
     },
     /// The kind is neither `app` nor `tool`.
     UnknownKind(String),
+    /// A kind of file it opens could match no file.
+    InvalidFileAssociation(FileAssociationError),
 }
 
 impl fmt::Display for ManifestError {
@@ -208,6 +242,7 @@ impl fmt::Display for ManifestError {
             ManifestError::UnknownKind(kind) => {
                 write!(f, "the kind {kind:?} is neither \"app\" nor \"tool\"")
             }
+            ManifestError::InvalidFileAssociation(error) => write!(f, "{error}"),
         }
     }
 }
@@ -329,5 +364,38 @@ mod tests {
             matches!(&error, ManifestError::InvalidVersion { version, .. } if version == "0.1"),
             "{error}"
         );
+    }
+
+    fn flash() -> FileAssociation {
+        FileAssociation {
+            extensions: vec!["swf".to_owned()],
+            name: "Flash movie".to_owned(),
+            mime_type: Some("application/x-shockwave-flash".to_owned()),
+        }
+    }
+
+    #[test]
+    fn file_associations_read_back_and_a_manifest_without_them_writes_none() {
+        let opener = Manifest::from_toml(TRIANGLE)
+            .unwrap()
+            .with_file_associations(vec![flash()])
+            .unwrap();
+        let text = opener.to_toml();
+        assert!(text.contains("[[file_associations]]"), "{text}");
+        assert_eq!(Manifest::from_toml(&text).unwrap(), opener);
+        let plain = Manifest::from_toml(TRIANGLE).unwrap();
+        assert!(plain.file_associations().is_empty());
+        assert_eq!(plain.to_toml(), TRIANGLE);
+    }
+
+    #[test]
+    fn an_association_that_could_match_no_file_is_refused_as_a_manifests() {
+        let dotted = format!(
+            "{TRIANGLE}\n[[file_associations]]\nextensions = [\".swf\"]\nname = \"Flash movie\"\n"
+        );
+        assert!(matches!(
+            Manifest::from_toml(&dotted),
+            Err(ManifestError::InvalidFileAssociation(_))
+        ));
     }
 }

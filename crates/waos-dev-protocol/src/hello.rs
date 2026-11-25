@@ -179,6 +179,7 @@ mod tests {
             version: "0.1.0".parse().unwrap(),
             icon: None,
             category: None,
+            file_associations: Vec::new(),
             length: 0,
             digest: [0; 32],
         })

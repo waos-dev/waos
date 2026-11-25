@@ -23,6 +23,7 @@
 mod category;
 mod entries;
 mod error;
+mod file_association;
 #[cfg(test)]
 mod fixtures;
 mod icon;
@@ -38,6 +39,7 @@ mod write;
 pub use category::{Category, UnknownCategory};
 pub use entries::{COMPONENT, ICON, MANIFEST, PUBLISHER_KEY};
 pub use error::PackageError;
+pub use file_association::{FileAssociation, FileAssociationError};
 pub use icon::MINIMUM_SIDE as ICON_MINIMUM_SIDE;
 pub use id::{DEVELOPMENT_SUFFIX, IdError, ProgramId};
 pub use index::{Index, IndexError, ListedProgram};

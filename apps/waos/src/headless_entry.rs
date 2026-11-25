@@ -371,6 +371,7 @@ mod tests {
             version: "0.1.0".parse().unwrap(),
             icon: None,
             category: None,
+            file_associations: Vec::new(),
             length: component.len() as u64,
             digest: component_digest(&component),
         }))
