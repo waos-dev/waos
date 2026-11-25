@@ -23,8 +23,8 @@ use waft_winui::{
     BreadcrumbBar, BreadcrumbBarItem, Button, ButtonStyle,
     CLICKABLE_SETTINGS_EXPANDER_ITEM_PADDING, ComboBox, ComboBoxItem, FluentSymbol, FontIcon,
     SETTINGS_CARD_HEADER_ICON_MAX_SIZE, SETTINGS_EXPANDER_ITEM_BORDER_THICKNESS,
-    SETTINGS_EXPANDER_ITEM_MIN_HEIGHT, SettingsCard, TextBlockStyle, ThemeResources, ThemeScope,
-    ToggleSwitch, right_aligned_compact_toggle_switch_style,
+    SETTINGS_EXPANDER_ITEM_MIN_HEIGHT, SettingsCard, SettingsExpander, TextBlockStyle,
+    ThemeResources, ThemeScope, ToggleSwitch, right_aligned_compact_toggle_switch_style,
 };
 
 use super::{AppAction, AppInfo};
@@ -55,9 +55,6 @@ const TITLE_CHEVRON_FONT_SIZE: f64 = 16.0;
 /// (Windows's own icon font fills it), so at this size their ink is as wide as the card's icon
 /// room, where at the room's own size the card would show them a third smaller.
 const SYMBOL_FONT_SIZE: f64 = 24.0;
-
-/// The icon font's bin, on the card that removes an app.
-const REMOVE_GLYPH: char = '\u{f34c}';
 
 /// The room over a heading, which parts its group from the one before, and under it.
 const HEADING_MARGIN: [f64; 2] = [24.0, 6.0];
@@ -224,41 +221,50 @@ pub(crate) fn app_header(
 }
 
 /// What is done to the app `id` as a whole, rarely and not to be undone, at the end of its page
-/// and apart from the rest, as Windows's Settings ends a page with what resets: a card for each,
-/// its button at its end.
+/// and apart from the rest: one card that unfolds, while `shown`, to a row for resetting its
+/// permissions, its button dimmed while none is set otherwise, and a row for removing it.
+/// `changed` hears the user fold or unfold it.
 pub(crate) fn app_endings(
     library: &Entity<Library>,
     id: &ProgramId,
     info: &AppInfo,
+    shown: bool,
+    changed: impl Fn(&mut App, bool) + 'static,
 ) -> Vec<WidgetRef> {
-    let cards = info
+    let can_reset = info
         .actions
         .iter()
-        .filter(|action| action.ends_the_page())
-        .map(|action| {
-            let (glyph, name, button) = match action {
-                AppAction::Remove => (
-                    REMOVE_GLYPH,
-                    words::remove_app(&info.name),
-                    words::ASK_TO_REMOVE,
-                ),
-                _ => (
-                    FluentSymbol::ArrowRepeatAll.glyph(),
-                    action.label().to_owned(),
-                    words::RESET,
-                ),
-            };
-            let (library, id, does) = (library.clone(), id.clone(), action.clone());
-            let click = Listener::new(move |app| does.carry_out(&library, &id, app));
-            setting_card(
-                Start::glyph(glyph),
-                &name,
-                None,
-                Some(card_button(button, click)),
-            )
-        });
+        .any(|action| matches!(action, AppAction::ResetPermissions));
+    let endings = [
+        (
+            AppAction::ResetPermissions,
+            words::RESET_PERMISSIONS.to_owned(),
+            words::RESET,
+            can_reset,
+        ),
+        (
+            AppAction::Remove,
+            words::remove_app(&info.name),
+            words::ASK_TO_REMOVE,
+            true,
+        ),
+    ];
+    let rows = endings.into_iter().map(|(action, name, button, enabled)| {
+        let (library, id) = (library.clone(), id.clone());
+        let click = Listener::new(move |app| action.carry_out(&library, &id, app));
+        let button = ConstrainedBox::new(BoxConstraints::new().min_width(BUTTON_MIN_WIDTH))
+            .child(Button::text(button, click).is_enabled(enabled));
+        SettingsCard::new()
+            .header(Text::new(name))
+            .content(button)
+            .into_widget()
+    });
+    let mut card = SettingsExpander::new(shown, changed)
+        .header(Text::new(words::RESET_OR_REMOVE))
+        .items(rows);
+    card.header_icon = Start::symbol(FluentSymbol::ArrowRepeatAll).icon();
     let apart = SizedBox::new().height(HEADING_MARGIN[0]).into_widget();
-    [apart].into_iter().chain(cards).collect()
+    vec![apart, spaced(card)]
 }
 
 /// Back to the page beneath, in a row of its own, its arrow over the cards' edge.

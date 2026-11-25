@@ -76,6 +76,7 @@ impl StatefulWidget for FluentSettings {
             dialog: None,
             writable: false,
             simulating: Vec::new(),
+            endings_shown: false,
         }
     }
 }
@@ -89,6 +90,8 @@ pub(crate) struct FluentSettingsState {
     writable: bool,
     /// The file pickers the user chose to simulate and has set no path for yet.
     simulating: Vec<FileDialog>,
+    /// Whether the card that ends an app's page shows its rows; folded away until asked for.
+    endings_shown: bool,
 }
 
 /// What is being typed in the dialog.
@@ -169,7 +172,14 @@ impl State for FluentSettingsState {
         match shown.app_info(app) {
             Some((id, info)) => {
                 let header = app_header(&shown.library, &shown.resources, &id, &info);
-                rows.extend(app_endings(&shown.library, &id, &info));
+                let endings_shown = app.get(self).endings_shown;
+                rows.extend(app_endings(
+                    &shown.library,
+                    &id,
+                    &info,
+                    endings_shown,
+                    move |app, shown| self.set_state(app, |state| state.endings_shown = shown),
+                ));
                 app_page(&shown.library, header, rows)
             }
             None => page(&shown.library, &shown.resources, &trail, rows),

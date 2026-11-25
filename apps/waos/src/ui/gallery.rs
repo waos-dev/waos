@@ -317,6 +317,13 @@ fn walks_the_library(layout: &str, (mut desktop, view): (LibraryDesktop, ViewId)
     // Under its permissions, what is the app's alone.
     desktop.scroll_to_end(view, "Network");
     scenes.draw(&mut desktop, "program-settings-end");
+    if layout == "launcher" {
+        // Its last card unfolds to what resets its permissions and what removes it.
+        let unfolds = crate::ui::library::words::RESET_OR_REMOVE;
+        desktop.tap(view, unfolds);
+        desktop.scroll_to_end(view, unfolds);
+        scenes.draw(&mut desktop, "program-settings-endings");
+    }
     shows(
         &mut desktop,
         LibraryPage::Settings(SettingsPage::AppPermission(
