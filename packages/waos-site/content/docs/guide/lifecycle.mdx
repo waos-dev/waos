@@ -77,6 +77,19 @@ fn wire_lifecycle(app: &mut App) {
 }
 ```
 
+## Being offered for a kind of file
+
+Declare the kinds of file your app opens in its `Cargo.toml`, and the system offers it for them in Open with on macOS, Windows and Linux; each file opened arrives in `open-requests`.
+
+```toml
+[[package.metadata.waos.file_associations]]
+extensions = ["swf"]
+name = "Flash movie"
+mime_type = "application/x-shockwave-flash"
+```
+
+Write extensions without the dot. Linux offers the app only for a kind with a `mime_type`. The app never becomes a type's default: the user chooses that.
+
 ## Where it's missing
 
 On Android the system can terminate a background app without sending an `exit-request`. In workers, `exit-requests` and `open-requests` end immediately because those belong to the main instance. Every file delivered in `open-requests` is mounted for the program at the path reported in `request.files`.

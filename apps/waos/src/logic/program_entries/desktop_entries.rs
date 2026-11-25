@@ -2,7 +2,12 @@
 //! applications (`$XDG_DATA_HOME/applications`), which the app grid and its search list, a pin in
 //! the dock is, and GNOME and KDE match the program's windows to by their app id
 //! (`StartupWMClass`); with the program's name, its icon by its path, a copy of its package's PNG
-//! among WaOS's (`Identities::png_of`), and `Exec` starting `waos open --program <id>`.
+//! among WaOS's (`Identities::png_of`), and `Exec` starting `waos open --program <id>`. A
+//! program that opens kinds of file names their MIME types (`MimeType`), as a Waft app's desktop
+//! entry does, so the desktop offers it for them in Open with, and `Exec` then takes the files
+//! (`%F`), opening them with the program; a kind without a MIME type is not associated, Linux
+//! knowing files by theirs. The applications folder's cache of MIME types is updated after, where
+//! the system has `update-desktop-database`, as a package's installation does.
 //!
 //! The invariants a later editor will break: the entry has `StartupNotify=true` from its first
 //! write, since GNOME gives a launch from an entry it first read without it no activation token,
@@ -12,10 +17,11 @@
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 use waos_package::Category;
 
-use super::{ProgramEntry, SystemEntries};
+use super::{ProgramEntry, SystemEntries, Written};
 use crate::logic::program_identities::{Identities, relaunch_arguments};
 
 /// The desktop entries in `applications`, the user's applications folder.
@@ -30,7 +36,7 @@ impl SystemEntries for DesktopEntries {
         entry: &ProgramEntry,
         identities: &Identities,
         _others: &[PathBuf],
-    ) -> io::Result<Vec<PathBuf>> {
+    ) -> io::Result<Written> {
         let mut files = Vec::new();
         let icon = match &entry.icon {
             Some(png) => {
@@ -45,17 +51,29 @@ impl SystemEntries for DesktopEntries {
         let text = desktop_entry(entry, &identities.waos, icon.as_deref());
         write_in_place(&path, text.as_bytes())?;
         files.push(path);
-        Ok(files)
+        if !mime_types(entry).is_empty() {
+            update_mime_cache(&self.applications);
+        }
+        Ok(Written {
+            files,
+            settings: Vec::new(),
+        })
     }
 }
 
 /// The desktop entry of `entry`, starting the WaOS at `waos`, its icon at `icon`.
 pub(crate) fn desktop_entry(entry: &ProgramEntry, waos: &Path, icon: Option<&Path>) -> String {
     let waos = waos.to_string_lossy();
-    let exec: Vec<String> = std::iter::once(waos.to_string())
+    let mime_types = mime_types(entry);
+    let mut exec: Vec<String> = std::iter::once(waos.to_string())
         .chain(relaunch_arguments(&entry.id))
         .map(|argument| exec_argument(&argument))
         .collect();
+    if !mime_types.is_empty() {
+        // The files opened, each its own argument, after `open` and before `--program`; none
+        // when the entry is started alone.
+        exec.insert(2, "%F".to_owned());
+    }
     let mut lines = vec![
         "[Desktop Entry]".to_owned(),
         "Type=Application".to_owned(),
@@ -69,9 +87,45 @@ pub(crate) fn desktop_entry(entry: &ProgramEntry, waos: &Path, icon: Option<&Pat
     if let Some(category) = entry.category {
         lines.push(format!("Categories={}", menu_categories(category)));
     }
+    if !mime_types.is_empty() {
+        let listed: String = mime_types
+            .iter()
+            .map(|mime_type| format!("{};", string_value(mime_type)))
+            .collect();
+        lines.push(format!("MimeType={listed}"));
+    }
     lines.push(format!("StartupWMClass={}", entry.app_id));
     lines.push("StartupNotify=true".to_owned());
     lines.join("\n") + "\n"
+}
+
+/// The MIME types of the kinds of file `entry`'s program opens, in the order declared, each once;
+/// a kind without one is left out.
+fn mime_types(entry: &ProgramEntry) -> Vec<&str> {
+    let mut types: Vec<&str> = Vec::new();
+    for mime_type in entry
+        .file_associations
+        .iter()
+        .filter_map(|association| association.mime_type.as_deref())
+    {
+        if !types.contains(&mime_type) {
+            types.push(mime_type);
+        }
+    }
+    types
+}
+
+/// Updates the MIME types' cache of `applications`, which the desktop's Open with reads, where the
+/// system has `update-desktop-database`; a system without it reads the entries themselves.
+fn update_mime_cache(applications: &Path) {
+    match Command::new("update-desktop-database")
+        .arg(applications)
+        .status()
+    {
+        Ok(status) if status.success() => {}
+        Ok(status) => tracing::warn!(%status, "update-desktop-database failed"),
+        Err(error) => tracing::debug!(%error, "no update-desktop-database to run"),
+    }
 }
 
 /// The desktop menu's categories `category` is filed under, as `Categories` lists them: the
@@ -151,6 +205,8 @@ fn write_in_place(path: &Path, bytes: &[u8]) -> io::Result<()> {
 
 #[cfg(test)]
 mod tests {
+    use waos_package::FileAssociation;
+
     use super::*;
 
     fn entry(name: &str, icon: Option<PathBuf>) -> ProgramEntry {
@@ -161,6 +217,7 @@ mod tests {
             version: "1.0.0".to_owned(),
             icon,
             category: None,
+            file_associations: Vec::new(),
         }
     }
 
@@ -231,7 +288,8 @@ mod tests {
         };
         let files = entries
             .write(&entry("Notes", Some(png)), &identities, &[])
-            .unwrap();
+            .unwrap()
+            .files;
         let copy = folder
             .path()
             .join("icons/dev.waos.app.dev.example.notes.png");
@@ -247,5 +305,35 @@ mod tests {
             .unwrap()
             .count();
         assert_eq!(leftovers, 1, "nothing beside the entry");
+    }
+
+    #[test]
+    fn a_program_that_opens_kinds_of_file_names_their_mime_types_and_takes_the_files() {
+        let flash = FileAssociation {
+            extensions: vec!["swf".to_owned()],
+            name: "Flash movie".to_owned(),
+            mime_type: Some("application/x-shockwave-flash".to_owned()),
+        };
+        let unnamed = FileAssociation {
+            extensions: vec!["spl".to_owned()],
+            name: "FutureSplash movie".to_owned(),
+            mime_type: None,
+        };
+        let opener = ProgramEntry {
+            file_associations: vec![flash.clone(), unnamed, flash],
+            ..entry("Ruffle", None)
+        };
+        let text = desktop_entry(&opener, Path::new("/usr/bin/waos"), None);
+        assert!(
+            text.contains("Exec=/usr/bin/waos open %F --program dev.example.notes\n"),
+            "{text}"
+        );
+        assert!(
+            text.contains("MimeType=application/x-shockwave-flash;\n"),
+            "{text}"
+        );
+        let plain = desktop_entry(&entry("Notes", None), Path::new("/usr/bin/waos"), None);
+        assert!(!plain.contains("MimeType="), "{plain}");
+        assert!(!plain.contains("%F"), "{plain}");
     }
 }

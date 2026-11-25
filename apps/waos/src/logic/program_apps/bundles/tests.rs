@@ -34,6 +34,7 @@ fn installed(id: &str, name: &str) -> ProgramDescription {
         version: "1.0.0".to_owned(),
         icon: None,
         category: None,
+        file_associations: Vec::new(),
     }
 }
 
@@ -51,6 +52,7 @@ fn record(bundles: &Bundles, program: &ProgramDescription, path: PathBuf) {
                     code_hash: "00ff".to_owned(),
                     code_hash_hmac,
                     version: program.version.clone(),
+                    file_associations: program.file_associations.clone(),
                     made_from: bundles.made_from.clone(),
                 },
             );
@@ -246,5 +248,29 @@ fn what_a_bundle_is_made_from_changes_with_the_loader_and_the_paths_it_names() {
         made_from(&files("elsewhere")).unwrap(),
         rebuilt,
         "another path"
+    );
+}
+
+#[test]
+fn a_bundle_opening_other_kinds_of_file_than_its_program_does_now_is_written_again() {
+    let folder = tempfile::tempdir().unwrap();
+    let bundles = bundles(folder.path(), "27.0.1");
+    let notes = installed("dev.example.notes", "Notes");
+    let path = folder.path().join("Applications/WaOS Programs/Notes.app");
+    fs::create_dir_all(&path).unwrap();
+    record(&bundles, &notes, path);
+    let kept = bundles.kept(&notes.id).unwrap();
+    assert!(bundles.is_current(&kept, &notes));
+    let opening = ProgramDescription {
+        file_associations: vec![FileAssociation {
+            extensions: vec!["note".to_owned()],
+            name: "Note".to_owned(),
+            mime_type: None,
+        }],
+        ..notes
+    };
+    assert!(
+        !bundles.is_current(&kept, &opening),
+        "the same version, opening a kind of file it did not"
     );
 }

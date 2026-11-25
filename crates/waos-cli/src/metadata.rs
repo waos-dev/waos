@@ -2,8 +2,9 @@
 //! say, the program's id, the name people see, its icon, whether it is an app or a tool, an app
 //! unless it says `kind = "tool"`, what it is for, where it says a `category`, and what a store
 //! shows of it, where it says them: a line, a description's text file, who publishes it and its
-//! screenshots. An install from its source needs the id and the kind alone, and takes the name,
-//! the icon and the category where the table gives them.
+//! screenshots; and the kinds of file it opens, each a `[[package.metadata.waos.file_associations]]`
+//! table, as Waft's own are declared. An install from its source needs the id and the kind alone,
+//! and takes the name, the icon, the category and the file associations where the table gives them.
 //!
 //! ```toml
 //! [package.metadata.waos]
@@ -15,11 +16,17 @@
 //! description = "store/description.txt"
 //! publisher = "Example"
 //! screenshots = ["store/triangle-1.png"]
+//!
+//! [[package.metadata.waos.file_associations]]
+//! extensions = ["tri"]
+//! name = "Triangle drawing"
+//! mime_type = "application/x-triangle"
 //! ```
 //!
-//! The invariant: the id is checked here, before anything is built, since every version of a
-//! program is published under it for good; and the icon's path is the package's own, relative to
-//! its `Cargo.toml`.
+//! The invariant: the id and the file associations are checked here, before anything is built,
+//! since every version of a program is published under its id for good, and an association no
+//! system could match a file to is a mistake to say at once; and the icon's path is the package's
+//! own, relative to its `Cargo.toml`.
 
 use std::path::{Path, PathBuf};
 
@@ -27,7 +34,7 @@ use anyhow::{Context, Result};
 use cargo_metadata::Package;
 use serde::Deserialize;
 use serde_json::Value;
-use waos_package::{Category, ProgramId, ProgramKind};
+use waos_package::{Category, FileAssociation, ProgramId, ProgramKind};
 
 /// What `[package.metadata.waos]` says of a program.
 #[derive(Debug)]
@@ -48,6 +55,8 @@ pub struct WaosMetadata {
     pub publisher: Option<String>,
     /// Its screenshots, PNGs, in the order a store shows them.
     pub screenshots: Vec<PathBuf>,
+    /// The kinds of file it opens; none where the table declares none.
+    pub file_associations: Vec<FileAssociation>,
 }
 
 /// What an install from the program's source needs of `[package.metadata.waos]`: which program it
@@ -61,6 +70,8 @@ pub struct InstallIdentity {
     pub icon: Option<PathBuf>,
     /// What the app is for, where the table says.
     pub category: Option<Category>,
+    /// The kinds of file it opens; none where the table declares none.
+    pub file_associations: Vec<FileAssociation>,
 }
 
 /// The table as `Cargo.toml` spells it, before its fields are checked.
@@ -76,6 +87,8 @@ struct Fields {
     publisher: Option<String>,
     #[serde(default)]
     screenshots: Vec<PathBuf>,
+    #[serde(default)]
+    file_associations: Vec<FileAssociation>,
 }
 
 /// What an install needs of the table.
@@ -86,11 +99,21 @@ struct InstallFields {
     name: Option<String>,
     icon: Option<PathBuf>,
     category: Option<String>,
+    #[serde(default)]
+    file_associations: Vec<FileAssociation>,
 }
 
 /// The kind `kind` spells, an app where none is said.
 fn kind_of(kind: Option<&str>) -> Result<ProgramKind> {
     Ok(kind.map(str::parse).transpose()?.unwrap_or_default())
+}
+
+/// `associations`, each checked: one no system could match a file to is refused.
+fn checked(associations: Vec<FileAssociation>) -> Result<Vec<FileAssociation>> {
+    for association in &associations {
+        association.check()?;
+    }
+    Ok(associations)
 }
 
 impl WaosMetadata {
@@ -129,6 +152,7 @@ impl WaosMetadata {
             name: fields.name,
             icon: fields.icon.map(|icon| folder.join(icon)),
             category: fields.category.as_deref().map(str::parse).transpose()?,
+            file_associations: checked(fields.file_associations)?,
         })
     }
 
@@ -151,6 +175,7 @@ impl WaosMetadata {
                 .into_iter()
                 .map(|screenshot| folder.join(screenshot))
                 .collect(),
+            file_associations: checked(fields.file_associations)?,
         })
     }
 }
@@ -269,5 +294,36 @@ mod tests {
         let table = json!({"id": "triangle", "name": "Triangle", "icon": "icon.png"});
         let error = WaosMetadata::from_table(&table, Path::new("/")).unwrap_err();
         assert!(error.to_string().contains("reverse-DNS"), "{error}");
+    }
+
+    #[test]
+    fn the_kinds_of_file_a_program_opens_are_read_for_a_package_and_an_install() {
+        let table = json!({"id": "dev.example.ruffle", "name": "Ruffle", "icon": "icon.png",
+            "file_associations": [{"extensions": ["swf"], "name": "Flash movie",
+                "mime_type": "application/x-shockwave-flash"}]});
+        let flash = FileAssociation {
+            extensions: vec!["swf".to_owned()],
+            name: "Flash movie".to_owned(),
+            mime_type: Some("application/x-shockwave-flash".to_owned()),
+        };
+        let metadata = WaosMetadata::from_table(&table, Path::new("/")).unwrap();
+        assert_eq!(metadata.file_associations, std::slice::from_ref(&flash));
+        let install = WaosMetadata::install_identity_from_table(&table, Path::new("/")).unwrap();
+        assert_eq!(install.file_associations, [flash]);
+        let none = json!({"id": "dev.example.triangle", "name": "Triangle", "icon": "icon.png"});
+        let metadata = WaosMetadata::from_table(&none, Path::new("/")).unwrap();
+        assert!(metadata.file_associations.is_empty());
+    }
+
+    #[test]
+    fn an_association_no_system_could_match_a_file_to_is_refused_before_a_build() {
+        let dotted = json!({"id": "dev.example.ruffle", "name": "Ruffle", "icon": "icon.png",
+            "file_associations": [{"extensions": [".swf"], "name": "Flash movie"}]});
+        let error = WaosMetadata::from_table(&dotted, Path::new("/")).unwrap_err();
+        assert!(error.to_string().contains("without the dot"), "{error}");
+        let empty = json!({"id": "dev.example.ruffle",
+            "file_associations": [{"extensions": [], "name": "Flash movie"}]});
+        let error = WaosMetadata::install_identity_from_table(&empty, Path::new("/")).unwrap_err();
+        assert!(error.to_string().contains("no extensions"), "{error}");
     }
 }

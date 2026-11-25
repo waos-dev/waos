@@ -6,16 +6,19 @@
 //! written when its program is installed or updated, deleted when it is removed, and the entries
 //! are made to match the store as WaOS starts, for a program installed while an older WaOS ran. A
 //! development run writes none: it shares the installed program's entry, and a program never
-//! installed has none.
+//! installed has none. An entry also offers its program for the kinds of file it opens: a
+//! desktop entry names their MIME types, and on Windows they are registered in the user's classes
+//! (`file_associations`).
 //!
-//! WaOS keeps the record of the entries it wrote in its data folder: each one's files, and what
-//! they were written from, its program's name, version and the WaOS it starts, so an entry is
-//! written again only when one of those changed or one of its files is gone, and deleted with
-//! every file it wrote.
+//! WaOS keeps the record of the entries it wrote in its data folder: each one's files and what it
+//! set in the registry, and what they were written from, its program's name, version and the WaOS
+//! it starts, so an entry is written again only when one of those changed or one of its files is
+//! gone, and deleted with every file it wrote and everything it set.
 //!
-//! The invariant a later editor will break: the record names only files WaOS wrote, and every file
-//! it wrote for an entry; an entry is recorded once its files are in place, a file it no longer
-//! writes is deleted then, and an entry is taken out of the record only once its files are deleted.
+//! The invariant a later editor will break: the record names only files WaOS wrote and registry
+//! settings it made, and every one it made for an entry; an entry is recorded once they are in
+//! place, one it no longer makes is taken back then, and an entry is taken out of the record only
+//! once they are all taken back.
 
 #[cfg(any(target_os = "linux", test))]
 #[cfg_attr(
@@ -23,6 +26,12 @@
     allow(dead_code, reason = "tested on every desktop, written on Linux")
 )]
 pub(crate) mod desktop_entries;
+#[cfg(any(windows, test))]
+#[cfg_attr(
+    not(windows),
+    allow(dead_code, reason = "tested on every desktop, written on Windows")
+)]
+pub(crate) mod file_associations;
 #[cfg(any(windows, test))]
 #[cfg_attr(
     not(windows),
@@ -44,7 +53,7 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Mutex, PoisonError};
 
 use serde::{Deserialize, Serialize};
-use waos_package::{Category, ProgramId};
+use waos_package::{Category, FileAssociation, ProgramId};
 use waos_store::Store;
 
 #[cfg(any(windows, target_os = "linux"))]
@@ -67,6 +76,8 @@ pub(crate) struct ProgramEntry {
     pub(crate) icon: Option<PathBuf>,
     /// What it is for, where its author said, which a desktop's menus file it under.
     pub(crate) category: Option<Category>,
+    /// The kinds of file it opens, which the system offers it for.
+    pub(crate) file_associations: Vec<FileAssociation>,
 }
 
 impl ProgramEntry {
@@ -83,6 +94,7 @@ impl ProgramEntry {
                     version: program.manifest.version().to_string(),
                     icon: store.icon(&id),
                     category: program.manifest.category(),
+                    file_associations: program.manifest.file_associations().to_vec(),
                     id,
                 })
             })
@@ -90,16 +102,39 @@ impl ProgramEntry {
     }
 }
 
-/// How this system lists an app: the files that make a program's entry.
+/// How this system lists an app: the files, and on Windows the registry settings, that make a
+/// program's entry.
 pub(crate) trait SystemEntries: Send + Sync {
-    /// Writes the files of `entry`'s entry, which starts the WaOS `identities` names, none of them
-    /// one of `others`, the files of the other programs' entries, and answers each file written.
+    /// Writes `entry`'s entry, which starts the WaOS `identities` names, none of its files one of
+    /// `others`, the files of the other programs' entries, and answers what it wrote.
     fn write(
         &self,
         entry: &ProgramEntry,
         identities: &Identities,
         others: &[PathBuf],
-    ) -> io::Result<Vec<PathBuf>>;
+    ) -> io::Result<Written>;
+
+    /// Takes back `settings`, registry settings an entry made; nothing on a system whose entries
+    /// make none.
+    fn take_back(&self, settings: &[RegistrySetting]) -> io::Result<()> {
+        debug_assert!(settings.is_empty(), "only Windows' entries make settings");
+        Ok(())
+    }
+}
+
+/// What an entry's writing made: its files, and its registry settings.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct Written {
+    pub(crate) files: Vec<PathBuf>,
+    pub(crate) settings: Vec<RegistrySetting>,
+}
+
+/// A registry setting an entry made under `HKEY_CURRENT_USER`, as it is taken back: a key of its
+/// own, deleted whole, or one value of its own in a key it shares with other apps, deleted alone.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) enum RegistrySetting {
+    Key(String),
+    Value { key: String, name: String },
 }
 
 /// The entries WaOS wrote, and the record of them.
@@ -121,8 +156,15 @@ struct Record {
 struct KeptEntry {
     /// Every file written for it.
     files: Vec<PathBuf>,
+    /// Every registry setting made for it; none for an entry recorded before WaOS made any.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    settings: Vec<RegistrySetting>,
     name: String,
     version: String,
+    /// The kinds of file it was written to open; none for an entry recorded before WaOS kept
+    /// them, which opened none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    file_associations: Vec<FileAssociation>,
     /// The WaOS it starts.
     waos: PathBuf,
 }
@@ -214,26 +256,35 @@ impl ProgramEntries {
         record.entries.get(entry.id.as_str()).is_some_and(|kept| {
             kept.name == entry.name
                 && kept.version == entry.version
+                && kept.file_associations == entry.file_associations
                 && kept.waos == self.identities.waos
                 && kept.files.iter().all(|file| file.exists())
         })
     }
 
-    /// Writes `entry`'s entry, deletes the files of its earlier one it no longer writes, and
+    /// Writes `entry`'s entry, takes back what its earlier one made that it no longer makes, and
     /// records it.
     fn write(&self, entry: &ProgramEntry) -> io::Result<()> {
         let others = self.files_of_others(&entry.id);
-        let files = self.system.write(entry, &self.identities, &others)?;
+        let Written { files, settings } = self.system.write(entry, &self.identities, &others)?;
         let earlier = self.record().entries.get(entry.id.as_str()).cloned();
         if let Some(earlier) = earlier {
             let stale = earlier.files.iter().filter(|file| !files.contains(file));
             delete_files(stale)?;
+            let stale: Vec<RegistrySetting> = earlier
+                .settings
+                .into_iter()
+                .filter(|setting| !settings.contains(setting))
+                .collect();
+            self.system.take_back(&stale)?;
         }
-        tracing::info!(program = %entry.id, ?files, "the program's entry is written");
+        tracing::info!(program = %entry.id, ?files, ?settings, "the program's entry is written");
         let kept = KeptEntry {
             files,
+            settings,
             name: entry.name.clone(),
             version: entry.version.clone(),
+            file_associations: entry.file_associations.clone(),
             waos: self.identities.waos.clone(),
         };
         self.change_record(|record| {
@@ -241,12 +292,14 @@ impl ProgramEntries {
         })
     }
 
-    /// Deletes every file of the entry of the program `id`, then takes it out of the record.
+    /// Deletes every file of the entry of the program `id` and takes back its registry settings,
+    /// then takes it out of the record.
     fn delete(&self, id: &str) -> io::Result<()> {
         let Some(kept) = self.record().entries.get(id).cloned() else {
             return Ok(());
         };
         delete_files(kept.files.iter())?;
+        self.system.take_back(&kept.settings)?;
         tracing::info!(program = id, "the program's entry is deleted");
         self.change_record(|record| {
             record.entries.remove(id);

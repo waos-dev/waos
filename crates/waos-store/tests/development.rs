@@ -151,3 +151,22 @@ async fn what_is_installed_tells_each_install_and_removal() {
     store.remove(&triangle().development()).unwrap();
     assert!(changes.has_changed().unwrap());
 }
+
+#[test]
+fn a_development_install_opens_the_kinds_of_file_its_build_declares() {
+    let scratch = tempfile::tempdir().unwrap();
+    let store = store(scratch.path());
+    let flash = waos_package::FileAssociation {
+        extensions: vec!["swf".to_owned()],
+        name: "Flash movie".to_owned(),
+        mime_type: Some("application/x-shockwave-flash".to_owned()),
+    };
+    let source = manifest("0.1.0")
+        .with_file_associations(vec![flash.clone()])
+        .unwrap();
+    store
+        .install_development(&build(&source, b"\0asm from source"))
+        .unwrap();
+    let installed = store.installed_program(&triangle().development()).unwrap();
+    assert_eq!(installed.manifest.file_associations(), [flash]);
+}

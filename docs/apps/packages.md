@@ -2,6 +2,7 @@
 
 - **An app, or a tool.** An app has a UI; a tool is a command-line app with none. An app is a tool only when its manifest says `kind = "tool"`. ([manifest.rs](/crates/waos-package/src/manifest.rs))
 - **An app can say what it's for.** An optional `category` in its manifest, one of Apple's App Store categories, files it under the same heading wherever it shows: WaOS's home, macOS's Apps, Linux's menus. An older WaOS ignores it, and a category a later WaOS adds reads as none. ([category.rs](/crates/waos-package/src/category.rs))
+- **An app can say which kinds of file it opens.** Each `[[package.metadata.waos.file_associations]]` gives the extensions, without the dot, what the system calls such a file, and its MIME type where it has one; they travel in its manifest, and an older WaOS ignores them. ([file_association.rs](/crates/waos-package/src/file_association.rs))
 - **A `.wapk` is the app, its icon, and its publisher's signature.** The signature covers the manifest, the component and the icon (256 px or more). Other files in it are ignored, so a later version of the format can add its own. ([waos-package](/crates/waos-package/src/lib.rs))
 - **Nothing in a package is believed before its signature checks.** ([package.rs](/crates/waos-package/src/package.rs))
 - **An update must come from the same publisher, and be newer.** WaOS trusts the key an app was first installed with; a package signed by another key is a different publisher and never replaces it. Any source can offer the update; the key decides. ([store.rs](/crates/waos-store/src/store.rs))

@@ -16,7 +16,7 @@ use std::str::FromStr;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
-use waos_package::{ProgramId, ProgramKind, Version};
+use waos_package::{FileAssociation, ProgramId, ProgramKind, Version};
 
 use crate::adjacent::adjacent_unknown;
 use crate::refusal::Refusal;
@@ -189,6 +189,10 @@ pub struct Install {
     /// WaOS does not know, a later `waos`'s, counts as none.
     #[serde(default)]
     pub category: Option<String>,
+    /// The kinds of file it opens, as its `[package.metadata.waos]` declares them; none from a
+    /// `waos` that sends none.
+    #[serde(default)]
+    pub file_associations: Vec<FileAssociation>,
     /// The component's bytes, which the parts that follow carry together.
     pub length: u64,
     /// The component's SHA-256, checked once its bytes are all there.
@@ -751,6 +755,7 @@ mod tests {
                 version: "0.1.0".parse().unwrap(),
                 icon: Some(vec![0x89; 64]),
                 category: None,
+                file_associations: Vec::new(),
                 length: 1024,
                 digest: [0xab; 32],
             }),
@@ -1137,6 +1142,7 @@ mod tests {
             version: "0.1.0".parse().unwrap(),
             icon: None,
             category: None,
+            file_associations: Vec::new(),
             length: 1024,
             digest: [0xab; 32],
         };

@@ -103,6 +103,8 @@ impl DevelopmentBuild<'_> {
         .expect("a manifest's name is one already")
         .with_kind(manifest.kind())
         .with_category(manifest.category())
+        .with_file_associations(manifest.file_associations().to_vec())
+        .expect("a manifest's file associations are checked already")
     }
 }
 

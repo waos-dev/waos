@@ -954,6 +954,7 @@ fn install_build(
         version: package.version.clone(),
         icon: identity.icon.as_deref().map(read).transpose()?,
         category: identity.category,
+        file_associations: identity.file_associations,
         component: read(&built.component)?,
     })
 }

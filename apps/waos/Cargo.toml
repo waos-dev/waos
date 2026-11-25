@@ -124,7 +124,7 @@ objc2-core-video = { version = "0.3", default-features = false, features = ["std
 # the version Waft's host builds.
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Com", "Win32_UI_Shell"] }
-windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Storage_EnhancedStorage", "Win32_System_Com", "Win32_System_Com_StructuredStorage", "Win32_System_Variant", "Win32_UI_Shell", "Win32_UI_Shell_PropertiesSystem"] }
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Security", "Win32_Storage_EnhancedStorage", "Win32_System_Com", "Win32_System_Com_StructuredStorage", "Win32_System_Registry", "Win32_System_Variant", "Win32_UI_Shell", "Win32_UI_Shell_PropertiesSystem"] }
 
 # The app's folders, which only the activity's Java context names on Android, and the system's log,
 # where WaOS's traces go there; Waft's buffer over an `AHardwareBuffer`, which a program's
@@ -208,7 +208,7 @@ libraries = [{ package = "waos-window", lib = "waos_window" }]
 
 # `os/macos` wraps Security's code signing, Launch Services' answers, a process's end and an
 # `IOSurface` handed between threads, `os/android` the activity's entry, JNI and liblog, and
-# `os/windows` the shell's known folders and its shortcut's COM object, unsafe APIs; the rest of
-# the app has no `unsafe`.
+# `os/windows` the shell's known folders, its shortcut's COM object and the registry, unsafe APIs;
+# the rest of the app has no `unsafe`.
 [lints.rust]
 unsafe_code = "deny"
