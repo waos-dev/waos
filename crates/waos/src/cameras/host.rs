@@ -18,6 +18,7 @@ use crate::bindings::wasdk::media::cameras::{
     HostCaptureSessionWithStore, Photo, VideoRotationAngles,
 };
 use crate::bindings::wasdk::platform::windows::Size;
+use crate::lifecycle::FreezeInhibitorKind;
 use crate::permissions::ProgramPermissions;
 use crate::running::RunningProgram;
 use crate::stream::stream_of;
@@ -144,7 +145,12 @@ impl<T: CamerasCtxView + 'static> HostCameraWithStore<T> for HasCameras {
             Ok(started) => {
                 let (access, lifecycle) = cameras;
                 let recording = access.hold(ActiveUseKind::Recording(device));
-                let session = CaptureSession::new(started, state, recording, lifecycle.capturing());
+                let session = CaptureSession::new(
+                    started,
+                    state,
+                    recording,
+                    lifecycle.inhibit_freeze(FreezeInhibitorKind::CameraCapture),
+                );
                 accessor.with(|mut access| Ok(Ok(access.get().table.push(session)?)))
             }
             Err(error) => Ok(Err(error)),

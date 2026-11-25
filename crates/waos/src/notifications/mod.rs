@@ -30,7 +30,7 @@ use crate::access::{Asked, ProgramAccess, Refusal};
 use crate::bindings::wasdk::platform::menus::Image;
 use crate::bindings::wasdk::platform::notifications::Activation;
 use crate::lifecycle::Lifecycle;
-use crate::news::{KeptNews, Thawing};
+use crate::news::{Inhibiting, KeptNews};
 use crate::shell::ShellNotifications;
 
 /// Whether the program `access` is of may post a notification now: whether its user allowed it
@@ -98,7 +98,7 @@ pub struct NotificationScheduling(Arc<dyn ShellNotifications>);
 
 /// What the user does to a program's notifications, as the shell reports it.
 pub(crate) struct ProgramNotifications {
-    /// What the program's thaw for an activation is owed to.
+    /// What the program's unfreeze for an activation is owed to.
     lifecycle: Lifecycle,
     activations: KeptNews<Activation>,
 }
@@ -114,13 +114,13 @@ impl ProgramNotifications {
 
     /// The user did `activation` to one of the program's notifications: every stream of its
     /// activations hears it, or, while none is open, the next one the program opens; the
-    /// program thawed until it has read it.
+    /// program unfrozen until it has read it.
     pub(crate) fn activated(&self, activation: Activation) {
         self.activations.tell(activation, &self.lifecycle);
     }
 
     /// The activations from now on, on a stream of their own, after those that waited for one.
-    fn activations(&self) -> mpsc::UnboundedReceiver<Thawing<Activation>> {
+    fn activations(&self) -> mpsc::UnboundedReceiver<Inhibiting<Activation>> {
         self.activations.subscribe(&self.lifecycle)
     }
 }

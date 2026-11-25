@@ -4,7 +4,7 @@
 //! An exit request enters the store's table as the program reads it, so one the program never
 //! reads stays the lifecycle's and answers exit when the stream is dropped; answering takes it
 //! out, and so does dropping it, which answers exit. An open request's files are mounted as the
-//! program reads it, and the request holds the program thawed until it reads again
+//! program reads it, and the request holds the program unfrozen until it reads again
 //! (`stream_holding`).
 
 use futures::StreamExt;
@@ -82,7 +82,7 @@ impl<T: LifecycleCtxView + 'static> HostWithStore<T> for HasLifecycle {
         } else {
             mpsc::unbounded().1
         };
-        let requests = requests.map(move |(request, thaw)| (request.mounted(&picks), thaw));
+        let requests = requests.map(move |(request, unfreeze)| (request.mounted(&picks), unfreeze));
         stream_holding(access, requests)
     }
 }

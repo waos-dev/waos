@@ -476,7 +476,7 @@ impl ProgramView {
             .push(QueuedEvent::Plain(ViewEvent::Edit(command)));
     }
 
-    /// The user asked to close what holds the view; the program decides, thawed until it has
+    /// The user asked to close what holds the view; the program decides, unfrozen until it has
     /// handled the request, since it decides whether the program goes on.
     pub fn close_requested(&self) {
         let event = QueuedEvent::Plain(ViewEvent::CloseRequested);
@@ -690,7 +690,7 @@ impl ProgramView {
     }
 
     /// The shell took the view away: the program reads what is left of its events, and then they
-    /// end, the program, whose lifecycle is `lifecycle`, thawed until it has read the end, since
+    /// end, the program, whose lifecycle is `lifecycle`, unfrozen until it has read the end, since
     /// the view's going decides whether it goes on; it shows nothing more.
     pub(super) fn end(&self, lifecycle: &Lifecycle) {
         self.0.events.end(lifecycle);

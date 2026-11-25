@@ -1,5 +1,5 @@
 //! A program's audio context: web-audio-api's, with the output the program set it to, what of its
-//! sound keeps the program thawed, and the changes of its state; suspended, resumed and closed as
+//! sound keeps the program unfrozen, and the changes of its state; suspended, resumed and closed as
 //! the program asks, and closed once the program lets go of it, its base among its handles.
 //!
 //! The invariant: a context is closed when its last holder drops it, since web-audio-api keeps a

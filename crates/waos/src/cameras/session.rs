@@ -17,7 +17,7 @@ use wasmtime::bail;
 
 use crate::access::ActiveUse;
 use crate::bindings::wasdk::media::cameras::{CameraFormat, CaptureState, VideoRotationAngles};
-use crate::lifecycle::Capturing;
+use crate::lifecycle::FreezeInhibitor;
 use crate::newest::changes_of;
 use crate::shell::{PhotoFuture, ShellCaptureSession, StartedSession};
 
@@ -28,7 +28,7 @@ pub struct CaptureSession {
     state: SessionState,
     /// The camera's use, held while the session runs, which the shell's indicator shows.
     _recording: ActiveUse,
-    _capturing: Capturing,
+    _freeze_inhibitor: FreezeInhibitor,
 }
 
 /// A session's state from before the shell starts it, where the shell reports it from its start
@@ -71,19 +71,19 @@ impl SessionState {
 
 impl CaptureSession {
     /// `started`, the session the shell started, whose state is `state`, recording as `recording`
-    /// holds and keeping the program thawed as `capturing` does.
+    /// holds and keeping the program unfrozen as `capturing` does.
     pub(super) fn new(
         started: StartedSession,
         state: SessionState,
         recording: ActiveUse,
-        capturing: Capturing,
+        freeze_inhibitor: FreezeInhibitor,
     ) -> CaptureSession {
         CaptureSession {
             shell: started.session,
             format: started.format,
             state,
             _recording: recording,
-            _capturing: capturing,
+            _freeze_inhibitor: freeze_inhibitor,
         }
     }
 

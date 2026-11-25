@@ -25,6 +25,7 @@
 
 #[cfg(any(target_os = "macos", test))]
 pub(crate) mod app_nap_exemption;
+mod app_suspension;
 pub(crate) mod cameras;
 pub(crate) mod clipboard;
 mod days_kept;
@@ -71,9 +72,9 @@ use waft_single_instance::LaterLaunches;
 use waft_winui::install_icon_font;
 use waos::inspection::InspectedPrograms;
 use waos::{
-    EngineTime, FreezePolicy, HttpProxy, OpenRequest, RunningProgram, Shell, ShellCompositor,
-    ShellFileDialogs, ShellRecordingIndicator, ShellSystemPermissions, ShellVideoFrameReaders,
-    VsyncWaiter, WaOS, WaOSConfig,
+    EngineTime, HttpProxy, OpenRequest, RunningProgram, Shell, ShellCompositor, ShellFileDialogs,
+    ShellRecordingIndicator, ShellSystemPermissions, ShellVideoFrameReaders, VsyncWaiter, WaOS,
+    WaOSConfig,
 };
 use waos_local::LocalCapabilities;
 use waos_package::ProgramId;
@@ -305,7 +306,7 @@ pub(crate) fn start(
     ));
     let config = WaOSConfig {
         code_cache: folders.code_cache,
-        freeze: FreezePolicy::default(),
+        freeze: crate::os::freeze_policy(),
         native_unwind_info: native_unwind_info_asked(),
         http_proxy: HttpProxy::System,
         time: EngineTime::Real,
@@ -320,6 +321,7 @@ pub(crate) fn start(
     let engine = Arc::new(WaOS::new(config, shell, facts).context("starting the engine")?);
     machine_facts::keep_current(app, Arc::clone(&engine));
     days_kept::keep_every_day_when_paused(app, Arc::clone(&engine));
+    app_suspension::follow_app_suspension(app, Arc::clone(&engine));
     if let Some(clipboard) = clipboard {
         clipboard.serve(app, Arc::clone(&engine));
     }

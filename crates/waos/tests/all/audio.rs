@@ -7,7 +7,7 @@
 //! or silence as chosen, shown apart; a program whose user set the picker's answer is given that output
 //! unasked, and one set that is not connected is not found; a program given no
 //! devices has no sound; and `examples/tone`, on time the test moves, is not frozen while it plays
-//! out of sight, is frozen once silent, a tone scheduled an hour ahead keeping nothing thawed, and
+//! out of sight, is frozen once silent, a tone scheduled an hour ahead keeping nothing unfrozen, and
 //! traps when it starts its tone twice.
 //!
 //! The graph renders on web-audio-api's thread in time, as on a device, so a step that listens
@@ -251,10 +251,11 @@ const SHOWN: Presence = Presence {
 const AFTER_HIDDEN: Duration = Duration::from_millis(300);
 
 #[test]
-fn a_program_is_thawed_while_it_plays_frozen_while_its_tone_waits_and_trapped_starting_twice() {
+fn a_program_is_unfrozen_while_it_plays_frozen_while_its_tone_waits_and_trapped_starting_twice() {
     let time = ManualTime::new();
     let policy = FreezePolicy {
-        after_hidden: Some(AFTER_HIDDEN),
+        freeze_hidden_after: Some(AFTER_HIDDEN),
+        ..FreezePolicy::default()
     };
     let shell = TestShell::new();
     let config = WaOSConfig {
