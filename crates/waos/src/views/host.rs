@@ -25,16 +25,19 @@ use wasmtime::component::{
 };
 
 use crate::bindings::wasdk::platform::views::{
-    self, Cursor, HostCompositionLayer, HostCompositionLayerWithStore, HostCompositor,
-    HostKeyReply, HostTextInput, HostView, HostViewWithStore, HostWithStore, KeyInput, Metrics,
-    Mutator, OverlayStyle, PixelRect, PlacedLayer, Placement, RequestId, TextEditingValue,
-    TextInputConfiguration, ViewError, ViewEvent, ViewFocusDirection, ViewFocusState, ViewId,
+    self, Cursor, EdgeSwipe, HostCompositionLayer, HostCompositionLayerWithStore, HostCompositor,
+    HostKeyReply, HostSystemBars, HostTextInput, HostView, HostViewWithStore, HostWithStore,
+    KeyInput, Metrics, Mutator, OverlayStyle, PixelRect, PlacedLayer, Placement, RequestId,
+    TextEditingValue, TextInputConfiguration, ViewError, ViewEvent, ViewFocusDirection,
+    ViewFocusState, ViewId,
 };
 use crate::gpu::{Finishing, GpuInstance};
 use crate::hardware_buffers::{Canvases, ProgramHardwareBuffer, SubmittedWork, ViewCanvas};
 use crate::running::RunningProgram;
 use crate::screens::{Screen, Screens};
-use crate::shell::{ShellCompositionLayer, ShellCompositor, ViewPlacement, ViewRequest};
+use crate::shell::{
+    ShellCompositionLayer, ShellCompositor, ShellSystemBars, ViewPlacement, ViewRequest,
+};
 use crate::stream::stream_of_holding;
 use crate::windows::{ProgramWindow, WindowConfig};
 
@@ -45,6 +48,10 @@ use super::{
 
 /// A program's handle on a view's text input: the view's, which every handle on the view shares.
 pub struct TextInput(ViewTextInput);
+
+/// A program's handle on the system's bars over a view: the shell's, which every handle on the
+/// view shares.
+pub struct SystemBars(Arc<dyn ShellSystemBars>);
 
 /// `views.compositor`: the shell's compositor, as the program reaches it.
 pub struct Compositor(Arc<dyn ShellCompositor>);
@@ -369,13 +376,26 @@ impl HostView for ViewsCtx<'_> {
         Ok(())
     }
 
+    /// The deprecated way to the bars' style: their `set-overlay-style` where there are bars.
     fn set_overlay_style(
         &mut self,
         view: Resource<ProgramView>,
         style: OverlayStyle,
     ) -> wasmtime::Result<()> {
-        self.view(&view)?.shell().set_overlay_style(style);
+        if let Some(bars) = self.view(&view)?.system_bars() {
+            bars.set_overlay_style(style);
+        }
         Ok(())
+    }
+
+    fn system_bars(
+        &mut self,
+        view: Resource<ProgramView>,
+    ) -> wasmtime::Result<Option<Resource<SystemBars>>> {
+        let Some(bars) = self.view(&view)?.system_bars().cloned() else {
+            return Ok(None);
+        };
+        Ok(Some(self.table.push(SystemBars(bars))?))
     }
 
     fn drop(&mut self, view: Resource<ProgramView>) -> wasmtime::Result<()> {
@@ -433,6 +453,32 @@ impl ViewsCtx<'_> {
         text_input: &Resource<TextInput>,
     ) -> wasmtime::Result<&ViewTextInput> {
         Ok(&self.table.get(text_input)?.0)
+    }
+}
+
+impl HostSystemBars for ViewsCtx<'_> {
+    fn set_overlay_style(
+        &mut self,
+        bars: Resource<SystemBars>,
+        style: OverlayStyle,
+    ) -> wasmtime::Result<()> {
+        self.table.get(&bars)?.0.set_overlay_style(style);
+        Ok(())
+    }
+
+    fn hide(&mut self, bars: Resource<SystemBars>, swipe: EdgeSwipe) -> wasmtime::Result<()> {
+        self.table.get(&bars)?.0.hide(swipe);
+        Ok(())
+    }
+
+    fn show(&mut self, bars: Resource<SystemBars>) -> wasmtime::Result<()> {
+        self.table.get(&bars)?.0.show();
+        Ok(())
+    }
+
+    fn drop(&mut self, bars: Resource<SystemBars>) -> wasmtime::Result<()> {
+        self.table.delete(bars)?;
+        Ok(())
     }
 }
 

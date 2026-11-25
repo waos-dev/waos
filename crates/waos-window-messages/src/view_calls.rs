@@ -1,8 +1,8 @@
 //! What the engine asks of a program's view that only the main thread of its window's process can
 //! carry out: the cursor and the focus, which the view's canvas carries out; whether the program
-//! handles Back, which whatever shows the view reads; the style of the system's bars over it,
-//! which whatever shows the view puts over its canvas; its text input, which the canvas's text input
-//! does; and its window, which Waft's window does. Each is a
+//! handles Back, which whatever shows the view reads; the system's bars over it, their style and
+//! whether they hide, which whatever shows the view puts over its canvas; its text input, which
+//! the canvas's text input does; and its window, which Waft's window does. Each is a
 //! [`ViewCall`], the value of one call of the engine's shell traits on the view, which reaches the
 //! window's main thread on one queue per view, in the order the calls were made, in WaOS's process
 //! or in a program's window process alike.
@@ -13,18 +13,18 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use waos::bindings::wasdk::platform::screens::ScreenId;
 use waos::bindings::wasdk::platform::views::{
-    Cursor, OverlayStyle, PixelRect, TextEditingValue, TextInputConfiguration, ViewFocusDirection,
-    ViewFocusState,
+    Cursor, EdgeSwipe, OverlayStyle, PixelRect, TextEditingValue, TextInputConfiguration,
+    ViewFocusDirection, ViewFocusState,
 };
 use waos::bindings::wasdk::platform::windows::{Rect, Size};
 
 use crate::records::{
-    CursorDef, OverlayStyleDef, PixelRectDef, RectDef, TextEditingValueDef,
+    CursorDef, EdgeSwipeDef, OverlayStyleDef, PixelRectDef, RectDef, TextEditingValueDef,
     TextInputConfigurationDef, ViewFocusDirectionDef, ViewFocusStateDef, option_size,
 };
 
 /// One call on a view: a method of the engine's `ShellView` other than `present`, or a call on
-/// its text input or its window.
+/// its text input, the system's bars over it, or its window.
 #[derive(Debug, Serialize, Deserialize)]
 pub enum ViewCall {
     SetCursor(#[serde(with = "CursorDef")] Cursor),
@@ -34,8 +34,16 @@ pub enum ViewCall {
     ),
     SetHandlesBack(bool),
     TextInput(TextInputCall),
+    SystemBars(SystemBarsCall),
     Window(WindowCall),
+}
+
+/// One call on the system's bars over a view: a method of the engine's `ShellSystemBars`.
+#[derive(Debug, Serialize, Deserialize)]
+pub enum SystemBarsCall {
     SetOverlayStyle(#[serde(with = "OverlayStyleDef")] OverlayStyle),
+    Hide(#[serde(with = "EdgeSwipeDef")] EdgeSwipe),
+    Show,
 }
 
 /// One call on a view's text input: a method of the engine's `ShellTextInput`.

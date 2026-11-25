@@ -14,7 +14,7 @@ use futures::channel::mpsc::{self, UnboundedReceiver};
 use waft::ui::{Compositor, ViewMetrics, ViewRef};
 use waft::{App, Entity};
 use waos::bindings::wasdk::platform::windows::WindowBackground;
-use waos::{PlacedView, Presence, ProgramView};
+use waos::{PlacedView, Presence, ProgramView, ShellSystemBars};
 use waos_program_window::{CanvasLayer, CanvasView, ShownView, ViewCalls, ViewLink, metrics_of};
 use waos_window_messages::ViewCall;
 
@@ -31,11 +31,12 @@ pub(crate) struct TabView {
 impl TabView {
     /// The view, with its canvas's layer made on `compositor`, opaque as a phone's screen is; and
     /// the same view as the engine is handed it, in a page `metrics` measures, standing as
-    /// `presence` says.
+    /// `presence` says, under the system's bars where the deck's view has some, `bars`.
     pub(crate) fn make(
         compositor: &dyn Compositor,
         metrics: &ViewMetrics,
         presence: Presence,
+        bars: bool,
     ) -> (TabView, PlacedView) {
         let canvas = Arc::new(CanvasLayer::make(compositor, WindowBackground::Solid));
         let (queue, calls) = mpsc::unbounded();
@@ -48,7 +49,8 @@ impl TabView {
                 Arc::clone(&canvas) as _,
                 calls_sent.clone(),
             )),
-            text_input: Some(Arc::new(calls_sent)),
+            text_input: Some(Arc::new(calls_sent.clone())),
+            system_bars: bars.then(|| Arc::new(calls_sent.clone()) as Arc<dyn ShellSystemBars>),
             window: None,
             metrics: metrics_of(metrics),
             screen: metrics.screen.map(|screen| screen.0),

@@ -547,6 +547,8 @@ impl WindowProcess {
             PlacedView {
                 view: Arc::new(CanvasView::new(pictures, calls.clone())),
                 text_input: Some(Arc::new(calls.clone())),
+                // A Mac's window has no system bars over it.
+                system_bars: None,
                 window: Some(PlacedWindow {
                     window: Arc::new(WindowCalls::new(calls, opened.size_limits)),
                     frame: opened.frame,

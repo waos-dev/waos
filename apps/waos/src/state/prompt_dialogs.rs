@@ -484,7 +484,7 @@ impl Afterwards {
 }
 
 /// What WaOS's view of a prompt asks of the system, as its dialog answers it: its cursor and its
-/// focus are the dialog's; it takes no text.
+/// focus are the dialog's; it takes no text, and has no system bars over it.
 struct DialogHost {
     process: Arc<WindowProcess>,
     prompt: PromptId,
@@ -504,6 +504,10 @@ impl ViewHost for DialogHost {
     fn request_focus_change(&self, state: ViewFocusState, direction: ViewFocusDirection) {
         self.process
             .call_prompt(self.prompt, PromptCall::ChangeFocus { state, direction });
+    }
+
+    fn system_bars(&self) -> Option<&dyn waft::ui::SystemBars> {
+        None
     }
 }
 

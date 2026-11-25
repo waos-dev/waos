@@ -86,6 +86,7 @@ wasmtime::component::bindgen!({
     with: {
         "wasdk:platform/views.view": crate::views::ProgramView,
         "wasdk:platform/views.text-input": crate::views::host::TextInput,
+        "wasdk:platform/views.system-bars": crate::views::host::SystemBars,
         "wasdk:platform/views.key-reply": crate::views::KeyReply,
         "wasdk:platform/views.compositor": crate::views::host::Compositor,
         "wasdk:platform/views.composition-layer": crate::views::host::CompositionLayer,

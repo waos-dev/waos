@@ -15,9 +15,9 @@ use std::rc::{Rc, Weak};
 use std::sync::Arc;
 
 use waft_embedder::{
-    Picture, RequestId, Scene, ScreenId, Slices, SystemMouseCursorKind, SystemUiOverlayStyle,
-    TextInputHost, View, ViewConstraints, ViewFocusDirection, ViewFocusState, ViewHost, ViewId,
-    ViewMetrics, ViewPadding, WindowRef, slices,
+    Picture, RequestId, Scene, ScreenId, Slices, SystemBars, SystemMouseCursorKind, TextInputHost,
+    View, ViewConstraints, ViewFocusDirection, ViewFocusState, ViewHost, ViewId, ViewMetrics,
+    ViewPadding, WindowRef, slices,
 };
 use wasdk::monotonic_clock;
 use wasdk::views::{self, Insets, Instant, Metrics};
@@ -26,9 +26,9 @@ use crate::composition::placed_layers;
 use crate::focus::{platform_focus_direction, platform_focus_state};
 use crate::frame_drawing::ShownFrame;
 use crate::mouse_cursor::cursor_of;
-use crate::overlay_style::platform_overlay_style;
 use crate::renderer::Renderer;
 use crate::shown_videos::ShownVideos;
+use crate::system_bars::WasdkSystemBars;
 use crate::text_input::WasdkTextInput;
 use crate::windows::WasdkWindow;
 
@@ -42,6 +42,8 @@ pub(crate) struct WasdkView {
     /// Shared with the text input, which scales its rectangles by the device pixel ratio.
     metrics: Rc<Cell<ViewMetrics>>,
     text_input: Option<Rc<WasdkTextInput>>,
+    /// The system's bars over the view; none where the platform draws none over it.
+    system_bars: Option<WasdkSystemBars>,
     /// What a frame starts from: white, or nothing for a window that shows what is behind it.
     clear: valo::Color,
     /// What the frame on screen shows, which the next frame is drawn only to change.
@@ -81,6 +83,7 @@ impl WasdkView {
             let text_input = WasdkTextInput::new(input, Rc::clone(&metrics), host_edit_commands);
             Rc::new(text_input)
         });
+        let system_bars = view.system_bars().map(WasdkSystemBars);
         WasdkView {
             id: ViewId(view.id()),
             request_id: Some(RequestId(view.request_id())),
@@ -90,6 +93,7 @@ impl WasdkView {
             renderer,
             metrics,
             text_input,
+            system_bars,
             clear,
             shown: RefCell::default(),
             window: RefCell::new(Weak::new()),
@@ -261,10 +265,12 @@ impl ViewHost for WasdkView {
         self.view.set_handles_back(handles);
     }
 
-    /// `set-overlay-style`: the system's bars over this view, as the framework's annotated
-    /// regions say after each frame.
-    fn set_overlay_style(&self, style: &SystemUiOverlayStyle) {
-        self.view.set_overlay_style(platform_overlay_style(style));
+    /// `system-bars`: the bars over this view, which the framework styles as its annotated
+    /// regions say after each frame, and hides and shows as its `SystemChrome` is told.
+    fn system_bars(&self) -> Option<&dyn SystemBars> {
+        self.system_bars
+            .as_ref()
+            .map(|bars| bars as &dyn SystemBars)
     }
 }
 

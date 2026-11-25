@@ -199,6 +199,7 @@ fn placed_view() -> PlacedView {
     PlacedView {
         view: Arc::new(Headless::default()) as Arc<dyn ShellView>,
         text_input: None,
+        system_bars: None,
         window: None,
         metrics: Metrics {
             width: 1,

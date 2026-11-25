@@ -7,9 +7,10 @@ use waos::bindings::wasdk::platform::menus::{
 };
 use waos::bindings::wasdk::platform::system::Brightness;
 use waos::bindings::wasdk::platform::views::{
-    Cursor, Insets, KeyDevice, KeyKind, NumberFormat, OverlayStyle, PointerButtons, PointerChange,
-    PointerDeviceKind, PointerSignalKind, TextAffinity, TextCapitalization, TextInputConfiguration,
-    TextInputType, TextRange, TextSelection, ViewFocusDirection, ViewFocusState,
+    Cursor, EdgeSwipe, Insets, KeyDevice, KeyKind, NumberFormat, OverlayStyle, PointerButtons,
+    PointerChange, PointerDeviceKind, PointerSignalKind, TextAffinity, TextCapitalization,
+    TextInputConfiguration, TextInputType, TextRange, TextSelection, ViewFocusDirection,
+    ViewFocusState,
 };
 use waos::bindings::wasdk::platform::windows::{
     MacosTitleBar, Point, Size, WindowBackground, WindowLevel,
@@ -153,12 +154,14 @@ fn the_programs_calls_on_a_view_cross_as_they_are() {
         ViewCall::SetCursor(Cursor::NwseResize),
         ViewCall::RequestFocusChange(ViewFocusState::Focused, ViewFocusDirection::Backward),
         ViewCall::SetHandlesBack(true),
-        ViewCall::SetOverlayStyle(OverlayStyle {
+        ViewCall::SystemBars(SystemBarsCall::SetOverlayStyle(OverlayStyle {
             status_bar_icons: Some(Brightness::Dark),
             navigation_bar_icons: None,
             status_bar_contrast_enforced: Some(false),
             navigation_bar_contrast_enforced: None,
-        }),
+        })),
+        ViewCall::SystemBars(SystemBarsCall::Hide(EdgeSwipe::Deferred)),
+        ViewCall::SystemBars(SystemBarsCall::Show),
         ViewCall::TextInput(TextInputCall::SetClient(configuration)),
         ViewCall::TextInput(TextInputCall::SetEditingState(editing_value("hello"))),
         ViewCall::Window(WindowCall::SetFrame(

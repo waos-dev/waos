@@ -63,7 +63,7 @@ use crate::bindings::wasdk::platform::notifications::NotificationError;
 use crate::bindings::wasdk::platform::opener::OpenError;
 use crate::bindings::wasdk::platform::screens::ScreenId;
 use crate::bindings::wasdk::platform::views::{
-    Cursor, Metrics, OverlayStyle, PixelRect, Placement, RequestId, TextEditingValue,
+    Cursor, EdgeSwipe, Metrics, OverlayStyle, PixelRect, Placement, RequestId, TextEditingValue,
     TextInputConfiguration, ViewError, ViewFocusDirection, ViewFocusState, ViewId,
 };
 use crate::bindings::wasdk::platform::windows::{Rect, Size, TitleBarAction};
@@ -248,6 +248,9 @@ pub struct PlacedView {
     /// How the platform's input methods edit text in the view; none where it has no text input
     /// for it, and then the program's `view.text-input` answers none.
     pub text_input: Option<Arc<dyn ShellTextInput>>,
+    /// The system's bars over the view; none where the platform draws none over it, as over a
+    /// desktop's window, and then the program's `view.system-bars` answers none.
+    pub system_bars: Option<Arc<dyn ShellSystemBars>>,
     /// The window the view is in; none where the platform shows it without one, and then the
     /// program's `view.window` answers none.
     pub window: Option<PlacedWindow>,
@@ -307,13 +310,22 @@ pub trait ShellView: Send + Sync {
     ///
     /// [`ProgramView::handles_back`]: crate::views::ProgramView::handles_back
     fn set_handles_back(&self, handles: bool);
+}
 
-    /// Styles the system's bars over the view, the status bar and Android's navigation bar, as
-    /// `style` says, a field left out keeping what they have: on Android the window holding the
-    /// view, or whatever shows it, while it does. Called from the program's thread each time the
-    /// program says it; the engine keeps no copy. A shell that draws no such bars over the view
-    /// does nothing.
+/// The shell's side of `views.system-bars`: the system's bars over one view, the status bar and
+/// the navigation bar or the home indicator, on Android over the window holding the view, or
+/// whatever shows it, while it does. Each is called from the program's thread each time the
+/// program says it; the engine keeps no copy.
+pub trait ShellSystemBars: Send + Sync {
+    /// Styles the bars as `style` says, a field left out keeping what they have.
     fn set_overlay_style(&self, style: OverlayStyle);
+
+    /// Hides the bars until [`show`](Self::show), a swipe from a screen's edge acting as `swipe`
+    /// says meanwhile.
+    fn hide(&self, swipe: EdgeSwipe);
+
+    /// Shows the bars again, drawn over the view, as a view starts.
+    fn show(&self);
 }
 
 /// The shell's side of `views.compositor`: the system's compositor, as Waft's `Compositor` is.
@@ -1272,8 +1284,6 @@ pub(crate) mod tests {
         fn set_handles_back(&self, handles: bool) {
             self.handles_back.lock().unwrap().push(handles);
         }
-
-        fn set_overlay_style(&self, _style: OverlayStyle) {}
     }
 
     impl ShellWindow for Headless {

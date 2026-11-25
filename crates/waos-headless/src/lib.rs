@@ -29,8 +29,8 @@ use tokio::sync::watch;
 use self::clipboard::HeadlessClipboard;
 use waos::bindings::wasdk::platform::screens::{PixelSize, ScreenId};
 use waos::bindings::wasdk::platform::views::{
-    Cursor, Insets, Metrics, OverlayStyle, PixelRect, Placement, TextEditingValue,
-    TextInputConfiguration, TextInputType, ViewError, ViewFocusDirection, ViewFocusState,
+    Cursor, Insets, Metrics, PixelRect, Placement, TextEditingValue, TextInputConfiguration,
+    TextInputType, ViewError, ViewFocusDirection, ViewFocusState,
 };
 use waos::bindings::wasdk::platform::windows::{Point, Rect, Size};
 use waos::{
@@ -227,8 +227,6 @@ impl ShellView for HeadlessView {
     fn set_handles_back(&self, handles: bool) {
         self.handles_back.store(handles, Ordering::SeqCst);
     }
-
-    fn set_overlay_style(&self, _style: OverlayStyle) {}
 }
 
 /// The window around a view, filling the screen with nothing around the view, and what the engine
@@ -432,6 +430,8 @@ impl GivenViews {
             PlacedView {
                 view: Arc::clone(&given) as Arc<dyn ShellView>,
                 text_input: Some(text_input as Arc<dyn ShellTextInput>),
+                // A headless view is shown under no system's bars.
+                system_bars: None,
                 window: window.as_ref().map(|window| PlacedWindow {
                     window: Arc::clone(window) as Arc<dyn ShellWindow>,
                     frame: display.screen().frame,

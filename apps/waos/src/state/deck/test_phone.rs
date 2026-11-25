@@ -39,7 +39,9 @@ use waft::{
 use waft_cupertino::install_cupertino_icon_font;
 use waft_gestures::{GestureBinding, HitTestResult};
 use waft_rendering::{AnyRenderBox, BoxHitTestEntry};
-use waft_test::{MockCompositor, TestPlatform, TestView, TestWindow, TestWindows, TextInputCall};
+use waft_test::{
+    BarsShown, MockCompositor, TestPlatform, TestView, TestWindow, TestWindows, TextInputCall,
+};
 use waft_winui::install_icon_font;
 use waos::{ProgramEnd, ProgramView, ViewPlacement};
 use waos_package::{ProgramId, SigningKey};
@@ -523,6 +525,12 @@ impl TestPhone {
         let views = program.views();
         assert_eq!(views.len(), 1, "the tab's view, and no other");
         views.into_iter().next().unwrap()
+    }
+
+    /// Each time the system's bars over the phone's screen were hidden or shown again, oldest
+    /// first.
+    pub(crate) fn bars_shown(&self) -> Vec<BarsShown> {
+        self.screen.view.test_host().bars_shown()
     }
 
     /// Whether a widget of type `W` is on screen.

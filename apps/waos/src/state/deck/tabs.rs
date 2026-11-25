@@ -254,7 +254,13 @@ impl Tabs {
             .compositor()
             .ok_or("this system shows no composition layers, which a program's view is")?;
         let metrics = page_metrics(&view.metrics());
-        Ok(TabView::make(&*compositor, &metrics, self.presence(tab)))
+        let bars = view.host().system_bars().is_some();
+        Ok(TabView::make(
+            &*compositor,
+            &metrics,
+            self.presence(tab),
+            bars,
+        ))
     }
 
     /// What starting the program of `id`'s tab came to: the program, or none where it could not

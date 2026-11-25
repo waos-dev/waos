@@ -13,7 +13,7 @@
 use std::sync::Arc;
 
 use waos::bindings::wasdk::platform::views::{
-    Cursor, OverlayStyle, Placement, ViewFocusDirection, ViewFocusState,
+    Cursor, Placement, ViewFocusDirection, ViewFocusState,
 };
 use waos::{HardwareBuffer, ShellCompositionLayer, ShellView};
 use waos_window_messages::ViewCall;
@@ -40,8 +40,8 @@ pub struct CanvasView {
 }
 
 impl CanvasView {
-    /// The view whose hardware buffers go to `canvas`, and whose cursor, focus, Back and bars'
-    /// style go as `calls`.
+    /// The view whose hardware buffers go to `canvas`, and whose cursor, focus and Back go as
+    /// `calls`.
     pub fn new(canvas: Arc<dyn Canvas>, calls: ViewCalls) -> CanvasView {
         CanvasView { canvas, calls }
     }
@@ -68,10 +68,6 @@ impl ShellView for CanvasView {
 
     fn set_handles_back(&self, handles: bool) {
         self.calls.send(ViewCall::SetHandlesBack(handles));
-    }
-
-    fn set_overlay_style(&self, style: OverlayStyle) {
-        self.calls.send(ViewCall::SetOverlayStyle(style));
     }
 }
 

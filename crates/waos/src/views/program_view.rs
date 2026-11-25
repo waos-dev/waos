@@ -60,7 +60,7 @@ use crate::clock::Clock;
 use crate::hardware_buffers::Released;
 use crate::lifecycle::{Lifecycle, Presence};
 use crate::screenshots::Screenshots;
-use crate::shell::{HardwareBuffer, PlacedView, ShellCompositionLayer, ShellView};
+use crate::shell::{HardwareBuffer, PlacedView, ShellCompositionLayer, ShellSystemBars, ShellView};
 use crate::sync::locked;
 use crate::targets;
 use crate::windows::ProgramWindow;
@@ -99,6 +99,7 @@ struct ViewState {
     told_modifiers: Arc<Mutex<ToldModifiers>>,
     shell: Arc<dyn ShellView>,
     text_input: Option<ViewTextInput>,
+    system_bars: Option<Arc<dyn ShellSystemBars>>,
     window: Option<ProgramWindow>,
     /// The view's geometry as last reported, which a tool that resizes its window waits on.
     metrics: watch::Sender<Metrics>,
@@ -176,6 +177,7 @@ impl ProgramView {
             told_modifiers: shared.told_modifiers,
             shell: placed.view,
             text_input: placed.text_input.map(ViewTextInput::new),
+            system_bars: placed.system_bars,
             window: placed
                 .window
                 .map(|window| ProgramWindow::new(window, title)),
@@ -306,6 +308,12 @@ impl ProgramView {
     /// The shell's side of the view, which the program's requests go to.
     pub(crate) fn shell(&self) -> &dyn ShellView {
         self.0.shell.as_ref()
+    }
+
+    /// The system's bars over the view, as the program's `view.system-bars` reaches them; none
+    /// where the platform draws none over it.
+    pub fn system_bars(&self) -> Option<&Arc<dyn ShellSystemBars>> {
+        self.0.system_bars.as_ref()
     }
 
     /// The platform's input methods for the view; none where it has no text input.
@@ -740,6 +748,7 @@ pub(super) mod tests {
         PlacedView {
             view: Arc::clone(shell) as Arc<dyn ShellView>,
             text_input: None,
+            system_bars: None,
             window: None,
             metrics: metrics(1),
             screen: None,

@@ -1,10 +1,35 @@
-//! The style of the system's bars the framework asks for over a view, as the platform's
-//! `overlay-style`: Flutter's `SystemUiOverlayStyle` without the bars' colours, which the
-//! interface does not carry.
+//! The system's bars over a view, as the framework reaches them: the platform's `system-bars`,
+//! which takes the style the framework asks for as `overlay-style`, Flutter's
+//! `SystemUiOverlayStyle` without the bars' colours, which the interface does not carry, and
+//! hides and shows them.
 
-use waft_embedder::{Brightness, SystemUiOverlayStyle};
+use waft_embedder::{Brightness, EdgeSwipe, SystemBars, SystemUiOverlayStyle};
 use wasdk::system;
-use wasdk::views::OverlayStyle;
+use wasdk::views::{self, OverlayStyle};
+
+/// The platform's bars over one view.
+pub(crate) struct WasdkSystemBars(pub(crate) views::SystemBars);
+
+impl SystemBars for WasdkSystemBars {
+    fn set_overlay_style(&self, style: &SystemUiOverlayStyle) {
+        self.0.set_overlay_style(platform_overlay_style(style));
+    }
+
+    fn hide(&self, swipe: EdgeSwipe) {
+        self.0.hide(platform_edge_swipe(swipe));
+    }
+
+    fn show(&self) {
+        self.0.show();
+    }
+}
+
+fn platform_edge_swipe(swipe: EdgeSwipe) -> views::EdgeSwipe {
+    match swipe {
+        EdgeSwipe::System => views::EdgeSwipe::System,
+        EdgeSwipe::Deferred => views::EdgeSwipe::Deferred,
+    }
+}
 
 /// `style` as the platform takes it. The status bar's icons are Android's brightness of them, or
 /// else the opposite of iOS's brightness of the bar, which is what Flutter's iOS embedding reads.

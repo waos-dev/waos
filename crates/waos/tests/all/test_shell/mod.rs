@@ -270,6 +270,7 @@ impl ViewPlacement for SingleView {
             PlacedView {
                 view: Arc::clone(&self.view),
                 text_input: None,
+                system_bars: None,
                 window: None,
                 metrics: metrics(DISPLAY.width, DISPLAY.height),
                 screen: Some(SCREEN),

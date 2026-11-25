@@ -19,11 +19,11 @@ use waos::bindings::wasdk::platform::menus::{
 use waos::bindings::wasdk::platform::notifications::{Activation, NotificationError};
 use waos::bindings::wasdk::platform::system::Brightness;
 use waos::bindings::wasdk::platform::views::{
-    Cursor, EditCommand, Insets, KeyDevice, KeyEvent, KeyKind, Metrics, NumberFormat, OverlayStyle,
-    PixelRect, PointerButtons, PointerChange, PointerDeviceKind, PointerEvent, PointerSignalKind,
-    TextAffinity, TextCapitalization, TextEditingValue, TextInputAction, TextInputConfiguration,
-    TextInputType, TextRange, TextSelection, ViewError, ViewFocusDirection, ViewFocusEvent,
-    ViewFocusState,
+    Cursor, EdgeSwipe, EditCommand, Insets, KeyDevice, KeyEvent, KeyKind, Metrics, NumberFormat,
+    OverlayStyle, PixelRect, PointerButtons, PointerChange, PointerDeviceKind, PointerEvent,
+    PointerSignalKind, TextAffinity, TextCapitalization, TextEditingValue, TextInputAction,
+    TextInputConfiguration, TextInputType, TextRange, TextSelection, ViewError, ViewFocusDirection,
+    ViewFocusEvent, ViewFocusState,
 };
 use waos::bindings::wasdk::platform::windows::{
     MacosTitleBar, Point, Rect, Size, TitleBarAction, WindowBackground, WindowLevel,
@@ -275,6 +275,13 @@ pub(crate) enum ViewFocusDirectionDef {
 pub(crate) enum BrightnessDef {
     Light,
     Dark,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(remote = "EdgeSwipe")]
+pub(crate) enum EdgeSwipeDef {
+    System,
+    Deferred,
 }
 
 #[derive(Serialize, Deserialize)]

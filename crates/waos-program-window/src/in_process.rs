@@ -58,6 +58,8 @@ pub fn placed_view(opened: OpenedView) -> PlacedView {
     PlacedView {
         view: Arc::new(canvas_view),
         text_input: Some(Arc::new(calls.clone())),
+        // A desktop's window has no system bars over it.
+        system_bars: None,
         window: Some(PlacedWindow {
             window: Arc::new(WindowCalls::new(calls, opened.size_limits)),
             frame: opened.frame,

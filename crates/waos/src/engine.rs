@@ -468,8 +468,7 @@ mod tests {
     use super::*;
     use crate::bindings::wasdk::platform::screens::ScreenId;
     use crate::bindings::wasdk::platform::views::{
-        Cursor, Insets, Metrics, OverlayStyle, Placement, ViewError, ViewFocusDirection,
-        ViewFocusState,
+        Cursor, Insets, Metrics, Placement, ViewError, ViewFocusDirection, ViewFocusState,
     };
     use crate::lifecycle::Presence;
     use crate::running::ProgramEnd;
@@ -529,8 +528,6 @@ mod tests {
         fn request_focus_change(&self, _state: ViewFocusState, _direction: ViewFocusDirection) {}
 
         fn set_handles_back(&self, _handles: bool) {}
-
-        fn set_overlay_style(&self, _style: OverlayStyle) {}
     }
 
     impl VsyncWaiter for Refreshing {
@@ -616,6 +613,7 @@ mod tests {
         PlacedView {
             view: Arc::clone(shell) as Arc<dyn ShellView>,
             text_input: None,
+            system_bars: None,
             window: None,
             metrics: Metrics {
                 width: 1600,

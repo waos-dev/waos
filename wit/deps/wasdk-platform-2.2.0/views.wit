@@ -230,8 +230,43 @@ interface views {
     /// navigation bar: Flutter's `SystemChrome.setSystemUIOverlayStyle`, for one view. A field
     /// left out keeps what the platform has; a platform with no such bars, or a view it draws
     /// none over, ignores it. A view starts with the platform's style, and keeps what was said
-    /// last.
+    /// last. Replaced by `system-bars`, whose `set-overlay-style` reaches the same bars where
+    /// there are some; this keeps working until 3.0.
+    @since(version = 2.1.0)
+    @deprecated(version = 2.2.0)
     set-overlay-style: func(style: overlay-style);
+
+    /// The platform's own bars over the view: the status bar, and the navigation bar or the home
+    /// indicator. None where the platform draws no bars over a view, as on a desktop, whose
+    /// windows have their own frame.
+    @since(version = 2.2.0)
+    system-bars: func() -> option<system-bars>;
+  }
+
+  /// What the program says about the bars over one view: Flutter's `SystemChrome`, for this
+  /// view alone. It keeps what was said last, as the view does.
+  @since(version = 2.2.0)
+  resource system-bars {
+    /// How the bars and their icons look over the view: Flutter's
+    /// `SystemChrome.setSystemUIOverlayStyle`.
+    set-overlay-style: func(style: overlay-style);
+    /// Hides the bars over the view until `show`; what a swipe from a screen's edge does
+    /// meanwhile is `swipe`'s. Flutter's `SystemUiMode.immersive` is `hide(system)`,
+    /// `immersiveSticky` is `hide(deferred)`.
+    hide: func(swipe: edge-swipe);
+    /// Shows the bars again, drawn over the view: how a view starts. Flutter's
+    /// `SystemUiMode.edgeToEdge`.
+    show: func();
+  }
+
+  @since(version = 2.2.0)
+  enum edge-swipe {
+    /// The system acts on it as it always does, the bars coming back with it.
+    system,
+    /// The first swipe only shows the bars, for a moment, and the view keeps the touch; a
+    /// second swipe acts: Android's transient bars, iOS's deferred edge gestures. For a game,
+    /// where a stray swipe must not leave it.
+    deferred,
   }
 
   /// The style of the system's bars over a view: Flutter's `SystemUiOverlayStyle` without the

@@ -19,7 +19,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use waos::bindings::wasdk::platform::views::{
-    Cursor, OverlayStyle, Placement, ViewFocusDirection, ViewFocusState,
+    Cursor, Placement, ViewFocusDirection, ViewFocusState,
 };
 use waos::{
     EngineTime, FreezePolicy, HardwareBuffer, ManualTime, Presence, ProgramEnd, ProgramEnvironment,
@@ -394,5 +394,4 @@ impl ShellView for HoldingBuffersView {
     fn set_cursor(&self, _cursor: Cursor) {}
     fn request_focus_change(&self, _state: ViewFocusState, _direction: ViewFocusDirection) {}
     fn set_handles_back(&self, _handles: bool) {}
-    fn set_overlay_style(&self, _style: OverlayStyle) {}
 }
