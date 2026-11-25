@@ -58,6 +58,7 @@ pub(crate) mod test_system;
 #[cfg(test)]
 mod tests;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
+pub(crate) mod video_decoders;
 pub(crate) mod waos_tray;
 
 use std::path::PathBuf;
@@ -135,6 +136,7 @@ use phone_files::{follow_phone_files, phone_files_on_request};
 use phone_window::in_phone_window;
 use questions::Questions;
 use recordings::Recordings;
+use video_decoders::VideoDecoders;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 use waos_tray::WaosTray;
 
@@ -255,6 +257,7 @@ pub(crate) fn start(
     let media_players = MediaPlayers::of(app.platform().as_ref());
     let media_assets = MediaAssets::of(app.platform().as_ref());
     let image_codecs = ImageCodecs::of(app.platform().as_ref());
+    let video_decoders = VideoDecoders::of(app.platform().as_ref());
     let cameras = CAMERA_USAGE_DECLARED
         .then(|| Cameras::of(app.platform().as_ref()))
         .flatten();
@@ -294,6 +297,7 @@ pub(crate) fn start(
             .platform()
             .video_frame_readers()
             .map(|_| Arc::new(ReadersOnRequest) as Arc<dyn ShellVideoFrameReaders>),
+        video_decoders: video_decoders.as_ref().map(VideoDecoders::shell),
         cameras: cameras.as_ref().map(Cameras::shell),
         simulated_cameras: simulated_cameras(image_codecs.as_ref().map(ImageCodecs::shell)),
         // A machine is picked on a sheet put as a program's questions are.
@@ -457,6 +461,9 @@ pub(crate) fn start(
     }
     if let Some(image_codecs) = image_codecs {
         image_codecs.serve(app);
+    }
+    if let Some(video_decoders) = video_decoders {
+        video_decoders.serve(app);
     }
     if let Some(cameras) = cameras {
         cameras.serve(app);

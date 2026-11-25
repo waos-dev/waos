@@ -1,0 +1,181 @@
+package wasdk:media@2.1.0;
+
+/// Video encoding by the system's own encoders: VideoToolbox, Android's MediaCodec, Media
+/// Foundation and Direct3D, VA-API. A program hands the encoder one frame at a time, a camera's,
+/// a decoder's or one of a buffer it drew (`video-frames`), and reads the encoded chunks as they
+/// come out, to write a file or send a stream itself.
+///
+/// **What is fixed and what changes.** An encoder's codec, size, profile and kind of rate
+/// control are fixed when it is made, as every system fixes them. Its bitrate and frame rate
+/// change while it runs, and any picture can be asked for as a key frame.
+///
+/// **Chunks come out in the order a decoder takes them.** Where reordering is on, that is not
+/// the order the pictures are shown, and the chunks' timestamps are not ascending. A picture the
+/// encoder drops to keep its bitrate gives no chunk.
+interface video-encoders {
+  use video-frames.{video-frame, video-color, hdr-metadata};
+  use video-streams.{video-codec, video-stream-setup, encoded-chunk, codec-choice, codec-kind, picture-size};
+
+  /// The system's video encoders; none where the system encodes no video for programs.
+  get-video-encoders: func() -> option<video-encoders>;
+
+  resource video-encoders {
+    /// The system's encoders, as it lists them now.
+    encoders: func() -> list<video-encoder-info>;
+    /// An encoder as `config` asks. `unsupported` where the system has none that does all of
+    /// it, a kind of rate control among that; `busy` where every such encoder is in use.
+    open: async func(config: video-encoder-config) -> result<video-encoder, encoder-error>;
+  }
+
+  /// One of the system's encoders, with what the system says of it before it is tried.
+  record video-encoder-info {
+    /// Names this encoder to `open`.
+    id: string,
+    /// As the system names it, for a person to read.
+    name: string,
+    codec: video-codec,
+    kind: codec-kind,
+    /// The profiles it encodes, as the codec numbers them; none where the system does not say.
+    profiles: option<list<u32>>,
+    largest-size: option<picture-size>,
+    /// The kinds of rate control it has; none where only trying tells.
+    rate-controls: option<list<rate-control-kind>>,
+  }
+
+  /// Which encoder the program accepts.
+  variant encoder-choice {
+    /// By where it runs.
+    kind(codec-choice),
+    /// The one the system lists under this id.
+    id(string),
+  }
+
+  /// How the encoder spends bits, with that kind's own numbers. The kind is fixed for the
+  /// encoder's life; its numbers change while it runs (`set-rate-control`).
+  variant rate-control {
+    /// The same bitrate throughout, in bits a second: for a link of fixed capacity.
+    constant(u32),
+    /// Around a target, and never above a peak where one is given.
+    variable(variable-rate),
+    /// The same quality throughout, at whatever bitrate that takes: from 0, the smallest file,
+    /// to 1. The systems have no scale in common, so this one is the engine's, mapped to each.
+    quality(f32),
+    /// The program gives each picture's quantiser with the picture (`encode-options`).
+    per-picture,
+  }
+
+  record variable-rate {
+    /// In bits a second.
+    target: u32,
+    peak: option<u32>,
+  }
+
+  enum rate-control-kind {
+    constant,
+    variable,
+    quality,
+    per-picture,
+  }
+
+  /// How an H.264 or HEVC encoder frames what it puts out.
+  enum nal-framing {
+    /// Each unit after its length, the setup a configuration record: what a file is written
+    /// from.
+    length-prefixed,
+    /// Each unit after a start code, the parameter sets with every key frame: what a stream
+    /// is sent as.
+    start-codes,
+  }
+
+  /// The codec to encode, with the framing where the codec has a choice of one.
+  variant encoded-format {
+    h264(nal-framing),
+    hevc(nal-framing),
+    vp8,
+    vp9,
+    av1,
+  }
+
+  record video-encoder-config {
+    format: encoded-format,
+    encoder: encoder-choice,
+    /// The profile, as the codec numbers it; none leaves it to the encoder. A 10-bit picture
+    /// needs a profile that holds one.
+    profile: option<u32>,
+    /// The pictures' size. The encoder may hold them in a larger one (`coded-size`).
+    size: picture-size,
+    /// Pictures a second, as they will come.
+    frame-rate: f32,
+    rate-control: rate-control,
+    /// The most pictures from one key frame to the next; none leaves it to the encoder.
+    key-frame-interval: option<u32>,
+    /// Whether pictures may be encoded out of the order they are shown, which makes a smaller
+    /// file and adds delay. Off for anything live.
+    reordering: bool,
+    purpose: encoding-purpose,
+    /// What the stream says of its pictures' colour.
+    color: video-color,
+    /// The brightness the pictures were mastered for, written into an HDR stream.
+    hdr-metadata: option<hdr-metadata>,
+  }
+
+  /// What the encoding is for, which decides how the system runs the encoder.
+  enum encoding-purpose {
+    /// Sent as it is made, as in a call: each chunk comes out as soon as its picture is in.
+    live,
+    /// Made while its user waits, as a file being exported: as fast as the system goes.
+    offline,
+    /// Not waited for: the system may take its time to save power.
+    background,
+  }
+
+  record encode-options {
+    /// Make this picture a key frame.
+    key-frame: bool,
+    /// This picture's quantiser, on the codec's own scale, where the rate control is
+    /// `per-picture`.
+    quantizer: option<u32>,
+  }
+
+  /// What an encoder puts out for one picture.
+  record encoded-output {
+    chunk: encoded-chunk,
+    /// The stream's setup: with the first chunk, and again with the first after it changes.
+    /// What a decoder for this stream is opened with, and a file's header written from.
+    setup: option<video-stream-setup>,
+  }
+
+  variant encoder-error {
+    /// The system has no encoder that does what was asked, or this one does not take the
+    /// frame's layout; another choice may work.
+    unsupported(string),
+    /// Every such encoder is in use now.
+    busy,
+    /// The system took the encoder away. Another goes on with a key frame.
+    lost,
+    /// The system's encoder failed.
+    failed(string),
+  }
+
+  resource video-encoder {
+    /// Which of the system's encoders it is.
+    info: func() -> video-encoder-info;
+    /// The size it holds pictures in, which a system rounds up to its blocks: 1920 by 1088 for
+    /// pictures of 1920 by 1080. The padding is not part of the picture.
+    coded-size: func() -> picture-size;
+    /// Hands `frame` to the encoder, waiting while it is full; its chunk comes on `output`.
+    /// The frame's memory is not to be drawn into afterwards: the encoder reads it until it is
+    /// done, and holds it until then. `unsupported` for a frame in a layout it does not take.
+    encode: async func(frame: borrow<video-frame>, options: encode-options) -> result<_, encoder-error>;
+    /// What the encoder puts out, in the order a decoder takes it, and beside it why the
+    /// encoder ended, where it did before the program dropped it. Taken once.
+    output: func() -> tuple<stream<encoded-output>, future<result<_, encoder-error>>>;
+    /// Other numbers for the kind of rate control it was made with; `unsupported` for another
+    /// kind.
+    set-rate-control: func(rate-control: rate-control) -> result<_, encoder-error>;
+    /// The pictures now come at `frame-rate` a second.
+    set-frame-rate: func(frame-rate: f32);
+    /// Resolves once every frame given has come out as a chunk, as at a recording's end.
+    drain: async func() -> result<_, encoder-error>;
+  }
+}

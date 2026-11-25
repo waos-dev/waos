@@ -30,6 +30,7 @@ mod output;
 mod prompts;
 pub mod sound;
 pub mod system_permissions;
+pub mod video_decoders;
 pub mod video_frames;
 
 use std::future::Future;
@@ -100,6 +101,7 @@ pub struct TestShell {
     pub media_assets: Arc<TestMediaAssets>,
     pub image_codecs: Arc<TestImageCodecs>,
     pub video_frame_readers: Arc<TestVideoFrameReaders>,
+    pub video_decoders: Arc<video_decoders::TestVideoDecoders>,
     pub cameras: Arc<TestCameras>,
     pub simulated_cameras: Arc<TestCameras>,
     pub machine_picker: Arc<TestMachinePicker>,
@@ -125,6 +127,7 @@ impl TestShell {
             media_assets: Arc::default(),
             image_codecs: Arc::default(),
             video_frame_readers: Arc::default(),
+            video_decoders: Arc::default(),
             cameras: Arc::default(),
             simulated_cameras: Arc::new(TestCameras::simulated()),
             machine_picker: Arc::default(),
@@ -152,6 +155,9 @@ impl TestShell {
             image_codecs: Some(Arc::clone(&self.image_codecs) as Arc<dyn ShellImageCodecs>),
             video_frame_readers: Some(
                 Arc::clone(&self.video_frame_readers) as Arc<dyn ShellVideoFrameReaders>
+            ),
+            video_decoders: Some(
+                Arc::clone(&self.video_decoders) as Arc<dyn waos::ShellVideoDecoders>
             ),
             cameras: Some(Arc::clone(&self.cameras) as Arc<dyn ShellCameras>),
             simulated_cameras: Some(Arc::clone(&self.simulated_cameras) as Arc<dyn ShellCameras>),
@@ -197,16 +203,20 @@ pub fn config() -> WaOSConfig {
     }
 }
 
-/// What `future` resolves with, failing after [`WITHIN`]: the one wait a test has, for what it
-/// expects. It blocks the test's thread; the programs run on threads of their own.
+/// What `future` resolves with, failing after [`WITHIN`] with the line that waited: the one wait a
+/// test has, for what it expects. It blocks the test's thread; the programs run on threads of
+/// their own.
+#[track_caller]
 pub fn within<T: Send + 'static>(future: impl Future<Output = T> + Send + 'static) -> T {
+    let waiting_at = std::panic::Location::caller();
     let (resolved, came) = mpsc::channel();
     thread::spawn(move || {
         // A test that timed out has dropped the receiver.
         let _ = resolved.send(futures::executor::block_on(future));
     });
-    came.recv_timeout(WITHIN)
-        .unwrap_or_else(|_| panic!("what the test waited for never came within {WITHIN:?}"))
+    came.recv_timeout(WITHIN).unwrap_or_else(|_| {
+        panic!("what the test waited for at {waiting_at} never came within {WITHIN:?}")
+    })
 }
 
 /// Waits until `done`, failing after [`WITHIN`] with `what` was awaited: for what a part of the

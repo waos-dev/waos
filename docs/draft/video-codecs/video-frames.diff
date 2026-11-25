@@ -1,0 +1,187 @@
+--- a/wit/deps/wasdk-media-2.1.0/video-frames.wit	2026-11-24 20:51:38
++++ b/wit/deps/wasdk-media-2.1.0/video-frames.wit	2026-11-24 20:51:38
+@@ -15,7 +15,7 @@
+ /// reusing them. Memory a program holds of its own, which no pool waits for, is a hardware buffer
+ /// it allocates or the hardware codecs decode (`wasdk:platform/hardware-buffers`).
+ interface video-frames {
+-  use wasdk:platform/hardware-buffers@2.1.0.{hardware-buffer};
++  use wasdk:platform/hardware-buffers@2.1.0.{hardware-buffer, image-error};
+   use wasdk:platform/views@2.1.0.{composition-layer, instant};
+ 
+   /// One picture of a video, lent with its slot in the system's pool until it, its buffer and
+@@ -31,8 +31,163 @@
+     /// Whether the frame is shown flipped horizontally, after `rotation`, as the web's
+     /// `VideoFrame.flip`: a camera that looks at its user, shown as a mirror.
+     %flip: func() -> bool;
++    /// When the picture is shown, in nanoseconds on its stream's own timeline: for a decoder's
++    /// frame, the timestamp of the chunk it came from. None for a frame whose source gives none.
++    timestamp: func() -> option<s64>;
++    /// How long the picture is shown, in nanoseconds, where its source says.
++    duration: func() -> option<u64>;
++    /// The part of the buffer that is picture, in the buffer's pixels and before `rotation`. A
++    /// decoder pads a picture to its blocks' size, so the buffer may be larger than the picture:
++    /// 1920 by 1088 for a picture of 1920 by 1080.
++    visible-rect: func() -> pixel-rect;
++    /// The shape of one pixel, width to height: 1 to 1 unless the video is anamorphic.
++    pixel-aspect: func() -> pixel-aspect;
++    /// The picture's planes, in the order a texture is imported of each
++    /// (`wasdk:platform/gpu-interop`). A decoder's picture is two as a rule, its brightness and
++    /// its colour at half the size; a player's or a camera's RGB picture is one. None where the
++    /// system keeps the layout to itself, as many Android decoders do, and as WebCodecs' frame
++    /// has no format: such a frame is shown on a composition layer and not read.
++    planes: func() -> option<list<video-plane>>;
++    /// What the samples mean as colour.
++    color: func() -> video-color;
++    /// The brightness the picture was mastered for, where its stream says: what a display needs
++    /// to show an HDR picture.
++    hdr-metadata: func() -> option<hdr-metadata>;
++    /// The picture's samples copied into the program's memory, a plane at a time, as `planes`
++    /// describes them: a copy, as Apple's and Android's locks and the web's `copyTo` give one.
++    /// Nothing is converted: a program that wants red, green and blue mixes them itself.
++    /// `unsupported` for a frame with no planes.
++    read-planes: async func() -> result<list<plane-pixels>, image-error>;
+   }
+ 
++  /// One plane's samples in the program's memory: its rows from the top, each `row-bytes` long
++  /// and starting with the plane's width of samples. A row may end in padding, as a system lays
++  /// rows out.
++  record plane-pixels {
++    /// The bytes from one row's start to the next's.
++    row-bytes: u32,
++    bytes: list<u8>,
++  }
++
++  /// A rectangle of a buffer's pixels, from its top-left corner.
++  record pixel-rect {
++    x: u32,
++    y: u32,
++    width: u32,
++    height: u32,
++  }
++
++  /// The shape of one pixel: `width` to `height`.
++  record pixel-aspect {
++    width: u32,
++    height: u32,
++  }
++
++  /// One plane of a frame's picture, as the texture imported of it is.
++  record video-plane {
++    width: u32,
++    height: u32,
++    format: plane-format,
++    content: plane-content,
++    /// How many of each sample's bits are the picture's, at the sample's high end: 10 for a
++    /// 10-bit picture, which every system holds in 16-bit samples with the low six unused. A
++    /// shader that reads such a sample as a full 16 bits is off by a factor of 64.
++    bit-depth: u8,
++  }
++
++  /// A plane's samples as a texture holds them.
++  enum plane-format {
++    r8,
++    rg8,
++    r16,
++    rg16,
++    rgba8,
++    bgra8,
++  }
++
++  /// What a plane holds of the picture.
++  enum plane-content {
++    /// Red, green, blue and alpha: the whole picture.
++    rgba,
++    /// Brightness (Y).
++    luma,
++    /// Colour, as its two differences from brightness (Cb, then Cr) in the plane's two channels.
++    chroma,
++    /// The blue difference (Cb) alone, of a picture in three planes.
++    chroma-blue,
++    /// The red difference (Cr) alone.
++    chroma-red,
++    alpha,
++  }
++
++  /// What a frame's samples mean as colour, as its stream says it: the code points of ITU-T
++  /// H.273, which every codec and every system's frame carry. None of a value where neither the
++  /// stream nor the program said.
++  record video-color {
++    /// Which red, green and blue: 1 is BT.709, 9 BT.2020, 12 Display P3.
++    primaries: option<u8>,
++    /// How samples encode brightness: 1 is BT.709, 13 sRGB, 16 PQ, 18 HLG.
++    transfer: option<u8>,
++    /// How brightness and colour mix into red, green and blue: 1 is BT.709, 6 BT.601, 9
++    /// BT.2020, 0 none (the samples are red, green and blue already).
++    matrix: option<u8>,
++    range: option<color-range>,
++    chroma-location: option<chroma-location>,
++  }
++
++  /// How much of a sample's range the picture uses.
++  enum color-range {
++    /// Video's range: 16 to 235 of 8 bits for brightness.
++    limited,
++    /// All of it.
++    full,
++  }
++
++  /// Where a half-size colour plane's samples sit against the brightness plane's.
++  record chroma-location {
++    horizontal: chroma-alignment,
++    vertical: chroma-alignment,
++  }
++
++  enum chroma-alignment {
++    /// On the first of the brightness samples it covers.
++    cosited,
++    /// Midway between them.
++    centered,
++  }
++
++  /// The brightness a picture was mastered for.
++  record hdr-metadata {
++    /// The display it was mastered on (SMPTE ST 2086).
++    mastering-display: option<mastering-display>,
++    /// How bright its content gets (CTA-861.3).
++    content-light: option<content-light>,
++  }
++
++  record mastering-display {
++    red: chromaticity,
++    green: chromaticity,
++    blue: chromaticity,
++    white: chromaticity,
++    /// In candelas a square metre.
++    max-luminance: f32,
++    min-luminance: f32,
++  }
++
++  /// A colour's place on the CIE 1931 diagram.
++  record chromaticity {
++    x: f32,
++    y: f32,
++  }
++
++  /// In candelas a square metre.
++  record content-light {
++    /// The brightest sample of the whole video.
++    max: u32,
++    /// The brightest picture's average.
++    max-frame-average: u32,
++  }
++
+   /// The system's frame readers, where it hands out frames.
+   resource video-frame-readers {
+     /// A reader fed by nothing yet.
+@@ -41,6 +196,11 @@
+ 
+   get-video-frame-readers: func() -> option<video-frame-readers>;
+ 
++  /// A frame of a buffer the program drew, to hand to an encoder: its whole buffer the picture,
++  /// one plane of red, green and blue in `color`, shown at `timestamp`. The frame is the
++  /// program's own, lent from no pool.
++  make-frame: func(buffer: hardware-buffer, timestamp: s64, duration: option<u64>, color: video-color) -> video-frame;
++
+   /// Where a player or a camera sends its frames for the program to draw; given to one source
+   /// at a time.
+   resource video-frame-reader {

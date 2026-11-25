@@ -191,8 +191,22 @@ pub fn instance() -> wgpu::Instance {
 /// size and format are the buffer's, and its usages follow from the buffer's usage.
 pub fn import_texture(device: &wgpu::Device, buffer: &HardwareBuffer) -> wgpu::Texture {
     let texture = gpu_interop::import_texture(WasdkDevice::of(device).gpu_device(), buffer);
+    wgpu_texture(texture, "hardware buffer")
+}
+
+/// One plane of `buffer` imported as a texture on `device`, as a `wgpu::Texture`: the plane at
+/// `index` of a video frame's `planes`, of that plane's size and format, which holds the buffer
+/// and its frame until it is dropped. A decoder's picture is drawn by sampling each of its planes
+/// and mixing them as the frame's `color` says.
+pub fn import_plane(device: &wgpu::Device, buffer: &HardwareBuffer, index: u32) -> wgpu::Texture {
+    let texture = gpu_interop::import_plane(WasdkDevice::of(device).gpu_device(), buffer, index);
+    wgpu_texture(texture, "hardware buffer plane")
+}
+
+/// The engine's `texture` as wgpu's, described as the engine made it.
+fn wgpu_texture(texture: wasdk::webgpu::GpuTexture, label: &'static str) -> wgpu::Texture {
     let descriptor = wgpu::TextureDescriptor {
-        label: Some("hardware buffer"),
+        label: Some(label),
         size: wgpu::Extent3d {
             width: texture.width(),
             height: texture.height(),

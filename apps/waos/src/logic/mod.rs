@@ -108,6 +108,7 @@ pub(crate) mod notification_permissions;
 pub(crate) mod offers;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(crate) mod open_command;
+pub(crate) mod open_video_decoders;
 pub(crate) mod opened_package;
 pub(crate) mod opener_calls;
 pub(crate) mod opening;
@@ -151,4 +152,7 @@ pub(crate) mod test_outputs;
 pub(crate) mod test_pattern;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(crate) mod tray_image;
+pub(crate) mod video_decoder_calls;
+pub(crate) mod video_decoder_thread;
+pub(crate) mod video_values;
 pub(crate) mod vsync_waiter;

@@ -64,7 +64,7 @@ use crate::screens::host::{ScreensCtx, ScreensCtxView};
 use crate::service_extensions::host::{ServiceExtensionsCtx, ServiceExtensionsCtxView};
 use crate::shell::{
     ShellCompositor, ShellFileDialogs, ShellImageCodecs, ShellMediaAssets, ShellMediaPlayers,
-    ShellNotifications, ShellOpener, ShellVideoFrameReaders, ViewPlacement,
+    ShellNotifications, ShellOpener, ShellVideoDecoders, ShellVideoFrameReaders, ViewPlacement,
 };
 use crate::source_lines::{self, ComponentFile};
 use crate::stream::{Forwarded, stream_of};
@@ -72,6 +72,7 @@ use crate::system::SystemSettings;
 use crate::system::host::{SystemCtx, SystemCtxView};
 use crate::targets;
 use crate::trust::host::{TrustCtx, TrustCtxView};
+use crate::video_decoders::host::{VideoDecodersCtx, VideoDecodersCtxView};
 use crate::video_frames::host::{VideoFramesCtx, VideoFramesCtxView};
 use crate::views::ViewLayers;
 use crate::views::host::{ViewsCtx, ViewsCtxView};
@@ -236,6 +237,7 @@ fn linker(engine: &Engine, held: &[Role]) -> wasmtime::Result<Linker<StoreData>>
     crate::hardware_buffers::host::add_to_linker(&mut linker)?;
     crate::gpu_interop::host::add_to_linker(&mut linker)?;
     crate::video_frames::host::add_to_linker(&mut linker)?;
+    crate::video_decoders::host::add_to_linker(&mut linker)?;
     crate::media_players::host::add_to_linker(&mut linker)?;
     crate::media_assets::host::add_to_linker(&mut linker)?;
     crate::image_codecs::host::add_to_linker(&mut linker)?;
@@ -377,6 +379,7 @@ fn store_data(
         media_assets: instances.media_assets.clone(),
         image_codecs: instances.image_codecs.clone(),
         video_frame_readers: user_side.video_frame_readers,
+        video_decoders: user_side.video_decoders,
         cameras,
         machines,
         access: access.clone(),
@@ -475,6 +478,7 @@ pub(crate) struct StoreData {
     image_codecs: Option<Arc<dyn ShellImageCodecs>>,
     /// The system's frame readers, where the shell has them.
     video_frame_readers: Option<Arc<dyn ShellVideoFrameReaders>>,
+    video_decoders: Option<Arc<dyn ShellVideoDecoders>>,
     /// The system's cameras, where the shell has them and can show them used, and the sessions it
     /// holds.
     cameras: ProgramCameras,
@@ -774,6 +778,15 @@ impl VideoFramesCtxView for StoreData {
             table: &mut self.table,
             readers: self.video_frame_readers.as_ref(),
             clock: self.program.program_views().clock(),
+        }
+    }
+}
+
+impl VideoDecodersCtxView for StoreData {
+    fn video_decoders_ctx(&mut self) -> VideoDecodersCtx<'_> {
+        VideoDecodersCtx {
+            table: &mut self.table,
+            decoders: self.video_decoders.as_ref(),
         }
     }
 }

@@ -18,7 +18,7 @@ include!(concat!(env!("OUT_DIR"), "/programs.rs"));
 pub const INCOMPATIBLE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/incompatible.wat");
 
 /// A component built against `wasdk:platform@2.0.0`, the version before `service-extensions`,
-/// which the engine, serving `2.1.0`, links by semver's rule: it imports `wasdk:platform/system`
+/// which the engine, serving `2.2.0`, links by semver's rule: it imports `wasdk:platform/system`
 /// by that version and nothing else. Text, which the engine compiles as it does a component's
 /// binary.
 pub const BUILT_AGAINST_2_0: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/built-against-2-0.wat");
