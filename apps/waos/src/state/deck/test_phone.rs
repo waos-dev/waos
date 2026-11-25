@@ -29,9 +29,8 @@ use tempfile::TempDir;
 use waft::ui::valo::Op;
 use waft::ui::{
     Contact, EmbedderClient, Frame, HostWindow, PlatformRef, PointerDeviceKind, PointerReport,
-    ReportedChange, Scene, SystemFontSource, TargetPlatform, TextAffinity, TextEditingValue,
-    TextSelection, View, ViewHost, ViewId, ViewMetrics, ViewPadding, ViewRef, WindowConfig,
-    flattened_ops, slices,
+    ReportedChange, Scene, TargetPlatform, TextAffinity, TextEditingValue, TextSelection, View,
+    ViewHost, ViewId, ViewMetrics, ViewPadding, ViewRef, WindowConfig, flattened_ops, slices,
 };
 use waft::{
     AnyElement, App, Entity, Offset, Offstage, Opacity, Rect, Shell, TextStyle, WidgetsBinding,
@@ -286,7 +285,7 @@ impl TestPhone {
         let mut platform = TestPlatform::new()
             .with_view(Rc::clone(&screen) as ViewRef)
             .with_compositor(Arc::new(compositor.clone()))
-            .with_font_source(|| Box::new(SystemFontSource::new(valo_fontmgr::platform())));
+            .with_system_fonts();
         if kind == PhoneKind::Tasks {
             platform = platform
                 .on(TargetPlatform::Android)

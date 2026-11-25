@@ -27,56 +27,16 @@ use waos_package::ProgramId;
 use waos_store::{Answer, DomainRule, GlobalSettings, NetworkGrant, Setting};
 
 use super::home::fluent::FluentHome;
+use super::test_steps::{in_launcher, in_launcher_of, installs, on_phone, on_phone_of};
 use super::{LaidOutLibrary, words};
 use crate::logic::phone_files::TestPhone;
 use crate::logic::setting_changes::{SettingChange, SettingsOf};
 use crate::state::library::LibraryPage;
 use crate::state::library::test_desktop::{DesktopKind, LibraryDesktop};
-use crate::state::phone_window::in_phone_window;
 use crate::ui::launcher::home::LauncherHome;
-use crate::ui::launcher::tests::{Start, launcher_desktop, launcher_view};
 
 const TRIANGLE: &str = "dev.example.triangle";
 const PERMISSIONS: &str = "dev.example.permissions";
-
-/// The desktop with the library in its launcher, shown.
-fn in_launcher() -> (LibraryDesktop, ViewId) {
-    in_launcher_of(DesktopKind::default())
-}
-
-/// The desktop of `kind` with the library in its launcher, shown.
-fn in_launcher_of(kind: DesktopKind) -> (LibraryDesktop, ViewId) {
-    let (desktop, _launcher) = launcher_desktop(kind, Start::Shown);
-    let view = launcher_view(&desktop);
-    (desktop, view)
-}
-
-/// The desktop with the library in a window of a phone's size.
-fn on_phone() -> (LibraryDesktop, ViewId) {
-    on_phone_of(DesktopKind::default())
-}
-
-/// The desktop of `kind` with the library in a window of a phone's size.
-fn on_phone_of(kind: DesktopKind) -> (LibraryDesktop, ViewId) {
-    let show = |app: &mut waft::App, library: &_, recordings: &_, _view_windows: &_| {
-        let page = LaidOutLibrary {
-            library: Clone::clone(library),
-            recordings: Clone::clone(recordings),
-            questions_here: true,
-        };
-        (Some(in_phone_window(app, page.into_widget())), ())
-    };
-    let (desktop, ()) = LibraryDesktop::of(kind, Box::new(show));
-    let view = desktop.windows()[0].test_view().id();
-    (desktop, view)
-}
-
-fn installs(desktop: &mut LibraryDesktop, id: &str, name: &str, component: &[u8]) {
-    let package = desktop.package(id, name, "1.0.0", component);
-    desktop.update(|library, cx| library.open_files(vec![package], cx));
-    desktop.update(|library, cx| library.answer(true, cx));
-    desktop.settle_until_code_is_ready();
-}
 
 fn triangle() -> ProgramId {
     TRIANGLE.parse().unwrap()

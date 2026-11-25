@@ -25,6 +25,7 @@ use super::home::cupertino::CupertinoHome;
 use super::home::fluent::FluentHome;
 use super::home::{IconTile, RunningDot};
 use super::program_icon::ProgramIcon;
+use super::test_steps::adds_source;
 use super::{LaidOutLibrary, words};
 use crate::logic::opened_package::package_file_type;
 use crate::state::library::LibraryPage;
@@ -72,15 +73,7 @@ fn source_listing_triangle(desktop: &mut LibraryDesktop, server: &Server, versio
     let package = desktop.package(TRIANGLE, "Triangle", version, b"\0asm");
     server.publish(TRIANGLE, &package, version);
     let index = server.url("waos/index.json");
-    desktop.update(|library, cx| library.add_source(&index, cx));
-    desktop.settle_until("the source's listing", |desktop| {
-        desktop.read(|library| {
-            library
-                .sources()
-                .iter()
-                .all(|read| !matches!(read.listing, crate::state::library::Listing::Reading))
-        })
-    });
+    adds_source(desktop, &index);
     index
 }
 

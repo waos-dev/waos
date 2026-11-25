@@ -24,6 +24,8 @@ mod settings;
 #[cfg(test)]
 mod settings_tests;
 #[cfg(test)]
+pub(crate) mod test_steps;
+#[cfg(test)]
 mod tests;
 pub(crate) mod words;
 

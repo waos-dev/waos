@@ -20,9 +20,9 @@ use waft::ui::{CompositionLayer, Compositor, HardwareBuffer, LayerPicture, Place
 use waft::ui::{
     Contact, Dispatcher, EmbedderClient, Frame, KeyData, KeyEventDeviceType, KeyEventType, Offset,
     Platform, PlatformRef, PointerDeviceKind, PointerReport, Rect, ReportedChange, RequestId,
-    Screen, ScreenId, Screens, SystemFontSource, TargetPlatform, TextAffinity, TextEditingValue,
-    TextSelection, TrayIconEvent, TrayIconId, View as _, ViewError, ViewFocusDirection,
-    ViewFocusEvent, ViewFocusState, ViewId, ViewRef, WindowConfig,
+    Screen, ScreenId, Screens, TargetPlatform, TextAffinity, TextEditingValue, TextSelection,
+    TrayIconEvent, TrayIconId, View as _, ViewError, ViewFocusDirection, ViewFocusEvent,
+    ViewFocusState, ViewId, ViewRef, WindowConfig,
 };
 use waft::{
     AnyElement, App, AppLifecycleState, Curves, Entity, Offstage, ScrollPositionAlignmentPolicy,
@@ -779,7 +779,8 @@ impl LibraryPlatform {
             inner: TestPlatform::new()
                 .on(system)
                 .with_windows(Rc::clone(&windows))
-                .with_font_source(|| Box::new(SystemFontSource::new(valo_fontmgr::platform())))
+                .with_system_fonts()
+                .with_gpu()
                 .with_opener(Rc::new(opener.clone()))
                 .with_tray_icons(Rc::new(tray.clone()))
                 .with_file_dialogs(Rc::new(file_dialogs.clone())),
@@ -832,6 +833,30 @@ impl Platform for LibraryPlatform {
 
     fn font_source(&self) -> Option<Box<dyn waft::ui::FontSource>> {
         self.inner.font_source()
+    }
+
+    fn open_image_codec(&self, bytes: Arc<[u8]>) -> waft::ui::ImageCodecFuture {
+        self.inner.open_image_codec(bytes)
+    }
+
+    fn import_pixels(&self, pixels: waft::ui::valo::PixelBuffer) -> Option<waft::ui::Image> {
+        self.inner.import_pixels(pixels)
+    }
+
+    fn picture_to_image_sync(
+        &self,
+        picture: &waft::ui::Picture,
+        width: u32,
+        height: u32,
+    ) -> Option<waft::ui::Image> {
+        self.inner.picture_to_image_sync(picture, width, height)
+    }
+
+    fn read_image_pixels(
+        &self,
+        image: &waft::ui::Image,
+    ) -> waft::ui::image_codecs::ImageFuture<waft::ui::valo::PixelBuffer> {
+        self.inner.read_image_pixels(image)
     }
 
     fn tray_icons(&self) -> Option<&dyn waft::ui::TrayIcons> {

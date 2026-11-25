@@ -8621,6 +8621,7 @@ dependencies = [
  "waft-rendering",
  "waft-scheduler",
  "waft-services",
+ "waft-test",
 ]
 
 [[package]]
@@ -8767,7 +8768,6 @@ dependencies = [
  "toml 1.2.2+spec-1.1.0",
  "tracing",
  "tracing-subscriber",
- "valo-fontmgr",
  "waft",
  "waft-cupertino",
  "waft-embedder-android",
