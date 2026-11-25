@@ -187,7 +187,7 @@ mod tests {
             2,
             1,
             HardwareBufferUsage::empty(),
-            crate::engine::HardwareBufferMode::Offscreen,
+            crate::engine::BufferKind::SharedMemory,
         )
         .unwrap()
         .buffer()

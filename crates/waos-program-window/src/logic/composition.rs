@@ -18,8 +18,12 @@ use std::sync::Arc;
 use waft::ui::{self, CompositionLayer, Compositor, Placement};
 #[cfg(any(target_vendor = "apple", target_os = "android"))]
 use waos::VideoFrame;
+use waos::bindings::wasdk::platform::hardware_buffers::PixelFormat;
 use waos::bindings::wasdk::platform::views;
-use waos::{HardwareBuffer, LayerPicture, ShellCompositionLayer, ShellCompositor};
+use waos::{
+    AcceptedBuffers, AcceptedFormat, GpuId, GpuMemory, HardwareBuffer, LayerPicture,
+    ShellCompositionLayer, ShellCompositor,
+};
 
 use super::placements::placement_of;
 
@@ -36,6 +40,49 @@ impl ShellCompositor for WaftCompositor {
     fn make_layer(&self, opaque: bool) -> Arc<dyn ShellCompositionLayer> {
         Arc::new(ProgramLayer(self.0.make_layer(opaque)))
     }
+
+    fn accepted_buffers(&self) -> AcceptedBuffers {
+        accepted_buffers_of(self.0.accepted_buffers())
+    }
+}
+
+/// Waft's `accepted`, as the engine reads it: formats the engine has no name for are left out.
+fn accepted_buffers_of(accepted: ui::AcceptedBuffers) -> AcceptedBuffers {
+    let format_of = |format| match format {
+        ui::HardwareBufferFormat::Bgra8 => Some(PixelFormat::Bgra8),
+        ui::HardwareBufferFormat::Rgba8 => Some(PixelFormat::Rgba8),
+        _ => None,
+    };
+    let gpu_memory = accepted
+        .gpu_memory
+        .into_iter()
+        .map(|memory| GpuMemory {
+            gpu: memory.gpu.and_then(gpu_of),
+            formats: memory
+                .formats
+                .into_iter()
+                .filter_map(|accepted| {
+                    Some(AcceptedFormat {
+                        format: format_of(accepted.format)?,
+                        modifiers: accepted.modifiers,
+                    })
+                })
+                .collect(),
+        })
+        .collect();
+    AcceptedBuffers {
+        gpu_memory,
+        shared_memory: accepted.shared_memory,
+    }
+}
+
+/// Waft's `gpu` as the engine names it; `None` for a kind of id the engine has no name for.
+fn gpu_of(gpu: ui::GpuId) -> Option<GpuId> {
+    match gpu {
+        ui::GpuId::Luid { low, high } => Some(GpuId::Luid { low, high }),
+        ui::GpuId::DrmRenderNode { major, minor } => Some(GpuId::DrmRenderNode { major, minor }),
+        _ => None,
+    }
 }
 
 /// A layer a program made: Waft's, as the engine holds it.
@@ -46,7 +93,7 @@ impl ShellCompositionLayer for ProgramLayer {
     /// layers through its view's.
     fn present(&self, buffer: HardwareBuffer, released: Box<dyn FnOnce() + Send + Sync>) {
         let Some(waft) = waft_buffer(buffer) else {
-            tracing::warn!("an offscreen hardware buffer cannot be presented to Waft's compositor");
+            tracing::warn!("a hardware buffer Waft's compositor cannot show was presented");
             released();
             return;
         };
@@ -98,22 +145,23 @@ pub(crate) fn waft_buffer(buffer: HardwareBuffer) -> Option<Arc<dyn ui::Hardware
 
 /// The engine's hardware `buffer`, the platform's own, as Waft's buffer over it, which a Waft
 /// layer shows: on Linux Waft's dmabuf buffer over a duplicate of its fd, for every use, as linear
-/// memory is, made once for the dmabuf, so its `wl_buffer` is made once too. Returns `None` for
-/// offscreen buffers (no dmabuf fd).
+/// memory is, or Waft's shared-memory buffer over its memory's, made once for the buffer, so its
+/// `wl_buffer` is made once too.
 #[cfg(target_os = "linux")]
 pub(crate) fn waft_buffer(buffer: HardwareBuffer) -> Option<Arc<dyn ui::HardwareBuffer>> {
-    let (fd, stride, offset, modifier) = (
-        buffer.fd()?,
-        buffer.stride()?,
-        buffer.offset()?,
-        buffer.modifier()?,
-    );
+    let fd = || buffer.fd().try_clone().expect("duplicating a buffer's fd");
+    let (Some(offset), Some(modifier)) = (buffer.offset(), buffer.modifier()) else {
+        let made = buffer.shells(|| {
+            waft_embedder_winit::ShmBuffer::new(fd(), buffer.size(), buffer.stride())
+                .expect("the engine's shared memory holds its picture")
+        });
+        return made.map(|made| made as Arc<dyn ui::HardwareBuffer>);
+    };
     let made = buffer.shells(|| {
-        let fd = fd.try_clone().expect("duplicating a dmabuf's fd");
         waft_embedder_winit::DmabufBuffer::new(
-            fd,
+            fd(),
             buffer.size(),
-            stride,
+            buffer.stride(),
             offset,
             modifier,
             ui::HardwareBufferUsage::ALL,

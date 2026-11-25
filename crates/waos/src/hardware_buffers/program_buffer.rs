@@ -32,7 +32,7 @@ use waos_webgpu_host::{Device, GpuObject, Texture, TextureAttributes, WeakDevice
 
 use super::Released;
 use super::counted_bytes::CountedBytes;
-use crate::HardwareBufferMode;
+use crate::BufferKind;
 use crate::bindings::wasdk::platform::hardware_buffers::{
     HardwareBufferUsage, ImageError, ImageErrorKind, PixelBuffer, PixelFormat,
 };
@@ -99,7 +99,7 @@ impl ProgramHardwareBuffer {
         height: u32,
         format: PixelFormat,
         usage: HardwareBufferUsage,
-        mode: HardwareBufferMode,
+        mode: BufferKind,
     ) -> Result<ProgramHardwareBuffer, ImageError> {
         if width.max(height) > LARGEST_SIDE {
             return Err(ImageError {

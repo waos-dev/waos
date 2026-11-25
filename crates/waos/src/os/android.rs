@@ -34,7 +34,7 @@ use waos_webgpu_host::wasi::webgpu::webgpu::{
 };
 use waos_webgpu_host::{Device, GpuObject, TextureAttributes};
 
-use crate::HardwareBufferMode;
+use crate::BufferKind;
 use crate::bindings::wasdk::platform::hardware_buffers::{
     AlphaType, HardwareBufferUsage, ImageError, ImageErrorKind, PixelBuffer, PixelFormat,
 };
@@ -114,7 +114,7 @@ impl HardwareBufferMemory {
         width: u32,
         height: u32,
         usage: HardwareBufferUsage,
-        _mode: HardwareBufferMode,
+        _mode: BufferKind,
     ) -> Result<HardwareBufferMemory> {
         let description = HardwareBufferDesc {
             width,
@@ -141,7 +141,7 @@ impl HardwareBufferMemory {
         height: u32,
         format: PixelFormat,
         usage: HardwareBufferUsage,
-        mode: HardwareBufferMode,
+        mode: BufferKind,
     ) -> Result<HardwareBufferMemory, ImageError> {
         if format != PixelFormat::Rgba8 {
             return Err(ImageError {

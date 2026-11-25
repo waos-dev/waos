@@ -14,8 +14,8 @@ use std::sync::Arc;
 use waos::bindings::wasdk::platform::system::Brightness;
 use waos::bindings::wasdk::platform::views::ViewError;
 use waos::{
-    AuditLog, EngineTime, FreezePolicy, HardwareBufferMode, HttpProxy, NoPrompts, PlatformState,
-    Prompts, RunningProgram, Shell, ViewPlacement, ViewRequest, VsyncWaiter, WaOS, WaOSConfig,
+    AuditLog, EngineTime, FreezePolicy, HttpProxy, NoPrompts, PlatformState, Prompts,
+    RunningProgram, Shell, ViewPlacement, ViewRequest, VsyncWaiter, WaOS, WaOSConfig,
 };
 
 /// Why [`NoWindows`] refuses every request.
@@ -118,7 +118,6 @@ fn config(time: EngineTime, code_cache: &Path) -> WaOSConfig {
         temporary_folders: std::env::temp_dir().join("waos-tests"),
         audit: None,
         inspected_programs: None,
-        hardware_buffers: HardwareBufferMode::Auto,
     }
 }
 
@@ -144,8 +143,8 @@ pub(crate) mod drawing {
     use waos::bindings::wasdk::platform::system::Brightness;
     use waos::bindings::wasdk::platform::views::RequestId;
     use waos::{
-        EngineTime, FreezePolicy, HardwareBufferMode, HttpProxy, NoPrompts, PlatformState,
-        ProgramView, RunningProgram, ViewRequest, WaOS, WaOSConfig, WindowConfig,
+        EngineTime, FreezePolicy, HttpProxy, NoPrompts, PlatformState, ProgramView, RunningProgram,
+        ViewRequest, WaOS, WaOSConfig, WindowConfig,
     };
 
     use waos_headless::{Display, HeadlessShell, Refreshes};
@@ -190,7 +189,6 @@ pub(crate) mod drawing {
             temporary_folders: std::env::temp_dir().join("waos-tests"),
             audit: None,
             inspected_programs: None,
-            hardware_buffers: HardwareBufferMode::Offscreen,
         };
         let platform = PlatformState {
             screens: vec![headless.screen()],

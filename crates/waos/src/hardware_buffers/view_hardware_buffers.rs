@@ -16,7 +16,7 @@ use waos_webgpu_host::{Device, GpuObject};
 
 use super::pool::{HardwareBufferPool, Released};
 use super::{SPARE_IDLE, STARTING_HARDWARE_BUFFERS};
-use crate::HardwareBufferMode;
+use crate::BufferKind;
 use crate::bindings::wasdk::platform::hardware_buffers::HardwareBufferUsage;
 use crate::gpu::{wgpu_core, wgpu_types};
 use crate::lifecycle::Lifecycle;
@@ -50,7 +50,7 @@ pub(super) struct ViewHardwareBuffers {
     pub(super) view: ProgramView,
     pub(super) stats: Arc<Stats>,
     pub(super) lifecycle: Lifecycle,
-    pub(super) hardware_buffers: HardwareBufferMode,
+    pub(super) hardware_buffers: BufferKind,
     quiet: Mutex<Quiet>,
 }
 
@@ -75,7 +75,7 @@ pub(super) struct Allocation {
     /// Every hardware buffer's size, in physical pixels.
     width: u32,
     height: u32,
-    hardware_buffers: HardwareBufferMode,
+    hardware_buffers: BufferKind,
     pub(super) pool: HardwareBufferPool<HardwareBufferMemory>,
     /// The texture of the frame being drawn, kept until it is presented: what the frame's
     /// hand-over to the compositor works on.
@@ -101,7 +101,7 @@ impl ViewHardwareBuffers {
         view: ProgramView,
         stats: Arc<Stats>,
         lifecycle: Lifecycle,
-        hardware_buffers: HardwareBufferMode,
+        hardware_buffers: BufferKind,
         now: Instant,
     ) -> Arc<ViewHardwareBuffers> {
         Arc::new(ViewHardwareBuffers {
@@ -184,7 +184,7 @@ impl Allocation {
         configuration: &wgpu_types::SurfaceConfiguration<Vec<wgpu_types::TextureFormat>>,
         device: &Device,
         stats: &Arc<Stats>,
-        hardware_buffers: HardwareBufferMode,
+        hardware_buffers: BufferKind,
     ) -> anyhow::Result<Allocation> {
         let (width, height) = (configuration.width, configuration.height);
         let memories = (0..STARTING_HARDWARE_BUFFERS)

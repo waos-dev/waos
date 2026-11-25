@@ -8,8 +8,12 @@
 use std::any::Any;
 use std::sync::{Arc, Mutex};
 
+use waos::bindings::wasdk::platform::hardware_buffers::PixelFormat;
 use waos::bindings::wasdk::platform::views::Placement;
-use waos::{HardwareBuffer, LayerPicture, ShellCompositionLayer, ShellCompositor};
+use waos::{
+    AcceptedBuffers, AcceptedFormat, GpuMemory, HardwareBuffer, LayerPicture,
+    ShellCompositionLayer, ShellCompositor,
+};
 
 use super::hardware_buffer::HeldHardwareBuffer;
 use super::video_frames::HeldFrame;
@@ -37,6 +41,21 @@ impl ShellCompositor for TestCompositor {
         });
         made.push(Arc::clone(&layer));
         layer
+    }
+
+    /// What a Wayland compositor on a machine with a GPU takes: linear BGRA8 dmabufs, and shared
+    /// memory.
+    fn accepted_buffers(&self) -> AcceptedBuffers {
+        AcceptedBuffers {
+            gpu_memory: vec![GpuMemory {
+                gpu: None,
+                formats: vec![AcceptedFormat {
+                    format: PixelFormat::Bgra8,
+                    modifiers: vec![0],
+                }],
+            }],
+            shared_memory: true,
+        }
     }
 }
 

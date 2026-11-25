@@ -81,12 +81,12 @@ impl HandOver {
     }
 }
 
-/// Resolves the hardware buffer mode once at engine startup. On non-Linux systems this returns
-/// `requested` unchanged.
+/// What programs' pictures are kept in: GPU memory on every system but Linux, whose compositor
+/// shows the system's own buffers whatever it says it imports.
 #[cfg(not(target_os = "linux"))]
-pub(crate) fn resolve_buffer_mode(
+pub(crate) fn buffer_kind(
     _gpu: &crate::gpu::GpuInstance,
-    requested: crate::HardwareBufferMode,
-) -> crate::HardwareBufferMode {
-    requested
+    _accepted: Option<&crate::shell::AcceptedBuffers>,
+) -> crate::BufferKind {
+    crate::BufferKind::GpuMemory
 }

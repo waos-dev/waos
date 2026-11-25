@@ -105,7 +105,8 @@ mod workers;
 pub use access::{TraceEvent, TraceKind, TraceStream};
 pub use cameras::{CameraOutputs, CaptureSessionReports};
 pub use clipboard::CopyOptions;
-pub use engine::{HardwareBufferMode, PlatformState, WaOS, WaOSConfig};
+pub(crate) use engine::BufferKind;
+pub use engine::{PlatformState, WaOS, WaOSConfig};
 pub use engine_time::{EngineTime, ManualTime};
 pub use file_dialogs::set_answers::refusal as file_dialog_answer_refusal;
 pub use file_dialogs::{FileType, FolderOptions, OpenOptions, SaveOptions};
@@ -123,18 +124,18 @@ pub use running::{HeldProgram, IncompatibleProgram, ProgramEnd, RunningProgram};
 pub use screens::Screen;
 pub use service_extensions::{ExtensionAnswer, ExtensionError, ProgramServiceExtensions};
 pub use shell::{
-    AnswerFuture, AudioOutputPickedFuture, CameraChangeFuture, CameraListFuture, CameraOpenFuture,
-    CaptureStartFuture, ClipboardItemsFuture, ClipboardReadFuture, ClipboardWriteFuture, Content,
-    ContentFuture, CopiedItem, DecodedFrame, FileDialogFuture, FileSink, FileWriteFuture,
-    HardwareBuffer, ImageFuture, LayerPicture, MachinePickedFuture, MediaAssetFuture,
-    MenuChosenFuture, NoPrompts, NotificationFuture, OnRefresh, OpenFuture, OpenedCamera,
-    OpenedImage, OpenedVideoDecoder, PhotoFuture, PlacedView, PlacedWindow, Prompts,
-    RecordingDevice, SettingsClosedFuture, Shell, ShellAttachedMenu, ShellAudioOutputPicker,
-    ShellCamera, ShellCameras, ShellCaptureSession, ShellClipboard, ShellClipboardItem,
-    ShellCompositionLayer, ShellCompositor, ShellContextMenus, ShellFileDialogs,
-    ShellHardwareImageCodecs, ShellImageCodecs, ShellImageSource, ShellMachinePicker,
-    ShellMediaAsset, ShellMediaAssets, ShellMediaPlayer, ShellMediaPlayers, ShellMenuAtIcon,
-    ShellMenuBar, ShellNotificationScheduling, ShellNotifications, ShellOpener,
+    AcceptedBuffers, AcceptedFormat, AnswerFuture, AudioOutputPickedFuture, CameraChangeFuture,
+    CameraListFuture, CameraOpenFuture, CaptureStartFuture, ClipboardItemsFuture,
+    ClipboardReadFuture, ClipboardWriteFuture, Content, ContentFuture, CopiedItem, DecodedFrame,
+    FileDialogFuture, FileSink, FileWriteFuture, GpuId, GpuMemory, HardwareBuffer, ImageFuture,
+    LayerPicture, MachinePickedFuture, MediaAssetFuture, MenuChosenFuture, NoPrompts,
+    NotificationFuture, OnRefresh, OpenFuture, OpenedCamera, OpenedImage, OpenedVideoDecoder,
+    PhotoFuture, PlacedView, PlacedWindow, Prompts, RecordingDevice, SettingsClosedFuture, Shell,
+    ShellAttachedMenu, ShellAudioOutputPicker, ShellCamera, ShellCameras, ShellCaptureSession,
+    ShellClipboard, ShellClipboardItem, ShellCompositionLayer, ShellCompositor, ShellContextMenus,
+    ShellFileDialogs, ShellHardwareImageCodecs, ShellImageCodecs, ShellImageSource,
+    ShellMachinePicker, ShellMediaAsset, ShellMediaAssets, ShellMediaPlayer, ShellMediaPlayers,
+    ShellMenuAtIcon, ShellMenuBar, ShellNotificationScheduling, ShellNotifications, ShellOpener,
     ShellRecordingIndicator, ShellSystemBars, ShellSystemPermissions, ShellTextInput,
     ShellTrayIcon, ShellTrayIcons, ShellVideoDecoder, ShellVideoDecoders, ShellVideoFrameReader,
     ShellVideoFrameReaders, ShellView, ShellWindow, ShellWindowSizeLimits, StartedSession,

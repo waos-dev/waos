@@ -8,7 +8,7 @@ use anyhow::{Result, bail};
 
 use waos_webgpu_host::Device;
 
-use crate::HardwareBufferMode;
+use crate::BufferKind;
 use crate::bindings::wasdk::platform::hardware_buffers::{
     HardwareBufferUsage, ImageError, ImageErrorKind, PixelBuffer, PixelFormat,
 };
@@ -40,7 +40,7 @@ impl HardwareBufferMemory {
         width: u32,
         height: u32,
         usage: HardwareBufferUsage,
-        mode: HardwareBufferMode,
+        mode: BufferKind,
     ) -> Result<HardwareBufferMemory> {
         let _ = (width, height, usage, mode);
         bail!(
@@ -53,7 +53,7 @@ impl HardwareBufferMemory {
         height: u32,
         format: PixelFormat,
         usage: HardwareBufferUsage,
-        mode: HardwareBufferMode,
+        mode: BufferKind,
     ) -> Result<HardwareBufferMemory, ImageError> {
         let _ = (width, height, format, usage, mode);
         Err(ImageError {

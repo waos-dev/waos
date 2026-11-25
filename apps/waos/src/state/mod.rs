@@ -317,7 +317,6 @@ pub(crate) fn start(
         temporary_folders: folders.temporary_folders,
         audit: Some(Arc::new(store.clone())),
         inspected_programs: Some(Arc::clone(&inspected) as Arc<dyn InspectedPrograms>),
-        hardware_buffers: waos::HardwareBufferMode::Auto,
     };
     if config.native_unwind_info {
         tracing::info!("programs are compiled with native unwind information");

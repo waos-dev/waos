@@ -19,6 +19,8 @@ use anyhow::{Context, Result, anyhow, bail};
 /// `DRM_FORMAT_ARGB8888`, BGRA in memory.
 pub(crate) const ARGB8888: u32 = u32::from_le_bytes(*b"AR24");
 pub(crate) const MOD_LINEAR: u64 = 0;
+/// The driver's implicit layout, which a compositor may offer alone.
+pub(crate) const MOD_INVALID: u64 = 0x00ff_ffff_ffff_ffff;
 
 /// One dmabuf of one plane in ARGB8888, and the GBM buffer object behind it where the engine
 /// allocated it.

@@ -37,7 +37,7 @@ use waos_webgpu_host::wasi::webgpu::webgpu::{
 };
 use waos_webgpu_host::{Device, GpuObject, TextureAttributes};
 
-use crate::HardwareBufferMode;
+use crate::BufferKind;
 use crate::bindings::wasdk::media::video_frames::{
     PlaneContent, PlaneFormat, PlanePixels, VideoPlane,
 };
@@ -298,7 +298,7 @@ impl HardwareBufferMemory {
         width: u32,
         height: u32,
         usage: HardwareBufferUsage,
-        mode: HardwareBufferMode,
+        mode: BufferKind,
     ) -> Result<HardwareBufferMemory> {
         let _ = (usage, mode);
         let surface = allocate(width as usize, height as usize)?;
@@ -319,7 +319,7 @@ impl HardwareBufferMemory {
         height: u32,
         format: PixelFormat,
         usage: HardwareBufferUsage,
-        mode: HardwareBufferMode,
+        mode: BufferKind,
     ) -> Result<HardwareBufferMemory, ImageError> {
         if format != PixelFormat::Bgra8 {
             return Err(ImageError {
@@ -604,7 +604,7 @@ pub(crate) fn filled(
         width,
         height,
         HardwareBufferUsage::empty(),
-        HardwareBufferMode::Auto,
+        BufferKind::GpuMemory,
     )
     .expect("a surface for a test");
     let surface = &*memory.surface;

@@ -57,7 +57,7 @@ use crate::bindings::wasdk::media::video_frames::{HdrMetadata, PixelAspect, Vide
 use crate::bindings::wasdk::media::video_streams::{CodecKind, EncodedChunk, VideoStreamSetup};
 use crate::bindings::wasdk::platform::clipboard::ClipboardError;
 use crate::bindings::wasdk::platform::file_dialogs::DialogError;
-use crate::bindings::wasdk::platform::hardware_buffers::{ImageError, PixelBuffer};
+use crate::bindings::wasdk::platform::hardware_buffers::{ImageError, PixelBuffer, PixelFormat};
 use crate::bindings::wasdk::platform::menus::{Image, MenuEntry, TrayIconError};
 use crate::bindings::wasdk::platform::notifications::NotificationError;
 use crate::bindings::wasdk::platform::opener::OpenError;
@@ -335,6 +335,51 @@ pub trait ShellCompositor: Send + Sync {
     /// shown wherever a view presents while holding it (`ShellView::present`), and goes once the
     /// engine and every present showing it have let go of it. Called from the program's thread.
     fn make_layer(&self, opaque: bool) -> Arc<dyn ShellCompositionLayer>;
+
+    /// The buffers its layers show, as Waft's `Compositor::accepted_buffers` answers: read once,
+    /// as the engine starts, to choose the GPU programs draw on and the memory their pictures are
+    /// kept in.
+    fn accepted_buffers(&self) -> AcceptedBuffers;
+}
+
+/// What a shell's compositor shows a layer's pictures from, as Waft's `AcceptedBuffers` says it:
+/// GPU memory it imports, one entry per GPU in its order of preference, the first the GPU it
+/// composites on; and whether it maps shared memory, which the CPU writes.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct AcceptedBuffers {
+    pub gpu_memory: Vec<GpuMemory>,
+    pub shared_memory: bool,
+}
+
+impl AcceptedBuffers {
+    /// The GPU it composites on, where its system names it.
+    pub fn gpu(&self) -> Option<GpuId> {
+        self.gpu_memory.first().and_then(|memory| memory.gpu)
+    }
+}
+
+/// The formats a compositor imports from one GPU's memory: `gpu` none where the system names no
+/// GPU, as Apple's systems and Android do.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GpuMemory {
+    pub gpu: Option<GpuId>,
+    pub formats: Vec<AcceptedFormat>,
+}
+
+/// One format a compositor imports, and on Linux the DRM format modifiers it imports it in.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AcceptedFormat {
+    pub format: PixelFormat,
+    pub modifiers: Vec<u64>,
+}
+
+/// A GPU as its system names it, as Waft's `GpuId` does: two are the same GPU exactly when equal.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum GpuId {
+    /// Windows: the adapter's locally unique id.
+    Luid { low: u32, high: i32 },
+    /// Linux: the device number of the GPU's DRM render node.
+    DrmRenderNode { major: u32, minor: u32 },
 }
 
 /// One layer a [`ShellCompositor`] made: the shell's own value, which the engine holds while the

@@ -42,16 +42,17 @@ use crate::system::SystemSettings;
 use crate::temporary_folders::TemporaryFolders;
 use crate::views::ScreenRefreshes;
 
-/// How hardware buffers are backed on Linux. Ignored on other platforms.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum HardwareBufferMode {
-    /// Use zero-copy dmabufs when a DRM render node and a dmabuf-capable Vulkan adapter are
-    /// available; fall back to offscreen textures otherwise.
-    #[default]
-    Auto,
-    /// Use offscreen GPU textures with staging-buffer readback on Linux without opening a DRM
-    /// render node or requiring dmabuf Vulkan extensions.
-    Offscreen,
+/// What programs' pictures are kept in on Linux, chosen once as the engine starts from what the
+/// shell's compositor shows (`os::buffer_kind`). Every other system has GPU memory alone.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum BufferKind {
+    /// GPU memory the compositor imports, which a program draws into: no copy.
+    GpuMemory,
+    /// Memory the CPU reads: a program draws on its device, and each frame is read back into it.
+    /// Where the compositor imports nothing the engine's GPU makes, and where there is no
+    /// compositor, as in a headless WaOS, whose pictures only screenshots read.
+    #[cfg_attr(not(target_os = "linux"), expect(dead_code, reason = "Linux's alone"))]
+    SharedMemory,
 }
 
 /// How the engine is set up.
@@ -87,9 +88,6 @@ pub struct WaOSConfig {
     /// The programs a program holding the inspector role sees: the store's and the runs', for
     /// the WaOS app; none for an engine given none, whose inspectors see no device.
     pub inspected_programs: Option<Arc<dyn InspectedPrograms>>,
-    /// How hardware buffers are backed on Linux: automatic (dmabuf with offscreen fallback) or
-    /// offscreen. Decided once at engine startup.
-    pub hardware_buffers: HardwareBufferMode,
 }
 
 /// What the platform reports about the machine when the engine starts; the setters keep it
@@ -111,8 +109,8 @@ pub struct PlatformState {
 pub struct WaOS {
     engine: Arc<Engine>,
     gpu: GpuInstance,
-    /// The resolved hardware buffer backing mode for this engine.
-    hardware_buffers: HardwareBufferMode,
+    /// What programs' pictures are kept in.
+    hardware_buffers: BufferKind,
     /// What draws the screenshots of every program's views, on the same instance.
     screenshots: Arc<Screenshots>,
     shell: Shell,
@@ -148,7 +146,13 @@ impl WaOS {
         let programs = Programs::default();
         let clock = config.time.start(&engine, &programs)?;
         let gpu = gpu::instance();
-        let hardware_buffers = crate::os::resolve_buffer_mode(&gpu, config.hardware_buffers);
+        let accepted = shell
+            .compositor
+            .as_ref()
+            .map(|compositor| compositor.accepted_buffers());
+        tracing::info!(?accepted, "what the shell's compositor shows");
+        let hardware_buffers = crate::os::buffer_kind(&gpu, accepted.as_ref());
+        tracing::info!(?hardware_buffers, "what programs' pictures are kept in");
         let screens = Screens::new(platform.screens);
         let days = config
             .audit
@@ -566,7 +570,6 @@ mod tests {
             temporary_folders: std::env::temp_dir().join("waos-tests"),
             audit: None,
             inspected_programs: None,
-            hardware_buffers: HardwareBufferMode::Auto,
         };
         let platform = PlatformState {
             screens: Vec::new(),

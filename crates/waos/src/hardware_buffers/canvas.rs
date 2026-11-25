@@ -19,7 +19,7 @@ use wasmtime::bail;
 
 use super::finisher::{FrameFinisher, Wait};
 use super::view_hardware_buffers::{Allocation, DrawnFrame, FrameTexture, ViewHardwareBuffers};
-use crate::HardwareBufferMode;
+use crate::BufferKind;
 use crate::bindings::wasdk::platform::views::ViewId;
 use crate::engine_time::{EngineClock, Timer};
 use crate::gpu::{
@@ -70,7 +70,7 @@ impl ViewCanvas {
         lifecycle: Lifecycle,
         clock: EngineClock,
         in_flight: Arc<InFlight>,
-        hardware_buffers: HardwareBufferMode,
+        hardware_buffers: BufferKind,
     ) -> Arc<ViewCanvas> {
         let id = view.id();
         let buffers =

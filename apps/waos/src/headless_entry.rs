@@ -18,9 +18,7 @@ use futures::StreamExt;
 use tokio::sync::{oneshot, watch};
 use waos::bindings::wasdk::platform::system::{Brightness, Locale};
 use waos::inspection::InspectedPrograms;
-use waos::{
-    EngineTime, FreezePolicy, HardwareBufferMode, HttpProxy, PlatformState, WaOS, WaOSConfig,
-};
+use waos::{EngineTime, FreezePolicy, HttpProxy, PlatformState, WaOS, WaOSConfig};
 use waos_headless::{Display, HeadlessShell, Refreshes};
 use waos_local::LocalCapabilities;
 use waos_store::{SourceProxy, Store};
@@ -138,7 +136,6 @@ impl HeadlessDaemon {
             temporary_folders: config.folders.temporary_folders,
             audit: Some(Arc::new(store.clone())),
             inspected_programs: Some(Arc::clone(&inspected) as Arc<dyn InspectedPrograms>),
-            hardware_buffers: HardwareBufferMode::Offscreen,
         };
         let platform = PlatformState {
             screens: vec![headless.screen()],
