@@ -143,6 +143,12 @@ pub use wit_bindgen::rt::async_support::block_on;
 /// Whichever task or [`block_on`] is running takes the task up, and a `block_on` does not return
 /// while a task it took up still runs. See [`block_on`] for what follows from that.
 pub use wit_bindgen::rt::async_support::spawn_local as spawn;
+/// Gives WaOS a turn from code that cannot await, and returns once it has had it: what a loop
+/// that never waits, inside a [`block_on`], calls so that what WaOS sends meanwhile arrives.
+/// [`yield_async`] does not reach WaOS from inside a `block_on`, which only polls again.
+///
+/// Answers whether to go on: `false` once the program is being stopped.
+pub use wit_bindgen::rt::async_support::yield_blocking;
 pub use wit_bindgen::rt::async_support::{
     FutureReader, FutureWriter, StreamReader, StreamResult, StreamWriter, yield_async,
 };
