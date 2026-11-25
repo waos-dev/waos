@@ -8469,8 +8469,9 @@ dependencies = [
 
 [[package]]
 name = "waft"
-version = "0.12.0"
-source = "git+https://github.com/waos-dev/waft?branch=video-decoders#4a85dccbb0d9e9d771a979b90034547161d2b4ad"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f94fc165100c4f40c8660e8c7c34263e572f4be157f7716f638e8faec4eb8c3c"
 dependencies = [
  "waft-embedder",
  "waft-embedder-default",
@@ -8485,8 +8486,9 @@ dependencies = [
 
 [[package]]
 name = "waft-animation"
-version = "0.12.0"
-source = "git+https://github.com/waos-dev/waft?branch=video-decoders#4a85dccbb0d9e9d771a979b90034547161d2b4ad"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8dd07da59df4300ca48493eb73e79545edae9c9ef6366b35745917bd353c3d7a"
 dependencies = [
  "waft-embedder",
  "waft-foundation",
@@ -8509,8 +8511,9 @@ dependencies = [
 
 [[package]]
 name = "waft-cupertino"
-version = "0.12.0"
-source = "git+https://github.com/waos-dev/waft?branch=video-decoders#4a85dccbb0d9e9d771a979b90034547161d2b4ad"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4b8c12c13f0df07d631c71ec679557cbe6c5fe081af7a427495a5cc06ea9f8c5"
 dependencies = [
  "indexmap",
  "waft-animation",
@@ -8527,8 +8530,9 @@ dependencies = [
 
 [[package]]
 name = "waft-embedder"
-version = "0.12.0"
-source = "git+https://github.com/waos-dev/waft?branch=video-decoders#4a85dccbb0d9e9d771a979b90034547161d2b4ad"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1588c4fd8b11d630fa2bff8ea224e2fb72f34c777abe08f7a0c507a2ec7cc347"
 dependencies = [
  "bytes",
  "http",
@@ -8548,8 +8552,9 @@ dependencies = [
 
 [[package]]
 name = "waft-embedder-android"
-version = "0.12.0"
-source = "git+https://github.com/waos-dev/waft?branch=video-decoders#4a85dccbb0d9e9d771a979b90034547161d2b4ad"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "05cc06fcf0b79572f3fb53f7705363dd7bc76b668f7b1dcfb5ae89b6f9f6394d"
 dependencies = [
  "ash",
  "jni",
@@ -8569,8 +8574,9 @@ dependencies = [
 
 [[package]]
 name = "waft-embedder-apple"
-version = "0.12.0"
-source = "git+https://github.com/waos-dev/waft?branch=video-decoders#4a85dccbb0d9e9d771a979b90034547161d2b4ad"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f5f0c9758879feea5e95c8280da94b19c83b37427807bcd01b40cde7eab02853"
 dependencies = [
  "block2",
  "dispatch2",
@@ -8604,8 +8610,9 @@ dependencies = [
 
 [[package]]
 name = "waft-embedder-default"
-version = "0.12.0"
-source = "git+https://github.com/waos-dev/waft?branch=video-decoders#4a85dccbb0d9e9d771a979b90034547161d2b4ad"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "585eb8fa004f98eec59675234ac9bd663d150cee48f4f62c747fd480096a0e0e"
 dependencies = [
  "waft-embedder",
  "waft-embedder-android",
@@ -8616,8 +8623,9 @@ dependencies = [
 
 [[package]]
 name = "waft-embedder-ios"
-version = "0.12.0"
-source = "git+https://github.com/waos-dev/waft?branch=video-decoders#4a85dccbb0d9e9d771a979b90034547161d2b4ad"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1f9f9637a96d06f311247aaf8f8233d970d78c78ecf1cb949378376d8ecfda78"
 dependencies = [
  "block2",
  "dispatch2",
@@ -8639,8 +8647,9 @@ dependencies = [
 
 [[package]]
 name = "waft-embedder-web"
-version = "0.12.0"
-source = "git+https://github.com/waos-dev/waft?branch=video-decoders#4a85dccbb0d9e9d771a979b90034547161d2b4ad"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9d6d609ea7f061566a4ee38d11656ca69fa928053b5d52fe90cde463d0957109"
 dependencies = [
  "console_error_panic_hook",
  "getrandom 0.3.4",
@@ -8657,8 +8666,9 @@ dependencies = [
 
 [[package]]
 name = "waft-embedder-winit"
-version = "0.12.0"
-source = "git+https://github.com/waos-dev/waft?branch=video-decoders#4a85dccbb0d9e9d771a979b90034547161d2b4ad"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f8a85a5c54787be0a420a85ec1cff4b8eebf37a627bee79bd2e30ccff09ebdc9"
 dependencies = [
  "arboard",
  "block2",
@@ -8697,8 +8707,9 @@ dependencies = [
 
 [[package]]
 name = "waft-foundation"
-version = "0.12.0"
-source = "git+https://github.com/waos-dev/waft?branch=video-decoders#4a85dccbb0d9e9d771a979b90034547161d2b4ad"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9fb104e84681b0e99b23427d8857598b5037a26358900e5983f6b54f267c464e"
 dependencies = [
  "async-task",
  "indexmap",
@@ -8710,8 +8721,9 @@ dependencies = [
 
 [[package]]
 name = "waft-gestures"
-version = "0.12.0"
-source = "git+https://github.com/waos-dev/waft?branch=video-decoders#4a85dccbb0d9e9d771a979b90034547161d2b4ad"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1fa4855b2cc1f958d06668f5f56732c85926dd5b44e1254bf1c154df226d28c4"
 dependencies = [
  "indexmap",
  "waft-embedder",
@@ -8757,8 +8769,9 @@ dependencies = [
 
 [[package]]
 name = "waft-macros"
-version = "0.12.0"
-source = "git+https://github.com/waos-dev/waft?branch=video-decoders#4a85dccbb0d9e9d771a979b90034547161d2b4ad"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ae8b0312e42abd9640f9e33028f84d2e73dcf14c2571e0b3e4079d88fc3071ff"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -8780,8 +8793,9 @@ dependencies = [
 
 [[package]]
 name = "waft-painting"
-version = "0.12.0"
-source = "git+https://github.com/waos-dev/waft?branch=video-decoders#4a85dccbb0d9e9d771a979b90034547161d2b4ad"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c9ba6e7a4ae6eddcf2e031246a49d773e1bad55ce3703294642e5c248d6df3bf"
 dependencies = [
  "http",
  "indexmap",
@@ -8795,16 +8809,18 @@ dependencies = [
 
 [[package]]
 name = "waft-physics"
-version = "0.12.0"
-source = "git+https://github.com/waos-dev/waft?branch=video-decoders#4a85dccbb0d9e9d771a979b90034547161d2b4ad"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "abed71ae98813846d6a0c95ee143b2b248904387b792f38c1d573684d85b45e2"
 dependencies = [
  "waft-embedder",
 ]
 
 [[package]]
 name = "waft-rendering"
-version = "0.12.0"
-source = "git+https://github.com/waos-dev/waft?branch=video-decoders#4a85dccbb0d9e9d771a979b90034547161d2b4ad"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "39da27e1965d6bf5873693dbd1ecb7a3d05c6d8c57d1003ab433516308eaf6a2"
 dependencies = [
  "indexmap",
  "unicode-general-category",
@@ -8819,8 +8835,9 @@ dependencies = [
 
 [[package]]
 name = "waft-scheduler"
-version = "0.12.0"
-source = "git+https://github.com/waos-dev/waft?branch=video-decoders#4a85dccbb0d9e9d771a979b90034547161d2b4ad"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "86e7b67ffb8a8c0cbb85b3fa30934eb5e0bdf23f1454c164999fda23ec3b456c"
 dependencies = [
  "indexmap",
  "waft-embedder",
@@ -8829,8 +8846,9 @@ dependencies = [
 
 [[package]]
 name = "waft-service-protocol"
-version = "0.12.0"
-source = "git+https://github.com/waos-dev/waft?branch=video-decoders#4a85dccbb0d9e9d771a979b90034547161d2b4ad"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "65002d6c205545268ff2b6b6d58b141d5f19dd4e2401852934bea8090a78b830"
 dependencies = [
  "serde",
  "serde_json",
@@ -8838,8 +8856,9 @@ dependencies = [
 
 [[package]]
 name = "waft-services"
-version = "0.12.0"
-source = "git+https://github.com/waos-dev/waft?branch=video-decoders#4a85dccbb0d9e9d771a979b90034547161d2b4ad"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d9dea7c64bba036d2898af34e005ce8d4b1d613421a5922d0484f206e692814b"
 dependencies = [
  "indexmap",
  "unicode-segmentation",
@@ -8851,8 +8870,9 @@ dependencies = [
 
 [[package]]
 name = "waft-shell"
-version = "0.12.0"
-source = "git+https://github.com/waos-dev/waft?branch=video-decoders#4a85dccbb0d9e9d771a979b90034547161d2b4ad"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b06e10d06a5369e45b854d2eac0bb29a36ddbf6b26f10c7a94df9dec9984108f"
 dependencies = [
  "waft-embedder",
  "waft-foundation",
@@ -8865,8 +8885,9 @@ dependencies = [
 
 [[package]]
 name = "waft-single-instance"
-version = "0.12.0"
-source = "git+https://github.com/waos-dev/waft?branch=video-decoders#4a85dccbb0d9e9d771a979b90034547161d2b4ad"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "755c167ea8d3d3cdb4265907620f948c16358768c4ae6d1afcb86c830b080c85"
 dependencies = [
  "windows-sys 0.60.2",
  "zbus",
@@ -8874,8 +8895,9 @@ dependencies = [
 
 [[package]]
 name = "waft-test"
-version = "0.12.0"
-source = "git+https://github.com/waos-dev/waft?branch=video-decoders#4a85dccbb0d9e9d771a979b90034547161d2b4ad"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d3b874a4729d509dd995676d36c81b98fbf6a9f4ba121cc6184a054ed56c6ef1"
 dependencies = [
  "http",
  "valo-system-fonts",
@@ -8897,8 +8919,9 @@ dependencies = [
 
 [[package]]
 name = "waft-widgets"
-version = "0.12.0"
-source = "git+https://github.com/waos-dev/waft?branch=video-decoders#4a85dccbb0d9e9d771a979b90034547161d2b4ad"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6dc20a0ccdf72f9d465e191e1b8b1e9d4529c1c024d00948fec62e3765631e09"
 dependencies = [
  "base64 0.22.1",
  "cssparser",
@@ -8919,8 +8942,9 @@ dependencies = [
 
 [[package]]
 name = "waft-winui"
-version = "0.12.0"
-source = "git+https://github.com/waos-dev/waft?branch=video-decoders#4a85dccbb0d9e9d771a979b90034547161d2b4ad"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5ccf04abb606d523f363203318bf5dee43bd8516c6fefebb8dc16373cf177323"
 dependencies = [
  "waft-animation",
  "waft-embedder",
