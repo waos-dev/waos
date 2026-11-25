@@ -1,6 +1,9 @@
 //! The library's side of the phone's files, where WaOS reaches them only as the user allows: the
 //! global settings say whether it may, as `state::phone_files` last read it, shown again at each
-//! read, and open the system's page where the user changes it.
+//! read, and open the system's page where the user changes it; and a page that lists a folder on
+//! the phone's storage says so while WaOS may not reach it.
+
+use std::path::Path;
 
 use waft::{App, Context, Entity};
 
@@ -13,6 +16,13 @@ impl Library {
     pub(crate) fn phone_files_reachable(&self, app: &App) -> Option<bool> {
         let phone_files = self.phone_files.as_ref()?;
         Some(phone_files.read(app).reachable())
+    }
+
+    /// Whether the system keeps WaOS from `path`, a folder the user gave a program: one on the
+    /// phone's storage while WaOS may not reach it; never where it reaches what its user does.
+    pub(crate) fn system_keeps_from(&self, path: &Path, app: &App) -> bool {
+        (self.phone_files.as_ref())
+            .is_some_and(|phone_files| phone_files.read(app).keeps_from(path))
     }
 
     /// Opens the system's page where the user lets WaOS reach the phone's files; one that does not

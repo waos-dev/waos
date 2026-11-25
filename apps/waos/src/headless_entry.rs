@@ -1,4 +1,5 @@
-//! Headless WaOS daemon: runs the engine, local capabilities, store, dev server, and a screen with
+//! Headless WaOS daemon: runs the engine, local capabilities, store, dev server, the system's
+//! video decoders, which need no window, and a screen with
 //! no display (`waos_headless`) with no `winit`, Wayland, X11, or `waft-single-instance`. Used on headless Linux
 //! servers/CI and whenever `waos --headless` is invoked.
 //!
@@ -34,6 +35,7 @@ use crate::logic::installed_runs::InstalledRuns;
 use crate::logic::program_places::{ProgramPlace, ProgramPlaces};
 use crate::logic::prompts::{PromptRequests, PromptsOnRequest};
 use crate::logic::runs::Runs;
+use crate::logic::video_decoder_thread;
 use crate::os;
 use crate::write_traces;
 
@@ -115,11 +117,12 @@ impl HeadlessDaemon {
         let asking = AskingNow::new();
         let (prompts, prompted) = PromptsOnRequest::new(Arc::clone(&asking));
         let output_picker = prompts.output_picker();
-        let machine_picker = prompts.machine_picker();
+        let machine_picker = prompts.machine_picker(None);
         let headless = HeadlessShell::new(config.display, Refreshes::Every(REFRESH_INTERVAL));
         let mut shell = headless.shell(Arc::new(prompts));
         shell.audio_output_picker = Some(Arc::new(output_picker));
         shell.machine_picker = Some(Arc::new(machine_picker));
+        shell.video_decoders = video_decoder_thread::start();
 
         let runs = Arc::new(Runs::default());
         let inspected = Arc::new(ProgramsOnThisComputer::new(
@@ -589,5 +592,64 @@ mod tests {
 
         daemon.stop();
         assert!(!socket.exists(), "socket file should be cleaned up on stop");
+    }
+
+    /// A headless WaOS has the system's video decoders, which need no window: a program reads
+    /// an H.264 stream, hands it to the decoder picture by picture and gets each frame back in
+    /// the order it is shown, its planes read on the GPU and in memory, as in the WaOS app.
+    #[cfg(target_os = "macos")]
+    #[tokio::test]
+    async fn a_program_decodes_a_stream_with_the_systems_decoder() {
+        const VIDEO_DECODING: &str = "dev.waos.examples.videodecoding";
+        /// Twelve pictures of 320 by 240, and when each is shown, in the order they are decoded.
+        const CLIP: &[u8] = include_bytes!("../../../examples/video-decoding/clip.h264");
+        const SHOWN: &str = "0\n3\n1\n2\n5\n4\n8\n6\n7\n11\n9\n10\n";
+
+        let temp = TempDir::new().unwrap();
+        let socket = temp.path().join("dev.sock");
+        let folders = test_folders(temp.path());
+        let id: ProgramId = VIDEO_DECODING.parse().unwrap();
+        {
+            let store = Store::open(&folders.store, SourceProxy::System).expect("open the store");
+            let data = store.folders(&id.development()).expect("folders").data;
+            std::fs::write(data.join("clip.h264"), CLIP).unwrap();
+            std::fs::write(data.join("shown"), SHOWN).unwrap();
+        }
+        let config = HeadlessConfig {
+            folders,
+            socket: socket.clone(),
+            idle_timeout: None,
+            display: DISPLAY,
+        };
+        let daemon =
+            HeadlessDaemon::start(config, tokio::runtime::Handle::current()).expect("start daemon");
+
+        let (mut run, _id) =
+            start_run(&socket, id, Path::new(waos_test_programs::VIDEO_DECODING)).await;
+        let mut written = Vec::new();
+        loop {
+            let event = tokio::time::timeout(WITHIN, run.receive::<RunEvent>())
+                .await
+                .expect("the program ends in time")
+                .expect("stream ok");
+            match event {
+                Some(RunEvent::Output { bytes, .. }) => written.extend(bytes),
+                Some(RunEvent::Ended(_)) | None => break,
+                Some(_) => {}
+            }
+        }
+        let written = String::from_utf8(written).expect("text");
+        let mut said = vec![
+            "decoding 12 pictures".to_owned(),
+            "picture 0: 320x240 in 2 planes".to_owned(),
+            // The clip's first pixel is black, which over video's range is these.
+            "its first samples: PlaneContent::Luma [16], PlaneContent::Chroma [128, 128]"
+                .to_owned(),
+            "and in memory: PlaneContent::Luma [16], PlaneContent::Chroma [128, 128]".to_owned(),
+        ];
+        said.extend((1..12).map(|shown| format!("picture {shown}: 320x240 in 2 planes")));
+        assert_eq!(written.lines().collect::<Vec<_>>(), said);
+
+        daemon.stop();
     }
 }

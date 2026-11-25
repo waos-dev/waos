@@ -1,0 +1,19 @@
+[package]
+name = "wasdk-adapter-egui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "egui over wasdk: a view's events as egui's input, and what egui asks of the system carried out on the view, as egui-winit does on a winit window."
+homepage.workspace = true
+repository.workspace = true
+readme = "README.md"
+
+[dependencies]
+egui = { workspace = true }
+tracing.workspace = true
+wasdk.workspace = true
+wasdk-wgpu.workspace = true
+
+[lints]
+workspace = true

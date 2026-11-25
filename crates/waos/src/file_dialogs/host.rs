@@ -1,6 +1,9 @@
 //! The code serving `wasdk:platform/file-dialogs` to a program: the options as resources with
 //! setters, each dialog shown through the shell or answered as its user set it, and each pick
-//! mounted before it is answered.
+//! mounted before it is answered. A pick is the user's allowing the program a file or folder, so
+//! where the system guards it with a permission of its own and does not allow it yet, the system
+//! is asked before it is mounted, and a pick it still denies is answered as a cancelled dialog:
+//! nothing is mounted that WaOS cannot read.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -17,8 +20,9 @@ use crate::bindings::wasdk::platform::file_dialogs::{
     HostOpenOptions, HostSaveOptions,
 };
 use crate::files::{Picks, ProgramFiles};
+use crate::permissions::ProgramSystemPermissions;
 use crate::running::RunningProgram;
-use crate::shell::{FileDialogFuture, ShellFileDialogs};
+use crate::shell::{FileDialogFuture, ShellFileDialogs, SystemPermission, SystemPermissionState};
 use crate::views::ProgramView;
 
 /// What the file dialogs interface reads and writes in a program's store.
@@ -30,6 +34,8 @@ pub(crate) struct FileDialogsCtx<'a> {
     /// The program's mounts, where an initial folder is looked up.
     pub(crate) files: &'a mut ProgramFiles,
     pub(crate) picks: &'a Picks,
+    /// What the system itself allows of what the user picks.
+    pub(crate) system_permissions: &'a ProgramSystemPermissions,
 }
 
 pub(crate) trait FileDialogsCtxView: Send {
@@ -223,7 +229,7 @@ impl<T: FileDialogsCtxView + 'static> HostFileDialogsWithStore<T> for HasFileDia
         parent: Option<Resource<ProgramView>>,
         options: Resource<OpenOptions>,
     ) -> wasmtime::Result<Result<Option<String>, DialogError>> {
-        let (shown, writable, picks) = accessor.with(|mut access| {
+        let (shown, writable, mounting) = accessor.with(|mut access| {
             let mut context = access.get();
             let (parent, options) = open_options(&mut context, parent.as_ref(), options)?;
             let writable = options.writable;
@@ -232,11 +238,9 @@ impl<T: FileDialogsCtxView + 'static> HostFileDialogsWithStore<T> for HasFileDia
             let shown = one(context.picks, FileDialog::OpenFile, move || {
                 shell.open_file(&program, parent, options)
             });
-            wasmtime::Result::<_>::Ok((shown, writable, context.picks.clone()))
+            wasmtime::Result::<_>::Ok((shown, writable, Mounting::of(&context)))
         })?;
-        Ok(shown
-            .await
-            .and_then(|picked| mount_picked(&picks, picked, writable)))
+        Ok(mounting.mount_picked(shown.await, writable).await)
     }
 
     async fn open_files(
@@ -245,7 +249,7 @@ impl<T: FileDialogsCtxView + 'static> HostFileDialogsWithStore<T> for HasFileDia
         parent: Option<Resource<ProgramView>>,
         options: Resource<OpenOptions>,
     ) -> wasmtime::Result<Result<Vec<String>, DialogError>> {
-        let (shown, writable, picks) = accessor.with(|mut access| {
+        let (shown, writable, mounting) = accessor.with(|mut access| {
             let mut context = access.get();
             let (parent, options) = open_options(&mut context, parent.as_ref(), options)?;
             let writable = options.writable;
@@ -257,11 +261,9 @@ impl<T: FileDialogsCtxView + 'static> HostFileDialogsWithStore<T> for HasFileDia
                 |paths| paths,
                 move || shell.open_files(&program, parent, options),
             );
-            wasmtime::Result::<_>::Ok((shown, writable, context.picks.clone()))
+            wasmtime::Result::<_>::Ok((shown, writable, Mounting::of(&context)))
         })?;
-        Ok(shown
-            .await
-            .and_then(|paths| mount_each(&picks, &paths, writable)))
+        Ok(mounting.mount_each(shown.await, writable).await)
     }
 
     async fn open_folder(
@@ -270,7 +272,7 @@ impl<T: FileDialogsCtxView + 'static> HostFileDialogsWithStore<T> for HasFileDia
         parent: Option<Resource<ProgramView>>,
         options: Resource<FolderOptions>,
     ) -> wasmtime::Result<Result<Option<String>, DialogError>> {
-        let (shown, writable, picks) = accessor.with(|mut access| {
+        let (shown, writable, mounting) = accessor.with(|mut access| {
             let mut context = access.get();
             let parent = context.parent_id(parent.as_ref())?;
             let mut options = context.table.delete(options)?;
@@ -281,11 +283,9 @@ impl<T: FileDialogsCtxView + 'static> HostFileDialogsWithStore<T> for HasFileDia
             let shown = one(context.picks, FileDialog::OpenFolder, move || {
                 shell.open_folder(&program, parent, options)
             });
-            wasmtime::Result::<_>::Ok((shown, writable, context.picks.clone()))
+            wasmtime::Result::<_>::Ok((shown, writable, Mounting::of(&context)))
         })?;
-        Ok(shown
-            .await
-            .and_then(|picked| mount_picked(&picks, picked, writable)))
+        Ok(mounting.mount_picked(shown.await, writable).await)
     }
 
     /// The file chosen is mounted writable, whether or not it exists yet.
@@ -295,7 +295,7 @@ impl<T: FileDialogsCtxView + 'static> HostFileDialogsWithStore<T> for HasFileDia
         parent: Option<Resource<ProgramView>>,
         options: Resource<SaveOptions>,
     ) -> wasmtime::Result<Result<Option<String>, DialogError>> {
-        let (shown, picks) = accessor.with(|mut access| {
+        let (shown, mounting) = accessor.with(|mut access| {
             let mut context = access.get();
             let parent = context.parent_id(parent.as_ref())?;
             let mut options = context.table.delete(options)?;
@@ -305,11 +305,9 @@ impl<T: FileDialogsCtxView + 'static> HostFileDialogsWithStore<T> for HasFileDia
             let shown = one(context.picks, FileDialog::SaveFile, move || {
                 shell.save_file(&program, parent, options)
             });
-            wasmtime::Result::<_>::Ok((shown, context.picks.clone()))
+            wasmtime::Result::<_>::Ok((shown, Mounting::of(&context)))
         })?;
-        Ok(shown
-            .await
-            .and_then(|picked| mount_picked(&picks, picked, true)))
+        Ok(mounting.mount_picked(shown.await, true).await)
     }
 }
 
@@ -360,27 +358,61 @@ fn open_options(
     Ok((parent, options))
 }
 
-/// What the user picked, if anything, mounted, as the program sees it.
-fn mount_picked(
-    picks: &Picks,
-    picked: Option<PathBuf>,
-    writable: bool,
-) -> Result<Option<String>, DialogError> {
-    picked
-        .map(|path| mount_one(picks, &path, writable))
-        .transpose()
+/// What mounts a program's picks once a dialog closes: where they are mounted, and what the system
+/// itself allows of them.
+struct Mounting {
+    picks: Picks,
+    system_permissions: ProgramSystemPermissions,
 }
 
-/// Each of `paths` mounted, as the program sees them.
-fn mount_each(
-    picks: &Picks,
-    paths: &[PathBuf],
-    writable: bool,
-) -> Result<Vec<String>, DialogError> {
-    paths
-        .iter()
-        .map(|path| mount_one(picks, path, writable))
-        .collect()
+impl Mounting {
+    fn of(context: &FileDialogsCtx<'_>) -> Mounting {
+        Mounting {
+            picks: context.picks.clone(),
+            system_permissions: context.system_permissions.clone(),
+        }
+    }
+
+    /// What the user picked, if anything, mounted, as the program sees it; nothing, as a dialog
+    /// cancelled, where the system denies WaOS the pick.
+    async fn mount_picked(
+        &self,
+        picked: Result<Option<PathBuf>, DialogError>,
+        writable: bool,
+    ) -> Result<Option<String>, DialogError> {
+        let paths = Vec::from_iter(picked?);
+        let mounted = self.mount_each(Ok(paths), writable).await?;
+        Ok(mounted.into_iter().next())
+    }
+
+    /// Each of the paths the user picked mounted, as the program sees them; none, as a dialog
+    /// cancelled, where the system denies WaOS one of them.
+    async fn mount_each(
+        &self,
+        picked: Result<Vec<PathBuf>, DialogError>,
+        writable: bool,
+    ) -> Result<Vec<String>, DialogError> {
+        let paths = picked?;
+        if !self.allowed_by_system(&paths).await {
+            return Ok(Vec::new());
+        }
+        (paths.iter())
+            .map(|path| mount_one(&self.picks, path, writable))
+            .collect()
+    }
+
+    /// Whether the system allows WaOS each of `paths`, asked in its own way for one it does not
+    /// allow yet.
+    async fn allowed_by_system(&self, paths: &[PathBuf]) -> bool {
+        for path in paths {
+            let permission = SystemPermission::Path(path);
+            if self.system_permissions.request(permission).await != SystemPermissionState::Allowed {
+                tracing::info!(path = %path.display(), "the system denies WaOS a pick; not mounted");
+                return false;
+            }
+        }
+        true
+    }
 }
 
 /// `path` mounted, as the program sees it; failed for a path a program has no name for, which the

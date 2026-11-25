@@ -9,10 +9,10 @@
 //! GPUI; what must reach GPUI later (quitting, a menu's choice) goes to the event loop as a notice
 //! or is kept for the loop to deliver.
 
-use std::cell::{Cell, RefCell};
+use std::cell::{Cell, OnceCell, RefCell};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::rc::Rc;
+use std::rc::{Rc, Weak};
 use std::sync::Arc;
 
 use anyhow::{Result, anyhow};
@@ -72,7 +72,26 @@ struct PlatformCallbacks {
     displays_changed: Slot<Box<dyn FnMut()>>,
 }
 
+thread_local! {
+    /// The platform the program's app runs on, for what an app says to it outside GPUI's
+    /// traits, as `gpui_ios`'s `current_platform`: set once, as `run` makes the program's one
+    /// platform; none before, or after it ends.
+    static CURRENT: OnceCell<Weak<WasdkPlatform>> = const { OnceCell::new() };
+}
+
 impl WasdkPlatform {
+    /// The platform the program's app runs on now.
+    pub(crate) fn current() -> Option<Rc<WasdkPlatform>> {
+        CURRENT.with(|current| current.get().and_then(Weak::upgrade))
+    }
+
+    /// `platform` is the one the program's app runs on: a program has one, so the first stays.
+    pub(crate) fn make_current(platform: &Rc<WasdkPlatform>) {
+        CURRENT.with(|current| {
+            let _ = current.set(Rc::downgrade(platform));
+        });
+    }
+
     pub(crate) fn new(context: WgpuContext, notices: mpsc::UnboundedSender<Notice>) -> Self {
         let dispatcher = Arc::new(WasdkDispatcher::new(notices.clone()));
         WasdkPlatform {

@@ -173,3 +173,62 @@ pub fn frame_sized(width: usize, height: usize, bgra: [u8; 4]) -> VideoFrame {
     }
     VideoFrame::upright(frame)
 }
+
+/// A 64 by 48 pixel buffer on an `IOSurface` in a decoder's own layout, 8-bit 4:2:0 in two planes
+/// in video's range: every brightness sample `luma`, and every colour sample `chroma`, its blue
+/// difference and then its red.
+#[cfg(target_vendor = "apple")]
+pub fn two_plane_frame(luma: u8, chroma: [u8; 2]) -> VideoFrame {
+    use std::ptr::NonNull;
+
+    use objc2_core_foundation::{CFDictionary, CFRetained, CFType};
+    use objc2_core_video::{
+        CVPixelBufferCreate, CVPixelBufferGetBaseAddressOfPlane,
+        CVPixelBufferGetBytesPerRowOfPlane, CVPixelBufferGetHeightOfPlane,
+        CVPixelBufferGetWidthOfPlane, CVPixelBufferLockBaseAddress, CVPixelBufferLockFlags,
+        CVPixelBufferUnlockBaseAddress, kCVPixelBufferIOSurfacePropertiesKey,
+        kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange, kCVReturnSuccess,
+    };
+
+    // An empty dictionary of surface properties asks for a buffer on an `IOSurface`.
+    let surface_properties = CFDictionary::<CFType, CFType>::empty();
+    // SAFETY: the key is a constant CoreVideo exports.
+    let key = unsafe { kCVPixelBufferIOSurfacePropertiesKey };
+    let attributes = CFDictionary::from_slices(&[key], &[&*surface_properties]);
+    let mut buffer = std::ptr::null_mut();
+    // SAFETY: attributes of the types their keys name, and `buffer` a valid place for the answer.
+    let status = unsafe {
+        CVPixelBufferCreate(
+            None,
+            FRAME_WIDTH,
+            FRAME_HEIGHT,
+            kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
+            Some(attributes.as_opaque()),
+            NonNull::from(&mut buffer),
+        )
+    };
+    assert_eq!(status, kCVReturnSuccess, "a pixel buffer is made");
+    // SAFETY: a buffer made just now, handed over with its one retain.
+    let frame = unsafe { CFRetained::from_raw(NonNull::new(buffer).expect("a pixel buffer")) };
+    // SAFETY: locked for writing, each plane's base address mapped until unlocked below; a
+    // plane's rows are its `bytes_per_row` long and hold its width of samples, one byte each in
+    // the first plane and two in the second.
+    unsafe {
+        assert_eq!(
+            CVPixelBufferLockBaseAddress(&frame, CVPixelBufferLockFlags(0)),
+            kCVReturnSuccess
+        );
+        for (plane, sample) in [(0, &[luma][..]), (1, &chroma[..])] {
+            let base = CVPixelBufferGetBaseAddressOfPlane(&frame, plane).cast::<u8>();
+            let bytes_per_row = CVPixelBufferGetBytesPerRowOfPlane(&frame, plane);
+            for row in 0..CVPixelBufferGetHeightOfPlane(&frame, plane) {
+                for column in 0..CVPixelBufferGetWidthOfPlane(&frame, plane) {
+                    let at = base.add(row * bytes_per_row + column * sample.len());
+                    std::ptr::copy_nonoverlapping(sample.as_ptr(), at, sample.len());
+                }
+            }
+        }
+        CVPixelBufferUnlockBaseAddress(&frame, CVPixelBufferLockFlags(0));
+    }
+    VideoFrame::upright(frame)
+}

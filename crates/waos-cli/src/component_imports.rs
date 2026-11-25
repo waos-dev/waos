@@ -17,7 +17,7 @@ pub fn imports_views(component: &[u8]) -> Result<bool> {
         .any(|name| interface_of(name) == VIEWS))
 }
 
-/// The names the component itself imports, `wasdk:platform/views@2.1.0` among them.
+/// The names the component itself imports, `wasdk:platform/views@2.2.0` among them.
 fn top_level_imports(component: &[u8]) -> Result<Vec<String>> {
     let mut names = Vec::new();
     let mut depth = 0usize;

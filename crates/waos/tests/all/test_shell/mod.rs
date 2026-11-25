@@ -29,6 +29,8 @@ pub mod opener;
 mod output;
 mod prompts;
 pub mod sound;
+pub mod system_permissions;
+pub mod video_decoders;
 pub mod video_frames;
 
 use std::future::Future;
@@ -46,8 +48,8 @@ use waos::{
     ProgramOutput, ProgramView, Prompts, RunningProgram, Shell, ShellAudioOutputPicker,
     ShellCameras, ShellClipboard, ShellCompositor, ShellContextMenus, ShellFileDialogs,
     ShellImageCodecs, ShellMachinePicker, ShellMediaAssets, ShellMediaPlayers, ShellMenuBar,
-    ShellNotifications, ShellOpener, ShellRecordingIndicator, ShellTrayIcons,
-    ShellVideoFrameReaders, ShellView, ViewPlacement, ViewRequest, WaOSConfig,
+    ShellNotifications, ShellOpener, ShellRecordingIndicator, ShellSystemPermissions,
+    ShellTrayIcons, ShellVideoFrameReaders, ShellView, ViewPlacement, ViewRequest, WaOSConfig,
 };
 use waos_headless::{Display, HeadlessShell, Refreshes, SCREEN};
 
@@ -67,6 +69,7 @@ use opener::TestOpener;
 pub use output::RecordedOutput;
 pub use prompts::TestPrompts;
 use sound::TestSound;
+use system_permissions::TestSystemPermissions;
 use video_frames::TestVideoFrameReaders;
 
 /// How long a test waits for what it expects before it fails: long enough that only a broken
@@ -93,10 +96,12 @@ pub struct TestShell {
     pub file_dialogs: Arc<TestFileDialogs>,
     pub opener: Arc<TestOpener>,
     pub notifications: Arc<TestNotifications>,
+    pub system_permissions: Arc<TestSystemPermissions>,
     pub media_players: Arc<TestMediaPlayers>,
     pub media_assets: Arc<TestMediaAssets>,
     pub image_codecs: Arc<TestImageCodecs>,
     pub video_frame_readers: Arc<TestVideoFrameReaders>,
+    pub video_decoders: Arc<video_decoders::TestVideoDecoders>,
     pub cameras: Arc<TestCameras>,
     pub simulated_cameras: Arc<TestCameras>,
     pub machine_picker: Arc<TestMachinePicker>,
@@ -106,6 +111,7 @@ impl TestShell {
     /// A shell over [`DISPLAY`], which refreshes as soon as a frame is asked for, nothing asked of
     /// any part yet.
     pub fn new() -> TestShell {
+        let notifications = Arc::<TestNotifications>::default();
         TestShell {
             headless: HeadlessShell::new(DISPLAY, Refreshes::WhenAsked),
             prompts: Arc::default(),
@@ -115,11 +121,13 @@ impl TestShell {
             sound: Arc::default(),
             file_dialogs: Arc::default(),
             opener: Arc::default(),
-            notifications: Arc::default(),
+            notifications: Arc::clone(&notifications),
+            system_permissions: Arc::new(TestSystemPermissions::new(notifications)),
             media_players: Arc::default(),
             media_assets: Arc::default(),
             image_codecs: Arc::default(),
             video_frame_readers: Arc::default(),
+            video_decoders: Arc::default(),
             cameras: Arc::default(),
             simulated_cameras: Arc::new(TestCameras::simulated()),
             machine_picker: Arc::default(),
@@ -139,11 +147,17 @@ impl TestShell {
             file_dialogs: Some(Arc::clone(&self.file_dialogs) as Arc<dyn ShellFileDialogs>),
             opener: Some(Arc::clone(&self.opener) as Arc<dyn ShellOpener>),
             notifications: Some(Arc::clone(&self.notifications) as Arc<dyn ShellNotifications>),
+            system_permissions: Some(
+                Arc::clone(&self.system_permissions) as Arc<dyn ShellSystemPermissions>
+            ),
             media_players: Some(Arc::clone(&self.media_players) as Arc<dyn ShellMediaPlayers>),
             media_assets: Some(Arc::clone(&self.media_assets) as Arc<dyn ShellMediaAssets>),
             image_codecs: Some(Arc::clone(&self.image_codecs) as Arc<dyn ShellImageCodecs>),
             video_frame_readers: Some(
                 Arc::clone(&self.video_frame_readers) as Arc<dyn ShellVideoFrameReaders>
+            ),
+            video_decoders: Some(
+                Arc::clone(&self.video_decoders) as Arc<dyn waos::ShellVideoDecoders>
             ),
             cameras: Some(Arc::clone(&self.cameras) as Arc<dyn ShellCameras>),
             simulated_cameras: Some(Arc::clone(&self.simulated_cameras) as Arc<dyn ShellCameras>),
@@ -189,16 +203,20 @@ pub fn config() -> WaOSConfig {
     }
 }
 
-/// What `future` resolves with, failing after [`WITHIN`]: the one wait a test has, for what it
-/// expects. It blocks the test's thread; the programs run on threads of their own.
+/// What `future` resolves with, failing after [`WITHIN`] with the line that waited: the one wait a
+/// test has, for what it expects. It blocks the test's thread; the programs run on threads of
+/// their own.
+#[track_caller]
 pub fn within<T: Send + 'static>(future: impl Future<Output = T> + Send + 'static) -> T {
+    let waiting_at = std::panic::Location::caller();
     let (resolved, came) = mpsc::channel();
     thread::spawn(move || {
         // A test that timed out has dropped the receiver.
         let _ = resolved.send(futures::executor::block_on(future));
     });
-    came.recv_timeout(WITHIN)
-        .unwrap_or_else(|_| panic!("what the test waited for never came within {WITHIN:?}"))
+    came.recv_timeout(WITHIN).unwrap_or_else(|_| {
+        panic!("what the test waited for at {waiting_at} never came within {WITHIN:?}")
+    })
 }
 
 /// Waits until `done`, failing after [`WITHIN`] with `what` was awaited: for what a part of the

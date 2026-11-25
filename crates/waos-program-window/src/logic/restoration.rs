@@ -4,7 +4,7 @@
 //! goes in it. A program's first window starts the program again; an extra one has no program
 //! state behind it (decision 10 of `docs/proposals/2026-11-12-phone-programs-and-library.md`).
 //!
-//! The invariant: what [`RestorableWindow::initial_data`] writes, [`RestorableWindow::of`] reads
+//! The invariant: what [`WindowRestoration::initial_data`] writes, [`WindowRestoration::of`] reads
 //! back, and nothing else reads as a program's window: a view whose initial data is anything else
 //! is not a program's.
 
@@ -17,7 +17,7 @@ pub enum WindowRole {
 
 /// A program's window, as its initial data names it.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct RestorableWindow {
+pub struct WindowRestoration {
     /// The name the program runs under: an installed program's id.
     pub program: String,
     pub role: WindowRole,
@@ -26,7 +26,7 @@ pub struct RestorableWindow {
 /// What every program's window's initial data starts with, so no other view's is taken for one.
 const PREFIX: &str = "waos-program";
 
-impl RestorableWindow {
+impl WindowRestoration {
     /// The window's initial data.
     pub fn initial_data(&self) -> String {
         let role = match self.role {
@@ -37,7 +37,7 @@ impl RestorableWindow {
     }
 
     /// The program's window `initial_data` names; none where it names none.
-    pub fn of(initial_data: &str) -> Option<RestorableWindow> {
+    pub fn of(initial_data: &str) -> Option<WindowRestoration> {
         let rest = initial_data.strip_prefix(PREFIX)?.strip_prefix(':')?;
         let (role, program) = rest.split_once(':')?;
         let role = match role {
@@ -45,7 +45,7 @@ impl RestorableWindow {
             "extra" => WindowRole::Extra,
             _ => return None,
         };
-        (!program.is_empty()).then(|| RestorableWindow {
+        (!program.is_empty()).then(|| WindowRestoration {
             program: program.to_owned(),
             role,
         })
@@ -59,11 +59,11 @@ mod tests {
     #[test]
     fn a_windows_initial_data_names_it_again() {
         for role in [WindowRole::First, WindowRole::Extra] {
-            let window = RestorableWindow {
+            let window = WindowRestoration {
                 program: "dev.example.gallery".to_owned(),
                 role,
             };
-            assert_eq!(RestorableWindow::of(&window.initial_data()), Some(window));
+            assert_eq!(WindowRestoration::of(&window.initial_data()), Some(window));
         }
     }
 
@@ -76,7 +76,7 @@ mod tests {
             "waos-program:first:",
             "waos-program:last:dev.example.gallery",
         ] {
-            assert_eq!(RestorableWindow::of(other), None, "{other:?}");
+            assert_eq!(WindowRestoration::of(other), None, "{other:?}");
         }
     }
 }

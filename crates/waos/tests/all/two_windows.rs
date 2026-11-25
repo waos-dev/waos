@@ -18,6 +18,10 @@ use crate::test_shell::{RecordedOutput, TestShell, config, printing_to, wait_unt
 /// The titles two-windows asks its windows to have, in order.
 const TITLES: [&str; 2] = ["first", "second"];
 
+/// How many times over the hidden window may show a late picture before it counts as still
+/// being sent frames: more than the frames that can be on their way to one window.
+const ROUNDS_TO_REST: usize = 8;
+
 const OFF_SCREEN: Presence = Presence {
     on_screen: false,
     occluded: false,
@@ -67,13 +71,7 @@ fn a_hidden_window_gets_no_frames_while_the_shown_one_keeps_drawing_and_draws_ag
     );
 
     views[1].presence_changed(OFF_SCREEN);
-    // Let any frame already queued or in flight for the hidden view before `OFF_SCREEN` finish on
-    // the shared event loop and GPU queue before noting the baseline counts.
-    let settling = shown.pictures_shown();
-    wait_until("any frame already in flight finishes", || {
-        shown.pictures_shown() >= settling + 2
-    });
-    let hidden_presents = hidden.pictures_shown();
+    let hidden_presents = presents_once_at_rest(hidden, shown);
     let shown_presents = shown.pictures_shown();
     wait_until(
         "the shown window keeps drawing while the other is hidden",
@@ -97,6 +95,25 @@ fn a_hidden_window_gets_no_frames_while_the_shown_one_keeps_drawing_and_draws_ag
         "asking to close a window quits two-windows, not {end:?}; it printed {:#?}",
         output.lines()
     );
+}
+
+/// How many pictures `hidden` has shown once it shows no more while `shown` shows three. A frame
+/// on its way to a window as it is hidden still arrives, as late as a busy machine makes it: a
+/// frame handed over and not yet drawn, or drawn and not yet through the GPU. So the count is
+/// taken once those have come, however long that took, and a window that goes on being sent
+/// frames never comes to rest.
+fn presents_once_at_rest(hidden: &HeadlessView, shown: &HeadlessView) -> usize {
+    for _ in 0..ROUNDS_TO_REST {
+        let presents = hidden.pictures_shown();
+        let shown_presents = shown.pictures_shown();
+        wait_until("the shown window draws on", || {
+            shown.pictures_shown() >= shown_presents + 3
+        });
+        if hidden.pictures_shown() == presents {
+            return presents;
+        }
+    }
+    panic!("the hidden window goes on presenting: it is still sent frames");
 }
 
 /// Whether `picture` holds more than one pixel colour.

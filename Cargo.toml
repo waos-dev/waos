@@ -51,6 +51,7 @@ wasdk-macros = { version = "0.7.1", path = "sdk/wasdk-macros" }
 wasdk-wgpu = { version = "0.7.1", path = "sdk/wasdk-wgpu" }
 wasdk-adapter-waft = { version = "0.7.1", path = "sdk/wasdk-adapter-waft" }
 wasdk-adapter-gpui = { path = "sdk/wasdk-adapter-gpui" }
+wasdk-adapter-egui = { version = "0.7.1", path = "sdk/wasdk-adapter-egui" }
 
 # What we take from crates.io, one version for the workspace.
 # The bindings generator a program's API comes from, pinned: the SDK pins one wit-bindgen per
@@ -115,13 +116,11 @@ rustix = { version = "1", features = ["fs", "net", "time"] }
 # keeps the path beneath its folder, as `wasmtime-wasi`'s copy of cap-std's code sets them.
 rustix-linux-procfs = "0.1.1"
 # What the WebGPU host (`crates/waos-webgpu-host`), the wasi-gfx runtime's, is made of, at the
-# versions it names: wgpu-core and its types, which it serves `wasi:webgpu` over; the futures
-# wgpu-core's callbacks are awaited through, a buffer's mapping and a queue's work done; the
+# versions it names: wgpu-core and its types, which it serves `wasi:webgpu` over; the
 # channel a device's uncaptured errors are broadcast on; its logging; and the macro that pastes a
 # flag's name together.
 wgpu-core = "30"
 wgpu-types = "30"
-callback-future = "0.1"
 async-broadcast = "0.7"
 log = "0.4"
 pastey = "0.2"
@@ -129,6 +128,12 @@ pastey = "0.2"
 # links only what it uses. The engine works at wgpu-core's level, through the WebGPU host's
 # re-exports, so the two versions move together.
 wgpu = { version = "30", default-features = false }
+# egui, which `wasdk-adapter-egui` puts over wasdk. Its types are in that crate's interface, so an
+# app takes the same version: the one Ruffle is on.
+egui = { version = "0.36.1", default-features = false }
+# egui's own wgpu renderer, which an egui program draws with on the device `wasdk-wgpu` gives it.
+egui-wgpu = { version = "0.36.1", default-features = false }
+
 # GPUI, Zed's UI framework, and its wgpu renderer, which `wasdk-adapter-gpui` puts over wasdk:
 # from WaOS's fork of Zed, `waos-dev/zed`, at the revision its branch `waos` (Zed's port) is built
 # on: Zed's main of 2026-11-14 (703b5ac3f4) with four commits, for GPUI's renderer on a WASI
@@ -211,49 +216,49 @@ png = "0.18"
 # Waft, the framework the WaOS app is built on, from crates.io (`AGENTS.md` says how to build
 # against an unreleased one); and the layers its facade does not name, which an app's view takes
 # its input from: the pointer widget, the pointer events a widget receives, and the keys and text input.
-waft = "0.12.0"
-waft-widgets = "0.12.0"
-waft-gestures = "0.12.0"
-waft-services = "0.12.0"
+waft = "0.12.1"
+waft-widgets = "0.12.1"
+waft-gestures = "0.12.1"
+waft-services = "0.12.1"
 # The ticker a widget reads a player's position with at each frame, which `waft-widgets` does
 # not re-export.
-waft-scheduler = "0.12.0"
+waft-scheduler = "0.12.1"
 # How a gesture detector is hit, which `waft-widgets`' `GestureDetector::behavior` takes but does
 # not re-export.
-waft-rendering = "0.12.0"
+waft-rendering = "0.12.1"
 # The springs and the scroll simulations the WaOS app's deck settles its motions with, which
 # `waft-widgets` does not re-export.
-waft-physics = "0.12.0"
+waft-physics = "0.12.1"
 # A platform with no window server, for the app's tests of its windows.
-waft-test = "0.12.0"
+waft-test = "0.12.1"
 # What `wasdk-adapter-waft` is made of: Waft's host traits and value types, its app, and the
 # client a host drives.
-waft-embedder = "0.12.0"
-waft-foundation = "0.12.0"
-waft-shell = "0.12.0"
+waft-embedder = "0.12.1"
+waft-foundation = "0.12.1"
+waft-shell = "0.12.1"
 # The messages Waft's CLI speaks to an app's service extensions, which `waos ext --stdio` relays.
-waft-service-protocol = "0.12.0"
+waft-service-protocol = "0.12.1"
 # Waft's Cupertino widgets, which `examples/two-windows` spins an activity indicator of, and
 # the library is drawn with at a phone's size.
-waft-cupertino = "0.12.0"
+waft-cupertino = "0.12.1"
 # Fluent's controls over Waft, which the library is drawn with at a desktop's or a tablet's
 # size, and the Video Player throughout.
-waft-winui = "0.12.0"
+waft-winui = "0.12.1"
 # Waft's desktop host, for what only macOS offers beyond its `Platform`: hearing WaOS's Dock
 # icon clicked, a window that slides in, and hiding the app.
-waft-embedder-winit = "0.12.0"
+waft-embedder-winit = "0.12.1"
 # What Waft's hosts on macOS and iOS share, for its `SurfaceBuffer` and `CoreVideoFrame`, which a
 # program's hardware buffers and video frames are shown and read as on Apple's systems.
-waft-embedder-apple = { version = "0.12.0", default-features = false }
+waft-embedder-apple = { version = "0.12.1", default-features = false }
 # Waft's Android host, for its `AndroidHardwareBuffer`, which a program's hardware buffers are
 # shown as on a Waft composition layer on Android.
-waft-embedder-android = "0.12.0"
+waft-embedder-android = "0.12.1"
 # One instance of WaOS: a later launch on Windows or Linux hands the files it was started with to
 # the WaOS running, as macOS does itself.
-waft-single-instance = "0.12.0"
+waft-single-instance = "0.12.1"
 # Waft's painting: its image providers, `NetworkImage` above all, which a program shows with
 # Waft's `Image` widget over the platform's HTTP client.
-waft-painting = "0.12.0"
+waft-painting = "0.12.1"
 # valo, Waft's renderer, which a program's views are drawn with: its context, its fonts and
 # their glyph raster, at the version Waft draws with.
 valo = "0.26.0"
@@ -367,34 +372,3 @@ opt-level = 3
 # a release build, so a debug WaOS took minutes to show `examples/hello` in the simulator.
 [profile.dev.package.pulley-interpreter]
 opt-level = 3
-
-# Waft's main, unreleased: FluentRoutePage (waft#152) and the overscroll revert (waft#153).
-# Dropped when Waft releases them.
-[patch.crates-io]
-waft = { path = "../waft-3/crates/waft" }
-waft-animation = { path = "../waft-3/crates/waft-animation" }
-waft-cupertino = { path = "../waft-3/crates/waft-cupertino" }
-waft-embedder = { path = "../waft-3/crates/waft-embedder" }
-waft-embedder-android = { path = "../waft-3/crates/waft-embedder-android" }
-waft-embedder-apple = { path = "../waft-3/crates/waft-embedder-apple" }
-waft-embedder-default = { path = "../waft-3/crates/waft-embedder-default" }
-waft-embedder-ios = { path = "../waft-3/crates/waft-embedder-ios" }
-waft-embedder-web = { path = "../waft-3/crates/waft-embedder-web" }
-waft-embedder-winit = { path = "../waft-3/crates/waft-embedder-winit" }
-waft-foundation = { path = "../waft-3/crates/waft-foundation" }
-waft-gestures = { path = "../waft-3/crates/waft-gestures" }
-waft-macros = { path = "../waft-3/crates/waft-macros" }
-waft-markdown = { path = "../waft-3/crates/waft-markdown" }
-waft-material = { path = "../waft-3/crates/waft-material" }
-waft-material-color-utilities = { path = "../waft-3/crates/waft-material-color-utilities" }
-waft-painting = { path = "../waft-3/crates/waft-painting" }
-waft-physics = { path = "../waft-3/crates/waft-physics" }
-waft-rendering = { path = "../waft-3/crates/waft-rendering" }
-waft-scheduler = { path = "../waft-3/crates/waft-scheduler" }
-waft-service-protocol = { path = "../waft-3/crates/waft-service-protocol" }
-waft-services = { path = "../waft-3/crates/waft-services" }
-waft-shell = { path = "../waft-3/crates/waft-shell" }
-waft-single-instance = { path = "../waft-3/crates/waft-single-instance" }
-waft-test = { path = "../waft-3/crates/waft-test" }
-waft-widgets = { path = "../waft-3/crates/waft-widgets" }
-waft-winui = { path = "../waft-3/crates/waft-winui" }

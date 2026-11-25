@@ -8,7 +8,7 @@
 //! [`ShellClipboardItem`],
 //! [`ShellMenuBar`], [`ShellContextMenus`], [`ShellTrayIcons`], [`ShellTrayIcon`],
 //! [`ShellAttachedMenu`], [`ShellMenuAtIcon`], [`ShellFileDialogs`], [`ShellOpener`],
-//! [`ShellNotifications`], [`ShellNotificationScheduling`], [`ShellSystemPermission`],
+//! [`ShellNotifications`], [`ShellNotificationScheduling`], [`ShellSystemPermissions`],
 //! [`ShellMediaPlayers`], [`ShellMediaPlayer`], [`ShellMediaAssets`], [`ShellMediaAsset`],
 //! [`ShellImageCodecs`], [`ShellImageSource`], [`ShellHardwareImageCodecs`], with what the engine
 //! keeps of an image as it opens, [`OpenedImage`], [`ShellVideoFrameReaders`],
@@ -40,6 +40,9 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
 
+use futures::future::BoxFuture;
+use futures::stream::BoxStream;
+
 use waos_capabilities::{Answer, AudioOutput, MachineChoice, Question, Role, Switch};
 
 use crate::bindings::wasdk::media::cameras::{CameraError, CameraFormat, CameraInfo, Photo};
@@ -47,6 +50,11 @@ use crate::bindings::wasdk::media::image_codecs::{ImageMetadata, ImageOrientatio
 use crate::bindings::wasdk::media::media_players::{
     MediaMetadata, MediaTrack, PlayerError, SeekTolerance,
 };
+use crate::bindings::wasdk::media::video_decoders::{
+    DecoderError, VideoDecodeSupport, VideoDecoderOptions, VideoStreamDescription,
+};
+use crate::bindings::wasdk::media::video_frames::{HdrMetadata, PixelAspect, VideoColor};
+use crate::bindings::wasdk::media::video_streams::{CodecKind, EncodedChunk, VideoStreamSetup};
 use crate::bindings::wasdk::platform::clipboard::ClipboardError;
 use crate::bindings::wasdk::platform::file_dialogs::DialogError;
 use crate::bindings::wasdk::platform::hardware_buffers::{ImageError, PixelBuffer};
@@ -80,6 +88,9 @@ pub struct Shell {
     pub compositor: Option<Arc<dyn ShellCompositor>>,
     /// What asks the user for what a program may use.
     pub prompts: Arc<dyn Prompts>,
+    /// What the system itself allows of what a program's user allowed it; none for a shell whose
+    /// system guards nothing beyond what the user allowed in WaOS.
+    pub system_permissions: Option<Arc<dyn ShellSystemPermissions>>,
     /// The platform's clipboard; none for a shell without one, and then a program's
     /// `get-clipboard` answers none.
     pub clipboard: Option<Arc<dyn ShellClipboard>>,
@@ -122,6 +133,9 @@ pub struct Shell {
     /// The system's frame readers; none for a shell whose system hands out no frames, and then a
     /// program's `get-video-frame-readers` answers none.
     pub video_frame_readers: Option<Arc<dyn ShellVideoFrameReaders>>,
+    /// The system's video decoders; none for a shell without them, and then a program's
+    /// `get-video-decoders` answers none.
+    pub video_decoders: Option<Arc<dyn ShellVideoDecoders>>,
     /// The system's cameras; none for a shell without them, and then a program's `get-cameras`
     /// answers none.
     pub cameras: Option<Arc<dyn ShellCameras>>,
@@ -689,8 +703,8 @@ pub type OpenFuture = Pin<Box<dyn Future<Output = Result<(), OpenError>> + Send>
 /// Until a program has an identity of its own with the system, the shell posts under the app's and
 /// puts the program's name in the notification. Where it has one, as each program's app of its own
 /// on macOS, the system keeps a permission of its own for the program
-/// ([`system_permission`](Self::system_permission)), which may refuse it its notifications
-/// whatever its user said in WaOS. What the user does to a notification, at launch or while the
+/// ([`ShellSystemPermissions`]), which may refuse it its notifications whatever its user said in
+/// WaOS. What the user does to a notification, at launch or while the
 /// program runs, the shell reports with `RunningProgram::notification_activated`, starting the
 /// program first when it is not running. Called from the program's thread.
 pub trait ShellNotifications: Send + Sync {
@@ -711,26 +725,59 @@ pub trait ShellNotifications: Send + Sync {
     /// Delivery at a later time, which the system holds whether or not WaOS runs; none where it
     /// has none.
     fn scheduling(&self) -> Option<&dyn ShellNotificationScheduling>;
-
-    /// The system's own permission for each program's notifications, where it keeps one per
-    /// program; none where it keeps none, as where the shell posts under the app's identity.
-    fn system_permission(&self) -> Option<&dyn ShellSystemPermission>;
 }
 
-/// The system's own permission for a program's notifications, beside its user's answer in WaOS:
-/// macOS keeps one for each program's app, asks its user for it once, and lets them change it
-/// later in System Settings. The engine reads the program's permission as denied while the system
-/// refuses, its user's answer in WaOS kept, as the system answers [`request`](Self::request) and
-/// as the shell reports with `RunningProgram::system_notifications_refused` whatever else it
-/// learns: what the system says as the program's app connects, as its question is answered, and
-/// as it refuses or takes a post or a schedule.
-pub trait ShellSystemPermission: Send + Sync {
-    /// Puts the system's own question for `program`, which asks the user only if they were never
-    /// asked, and resolves to whether the system refuses the program its notifications once it has
-    /// answered; to none where it could not be asked, as when the program's app never came. The
-    /// engine asks once the program's user allowed it notifications in WaOS. Called from the
-    /// program's thread.
-    fn request(&self, program: &RunningProgram) -> SystemPermissionFuture;
+/// Something a program's user allowed it in WaOS which the system may guard as well, with a
+/// permission of its own.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SystemPermission<'a> {
+    /// The program's notifications, where the system keeps a permission for each program, as macOS
+    /// does for each program's app.
+    Notifications,
+    /// Reading and writing the file or folder at this path on the machine, which the user picked
+    /// for the program, where the system lets an app reach it only with a permission of its own,
+    /// as Android does the phone's shared storage.
+    Path(&'a Path),
+}
+
+/// What the system says of a [`SystemPermission`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SystemPermissionState {
+    /// The system has not been asked, and would ask the user.
+    NotAsked,
+    Allowed,
+    /// The user, or the system's settings, said no.
+    Denied,
+}
+
+/// The system's own permissions, beside what a program's user allowed it in WaOS: the user's
+/// answer in WaOS is one layer, the system's another, and a program has what both allow. Each
+/// system has its own way to be asked, which is the shell's: macOS keeps a permission for each
+/// program's notifications, asks its user for it once, and lets them change it later in System
+/// Settings; Android lets an app reach the phone's shared storage only once its user turned that
+/// on for the app in the system's settings, where the shell sends them. The engine reads [`state`](Self::state) each time it is asked where a permission
+/// stands, keeping no copy, and asks through [`request`](Self::request) once the program's user
+/// allowed the thing in WaOS and the system does not allow it yet. No system tells an app that its
+/// user changed a permission in its settings, so nothing here does: the shell reads again as it
+/// can, as when WaOS comes to the front, and the next `state` answers what it read.
+pub trait ShellSystemPermissions: Send + Sync {
+    /// What the system says of `permission` for `program` now, as the shell last read it, without
+    /// asking the user: allowed where the system guards nothing of it. Called from any thread.
+    fn state(
+        &self,
+        permission: SystemPermission<'_>,
+        program: &RunningProgram,
+    ) -> SystemPermissionState;
+
+    /// Asks the system for `permission` for `program` in the system's own way: its prompt, which
+    /// asks the user only if they were never asked, or its settings page and back, telling the
+    /// user where it is still off. Resolves to what the system says once that is done; to what it
+    /// said before where it could not be asked. Called from the program's thread.
+    fn request(
+        &self,
+        permission: SystemPermission<'_>,
+        program: &RunningProgram,
+    ) -> SystemPermissionFuture;
 }
 
 /// The system's delivery of a notification at a later time.
@@ -749,9 +796,8 @@ pub trait ShellNotificationScheduling: Send + Sync {
 /// What a [`ShellNotifications`] post or a schedule answers.
 pub type NotificationFuture = Pin<Box<dyn Future<Output = Result<(), NotificationError>> + Send>>;
 
-/// What [`ShellSystemPermission::request`] answers: whether the system refuses the program its
-/// notifications; none where it could not say.
-pub type SystemPermissionFuture = Pin<Box<dyn Future<Output = Option<bool>> + Send>>;
+/// What [`ShellSystemPermissions::request`] answers.
+pub type SystemPermissionFuture = Pin<Box<dyn Future<Output = SystemPermissionState> + Send>>;
 
 /// The shell's side of `media-players.media-players`: the system's players, as Waft's `Players`
 /// is.
@@ -945,6 +991,73 @@ pub trait ShellVideoFrameReader: Any + Send + Sync {
     /// The frame to show at `display_time`: its source's frame for that moment of the video. None
     /// when it is the frame answered last, or none came. Called from the program's thread.
     fn frame_for(&self, display_time: Instant) -> Option<VideoFrame>;
+}
+
+/// The shell's side of `video-decoders.video-decoders`: the system's video decoders. Called from
+/// the program's thread.
+pub trait ShellVideoDecoders: Send + Sync {
+    /// What the system can tell, without trying, about decoding a stream like `description`.
+    fn support(&self, description: VideoStreamDescription) -> VideoDecodeSupportFuture;
+
+    /// Opens a decoder for the stream `setup` begins, as `options` ask, with a pool that lends
+    /// at least their `frame_limit` frames at once: `unsupported` where the system has none of
+    /// the kind chosen for it, `busy` where every such decoder is in use.
+    fn open(&self, setup: VideoStreamSetup, options: VideoDecoderOptions)
+    -> VideoDecoderOpenFuture;
+}
+
+pub type VideoDecodeSupportFuture = Pin<Box<dyn Future<Output = VideoDecodeSupport> + Send>>;
+
+pub type VideoDecoderOpenFuture =
+    Pin<Box<dyn Future<Output = Result<OpenedVideoDecoder, DecoderError>> + Send>>;
+
+/// A decoder the shell opened, with what comes out of it.
+pub struct OpenedVideoDecoder {
+    pub decoder: Arc<dyn ShellVideoDecoder>,
+    /// Where it runs.
+    pub kind: CodecKind,
+    /// The decoded pictures in the order they are shown, each taken as the engine asks for the
+    /// next, which it does only while the program holds fewer than it may; ends once the decoder
+    /// has.
+    pub frames: BoxStream<'static, DecodedFrame>,
+    /// Why the decoder ended by itself, as the system taking it away; never resolves for one
+    /// that ends only as the engine drops it.
+    pub ended: BoxFuture<'static, DecoderError>,
+}
+
+/// The shell's side of `video-decoders.video-decoder`, minus the rules the engine keeps: that a
+/// key frame begins a stream and follows a drain, a reset and a damaged chunk, and how many frames
+/// the program holds at once. Dropped once the engine lets go of it, which ends its frames.
+/// Called from the program's thread.
+pub trait ShellVideoDecoder: Send + Sync {
+    /// Hands `chunk` to the decoder, resolving once it has room for the next; `bad-data` for a
+    /// chunk it cannot decode, after which it drops what comes until a key frame.
+    fn decode(&self, chunk: EncodedChunk) -> VideoDecoderFuture;
+
+    /// Resolves once every chunk given has come out as a picture.
+    fn drain(&self) -> VideoDecoderFuture;
+
+    /// Drops every chunk and picture the decoder holds.
+    fn reset(&self);
+
+    /// The stream's setup from the next chunk on, of the same codec.
+    fn configure(&self, setup: VideoStreamSetup) -> VideoDecoderFuture;
+}
+
+pub type VideoDecoderFuture = Pin<Box<dyn Future<Output = Result<(), DecoderError>> + Send>>;
+
+/// A picture a decoder put out, with what its stream says of it.
+pub struct DecodedFrame {
+    pub frame: VideoFrame,
+    /// The timestamp of the chunk it came from, in nanoseconds on the stream's own timeline.
+    pub timestamp: i64,
+    /// How long it is shown, in nanoseconds, where the stream says.
+    pub duration: Option<u64>,
+    /// The part of its buffer that is picture, in the buffer's pixels.
+    pub visible_rect: crate::bindings::wasdk::media::video_frames::PixelRect,
+    pub pixel_aspect: PixelAspect,
+    pub color: VideoColor,
+    pub hdr_metadata: Option<HdrMetadata>,
 }
 
 /// The shell's side of `cameras.cameras`: the system's cameras, as Waft's `Cameras` are.

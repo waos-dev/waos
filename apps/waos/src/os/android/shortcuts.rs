@@ -1,7 +1,7 @@
 //! Android's shortcuts of WaOS's programs, through Waft's Android host (`AndroidPlatform::shortcuts`,
 //! Android's `ShortcutManager`): each program's shortcut as a `ShortcutInfo` going by the program's
 //! id, named after it, its icon an adaptive one, and a tap opening the program's first window in a
-//! task of its own, the view its initial data names (`RestorableWindow`), or WaOS's own window
+//! task of its own, the view its initial data names (`WindowRestoration`), or WaOS's own window
 //! with the action that names the program (`logic::program_shortcuts`).
 //!
 //! The invariant a later editor will break: a shortcut opening a program's own task carries
@@ -19,7 +19,7 @@ use waft_embedder_android::{
     ShortcutTarget, Shortcuts,
 };
 use waos_package::ProgramId;
-use waos_program_window::{RestorableWindow, WindowRole};
+use waos_program_window::{WindowRestoration, WindowRole};
 
 use crate::logic::program_shortcuts::{
     KeptShortcut, ProgramShortcut, ShortcutOpens, SystemShortcuts, action_of, program_of_action,
@@ -123,7 +123,7 @@ fn info_of(shortcut: &ProgramShortcut) -> ShortcutInfo {
 fn target_of(id: &ProgramId, opens: ShortcutOpens) -> ShortcutTarget {
     match opens {
         ShortcutOpens::OwnTask => ShortcutTarget::View {
-            initial_data: RestorableWindow {
+            initial_data: WindowRestoration {
                 program: id.to_string(),
                 role: WindowRole::First,
             }

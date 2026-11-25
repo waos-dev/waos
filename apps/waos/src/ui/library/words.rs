@@ -241,9 +241,10 @@ pub(crate) const WHERE_WAOS_STAYS: &str = "Where WaOS stays";
 /// The global settings' line on the phone's files, where WaOS reaches them only as the user
 /// allows, and what it says while WaOS may reach them or not.
 pub(crate) const PHONE_FILES: &str = "This phone's files";
-pub(crate) const PHONE_FILES_ON: &str =
-    "All files access is on: an app working on This computer sees the files on this phone.";
-pub(crate) const PHONE_FILES_OFF: &str = "All files access is off: an app working on This computer sees only WaOS's own folder. Turn it on for WaOS in Android's settings.";
+pub(crate) const PHONE_FILES_ON: &str = "All files access is on: an app working on This computer sees the files on this phone, and an app reads what you pick for it there.";
+pub(crate) const PHONE_FILES_OFF: &str = "All files access is off: an app working on This computer sees only WaOS's own folder, and what you pick on this phone isn't added. Turn it on for WaOS in Android's settings.";
+/// What a page says under its folders while Android keeps WaOS from one of them.
+pub(crate) const FOLDERS_DENIED: &str = "Android does not let WaOS read the folders on this phone, whatever you allow here: All files access is off. Turn it on for WaOS in Android's settings.";
 /// The button that opens Android's page for WaOS's All files access.
 pub(crate) const OPEN_ANDROID_SETTINGS: &str = "Open Android's settings";
 

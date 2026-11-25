@@ -1,0 +1,133 @@
+package wasdk:media@2.1.0;
+
+/// Video decoding by the system's own decoders: VideoToolbox, Android's MediaCodec, Media
+/// Foundation and Direct3D, VA-API. A program reads a file or a network stream itself, hands the
+/// decoder one encoded picture at a time, and reads the decoded frames as they come out, each the
+/// decoder's own picture with no copy (`video-frames`).
+///
+/// **Chunks in, frames out.** `decode` takes a chunk when the decoder has room and returns; the
+/// picture comes later on `frames`, in the order pictures are shown, which is not the order chunks
+/// go in where a stream reorders.
+///
+/// **Frames are lent.** A frame is a slot of the decoder's pool, which the system sizes when the
+/// decoder is made. A program says how many it holds at once (`frame-limit`), and holding that
+/// many stops the decoder until one is dropped.
+///
+/// **What ends a decoder and what does not.** A damaged stream does not: the decoder goes on
+/// from the next key frame. Anything else does, and says why, so a program knows whether to try
+/// another choice, wait, or make another decoder.
+interface video-decoders {
+  use video-frames.{video-frame, video-color};
+  use video-streams.{video-codec, video-stream-setup, encoded-chunk, codec-choice, codec-kind, picture-size, chroma-sampling};
+
+  /// The system's video decoders; none where the system decodes no video for programs.
+  get-video-decoders: func() -> option<video-decoders>;
+
+  resource video-decoders {
+    /// What the system can tell, without trying, about decoding a stream like `description`.
+    /// Asked of the system, which may read its decoders' lists to answer.
+    support: async func(description: video-stream-description) -> video-decode-support;
+    /// A decoder for the stream `setup` begins. `unsupported` where the system has no decoder
+    /// of the kind chosen for it, `busy` where every such decoder is in use.
+    open: async func(setup: video-stream-setup, options: video-decoder-options) -> result<video-decoder, decoder-error>;
+  }
+
+  /// A stream as a program knows it before it has a decoder, from a manifest or a file's header:
+  /// what the systems need to say whether they decode it.
+  record video-stream-description {
+    codec: video-codec,
+    /// The profile as the codec numbers it (H.264's `profile_idc`, HEVC's
+    /// `general_profile_idc`, VP9's and AV1's profile); none where the program does not know.
+    profile: option<u32>,
+    /// The level as the codec numbers it; none where the program does not know.
+    level: option<u32>,
+    /// Bits in each sample: 8, 10 or 12.
+    bit-depth: u8,
+    chroma: chroma-sampling,
+    size: picture-size,
+    /// Pictures a second, where the program knows.
+    frame-rate: option<f32>,
+  }
+
+  /// What a system says of decoding a stream, for each kind of decoder.
+  record video-decode-support {
+    hardware: decode-support,
+    software: decode-support,
+  }
+
+  /// What a system can tell without trying. Android answers from its decoders' own lists;
+  /// Apple's systems tell only whether a codec has hardware at all, so a profile or a size is
+  /// `unknown` there until a decoder is opened.
+  enum decode-support {
+    yes,
+    no,
+    unknown,
+  }
+
+  record video-decoder-options {
+    /// Which decoder the program accepts.
+    decoder: codec-choice,
+    /// What the pictures are for.
+    purpose: decoding-purpose,
+    /// The most frames the program has at one time. The decoder lends no more until one is
+    /// dropped.
+    frame-limit: u32,
+    /// The largest size the stream will reach, where the program knows: what lets Android's
+    /// decoders change size in place.
+    largest-size: option<picture-size>,
+    /// The colour a file gives for the stream. It fills in only what the stream itself leaves
+    /// unsaid: the stream describes its own pixels, and a file's header is often wrong.
+    default-color: option<video-color>,
+  }
+
+  /// What the pictures are for, which decides how the system runs the decoder. These are
+  /// settings the systems take, not promises, but for `live`: there the engine keeps no picture
+  /// back.
+  enum decoding-purpose {
+    /// Shown as they arrive, as in a call: each picture comes out as soon as the stream's order
+    /// allows.
+    live,
+    /// Played at the video's own rate.
+    playback,
+    /// Not watched while decoding, as an export or thumbnails: the system may take its time to
+    /// save power.
+    background,
+  }
+
+  variant decoder-error {
+    /// The system has no decoder of the kind chosen for this stream; another choice may work.
+    unsupported(string),
+    /// Every such decoder is in use now; fewer at once, or software, may work.
+    busy,
+    /// The stream is damaged, or began without a key frame. The decoder goes on from the next
+    /// key frame.
+    bad-data(string),
+    /// The system took the decoder away, as Android does from an app out of sight. Another
+    /// decoder goes on from a key frame.
+    lost,
+    /// The system's decoder failed.
+    failed(string),
+  }
+
+  resource video-decoder {
+    /// Where it runs.
+    kind: func() -> codec-kind;
+    /// Hands `chunk` to the decoder, waiting while it is full; its picture comes on `frames`.
+    /// `bad-data` for damage found in this chunk or one before it: the decoder then drops
+    /// chunks until a key frame.
+    decode: async func(chunk: encoded-chunk) -> result<_, decoder-error>;
+    /// The decoded pictures in the order they are shown, each lent until dropped, and beside
+    /// them why the decoder ended, where it did before the program dropped it. Taken once.
+    frames: func() -> tuple<stream<video-frame>, future<result<_, decoder-error>>>;
+    /// Resolves once every chunk given has come out as a picture, as at a file's end. The next
+    /// chunk must be a key frame.
+    drain: async func() -> result<_, decoder-error>;
+    /// Drops every chunk and picture the decoder holds, as for a seek. The next chunk must be a
+    /// key frame.
+    reset: func();
+    /// The stream's setup from the next chunk on, which must be a key frame: another size or
+    /// other parameter sets of the same codec, as a stream that adapts its quality changes them.
+    /// A change a start-code stream carries itself needs no call.
+    configure: async func(setup: video-stream-setup) -> result<_, decoder-error>;
+  }
+}

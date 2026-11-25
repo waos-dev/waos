@@ -1,7 +1,9 @@
 //! Where the programs' prompts go: each to the main thread, a question to be shown to the user
 //! (`state::questions`), a permission's, a link scheme's or a role's, which the engine's prompts ask, the
-//! output a program's sound plays on, which the shell's picker of outputs asks, or a machine for a
-//! program, which the shell's picker of machines asks; and a switch's
+//! output a program's sound plays on, which the shell's picker of outputs asks, a machine for a
+//! program, which the shell's picker of machines asks, or that WaOS still may not reach the
+//! phone's files, which the user is told once they come back from the system's page without them
+//! (`logic::phone_files`); and a switch's
 //! page to be opened in the library's settings (`state::library`). Each is noted as asked of the
 //! program's user until it is answered (`asking_now`), for an attach to the program to say. The engine asks from the
 //! program's thread and is answered later, through the future it was given: a question with the
@@ -26,6 +28,7 @@ use waos::{
 use waos_dev_protocol::Asked as AskedNow;
 
 use super::asking_now::AskingNow;
+use super::phone_files::{PhoneFilesOnRequest, asks_for_phone_files};
 
 /// One program's question, on its way to the main thread.
 pub(crate) struct Asked {
@@ -52,6 +55,10 @@ pub(crate) enum Asking {
         machines: Vec<MachineChoice>,
         picked: oneshot::Sender<Option<String>>,
     },
+    /// Nothing: its user is told that WaOS still may not reach the phone's files, which something
+    /// they gave the program needs, having come back from the system's page without them. Answered
+    /// once they have read it.
+    PhoneFilesOff { read: oneshot::Sender<Option<()>> },
 }
 
 /// What a program asks its user, once, the answer kept in its settings.
@@ -77,6 +84,7 @@ impl fmt::Debug for Asking {
                     .field(&ids.collect::<Vec<_>>())
                     .finish()
             }
+            Asking::PhoneFilesOff { .. } => f.write_str("PhoneFilesOff"),
             Asking::Machine { machines, .. } => {
                 let ids = machines.iter().map(|machine| &machine.id);
                 f.debug_tuple("Machine")
@@ -100,7 +108,8 @@ pub(crate) enum Reply {
 
 impl Asking {
     /// Sends `reply` to the program, or none when the user gave none, or a reply of the other
-    /// kind. A program gone meanwhile hears nothing.
+    /// kind; what only tells the user something is read whatever they reply. A program gone
+    /// meanwhile hears nothing.
     pub(crate) fn reply(self, reply: Option<Reply>) {
         match (self, reply) {
             (Asking::Question { answer, .. }, Some(Reply::Answer(given))) => {
@@ -112,6 +121,9 @@ impl Asking {
             }
             (Asking::Question { answer, .. }, _) => {
                 let _ = answer.send(None);
+            }
+            (Asking::PhoneFilesOff { read }, _) => {
+                let _ = read.send(Some(()));
             }
             (Asking::Output { picked, .. } | Asking::Machine { picked, .. }, _) => {
                 let _ = picked.send(None);
@@ -170,12 +182,46 @@ impl PromptsOnRequest {
         }
     }
 
-    /// The picker of machines, whose questions arrive with these prompts' questions.
-    pub(crate) fn machine_picker(&self) -> MachinePickerOnRequest {
+    /// The picker of machines, whose questions arrive with these prompts' questions; a pick of
+    /// This computer asks for the phone's files through `phone_files`, where WaOS reaches them
+    /// only as the user allows.
+    pub(crate) fn machine_picker(
+        &self,
+        phone_files: Option<PhoneFilesOnRequest>,
+    ) -> MachinePickerOnRequest {
         MachinePickerOnRequest {
             questions: self.questions.clone(),
             asking: Arc::clone(&self.asking),
+            phone_files,
         }
+    }
+
+    /// What tells a program's user that WaOS still may not reach the phone's files, shown as these
+    /// prompts' questions are.
+    pub(crate) fn phone_files_off(&self) -> PhoneFilesOffNotice {
+        PhoneFilesOffNotice {
+            questions: self.questions.clone(),
+        }
+    }
+}
+
+/// What tells a program's user that WaOS still may not reach the phone's files, from any thread.
+#[derive(Clone)]
+pub(crate) struct PhoneFilesOffNotice {
+    questions: UnboundedSender<Asked>,
+}
+
+impl PhoneFilesOffNotice {
+    /// Tells `program`'s user, and resolves once they have read it, or nobody can.
+    pub(crate) fn tell(&self, program: &RunningProgram) -> impl Future<Output = ()> + Send + use<> {
+        let (read, reading) = oneshot::channel();
+        let wait = send_and_wait(
+            &self.questions,
+            program,
+            Asking::PhoneFilesOff { read },
+            reading,
+        );
+        wait.map(drop)
     }
 }
 
@@ -244,10 +290,14 @@ impl ShellAudioOutputPicker for OutputPickerOnRequest {
 }
 
 /// The app's picker of machines, as the engine reaches it: each pick is a question, shown as the
-/// prompts' questions are.
+/// prompts' questions are. This computer picked while WaOS may not reach the phone's files asks
+/// the system for them before the pick is answered, and is answered whatever the user did there:
+/// without them, This computer's home is WaOS's own folder.
 pub(crate) struct MachinePickerOnRequest {
     questions: UnboundedSender<Asked>,
     asking: Arc<AskingNow>,
+    /// What asks for the phone's files, where WaOS reaches them only as the user allows.
+    phone_files: Option<PhoneFilesOnRequest>,
 }
 
 impl ShellMachinePicker for MachinePickerOnRequest {
@@ -255,7 +305,17 @@ impl ShellMachinePicker for MachinePickerOnRequest {
         let (picked, picking) = oneshot::channel();
         let asking = Asking::Machine { machines, picked };
         let wait = send_and_wait(&self.questions, program, asking, picking);
-        Box::pin(self.asking.while_asked(program, AskedNow::Machine, wait))
+        let (phone_files, asked_for) = (self.phone_files.clone(), program.clone());
+        let picked = async move {
+            let picked = wait.await;
+            if let Some(phone_files) = phone_files
+                && asks_for_phone_files(picked.as_deref(), phone_files.reachable())
+            {
+                phone_files.request(&asked_for).await;
+            }
+            picked
+        };
+        Box::pin(self.asking.while_asked(program, AskedNow::Machine, picked))
     }
 }
 

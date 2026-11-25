@@ -59,8 +59,9 @@
 //! - **Ray tracing.** BLAS/TLAS creation, compaction and builds,
 //!   `BindingType::AccelerationStructure`, `BufferUsages::BLAS_INPUT | TLAS_INPUT`.
 //! - **External textures.** `create_external_texture`, `BindingType::ExternalTexture`.
-//! - **Shader sources other than WGSL.** SPIR-V, GLSL, naga IR, and every passthrough language
-//!   but WGSL.
+//! - **Passthrough shaders in a language other than WGSL.** A shader given as naga's module is
+//!   written as WGSL on its way, and SPIR-V and GLSL are with this crate's `spirv` and `glsl`
+//!   features, as wgpu's browser backend writes them; without the feature they stop the program.
 //! - **Binding arrays.** `BindGroupLayoutEntry::count`, `BindingResource::*Array`.
 //! - **Transient attachments.** `TextureUsages::TRANSIENT_ATTACHMENT` is a hint the host
 //!   rejects, so it is stripped, as wgpu's browser backend strips it.
@@ -93,13 +94,19 @@
 //! - **Mapping copies.** The boundary shares no memory: `get_mapped_range` copies the range into
 //!   the component (`get-mapped-range-get-with-copy`), and a mutable view is copied back when it
 //!   is dropped (`get-mapped-range-set-with-copy`); drop every `BufferViewMut` before `unmap`.
-//! - **Callbacks fire when the program yields.** `request_adapter`, `request_device`,
+//!   The first range of a buffer made mapped (`mapped_at_creation`) is not copied in: it is
+//!   zeros, which the program makes itself, so `create_buffer_init` sends its data once.
+//! - **A mapping's and submitted work's callbacks run at `Device::poll` with `Wait`, or as the
+//!   program yields**, whichever comes first, each once: code written for native wgpu, which
+//!   asks, polls and reads at once, and code written for the web, which awaits, both work. They
+//!   run in the order asked, each once the GPU has done its work, so `poll` does not return
+//!   before them. `poll` with `Poll` delivers none: nothing here learns whether the GPU is done
+//!   without waiting. `set_device_lost_callback` and `on_uncaptured_error` are tasks on the
+//!   program's executor and run while it awaits. `request_adapter`, `request_device`,
 //!   `pop_error_scope` and `get_compilation_info` are wasi async calls awaited by the futures
-//!   wgpu returns. `map_async`, `on_submitted_work_done`, `set_device_lost_callback` and
-//!   `on_uncaptured_error` are spawned onto the program's executor and run when it next
-//!   `.await`s; `Device::poll` cannot wait for them and returns `PollStatus::QueueEmpty` at once,
-//!   exactly as wgpu's web backend does.
-//! - **Submission indices** count submissions per queue; `PollType::Wait` cannot wait on one.
+//!   wgpu returns.
+//! - **`PollType::Wait` waits for all of the device's work, with no limit:** its submission index
+//!   and its timeout are not honoured. Submission indices count submissions per queue.
 //! - **A frame on a lost device** is handed out as good: the canvas hands out an invalid texture
 //!   it cannot tell from a good one, and the loss comes through the device's lost callback.
 //! - **`AdapterInfo`** reports `Backend::BrowserWebGpu` (the WebGPU API, not a browser) and zero
@@ -184,8 +191,22 @@ pub fn instance() -> wgpu::Instance {
 /// size and format are the buffer's, and its usages follow from the buffer's usage.
 pub fn import_texture(device: &wgpu::Device, buffer: &HardwareBuffer) -> wgpu::Texture {
     let texture = gpu_interop::import_texture(WasdkDevice::of(device).gpu_device(), buffer);
+    wgpu_texture(texture, "hardware buffer")
+}
+
+/// One plane of `buffer` imported as a texture on `device`, as a `wgpu::Texture`: the plane at
+/// `index` of a video frame's `planes`, of that plane's size and format, which holds the buffer
+/// and its frame until it is dropped. A decoder's picture is drawn by sampling each of its planes
+/// and mixing them as the frame's `color` says.
+pub fn import_plane(device: &wgpu::Device, buffer: &HardwareBuffer, index: u32) -> wgpu::Texture {
+    let texture = gpu_interop::import_plane(WasdkDevice::of(device).gpu_device(), buffer, index);
+    wgpu_texture(texture, "hardware buffer plane")
+}
+
+/// The engine's `texture` as wgpu's, described as the engine made it.
+fn wgpu_texture(texture: wasdk::webgpu::GpuTexture, label: &'static str) -> wgpu::Texture {
     let descriptor = wgpu::TextureDescriptor {
-        label: Some("hardware buffer"),
+        label: Some(label),
         size: wgpu::Extent3d {
             width: texture.width(),
             height: texture.height(),

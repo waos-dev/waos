@@ -26,6 +26,8 @@ mod clipboard;
 mod composition_layers;
 #[cfg(target_vendor = "apple")]
 mod drawing;
+#[cfg(target_vendor = "apple")]
+mod egui_widgets;
 mod ending;
 mod environment;
 mod fetch;
@@ -59,6 +61,8 @@ mod notifications;
 mod opener;
 mod output;
 mod permissions;
+#[cfg(target_vendor = "apple")]
+mod readback;
 mod roles;
 mod storage;
 mod survey;
@@ -66,6 +70,9 @@ mod threads;
 mod trust;
 #[cfg(target_vendor = "apple")]
 mod two_windows;
+// The test decoder's frames are Apple's pixel buffers.
+#[cfg(target_vendor = "apple")]
+mod video_decoders;
 mod video_frames;
 #[cfg(target_vendor = "apple")]
 mod video_player;
@@ -90,6 +97,16 @@ mod composition_layers {
         eprintln!(
             "the engine makes hardware buffers on Apple's systems; the composition layer tests do \
              not run here"
+        );
+    }
+}
+
+#[cfg(not(target_vendor = "apple"))]
+mod readback {
+    #[test]
+    fn a_buffer_is_not_read_back_on_this_system() {
+        eprintln!(
+            "the tests' machines have a GPU on Apple's systems; the readback test does not run here"
         );
     }
 }

@@ -35,7 +35,7 @@ use crate::screens::Screens;
 use crate::shell::{
     Prompts, ShellAudioOutputPicker, ShellCameras, ShellCompositor, ShellFileDialogs,
     ShellImageCodecs, ShellMachinePicker, ShellMediaAssets, ShellMediaPlayers, ShellNotifications,
-    ShellOpener, ShellVideoFrameReaders, ViewPlacement,
+    ShellOpener, ShellSystemPermissions, ShellVideoDecoders, ShellVideoFrameReaders, ViewPlacement,
 };
 use crate::source_lines::ComponentFile;
 use crate::system::SystemSettings;
@@ -55,6 +55,7 @@ pub(crate) struct ProgramInstances {
     /// The file its component was loaded from, which a worker's failure is located in.
     pub(super) file: ComponentFile,
     pub(super) prompts: Arc<dyn Prompts>,
+    pub(super) system_permissions: Option<Arc<dyn ShellSystemPermissions>>,
     pub(super) screens: Screens,
     pub(super) settings: SystemSettings,
     pub(super) caption_settings: Option<CaptionSettings>,
@@ -113,6 +114,7 @@ impl ProgramInstances {
             notifications: start.notifications,
             media_players: start.media_players,
             video_frame_readers: start.video_frame_readers,
+            video_decoders: start.video_decoders,
             cameras: start.cameras,
             simulated_cameras: start.simulated_cameras,
             machine_picker: start.machine_picker,
@@ -127,6 +129,7 @@ impl ProgramInstances {
             name: start.name,
             file: start.file,
             prompts: start.prompts,
+            system_permissions: start.system_permissions,
             screens: start.screens,
             settings: start.settings,
             caption_settings: start.caption_settings,
@@ -217,6 +220,7 @@ pub(crate) struct UserSide {
     pub(super) notifications: Option<Arc<dyn ShellNotifications>>,
     pub(super) media_players: Option<Arc<dyn ShellMediaPlayers>>,
     pub(super) video_frame_readers: Option<Arc<dyn ShellVideoFrameReaders>>,
+    pub(super) video_decoders: Option<Arc<dyn ShellVideoDecoders>>,
     pub(super) cameras: Option<Arc<dyn ShellCameras>>,
     pub(super) simulated_cameras: Option<Arc<dyn ShellCameras>>,
     pub(super) machine_picker: Option<Arc<dyn ShellMachinePicker>>,
@@ -240,6 +244,7 @@ impl UserSide {
             notifications: None,
             media_players: None,
             video_frame_readers: None,
+            video_decoders: None,
             cameras: None,
             simulated_cameras: None,
             machine_picker: None,

@@ -15,19 +15,31 @@ use futures::channel::mpsc::UnboundedReceiver;
 use futures::channel::oneshot;
 use waft::ui::OpenFuture;
 use waft::{App, Context, Entity, WeakEntity};
-use waos::Switch;
+use waos::{Switch, SystemPermissionState};
 
 use crate::logic::activity::activity_of;
 use crate::logic::permissions::Permission;
 use waos_package::ProgramId;
 
 use super::{Library, WantsToBeSeen};
+#[cfg(target_os = "macos")]
+use crate::logic::notification_permissions::NotificationPermissions;
 use crate::logic::prompts::SettingsOpened;
 use crate::logic::setting_changes::{
     SettingChange, SettingsOf, ShownSettings, change_global, change_program, global_page,
     program_page,
 };
 use crate::os::notification_settings_link;
+
+/// What the system denies of what a settings page shows, whatever the page allows: the user's
+/// answer in WaOS is one layer, the system's another.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct DeniedBySystem {
+    /// The page's program's notifications.
+    pub(crate) notifications: bool,
+    /// One of the folders the page lists, on the phone's storage.
+    pub(crate) folders: bool,
+}
 
 /// A page of the library.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -241,32 +253,46 @@ impl Library {
         }
     }
 
-    /// Whether the system refuses the program `id` its notifications, as its app last said,
-    /// whatever its answer on its page.
-    pub(crate) fn notifications_refused(&self, id: &ProgramId) -> bool {
-        self.notifications_refused.contains(id)
+    /// What the system denies of what the page of `of` shows as `shown`, whatever the page
+    /// allows: the program's notifications, as its app last said, and a folder on the phone's
+    /// storage while WaOS may not reach it.
+    pub(crate) fn denied_by_system(
+        &self,
+        of: &SettingsOf,
+        shown: &ShownSettings,
+        app: &App,
+    ) -> DeniedBySystem {
+        let notifications = match of {
+            SettingsOf::Program(id) => self.notifications_denied(id),
+            SettingsOf::Global => false,
+        };
+        let mounts = &shown.file_system.value.mounts;
+        DeniedBySystem {
+            notifications,
+            folders: (mounts.iter()).any(|mount| self.system_keeps_from(&mount.host, app)),
+        }
     }
 
-    /// The system said whether it `refuses` the program `id` its notifications, as the program's app
-    /// told it: as WaOS welcomed the app, as the system's question was answered, as the app or WaOS
-    /// came to the front, or as a post was answered; the program's page says so from now on. Only
-    /// a program's app of its own, as on macOS, hears the system say it.
+    /// Whether the system denies the program `id` its notifications, as its app last said,
+    /// whatever its answer on its page.
+    fn notifications_denied(&self, id: &ProgramId) -> bool {
+        (self.notification_permissions.as_ref())
+            .is_some_and(|said| said.state(id) == SystemPermissionState::Denied)
+    }
+
+    /// From now on the pages read what the system said of each program's notifications from
+    /// `permissions`, where each program's app says it.
     #[cfg(target_os = "macos")]
-    pub(crate) fn system_permission_said(
-        &mut self,
-        id: &ProgramId,
-        refuses: bool,
-        cx: &mut Context<Library>,
-    ) {
-        let changed = if refuses {
-            self.notifications_refused.insert(id.clone())
-        } else {
-            self.notifications_refused.remove(id)
-        };
-        if changed {
-            tracing::info!(%id, refuses, "the system said of the program's notifications");
-            cx.notify();
-        }
+    pub(crate) fn read_notification_permissions(&mut self, permissions: NotificationPermissions) {
+        self.notification_permissions = Some(permissions);
+    }
+
+    /// A program's app read the system's permission for its notifications again: as WaOS welcomed
+    /// the app, as the system's question was answered, as the app or WaOS came to the front, or as
+    /// a post was answered; the program's page shows what was read.
+    #[cfg(target_os = "macos")]
+    pub(crate) fn notification_permission_read(&mut self, cx: &mut Context<Library>) {
+        cx.notify();
     }
 
     /// Opens the system's settings at the notifications of the program `id`'s app, where the user

@@ -41,14 +41,18 @@ fn answered(waos: &waos_window_messages::os::macos::ReceiveRight) -> (PostId, St
     (post, format!("{posted:?}"))
 }
 
-/// What the window process told WaOS next of macOS's permission: whether it refuses the program.
-fn permission_told(waos: &waos_window_messages::os::macos::ReceiveRight) -> bool {
+/// What the window process told WaOS next of macOS's permission.
+fn permission_told(waos: &waos_window_messages::os::macos::ReceiveRight) -> SystemPermissionState {
     let told = sent(waos);
-    let FromWindow::NotificationPermission { refused } = told else {
+    let FromWindow::NotificationPermission { state } = told else {
         panic!("macOS's permission: {told:?}");
     };
-    refused
+    state
 }
+
+const NOT_ASKED: SystemPermissionState = SystemPermissionState::NotAsked;
+const ALLOWED: SystemPermissionState = SystemPermissionState::Allowed;
+const DENIED: SystemPermissionState = SystemPermissionState::Denied;
 
 #[test]
 fn a_notification_is_posted_under_the_programs_own_id_and_title_once_macos_asked_the_user() {
@@ -70,8 +74,8 @@ fn a_notification_is_posted_under_the_programs_own_id_and_title_once_macos_asked
         served.remove("old".to_owned());
     });
     shell.wake(Duration::ZERO);
-    assert!(!permission_told(&waos), "not asked, as WaOS welcomed it");
-    assert!(!permission_told(&waos), "granted, at its question");
+    assert_eq!(permission_told(&waos), NOT_ASKED, "as WaOS welcomed it");
+    assert_eq!(permission_told(&waos), ALLOWED, "at its question");
     for post in 1..=3 {
         assert_eq!(answered(&waos), (post, "Ok(())".to_owned()));
     }
@@ -109,8 +113,8 @@ fn a_notification_macos_refuses_is_denied_and_its_question_is_put_once() {
         served.post(asked(2, greeting(), None));
     });
     shell.wake(Duration::ZERO);
-    assert!(!permission_told(&waos), "not asked, as WaOS welcomed it");
-    assert!(permission_told(&waos), "refused, at its question");
+    assert_eq!(permission_told(&waos), NOT_ASKED, "as WaOS welcomed it");
+    assert_eq!(permission_told(&waos), DENIED, "at its question");
     assert_eq!(
         answered(&waos),
         (1, "Err(NotificationError::Denied)".to_owned())
@@ -131,11 +135,12 @@ fn a_notification_where_the_host_has_none_fails_with_why() {
         ProgramNotifications::serve(app, connection).post(asked(4, greeting(), None));
     });
     shell.wake(Duration::ZERO);
-    assert!(
-        !permission_told(&waos),
-        "nothing refuses where nothing posts"
+    assert_eq!(
+        permission_told(&waos),
+        ALLOWED,
+        "nothing denies where nothing posts"
     );
-    assert!(!permission_told(&waos));
+    assert_eq!(permission_told(&waos), ALLOWED);
     let (post, posted) = answered(&waos);
     assert_eq!(post, 4);
     assert!(posted.contains("Failed"), "{posted}");
@@ -154,14 +159,14 @@ fn macos_is_asked_when_waos_asks_answered_by_its_id_and_read_again_as_the_app_co
         served.post(asked(8, greeting(), None));
     });
     shell.wake(Duration::ZERO);
-    assert!(!permission_told(&waos), "not asked, as WaOS welcomed it");
+    assert_eq!(permission_told(&waos), NOT_ASKED, "as WaOS welcomed it");
     let answer = sent(&waos);
     assert!(
         matches!(
             answer,
             FromWindow::NotificationPermissionAnswered {
                 request: 7,
-                refused: true
+                state: DENIED
             }
         ),
         "{answer:?}"
@@ -175,8 +180,9 @@ fn macos_is_asked_when_waos_asks_answered_by_its_id_and_read_again_as_the_app_co
 
     shell.app_lifecycle_state_changed(AppLifecycleState::Resumed);
     shell.wake(Duration::ZERO);
-    assert!(
+    assert_eq!(
         permission_told(&waos),
+        DENIED,
         "read again as the app comes to the front"
     );
 }
@@ -193,12 +199,12 @@ fn macos_permission_is_read_again_without_asking_each_time_waos_asks() {
         *served.borrow_mut() = Some(ProgramNotifications::serve(app, connection));
     });
     shell.wake(Duration::ZERO);
-    assert!(permission_told(&waos), "refused, as WaOS welcomed it");
+    assert_eq!(permission_told(&waos), DENIED, "as WaOS welcomed it");
 
     let served = served.borrow_mut().take().expect("serving");
     served.tell_permission();
     shell.wake(Duration::ZERO);
-    assert!(permission_told(&waos), "read again as WaOS asks");
+    assert_eq!(permission_told(&waos), DENIED, "read again as WaOS asks");
     assert_eq!(notifications.times_asked(), 0, "the user is not asked");
 }
 

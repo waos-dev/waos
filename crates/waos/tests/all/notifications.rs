@@ -6,7 +6,7 @@
 //! every post is denied and nobody is asked. Ids are each program's own: two programs' same id are
 //! two notifications. What the user does to a notification reaches every stream of the program's
 //! activations, and one made before the program listens, as the click that starts it, waits for
-//! its first; an activation thaws a frozen program until it has read it, on time the test moves
+//! its first; an activation unfreezes a frozen program until it has read it, on time the test moves
 //! (`EngineTime::Manual`), the program frozen again once it reads on (`RunningProgram::frozen`). A
 //! shell without replies or scheduling offers neither, and one without notifications gives the
 //! program none. A system that keeps a permission of its own for each program, as macOS does for
@@ -274,9 +274,9 @@ fn a_click_made_before_the_program_listens_reaches_its_first_stream_and_later_on
 }
 
 #[test]
-fn an_activation_thaws_a_frozen_program_until_it_has_read_it() {
+fn an_activation_unfreezes_a_frozen_program_until_it_has_read_it() {
     let time = ManualTime::new();
-    let only_when_suspended = FreezePolicy { after_hidden: None };
+    let only_when_suspended = FreezePolicy::default();
     let shell = TestShell::new();
     let config = WaOSConfig {
         time: EngineTime::Manual(time.clone()),
@@ -293,9 +293,9 @@ fn an_activation_thaws_a_frozen_program_until_it_has_read_it() {
     );
     output.wait_for("listening for activations");
 
-    within(engine.app_suspending());
+    within(engine.suspend());
     within(running.frozen());
-    // A tick past the moment it last ran: woken without a thaw, it would stop at its next epoch
+    // A tick past the moment it last ran: woken without a unfreeze, it would stop at its next epoch
     // check, before it could say what it heard.
     time.elapse(TICK);
     running.notification_activated(activation("later", None));
@@ -303,7 +303,7 @@ fn an_activation_thaws_a_frozen_program_until_it_has_read_it() {
     output.wait_for("heard again: greeting Some(\"later\")");
     within(running.frozen());
 
-    engine.app_resumed();
+    engine.resume();
     stop(&running);
 }
 

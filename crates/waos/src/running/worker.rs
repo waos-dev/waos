@@ -119,7 +119,10 @@ fn run_on_this_thread(
     };
     let ending = program.0.workers.ending();
     let end = runtime.block_on(async {
-        let run = program.0.activity.watch(store::run_worker(instances, run));
+        let run = program
+            .0
+            .activity
+            .watch(store::run_worker(instances, run), program.lifecycle());
         tokio::select! {
             end = run => end,
             // Dropped, or never handed out: either way nobody holds the worker.

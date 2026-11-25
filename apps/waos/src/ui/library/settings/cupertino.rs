@@ -49,7 +49,7 @@ use crate::logic::setting_changes::{
     DomainsKind, SettingChange, SettingsOf, Shown, ShownAnswerWith, ShownSettings, Which,
     domains_kind, simulatable,
 };
-use crate::state::library::{AppDetail, Library, SettingsPage};
+use crate::state::library::{AppDetail, DeniedBySystem, Library, SettingsPage};
 use crate::ui::library::cupertino::{back_to_page_beneath, under_bar};
 use crate::ui::library::home::cupertino::resolved;
 use crate::ui::library::program_icon::ProgramIcon;
@@ -172,8 +172,8 @@ impl State for CupertinoSettingsState {
         match page.library.read(app).settings(&page.of) {
             Ok(shown) => {
                 let activity = page.library.read(app).activity(&page.of);
-                let refused = page.notifications_refused(app);
-                sections.extend(page.sections(&shown, activity.as_ref(), refused));
+                let denied = (page.library.read(app)).denied_by_system(&page.of, &shown, app);
+                sections.extend(page.sections(&shown, activity.as_ref(), denied));
             }
             Err(why) => sections.push(section(Some(words::SETTINGS), None, vec![wrapped(&why)])),
         }
@@ -399,20 +399,11 @@ impl Page {
         ))
     }
 
-    /// Whether the system refuses the page's program its notifications; never on the global
-    /// page.
-    fn notifications_refused(&self, app: &App) -> bool {
-        match &self.of {
-            SettingsOf::Program(id) => self.library.read(app).notifications_refused(id),
-            SettingsOf::Global => false,
-        }
-    }
-
     fn sections(
         &self,
         shown: &ShownSettings,
         activity: Option<&Activity>,
-        notifications_refused: bool,
+        denied: DeniedBySystem,
     ) -> Vec<WidgetRef> {
         let mut sections = Vec::new();
         if self.only.is_none() && self.detail.is_none() {
@@ -468,12 +459,15 @@ impl Page {
         }
         if self.shows(Permission::Folders) {
             sections.push(self.folders(&shown.file_system));
+            if denied.folders {
+                sections.push(self.folders_denied_by_system());
+            }
         }
         for question in Question::ALL {
             if !self.shows(Permission::of_question(question)) {
                 continue;
             }
-            let refused = question == Question::Notifications && notifications_refused;
+            let refused = question == Question::Notifications && denied.notifications;
             sections.extend(self.question(question, shown, refused));
         }
         sections
@@ -841,6 +835,19 @@ impl Page {
             Some(words::NOTIFICATIONS_REFUSED),
             vec![open.into_widget()],
         ))
+    }
+
+    /// The row that opens the system's settings where the user lets WaOS reach the phone's
+    /// folders, over that the system keeps WaOS from them.
+    fn folders_denied_by_system(&self) -> WidgetRef {
+        let library = self.library.clone();
+        let open = CupertinoListTile::new(tinted(words::OPEN_ANDROID_SETTINGS)).on_tap(Rc::new(
+            move |app: &mut App| {
+                library.update(app, |library, cx| library.open_phone_files_page(cx));
+                Task::ready(())
+            },
+        ));
+        section(None, Some(words::FOLDERS_DENIED), vec![open.into_widget()])
     }
 
     /// A setting's section, under `header` and over `footer` where given: on an app's page, its

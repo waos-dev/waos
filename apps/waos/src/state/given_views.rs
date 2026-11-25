@@ -1,11 +1,13 @@
 //! The views the platform hosts for WaOS on a phone that no one here asked for, told apart by
-//! their initial data (`RestorableWindow`): WaOS's own, the launcher's on Android or the window of
+//! their initial data (`WindowRestoration`): WaOS's own, the launcher's on Android or the window of
 //! a phone's size on a desktop, where the deck is; a program's first window, which Android brought
 //! back from Recents to a WaOS started afresh, which starts its program again with that window as
 //! its first; and a program's extra window brought back so, which closes at once, having no
 //! program state behind it (decision 10 of `docs/proposals/2026-11-12-phone-programs-and-library.md`).
 //! A window a running program asked for is its windows' (`ViewWindows`). What each starts is here,
-//! as each arrives; what is built in each is `ui::every_window`'s.
+//! as each arrives; what is built in each is `ui::every_window`'s. On Android, where the system
+//! keeps a window's card in Recents after WaOS's process ended, the extra windows an earlier run
+//! left are removed as WaOS starts, rather than each closing only once the user picks its card.
 //!
 //! The invariant: each view is handled once, as it arrives, the views there at start before the
 //! deck is built and every later one as Waft's binding tells its observers of it, after the
@@ -16,7 +18,7 @@ use std::rc::Rc;
 use waft::ui::ViewRef;
 use waft::{App, Entity, WidgetsBinding, WidgetsBindingObserver};
 use waos_package::ProgramId;
-use waos_program_window::{RestorableWindow, WindowRole};
+use waos_program_window::{WindowRestoration, WindowRole};
 
 use super::ViewWindows;
 use super::deck::tabs::Tabs;
@@ -37,10 +39,15 @@ enum GivenView {
 
 /// What `view` is, by its initial data.
 fn given_view_of(view: &ViewRef) -> GivenView {
-    let Some(data) = view.initial_data() else {
+    given_view_carrying(view.initial_data().as_deref())
+}
+
+/// What a view carrying `initial_data` is.
+fn given_view_carrying(initial_data: Option<&str>) -> GivenView {
+    let Some(data) = initial_data else {
         return GivenView::Deck;
     };
-    let Some(window) = RestorableWindow::of(&data) else {
+    let Some(window) = WindowRestoration::of(data) else {
         return GivenView::Other;
     };
     match (window.role, window.program.parse::<ProgramId>()) {
@@ -66,7 +73,29 @@ pub(crate) fn follow_given_views(
     for view in app.platform().views() {
         given.arrived(app, &view);
     }
+    #[cfg(target_os = "android")]
+    remove_extra_windows_an_earlier_run_left(app);
     WidgetsBinding::instance(app).add_observer(app, given);
+}
+
+/// Removes each program's extra window an earlier run of WaOS left in Android's Recents: its
+/// program ended with that run, so it would only close once the user picked its card. A program's
+/// first window stays, which starts the program again when picked.
+#[cfg(target_os = "android")]
+fn remove_extra_windows_an_earlier_run_left(app: &App) {
+    let platform = app.platform();
+    let Some(android) = platform.downcast_ref::<waft_embedder_android::AndroidPlatform>() else {
+        return;
+    };
+    for window in android.restorable_windows() {
+        if given_view_carrying(window.initial_data()) == GivenView::ProgramsExtra {
+            tracing::info!(
+                initial_data = window.initial_data(),
+                "a program's extra window an earlier run left is removed"
+            );
+            window.remove();
+        }
+    }
 }
 
 /// What handles each view the platform gives.
@@ -107,5 +136,29 @@ impl GivenViews {
 impl WidgetsBindingObserver for GivenViews {
     fn did_add_view(&self, app: &mut App, view: &ViewRef) {
         self.arrived(app, view);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_view_is_told_by_the_initial_data_it_carries() {
+        let window = |role| WindowRestoration {
+            program: "dev.example.notes".to_owned(),
+            role,
+        };
+        assert_eq!(given_view_carrying(None), GivenView::Deck);
+        assert_eq!(
+            given_view_carrying(Some(&window(WindowRole::First).initial_data())),
+            GivenView::ProgramsFirst("dev.example.notes".parse().unwrap())
+        );
+        assert_eq!(
+            given_view_carrying(Some(&window(WindowRole::Extra).initial_data())),
+            GivenView::ProgramsExtra,
+            "an extra window, which an earlier run left with no program behind it"
+        );
+        assert_eq!(given_view_carrying(Some("settings")), GivenView::Other);
     }
 }

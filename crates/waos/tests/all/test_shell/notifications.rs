@@ -3,9 +3,11 @@
 //! as it was asked, every call answered at once; with replies and scheduling, unless a test takes
 //! them away; refusing every program's notifications while a test says the system does; and,
 //! once a test says so, keeping a permission of its own for each program, as macOS keeps one for
-//! each program's app: its question answers whether it refuses them, and each post and schedule
-//! it refuses or takes is reported to the program, as the macOS shell reports it.
+//! each program's app: not asked until its question is put or a post is answered, then denied or
+//! allowed as the system refused or took it, which is what the macOS shell learns and says
+//! (`system_permissions`).
 
+use std::collections::HashMap;
 use std::future::ready;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -14,7 +16,7 @@ use std::time::SystemTime;
 use waos::bindings::wasdk::platform::notifications::NotificationError;
 use waos::{
     Notification, NotificationFuture, RunningProgram, ShellNotificationScheduling,
-    ShellNotifications, ShellSystemPermission, SystemPermissionFuture,
+    ShellNotifications, SystemPermissionState,
 };
 
 /// What the programs posted, removed and scheduled.
@@ -33,6 +35,8 @@ pub struct TestNotifications {
     keeps_permissions: AtomicBool,
     /// Each program the system's own question was put for, by name, in order.
     asked: Mutex<Vec<String>>,
+    /// What the system last said of each program's permission, by the program's name.
+    permissions: Mutex<HashMap<String, SystemPermissionState>>,
 }
 
 /// A notification a program scheduled.
@@ -55,6 +59,7 @@ impl Default for TestNotifications {
             refused: Mutex::default(),
             keeps_permissions: AtomicBool::new(false),
             asked: Mutex::default(),
+            permissions: Mutex::default(),
         }
     }
 }
@@ -88,17 +93,43 @@ impl TestNotifications {
     }
 
     /// Whether the system refuses `program`'s `notification`, which it keeps as refused; a system
-    /// that keeps a permission for each program reports what it did to the program.
+    /// that keeps a permission for each program has said what it did of the program's.
     fn refuses(&self, program: &RunningProgram, notification: &Notification) -> bool {
         let refusing = self.refusing.load(Ordering::SeqCst);
         if refusing {
             let refused = (program.name().to_owned(), notification.id.clone());
             self.refused.lock().unwrap().push(refused);
         }
-        if self.keeps_permissions.load(Ordering::SeqCst) {
-            program.system_notifications_refused(refusing);
-        }
+        self.read_permission(program);
         refusing
+    }
+
+    /// What the system last said of its permission for `program`'s notifications: allowed where it
+    /// keeps none for a program, not asked while it said nothing.
+    pub fn permission_state(&self, program: &RunningProgram) -> SystemPermissionState {
+        if !self.keeps_permissions.load(Ordering::SeqCst) {
+            return SystemPermissionState::Allowed;
+        }
+        let said = self.permissions.lock().unwrap();
+        (said.get(program.name()).copied()).unwrap_or(SystemPermissionState::NotAsked)
+    }
+
+    /// The system's question for `program`'s notifications, answered at once.
+    pub fn request_permission(&self, program: &RunningProgram) -> SystemPermissionState {
+        self.asked.lock().unwrap().push(program.name().to_owned());
+        self.read_permission(program)
+    }
+
+    /// The system's permission for `program` as it stands now, which it has said from now on.
+    fn read_permission(&self, program: &RunningProgram) -> SystemPermissionState {
+        let state = if self.refusing.load(Ordering::SeqCst) {
+            SystemPermissionState::Denied
+        } else {
+            SystemPermissionState::Allowed
+        };
+        let name = program.name().to_owned();
+        self.permissions.lock().unwrap().insert(name, state);
+        state
     }
 
     /// What is shown now, with the name of the program each is of.
@@ -153,19 +184,6 @@ impl ShellNotifications for TestNotifications {
     fn scheduling(&self) -> Option<&dyn ShellNotificationScheduling> {
         let offers = self.offers_scheduling.load(Ordering::SeqCst);
         offers.then_some(self as &dyn ShellNotificationScheduling)
-    }
-
-    fn system_permission(&self) -> Option<&dyn ShellSystemPermission> {
-        let keeps = self.keeps_permissions.load(Ordering::SeqCst);
-        keeps.then_some(self as &dyn ShellSystemPermission)
-    }
-}
-
-/// The system's question, answered at once: it refuses the program while a test says it does.
-impl ShellSystemPermission for TestNotifications {
-    fn request(&self, program: &RunningProgram) -> SystemPermissionFuture {
-        self.asked.lock().unwrap().push(program.name().to_owned());
-        Box::pin(ready(Some(self.refusing.load(Ordering::SeqCst))))
     }
 }
 

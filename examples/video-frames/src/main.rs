@@ -46,7 +46,43 @@ async fn main() -> Result<(), String> {
         buffer.width(),
         buffer.height()
     );
+    println!("{}", description(&frame)?);
+    let plane = wasdk_wgpu::import_plane(&device, &buffer, 0);
+    let pixel = first_pixel(&device, &queue, &plane).await?;
+    println!("first pixel through its plane {pixel:?}");
+    let copied = frame
+        .read_planes()
+        .await
+        .map_err(|error| format!("the planes were not read: {error:?}"))?;
+    println!("first pixel in memory {:?}", &copied[0].bytes[..4]);
     Ok(())
+}
+
+/// What `frame` says of itself: its planes, how much of its buffer is picture, and its time.
+fn description(frame: &VideoFrame) -> Result<String, String> {
+    let planes = frame.planes().ok_or("the frame has no planes")?;
+    let planes: Vec<String> = planes
+        .iter()
+        .map(|plane| {
+            format!(
+                "{:?} {:?} {}x{} of {} bits",
+                plane.content, plane.format, plane.width, plane.height, plane.bit_depth
+            )
+        })
+        .collect();
+    let visible = frame.visible_rect();
+    let color = frame.color();
+    Ok(format!(
+        "planes [{}], visible {}x{} from {},{}, matrix {:?} over {:?} range, time {:?}",
+        planes.join(", "),
+        visible.width,
+        visible.height,
+        visible.x,
+        visible.y,
+        color.matrix,
+        color.range,
+        frame.timestamp()
+    ))
 }
 
 /// A player of [`CLIP`], playing into `reader`; none where the system has no players.

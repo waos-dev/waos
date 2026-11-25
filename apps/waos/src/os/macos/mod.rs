@@ -7,9 +7,10 @@
 //! each program view's layers are hosted from, which its app's window shows (`layer_contexts`),
 //! a program's hardware buffer handed to the main thread with the picture its window's resize
 //! waits for (`hardware_buffers`), System Settings at the notifications of a program's app
-//! (`system_settings`), each change of the user's time zone (`time_zone_changes`), and the frames
+//! (`system_settings`), each change of the user's time zone (`time_zone_changes`), the frames
 //! of WaOS's simulated camera, `IOSurface`s under `CVPixelBuffer`s drawn by the CPU
-//! (`pattern_frames`).
+//! (`pattern_frames`), and Waft's video decoders for a WaOS that is no Waft app
+//! (`video_decoders`).
 //!
 //! The invariant: wrapping the system is what this module is for, and `code_signature`,
 //! `launch_services`, `layer_contexts`, `hardware_buffers`, `time_zone_changes` and `pattern_frames` are the places
@@ -26,6 +27,7 @@ mod program_bundle;
 mod system_settings;
 mod system_version;
 mod time_zone_changes;
+mod video_decoders;
 
 pub(crate) use activation::yield_activation_to;
 pub(crate) use code_signature::code_hash_of_process;
@@ -44,3 +46,4 @@ pub(crate) use program_bundle::{
 pub(crate) use system_settings::notification_settings_link;
 pub(crate) use system_version::system_version;
 pub(crate) use time_zone_changes::{TimeZoneChanges, watch_time_zone};
+pub(crate) use video_decoders::video_decoders;

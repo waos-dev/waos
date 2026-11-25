@@ -1,8 +1,9 @@
 // Modified for WaOS by the waos Authors from the wasi-gfx runtime, as NOTICE says.
-use callback_future::CallbackFuture;
 use core::slice;
+use futures::channel::oneshot;
 use std::{borrow::Cow, collections::HashMap, sync::Arc};
 use wasmtime::component::{Access, Accessor, FutureReader, Resource, StreamReader};
+use wasmtime_wasi::runtime::spawn_blocking;
 
 use crate::{
     buffer_mapping::MappableBuffer,
@@ -266,6 +267,7 @@ impl<'a> webgpu::HostGpuDevice for WasiWebGpuCtx<'a> {
         let device = self.table.get(&device)?;
         let queue = Queue {
             queue: Arc::clone(&device.queue),
+            device: Arc::clone(&device.device),
             error_handler: Arc::clone(&device.error_handler),
         };
         Ok(self.table.push(queue)?)
@@ -1191,17 +1193,25 @@ impl<T: Send> webgpu::HostGpuQueueWithStore<T> for crate::HasWasiWebGpuCtx {
         accessor: &Accessor<T, Self>,
         queue: Resource<webgpu::GpuQueue>,
     ) -> wasmtime::Result<()> {
-        accessor.with(|mut access| -> wasmtime::Result<_> {
+        // Resolves once everything submitted so far is done. Nothing else polls the device for
+        // the program, so it is waited on here, off the program's thread.
+        let (instance, device_id, done) = accessor.with(|mut access| -> wasmtime::Result<_> {
             let ctx = access.get();
             let instance = Arc::clone(ctx.instance);
-            let queue_id = ctx.table.get(&queue)?.id();
-
-            CallbackFuture::new(Box::new(move |resolve: Box<dyn FnOnce(()) + Send>| {
-                instance.queue_on_submitted_work_done(queue_id, Box::new(move || resolve(())));
-            }));
-            Ok(())
+            let queue = ctx.table.get(&queue)?;
+            let (done, told_done) = oneshot::channel();
+            instance.queue_on_submitted_work_done(
+                queue.id(),
+                Box::new(move || {
+                    // A program that stopped waiting dropped the other end.
+                    let _ = done.send(());
+                }),
+            );
+            Ok((instance, queue.device.id(), told_done))
         })?;
-
+        wait_for_device(instance, device_id, "a queue's submitted work").await;
+        // Never an error: the wait above ran the callback, or the device is lost and dropped it.
+        let _ = done.await;
         Ok(())
     }
 }
@@ -1687,39 +1697,34 @@ impl<T: Send> webgpu::HostGpuBufferWithStore<T> for crate::HasWasiWebGpuCtx {
         // https://www.w3.org/TR/webgpu/#gpubuffer
         let offset = offset.unwrap_or(0);
 
-        let mapped = accessor
-            .with(|mut access| -> wasmtime::Result<_> {
-                let ctx = access.get();
-                let instance = Arc::clone(ctx.instance);
-                let buffer = ctx.table.get_mut(&buffer)?;
-                let buffer_id = buffer.id();
-                let device_id = buffer.device.device_id();
-                buffer.set_map_state(webgpu::GpuBufferMapState::Pending);
-
-                type Callback =
-                    Box<dyn FnOnce(Box<Result<(), wgpu_core::resource::BufferAccessError>>) + Send>;
-                Ok(CallbackFuture::new(Box::new(move |resolve: Callback| {
-                    let op = wgpu_core::resource::BufferMapOperation {
-                        host: mode,
-                        callback: Some(Box::new(move |result| {
-                            resolve(Box::new(result));
-                        })),
-                    };
-                    // A mapping that cannot start says why through its callback as well.
-                    let _ = instance.buffer_map_async(buffer_id, offset, size, op);
-                    if let Err(error) =
-                        instance.device_poll(device_id, wgpu_types::PollType::wait_indefinitely())
-                    {
-                        tracing::warn!("waiting for a buffer's mapping: {error}");
-                    }
-                })))
-            })?
-            .await;
+        let (instance, device_id, mapped) = accessor.with(|mut access| -> wasmtime::Result<_> {
+            let ctx = access.get();
+            let instance = Arc::clone(ctx.instance);
+            let buffer = ctx.table.get_mut(&buffer)?;
+            let device_id = buffer.device.device_id();
+            buffer.set_map_state(webgpu::GpuBufferMapState::Pending);
+            let (answer, mapped) = oneshot::channel();
+            let op = wgpu_core::resource::BufferMapOperation {
+                host: mode,
+                callback: Some(Box::new(move |result| {
+                    // A program that stopped waiting dropped the other end.
+                    let _ = answer.send(result);
+                })),
+            };
+            // A mapping that cannot start says why through its callback as well.
+            let _ = instance.buffer_map_async(buffer.id(), offset, size, op);
+            Ok((instance, device_id, mapped))
+        })?;
+        wait_for_device(instance, device_id, "a buffer's mapping").await;
+        // The wait above ran the callback; a device lost meanwhile dropped it unanswered.
+        let mapped = mapped
+            .await
+            .unwrap_or(Err(wgpu_core::resource::BufferAccessError::MapAborted));
 
         accessor.with(|mut access| -> wasmtime::Result<_> {
             let ctx = access.get();
             let buffer = ctx.table.get_mut(&buffer)?;
-            Ok(match *mapped {
+            Ok(match mapped {
                 Ok(()) => {
                     buffer.set_map_state(webgpu::GpuBufferMapState::Mapped);
                     Ok(())
@@ -2273,5 +2278,23 @@ impl<'a> webgpu::HostGpuSupportedLimits for WasiWebGpuCtx<'a> {
     fn drop(&mut self, limits: Resource<webgpu::GpuSupportedLimits>) -> wasmtime::Result<()> {
         self.table.delete(limits)?;
         Ok(())
+    }
+}
+
+/// Waits until `device` has done the work submitted to it, which runs the callbacks that work
+/// answers, a mapping's and submitted work's: `what` is waited for, for the log. The wait is on a
+/// thread of its own, so the program's thread goes on with its other work meanwhile, as it does
+/// for every other wait of the engine's; nothing else polls a program's device.
+async fn wait_for_device(
+    instance: Arc<wgpu_core::global::Global>,
+    device: wgpu_core::id::DeviceId,
+    what: &'static str,
+) {
+    let waited = spawn_blocking(move || {
+        instance.device_poll(device, wgpu_types::PollType::wait_indefinitely())
+    })
+    .await;
+    if let Err(error) = waited {
+        tracing::warn!("waiting for {what}: {error}");
     }
 }

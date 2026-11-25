@@ -14,7 +14,7 @@ use futures::channel::mpsc;
 
 use crate::bindings::wasdk::platform::menus::{Image, MenuEntry, TrayIconError, TrayIconEvent};
 use crate::lifecycle::Lifecycle;
-use crate::news::{News, Thawing};
+use crate::news::{Inhibiting, News};
 use crate::running::RunningProgram;
 use crate::shell::{MenuChosenFuture, ShellTrayIcon, ShellTrayIcons};
 use crate::sync::locked;
@@ -55,7 +55,7 @@ struct IconState {
     shell: Mutex<Option<Box<dyn ShellTrayIcon>>>,
     /// Where what the shell reports goes, until the icon is removed.
     heard: Mutex<Option<Heard>>,
-    /// What the program's thaw for an event or a choice is owed to.
+    /// What the program's unfreeze for an event or a choice is owed to.
     lifecycle: Lifecycle,
 }
 
@@ -91,7 +91,7 @@ impl TrayIcon {
 
     /// What the user does to the icon from now on, on a stream of its own; one that has ended
     /// once the icon is removed.
-    pub(super) fn events(&self) -> mpsc::UnboundedReceiver<Thawing<TrayIconEvent>> {
+    pub(super) fn events(&self) -> mpsc::UnboundedReceiver<Inhibiting<TrayIconEvent>> {
         match locked(&self.0.heard).as_ref() {
             Some(heard) => heard.events.subscribe(),
             None => mpsc::unbounded().1,
@@ -129,7 +129,7 @@ impl AttachedMenu {
 
     /// The choices made in the menu from now on, on a stream of their own; one that has ended
     /// once the icon is removed.
-    pub(super) fn chosen(&self) -> mpsc::UnboundedReceiver<Thawing<u32>> {
+    pub(super) fn chosen(&self) -> mpsc::UnboundedReceiver<Inhibiting<u32>> {
         match locked(&self.0.heard).as_ref() {
             Some(heard) => heard.attached_chosen.subscribe(),
             None => mpsc::unbounded().1,
@@ -156,7 +156,7 @@ impl MenuAtIcon {
 pub struct TrayIconReports(Weak<IconState>);
 
 impl TrayIconReports {
-    /// The user did `event` to the icon: every stream of its events hears it, the program thawed
+    /// The user did `event` to the icon: every stream of its events hears it, the program unfrozen
     /// until it has handled it on each.
     pub fn event(&self, event: TrayIconEvent) {
         let Some(icon) = self.0.upgrade() else {
@@ -168,7 +168,7 @@ impl TrayIconReports {
     }
 
     /// The user chose the item `id` in the icon's attached menu: every stream of its choices
-    /// hears it, the program thawed until it has handled it.
+    /// hears it, the program unfrozen until it has handled it.
     pub fn attached_menu_chosen(&self, id: u32) {
         let Some(icon) = self.0.upgrade() else {
             return;

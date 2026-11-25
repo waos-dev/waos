@@ -42,7 +42,7 @@ use crate::logic::setting_changes::{
     DomainsKind, SettingChange, SettingsOf, Shown, ShownAnswerWith, ShownSettings, Which,
     domains_kind, simulatable,
 };
-use crate::state::library::{AppDetail, Library, SettingsPage};
+use crate::state::library::{AppDetail, DeniedBySystem, Library, SettingsPage};
 use crate::ui::library::words;
 use std::rc::Rc;
 use waft::Entity;
@@ -163,8 +163,8 @@ impl State for FluentSettingsState {
         match shown.library.read(app).settings(&shown.of) {
             Ok(settings) => {
                 let activity = shown.library.read(app).activity(&shown.of);
-                let refused = shown.notifications_refused(app);
-                rows.extend(shown.sections(&settings, activity.as_ref(), refused));
+                let denied = (shown.library.read(app)).denied_by_system(&shown.of, &settings, app);
+                rows.extend(shown.sections(&settings, activity.as_ref(), denied));
             }
             Err(why) => rows.push(note(&shown.resources, &why)),
         }
@@ -371,20 +371,11 @@ impl Page {
         Some(spaced(bar))
     }
 
-    /// Whether the system refuses the page's program its notifications; never on a default's
-    /// page.
-    fn notifications_refused(&self, app: &App) -> bool {
-        match &self.of {
-            SettingsOf::Program(id) => self.library.read(app).notifications_refused(id),
-            SettingsOf::Global => false,
-        }
-    }
-
     fn sections(
         &self,
         shown: &ShownSettings,
         activity: Option<&Activity>,
-        notifications_refused: bool,
+        denied: DeniedBySystem,
     ) -> Vec<WidgetRef> {
         let mut sections = Vec::new();
         if self.only.is_none() && self.detail.is_none() {
@@ -455,12 +446,15 @@ impl Page {
         }
         if self.shows(Permission::Folders) {
             sections.extend(self.folders(&shown.file_system));
+            if denied.folders {
+                sections.push(self.folders_denied_by_system());
+            }
         }
         for question in Question::ALL {
             if !self.shows(Permission::of_question(question)) {
                 continue;
             }
-            let refused = question == Question::Notifications && notifications_refused;
+            let refused = question == Question::Notifications && denied.notifications;
             sections.extend(self.question(question, shown, refused));
         }
         sections
@@ -968,6 +962,21 @@ impl Page {
             .is_closable(false)
             .action_button(card_button(words::OPEN_SYSTEM_SETTINGS, open));
         vec![spaced(warning)]
+    }
+
+    /// The warning that the system keeps WaOS from the folders on the phone, with a button that
+    /// opens the system's settings where the user lets it reach them.
+    fn folders_denied_by_system(&self) -> WidgetRef {
+        let library = self.library.clone();
+        let open = Listener::new(move |app| {
+            library.update(app, |library, cx| library.open_phone_files_page(cx));
+        });
+        let warning = InfoBar::new(true, |_, _| {})
+            .severity(InfoBarSeverity::Warning)
+            .message(words::FOLDERS_DENIED)
+            .is_closable(false)
+            .action_button(card_button(words::OPEN_ANDROID_SETTINGS, open));
+        spaced(warning)
     }
 
     /// A card's switch that is `on` or off, changing the page's settings as `change` makes it.

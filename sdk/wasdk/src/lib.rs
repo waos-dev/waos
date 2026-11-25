@@ -59,6 +59,12 @@ pub mod bindings {
         world: "wasdk:program/inspector-base",
         generate_all,
         pub_export_macro: true,
+        // Plain blocking calls, though `async` in the WIT: wgpu's backend waits on each in place,
+        // inside `Device::poll` or as the program yields, where native wgpu waits on the GPU.
+        sync: [
+            "import:wasi:webgpu/webgpu@0.3.0-rc.2#[method]gpu-buffer.map-async",
+            "import:wasi:webgpu/webgpu@0.3.0-rc.2#[method]gpu-queue.on-submitted-work-done",
+        ],
     });
 }
 
@@ -75,7 +81,8 @@ pub mod keys;
 #[cfg(feature = "inspector")]
 pub use bindings::wasdk::inspect;
 pub use bindings::wasdk::media::{
-    cameras, caption_settings, image_codecs, media_assets, media_players, video_frames,
+    cameras, caption_settings, image_codecs, media_assets, media_players, video_decoders,
+    video_frames, video_streams,
 };
 pub use bindings::wasdk::platform::{
     audio, clipboard, file_dialogs, file_watching, fonts, gpu_interop, hardware_buffers, lifecycle,

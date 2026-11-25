@@ -79,7 +79,7 @@ where
 
 /// `source`, as the program's stream: each item's value delivered, and what comes with it held
 /// until the program reads again or drops the stream, so for as long as the program handles the
-/// item, as a thaw must last.
+/// item, as a unfreeze must last.
 pub(crate) fn stream_holding<D, A, S, T, H>(
     access: Access<'_, D, A>,
     source: S,

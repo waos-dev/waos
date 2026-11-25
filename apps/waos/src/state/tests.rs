@@ -126,6 +126,7 @@ impl Desktop {
                 Arc::clone(&platform.compositor) as Arc<dyn Compositor>,
             ))),
             prompts: Arc::new(prompts),
+            system_permissions: None,
             clipboard: Some(served.shell()),
             // A program's menu bar is its app's, never WaOS's own windows'.
             menu_bar: None,
@@ -140,6 +141,7 @@ impl Desktop {
             media_assets: None,
             image_codecs: None,
             video_frame_readers: None,
+            video_decoders: None,
             cameras: None,
             simulated_cameras: None,
             machine_picker: None,
@@ -161,7 +163,6 @@ impl Desktop {
                 prompted.questions,
                 prompt_windows.clone(),
                 questions_store,
-                None,
             );
             let program_windows = program_windows(&windows, &prompt_windows);
             run_widget(
@@ -169,7 +170,7 @@ impl Desktop {
                 every_window(None, program_windows, prompt_windows, None),
             );
             menus.serve(app, windows.clone());
-            file_dialogs.serve(app, windows.clone(), None);
+            file_dialogs.serve(app, windows.clone(), None, None);
             *kept.borrow_mut() = Some(windows);
         });
         let view_windows = view_windows.borrow_mut().take().expect("the app started");

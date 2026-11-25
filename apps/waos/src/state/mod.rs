@@ -25,6 +25,7 @@
 
 #[cfg(any(target_os = "macos", test))]
 pub(crate) mod app_nap_exemption;
+mod app_suspension;
 pub(crate) mod cameras;
 pub(crate) mod clipboard;
 mod days_kept;
@@ -57,6 +58,7 @@ pub(crate) mod test_system;
 #[cfg(test)]
 mod tests;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
+pub(crate) mod video_decoders;
 pub(crate) mod waos_tray;
 
 use std::path::PathBuf;
@@ -71,8 +73,8 @@ use waft_single_instance::LaterLaunches;
 use waft_winui::install_icon_font;
 use waos::inspection::InspectedPrograms;
 use waos::{
-    EngineTime, FreezePolicy, HttpProxy, OpenRequest, RunningProgram, Shell, ShellCompositor,
-    ShellFileDialogs, ShellRecordingIndicator, ShellVideoFrameReaders, VsyncWaiter, WaOS,
+    EngineTime, HttpProxy, OpenRequest, RunningProgram, Shell, ShellCompositor, ShellFileDialogs,
+    ShellRecordingIndicator, ShellSystemPermissions, ShellVideoFrameReaders, VsyncWaiter, WaOS,
     WaOSConfig,
 };
 use waos_local::LocalCapabilities;
@@ -130,10 +132,11 @@ use media_players::MediaPlayers;
 use menus::Menus;
 use notifications::Notifications;
 use opener::Opener;
-use phone_files::follow_phone_files;
+use phone_files::{follow_phone_files, phone_files_on_request};
 use phone_window::in_phone_window;
 use questions::Questions;
 use recordings::Recordings;
+use video_decoders::VideoDecoders;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 use waos_tray::WaosTray;
 
@@ -231,7 +234,11 @@ pub(crate) fn start(
     let asking = AskingNow::new();
     let (prompts, prompted) = PromptsOnRequest::new(Arc::clone(&asking));
     let output_picker = prompts.output_picker();
-    let machine_picker = prompts.machine_picker();
+    let (phone_files_on_request, phone_files_followed) = phone_files
+        .as_ref()
+        .map(|access| phone_files_on_request(access.as_ref(), prompts.phone_files_off()))
+        .unzip();
+    let machine_picker = prompts.machine_picker(phone_files_on_request.clone());
     let (recording_indicator, recording_changes) = RecordingIndicatorOnRequest::new();
     let waiter = app
         .platform()
@@ -250,6 +257,7 @@ pub(crate) fn start(
     let media_players = MediaPlayers::of(app.platform().as_ref());
     let media_assets = MediaAssets::of(app.platform().as_ref());
     let image_codecs = ImageCodecs::of(app.platform().as_ref());
+    let video_decoders = VideoDecoders::of(app.platform().as_ref());
     let cameras = CAMERA_USAGE_DECLARED
         .then(|| Cameras::of(app.platform().as_ref()))
         .flatten();
@@ -258,6 +266,9 @@ pub(crate) fn start(
         vsync: Arc::clone(&vsync) as Arc<dyn VsyncWaiter>,
         compositor,
         prompts: Arc::new(prompts),
+        system_permissions: phone_files_on_request
+            .map(|phone_files| Arc::new(phone_files) as Arc<dyn ShellSystemPermissions>)
+            .or_else(|| program_apps::system_permissions(&program_apps)),
         clipboard: clipboard.as_ref().map(Clipboard::shell),
         menu_bar: program_apps::menu_bar(&program_apps),
         context_menus: program_apps::context_menus(&program_apps, menus.context_menus()),
@@ -286,6 +297,7 @@ pub(crate) fn start(
             .platform()
             .video_frame_readers()
             .map(|_| Arc::new(ReadersOnRequest) as Arc<dyn ShellVideoFrameReaders>),
+        video_decoders: video_decoders.as_ref().map(VideoDecoders::shell),
         cameras: cameras.as_ref().map(Cameras::shell),
         simulated_cameras: simulated_cameras(image_codecs.as_ref().map(ImageCodecs::shell)),
         // A machine is picked on a sheet put as a program's questions are.
@@ -298,7 +310,7 @@ pub(crate) fn start(
     ));
     let config = WaOSConfig {
         code_cache: folders.code_cache,
-        freeze: FreezePolicy::default(),
+        freeze: crate::os::freeze_policy(),
         native_unwind_info: native_unwind_info_asked(),
         http_proxy: HttpProxy::System,
         time: EngineTime::Real,
@@ -313,13 +325,19 @@ pub(crate) fn start(
     let engine = Arc::new(WaOS::new(config, shell, facts).context("starting the engine")?);
     machine_facts::keep_current(app, Arc::clone(&engine));
     days_kept::keep_every_day_when_paused(app, Arc::clone(&engine));
+    app_suspension::follow_app_suspension(app, Arc::clone(&engine));
     if let Some(clipboard) = clipboard {
         clipboard.serve(app, Arc::clone(&engine));
     }
     let view_windows = ViewWindows::listen(app, requests);
     let posted_as_programs =
         notifications.map(|notifications| notifications.serve(app, store.clone()));
-    let phone_files = phone_files.map(|access| follow_phone_files(app, access));
+    let phone_storage = phone_files_followed
+        .as_ref()
+        .map(|followed| followed.storage.root().to_owned());
+    let phone_files = phone_files
+        .zip(phone_files_followed)
+        .map(|(access, followed)| follow_phone_files(app, access, followed));
     let home = phone_files
         .as_ref()
         .map(|phone_files| phone_files.read(app).home());
@@ -371,13 +389,7 @@ pub(crate) fn start(
         &library,
         Rc::clone(&prompt_windows),
     );
-    Questions::listen(
-        app,
-        prompted.questions,
-        prompts.placement,
-        questions_store,
-        phone_files.clone(),
-    );
+    Questions::listen(app, prompted.questions, prompts.placement, questions_store);
     match opened {
         Some(OpenedAtStart::WithProgram { id, request }) => {
             library.update(app, |library, cx| library.open_with(&id, request, cx));
@@ -397,7 +409,7 @@ pub(crate) fn start(
         None => {}
     }
     open_settings_when_asked(app, &library, prompted.settings);
-    if let Some(phone_files) = phone_files {
+    if let Some(phone_files) = phone_files.clone() {
         show_phone_files(app, &library, phone_files);
     }
     let library_window = library_window(
@@ -431,7 +443,12 @@ pub(crate) fn start(
         // A phone shows a dialog only over a screen; a desktop's floats where its program has none.
         let screens_of_their_own = cfg!(any(target_os = "android", target_os = "ios"))
             .then(|| Rc::clone(&prompt_windows_for_dialogs));
-        file_dialogs.serve(app, view_windows.clone(), screens_of_their_own);
+        file_dialogs.serve(
+            app,
+            view_windows.clone(),
+            screens_of_their_own,
+            phone_storage,
+        );
     }
     if let Some(opener) = opener {
         opener.serve(app);
@@ -444,6 +461,9 @@ pub(crate) fn start(
     }
     if let Some(image_codecs) = image_codecs {
         image_codecs.serve(app);
+    }
+    if let Some(video_decoders) = video_decoders {
+        video_decoders.serve(app);
     }
     if let Some(cameras) = cameras {
         cameras.serve(app);

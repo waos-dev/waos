@@ -28,7 +28,7 @@
 
 use std::sync::{Arc, Mutex};
 
-use waos_webgpu_host::{Device, GpuObject, Texture, WeakDevice};
+use waos_webgpu_host::{Device, GpuObject, Texture, TextureAttributes, WeakDevice};
 
 use super::Released;
 use super::counted_bytes::CountedBytes;
@@ -36,12 +36,13 @@ use crate::HardwareBufferMode;
 use crate::bindings::wasdk::platform::hardware_buffers::{
     HardwareBufferUsage, ImageError, ImageErrorKind, PixelBuffer, PixelFormat,
 };
-use crate::gpu::{GpuInstance, submit_once_thawed, wait_for, wgpu_core, wgpu_types};
+use crate::gpu::{GpuInstance, submit_once_running, wait_for, wgpu_core, wgpu_types};
 use crate::lifecycle::Lifecycle;
-use crate::os::{self, FrameMemory, HardwareBufferMemory, LARGEST_SIDE};
+use crate::os::{self, HardwareBufferMemory, LARGEST_SIDE};
 use crate::shell::HardwareBuffer;
 use crate::stats::Stats;
 use crate::sync::locked;
+use crate::video_frames::LentFrame;
 
 /// `hardware-buffers.hardware-buffer`: a hardware buffer the program holds. Cloning it is another
 /// hold on the same buffer.
@@ -68,7 +69,7 @@ struct Pixels {
     memory: HardwareBufferMemory,
     /// The frame whose memory it is, kept with its slot in the decoder's pool; none for a buffer
     /// of the program's own.
-    _frame: Option<FrameMemory>,
+    _frame: Option<LentFrame>,
     /// The bytes the program is counted for holding it; none for a frame's.
     _counted: Option<CountedBytes>,
 }
@@ -128,8 +129,8 @@ impl ProgramHardwareBuffer {
 
     /// The buffer of `frame`, for what the system made it for, which keeps it. A failure is the
     /// shell's, which handed out a frame of a kind the engine does not take.
-    pub(crate) fn of_frame(frame: &FrameMemory) -> anyhow::Result<ProgramHardwareBuffer> {
-        let memory = frame.hardware_buffer()?;
+    pub(crate) fn of_frame(frame: &LentFrame) -> anyhow::Result<ProgramHardwareBuffer> {
+        let memory = frame.memory().hardware_buffer()?;
         Ok(ProgramHardwareBuffer::held(
             memory,
             None,
@@ -141,7 +142,7 @@ impl ProgramHardwareBuffer {
     fn held(
         memory: HardwareBufferMemory,
         asked: Option<HardwareBufferUsage>,
-        frame: Option<FrameMemory>,
+        frame: Option<LentFrame>,
         counted: Option<CountedBytes>,
     ) -> ProgramHardwareBuffer {
         ProgramHardwareBuffer(Arc::new(HeldBuffer {
@@ -201,13 +202,51 @@ impl ProgramHardwareBuffer {
         device: &Device,
         usages: wgpu_types::TextureUsages,
     ) -> anyhow::Result<Texture> {
+        let (texture, attributes) =
+            self.0
+                .pixels
+                .memory
+                .program_texture(gpu, device, usages, self.release_of_pixels())?;
+        Ok(self.connected(texture, attributes, device, usages))
+    }
+
+    /// A texture over the plane at `index` of the buffer's memory on `device` of `gpu`, for
+    /// `usages`, holding the buffer until wgpu frees it. A plane the buffer does not have is the
+    /// program's mistake, and a failure the system answers the engine's.
+    pub(crate) fn plane_texture_on(
+        &self,
+        gpu: &GpuInstance,
+        device: &Device,
+        index: u32,
+        usages: wgpu_types::TextureUsages,
+    ) -> anyhow::Result<Texture> {
+        let (texture, attributes) = os::plane_texture(
+            &self.0.pixels.memory,
+            gpu,
+            device,
+            index,
+            usages,
+            self.release_of_pixels(),
+        )?;
+        Ok(self.connected(texture, attributes, device, usages))
+    }
+
+    /// What wgpu calls once it has freed a texture over the buffer: the buffer's memory, and its
+    /// frame, held until then.
+    fn release_of_pixels(&self) -> Box<dyn FnOnce() + Send + Sync> {
         let pixels = Arc::clone(&self.0.pixels);
-        let release = Box::new(move || drop(pixels));
-        let (texture, attributes) = self
-            .0
-            .pixels
-            .memory
-            .program_texture(gpu, device, usages, release)?;
+        Box::new(move || drop(pixels))
+    }
+
+    /// `texture`, made over the buffer on `device` for `usages`, as the program's, kept among the
+    /// buffer's textures and its devices.
+    fn connected(
+        &self,
+        texture: Arc<GpuObject<wgpu_core::id::TextureId>>,
+        attributes: TextureAttributes,
+        device: &Device,
+        usages: wgpu_types::TextureUsages,
+    ) -> Texture {
         {
             let mut textures = locked(&self.0.textures);
             if !os::HANDS_TEXTURES_OVER {
@@ -228,7 +267,7 @@ impl ProgramHardwareBuffer {
         }) {
             devices.push(device.downgrade());
         }
-        Ok(device.connect_texture(texture, attributes))
+        device.connect_texture(texture, attributes)
     }
 
     /// The buffer handed to a reader outside the program's GPU work, once the program of
@@ -237,7 +276,7 @@ impl ProgramHardwareBuffer {
     /// each live texture's memory over (`os::hand_to_compositor`); answers the work to wait for,
     /// nothing for a buffer no texture was made of. The reader gives it back with `take_back`.
     pub(crate) async fn hand_out(&self, gpu: &GpuInstance, lifecycle: &Lifecycle) -> SubmittedWork {
-        submit_once_thawed(lifecycle, || {
+        submit_once_running(lifecycle, || {
             let mut readers = locked(&self.0.readers);
             *readers += 1;
             let mut work = if *readers == 1 {
@@ -261,7 +300,7 @@ impl ProgramHardwareBuffer {
     /// texture is taken back for the program's device (`os::take_back_from_compositor`), once the
     /// program of `lifecycle` may submit, before the caller tells the program the buffer is back.
     pub(crate) async fn take_back(&self, gpu: &GpuInstance, lifecycle: &Lifecycle) {
-        submit_once_thawed(lifecycle, || {
+        submit_once_running(lifecycle, || {
             let mut readers = locked(&self.0.readers);
             *readers = readers.saturating_sub(1);
             if *readers == 0 {

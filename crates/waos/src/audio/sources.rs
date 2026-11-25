@@ -1,7 +1,7 @@
 //! The graph's scheduled sources, oscillators, constant sources and buffer sources: each with the
 //! moment it ended, which the program awaits as the spec's `ended` event, and, on a context that
 //! plays, the sound it plays from the start the program asks for until then, which keeps its
-//! program thawed while the context's clock is past that start.
+//! program unfrozen while the context's clock is past that start.
 //!
 //! The invariant: web-audio-api keeps one `ended` handler a node, so a source's is set once, when
 //! it is made, and every wait on it reads what that one handler tells; a source is scheduled at

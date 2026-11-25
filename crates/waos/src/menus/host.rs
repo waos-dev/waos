@@ -2,7 +2,7 @@
 //! the shell has it; the program's menu bar, set and its choices read; a context menu opened at
 //! one of its views; and its tray icons, with their events and menus.
 //!
-//! Every stream of choices or events holds the program thawed for the item it delivered last,
+//! Every stream of choices or events holds the program unfrozen for the item it delivered last,
 //! until the program reads again or drops it (`stream_holding`).
 
 use wasmtime::component::{

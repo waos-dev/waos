@@ -9,9 +9,9 @@
 //! (`tray_icons`). The interface is served to a program by `host`.
 //!
 //! The invariant: a choice or an event on its way to a program is news (`news`), which holds it
-//! thawed until the program has handled it, so a frozen program answers a click on its tray icon
+//! unfrozen until the program has handled it, so a frozen program answers a click on its tray icon
 //! as it answers a paste of a form it promised; and only one that a stream will carry holds it, so
-//! a program that reads nothing is not thawed for nothing.
+//! a program that reads nothing is not unfrozen for nothing.
 
 pub(crate) mod host;
 mod tray_icons;
@@ -22,7 +22,7 @@ use futures::channel::mpsc;
 
 use crate::bindings::wasdk::platform::menus::MenuEntry;
 use crate::lifecycle::Lifecycle;
-use crate::news::{News, Thawing};
+use crate::news::{Inhibiting, News};
 use crate::running::RunningProgram;
 use crate::shell::{Shell, ShellContextMenus, ShellMenuBar, ShellTrayIcons};
 use crate::sync::locked;
@@ -59,7 +59,7 @@ impl MenuPlaces {
 
 /// A program's menu bar as it set it last, and the choices the user makes in it.
 pub(crate) struct ProgramMenus {
-    /// What the program's thaw for a choice is owed to.
+    /// What the program's unfreeze for a choice is owed to.
     lifecycle: Lifecycle,
     /// None while the program has set none: the platform's standard bar is its own.
     bar: Mutex<Option<Arc<[MenuEntry]>>>,
@@ -94,7 +94,7 @@ impl ProgramMenus {
     }
 
     /// The choices made in the program's menu bar from now on, on a stream of their own.
-    fn choices(&self) -> mpsc::UnboundedReceiver<Thawing<u32>> {
+    fn choices(&self) -> mpsc::UnboundedReceiver<Inhibiting<u32>> {
         self.chosen.subscribe()
     }
 }

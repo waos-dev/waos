@@ -43,7 +43,7 @@ use waft_test::{MockCompositor, TestPlatform, TestView, TestWindow, TestWindows,
 use waft_winui::install_icon_font;
 use waos::{ProgramEnd, ProgramView, ViewPlacement};
 use waos_package::{ProgramId, SigningKey};
-use waos_program_window::{ProgramCanvas, RestorableWindow};
+use waos_program_window::{ProgramCanvas, WindowRestoration};
 use waos_store::{SourceProxy, Store};
 
 use super::tabs::{TabContent, TabStage, Tabs};
@@ -308,7 +308,6 @@ impl TestPhone {
                 prompted.questions,
                 prompt_windows.clone(),
                 served.clone(),
-                None,
             );
             let recordings = Recordings::listen(app, recording_changes, served.clone());
             let library = open_library(
@@ -786,7 +785,7 @@ impl TestPhone {
             .filter(|window| window.closes() == 0)
             .filter(|window| {
                 let data = window.test_view().initial_data().unwrap_or_default();
-                RestorableWindow::of(&data).is_some_and(|named| named.program == id)
+                WindowRestoration::of(&data).is_some_and(|named| named.program == id)
             })
             .collect()
     }

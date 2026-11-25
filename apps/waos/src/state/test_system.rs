@@ -36,6 +36,7 @@ use super::media_assets::MediaAssets;
 use super::media_players::MediaPlayers;
 use super::notifications::Notifications;
 use super::opener::Opener;
+use super::video_decoders::VideoDecoders;
 use crate::logic::environments::ProgramEnvironments;
 use crate::logic::frame_readers::ReadersOnRequest;
 use crate::logic::installed_runs::InstalledRuns;
@@ -107,6 +108,7 @@ impl TestSystem {
         let media_players = MediaPlayers::of(&platform);
         let media_assets = MediaAssets::of(&platform);
         let image_codecs = ImageCodecs::of(&platform);
+        let video_decoders = VideoDecoders::of(&platform);
         let cameras = Cameras::of(&platform);
         let (recording_indicator, recording_changes) = RecordingIndicatorOnRequest::new();
         let mut shell = test_engine::shell(Arc::new(NoWindows), Arc::new(NoPrompts));
@@ -115,6 +117,7 @@ impl TestSystem {
         shell.media_players = media_players.as_ref().map(MediaPlayers::shell);
         shell.media_assets = media_assets.as_ref().map(MediaAssets::shell);
         shell.image_codecs = image_codecs.as_ref().map(ImageCodecs::shell);
+        shell.video_decoders = video_decoders.as_ref().map(VideoDecoders::shell);
         shell.cameras = cameras.as_ref().map(Cameras::shell);
         shell.simulated_cameras = super::simulated_cameras(shell.image_codecs.clone());
         shell.recording_indicator =
@@ -140,12 +143,17 @@ impl TestSystem {
         );
         let (served_store, started) = (store.clone(), Rc::new(RefCell::new(None)));
         let kept = Rc::clone(&started);
+        let suspended = Arc::clone(&engine);
         let shell = Shell::new(Rc::new(platform) as PlatformRef, move |app| {
+            super::app_suspension::follow_app_suspension(app, suspended);
             if let Some(opener) = opener {
                 opener.serve(app);
             }
             let posted_as_programs =
                 notifications.map(|notifications| notifications.serve(app, served_store.clone()));
+            if let Some(video_decoders) = video_decoders {
+                video_decoders.serve(app);
+            }
             if let Some(media_players) = media_players {
                 media_players.serve(app);
             }

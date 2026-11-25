@@ -1,15 +1,17 @@
 //! The code serving `wasdk:media/video-frames` to a program: the shell's readers, where the system
 //! hands out frames, a reader made on them, the frame a reader answers for a display time on the
-//! program's clock, and a frame's hardware buffer.
+//! program's clock, a frame's hardware buffer, and its planes copied into the program's memory.
 
 use std::sync::Arc;
 
-use wasmtime::component::{HasData, Linker, Resource, ResourceTable};
+use wasmtime::component::{Accessor, HasData, Linker, Resource, ResourceTable};
 
 use super::{ProgramVideoFrame, VideoFrameReader, VideoFrameReaders};
 use crate::bindings::wasdk::media::video_frames::{
-    self, HostVideoFrame, HostVideoFrameReader, HostVideoFrameReaders, Instant,
+    self, HdrMetadata, HostVideoFrame, HostVideoFrameReader, HostVideoFrameReaders,
+    HostVideoFrameWithStore, Instant, PixelAspect, PixelRect, PlanePixels, VideoColor, VideoPlane,
 };
+use crate::bindings::wasdk::platform::hardware_buffers::ImageError;
 use crate::clock::Clock;
 use crate::hardware_buffers::ProgramHardwareBuffer;
 use crate::shell::ShellVideoFrameReaders;
@@ -91,7 +93,7 @@ impl HostVideoFrame for VideoFramesCtx<'_> {
         &mut self,
         frame: Resource<ProgramVideoFrame>,
     ) -> wasmtime::Result<Resource<ProgramHardwareBuffer>> {
-        let frame = self.table.get(&frame)?.memory();
+        let frame = self.table.get(&frame)?.lent();
         let buffer =
             ProgramHardwareBuffer::of_frame(frame).map_err(wasmtime::Error::from_anyhow)?;
         Ok(self.table.push(buffer)?)
@@ -105,9 +107,64 @@ impl HostVideoFrame for VideoFramesCtx<'_> {
         Ok(self.table.get(&frame)?.flip())
     }
 
+    fn timestamp(&mut self, frame: Resource<ProgramVideoFrame>) -> wasmtime::Result<Option<i64>> {
+        Ok(self.table.get(&frame)?.timestamp())
+    }
+
+    fn duration(&mut self, frame: Resource<ProgramVideoFrame>) -> wasmtime::Result<Option<u64>> {
+        Ok(self.table.get(&frame)?.duration())
+    }
+
+    fn visible_rect(&mut self, frame: Resource<ProgramVideoFrame>) -> wasmtime::Result<PixelRect> {
+        let frame = self.table.get(&frame)?;
+        frame.visible_rect().map_err(wasmtime::Error::from_anyhow)
+    }
+
+    fn pixel_aspect(
+        &mut self,
+        frame: Resource<ProgramVideoFrame>,
+    ) -> wasmtime::Result<PixelAspect> {
+        Ok(self.table.get(&frame)?.pixel_aspect())
+    }
+
+    fn planes(
+        &mut self,
+        frame: Resource<ProgramVideoFrame>,
+    ) -> wasmtime::Result<Option<Vec<VideoPlane>>> {
+        let frame = self.table.get(&frame)?;
+        frame.planes().map_err(wasmtime::Error::from_anyhow)
+    }
+
+    fn color(&mut self, frame: Resource<ProgramVideoFrame>) -> wasmtime::Result<VideoColor> {
+        Ok(self.table.get(&frame)?.color())
+    }
+
+    fn hdr_metadata(
+        &mut self,
+        frame: Resource<ProgramVideoFrame>,
+    ) -> wasmtime::Result<Option<HdrMetadata>> {
+        Ok(self.table.get(&frame)?.hdr_metadata())
+    }
+
     /// The program lets go of the frame; its hardware buffer and their textures still hold it.
     fn drop(&mut self, frame: Resource<ProgramVideoFrame>) -> wasmtime::Result<()> {
         self.table.delete(frame)?;
         Ok(())
+    }
+}
+
+impl<T: VideoFramesCtxView + 'static> HostVideoFrameWithStore<T> for HasVideoFrames {
+    /// The samples of each of the frame's planes copied out where they lie, off the program's
+    /// thread. The frame is the system's picture, which no GPU work of the program's drew into,
+    /// so the read waits for none.
+    async fn read_planes(
+        accessor: &Accessor<T, Self>,
+        frame: Resource<ProgramVideoFrame>,
+    ) -> wasmtime::Result<Result<Vec<PlanePixels>, ImageError>> {
+        let planes = accessor.with(|mut access| {
+            let frame = access.get().table.get(&frame)?;
+            wasmtime::Result::<_>::Ok(frame.read_planes())
+        })?;
+        Ok(planes.await)
     }
 }

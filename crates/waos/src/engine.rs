@@ -321,6 +321,7 @@ impl WaOS {
             placement: Arc::clone(&self.shell.views),
             compositor: self.shell.compositor.clone(),
             prompts: Arc::clone(&self.shell.prompts),
+            system_permissions: self.shell.system_permissions.clone(),
             screens: self.screens.clone(),
             refreshes: self.refreshes.clone(),
             settings: self.settings.clone(),
@@ -336,6 +337,7 @@ impl WaOS {
             media_assets: self.shell.media_assets.clone(),
             image_codecs: self.shell.image_codecs.clone(),
             video_frame_readers: self.shell.video_frame_readers.clone(),
+            video_decoders: self.shell.video_decoders.clone(),
             cameras: self.shell.cameras.clone(),
             simulated_cameras: self.shell.simulated_cameras.clone(),
             machine_picker: self.shell.machine_picker.clone(),
@@ -353,23 +355,23 @@ impl WaOS {
         RunningProgram::start(start, temporary)
     }
 
-    /// The platform sent the whole app to the background (iOS's `didEnterBackground`, Android's
-    /// `ProcessLifecycleOwner` `ON_STOP`): every program is `paused` and freezes now, and one
-    /// started before the app resumes starts so. Resolves once none runs: each stands frozen,
-    /// waits in a host call, or has ended. Awaited inside the platform's grace period. Step 4c,
-    /// drawing, adds to what each program's stop means: and none of its GPU work is in flight
-    /// (`RunningProgram::idle`).
-    pub fn app_suspending(&self) -> impl Future<Output = ()> + Send + 'static + use<> {
-        let stopped = self.programs.suspend();
-        // A freeze takes at an epoch tick: this one, rather than the next tick of the engine's
-        // time.
+    /// The system suspended WaOS (iOS's `didEnterBackground`, Android's `ProcessLifecycleOwner`
+    /// `ON_STOP`): every program is `paused` and draws nothing from now, runs on for the
+    /// policy's grace period, and is frozen then; one started before WaOS resumes starts so.
+    /// Resolves once no GPU work of any program is in flight, which the shell awaits before it
+    /// lets the system suspend WaOS: iOS refuses GPU work from a suspended app. What tells a
+    /// program has frozen is [`RunningProgram::frozen`].
+    pub fn suspend(&self) -> impl Future<Output = ()> + Send + 'static + use<> {
+        let gpu_work_done = self.programs.suspend();
+        // A program frozen at once steps out of its code at an epoch tick: this one, rather
+        // than the next tick of the engine's time.
         self.engine.increment_epoch();
-        join_all(stopped).map(|_: Vec<()>| ())
+        join_all(gpu_work_done).map(|_: Vec<()>| ())
     }
 
-    /// The platform brought the app back to the foreground: every program is back in the state
-    /// its views give, and thawed if that shows it.
-    pub fn app_resumed(&self) {
+    /// The system resumed WaOS: every program is back in the state its views give, and unfrozen
+    /// if that shows it.
+    pub fn resume(&self) {
         self.programs.resume();
     }
 }
@@ -580,6 +582,7 @@ mod tests {
             vsync: Arc::clone(shell) as Arc<dyn VsyncWaiter>,
             compositor: None,
             prompts: Arc::new(crate::shell::NoPrompts),
+            system_permissions: None,
             clipboard: None,
             menu_bar: None,
             context_menus: None,
@@ -593,6 +596,7 @@ mod tests {
             media_assets: None,
             image_codecs: None,
             video_frame_readers: None,
+            video_decoders: None,
             cameras: None,
             simulated_cameras: None,
             machine_picker: None,

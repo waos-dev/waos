@@ -1,6 +1,6 @@
 //! The program's lifecycle state now, and the streams its changes go to.
 //!
-//! The state is what the program's views give it, except while the app is suspended, when it is
+//! The state is what the program's views give it, except while WaOS is suspended, when it is
 //! `paused` whatever they give; the views' state is kept meanwhile, for the resume. The
 //! invariant: a stream hears a change only when the state is another than it was, so the state
 //! may be derived, and set, as often as its views change.
@@ -19,17 +19,17 @@ pub(super) struct CurrentState {
     changes: Channel<LifecycleState>,
 }
 
-/// Where the program stands: the state its views give it, and whether the app is suspended,
+/// Where the program stands: the state its views give it, and whether WaOS is suspended,
 /// which puts it in `paused` over that.
 #[derive(Clone, Copy)]
 struct Standing {
     of_views: LifecycleState,
-    app_suspended: bool,
+    waos_is_suspended: bool,
 }
 
 impl Standing {
     fn state(self) -> LifecycleState {
-        if self.app_suspended {
+        if self.waos_is_suspended {
             LifecycleState::Paused
         } else {
             self.of_views
@@ -43,7 +43,7 @@ impl CurrentState {
         CurrentState {
             standing: Mutex::new(Standing {
                 of_views: LifecycleState::Resumed,
-                app_suspended: false,
+                waos_is_suspended: false,
             }),
             changes: Channel::default(),
         }
@@ -58,20 +58,20 @@ impl CurrentState {
         self.changes.subscribe()
     }
 
-    /// The program's views put it in `state`: it is in it, unless the app is suspended, and
-    /// then once the app resumes.
+    /// The program's views put it in `state`: it is in it, unless WaOS is suspended, and
+    /// then once WaOS resumes.
     pub(super) fn of_views(&self, state: LifecycleState) {
         self.change(|standing| standing.of_views = state);
     }
 
-    /// The app is suspended: the program is `paused`, whatever its views give.
-    pub(super) fn app_suspending(&self) {
-        self.change(|standing| standing.app_suspended = true);
+    /// WaOS is suspended: the program is `paused`, whatever its views give.
+    pub(super) fn waos_suspended(&self) {
+        self.change(|standing| standing.waos_is_suspended = true);
     }
 
-    /// The app resumed: the program is back in the state its views give.
-    pub(super) fn app_resumed(&self) {
-        self.change(|standing| standing.app_suspended = false);
+    /// WaOS resumed: the program is back in the state its views give.
+    pub(super) fn waos_resumed(&self) {
+        self.change(|standing| standing.waos_is_suspended = false);
     }
 
     /// Applies `change` and, where the state is another than it was, sends it to every stream.
@@ -152,9 +152,9 @@ mod tests {
         let state = CurrentState::new();
         let mut states = state.changes();
         state.of_views(Inactive);
-        state.app_suspending();
+        state.waos_suspended();
         assert_eq!(state.now(), Paused);
-        state.app_resumed();
+        state.waos_resumed();
         assert_eq!(state.now(), Inactive, "back to what its views give");
         let heard: Vec<_> = std::iter::from_fn(|| states.try_recv().ok()).collect();
         assert_eq!(heard, [Inactive, Paused, Inactive]);
@@ -164,10 +164,10 @@ mod tests {
     fn the_views_are_followed_while_the_app_is_suspended_and_heard_at_the_resume() {
         let state = CurrentState::new();
         let mut states = state.changes();
-        state.app_suspending();
+        state.waos_suspended();
         state.of_views(Hidden);
         assert_eq!(state.now(), Paused, "paused, whatever the views give");
-        state.app_resumed();
+        state.waos_resumed();
         assert_eq!(state.now(), Hidden);
         let heard: Vec<_> = std::iter::from_fn(|| states.try_recv().ok()).collect();
         assert_eq!(heard, [Paused, Hidden]);
@@ -177,8 +177,8 @@ mod tests {
     fn suspending_twice_is_heard_once() {
         let state = CurrentState::new();
         let mut states = state.changes();
-        state.app_suspending();
-        state.app_suspending();
+        state.waos_suspended();
+        state.waos_suspended();
         assert_eq!(states.try_recv().unwrap(), Paused);
         assert!(states.try_recv().is_err());
     }

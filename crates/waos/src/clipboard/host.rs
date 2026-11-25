@@ -37,7 +37,7 @@ pub(crate) struct ClipboardCtx<'a> {
     pub(crate) clipboard: &'a ProgramClipboard,
     /// The program's mounts, where a file it writes is looked up.
     pub(crate) files: &'a mut ProgramFiles,
-    /// What thaws the program to answer a paste of its source.
+    /// What unfreezes the program to answer a paste of its source.
     pub(crate) lifecycle: &'a Lifecycle,
 }
 

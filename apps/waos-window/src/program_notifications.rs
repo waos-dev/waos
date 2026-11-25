@@ -5,7 +5,7 @@
 //! the program's alone. macOS's own question for the app is put when WaOS asks for it, which the
 //! engine does after WaOS's question, and the first time WaOS asks for a post or a schedule, for a
 //! program allowed in WaOS's settings that never asked; a post macOS refuses answers `denied`, as
-//! the host's does. Whether macOS refuses the program its notifications goes to WaOS as macOS
+//! the host's does. What macOS says of the program's notifications goes to WaOS as macOS
 //! answers its question, as WaOS welcomes the app, each time the app comes to the front
 //! (`PermissionAtTheFront`), and each time WaOS asks, as WaOS comes to the front, the user having
 //! perhaps changed it in System Settings meanwhile, as Chromium's notification service reads it
@@ -33,8 +33,8 @@ use waft::ui::{
     PlatformRef, PostFuture,
 };
 use waft::{App, AsyncApp, WidgetsBinding, WidgetsBindingObserver};
-use waos::Notification;
 use waos::bindings::wasdk::platform::notifications::{Activation, NotificationError};
+use waos::{Notification, SystemPermissionState};
 use waos_program_window::{activation_of, waft_notification};
 use waos_window_messages::{FromWindow, LaunchReason, PermissionRequestId, PostId};
 
@@ -160,14 +160,14 @@ impl Serving {
                 }
             }
             Asked::PermissionQuestion(request) => {
-                let refused = self.ask_permission().await;
-                let answer = FromWindow::NotificationPermissionAnswered { request, refused };
+                let state = self.ask_permission().await;
+                let answer = FromWindow::NotificationPermissionAnswered { request, state };
                 self.connection.send(answer);
             }
             Asked::PermissionReading => {
-                let refused = self.read_permission().await;
+                let state = self.read_permission().await;
                 self.connection
-                    .send(FromWindow::NotificationPermission { refused });
+                    .send(FromWindow::NotificationPermission { state });
             }
         }
     }
@@ -178,30 +178,30 @@ impl Serving {
         if self.permission_asked {
             return;
         }
-        let refused = self.ask_permission().await;
+        let state = self.ask_permission().await;
         self.connection
-            .send(FromWindow::NotificationPermission { refused });
+            .send(FromWindow::NotificationPermission { state });
     }
 
     /// Puts macOS's question for the app, where the system keeps a permission for it, which asks
-    /// the user only if they were never asked; answers whether macOS refuses the program its
-    /// notifications, never where the system keeps none.
-    async fn ask_permission(&mut self) -> bool {
+    /// the user only if they were never asked; answers what macOS says of the program's
+    /// notifications then, allowed where the system keeps no permission for the app.
+    async fn ask_permission(&mut self) -> SystemPermissionState {
         self.permission_asked = true;
         let Some(asked) = self.permission().map(NotificationPermission::request) else {
-            return false;
+            return SystemPermissionState::Allowed;
         };
         let state = asked.await;
         tracing::info!(?state, "macOS's permission for the program's notifications");
-        refuses(state)
+        system_permission_state(state)
     }
 
-    /// Whether macOS refuses the program its notifications now, read without asking; never where
-    /// the system keeps no permission for the app.
-    async fn read_permission(&self) -> bool {
+    /// What macOS says of the program's notifications now, read without asking; allowed where the
+    /// system keeps no permission for the app.
+    async fn read_permission(&self) -> SystemPermissionState {
         match self.permission().map(NotificationPermission::state) {
-            Some(read) => refuses(read.await),
-            None => false,
+            Some(read) => system_permission_state(read.await),
+            None => SystemPermissionState::Allowed,
         }
     }
 
@@ -224,10 +224,13 @@ impl Serving {
     }
 }
 
-/// Whether the permission `state` refuses the program its notifications: only where the user, or
-/// System Settings, said no; one never asked is not refused, its question coming before a post.
-fn refuses(state: PermissionState) -> bool {
-    state == PermissionState::Denied
+/// Waft's reading of macOS's permission, as the engine names it.
+fn system_permission_state(state: PermissionState) -> SystemPermissionState {
+    match state {
+        PermissionState::NotAsked => SystemPermissionState::NotAsked,
+        PermissionState::Granted => SystemPermissionState::Allowed,
+        PermissionState::Denied => SystemPermissionState::Denied,
+    }
 }
 
 fn failed(why: &str) -> PostFuture {

@@ -56,15 +56,15 @@ use crate::network::{ProgramHttp, ProgramNetwork};
 use crate::notifications::host::{NotificationsCtx, NotificationsCtxView};
 use crate::opener::LinkSchemes;
 use crate::opener::host::{OpenerCtx, OpenerCtxView};
-use crate::permissions::ProgramPermissions;
 use crate::permissions::host::{PermissionsCtx, PermissionsCtxView};
+use crate::permissions::{ProgramPermissions, ProgramSystemPermissions};
 use crate::roles;
 use crate::screens::Screens;
 use crate::screens::host::{ScreensCtx, ScreensCtxView};
 use crate::service_extensions::host::{ServiceExtensionsCtx, ServiceExtensionsCtxView};
 use crate::shell::{
     ShellCompositor, ShellFileDialogs, ShellImageCodecs, ShellMediaAssets, ShellMediaPlayers,
-    ShellNotifications, ShellOpener, ShellVideoFrameReaders, ViewPlacement,
+    ShellNotifications, ShellOpener, ShellVideoDecoders, ShellVideoFrameReaders, ViewPlacement,
 };
 use crate::source_lines::{self, ComponentFile};
 use crate::stream::{Forwarded, stream_of};
@@ -72,6 +72,7 @@ use crate::system::SystemSettings;
 use crate::system::host::{SystemCtx, SystemCtxView};
 use crate::targets;
 use crate::trust::host::{TrustCtx, TrustCtxView};
+use crate::video_decoders::host::{VideoDecodersCtx, VideoDecodersCtxView};
 use crate::video_frames::host::{VideoFramesCtx, VideoFramesCtxView};
 use crate::views::ViewLayers;
 use crate::views::host::{ViewsCtx, ViewsCtxView};
@@ -236,6 +237,7 @@ fn linker(engine: &Engine, held: &[Role]) -> wasmtime::Result<Linker<StoreData>>
     crate::hardware_buffers::host::add_to_linker(&mut linker)?;
     crate::gpu_interop::host::add_to_linker(&mut linker)?;
     crate::video_frames::host::add_to_linker(&mut linker)?;
+    crate::video_decoders::host::add_to_linker(&mut linker)?;
     crate::media_players::host::add_to_linker(&mut linker)?;
     crate::media_assets::host::add_to_linker(&mut linker)?;
     crate::image_codecs::host::add_to_linker(&mut linker)?;
@@ -309,10 +311,12 @@ fn store_data(
         user_side.machine_picker,
         (program.clone(), instances.commands.clone()),
     );
+    let system_permissions =
+        ProgramSystemPermissions::new(instances.system_permissions.clone(), program.clone());
     let permissions = ProgramPermissions::new(
         access.clone(),
         Arc::clone(&instances.prompts),
-        user_side.notifications.clone(),
+        system_permissions.clone(),
         program.clone(),
     );
     let recordings_shown = user_side.recordings_shown;
@@ -367,6 +371,7 @@ fn store_data(
         audio,
         file_dialogs: user_side.file_dialogs,
         picks,
+        system_permissions,
         opener: user_side.opener,
         links,
         notifications: user_side.notifications,
@@ -374,6 +379,7 @@ fn store_data(
         media_assets: instances.media_assets.clone(),
         image_codecs: instances.image_codecs.clone(),
         video_frame_readers: user_side.video_frame_readers,
+        video_decoders: user_side.video_decoders,
         cameras,
         machines,
         access: access.clone(),
@@ -382,7 +388,7 @@ fn store_data(
 }
 
 /// Arms the store's fuel and its epoch tick, at which the fuel it burned since the last tick is
-/// counted into the program's stats and a frozen program stops until its thaw.
+/// counted into the program's stats and a frozen program stops until its unfreeze.
 pub(super) fn arm(store: &mut Store<StoreData>) -> wasmtime::Result<()> {
     let stats = store.data().program.shared_stats();
     let lifecycle = store.data().program.lifecycle().clone();
@@ -396,9 +402,12 @@ pub(super) fn arm(store: &mut Store<StoreData>) -> wasmtime::Result<()> {
         let burned = u64::MAX - store.as_context().get_fuel()?;
         stats.fuel_burned(burned - counted);
         counted = burned;
-        Ok(match lifecycle.at_tick() {
-            None => UpdateDeadline::Continue(1),
-            Some(until_thawed) => UpdateDeadline::YieldCustom(1, Box::pin(until_thawed)),
+        // A frozen program steps out of its code here: its thread does not come back in
+        // (`activity`).
+        Ok(if lifecycle.is_frozen() {
+            UpdateDeadline::Yield(1)
+        } else {
+            UpdateDeadline::Continue(1)
         })
     });
     Ok(())
@@ -453,6 +462,9 @@ pub(crate) struct StoreData {
     /// files the user opens with the program.
     file_dialogs: Option<Arc<dyn ShellFileDialogs>>,
     picks: Picks,
+    /// What the system itself allows of what the user allowed the program, asked as the user
+    /// picks a file or folder for it.
+    system_permissions: ProgramSystemPermissions,
     /// The system's opener, where the shell has one, and which links the program may open.
     opener: Option<Arc<dyn ShellOpener>>,
     links: LinkSchemes,
@@ -466,6 +478,7 @@ pub(crate) struct StoreData {
     image_codecs: Option<Arc<dyn ShellImageCodecs>>,
     /// The system's frame readers, where the shell has them.
     video_frame_readers: Option<Arc<dyn ShellVideoFrameReaders>>,
+    video_decoders: Option<Arc<dyn ShellVideoDecoders>>,
     /// The system's cameras, where the shell has them and can show them used, and the sessions it
     /// holds.
     cameras: ProgramCameras,
@@ -648,6 +661,7 @@ impl FileDialogsCtxView for StoreData {
             dialogs: self.file_dialogs.as_ref(),
             files: &mut self.files,
             picks: &self.picks,
+            system_permissions: &self.system_permissions,
         }
     }
 }
@@ -764,6 +778,15 @@ impl VideoFramesCtxView for StoreData {
             table: &mut self.table,
             readers: self.video_frame_readers.as_ref(),
             clock: self.program.program_views().clock(),
+        }
+    }
+}
+
+impl VideoDecodersCtxView for StoreData {
+    fn video_decoders_ctx(&mut self) -> VideoDecodersCtx<'_> {
+        VideoDecodersCtx {
+            table: &mut self.table,
+            decoders: self.video_decoders.as_ref(),
         }
     }
 }

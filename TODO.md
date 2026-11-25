@@ -18,11 +18,12 @@ What stands between today and a first stable release, in the order it blocks one
 - [ ] Opening a link or a file in another app asks the user, as a link of another scheme does today.
 - [ ] Rework how the user controls an app's network: today's switches, `localhost` and per-connection checks are naive.
 - [ ] A per-app setting for running in the background (music, a download), replacing today's rule that sound, recording or a camera keeps an app running, which an app playing silence abuses.
+- [ ] Asking the system to keep WaOS running while an app's freeze is inhibited: a foreground service on Android, a background task on iOS, an activity on macOS, where App Nap slows a hidden WaOS as a whole. Until then an app's sound stops when a phone suspends WaOS. Needs new services in Waft ([design](docs/draft/app-freeze/README.md)).
 - [ ] Accessibility: an app's semantics tree. Changes the views interface.
 
 ## Platforms
 - [ ] Android: a developer build that installs packages end to end; each app a task of its own.
-- [ ] Android: a folder picked through the system's picker has no path, so WaOS can't mount it. Turn a pick in the phone's own storage into its path while WaOS has All files access; fail clearly for a cloud folder.
+- [ ] Android: read a pick through Android's own handle, so a pick needs no All files access and a cloud folder works. Today a pick in the phone's own storage is mounted by its path, which needs All files access, and any other pick fails.
 - [ ] iOS: developer builds (the App Store refuses downloaded code).
 - [ ] Windows, then Linux.
 - [ ] Machines over SSH, then other kinds; Termux on an Android phone as an SSH machine at `localhost`, for git, compilers and language servers on a phone.
@@ -33,11 +34,11 @@ What stands between today and a first stable release, in the order it blocks one
 - [ ] A stack for a hung app (`waos inspect`).
 - [ ] `block_on` waiting on tasks it did not start (wit-bindgen's shared queue).
 - [ ] Screenshots at a size larger than the screen.
+- [ ] A 10-bit decoded frame has no planes an app can read: its samples are 16 bits, a texture format WebGPU keeps behind a feature the interface does not pass on yet.
 - [ ] Simplify: starting a run is built three ways that have drifted (development, installed, inspector-held); file dialogs and questions are split by kind and folded back together everywhere; "Simulated" is offered for every kind of answer though only cameras and microphones have one; three counters keep an app thawed, all doing the same; a waiting question has a channel of its own only to say nobody waits any more.
 
 ## Solid
 - [ ] Every built-in app on a release build, end to end.
 - [ ] The Inspector's report counts by UTC day, so an event just after local midnight east of UTC lands in the previous day: count by the user's days.
 - [ ] The trial apps rebuilt from crates.io alone, as the last outside check.
-- [ ] WaOS's freezing tests hang now and then on Linux CI.
 - [ ] Four of the app's tests fail now and then when the machine is busy: the dev server's `a_program_writing_while_nobody_reads_keeps_running_and_is_stopped_in_time`, which times a timer while a program floods output, and the library's `a_long_name_is_laid_out_across_its_tile`, `a_package_opened_with_waos_is_installed_from_the_alert_once_the_user_says_so` and `a_held_icon_offers_settings_and_remove_and_remove_asks_first`, which read the home before an install's code is compiled.

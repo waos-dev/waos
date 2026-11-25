@@ -104,7 +104,7 @@ impl ViewHardwareBuffers {
         hardware_buffers: HardwareBufferMode,
         now: Instant,
     ) -> Arc<ViewHardwareBuffers> {
-        let buffers = Arc::new(ViewHardwareBuffers {
+        Arc::new(ViewHardwareBuffers {
             allocation: Mutex::new(None),
             view,
             stats,
@@ -114,14 +114,7 @@ impl ViewHardwareBuffers {
                 since: now,
                 spares_gone: false,
             }),
-        });
-        let frozen = Arc::downgrade(&buffers);
-        buffers.lifecycle.when_frozen(Arc::new(move || {
-            if let Some(buffers) = frozen.upgrade() {
-                buffers.program_frozen();
-            }
-        }));
-        buffers
+        })
     }
 
     pub(super) fn allocation(&self) -> MutexGuard<'_, Option<Allocation>> {
@@ -136,9 +129,15 @@ impl ViewHardwareBuffers {
         };
     }
 
-    /// The engine's clock reads `now`: once the view has drawn nothing for [`SPARE_IDLE`], the
-    /// hardware buffers beyond the starting ones go, once until the next frame.
-    pub(super) fn let_spares_go_if_quiet(&self, now: Instant) {
+    /// The engine's clock reads `now`: what the view has no use for goes. While its program is
+    /// frozen that is every hardware buffer but the one on screen, which the view keeps, and the
+    /// one being drawn, which the program finishes once it is unfrozen. Otherwise, once the view
+    /// has drawn nothing for [`SPARE_IDLE`], the ones beyond the starting ones go, once until the
+    /// next frame.
+    pub(super) fn let_unused_go(&self, now: Instant) {
+        if self.lifecycle.is_frozen() {
+            return self.let_go_of_unused(0, "the program is frozen");
+        }
         {
             let mut quiet = locked(&self.quiet);
             if quiet.spares_gone || now.saturating_duration_since(quiet.since) < SPARE_IDLE {
@@ -152,17 +151,10 @@ impl ViewHardwareBuffers {
         );
     }
 
-    /// The program was frozen: every hardware buffer goes but the one on screen, which is the
-    /// hardware buffer the view keeps, and the one being drawn, which the program finishes once it
-    /// is thawed.
-    fn program_frozen(&self) {
-        self.let_go_of_unused(0, "the program is frozen");
-    }
-
     /// The shell released a hardware buffer, which goes too while the program is frozen.
     pub(super) fn hardware_buffer_freed(&self) {
         if self.lifecycle.is_frozen() {
-            self.program_frozen();
+            self.let_go_of_unused(0, "the program is frozen");
         }
     }
 
