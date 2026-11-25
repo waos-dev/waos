@@ -140,7 +140,9 @@ impl TestSystem {
         );
         let (served_store, started) = (store.clone(), Rc::new(RefCell::new(None)));
         let kept = Rc::clone(&started);
+        let suspended = Arc::clone(&engine);
         let shell = Shell::new(Rc::new(platform) as PlatformRef, move |app| {
+            super::app_suspension::follow_app_suspension(app, suspended);
             if let Some(opener) = opener {
                 opener.serve(app);
             }
