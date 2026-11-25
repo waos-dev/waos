@@ -14,8 +14,8 @@ use std::sync::Arc;
 use waft::{
     App, Border, BorderRadiusGeometry, BorderSide, BorderStyle, BoxConstraints, BoxDecoration,
     Color, Column, ConstrainedBox, CrossAxisAlignment, DecoratedBox, EdgeInsetsGeometry, Entity,
-    Expanded, FontWeight, IntoWidget, ListView, Listener, Padding, Row, SizedBox, Text, TextStyle,
-    WidgetRef,
+    Expanded, FontWeight, IntoWidget, ListView, Listener, OverflowBox, Padding, Row, SizedBox,
+    Text, TextStyle, WidgetRef,
 };
 use waft_winui::{
     BreadcrumbBar, BreadcrumbBarItem, Button, ButtonStyle,
@@ -26,7 +26,7 @@ use waft_winui::{
 };
 
 use crate::logic::permissions::Permission;
-use crate::state::library::{Library, LibraryPage, SettingsPage};
+use crate::state::library::{AppDetail, Library, LibraryPage, SettingsPage};
 use crate::ui::library::home::fluent::MARGIN;
 use crate::ui::library::program_icon::ProgramIcon;
 use crate::ui::library::words;
@@ -47,6 +47,11 @@ const TITLE_LINE_HEIGHT: f64 = 36.0;
 /// The chevron between two names of the title, in proportion to them.
 const TITLE_CHEVRON_FONT_SIZE: f64 = 16.0;
 
+/// The size a card's symbol is drawn at. The icon font's glyphs fill four fifths of their em
+/// (Windows's own icon font fills it), so at this size their ink is as wide as the card's icon
+/// room, where at the room's own size the card would show them a third smaller.
+const SYMBOL_FONT_SIZE: f64 = 24.0;
+
 /// The room over a heading, which parts its group from the one before, and under it.
 const HEADING_MARGIN: [f64; 2] = [24.0, 6.0];
 
@@ -63,7 +68,22 @@ pub(crate) enum Start {
 impl Start {
     /// After `symbol`.
     pub(crate) fn symbol(symbol: FluentSymbol) -> Start {
-        Start::Icon(FontIcon::symbol(symbol).into_widget())
+        Start::glyph(symbol.glyph())
+    }
+
+    /// After the icon font's `glyph`, drawn so its ink fills the card's icon room.
+    pub(crate) fn glyph(glyph: char) -> Start {
+        let drawn = FontIcon::new(glyph.to_string()).font_size(SYMBOL_FONT_SIZE);
+        let room = SizedBox::new()
+            .width(SETTINGS_CARD_HEADER_ICON_MAX_SIZE)
+            .height(SETTINGS_CARD_HEADER_ICON_MAX_SIZE)
+            .child(
+                OverflowBox::new()
+                    .max_width(f64::INFINITY)
+                    .max_height(f64::INFINITY)
+                    .child(drawn),
+            );
+        Start::Icon(room.into_widget())
     }
 
     /// After an app's icon.
@@ -358,6 +378,19 @@ pub(crate) fn permission_symbol(permission: Permission) -> FluentSymbol {
         Permission::Camera => FluentSymbol::Camera,
         Permission::Microphone => FluentSymbol::Mic,
         Permission::ActivityRecord => FluentSymbol::Pulse,
+    }
+}
+
+/// The glyph of what is an app's alone, in the icon font: a server for its machines, a document
+/// for its file pickers, a speaker for its sound output, a link for its links, a ribbon for its
+/// roles.
+pub(crate) fn detail_glyph(detail: AppDetail) -> char {
+    match detail {
+        AppDetail::Machines => '\u{f769}',
+        AppDetail::FilePickers => '\u{f378}',
+        AppDetail::SoundOutput => '\u{eb42}',
+        AppDetail::Links => '\u{f4e4}',
+        AppDetail::Roles => '\u{ea27}',
     }
 }
 

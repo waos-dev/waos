@@ -314,6 +314,9 @@ fn walks_the_library(layout: &str, (mut desktop, view): (LibraryDesktop, ViewId)
         LibraryPage::Settings(SettingsPage::App(program.clone())),
     );
     scenes.draw(&mut desktop, "program-settings");
+    // Under its permissions, what is the app's alone.
+    desktop.scroll_to_end(view, "Network");
+    scenes.draw(&mut desktop, "program-settings-end");
     shows(
         &mut desktop,
         LibraryPage::Settings(SettingsPage::AppPermission(

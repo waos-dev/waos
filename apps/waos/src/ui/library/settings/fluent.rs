@@ -29,8 +29,8 @@ use waos_activity::Activity;
 use waos_store::{Answer, DomainRule, Question, Role};
 
 use super::fluent_page::{
-    ListRow, Start, card_button, card_switch, drop_down, gap, heading, link_card, list_block, note,
-    on_and_off, page, permission_symbol, setting_card, spaced,
+    ListRow, Start, card_button, card_switch, detail_glyph, drop_down, gap, heading, link_card,
+    list_block, note, on_and_off, page, permission_symbol, setting_card, spaced,
 };
 use super::{
     any_set_otherwise, app_details, app_permissions, reset_permissions, said_with, set_otherwise,
@@ -305,7 +305,7 @@ impl Page {
         for (detail, said) in app_details(shown) {
             rows.push(link_card(
                 &self.library,
-                Start::Room,
+                Start::glyph(detail_glyph(detail)),
                 words::app_detail_name(detail),
                 Some(&said),
                 SettingsPage::AppDetail(id.clone(), detail),

@@ -9,9 +9,9 @@
 use std::rc::Rc;
 
 use waft::{
-    App, BorderRadiusGeometry, BoxDecoration, BuildContext, Builder, Center, DecoratedBox,
-    EdgeInsetsGeometry, Entity, Icon, IntoWidget, ListView, SizedBox, StatelessWidget, Task, Text,
-    TextStyle, WidgetRef,
+    AnyColor, App, BorderRadiusGeometry, BoxDecoration, BuildContext, Builder, Center,
+    DecoratedBox, EdgeInsetsGeometry, Entity, Icon, IconData, IntoWidget, ListView, SizedBox,
+    StatelessWidget, Task, Text, TextStyle, WidgetRef,
 };
 use waft_cupertino::{
     CupertinoColors, CupertinoIcons, CupertinoListSection, CupertinoListTile,
@@ -21,7 +21,7 @@ use waft_cupertino::{
 
 use super::{listed_apps, permission_defaults, waos_has_settings};
 use crate::logic::permissions::Permission;
-use crate::state::library::{Library, LibraryPage, SettingsPage};
+use crate::state::library::{AppDetail, Library, LibraryPage, SettingsPage};
 use crate::ui::library::cupertino::{back_to_home, back_to_page_beneath, under_bar};
 use crate::ui::library::home::cupertino::resolved;
 use crate::ui::library::program_icon::ProgramIcon;
@@ -158,6 +158,26 @@ pub(crate) fn permission_icon(permission: Permission) -> WidgetRef {
         Permission::Microphone => (CupertinoIcons::mic(), CupertinoColors::SYSTEM_ORANGE),
         Permission::ActivityRecord => (CupertinoIcons::chart_bar(), CupertinoColors::SYSTEM_INDIGO),
     };
+    row_icon(symbol, color)
+}
+
+/// The icon of what is an app's alone, as [`permission_icon`] marks a permission's row.
+pub(crate) fn detail_icon(detail: AppDetail) -> WidgetRef {
+    let (symbol, color) = match detail {
+        AppDetail::Machines => (
+            CupertinoIcons::desktopcomputer(),
+            CupertinoColors::SYSTEM_GREY,
+        ),
+        AppDetail::FilePickers => (CupertinoIcons::doc(), CupertinoColors::SYSTEM_BLUE),
+        AppDetail::SoundOutput => (CupertinoIcons::speaker_2(), CupertinoColors::SYSTEM_PINK),
+        AppDetail::Links => (CupertinoIcons::link(), CupertinoColors::SYSTEM_TEAL),
+        AppDetail::Roles => (CupertinoIcons::rosette(), CupertinoColors::SYSTEM_PURPLE),
+    };
+    row_icon(symbol, color)
+}
+
+/// A row's icon as iOS's Settings draws one: `symbol` in white on a rounded square of `color`.
+fn row_icon(symbol: IconData, color: AnyColor) -> WidgetRef {
     Builder::new(move |app, context| {
         let ground = BoxDecoration {
             color: Some(resolved(color.clone(), app, context).into()),

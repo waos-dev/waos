@@ -35,7 +35,9 @@ use waos::{FileDialog, SimulatedSound};
 use waos_activity::Activity;
 use waos_store::{Answer, DomainRule, FileSystemGrant, NetworkGrant, Question, Role};
 
-use super::cupertino_root::{ICON_SIDE, PERMISSION_ICON_SIDE, footnote, link_row, permission_icon};
+use super::cupertino_root::{
+    ICON_SIDE, PERMISSION_ICON_SIDE, detail_icon, footnote, link_row, permission_icon,
+};
 use super::{
     any_set_otherwise, app_details, app_permissions, reset_permissions, said_with, set_otherwise,
     simulated_detail,
@@ -315,11 +317,13 @@ impl Page {
                     words::app_detail_name(detail),
                     SettingsPage::AppDetail(id.clone(), detail),
                 )
+                .leading(detail_icon(detail))
+                .leading_size(PERMISSION_ICON_SIDE)
                 .additional_info(Text::new(said))
                 .into_widget()
             })
             .collect();
-        Some(section(None, None, rows))
+        Some(section_of_icons(None, None, rows))
     }
 
     /// What a program asked for, when it asked for one of its switches here.
