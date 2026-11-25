@@ -351,7 +351,7 @@ impl Page {
         let actions = info
             .actions
             .iter()
-            .filter(|action| !ends_the_page(action))
+            .filter(|action| !action.ends_the_page())
             .map(|action| self.action_row(id, action))
             .collect();
         vec![app.into_widget(), section(None, None, actions)]
@@ -363,7 +363,7 @@ impl Page {
         let rows = info
             .actions
             .iter()
-            .filter(|action| ends_the_page(action))
+            .filter(|action| action.ends_the_page())
             .map(|action| self.action_row(id, action))
             .collect();
         section(None, None, rows)
@@ -1038,12 +1038,6 @@ impl Page {
 
 /// The side of an app's icon over its settings.
 const APP_ICON_SIDE: f64 = 64.0;
-
-/// Whether `action` is done to the app as a whole, and so ends its page, where the others head
-/// it.
-fn ends_the_page(action: &AppAction) -> bool {
-    matches!(action, AppAction::ResetPermissions | AppAction::Remove)
-}
 
 /// An inset-grouped section of rows that start with their words, titled `title` and with
 /// `footer` under it where given.

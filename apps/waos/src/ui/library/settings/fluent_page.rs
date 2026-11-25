@@ -56,6 +56,9 @@ const TITLE_CHEVRON_FONT_SIZE: f64 = 16.0;
 /// room, where at the room's own size the card would show them a third smaller.
 const SYMBOL_FONT_SIZE: f64 = 24.0;
 
+/// The icon font's bin, on the card that removes an app.
+const REMOVE_GLYPH: char = '\u{f34c}';
+
 /// The room over a heading, which parts its group from the one before, and under it.
 const HEADING_MARGIN: [f64; 2] = [24.0, 6.0];
 
@@ -190,7 +193,8 @@ pub(crate) fn app_header(
                 .into_widget(),
         );
     }
-    let buttons = info.actions.iter().map(|action| {
+    let heads_the_page = info.actions.iter().filter(|action| !action.ends_the_page());
+    let buttons = heads_the_page.map(|action| {
         let (library, id, does) = (library.clone(), id.clone(), action.clone());
         let click = Listener::new(move |app| does.carry_out(&library, &id, app));
         let style = match action {
@@ -217,6 +221,44 @@ pub(crate) fn app_header(
         .spacing(16.0)
         .children([icon.into_widget(), Expanded::new(said).into_widget()])
         .into_widget()
+}
+
+/// What is done to the app `id` as a whole, rarely and not to be undone, at the end of its page
+/// and apart from the rest, as Windows's Settings ends a page with what resets: a card for each,
+/// its button at its end.
+pub(crate) fn app_endings(
+    library: &Entity<Library>,
+    id: &ProgramId,
+    info: &AppInfo,
+) -> Vec<WidgetRef> {
+    let cards = info
+        .actions
+        .iter()
+        .filter(|action| action.ends_the_page())
+        .map(|action| {
+            let (glyph, name, button) = match action {
+                AppAction::Remove => (
+                    REMOVE_GLYPH,
+                    words::remove_app(&info.name),
+                    words::ASK_TO_REMOVE,
+                ),
+                _ => (
+                    FluentSymbol::ArrowRepeatAll.glyph(),
+                    action.label().to_owned(),
+                    words::RESET,
+                ),
+            };
+            let (library, id, does) = (library.clone(), id.clone(), action.clone());
+            let click = Listener::new(move |app| does.carry_out(&library, &id, app));
+            setting_card(
+                Start::glyph(glyph),
+                &name,
+                None,
+                Some(card_button(button, click)),
+            )
+        });
+    let apart = SizedBox::new().height(HEADING_MARGIN[0]).into_widget();
+    [apart].into_iter().chain(cards).collect()
 }
 
 /// Back to the page beneath, in a row of its own, its arrow over the cards' edge.

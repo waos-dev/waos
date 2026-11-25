@@ -26,14 +26,17 @@ use waft_winui::{
 };
 use waos::{FileDialog, SimulatedSound};
 use waos_activity::Activity;
+use waos_package::ProgramId;
 use waos_store::{Answer, DomainRule, Question, Role};
 
 use super::fluent_page::{
-    ListRow, Start, app_header, app_page, card_button, card_switch, detail_glyph, drop_down,
-    heading, link_card, list_block, note, on_and_off, page, permission_symbol, setting_card,
-    spaced,
+    ListRow, Start, app_endings, app_header, app_page, card_button, card_switch, detail_glyph,
+    drop_down, heading, link_card, list_block, note, on_and_off, page, permission_symbol,
+    setting_card, spaced,
 };
-use super::{app_details, app_info, app_permissions, said_with, set_otherwise, simulated_detail};
+use super::{
+    AppInfo, app_details, app_info, app_permissions, said_with, set_otherwise, simulated_detail,
+};
 use crate::logic::permissions::Permission;
 use crate::logic::setting_changes::{
     DomainsKind, SettingChange, SettingsOf, Shown, ShownAnswerWith, ShownSettings, Which,
@@ -163,8 +166,12 @@ impl State for FluentSettingsState {
             Err(why) => rows.push(note(&shown.resources, &why)),
         }
         rows.extend(set_otherwise.into_iter().flatten());
-        match shown.app_header(app) {
-            Some(header) => app_page(&shown.library, header, rows),
+        match shown.app_info(app) {
+            Some((id, info)) => {
+                let header = app_header(&shown.library, &shown.resources, &id, &info);
+                rows.extend(app_endings(&shown.library, &id, &info));
+                app_page(&shown.library, header, rows)
+            }
             None => page(&shown.library, &shown.resources, &trail, rows),
         }
     }
@@ -242,9 +249,9 @@ impl Page {
         [Some(over), own].into_iter().flatten().collect()
     }
 
-    /// On an app's own page, what the app is, which heads the page in place of a title; none on
-    /// the pages under it, and on a permission's.
-    fn app_header(&self, app: &App) -> Option<WidgetRef> {
+    /// On an app's own page, the app and what its page says of it, which heads the page in
+    /// place of a title; none on the pages under it, and on a permission's.
+    fn app_info(&self, app: &App) -> Option<(ProgramId, AppInfo)> {
         let SettingsOf::Program(id) = &self.of else {
             return None;
         };
@@ -252,7 +259,7 @@ impl Page {
             return None;
         }
         let info = app_info(self.library.read(app), id)?;
-        Some(app_header(&self.library, &self.resources, id, &info))
+        Some((id.clone(), info))
     }
 
     /// On a permission's page, what is over its default: that it is the default, and what a

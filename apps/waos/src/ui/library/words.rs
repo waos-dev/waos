@@ -467,6 +467,10 @@ pub(crate) fn version_from(version: &str, source: Option<&str>) -> String {
         None => format!("{VERSION} {version}"),
     }
 }
+/// The card that removes an app, at the end of its settings page in the launcher.
+pub(crate) fn remove_app(name: &str) -> String {
+    format!("Remove {name}")
+}
 /// On an app's settings page, while the app runs.
 pub(crate) const RUNNING: &str = "Running";
 pub(crate) const RELEASED: &str = "Released";

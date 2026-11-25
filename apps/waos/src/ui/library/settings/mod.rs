@@ -95,6 +95,12 @@ impl AppAction {
         }
     }
 
+    /// Whether the action is done to the app as a whole, rarely and not to be undone: it ends
+    /// the app's page, where the others head it.
+    pub(crate) fn ends_the_page(&self) -> bool {
+        matches!(self, AppAction::ResetPermissions | AppAction::Remove)
+    }
+
     /// Does the action to the app `id` through `library`.
     pub(crate) fn carry_out(&self, library: &Entity<Library>, id: &ProgramId, app: &mut App) {
         library.update(app, |library, cx| match self {

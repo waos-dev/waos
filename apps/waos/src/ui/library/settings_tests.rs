@@ -324,9 +324,8 @@ fn an_apps_page_says_what_it_is_and_whether_it_runs_and_removes_it_in_either_lay
             !desktop.shows(words::RUNNING)
         });
 
-        if is_phone(&desktop) {
-            desktop.scroll_to_end(view, words::OPEN);
-        }
+        // What removes it ends the page, in either layout.
+        desktop.scroll_to_end(view, words::OPEN);
         desktop.tap(view, words::ASK_TO_REMOVE);
         assert!(desktop.shows("Remove Triangle?"), "{:?}", desktop.labels());
         desktop.tap(view, words::REMOVE);
