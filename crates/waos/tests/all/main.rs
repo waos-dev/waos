@@ -26,6 +26,8 @@ mod clipboard;
 mod composition_layers;
 #[cfg(target_vendor = "apple")]
 mod drawing;
+#[cfg(target_vendor = "apple")]
+mod egui_widgets;
 mod ending;
 mod environment;
 mod fetch;

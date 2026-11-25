@@ -51,6 +51,7 @@ wasdk-macros = { version = "0.7.1", path = "sdk/wasdk-macros" }
 wasdk-wgpu = { version = "0.7.1", path = "sdk/wasdk-wgpu" }
 wasdk-adapter-waft = { version = "0.7.1", path = "sdk/wasdk-adapter-waft" }
 wasdk-adapter-gpui = { path = "sdk/wasdk-adapter-gpui" }
+wasdk-adapter-egui = { version = "0.7.1", path = "sdk/wasdk-adapter-egui" }
 
 # What we take from crates.io, one version for the workspace.
 # The bindings generator a program's API comes from, pinned: the SDK pins one wit-bindgen per
@@ -127,6 +128,12 @@ pastey = "0.2"
 # links only what it uses. The engine works at wgpu-core's level, through the WebGPU host's
 # re-exports, so the two versions move together.
 wgpu = { version = "30", default-features = false }
+# egui, which `wasdk-adapter-egui` puts over wasdk. Its types are in that crate's interface, so an
+# app takes the same version: the one Ruffle is on.
+egui = { version = "0.36.1", default-features = false }
+# egui's own wgpu renderer, which an egui program draws with on the device `wasdk-wgpu` gives it.
+egui-wgpu = { version = "0.36.1", default-features = false }
+
 # GPUI, Zed's UI framework, and its wgpu renderer, which `wasdk-adapter-gpui` puts over wasdk:
 # from WaOS's fork of Zed, `waos-dev/zed`, at the revision its branch `waos` (Zed's port) is built
 # on: Zed's main of 2026-11-14 (703b5ac3f4) with four commits, for GPUI's renderer on a WASI
