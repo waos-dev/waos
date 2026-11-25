@@ -2,9 +2,10 @@
 //! set, its time zone with the time on the user's clock among it, and the screens, and each change
 //! of what the user sets; asks for a view, with no title bar of macOS's own; keeps each view's window between a smallest and a largest size where its user
 //! resizes it; treats a band at the top of each view as its title bar, as a program that draws its
-//! own does, a press there moving the window and a double-click doing what the system's settings
-//! say; follows each view's events, closing its window when the user asks, and saying when its
-//! window is maximized or no longer; logs each change of its own state; answers each request to
+//! own does, a press there moving the window, a double-click doing what the system's settings
+//! say and a press of the secondary button taking the window full screen or back; follows each
+//! view's events, closing its window when the user asks; says each change of its window, maximized
+//! or full screen or no longer; logs each change of its own state; answers each request to
 //! end with `exit`, having nothing to save; and logs every change among its views until the last is
 //! gone.
 //!
@@ -16,9 +17,12 @@ use wasdk::lifecycle::{self, AppExitResponse, ExitRequest, LifecycleState};
 use wasdk::screens::{self, Screen};
 use wasdk::system::{self, Locale, SystemChange};
 use wasdk::views::{
-    self, PointerChange, PointerEvent, RequestFailure, View, ViewChange, ViewEvent, ViewId,
+    self, PointerButtons, PointerChange, PointerEvent, RequestFailure, View, ViewChange, ViewEvent,
+    ViewId,
 };
-use wasdk::windows::{MacosTitleBar, Rect, Size, TitleBarAction, Window, WindowConfig};
+use wasdk::windows::{
+    MacosTitleBar, Rect, Size, TitleBarAction, Window, WindowChange, WindowConfig,
+};
 use wasdk::{StreamReader, system_clock};
 
 /// The smallest size survey's windows may be resized to.
@@ -114,6 +118,9 @@ fn follow(view: View) {
     let events = view.events();
     describe_view(&view);
     limit_window_size(&view);
+    if let Some(window) = view.window() {
+        wasdk::spawn(log_window_changes(view.id(), window.changes()));
+    }
     if let Some(events) = events {
         wasdk::spawn(log_events(view, events));
     }
@@ -139,12 +146,10 @@ fn limit_window_size(view: &View) {
 async fn log_events(view: View, mut events: StreamReader<ViewEvent>) {
     let id = view.id();
     let mut title_bar = TitleBar::default();
-    let mut maximized = is_maximized(&view);
     while let Some(event) = events.next().await {
         match event {
             ViewEvent::Metrics(metrics) => {
                 println!("view {id}: now {}x{}", metrics.width, metrics.height);
-                maximized = say_if_maximized_changed(&view, maximized);
             }
             ViewEvent::Pointer(event) => title_bar.pointer(&view, &event),
             ViewEvent::Focus(focus) => println!("view {id}: {:?}", focus.state),
@@ -160,28 +165,23 @@ async fn log_events(view: View, mut events: StreamReader<ViewEvent>) {
     println!("view {id}: events ended");
 }
 
-/// Whether the window of `view` is maximized; not for a view in no window.
-fn is_maximized(view: &View) -> bool {
-    view.window().is_some_and(|window| window.is_maximized())
-}
-
-/// Says whether the window of `view` is maximized, where that changed from `before`, as a
-/// resize may have; answers whether it is.
-fn say_if_maximized_changed(view: &View, before: bool) -> bool {
-    let maximized = is_maximized(view);
-    if maximized != before {
-        let now = if maximized {
-            "maximized"
-        } else {
-            "no longer maximized"
+/// Says each change of the window of view `id`, whoever made it: the program, or the user by the
+/// system's own means.
+async fn log_window_changes(id: ViewId, mut changes: StreamReader<WindowChange>) {
+    while let Some(change) = changes.next().await {
+        let now = match change {
+            WindowChange::Maximized(true) => "maximized",
+            WindowChange::Maximized(false) => "no longer maximized",
+            WindowChange::Fullscreen(true) => "full screen",
+            WindowChange::Fullscreen(false) => "no longer full screen",
         };
-        println!("view {}: its window is {now}", view.id());
+        println!("view {id}: its window is {now}");
     }
-    maximized
 }
 
 /// The band at the top of a view that survey treats as its title bar: a press there moves the
-/// window, and a second press soon after does what a double-click on a title bar does.
+/// window, a second press soon after does what a double-click on a title bar does, and a press
+/// of the secondary button takes the window full screen, or back.
 #[derive(Default)]
 struct TitleBar {
     /// When the last press on it went down, on the program's clock; none once it made a
@@ -198,6 +198,15 @@ impl TitleBar {
         let Some(window) = view.window() else {
             return;
         };
+        if event.buttons.contains(PointerButtons::SECONDARY) {
+            let fullscreen = !window.is_fullscreen();
+            println!(
+                "view {}: secondary press on its title bar: full screen {fullscreen}",
+                view.id()
+            );
+            window.set_fullscreen(fullscreen, None);
+            return;
+        }
         let soon_after = self
             .last_press
             .is_some_and(|last| event.time.saturating_sub(last) <= DOUBLE_CLICK_TIME);

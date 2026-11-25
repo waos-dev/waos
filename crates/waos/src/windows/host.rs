@@ -1,16 +1,17 @@
 //! The code serving `wasdk:platform/windows` to a program: a window's methods, its frame, whether
-//! it is maximized and what a double-click on a title bar does from the engine's copies and the
-//! rest through the shell, its size limits through the shell's, and the setters of a
+//! it is maximized or full screen, its changes and what a double-click on a title bar does from
+//! the engine's copies and the rest through the shell, its size limits through the shell's, and the setters of a
 //! `window-config`, each into the record `request-view` reads.
 
 use std::time::Duration;
 
-use wasmtime::component::{HasData, Linker, Resource, ResourceTable};
+use wasmtime::component::{Access, HasData, Linker, Resource, ResourceTable, StreamReader};
 
 use crate::bindings::wasdk::platform::windows::{
-    self, HostSizeLimits, HostWindow, HostWindowConfig, MacosTitleBar, Point, Rect, Size,
-    TitleBarAction, WindowBackground, WindowLevel,
+    self, HostSizeLimits, HostWindow, HostWindowConfig, HostWindowWithStore, MacosTitleBar, Point,
+    Rect, Size, TitleBarAction, WindowBackground, WindowChange, WindowLevel,
 };
+use crate::stream::stream_of;
 
 use super::{ProgramWindow, SizeLimits, WindowConfig};
 
@@ -44,6 +45,16 @@ impl WindowsCtx<'_> {
 
     fn config(&mut self, config: &Resource<WindowConfig>) -> wasmtime::Result<&mut WindowConfig> {
         Ok(self.table.get_mut(config)?)
+    }
+}
+
+impl<T: WindowsCtxView + 'static> HostWindowWithStore<T> for HasWindows {
+    fn changes(
+        mut access: Access<T, Self>,
+        window: Resource<ProgramWindow>,
+    ) -> wasmtime::Result<StreamReader<WindowChange>> {
+        let changes = access.get().window(&window)?.changes();
+        stream_of(access, changes, |_: &mut T, change| Ok(change))
     }
 }
 
@@ -127,6 +138,22 @@ impl HostWindow for WindowsCtx<'_> {
         window: Resource<ProgramWindow>,
     ) -> wasmtime::Result<Option<TitleBarAction>> {
         Ok(self.window(&window)?.title_bar_double_click_action())
+    }
+
+    fn is_fullscreen(&mut self, window: Resource<ProgramWindow>) -> wasmtime::Result<bool> {
+        Ok(self.window(&window)?.is_fullscreen())
+    }
+
+    fn set_fullscreen(
+        &mut self,
+        window: Resource<ProgramWindow>,
+        fullscreen: bool,
+        screen: Option<u64>,
+    ) -> wasmtime::Result<()> {
+        self.window(&window)?
+            .shell()
+            .set_fullscreen(fullscreen, screen);
+        Ok(())
     }
 
     fn drop(&mut self, window: Resource<ProgramWindow>) -> wasmtime::Result<()> {

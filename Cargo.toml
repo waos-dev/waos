@@ -372,3 +372,30 @@ opt-level = 3
 # a release build, so a debug WaOS took minutes to show `examples/hello` in the simulator.
 [profile.dev.package.pulley-interpreter]
 opt-level = 3
+
+# Waft from waos-dev/waft#163, until Waft releases it: a window goes full screen and back.
+[patch.crates-io]
+waft = { git = "https://github.com/waos-dev/waft", branch = "window-fullscreen" }
+waft-animation = { git = "https://github.com/waos-dev/waft", branch = "window-fullscreen" }
+waft-cupertino = { git = "https://github.com/waos-dev/waft", branch = "window-fullscreen" }
+waft-embedder = { git = "https://github.com/waos-dev/waft", branch = "window-fullscreen" }
+waft-embedder-android = { git = "https://github.com/waos-dev/waft", branch = "window-fullscreen" }
+waft-embedder-apple = { git = "https://github.com/waos-dev/waft", branch = "window-fullscreen" }
+waft-embedder-default = { git = "https://github.com/waos-dev/waft", branch = "window-fullscreen" }
+waft-embedder-ios = { git = "https://github.com/waos-dev/waft", branch = "window-fullscreen" }
+waft-embedder-web = { git = "https://github.com/waos-dev/waft", branch = "window-fullscreen" }
+waft-embedder-winit = { git = "https://github.com/waos-dev/waft", branch = "window-fullscreen" }
+waft-foundation = { git = "https://github.com/waos-dev/waft", branch = "window-fullscreen" }
+waft-gestures = { git = "https://github.com/waos-dev/waft", branch = "window-fullscreen" }
+waft-macros = { git = "https://github.com/waos-dev/waft", branch = "window-fullscreen" }
+waft-painting = { git = "https://github.com/waos-dev/waft", branch = "window-fullscreen" }
+waft-physics = { git = "https://github.com/waos-dev/waft", branch = "window-fullscreen" }
+waft-rendering = { git = "https://github.com/waos-dev/waft", branch = "window-fullscreen" }
+waft-scheduler = { git = "https://github.com/waos-dev/waft", branch = "window-fullscreen" }
+waft-service-protocol = { git = "https://github.com/waos-dev/waft", branch = "window-fullscreen" }
+waft-services = { git = "https://github.com/waos-dev/waft", branch = "window-fullscreen" }
+waft-shell = { git = "https://github.com/waos-dev/waft", branch = "window-fullscreen" }
+waft-single-instance = { git = "https://github.com/waos-dev/waft", branch = "window-fullscreen" }
+waft-test = { git = "https://github.com/waos-dev/waft", branch = "window-fullscreen" }
+waft-widgets = { git = "https://github.com/waos-dev/waft", branch = "window-fullscreen" }
+waft-winui = { git = "https://github.com/waos-dev/waft", branch = "window-fullscreen" }

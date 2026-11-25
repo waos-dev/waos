@@ -1,22 +1,27 @@
 //! `wasdk:platform/windows`: what a desktop does around a view, as the engine keeps it: how a
 //! program asks for its window ([`WindowConfig`], the record of what it set on its
-//! `window-config`), a window's frame, whether it is maximized and what the system's settings say a
-//! double-click on a title bar does, as the shell last reported each, and its title as the program
-//! set it last ([`ProgramWindow`]), beside the shell's handle the program's requests go to, and the
-//! window's size limits, where the shell has them ([`SizeLimits`]).
+//! `window-config`), a window's frame, whether it is maximized or full screen and what the
+//! system's settings say a double-click on a title bar does, as the shell last reported each, and
+//! its title as the program set it last ([`ProgramWindow`]), beside the shell's handle the
+//! program's requests go to, and the window's size limits, where the shell has them
+//! ([`SizeLimits`]).
 //!
 //! The invariant: what the program reads of its window is the shell's report, never what the
-//! program asked for. `set-frame` and `set-maximized` go to the shell, and the program reads the
-//! new frame, or that the window is maximized, once the shell reports it. The interface is served
+//! program asked for. `set-frame`, `set-maximized` and `set-fullscreen` go to the shell, and the
+//! program reads the new frame, or that the window is maximized or full screen, once the shell
+//! reports it; a report that changes either is what the window's `changes` tell. The interface is served
 //! to a program by [`host`].
 
 pub(crate) mod host;
 
 use std::sync::{Arc, Mutex};
 
+use futures::channel::mpsc;
+
 use crate::bindings::wasdk::platform::windows::{
-    MacosTitleBar, Point, Rect, Size, TitleBarAction, WindowBackground, WindowLevel,
+    MacosTitleBar, Point, Rect, Size, TitleBarAction, WindowBackground, WindowChange, WindowLevel,
 };
+use crate::channel::Channel;
 use crate::shell::{PlacedWindow, ShellWindow, ShellWindowSizeLimits};
 use crate::sync::locked;
 
@@ -67,7 +72,7 @@ impl Default for WindowConfig {
 }
 
 /// One window of the program's, shared by the shell, which reports its frame, whether it is
-/// maximized and what a double-click on a title bar does, and the engine, which reads them and
+/// maximized or full screen and what a double-click on a title bar does, and the engine, which reads them and
 /// carries the program's requests to the shell. Every clone is the same window.
 #[derive(Clone)]
 pub struct ProgramWindow(Arc<WindowState>);
@@ -76,6 +81,8 @@ struct WindowState {
     shell: Arc<dyn ShellWindow>,
     frame: Mutex<Rect>,
     maximized: Mutex<bool>,
+    fullscreen: Mutex<bool>,
+    changes: Channel<WindowChange>,
     title_bar_double_click_action: Mutex<Option<TitleBarAction>>,
     /// As the program set it last, on its `window-config` or on the window; empty for none.
     title: Mutex<String>,
@@ -88,6 +95,8 @@ impl ProgramWindow {
             shell: placed.window,
             frame: Mutex::new(placed.frame),
             maximized: Mutex::new(placed.maximized),
+            fullscreen: Mutex::new(placed.fullscreen),
+            changes: Channel::default(),
             title_bar_double_click_action: Mutex::new(placed.title_bar_double_click_action),
             title: Mutex::new(title),
         }))
@@ -138,9 +147,40 @@ impl ProgramWindow {
         *locked(&self.0.maximized)
     }
 
-    /// The shell reports the window is maximized now, or no longer.
+    /// The shell reports the window is maximized now, or no longer; the program hears of a
+    /// change.
     pub(crate) fn maximized_changed(&self, maximized: bool) {
-        *locked(&self.0.maximized) = maximized;
+        self.changed(&self.0.maximized, maximized, WindowChange::Maximized);
+    }
+
+    /// Whether the window is full screen, as the shell last reported it.
+    pub(crate) fn is_fullscreen(&self) -> bool {
+        *locked(&self.0.fullscreen)
+    }
+
+    /// The shell reports the window is full screen now, or no longer; the program hears of a
+    /// change.
+    pub(crate) fn fullscreen_changed(&self, fullscreen: bool) {
+        self.changed(&self.0.fullscreen, fullscreen, WindowChange::Fullscreen);
+    }
+
+    /// Keeps `now` as what the shell last reported in `kept`, and tells the window's changes
+    /// where it differs from before.
+    fn changed(&self, kept: &Mutex<bool>, now: bool, change: fn(bool) -> WindowChange) {
+        let mut before = locked(kept);
+        if *before == now {
+            return;
+        }
+        *before = now;
+        // Sent under the lock, so two reports from two threads reach every stream in the order
+        // the window took them.
+        self.0.changes.send(change(now));
+    }
+
+    /// Each change of whether the window is maximized or full screen, from now on, on a stream
+    /// of its own.
+    pub(crate) fn changes(&self) -> mpsc::UnboundedReceiver<WindowChange> {
+        self.0.changes.subscribe()
     }
 
     /// What the system's settings say a double-click on a title bar does, as the shell last
@@ -245,6 +285,8 @@ pub(crate) mod tests {
         fn set_maximized(&self, _maximized: bool) {}
 
         fn set_minimized(&self, _minimized: bool) {}
+
+        fn set_fullscreen(&self, _fullscreen: bool, _screen: Option<u64>) {}
     }
 
     impl ShellWindowSizeLimits for Limited {
@@ -258,12 +300,14 @@ pub(crate) mod tests {
     }
 
     /// A window placed with `window` as its shell's side, at a frame of its own, neither
-    /// maximized nor on a system with a setting for a double-click on a title bar.
+    /// maximized nor full screen nor on a system with a setting for a double-click on a title
+    /// bar.
     pub(crate) fn placed_window(window: Arc<dyn ShellWindow>) -> PlacedWindow {
         PlacedWindow {
             window,
             frame: rect(1.0),
             maximized: false,
+            fullscreen: false,
             title_bar_double_click_action: None,
         }
     }
@@ -358,6 +402,46 @@ pub(crate) mod tests {
         assert!(window.is_maximized(), "as it was placed");
         window.maximized_changed(false);
         assert!(!window.is_maximized());
+    }
+
+    #[test]
+    fn whether_it_is_full_screen_is_what_the_shell_last_reported() {
+        let window = ProgramWindow::new(
+            PlacedWindow {
+                fullscreen: true,
+                ..placed_window(Arc::new(Headless::default()))
+            },
+            String::new(),
+        );
+        assert!(window.is_fullscreen(), "as it was placed");
+        window.fullscreen_changed(false);
+        assert!(!window.is_fullscreen());
+    }
+
+    #[test]
+    fn its_changes_tell_each_report_that_changed_it_once_in_order() {
+        let window = placed(Arc::new(Headless::default()));
+        window.fullscreen_changed(true);
+        let mut changes = window.changes();
+        window.fullscreen_changed(true);
+        window.maximized_changed(true);
+        window.fullscreen_changed(false);
+        window.maximized_changed(true);
+        let mut told = Vec::new();
+        while let Ok(change) = changes.try_recv() {
+            told.push(change);
+        }
+        assert!(
+            matches!(
+                told[..],
+                [
+                    WindowChange::Maximized(true),
+                    WindowChange::Fullscreen(false)
+                ]
+            ),
+            "what changed from when the stream opened, nothing reported as it already was: \
+             {told:?}"
+        );
     }
 
     #[test]

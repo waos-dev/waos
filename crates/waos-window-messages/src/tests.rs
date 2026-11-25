@@ -174,6 +174,8 @@ fn the_programs_calls_on_a_view_cross_as_they_are() {
         ViewCall::Window(WindowCall::Drag),
         ViewCall::Window(WindowCall::SetMaximized(true)),
         ViewCall::Window(WindowCall::SetMinimized(false)),
+        ViewCall::Window(WindowCall::SetFullscreen(true, Some(2))),
+        ViewCall::Window(WindowCall::SetFullscreen(false, None)),
     ];
     for call in calls {
         crosses(&ToWindow::View { window: 1, call });
@@ -217,6 +219,7 @@ fn what_a_window_reports_crosses_as_it_is() {
         }),
         ViewReport::WindowFrameChanged(frame()),
         ViewReport::WindowMaximizedChanged(true),
+        ViewReport::WindowFullscreenChanged(true),
         ViewReport::TitleBarDoubleClickActionChanged(Some(TitleBarAction::Minimize)),
         ViewReport::TitleBarDoubleClickActionChanged(None),
     ];
@@ -234,6 +237,7 @@ fn what_a_window_reports_crosses_as_it_is() {
         frame: frame(),
         size_limits: true,
         maximized: true,
+        fullscreen: true,
         title_bar_double_click_action: Some(TitleBarAction::Nothing),
     };
     let FromWindow::WindowOpened { opened, .. } =
@@ -243,6 +247,7 @@ fn what_a_window_reports_crosses_as_it_is() {
     };
     assert!(opened.size_limits, "with whether it has size limits");
     assert!(opened.maximized, "with whether it is maximized");
+    assert!(opened.fullscreen, "and whether it is full screen");
     assert_eq!(
         opened.title_bar_double_click_action,
         Some(TitleBarAction::Nothing),

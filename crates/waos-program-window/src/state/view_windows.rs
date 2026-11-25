@@ -130,6 +130,8 @@ pub(crate) struct ShownWindow<P: ProgramLink> {
     frame: waft::Rect,
     /// What the program was last told of whether the window is maximized.
     maximized: bool,
+    /// What the program was last told of whether the window is full screen.
+    fullscreen: bool,
     /// What the program was last told a double-click on a title bar does.
     title_bar_double_click_action: Option<TitleBarAction>,
     /// Keeps the program's calls on the window coming from the shown view.
@@ -548,6 +550,7 @@ impl<P: ProgramLink> ViewWindows<P> {
             frame: rect_of(window.frame()),
             size_limits: window.size_limits().is_some(),
             maximized: window.is_maximized(),
+            fullscreen: window.is_fullscreen(),
             title_bar_double_click_action: title_bar_action_of(
                 window.title_bar_double_click_action(),
             ),
@@ -612,6 +615,7 @@ impl<P: ProgramLink> ViewWindows<P> {
         close_when_ended(cx, &program, view.id());
         let frame = window.frame();
         let maximized = window.is_maximized();
+        let fullscreen = window.is_fullscreen();
         let title_bar_double_click_action =
             title_bar_action_of(window.title_bar_double_click_action());
         self.shown.push(ShownWindow {
@@ -624,6 +628,7 @@ impl<P: ProgramLink> ViewWindows<P> {
             standing,
             frame,
             maximized,
+            fullscreen,
             title_bar_double_click_action,
             _window_calls: window_calls,
         });
@@ -749,12 +754,17 @@ impl<P: ProgramLink> ShownWindow<P> {
                 self.window.set_minimized(*minimized);
                 self.window_changed(app);
             }
+            WindowCall::SetFullscreen(fullscreen, screen) => {
+                self.window
+                    .set_fullscreen(*fullscreen, screen.map(waft::ui::ScreenId));
+                self.window_changed(app);
+            }
         }
     }
 
     /// Waft says the window was minimized or restored, became occluded or shown, or moved: the
-    /// program hears how the view stands, where the window is and whether it is maximized, each
-    /// if it changed.
+    /// program hears how the view stands, where the window is and whether it is maximized or full
+    /// screen, each if it changed.
     fn window_changed(&mut self, app: &mut App) {
         let window = Rc::clone(&self.window);
         self.restand(app, |standing| standing.read_window(&*window));
@@ -768,9 +778,14 @@ impl<P: ProgramLink> ShownWindow<P> {
         self.read_title_bar_double_click_action_again();
     }
 
-    /// Reads the window's frame again, and whether it is maximized where the frame changed, and
-    /// tells the program what changed.
+    /// Reads again whether the window is full screen and its frame, and whether it is maximized
+    /// where the frame changed, and tells the program what changed.
     fn read_window_again(&mut self) {
+        let fullscreen = self.window.is_fullscreen();
+        if fullscreen != self.fullscreen {
+            self.fullscreen = fullscreen;
+            self.view.window_fullscreen_changed(fullscreen);
+        }
         let frame = self.window.frame();
         if frame == self.frame {
             return;

@@ -341,6 +341,8 @@ pub struct OpenedWindow {
     pub size_limits: bool,
     /// Whether the window is maximized; on macOS, zoomed.
     pub maximized: bool,
+    /// Whether the window is full screen.
+    pub fullscreen: bool,
     /// What the system's settings say a double-click on a title bar does; none where the system
     /// has no such setting.
     #[serde(with = "option_title_bar_action")]
@@ -380,6 +382,7 @@ pub enum ViewReport {
     PresenceChanged(#[serde(with = "PresenceDef")] Presence),
     WindowFrameChanged(#[serde(with = "RectDef")] Rect),
     WindowMaximizedChanged(bool),
+    WindowFullscreenChanged(bool),
     TitleBarDoubleClickActionChanged(
         #[serde(with = "option_title_bar_action")] Option<TitleBarAction>,
     ),
@@ -539,6 +542,10 @@ impl Debug for ViewReport {
             ViewReport::WindowMaximizedChanged(maximized) => f
                 .debug_tuple("WindowMaximizedChanged")
                 .field(maximized)
+                .finish(),
+            ViewReport::WindowFullscreenChanged(fullscreen) => f
+                .debug_tuple("WindowFullscreenChanged")
+                .field(fullscreen)
                 .finish(),
             ViewReport::TitleBarDoubleClickActionChanged(action) => f
                 .debug_tuple("TitleBarDoubleClickActionChanged")

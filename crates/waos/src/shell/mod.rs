@@ -266,6 +266,8 @@ pub struct PlacedWindow {
     pub frame: Rect,
     /// Whether it is maximized now; on macOS, zoomed.
     pub maximized: bool,
+    /// Whether it is full screen now.
+    pub fullscreen: bool,
     /// What the system's settings say a double-click on a title bar does now; none where the
     /// system has no such setting.
     pub title_bar_double_click_action: Option<TitleBarAction>,
@@ -389,8 +391,8 @@ pub trait ShellTextInput: Send + Sync {
     fn hide(&self);
 }
 
-/// The shell's side of `windows.window`, minus its frame, whether it is maximized and what a
-/// double-click on a title bar does, which the engine keeps from the shell's reports.
+/// The shell's side of `windows.window`, minus its frame, whether it is maximized or full screen
+/// and what a double-click on a title bar does, which the engine keeps from the shell's reports.
 pub trait ShellWindow: Send + Sync {
     /// Moves and sizes the window, over `animate` where the platform can animate the change.
     fn set_frame(&self, frame: Rect, animate: Option<Duration>);
@@ -421,6 +423,12 @@ pub trait ShellWindow: Send + Sync {
     /// Minimizes the window, or restores it. The shell reports the change as the view's
     /// presence.
     fn set_minimized(&self, minimized: bool);
+
+    /// Has the window fill the screen `screen` names, the window's own where none, or returns it
+    /// to how it was before, when `screen` is not read. A shell whose windows have no such state
+    /// does nothing. The shell reports the change with
+    /// `ProgramView::window_fullscreen_changed`.
+    fn set_fullscreen(&self, fullscreen: bool, screen: Option<ScreenId>);
 }
 
 /// The shell's side of `windows.size-limits`: the limits a window its user resizes keeps its
@@ -1277,5 +1285,7 @@ pub(crate) mod tests {
         fn set_maximized(&self, _maximized: bool) {}
 
         fn set_minimized(&self, _minimized: bool) {}
+
+        fn set_fullscreen(&self, _fullscreen: bool, _screen: Option<ScreenId>) {}
     }
 }

@@ -115,6 +115,7 @@ impl ProgramLink for WaosProgram {
             frame: opened.frame,
             size_limits: opened.size_limits,
             maximized: opened.maximized,
+            fullscreen: opened.fullscreen,
             title_bar_double_click_action: opened.title_bar_double_click_action,
         };
         self.connection.send(FromWindow::WindowOpened {
@@ -264,6 +265,10 @@ impl ViewLink for WaosView {
 
     fn window_maximized_changed(&self, maximized: bool) {
         self.report(ViewReport::WindowMaximizedChanged(maximized));
+    }
+
+    fn window_fullscreen_changed(&self, fullscreen: bool) {
+        self.report(ViewReport::WindowFullscreenChanged(fullscreen));
     }
 
     fn title_bar_double_click_action_changed(&self, action: Option<TitleBarAction>) {

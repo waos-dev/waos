@@ -667,10 +667,25 @@ impl PlatformWindow for WasdkWindow {
         }
     }
 
-    fn toggle_fullscreen(&self) {}
+    fn toggle_fullscreen(&self) {
+        if let Some(window) = self
+            .shared
+            .view
+            .borrow()
+            .as_ref()
+            .and_then(|attached| attached.system_window.as_ref())
+        {
+            window.set_fullscreen(!window.is_fullscreen(), None);
+        }
+    }
 
     fn is_fullscreen(&self) -> bool {
-        false
+        self.shared
+            .view
+            .borrow()
+            .as_ref()
+            .and_then(|attached| attached.system_window.as_ref())
+            .is_some_and(|window| window.is_fullscreen())
     }
 
     fn frame_waker(&self) -> Option<Rc<dyn Fn()>> {
