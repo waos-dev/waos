@@ -46,10 +46,7 @@ use crate::logic::package_copies::PackageCopies;
 use crate::logic::program_places::{ProgramPlace, ProgramPlaces};
 use crate::logic::recording_indicator::{RecordingChanged, RecordingIndicatorOnRequest};
 use crate::logic::runs::Runs;
-use crate::logic::test_engine::{self, NoWindows};
-
-/// How long a test waits for a program or the app to do something.
-const WITHIN: Duration = Duration::from_secs(60);
+use crate::logic::test_engine::{self, NoWindows, WITHIN};
 
 /// `path` as the engine hands it to the system: its links resolved, named as the system's apps
 /// name it (`waos::machine_paths::plain`).

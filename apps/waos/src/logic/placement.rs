@@ -64,7 +64,6 @@ impl ViewPlacement for WindowsOnRequest {
 pub(crate) mod tests {
     use std::path::Path;
     use std::sync::Arc;
-    use std::time::Duration;
 
     use futures::StreamExt;
     use waos::{ProgramEnd, ProgramEnvironment, WaOS};
@@ -72,10 +71,7 @@ pub(crate) mod tests {
     use waos_test_programs::CODE_CACHE;
 
     use super::*;
-    use crate::logic::test_engine;
-
-    /// How long a test waits for a program to do something.
-    const WITHIN: Duration = Duration::from_secs(60);
+    use crate::logic::test_engine::{self, WITHIN};
 
     /// A store with nothing installed, in `folder`.
     pub(crate) fn store_in(folder: &Path) -> Store {

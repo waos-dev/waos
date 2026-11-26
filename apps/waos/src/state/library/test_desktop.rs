@@ -56,16 +56,13 @@ use crate::logic::program_places::{ProgramPlace, ProgramPlaces};
 use crate::logic::prompts::{MachinePickerOnRequest, OutputPickerOnRequest, PromptsOnRequest};
 use crate::logic::recording_indicator::RecordingIndicatorOnRequest;
 use crate::logic::runs::Runs;
-use crate::logic::test_engine;
+use crate::logic::test_engine::{self, WITHIN};
 use crate::logic::test_outputs::StatedOutputs;
 use crate::state::ViewWindows;
 use crate::state::phone_files::{follow_phone_files, phone_files_on_request};
 use crate::state::questions::{self, Questions};
 use crate::state::recordings::Recordings;
 use crate::ui::every_window::{LibraryWindow, every_window, program_windows};
-
-/// How long a test waits for the library's work.
-const WITHIN: Duration = Duration::from_secs(60);
 
 /// How far apart the frames are drawn.
 const FRAME_INTERVAL: Duration = Duration::from_millis(50);

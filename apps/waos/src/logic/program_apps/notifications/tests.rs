@@ -21,9 +21,9 @@ use crate::logic::program_apps::app_reach::tests::Launches;
 use crate::logic::program_apps::server::deliver_hello;
 use crate::logic::program_apps::window_process::WindowProcess;
 use crate::logic::program_apps::window_process::tests::{
-    Printed, Served, WITHIN, next, next_wanted, window_process_keeping,
+    Printed, Served, next, next_wanted, window_process_keeping,
 };
-use crate::logic::test_engine::{self, NoWindows};
+use crate::logic::test_engine::{self, NoWindows, WITHIN};
 
 /// The id notifications runs under, as an installed program's.
 const NOTIFICATIONS: &str = "dev.example.notifications";

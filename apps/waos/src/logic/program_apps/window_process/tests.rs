@@ -24,10 +24,7 @@ use super::*;
 use crate::logic::placement::WindowsOnRequest;
 use crate::logic::placement::tests::store_in;
 use crate::logic::program_faces::ProgramFaces;
-use crate::logic::test_engine;
-
-/// How long a test waits for a program to do something.
-pub(crate) const WITHIN: Duration = Duration::from_secs(60);
+use crate::logic::test_engine::{self, WITHIN};
 
 /// The context id the test's main thread gives every canvas.
 const CONTEXT: u32 = 0x5eed;

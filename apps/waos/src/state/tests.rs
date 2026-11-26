@@ -59,13 +59,11 @@ use crate::logic::machine_facts::platform_state;
 use crate::logic::placement::WindowsOnRequest;
 use crate::logic::program_faces::ProgramFaces;
 use crate::logic::prompts::PromptsOnRequest;
+use crate::logic::test_engine::WITHIN;
 use crate::logic::vsync_waiter::WaftVsync;
 use crate::state::questions::{self, Questions};
 use crate::ui::every_window::{every_window, program_windows};
 use waos_store::{SourceProxy, Store};
-
-/// How long a test waits for a program to do something.
-const WITHIN: Duration = Duration::from_secs(60);
 
 /// The desktop's one screen, which every window is made on.
 const SCREEN: ScreenId = ScreenId(1);

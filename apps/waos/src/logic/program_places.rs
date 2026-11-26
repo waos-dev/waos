@@ -133,7 +133,6 @@ impl ViewPlacement for PlacedWhereOpened {
 #[cfg(test)]
 mod tests {
     use std::path::Path;
-    use std::time::Duration;
 
     use futures::StreamExt;
     use waos::{ProgramEnd, ProgramEnvironment, WaOS};
@@ -143,10 +142,7 @@ mod tests {
     use crate::logic::placement::WindowsOnRequest;
     use crate::logic::placement::tests::store_in;
     use crate::logic::program_faces::ProgramFaces;
-    use crate::logic::test_engine;
-
-    /// How long a test waits for a program to do something.
-    const WITHIN: Duration = Duration::from_secs(60);
+    use crate::logic::test_engine::{self, WITHIN};
 
     /// Survey's id, as the tests name the program the library opens.
     const SURVEY: &str = "dev.example.survey";

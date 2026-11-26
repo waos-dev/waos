@@ -34,10 +34,7 @@ use crate::logic::program_shortcuts::{
     KeptShortcut, ProgramShortcut, ShortcutOpens, SystemShortcuts,
 };
 use crate::logic::runs::Runs;
-use crate::logic::test_engine::{self, NoWindows};
-
-/// How long a test waits for the library's work.
-const WITHIN: Duration = Duration::from_secs(60);
+use crate::logic::test_engine::{self, NoWindows, WITHIN};
 
 const TRIANGLE: &str = "dev.example.triangle";
 const SURVEY: &str = "dev.example.survey";

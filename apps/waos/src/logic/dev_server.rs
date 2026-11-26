@@ -483,10 +483,7 @@ pub(crate) mod tests {
     use crate::logic::program_places::{ProgramPlace, ProgramPlaces};
     use crate::logic::quit_question::every_program_agrees;
     use crate::logic::runs::Runs;
-    use crate::logic::test_engine::{self, NoWindows, REFUSAL};
-
-    /// How long a test waits for a program to do something.
-    pub(crate) const WITHIN: Duration = Duration::from_secs(60);
+    use crate::logic::test_engine::{self, NoWindows, REFUSAL, WITHIN};
 
     /// The development id of the program `id`: what `waos install` installs it as, and what a run
     /// of it runs as.

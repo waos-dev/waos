@@ -8,8 +8,9 @@ use waos_test_programs::CODE_CACHE;
 
 use super::*;
 use crate::logic::program_apps::CanvasCall;
-use crate::logic::program_apps::window_process::tests::{Served, WITHIN, window_process};
+use crate::logic::program_apps::window_process::tests::{Served, window_process};
 use crate::logic::test_engine;
+use crate::logic::test_engine::WITHIN;
 
 /// The id survey runs under, as an installed program's.
 const SURVEY: &str = "dev.example.survey";
