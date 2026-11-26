@@ -16,8 +16,9 @@ use std::sync::{Arc, Mutex, Weak};
 
 use waos_gpu_host::{Device, GpuObject, Surface, SurfaceFrame, SurfaceTarget, WeakSurface};
 use wasmtime::bail;
-use wgpu_core::present::ConfigureSurfaceError;
+use wgpu_core::present::{ConfigureSurfaceError, SurfaceError};
 
+use super::alpha_clearer::AlphaClearer;
 use super::finisher::{FrameFinisher, Wait};
 use super::view_hardware_buffers::{Allocation, DrawnFrame, FrameTexture, ViewHardwareBuffers};
 use crate::BufferKind;
@@ -71,6 +72,9 @@ pub(crate) struct ViewCanvas {
     /// What lets the spares go at a tick of the engine's time once the view has drawn nothing
     /// for a while; the clock holds it only while the canvas does.
     _spares_timer: Arc<Timer>,
+    /// What makes an opaque frame opaque, made on the device of the first one and again for
+    /// another device.
+    alpha_clearer: Mutex<Option<AlphaClearer>>,
 }
 
 impl ViewCanvas {
@@ -103,6 +107,7 @@ impl ViewCanvas {
             in_flight,
             clock,
             _spares_timer: spares_timer,
+            alpha_clearer: Mutex::new(None),
         })
     }
 
@@ -111,9 +116,11 @@ impl ViewCanvas {
     /// device's queue and no submission carried is submitted first, once the program may submit,
     /// with what the system needs to hand the frame's memory to its compositor
     /// (`os::hand_to_compositor`), and the view's thread waits for that submission, after every
-    /// one that drew the frame, and hands the frame over. Answers whether there was one, which a frame skipped on a lost
-    /// device is not, nor a present with nothing drawn since the last; the layers of a present
-    /// that hands nothing over are not shown, and the shell keeps those of the frame on screen.
+    /// one that drew the frame, and hands the frame over. A frame the program configured opaque
+    /// is made opaque first, in that submission's allowance (`alpha_clearer`), and handed over
+    /// saying so. Answers whether there was one, which a frame skipped on a lost device is not,
+    /// nor a present with nothing drawn since the last; the layers of a present that hands
+    /// nothing over are not shown, and the shell keeps those of the frame on screen.
     pub(crate) async fn present(&self, layers: Vec<PlacedShellLayer>) -> wasmtime::Result<bool> {
         let Some(DrawnFrame {
             memory,
@@ -121,11 +128,15 @@ impl ViewCanvas {
             texture,
             usage,
             device,
+            opaque,
         }) = self.drawn_frame()
         else {
             return Ok(false);
         };
         let hand_over_work = submit_once_running(&self.buffers.lifecycle, || {
+            if opaque {
+                self.make_opaque(&device, texture.id());
+            }
             os::hand_to_compositor(&self.gpu, &device, &memory, texture.id(), usage)
         })
         .await;
@@ -137,7 +148,7 @@ impl ViewCanvas {
         let events_read = view.events_read();
         let stats = Arc::clone(&self.buffers.stats);
         let hand_over = move || {
-            view.present(memory.buffer(), layers, released, events_read);
+            view.present(memory.buffer(), layers, opaque, released, events_read);
             stats.frame_presented(view.clock().now());
         };
         self.finisher.finish(Wait {
@@ -149,6 +160,28 @@ impl ViewCanvas {
             frame,
         });
         Ok(true)
+    }
+
+    /// Writes alpha 1 into `texture`, a frame drawn on `device`, submitted now; a frame that
+    /// cannot be, as on a lost device, is handed over as drawn.
+    fn make_opaque(&self, device: &Device, texture: wgpu_core::id::TextureId) {
+        let mut clearer = locked(&self.alpha_clearer);
+        let made = match clearer.take() {
+            Some(kept) if kept.is_on(device.device_id()) => Ok(kept),
+            _ => AlphaClearer::new(&self.gpu, device.device_id()),
+        };
+        let made_opaque = made.and_then(|made| {
+            let cleared = made.make_opaque(&self.gpu, device.queue_id(), texture);
+            *clearer = Some(made);
+            cleared
+        });
+        if let Err(error) = made_opaque {
+            tracing::debug!(
+                target: targets::FRAMES,
+                view = self.buffers.view.id(),
+                "an opaque frame is handed over as drawn: {error:#}"
+            );
+        }
     }
 
     /// The frame to hand over, its hardware buffer marked as the shell's until the shell releases
@@ -189,7 +222,8 @@ impl ViewCanvas {
 
 impl SurfaceTarget for ViewCanvas {
     /// The hardware buffers' one format, in sRGB, on any adapter: drawn into, sampled and copied
-    /// from, presented in order, opaque or with its alpha premultiplied.
+    /// from, presented in order, opaque or with its alpha premultiplied. An opaque frame is made
+    /// opaque as it is presented, whatever alpha the program drew.
     fn capabilities(
         &self,
         _instance: &wgpu_core::global::Global,
@@ -242,22 +276,25 @@ impl SurfaceTarget for ViewCanvas {
     /// where the system needs it (`os::take_from_compositor`), once the program may submit. A
     /// program that takes it while frozen draws into it without that: the texture arrives with its
     /// pixels undefined, which a frame drawn whole never reads, and the system then needs nothing
-    /// taken back.
+    /// taken back. A frame asked while the last is neither presented nor discarded is refused.
     ///
     /// On a lost device the texture is invalid, as wgpu-core's surfaces answer there,
     /// and the hardware buffer is not handed out: the frame draws nothing and is skipped. While the
     /// view is out of sight there is no texture: the surface answers `occluded`, as the view's
     /// frames stop then.
-    fn current_texture(&self) -> wasmtime::Result<SurfaceFrame> {
+    fn current_texture(&self) -> wasmtime::Result<Result<SurfaceFrame, SurfaceError>> {
         let mut guard = self.buffers.allocation();
         let Some(allocation) = guard.as_mut() else {
             bail!(NOT_CONFIGURED)
         };
+        if allocation.is_drawing() {
+            return Ok(Err(SurfaceError::AlreadyAcquired));
+        }
         if !self.buffers.view.in_sight() {
-            return Ok(SurfaceFrame {
+            return Ok(Ok(SurfaceFrame {
                 status: wgpu_types::SurfaceStatus::Occluded,
                 texture: None,
-            });
+            }));
         }
         let index = self.hardware_buffer_for_next_frame(allocation)?;
         let texture = allocation
@@ -266,16 +303,16 @@ impl SurfaceTarget for ViewCanvas {
             .texture_over(
                 &self.gpu,
                 allocation.device.device_id(),
-                allocation.usage,
+                allocation.texture_usage(),
                 &allocation.view_formats,
             )
             .map_err(wasmtime::Error::from_anyhow)?;
         let texture: FrameTexture = Arc::new(GpuObject::new(texture, &self.gpu));
         if allocation.device.is_lost() {
-            return Ok(drawn_into(texture));
+            return Ok(Ok(drawn_into(texture)));
         }
         allocation.hand_out(index, Arc::clone(&texture));
-        let (device, usage) = (allocation.device.clone(), allocation.usage);
+        let (device, usage) = (allocation.device.clone(), allocation.texture_usage());
         let memory = allocation.pool.memory(index).clone();
         drop(guard);
         let taken = submit_while_running(&self.buffers.lifecycle, &mut || {
@@ -288,7 +325,16 @@ impl SurfaceTarget for ViewCanvas {
                 "a frame's texture is taken while the program is frozen: drawn into as it arrives"
             );
         }
-        Ok(drawn_into(texture))
+        Ok(Ok(drawn_into(texture)))
+    }
+
+    /// The frame being drawn is let go of unpresented: its hardware buffer is free again, and
+    /// the next present shows nothing new.
+    fn discard(&self) -> wasmtime::Result<()> {
+        if let Some(allocation) = self.buffers.allocation().as_mut() {
+            allocation.discard();
+        }
+        Ok(())
     }
 
     /// What sRGB says of the range: the system's display is not read yet.

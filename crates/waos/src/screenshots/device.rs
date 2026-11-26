@@ -9,12 +9,12 @@
 
 use std::borrow::Cow;
 
-use anyhow::{Context, Result, anyhow};
-use waos_gpu_host::{GpuObject, GpuObjectId};
+use anyhow::{Context, Result};
+use waos_gpu_host::GpuObject;
 
 use super::quads::{Quad, bytes_of};
 use crate::BufferKind;
-use crate::gpu::{GpuInstance, open_device, wgpu_core, wgpu_types};
+use crate::gpu::{GpuInstance, made, open_device, wgpu_core, wgpu_types};
 use crate::os::{FORMAT, HardwareBufferMemory};
 
 use wgpu_core::binding_model::{
@@ -417,17 +417,4 @@ fn sampler(
         },
         None,
     )
-}
-
-/// The object wgpu-core `made`, held so it is given back as it goes, or its error: an object made
-/// with an error is invalid, and given back all the same.
-fn made<Id: GpuObjectId, E: std::error::Error + Send + Sync + 'static>(
-    gpu: &GpuInstance,
-    (id, error): (Id, Option<E>),
-) -> Result<GpuObject<Id>> {
-    let object = GpuObject::new(id, gpu);
-    match error {
-        Some(error) => Err(anyhow!(error)),
-        None => Ok(object),
-    }
 }

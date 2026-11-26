@@ -36,7 +36,7 @@ impl InstanceInterface for WasdkInstance {
         }
     }
 
-    /// The surface of the view the target's window handle points at, holding a handle of its own
+    /// The surface of the view the target's window handle names, holding a handle of its own
     /// to the view from here on. Only a view makes a surface: a target that is no window handle,
     /// or a handle that is no view's, is left out, since wgpu gives a backend of its own no way to
     /// make the `CreateSurfaceError` it would answer.
@@ -84,9 +84,8 @@ impl InstanceInterface for WasdkInstance {
         })
     }
 
-    fn poll_all_devices(&self, _force_wait: bool) -> bool {
-        // A program polls its own devices; see `runtime`.
-        true
+    fn poll_all_devices(&self, force_wait: bool) -> bool {
+        crate::device::poll_all(force_wait)
     }
 
     fn wgsl_language_features(&self) -> WgslLanguageFeatures {

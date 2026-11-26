@@ -11,7 +11,7 @@ use wgpu_core::id::RenderBundleId;
 
 use crate::binding::BindGroup;
 use crate::buffers::Buffer;
-use crate::conversions::{label, non_zero_u64};
+use crate::conversions::{count, label, non_zero_u64};
 use crate::devices::Device;
 use crate::errors::ErrorSink;
 use crate::pipelines::RenderPipeline;
@@ -150,11 +150,13 @@ impl gpu::HostRenderBundleEncoder for GpuCtx<'_> {
         vertices: Range,
         instances: Range,
     ) -> wasmtime::Result<()> {
+        let vertex_count = count(&vertices)?;
+        let instance_count = count(&instances)?;
         self.bundle_encoder(&encoder)?.record(|instance, encoder| {
             instance.render_bundle_encoder_draw(
                 encoder,
-                vertices.end.wrapping_sub(vertices.start),
-                instances.end.wrapping_sub(instances.start),
+                vertex_count,
+                instance_count,
                 vertices.start,
                 instances.start,
             )
@@ -168,11 +170,13 @@ impl gpu::HostRenderBundleEncoder for GpuCtx<'_> {
         base_vertex: i32,
         instances: Range,
     ) -> wasmtime::Result<()> {
+        let index_count = count(&indices)?;
+        let instance_count = count(&instances)?;
         self.bundle_encoder(&encoder)?.record(|instance, encoder| {
             instance.render_bundle_encoder_draw_indexed(
                 encoder,
-                indices.end.wrapping_sub(indices.start),
-                instances.end.wrapping_sub(instances.start),
+                index_count,
+                instance_count,
                 indices.start,
                 base_vertex,
                 instances.start,

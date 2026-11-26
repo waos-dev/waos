@@ -221,7 +221,12 @@ async fn gpu() -> Result<(wgpu::Device, wgpu::Queue), String> {
         .await
         .map_err(|error| format!("no WebGPU adapter: {error}"))?;
     adapter
-        .request_device(&wgpu::DeviceDescriptor::default())
+        .request_device(&wgpu::DeviceDescriptor {
+            // wgpu's defaults within what the adapter has: some fall below them, as the
+            // iOS simulator's does.
+            required_limits: wgpu::Limits::default().or_worse_values_from(&adapter.limits()),
+            ..Default::default()
+        })
         .await
         .map_err(|error| format!("no WebGPU device: {error}"))
 }

@@ -13,7 +13,9 @@
 //! engine's time (`engine_time`), at the first tick after. `present` does not wait for the GPU
 //! either: a thread of the view's own waits for the frame, and hands it to the shell once it is
 //! drawn, while the program goes on with the next; a view with two frames waiting so is served none
-//! (`views::frames_in_flight`), which bounds how far the pool grows behind a slow GPU. While the
+//! (`views::frames_in_flight`), which bounds how far the pool grows behind a slow GPU. A frame the
+//! program configured opaque is made opaque on its way, whatever alpha it was drawn with
+//! (`alpha_clearer`), since a compositor shows the alpha a buffer holds. While the
 //! program is frozen every hardware buffer goes but the one on screen and the one being drawn
 //! (`view_hardware_buffers`).
 //!
@@ -31,6 +33,7 @@
 //! as the picture it shows, which is held as the shell's is until the next replaces it
 //! (`views::shown_picture`).
 
+mod alpha_clearer;
 mod canvas;
 mod counted_bytes;
 mod finisher;

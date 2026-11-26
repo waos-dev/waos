@@ -36,7 +36,12 @@ async fn main() -> Result<(), String> {
         .await
         .map_err(|error| format!("no WebGPU adapter: {error}"))?;
     let (device, queue) = adapter
-        .request_device(&wgpu::DeviceDescriptor::default())
+        .request_device(&wgpu::DeviceDescriptor {
+            // wgpu's defaults within what the adapter has: some fall below them, as the
+            // iOS simulator's does.
+            required_limits: wgpu::Limits::default().or_worse_values_from(&adapter.limits()),
+            ..Default::default()
+        })
         .await
         .map_err(|error| format!("no WebGPU device: {error}"))?;
 
@@ -184,7 +189,7 @@ fn scale(factor: f32) -> Vec<f32> {
 }
 
 /// A surface on `view`, configured for `device` at the view's size in the surface's preferred
-/// format.
+/// format, its alpha premultiplied so the layers beneath show.
 fn configured_surface(
     instance: &wgpu::Instance,
     adapter: &wgpu::Adapter,
@@ -195,9 +200,10 @@ fn configured_surface(
         .create_surface(view.clone())
         .map_err(|error| format!("no surface on the view: {error}"))?;
     let metrics = view.metrics();
-    let config = surface
+    let mut config = surface
         .get_default_config(adapter, metrics.width, metrics.height)
         .ok_or("the view's surface draws in no format")?;
+    config.alpha_mode = wgpu::CompositeAlphaMode::PreMultiplied;
     surface.configure(device, &config);
     Ok(surface)
 }

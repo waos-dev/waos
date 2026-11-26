@@ -14,7 +14,7 @@ use crate::buffer::WasdkBuffer;
 use crate::command::WasdkCommandBuffer;
 use crate::convert;
 use crate::left_out::left_out;
-use crate::runtime::{Owed, OwedCallbacks};
+use crate::runtime::PendingCallbacks;
 use crate::surface::WasdkSurfaceOutputDetail;
 use crate::texture::texel_copy_texture_to_wit;
 
@@ -22,15 +22,15 @@ use crate::texture::texel_copy_texture_to_wit;
 #[derive(Debug)]
 pub struct WasdkQueue {
     queue: Arc<Queue>,
-    /// The callbacks its device owes, its submitted work's among them.
-    owed: OwedCallbacks,
+    /// The callbacks its device waits to run, its submitted work's among them.
+    callbacks: PendingCallbacks,
 }
 
 impl WasdkQueue {
-    pub(crate) fn new(queue: Queue, owed: OwedCallbacks) -> Self {
+    pub(crate) fn new(queue: Queue, callbacks: PendingCallbacks) -> Self {
         WasdkQueue {
             queue: Arc::new(queue),
-            owed,
+            callbacks,
         }
     }
 }
@@ -57,15 +57,18 @@ impl QueueInterface for WasdkQueue {
         )))
     }
 
-    /// Always a staging buffer: the engine validates the write when it is made, and reports what
-    /// fails to the device's error scopes, as wgpu-core reports it.
+    /// Checked here, as wgpu's backend for the web checks it, against the buffer's size and
+    /// usage as made: a write the engine would refuse answers `None` before the program fills
+    /// memory for it.
     fn validate_write_buffer(
         &self,
-        _buffer: &DispatchBuffer,
-        _offset: BufferAddress,
-        _size: BufferSize,
+        buffer: &DispatchBuffer,
+        offset: BufferAddress,
+        size: BufferSize,
     ) -> Option<()> {
-        Some(())
+        WasdkBuffer::of_dispatch(buffer)
+            .takes_write(offset, size.get())
+            .then_some(())
     }
 
     fn write_staging_buffer(
@@ -105,10 +108,8 @@ impl QueueInterface for WasdkQueue {
     }
 
     fn on_submitted_work_done(&self, callback: BoxSubmittedWorkDoneCallback) {
-        self.owed.owe(Owed::SubmittedWorkDone {
-            queue: Arc::clone(&self.queue),
-            callback,
-        });
+        let answer = self.queue.on_submitted_work_done();
+        self.callbacks.add_submitted_work_done(answer, callback);
     }
 
     fn compact_blas(&self, _blas: &DispatchBlas) -> (Option<u64>, DispatchBlas) {

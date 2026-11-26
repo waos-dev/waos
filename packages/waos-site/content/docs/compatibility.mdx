@@ -34,7 +34,7 @@ A break is a new version of the package, such as `wasdk:platform@2.0.0`. WaOS se
 
 These promises are about programs once built. Your source building against a newer `wasdk` follows Cargo's semver: within one `0.x` release of the crate, updating needs no change to your code.
 
-A release of `waos` pairs with one `wasdk` and one Waft, and `waos new` writes those versions: `waos-cli` 0.3 with `wasdk` and `wasdk-adapter-waft` 0.3, and Waft 0.8. `wasdk-adapter-waft` is built on one Waft, so an app keeps every `waft` crate at that version; two Wafts in one build fail with mismatched types between them.
+A release of `waos` pairs with one `wasdk` and one Waft, and `waos new` writes those versions: `waos-cli` 0.8 with `wasdk` and `wasdk-adapter-waft` 0.8, and Waft 0.14. `wasdk-adapter-waft` is built on one Waft, so an app keeps every `waft` crate at that version; two Wafts in one build fail with mismatched types between them.
 
 ## How it is kept
 

@@ -207,6 +207,7 @@ impl ShellView for HeadlessView {
         &self,
         _buffer: HardwareBuffer,
         layers: Vec<(Arc<dyn ShellCompositionLayer>, Placement)>,
+        _opaque: bool,
         released: Released,
     ) {
         *locked(&self.layers) = layers

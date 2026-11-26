@@ -340,27 +340,16 @@ pub fn memory_hints_to_wit(hints: &wgpu::MemoryHints) -> wit::MemoryHints {
     }
 }
 
-/// The adapter's clock as the WIT answers it, `u64::MAX` standing for wgpu's invalid timestamp,
-/// which wgpu-types keeps as `u128::MAX`.
-pub fn presentation_timestamp_from_wit(timestamp: u64) -> wgpu::PresentationTimestamp {
-    match timestamp {
-        u64::MAX => wgpu::PresentationTimestamp::INVALID_TIMESTAMP,
-        nanoseconds => wgpu::PresentationTimestamp(u128::from(nanoseconds)),
-    }
+/// The adapter's clock as the WIT answers it, none being wgpu's invalid timestamp.
+pub fn presentation_timestamp_from_wit(timestamp: Option<u64>) -> wgpu::PresentationTimestamp {
+    timestamp.map_or(wgpu::PresentationTimestamp::INVALID_TIMESTAMP, |ticks| {
+        wgpu::PresentationTimestamp(u128::from(ticks))
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn an_adapter_with_no_presentation_clock_answers_wgpus_invalid_timestamp() {
-        assert!(presentation_timestamp_from_wit(u64::MAX).is_invalid());
-        assert_eq!(
-            presentation_timestamp_from_wit(5),
-            wgpu::PresentationTimestamp(5)
-        );
-    }
 
     #[test]
     fn every_feature_comes_back_as_itself() {

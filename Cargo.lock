@@ -315,7 +315,7 @@ dependencies = [
 
 [[package]]
 name = "arguments"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "wasdk",
 ]
@@ -644,7 +644,7 @@ dependencies = [
 
 [[package]]
 name = "back"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "wasdk",
 ]
@@ -890,7 +890,7 @@ dependencies = [
 
 [[package]]
 name = "camera"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "waft-cupertino",
  "waft-embedder",
@@ -902,7 +902,7 @@ dependencies = [
 
 [[package]]
 name = "camera-app"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "tempfile",
  "tracing",
@@ -917,7 +917,7 @@ dependencies = [
 
 [[package]]
 name = "cameras"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "wasdk",
 ]
@@ -1079,7 +1079,7 @@ checksum = "e0921b3876b3a1df8a1c9f912e7f94342458022c2e84288015893d83c4d62a79"
 
 [[package]]
 name = "clipboard"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "wasdk",
 ]
@@ -1171,7 +1171,7 @@ dependencies = [
 
 [[package]]
 name = "composition-layers"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "wasdk",
  "wasdk-wgpu",
@@ -1214,7 +1214,7 @@ dependencies = [
 
 [[package]]
 name = "copy-paste"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "waft-cupertino",
  "waft-embedder",
@@ -2022,7 +2022,7 @@ dependencies = [
 
 [[package]]
 name = "egui-widgets"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "egui",
  "egui-wgpu",
@@ -2137,7 +2137,7 @@ dependencies = [
 
 [[package]]
 name = "environment"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "wasdk",
 ]
@@ -2305,7 +2305,7 @@ checksum = "b97b65636e5b9ef369943878ac74335ba1c55c1cb6adbf1e2c293c624248d693"
 
 [[package]]
 name = "fetch"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "futures",
  "wasdk",
@@ -2336,14 +2336,14 @@ checksum = "64cd1e32ddd350061ae6edb1b082d7c54915b5c672c389143b9a63403a109f24"
 
 [[package]]
 name = "file-dialogs"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "wasdk",
 ]
 
 [[package]]
 name = "file-escapes"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "wasdk",
  "wit-bindgen 0.63.0",
@@ -2351,7 +2351,7 @@ dependencies = [
 
 [[package]]
 name = "file-watching"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "wasdk",
 ]
@@ -2369,7 +2369,7 @@ dependencies = [
 
 [[package]]
 name = "files"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "wasdk",
 ]
@@ -2427,7 +2427,7 @@ checksum = "28a80e3145d8ad11ba0995949bbcf48b9df2be62772b3d351ef017dff6ecb853"
 
 [[package]]
 name = "flood"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "wasdk",
  "wit-bindgen 0.63.0",
@@ -2514,7 +2514,7 @@ dependencies = [
 
 [[package]]
 name = "fonts"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "read-fonts 0.33.1",
  "wasdk",
@@ -2549,14 +2549,14 @@ checksum = "aa9a19cbb55df58761df49b23516a86d432839add4af60fc256da840f66ed35b"
 
 [[package]]
 name = "forever"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "wasdk",
 ]
 
 [[package]]
 name = "forever-shown"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "wasdk",
 ]
@@ -2868,14 +2868,14 @@ dependencies = [
 
 [[package]]
 name = "gpu-calls"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "wasdk",
 ]
 
 [[package]]
 name = "gpu-errors"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "futures",
  "wasdk",
@@ -2951,7 +2951,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-hello"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "gpui",
  "unicode-segmentation",
@@ -3071,7 +3071,7 @@ dependencies = [
 
 [[package]]
 name = "hardware-buffers"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "wasdk",
  "wasdk-wgpu",
@@ -3181,7 +3181,7 @@ checksum = "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea"
 
 [[package]]
 name = "hello"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "waft",
  "waft-cupertino",
@@ -3603,7 +3603,7 @@ dependencies = [
 
 [[package]]
 name = "image-codecs"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "wasdk",
 ]
@@ -3664,7 +3664,7 @@ dependencies = [
 
 [[package]]
 name = "input"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "wasdk",
  "wasdk-wgpu",
@@ -3673,14 +3673,14 @@ dependencies = [
 
 [[package]]
 name = "inspect"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "wasdk",
 ]
 
 [[package]]
 name = "inspector"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "futures",
  "indexmap",
@@ -4129,7 +4129,7 @@ checksum = "dae608c151f68243f2b000364e1f7b186d9c29845f7d2d85bd31b9ad77ad552b"
 
 [[package]]
 name = "machines"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "futures",
  "wasdk",
@@ -4182,14 +4182,14 @@ dependencies = [
 
 [[package]]
 name = "media-assets"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "wasdk",
 ]
 
 [[package]]
 name = "media-players"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "wasdk",
 ]
@@ -4229,7 +4229,7 @@ dependencies = [
 
 [[package]]
 name = "menus"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "wasdk",
 ]
@@ -4355,7 +4355,7 @@ dependencies = [
 
 [[package]]
 name = "naga-shader"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "naga",
  "wasdk",
@@ -4407,7 +4407,7 @@ dependencies = [
 
 [[package]]
 name = "network"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "wasdk",
 ]
@@ -4478,7 +4478,7 @@ checksum = "0676bb32a98c1a483ce53e500a81ad9c3d5b3f7c920c28c24e9cb0980d0b5bc8"
 
 [[package]]
 name = "notes"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -4495,7 +4495,7 @@ dependencies = [
 
 [[package]]
 name = "notifications"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "wasdk",
 ]
@@ -5025,7 +5025,7 @@ dependencies = [
 
 [[package]]
 name = "occluded"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "wasdk",
  "wasdk-wgpu",
@@ -5055,7 +5055,7 @@ checksum = "384b8ab6d37215f3c5301a95a4accb5d64aa607f1fcb26a11b5303878451b4fe"
 
 [[package]]
 name = "opener"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "wasdk",
 ]
@@ -5217,7 +5217,7 @@ checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
 
 [[package]]
 name = "permissions"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "wasdk",
 ]
@@ -5359,7 +5359,7 @@ checksum = "b4596b6d070b27117e987119b4dac604f3c58cfb0b191112e24771b2faeac1a6"
 
 [[package]]
 name = "player"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "tracing",
  "waft-cupertino",
@@ -5962,7 +5962,7 @@ dependencies = [
 
 [[package]]
 name = "readback"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "futures",
  "wasdk",
@@ -7002,7 +7002,7 @@ dependencies = [
 
 [[package]]
 name = "sound"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "wasdk",
 ]
@@ -7129,7 +7129,7 @@ dependencies = [
 
 [[package]]
 name = "survey"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "wasdk",
 ]
@@ -7996,7 +7996,7 @@ checksum = "009dbb7700f11c55ef83aebbe4c0e9cf1f1ac0844bd8d6f00dc38f302026e13a"
 
 [[package]]
 name = "tone"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "wasdk",
 ]
@@ -8120,14 +8120,14 @@ dependencies = [
 
 [[package]]
 name = "trap"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "wasdk",
 ]
 
 [[package]]
 name = "triangle"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "wasdk",
  "wasdk-wgpu",
@@ -8136,7 +8136,7 @@ dependencies = [
 
 [[package]]
 name = "trust"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "wasdk",
 ]
@@ -8174,7 +8174,7 @@ dependencies = [
 
 [[package]]
 name = "two-windows"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "waft-cupertino",
  "waft-embedder",
@@ -8612,7 +8612,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "video-decoders"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "futures",
  "wasdk",
@@ -8622,7 +8622,7 @@ dependencies = [
 
 [[package]]
 name = "video-decoding"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "futures",
  "wasdk",
@@ -8632,7 +8632,7 @@ dependencies = [
 
 [[package]]
 name = "video-frames"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "futures",
  "wasdk",
@@ -8642,7 +8642,7 @@ dependencies = [
 
 [[package]]
 name = "video-player"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "url",
  "waft-embedder",
@@ -8718,7 +8718,7 @@ dependencies = [
 
 [[package]]
 name = "waft-back"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "waft-cupertino",
  "waft-embedder",
@@ -8956,7 +8956,7 @@ dependencies = [
 
 [[package]]
 name = "waft-http"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "http",
  "waft",
@@ -8967,7 +8967,7 @@ dependencies = [
 
 [[package]]
 name = "waft-image"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "waft-embedder",
  "waft-widgets",
@@ -8977,7 +8977,7 @@ dependencies = [
 
 [[package]]
 name = "waft-io"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "http",
  "waft",
@@ -9004,7 +9004,7 @@ dependencies = [
 
 [[package]]
 name = "waft-menus"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "waft-cupertino",
  "waft-embedder",
@@ -9131,7 +9131,7 @@ dependencies = [
 
 [[package]]
 name = "waft-time"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "waft-embedder",
  "waft-foundation",
@@ -9223,7 +9223,7 @@ dependencies = [
 
 [[package]]
 name = "waos"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "addr2line 0.26.1",
  "anyhow",
@@ -9284,11 +9284,11 @@ dependencies = [
 
 [[package]]
 name = "waos-activity"
-version = "0.7.1"
+version = "0.8.0"
 
 [[package]]
 name = "waos-app"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "anyhow",
  "block2",
@@ -9358,7 +9358,7 @@ dependencies = [
 
 [[package]]
 name = "waos-capabilities"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "futures",
  "serde",
@@ -9368,7 +9368,7 @@ dependencies = [
 
 [[package]]
 name = "waos-cli"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "anyhow",
  "cargo_metadata",
@@ -9399,7 +9399,7 @@ dependencies = [
 
 [[package]]
 name = "waos-dev-protocol"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "aws-lc-rs",
  "ciborium",
@@ -9421,7 +9421,7 @@ dependencies = [
 
 [[package]]
 name = "waos-gpu-host"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "bitflags 2.13.2",
  "futures",
@@ -9434,7 +9434,7 @@ dependencies = [
 
 [[package]]
 name = "waos-headless"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "tokio",
  "url",
@@ -9443,7 +9443,7 @@ dependencies = [
 
 [[package]]
 name = "waos-local"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "waos-capabilities",
  "waos-local-audio",
@@ -9452,7 +9452,7 @@ dependencies = [
 
 [[package]]
 name = "waos-local-audio"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "waos-capabilities",
  "web-audio-api",
@@ -9460,23 +9460,23 @@ dependencies = [
 
 [[package]]
 name = "waos-local-cameras"
-version = "0.7.1"
+version = "0.8.0"
 
 [[package]]
 name = "waos-local-fs"
-version = "0.7.1"
+version = "0.8.0"
 
 [[package]]
 name = "waos-local-media"
-version = "0.7.1"
+version = "0.8.0"
 
 [[package]]
 name = "waos-local-network"
-version = "0.7.1"
+version = "0.8.0"
 
 [[package]]
 name = "waos-local-processes"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "anyhow",
  "futures",
@@ -9492,7 +9492,7 @@ dependencies = [
 
 [[package]]
 name = "waos-package"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "ed25519-dalek",
  "getrandom 0.4.3",
@@ -9509,7 +9509,7 @@ dependencies = [
 
 [[package]]
 name = "waos-program-window"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "futures",
  "objc2-core-foundation",
@@ -9528,7 +9528,7 @@ dependencies = [
 
 [[package]]
 name = "waos-store"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "futures",
  "hex",
@@ -9547,11 +9547,11 @@ dependencies = [
 
 [[package]]
 name = "waos-test-programs"
-version = "0.7.1"
+version = "0.8.0"
 
 [[package]]
 name = "waos-window"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "futures",
  "libc",
@@ -9576,7 +9576,7 @@ dependencies = [
 
 [[package]]
 name = "waos-window-messages"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "hex",
  "mach2",
@@ -9590,7 +9590,7 @@ dependencies = [
 
 [[package]]
 name = "waos-wit-serialize"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -9601,7 +9601,7 @@ dependencies = [
 
 [[package]]
 name = "wasdk"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "inventory",
  "raw-window-handle",
@@ -9611,7 +9611,7 @@ dependencies = [
 
 [[package]]
 name = "wasdk-adapter-egui"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "egui",
  "tracing",
@@ -9620,7 +9620,7 @@ dependencies = [
 
 [[package]]
 name = "wasdk-adapter-gpui"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "anyhow",
  "env_filter",
@@ -9636,7 +9636,7 @@ dependencies = [
 
 [[package]]
 name = "wasdk-adapter-waft"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "futures",
  "http",
@@ -9655,7 +9655,7 @@ dependencies = [
 
 [[package]]
 name = "wasdk-macros"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -9664,7 +9664,7 @@ dependencies = [
 
 [[package]]
 name = "wasdk-wgpu"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "futures",
  "js-sys",
@@ -11507,7 +11507,7 @@ dependencies = [
 
 [[package]]
 name = "workers"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "wasdk",
 ]
@@ -11647,7 +11647,7 @@ checksum = "ec7a2a501ed189703dba8b08142f057e887dfc4b2cc4db2d343ac6376ba3e0b9"
 
 [[package]]
 name = "xtask"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "tempfile",
 ]

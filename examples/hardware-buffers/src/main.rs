@@ -344,7 +344,12 @@ impl Gpu {
             .await
             .map_err(|error| format!("no WebGPU adapter: {error}"))?;
         let (device, queue) = adapter
-            .request_device(&wgpu::DeviceDescriptor::default())
+            .request_device(&wgpu::DeviceDescriptor {
+                // wgpu's defaults within what the adapter has: some fall below them, as the
+                // iOS simulator's does.
+                required_limits: wgpu::Limits::default().or_worse_values_from(&adapter.limits()),
+                ..Default::default()
+            })
             .await
             .map_err(|error| format!("no WebGPU device: {error}"))?;
         Ok(Gpu {
@@ -388,7 +393,7 @@ impl Gpu {
     }
 
     /// A surface on `view`, configured at the view's size in the surface's preferred format, for
-    /// drawing into and copying into.
+    /// drawing into and copying into, its alpha premultiplied so the layer beneath shows.
     fn surface_on(&self, view: &Arc<View>) -> Result<wgpu::Surface<'static>, String> {
         let surface = self
             .instance
@@ -399,6 +404,7 @@ impl Gpu {
             .get_default_config(&self.adapter, metrics.width, metrics.height)
             .ok_or("the view's surface draws in no format")?;
         config.usage |= wgpu::TextureUsages::COPY_DST;
+        config.alpha_mode = wgpu::CompositeAlphaMode::PreMultiplied;
         surface.configure(&self.device, &config);
         Ok(surface)
     }

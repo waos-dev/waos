@@ -12,7 +12,11 @@
 //! ```ignore
 //! let instance = wasdk_wgpu::instance();
 //! let adapter = instance.request_adapter(&wgpu::RequestAdapterOptions::default()).await?;
-//! let (device, queue) = adapter.request_device(&wgpu::DeviceDescriptor::default()).await?;
+//! // wgpu's defaults within what the adapter has: a limit past the adapter's is refused, as with
+//! // wgpu's own backends, and some adapters, as the iOS simulator's, fall below the defaults.
+//! let required_limits = wgpu::Limits::default().or_worse_values_from(&adapter.limits());
+//! let descriptor = wgpu::DeviceDescriptor { required_limits, ..Default::default() };
+//! let (device, queue) = adapter.request_device(&descriptor).await?;
 //!
 //! // A view is the window a surface is made for, shared with it as any window is:
 //! let view = std::sync::Arc::new(view);
@@ -45,8 +49,9 @@
 //! makes its surface from a window's handles runs unchanged. The surface is the view's own
 //! (`view.surface()`): its capabilities say what the engine serves, `configure` sets the frames'
 //! size, whatever the view's own, and `get_current_texture` answers `Occluded` while the view is
-//! not on screen. `Queue::present` presents the view, with the layers it holds beneath it
-//! (`view.set_layers`); a frame dropped without a present is not presented.
+//! not on screen and `Validation` while the frame taken last is still held. `Queue::present`
+//! presents the view, with the layers it holds beneath it (`view.set_layers`); a frame dropped
+//! without a present is discarded, as with wgpu's own backends.
 //!
 //! # What `wasdk:gpu` leaves out
 //!
@@ -81,24 +86,30 @@
 //!
 //! # Where the semantics differ from wgpu-core
 //!
-//! - **Mapping copies.** The boundary shares no memory: `get_mapped_range` copies the range in,
-//!   and a mutable view is copied back when it is dropped; drop every `BufferViewMut` before
-//!   `unmap`. The first range of a buffer made mapped (`mapped_at_creation`) is not copied in: it
-//!   is zeros, which the program makes itself, so `create_buffer_init` sends its data once. A
-//!   range that is not mapped traps the program, where wgpu-core answers a
+//! - **Mapping copies, once each way.** The boundary shares no memory: a mapping's range is copied
+//!   in once, at the first `get_mapped_range`, and what the program wrote is copied back once, at
+//!   `unmap`; the views are copies of that one in the program's memory, so drop every
+//!   `BufferViewMut` before `unmap`, as wgpu requires. A buffer the GPU never writes, `MAP_WRITE`
+//!   with nothing but `COPY_SRC`, is never copied in: the program's own last copy is its bytes.
+//!   Nor is a buffer made mapped (`mapped_at_creation`), which is zeros, so `create_buffer_init`
+//!   sends its data once. A range outside the mapping panics, where wgpu-core answers a
 //!   [`wgpu::MapRangeError`], which no backend outside wgpu can make.
-//! - **A mapping's and submitted work's callbacks run at `Device::poll` with `Wait`, or as the
-//!   program yields**, whichever comes first, each once, in the order asked: code written for
-//!   native wgpu, which asks, polls and reads at once, and code written for the web, which
-//!   awaits, both work. `poll` honours its submission index and timeout, then delivers the
-//!   callbacks owed, waiting for each; `poll` with `Poll` delivers none.
+//! - **A mapping's and submitted work's callbacks run at `Device::poll`, or as the program
+//!   yields**, whichever comes first, each once, in the order asked. The request reaches the
+//!   engine at the call, as with wgpu's own backend, so an `unmap` aborts a mapping not yet
+//!   answered, running its callback at once, and submitted work is told done once the work
+//!   submitted before the ask is. `poll`, with `Wait` or `Poll`, runs every callback whose work is
+//!   done when the engine's poll returns: code written for native wgpu, which asks, polls and
+//!   reads at once, and code written for the web, which awaits, both work.
 //! - **Uncaptured errors and device loss arrive as the program awaits.** The device's uncaptured
 //!   errors are read by a task started as the device opens, which hands each to the handler set
 //!   with `on_uncaptured_error`, or else panics, as wgpu's default handler does;
 //!   `set_device_lost_callback` starts a task too. A device opened inside a `wasdk::block_on`
 //!   keeps that wait from returning, since the wait waits for the task: open it from async code.
-//! - **`Queue::write_buffer_with` never answers `None`**: the engine validates the write when the
-//!   view is dropped, reporting what fails to the error scopes.
+//! - **`Queue::write_buffer_with` answers `None` without reporting an error**, for a buffer without
+//!   `COPY_DST`, an offset or size not aligned to `COPY_BUFFER_ALIGNMENT`, or a write past the
+//!   buffer's end, checked here as wgpu's backend for the web checks it; wgpu-core's backend also
+//!   reports it to the error scopes.
 
 /// Recovers this backend's object from the wgpu API type or dispatch wrapper carrying it; an
 /// object from another wgpu backend is a programming error.

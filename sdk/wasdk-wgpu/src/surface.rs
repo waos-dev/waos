@@ -1,9 +1,10 @@
 //! Surfaces: wgpu's way to draw on a window, here on a program's view. The window is the view
-//! itself, or any window over one: `wasdk` gives a view its window handle, and the view a handle
-//! points at (`wasdk::view_of_window_handle`), which is how a surface finds its view
-//! (`instance`). Each call maps to the view's surface's (`view.surface()`): its capabilities, its
-//! configuration, its texture each frame; and the frame's present presents the view, with the
-//! layers it holds beneath it (`Queue::present`, in `queue`).
+//! itself, or any window over one: `wasdk` gives a view its window handle, a number, and the view
+//! a handle names (`wasdk::view_of_window_handle`), which is how a surface finds its view
+//! (`instance`), as wgpu's backend for the web finds its canvas. Each call maps to the view's
+//! surface's (`view.surface()`): its capabilities, its configuration, its texture each frame; the
+//! frame's present presents the view, with the layers it holds beneath it (`Queue::present`, in
+//! `queue`), and a frame dropped unpresented is given back to the surface (`discard`).
 //!
 //! The invariant: a surface holds a handle of its own to the view, taken as it is made, and each
 //! frame it hands out holds the view through it, so the window the surface was made from may go
@@ -101,6 +102,7 @@ impl SurfaceInterface for WasdkSurface {
         };
         let frame = WasdkSurfaceOutputDetail {
             view: Arc::clone(&self.view),
+            surface: Arc::clone(&self.surface),
         };
         (
             texture.map(|texture| DispatchTexture::custom(WasdkTexture::new(texture))),
@@ -110,10 +112,12 @@ impl SurfaceInterface for WasdkSurface {
     }
 }
 
-/// A frame a surface handed out: the view it is presented on.
+/// A frame a surface handed out: the view it is presented on, and the surface it is given back
+/// to unpresented.
 #[derive(Debug)]
 pub struct WasdkSurfaceOutputDetail {
     view: Arc<View>,
+    surface: Arc<Surface>,
 }
 
 downcast!(WasdkSurfaceOutputDetail: dispatch DispatchSurfaceOutputDetail);
@@ -126,9 +130,11 @@ impl WasdkSurfaceOutputDetail {
 }
 
 impl SurfaceOutputDetailInterface for WasdkSurfaceOutputDetail {
-    /// A frame dropped without a present is not presented: the view presents only when asked, and
-    /// the next frame taken replaces it.
-    fn texture_discard(&self) {}
+    /// A frame dropped without a present is given back, as wgpu-core's surfaces discard it: the
+    /// view's next present shows nothing new.
+    fn texture_discard(&self) {
+        self.surface.discard();
+    }
 
     fn texture_release(&self) {}
 }

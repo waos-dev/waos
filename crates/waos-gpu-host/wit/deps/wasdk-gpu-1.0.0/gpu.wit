@@ -57,9 +57,9 @@ interface gpu {
     /// What `format` can do on this adapter, past WebGPU's guarantees where the adapter has
     /// the `texture-adapter-specific-format-features` feature.
     texture-format-features: func(format: texture-format) -> texture-format-features;
-    /// The adapter's clock now, in the units of presentation timestamps; the largest `u64`
-    /// where the adapter has no such clock, wgpu's invalid timestamp.
-    presentation-timestamp: func() -> u64;
+    /// The adapter's clock now, in the units of presentation timestamps; none where the adapter
+    /// has no such clock (wgpu's invalid timestamp).
+    presentation-timestamp: func() -> option<u64>;
     /// A device and its queue, with the features and limits asked for; an error with wgpu-core's
     /// message for a feature or a limit the adapter does not have.
     request-device: async func(descriptor: device-descriptor) -> result<tuple<device, queue>, string>;
@@ -106,11 +106,12 @@ interface gpu {
     /// The errors no scope caught, in the order reported. The first call takes the stream; a
     /// later one answers none.
     uncaptured-errors: func() -> option<stream<error>>;
-    /// Resolves once the device is lost, destroyed or not.
+    /// Resolves once the device is lost, destroyed or not; never for a device dropped without
+    /// being lost, as wgpu never calls its lost callback then.
     lost: func() -> future<device-lost-info>;
 
-    /// Waits for the device's work as `kind` says, finishing the mappings and the
-    /// `on-submitted-work-done` it completes before it answers.
+    /// Waits for the device's work as `kind` says; the futures of the mappings and the
+    /// `on-submitted-work-done`s whose work it completes have resolved by the time it answers.
     poll: async func(kind: poll-type) -> result<poll-status, poll-error>;
     /// Loses the device at once, unmapping its buffers.
     destroy: func();
@@ -125,17 +126,19 @@ interface gpu {
     write-texture: func(destination: texel-copy-texture-info, data: list<u8>, layout: texel-copy-buffer-layout, size: extent3d);
     /// Submits the command buffers, in order, consuming them.
     submit: func(command-buffers: list<command-buffer>) -> submission-index;
-    /// Resolves once the work submitted before the call is done.
-    on-submitted-work-done: async func();
+    /// Asks, at the call, to hear when the work submitted before it is done: resolves then,
+    /// whatever is submitted after.
+    on-submitted-work-done: func() -> future;
     /// Nanoseconds per timestamp tick.
     timestamp-period: func() -> f32;
   }
 
   /// GPU memory of bytes.
   resource buffer {
-    /// Maps the range for the CPU once the GPU is done with it; an error with wgpu-core's message
-    /// where the mapping failed.
-    map-async: async func(mode: map-mode, offset: u64, size: option<u64>) -> result<_, string>;
+    /// Asks, at the call, for the range to be mapped for the CPU once the GPU is done with the
+    /// buffer, in order with the calls around it: resolves once it is mapped, or with wgpu-core's
+    /// message where the mapping failed or an `unmap` before then aborted it.
+    map-async: func(mode: map-mode, offset: u64, size: option<u64>) -> future<result<_, string>>;
     /// A copy of the mapped range's bytes. A range not mapped traps the app.
     read-mapped-range: func(offset: u64, size: u64) -> list<u8>;
     /// Writes `data` into the mapped range at `offset`. A range not mapped traps the app; one
@@ -292,7 +295,7 @@ interface gpu {
   resource render-bundle;
 
   /// Where a view's frames come from: a view hands out its own (`wasdk:platform/views`), and
-  /// the view's `present` puts the frame on screen.
+  /// the view's `present` puts the frame on screen, or the surface's `discard` gives it back.
   resource surface {
     /// What the surface can be configured with on `adapter`.
     capabilities: func(adapter: borrow<adapter>) -> surface-capabilities;
@@ -300,8 +303,13 @@ interface gpu {
     configure: func(device: borrow<device>, configuration: surface-configuration);
     /// What `configure` last set; none before it.
     configuration: func() -> option<surface-configuration>;
-    /// The texture to draw this frame into, or why there is none.
+    /// The texture to draw this frame into, or why there is none. Asked again while the texture
+    /// last taken is neither presented nor discarded, it answers `validation`, as wgpu-core
+    /// does.
     current-texture: func() -> current-surface-texture;
+    /// Gives back the texture last taken, unpresented: the view's next present shows nothing
+    /// new, and the next `current-texture` hands out another. Nothing where none is held.
+    discard: func();
     /// What the display the surface is on says of its range, as `adapter` reads it.
     hdr-info: func(adapter: borrow<adapter>) -> display-hdr-info;
   }

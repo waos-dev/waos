@@ -18,7 +18,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 pub(crate) use waos_gpu_host::reexports::{wgpu_core, wgpu_types};
-use waos_gpu_host::{DeviceOpener, SubmissionGate};
+use waos_gpu_host::{DeviceOpener, GpuObject, GpuObjectId, SubmissionGate};
 
 pub(crate) use devices::OpenedDevices;
 pub(crate) use in_flight::{Finishing, InFlight};
@@ -235,5 +235,18 @@ impl SubmissionGate for Lifecycle {
 
     fn while_allowed(&self, submit: &mut dyn FnMut()) -> bool {
         submit_while_running(self, submit)
+    }
+}
+
+/// The object wgpu-core `made`, held so it is given back as it goes, or its error: an object made
+/// with an error is invalid, and given back all the same.
+pub(crate) fn made<Id: GpuObjectId, E: std::error::Error + Send + Sync + 'static>(
+    gpu: &GpuInstance,
+    (id, error): (Id, Option<E>),
+) -> anyhow::Result<GpuObject<Id>> {
+    let object = GpuObject::new(id, gpu);
+    match error {
+        Some(error) => Err(anyhow::anyhow!(error)),
+        None => Ok(object),
     }
 }

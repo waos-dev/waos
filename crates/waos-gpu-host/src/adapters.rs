@@ -175,12 +175,14 @@ impl gpu::HostAdapter for GpuCtx<'_> {
             .into())
     }
 
-    /// wgpu's invalid timestamp, `u128::MAX`, as `u64::MAX`, which no clock in nanoseconds
-    /// reaches.
-    fn presentation_timestamp(&mut self, adapter: Resource<Adapter>) -> wasmtime::Result<u64> {
+    /// None for wgpu's invalid timestamp, `u128::MAX`, which no `u64` holds.
+    fn presentation_timestamp(
+        &mut self,
+        adapter: Resource<Adapter>,
+    ) -> wasmtime::Result<Option<u64>> {
         let adapter = self.table.get(&adapter)?.id();
         let timestamp = self.instance.adapter_get_presentation_timestamp(adapter);
-        Ok(u64::try_from(timestamp.0).unwrap_or(u64::MAX))
+        Ok(u64::try_from(timestamp.0).ok())
     }
 
     fn drop(&mut self, adapter: Resource<Adapter>) -> wasmtime::Result<()> {
@@ -199,8 +201,7 @@ impl<T: Send> gpu::HostAdapterWithStore<T> for HasGpuCtx {
             let ctx = access.get();
             let adapter = Arc::clone(ctx.table.get(&adapter)?);
             let adapter_limits = ctx.instance.adapter_limits(adapter.id());
-            let required_limits =
-                limits::fitted(ctx.table.get(&descriptor.required_limits)?, &adapter_limits);
+            let required_limits = ctx.table.get(&descriptor.required_limits)?.clone();
             if let Some(refusal) = limits::refusal(&required_limits, &adapter_limits) {
                 return Ok(Err(refusal));
             }

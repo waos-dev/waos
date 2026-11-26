@@ -52,6 +52,7 @@ impl ShellView for CanvasView {
         &self,
         buffer: HardwareBuffer,
         layers: Vec<(Arc<dyn ShellCompositionLayer>, Placement)>,
+        _opaque: bool,
         released: Box<dyn FnOnce() + Send + Sync>,
     ) {
         self.canvas.present(buffer, layers, released);

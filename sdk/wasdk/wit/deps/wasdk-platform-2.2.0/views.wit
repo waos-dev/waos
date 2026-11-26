@@ -31,7 +31,10 @@ package wasdk:platform@2.2.0;
 /// last set them, and its next present shows them with its picture; a layer the view no longer
 /// holds is taken off with that picture, so the layers shown are always those set when the picture
 /// on screen was presented. What a layer shows is apart from where it is: a buffer presented to it
-/// shows from the compositor's next frame, wherever the layer is placed then.
+/// shows from the compositor's next frame, wherever the layer is placed then. A surface configured
+/// `opaque`, or `auto`, which is the same, leaves nothing clear: the engine makes every pixel of
+/// its picture opaque, which hides whatever is beneath it, the view's layers among it; a program
+/// that places layers beneath its drawing configures `pre-multiplied`.
 ///
 /// Everything that happens to a view arrives on its one stream of events, in the order it
 /// happened; what the user set that belongs to no one view is `system`'s, and the screens are
@@ -200,9 +203,9 @@ interface views {
 
     /// Puts the texture last taken from the view's surface on screen, with the view's layers beneath
     /// it, once the GPU has finished the work the program submitted and the writes it queued
-    /// before this call. A present with no picture drawn since the last does nothing, its layers
-    /// included, since a layer moves with the picture that makes room for it: layers set since
-    /// wait for the next picture.
+    /// before this call. A present with no picture drawn since the last, or whose texture the
+    /// surface's `discard` gave back, does nothing, its layers included, since a layer moves with
+    /// the picture that makes room for it: layers set since wait for the next picture.
     present: func();
 
     /// The cursor to show while a pointer is over this view.

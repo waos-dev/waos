@@ -544,6 +544,7 @@ mod tests {
             &self,
             _hardware_buffer: HardwareBuffer,
             _layers: Vec<(Arc<dyn ShellCompositionLayer>, Placement)>,
+            _opaque: bool,
             released: Box<dyn FnOnce() + Send + Sync>,
         ) {
             self.presents.fetch_add(1, Ordering::SeqCst);

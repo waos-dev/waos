@@ -5,7 +5,7 @@
 //! once the embedder holds the program's submissions.
 
 use futures::channel::oneshot;
-use wasmtime::component::{Access, Accessor, Resource};
+use wasmtime::component::{Access, FutureReader, Resource};
 
 use crate::buffers::Buffer;
 use crate::commands::CommandBuffer;
@@ -109,7 +109,7 @@ impl gpu::HostQueue for GpuCtx<'_> {
     }
 }
 
-impl<T: Send> gpu::HostQueueWithStore<T> for HasGpuCtx {
+impl<T: Send + 'static> gpu::HostQueueWithStore<T> for HasGpuCtx {
     /// Waits while the embedder holds submissions, then submits inside the gate, so a hold that
     /// came meanwhile refuses the submission and the wait starts again. The program's store waits
     /// with it: to the program this is a plain call.
@@ -145,29 +145,28 @@ impl<T: Send> gpu::HostQueueWithStore<T> for HasGpuCtx {
         }
     }
 
-    async fn on_submitted_work_done(
-        accessor: &Accessor<T, Self>,
+    /// Asks wgpu-core now, in order with the submissions around the call, and answers the future
+    /// of its callback, which resolves once a wait on the device for the last submission before
+    /// the call has run it.
+    fn on_submitted_work_done(
+        mut access: Access<T, Self>,
         queue: Resource<Queue>,
-    ) -> wasmtime::Result<()> {
-        let (device, submission, done) = accessor.with(|mut access| -> wasmtime::Result<_> {
-            let ctx = access.get();
-            let queue = ctx.table.get(&queue)?;
-            let (answer, done) = oneshot::channel();
-            let submission = ctx.instance.queue_on_submitted_work_done(
-                queue.device.queue_id(),
-                Box::new(move || {
-                    // A program that stopped waiting dropped the other end.
-                    let _ = answer.send(());
-                }),
-            );
-            Ok((queue.device.clone(), submission, done))
-        })?;
-        let polled = devices::poll(device, devices::until_done(submission)).await;
-        if let Err(error) = polled {
-            tracing::warn!("waiting for a queue's submitted work: {error}");
-        }
-        // The wait ran the callback, or the device is lost and dropped it.
-        let _ = done.await;
-        Ok(())
+    ) -> wasmtime::Result<FutureReader<()>> {
+        let ctx = access.get();
+        let queue = ctx.table.get(&queue)?;
+        let (answer, done) = oneshot::channel();
+        let submission = ctx.instance.queue_on_submitted_work_done(
+            queue.device.queue_id(),
+            Box::new(move || {
+                // A program that dropped the future dropped the other end.
+                let _ = answer.send(());
+            }),
+        );
+        let device = queue.device.clone();
+        FutureReader::new(access, async move {
+            // A device lost meanwhile dropped the callback: its work will never be done.
+            devices::answer(device, Some(submission), done).await;
+            Ok::<_, wasmtime::Error>(())
+        })
     }
 }

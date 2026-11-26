@@ -55,7 +55,8 @@ const FOCUSED: Presence = Presence {
 };
 
 /// Triangle's colour and its clear colour, as the bytes in a hardware buffer: blue, green, red,
-/// alpha, of 0.95, 0.35, 0.25 and 0.06, 0.06, 0.08.
+/// alpha, of 0.95, 0.35, 0.25 and 0.06, 0.06, 0.08. The clear colour is drawn with alpha 0, and
+/// is opaque on the opaque surface triangle configures.
 const TRIANGLE: [u8; 4] = [64, 89, 242, 255];
 const CLEAR: [u8; 4] = [20, 15, 15, 255];
 
@@ -262,7 +263,9 @@ fn a_covered_triangle_draws_while_watched_and_not_minimized_nor_after_the_watch(
 }
 
 /// `examples/occluded` takes its surface's texture at each change of its state: a frame in sight,
-/// `occluded` covered or minimized, as wgpu's surfaces answer, and a frame again once shown.
+/// `occluded` covered or minimized, as wgpu's surfaces answer, and a frame again once shown, each
+/// frame given back as it is dropped; asked again while it holds one, `validation`, as wgpu-core
+/// answers.
 #[test]
 fn a_view_out_of_sight_answers_occluded_for_its_surfaces_texture() {
     let shell = TestShell::new();
@@ -279,6 +282,7 @@ fn a_view_out_of_sight_answers_occluded_for_its_surfaces_texture() {
         wait_until(line, || output.lines().iter().any(|said| said == line));
     };
     said("started: a frame");
+    said("asked again while holding a frame: validation, caught: true");
     view.presence_changed(COVERED);
     said("hidden: occluded");
     view.presence_changed(FOCUSED);
@@ -423,6 +427,7 @@ impl ShellView for HoldingBuffersView {
         &self,
         _buffer: HardwareBuffer,
         _layers: Vec<(Arc<dyn ShellCompositionLayer>, Placement)>,
+        _opaque: bool,
         released: Box<dyn FnOnce() + Send + Sync>,
     ) {
         self.held.lock().unwrap().push(released);

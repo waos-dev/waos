@@ -2,7 +2,8 @@
 //! asks for a view, configures the view's surface, and at its start and each change of its
 //! lifecycle state takes the surface's texture and prints the state and the answer, one line
 //! each, as `state: answer`. It presents nothing; a texture taken is dropped, as a frame not
-//! drawn is.
+//! drawn is, which gives it back to the surface. At its start it also asks again while holding
+//! the frame, which wgpu's surfaces refuse with a validation error, caught by a scope here.
 //!
 //! ```text
 //! cargo build -p occluded --target wasm32-wasip3
@@ -23,7 +24,12 @@ async fn main() -> Result<(), String> {
         .await
         .map_err(|error| format!("no adapter: {error}"))?;
     let (device, _queue) = adapter
-        .request_device(&wgpu::DeviceDescriptor::default())
+        .request_device(&wgpu::DeviceDescriptor {
+            // wgpu's defaults within what the adapter has: some fall below them, as the
+            // iOS simulator's does.
+            required_limits: wgpu::Limits::default().or_worse_values_from(&adapter.limits()),
+            ..Default::default()
+        })
         .await
         .map_err(|error| format!("no device: {error}"))?;
     let view = Arc::new(first_view().await?);
@@ -36,6 +42,12 @@ async fn main() -> Result<(), String> {
         .ok_or("the view's surface draws in no format")?;
     surface.configure(&device, &config);
     println!("started: {}", answer(&surface));
+    let held = surface.get_current_texture();
+    let scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
+    let again = answer(&surface);
+    let caught = scope.pop().await.is_some();
+    println!("asked again while holding a frame: {again}, caught: {caught}");
+    drop(held);
     while let Some(state) = states.next().await {
         println!("{}: {}", name(state), answer(&surface));
     }
