@@ -9,6 +9,8 @@ description: What WaOS promises a program built against an older version of its 
 
 The interface is three WIT packages, `wasdk:platform`, `wasdk:media` and `wasdk:program`, at `1.0.0` from the release that carries them. Each later `1.x` only adds: a new interface, function, method or type, marked `@since(version = 1.x)` in the [reference](/docs/reference). Nothing released is removed, renamed or changed in shape, and a function keeps its meaning. A record never gains a field and a variant or enum never gains a case: where more is needed, a new type or function comes beside the old one.
 
+The GPU is a fourth package, `wasdk:gpu`, which follows wgpu: its enums of features and formats are wgpu's at one release. When a later wgpu adds to them, they come in a new version of `wasdk:gpu`, served beside the old one as below.
+
 A program uses only what it calls. Built against `1.4.0`, it runs on any WaOS serving `1.4.0` or later, and on an older one too unless it calls something that came after that one.
 
 WASI's packages a program imports (`wasi:http`, `wasi:sockets`, `wasi:clocks` and the rest) are under the same promise, at the versions WaOS served when you built.
