@@ -197,6 +197,7 @@ fn a_package_opened_with_waos_is_installed_from_the_alert_once_the_user_says_so(
     );
     let view = phone_view(&desktop);
     desktop.tap(view, words::INSTALL);
+    desktop.settle_until_code_is_ready();
     assert_eq!(desktop.read(|library| library.installed().len()), 1);
     assert!(!desktop.shows("Install Triangle?"));
     assert!(!desktop.has::<CupertinoAlertDialog>(), "the alert goes");
@@ -219,6 +220,7 @@ fn a_package_opened_with_waos_is_installed_from_the_alert_once_the_user_says_so(
 fn a_held_icon_offers_settings_and_remove_and_remove_asks_first() {
     let mut desktop = desktop();
     install_on_the_phone(&mut desktop, b"\0asm");
+    desktop.settle_until_code_is_ready();
     let view = phone_view(&desktop);
     desktop.long_press(view, "Triangle");
     assert!(
@@ -416,6 +418,7 @@ fn a_long_name_is_laid_out_across_its_tile() {
     desktop.update(|library, cx| library.open_files(vec![package], cx));
     let view = phone_view(&desktop);
     desktop.tap(view, words::INSTALL);
+    desktop.settle_until_code_is_ready();
     let label = desktop
         .bounds_of::<waft::Text>(&|text| text.data.as_deref() == Some(name))
         .expect("the name");
@@ -468,6 +471,7 @@ fn a_package_picked_from_a_file_is_asked_about_and_installed_once_the_user_says_
     );
     assert!(!desktop.read(|library| library.is_picking()));
     desktop.tap(view, words::INSTALL);
+    desktop.settle_until_code_is_ready();
     assert_eq!(desktop.read(|library| library.installed().len()), 1);
     assert!(!desktop.has::<CupertinoAlertDialog>(), "the alert goes");
 }
@@ -515,6 +519,7 @@ fn a_package_picked_without_a_path_is_copied_and_asked_about() {
     desktop.tap(view, words::INSTALL_FROM_FILE_ROW);
     desktop.settle_until("the question", |desktop| desktop.shows("Install Triangle?"));
     desktop.tap(view, words::INSTALL);
+    desktop.settle_until_code_is_ready();
     assert_eq!(desktop.read(|library| library.installed().len()), 1);
 }
 

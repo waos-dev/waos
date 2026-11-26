@@ -4,7 +4,7 @@
 //! picks an output and moves onto it, and hears the microphone once its user allows it, which the
 //! shell shows; a program refused the picker or the microphone hears why, and is asked nothing for
 //! devices with no microphone, unless its microphone is simulated, which records WaOS's quiet tone,
-//! or silence as chosen, shown apart; a program whose user set the picker's answer is given that output
+//! shown apart; a program whose user set the picker's answer is given that output
 //! unasked, and one set that is not connected is not found; a program given no
 //! devices has no sound; and `examples/tone`, on time the test moves, is not frozen while it plays
 //! out of sight, is frozen once silent, a tone scheduled an hour ahead keeping nothing unfrozen, and
@@ -177,17 +177,6 @@ fn a_simulated_microphone_records_waoss_tone_unasked_on_devices_without_one_and_
         ],
         "shown recording with the microphone of WaOS's own"
     );
-}
-
-#[test]
-fn a_simulated_microphone_chosen_silent_is_heard_as_nothing() {
-    let shell = TestShell::new();
-    let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
-    let grants = QuestionsAsked::silent_simulated_microphone();
-    let (output, _devices, running) = run_sound_with(&engine, TestDevices::default(), grants);
-    output.wait_for("microphone: let go");
-    within(running.ended());
-    assert!(!output.has("microphone: heard"), "{:#?}", output.lines());
 }
 
 #[test]
