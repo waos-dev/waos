@@ -118,7 +118,10 @@ fn wit_buffer_format(format: HardwareBufferFormat) -> Option<platform::HardwareB
     }
 }
 
-fn framework_buffer_format(format: platform::HardwareBufferFormat) -> HardwareBufferFormat {
+/// The WIT's buffer format as Waft names it.
+pub(crate) fn framework_buffer_format(
+    format: platform::HardwareBufferFormat,
+) -> HardwareBufferFormat {
     match format {
         platform::HardwareBufferFormat::Bgra8 => HardwareBufferFormat::Bgra8,
         platform::HardwareBufferFormat::Rgba8 => HardwareBufferFormat::Rgba8,
