@@ -36,9 +36,11 @@ struct Maker(ID3D12Device);
 // thread at once.
 unsafe impl Send for Maker {}
 
-/// The makers, one for each adapter, made at its first texture; why not, where it gives no D3D12
-/// device.
-static MAKERS: LazyLock<Mutex<HashMap<Option<GpuId>, Result<Maker, String>>>> =
+/// A maker, or why there is none, where the adapter gives no D3D12 device.
+type MadeOrWhyNot = Result<Maker, String>;
+
+/// The makers, one for each adapter, made at its first texture.
+static MAKERS: LazyLock<Mutex<HashMap<Option<GpuId>, MadeOrWhyNot>>> =
     LazyLock::new(Mutex::default);
 
 /// A D3D12 device on the adapter `gpu` names, or wgpu-core's choice at high performance where it
@@ -281,7 +283,7 @@ mod tests {
     #[test]
     fn a_texture_shared_here_opens_on_another_device_and_lets_go_once_wgpu_frees_it() {
         let size = [64, 32];
-        let buffer = HardwareBuffer::new(make(size).unwrap(), size);
+        let buffer = HardwareBuffer::new(make(size, None).unwrap(), size);
         let gpu = crate::gpu::instance();
         let options = wgpu_types::RequestAdapterOptions {
             power_preference: wgpu_types::PowerPreference::HighPerformance,
