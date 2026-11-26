@@ -223,6 +223,12 @@ impl ShownView {
         }
     }
 
+    /// The program asked its window for a frame the window did not take: it hears the view's
+    /// metrics as they are, its answer.
+    pub fn answer_frame_request(&mut self) {
+        self.view.metrics_changed(metrics_of(&self.metrics));
+    }
+
     /// The view stands as `presence` says now: the program hears it if it changed.
     pub fn set_presence(&mut self, presence: Presence) {
         if presence != self.presence {

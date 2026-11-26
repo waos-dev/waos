@@ -14,7 +14,9 @@ interface windows {
     /// Where the window is on the desktop, in those coordinates.
     frame: func() -> rect;
     /// Moves and sizes the window, over `animate` nanoseconds where the platform can
-    /// animate a frame, at once elsewhere.
+    /// animate a frame, at once elsewhere. The size the window ends up with arrives as its view's
+    /// metrics once the system has decided, unchanged where it keeps the window as it is, as a
+    /// phone's shell does.
     set-frame: func(frame: rect, animate: option<u64>);
 
     set-title: func(title: string);

@@ -452,7 +452,10 @@ pub trait ShellTextInput: Send + Sync {
 /// The shell's side of `windows.window`, minus its frame, whether it is maximized or full screen
 /// and what a double-click on a title bar does, which the engine keeps from the shell's reports.
 pub trait ShellWindow: Send + Sync {
-    /// Moves and sizes the window, over `animate` where the platform can animate the change.
+    /// Moves and sizes the window, over `animate` where the platform can animate the change. The
+    /// size it ends up with reaches the program as its view's metrics
+    /// ([`ProgramView::metrics_changed`](crate::ProgramView::metrics_changed)), as they are
+    /// where the window keeps its size, as a phone's does.
     fn set_frame(&self, frame: Rect, animate: Option<Duration>);
 
     fn set_title(&self, title: &str);

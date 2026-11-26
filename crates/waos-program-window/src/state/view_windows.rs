@@ -722,8 +722,15 @@ impl<P: ProgramLink> ShownWindow<P> {
     fn carry_out(&mut self, call: &WindowCall, app: &mut App) {
         match call {
             WindowCall::SetFrame(frame, animate) => {
+                let size = self.window.frame().size();
                 self.window.set_frame(waft_rect(*frame), *animate);
                 self.read_window_again();
+                // A window that keeps its size, as a phone's does, tells its view nothing new: the
+                // program hears the size it kept.
+                if self.window.frame().size() == size {
+                    self.shown
+                        .update(app, |shown, _| shown.answer_frame_request());
+                }
             }
             WindowCall::SetTitle(title) => self.window.set_title(title),
             WindowCall::Show => {
