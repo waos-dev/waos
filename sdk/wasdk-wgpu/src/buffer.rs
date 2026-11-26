@@ -16,14 +16,14 @@ use wgpu::custom::{
 use wgpu::{BufferAddress, MapRangeError, WriteOnly};
 
 use crate::convert;
-use crate::runtime::{Owed, OwedCallbacks};
+use crate::runtime::PendingCallbacks;
 
 /// The buffer behind a [`wgpu::Buffer`] from this backend.
 #[derive(Debug)]
 pub struct WasdkBuffer {
     buffer: Arc<Buffer>,
-    /// The callbacks its device owes, a mapping's among them.
-    owed: OwedCallbacks,
+    /// The callbacks its device waits to run, its mappings' among them.
+    callbacks: PendingCallbacks,
     /// Whether it was made mapped and no range of it was handed out yet: it holds zeros, as
     /// wgpu-core makes every buffer, so its first range is not copied from the engine.
     untouched_since_creation: AtomicBool,
@@ -40,7 +40,7 @@ impl WasdkBuffer {
 
 pub(crate) fn create_buffer(
     device: &Device,
-    owed: &OwedCallbacks,
+    callbacks: &PendingCallbacks,
     desc: &wgpu::BufferDescriptor<'_>,
 ) -> DispatchBuffer {
     let descriptor = wasdk::gpu_types::BufferDescriptor {
@@ -51,7 +51,7 @@ pub(crate) fn create_buffer(
     };
     DispatchBuffer::custom(WasdkBuffer {
         buffer: Arc::new(device.create_buffer(&descriptor)),
-        owed: owed.clone(),
+        callbacks: callbacks.clone(),
         untouched_since_creation: AtomicBool::new(desc.mapped_at_creation),
     })
 }
@@ -72,13 +72,10 @@ impl BufferInterface for WasdkBuffer {
         range: Range<BufferAddress>,
         callback: BufferMapCallback,
     ) {
-        self.owed.owe(Owed::Mapping {
-            buffer: Arc::clone(&self.buffer),
-            mode: convert::map_mode_to_wit(mode),
-            offset: range.start,
-            size: range.end - range.start,
-            callback,
-        });
+        let mode = convert::map_mode_to_wit(mode);
+        let size = range.end - range.start;
+        let answer = self.buffer.map_async(mode, range.start, Some(size));
+        self.callbacks.add_mapping(&self.buffer, answer, callback);
     }
 
     /// The range copied in, except the first range of a buffer made mapped, which is zeros the
@@ -107,6 +104,7 @@ impl BufferInterface for WasdkBuffer {
         self.untouched_since_creation
             .store(false, Ordering::Relaxed);
         self.buffer.unmap();
+        self.callbacks.run_resolved_mapping(&self.buffer);
     }
 
     fn destroy(&self) {

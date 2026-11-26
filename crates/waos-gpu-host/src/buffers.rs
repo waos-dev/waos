@@ -8,7 +8,7 @@
 use std::sync::Arc;
 
 use futures::channel::oneshot;
-use wasmtime::component::{Accessor, Resource};
+use wasmtime::component::{Access, FutureReader, Resource};
 use wgpu_core::id::BufferId;
 
 use crate::devices::{self, Device};
@@ -122,48 +122,44 @@ impl gpu::HostBuffer for GpuCtx<'_> {
     }
 }
 
-impl<T: Send> gpu::HostBufferWithStore<T> for HasGpuCtx {
-    /// Asks wgpu-core for the mapping, then waits on the device for the submission that last used
-    /// the buffer, which runs its callback; a mapping wgpu-core refused has answered already.
-    async fn map_async(
-        accessor: &Accessor<T, Self>,
+impl<T: Send + 'static> gpu::HostBufferWithStore<T> for HasGpuCtx {
+    /// Asks wgpu-core for the mapping now, in order with the program's other calls, and answers
+    /// the future of its callback, which resolves once a wait on the device for the submission
+    /// that last used the buffer has run it; a mapping wgpu-core refused has answered already,
+    /// and one an `unmap` aborted answers as the `unmap` is made.
+    fn map_async(
+        mut access: Access<T, Self>,
         buffer: Resource<Buffer>,
         mode: MapMode,
         offset: u64,
         size: Option<u64>,
-    ) -> wasmtime::Result<Result<(), String>> {
-        let (device, submission, mapped) = accessor.with(|mut access| -> wasmtime::Result<_> {
-            let ctx = access.get();
-            let buffer = ctx.table.get(&buffer)?;
-            let (answer, mapped) = oneshot::channel();
-            let operation = wgpu_core::resource::BufferMapOperation {
-                host: mode.into(),
-                callback: Some(Box::new(move |result| {
-                    // A program that stopped waiting dropped the other end.
-                    let _ = answer.send(result);
-                })),
+    ) -> wasmtime::Result<FutureReader<Result<(), String>>> {
+        let ctx = access.get();
+        let buffer = ctx.table.get(&buffer)?;
+        let (answer, mapped) = oneshot::channel();
+        let operation = wgpu_core::resource::BufferMapOperation {
+            host: mode.into(),
+            callback: Some(Box::new(move |result| {
+                // A program that dropped the future dropped the other end.
+                let _ = answer.send(result);
+            })),
+        };
+        let asked = ctx
+            .instance
+            .buffer_map_async(buffer.id(), offset, size, operation);
+        let submission = asked.as_ref().ok().copied();
+        buffer
+            .device
+            .errors
+            .report(asked.err(), "Buffer::map_async", None);
+        let device = buffer.device.clone();
+        FutureReader::new(access, async move {
+            let mapped = match devices::answer(device, submission, mapped).await {
+                Some(Ok(())) => Ok(()),
+                Some(Err(error)) => Err(error.to_string()),
+                None => Err(wgpu_core::resource::BufferAccessError::MapAborted.to_string()),
             };
-            let asked = ctx
-                .instance
-                .buffer_map_async(buffer.id(), offset, size, operation);
-            let submission = asked.as_ref().ok().copied();
-            buffer
-                .device
-                .errors
-                .report(asked.err(), "Buffer::map_async", None);
-            Ok((buffer.device.clone(), submission, mapped))
-        })?;
-        if let Some(submission) = submission {
-            let polled = devices::poll(device, devices::until_done(submission)).await;
-            if let Err(error) = polled {
-                tracing::warn!("waiting for a buffer's mapping: {error}");
-            }
-        }
-        // The wait ran the callback; a device lost meanwhile dropped it unanswered.
-        Ok(match mapped.await {
-            Ok(Ok(())) => Ok(()),
-            Ok(Err(error)) => Err(error.to_string()),
-            Err(_) => Err(wgpu_core::resource::BufferAccessError::MapAborted.to_string()),
+            Ok::<_, wasmtime::Error>(mapped)
         })
     }
 }

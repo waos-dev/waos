@@ -16,7 +16,7 @@ use wgpu::{AdapterInfo, Features, Limits};
 
 use crate::device_lost::DeviceLostCallback;
 use crate::left_out::left_out;
-use crate::runtime::OwedCallbacks;
+use crate::runtime::PendingCallbacks;
 use crate::uncaptured_errors::UncapturedErrors;
 use crate::{binding, buffer, command, convert, pass, pipeline, query, sampler, shader, texture};
 
@@ -24,8 +24,8 @@ use crate::{binding, buffer, command, convert, pass, pipeline, query, sampler, s
 #[derive(Debug)]
 pub struct WasdkDevice {
     device: Arc<Device>,
-    /// The callbacks it owes the program: its buffers' mappings and its queue's submitted work.
-    owed: OwedCallbacks,
+    /// The callbacks it waits to run: its buffers' mappings and its queue's submitted work.
+    callbacks: PendingCallbacks,
     /// How many error scopes are open, so a pop out of order is caught here.
     open_error_scopes: AtomicU32,
     uncaptured_errors: UncapturedErrors,
@@ -37,12 +37,12 @@ downcast!(WasdkDevice: api wgpu::Device, dispatch DispatchDevice);
 impl WasdkDevice {
     /// The device over the engine's, listening to its uncaptured errors and its loss from now
     /// on.
-    pub(crate) fn new(device: Device, owed: OwedCallbacks) -> Self {
+    pub(crate) fn new(device: Device, callbacks: PendingCallbacks) -> Self {
         WasdkDevice {
             uncaptured_errors: UncapturedErrors::listen(&device),
             device_lost: DeviceLostCallback::listen(&device),
             device: Arc::new(device),
-            owed,
+            callbacks,
             open_error_scopes: AtomicU32::new(0),
         }
     }
@@ -133,7 +133,7 @@ impl DeviceInterface for WasdkDevice {
     }
 
     fn create_buffer(&self, desc: &wgpu::BufferDescriptor<'_>) -> DispatchBuffer {
-        buffer::create_buffer(&self.device, &self.owed, desc)
+        buffer::create_buffer(&self.device, &self.callbacks, desc)
     }
 
     fn create_texture(&self, desc: &wgpu::TextureDescriptor<'_>) -> DispatchTexture {
@@ -220,21 +220,16 @@ impl DeviceInterface for WasdkDevice {
         // The engine's development tools start captures; a program cannot.
     }
 
-    /// The engine's poll, its submission and timeout honoured; then, once it has waited, every
-    /// callback the device owes, each of whose work the wait has done or the engine waits for.
-    /// `Poll` delivers none: the callbacks run as the program yields.
+    /// The engine's poll, its submission and timeout honoured; then every callback whose work
+    /// is done by now, in the order asked, as wgpu-core runs them inside its poll, whether it
+    /// waited or timed out.
     fn poll(
         &self,
         poll_type: wgpu::wgt::PollType<u64>,
     ) -> Result<wgpu::PollStatus, wgpu::PollError> {
-        let waits = matches!(poll_type, wgpu::wgt::PollType::Wait { .. });
-        let status = self
-            .device
-            .poll(convert::poll_type_to_wit(poll_type))
-            .map_err(convert::poll_error_from_wit)?;
-        if waits {
-            self.owed.deliver();
-        }
+        let polled = self.device.poll(convert::poll_type_to_wit(poll_type));
+        self.callbacks.run_resolved();
+        let status = polled.map_err(convert::poll_error_from_wit)?;
         Ok(convert::poll_status_from_wit(status))
     }
 

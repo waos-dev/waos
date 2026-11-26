@@ -15,7 +15,7 @@ use wgpu::{
 use crate::convert;
 use crate::device::WasdkDevice;
 use crate::queue::WasdkQueue;
-use crate::runtime::OwedCallbacks;
+use crate::runtime::PendingCallbacks;
 use crate::surface::WasdkSurface;
 
 /// The adapter behind a [`wgpu::Adapter`] from this backend.
@@ -68,14 +68,14 @@ impl AdapterInterface for WasdkAdapter {
                 .request_device(descriptor)
                 .await
                 .map_err(RequestDeviceError::from_message)?;
-            let owed = OwedCallbacks::default();
-            let device = WasdkDevice::new(device, owed.clone());
-            // The device's listener goes to the executor awaiting this future
-            // (`uncaptured_errors`).
+            let callbacks = PendingCallbacks::start();
+            let device = WasdkDevice::new(device, callbacks.clone());
+            // The device's tasks go to the executor awaiting this future
+            // (`uncaptured_errors`, `runtime`).
             wasdk::yield_async().await;
             Ok((
                 DispatchDevice::custom(device),
-                DispatchQueue::custom(WasdkQueue::new(queue, owed)),
+                DispatchQueue::custom(WasdkQueue::new(queue, callbacks)),
             ))
         })
     }

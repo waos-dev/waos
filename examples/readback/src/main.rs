@@ -6,6 +6,11 @@
 //! the order wgpu promises: a queue's submitted work is told done after the mappings asked before
 //! it. What is read back was written through a buffer made mapped, as `create_buffer_init` writes
 //! a buffer's first data.
+//!
+//! Each request reaches the GPU at the call, as in wgpu: submitted work is told done once the work
+//! submitted before the ask is, whatever is submitted after; an `unmap` before the mapping is
+//! answered aborts it and leaves the buffer unmapped; and `poll` with `Poll` runs the callbacks
+//! whose work is done.
 
 use std::sync::mpsc;
 
@@ -54,7 +59,103 @@ async fn main() -> Result<(), String> {
         .map_err(|_| "the mapping was never answered")?
         .map_err(|error| format!("the buffer did not map: {error}"))?;
     println!("awaited: {:?}", read(&copy)?);
+
+    println!("{}", done_before_a_later_submission(&device, &queue)?);
+    println!("{}", unmapped_before_mapped(&device, &queue)?);
+    println!("{}", polled_without_waiting(&device, &queue)?);
     Ok(())
+}
+
+/// Submitted work asked about between two submissions is told done once the first is.
+fn done_before_a_later_submission(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+) -> Result<&'static str, String> {
+    let earlier = submit_copy(device, queue);
+    let (done, told_done) = mpsc::channel();
+    queue.on_submitted_work_done(move || {
+        let _ = done.send(());
+    });
+    submit_copy(device, queue);
+    device
+        .poll(wgpu::PollType::Wait {
+            submission_index: Some(earlier),
+            timeout: None,
+        })
+        .map_err(|error| format!("the device did not poll: {error}"))?;
+    Ok(match told_done.try_recv() {
+        Ok(()) => "work done before a later submission: told once the earlier was",
+        Err(_) => "work done before a later submission: not told",
+    })
+}
+
+/// A mapping unmapped before it is answered is aborted, and the buffer maps again.
+fn unmapped_before_mapped(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+) -> Result<&'static str, String> {
+    let copy = copy_of_written(device, queue);
+    let (mapped, answered) = mpsc::channel();
+    copy.slice(..)
+        .map_async(wgpu::MapMode::Read, move |result| {
+            let _ = mapped.send(result.is_ok());
+        });
+    copy.unmap();
+    let aborted = matches!(answered.try_recv(), Ok(false));
+    let (mapped, answered) = mpsc::channel();
+    copy.slice(..)
+        .map_async(wgpu::MapMode::Read, move |result| {
+            let _ = mapped.send(result.is_ok());
+        });
+    device
+        .poll(wgpu::PollType::wait_indefinitely())
+        .map_err(|error| format!("the device did not poll: {error}"))?;
+    let maps_again = matches!(answered.try_recv(), Ok(true)) && read(&copy)? == WRITTEN;
+    Ok(match (aborted, maps_again) {
+        (true, true) => "unmapped before mapped: aborted, and maps again",
+        (true, false) => "unmapped before mapped: aborted, and does not map again",
+        (false, _) => "unmapped before mapped: not aborted",
+    })
+}
+
+/// A mapping whose work is done is answered by a poll that does not wait.
+fn polled_without_waiting(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+) -> Result<&'static str, String> {
+    let copy = copy_of_written(device, queue);
+    device
+        .poll(wgpu::PollType::wait_indefinitely())
+        .map_err(|error| format!("the device did not poll: {error}"))?;
+    let (mapped, answered) = mpsc::channel();
+    copy.slice(..)
+        .map_async(wgpu::MapMode::Read, move |result| {
+            let _ = mapped.send(result.is_ok());
+        });
+    device
+        .poll(wgpu::PollType::Poll)
+        .map_err(|error| format!("the device did not poll: {error}"))?;
+    Ok(match answered.try_recv() {
+        Ok(true) => "polled without waiting: answered",
+        Ok(false) => "polled without waiting: refused",
+        Err(_) => "polled without waiting: not answered",
+    })
+}
+
+/// Submits a copy of a buffer into another, answering its submission.
+fn submit_copy(device: &wgpu::Device, queue: &wgpu::Queue) -> wgpu::SubmissionIndex {
+    let size = WRITTEN.len() as u64;
+    let [source, destination] = ["source", "destination"].map(|label| {
+        device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some(label),
+            size,
+            usage: wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        })
+    });
+    let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+    encoder.copy_buffer_to_buffer(&source, 0, &destination, 0, size);
+    queue.submit([encoder.finish()])
 }
 
 async fn device() -> Result<(wgpu::Device, wgpu::Queue), String> {

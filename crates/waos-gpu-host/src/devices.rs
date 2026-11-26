@@ -8,8 +8,11 @@
 //! is among its device's mappable buffers for as long as the program holds it, so `destroy`
 //! unmaps it before the device is lost, as wgpu-core does not.
 
+use std::pin::pin;
 use std::sync::{Arc, Mutex, Weak};
 
+use futures::channel::oneshot;
+use futures::future::{Either, select};
 use futures::{FutureExt, StreamExt};
 use wasmtime::StoreContextMut;
 use wasmtime::component::{
@@ -209,6 +212,30 @@ pub(crate) fn until_done(
     wgpu_types::PollType::Wait {
         submission_index: Some(submission),
         timeout: None,
+    }
+}
+
+/// What wgpu-core answers a callback asked of `device`, as the future the program reads resolves
+/// it: at once where a poll ran the callback already, the program's own among them, and else once
+/// a wait on the device for `submission` has; none where the callback was dropped unanswered, as a
+/// lost device drops it. Without a submission, the callback was answered as it was asked.
+pub(crate) async fn answer<A>(
+    device: Device,
+    submission: Option<wgpu_core::SubmissionIndex>,
+    answer: oneshot::Receiver<A>,
+) -> Option<A> {
+    let Some(submission) = submission else {
+        return answer.await.ok();
+    };
+    let wait = pin!(poll(device, until_done(submission)));
+    match select(answer, wait).await {
+        Either::Left((answered, _)) => answered.ok(),
+        Either::Right((polled, answer)) => {
+            if let Err(error) = polled {
+                tracing::warn!("waiting for the work a callback answers: {error}");
+            }
+            answer.await.ok()
+        }
     }
 }
 
@@ -597,7 +624,7 @@ mod tests {
             mapped_at_creation: false,
         };
         let buffer = Buffer::create(&device, descriptor);
-        let (answer, mut mapped) = futures::channel::oneshot::channel();
+        let (answer, mut mapped) = oneshot::channel();
         let operation = wgpu_core::resource::BufferMapOperation {
             host: wgpu_core::device::HostMap::Read,
             callback: Some(Box::new(move |result| {

@@ -57,6 +57,8 @@ wasmtime::component::bindgen!({
     imports: {
         "wasdk:gpu/gpu.[method]device.lost": store | tracing | trappable,
         "wasdk:gpu/gpu.[method]device.uncaptured-errors": store | tracing | trappable,
+        "wasdk:gpu/gpu.[method]buffer.map-async": store | tracing | trappable,
+        "wasdk:gpu/gpu.[method]queue.on-submitted-work-done": store | tracing | trappable,
         // Waits for the embedder's submission gate before it submits; to the program it is
         // still a plain call.
         "wasdk:gpu/gpu.[method]queue.submit": async | store | tracing | trappable,

@@ -63,13 +63,11 @@ pub mod bindings {
         world: "wasdk:program/inspector-base",
         generate_all,
         pub_export_macro: true,
-        // Plain blocking calls, though `async` in the WIT: wgpu's backend waits on each in place,
-        // inside `Device::poll` or as the program yields, where native wgpu waits on the GPU, and
-        // wgpu's `Device::poll` is a plain function; and `pop-error-scope`, which wgpu pops at
-        // the call, whether its future is awaited or dropped, and the engine answers at once.
+        // Plain blocking calls, though `async` in the WIT: `device.poll`, which waits on the GPU
+        // in place as native wgpu's `Device::poll` does, a plain function; and
+        // `pop-error-scope`, which wgpu pops at the call, whether its future is awaited or
+        // dropped, and the engine answers at once.
         sync: [
-            "import:wasdk:gpu/gpu@1.0.0#[method]buffer.map-async",
-            "import:wasdk:gpu/gpu@1.0.0#[method]queue.on-submitted-work-done",
             "import:wasdk:gpu/gpu@1.0.0#[method]device.poll",
             "import:wasdk:gpu/gpu@1.0.0#[method]device.pop-error-scope",
         ],

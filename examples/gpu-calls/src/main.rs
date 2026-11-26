@@ -208,8 +208,7 @@ fn read_back(
     let encoder = device.create_command_encoder(None);
     copy(&encoder, &readable);
     queue.submit(vec![wasdk::gpu::CommandEncoder::finish(encoder)]);
-    readable
-        .map_async(MapMode::Read, 0, None)
+    wasdk::block_on(readable.map_async(MapMode::Read, 0, None).into_future())
         .expect("a buffer made to be read maps");
     let bytes = readable.read_mapped_range(0, size);
     readable.unmap();

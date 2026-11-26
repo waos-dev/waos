@@ -87,11 +87,13 @@
 //!   is zeros, which the program makes itself, so `create_buffer_init` sends its data once. A
 //!   range that is not mapped traps the program, where wgpu-core answers a
 //!   [`wgpu::MapRangeError`], which no backend outside wgpu can make.
-//! - **A mapping's and submitted work's callbacks run at `Device::poll` with `Wait`, or as the
-//!   program yields**, whichever comes first, each once, in the order asked: code written for
-//!   native wgpu, which asks, polls and reads at once, and code written for the web, which
-//!   awaits, both work. `poll` honours its submission index and timeout, then delivers the
-//!   callbacks owed, waiting for each; `poll` with `Poll` delivers none.
+//! - **A mapping's and submitted work's callbacks run at `Device::poll`, or as the program
+//!   yields**, whichever comes first, each once, in the order asked. The request reaches the
+//!   engine at the call, as with wgpu's own backend, so an `unmap` aborts a mapping not yet
+//!   answered, running its callback at once, and submitted work is told done once the work
+//!   submitted before the ask is. `poll`, with `Wait` or `Poll`, runs every callback whose work is
+//!   done when the engine's poll returns: code written for native wgpu, which asks, polls and
+//!   reads at once, and code written for the web, which awaits, both work.
 //! - **Uncaptured errors and device loss arrive as the program awaits.** The device's uncaptured
 //!   errors are read by a task started as the device opens, which hands each to the handler set
 //!   with `on_uncaptured_error`, or else panics, as wgpu's default handler does;
