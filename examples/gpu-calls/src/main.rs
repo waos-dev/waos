@@ -1,9 +1,9 @@
-//! Calls `wasdk:gpu` itself, with no wgpu over it, and prints what each call answered: a device
-//! opened with a limit set by its setter, refused a feature and a limit the adapter lacks; a
-//! buffer written mapped at creation, and one written by the queue and doubled by a compute pass,
-//! each read back mapped; a render pass's colour read back; an error caught by an error scope;
-//! an error no scope caught, from the device's uncaptured errors; and the device lost once
-//! destroyed. What the engine's tests check of its GPU host.
+//! Calls `wasdk:gpu` itself, with no wgpu over it, and prints what each call answered: the
+//! adapter given, first among those offered; a device opened with a limit set by its setter,
+//! refused a feature and a limit the adapter lacks; a buffer written mapped at creation, and one
+//! written by the queue and doubled by a compute pass, each read back mapped; a render pass's
+//! colour read back; an error caught by an error scope; an error no scope caught, from the
+//! device's uncaptured errors; and the device lost once destroyed. What the engine's tests check of its GPU host.
 //!
 //! ```text
 //! cargo build -p gpu-calls --target wasm32-wasip3
@@ -66,6 +66,10 @@ async fn main() -> Result<(), String> {
     })
     .await
     .ok_or("no adapter")?;
+    println!(
+        "the adapter given is the first offered: {}",
+        first_offered_is(&adapter).await
+    );
     refuse_what_the_adapter_lacks(&adapter).await;
     let (device, queue) = open_device(&adapter).await?;
     let mut uncaptured = device
@@ -108,6 +112,13 @@ async fn main() -> Result<(), String> {
         }
     );
     Ok(())
+}
+
+/// Whether `adapter`, given with no preference, is the first of the adapters offered.
+async fn first_offered_is(adapter: &Adapter) -> bool {
+    let offered = wasdk::gpu::enumerate_adapters().await;
+    let (given, first) = (adapter.info(), offered.first().map(Adapter::info));
+    first.is_some_and(|first| (first.name, first.backend) == (given.name, given.backend))
 }
 
 /// Asks for a feature and a limit past the adapter's, each refused with wgpu-core's message.

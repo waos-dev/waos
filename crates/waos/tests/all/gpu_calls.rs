@@ -1,9 +1,10 @@
 //! `examples/gpu-calls` under the test shell: `wasdk:gpu` called by a program itself, each call
-//! answered by the engine's GPU host as wgpu answers it. A device opens with a limit set by its
-//! setter, and a feature or a limit past the adapter's is refused; a buffer mapped at creation and
-//! one doubled by a compute pass read back; a render pass draws; an error scope catches an error,
-//! and one no scope catches reaches the device's uncaptured errors, which only the first take
-//! has; a destroyed device is lost.
+//! answered by the engine's GPU host as wgpu answers it. The adapter given with no preference is
+//! the first offered; a device opens with a limit set by its setter, and a feature or a limit
+//! past the adapter's is refused; a buffer mapped at creation and one doubled by a compute pass
+//! read back; a render pass draws; an error scope catches an error, and one no scope catches
+//! reaches the device's uncaptured errors, which only the first take has; a destroyed device is
+//! lost.
 
 use std::path::Path;
 use std::sync::Arc;
@@ -39,7 +40,12 @@ fn a_program_calling_the_gpu_itself_is_answered_as_wgpu_answers() {
         "uncaptured: validation",
         "lost: destroyed",
     ];
-    let (feature, rest) = lines.split_first().expect("the program printed");
+    let (offered, lines_after) = lines.split_first().expect("the program printed");
+    assert_eq!(
+        offered, "the adapter given is the first offered: true",
+        "{lines:?}"
+    );
+    let (feature, rest) = lines_after.split_first().expect("the program printed on");
     assert_eq!(feature, "a feature the adapter lacks: refused", "{lines:?}");
     assert_eq!(rest, expected, "{lines:?}");
 }

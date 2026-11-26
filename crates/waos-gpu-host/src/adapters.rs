@@ -58,24 +58,12 @@ impl<T: Send + 'static> gpu::HostWithStore<T> for HasGpuCtx {
                 .compatible_surface
                 .map(|surface| ctx.table.get(&surface).map(|surface| surface.target()))
                 .transpose()?;
-            let core_options = wgpu_types::RequestAdapterOptions {
-                power_preference: options.power_preference.into(),
-                force_fallback_adapter: options.force_fallback_adapter,
-                compatible_surface: None,
-                apply_limit_buckets: false,
-            };
-            let adapter = match ctx.adapters {
-                Some(adapters) => adapters.choose(ctx.instance, &core_options),
-                None => ctx
-                    .instance
-                    .request_adapter(&core_options, wgpu_types::Backends::all(), None)
-                    .map_err(|error| tracing::warn!("no GPU adapter: {error}"))
-                    .ok(),
-            };
-            let Some(adapter) = adapter else {
+            let Some(adapter) = ctx.chosen_adapter(
+                options.power_preference.into(),
+                options.force_fallback_adapter,
+            ) else {
                 return Ok(None);
             };
-            let adapter = Arc::new(GpuObject::new(adapter, ctx.instance));
             // A view's frames come from its target, which says what an adapter draws into it.
             let draws_into_surface = compatible_surface.is_none_or(|target| {
                 !target
@@ -95,17 +83,56 @@ impl<T: Send + 'static> gpu::HostWithStore<T> for HasGpuCtx {
     ) -> wasmtime::Result<Vec<Resource<Adapter>>> {
         accessor.with(|mut access| {
             let ctx = access.get();
-            ctx.instance
-                .enumerate_adapters(wgpu_types::Backends::all(), false)
+            ctx.offered_adapters()
                 .into_iter()
-                .map(|adapter| {
-                    Ok(ctx
-                        .table
-                        .push(Arc::new(GpuObject::new(adapter, ctx.instance)))?)
-                })
+                .map(|adapter| Ok(ctx.table.push(adapter)?))
                 .collect()
         })
     }
+}
+
+impl GpuCtx<'_> {
+    /// The adapters `request-adapter` gives: the one it gives with no preference, and the
+    /// software adapter it gives for `force-fallback-adapter`, where that is another.
+    fn offered_adapters(&self) -> Vec<Adapter> {
+        let preferred = self.chosen_adapter(wgpu_types::PowerPreference::None, false);
+        let preferred_is_software = preferred
+            .as_ref()
+            .is_some_and(|adapter| is_software(self.instance, adapter));
+        let software = (!preferred_is_software)
+            .then(|| self.chosen_adapter(wgpu_types::PowerPreference::None, true))
+            .flatten();
+        preferred.into_iter().chain(software).collect()
+    }
+
+    /// The adapter a program asking with `power_preference` and `force_fallback_adapter` gets:
+    /// the embedder's choice, or wgpu-core's where it has none; none where there is none to give.
+    fn chosen_adapter(
+        &self,
+        power_preference: wgpu_types::PowerPreference,
+        force_fallback_adapter: bool,
+    ) -> Option<Adapter> {
+        let options = wgpu_types::RequestAdapterOptions {
+            power_preference,
+            force_fallback_adapter,
+            compatible_surface: None,
+            apply_limit_buckets: false,
+        };
+        let adapter = match self.adapters {
+            Some(adapters) => adapters.choose(self.instance, &options),
+            None => self
+                .instance
+                .request_adapter(&options, wgpu_types::Backends::all(), None)
+                .map_err(|error| tracing::warn!("no GPU adapter: {error}"))
+                .ok(),
+        }?;
+        Some(Arc::new(GpuObject::new(adapter, self.instance)))
+    }
+}
+
+/// Whether `adapter` draws on the CPU, as the adapter `force-fallback-adapter` asks for does.
+fn is_software(instance: &wgpu_core::global::Global, adapter: &Adapter) -> bool {
+    instance.adapter_get_info(adapter.id()).device_type == wgpu_types::DeviceType::Cpu
 }
 
 impl gpu::HostAdapter for GpuCtx<'_> {
@@ -226,7 +253,28 @@ fn memory_hints(asked: wgpu_types::MemoryHints) -> wgpu_types::MemoryHints {
 
 #[cfg(test)]
 mod tests {
+    use wasmtime::component::ResourceTable;
+
     use super::*;
+
+    /// wgpu-core's noop adapter, the one an instance of its backend has, is a software one, so
+    /// it is the adapter asked for with no preference and the fallback both: offered once.
+    #[test]
+    fn a_software_adapter_given_with_no_preference_is_offered_once() {
+        let instance = crate::noop::instance();
+        let ctx = GpuCtx {
+            instance: &instance,
+            table: &mut ResourceTable::new(),
+            adapters: None,
+            device_opener: None,
+            submissions: None,
+            devices: None,
+        };
+        let offered: Vec<_> = (ctx.offered_adapters().iter())
+            .map(|adapter| instance.adapter_get_info(adapter.id()).device_type)
+            .collect();
+        assert_eq!(offered, [wgpu_types::DeviceType::Cpu]);
+    }
 
     fn block_sizes(hints: wgpu_types::MemoryHints) -> std::ops::Range<u64> {
         match hints {

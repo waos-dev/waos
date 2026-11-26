@@ -545,10 +545,7 @@ mod tests {
 
     /// A device on wgpu-core's noop backend, which needs no GPU.
     fn noop_device() -> Device {
-        let mut descriptor = wgpu_types::InstanceDescriptor::new_without_display_handle();
-        descriptor.backends = wgpu_types::Backends::NOOP;
-        descriptor.backend_options.noop.enable = true;
-        let instance = Arc::new(Global::new("waos-gpu-host tests", descriptor, None));
+        let instance = crate::noop::instance();
         let adapter = instance
             .request_adapter(
                 &wgpu_types::RequestAdapterOptions::default(),

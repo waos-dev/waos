@@ -30,7 +30,9 @@ interface gpu {
   /// shows from where the engine draws through one. None where there is no adapter to give.
   request-adapter: async func(options: request-adapter-options) -> option<adapter>;
 
-  /// Every adapter the engine offers the app.
+  /// The adapters `request-adapter` gives: the one it gives with no power preference, and the
+  /// software adapter it gives for `force-fallback-adapter` where there is one. No other GPU is
+  /// offered, since the system's compositor may not show what an app draws there.
   enumerate-adapters: async func() -> list<adapter>;
 
   /// The WGSL language extensions the engine's naga reads.

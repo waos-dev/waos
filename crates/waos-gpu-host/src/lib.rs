@@ -25,6 +25,8 @@ mod embedder;
 mod errors;
 mod gpu_object;
 mod limits;
+#[cfg(test)]
+mod noop;
 mod passes;
 mod pipelines;
 mod queues;
