@@ -123,7 +123,8 @@ impl gpu::HostBuffer for GpuCtx<'_> {
 }
 
 impl<T: Send> gpu::HostBufferWithStore<T> for HasGpuCtx {
-    /// Asks wgpu-core for the mapping, then waits on the device until its callback has answered.
+    /// Asks wgpu-core for the mapping, then waits on the device for the submission that last used
+    /// the buffer, which runs its callback; a mapping wgpu-core refused has answered already.
     async fn map_async(
         accessor: &Accessor<T, Self>,
         buffer: Resource<Buffer>,
@@ -131,7 +132,7 @@ impl<T: Send> gpu::HostBufferWithStore<T> for HasGpuCtx {
         offset: u64,
         size: Option<u64>,
     ) -> wasmtime::Result<Result<(), String>> {
-        let (device, mapped) = accessor.with(|mut access| -> wasmtime::Result<_> {
+        let (device, submission, mapped) = accessor.with(|mut access| -> wasmtime::Result<_> {
             let ctx = access.get();
             let buffer = ctx.table.get(&buffer)?;
             let (answer, mapped) = oneshot::channel();
@@ -145,15 +146,18 @@ impl<T: Send> gpu::HostBufferWithStore<T> for HasGpuCtx {
             let asked = ctx
                 .instance
                 .buffer_map_async(buffer.id(), offset, size, operation);
+            let submission = asked.as_ref().ok().copied();
             buffer
                 .device
                 .errors
                 .report(asked.err(), "Buffer::map_async", None);
-            Ok((buffer.device.clone(), mapped))
+            Ok((buffer.device.clone(), submission, mapped))
         })?;
-        let polled = devices::poll(device, wgpu_types::PollType::wait_indefinitely()).await;
-        if let Err(error) = polled {
-            tracing::warn!("waiting for a buffer's mapping: {error}");
+        if let Some(submission) = submission {
+            let polled = devices::poll(device, devices::until_done(submission)).await;
+            if let Err(error) = polled {
+                tracing::warn!("waiting for a buffer's mapping: {error}");
+            }
         }
         // The wait ran the callback; a device lost meanwhile dropped it unanswered.
         Ok(match mapped.await {

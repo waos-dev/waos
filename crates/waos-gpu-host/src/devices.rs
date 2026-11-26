@@ -201,6 +201,17 @@ pub(crate) async fn poll(
     spawn_blocking(move || device.instance().device_poll(device.device_id(), kind)).await
 }
 
+/// The wait for `submission` to be done, and no later one: what a mapping or a queue's submitted
+/// work waits for, as wgpu-core answers it, 0 where it waits for nothing submitted.
+pub(crate) fn until_done(
+    submission: wgpu_core::SubmissionIndex,
+) -> wgpu_types::PollType<wgpu_core::SubmissionIndex> {
+    wgpu_types::PollType::Wait {
+        submission_index: Some(submission),
+        timeout: None,
+    }
+}
+
 /// `poll`'s answer to the program: wgpu's poll error, or a trap for what wgpu answers with a
 /// panic.
 fn poll_answer(
@@ -564,5 +575,34 @@ mod tests {
         drop(device);
         let polled = wasmtime_wasi::runtime::in_tokio(wait);
         assert!(polled.is_ok(), "{polled:?}");
+    }
+
+    /// The submission wgpu-core answers a mapping with is the one the wait is for: here none,
+    /// since nothing was submitted, and the wait for it still runs the mapping's callback.
+    #[test]
+    fn a_wait_for_the_submission_a_mapping_answers_runs_its_callback() {
+        let device = noop_device();
+        let instance = Arc::clone(device.instance());
+        let descriptor = wgpu_core::resource::BufferDescriptor {
+            label: None,
+            size: 16,
+            usage: wgpu_types::BufferUsages::MAP_READ | wgpu_types::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        };
+        let buffer = Buffer::create(&device, descriptor);
+        let (answer, mut mapped) = futures::channel::oneshot::channel();
+        let operation = wgpu_core::resource::BufferMapOperation {
+            host: wgpu_core::device::HostMap::Read,
+            callback: Some(Box::new(move |result| {
+                let _ = answer.send(result);
+            })),
+        };
+        let submission = instance
+            .buffer_map_async(buffer.id(), 0, None, operation)
+            .expect("a buffer made to be read maps");
+        assert_eq!(submission, 0, "nothing was submitted");
+        let polled = wasmtime_wasi::runtime::in_tokio(poll(device, until_done(submission)));
+        assert!(polled.is_ok(), "{polled:?}");
+        assert!(matches!(mapped.try_recv(), Ok(Some(Ok(())))));
     }
 }

@@ -149,20 +149,20 @@ impl<T: Send> gpu::HostQueueWithStore<T> for HasGpuCtx {
         accessor: &Accessor<T, Self>,
         queue: Resource<Queue>,
     ) -> wasmtime::Result<()> {
-        let (device, done) = accessor.with(|mut access| -> wasmtime::Result<_> {
+        let (device, submission, done) = accessor.with(|mut access| -> wasmtime::Result<_> {
             let ctx = access.get();
             let queue = ctx.table.get(&queue)?;
             let (answer, done) = oneshot::channel();
-            ctx.instance.queue_on_submitted_work_done(
+            let submission = ctx.instance.queue_on_submitted_work_done(
                 queue.device.queue_id(),
                 Box::new(move || {
                     // A program that stopped waiting dropped the other end.
                     let _ = answer.send(());
                 }),
             );
-            Ok((queue.device.clone(), done))
+            Ok((queue.device.clone(), submission, done))
         })?;
-        let polled = devices::poll(device, wgpu_types::PollType::wait_indefinitely()).await;
+        let polled = devices::poll(device, devices::until_done(submission)).await;
         if let Err(error) = polled {
             tracing::warn!("waiting for a queue's submitted work: {error}");
         }
