@@ -163,6 +163,11 @@ impl Device {
         self.device.id()
     }
 
+    /// The adapter the device was requested from, which names its GPU.
+    pub fn adapter_id(&self) -> id::AdapterId {
+        self.adapter.id()
+    }
+
     /// The device's queue, for work a platform finishes on the program's behalf.
     pub fn queue_id(&self) -> id::QueueId {
         self.queue.id()
