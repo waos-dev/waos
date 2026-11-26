@@ -474,7 +474,7 @@ impl<T: Send + 'static> gpu::HostDeviceWithStore<T> for HasGpuCtx {
         device: Resource<Device>,
     ) -> wasmtime::Result<FutureReader<DeviceLostInfo>> {
         let info = access.get().table.get(&device)?.loss.info();
-        FutureReader::new(access, Lost(info))
+        FutureReader::new(access, Lost(Some(info)))
     }
 
     async fn poll(
@@ -516,8 +516,10 @@ impl<D> StreamProducer<D> for Uncaptured {
     }
 }
 
-/// `lost` as a component-model future: nothing until the device is lost, then its info.
-struct Lost(LostInfo);
+/// `lost` as a component-model future: nothing until the device is lost, then its info. The
+/// loss's info, until the device is dropped without being lost, when it never will be: the info
+/// is let go of then, since a shared future answers once and panics when polled again.
+struct Lost(Option<LostInfo>);
 
 impl<D> wasmtime::component::FutureProducer<D> for Lost {
     type Item = DeviceLostInfo;
@@ -529,12 +531,19 @@ impl<D> wasmtime::component::FutureProducer<D> for Lost {
         finish: bool,
     ) -> std::task::Poll<wasmtime::Result<Option<DeviceLostInfo>>> {
         use std::task::Poll;
-        match self.get_mut().0.poll_unpin(cx) {
-            Poll::Ready(Ok(info)) => Poll::Ready(Ok(Some(info.into()))),
-            // The program stopped waiting; or the device was dropped without being lost, and
-            // never will be.
-            Poll::Pending | Poll::Ready(Err(_)) if finish => Poll::Ready(Ok(None)),
-            Poll::Pending | Poll::Ready(Err(_)) => Poll::Pending,
+        let lost = self.get_mut();
+        if let Some(info) = &mut lost.0 {
+            match info.poll_unpin(cx) {
+                Poll::Ready(Ok(info)) => return Poll::Ready(Ok(Some(info.into()))),
+                Poll::Ready(Err(_)) => lost.0 = None,
+                Poll::Pending => {}
+            }
+        }
+        // The program stopped waiting, or waits on for a loss that may never come.
+        if finish {
+            Poll::Ready(Ok(None))
+        } else {
+            Poll::Pending
         }
     }
 }

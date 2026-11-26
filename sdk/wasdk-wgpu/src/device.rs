@@ -14,12 +14,11 @@ use wgpu::custom::{
 };
 use wgpu::{AdapterInfo, Features, Limits};
 
+use crate::device_lost::DeviceLostCallback;
 use crate::left_out::left_out;
 use crate::runtime::OwedCallbacks;
 use crate::uncaptured_errors::UncapturedErrors;
-use crate::{
-    binding, buffer, command, convert, pass, pipeline, query, runtime, sampler, shader, texture,
-};
+use crate::{binding, buffer, command, convert, pass, pipeline, query, sampler, shader, texture};
 
 /// The device behind a [`wgpu::Device`] from this backend: `device.as_custom::<WasdkDevice>()`.
 #[derive(Debug)]
@@ -30,15 +29,18 @@ pub struct WasdkDevice {
     /// How many error scopes are open, so a pop out of order is caught here.
     open_error_scopes: AtomicU32,
     uncaptured_errors: UncapturedErrors,
+    device_lost: DeviceLostCallback,
 }
 
 downcast!(WasdkDevice: api wgpu::Device, dispatch DispatchDevice);
 
 impl WasdkDevice {
-    /// The device over the engine's, listening to its uncaptured errors from now on.
+    /// The device over the engine's, listening to its uncaptured errors and its loss from now
+    /// on.
     pub(crate) fn new(device: Device, owed: OwedCallbacks) -> Self {
         WasdkDevice {
             uncaptured_errors: UncapturedErrors::listen(&device),
+            device_lost: DeviceLostCallback::listen(&device),
             device: Arc::new(device),
             owed,
             open_error_scopes: AtomicU32::new(0),
@@ -181,14 +183,7 @@ impl DeviceInterface for WasdkDevice {
     }
 
     fn set_device_lost_callback(&self, callback: BoxDeviceLostCallback) {
-        let lost = self.device.lost();
-        runtime::spawn(async move {
-            let info = lost.await;
-            callback(
-                convert::device_lost_reason_from_wit(info.reason),
-                info.message,
-            );
-        });
+        self.device_lost.set(callback);
     }
 
     fn on_uncaptured_error(&self, handler: Arc<dyn wgpu::UncapturedErrorHandler>) {

@@ -137,6 +137,7 @@ mod buffer;
 mod command;
 pub mod convert;
 mod device;
+mod device_lost;
 mod instance;
 mod left_out;
 mod pass;
