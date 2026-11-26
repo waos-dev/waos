@@ -57,15 +57,18 @@ impl QueueInterface for WasdkQueue {
         )))
     }
 
-    /// Always a staging buffer: the engine validates the write when it is made, and reports what
-    /// fails to the device's error scopes, as wgpu-core reports it.
+    /// Checked here, as wgpu's backend for the web checks it, against the buffer's size and
+    /// usage as made: a write the engine would refuse answers `None` before the program fills
+    /// memory for it.
     fn validate_write_buffer(
         &self,
-        _buffer: &DispatchBuffer,
-        _offset: BufferAddress,
-        _size: BufferSize,
+        buffer: &DispatchBuffer,
+        offset: BufferAddress,
+        size: BufferSize,
     ) -> Option<()> {
-        Some(())
+        WasdkBuffer::of_dispatch(buffer)
+            .takes_write(offset, size.get())
+            .then_some(())
     }
 
     fn write_staging_buffer(

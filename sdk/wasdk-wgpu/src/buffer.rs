@@ -22,6 +22,10 @@ use crate::runtime::PendingCallbacks;
 #[derive(Debug)]
 pub struct WasdkBuffer {
     buffer: Arc<Buffer>,
+    /// Its size and usage, as made: what `Queue::write_buffer_with` checks a write against
+    /// before handing out the memory to fill, as wgpu's backend for the web does.
+    size: BufferAddress,
+    usage: wgpu::BufferUsages,
     /// The callbacks its device waits to run, its mappings' among them.
     callbacks: PendingCallbacks,
     /// Whether it was made mapped and no range of it was handed out yet: it holds zeros, as
@@ -35,6 +39,17 @@ impl WasdkBuffer {
     /// The engine's buffer behind the wgpu one.
     pub(crate) fn wit_buffer(&self) -> &Buffer {
         &self.buffer
+    }
+
+    /// Whether `size` bytes may be written at `offset` by the queue: the buffer takes copies,
+    /// both are aligned to `COPY_BUFFER_ALIGNMENT`, and the write ends within the buffer.
+    pub(crate) fn takes_write(&self, offset: BufferAddress, size: BufferAddress) -> bool {
+        let aligned = |value: u64| value.is_multiple_of(wgpu::COPY_BUFFER_ALIGNMENT);
+        let within = offset.checked_add(size).is_some_and(|end| end <= self.size);
+        self.usage.contains(wgpu::BufferUsages::COPY_DST)
+            && aligned(offset)
+            && aligned(size)
+            && within
     }
 }
 
@@ -51,6 +66,8 @@ pub(crate) fn create_buffer(
     };
     DispatchBuffer::custom(WasdkBuffer {
         buffer: Arc::new(device.create_buffer(&descriptor)),
+        size: desc.size,
+        usage: desc.usage,
         callbacks: callbacks.clone(),
         untouched_since_creation: AtomicBool::new(desc.mapped_at_creation),
     })

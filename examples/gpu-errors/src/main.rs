@@ -3,7 +3,8 @@
 //! scope outside it; and one made once a scope's guard is dropped unawaited goes to the device's
 //! uncaptured-error handler, the scope being gone. Then says where a device's loss goes: to the
 //! device-lost callback set last, one set before it dropped uncalled; and a device dropped
-//! without being lost drops its callback uncalled.
+//! without being lost drops its callback uncalled. Last, `Queue::write_buffer_with` refuses at once
+//! a write its buffer cannot take, as wgpu's backends do, before any memory is filled for it.
 //!
 //! ```text
 //! cargo build -p gpu-errors --target wasm32-wasip3
@@ -71,7 +72,32 @@ async fn main() -> Result<(), String> {
         "a device dropped unlost drops its callback uncalled: {}",
         callback_dropped.is_set()
     );
+
+    let (device, queue) = device_and_queue().await?;
+    println!(
+        "a write its buffer cannot take is refused at once: {}",
+        writes_refused_at_once(&device, &queue)
+    );
     Ok(())
+}
+
+/// Whether `write_buffer_with` refuses a buffer without `COPY_DST`, an unaligned offset and a
+/// write past the end, and takes a write that fits.
+fn writes_refused_at_once(device: &wgpu::Device, queue: &wgpu::Queue) -> bool {
+    let buffer = |usage| {
+        device.create_buffer(&wgpu::BufferDescriptor {
+            label: None,
+            size: 16,
+            usage,
+            mapped_at_creation: false,
+        })
+    };
+    let uncopied = buffer(wgpu::BufferUsages::MAP_READ);
+    let copied = buffer(wgpu::BufferUsages::COPY_DST);
+    let four = wgpu::BufferSize::new(4).expect("four is not zero");
+    let takes =
+        |buffer: &wgpu::Buffer, offset| queue.write_buffer_with(buffer, offset, four).is_some();
+    !takes(&uncopied, 0) && !takes(&copied, 2) && !takes(&copied, 16) && takes(&copied, 12)
 }
 
 /// What a callback holds, which says once it is dropped.

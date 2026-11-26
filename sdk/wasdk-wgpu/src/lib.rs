@@ -104,8 +104,10 @@
 //!   with `on_uncaptured_error`, or else panics, as wgpu's default handler does;
 //!   `set_device_lost_callback` starts a task too. A device opened inside a `wasdk::block_on`
 //!   keeps that wait from returning, since the wait waits for the task: open it from async code.
-//! - **`Queue::write_buffer_with` never answers `None`**: the engine validates the write when the
-//!   view is dropped, reporting what fails to the error scopes.
+//! - **`Queue::write_buffer_with` answers `None` without reporting an error**, for a buffer without
+//!   `COPY_DST`, an offset or size not aligned to `COPY_BUFFER_ALIGNMENT`, or a write past the
+//!   buffer's end, checked here as wgpu's backend for the web checks it; wgpu-core's backend also
+//!   reports it to the error scopes.
 
 /// Recovers this backend's object from the wgpu API type or dispatch wrapper carrying it; an
 /// object from another wgpu backend is a programming error.
