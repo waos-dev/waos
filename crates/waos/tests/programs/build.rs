@@ -18,12 +18,13 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 /// The programs built, by package name.
-const PROGRAMS: [&str; 50] = [
+const PROGRAMS: [&str; 51] = [
     "survey",
     "forever",
     "forever-shown",
     "trap",
     "triangle",
+    "occluded",
     "composition-layers",
     "fonts",
     "two-windows",

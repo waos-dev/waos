@@ -245,12 +245,20 @@ impl SurfaceTarget for ViewCanvas {
     /// taken back.
     ///
     /// On a lost device the texture is invalid, as wgpu-core's surfaces answer there,
-    /// and the hardware buffer is not handed out: the frame draws nothing and is skipped.
+    /// and the hardware buffer is not handed out: the frame draws nothing and is skipped. While the
+    /// view is out of sight there is no texture: the surface answers `occluded`, as the view's
+    /// frames stop then.
     fn current_texture(&self) -> wasmtime::Result<SurfaceFrame> {
         let mut guard = self.buffers.allocation();
         let Some(allocation) = guard.as_mut() else {
             bail!(NOT_CONFIGURED)
         };
+        if !self.buffers.view.in_sight() {
+            return Ok(SurfaceFrame {
+                status: wgpu_types::SurfaceStatus::Occluded,
+                texture: None,
+            });
+        }
         let index = self.hardware_buffer_for_next_frame(allocation)?;
         let texture = allocation
             .pool

@@ -2,9 +2,10 @@
 //! the clear colour at a corner, read through `ProgramView::picture`; a frame due while the shell
 //! holds every hardware buffer gets another, and the spares go once the view has drawn nothing for
 //! a while; a triangle other windows cover draws only while a tool watches it, and not minimized,
-//! watched or not; a frozen triangle stops presenting, keeps one hardware buffer or two, and draws
-//! again after the unfreeze; and `app_suspending` with triangle drawing resolves with no GPU work in
-//! flight, so no frame reaches the shell after it.
+//! watched or not; a view out of sight answers `occluded` for its surface's texture
+//! (`examples/occluded`); a frozen triangle stops presenting, keeps one hardware buffer or two,
+//! and draws again after the unfreeze; and `app_suspending` with triangle drawing resolves with
+//! no GPU work in flight, so no frame reaches the shell after it.
 //!
 //! Hardware buffers are made on Apple's systems, where these tests run; elsewhere one test in their
 //! place, in `main.rs`, says so and passes.
@@ -27,7 +28,8 @@ use waos::{
 };
 
 use crate::test_shell::{
-    DISPLAY, TestShell, WITHIN, config, pixel_of, place_view, wait_until, within,
+    DISPLAY, RecordedOutput, TestShell, WITHIN, config, pixel_of, place_view, printing_to,
+    wait_until, within,
 };
 
 /// How long a program stays hidden before the engine freezes it, in the freezing tests.
@@ -256,6 +258,41 @@ fn a_covered_triangle_draws_while_watched_and_not_minimized_nor_after_the_watch(
     witness.stop();
     running.stop();
     assert!(matches!(within(witness.ended()), ProgramEnd::Stopped));
+    assert!(matches!(within(running.ended()), ProgramEnd::Stopped));
+}
+
+/// `examples/occluded` takes its surface's texture at each change of its state: a frame in sight,
+/// `occluded` covered or minimized, as wgpu's surfaces answer, and a frame again once shown.
+#[test]
+fn a_view_out_of_sight_answers_occluded_for_its_surfaces_texture() {
+    let shell = TestShell::new();
+    let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
+    let occluded = engine
+        .load(Path::new(waos_test_programs::OCCLUDED))
+        .unwrap();
+    let output = Arc::new(RecordedOutput::default());
+    let running = engine.run(&occluded, printing_to(&output)).unwrap();
+    let view = within(shell.headless.view(0))
+        .and_then(|shown| shown.view())
+        .expect("occluded asks for its view");
+    let said = |line: &'static str| {
+        wait_until(line, || output.lines().iter().any(|said| said == line));
+    };
+    said("started: a frame");
+    view.presence_changed(COVERED);
+    said("hidden: occluded");
+    view.presence_changed(FOCUSED);
+    said("resumed: a frame");
+    view.presence_changed(OFF_SCREEN);
+    wait_until("minimized, occluded again", || {
+        output
+            .lines()
+            .iter()
+            .filter(|said| *said == "hidden: occluded")
+            .count()
+            == 2
+    });
+    running.stop();
     assert!(matches!(within(running.ended()), ProgramEnd::Stopped));
 }
 
