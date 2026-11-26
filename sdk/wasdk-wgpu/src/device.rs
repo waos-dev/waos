@@ -1,11 +1,10 @@
-//! The device: every object it creates, its error scopes, and what happens to it.
+//! The device: every object it creates, its error scopes, its polls, and what happens to it.
 
 use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
 
-use futures::StreamExt;
-use wasdk::webgpu::GpuDevice;
+use wasdk::gpu::Device;
 use wgpu::custom::{
     BoxDeviceLostCallback, DeviceInterface, DispatchBindGroup, DispatchBindGroupLayout,
     DispatchBlas, DispatchBuffer, DispatchCommandEncoder, DispatchComputePipeline, DispatchDevice,
@@ -15,8 +14,9 @@ use wgpu::custom::{
 };
 use wgpu::{AdapterInfo, Features, Limits};
 
-use crate::gap::wasi_gap;
+use crate::left_out::left_out;
 use crate::runtime::OwedCallbacks;
+use crate::uncaptured_errors::UncapturedErrors;
 use crate::{
     binding, buffer, command, convert, pass, pipeline, query, runtime, sampler, shader, texture,
 };
@@ -24,27 +24,30 @@ use crate::{
 /// The device behind a [`wgpu::Device`] from this backend: `device.as_custom::<WasdkDevice>()`.
 #[derive(Debug)]
 pub struct WasdkDevice {
-    device: Arc<GpuDevice>,
+    device: Arc<Device>,
     /// The callbacks it owes the program: its buffers' mappings and its queue's submitted work.
     owed: OwedCallbacks,
     /// How many error scopes are open, so a pop out of order is caught here.
     open_error_scopes: AtomicU32,
+    uncaptured_errors: UncapturedErrors,
 }
 
 downcast!(WasdkDevice: api wgpu::Device, dispatch DispatchDevice);
 
 impl WasdkDevice {
-    pub(crate) fn new(device: GpuDevice, owed: OwedCallbacks) -> Self {
+    /// The device over the engine's, listening to its uncaptured errors from now on.
+    pub(crate) fn new(device: Device, owed: OwedCallbacks) -> Self {
         WasdkDevice {
+            uncaptured_errors: UncapturedErrors::listen(&device),
             device: Arc::new(device),
             owed,
             open_error_scopes: AtomicU32::new(0),
         }
     }
 
-    /// The wasi device, which a view's canvas context is configured against and a hardware
-    /// buffer is imported on as a texture.
-    pub fn gpu_device(&self) -> &GpuDevice {
+    /// The engine's device behind the wgpu one, which a view's surface is configured on and a
+    /// hardware buffer is imported on as a texture.
+    pub fn wit_device(&self) -> &Device {
         &self.device
     }
 }
@@ -54,17 +57,18 @@ impl WasdkDevice {
 #[allow(unsafe_code)]
 impl DeviceInterface for WasdkDevice {
     fn features(&self) -> Features {
-        convert::features_from_wasi(&self.device.features())
+        convert::features_from_wit(self.device.features())
     }
 
     fn limits(&self) -> Limits {
-        convert::limits_from_wasi(&self.device.limits())
+        convert::limits_from_wit(&self.device.limits())
     }
 
     fn adapter_info(&self) -> AdapterInfo {
-        convert::adapter_info_from_wasi(&self.device.adapter_info())
+        convert::adapter_info_from_wit(self.device.adapter_info())
     }
 
+    /// naga's bounds checks always run in the engine, whatever `runtime_checks` asks.
     fn create_shader_module(
         &self,
         desc: wgpu::ShaderModuleDescriptor<'_>,
@@ -75,9 +79,9 @@ impl DeviceInterface for WasdkDevice {
 
     unsafe fn create_shader_module_passthrough(
         &self,
-        desc: &wgpu::ShaderModuleDescriptorPassthrough<'_>,
+        _desc: &wgpu::ShaderModuleDescriptorPassthrough<'_>,
     ) -> DispatchShaderModule {
-        shader::create_shader_module_passthrough(&self.device, desc)
+        left_out("passthrough shaders (Device::create_shader_module_passthrough)")
     }
 
     fn create_bind_group_layout(
@@ -109,7 +113,7 @@ impl DeviceInterface for WasdkDevice {
         &self,
         _desc: &wgpu::MeshPipelineDescriptor<'_>,
     ) -> DispatchRenderPipeline {
-        wasi_gap("mesh shaders (Device::create_mesh_pipeline)")
+        left_out("mesh shaders (Device::create_mesh_pipeline)")
     }
 
     fn create_compute_pipeline(
@@ -123,7 +127,7 @@ impl DeviceInterface for WasdkDevice {
         &self,
         _desc: &wgpu::PipelineCacheDescriptor<'_>,
     ) -> DispatchPipelineCache {
-        wasi_gap("pipeline caches (Device::create_pipeline_cache)")
+        left_out("pipeline caches (Device::create_pipeline_cache), which the engine keeps")
     }
 
     fn create_buffer(&self, desc: &wgpu::BufferDescriptor<'_>) -> DispatchBuffer {
@@ -136,10 +140,10 @@ impl DeviceInterface for WasdkDevice {
 
     fn create_external_texture(
         &self,
-        _desc: &wgpu::ExternalTextureDescriptor<'_>,
-        _planes: &[&wgpu::TextureView],
+        desc: &wgpu::ExternalTextureDescriptor<'_>,
+        planes: &[&wgpu::TextureView],
     ) -> DispatchExternalTexture {
-        wasi_gap("external textures (Device::create_external_texture)")
+        texture::create_external_texture(&self.device, desc, planes)
     }
 
     fn create_blas(
@@ -147,11 +151,11 @@ impl DeviceInterface for WasdkDevice {
         _desc: &wgpu::CreateBlasDescriptor<'_>,
         _sizes: wgpu::BlasGeometrySizeDescriptors,
     ) -> (Option<u64>, DispatchBlas) {
-        wasi_gap("ray tracing (Device::create_blas)")
+        left_out("ray tracing (Device::create_blas)")
     }
 
     fn create_tlas(&self, _desc: &wgpu::CreateTlasDescriptor<'_>) -> DispatchTlas {
-        wasi_gap("ray tracing (Device::create_tlas)")
+        left_out("ray tracing (Device::create_tlas)")
     }
 
     fn create_sampler(&self, desc: &wgpu::SamplerDescriptor<'_>) -> DispatchSampler {
@@ -181,28 +185,25 @@ impl DeviceInterface for WasdkDevice {
         runtime::spawn(async move {
             let info = lost.await;
             callback(
-                convert::device_lost_reason_from_wasi(info.reason()),
-                info.message(),
+                convert::device_lost_reason_from_wit(info.reason),
+                info.message,
             );
         });
     }
 
     fn on_uncaptured_error(&self, handler: Arc<dyn wgpu::UncapturedErrorHandler>) {
-        let mut errors = self.device.on_uncaptured_error().into_stream();
-        runtime::spawn(async move {
-            while let Some(error) = errors.next().await {
-                handler(convert::error_from_wasi(&error));
-            }
-        });
+        self.uncaptured_errors.set_handler(handler);
     }
 
     fn push_error_scope(&self, filter: wgpu::ErrorFilter) -> u32 {
         let index = self.open_error_scopes.fetch_add(1, Ordering::Relaxed);
         self.device
-            .push_error_scope(convert::error_filter_to_wasi(filter));
+            .push_error_scope(convert::error_filter_to_wit(filter));
         index
     }
 
+    /// Scopes pop in reverse order, as wgpu requires; a pop out of order panics here, where the
+    /// engine could only see a pop of the innermost.
     fn pop_error_scope(&self, index: u32) -> Pin<Box<dyn PopErrorScopeFuture>> {
         let open = self.open_error_scopes.load(Ordering::Relaxed);
         assert!(
@@ -212,35 +213,35 @@ impl DeviceInterface for WasdkDevice {
         self.open_error_scopes.store(index, Ordering::Relaxed);
         let device = Arc::clone(&self.device);
         Box::pin(async move {
-            // The only wasi error is "no scope to pop", which the count above rules out.
-            let error = device.pop_error_scope().await.ok().flatten()?;
-            Some(convert::error_from_wasi(&error))
+            let error = device.pop_error_scope().await?;
+            Some(convert::error_from_wit(error))
         })
     }
 
     unsafe fn start_graphics_debugger_capture(&self) {
-        // WebGPU has no capture API.
+        // The engine's development tools start captures; a program cannot.
     }
 
     unsafe fn stop_graphics_debugger_capture(&self) {
-        // WebGPU has no capture API.
+        // The engine's development tools start captures; a program cannot.
     }
 
-    /// `Wait` delivers every callback owed, each once the GPU has done its work, whatever
-    /// submission or timeout it names: the host waits on all of the device's work, with no limit.
-    /// `Poll` delivers none, since nothing here learns whether the GPU is done without waiting;
-    /// its callbacks run as the program yields.
+    /// The engine's poll, its submission and timeout honoured; then, once it has waited, every
+    /// callback the device owes, each of whose work the wait has done or the engine waits for.
+    /// `Poll` delivers none: the callbacks run as the program yields.
     fn poll(
         &self,
         poll_type: wgpu::wgt::PollType<u64>,
     ) -> Result<wgpu::PollStatus, wgpu::PollError> {
-        match poll_type {
-            wgpu::wgt::PollType::Wait { .. } => {
-                self.owed.deliver();
-                Ok(wgpu::PollStatus::WaitSucceeded)
-            }
-            wgpu::wgt::PollType::Poll => Ok(wgpu::PollStatus::Poll),
+        let waits = matches!(poll_type, wgpu::wgt::PollType::Wait { .. });
+        let status = self
+            .device
+            .poll(convert::poll_type_to_wit(poll_type))
+            .map_err(convert::poll_error_from_wit)?;
+        if waits {
+            self.owed.deliver();
         }
+        Ok(convert::poll_status_from_wit(status))
     }
 
     fn get_internal_counters(&self) -> wgpu::InternalCounters {

@@ -10,7 +10,7 @@
 //! adapter that cannot have them is wgpu-core's own, and its canvas then fails to configure,
 //! saying why.
 
-use waos_webgpu_host::DeviceOpener;
+use waos_gpu_host::DeviceOpener;
 use wgpu_core::id::{AdapterId, DeviceId, QueueId};
 use wgpu_core::instance::RequestDeviceError;
 use wgpu_hal::api::Vulkan;
@@ -61,7 +61,7 @@ fn open_with_imports(
         RequestDeviceError::Device(wgpu_core::device::DeviceError::Lost),
     )?;
     // SAFETY: the features and limits are the descriptor's, which the adapter has (checked by the
-    // caller and by the WebGPU host); the callback only adds two extensions the adapter offers
+    // caller and by the GPU host); the callback only adds two extensions the adapter offers
     // (`can_import`).
     let opened = unsafe {
         hal.open_with_callback(
@@ -102,11 +102,11 @@ pub(crate) fn programs_adapter_imports(
     instance: &crate::gpu::GpuInstance,
     programs_adapter: &crate::gpu::ProgramsAdapter,
 ) -> bool {
-    use waos_webgpu_host::AdapterChooser as _;
+    use waos_gpu_host::AdapterChooser as _;
     let Some(adapter) = programs_adapter.choose(instance, &Default::default()) else {
         return false;
     };
-    let adapter = waos_webgpu_host::GpuObject::new(adapter, instance);
+    let adapter = waos_gpu_host::GpuObject::new(adapter, instance);
     can_import(instance, adapter.id())
         && programs_adapter.on_the_compositors_gpu(instance, adapter.id())
 }

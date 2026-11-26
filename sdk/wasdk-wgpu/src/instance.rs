@@ -1,9 +1,12 @@
-//! The instance: the host's `gpu`, and the adapters it hands out.
+//! The instance: the engine's adapters, and surfaces on views.
+//!
+//! `wasdk:gpu` has no instance object: each program has one, the engine's, whose functions are
+//! the interface's own (`request-adapter`, `enumerate-adapters`, `wgsl-language-features`). The
+//! engine picks the backends; the backends a program asks for only filter the adapters it is given.
 
 use std::pin::Pin;
-use std::sync::Arc;
 
-use wasdk::webgpu::{self, Gpu, GpuRequestAdapterOptions};
+use wasdk::gpu::{self, Adapter, RequestAdapterOptions};
 use wgpu::custom::{
     DispatchAdapter, DispatchSurface, EnumerateAdapterFuture, InstanceInterface,
     RequestAdapterFuture,
@@ -13,66 +16,30 @@ use wgpu::{Backends, RequestAdapterError, WgslLanguageFeatures};
 
 use crate::adapter::WasdkAdapter;
 use crate::convert;
-use crate::gap::wasi_gap;
+use crate::left_out::left_out;
 use crate::surface::WasdkSurface;
 
 /// The instance behind a [`wgpu::Instance`] from this backend:
 /// `instance.as_custom::<WasdkInstance>()`.
 #[derive(Debug)]
 pub struct WasdkInstance {
-    gpu: Arc<Gpu>,
-    /// What the program asked for, kept for the error an adapter request reports.
+    /// The backends the program asked for, which filter the engine's adapters.
     requested_backends: Backends,
 }
-
-impl WasdkInstance {
-    /// The wasi `gpu` behind the instance.
-    pub fn gpu(&self) -> &Gpu {
-        &self.gpu
-    }
-
-    /// The format the host draws its canvases in, which a view's surface offers.
-    pub(crate) fn preferred_canvas_format(&self) -> wgpu::TextureFormat {
-        convert::texture_format_from_wasi(self.gpu.get_preferred_canvas_format())
-    }
-}
-
-/// wasi:webgpu is WebGPU, so it answers to wgpu's WebGPU backend bit.
-const BACKEND: Backends = Backends::BROWSER_WEBGPU;
-
-const WGSL_LANGUAGE_FEATURES: &[(WgslLanguageFeatures, &str)] = &[
-    (
-        WgslLanguageFeatures::ReadOnlyAndReadWriteStorageTextures,
-        "readonly_and_readwrite_storage_textures",
-    ),
-    (
-        WgslLanguageFeatures::Packed4x8IntegerDotProduct,
-        "packed_4x8_integer_dot_product",
-    ),
-    (
-        WgslLanguageFeatures::UnrestrictedPointerParameters,
-        "unrestricted_pointer_parameters",
-    ),
-    (
-        WgslLanguageFeatures::PointerCompositeAccess,
-        "pointer_composite_access",
-    ),
-];
 
 // `create_surface` is `unsafe` in the trait, and vouches for the window handle it is given.
 #[allow(unsafe_code)]
 impl InstanceInterface for WasdkInstance {
     fn new(desc: wgpu::InstanceDescriptor) -> Self {
         WasdkInstance {
-            gpu: Arc::new(webgpu::get_gpu()),
             requested_backends: desc.backends,
         }
     }
 
-    /// A surface on the view the target's window handle points at, holding a handle of its own
-    /// to the view from here on; a target that is no window handle, or a handle that is no
-    /// view's, is a gap: wgpu gives a backend of its own no way to make the `CreateSurfaceError`
-    /// it would answer.
+    /// The surface of the view the target's window handle points at, holding a handle of its own
+    /// to the view from here on. Only a view makes a surface: a target that is no window handle,
+    /// or a handle that is no view's, is left out, since wgpu gives a backend of its own no way to
+    /// make the `CreateSurfaceError` it would answer.
     unsafe fn create_surface(
         &self,
         target: wgpu::SurfaceTargetUnsafe,
@@ -81,76 +48,75 @@ impl InstanceInterface for WasdkInstance {
             raw_window_handle, ..
         } = target
         else {
-            wasi_gap("a surface from a target other than a window handle")
+            left_out("a surface from a target other than a window handle")
         };
         // SAFETY: wgpu's contract for the target is that its window is alive for the call.
         let handle = unsafe { WindowHandle::borrow_raw(raw_window_handle) };
         let Some(view) = wasdk::view_of_window_handle(handle) else {
-            wasi_gap(format_args!(
+            left_out(format_args!(
                 "a surface from a window handle other than a view's (a {raw_window_handle:?})"
             ))
         };
-        let surface = WasdkSurface::new(view, self.preferred_canvas_format());
-        Ok(DispatchSurface::custom(surface))
+        Ok(DispatchSurface::custom(WasdkSurface::new(view)))
     }
 
     fn request_adapter(
         &self,
         options: &wgpu::RequestAdapterOptions<'_, '_>,
     ) -> Pin<Box<dyn RequestAdapterFuture>> {
-        // Every adapter of the engine's draws every view, so a compatible surface narrows nothing.
         let requested_backends = self.requested_backends;
-        let wasi_options = requested_backends
-            .contains(BACKEND)
-            .then(|| GpuRequestAdapterOptions {
-                feature_level: None,
-                power_preference: convert::power_preference_to_wasi(options.power_preference),
-                force_fallback_adapter: Some(options.force_fallback_adapter),
-                xr_compatible: None,
-            });
-        let gpu = Arc::clone(&self.gpu);
+        let power_preference = convert::power_preference_to_wit(options.power_preference);
+        let force_fallback_adapter = options.force_fallback_adapter;
+        let compatible_surface = options
+            .compatible_surface
+            .map(|surface| WasdkSurface::of(surface).shared_surface());
         Box::pin(async move {
-            let adapter = match wasi_options {
-                Some(wasi_options) => gpu.request_adapter(Some(wasi_options)).await,
-                None => None,
+            let options = RequestAdapterOptions {
+                power_preference,
+                force_fallback_adapter,
+                compatible_surface: compatible_surface.as_deref(),
             };
-            adapter
+            gpu::request_adapter(options)
+                .await
+                .filter(|adapter| is_requested(adapter, requested_backends))
                 .map(|adapter| DispatchAdapter::custom(WasdkAdapter::new(adapter)))
                 .ok_or_else(|| no_adapter(requested_backends))
         })
     }
 
     fn poll_all_devices(&self, _force_wait: bool) -> bool {
-        // Devices make progress on their own; see `runtime`.
+        // A program polls its own devices; see `runtime`.
         true
     }
 
     fn wgsl_language_features(&self) -> WgslLanguageFeatures {
-        let supported = self.gpu.wgsl_language_features();
-        WGSL_LANGUAGE_FEATURES
-            .iter()
-            .filter(|(_, name)| supported.has(name))
-            .fold(WgslLanguageFeatures::empty(), |features, (bit, _)| {
-                features | bit.clone()
-            })
+        convert::wgsl_language_features_from_wit(gpu::wgsl_language_features())
     }
 
     fn enumerate_adapters(&self, backends: Backends) -> Pin<Box<dyn EnumerateAdapterFuture>> {
-        if !backends.contains(BACKEND) {
-            return Box::pin(async { Vec::new() });
-        }
-        let adapter = self.request_adapter(&wgpu::RequestAdapterOptions::default());
-        Box::pin(async move { adapter.await.into_iter().collect() })
+        let backends = backends & self.requested_backends;
+        Box::pin(async move {
+            (gpu::enumerate_adapters().await.into_iter())
+                .filter(|adapter| is_requested(adapter, backends))
+                .map(|adapter| DispatchAdapter::custom(WasdkAdapter::new(adapter)))
+                .collect()
+        })
     }
+}
+
+/// Whether `adapter` is reached through one of `backends`.
+fn is_requested(adapter: &Adapter, backends: Backends) -> bool {
+    let backend = convert::backend_from_wit(adapter.info().backend);
+    backends.contains(Backends::from(backend))
 }
 
 fn no_adapter(requested_backends: Backends) -> RequestAdapterError {
     RequestAdapterError::NotFound {
-        active_backends: BACKEND,
+        active_backends: requested_backends,
         requested_backends,
-        supported_backends: BACKEND,
+        supported_backends: Backends::all(),
         no_fallback_backends: Backends::empty(),
-        no_adapter_backends: BACKEND,
+        no_adapter_backends: requested_backends,
         incompatible_surface_backends: Backends::empty(),
     }
 }

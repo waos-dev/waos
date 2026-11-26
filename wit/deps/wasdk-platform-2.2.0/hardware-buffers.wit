@@ -17,22 +17,22 @@ package wasdk:platform@2.2.0;
 /// whose `hardware-buffer` is one of these that keeps the frame, and its slot, while it is held.
 ///
 /// **Two kinds of memory.** A hardware buffer is GPU memory, drawn with no copy; a pixel buffer is
-/// the program's own memory, which it uploads with WebGPU itself to draw. Every move between them
+/// the program's own memory, which it uploads with `wasdk:gpu` itself to draw. Every move between them
 /// is a call of its own, so a program sees each copy it makes: a hardware buffer comes back to the
 /// program's memory only through `read-pixels`.
 ///
 /// **How much.** Only the system bounds what a program holds of the hardware buffers it allocates
-/// and decodes, as only the GPU bounds a WebGPU device's allocations: where the system has no
+/// and decodes, as only the GPU bounds a device's allocations: where the system has no
 /// memory left, an allocation or a decode answers `out-of-memory`. A buffer the program lets go
 /// of, once every texture imported of it and every layer showing it have let go too, gives its
 /// memory back.
 interface hardware-buffers {
-  use wasi:webgpu/webgpu@0.3.0-rc.2.{gpu-device};
+  use wasdk:gpu/gpu@1.0.0.{device};
 
   /// The allocator of buffers drawn on `device` and shown: on Windows and Linux one that makes
   /// them on `device`'s GPU, the system's on Apple's systems and Android. None where the system
   /// allocates no hardware buffers.
-  get-hardware-buffer-allocator: func(device: borrow<gpu-device>) -> option<hardware-buffer-allocator>;
+  get-hardware-buffer-allocator: func(device: borrow<device>) -> option<hardware-buffer-allocator>;
 
   /// What makes a program's hardware buffers: the role of Android's graphics allocator
   /// (gralloc's `IAllocator`), Fuchsia's sysmem `Allocator` and a GBM device on Linux.
@@ -49,7 +49,7 @@ interface hardware-buffers {
 
     /// Whether `allocate` makes a buffer in `format` for `usage` on this system: what it would
     /// answer `unsupported` to, asked first. The format to draw in for the screen, with no
-    /// conversion, is WebGPU's preferred canvas format.
+    /// conversion, is the first format of the view's surface's `capabilities`.
     @since(version = 2.2.0)
     supports: func(format: hardware-buffer-format, usage: hardware-buffer-usage) -> bool;
   }

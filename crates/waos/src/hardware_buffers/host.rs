@@ -8,7 +8,7 @@
 
 use std::sync::Arc;
 
-use waos_webgpu_host::Device;
+use waos_gpu_host::Device;
 use wasmtime::bail;
 use wasmtime::component::{Accessor, HasData, Linker, Resource, ResourceTable};
 use wasmtime_wasi::runtime::spawn_blocking;

@@ -1,11 +1,12 @@
 //! The code serving `wasdk:platform/gpu-interop` to a program: a buffer it holds imported as a
-//! texture on its device, the WebGPU host's own `gpu-texture`, for what the buffer's usage allows.
+//! texture on its device, the GPU host's own `texture`, for what the buffer's usage allows.
 
-use waos_webgpu_host::{Device, Texture};
+use waos_gpu_host::{Device, Texture};
 use wasmtime::component::{HasData, Linker, Resource, ResourceTable};
 
 use super::texture_usages;
-use crate::bindings::wasdk::platform::gpu_interop;
+use crate::bindings::wasdk::gpu::types::TextureAspect;
+use crate::bindings::wasdk::platform::gpu_interop::{self, TexturePlane};
 use crate::gpu::GpuInstance;
 use crate::hardware_buffers::ProgramHardwareBuffer;
 
@@ -48,20 +49,28 @@ impl gpu_interop::Host for GpuInteropCtx<'_> {
         Ok(self.table.push(texture)?)
     }
 
-    /// A texture over one plane of the buffer's memory on `device`, holding the buffer until the
-    /// GPU is done with it. A plane the buffer does not have is the program's mistake, and traps
-    /// it, as a failure the system answers does.
-    fn import_plane(
+    /// A texture over each plane of the buffer's memory on `device`, holding the buffer until
+    /// the GPU is done with it: a texture of its own for each plane, read through its whole, as
+    /// the systems the engine imports planes on give them. A failure the system answers is the
+    /// engine's, and traps the program.
+    fn import_planes(
         &mut self,
         device: Resource<Device>,
         buffer: Resource<ProgramHardwareBuffer>,
-        index: u32,
-    ) -> wasmtime::Result<Resource<Texture>> {
+    ) -> wasmtime::Result<Vec<TexturePlane>> {
         let buffer = self.table.get(&buffer)?;
         let device = self.table.get(&device)?;
-        let texture = buffer
-            .plane_texture_on(self.gpu, device, index, texture_usages(buffer.usage()))
+        let textures = buffer
+            .plane_textures_on(self.gpu, device, texture_usages(buffer.usage()))
             .map_err(wasmtime::Error::from_anyhow)?;
-        Ok(self.table.push(texture)?)
+        textures
+            .into_iter()
+            .map(|texture| {
+                Ok(TexturePlane {
+                    texture: self.table.push(texture)?,
+                    aspect: TextureAspect::All,
+                })
+            })
+            .collect()
     }
 }

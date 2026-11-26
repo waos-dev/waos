@@ -17,7 +17,8 @@ use waft_embedder::{
     AcceptedBuffers, AcceptedFormat, CompositionLayer, Compositor, GpuMemory, HardwareBuffer,
     HardwareBufferFormat, LayerPicture, Placement,
 };
-use wasdk::{views, webgpu};
+use wasdk::gpu_types::TextureFormat;
+use wasdk::views;
 
 use crate::hardware_buffers::wit_buffer;
 use crate::placements::placement_of;
@@ -37,24 +38,43 @@ impl Compositor for WasdkCompositor {
         Arc::new(WasdkLayer(self.0.make_layer(opaque)))
     }
 
-    /// The buffers the system's allocator makes, in WebGPU's preferred canvas format, as a web
-    /// page draws in it: what the system shows with no conversion. A program names no GPU, nor
-    /// shows shared memory.
+    /// The buffers the system's allocator makes, in the format the program's views are drawn
+    /// in, the first of their surfaces' capabilities (`renderer`): what the system shows with no
+    /// conversion. Before a view is drawn on there is none to ask, so both formats a buffer is
+    /// shown in are offered, BGRA first, and the answer changes once a view is. A program names
+    /// no GPU, nor shows shared memory.
     fn accepted_buffers(&self) -> AcceptedBuffers {
-        let format = match webgpu::get_gpu().get_preferred_canvas_format() {
-            webgpu::GpuTextureFormat::Rgba8unorm => HardwareBufferFormat::Rgba8,
-            _ => HardwareBufferFormat::Bgra8,
+        let formats = match views_format() {
+            Some(format) => vec![format],
+            None => vec![HardwareBufferFormat::Bgra8, HardwareBufferFormat::Rgba8],
         };
         AcceptedBuffers {
             gpu_memory: vec![GpuMemory {
                 gpu: None,
-                formats: vec![AcceptedFormat {
-                    format,
-                    modifiers: Vec::new(),
-                }],
+                formats: (formats.into_iter())
+                    .map(|format| AcceptedFormat {
+                        format,
+                        modifiers: Vec::new(),
+                    })
+                    .collect(),
             }],
             shared_memory: false,
         }
+    }
+}
+
+/// The format of buffers the program's views are drawn in, as the first view's surface is
+/// configured; none before a view's surface is, or for a format no hardware buffer has.
+fn views_format() -> Option<HardwareBufferFormat> {
+    let view = views::views().into_iter().next()?;
+    match view.surface().configuration()?.format {
+        TextureFormat::Rgba8Unorm | TextureFormat::Rgba8UnormSrgb => {
+            Some(HardwareBufferFormat::Rgba8)
+        }
+        TextureFormat::Bgra8Unorm | TextureFormat::Bgra8UnormSrgb => {
+            Some(HardwareBufferFormat::Bgra8)
+        }
+        _ => None,
     }
 }
 

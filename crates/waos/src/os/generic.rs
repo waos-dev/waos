@@ -6,7 +6,7 @@ use std::convert::Infallible;
 
 use anyhow::{Result, bail};
 
-use waos_webgpu_host::Device;
+use waos_gpu_host::Device;
 
 use crate::BufferKind;
 use crate::bindings::wasdk::platform::hardware_buffers::{
@@ -143,12 +143,12 @@ impl HardwareBufferMemory {
     pub(crate) fn program_texture(
         &self,
         _gpu: &GpuInstance,
-        _device: &waos_webgpu_host::Device,
+        _device: &waos_gpu_host::Device,
         _usage: wgpu_types::TextureUsages,
         _release: Box<dyn FnOnce() + Send + Sync>,
     ) -> Result<(
-        std::sync::Arc<waos_webgpu_host::GpuObject<wgpu_core::id::TextureId>>,
-        waos_webgpu_host::TextureAttributes,
+        std::sync::Arc<waos_gpu_host::GpuObject<wgpu_core::id::TextureId>>,
+        waos_gpu_host::TextureDescriptor,
     )> {
         match self.0 {}
     }

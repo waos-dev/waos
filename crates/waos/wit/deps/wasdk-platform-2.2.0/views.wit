@@ -12,11 +12,11 @@ package wasdk:platform@2.2.0;
 /// asks. A view carries the id of the request it arrived for, and what the request attached as
 /// `initial-data`.
 ///
-/// Drawing is WebGPU's canvas model. A view hands out a `gpu-canvas-context`; the program
-/// sets the size of the view's canvas, configures the context against its device, draws into
-/// the texture the context gives for the current frame, and `present` puts that texture on
-/// screen. The canvas is the size the program sets, whatever the view's size, so a program
-/// sets it again as the view's `metrics` change. Frames are on demand: nothing
+/// Drawing is wgpu's surface model. A view hands out its `surface` (`wasdk:gpu`); the program
+/// configures it on its device, at the size it draws at, draws into the texture the surface gives
+/// for the current frame, and `present` puts that texture on screen. The frames are the size the
+/// program configured, whatever the view's size, so a program configures again as the view's
+/// `metrics` change. Frames are on demand: nothing
 /// is drawn until the program asks with `request-frame`, and a view gets one `frame` event for
 /// each refresh of the screen it is on: asked for before the view had the frame of the refresh
 /// the screen is in, it arrives at once; asked for after, at the next refresh. A refresh that
@@ -50,7 +50,7 @@ package wasdk:platform@2.2.0;
 /// whether it goes back within itself, and hears the press only while it does. The platform cannot
 /// wait for a program, which runs behind the interface, to answer a press on the spot.
 interface views {
-  use wasi:webgpu/webgpu@0.3.0-rc.2.{gpu-canvas-context};
+  use wasdk:gpu/gpu@1.0.0.{surface};
   use screens.{screen};
   use windows.{window, window-config, rect, size};
   use clipboard.{copy-request, paste};
@@ -167,16 +167,9 @@ interface views {
     /// The screen this view is on now; none while it is on no screen.
     screen: func() -> option<screen>;
 
-    /// The WebGPU context that draws into this view.
-    context: func() -> gpu-canvas-context;
-
-    /// Sets the size of the textures the view's canvas hands out, in physical pixels: the size
-    /// the program draws its pictures at, kept until set again, whatever the view's size, and
-    /// taken from the canvas's next texture on. The canvas has no size until one is set:
-    /// configuring a context on it, or taking a texture, before then traps the program, as does
-    /// a size of zero, or one past the largest 2D texture of the device the context is
-    /// configured against.
-    set-canvas-size: func(width: u32, height: u32);
+    /// The surface that draws into this view: one per view, each call a handle to it. Its
+    /// `current-texture` answers `occluded` while the view is not on screen.
+    surface: func() -> surface;
 
     /// The view's current geometry.
     metrics: func() -> metrics;
@@ -201,7 +194,7 @@ interface views {
     /// list does not name is taken off with that present's picture.
     set-layers: func(layers: list<placed-layer>);
 
-    /// Puts the texture last taken from the context on screen, with the view's layers beneath
+    /// Puts the texture last taken from the view's surface on screen, with the view's layers beneath
     /// it, once the GPU has finished the work the program submitted and the writes it queued
     /// before this call. A present with no picture drawn since the last does nothing, its layers
     /// included, since a layer moves with the picture that makes room for it: layers set since

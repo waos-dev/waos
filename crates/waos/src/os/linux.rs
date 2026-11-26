@@ -1,4 +1,4 @@
-//! A hardware buffer on Linux: either a dmabuf a program's WebGPU device draws into and the
+//! A hardware buffer on Linux: either a dmabuf a program's GPU device draws into and the
 //! compositor shows with no copy between them, or shared memory a frame is read back into, which
 //! the compositor maps, where it imports no dmabuf the engine's GPU makes and in a headless WaOS
 //! (`BufferKind`).
@@ -34,10 +34,7 @@ use std::os::fd::{AsRawFd, OwnedFd};
 use std::sync::{Arc, LazyLock, Mutex, OnceLock};
 
 use anyhow::{Context, Result, anyhow, bail};
-use waos_webgpu_host::wasi::webgpu::webgpu::{
-    GpuTextureDimension, GpuTextureFormat, GpuTextureUsage,
-};
-use waos_webgpu_host::{Device, GpuObject, TextureAttributes};
+use waos_gpu_host::{Device, GpuObject, TextureDescriptor};
 
 use crate::BufferKind;
 use crate::bindings::wasdk::platform::hardware_buffers::{
@@ -60,7 +57,7 @@ use imported_image::ImportedTexture;
 use shared_memory::SharedMemory;
 
 /// The format a hardware buffer is allocated in, and so the only one a canvas can be configured
-/// with: WebGPU's preferred canvas format on this platform. Android's public formats have no BGRA.
+/// with: the format a view's surface offers on this platform. Android's public formats have no BGRA.
 pub(crate) const FORMAT: wgpu_types::TextureFormat = wgpu_types::TextureFormat::Bgra8Unorm;
 
 /// What a device must enable to import a dmabuf and hand it to the compositor.
@@ -417,7 +414,7 @@ impl HardwareBufferMemory {
         device: &Device,
         usage: wgpu_types::TextureUsages,
         release: wgpu_hal::DropCallback,
-    ) -> Result<(Arc<GpuObject<wgpu_core::id::TextureId>>, TextureAttributes)> {
+    ) -> Result<(Arc<GpuObject<wgpu_core::id::TextureId>>, TextureDescriptor)> {
         let size = [self.width, self.height];
         let texture = match self.buffer.0.as_ref() {
             LinuxBuffer::Dmabuf(_) => {
@@ -450,20 +447,9 @@ impl HardwareBufferMemory {
                 texture
             }
         };
-        let attributes = TextureAttributes {
-            size: wgpu_types::Extent3d {
-                width: size[0],
-                height: size[1],
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: GpuTextureDimension::D2,
-            format: GpuTextureFormat::Bgra8unorm,
-            usage: gpu_usage(usage),
-            texture_binding_view_dimension: None,
-        };
-        Ok((Arc::new(GpuObject::new(texture, gpu)), attributes))
+        let descriptor =
+            crate::gpu::hardware_buffer_texture(size, wgpu_types::TextureFormat::Bgra8Unorm, usage);
+        Ok((Arc::new(GpuObject::new(texture, gpu)), descriptor))
     }
 
     /// A texture over the buffer's memory on `device` of `gpu`, which the GPU samples, its pixels
@@ -1022,29 +1008,4 @@ fn arriving_state(usage: wgpu_types::TextureUsages) -> wgpu_types::TextureUses {
     } else {
         wgpu_types::TextureUses::COPY_SRC
     }
-}
-
-/// `usage` as the WebGPU host tells the program its texture's usage.
-fn gpu_usage(usage: wgpu_types::TextureUsages) -> GpuTextureUsage {
-    [
-        (
-            wgpu_types::TextureUsages::COPY_SRC,
-            GpuTextureUsage::COPY_SRC,
-        ),
-        (
-            wgpu_types::TextureUsages::COPY_DST,
-            GpuTextureUsage::COPY_DST,
-        ),
-        (
-            wgpu_types::TextureUsages::TEXTURE_BINDING,
-            GpuTextureUsage::TEXTURE_BINDING,
-        ),
-        (
-            wgpu_types::TextureUsages::RENDER_ATTACHMENT,
-            GpuTextureUsage::RENDER_ATTACHMENT,
-        ),
-    ]
-    .into_iter()
-    .filter(|(wgpu, _)| usage.contains(*wgpu))
-    .fold(GpuTextureUsage::empty(), |all, (_, webgpu)| all | webgpu)
 }

@@ -1,11 +1,13 @@
-//! A [`wgpu`] backend over the engine's `wasi:webgpu`, for a program built as a component.
+//! A [`wgpu`] backend over the engine's `wasdk:gpu`, for a program built as a component.
 //!
 //! wgpu's `custom` feature lets an external crate implement its dispatch traits. This crate
-//! implements them over the [`wasdk::webgpu`] bindings, so anything written against the `wgpu`
-//! API (valo, and the Waft UI framework through it) runs in a component unchanged.
-//! `wasi:webgpu` mirrors the WebGPU specification, so the object model mirrors wgpu's own
-//! browser backend: each wgpu object owns the wasi resource behind it and drops it with itself,
-//! and descriptors borrow those resources from their owners for the duration of a call.
+//! implements them over the [`wasdk::gpu`] bindings, so anything written against the `wgpu` API
+//! (valo, and the Waft UI framework through it) runs in a component unchanged. `wasdk:gpu` is
+//! wgpu's model as WIT, so each dispatch call is one call of the WIT, which the engine serves with
+//! one call of wgpu-core: each wgpu object owns the engine's resource behind it and drops it with
+//! itself, descriptors borrow those resources for the duration of a call, and values convert case
+//! for case (`convert`). What wgpu-core refuses goes to the device's error scopes, or else to its
+//! uncaptured-error handler, as with wgpu's own backend.
 //!
 //! ```ignore
 //! let instance = wasdk_wgpu::instance();
@@ -29,99 +31,74 @@
 //! let decoders = wasdk_wgpu::video_decoders(&device);
 //! let allocator = wasdk_wgpu::hardware_buffer_allocator(&device);
 //!
-//! // A video frame's hardware buffer is sampled through a texture imported of it on the device:
-//! let video_texture = wasdk_wgpu::import_texture(&device, &video_frame.hardware_buffer());
+//! // A hardware buffer is drawn into and sampled through a texture imported of it on the device,
+//! // and a video frame's planes each through a texture and the aspect that is the plane:
+//! let texture = wasdk_wgpu::import_texture(&device, &buffer);
+//! let planes = wasdk_wgpu::import_planes(&device, &video_frame.hardware_buffer());
 //! ```
 //!
 //! # Drawing on a view
 //!
-//! A view is drawn on through wgpu's surface, the one way this crate draws on one, as a browser's
-//! canvas is (`surface`): a view is the window `Instance::create_surface` takes, by the window
-//! handle `wasdk` gives it, or any window over one that answers the view's handle as its own, so
-//! a framework's renderer that makes its surface from a window's handles runs unchanged. The surface offers the engine's canvas format, which the
-//! canvas is drawn in, `PresentMode::Fifo`, opaque and premultiplied alpha, and drawing into,
-//! sampling and copying its textures; `configure` sets the view's canvas to the size configured,
-//! which its textures are from then on whatever the view's own size, and configures a canvas
-//! context of the view's against the device, its view formats passed through, of which the
-//! engine serves the format's sRGB counterpart. `Queue::present` presents the view, with the layers it holds beneath it
+//! A view is drawn on through wgpu's surface, the one way this crate draws on one (`surface`): a
+//! view is the window `Instance::create_surface` takes, by the window handle `wasdk` gives it, or
+//! any window over one that answers the view's handle as its own, so a framework's renderer that
+//! makes its surface from a window's handles runs unchanged. The surface is the view's own
+//! (`view.surface()`): its capabilities say what the engine serves, `configure` sets the frames'
+//! size, whatever the view's own, and `get_current_texture` answers `Occluded` while the view is
+//! not on screen. `Queue::present` presents the view, with the layers it holds beneath it
 //! (`view.set_layers`); a frame dropped without a present is not presented.
 //!
-//! # What the boundary cannot express
+//! # What `wasdk:gpu` leaves out
 //!
-//! `wasi:webgpu@0.3.0-rc.2` is the WebGPU API and nothing beyond it. Everything wgpu offers
-//! past WebGPU panics at the call with a message naming the gap, or returns the error where the
-//! wgpu signature has one. The complete list:
+//! Only wgpu's safe API reaches the engine. Each of these panics at the call, naming it:
 //!
 //! - **Surfaces on anything but a view.** `Instance::create_surface` with a window handle that is
-//!   not a view's, or a target that is not a window handle: wgpu gives a backend of its
-//!   own no way to make the `CreateSurfaceError` it would answer. A surface's present modes but
-//!   `Fifo` and the automatic ones, its alpha modes `PostMultiplied` and `Inherit`, and colour
-//!   spaces a WebGPU canvas has no name for (`ExtendedSrgbLinear`, `Bt2100Pq`, `Bt2100Hlg`).
-//! - **`as_hal` and pipeline caches.** There is no hal underneath; `create_pipeline_cache` and
-//!   a `cache` in a pipeline descriptor.
-//! - **Ray tracing.** BLAS/TLAS creation, compaction and builds,
-//!   `BindingType::AccelerationStructure`, `BufferUsages::BLAS_INPUT | TLAS_INPUT`.
-//! - **External textures.** `create_external_texture`, `BindingType::ExternalTexture`.
-//! - **Passthrough shaders in a language other than WGSL.** A shader given as naga's module is
-//!   written as WGSL on its way, and SPIR-V and GLSL are with this crate's `spirv` and `glsl`
-//!   features, as wgpu's browser backend writes them; without the feature they stop the program.
-//! - **Binding arrays.** `BindGroupLayoutEntry::count`, `BindingResource::*Array`.
-//! - **Transient attachments.** `TextureUsages::TRANSIENT_ATTACHMENT` is a hint the host
-//!   rejects, so it is stripped, as wgpu's browser backend strips it.
-//! - **Browser-only entry points.** `Queue::copy_external_image_to_texture` and a mapped
-//!   range's `as_uint8array`, which exist on wgpu's API only for the web.
-//! - **Mesh shaders.** `create_mesh_pipeline`, `draw_mesh_tasks*`.
-//! - **`multi_draw_*_count`.** Plain `multi_draw_indirect` is unrolled into draws, as on the web.
-//! - **Timestamps inside encoders and passes** (`write_timestamp`): WebGPU writes them only at
-//!   pass boundaries (`timestamp_writes`). **Pipeline statistics queries.**
-//! - **`clear_texture`.**
-//! - **Values without a WebGPU name:** texture formats `R64Uint`, `NV12`, `P010` and HDR ASTC;
-//!   `Float64*` vertex formats; `TextureUsages::STORAGE_ATOMIC`; `StorageTextureAccess::Atomic`;
-//!   `AddressMode::ClampToBorder` and `SamplerDescriptor::border_color`; `TextureAspect::Plane*`;
-//!   `PolygonMode::Line | Point` and conservative rasterization; multiview; shader stages beyond
-//!   vertex, fragment and compute.
-//! - **Features.** A required feature without a WebGPU name (wgpu-native's) fails
-//!   `request_device` with a [`wgpu::RequestDeviceError`]. wasi features without a wgpu bit
-//!   (`core-features-and-limits`, `texture-formats-tier1/2`, `texture-component-swizzle`) are
-//!   not reported.
+//!   not a view's, or a target that is not a window handle: wgpu gives a backend of its own no
+//!   way to make the `CreateSurfaceError` it would answer.
+//! - **The experimental features**, which wgpu makes a program accept undefined behaviour to turn
+//!   on: ray tracing (acceleration structures, their bindings, `BufferUsages::BLAS_INPUT |
+//!   TLAS_INPUT` and the ray tracing stages), mesh shaders (`create_mesh_pipeline`,
+//!   `draw_mesh_tasks*`, the task and mesh stages) and cooperative matrices. A required feature
+//!   the WIT has no case for fails `request_device` with a [`wgpu::RequestDeviceError`]; the
+//!   limits of the experimental features are not asked for and stay at wgpu's defaults.
+//! - **What skips validation:** passthrough shaders (`create_shader_module_passthrough`) and
+//!   pipeline caches (`create_pipeline_cache`, a pipeline descriptor's `cache`), which the engine
+//!   keeps for every program alike.
+//! - **Browser-only entry points:** `Queue::copy_external_image_to_texture` and a mapped range's
+//!   `as_uint8array`.
+//! - **SPIR-V and GLSL sources without this crate's `spirv` and `glsl` features**, which name
+//!   wgpu's variants for them; with them, the engine's naga reads both.
 //!
-//! Hints with no wasi counterpart and no effect on results are accepted and dropped:
-//! `DeviceDescriptor::{trace, memory_hints, experimental_features}`,
-//! `RequestAdapterOptions::apply_limit_buckets`, `ShaderRuntimeChecks`,
-//! `PipelineCompilationOptions::zero_initialize_workgroup_memory` (WebGPU always zeroes) and
-//! `start/stop_graphics_debugger_capture`. `transition_resources` is a no-op because WebGPU
-//! tracks resource state itself.
+//! These are accepted, and do what the engine does instead: `ShaderRuntimeChecks` (naga's bounds
+//! checks always run), `PipelineCompilationOptions::zero_initialize_workgroup_memory` (the engine
+//! always zeroes), `LoadOp::DontCare` (it clears, as wgpu's backend for the web does), and the
+//! engine's own hints and tools, `DeviceDescriptor::trace`,
+//! `RequestAdapterOptions::apply_limit_buckets`, `start/stop_graphics_debugger_capture`,
+//! `get_internal_counters` (empty) and `generate_allocator_report` (none). `transition_resources`
+//! does nothing, as wgpu-core tracks resource state itself. A shader given as naga's module
+//! (`ShaderSource::Naga`), which has no stable form to cross the boundary in, is written as WGSL
+//! here first.
 //!
 //! # Where the semantics differ from wgpu-core
 //!
-//! - **Mapping copies.** The boundary shares no memory: `get_mapped_range` copies the range into
-//!   the component (`get-mapped-range-get-with-copy`), and a mutable view is copied back when it
-//!   is dropped (`get-mapped-range-set-with-copy`); drop every `BufferViewMut` before `unmap`.
-//!   The first range of a buffer made mapped (`mapped_at_creation`) is not copied in: it is
-//!   zeros, which the program makes itself, so `create_buffer_init` sends its data once.
+//! - **Mapping copies.** The boundary shares no memory: `get_mapped_range` copies the range in,
+//!   and a mutable view is copied back when it is dropped; drop every `BufferViewMut` before
+//!   `unmap`. The first range of a buffer made mapped (`mapped_at_creation`) is not copied in: it
+//!   is zeros, which the program makes itself, so `create_buffer_init` sends its data once. A
+//!   range that is not mapped traps the program, where wgpu-core answers a
+//!   [`wgpu::MapRangeError`], which no backend outside wgpu can make.
 //! - **A mapping's and submitted work's callbacks run at `Device::poll` with `Wait`, or as the
-//!   program yields**, whichever comes first, each once: code written for native wgpu, which
-//!   asks, polls and reads at once, and code written for the web, which awaits, both work. They
-//!   run in the order asked, each once the GPU has done its work, so `poll` does not return
-//!   before them. `poll` with `Poll` delivers none: nothing here learns whether the GPU is done
-//!   without waiting. `set_device_lost_callback` and `on_uncaptured_error` are tasks on the
-//!   program's executor and run while it awaits. `request_adapter`, `request_device`,
-//!   `pop_error_scope` and `get_compilation_info` are wasi async calls awaited by the futures
-//!   wgpu returns.
-//! - **`PollType::Wait` waits for all of the device's work, with no limit:** its submission index
-//!   and its timeout are not honoured. Submission indices count submissions per queue.
-//! - **A frame on a lost device** is handed out as good: the canvas hands out an invalid texture
-//!   it cannot tell from a good one, and the loss comes through the device's lost callback.
-//! - **`AdapterInfo`** reports `Backend::BrowserWebGpu` (the WebGPU API, not a browser) and zero
-//!   vendor/device ids: the wasi info is strings, which land in `name` and `driver_info`.
-//! - **`LoadOp::DontCare`** clears, as on the web.
-//! - **`Queue::write_buffer_with`** returns `None` for a write that fails validation
-//!   (alignment, bounds, `COPY_DST`), as wgpu documents, instead of raising a validation error.
-//! - **Validation the boundary reports becomes a panic.** Six calls answer with an error the
-//!   wgpu signature has nowhere to put: `Queue::write_buffer`, `Buffer::unmap`,
-//!   `Buffer::get_mapped_range`, writing a mapped range back, `Device::create_query_set` and
-//!   `set_bind_group`. Each panics with the engine's message rather than reaching an error scope,
-//!   where wgpu-core would raise a validation error.
+//!   program yields**, whichever comes first, each once, in the order asked: code written for
+//!   native wgpu, which asks, polls and reads at once, and code written for the web, which
+//!   awaits, both work. `poll` honours its submission index and timeout, then delivers the
+//!   callbacks owed, waiting for each; `poll` with `Poll` delivers none.
+//! - **Uncaptured errors and device loss arrive as the program awaits.** The device's uncaptured
+//!   errors are read by a task started as the device opens, which hands each to the handler set
+//!   with `on_uncaptured_error`, or else panics, as wgpu's default handler does;
+//!   `set_device_lost_callback` starts a task too. A device opened inside a `wasdk::block_on`
+//!   keeps that wait from returning, since the wait waits for the task: open it from async code.
+//! - **`Queue::write_buffer_with` never answers `None`**: the engine validates the write when the
+//!   view is dropped, reporting what fails to the error scopes.
 
 /// Recovers this backend's object from the wgpu API type or dispatch wrapper carrying it; an
 /// object from another wgpu backend is a programming error.
@@ -160,8 +137,8 @@ mod buffer;
 mod command;
 pub mod convert;
 mod device;
-mod gap;
 mod instance;
+mod left_out;
 mod pass;
 mod pipeline;
 mod query;
@@ -171,6 +148,7 @@ mod sampler;
 mod shader;
 mod surface;
 mod texture;
+mod uncaptured_errors;
 
 use wasdk::gpu_interop;
 use wasdk::hardware_buffers::{self, HardwareBuffer, HardwareBufferAllocator};
@@ -182,7 +160,7 @@ pub use instance::WasdkInstance;
 pub use surface::{WasdkSurface, WasdkSurfaceOutputDetail};
 pub use texture::WasdkTexture;
 
-/// The wgpu instance over the engine's WebGPU. `wgpu::Instance::new` on this target has no
+/// The wgpu instance over the engine's `wasdk:gpu`. `wgpu::Instance::new` on this target has no
 /// backend; this is the one to use.
 pub fn instance() -> wgpu::Instance {
     let descriptor = wgpu::InstanceDescriptor::new_without_display_handle();
@@ -194,46 +172,70 @@ pub fn instance() -> wgpu::Instance {
 /// decoded or a video frame's, which the texture holds, with its frame, until it is dropped. Its
 /// size and format are the buffer's, and its usages follow from the buffer's usage.
 pub fn import_texture(device: &wgpu::Device, buffer: &HardwareBuffer) -> wgpu::Texture {
-    let texture = gpu_interop::import_texture(WasdkDevice::of(device).gpu_device(), buffer);
-    wgpu_texture(texture, "hardware buffer")
+    wgpu_texture(gpu_interop::import_texture(
+        WasdkDevice::of(device).wit_device(),
+        buffer,
+    ))
 }
 
-/// One plane of `buffer` imported as a texture on `device`, as a `wgpu::Texture`: the plane at
-/// `index` of a video frame's `planes`, of that plane's size and format, which holds the buffer
-/// and its frame until it is dropped. A decoder's picture is drawn by sampling each of its planes
-/// and mixing them as the frame's `color` says.
-pub fn import_plane(device: &wgpu::Device, buffer: &HardwareBuffer, index: u32) -> wgpu::Texture {
-    let texture = gpu_interop::import_plane(WasdkDevice::of(device).gpu_device(), buffer, index);
-    wgpu_texture(texture, "hardware buffer plane")
+/// One plane of a hardware buffer as the GPU reads it: a texture, and the aspect of it that is
+/// the plane, which a view of the plane takes (`wasdk:platform/gpu-interop`'s `texture-plane`).
+#[derive(Debug)]
+pub struct TexturePlane {
+    pub texture: wgpu::Texture,
+    pub aspect: wgpu::TextureAspect,
+}
+
+impl TexturePlane {
+    /// A view of the plane alone, to bind or to pass to `Device::create_external_texture`.
+    pub fn create_view(&self) -> wgpu::TextureView {
+        self.texture.create_view(&wgpu::TextureViewDescriptor {
+            aspect: self.aspect,
+            ..Default::default()
+        })
+    }
+}
+
+/// Each plane of `buffer` on `device`, in the order of a video frame's `planes`, each holding the
+/// buffer and its frame until it is dropped. Where the device has the buffer's two-plane format
+/// (D3D12, Vulkan), every plane is one `NV12` or `P010` texture with the plane's aspect;
+/// elsewhere (Metal), each is a texture of its own with `All`. A decoder's picture is drawn by
+/// sampling each plane's view and mixing them as the frame's `color` says, or through an external
+/// texture made of the views.
+pub fn import_planes(device: &wgpu::Device, buffer: &HardwareBuffer) -> Vec<TexturePlane> {
+    let planes = gpu_interop::import_planes(WasdkDevice::of(device).wit_device(), buffer);
+    (planes.into_iter())
+        .map(|plane| TexturePlane {
+            texture: wgpu_texture(plane.texture),
+            aspect: convert::texture_aspect_from_wit(plane.aspect),
+        })
+        .collect()
 }
 
 /// The system's video decoders whose frames are for `device`'s GPU
 /// (`wasdk:media/video-decoders`); none where the system decodes no video for programs.
 pub fn video_decoders(device: &wgpu::Device) -> Option<VideoDecoders> {
-    video_decoders::get_video_decoders(WasdkDevice::of(device).gpu_device())
+    video_decoders::get_video_decoders(WasdkDevice::of(device).wit_device())
 }
 
 /// The allocator of hardware buffers drawn on `device` and shown
 /// (`wasdk:platform/hardware-buffers`); none where the system allocates no hardware buffers.
 pub fn hardware_buffer_allocator(device: &wgpu::Device) -> Option<HardwareBufferAllocator> {
-    hardware_buffers::get_hardware_buffer_allocator(WasdkDevice::of(device).gpu_device())
+    hardware_buffers::get_hardware_buffer_allocator(WasdkDevice::of(device).wit_device())
 }
 
 /// The engine's `texture` as wgpu's, described as the engine made it.
-fn wgpu_texture(texture: wasdk::webgpu::GpuTexture, label: &'static str) -> wgpu::Texture {
+fn wgpu_texture(texture: wasdk::gpu::Texture) -> wgpu::Texture {
+    let made = texture.descriptor();
     let descriptor = wgpu::TextureDescriptor {
-        label: Some(label),
-        size: wgpu::Extent3d {
-            width: texture.width(),
-            height: texture.height(),
-            depth_or_array_layers: texture.depth_or_array_layers(),
-        },
-        mip_level_count: texture.mip_level_count(),
-        sample_count: texture.sample_count(),
-        dimension: convert::texture_dimension_from_wasi(texture.dimension()),
-        format: convert::texture_format_from_wasi(texture.format()),
-        usage: convert::texture_usages_from_wasi(texture.usage()),
+        label: None,
+        size: convert::extent_from_wit(made.size),
+        mip_level_count: made.mip_level_count,
+        sample_count: made.sample_count,
+        dimension: convert::texture_dimension_from_wit(made.dimension),
+        format: convert::texture_format_from_wit(made.format),
+        usage: convert::texture_usages_from_wit(made.usage),
         view_formats: &[],
     };
-    wgpu::Texture::from_custom(WasdkTexture::new(texture), &descriptor)
+    wgpu::Texture::from_custom(texture::WasdkTexture::new(texture), &descriptor)
 }

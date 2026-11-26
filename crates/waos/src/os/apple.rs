@@ -1,4 +1,4 @@
-//! An `IOSurface` a program's WebGPU device draws into and the compositor shows, with the same
+//! An `IOSurface` a program's GPU device draws into and the compositor shows, with the same
 //! bytes under both, and the texture over it on the program's wgpu-core device: Metal wraps the
 //! surface, and wgpu-core takes the Metal texture as one of its own. A drawn frame needs nothing
 //! more to reach the compositor: Metal and Core Animation share the surface without a transfer.
@@ -32,10 +32,7 @@ use objc2_metal::{
     MTLDevice, MTLPixelFormat, MTLStorageMode, MTLTexture, MTLTextureDescriptor, MTLTextureType,
     MTLTextureUsage,
 };
-use waos_webgpu_host::wasi::webgpu::webgpu::{
-    GpuTextureDimension, GpuTextureFormat, GpuTextureUsage,
-};
-use waos_webgpu_host::{Device, GpuObject, TextureAttributes};
+use waos_gpu_host::{Device, GpuObject, TextureDescriptor};
 
 use crate::BufferKind;
 use crate::bindings::wasdk::media::video_frames::{
@@ -52,7 +49,7 @@ use crate::os::{FinishHandOver, HandOver};
 use crate::shell::{HardwareBuffer, VideoPicture};
 
 /// The format a hardware buffer is allocated in, and so the only one a canvas can be configured
-/// with: WebGPU's preferred canvas format on this platform.
+/// with: the format a view's surface offers on this platform.
 pub(crate) const FORMAT: wgpu_types::TextureFormat = wgpu_types::TextureFormat::Bgra8Unorm;
 
 /// The `OSType` for 32-bit BGRA, the layout Metal's `BGRA8Unorm` reads.
@@ -82,13 +79,12 @@ fn format_of(pixel_format: u32) -> Option<HardwareBufferFormat> {
     }
 }
 
-/// One plane of a surface, as Metal, wgpu and a program each name its samples.
+/// One plane of a surface, as Metal, wgpu and a program's video frames each name its samples.
 #[derive(Clone, Copy)]
 struct SurfacePlane {
     index: usize,
     format: wgpu_types::TextureFormat,
     metal_format: MTLPixelFormat,
-    gpu_format: GpuTextureFormat,
     plane_format: PlaneFormat,
     content: PlaneContent,
     bit_depth: u8,
@@ -99,7 +95,6 @@ const BGRA_PLANE: SurfacePlane = SurfacePlane {
     index: 0,
     format: FORMAT,
     metal_format: MTLPixelFormat::BGRA8Unorm,
-    gpu_format: GpuTextureFormat::Bgra8unorm,
     plane_format: PlaneFormat::Bgra8,
     content: PlaneContent::Rgba,
     bit_depth: 8,
@@ -111,7 +106,6 @@ const TWO_PLANES_8_BIT: [SurfacePlane; 2] = [
         index: 0,
         format: wgpu_types::TextureFormat::R8Unorm,
         metal_format: MTLPixelFormat::R8Unorm,
-        gpu_format: GpuTextureFormat::R8unorm,
         plane_format: PlaneFormat::R8,
         content: PlaneContent::Luma,
         bit_depth: 8,
@@ -120,7 +114,6 @@ const TWO_PLANES_8_BIT: [SurfacePlane; 2] = [
         index: 1,
         format: wgpu_types::TextureFormat::Rg8Unorm,
         metal_format: MTLPixelFormat::RG8Unorm,
-        gpu_format: GpuTextureFormat::Rg8unorm,
         plane_format: PlaneFormat::Rg8,
         content: PlaneContent::Chroma,
         bit_depth: 8,
@@ -231,7 +224,7 @@ pub(crate) fn plane_texture(
     index: u32,
     usage: wgpu_types::TextureUsages,
     release: wgpu_hal::DropCallback,
-) -> Result<(Arc<GpuObject<wgpu_core::id::TextureId>>, TextureAttributes)> {
+) -> Result<(Arc<GpuObject<wgpu_core::id::TextureId>>, TextureDescriptor)> {
     let format = buffer.surface.pixel_format();
     let Some(plane) = surface_planes(format).and_then(|planes| planes.get(index as usize)) else {
         bail!("a hardware buffer in the format {format:#x} has no plane {index}")
@@ -252,20 +245,8 @@ pub(crate) fn plane_texture(
         device.device_id(),
         Some(release),
     )?;
-    let attributes = TextureAttributes {
-        size: wgpu_types::Extent3d {
-            width: size[0],
-            height: size[1],
-            depth_or_array_layers: 1,
-        },
-        mip_level_count: 1,
-        sample_count: 1,
-        dimension: GpuTextureDimension::D2,
-        format: plane.gpu_format,
-        usage: gpu_usage(usage),
-        texture_binding_view_dimension: None,
-    };
-    Ok((Arc::new(GpuObject::new(texture, gpu)), attributes))
+    let descriptor = crate::gpu::hardware_buffer_texture(size, plane.format, usage);
+    Ok((Arc::new(GpuObject::new(texture, gpu)), descriptor))
 }
 
 /// Bytes one pixel of that format occupies.
@@ -474,7 +455,7 @@ impl HardwareBufferMemory {
         device: &Device,
         usage: wgpu_types::TextureUsages,
         release: wgpu_hal::DropCallback,
-    ) -> Result<(Arc<GpuObject<wgpu_core::id::TextureId>>, TextureAttributes)> {
+    ) -> Result<(Arc<GpuObject<wgpu_core::id::TextureId>>, TextureDescriptor)> {
         let format = self.surface.pixel_format();
         if format != BGRA_OS_TYPE as u32 {
             bail!("a hardware buffer is BGRA on Apple's systems, not the format {format:#x}")
@@ -494,20 +475,9 @@ impl HardwareBufferMemory {
         let size = [self.width, self.height];
         let texture =
             surface_texture.over(&self.surface, size, gpu, device.device_id(), Some(release))?;
-        let attributes = TextureAttributes {
-            size: wgpu_types::Extent3d {
-                width: size[0],
-                height: size[1],
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: GpuTextureDimension::D2,
-            format: GpuTextureFormat::Bgra8unorm,
-            usage: gpu_usage(usage),
-            texture_binding_view_dimension: None,
-        };
-        Ok((Arc::new(GpuObject::new(texture, gpu)), attributes))
+        let descriptor =
+            crate::gpu::hardware_buffer_texture(size, wgpu_types::TextureFormat::Bgra8Unorm, usage);
+        Ok((Arc::new(GpuObject::new(texture, gpu)), descriptor))
     }
 
     /// A texture over the buffer's memory on `device` of `gpu`, which the GPU samples, its pixels
@@ -828,34 +798,6 @@ fn arriving_state(usage: wgpu_types::TextureUsages) -> wgpu_types::TextureUses {
     } else {
         wgpu_types::TextureUses::COPY_SRC
     }
-}
-
-/// `usage` as the WebGPU host tells the program its texture's usage.
-fn gpu_usage(usage: wgpu_types::TextureUsages) -> GpuTextureUsage {
-    let mut answered = GpuTextureUsage::empty();
-    for (wgpu, webgpu) in [
-        (
-            wgpu_types::TextureUsages::COPY_SRC,
-            GpuTextureUsage::COPY_SRC,
-        ),
-        (
-            wgpu_types::TextureUsages::COPY_DST,
-            GpuTextureUsage::COPY_DST,
-        ),
-        (
-            wgpu_types::TextureUsages::TEXTURE_BINDING,
-            GpuTextureUsage::TEXTURE_BINDING,
-        ),
-        (
-            wgpu_types::TextureUsages::RENDER_ATTACHMENT,
-            GpuTextureUsage::RENDER_ATTACHMENT,
-        ),
-    ] {
-        if usage.contains(wgpu) {
-            answered |= webgpu;
-        }
-    }
-    answered
 }
 
 /// Allocates an `IOSurface` of `width` by `height` BGRA8 pixels.

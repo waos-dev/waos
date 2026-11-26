@@ -45,7 +45,7 @@ waos-window-messages = { path = "crates/waos-window-messages" }
 waos-local = { path = "capabilities/local" }
 waos-local-processes = { path = "capabilities/local-processes" }
 waos-local-audio = { path = "capabilities/local-audio" }
-waos-webgpu-host = { version = "0.7.1", path = "crates/waos-webgpu-host" }
+waos-gpu-host = { version = "0.7.1", path = "crates/waos-gpu-host" }
 wasdk = { version = "0.7.1", path = "sdk/wasdk" }
 wasdk-macros = { version = "0.7.1", path = "sdk/wasdk-macros" }
 wasdk-wgpu = { version = "0.7.1", path = "sdk/wasdk-wgpu" }
@@ -115,17 +115,13 @@ rustix = { version = "1", features = ["fs", "net", "time"] }
 # Linux's `/proc/self/fd`, through which a file's times are set where the system has no call that
 # keeps the path beneath its folder, as `wasmtime-wasi`'s copy of cap-std's code sets them.
 rustix-linux-procfs = "0.1.1"
-# What the WebGPU host (`crates/waos-webgpu-host`), the wasi-gfx runtime's, is made of, at the
-# versions it names: wgpu-core and its types, which it serves `wasi:webgpu` over; the
-# channel a device's uncaptured errors are broadcast on; its logging; and the macro that pastes a
-# flag's name together.
+# What the GPU host (`crates/waos-gpu-host`) serves `wasdk:gpu` over: wgpu-core and its types.
 wgpu-core = "30"
 wgpu-types = "30"
-async-broadcast = "0.7"
+# The logging GPUI's adapter forwards GPUI's messages through.
 log = "0.4"
-pastey = "0.2"
 # What a program draws with, over `wasdk-wgpu`'s backend; no backend of wgpu's own, so a program
-# links only what it uses. The engine works at wgpu-core's level, through the WebGPU host's
+# links only what it uses. The engine works at wgpu-core's level, through the GPU host's
 # re-exports, so the two versions move together.
 wgpu = { version = "30", default-features = false }
 # egui, which `wasdk-adapter-egui` puts over wasdk. Its types are in that crate's interface, so an

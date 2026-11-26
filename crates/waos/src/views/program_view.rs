@@ -110,9 +110,6 @@ struct ViewState {
     events: EventQueue,
     /// Whether the program goes back within itself when the user asks, as it said last.
     handles_back: AtomicBool,
-    /// The size of the textures the view's canvas hands out, as the program set it; none before
-    /// it sets one.
-    canvas_size: Mutex<Option<[u32; 2]>>,
     /// Whether the program waits for a frame.
     frame_requested: AtomicBool,
     /// When the refresh the view had its last frame of began; none before its first frame. Held
@@ -187,7 +184,6 @@ impl ProgramView {
             watchers: shared.watchers,
             events: EventQueue::default(),
             handles_back: AtomicBool::new(false),
-            canvas_size: Mutex::new(None),
             frame_requested: AtomicBool::new(false),
             last_refresh: Mutex::new(None),
             frames_in_flight: FramesInFlight::default(),
@@ -522,17 +518,6 @@ impl ProgramView {
         self.0.events.push(QueuedEvent::Plain(ViewEvent::PopRoute));
     }
 
-    /// The size the program draws the view's pictures at, as it set it last; none before it set
-    /// one. Whatever the view's own size: the canvas never follows the view.
-    pub(crate) fn canvas_size(&self) -> Option<[u32; 2]> {
-        *locked(&self.0.canvas_size)
-    }
-
-    /// The program sets the size of the textures the view's canvas hands out, from the next on.
-    pub(crate) fn set_canvas_size(&self, size: [u32; 2]) {
-        *locked(&self.0.canvas_size) = Some(size);
-    }
-
     /// The view's events, from its arrival on; `None` once they were taken.
     pub(crate) fn events(&self) -> Option<ViewEvents> {
         self.0.events.take()
@@ -813,22 +798,6 @@ pub(super) mod tests {
         assert_eq!(view.screen(), None);
         assert_eq!(view.presence(), ON_SCREEN);
         assert!(view.window().is_none() && view.text_input().is_none());
-    }
-
-    /// A canvas never follows its view: a framework that configured a size draws at it.
-    #[test]
-    fn the_canvas_is_the_size_the_program_set_whatever_the_views() {
-        let view = view();
-        assert_eq!(
-            view.canvas_size(),
-            None,
-            "no size until the program sets one"
-        );
-        view.set_canvas_size([640, 480]);
-        view.metrics_changed(metrics(800));
-        assert_eq!(view.canvas_size(), Some([640, 480]));
-        view.set_canvas_size([800, 1]);
-        assert_eq!(view.canvas_size(), Some([800, 1]));
     }
 
     #[test]

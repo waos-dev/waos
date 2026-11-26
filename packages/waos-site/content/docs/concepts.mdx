@@ -7,7 +7,7 @@ description: The ideas the rest of the docs use, and the crates an app is writte
 
 **WaOS.** What runs programs: the WaOS app on macOS, Windows, Linux and Android, with iPhone next, or any app that embeds the `waos` engine. Each program runs on a thread of its own, compiled to the machine's code.
 
-**View.** A rectangle of physical pixels a program draws in with WebGPU. On a desktop, and on Android, a program asks for a window for each view it wants; in WaOS's tabs on a phone it is given its tab's screen. A view's events (pointer, keys, text input, frames) arrive on one stream.
+**View.** A rectangle of physical pixels a program draws in with the GPU, through wgpu. On a desktop, and on Android, a program asks for a window for each view it wants; in WaOS's tabs on a phone it is given its tab's screen. A view's events (pointer, keys, text input, frames) arrive on one stream.
 
 **Window.** What holds a view: on a desktop a real window of the system's, with its title bar, size limits and menus, and on Android a task of its own, a card in Recents. An installed program is an app of its own: on macOS with its own Dock icon, and on Windows and Linux with its own taskbar or dock button, which can be pinned and starts it with WaOS closed, and its own entry in the Start menu or the app grid.
 
@@ -37,6 +37,6 @@ An app names a few crates; `waos new` adds the first four and one kit.
 | `waft-markdown` | Markdown parsing and rendering widgets (`Markdown`, `MarkdownBody`, `MarkdownStyleSheet`) for Waft. Added by hand. |
 | `waft-services` | Keys (`LogicalKeyboardKey`), the clipboard and text input's services. Added by hand. |
 | `waft-rendering` | Lower-level render objects beyond what `waft` re-exports (`CustomPainter` is already in `waft`). Added by hand. |
-| `wasdk-wgpu` | wgpu 30's backend in WaOS, for an app that draws with WebGPU itself ([WebGPU](/docs/guide/webgpu)). Added by hand. |
+| `wasdk-wgpu` | wgpu 30's backend in WaOS, for an app that draws with the GPU itself ([GPU](/docs/guide/webgpu)). Added by hand. |
 
 `use waft::*;` and the kit's `use waft_winui::*;` bring in what most code names, as the template has them.

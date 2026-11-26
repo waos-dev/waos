@@ -1,13 +1,13 @@
 //! The GPU side: the one wgpu-core instance every program draws on, made with the engine and
 //! outliving every program; how a program's device is opened on it, and the devices it opened;
 //! when a program may submit GPU work, which is not while it is frozen, its own or what the engine
-//! submits for it; and what of its work is in flight. `wasi:webgpu` itself is served by
-//! `waos-webgpu-host` over this instance, with its objects in each program's store, so that a
+//! submits for it; and what of its work is in flight. `wasdk:gpu` itself is served by
+//! `waos-gpu-host` over this instance, with its objects in each program's store, so that a
 //! program ended gives them back with its store.
 //!
 //! The invariant: wgpu-core is named here and in the modules that make hardware buffers of a
 //! program's frames, and nowhere an interface's state can see. The wgpu crates are reached through
-//! the WebGPU host's re-exports, so the engine works at the version the host does.
+//! the GPU host's re-exports, so the engine works at the version the host does.
 
 mod devices;
 mod in_flight;
@@ -17,8 +17,8 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 
-pub(crate) use waos_webgpu_host::reexports::{wgpu_core, wgpu_types};
-use waos_webgpu_host::{DeviceOpener, SubmissionGate};
+pub(crate) use waos_gpu_host::reexports::{wgpu_core, wgpu_types};
+use waos_gpu_host::{DeviceOpener, SubmissionGate};
 
 pub(crate) use devices::OpenedDevices;
 pub(crate) use in_flight::{Finishing, InFlight};
@@ -96,6 +96,29 @@ pub(crate) fn objects_by_kind(gpu: &wgpu_core::global::Global) -> Vec<(&'static 
     .collect()
 }
 
+/// What a texture over a hardware buffer, or a plane of one, of `size` is made as, which the
+/// program's texture answers: one layer of 2D, one mip, one sample, in `format`, for `usage`.
+pub(crate) fn hardware_buffer_texture(
+    size: [u32; 2],
+    format: wgpu_types::TextureFormat,
+    usage: wgpu_types::TextureUsages,
+) -> waos_gpu_host::TextureDescriptor {
+    wgpu_types::TextureDescriptor {
+        label: None,
+        size: wgpu_types::Extent3d {
+            width: size[0],
+            height: size[1],
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu_types::TextureDimension::D2,
+        format,
+        usage,
+        view_formats: Vec::new(),
+    }
+}
+
 /// Waits, blocking, for `submission` on `device`, or for everything submitted there so far where
 /// none: the program's work that drew what is waited for. The caller holds the device meanwhile. A
 /// wait that fails is said, and over.
@@ -158,14 +181,14 @@ pub(crate) fn submit_while_running(lifecycle: &Lifecycle, submit: &mut dyn FnMut
     true
 }
 
-/// How the WebGPU host opens a program's device: on Android with the extensions that import an
+/// How the GPU host opens a program's device: on Android with the extensions that import an
 /// `AHardwareBuffer` and hand it to the compositor (`os::HardwareBufferImports`).
 #[cfg(target_os = "android")]
 pub(crate) fn device_opener(_mode: BufferKind) -> Option<&'static dyn DeviceOpener> {
     Some(&crate::os::HardwareBufferImports)
 }
 
-/// How the WebGPU host opens a program's device on Linux: with dmabuf import extensions in `Auto`
+/// How the GPU host opens a program's device on Linux: with dmabuf import extensions in `Auto`
 /// mode, and plain wgpu-core devices in `Offscreen` mode so software Vulkan (lavapipe) works
 /// without `VK_EXT_external_memory_dma_buf` or `VK_EXT_queue_family_foreign`.
 #[cfg(target_os = "linux")]
@@ -176,7 +199,7 @@ pub(crate) fn device_opener(mode: BufferKind) -> Option<&'static dyn DeviceOpene
     }
 }
 
-/// How the WebGPU host opens a program's device: as wgpu-core opens one. That serves wherever the
+/// How the GPU host opens a program's device: as wgpu-core opens one. That serves wherever the
 /// system's compositor reads a hardware buffer without an extension on the device that drew it,
 /// which on Apple's systems an `IOSurface` does.
 #[cfg(not(any(target_os = "android", target_os = "linux")))]

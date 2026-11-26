@@ -1,5 +1,5 @@
-//! What programs are written with: the generated bindings of the WIT packages `wasdk:platform` and
-//! `wasdk:media`, under the program's world in `wasdk:program`, passed through, and what
+//! What programs are written with: the generated bindings of the WIT packages `wasdk:gpu`,
+//! `wasdk:platform` and `wasdk:media`, under the program's world in `wasdk:program`, passed through, and what
 //! generation cannot produce.
 //!
 //! Each module is the interface of that name in `wit/`, as wit-bindgen generates it: records and
@@ -12,7 +12,8 @@
 //! whether the writer is gone, a stream the program gives made with [`wit_stream::new`] and
 //! written through its [`StreamWriter`], and `future<T>` as a [`FutureReader`], awaited for its
 //! value, one the program gives made with [`wit_future::new`] and written through its
-//! [`FutureWriter`]. [`webgpu`] is `wasi:webgpu`'s own interface, [`monotonic_clock`] the clock a
+//! [`FutureWriter`]. [`gpu`] is `wasdk:gpu`'s objects, wgpu's model as WIT, with its values in
+//! [`gpu_types`], which wasdk-wgpu implements wgpu over; [`monotonic_clock`] the clock a
 //! view's `Instant` is on, [`system_clock`] the one whose `instant` a notification is scheduled
 //! at, [`filesystem`] `wasi:filesystem/types` 0.3, whose `descriptor` a machine's root and a
 //! watched folder are, [`mounts`] what shows a folder the program holds at a path of its own files, [`preopens`] `wasi:filesystem/preopens` 0.3, the root `/` a program opens
@@ -63,10 +64,12 @@ pub mod bindings {
         generate_all,
         pub_export_macro: true,
         // Plain blocking calls, though `async` in the WIT: wgpu's backend waits on each in place,
-        // inside `Device::poll` or as the program yields, where native wgpu waits on the GPU.
+        // inside `Device::poll` or as the program yields, where native wgpu waits on the GPU, and
+        // wgpu's `Device::poll` is a plain function.
         sync: [
-            "import:wasi:webgpu/webgpu@0.3.0-rc.2#[method]gpu-buffer.map-async",
-            "import:wasi:webgpu/webgpu@0.3.0-rc.2#[method]gpu-queue.on-submitted-work-done",
+            "import:wasdk:gpu/gpu@1.0.0#[method]buffer.map-async",
+            "import:wasdk:gpu/gpu@1.0.0#[method]queue.on-submitted-work-done",
+            "import:wasdk:gpu/gpu@1.0.0#[method]device.poll",
         ],
     });
 }
@@ -86,6 +89,12 @@ pub use window_handle::view_of_window_handle;
 /// the programs on each, their audit summaries and their live traces. Calling any of it asks for
 /// the role, which WaOS asks the user to grant at the program's start; a program not granted it
 /// does not start.
+/// `wasdk:gpu`'s objects: the adapter, the device and its queue, and everything a device makes,
+/// each wgpu's object of that name behind a handle, as wasdk-wgpu reaches them.
+pub use bindings::wasdk::gpu::gpu;
+/// `wasdk:gpu`'s values: wgpu-types' formats, usages, states and descriptors, named as wgpu-types
+/// names them.
+pub use bindings::wasdk::gpu::types as gpu_types;
 #[cfg(feature = "inspector")]
 pub use bindings::wasdk::inspect;
 pub use bindings::wasdk::media::{
@@ -124,7 +133,6 @@ pub use bindings::wasi::filesystem::types as filesystem;
 /// ```
 pub use bindings::wasi::http;
 pub use bindings::wasi::sockets;
-pub use bindings::wasi::webgpu::webgpu;
 pub use bindings::{wit_future, wit_stream};
 pub use wasdk_macros::{main, worker};
 /// Runs `future` to its end on the program's thread, and answers what it answers: how code that

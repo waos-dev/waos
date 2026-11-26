@@ -6,8 +6,8 @@
 //! the program reads it, so an event never read makes none.
 //!
 //! A handle on a view is the view itself in the store's table, so handles on one view share it
-//! and `views()` hands out fresh handles every time. A view's canvas context is the WebGPU
-//! host's, over the view's canvas (`buffers`), which every context on the view shares and which
+//! and `views()` hands out fresh handles every time. A view's surface is the GPU host's, over the
+//! view's canvas (`hardware_buffers`), which every handle on the surface shares and which
 //! `present` hands the frame drawn into to the shell, with the layers the view holds beneath it:
 //! the shell's own layer of each composition layer `set-layers` named last, in the order named,
 //! and its placement as the program gave it (`view_layers`). A transform that is not a 4×4
@@ -18,7 +18,7 @@ use std::sync::{Arc, OnceLock};
 
 use futures::channel::mpsc;
 
-use waos_webgpu_host::CanvasContext;
+use waos_gpu_host::Surface;
 use wasmtime::bail;
 use wasmtime::component::{
     Access, FutureReader, HasData, Linker, Resource, ResourceTable, StreamReader,
@@ -130,9 +130,9 @@ impl ViewsCtx<'_> {
         Ok(self.table.get(view)?)
     }
 
-    /// The canvas `view` is drawn into, made at the first context taken on the view.
-    fn canvas(&self, view: &ProgramView) -> Arc<ViewCanvas> {
-        self.canvases.for_view(view.id(), || {
+    /// The surface of `view`, over a canvas made at the first handle taken on it.
+    fn surface_of(&self, view: &ProgramView) -> Surface {
+        self.canvases.surface_of(view.id(), || {
             ViewCanvas::new(
                 view.clone(),
                 Arc::clone(self.gpu),
@@ -295,32 +295,13 @@ impl HostView for ViewsCtx<'_> {
         Ok(Some(self.table.push(screen)?))
     }
 
-    fn context(
-        &mut self,
-        view: Resource<ProgramView>,
-    ) -> wasmtime::Result<Resource<CanvasContext>> {
-        let canvas = self.canvas(&self.view(&view)?.clone());
-        Ok(self.table.push(CanvasContext::new(canvas))?)
+    fn surface(&mut self, view: Resource<ProgramView>) -> wasmtime::Result<Resource<Surface>> {
+        let surface = self.surface_of(&self.view(&view)?.clone());
+        Ok(self.table.push(surface)?)
     }
 
     fn metrics(&mut self, view: Resource<ProgramView>) -> wasmtime::Result<Metrics> {
         Ok(self.view(&view)?.metrics())
-    }
-
-    /// The view's canvas hands out textures of `width` by `height` from its next on; a size of
-    /// zero traps the program, and one past its device's largest texture traps it once the canvas
-    /// is configured at it.
-    fn set_canvas_size(
-        &mut self,
-        view: Resource<ProgramView>,
-        width: u32,
-        height: u32,
-    ) -> wasmtime::Result<()> {
-        if width == 0 || height == 0 {
-            bail!("a view's canvas is at least a pixel on each side, not {width}×{height}");
-        }
-        self.view(&view)?.set_canvas_size([width, height]);
-        Ok(())
     }
 
     fn request_frame(&mut self, view: Resource<ProgramView>) -> wasmtime::Result<()> {

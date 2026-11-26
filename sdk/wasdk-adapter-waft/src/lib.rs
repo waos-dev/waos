@@ -118,7 +118,7 @@ use crate::renderer::Renderer;
 ///
 /// # Panics
 ///
-/// When the engine gives no WebGPU adapter or device.
+/// When the engine gives no GPU adapter or device.
 pub async fn run(setup: impl FnOnce(&mut App)) {
     let (notice_sender, notices) = mpsc::unbounded();
     let events = Events::open(notices);

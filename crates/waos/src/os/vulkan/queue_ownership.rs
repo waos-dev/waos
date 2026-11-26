@@ -19,7 +19,7 @@ use std::borrow::Cow;
 
 use anyhow::{Context, Result, anyhow, bail};
 use ash::vk;
-use waos_webgpu_host::{Device, GpuObject};
+use waos_gpu_host::{Device, GpuObject};
 use wgpu_hal::api::Vulkan;
 
 use crate::gpu::{GpuInstance, wgpu_core, wgpu_types};

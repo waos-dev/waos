@@ -1,4 +1,4 @@
-//! A D3D12 texture a program's WebGPU device draws into and the shell shows, shared by an NT
+//! A D3D12 texture a program's GPU device draws into and the shell shows, shared by an NT
 //! handle, and the texture over it on the program's wgpu-core device. Unlike `IOSurfaceCreate` and
 //! `AHardwareBuffer_allocate`, D3D12 makes a shared texture only on a device, so the engine keeps
 //! a device of its own for it, on the adapter a program gets (`shared_texture`); every device on
@@ -27,10 +27,7 @@ use std::os::windows::io::{AsRawHandle as _, OwnedHandle};
 use std::sync::{Arc, LazyLock, Mutex, OnceLock};
 
 use anyhow::{Context as _, Result, anyhow};
-use waos_webgpu_host::wasi::webgpu::webgpu::{
-    GpuTextureDimension, GpuTextureFormat, GpuTextureUsage,
-};
-use waos_webgpu_host::{Device, GpuObject, TextureAttributes};
+use waos_gpu_host::{Device, GpuObject, TextureDescriptor};
 
 use crate::BufferKind;
 use crate::bindings::wasdk::platform::hardware_buffers::{
@@ -257,7 +254,7 @@ impl HardwareBufferMemory {
         device: &Device,
         usage: wgpu_types::TextureUsages,
         release: Released,
-    ) -> Result<(Arc<GpuObject<wgpu_core::id::TextureId>>, TextureAttributes)> {
+    ) -> Result<(Arc<GpuObject<wgpu_core::id::TextureId>>, TextureDescriptor)> {
         let opened = Opened {
             label: "waos program hardware buffer",
             usage,
@@ -265,20 +262,9 @@ impl HardwareBufferMemory {
         };
         let size = self.buffer.size();
         let texture = opened.over(&self.buffer, gpu, device.device_id(), Some(release))?;
-        let attributes = TextureAttributes {
-            size: wgpu_types::Extent3d {
-                width: size[0],
-                height: size[1],
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: GpuTextureDimension::D2,
-            format: GpuTextureFormat::Bgra8unorm,
-            usage: gpu_usage(usage),
-            texture_binding_view_dimension: None,
-        };
-        Ok((Arc::new(GpuObject::new(texture, gpu)), attributes))
+        let descriptor =
+            crate::gpu::hardware_buffer_texture(size, wgpu_types::TextureFormat::Bgra8Unorm, usage);
+        Ok((Arc::new(GpuObject::new(texture, gpu)), descriptor))
     }
 
     /// A texture over the buffer's memory on `device` of `gpu`, which the GPU samples: a picture
@@ -502,29 +488,4 @@ impl FrameMemory {
     pub(crate) fn hardware_buffer(&self) -> Result<HardwareBufferMemory> {
         match self.0 {}
     }
-}
-
-/// `usage` as the WebGPU host tells the program its texture's usage.
-fn gpu_usage(usage: wgpu_types::TextureUsages) -> GpuTextureUsage {
-    [
-        (
-            wgpu_types::TextureUsages::COPY_SRC,
-            GpuTextureUsage::COPY_SRC,
-        ),
-        (
-            wgpu_types::TextureUsages::COPY_DST,
-            GpuTextureUsage::COPY_DST,
-        ),
-        (
-            wgpu_types::TextureUsages::TEXTURE_BINDING,
-            GpuTextureUsage::TEXTURE_BINDING,
-        ),
-        (
-            wgpu_types::TextureUsages::RENDER_ATTACHMENT,
-            GpuTextureUsage::RENDER_ATTACHMENT,
-        ),
-    ]
-    .into_iter()
-    .filter(|(wgpu, _)| usage.contains(*wgpu))
-    .fold(GpuTextureUsage::empty(), |all, (_, webgpu)| all | webgpu)
 }

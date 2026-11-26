@@ -1,0 +1,17 @@
+[package]
+name = "gpu-calls"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "A program that calls `wasdk:gpu` itself, without wgpu over it, and prints what each call answered: a device opened with features and limits asked by type, buffers mapped, written and read, a compute pass and a render pass, an error scope and an uncaptured error. `cargo build -p gpu-calls --target wasm32-wasip3`."
+
+[dependencies]
+wasdk.workspace = true
+
+[lints]
+workspace = true
+
+# The id `waos run` runs this program as, with that program's settings and folders.
+[package.metadata.waos]
+id = "dev.waos.examples.gpucalls"

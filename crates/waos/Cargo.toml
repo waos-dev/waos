@@ -2,8 +2,8 @@
 name = "waos"
 version.workspace = true
 edition.workspace = true
-# Ours, MIT, with the WIT of WASI and of `wasi:webgpu` the crate carries in `wit/deps`, which is
-# Apache-2.0 with the LLVM exception (`wit/deps/LICENSE`).
+# Ours, MIT, with the WIT of WASI the crate carries in `wit/deps`, which is Apache-2.0 with the
+# LLVM exception (`wit/deps/LICENSE`).
 license = "MIT AND Apache-2.0 WITH LLVM-exception"
 publish = true
 description = "WaOS's engine, for any app to embed: runs programs, WASI components written with wasdk, and serves them wasdk:platform and wasdk:media through its capabilities and the embedding app's shell."
@@ -54,9 +54,9 @@ rustls.workspace = true
 tokio-rustls.workspace = true
 # `wasdk:platform/trust`: the system's own check of a server's certificate.
 rustls-platform-verifier.workspace = true
-# `wasi:webgpu`, served over wgpu-core; `gpu` re-exports the wgpu crates it works at the level
-# of, so the versions move together.
-waos-webgpu-host.workspace = true
+# `wasdk:gpu`, served over wgpu-core; `gpu` re-exports the wgpu crates it works at the level of,
+# so the versions move together.
+waos-gpu-host.workspace = true
 # `wasdk:platform/fonts`: the manager a program's fonts come from, and valo's text stack, which
 # draws their glyphs.
 valo-fontmgr.workspace = true

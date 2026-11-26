@@ -1,9 +1,9 @@
-//! The adapter: capabilities, and the device it opens.
+//! The adapter: what it has, and the device and queue it opens.
 
 use std::pin::Pin;
 use std::sync::Arc;
 
-use wasdk::webgpu::{GpuAdapter, GpuDeviceDescriptor};
+use wasdk::gpu::{Adapter, DeviceDescriptor};
 use wgpu::custom::{
     AdapterInterface, DispatchDevice, DispatchQueue, DispatchSurface, RequestDeviceFuture,
 };
@@ -18,85 +18,100 @@ use crate::queue::WasdkQueue;
 use crate::runtime::OwedCallbacks;
 use crate::surface::WasdkSurface;
 
+/// The adapter behind a [`wgpu::Adapter`] from this backend.
 #[derive(Debug)]
 pub struct WasdkAdapter {
-    adapter: Arc<GpuAdapter>,
+    adapter: Arc<Adapter>,
 }
 
+downcast!(WasdkAdapter: dispatch wgpu::custom::DispatchAdapter);
+
 impl WasdkAdapter {
-    pub(crate) fn new(adapter: GpuAdapter) -> Self {
+    pub(crate) fn new(adapter: Adapter) -> Self {
         WasdkAdapter {
             adapter: Arc::new(adapter),
         }
     }
+
+    /// The engine's adapter behind the wgpu one, which a surface's capabilities are asked on.
+    pub(crate) fn wit_adapter(&self) -> &Adapter {
+        &self.adapter
+    }
 }
 
 impl AdapterInterface for WasdkAdapter {
+    /// The device and its queue. Required features the WIT leaves out fail it without asking the
+    /// engine, through the future; the trace, a file of the engine's, and the experimental
+    /// features, which the WIT leaves out, are not passed on.
     fn request_device(
         &self,
         desc: &wgpu::DeviceDescriptor<'_>,
     ) -> Pin<Box<dyn RequestDeviceFuture>> {
-        // The descriptor is built before the future so a feature wasi:webgpu cannot name is
-        // reported without a round trip; the error still travels through the future.
-        let descriptor = convert::features_to_wasi(desc.required_features)
-            .map(|required_features| GpuDeviceDescriptor {
-                required_features: Some(required_features),
-                required_limits: Some(convert::limits_to_wasi(&desc.required_limits)),
-                default_queue: None,
-                label: convert::label(desc.label),
-            })
-            .map_err(|unsupported| {
+        let required_features =
+            convert::features_to_wit(desc.required_features).map_err(|left_out| {
                 RequestDeviceError::from_message(format!(
-                    "wasi:webgpu has no name for the required {unsupported:?}"
+                    "wasdk:gpu leaves out the required {left_out:?}"
                 ))
             });
+        let required_limits = convert::limits_to_wit(&desc.required_limits);
+        let label = convert::label(desc.label);
+        let memory_hints = convert::memory_hints_to_wit(&desc.memory_hints);
         let adapter = Arc::clone(&self.adapter);
         Box::pin(async move {
-            let device = adapter
-                .request_device(Some(descriptor?))
+            let descriptor = DeviceDescriptor {
+                label,
+                required_features: required_features?,
+                required_limits: &required_limits,
+                memory_hints,
+            };
+            let (device, queue) = adapter
+                .request_device(descriptor)
                 .await
-                .map_err(|error| {
-                    RequestDeviceError::from_message(format!("{:?}: {}", error.kind, error.message))
-                })?;
-            let queue = device.queue();
+                .map_err(RequestDeviceError::from_message)?;
             let owed = OwedCallbacks::default();
+            let device = WasdkDevice::new(device, owed.clone());
+            // The device's listener goes to the executor awaiting this future
+            // (`uncaptured_errors`).
+            wasdk::yield_async().await;
             Ok((
-                DispatchDevice::custom(WasdkDevice::new(device, owed.clone())),
+                DispatchDevice::custom(device),
                 DispatchQueue::custom(WasdkQueue::new(queue, owed)),
             ))
         })
     }
 
+    /// A surface is supported where its capabilities on this adapter have a format.
     fn is_surface_supported(&self, surface: &DispatchSurface) -> bool {
-        // Every adapter of the engine's draws every view.
-        surface.as_custom::<WasdkSurface>().is_some()
+        let surface = WasdkSurface::of_dispatch(surface).wit_surface();
+        !surface.capabilities(&self.adapter).formats.is_empty()
     }
 
     fn features(&self) -> Features {
-        convert::features_from_wasi(&self.adapter.features())
+        convert::features_from_wit(self.adapter.features())
     }
 
     fn limits(&self) -> Limits {
-        convert::limits_from_wasi(&self.adapter.limits())
+        convert::limits_from_wit(&self.adapter.limits())
     }
 
     fn downlevel_capabilities(&self) -> DownlevelCapabilities {
-        // WebGPU is fully compliant by definition.
-        DownlevelCapabilities::default()
+        convert::downlevel_capabilities_from_wit(self.adapter.downlevel_capabilities())
     }
 
     fn get_info(&self) -> AdapterInfo {
-        convert::adapter_info_from_wasi(&self.adapter.info())
+        convert::adapter_info_from_wit(self.adapter.info())
     }
 
     fn get_texture_format_features(&self, format: TextureFormat) -> TextureFormatFeatures {
-        format.guaranteed_format_features(AdapterInterface::features(self))
+        let format = convert::texture_format_to_wit(format);
+        convert::texture_format_features_from_wit(self.adapter.texture_format_features(format))
     }
 
     fn get_presentation_timestamp(&self) -> PresentationTimestamp {
-        PresentationTimestamp::INVALID_TIMESTAMP
+        PresentationTimestamp(u128::from(self.adapter.presentation_timestamp()))
     }
 
+    /// Cooperative matrices are experimental, and left out of the WIT.
     fn cooperative_matrix_properties(&self) -> Vec<wgpu::wgt::CooperativeMatrixProperties> {
         Vec::new()
     }

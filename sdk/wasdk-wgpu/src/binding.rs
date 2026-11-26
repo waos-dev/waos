@@ -1,33 +1,33 @@
 //! Bind group layouts and bind groups.
 
-use wasdk::webgpu::{
-    GpuBindGroup, GpuBindGroupDescriptor, GpuBindGroupEntry, GpuBindGroupLayout,
-    GpuBindGroupLayoutDescriptor, GpuBindingResource, GpuBufferBinding, GpuDevice,
+use wasdk::gpu::{
+    BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout, BindingResource,
+    BufferBinding, Device,
 };
-use wgpu::BindingResource;
 use wgpu::custom::{
     BindGroupInterface, BindGroupLayoutInterface, DispatchBindGroup, DispatchBindGroupLayout,
 };
 
 use crate::buffer::WasdkBuffer;
 use crate::convert;
-use crate::gap::wasi_gap;
+use crate::left_out::left_out;
 use crate::sampler::WasdkSampler;
-use crate::texture::WasdkTextureView;
+use crate::texture::{WasdkExternalTexture, WasdkTextureView};
 
+/// The layout behind a [`wgpu::BindGroupLayout`] from this backend.
 #[derive(Debug)]
 pub struct WasdkBindGroupLayout {
-    layout: GpuBindGroupLayout,
+    layout: BindGroupLayout,
 }
 
 downcast!(WasdkBindGroupLayout: api wgpu::BindGroupLayout);
 
 impl WasdkBindGroupLayout {
-    pub(crate) fn new(layout: GpuBindGroupLayout) -> Self {
+    pub(crate) fn new(layout: BindGroupLayout) -> Self {
         WasdkBindGroupLayout { layout }
     }
 
-    pub(crate) fn gpu_bind_group_layout(&self) -> &GpuBindGroupLayout {
+    pub(crate) fn wit_bind_group_layout(&self) -> &BindGroupLayout {
         &self.layout
     }
 }
@@ -35,31 +35,25 @@ impl WasdkBindGroupLayout {
 impl BindGroupLayoutInterface for WasdkBindGroupLayout {}
 
 pub(crate) fn create_bind_group_layout(
-    device: &GpuDevice,
+    device: &Device,
     desc: &wgpu::BindGroupLayoutDescriptor<'_>,
 ) -> DispatchBindGroupLayout {
-    let descriptor = GpuBindGroupLayoutDescriptor {
-        entries: desc
-            .entries
-            .iter()
-            .map(convert::bind_group_layout_entry_to_wasi)
-            .collect(),
-        label: convert::label(desc.label),
-    };
+    let descriptor = convert::bind_group_layout_descriptor_to_wit(desc);
     DispatchBindGroupLayout::custom(WasdkBindGroupLayout::new(
         device.create_bind_group_layout(&descriptor),
     ))
 }
 
+/// The bind group behind a [`wgpu::BindGroup`] from this backend.
 #[derive(Debug)]
 pub struct WasdkBindGroup {
-    group: GpuBindGroup,
+    group: BindGroup,
 }
 
 downcast!(WasdkBindGroup: dispatch DispatchBindGroup);
 
 impl WasdkBindGroup {
-    pub(crate) fn gpu_bind_group(&self) -> &GpuBindGroup {
+    pub(crate) fn wit_bind_group(&self) -> &BindGroup {
         &self.group
     }
 }
@@ -67,54 +61,64 @@ impl WasdkBindGroup {
 impl BindGroupInterface for WasdkBindGroup {}
 
 pub(crate) fn create_bind_group(
-    device: &GpuDevice,
+    device: &Device,
     desc: &wgpu::BindGroupDescriptor<'_>,
 ) -> DispatchBindGroup {
-    let descriptor = GpuBindGroupDescriptor {
-        layout: WasdkBindGroupLayout::of(desc.layout).gpu_bind_group_layout(),
-        entries: desc
-            .entries
-            .iter()
-            .map(|entry| GpuBindGroupEntry {
+    let descriptor = BindGroupDescriptor {
+        label: convert::label(desc.label),
+        layout: WasdkBindGroupLayout::of(desc.layout).wit_bind_group_layout(),
+        entries: (desc.entries.iter())
+            .map(|entry| BindGroupEntry {
                 binding: entry.binding,
-                resource: binding_resource_to_wasi(&entry.resource),
+                resource: binding_resource_to_wit(&entry.resource),
             })
             .collect(),
-        label: convert::label(desc.label),
     };
     DispatchBindGroup::custom(WasdkBindGroup {
         group: device.create_bind_group(&descriptor),
     })
 }
 
-fn binding_resource_to_wasi<'a>(resource: &BindingResource<'a>) -> GpuBindingResource<'a> {
+fn buffer_binding_to_wit<'a>(binding: &wgpu::BufferBinding<'a>) -> BufferBinding<'a> {
+    BufferBinding {
+        buffer: WasdkBuffer::of(binding.buffer).wit_buffer(),
+        offset: binding.offset,
+        size: binding.size.map(wgpu::BufferSize::get),
+    }
+}
+
+fn binding_resource_to_wit<'a>(resource: &wgpu::BindingResource<'a>) -> BindingResource<'a> {
     match resource {
-        BindingResource::Buffer(binding) => {
-            GpuBindingResource::GpuBufferBinding(GpuBufferBinding {
-                buffer: WasdkBuffer::of(binding.buffer).gpu_buffer(),
-                offset: Some(binding.offset),
-                size: binding.size.map(std::num::NonZeroU64::get),
-            })
+        wgpu::BindingResource::Buffer(binding) => {
+            BindingResource::Buffer(buffer_binding_to_wit(binding))
         }
-        BindingResource::Sampler(sampler) => {
-            GpuBindingResource::GpuSampler(WasdkSampler::of(sampler).gpu_sampler())
+        wgpu::BindingResource::BufferArray(bindings) => {
+            BindingResource::BufferArray(bindings.iter().map(buffer_binding_to_wit).collect())
         }
-        BindingResource::TextureView(view) => {
-            GpuBindingResource::GpuTextureView(WasdkTextureView::of(view).gpu_texture_view())
+        wgpu::BindingResource::Sampler(sampler) => {
+            BindingResource::Sampler(WasdkSampler::of(sampler).wit_sampler())
         }
-        BindingResource::BufferArray(_)
-        | BindingResource::SamplerArray(_)
-        | BindingResource::TextureViewArray(_) => {
-            wasi_gap("binding arrays (BindingResource::*Array)")
+        wgpu::BindingResource::SamplerArray(samplers) => BindingResource::SamplerArray(
+            (samplers.iter())
+                .map(|sampler| WasdkSampler::of(sampler).wit_sampler())
+                .collect(),
+        ),
+        wgpu::BindingResource::TextureView(view) => {
+            BindingResource::TextureView(WasdkTextureView::of(view).wit_texture_view())
         }
-        BindingResource::AccelerationStructure(_)
-        | BindingResource::AccelerationStructureArray(_) => {
-            wasi_gap("ray tracing (BindingResource::AccelerationStructure)")
-        }
-        BindingResource::ExternalTexture(_) => {
-            wasi_gap("external textures (BindingResource::ExternalTexture)")
+        wgpu::BindingResource::TextureViewArray(views) => BindingResource::TextureViewArray(
+            (views.iter())
+                .map(|view| WasdkTextureView::of(view).wit_texture_view())
+                .collect(),
+        ),
+        wgpu::BindingResource::ExternalTexture(texture) => BindingResource::ExternalTexture(
+            WasdkExternalTexture::of(texture).wit_external_texture(),
+        ),
+        wgpu::BindingResource::AccelerationStructure(_)
+        | wgpu::BindingResource::AccelerationStructureArray(_) => {
+            left_out("ray tracing (BindingResource::AccelerationStructure)")
         }
         // `BindingResource` is `#[non_exhaustive]`: a binding wgpu adds later.
-        other => wasi_gap(format_args!("binding resource {other:?}")),
+        other => left_out(format_args!("the binding resource {other:?}")),
     }
 }

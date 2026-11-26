@@ -5,7 +5,7 @@
 
 use std::sync::Arc;
 
-use waos_webgpu_host::Device;
+use waos_gpu_host::Device;
 use wasmtime::component::{
     Access, Accessor, FutureReader, HasData, Linker, Resource, ResourceTable, StreamReader,
 };

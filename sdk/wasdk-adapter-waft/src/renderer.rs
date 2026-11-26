@@ -30,7 +30,7 @@ pub(crate) struct Renderer {
 }
 
 impl Renderer {
-    /// A renderer on the engine's WebGPU.
+    /// A renderer on the engine's GPU (`wasdk:gpu`).
     ///
     /// # Panics
     ///
@@ -41,14 +41,14 @@ impl Renderer {
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions::default())
             .await
-            .expect("the engine gives a WebGPU adapter");
+            .expect("the engine gives a GPU adapter");
         let (device, queue) = adapter
             .request_device(&wgpu::DeviceDescriptor {
                 label: Some("waft.wasdk"),
                 ..Default::default()
             })
             .await
-            .expect("the engine gives a WebGPU device");
+            .expect("the engine gives a GPU device");
         let mut context = valo::Context::with_glyph_raster(
             device.clone(),
             queue.clone(),
@@ -71,7 +71,7 @@ impl Renderer {
     }
 
     /// A surface on `view`, configured for the renderer's device at the view's size, in the
-    /// format the view's canvas is drawn in.
+    /// first format of its capabilities, the one the view is drawn in with no conversion.
     ///
     /// # Panics
     ///
@@ -113,7 +113,7 @@ impl Renderer {
     }
 
     /// The frame `surface` hands out, configured first at `size` unless it is configured at it:
-    /// the view's canvas is the size its surface is configured at, so configuring at the view's
+    /// the view's frames are the size its surface is configured at, so configuring at the view's
     /// size now draws the picture at it.
     fn frame_at(
         &self,

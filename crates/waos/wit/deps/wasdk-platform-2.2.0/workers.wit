@@ -12,7 +12,7 @@ package wasdk:platform@2.2.0;
 ///
 /// **A worker has the program's IO side and nothing of its user's side.** It reaches the program's
 /// files, network and machines, under the program's grants, its fonts, its clocks, random numbers
-/// and WebGPU; it has no views, windows, menus, clipboard, dialogs, notifications, sound, players
+/// and the GPU (`wasdk:gpu`); it has no views, windows, menus, clipboard, dialogs, notifications, sound, players
 /// or cameras, and is asked nothing of the program's life, each answering as on a platform that has
 /// none: `views` lists no view and refuses a request with `unsupported`, an optional getter answers
 /// none, and `lifecycle`'s requests to end and to open end at once, since they are the main

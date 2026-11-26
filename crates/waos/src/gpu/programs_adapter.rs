@@ -58,7 +58,7 @@ impl ProgramsAdapter {
     }
 }
 
-impl waos_webgpu_host::AdapterChooser for ProgramsAdapter {
+impl waos_gpu_host::AdapterChooser for ProgramsAdapter {
     fn choose(
         &self,
         instance: &Global,

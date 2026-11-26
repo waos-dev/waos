@@ -1,39 +1,36 @@
 //! The queue: writes, submissions, and the staging buffer `write_buffer_with` fills.
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
 
-use wasdk::webgpu::{GpuCommandBuffer, GpuQueue};
+use wasdk::gpu::Queue;
 use wgpu::custom::{
     BoxSubmittedWorkDoneCallback, DispatchBlas, DispatchBuffer, DispatchCommandBuffer,
     DispatchQueueWriteBuffer, DispatchSurfaceOutputDetail, QueueInterface,
     QueueWriteBufferInterface,
 };
-use wgpu::{BufferAddress, BufferSize, BufferUsages, WriteOnly};
+use wgpu::{BufferAddress, BufferSize, WriteOnly};
 
 use crate::buffer::WasdkBuffer;
 use crate::command::WasdkCommandBuffer;
 use crate::convert;
-use crate::gap::wasi_gap;
+use crate::left_out::left_out;
 use crate::runtime::{Owed, OwedCallbacks};
 use crate::surface::WasdkSurfaceOutputDetail;
-use crate::texture::texel_copy_texture_to_wasi;
+use crate::texture::texel_copy_texture_to_wit;
 
+/// The queue behind a [`wgpu::Queue`] from this backend.
 #[derive(Debug)]
 pub struct WasdkQueue {
-    queue: Arc<GpuQueue>,
+    queue: Arc<Queue>,
     /// The callbacks its device owes, its submitted work's among them.
     owed: OwedCallbacks,
-    /// Submissions so far: the index wgpu hands back for each.
-    submissions: AtomicU64,
 }
 
 impl WasdkQueue {
-    pub(crate) fn new(queue: GpuQueue, owed: OwedCallbacks) -> Self {
+    pub(crate) fn new(queue: Queue, owed: OwedCallbacks) -> Self {
         WasdkQueue {
             queue: Arc::new(queue),
             owed,
-            submissions: AtomicU64::new(0),
         }
     }
 }
@@ -46,14 +43,12 @@ impl QueueInterface for WasdkQueue {
         _dest: wgpu::CopyExternalImageDestInfo<&wgpu::Texture>,
         _size: wgpu::Extent3d,
     ) {
-        wasi_gap("Queue::copy_external_image_to_texture (a browser image source)")
+        left_out("Queue::copy_external_image_to_texture (a browser's image)")
     }
 
     fn write_buffer(&self, buffer: &DispatchBuffer, offset: BufferAddress, data: &[u8]) {
-        let buffer = WasdkBuffer::of_dispatch(buffer).gpu_buffer();
-        self.queue
-            .write_buffer_with_copy(buffer, offset, data, None, None)
-            .unwrap_or_else(|error| panic!("wasdk-wgpu: Queue::write_buffer: {}", error.message));
+        let buffer = WasdkBuffer::of_dispatch(buffer).wit_buffer();
+        self.queue.write_buffer(buffer, offset, data);
     }
 
     fn create_staging_buffer(&self, size: BufferSize) -> Option<DispatchQueueWriteBuffer> {
@@ -62,21 +57,15 @@ impl QueueInterface for WasdkQueue {
         )))
     }
 
+    /// Always a staging buffer: the engine validates the write when it is made, and reports what
+    /// fails to the device's error scopes, as wgpu-core reports it.
     fn validate_write_buffer(
         &self,
-        buffer: &DispatchBuffer,
-        offset: BufferAddress,
-        size: BufferSize,
+        _buffer: &DispatchBuffer,
+        _offset: BufferAddress,
+        _size: BufferSize,
     ) -> Option<()> {
-        let buffer = WasdkBuffer::of_dispatch(buffer).gpu_buffer();
-        let usages = convert::buffer_usages_from_wasi(buffer.usage());
-        let size = size.get();
-        let aligned = |value: u64| value.is_multiple_of(wgpu::COPY_BUFFER_ALIGNMENT);
-        let in_bounds = offset
-            .checked_add(size)
-            .is_some_and(|end| end <= buffer.size());
-        (usages.contains(BufferUsages::COPY_DST) && aligned(size) && aligned(offset) && in_bounds)
-            .then_some(())
+        Some(())
     }
 
     fn write_staging_buffer(
@@ -96,27 +85,23 @@ impl QueueInterface for WasdkQueue {
         data_layout: wgpu::TexelCopyBufferLayout,
         size: wgpu::Extent3d,
     ) {
-        self.queue.write_texture_with_copy(
-            &texel_copy_texture_to_wasi(&texture),
+        self.queue.write_texture(
+            &texel_copy_texture_to_wit(&texture),
             data,
-            convert::texel_copy_layout_to_wasi(data_layout),
-            convert::extent_to_wasi(size),
+            convert::texel_copy_layout_to_wit(data_layout),
+            convert::extent_to_wit(size),
         );
     }
 
     fn submit(&self, command_buffers: &mut dyn Iterator<Item = DispatchCommandBuffer>) -> u64 {
-        let buffers: Vec<DispatchCommandBuffer> = command_buffers.collect();
-        let wasi_buffers: Vec<&GpuCommandBuffer> = buffers
-            .iter()
-            .map(|buffer| WasdkCommandBuffer::of_dispatch(buffer).gpu_command_buffer())
+        let command_buffers = command_buffers
+            .map(|buffer| WasdkCommandBuffer::of_dispatch(&buffer).take())
             .collect();
-        self.queue.submit(&wasi_buffers);
-        self.submissions.fetch_add(1, Ordering::Relaxed) + 1
+        self.queue.submit(command_buffers)
     }
 
     fn get_timestamp_period(&self) -> f32 {
-        // WebGPU timestamps are in nanoseconds.
-        1.0
+        self.queue.timestamp_period()
     }
 
     fn on_submitted_work_done(&self, callback: BoxSubmittedWorkDoneCallback) {
@@ -127,7 +112,7 @@ impl QueueInterface for WasdkQueue {
     }
 
     fn compact_blas(&self, _blas: &DispatchBlas) -> (Option<u64>, DispatchBlas) {
-        wasi_gap("ray tracing (Queue::compact_blas)")
+        left_out("ray tracing (Queue::compact_blas)")
     }
 
     /// Presents the frame on its view, with the layers the view holds beneath it.

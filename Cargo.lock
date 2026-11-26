@@ -588,7 +588,7 @@ dependencies = [
  "log",
  "num-rational",
  "num-traits",
- "pastey 0.1.1",
+ "pastey",
  "rayon",
  "thiserror 2.0.21",
  "v_frame",
@@ -2845,6 +2845,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "gpu-calls"
+version = "0.7.1"
+dependencies = [
+ "wasdk",
+]
+
+[[package]]
 name = "gpui"
 version = "0.2.2"
 source = "git+https://github.com/waos-dev/zed?rev=ab35bace16f23ddc65bbc8968d69d1d48e0369ad#ab35bace16f23ddc65bbc8968d69d1d48e0369ad"
@@ -5076,12 +5083,6 @@ name = "pastey"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "35fb2e5f958ec131621fdd531e9fc186ed768cbe395337403ae56c17a74c68ec"
-
-[[package]]
-name = "pastey"
-version = "0.2.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2ee67f1008b1ba2321834326597b8e186293b049a023cdef258527550b9935b4"
 
 [[package]]
 name = "pathfinder_geometry"
@@ -9093,11 +9094,11 @@ dependencies = [
  "valo-geometry",
  "valo-text",
  "waos-capabilities",
+ "waos-gpu-host",
  "waos-headless",
  "waos-local",
  "waos-local-processes",
  "waos-test-programs",
- "waos-webgpu-host",
  "waos-wit-serialize",
  "wasmparser 0.261.0",
  "wasmtime",
@@ -9235,6 +9236,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "waos-gpu-host"
+version = "0.7.1"
+dependencies = [
+ "bitflags 2.13.2",
+ "futures",
+ "tracing",
+ "wasmtime",
+ "wasmtime-wasi",
+ "wgpu-core",
+ "wgpu-types",
+]
+
+[[package]]
 name = "waos-headless"
 version = "0.7.1"
 dependencies = [
@@ -9350,21 +9364,6 @@ dependencies = [
 [[package]]
 name = "waos-test-programs"
 version = "0.7.1"
-
-[[package]]
-name = "waos-webgpu-host"
-version = "0.7.1"
-dependencies = [
- "async-broadcast",
- "futures",
- "log",
- "pastey 0.2.3",
- "tracing",
- "wasmtime",
- "wasmtime-wasi",
- "wgpu-core",
- "wgpu-types",
-]
 
 [[package]]
 name = "waos-window"

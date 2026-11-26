@@ -1,0 +1,47 @@
+[package]
+name = "waos-gpu-host"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = true
+description = "The host the engine serves wasdk:gpu with: wgpu's API over wgpu-core, each call one of wgpu-core's."
+homepage.workspace = true
+repository.workspace = true
+readme = "README.md"
+
+[dependencies]
+wasmtime.workspace = true
+# The program's resource table, and the thread a wait on the GPU blocks on.
+wasmtime-wasi.workspace = true
+wgpu-core.workspace = true
+wgpu-types.workspace = true
+# A device's loss, told to every reader once, and the channels its errors and waits go through.
+futures.workspace = true
+tracing.workspace = true
+
+# Each system's backend, and naga's three front ends: WGSL, SPIR-V and GLSL all go through naga's
+# validator in wgpu-core (the design's decision on shader languages).
+[target.'cfg(any(target_os = "linux", target_os = "android"))'.dependencies.wgpu-core]
+workspace = true
+features = ["wgsl", "spirv", "glsl", "vulkan", "noop"]
+
+[target.'cfg(target_os = "windows")'.dependencies.wgpu-core]
+workspace = true
+features = ["wgsl", "spirv", "glsl", "dx12", "noop"]
+
+[target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies.wgpu-core]
+workspace = true
+features = ["wgsl", "spirv", "glsl", "metal", "noop"]
+
+[target.'cfg(all(not(target_os = "linux"), not(target_os = "android"), not(target_os = "windows"), not(target_os = "macos"), not(target_os = "ios")))'.dependencies.wgpu-core]
+workspace = true
+features = ["wgsl", "spirv", "glsl", "gles", "noop"]
+
+# `buffer`'s mapped ranges are wgpu-core's pointers into a mapping, read and written in place;
+# the rest of the crate has no `unsafe`.
+[lints.rust]
+unsafe_code = "deny"
+
+# wgpu-types' features as named flags, for the test that every feature is decided on.
+[dev-dependencies]
+bitflags = "2"

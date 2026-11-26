@@ -6,8 +6,9 @@
 //! asks, polls, and reads the answer at once. A program written for the web never polls: its
 //! callbacks run when it yields. So a device keeps the callbacks it owes, in the order asked
 //! ([`OwedCallbacks`]), and delivers them at whichever comes first: its `poll(Wait)`, or the
-//! program's next `.await`. Each waits on its host call in place, a plain blocking call, which the
-//! host answers once the GPU has done the work.
+//! program's next `.await`. Each waits on its engine call in place (`map-async`,
+//! `on-submitted-work-done`), a plain blocking call, which the engine answers once the GPU has
+//! done the work.
 //!
 //! The device-lost and uncaptured-error handlers are no answer to a request: each is a task
 //! spawned onto the program's executor, which runs while the program awaits ([`spawn`]).
@@ -21,7 +22,8 @@ use std::future::Future;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
-use wasdk::webgpu::{GpuBuffer, GpuMapMode, GpuQueue};
+use wasdk::gpu::{Buffer, Queue};
+use wasdk::gpu_types::MapMode;
 use wgpu::custom::{BoxSubmittedWorkDoneCallback, BufferMapCallback};
 
 pub(crate) fn spawn(task: impl Future<Output = ()> + 'static) {
@@ -32,21 +34,21 @@ pub(crate) fn spawn(task: impl Future<Output = ()> + 'static) {
 pub(crate) enum Owed {
     /// A buffer's range mapped, or why not.
     Mapping {
-        buffer: Arc<GpuBuffer>,
-        mode: GpuMapMode,
+        buffer: Arc<Buffer>,
+        mode: MapMode,
         offset: u64,
         size: u64,
         callback: BufferMapCallback,
     },
     /// Everything submitted to the queue so far done.
     SubmittedWorkDone {
-        queue: Arc<GpuQueue>,
+        queue: Arc<Queue>,
         callback: BoxSubmittedWorkDoneCallback,
     },
 }
 
 impl Owed {
-    /// Waits on the host for what the callback answers, then runs it.
+    /// Waits on the engine for what the callback answers, then runs it.
     fn deliver(self) {
         match self {
             Owed::Mapping {
@@ -56,7 +58,7 @@ impl Owed {
                 size,
                 callback,
             } => {
-                let mapped = buffer.map_async(mode, Some(offset), Some(size));
+                let mapped = buffer.map_async(mode, offset, Some(size));
                 callback(mapped.map_err(|_| wgpu::BufferAsyncError));
             }
             Owed::SubmittedWorkDone { queue, callback } => {
@@ -104,7 +106,7 @@ impl OwedCallbacks {
         }
     }
 
-    /// Delivers every callback owed, in order, each once the host has answered it; those a
+    /// Delivers every callback owed, in order, each once the engine has answered it; those a
     /// callback asks for meanwhile too.
     pub(crate) fn deliver(&self) {
         loop {

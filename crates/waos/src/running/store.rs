@@ -10,7 +10,7 @@ use std::future;
 use std::sync::Arc;
 
 use waos_capabilities::Role;
-use waos_webgpu_host::{WasiWebGpuCtx, WasiWebGpuCtxView};
+use waos_gpu_host::{GpuCtx, GpuCtxView};
 use wasmtime::component::{HasData, Linker, ResourceTable};
 use wasmtime::{AsContext, Engine, Store, StoreLimitsBuilder, UpdateDeadline};
 use wasmtime_wasi::{I32Exit, WasiCtx, WasiCtxView, WasiView};
@@ -214,7 +214,7 @@ fn linker(engine: &Engine, held: &[Role]) -> wasmtime::Result<Linker<StoreData>>
     crate::files::p3::add_to_linker(&mut linker)?;
     crate::network::host::add_to_linker(&mut linker)?;
     wasmtime_wasi_http::p3::add_to_linker(&mut linker)?;
-    waos_webgpu_host::add_to_linker(&mut linker)?;
+    waos_gpu_host::add_to_linker(&mut linker)?;
     crate::views::host::add_to_linker(&mut linker)?;
     crate::windows::host::add_to_linker(&mut linker)?;
     crate::screens::host::add_to_linker(&mut linker)?;
@@ -509,9 +509,9 @@ impl WasiView for StoreData {
     }
 }
 
-impl WasiWebGpuCtxView for StoreData {
-    fn webgpu_ctx(&mut self) -> WasiWebGpuCtx<'_> {
-        WasiWebGpuCtx {
+impl GpuCtxView for StoreData {
+    fn gpu_ctx(&mut self) -> GpuCtx<'_> {
+        GpuCtx {
             instance: &self.gpu,
             table: &mut self.table,
             adapters: Some(self.program.programs_adapter()),

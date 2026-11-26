@@ -31,7 +31,7 @@
 //! memory, the system's cameras, opened once its user allows it, run in a format they
 //! list with their preview on its layers, their frames in its readers and their photos, and shown
 //! by the shell's indicator while it holds a session, the WASI a program's `std` imports, and
-//! `wasi:webgpu` on one
+//! `wasdk:gpu` on one
 //! GPU instance; and, on Apple's systems, the hardware buffers a view's frames
 //! are drawn into, of which a frozen view keeps only the one on screen, with the GPU idle before the
 //! app's suspending resolves, each handed to the shell through its [`ShellView`] with the

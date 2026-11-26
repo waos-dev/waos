@@ -12,7 +12,7 @@
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Instant;
 
-use waos_webgpu_host::{Device, GpuObject};
+use waos_gpu_host::{Device, GpuObject};
 
 use super::pool::{HardwareBufferPool, Released};
 use super::{SPARE_IDLE, STARTING_HARDWARE_BUFFERS};
@@ -30,7 +30,7 @@ use crate::views::ProgramView;
 /// in.
 const BYTES_PER_PIXEL: u64 = 4;
 
-/// A frame's texture, as the WebGPU host hands it to the program: the texture over the hardware
+/// A frame's texture, as the GPU host hands it to the program: the texture over the hardware
 /// buffer the frame is drawn into, which goes back to wgpu-core once the program and the canvas
 /// let go of it.
 pub(super) type FrameTexture = Arc<GpuObject<wgpu_core::id::TextureId>>;

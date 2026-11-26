@@ -10,7 +10,7 @@
 use std::borrow::Cow;
 
 use anyhow::{Context, Result, anyhow};
-use waos_webgpu_host::{GpuObject, GpuObjectId};
+use waos_gpu_host::{GpuObject, GpuObjectId};
 
 use super::quads::{Quad, bytes_of};
 use crate::BufferKind;

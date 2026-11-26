@@ -1,7 +1,0 @@
-// Modified for WaOS by the waos Authors from the wasi-gfx runtime, as NOTICE says.
-// Not bound by bindgen! directly: the package `wit/deps` resolves under. `wit/deps`'s `wasi:webgpu` is a copy of the repository's `wit/deps`, made by `cargo xtask sync-wit`.
-package wasi-gfx-runtime:wasi-webgpu;
-
-world bindings {
-    include wasi:webgpu/imports@0.3.0-rc.2;
-}

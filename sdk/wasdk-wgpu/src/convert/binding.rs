@@ -1,112 +1,101 @@
-//! Bind group layout entries.
+//! Bind group layouts: what each binding takes.
 
-use wasdk::webgpu::{
-    GpuBindGroupLayoutEntry, GpuBufferBindingLayout, GpuBufferBindingType, GpuSamplerBindingLayout,
-    GpuSamplerBindingType, GpuStorageTextureAccess, GpuStorageTextureBindingLayout,
-    GpuTextureBindingLayout, GpuTextureSampleType,
-};
-use wgpu::{
-    BindGroupLayoutEntry, BindingType, BufferBindingType, Features, SamplerBindingType,
-    StorageTextureAccess, TextureSampleType,
+use wasdk::gpu_types as wit;
+
+use super::{
+    enum_conversions, label, shader_stages_to_wit, texture_format_to_wit,
+    texture_view_dimension_to_wit,
 };
 
-use super::{shader_stages_to_wasi, texture_format_to_wasi, texture_view_dimension_to_wasi};
-use crate::gap::{feature_gap, wasi_gap};
-
-pub fn buffer_binding_type_to_wasi(ty: BufferBindingType) -> GpuBufferBindingType {
-    match ty {
-        BufferBindingType::Uniform => GpuBufferBindingType::Uniform,
-        BufferBindingType::Storage { read_only: false } => GpuBufferBindingType::Storage,
-        BufferBindingType::Storage { read_only: true } => GpuBufferBindingType::ReadOnlyStorage,
+enum_conversions! {
+    sampler_binding_type_to_wit, sampler_binding_type_from_wit:
+        SamplerBindingType <=> SamplerBindingType {
+        Filtering, NonFiltering, Comparison,
     }
 }
 
-pub fn sampler_binding_type_to_wasi(ty: SamplerBindingType) -> GpuSamplerBindingType {
-    match ty {
-        SamplerBindingType::Filtering => GpuSamplerBindingType::Filtering,
-        SamplerBindingType::NonFiltering => GpuSamplerBindingType::NonFiltering,
-        SamplerBindingType::Comparison => GpuSamplerBindingType::Comparison,
+enum_conversions! {
+    storage_texture_access_to_wit, storage_texture_access_from_wit:
+        StorageTextureAccess <=> StorageTextureAccess {
+        WriteOnly, ReadOnly, ReadWrite, Atomic,
     }
 }
 
-pub fn texture_sample_type_to_wasi(ty: TextureSampleType) -> GpuTextureSampleType {
+/// wgpu's `Storage { read_only }` is WebGPU's two cases, as the WIT names them.
+pub fn buffer_binding_type_to_wit(ty: wgpu::BufferBindingType) -> wit::BufferBindingType {
     match ty {
-        TextureSampleType::Float { filterable: true } => GpuTextureSampleType::Float,
-        TextureSampleType::Float { filterable: false } => GpuTextureSampleType::UnfilterableFloat,
-        TextureSampleType::Depth => GpuTextureSampleType::Depth,
-        TextureSampleType::Sint => GpuTextureSampleType::Sint,
-        TextureSampleType::Uint => GpuTextureSampleType::Uint,
-    }
-}
-
-pub fn storage_texture_access_to_wasi(access: StorageTextureAccess) -> GpuStorageTextureAccess {
-    match access {
-        StorageTextureAccess::WriteOnly => GpuStorageTextureAccess::WriteOnly,
-        StorageTextureAccess::ReadOnly => GpuStorageTextureAccess::ReadOnly,
-        StorageTextureAccess::ReadWrite => GpuStorageTextureAccess::ReadWrite,
-        StorageTextureAccess::Atomic => {
-            feature_gap(Features::TEXTURE_ATOMIC, "StorageTextureAccess::Atomic")
+        wgpu::BufferBindingType::Uniform => wit::BufferBindingType::Uniform,
+        wgpu::BufferBindingType::Storage { read_only: false } => wit::BufferBindingType::Storage,
+        wgpu::BufferBindingType::Storage { read_only: true } => {
+            wit::BufferBindingType::ReadOnlyStorage
         }
     }
 }
 
-pub fn bind_group_layout_entry_to_wasi(entry: &BindGroupLayoutEntry) -> GpuBindGroupLayoutEntry {
-    if entry.count.is_some() {
-        wasi_gap("binding arrays (BindGroupLayoutEntry::count)");
+/// wgpu's `Float { filterable }` is WebGPU's two cases, as the WIT names them.
+pub fn texture_sample_type_to_wit(ty: wgpu::TextureSampleType) -> wit::TextureSampleType {
+    match ty {
+        wgpu::TextureSampleType::Float { filterable: true } => wit::TextureSampleType::Float,
+        wgpu::TextureSampleType::Float { filterable: false } => {
+            wit::TextureSampleType::UnfilterableFloat
+        }
+        wgpu::TextureSampleType::Depth => wit::TextureSampleType::Depth,
+        wgpu::TextureSampleType::Sint => wit::TextureSampleType::Sint,
+        wgpu::TextureSampleType::Uint => wit::TextureSampleType::Uint,
     }
-    let mut wasi = GpuBindGroupLayoutEntry {
-        binding: entry.binding,
-        visibility: shader_stages_to_wasi(entry.visibility),
-        buffer: None,
-        sampler: None,
-        texture: None,
-        storage_texture: None,
-    };
-    match entry.ty {
-        BindingType::Buffer {
+}
+
+pub fn binding_type_to_wit(ty: &wgpu::BindingType) -> wit::BindingType {
+    match *ty {
+        wgpu::BindingType::Buffer {
             ty,
             has_dynamic_offset,
             min_binding_size,
-        } => {
-            wasi.buffer = Some(GpuBufferBindingLayout {
-                type_: Some(buffer_binding_type_to_wasi(ty)),
-                has_dynamic_offset: Some(has_dynamic_offset),
-                min_binding_size: min_binding_size.map(std::num::NonZeroU64::get),
-            });
+        } => wit::BindingType::Buffer(wit::BufferBindingLayout {
+            ty: buffer_binding_type_to_wit(ty),
+            has_dynamic_offset,
+            min_binding_size: min_binding_size.map(wgpu::BufferSize::get),
+        }),
+        wgpu::BindingType::Sampler(ty) => {
+            wit::BindingType::Sampler(sampler_binding_type_to_wit(ty))
         }
-        BindingType::Sampler(ty) => {
-            wasi.sampler = Some(GpuSamplerBindingLayout {
-                type_: Some(sampler_binding_type_to_wasi(ty)),
-            });
-        }
-        BindingType::Texture {
+        wgpu::BindingType::Texture {
             sample_type,
             view_dimension,
             multisampled,
-        } => {
-            wasi.texture = Some(GpuTextureBindingLayout {
-                sample_type: Some(texture_sample_type_to_wasi(sample_type)),
-                view_dimension: Some(texture_view_dimension_to_wasi(view_dimension)),
-                multisampled: Some(multisampled),
-            });
-        }
-        BindingType::StorageTexture {
+        } => wit::BindingType::Texture(wit::TextureBindingLayout {
+            sample_type: texture_sample_type_to_wit(sample_type),
+            view_dimension: texture_view_dimension_to_wit(view_dimension),
+            multisampled,
+        }),
+        wgpu::BindingType::StorageTexture {
             access,
             format,
             view_dimension,
-        } => {
-            wasi.storage_texture = Some(GpuStorageTextureBindingLayout {
-                access: Some(storage_texture_access_to_wasi(access)),
-                format: texture_format_to_wasi(format),
-                view_dimension: Some(texture_view_dimension_to_wasi(view_dimension)),
-            });
-        }
-        BindingType::AccelerationStructure { .. } => {
-            wasi_gap("ray tracing (BindingType::AccelerationStructure)")
-        }
-        BindingType::ExternalTexture => {
-            wasi_gap("external textures (BindingType::ExternalTexture)")
+        } => wit::BindingType::StorageTexture(wit::StorageTextureBindingLayout {
+            access: storage_texture_access_to_wit(access),
+            format: texture_format_to_wit(format),
+            view_dimension: texture_view_dimension_to_wit(view_dimension),
+        }),
+        wgpu::BindingType::ExternalTexture => wit::BindingType::ExternalTexture,
+        wgpu::BindingType::AccelerationStructure { .. } => {
+            crate::left_out::left_out("ray tracing (BindingType::AccelerationStructure)")
         }
     }
-    wasi
+}
+
+pub fn bind_group_layout_descriptor_to_wit(
+    desc: &wgpu::BindGroupLayoutDescriptor<'_>,
+) -> wit::BindGroupLayoutDescriptor {
+    wit::BindGroupLayoutDescriptor {
+        label: label(desc.label),
+        entries: (desc.entries.iter())
+            .map(|entry| wit::BindGroupLayoutEntry {
+                binding: entry.binding,
+                visibility: shader_stages_to_wit(entry.visibility),
+                ty: binding_type_to_wit(&entry.ty),
+                count: entry.count.map(std::num::NonZeroU32::get),
+            })
+            .collect(),
+    }
 }

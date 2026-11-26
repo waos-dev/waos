@@ -4,7 +4,7 @@ package wasdk:program@2.2.0;
 /// `wasdk:platform`, and `wasdk:media`, the media interfaces, versioned apart from the rest.
 ///
 /// Its entry is WASI's own: `wasi:cli/run`, which the engine calls and which is alive until it
-/// returns. A program that draws does so on views through WebGPU; one that does not is an ordinary
+/// returns. A program that draws does so on views through `wasdk:gpu`; one that does not is an ordinary
 /// WASI command, and runs here too.
 ///
 /// The worlds are two, as `wasi:cli`'s `imports` and `command` are: `program-base`, what a program
@@ -50,7 +50,7 @@ package wasdk:program@2.2.0;
 /// A program written with wasdk exports it whether or not it has workers, and answers an entry it
 /// does not have as unknown.
 world program-base {
-  include wasi:webgpu/imports@0.3.0-rc.2;
+  include wasdk:gpu/imports@1.0.0;
   import wasi:clocks/monotonic-clock@0.3.0;
   include wasi:sockets/imports@0.3.0;
   import wasi:http/client@0.3.0;

@@ -20,13 +20,13 @@ package wasdk:media@2.2.0;
 interface video-decoders {
   use video-frames.{video-frame, video-color};
   use video-streams.{video-codec, video-stream-setup, encoded-chunk, codec-choice, codec-kind, picture-size, chroma-sampling};
-  use wasi:webgpu/webgpu@0.3.0-rc.2.{gpu-device};
+  use wasdk:gpu/gpu@1.0.0.{device};
 
   /// The decoders whose frames are for `device`'s GPU. On Windows and with Vulkan the system makes
   /// them from such a device; elsewhere the system decodes, and a frame is imported onto the
   /// device (`wasdk:platform/gpu-interop`). `support` answers for that GPU. None where the system
   /// decodes no video for programs.
-  get-video-decoders: func(device: borrow<gpu-device>) -> option<video-decoders>;
+  get-video-decoders: func(device: borrow<device>) -> option<video-decoders>;
 
   resource video-decoders {
     /// What the system can tell, without trying, about decoding a stream like `description`.
