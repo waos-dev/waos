@@ -10,7 +10,8 @@
 //! Each request reaches the GPU at the call, as in wgpu: submitted work is told done once the work
 //! submitted before the ask is, whatever is submitted after; an `unmap` before the mapping is
 //! answered aborts it and leaves the buffer unmapped; and `poll` with `Poll` runs the callbacks
-//! whose work is done.
+//! whose work is done. A buffer mapped for writing, which the GPU never writes, keeps what was
+//! written in it between mappings, and a mapping written in part changes only that part.
 
 use std::sync::mpsc;
 
@@ -63,6 +64,58 @@ async fn main() -> Result<(), String> {
     println!("{}", done_before_a_later_submission(&device, &queue)?);
     println!("{}", unmapped_before_mapped(&device, &queue)?);
     println!("{}", polled_without_waiting(&device, &queue)?);
+    println!("written in part: {:?}", written_in_part(&device, &queue)?);
+    Ok(())
+}
+
+/// What a buffer mapped for writing holds after a first mapping writes [`WRITTEN`] in two ranges
+/// and a second writes its first four bytes again, each read back through a copy.
+fn written_in_part(device: &wgpu::Device, queue: &wgpu::Queue) -> Result<Vec<u8>, String> {
+    let size = WRITTEN.len() as u64;
+    let written = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("written"),
+        size,
+        usage: wgpu::BufferUsages::MAP_WRITE | wgpu::BufferUsages::COPY_SRC,
+        mapped_at_creation: false,
+    });
+    write_mapped(device, &written, &[(0, &WRITTEN[..4]), (4, &WRITTEN[4..])])?;
+    write_mapped(device, &written, &[(0, &[9; 4])])?;
+    let copy = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("copy"),
+        size,
+        usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    });
+    let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+    encoder.copy_buffer_to_buffer(&written, 0, &copy, 0, size);
+    queue.submit([encoder.finish()]);
+    copy.slice(..).map_async(wgpu::MapMode::Read, |_| {});
+    device
+        .poll(wgpu::PollType::wait_indefinitely())
+        .map_err(|error| format!("the device did not poll: {error}"))?;
+    read(&copy)
+}
+
+/// Maps `buffer` for writing, writes each of `ranges` at its offset through a range of its own,
+/// and unmaps it.
+fn write_mapped(
+    device: &wgpu::Device,
+    buffer: &wgpu::Buffer,
+    ranges: &[(u64, &[u8])],
+) -> Result<(), String> {
+    buffer.slice(..).map_async(wgpu::MapMode::Write, |_| {});
+    device
+        .poll(wgpu::PollType::wait_indefinitely())
+        .map_err(|error| format!("the device did not poll: {error}"))?;
+    for &(offset, bytes) in ranges {
+        let end = offset + bytes.len() as u64;
+        let mut range = buffer
+            .slice(offset..end)
+            .get_mapped_range_mut()
+            .map_err(|error| format!("the mapping cannot be written: {error}"))?;
+        range.copy_from_slice(bytes);
+    }
+    buffer.unmap();
     Ok(())
 }
 

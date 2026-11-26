@@ -4,7 +4,8 @@
 //! run before `poll` returns; code written for the web asks and awaits. A program that polled and
 //! then read hung before, its callback waiting for an `.await` that never came. Each request
 //! reaches the GPU at the call: an `unmap` before a mapping is answered aborts it, and `poll` with
-//! `Poll` answers what is done.
+//! `Poll` answers what is done. A buffer mapped for writing keeps what was written between
+//! mappings, though its bytes are never read back from the engine.
 //!
 //! And `examples/naga-shader`: a shader given as naga's module, not as WGSL text, is written as
 //! WGSL on its way to the engine, and runs; one naga's validation refuses makes a validation
@@ -41,6 +42,7 @@ fn a_buffer_is_read_back_by_polling_and_by_awaiting() {
             "work done before a later submission: told once the earlier was",
             "unmapped before mapped: aborted, and maps again",
             "polled without waiting: answered",
+            "written in part: [9, 9, 9, 9, 5, 6, 7, 8]",
         ]
     );
 }

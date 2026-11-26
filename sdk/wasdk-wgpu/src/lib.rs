@@ -86,11 +86,13 @@
 //!
 //! # Where the semantics differ from wgpu-core
 //!
-//! - **Mapping copies.** The boundary shares no memory: `get_mapped_range` copies the range in,
-//!   and a mutable view is copied back when it is dropped; drop every `BufferViewMut` before
-//!   `unmap`. The first range of a buffer made mapped (`mapped_at_creation`) is not copied in: it
-//!   is zeros, which the program makes itself, so `create_buffer_init` sends its data once. A
-//!   range that is not mapped traps the program, where wgpu-core answers a
+//! - **Mapping copies, once each way.** The boundary shares no memory: a mapping's range is copied
+//!   in once, at the first `get_mapped_range`, and what the program wrote is copied back once, at
+//!   `unmap`; the views are copies of that one in the program's memory, so drop every
+//!   `BufferViewMut` before `unmap`, as wgpu requires. A buffer the GPU never writes, `MAP_WRITE`
+//!   with nothing but `COPY_SRC`, is never copied in: the program's own last copy is its bytes.
+//!   Nor is a buffer made mapped (`mapped_at_creation`), which is zeros, so `create_buffer_init`
+//!   sends its data once. A range outside the mapping panics, where wgpu-core answers a
 //!   [`wgpu::MapRangeError`], which no backend outside wgpu can make.
 //! - **A mapping's and submitted work's callbacks run at `Device::poll`, or as the program
 //!   yields**, whichever comes first, each once, in the order asked. The request reaches the
