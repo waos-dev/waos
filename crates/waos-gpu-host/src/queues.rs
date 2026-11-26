@@ -4,8 +4,6 @@
 //! The invariant: a submission starts only inside the gate's `while_allowed`, so none starts
 //! once the embedder holds the program's submissions.
 
-use std::sync::Arc;
-
 use futures::channel::oneshot;
 use wasmtime::component::{Access, Accessor, Resource};
 
@@ -151,7 +149,7 @@ impl<T: Send> gpu::HostQueueWithStore<T> for HasGpuCtx {
         accessor: &Accessor<T, Self>,
         queue: Resource<Queue>,
     ) -> wasmtime::Result<()> {
-        let (instance, device, done) = accessor.with(|mut access| -> wasmtime::Result<_> {
+        let (device, done) = accessor.with(|mut access| -> wasmtime::Result<_> {
             let ctx = access.get();
             let queue = ctx.table.get(&queue)?;
             let (answer, done) = oneshot::channel();
@@ -162,10 +160,9 @@ impl<T: Send> gpu::HostQueueWithStore<T> for HasGpuCtx {
                     let _ = answer.send(());
                 }),
             );
-            Ok((Arc::clone(ctx.instance), queue.device.device_id(), done))
+            Ok((queue.device.clone(), done))
         })?;
-        let polled =
-            devices::poll(instance, device, wgpu_types::PollType::wait_indefinitely()).await;
+        let polled = devices::poll(device, wgpu_types::PollType::wait_indefinitely()).await;
         if let Err(error) = polled {
             tracing::warn!("waiting for a queue's submitted work: {error}");
         }

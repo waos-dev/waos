@@ -190,12 +190,15 @@ impl MappableBuffers {
 /// Waits on a thread of its own until `device` has done what `kind` asks, which runs the
 /// callbacks that work answers, a mapping's and submitted work's; nothing else polls a
 /// program's device.
+///
+/// The wait holds the device until wgpu-core has polled it: a device the program drops
+/// meanwhile, or that goes with the program's store, is still in wgpu-core's registry, which
+/// panics at an id it no longer has.
 pub(crate) async fn poll(
-    instance: Arc<Global>,
-    device: DeviceId,
+    device: Device,
     kind: wgpu_types::PollType<wgpu_core::SubmissionIndex>,
 ) -> Result<wgpu_types::PollStatus, wgpu_core::device::WaitIdleError> {
-    spawn_blocking(move || instance.device_poll(device, kind)).await
+    spawn_blocking(move || device.instance().device_poll(device.device_id(), kind)).await
 }
 
 /// `poll`'s answer to the program: wgpu's poll error, or a trap for what wgpu answers with a
@@ -468,14 +471,10 @@ impl<T: Send + 'static> gpu::HostDeviceWithStore<T> for HasGpuCtx {
         device: Resource<Device>,
         kind: PollType,
     ) -> wasmtime::Result<Result<PollStatus, PollError>> {
-        let (instance, device) = accessor.with(|mut access| -> wasmtime::Result<_> {
-            let ctx = access.get();
-            Ok((
-                Arc::clone(ctx.instance),
-                ctx.table.get(&device)?.device_id(),
-            ))
+        let device = accessor.with(|mut access| -> wasmtime::Result<_> {
+            Ok(access.get().table.get(&device)?.clone())
         })?;
-        poll_answer(poll(instance, device, kind.into()).await)
+        poll_answer(poll(device, kind.into()).await)
     }
 }
 
@@ -526,5 +525,44 @@ impl<D> wasmtime::component::FutureProducer<D> for Lost {
             Poll::Pending | Poll::Ready(Err(_)) if finish => Poll::Ready(Ok(None)),
             Poll::Pending | Poll::Ready(Err(_)) => Poll::Pending,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A device on wgpu-core's noop backend, which needs no GPU.
+    fn noop_device() -> Device {
+        let mut descriptor = wgpu_types::InstanceDescriptor::new_without_display_handle();
+        descriptor.backends = wgpu_types::Backends::NOOP;
+        descriptor.backend_options.noop.enable = true;
+        let instance = Arc::new(Global::new("waos-gpu-host tests", descriptor, None));
+        let adapter = instance
+            .request_adapter(
+                &wgpu_types::RequestAdapterOptions::default(),
+                wgpu_types::Backends::NOOP,
+                None,
+            )
+            .expect("the noop backend's adapter");
+        let (device, queue) = instance
+            .adapter_request_device(
+                adapter,
+                &wgpu_types::DeviceDescriptor::default(),
+                None,
+                None,
+            )
+            .expect("a device on the noop adapter");
+        let adapter = Arc::new(GpuObject::new(adapter, &instance));
+        Device::opened(&instance, adapter, device, queue)
+    }
+
+    #[test]
+    fn a_wait_holds_the_device_the_program_lets_go_of_meanwhile() {
+        let device = noop_device();
+        let wait = poll(device.clone(), wgpu_types::PollType::wait_indefinitely());
+        drop(device);
+        let polled = wasmtime_wasi::runtime::in_tokio(wait);
+        assert!(polled.is_ok(), "{polled:?}");
     }
 }

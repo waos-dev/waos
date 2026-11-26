@@ -131,7 +131,7 @@ impl<T: Send> gpu::HostBufferWithStore<T> for HasGpuCtx {
         offset: u64,
         size: Option<u64>,
     ) -> wasmtime::Result<Result<(), String>> {
-        let (instance, device, mapped) = accessor.with(|mut access| -> wasmtime::Result<_> {
+        let (device, mapped) = accessor.with(|mut access| -> wasmtime::Result<_> {
             let ctx = access.get();
             let buffer = ctx.table.get(&buffer)?;
             let (answer, mapped) = oneshot::channel();
@@ -149,10 +149,9 @@ impl<T: Send> gpu::HostBufferWithStore<T> for HasGpuCtx {
                 .device
                 .errors
                 .report(asked.err(), "Buffer::map_async", None);
-            Ok((Arc::clone(ctx.instance), buffer.device.device_id(), mapped))
+            Ok((buffer.device.clone(), mapped))
         })?;
-        let polled =
-            devices::poll(instance, device, wgpu_types::PollType::wait_indefinitely()).await;
+        let polled = devices::poll(device, wgpu_types::PollType::wait_indefinitely()).await;
         if let Err(error) = polled {
             tracing::warn!("waiting for a buffer's mapping: {error}");
         }
