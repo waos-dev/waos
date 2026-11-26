@@ -10,8 +10,9 @@
 //! Each request reaches the GPU at the call, as in wgpu: submitted work is told done once the work
 //! submitted before the ask is, whatever is submitted after; an `unmap` before the mapping is
 //! answered aborts it and leaves the buffer unmapped; and `poll` with `Poll` runs the callbacks
-//! whose work is done. A buffer mapped for writing, which the GPU never writes, keeps what was
-//! written in it between mappings, and a mapping written in part changes only that part.
+//! whose work is done, as does the instance's `poll_all`, which polls every device the program
+//! made, as native wgpu's does. A buffer mapped for writing, which the GPU never writes, keeps
+//! what was written in it between mappings, and a mapping written in part changes only that part.
 
 use std::sync::mpsc;
 
@@ -64,6 +65,7 @@ async fn main() -> Result<(), String> {
     println!("{}", done_before_a_later_submission(&device, &queue)?);
     println!("{}", unmapped_before_mapped(&device, &queue)?);
     println!("{}", polled_without_waiting(&device, &queue)?);
+    println!("{}", polled_through_the_instance(&device, &queue));
     println!("written in part: {:?}", written_in_part(&device, &queue)?);
     Ok(())
 }
@@ -193,6 +195,22 @@ fn polled_without_waiting(
         Ok(false) => "polled without waiting: refused",
         Err(_) => "polled without waiting: not answered",
     })
+}
+
+/// A mapping is answered by the instance's `poll_all`, which polls every device.
+fn polled_through_the_instance(device: &wgpu::Device, queue: &wgpu::Queue) -> &'static str {
+    let copy = copy_of_written(device, queue);
+    let (mapped, answered) = mpsc::channel();
+    copy.slice(..)
+        .map_async(wgpu::MapMode::Read, move |result| {
+            let _ = mapped.send(result.is_ok());
+        });
+    wasdk_wgpu::instance().poll_all(true);
+    match answered.try_recv() {
+        Ok(true) => "polled through the instance: answered",
+        Ok(false) => "polled through the instance: refused",
+        Err(_) => "polled through the instance: not answered",
+    }
 }
 
 /// Submits a copy of a buffer into another, answering its submission.

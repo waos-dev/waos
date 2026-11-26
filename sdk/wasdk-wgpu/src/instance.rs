@@ -84,9 +84,8 @@ impl InstanceInterface for WasdkInstance {
         })
     }
 
-    fn poll_all_devices(&self, _force_wait: bool) -> bool {
-        // A program polls its own devices; see `runtime`.
-        true
+    fn poll_all_devices(&self, force_wait: bool) -> bool {
+        crate::device::poll_all(force_wait)
     }
 
     fn wgsl_language_features(&self) -> WgslLanguageFeatures {

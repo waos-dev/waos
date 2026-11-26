@@ -42,6 +42,7 @@ fn a_buffer_is_read_back_by_polling_and_by_awaiting() {
             "work done before a later submission: told once the earlier was",
             "unmapped before mapped: aborted, and maps again",
             "polled without waiting: answered",
+            "polled through the instance: answered",
             "written in part: [9, 9, 9, 9, 5, 6, 7, 8]",
         ]
     );
