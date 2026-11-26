@@ -48,6 +48,14 @@ impl HardwareBufferMemory {
         )
     }
 
+    pub(crate) fn unsupported(
+        format: PixelFormat,
+        usage: HardwareBufferUsage,
+    ) -> Option<&'static str> {
+        let _ = (format, usage);
+        Some("the engine allocates hardware buffers on Apple's systems and Android only")
+    }
+
     pub(crate) fn allocate(
         width: u32,
         height: u32,

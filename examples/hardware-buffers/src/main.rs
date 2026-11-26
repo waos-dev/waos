@@ -1,7 +1,7 @@
 //! A program that draws into GPU memory of its own and shows it beside its canvas: with the
 //! system's hardware buffer allocator it allocates two buffers of 64 by 48 for drawing, sampling
-//! and showing, in the format the system allocates, the green one for reading back too, saying
-//! first what the system refuses (`rgba8: unsupported` on Apple's systems, `bgra8: unsupported` on
+//! and showing, in the format the system says it allocates, the green one for reading back too,
+//! saying first what the system refuses (`rgba8: unsupported` on Apple's systems, `bgra8: unsupported` on
 //! Android, and a side past the largest texture, `16385x48: too-large`), then
 //! `allocated 2 buffers of 64x48`, and what the red one, asked for no reading back, can be used
 //! for, as the system answers it: `red can be gpu-sampled, gpu-color-output, composer-overlay,
@@ -114,19 +114,21 @@ async fn main() -> Result<(), String> {
     show_green_until_red_is_back(&gpu, &surface, &view, &layer, &green, &red_back).await
 }
 
-/// The format the system allocates buffers in, saying the one it refuses: BGRA on Apple's
-/// systems, which refuse RGBA, and RGBA on Android, which refuses BGRA.
+/// The format the system says it allocates buffers in, saying the one it refuses, which
+/// `allocate` refuses too: BGRA on Apple's systems, which refuse RGBA, and RGBA on Android, which
+/// refuses BGRA.
 fn system_format(allocator: &HardwareBufferAllocator) -> PixelFormat {
-    for (format, other) in [
-        (PixelFormat::Bgra8, PixelFormat::Rgba8),
-        (PixelFormat::Rgba8, PixelFormat::Bgra8),
-    ] {
-        if let Err(error) = allocator.allocate(WIDTH, HEIGHT, other, SHOWN) {
-            println!("{}: {}", name_of(other), kind_of(&error));
-            return format;
-        }
+    let (format, other) = if allocator.supports(PixelFormat::Bgra8, SHOWN) {
+        (PixelFormat::Bgra8, PixelFormat::Rgba8)
+    } else {
+        (PixelFormat::Rgba8, PixelFormat::Bgra8)
+    };
+    if !allocator.supports(other, SHOWN)
+        && let Err(error) = allocator.allocate(WIDTH, HEIGHT, other, SHOWN)
+    {
+        println!("{}: {}", name_of(other), kind_of(&error));
     }
-    PixelFormat::Bgra8
+    format
 }
 
 /// Says that the system refuses a side past the largest texture it makes.

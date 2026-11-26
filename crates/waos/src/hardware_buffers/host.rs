@@ -17,7 +17,7 @@ use crate::bindings::wasdk::platform::hardware_buffers::{
     HostHardwareBufferWithStore, ImageError, PixelBuffer, PixelFormat,
 };
 use crate::gpu::GpuInstance;
-use crate::os::ALLOCATES;
+use crate::os::{ALLOCATES, HardwareBufferMemory};
 use crate::running::RunningProgram;
 
 /// `hardware-buffers.hardware-buffer-allocator`: the system's hardware buffer allocator, through
@@ -84,6 +84,15 @@ impl HostHardwareBufferAllocator for HardwareBuffersCtx<'_> {
             Ok(buffer) => Ok(Ok(self.table.push(buffer)?)),
             Err(error) => Ok(Err(error)),
         }
+    }
+
+    fn supports(
+        &mut self,
+        _allocator: Resource<HardwareBufferAllocator>,
+        format: PixelFormat,
+        usage: HardwareBufferUsage,
+    ) -> wasmtime::Result<bool> {
+        Ok(HardwareBufferMemory::unsupported(format, usage).is_none())
     }
 
     fn drop(&mut self, allocator: Resource<HardwareBufferAllocator>) -> wasmtime::Result<()> {

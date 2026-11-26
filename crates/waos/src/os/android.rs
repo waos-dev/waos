@@ -133,6 +133,16 @@ impl HardwareBufferMemory {
         })
     }
 
+    /// Why a buffer in `format` for `usage` is not made here; none where it is: Android's
+    /// buffers are allocated in RGBA, for every use.
+    pub(crate) fn unsupported(
+        format: PixelFormat,
+        usage: HardwareBufferUsage,
+    ) -> Option<&'static str> {
+        let _ = usage;
+        (format != PixelFormat::Rgba8).then_some("Android allocates hardware buffers in RGBA")
+    }
+
     /// A program's buffer of `width` by `height` pixels in `format`, for `usage`, sides the
     /// program checked: `unsupported` for BGRA, which Android's buffers are not allocated in, and
     /// `out-of-memory` where the system allocates none.
@@ -143,10 +153,10 @@ impl HardwareBufferMemory {
         usage: HardwareBufferUsage,
         mode: BufferKind,
     ) -> Result<HardwareBufferMemory, ImageError> {
-        if format != PixelFormat::Rgba8 {
+        if let Some(message) = HardwareBufferMemory::unsupported(format, usage) {
             return Err(ImageError {
                 kind: ImageErrorKind::Unsupported,
-                message: "Android allocates hardware buffers in RGBA".to_owned(),
+                message: message.to_owned(),
             });
         }
         HardwareBufferMemory::new(width, height, usage, mode).map_err(|error| ImageError {

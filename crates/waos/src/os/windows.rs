@@ -156,6 +156,21 @@ impl HardwareBufferMemory {
         })
     }
 
+    /// Why a buffer in `format` for `usage` is not made here; none where it is: Windows makes
+    /// shared textures in BGRA, which the CPU does not read.
+    pub(crate) fn unsupported(
+        format: PixelFormat,
+        usage: HardwareBufferUsage,
+    ) -> Option<&'static str> {
+        if format != PixelFormat::Bgra8 {
+            Some("Windows makes hardware buffers in BGRA")
+        } else if usage.contains(HardwareBufferUsage::CPU_READ) {
+            Some("a hardware buffer on Windows is not read by the CPU")
+        } else {
+            None
+        }
+    }
+
     /// A program's buffer of `width` by `height` pixels in `format`, for `usage`, sides the
     /// program checked: `unsupported` for RGBA, which Windows' buffers are not made in, and for a
     /// buffer the CPU reads, which a shared texture is not; `out-of-memory` where none is made.
@@ -166,16 +181,10 @@ impl HardwareBufferMemory {
         usage: HardwareBufferUsage,
         mode: BufferKind,
     ) -> Result<HardwareBufferMemory, ImageError> {
-        if format != PixelFormat::Bgra8 {
+        if let Some(message) = HardwareBufferMemory::unsupported(format, usage) {
             return Err(ImageError {
                 kind: ImageErrorKind::Unsupported,
-                message: "Windows makes hardware buffers in BGRA".to_owned(),
-            });
-        }
-        if usage.contains(HardwareBufferUsage::CPU_READ) {
-            return Err(ImageError {
-                kind: ImageErrorKind::Unsupported,
-                message: "a hardware buffer on Windows is not read by the CPU".to_owned(),
+                message: message.to_owned(),
             });
         }
         HardwareBufferMemory::new(width, height, usage, mode).map_err(|error| ImageError {

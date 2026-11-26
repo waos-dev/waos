@@ -304,6 +304,16 @@ impl HardwareBufferMemory {
         })
     }
 
+    /// Why a buffer in `format` for `usage` is not made here; none where it is: Linux's buffers
+    /// are allocated in BGRA, linear or in shared memory, for every use.
+    pub(crate) fn unsupported(
+        format: PixelFormat,
+        usage: HardwareBufferUsage,
+    ) -> Option<&'static str> {
+        let _ = usage;
+        (format != PixelFormat::Bgra8).then_some("Linux allocates hardware buffers in BGRA")
+    }
+
     /// A program's buffer of `width` by `height` pixels in `format`, for `usage`, sides the
     /// program checked: `unsupported` for RGBA, which Linux's buffers are not allocated in, and
     /// `out-of-memory` where the system allocates none.
@@ -314,10 +324,10 @@ impl HardwareBufferMemory {
         usage: HardwareBufferUsage,
         mode: BufferKind,
     ) -> Result<HardwareBufferMemory, ImageError> {
-        if format != PixelFormat::Bgra8 {
+        if let Some(message) = HardwareBufferMemory::unsupported(format, usage) {
             return Err(ImageError {
                 kind: ImageErrorKind::Unsupported,
-                message: "Linux allocates hardware buffers in BGRA".to_owned(),
+                message: message.to_owned(),
             });
         }
         HardwareBufferMemory::new(width, height, usage, mode).map_err(|error| ImageError {

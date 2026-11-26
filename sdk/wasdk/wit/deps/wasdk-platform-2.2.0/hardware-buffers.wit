@@ -42,6 +42,12 @@ interface hardware-buffers {
     /// Apple's systems. `out-of-memory` where the system has no memory left for it. A side of no
     /// pixels is the program's mistake, and traps.
     allocate: func(width: u32, height: u32, format: pixel-format, usage: hardware-buffer-usage) -> result<hardware-buffer, image-error>;
+
+    /// Whether `allocate` makes a buffer in `format` for `usage` on this system: what it would
+    /// answer `unsupported` to, asked first. The format to draw in for the screen, with no
+    /// conversion, is WebGPU's preferred canvas format.
+    @since(version = 2.2.0)
+    supports: func(format: pixel-format, usage: hardware-buffer-usage) -> bool;
   }
 
   /// Pixels that the GPU and the system's compositor both reach: an `IOSurface`, an

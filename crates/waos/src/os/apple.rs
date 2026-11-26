@@ -310,6 +310,17 @@ impl HardwareBufferMemory {
         })
     }
 
+    /// Why a buffer in `format` for `usage` is not made here; none where it is: Apple's systems
+    /// allocate surfaces in BGRA, each for every use.
+    pub(crate) fn unsupported(
+        format: PixelFormat,
+        usage: HardwareBufferUsage,
+    ) -> Option<&'static str> {
+        let _ = usage;
+        (format != PixelFormat::Bgra8)
+            .then_some("Apple's systems allocate hardware buffers in BGRA")
+    }
+
     /// A program's buffer of `width` by `height` pixels in `format`, sides the program checked:
     /// `unsupported` for RGBA, which this system's buffers are not allocated in, and
     /// `out-of-memory` where the system makes no surface. Every surface serves every use, so the
@@ -321,10 +332,10 @@ impl HardwareBufferMemory {
         usage: HardwareBufferUsage,
         mode: BufferKind,
     ) -> Result<HardwareBufferMemory, ImageError> {
-        if format != PixelFormat::Bgra8 {
+        if let Some(message) = HardwareBufferMemory::unsupported(format, usage) {
             return Err(ImageError {
                 kind: ImageErrorKind::Unsupported,
-                message: "Apple's systems allocate hardware buffers in BGRA".to_owned(),
+                message: message.to_owned(),
             });
         }
         HardwareBufferMemory::new(width, height, usage, mode).map_err(|error| ImageError {
