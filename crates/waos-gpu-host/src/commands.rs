@@ -9,7 +9,7 @@ use wasmtime::component::Resource;
 use wgpu_core::id::{CommandBufferId, CommandEncoderId, QuerySetId};
 
 use crate::buffers::Buffer;
-use crate::conversions::{depth_channel, label, stencil_channel};
+use crate::conversions::{depth_channel, label, non_zero_u32, stencil_channel};
 use crate::devices::Device;
 use crate::errors::ErrorSink;
 use crate::passes::{ComputePass, RenderPass};
@@ -275,9 +275,10 @@ impl gpu::HostCommandEncoder for GpuCtx<'_> {
                 .occlusion_query_set
                 .map(|query_set| Ok::<_, wasmtime::Error>(table.get(&query_set)?.id()))
                 .transpose()?,
-            multiview_mask: descriptor
-                .multiview_mask
-                .and_then(std::num::NonZeroU32::new),
+            multiview_mask: non_zero_u32(
+                descriptor.multiview_mask,
+                "a render pass's multiview mask",
+            )?,
         };
         let encoder = table.get(&encoder)?;
         let (pass, error) = self

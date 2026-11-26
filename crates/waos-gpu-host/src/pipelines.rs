@@ -3,7 +3,6 @@
 //! another program's data.
 
 use std::borrow::Cow;
-use std::num::NonZeroU32;
 use std::sync::Arc;
 
 use wasmtime::component::{Resource, ResourceTable};
@@ -11,7 +10,7 @@ use wgpu_core::id::{ComputePipelineId, RenderPipelineId, ShaderModuleId};
 use wgpu_core::pipeline as core;
 
 use crate::binding::BindGroupLayout;
-use crate::conversions::label;
+use crate::conversions::{label, non_zero_u32};
 use crate::devices::Device;
 use crate::errors::ErrorSink;
 use crate::shaders::ShaderModule;
@@ -111,7 +110,10 @@ pub(crate) fn create_render_pipeline(
         depth_stencil: descriptor.depth_stencil.map(Into::into),
         multisample: descriptor.multisample.into(),
         fragment,
-        multiview_mask: descriptor.multiview_mask.and_then(NonZeroU32::new),
+        multiview_mask: non_zero_u32(
+            descriptor.multiview_mask,
+            "a render pipeline's multiview mask",
+        )?,
         cache: None,
     };
     let device = table.get(device)?;

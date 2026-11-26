@@ -240,7 +240,9 @@ interface gpu {
   resource render-pass {
     set-pipeline: func(pipeline: borrow<render-pipeline>);
     set-bind-group: func(index: u32, bind-group: option<borrow<bind-group>>, offsets: list<u32>);
+    /// `size` none binds the rest of the buffer; a size of zero traps the app, as wgpu has none.
     set-index-buffer: func(buffer: borrow<buffer>, format: index-format, offset: u64, size: option<u64>);
+    /// `size` none binds the rest of the buffer; a size of zero traps the app, as wgpu has none.
     set-vertex-buffer: func(slot: u32, buffer: option<borrow<buffer>>, offset: u64, size: option<u64>);
     set-immediates: func(offset: u32, data: list<u8>);
     set-blend-constant: func(color: color);
@@ -271,7 +273,9 @@ interface gpu {
   resource render-bundle-encoder {
     set-pipeline: func(pipeline: borrow<render-pipeline>);
     set-bind-group: func(index: u32, bind-group: option<borrow<bind-group>>, offsets: list<u32>);
+    /// `size` none binds the rest of the buffer; a size of zero traps the app, as wgpu has none.
     set-index-buffer: func(buffer: borrow<buffer>, format: index-format, offset: u64, size: option<u64>);
+    /// `size` none binds the rest of the buffer; a size of zero traps the app, as wgpu has none.
     set-vertex-buffer: func(slot: u32, buffer: option<borrow<buffer>>, offset: u64, size: option<u64>);
     set-immediates: func(offset: u32, data: list<u8>);
     draw: func(vertices: range, instances: range);
@@ -378,7 +382,7 @@ interface gpu {
     depth-stencil: option<depth-stencil-state>,
     multisample: multisample-state,
     fragment: option<fragment-state>,
-    /// The views of a multiview pass the pipeline draws, one bit each.
+    /// The views of a multiview pass the pipeline draws, one bit each; a mask of zero traps.
     multiview-mask: option<u32>,
   }
 
@@ -427,7 +431,7 @@ interface gpu {
     depth-stencil-attachment: option<render-pass-depth-stencil-attachment>,
     timestamp-writes: option<timestamp-writes>,
     occlusion-query-set: option<borrow<query-set>>,
-    /// The views of a multiview pass, one bit each.
+    /// The views of a multiview pass, one bit each; a mask of zero traps.
     multiview-mask: option<u32>,
   }
 

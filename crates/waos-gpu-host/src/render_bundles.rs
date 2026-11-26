@@ -11,7 +11,7 @@ use wgpu_core::id::RenderBundleId;
 
 use crate::binding::BindGroup;
 use crate::buffers::Buffer;
-use crate::conversions::label;
+use crate::conversions::{label, non_zero_u64};
 use crate::devices::Device;
 use crate::errors::ErrorSink;
 use crate::pipelines::RenderPipeline;
@@ -104,13 +104,14 @@ impl gpu::HostRenderBundleEncoder for GpuCtx<'_> {
         size: Option<u64>,
     ) -> wasmtime::Result<()> {
         let buffer = self.table.get(&buffer)?.id();
+        let size = non_zero_u64(size, "set-index-buffer's size")?;
         self.bundle_encoder(&encoder)?.record(|instance, encoder| {
             instance.render_bundle_encoder_set_index_buffer(
                 encoder,
                 buffer,
                 format.into(),
                 offset,
-                size.and_then(std::num::NonZeroU64::new),
+                size,
             )
         })
     }
@@ -126,14 +127,9 @@ impl gpu::HostRenderBundleEncoder for GpuCtx<'_> {
         let buffer = buffer
             .map(|buffer| Ok::<_, wasmtime::Error>(self.table.get(&buffer)?.id()))
             .transpose()?;
+        let size = non_zero_u64(size, "set-vertex-buffer's size")?;
         self.bundle_encoder(&encoder)?.record(|instance, encoder| {
-            instance.render_bundle_encoder_set_vertex_buffer(
-                encoder,
-                slot,
-                buffer,
-                offset,
-                size.and_then(std::num::NonZeroU64::new),
-            )
+            instance.render_bundle_encoder_set_vertex_buffer(encoder, slot, buffer, offset, size)
         })
     }
 

@@ -313,7 +313,7 @@ impl gpu::HostDevice for GpuCtx<'_> {
         device: Resource<Device>,
         descriptor: BindGroupLayoutDescriptor,
     ) -> wasmtime::Result<Resource<BindGroupLayout>> {
-        let descriptor = descriptor.into();
+        let descriptor = descriptor.try_into()?;
         let device = self.table.get(&device)?;
         let (layout, error) =
             self.instance
@@ -406,7 +406,7 @@ impl gpu::HostDevice for GpuCtx<'_> {
         descriptor: RenderBundleEncoderDescriptor,
     ) -> wasmtime::Result<Resource<RenderBundleEncoder>> {
         let device = self.table.get(&device)?;
-        let encoder = RenderBundleEncoder::create(device, descriptor.into());
+        let encoder = RenderBundleEncoder::create(device, descriptor.try_into()?);
         Ok(self.table.push(encoder)?)
     }
 

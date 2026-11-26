@@ -846,7 +846,7 @@ interface types {
     binding: u32,
     visibility: shader-stages,
     ty: binding-type,
-    /// The length of a binding array; none for a single binding.
+    /// The length of a binding array; none for a single binding. A length of zero traps.
     count: option<u32>,
   }
 
@@ -1196,6 +1196,7 @@ interface types {
     color-formats: list<option<texture-format>>,
     depth-stencil: option<render-bundle-depth-stencil>,
     sample-count: u32,
+    /// As wgpu's `multiview`: none where the bundle draws in no multiview pass; zero traps.
     multiview: option<u32>,
   }
 

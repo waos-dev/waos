@@ -279,24 +279,28 @@ impl From<types::BindingType> for wgt::BindingType {
     }
 }
 
-impl From<types::BindGroupLayoutDescriptor>
+impl TryFrom<types::BindGroupLayoutDescriptor>
     for wgpu_core::binding_model::BindGroupLayoutDescriptor<'static>
 {
-    fn from(descriptor: types::BindGroupLayoutDescriptor) -> Self {
+    type Error = wasmtime::Error;
+
+    fn try_from(descriptor: types::BindGroupLayoutDescriptor) -> wasmtime::Result<Self> {
         let entries = descriptor
             .entries
             .into_iter()
-            .map(|entry| wgt::BindGroupLayoutEntry {
-                binding: entry.binding,
-                visibility: entry.visibility.into(),
-                ty: entry.ty.into(),
-                count: entry.count.and_then(NonZeroU32::new),
+            .map(|entry| {
+                Ok(wgt::BindGroupLayoutEntry {
+                    binding: entry.binding,
+                    visibility: entry.visibility.into(),
+                    ty: entry.ty.into(),
+                    count: non_zero_u32(entry.count, "a bind group layout entry's count")?,
+                })
             })
-            .collect::<Vec<_>>();
-        wgpu_core::binding_model::BindGroupLayoutDescriptor {
+            .collect::<wasmtime::Result<Vec<_>>>()?;
+        Ok(wgpu_core::binding_model::BindGroupLayoutDescriptor {
             label: label(descriptor.label),
             entries: Cow::Owned(entries),
-        }
+        })
     }
 }
 
@@ -425,16 +429,18 @@ impl From<types::ShaderSource> for wgpu_core::pipeline::ShaderModuleSource<'stat
     }
 }
 
-impl From<types::RenderBundleEncoderDescriptor>
+impl TryFrom<types::RenderBundleEncoderDescriptor>
     for wgpu_core::command::RenderBundleEncoderDescriptor<'static>
 {
-    fn from(descriptor: types::RenderBundleEncoderDescriptor) -> Self {
+    type Error = wasmtime::Error;
+
+    fn try_from(descriptor: types::RenderBundleEncoderDescriptor) -> wasmtime::Result<Self> {
         let color_formats = descriptor
             .color_formats
             .into_iter()
             .map(|format| format.map(Into::into))
             .collect::<Vec<_>>();
-        wgpu_core::command::RenderBundleEncoderDescriptor {
+        Ok(wgpu_core::command::RenderBundleEncoderDescriptor {
             label: label(descriptor.label),
             color_formats: Cow::Owned(color_formats),
             depth_stencil: descriptor.depth_stencil.map(|depth_stencil| {
@@ -445,8 +451,8 @@ impl From<types::RenderBundleEncoderDescriptor>
                 }
             }),
             sample_count: descriptor.sample_count,
-            multiview: descriptor.multiview.and_then(NonZeroU32::new),
-        }
+            multiview: non_zero_u32(descriptor.multiview, "a render bundle's multiview")?,
+        })
     }
 }
 
@@ -669,5 +675,38 @@ impl From<crate::DeviceLostInfo> for types::DeviceLostInfo {
             reason: info.reason.into(),
             message: info.message,
         }
+    }
+}
+
+/// `value` as wgpu-types' non-zero option, where none means otherwise than zero would: the rest
+/// of a buffer, one binding, no multiview. Zero, which wgpu-types cannot hold there, traps the
+/// program, naming `what` was zero, rather than becoming none.
+pub(crate) fn non_zero_u32(value: Option<u32>, what: &str) -> wasmtime::Result<Option<NonZeroU32>> {
+    value
+        .map(|value| NonZeroU32::new(value).ok_or_else(|| zero(what)))
+        .transpose()
+}
+
+/// As [`non_zero_u32`], for a size in bytes.
+pub(crate) fn non_zero_u64(value: Option<u64>, what: &str) -> wasmtime::Result<Option<NonZeroU64>> {
+    value
+        .map(|value| NonZeroU64::new(value).ok_or_else(|| zero(what)))
+        .transpose()
+}
+
+fn zero(what: &str) -> wasmtime::Error {
+    wasmtime::format_err!("{what} is zero, which wgpu leaves no room for: none, or more than zero")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_zero_where_wgpu_has_none_traps_rather_than_meaning_none() {
+        assert_eq!(non_zero_u64(None, "a size").unwrap(), None);
+        assert_eq!(non_zero_u64(Some(4), "a size").unwrap(), NonZeroU64::new(4));
+        assert!(non_zero_u64(Some(0), "a size").is_err());
+        assert!(non_zero_u32(Some(0), "a count").is_err());
     }
 }

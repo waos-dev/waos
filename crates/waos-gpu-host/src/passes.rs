@@ -14,6 +14,7 @@ use crate::GpuCtx;
 use crate::binding::BindGroup;
 use crate::buffers::Buffer;
 use crate::commands::QuerySet;
+use crate::conversions::non_zero_u64;
 use crate::errors::ErrorSink;
 use crate::pipelines::{ComputePipeline, RenderPipeline};
 use crate::render_bundles::RenderBundle;
@@ -280,15 +281,10 @@ impl gpu::HostRenderPass for GpuCtx<'_> {
         size: Option<u64>,
     ) -> wasmtime::Result<()> {
         let buffer = self.table.get(&buffer)?.id();
+        let size = non_zero_u64(size, "set-index-buffer's size")?;
         self.pass(&pass)?
             .record("RenderPass::set_index_buffer", |instance, pass| {
-                instance.render_pass_set_index_buffer(
-                    pass,
-                    buffer,
-                    format.into(),
-                    offset,
-                    size.and_then(std::num::NonZeroU64::new),
-                )
+                instance.render_pass_set_index_buffer(pass, buffer, format.into(), offset, size)
             });
         Ok(())
     }
@@ -304,15 +300,10 @@ impl gpu::HostRenderPass for GpuCtx<'_> {
         let buffer = buffer
             .map(|buffer| Ok::<_, wasmtime::Error>(self.table.get(&buffer)?.id()))
             .transpose()?;
+        let size = non_zero_u64(size, "set-vertex-buffer's size")?;
         self.pass(&pass)?
             .record("RenderPass::set_vertex_buffer", |instance, pass| {
-                instance.render_pass_set_vertex_buffer(
-                    pass,
-                    slot,
-                    buffer,
-                    offset,
-                    size.and_then(std::num::NonZeroU64::new),
-                )
+                instance.render_pass_set_vertex_buffer(pass, slot, buffer, offset, size)
             });
         Ok(())
     }
