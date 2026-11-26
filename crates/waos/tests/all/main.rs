@@ -46,6 +46,8 @@ mod freezing;
 #[cfg(target_vendor = "apple")]
 mod gpu_calls;
 #[cfg(target_vendor = "apple")]
+mod gpu_errors;
+#[cfg(target_vendor = "apple")]
 mod hardware_buffers;
 #[cfg(target_vendor = "apple")]
 mod image_codecs;
@@ -109,6 +111,16 @@ mod gpu_calls {
     fn the_gpu_is_not_called_on_this_system() {
         eprintln!(
             "the tests' machines have a GPU on Apple's systems; the GPU calls test does not run here"
+        );
+    }
+}
+
+#[cfg(not(target_vendor = "apple"))]
+mod gpu_errors {
+    #[test]
+    fn no_gpu_errors_are_made_on_this_system() {
+        eprintln!(
+            "the tests' machines have a GPU on Apple's systems; the GPU errors test does not run here"
         );
     }
 }

@@ -203,7 +203,9 @@ impl DeviceInterface for WasdkDevice {
     }
 
     /// Scopes pop in reverse order, as wgpu requires; a pop out of order panics here, where the
-    /// engine could only see a pop of the innermost.
+    /// engine could only see a pop of the innermost. The scope pops at the call, as wgpu's
+    /// `ErrorScopeGuard` promises: its drop never polls the future, and what the program does
+    /// before it awaits one is outside the scope.
     fn pop_error_scope(&self, index: u32) -> Pin<Box<dyn PopErrorScopeFuture>> {
         let open = self.open_error_scopes.load(Ordering::Relaxed);
         assert!(
@@ -211,11 +213,8 @@ impl DeviceInterface for WasdkDevice {
             "wasdk-wgpu: error scope {index} popped with {open} open; scopes pop in reverse order"
         );
         self.open_error_scopes.store(index, Ordering::Relaxed);
-        let device = Arc::clone(&self.device);
-        Box::pin(async move {
-            let error = device.pop_error_scope().await?;
-            Some(convert::error_from_wit(error))
-        })
+        let error = self.device.pop_error_scope();
+        Box::pin(std::future::ready(error.map(convert::error_from_wit)))
     }
 
     unsafe fn start_graphics_debugger_capture(&self) {

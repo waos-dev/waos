@@ -93,7 +93,7 @@ async fn main() -> Result<(), String> {
 
     device.push_error_scope(ErrorFilter::Validation);
     invalid_buffer(&device);
-    let caught = device.pop_error_scope().await;
+    let caught = device.pop_error_scope();
     println!("caught by the scope: {}", kind(caught.as_ref()));
 
     invalid_buffer(&device);

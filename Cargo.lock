@@ -2852,6 +2852,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "gpu-errors"
+version = "0.7.1"
+dependencies = [
+ "futures",
+ "wasdk",
+ "wasdk-wgpu",
+ "wgpu",
+]
+
+[[package]]
 name = "gpui"
 version = "0.2.2"
 source = "git+https://github.com/waos-dev/zed?rev=ab35bace16f23ddc65bbc8968d69d1d48e0369ad#ab35bace16f23ddc65bbc8968d69d1d48e0369ad"
