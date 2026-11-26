@@ -14,7 +14,7 @@ use crate::GpuCtx;
 use crate::binding::BindGroup;
 use crate::buffers::Buffer;
 use crate::commands::QuerySet;
-use crate::conversions::non_zero_u64;
+use crate::conversions::{count, non_zero_u64};
 use crate::errors::ErrorSink;
 use crate::pipelines::{ComputePipeline, RenderPipeline};
 use crate::render_bundles::RenderBundle;
@@ -383,12 +383,14 @@ impl gpu::HostRenderPass for GpuCtx<'_> {
         vertices: Range,
         instances: Range,
     ) -> wasmtime::Result<()> {
+        let vertex_count = count(&vertices)?;
+        let instance_count = count(&instances)?;
         self.pass(&pass)?
             .record("RenderPass::draw", |instance, pass| {
                 instance.render_pass_draw(
                     pass,
-                    vertices.end.wrapping_sub(vertices.start),
-                    instances.end.wrapping_sub(instances.start),
+                    vertex_count,
+                    instance_count,
                     vertices.start,
                     instances.start,
                 )
@@ -403,12 +405,14 @@ impl gpu::HostRenderPass for GpuCtx<'_> {
         base_vertex: i32,
         instances: Range,
     ) -> wasmtime::Result<()> {
+        let index_count = count(&indices)?;
+        let instance_count = count(&instances)?;
         self.pass(&pass)?
             .record("RenderPass::draw_indexed", |instance, pass| {
                 instance.render_pass_draw_indexed(
                     pass,
-                    indices.end.wrapping_sub(indices.start),
-                    instances.end.wrapping_sub(instances.start),
+                    index_count,
+                    instance_count,
                     indices.start,
                     base_vertex,
                     instances.start,

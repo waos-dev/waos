@@ -337,7 +337,8 @@ interface types {
     a: f64,
   }
 
-  /// A half-open range of indices, as wgpu's `Range<u32>`.
+  /// A half-open range of indices, as wgpu's `Range<u32>`. A draw given one that ends before it
+  /// starts traps.
   record range {
     start: u32,
     end: u32,

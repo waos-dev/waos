@@ -694,6 +694,19 @@ pub(crate) fn non_zero_u64(value: Option<u64>, what: &str) -> wasmtime::Result<O
         .transpose()
 }
 
+/// How many indices `range` holds, as wgpu counts a draw's `Range<u32>`. One that ends before it
+/// starts traps the program, as wgpu's own `end - start` panics where it is checked, rather than
+/// wrapping to about four billion.
+pub(crate) fn count(range: &types::Range) -> wasmtime::Result<u32> {
+    range.end.checked_sub(range.start).ok_or_else(|| {
+        wasmtime::format_err!(
+            "a range ends at {} before it starts at {}",
+            range.end,
+            range.start
+        )
+    })
+}
+
 fn zero(what: &str) -> wasmtime::Error {
     wasmtime::format_err!("{what} is zero, which wgpu leaves no room for: none, or more than zero")
 }
@@ -708,5 +721,11 @@ mod tests {
         assert_eq!(non_zero_u64(Some(4), "a size").unwrap(), NonZeroU64::new(4));
         assert!(non_zero_u64(Some(0), "a size").is_err());
         assert!(non_zero_u32(Some(0), "a count").is_err());
+    }
+
+    #[test]
+    fn a_range_that_ends_before_it_starts_traps_rather_than_wrapping() {
+        assert_eq!(count(&types::Range { start: 2, end: 5 }).unwrap(), 3);
+        assert!(count(&types::Range { start: 10, end: 5 }).is_err());
     }
 }
