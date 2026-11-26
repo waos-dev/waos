@@ -149,8 +149,12 @@ impl HardwareBufferMemory {
         usage: HardwareBufferUsage,
         mode: BufferKind,
     ) -> Result<HardwareBufferMemory> {
-        let _ = (usage, mode);
-        let handle = shared_texture::make([width, height])?;
+        let _ = usage;
+        let gpu = match mode {
+            BufferKind::GpuMemory(gpu) => gpu,
+            BufferKind::SharedMemory => None,
+        };
+        let handle = shared_texture::make([width, height], gpu)?;
         Ok(HardwareBufferMemory {
             buffer: HardwareBuffer::new(handle, [width, height]),
         })

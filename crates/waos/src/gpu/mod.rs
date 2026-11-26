@@ -171,7 +171,7 @@ pub(crate) fn device_opener(_mode: BufferKind) -> Option<&'static dyn DeviceOpen
 #[cfg(target_os = "linux")]
 pub(crate) fn device_opener(mode: BufferKind) -> Option<&'static dyn DeviceOpener> {
     match mode {
-        BufferKind::GpuMemory => Some(&crate::os::HardwareBufferImports),
+        BufferKind::GpuMemory(_) => Some(&crate::os::HardwareBufferImports),
         BufferKind::SharedMemory => None,
     }
 }

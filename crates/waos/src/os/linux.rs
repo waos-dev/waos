@@ -101,7 +101,7 @@ pub(crate) fn buffer_kind(
         && Dmabuf::can_allocate()
         && programs_adapter_imports(gpu, programs_adapter)
     {
-        return BufferKind::GpuMemory;
+        return BufferKind::GpuMemory(accepted.gpu());
     }
     if accepted.shared_memory {
         tracing::info!(
@@ -294,7 +294,7 @@ impl HardwareBufferMemory {
     ) -> Result<HardwareBufferMemory> {
         let _ = usage;
         let buffer = match mode {
-            BufferKind::GpuMemory => HardwareBuffer::over(Dmabuf::allocate(width, height)?),
+            BufferKind::GpuMemory(_) => HardwareBuffer::over(Dmabuf::allocate(width, height)?),
             BufferKind::SharedMemory => HardwareBuffer::shared_memory(width, height)?,
         };
         Ok(HardwareBufferMemory {

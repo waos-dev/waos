@@ -86,10 +86,10 @@ impl HandOver {
 #[cfg(not(target_os = "linux"))]
 pub(crate) fn buffer_kind(
     _gpu: &crate::gpu::GpuInstance,
-    _accepted: Option<&crate::shell::AcceptedBuffers>,
+    accepted: Option<&crate::shell::AcceptedBuffers>,
     _programs_adapter: &crate::gpu::ProgramsAdapter,
 ) -> crate::BufferKind {
-    crate::BufferKind::GpuMemory
+    crate::BufferKind::GpuMemory(accepted.and_then(crate::shell::AcceptedBuffers::gpu))
 }
 
 /// The GPU `adapter` is, as the system names it to its compositor: none on a system that names

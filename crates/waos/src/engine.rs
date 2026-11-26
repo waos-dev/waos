@@ -36,7 +36,7 @@ use crate::program::Program;
 use crate::running::{HeldProgram, Hold, ProgramStart, Programs, RunningProgram};
 use crate::screens::{Screen, Screens};
 use crate::screenshots::Screenshots;
-use crate::shell::{AcceptedBuffers, Shell, ShellClipboardItem};
+use crate::shell::{AcceptedBuffers, GpuId, Shell, ShellClipboardItem};
 use crate::source_lines::ComponentFile;
 use crate::system::SystemSettings;
 use crate::temporary_folders::TemporaryFolders;
@@ -46,8 +46,9 @@ use crate::views::ScreenRefreshes;
 /// shell's compositor shows (`os::buffer_kind`). Every other system has GPU memory alone.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum BufferKind {
-    /// GPU memory the compositor imports, which a program draws into: no copy.
-    GpuMemory,
+    /// GPU memory the compositor imports, which a program draws into: no copy. On the GPU the
+    /// compositor shows from, where it names one, as memory shared by handle opens only there.
+    GpuMemory(Option<GpuId>),
     /// Memory the CPU reads: a program draws on its device, and each frame is read back into it.
     /// Where the compositor imports nothing the engine's GPU makes, and where there is no
     /// compositor, as in a headless WaOS, whose pictures only screenshots read.

@@ -615,7 +615,7 @@ pub(crate) fn filled(
         width,
         height,
         HardwareBufferUsage::empty(),
-        BufferKind::GpuMemory,
+        BufferKind::GpuMemory(None),
     )
     .expect("a surface for a test");
     let surface = &*memory.surface;

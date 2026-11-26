@@ -1,12 +1,14 @@
 //! Shared textures: made on a D3D12 device of the engine's own, which only makes them, on the
-//! adapter a program's device gets: D3D12's (`gpu::instance`) at high performance, as the WebGPU
-//! host asks for every program on Windows, and as Waft asks for its own; and opened on a program's
-//! device as one of wgpu-core's textures, in the common state every user leaves them in.
+//! adapter the compositor shows from, its LUID as the compositor names it, where programs' devices
+//! are put too (`gpu::ProgramsAdapter`); on the high-performance adapter where no LUID is named;
+//! and opened on a program's device as one of wgpu-core's textures, in the common state every user
+//! leaves them in.
 //!
-//! The invariant: the engine's device is asked for as a program's is, so a handle it makes opens
-//! on every program's device and on Waft's.
+//! The invariant: a texture is made on the adapter its readers are on, since a handle opens only
+//! on the adapter that made it.
 
 use std::borrow::Cow;
+use std::collections::HashMap;
 use std::os::windows::io::{AsRawHandle as _, FromRawHandle as _, OwnedHandle};
 use std::sync::{LazyLock, Mutex};
 
@@ -25,7 +27,7 @@ use windows::core::{GUID, IUnknown, PCWSTR, implement};
 use crate::gpu::wgpu_types::error::{ErrorType, WebGpuError};
 use crate::gpu::{wgpu_core, wgpu_types};
 use crate::hardware_buffers::Released;
-use crate::shell::HardwareBuffer;
+use crate::shell::{GpuId, HardwareBuffer};
 
 /// The engine's device that makes shared textures, as D3D12 hands it out.
 struct Maker(ID3D12Device);
@@ -34,13 +36,14 @@ struct Maker(ID3D12Device);
 // thread at once.
 unsafe impl Send for Maker {}
 
-/// The maker, made at the first texture; why not, where no adapter gives a D3D12 device.
-static MAKER: LazyLock<Mutex<Result<Maker, String>>> =
-    LazyLock::new(|| Mutex::new(maker().map_err(|error| format!("{error:#}"))));
+/// The makers, one for each adapter, made at its first texture; why not, where it gives no D3D12
+/// device.
+static MAKERS: LazyLock<Mutex<HashMap<Option<GpuId>, Result<Maker, String>>>> =
+    LazyLock::new(Mutex::default);
 
-/// A D3D12 device on the adapter a program's device gets: wgpu-core's choice for D3D12 at high
-/// performance, on an instance of its own, kept for the process.
-fn maker() -> Result<Maker> {
+/// A D3D12 device on the adapter `gpu` names, or wgpu-core's choice at high performance where it
+/// names none, on an instance of its own, kept for the process.
+fn maker(gpu: Option<GpuId>) -> Result<Maker> {
     let instance = wgpu_core::global::Global::new(
         "waos hardware buffers",
         wgpu_types::InstanceDescriptor {
@@ -52,16 +55,20 @@ fn maker() -> Result<Maker> {
         },
         None,
     );
-    let adapter = instance
-        .request_adapter(
-            &wgpu_types::RequestAdapterOptions {
-                power_preference: wgpu_types::PowerPreference::HighPerformance,
-                ..Default::default()
-            },
-            wgpu_types::Backends::DX12,
-            None,
-        )
-        .context("no D3D12 adapter for hardware buffers")?;
+    let adapter = match gpu {
+        Some(gpu) => adapter_named(&instance, gpu)
+            .with_context(|| format!("no D3D12 adapter of {gpu:?} for hardware buffers"))?,
+        None => instance
+            .request_adapter(
+                &wgpu_types::RequestAdapterOptions {
+                    power_preference: wgpu_types::PowerPreference::HighPerformance,
+                    ..Default::default()
+                },
+                wgpu_types::Backends::DX12,
+                None,
+            )
+            .context("no D3D12 adapter for hardware buffers")?,
+    };
     let (device, _queue) = instance
         .adapter_request_device(adapter, &Default::default(), None, None)
         .context("no D3D12 device for hardware buffers")?;
@@ -74,10 +81,29 @@ fn maker() -> Result<Maker> {
     Ok(Maker(raw))
 }
 
+/// The adapter of `instance` that `gpu` names; the others enumerated are dropped again.
+fn adapter_named(
+    instance: &wgpu_core::global::Global,
+    gpu: GpuId,
+) -> Option<wgpu_core::id::AdapterId> {
+    let adapters = instance.enumerate_adapters(wgpu_types::Backends::DX12, false);
+    let named = adapters
+        .iter()
+        .copied()
+        .find(|&adapter| super::adapter_gpu(instance, adapter) == Some(gpu));
+    for &adapter in adapters.iter().filter(|&&adapter| Some(adapter) != named) {
+        instance.adapter_drop(adapter);
+    }
+    named
+}
+
 /// A BGRA8 texture of `size` pixels, render target and shader resource, in a heap shared with
 /// other devices, and its NT handle, which keeps its memory alive.
-pub(super) fn make(size: [u32; 2]) -> Result<OwnedHandle> {
-    let maker = MAKER.lock().unwrap();
+pub(super) fn make(size: [u32; 2], gpu: Option<GpuId>) -> Result<OwnedHandle> {
+    let mut makers = MAKERS.lock().unwrap();
+    let maker = makers
+        .entry(gpu)
+        .or_insert_with(|| maker(gpu).map_err(|error| format!("{error:#}")));
     let maker = maker.as_ref().map_err(|error| anyhow!("{error}"))?;
     let heap = D3D12_HEAP_PROPERTIES {
         Type: D3D12_HEAP_TYPE_DEFAULT,

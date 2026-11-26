@@ -192,7 +192,7 @@ pub(crate) mod tests {
         let mode = if cfg!(target_os = "linux") {
             super::BufferKind::SharedMemory
         } else {
-            super::BufferKind::GpuMemory
+            super::BufferKind::GpuMemory(None)
         };
         Arc::new(Screenshots::new(crate::gpu::instance(), mode))
     }
