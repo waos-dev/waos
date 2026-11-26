@@ -65,6 +65,11 @@ impl Renderer {
         }
     }
 
+    /// The device every view draws on, which the program's hardware buffers are allocated for.
+    pub(crate) fn device(&self) -> &wgpu::Device {
+        &self.device
+    }
+
     /// A surface on `view`, configured for the renderer's device at the view's size, in the
     /// format the view's canvas is drawn in.
     ///

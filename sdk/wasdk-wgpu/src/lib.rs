@@ -27,6 +27,7 @@
 //!
 //! // What makes GPU memory for the program makes it for a device, the GPU's it is on:
 //! let decoders = wasdk_wgpu::video_decoders(&device);
+//! let allocator = wasdk_wgpu::hardware_buffer_allocator(&device);
 //!
 //! // A video frame's hardware buffer is sampled through a texture imported of it on the device:
 //! let video_texture = wasdk_wgpu::import_texture(&device, &video_frame.hardware_buffer());
@@ -172,7 +173,7 @@ mod surface;
 mod texture;
 
 use wasdk::gpu_interop;
-use wasdk::hardware_buffers::HardwareBuffer;
+use wasdk::hardware_buffers::{self, HardwareBuffer, HardwareBufferAllocator};
 use wasdk::video_decoders::{self, VideoDecoders};
 use wgpu::custom::InstanceInterface;
 
@@ -210,6 +211,12 @@ pub fn import_plane(device: &wgpu::Device, buffer: &HardwareBuffer, index: u32) 
 /// (`wasdk:media/video-decoders`); none where the system decodes no video for programs.
 pub fn video_decoders(device: &wgpu::Device) -> Option<VideoDecoders> {
     video_decoders::get_video_decoders(WasdkDevice::of(device).gpu_device())
+}
+
+/// The allocator of hardware buffers drawn on `device` and shown
+/// (`wasdk:platform/hardware-buffers`); none where the system allocates no hardware buffers.
+pub fn hardware_buffer_allocator(device: &wgpu::Device) -> Option<HardwareBufferAllocator> {
+    hardware_buffers::get_hardware_buffer_allocator(WasdkDevice::of(device).gpu_device())
 }
 
 /// The engine's `texture` as wgpu's, described as the engine made it.

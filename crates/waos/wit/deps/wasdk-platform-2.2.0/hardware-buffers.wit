@@ -27,8 +27,12 @@ package wasdk:platform@2.2.0;
 /// of, once every texture imported of it and every layer showing it have let go too, gives its
 /// memory back.
 interface hardware-buffers {
-  /// The system's hardware buffer allocator; none where the system allocates no hardware buffers.
-  get-hardware-buffer-allocator: func() -> option<hardware-buffer-allocator>;
+  use wasi:webgpu/webgpu@0.3.0-rc.2.{gpu-device};
+
+  /// The allocator of buffers drawn on `device` and shown: on Windows and Linux one that makes
+  /// them on `device`'s GPU, the system's on Apple's systems and Android. None where the system
+  /// allocates no hardware buffers.
+  get-hardware-buffer-allocator: func(device: borrow<gpu-device>) -> option<hardware-buffer-allocator>;
 
   /// What makes a program's hardware buffers: the role of Android's graphics allocator
   /// (gralloc's `IAllocator`), Fuchsia's sysmem `Allocator` and a GBM device on Linux.

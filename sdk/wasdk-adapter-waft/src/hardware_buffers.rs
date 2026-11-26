@@ -1,10 +1,11 @@
 //! Waft's hardware buffers over `wasdk:platform/hardware-buffers`, one to one: the system's
-//! allocator, where it allocates buffers, is Waft's `HardwareBufferAllocator`, an allocation the
-//! WIT's `allocate`, its format and usage carried field for field; and every buffer the WIT hands the
-//! program, one it allocated, an image the hardware codecs decoded or a video frame's, is Waft's
-//! `HardwareBuffer` over it, whose usage is its `usage`, whose pixels are its `read-pixels`, and which is imported as a texture
-//! on the program's device through the WIT's `gpu-interop` (`gpu_interop`). A side of no pixels,
-//! which the WIT traps a program for, fails here first, as `ImageErrorKind::Other`, as Waft's hosts
+//! allocator for the program's device, where it allocates buffers, is Waft's
+//! `HardwareBufferAllocator`, an allocation the WIT's `allocate`, its format and usage carried
+//! field for field; and every buffer the WIT hands the program, one it allocated, an image the
+//! hardware codecs decoded or a video frame's, is Waft's `HardwareBuffer` over it, whose usage is
+//! its `usage`, whose pixels are its `read-pixels`, and which is imported as a texture on the
+//! program's device through the WIT's `gpu-interop` (`gpu_interop`). A side of no pixels, which
+//! the WIT traps a program for, fails here first, as `ImageErrorKind::Other`, as Waft's hosts
 //! answer it.
 //!
 //! The invariant: only a buffer the WIT handed out goes back to it, by the handle the program
@@ -21,13 +22,13 @@ use wasdk::hardware_buffers as platform;
 
 use crate::image_codecs::{framework_image_error, framework_pixels, wit_format};
 
-/// The system's hardware buffer allocator.
+/// The system's hardware buffer allocator for one device.
 pub(crate) struct WasdkHardwareBufferAllocator(platform::HardwareBufferAllocator);
 
 impl WasdkHardwareBufferAllocator {
-    /// The system's hardware buffer allocator, where it allocates buffers.
-    pub(crate) fn get() -> Option<WasdkHardwareBufferAllocator> {
-        platform::get_hardware_buffer_allocator().map(WasdkHardwareBufferAllocator)
+    /// The system's allocator of buffers drawn on `device`, where it allocates buffers.
+    pub(crate) fn get(device: &wgpu::Device) -> Option<WasdkHardwareBufferAllocator> {
+        wasdk_wgpu::hardware_buffer_allocator(device).map(WasdkHardwareBufferAllocator)
     }
 }
 

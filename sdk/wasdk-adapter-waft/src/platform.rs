@@ -100,8 +100,9 @@ pub(crate) struct WasdkPlatform {
     caption_settings: Option<WasdkCaptionSettings>,
     /// The system's compositor, where it has one, which the app's composition layers are made on.
     compositor: Option<Arc<WasdkCompositor>>,
-    /// The program's one GPU, as a program names none: the system's hardware buffer allocator,
-    /// where it allocates buffers; none where it allocates none.
+    /// The program's one GPU, its renderer's device's, as a program names none: the system's
+    /// allocator of buffers drawn on that device, where it allocates buffers; none where it
+    /// allocates none.
     gpu: Option<Rc<HostGpu>>,
     /// The program's views, by the engine's id for each, which grows as they arrive.
     views: RefCell<BTreeMap<ViewId, ViewWithWindow>>,
@@ -138,7 +139,7 @@ impl WasdkPlatform {
             files: WasdkFiles::get(),
             opener: WasdkOpener::get(),
             compositor: WasdkCompositor::get().map(Arc::new),
-            gpu: WasdkHardwareBufferAllocator::get().map(|allocator| {
+            gpu: WasdkHardwareBufferAllocator::get(renderer.device()).map(|allocator| {
                 Rc::new(HostGpu {
                     id: None,
                     video_decoders: None,
@@ -373,8 +374,8 @@ impl Platform for WasdkPlatform {
         gpu_interop::import_texture(buffer, device)
     }
 
-    /// The program's one GPU, whatever `id` names: WaOS puts a program on one GPU and names it to
-    /// no program.
+    /// The program's one GPU, whatever `id` names: the one its renderer's device is on, which WaOS
+    /// names to no program.
     fn gpu(&self, _id: Option<GpuId>) -> Option<Rc<dyn SystemGpu>> {
         self.gpu.clone().map(|gpu| gpu as Rc<dyn SystemGpu>)
     }

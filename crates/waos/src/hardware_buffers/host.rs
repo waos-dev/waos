@@ -1,17 +1,20 @@
-//! The code serving `wasdk:platform/hardware-buffers` to a program: the system's allocator, where
-//! the engine allocates buffers, a buffer the program allocates with it, counted in its stats, and
-//! any buffer it holds, its own or a video frame's: its size, what it can be used for, and its
-//! pixels copied into the program's memory once the GPU has finished what the program submitted
-//! and wrote to draw into it (`os`), where its usage has `cpu-read`, the program warned where that
-//! is more than it asked (`unasked_read`). A texture of a buffer is `gpu_interop`'s.
+//! The code serving `wasdk:platform/hardware-buffers` to a program: the allocator for one of its
+//! devices, where the engine allocates buffers, a buffer the program allocates with it on that
+//! device's GPU, counted in its stats, and any buffer it holds, its own or a video frame's: its
+//! size, what it can be used for, and its pixels copied into the program's memory once the GPU has
+//! finished what the program submitted and wrote to draw into it (`os`), where its usage has
+//! `cpu-read`, the program warned where that is more than it asked (`unasked_read`). A texture of
+//! a buffer is `gpu_interop`'s.
 
 use std::sync::Arc;
 
+use waos_webgpu_host::Device;
 use wasmtime::bail;
 use wasmtime::component::{Accessor, HasData, Linker, Resource, ResourceTable};
 use wasmtime_wasi::runtime::spawn_blocking;
 
 use super::ProgramHardwareBuffer;
+use crate::BufferKind;
 use crate::bindings::wasdk::platform::hardware_buffers::{
     self, HardwareBufferUsage, HostHardwareBuffer, HostHardwareBufferAllocator,
     HostHardwareBufferWithStore, ImageError, PixelBuffer, PixelFormat,
@@ -19,10 +22,26 @@ use crate::bindings::wasdk::platform::hardware_buffers::{
 use crate::gpu::GpuInstance;
 use crate::os::{ALLOCATES, HardwareBufferMemory};
 use crate::running::RunningProgram;
+use crate::shell::GpuId;
 
-/// `hardware-buffers.hardware-buffer-allocator`: the system's hardware buffer allocator, through
-/// which the engine allocates the program's buffers.
-pub struct HardwareBufferAllocator;
+/// `hardware-buffers.hardware-buffer-allocator`: the system's hardware buffer allocator for one
+/// of the program's devices, through which the engine allocates the program's buffers on that
+/// device's GPU.
+pub struct HardwareBufferAllocator {
+    /// The GPU of the device it was asked for, where the system names one.
+    gpu: Option<GpuId>,
+}
+
+impl HardwareBufferAllocator {
+    /// The memory a buffer is allocated in, for a program whose pictures are kept in
+    /// `program_kind`: the allocator's GPU's where that is GPU memory, shared memory otherwise.
+    fn buffer_kind(&self, program_kind: BufferKind) -> BufferKind {
+        match program_kind {
+            BufferKind::GpuMemory(_) => BufferKind::GpuMemory(self.gpu),
+            BufferKind::SharedMemory => BufferKind::SharedMemory,
+        }
+    }
+}
 
 /// What the hardware buffers interface reads and writes in a program's store.
 pub(crate) struct HardwareBuffersCtx<'a> {
@@ -52,14 +71,18 @@ pub(crate) fn add_to_linker<T: HardwareBuffersCtxView + 'static>(
 }
 
 impl hardware_buffers::Host for HardwareBuffersCtx<'_> {
-    /// The system's allocator, where the engine allocates buffers: on Apple's systems.
+    /// The allocator of buffers on the GPU `device` is on, as the system names it, where the
+    /// engine allocates buffers.
     fn get_hardware_buffer_allocator(
         &mut self,
+        device: Resource<Device>,
     ) -> wasmtime::Result<Option<Resource<HardwareBufferAllocator>>> {
         if !ALLOCATES {
             return Ok(None);
         }
-        Ok(Some(self.table.push(HardwareBufferAllocator)?))
+        let adapter = self.table.get(&device)?.adapter_id();
+        let gpu = crate::os::adapter_gpu(self.gpu, adapter);
+        Ok(Some(self.table.push(HardwareBufferAllocator { gpu })?))
     }
 }
 
@@ -67,7 +90,7 @@ impl HostHardwareBufferAllocator for HardwareBuffersCtx<'_> {
     /// A buffer of the program's own; a side of no pixels is its mistake, and traps.
     fn allocate(
         &mut self,
-        _allocator: Resource<HardwareBufferAllocator>,
+        allocator: Resource<HardwareBufferAllocator>,
         width: u32,
         height: u32,
         format: PixelFormat,
@@ -78,8 +101,11 @@ impl HostHardwareBufferAllocator for HardwareBuffersCtx<'_> {
                 "the program allocated a hardware buffer of {width}x{height}, which holds no pixels"
             )
         }
+        let mode = self
+            .table
+            .get(&allocator)?
+            .buffer_kind(self.program.hardware_buffers());
         let stats = self.program.shared_stats();
-        let mode = self.program.hardware_buffers();
         match ProgramHardwareBuffer::allocate(stats, width, height, format, usage, mode) {
             Ok(buffer) => Ok(Ok(self.table.push(buffer)?)),
             Err(error) => Ok(Err(error)),

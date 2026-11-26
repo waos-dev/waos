@@ -47,7 +47,8 @@ use crate::views::ScreenRefreshes;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum BufferKind {
     /// GPU memory the compositor imports, which a program draws into: no copy. On the GPU the
-    /// compositor shows from, where it names one, as memory shared by handle opens only there.
+    /// compositor shows from, where it names one, as memory shared by handle opens only there; a
+    /// buffer a program allocates is on its device's GPU instead (`hardware_buffers::host`).
     GpuMemory(Option<GpuId>),
     /// Memory the CPU reads: a program draws on its device, and each frame is read back into it.
     /// Where the compositor imports nothing the engine's GPU makes, and where there is no

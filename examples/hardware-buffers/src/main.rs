@@ -31,7 +31,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use wasdk::hardware_buffers::{
-    self, AlphaType, HardwareBuffer, HardwareBufferAllocator, HardwareBufferUsage, ImageError,
+    AlphaType, HardwareBuffer, HardwareBufferAllocator, HardwareBufferUsage, ImageError,
     ImageErrorKind, PixelFormat,
 };
 use wasdk::image_codecs;
@@ -73,7 +73,7 @@ const PATIENCE: usize = 600;
 #[wasdk::main]
 async fn main() -> Result<(), String> {
     let gpu = Gpu::new().await?;
-    let Some(allocator) = hardware_buffers::get_hardware_buffer_allocator() else {
+    let Some(allocator) = wasdk_wgpu::hardware_buffer_allocator(&gpu.device) else {
         println!("hardware buffer allocator: none");
         return Ok(());
     };
