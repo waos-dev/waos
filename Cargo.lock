@@ -8543,7 +8543,7 @@ dependencies = [
 [[package]]
 name = "waft"
 version = "0.13.0"
-source = "git+https://github.com/waos-dev/waft?branch=video-codecs#f28ea3587c4c0565dd3ed88b10fb5106d2d1c24c"
+source = "git+https://github.com/waos-dev/waft?branch=video-codecs#215896dca29059f87d5f2d2bc42dd369ed827dd3"
 dependencies = [
  "waft-embedder",
  "waft-embedder-default",
@@ -8559,7 +8559,7 @@ dependencies = [
 [[package]]
 name = "waft-animation"
 version = "0.13.0"
-source = "git+https://github.com/waos-dev/waft?branch=video-codecs#f28ea3587c4c0565dd3ed88b10fb5106d2d1c24c"
+source = "git+https://github.com/waos-dev/waft?branch=video-codecs#215896dca29059f87d5f2d2bc42dd369ed827dd3"
 dependencies = [
  "waft-embedder",
  "waft-foundation",
@@ -8583,7 +8583,7 @@ dependencies = [
 [[package]]
 name = "waft-cupertino"
 version = "0.13.0"
-source = "git+https://github.com/waos-dev/waft?branch=video-codecs#f28ea3587c4c0565dd3ed88b10fb5106d2d1c24c"
+source = "git+https://github.com/waos-dev/waft?branch=video-codecs#215896dca29059f87d5f2d2bc42dd369ed827dd3"
 dependencies = [
  "indexmap",
  "waft-animation",
@@ -8601,7 +8601,7 @@ dependencies = [
 [[package]]
 name = "waft-embedder"
 version = "0.13.0"
-source = "git+https://github.com/waos-dev/waft?branch=video-codecs#f28ea3587c4c0565dd3ed88b10fb5106d2d1c24c"
+source = "git+https://github.com/waos-dev/waft?branch=video-codecs#215896dca29059f87d5f2d2bc42dd369ed827dd3"
 dependencies = [
  "bytes",
  "http",
@@ -8622,7 +8622,7 @@ dependencies = [
 [[package]]
 name = "waft-embedder-android"
 version = "0.13.0"
-source = "git+https://github.com/waos-dev/waft?branch=video-codecs#f28ea3587c4c0565dd3ed88b10fb5106d2d1c24c"
+source = "git+https://github.com/waos-dev/waft?branch=video-codecs#215896dca29059f87d5f2d2bc42dd369ed827dd3"
 dependencies = [
  "ash",
  "jni",
@@ -8644,7 +8644,7 @@ dependencies = [
 [[package]]
 name = "waft-embedder-apple"
 version = "0.13.0"
-source = "git+https://github.com/waos-dev/waft?branch=video-codecs#f28ea3587c4c0565dd3ed88b10fb5106d2d1c24c"
+source = "git+https://github.com/waos-dev/waft?branch=video-codecs#215896dca29059f87d5f2d2bc42dd369ed827dd3"
 dependencies = [
  "block2",
  "dispatch2",
@@ -8679,7 +8679,7 @@ dependencies = [
 [[package]]
 name = "waft-embedder-default"
 version = "0.13.0"
-source = "git+https://github.com/waos-dev/waft?branch=video-codecs#f28ea3587c4c0565dd3ed88b10fb5106d2d1c24c"
+source = "git+https://github.com/waos-dev/waft?branch=video-codecs#215896dca29059f87d5f2d2bc42dd369ed827dd3"
 dependencies = [
  "waft-embedder",
  "waft-embedder-android",
@@ -8691,7 +8691,7 @@ dependencies = [
 [[package]]
 name = "waft-embedder-ios"
 version = "0.13.0"
-source = "git+https://github.com/waos-dev/waft?branch=video-codecs#f28ea3587c4c0565dd3ed88b10fb5106d2d1c24c"
+source = "git+https://github.com/waos-dev/waft?branch=video-codecs#215896dca29059f87d5f2d2bc42dd369ed827dd3"
 dependencies = [
  "block2",
  "dispatch2",
@@ -8714,7 +8714,7 @@ dependencies = [
 [[package]]
 name = "waft-embedder-web"
 version = "0.13.0"
-source = "git+https://github.com/waos-dev/waft?branch=video-codecs#f28ea3587c4c0565dd3ed88b10fb5106d2d1c24c"
+source = "git+https://github.com/waos-dev/waft?branch=video-codecs#215896dca29059f87d5f2d2bc42dd369ed827dd3"
 dependencies = [
  "console_error_panic_hook",
  "getrandom 0.3.4",
@@ -8732,7 +8732,7 @@ dependencies = [
 [[package]]
 name = "waft-embedder-winit"
 version = "0.13.0"
-source = "git+https://github.com/waos-dev/waft?branch=video-codecs#f28ea3587c4c0565dd3ed88b10fb5106d2d1c24c"
+source = "git+https://github.com/waos-dev/waft?branch=video-codecs#215896dca29059f87d5f2d2bc42dd369ed827dd3"
 dependencies = [
  "arboard",
  "ash",
@@ -8774,7 +8774,7 @@ dependencies = [
 [[package]]
 name = "waft-foundation"
 version = "0.13.0"
-source = "git+https://github.com/waos-dev/waft?branch=video-codecs#f28ea3587c4c0565dd3ed88b10fb5106d2d1c24c"
+source = "git+https://github.com/waos-dev/waft?branch=video-codecs#215896dca29059f87d5f2d2bc42dd369ed827dd3"
 dependencies = [
  "async-task",
  "indexmap",
@@ -8787,7 +8787,7 @@ dependencies = [
 [[package]]
 name = "waft-gestures"
 version = "0.13.0"
-source = "git+https://github.com/waos-dev/waft?branch=video-codecs#f28ea3587c4c0565dd3ed88b10fb5106d2d1c24c"
+source = "git+https://github.com/waos-dev/waft?branch=video-codecs#215896dca29059f87d5f2d2bc42dd369ed827dd3"
 dependencies = [
  "indexmap",
  "waft-embedder",
@@ -8834,7 +8834,7 @@ dependencies = [
 [[package]]
 name = "waft-macros"
 version = "0.13.0"
-source = "git+https://github.com/waos-dev/waft?branch=video-codecs#f28ea3587c4c0565dd3ed88b10fb5106d2d1c24c"
+source = "git+https://github.com/waos-dev/waft?branch=video-codecs#215896dca29059f87d5f2d2bc42dd369ed827dd3"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -8857,7 +8857,7 @@ dependencies = [
 [[package]]
 name = "waft-painting"
 version = "0.13.0"
-source = "git+https://github.com/waos-dev/waft?branch=video-codecs#f28ea3587c4c0565dd3ed88b10fb5106d2d1c24c"
+source = "git+https://github.com/waos-dev/waft?branch=video-codecs#215896dca29059f87d5f2d2bc42dd369ed827dd3"
 dependencies = [
  "http",
  "indexmap",
@@ -8872,7 +8872,7 @@ dependencies = [
 [[package]]
 name = "waft-physics"
 version = "0.13.0"
-source = "git+https://github.com/waos-dev/waft?branch=video-codecs#f28ea3587c4c0565dd3ed88b10fb5106d2d1c24c"
+source = "git+https://github.com/waos-dev/waft?branch=video-codecs#215896dca29059f87d5f2d2bc42dd369ed827dd3"
 dependencies = [
  "waft-embedder",
 ]
@@ -8880,7 +8880,7 @@ dependencies = [
 [[package]]
 name = "waft-rendering"
 version = "0.13.0"
-source = "git+https://github.com/waos-dev/waft?branch=video-codecs#f28ea3587c4c0565dd3ed88b10fb5106d2d1c24c"
+source = "git+https://github.com/waos-dev/waft?branch=video-codecs#215896dca29059f87d5f2d2bc42dd369ed827dd3"
 dependencies = [
  "indexmap",
  "unicode-general-category",
@@ -8896,7 +8896,7 @@ dependencies = [
 [[package]]
 name = "waft-scheduler"
 version = "0.13.0"
-source = "git+https://github.com/waos-dev/waft?branch=video-codecs#f28ea3587c4c0565dd3ed88b10fb5106d2d1c24c"
+source = "git+https://github.com/waos-dev/waft?branch=video-codecs#215896dca29059f87d5f2d2bc42dd369ed827dd3"
 dependencies = [
  "indexmap",
  "waft-embedder",
@@ -8906,7 +8906,7 @@ dependencies = [
 [[package]]
 name = "waft-service-protocol"
 version = "0.13.0"
-source = "git+https://github.com/waos-dev/waft?branch=video-codecs#f28ea3587c4c0565dd3ed88b10fb5106d2d1c24c"
+source = "git+https://github.com/waos-dev/waft?branch=video-codecs#215896dca29059f87d5f2d2bc42dd369ed827dd3"
 dependencies = [
  "serde",
  "serde_json",
@@ -8915,7 +8915,7 @@ dependencies = [
 [[package]]
 name = "waft-services"
 version = "0.13.0"
-source = "git+https://github.com/waos-dev/waft?branch=video-codecs#f28ea3587c4c0565dd3ed88b10fb5106d2d1c24c"
+source = "git+https://github.com/waos-dev/waft?branch=video-codecs#215896dca29059f87d5f2d2bc42dd369ed827dd3"
 dependencies = [
  "indexmap",
  "unicode-segmentation",
@@ -8928,7 +8928,7 @@ dependencies = [
 [[package]]
 name = "waft-shell"
 version = "0.13.0"
-source = "git+https://github.com/waos-dev/waft?branch=video-codecs#f28ea3587c4c0565dd3ed88b10fb5106d2d1c24c"
+source = "git+https://github.com/waos-dev/waft?branch=video-codecs#215896dca29059f87d5f2d2bc42dd369ed827dd3"
 dependencies = [
  "waft-embedder",
  "waft-foundation",
@@ -8942,7 +8942,7 @@ dependencies = [
 [[package]]
 name = "waft-single-instance"
 version = "0.13.0"
-source = "git+https://github.com/waos-dev/waft?branch=video-codecs#f28ea3587c4c0565dd3ed88b10fb5106d2d1c24c"
+source = "git+https://github.com/waos-dev/waft?branch=video-codecs#215896dca29059f87d5f2d2bc42dd369ed827dd3"
 dependencies = [
  "windows-sys 0.60.2",
  "zbus",
@@ -8951,7 +8951,7 @@ dependencies = [
 [[package]]
 name = "waft-test"
 version = "0.13.0"
-source = "git+https://github.com/waos-dev/waft?branch=video-codecs#f28ea3587c4c0565dd3ed88b10fb5106d2d1c24c"
+source = "git+https://github.com/waos-dev/waft?branch=video-codecs#215896dca29059f87d5f2d2bc42dd369ed827dd3"
 dependencies = [
  "http",
  "valo-system-fonts",
@@ -8974,7 +8974,7 @@ dependencies = [
 [[package]]
 name = "waft-video-codecs"
 version = "0.13.0"
-source = "git+https://github.com/waos-dev/waft?branch=video-codecs#f28ea3587c4c0565dd3ed88b10fb5106d2d1c24c"
+source = "git+https://github.com/waos-dev/waft?branch=video-codecs#215896dca29059f87d5f2d2bc42dd369ed827dd3"
 dependencies = [
  "h264-reader",
  "scuffle-av1",
@@ -8987,7 +8987,7 @@ dependencies = [
 [[package]]
 name = "waft-widgets"
 version = "0.13.0"
-source = "git+https://github.com/waos-dev/waft?branch=video-codecs#f28ea3587c4c0565dd3ed88b10fb5106d2d1c24c"
+source = "git+https://github.com/waos-dev/waft?branch=video-codecs#215896dca29059f87d5f2d2bc42dd369ed827dd3"
 dependencies = [
  "base64 0.22.1",
  "cssparser",
@@ -9011,7 +9011,7 @@ dependencies = [
 [[package]]
 name = "waft-winui"
 version = "0.13.0"
-source = "git+https://github.com/waos-dev/waft?branch=video-codecs#f28ea3587c4c0565dd3ed88b10fb5106d2d1c24c"
+source = "git+https://github.com/waos-dev/waft?branch=video-codecs#215896dca29059f87d5f2d2bc42dd369ed827dd3"
 dependencies = [
  "waft-animation",
  "waft-embedder",

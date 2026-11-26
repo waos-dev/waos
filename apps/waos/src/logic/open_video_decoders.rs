@@ -55,10 +55,16 @@ impl OpenVideoDecoders {
                 description,
                 answer,
             } => {
-                let support =
-                    decoders_of(gpu).map_or_else(no_support, |system| system.support(&description));
-                // A program that ended meanwhile hears nothing.
-                let _ = answer.send(support);
+                let Some(system) = decoders_of(gpu) else {
+                    // A program that ended meanwhile hears nothing.
+                    let _ = answer.send(no_support());
+                    return;
+                };
+                let asking = system.support(&description);
+                start_task(Box::pin(async move {
+                    // A program that ended meanwhile hears nothing.
+                    let _ = answer.send(asking.await);
+                }));
             }
             DecoderCall::Open {
                 gpu,
