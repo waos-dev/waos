@@ -237,7 +237,8 @@ impl gpu::HostDevice for GpuCtx<'_> {
         device: Resource<Device>,
     ) -> wasmtime::Result<Resource<wgpu_types::Limits>> {
         let device = self.table.get(&device)?.device_id();
-        Ok(self.table.push(self.instance.device_limits(device))?)
+        let limits = crate::limits::shown(&self.instance.device_limits(device));
+        Ok(self.table.push(limits)?)
     }
 
     fn adapter_info(&mut self, device: Resource<Device>) -> wasmtime::Result<AdapterInfo> {

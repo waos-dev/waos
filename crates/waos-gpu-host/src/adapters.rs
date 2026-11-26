@@ -146,7 +146,8 @@ impl gpu::HostAdapter for GpuCtx<'_> {
         adapter: Resource<Adapter>,
     ) -> wasmtime::Result<Resource<wgpu_types::Limits>> {
         let adapter = self.table.get(&adapter)?.id();
-        Ok(self.table.push(self.instance.adapter_limits(adapter))?)
+        let limits = limits::shown(&self.instance.adapter_limits(adapter));
+        Ok(self.table.push(limits)?)
     }
 
     fn info(&mut self, adapter: Resource<Adapter>) -> wasmtime::Result<AdapterInfo> {

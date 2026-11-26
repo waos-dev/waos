@@ -8,8 +8,13 @@
 //! wgpu programs do, still draws there; one whose shader needs more fails at its pipeline with
 //! wgpu-core's validation error. A limit asked past the default and past the adapter's is refused.
 //!
+//! A set the host hands out, an adapter's or a device's, carries only the limits the package
+//! names, the rest at wgpu's defaults ([`shown`]): a program could neither read nor lower a limit
+//! it is not shown, and passed on to another adapter, it would be refused on it.
+//!
 //! The invariant: every limit the package names is a row of `limits!`, which writes its getter,
-//! its setter and its part in [`fitted`]; a limit wgpu adds and the package takes is one row more.
+//! its setter and its part in [`shown`] and [`fitted`]; a limit wgpu adds and the package takes is
+//! one row more.
 
 use std::cmp::Ordering;
 
@@ -60,6 +65,16 @@ macro_rules! limits {
             fn drop(&mut self, limits: Resource<Limits>) -> wasmtime::Result<()> {
                 self.table.delete(limits)?;
                 Ok(())
+            }
+        }
+
+        /// `limits` as the package shows them: the limits it names, and wgpu's defaults for the
+        /// limits it leaves out, the experimental features' ones, so a set the program cannot
+        /// read asks for none of them past what a set made with `limits`' constructor does.
+        pub(crate) fn shown(limits: &Limits) -> Limits {
+            Limits {
+                $($field: limits.$field,)*
+                ..Limits::default()
             }
         }
 
@@ -200,6 +215,26 @@ mod tests {
             "kept, to be refused"
         );
         assert!(refusal(&fitted, &simulator()).is_some());
+    }
+
+    #[test]
+    fn a_set_handed_out_carries_the_defaults_of_the_limits_left_out() {
+        let adapter = Limits {
+            max_bind_groups: 8,
+            max_mesh_output_vertices: 256,
+            max_blas_primitive_count: 1 << 20,
+            ..Limits::default()
+        };
+        let shown = shown(&adapter);
+        assert_eq!(shown.max_bind_groups, 8, "a limit the package names");
+        assert_eq!(
+            shown.max_mesh_output_vertices,
+            Limits::default().max_mesh_output_vertices
+        );
+        assert_eq!(
+            shown.max_blas_primitive_count,
+            Limits::default().max_blas_primitive_count
+        );
     }
 
     #[test]
