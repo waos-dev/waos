@@ -57,8 +57,8 @@ pub(crate) mod recordings;
 pub(crate) mod test_system;
 #[cfg(test)]
 mod tests;
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(crate) mod video_decoders;
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(crate) mod waos_tray;
 
 use std::path::PathBuf;
@@ -301,7 +301,7 @@ pub(crate) fn start(
             .platform()
             .video_frame_readers()
             .map(|_| Arc::new(ReadersOnRequest) as Arc<dyn ShellVideoFrameReaders>),
-        video_decoders: video_decoders.as_ref().map(VideoDecoders::shell),
+        gpus: video_decoders.as_ref().map(VideoDecoders::shell),
         cameras: cameras.as_ref().map(Cameras::shell),
         simulated_cameras: simulated_cameras(image_codecs.as_ref().map(ImageCodecs::shell)),
         // A machine is picked on a sheet put as a program's questions are.
@@ -321,7 +321,6 @@ pub(crate) fn start(
         temporary_folders: folders.temporary_folders,
         audit: Some(Arc::new(store.clone())),
         inspected_programs: Some(Arc::clone(&inspected) as Arc<dyn InspectedPrograms>),
-        hardware_buffers: waos::HardwareBufferMode::Auto,
     };
     if config.native_unwind_info {
         tracing::info!("programs are compiled with native unwind information");

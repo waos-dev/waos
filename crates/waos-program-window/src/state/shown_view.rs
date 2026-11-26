@@ -6,6 +6,9 @@
 //!
 //! The program's calls arrive in the order it made them: the cursor, and the style of the
 //! system's bars over the view, which the view's canvas shows, so the view notifies; whether the
+//! bars hide, which the view tells the bars over the Waft view it is shown in, while it may hold
+//! the keyboard, as the tab in front of WaOS's deck does, and which it shows again once it may
+//! not or is gone; whether the
 //! program handles Back, which the view keeps for
 //! whatever shows it to read as the user's Back comes; the focus and the text input, which only
 //! the canvas can carry out, passed on to it as events; and the window's, passed on as events to
@@ -24,14 +27,15 @@ use std::sync::Arc;
 use futures::StreamExt;
 use futures::channel::mpsc::UnboundedReceiver;
 use waft::ui::{
-    CompositionLayer, SystemUiOverlayStyle, ViewFocusState, ViewId, ViewMetrics, ViewRef,
+    CompositionLayer, SystemBarsBehavior as WaftSystemBarsBehavior, SystemUiOverlayStyle,
+    ViewFocusState, ViewId, ViewMetrics, ViewRef,
 };
 use waft::{App, Context, Entity, EventEmitter, WeakEntity};
 use waos::Presence;
 use waos::bindings::wasdk::platform::views::{
-    Cursor, OverlayStyle, ViewFocusState as ProgramFocusState,
+    Cursor, OverlayStyle, SystemBarsBehavior, ViewFocusState as ProgramFocusState,
 };
-use waos_window_messages::{TextInputCall, ViewCall, WindowCall};
+use waos_window_messages::{SystemBarsCall, TextInputCall, ViewCall, WindowCall};
 
 use crate::link::ViewLink;
 use crate::logic::canvas_layer::CanvasLayer;
@@ -48,6 +52,11 @@ pub struct ShownView {
     /// The style of the system's bars over the view, each field as the program said it last;
     /// none until it says one.
     overlay_style: Option<OverlayStyle>,
+    /// Whether the program hid the bars over the view, and what a swipe from an edge does then;
+    /// none while it wants them shown.
+    bars_hidden: Option<SystemBarsBehavior>,
+    /// What the bars over the Waft view were last told: hidden, and how, or none for shown.
+    bars_told: Option<SystemBarsBehavior>,
     /// What the program was last told of how the view stands.
     presence: Presence,
     /// What the program was last told of the view's metrics, as Waft reported them.
@@ -86,6 +95,8 @@ impl ShownView {
             cursor: Cursor::Default,
             handles_back: false,
             overlay_style: None,
+            bars_hidden: None,
+            bars_told: None,
             presence,
             metrics,
             holds_keyboard: true,
@@ -131,8 +142,36 @@ impl ShownView {
             }
             ViewCall::SetHandlesBack(handles) => self.handles_back = handles,
             ViewCall::TextInput(call) => cx.emit(call),
+            ViewCall::SystemBars(SystemBarsCall::SetOverlayStyle(style)) => {
+                self.set_overlay_style(style, cx);
+            }
+            ViewCall::SystemBars(SystemBarsCall::Hide(behavior)) => self.hide_bars(Some(behavior)),
+            ViewCall::SystemBars(SystemBarsCall::Show) => self.hide_bars(None),
             ViewCall::Window(call) => cx.emit(call),
-            ViewCall::SetOverlayStyle(style) => self.set_overlay_style(style, cx),
+        }
+    }
+
+    /// The program hid the bars over the view, or showed them again where `hidden` is none.
+    fn hide_bars(&mut self, hidden: Option<SystemBarsBehavior>) {
+        self.bars_hidden = hidden;
+        self.tell_the_bars();
+    }
+
+    /// Tells the bars over the Waft view what the program said, while the view may hold the
+    /// keyboard, and to show while it may not; nothing where that is what they were told last, or
+    /// where no bars are drawn over the Waft view.
+    fn tell_the_bars(&mut self) {
+        let wanted = self.bars_hidden.filter(|_| self.holds_keyboard);
+        if wanted == self.bars_told {
+            return;
+        }
+        self.bars_told = wanted;
+        let Some(bars) = self.waft_view.host().system_bars() else {
+            return;
+        };
+        match wanted {
+            Some(behavior) => bars.hide(waft_system_bars_behavior(behavior)),
+            None => bars.show(),
         }
     }
 
@@ -184,6 +223,12 @@ impl ShownView {
         }
     }
 
+    /// The program asked its window for a frame the window did not take: it hears the view's
+    /// metrics as they are, its answer.
+    pub fn answer_frame_request(&mut self) {
+        self.view.metrics_changed(metrics_of(&self.metrics));
+    }
+
     /// The view stands as `presence` says now: the program hears it if it changed.
     pub fn set_presence(&mut self, presence: Presence) {
         if presence != self.presence {
@@ -204,6 +249,7 @@ impl ShownView {
             return;
         }
         self.holds_keyboard = holds;
+        self.tell_the_bars();
         let state = if holds {
             ViewFocusState::Focused
         } else {
@@ -212,9 +258,24 @@ impl ShownView {
         cx.emit(FocusChangeRequested(state));
     }
 
-    /// Nothing shows the view any more: what the program presents goes straight back.
+    /// Nothing shows the view any more: what the program presents goes straight back, and the
+    /// bars it hid over the Waft view show again.
     pub fn gone(&self) {
         self.canvas.window_gone();
+        if self.bars_told.is_some()
+            && let Some(bars) = self.waft_view.host().system_bars()
+        {
+            bars.show();
+        }
+    }
+}
+
+fn waft_system_bars_behavior(behavior: SystemBarsBehavior) -> WaftSystemBarsBehavior {
+    match behavior {
+        SystemBarsBehavior::ShowBarsBySwipe => WaftSystemBarsBehavior::ShowBarsBySwipe,
+        SystemBarsBehavior::ShowTransientBarsBySwipe => {
+            WaftSystemBarsBehavior::ShowTransientBarsBySwipe
+        }
     }
 }
 

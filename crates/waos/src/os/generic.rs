@@ -6,11 +6,11 @@ use std::convert::Infallible;
 
 use anyhow::{Result, bail};
 
-use waos_webgpu_host::Device;
+use waos_gpu_host::Device;
 
-use crate::HardwareBufferMode;
+use crate::BufferKind;
 use crate::bindings::wasdk::platform::hardware_buffers::{
-    HardwareBufferUsage, ImageError, ImageErrorKind, PixelBuffer, PixelFormat,
+    HardwareBufferFormat, HardwareBufferUsage, ImageError, ImageErrorKind, PixelBuffer,
 };
 use crate::gpu::{GpuInstance, wgpu_core, wgpu_types};
 use crate::hardware_buffers::Released;
@@ -40,7 +40,7 @@ impl HardwareBufferMemory {
         width: u32,
         height: u32,
         usage: HardwareBufferUsage,
-        mode: HardwareBufferMode,
+        mode: BufferKind,
     ) -> Result<HardwareBufferMemory> {
         let _ = (width, height, usage, mode);
         bail!(
@@ -48,12 +48,20 @@ impl HardwareBufferMemory {
         )
     }
 
+    pub(crate) fn unsupported(
+        format: HardwareBufferFormat,
+        usage: HardwareBufferUsage,
+    ) -> Option<&'static str> {
+        let _ = (format, usage);
+        Some("the engine allocates hardware buffers on Apple's systems and Android only")
+    }
+
     pub(crate) fn allocate(
         width: u32,
         height: u32,
-        format: PixelFormat,
+        format: HardwareBufferFormat,
         usage: HardwareBufferUsage,
-        mode: HardwareBufferMode,
+        mode: BufferKind,
     ) -> Result<HardwareBufferMemory, ImageError> {
         let _ = (width, height, format, usage, mode);
         Err(ImageError {
@@ -80,6 +88,10 @@ impl HardwareBufferMemory {
     }
 
     pub(crate) fn usage(&self) -> HardwareBufferUsage {
+        match self.0 {}
+    }
+
+    pub(crate) fn format(&self) -> Result<HardwareBufferFormat> {
         match self.0 {}
     }
 
@@ -131,12 +143,12 @@ impl HardwareBufferMemory {
     pub(crate) fn program_texture(
         &self,
         _gpu: &GpuInstance,
-        _device: &waos_webgpu_host::Device,
+        _device: &waos_gpu_host::Device,
         _usage: wgpu_types::TextureUsages,
         _release: Box<dyn FnOnce() + Send + Sync>,
     ) -> Result<(
-        std::sync::Arc<waos_webgpu_host::GpuObject<wgpu_core::id::TextureId>>,
-        waos_webgpu_host::TextureAttributes,
+        std::sync::Arc<waos_gpu_host::GpuObject<wgpu_core::id::TextureId>>,
+        waos_gpu_host::TextureDescriptor,
     )> {
         match self.0 {}
     }

@@ -1,0 +1,19 @@
+[package]
+name = "occluded"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "A program that says what its view's surface answers each time the program's state changes: a frame while the view is in sight, `occluded` while it is not. `cargo build -p occluded --target wasm32-wasip3`."
+
+[dependencies]
+wasdk.workspace = true
+wasdk-wgpu.workspace = true
+wgpu.workspace = true
+
+[lints]
+workspace = true
+
+# The id `waos run` runs this program as, with that program's settings and folders.
+[package.metadata.waos]
+id = "dev.waos.examples.occluded"

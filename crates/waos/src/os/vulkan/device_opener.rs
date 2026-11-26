@@ -10,7 +10,7 @@
 //! adapter that cannot have them is wgpu-core's own, and its canvas then fails to configure,
 //! saying why.
 
-use waos_webgpu_host::DeviceOpener;
+use waos_gpu_host::DeviceOpener;
 use wgpu_core::id::{AdapterId, DeviceId, QueueId};
 use wgpu_core::instance::RequestDeviceError;
 use wgpu_hal::api::Vulkan;
@@ -61,7 +61,7 @@ fn open_with_imports(
         RequestDeviceError::Device(wgpu_core::device::DeviceError::Lost),
     )?;
     // SAFETY: the features and limits are the descriptor's, which the adapter has (checked by the
-    // caller and by the WebGPU host); the callback only adds two extensions the adapter offers
+    // caller and by the GPU host); the callback only adds two extensions the adapter offers
     // (`can_import`).
     let opened = unsafe {
         hal.open_with_callback(
@@ -95,19 +95,50 @@ fn can_import(instance: &wgpu_core::global::Global, adapter: AdapterId) -> bool 
             .all(|extension| capabilities.supports_extension(extension))
 }
 
-/// Whether the default adapter on `instance` is a Vulkan adapter capable of importing hardware
-/// buffers.
+/// Whether the adapter programs get (`ProgramsAdapter`) is a Vulkan adapter that imports hardware
+/// buffers and is on the GPU the compositor shows from.
 #[cfg(target_os = "linux")]
-pub(crate) fn adapter_can_import(instance: &crate::gpu::GpuInstance) -> bool {
-    let Ok(adapter) = instance.request_adapter(
-        &wgpu_types::RequestAdapterOptions::default(),
-        wgpu_types::Backends::all(),
-        None,
-    ) else {
+pub(crate) fn programs_adapter_imports(
+    instance: &crate::gpu::GpuInstance,
+    programs_adapter: &crate::gpu::ProgramsAdapter,
+) -> bool {
+    use waos_gpu_host::AdapterChooser as _;
+    let Some(adapter) = programs_adapter.choose(instance, &Default::default()) else {
         return false;
     };
-    let adapter = waos_webgpu_host::GpuObject::new(adapter, instance);
+    let adapter = waos_gpu_host::GpuObject::new(adapter, instance);
     can_import(instance, adapter.id())
+        && programs_adapter.on_the_compositors_gpu(instance, adapter.id())
+}
+
+/// The DRM render node `adapter` is, where it is Vulkan's and offers
+/// `VK_EXT_physical_device_drm`.
+#[cfg(target_os = "linux")]
+pub(crate) fn render_node(
+    instance: &wgpu_core::global::Global,
+    adapter: AdapterId,
+) -> Option<crate::shell::GpuId> {
+    // SAFETY: the adapter is only read, and let go before this returns.
+    let hal = unsafe { instance.adapter_as_hal::<Vulkan>(adapter) }?;
+    if !hal
+        .physical_device_capabilities()
+        .supports_extension(ash::ext::physical_device_drm::NAME)
+    {
+        return None;
+    }
+    let mut drm = ash::vk::PhysicalDeviceDrmPropertiesEXT::default();
+    let mut properties = ash::vk::PhysicalDeviceProperties2::default().push_next(&mut drm);
+    // SAFETY: the adapter's own physical device, on the instance it was enumerated from, which
+    // offers the extension whose properties are chained.
+    unsafe {
+        hal.shared_instance()
+            .raw_instance()
+            .get_physical_device_properties2(hal.raw_physical_device(), &mut properties);
+    }
+    (drm.has_render == ash::vk::TRUE).then(|| crate::shell::GpuId::DrmRenderNode {
+        major: drm.render_major as u32,
+        minor: drm.render_minor as u32,
+    })
 }
 
 /// Whether `device`, a hal device, was opened with the extensions that import a hardware

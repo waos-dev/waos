@@ -72,7 +72,7 @@ use records::{
     ViewErrorDef, ViewFocusEventDef, WindowConfigDef, menu_entries, option_title_bar_action,
     picked_paths, posted,
 };
-pub use view_calls::{TextInputCall, ViewCall, WindowCall};
+pub use view_calls::{SystemBarsCall, TextInputCall, ViewCall, WindowCall};
 
 /// The protocol's number, every message's Mach id, which a receiver reads before the message: a
 /// change to a message adds at the end of it, and anything else raises this, so a window process

@@ -57,14 +57,17 @@ use crate::bindings::wasdk::media::video_frames::{HdrMetadata, PixelAspect, Vide
 use crate::bindings::wasdk::media::video_streams::{CodecKind, EncodedChunk, VideoStreamSetup};
 use crate::bindings::wasdk::platform::clipboard::ClipboardError;
 use crate::bindings::wasdk::platform::file_dialogs::DialogError;
-use crate::bindings::wasdk::platform::hardware_buffers::{ImageError, PixelBuffer};
+use crate::bindings::wasdk::platform::hardware_buffers::{
+    HardwareBufferFormat, ImageError, PixelBuffer,
+};
 use crate::bindings::wasdk::platform::menus::{Image, MenuEntry, TrayIconError};
 use crate::bindings::wasdk::platform::notifications::NotificationError;
 use crate::bindings::wasdk::platform::opener::OpenError;
 use crate::bindings::wasdk::platform::screens::ScreenId;
 use crate::bindings::wasdk::platform::views::{
-    Cursor, Metrics, OverlayStyle, PixelRect, Placement, RequestId, TextEditingValue,
-    TextInputConfiguration, ViewError, ViewFocusDirection, ViewFocusState, ViewId,
+    Cursor, Metrics, OverlayStyle, PixelRect, Placement, RequestId, SystemBarsBehavior,
+    TextEditingValue, TextInputConfiguration, ViewError, ViewFocusDirection, ViewFocusState,
+    ViewId,
 };
 use crate::bindings::wasdk::platform::windows::{Rect, Size, TitleBarAction};
 use crate::cameras::{CameraOutputs, CaptureSessionReports};
@@ -133,9 +136,9 @@ pub struct Shell {
     /// The system's frame readers; none for a shell whose system hands out no frames, and then a
     /// program's `get-video-frame-readers` answers none.
     pub video_frame_readers: Option<Arc<dyn ShellVideoFrameReaders>>,
-    /// The system's video decoders; none for a shell without them, and then a program's
-    /// `get-video-decoders` answers none.
-    pub video_decoders: Option<Arc<dyn ShellVideoDecoders>>,
+    /// The system's GPUs, each with its video decoders; none for a shell without them, and then a
+    /// program's `get-video-decoders` answers none.
+    pub gpus: Option<Arc<dyn ShellGpus>>,
     /// The system's cameras; none for a shell without them, and then a program's `get-cameras`
     /// answers none.
     pub cameras: Option<Arc<dyn ShellCameras>>,
@@ -248,6 +251,9 @@ pub struct PlacedView {
     /// How the platform's input methods edit text in the view; none where it has no text input
     /// for it, and then the program's `view.text-input` answers none.
     pub text_input: Option<Arc<dyn ShellTextInput>>,
+    /// The system's bars over the view; none where the platform draws none over it, as over a
+    /// desktop's window, and then the program's `view.system-bars` answers none.
+    pub system_bars: Option<Arc<dyn ShellSystemBars>>,
     /// The window the view is in; none where the platform shows it without one, and then the
     /// program's `view.window` answers none.
     pub window: Option<PlacedWindow>,
@@ -307,13 +313,22 @@ pub trait ShellView: Send + Sync {
     ///
     /// [`ProgramView::handles_back`]: crate::views::ProgramView::handles_back
     fn set_handles_back(&self, handles: bool);
+}
 
-    /// Styles the system's bars over the view, the status bar and Android's navigation bar, as
-    /// `style` says, a field left out keeping what they have: on Android the window holding the
-    /// view, or whatever shows it, while it does. Called from the program's thread each time the
-    /// program says it; the engine keeps no copy. A shell that draws no such bars over the view
-    /// does nothing.
+/// The shell's side of `views.system-bars`: the system's bars over one view, the status bar and
+/// the navigation bar or the home indicator, on Android over the window holding the view, or
+/// whatever shows it, while it does. Each is called from the program's thread each time the
+/// program says it; the engine keeps no copy.
+pub trait ShellSystemBars: Send + Sync {
+    /// Styles the bars as `style` says, a field left out keeping what they have.
     fn set_overlay_style(&self, style: OverlayStyle);
+
+    /// Hides the bars until [`show`](Self::show), a swipe from a screen's edge acting as
+    /// `behavior` says meanwhile.
+    fn hide(&self, behavior: SystemBarsBehavior);
+
+    /// Shows the bars again, drawn over the view, as a view starts.
+    fn show(&self);
 }
 
 /// The shell's side of `views.compositor`: the system's compositor, as Waft's `Compositor` is.
@@ -322,6 +337,51 @@ pub trait ShellCompositor: Send + Sync {
     /// shown wherever a view presents while holding it (`ShellView::present`), and goes once the
     /// engine and every present showing it have let go of it. Called from the program's thread.
     fn make_layer(&self, opaque: bool) -> Arc<dyn ShellCompositionLayer>;
+
+    /// The buffers its layers show, as Waft's `Compositor::accepted_buffers` answers: read once,
+    /// as the engine starts, to choose the GPU programs draw on and the memory their pictures are
+    /// kept in.
+    fn accepted_buffers(&self) -> AcceptedBuffers;
+}
+
+/// What a shell's compositor shows a layer's pictures from, as Waft's `AcceptedBuffers` says it:
+/// GPU memory it imports, one entry per GPU in its order of preference, the first the GPU it
+/// composites on; and whether it maps shared memory, which the CPU writes.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct AcceptedBuffers {
+    pub gpu_memory: Vec<GpuMemory>,
+    pub shared_memory: bool,
+}
+
+impl AcceptedBuffers {
+    /// The GPU it composites on, where its system names it.
+    pub fn gpu(&self) -> Option<GpuId> {
+        self.gpu_memory.first().and_then(|memory| memory.gpu)
+    }
+}
+
+/// The formats a compositor imports from one GPU's memory: `gpu` none where the system names no
+/// GPU, as Apple's systems and Android do.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GpuMemory {
+    pub gpu: Option<GpuId>,
+    pub formats: Vec<AcceptedFormat>,
+}
+
+/// One format a compositor imports, and on Linux the DRM format modifiers it imports it in.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AcceptedFormat {
+    pub format: HardwareBufferFormat,
+    pub modifiers: Vec<u64>,
+}
+
+/// A GPU as its system names it, as Waft's `GpuId` does: two are the same GPU exactly when equal.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum GpuId {
+    /// Windows: the adapter's locally unique id.
+    Luid { low: u32, high: i32 },
+    /// Linux: the device number of the GPU's DRM render node.
+    DrmRenderNode { major: u32, minor: u32 },
 }
 
 /// One layer a [`ShellCompositor`] made: the shell's own value, which the engine holds while the
@@ -394,7 +454,10 @@ pub trait ShellTextInput: Send + Sync {
 /// The shell's side of `windows.window`, minus its frame, whether it is maximized or full screen
 /// and what a double-click on a title bar does, which the engine keeps from the shell's reports.
 pub trait ShellWindow: Send + Sync {
-    /// Moves and sizes the window, over `animate` where the platform can animate the change.
+    /// Moves and sizes the window, over `animate` where the platform can animate the change. The
+    /// size it ends up with reaches the program as its view's metrics
+    /// ([`ProgramView::metrics_changed`](crate::ProgramView::metrics_changed)), as they are
+    /// where the window keeps its size, as a phone's does.
     fn set_frame(&self, frame: Rect, animate: Option<Duration>);
 
     fn set_title(&self, title: &str);
@@ -1014,8 +1077,17 @@ pub trait ShellVideoFrameReader: Any + Send + Sync {
     fn frame_for(&self, display_time: Instant) -> Option<VideoFrame>;
 }
 
-/// The shell's side of `video-decoders.video-decoders`: the system's video decoders. Called from
+/// The system's GPUs, as Waft's `Platform::gpu` hands them out: what the system makes for each GPU
+/// a program's device is on, so the GPU memory it makes is where the program draws. Called from
 /// the program's thread.
+pub trait ShellGpus: Send + Sync {
+    /// The video decoders of the GPU `gpu` names, the system's default where none, as Waft's
+    /// `SystemGpu::video_decoders` answers; none where it has none.
+    fn video_decoders(&self, gpu: Option<GpuId>) -> Option<Arc<dyn ShellVideoDecoders>>;
+}
+
+/// The shell's side of `video-decoders.video-decoders`: one GPU's video decoders, whose frames are
+/// in its memory. Called from the program's thread.
 pub trait ShellVideoDecoders: Send + Sync {
     /// What the system can tell, without trying, about decoding a stream like `description`.
     fn support(&self, description: VideoStreamDescription) -> VideoDecodeSupportFuture;
@@ -1272,8 +1344,6 @@ pub(crate) mod tests {
         fn set_handles_back(&self, handles: bool) {
             self.handles_back.lock().unwrap().push(handles);
         }
-
-        fn set_overlay_style(&self, _style: OverlayStyle) {}
     }
 
     impl ShellWindow for Headless {

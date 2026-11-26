@@ -5,7 +5,7 @@
 use std::sync::Arc;
 
 use anyhow::{Result, bail};
-use waos_webgpu_host::{Device, GpuObject, TextureAttributes};
+use waos_gpu_host::{Device, GpuObject, TextureDescriptor};
 
 use super::{FORMAT, HardwareBufferMemory};
 use crate::bindings::wasdk::media::video_frames::{
@@ -48,7 +48,7 @@ pub(crate) fn plane_texture(
     index: u32,
     usage: wgpu_types::TextureUsages,
     release: Box<dyn FnOnce() + Send + Sync>,
-) -> Result<(Arc<GpuObject<wgpu_core::id::TextureId>>, TextureAttributes)> {
+) -> Result<(Arc<GpuObject<wgpu_core::id::TextureId>>, TextureDescriptor)> {
     if index != 0 {
         bail!("a hardware buffer of one plane has no plane {index}")
     }

@@ -1,5 +1,5 @@
-//! The shell's side of a view's text input, and of its cursor and focus, as the engine holds them
-//! ([`ViewCalls`]), and of the view's window ([`WindowCalls`]): every call, from whichever thread
+//! The shell's side of a view's text input, of the system's bars over it, and of its cursor and
+//! focus, as the engine holds them ([`ViewCalls`]), and of the view's window ([`WindowCalls`]): every call, from whichever thread
 //! makes it, is handed on as the [`ViewCall`] it is, to the view's queue on its window's main
 //! thread in this process, or to the process its window is in, a window's among its view's in the
 //! order they were made. What comes of a call comes back through the view's link.
@@ -9,10 +9,12 @@ use std::time::Duration;
 
 use futures::channel::mpsc::{self, UnboundedReceiver, UnboundedSender};
 use waos::bindings::wasdk::platform::screens::ScreenId;
-use waos::bindings::wasdk::platform::views::{PixelRect, TextEditingValue, TextInputConfiguration};
+use waos::bindings::wasdk::platform::views::{
+    OverlayStyle, PixelRect, SystemBarsBehavior, TextEditingValue, TextInputConfiguration,
+};
 use waos::bindings::wasdk::platform::windows::{Rect, Size};
-use waos::{ShellTextInput, ShellWindow, ShellWindowSizeLimits};
-use waos_window_messages::{TextInputCall, ViewCall, WindowCall};
+use waos::{ShellSystemBars, ShellTextInput, ShellWindow, ShellWindowSizeLimits};
+use waos_window_messages::{SystemBarsCall, TextInputCall, ViewCall, WindowCall};
 
 /// Where one view's calls go, in the order they were made.
 #[derive(Clone)]
@@ -43,6 +45,24 @@ impl ViewCalls {
 
     fn text_input(&self, call: TextInputCall) {
         self.send(ViewCall::TextInput(call));
+    }
+
+    fn system_bars(&self, call: SystemBarsCall) {
+        self.send(ViewCall::SystemBars(call));
+    }
+}
+
+impl ShellSystemBars for ViewCalls {
+    fn set_overlay_style(&self, style: OverlayStyle) {
+        self.system_bars(SystemBarsCall::SetOverlayStyle(style));
+    }
+
+    fn hide(&self, behavior: SystemBarsBehavior) {
+        self.system_bars(SystemBarsCall::Hide(behavior));
+    }
+
+    fn show(&self) {
+        self.system_bars(SystemBarsCall::Show);
     }
 }
 

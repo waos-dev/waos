@@ -12,9 +12,11 @@
 use std::time::Duration;
 
 use futures::FutureExt;
-use waft::ui::View;
+use waft::ui::{SystemBarsBehavior as WaftSystemBarsBehavior, View};
 use waft_cupertino::CupertinoAlertDialog;
+use waft_test::BarsShown;
 use waos::ProgramEnd;
+use waos::bindings::wasdk::platform::views::SystemBarsBehavior;
 use waos_package::ProgramId;
 use waos_program_window::{ProgramCanvas, ProgramPicture};
 
@@ -206,6 +208,37 @@ fn triangle_offered(phone: &TestPhone) -> Vec<IconAction> {
     let id: ProgramId = TRIANGLE.parse().unwrap();
     let app = phone.shell.app();
     actions_offered(phone.library.read(&app), &id)
+}
+
+/// A program in a tab hides the phone's bars while its tab is in front: they show again on the
+/// home, hide again as the tab comes back, and show once the tab is closed.
+#[test]
+fn a_tab_in_front_hides_the_bars_its_program_hid() {
+    let mut phone = with_triangle_running();
+    let program_view = phone.program_view(TRIANGLE);
+    let bars = program_view
+        .system_bars()
+        .expect("a phone's tab has bars over it");
+    bars.hide(SystemBarsBehavior::ShowTransientBarsBySwipe);
+    phone.settle();
+    assert_eq!(
+        phone.bars_shown(),
+        [BarsShown::Hidden(
+            WaftSystemBarsBehavior::ShowTransientBarsBySwipe
+        )]
+    );
+    phone.show(None);
+    phone.show(Some(TRIANGLE));
+    phone.close(TRIANGLE);
+    assert_eq!(
+        phone.bars_shown(),
+        [
+            BarsShown::Hidden(WaftSystemBarsBehavior::ShowTransientBarsBySwipe),
+            BarsShown::Shown,
+            BarsShown::Hidden(WaftSystemBarsBehavior::ShowTransientBarsBySwipe),
+            BarsShown::Shown,
+        ]
+    );
 }
 
 #[test]

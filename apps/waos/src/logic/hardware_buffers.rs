@@ -108,22 +108,23 @@ pub(crate) fn waft_buffer(buffer: &HardwareBuffer) -> Option<Arc<dyn ui::Hardwar
 }
 
 /// The engine's `buffer` as Waft's: Waft's dmabuf buffer over a duplicate of its fd, for every
-/// use, as linear memory is, made once for the dmabuf, so its `wl_buffer` is made once too.
-/// Returns `None` for offscreen buffers (no dmabuf fd).
+/// use, as linear memory is, or Waft's shared-memory buffer over its memory's, made once for the
+/// buffer, so its `wl_buffer` is made once too.
 #[cfg(target_os = "linux")]
 pub(crate) fn waft_buffer(buffer: &HardwareBuffer) -> Option<Arc<dyn ui::HardwareBuffer>> {
-    let (fd, stride, offset, modifier) = (
-        buffer.fd()?,
-        buffer.stride()?,
-        buffer.offset()?,
-        buffer.modifier()?,
-    );
+    let fd = || buffer.fd().try_clone().expect("duplicating a buffer's fd");
+    let (Some(offset), Some(modifier)) = (buffer.offset(), buffer.modifier()) else {
+        let made = buffer.shells(|| {
+            waft_embedder_winit::ShmBuffer::new(fd(), buffer.size(), buffer.stride())
+                .expect("the engine's shared memory holds its picture")
+        });
+        return made.map(|made| made as Arc<dyn ui::HardwareBuffer>);
+    };
     let made = buffer.shells(|| {
-        let fd = fd.try_clone().expect("duplicating a dmabuf's fd");
         waft_embedder_winit::DmabufBuffer::new(
-            fd,
+            fd(),
             buffer.size(),
-            stride,
+            buffer.stride(),
             offset,
             modifier,
             ui::HardwareBufferUsage::ALL,

@@ -18,9 +18,7 @@ use futures::StreamExt;
 use tokio::sync::{oneshot, watch};
 use waos::bindings::wasdk::platform::system::{Brightness, Locale};
 use waos::inspection::InspectedPrograms;
-use waos::{
-    EngineTime, FreezePolicy, HardwareBufferMode, HttpProxy, PlatformState, WaOS, WaOSConfig,
-};
+use waos::{EngineTime, FreezePolicy, HttpProxy, PlatformState, WaOS, WaOSConfig};
 use waos_headless::{Display, HeadlessShell, Refreshes};
 use waos_local::LocalCapabilities;
 use waos_store::{SourceProxy, Store};
@@ -123,7 +121,7 @@ impl HeadlessDaemon {
         let mut shell = headless.shell(Arc::new(prompts));
         shell.audio_output_picker = Some(Arc::new(output_picker));
         shell.machine_picker = Some(Arc::new(machine_picker));
-        shell.video_decoders = video_decoder_thread::start();
+        shell.gpus = video_decoder_thread::start();
 
         let runs = Arc::new(Runs::default());
         let inspected = Arc::new(ProgramsOnThisComputer::new(
@@ -139,7 +137,6 @@ impl HeadlessDaemon {
             temporary_folders: config.folders.temporary_folders,
             audit: Some(Arc::new(store.clone())),
             inspected_programs: Some(Arc::clone(&inspected) as Arc<dyn InspectedPrograms>),
-            hardware_buffers: HardwareBufferMode::Offscreen,
         };
         let platform = PlatformState {
             screens: vec![headless.screen()],

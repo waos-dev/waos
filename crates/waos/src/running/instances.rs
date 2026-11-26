@@ -33,13 +33,14 @@ use crate::network::HttpProxy;
 use crate::permissions::NothingGranted;
 use crate::screens::Screens;
 use crate::shell::{
-    Prompts, ShellAudioOutputPicker, ShellCameras, ShellCompositor, ShellFileDialogs,
-    ShellImageCodecs, ShellMachinePicker, ShellMediaAssets, ShellMediaPlayers, ShellNotifications,
-    ShellOpener, ShellSystemPermissions, ShellVideoDecoders, ShellVideoFrameReaders, ViewPlacement,
+    Prompts, ShellAudioOutputPicker, ShellCameras, ShellFileDialogs, ShellGpus, ShellImageCodecs,
+    ShellMachinePicker, ShellMediaAssets, ShellMediaPlayers, ShellNotifications, ShellOpener,
+    ShellSystemPermissions, ShellVideoFrameReaders, ViewPlacement,
 };
 use crate::source_lines::ComponentFile;
 use crate::system::SystemSettings;
 use crate::views::ViewLayers;
+use crate::views::host::Compositor;
 
 /// One program's instances: its code, linked once to every interface, and what each instance's
 /// IO side is served from.
@@ -114,7 +115,7 @@ impl ProgramInstances {
             notifications: start.notifications,
             media_players: start.media_players,
             video_frame_readers: start.video_frame_readers,
-            video_decoders: start.video_decoders,
+            gpus: start.gpus,
             cameras: start.cameras,
             simulated_cameras: start.simulated_cameras,
             machine_picker: start.machine_picker,
@@ -207,7 +208,7 @@ fn link(
 pub(crate) struct UserSide {
     /// What places the program's views, and so whether the instance has them.
     pub(super) placement: Option<Arc<dyn ViewPlacement>>,
-    pub(super) compositor: Option<Arc<dyn ShellCompositor>>,
+    pub(super) compositor: Option<Compositor>,
     pub(super) clipboard: PlatformClipboard,
     pub(super) menus: MenuPlaces,
     /// The sound devices its graph plays on and records from.
@@ -220,7 +221,7 @@ pub(crate) struct UserSide {
     pub(super) notifications: Option<Arc<dyn ShellNotifications>>,
     pub(super) media_players: Option<Arc<dyn ShellMediaPlayers>>,
     pub(super) video_frame_readers: Option<Arc<dyn ShellVideoFrameReaders>>,
-    pub(super) video_decoders: Option<Arc<dyn ShellVideoDecoders>>,
+    pub(super) gpus: Option<Arc<dyn ShellGpus>>,
     pub(super) cameras: Option<Arc<dyn ShellCameras>>,
     pub(super) simulated_cameras: Option<Arc<dyn ShellCameras>>,
     pub(super) machine_picker: Option<Arc<dyn ShellMachinePicker>>,
@@ -244,7 +245,7 @@ impl UserSide {
             notifications: None,
             media_players: None,
             video_frame_readers: None,
-            video_decoders: None,
+            gpus: None,
             cameras: None,
             simulated_cameras: None,
             machine_picker: None,

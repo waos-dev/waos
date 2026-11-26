@@ -1,82 +1,56 @@
-//! Textures and their views.
+//! Textures, their views, and external textures, which sample a texture's planes as RGBA.
 
-use wasdk::webgpu::{
-    GpuDevice, GpuTexelCopyTextureInfo, GpuTexture, GpuTextureDescriptor, GpuTextureView,
-    GpuTextureViewDescriptor,
+use wasdk::gpu::{Device, ExternalTexture, TexelCopyTextureInfo, Texture, TextureView};
+use wgpu::custom::{
+    DispatchExternalTexture, DispatchTexture, DispatchTextureView, ExternalTextureInterface,
+    TextureInterface, TextureViewInterface,
 };
-use wgpu::custom::{DispatchTexture, DispatchTextureView, TextureInterface, TextureViewInterface};
 
 use crate::convert;
 
 /// The texture behind a [`wgpu::Texture`] from this backend: `texture.as_custom::<WasdkTexture>()`.
 #[derive(Debug)]
 pub struct WasdkTexture {
-    texture: GpuTexture,
+    texture: Texture,
 }
 
-downcast!(WasdkTexture: api wgpu::Texture);
+downcast!(WasdkTexture: api wgpu::Texture, dispatch DispatchTexture);
 
 impl WasdkTexture {
-    pub(crate) fn new(texture: GpuTexture) -> Self {
+    pub(crate) fn new(texture: Texture) -> Self {
         WasdkTexture { texture }
     }
 
-    /// The wasi texture behind the wgpu one.
-    pub fn gpu_texture(&self) -> &GpuTexture {
+    /// The engine's texture behind the wgpu one.
+    pub fn wit_texture(&self) -> &Texture {
         &self.texture
     }
 }
 
 pub(crate) fn create_texture(
-    device: &GpuDevice,
+    device: &Device,
     desc: &wgpu::TextureDescriptor<'_>,
 ) -> DispatchTexture {
-    let descriptor = GpuTextureDescriptor {
-        size: convert::extent_to_wasi(desc.size),
-        mip_level_count: Some(desc.mip_level_count),
-        sample_count: Some(desc.sample_count),
-        dimension: Some(convert::texture_dimension_to_wasi(desc.dimension)),
-        format: convert::texture_format_to_wasi(desc.format),
-        usage: convert::texture_usages_to_wasi(desc.usage),
-        view_formats: Some(
-            desc.view_formats
-                .iter()
-                .map(|format| convert::texture_format_to_wasi(*format))
-                .collect(),
-        ),
-        texture_binding_view_dimension: None,
-        label: convert::label(desc.label),
-    };
+    let descriptor = convert::texture_descriptor_to_wit(desc);
     DispatchTexture::custom(WasdkTexture::new(device.create_texture(&descriptor)))
 }
 
-pub(crate) fn texel_copy_texture_to_wasi<'a>(
+pub(crate) fn texel_copy_texture_to_wit<'a>(
     info: &wgpu::TexelCopyTextureInfo<'a>,
-) -> GpuTexelCopyTextureInfo<'a> {
-    GpuTexelCopyTextureInfo {
-        texture: WasdkTexture::of(info.texture).gpu_texture(),
-        mip_level: Some(info.mip_level),
-        origin: Some(convert::origin_to_wasi(info.origin)),
-        aspect: Some(convert::texture_aspect_to_wasi(info.aspect)),
+) -> TexelCopyTextureInfo<'a> {
+    TexelCopyTextureInfo {
+        texture: WasdkTexture::of(info.texture).wit_texture(),
+        mip_level: info.mip_level,
+        origin: convert::origin_to_wit(info.origin),
+        aspect: convert::texture_aspect_to_wit(info.aspect),
     }
 }
 
 impl TextureInterface for WasdkTexture {
     fn create_view(&self, desc: &wgpu::TextureViewDescriptor<'_>) -> DispatchTextureView {
-        let descriptor = GpuTextureViewDescriptor {
-            format: desc.format.map(convert::texture_format_to_wasi),
-            dimension: desc.dimension.map(convert::texture_view_dimension_to_wasi),
-            usage: desc.usage.map(convert::texture_usages_to_wasi),
-            aspect: Some(convert::texture_aspect_to_wasi(desc.aspect)),
-            base_mip_level: Some(desc.base_mip_level),
-            mip_level_count: desc.mip_level_count,
-            base_array_layer: Some(desc.base_array_layer),
-            array_layer_count: desc.array_layer_count,
-            swizzle: None,
-            label: convert::label(desc.label),
-        };
+        let descriptor = convert::texture_view_descriptor_to_wit(desc);
         DispatchTextureView::custom(WasdkTextureView {
-            view: self.texture.create_view(Some(&descriptor)),
+            view: self.texture.create_view(&descriptor),
         })
     }
 
@@ -85,17 +59,52 @@ impl TextureInterface for WasdkTexture {
     }
 }
 
+/// The view behind a [`wgpu::TextureView`] from this backend.
 #[derive(Debug)]
 pub struct WasdkTextureView {
-    view: GpuTextureView,
+    view: TextureView,
 }
 
 downcast!(WasdkTextureView: api wgpu::TextureView);
 
 impl WasdkTextureView {
-    pub(crate) fn gpu_texture_view(&self) -> &GpuTextureView {
+    pub(crate) fn wit_texture_view(&self) -> &TextureView {
         &self.view
     }
 }
 
 impl TextureViewInterface for WasdkTextureView {}
+
+pub(crate) fn create_external_texture(
+    device: &Device,
+    desc: &wgpu::ExternalTextureDescriptor<'_>,
+    planes: &[&wgpu::TextureView],
+) -> DispatchExternalTexture {
+    let planes: Vec<&TextureView> = (planes.iter())
+        .map(|plane| WasdkTextureView::of(plane).wit_texture_view())
+        .collect();
+    let descriptor = convert::external_texture_descriptor_to_wit(desc);
+    DispatchExternalTexture::custom(WasdkExternalTexture {
+        texture: device.create_external_texture(&descriptor, &planes),
+    })
+}
+
+/// The external texture behind a [`wgpu::ExternalTexture`] from this backend.
+#[derive(Debug)]
+pub struct WasdkExternalTexture {
+    texture: ExternalTexture,
+}
+
+downcast!(WasdkExternalTexture: api wgpu::ExternalTexture);
+
+impl WasdkExternalTexture {
+    pub(crate) fn wit_external_texture(&self) -> &ExternalTexture {
+        &self.texture
+    }
+}
+
+impl ExternalTextureInterface for WasdkExternalTexture {
+    fn destroy(&self) {
+        self.texture.destroy();
+    }
+}

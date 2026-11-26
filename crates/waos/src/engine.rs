@@ -27,7 +27,7 @@ use crate::caption_settings::CaptionSettings;
 use crate::clipboard::PlatformClipboard;
 use crate::code_cache;
 use crate::engine_time::{EngineClock, EngineTime};
-use crate::gpu::{self, GpuInstance};
+use crate::gpu::{self, GpuInstance, ProgramsAdapter};
 use crate::inspection::InspectedPrograms;
 use crate::lifecycle::FreezePolicy;
 use crate::menus::MenuPlaces;
@@ -36,22 +36,29 @@ use crate::program::Program;
 use crate::running::{HeldProgram, Hold, ProgramStart, Programs, RunningProgram};
 use crate::screens::{Screen, Screens};
 use crate::screenshots::Screenshots;
-use crate::shell::{Shell, ShellClipboardItem};
+use crate::shell::{AcceptedBuffers, GpuId, Shell, ShellClipboardItem};
 use crate::source_lines::ComponentFile;
 use crate::system::SystemSettings;
 use crate::temporary_folders::TemporaryFolders;
 use crate::views::ScreenRefreshes;
+use crate::views::host::Compositor;
 
-/// How hardware buffers are backed on Linux. Ignored on other platforms.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum HardwareBufferMode {
-    /// Use zero-copy dmabufs when a DRM render node and a dmabuf-capable Vulkan adapter are
-    /// available; fall back to offscreen textures otherwise.
-    #[default]
-    Auto,
-    /// Use offscreen GPU textures with staging-buffer readback on Linux without opening a DRM
-    /// render node or requiring dmabuf Vulkan extensions.
-    Offscreen,
+/// What programs' pictures are kept in on Linux, chosen once as the engine starts from what the
+/// shell's compositor shows (`os::buffer_kind`). Every other system has GPU memory alone.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum BufferKind {
+    /// GPU memory the compositor imports, which a program draws into: no copy. On the GPU the
+    /// compositor shows from, where it names one, as memory shared by handle opens only there; a
+    /// buffer a program allocates is on its device's GPU instead (`hardware_buffers::host`).
+    GpuMemory(Option<GpuId>),
+    /// Memory the CPU reads: a program draws on its device, and each frame is read back into it.
+    /// Where the compositor imports nothing the engine's GPU makes, and where there is no
+    /// compositor, as in a headless WaOS, whose pictures only screenshots read.
+    #[cfg_attr(
+        all(not(target_os = "linux"), not(test)),
+        expect(dead_code, reason = "Linux's alone")
+    )]
+    SharedMemory,
 }
 
 /// How the engine is set up.
@@ -87,9 +94,6 @@ pub struct WaOSConfig {
     /// The programs a program holding the inspector role sees: the store's and the runs', for
     /// the WaOS app; none for an engine given none, whose inspectors see no device.
     pub inspected_programs: Option<Arc<dyn InspectedPrograms>>,
-    /// How hardware buffers are backed on Linux: automatic (dmabuf with offscreen fallback) or
-    /// offscreen. Decided once at engine startup.
-    pub hardware_buffers: HardwareBufferMode,
 }
 
 /// What the platform reports about the machine when the engine starts; the setters keep it
@@ -111,8 +115,12 @@ pub struct PlatformState {
 pub struct WaOS {
     engine: Arc<Engine>,
     gpu: GpuInstance,
-    /// The resolved hardware buffer backing mode for this engine.
-    hardware_buffers: HardwareBufferMode,
+    /// What programs' pictures are kept in.
+    hardware_buffers: BufferKind,
+    /// The adapter programs draw on.
+    programs_adapter: ProgramsAdapter,
+    /// The system's compositor as programs reach it, where the shell has one.
+    compositor: Option<Compositor>,
     /// What draws the screenshots of every program's views, on the same instance.
     screenshots: Arc<Screenshots>,
     shell: Shell,
@@ -148,7 +156,23 @@ impl WaOS {
         let programs = Programs::default();
         let clock = config.time.start(&engine, &programs)?;
         let gpu = gpu::instance();
-        let hardware_buffers = crate::os::resolve_buffer_mode(&gpu, config.hardware_buffers);
+        let accepted = shell
+            .compositor
+            .as_ref()
+            .map(|compositor| compositor.accepted_buffers());
+        tracing::info!(?accepted, "what the shell's compositor shows");
+        let programs_adapter =
+            ProgramsAdapter::new(accepted.as_ref().and_then(AcceptedBuffers::gpu));
+        let hardware_buffers = crate::os::buffer_kind(&gpu, accepted.as_ref(), &programs_adapter);
+        tracing::info!(?hardware_buffers, "what programs' pictures are kept in");
+        let compositor = shell
+            .compositor
+            .clone()
+            .zip(accepted)
+            .map(|(shell, accepted)| {
+                let formats = crate::hardware_buffers::shown_formats(&accepted, hardware_buffers);
+                Compositor::new(shell, formats)
+            });
         let screens = Screens::new(platform.screens);
         let days = config
             .audit
@@ -160,6 +184,8 @@ impl WaOS {
             screenshots: Arc::new(Screenshots::new(Arc::clone(&gpu), hardware_buffers)),
             gpu,
             hardware_buffers,
+            compositor,
+            programs_adapter,
             refreshes: ScreenRefreshes::new(
                 Arc::clone(&shell.vsync),
                 screens.clone(),
@@ -315,12 +341,13 @@ impl WaOS {
             engine: Engine::clone(&self.engine),
             gpu: Arc::clone(&self.gpu),
             hardware_buffers: self.hardware_buffers,
+            programs_adapter: self.programs_adapter,
             screenshots: Arc::clone(&self.screenshots),
             component: program.component().clone(),
             name: program.name().to_owned(),
             file: program.file().clone(),
             placement: Arc::clone(&self.shell.views),
-            compositor: self.shell.compositor.clone(),
+            compositor: self.compositor.clone(),
             prompts: Arc::clone(&self.shell.prompts),
             system_permissions: self.shell.system_permissions.clone(),
             screens: self.screens.clone(),
@@ -338,7 +365,7 @@ impl WaOS {
             media_assets: self.shell.media_assets.clone(),
             image_codecs: self.shell.image_codecs.clone(),
             video_frame_readers: self.shell.video_frame_readers.clone(),
-            video_decoders: self.shell.video_decoders.clone(),
+            gpus: self.shell.gpus.clone(),
             cameras: self.shell.cameras.clone(),
             simulated_cameras: self.shell.simulated_cameras.clone(),
             machine_picker: self.shell.machine_picker.clone(),
@@ -468,8 +495,7 @@ mod tests {
     use super::*;
     use crate::bindings::wasdk::platform::screens::ScreenId;
     use crate::bindings::wasdk::platform::views::{
-        Cursor, Insets, Metrics, OverlayStyle, Placement, ViewError, ViewFocusDirection,
-        ViewFocusState,
+        Cursor, Insets, Metrics, Placement, ViewError, ViewFocusDirection, ViewFocusState,
     };
     use crate::lifecycle::Presence;
     use crate::running::ProgramEnd;
@@ -529,8 +555,6 @@ mod tests {
         fn request_focus_change(&self, _state: ViewFocusState, _direction: ViewFocusDirection) {}
 
         fn set_handles_back(&self, _handles: bool) {}
-
-        fn set_overlay_style(&self, _style: OverlayStyle) {}
     }
 
     impl VsyncWaiter for Refreshing {
@@ -569,7 +593,6 @@ mod tests {
             temporary_folders: std::env::temp_dir().join("waos-tests"),
             audit: None,
             inspected_programs: None,
-            hardware_buffers: HardwareBufferMode::Auto,
         };
         let platform = PlatformState {
             screens: Vec::new(),
@@ -597,7 +620,7 @@ mod tests {
             media_assets: None,
             image_codecs: None,
             video_frame_readers: None,
-            video_decoders: None,
+            gpus: None,
             cameras: None,
             simulated_cameras: None,
             machine_picker: None,
@@ -616,6 +639,7 @@ mod tests {
         PlacedView {
             view: Arc::clone(shell) as Arc<dyn ShellView>,
             text_input: None,
+            system_bars: None,
             window: None,
             metrics: Metrics {
                 width: 1600,

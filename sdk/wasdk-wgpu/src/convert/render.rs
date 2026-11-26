@@ -1,241 +1,234 @@
-//! Render state: primitive, depth-stencil, blend, multisample, vertex layouts and load/store ops.
+//! Render state: primitives, depth and stencil, blending, multisampling, vertex layouts,
+//! attachments' load and store operations, and queries.
 
-use wasdk::webgpu::{
-    GpuBlendComponent, GpuBlendFactor, GpuBlendOperation, GpuBlendState, GpuColorTargetState,
-    GpuCompareFunction, GpuCullMode, GpuDepthStencilState, GpuFrontFace, GpuLoadOp,
-    GpuMultisampleState, GpuPrimitiveState, GpuPrimitiveTopology, GpuStencilFaceState,
-    GpuStencilOperation, GpuStoreOp, GpuVertexAttribute, GpuVertexBufferLayout, GpuVertexStepMode,
-};
-use wgpu::{
-    BlendComponent, BlendFactor, BlendOperation, BlendState, ColorTargetState, CompareFunction,
-    DepthStencilState, Face, Features, FrontFace, LoadOp, MultisampleState, Operations,
-    PolygonMode, PrimitiveState, PrimitiveTopology, StencilFaceState, StencilOperation, StoreOp,
-    VertexAttribute, VertexBufferLayout, VertexStepMode,
-};
+use wasdk::gpu_types as wit;
 
 use super::{
-    color_writes_to_wasi, index_format_to_wasi, texture_format_to_wasi, vertex_format_to_wasi,
+    color_to_wit, color_writes_to_wit, enum_conversions, flag_conversions, index_format_to_wit,
+    texture_format_to_wit, vertex_format_to_wit,
 };
-use crate::gap::feature_gap;
 
-pub fn compare_function_to_wasi(function: CompareFunction) -> GpuCompareFunction {
-    match function {
-        CompareFunction::Never => GpuCompareFunction::Never,
-        CompareFunction::Less => GpuCompareFunction::Less,
-        CompareFunction::Equal => GpuCompareFunction::Equal,
-        CompareFunction::LessEqual => GpuCompareFunction::LessEqual,
-        CompareFunction::Greater => GpuCompareFunction::Greater,
-        CompareFunction::NotEqual => GpuCompareFunction::NotEqual,
-        CompareFunction::GreaterEqual => GpuCompareFunction::GreaterEqual,
-        CompareFunction::Always => GpuCompareFunction::Always,
+enum_conversions! {
+    compare_function_to_wit, compare_function_from_wit: CompareFunction <=> CompareFunction {
+        Never, Less, Equal, LessEqual, Greater, NotEqual, GreaterEqual, Always,
     }
 }
 
-pub fn stencil_operation_to_wasi(operation: StencilOperation) -> GpuStencilOperation {
-    match operation {
-        StencilOperation::Keep => GpuStencilOperation::Keep,
-        StencilOperation::Zero => GpuStencilOperation::Zero,
-        StencilOperation::Replace => GpuStencilOperation::Replace,
-        StencilOperation::Invert => GpuStencilOperation::Invert,
-        StencilOperation::IncrementClamp => GpuStencilOperation::IncrementClamp,
-        StencilOperation::DecrementClamp => GpuStencilOperation::DecrementClamp,
-        StencilOperation::IncrementWrap => GpuStencilOperation::IncrementWrap,
-        StencilOperation::DecrementWrap => GpuStencilOperation::DecrementWrap,
+enum_conversions! {
+    stencil_operation_to_wit, stencil_operation_from_wit: StencilOperation <=> StencilOperation {
+        Keep, Zero, Replace, Invert, IncrementClamp, DecrementClamp, IncrementWrap, DecrementWrap,
     }
 }
 
-pub fn stencil_face_to_wasi(face: &StencilFaceState) -> GpuStencilFaceState {
-    GpuStencilFaceState {
-        compare: Some(compare_function_to_wasi(face.compare)),
-        fail_op: Some(stencil_operation_to_wasi(face.fail_op)),
-        depth_fail_op: Some(stencil_operation_to_wasi(face.depth_fail_op)),
-        pass_op: Some(stencil_operation_to_wasi(face.pass_op)),
+enum_conversions! {
+    blend_factor_to_wit, blend_factor_from_wit: BlendFactor <=> BlendFactor {
+        Zero, One, Src, OneMinusSrc, SrcAlpha, OneMinusSrcAlpha, Dst, OneMinusDst, DstAlpha,
+        OneMinusDstAlpha, SrcAlphaSaturated, Constant, OneMinusConstant, Src1, OneMinusSrc1,
+        Src1Alpha, OneMinusSrc1Alpha,
     }
 }
 
-pub fn depth_stencil_state_to_wasi(state: &DepthStencilState) -> GpuDepthStencilState {
-    GpuDepthStencilState {
-        format: texture_format_to_wasi(state.format),
+enum_conversions! {
+    blend_operation_to_wit, blend_operation_from_wit: BlendOperation <=> BlendOperation {
+        Add, Subtract, ReverseSubtract, Min, Max,
+    }
+}
+
+enum_conversions! {
+    primitive_topology_to_wit, primitive_topology_from_wit: PrimitiveTopology <=> PrimitiveTopology {
+        PointList, LineList, LineStrip, TriangleList, TriangleStrip,
+    }
+}
+
+enum_conversions! {
+    front_face_to_wit, front_face_from_wit: FrontFace <=> FrontFace {
+        Ccw, Cw,
+    }
+}
+
+enum_conversions! {
+    face_to_wit, face_from_wit: Face <=> Face {
+        Front, Back,
+    }
+}
+
+enum_conversions! {
+    polygon_mode_to_wit, polygon_mode_from_wit: PolygonMode <=> PolygonMode {
+        Fill, Line, Point,
+    }
+}
+
+enum_conversions! {
+    vertex_step_mode_to_wit, vertex_step_mode_from_wit: VertexStepMode <=> VertexStepMode {
+        Vertex, Instance,
+    }
+}
+
+enum_conversions! {
+    store_op_to_wit, store_op_from_wit: StoreOp <=> StoreOp {
+        Store, Discard,
+    }
+}
+
+flag_conversions! {
+    pipeline_statistics_types_to_wit, pipeline_statistics_types_from_wit:
+        PipelineStatisticsTypes <=> PipelineStatisticsTypes {
+        VERTEX_SHADER_INVOCATIONS, CLIPPER_INVOCATIONS, CLIPPER_PRIMITIVES_OUT,
+        FRAGMENT_SHADER_INVOCATIONS, COMPUTE_SHADER_INVOCATIONS,
+    }
+}
+
+pub fn query_type_to_wit(ty: wgpu::QueryType) -> wit::QueryType {
+    match ty {
+        wgpu::QueryType::Occlusion => wit::QueryType::Occlusion,
+        wgpu::QueryType::Timestamp => wit::QueryType::Timestamp,
+        wgpu::QueryType::PipelineStatistics(types) => {
+            wit::QueryType::PipelineStatistics(pipeline_statistics_types_to_wit(types))
+        }
+    }
+}
+
+pub fn primitive_state_to_wit(state: &wgpu::PrimitiveState) -> wit::PrimitiveState {
+    wit::PrimitiveState {
+        topology: primitive_topology_to_wit(state.topology),
+        strip_index_format: state.strip_index_format.map(index_format_to_wit),
+        front_face: front_face_to_wit(state.front_face),
+        cull_mode: state.cull_mode.map(face_to_wit),
+        unclipped_depth: state.unclipped_depth,
+        polygon_mode: polygon_mode_to_wit(state.polygon_mode),
+        conservative: state.conservative,
+    }
+}
+
+fn stencil_face_to_wit(face: &wgpu::StencilFaceState) -> wit::StencilFaceState {
+    wit::StencilFaceState {
+        compare: compare_function_to_wit(face.compare),
+        fail_op: stencil_operation_to_wit(face.fail_op),
+        depth_fail_op: stencil_operation_to_wit(face.depth_fail_op),
+        pass_op: stencil_operation_to_wit(face.pass_op),
+    }
+}
+
+pub fn depth_stencil_state_to_wit(state: &wgpu::DepthStencilState) -> wit::DepthStencilState {
+    wit::DepthStencilState {
+        format: texture_format_to_wit(state.format),
         depth_write_enabled: state.depth_write_enabled,
-        depth_compare: state.depth_compare.map(compare_function_to_wasi),
-        stencil_front: Some(stencil_face_to_wasi(&state.stencil.front)),
-        stencil_back: Some(stencil_face_to_wasi(&state.stencil.back)),
-        stencil_read_mask: Some(state.stencil.read_mask),
-        stencil_write_mask: Some(state.stencil.write_mask),
-        depth_bias: Some(state.bias.constant),
-        depth_bias_slope_scale: Some(state.bias.slope_scale),
-        depth_bias_clamp: Some(state.bias.clamp),
+        depth_compare: state.depth_compare.map(compare_function_to_wit),
+        stencil: wit::StencilState {
+            front: stencil_face_to_wit(&state.stencil.front),
+            back: stencil_face_to_wit(&state.stencil.back),
+            read_mask: state.stencil.read_mask,
+            write_mask: state.stencil.write_mask,
+        },
+        bias: wit::DepthBiasState {
+            constant: state.bias.constant,
+            slope_scale: state.bias.slope_scale,
+            clamp: state.bias.clamp,
+        },
     }
 }
 
-pub fn blend_factor_to_wasi(factor: BlendFactor) -> GpuBlendFactor {
-    match factor {
-        BlendFactor::Zero => GpuBlendFactor::Zero,
-        BlendFactor::One => GpuBlendFactor::One,
-        BlendFactor::Src => GpuBlendFactor::Src,
-        BlendFactor::OneMinusSrc => GpuBlendFactor::OneMinusSrc,
-        BlendFactor::SrcAlpha => GpuBlendFactor::SrcAlpha,
-        BlendFactor::OneMinusSrcAlpha => GpuBlendFactor::OneMinusSrcAlpha,
-        BlendFactor::Dst => GpuBlendFactor::Dst,
-        BlendFactor::OneMinusDst => GpuBlendFactor::OneMinusDst,
-        BlendFactor::DstAlpha => GpuBlendFactor::DstAlpha,
-        BlendFactor::OneMinusDstAlpha => GpuBlendFactor::OneMinusDstAlpha,
-        BlendFactor::SrcAlphaSaturated => GpuBlendFactor::SrcAlphaSaturated,
-        BlendFactor::Constant => GpuBlendFactor::Constant,
-        BlendFactor::OneMinusConstant => GpuBlendFactor::OneMinusConstant,
-        BlendFactor::Src1 => GpuBlendFactor::Src1,
-        BlendFactor::OneMinusSrc1 => GpuBlendFactor::OneMinusSrc1,
-        BlendFactor::Src1Alpha => GpuBlendFactor::Src1Alpha,
-        BlendFactor::OneMinusSrc1Alpha => GpuBlendFactor::OneMinusSrc1Alpha,
+pub fn multisample_state_to_wit(state: &wgpu::MultisampleState) -> wit::MultisampleState {
+    wit::MultisampleState {
+        count: state.count,
+        mask: state.mask,
+        alpha_to_coverage_enabled: state.alpha_to_coverage_enabled,
     }
 }
 
-pub fn blend_operation_to_wasi(operation: BlendOperation) -> GpuBlendOperation {
-    match operation {
-        BlendOperation::Add => GpuBlendOperation::Add,
-        BlendOperation::Subtract => GpuBlendOperation::Subtract,
-        BlendOperation::ReverseSubtract => GpuBlendOperation::ReverseSubtract,
-        BlendOperation::Min => GpuBlendOperation::Min,
-        BlendOperation::Max => GpuBlendOperation::Max,
+fn blend_component_to_wit(component: &wgpu::BlendComponent) -> wit::BlendComponent {
+    wit::BlendComponent {
+        src_factor: blend_factor_to_wit(component.src_factor),
+        dst_factor: blend_factor_to_wit(component.dst_factor),
+        operation: blend_operation_to_wit(component.operation),
     }
 }
 
-pub fn blend_component_to_wasi(component: &BlendComponent) -> GpuBlendComponent {
-    GpuBlendComponent {
-        operation: Some(blend_operation_to_wasi(component.operation)),
-        src_factor: Some(blend_factor_to_wasi(component.src_factor)),
-        dst_factor: Some(blend_factor_to_wasi(component.dst_factor)),
+pub fn color_target_to_wit(target: &wgpu::ColorTargetState) -> wit::ColorTargetState {
+    wit::ColorTargetState {
+        format: texture_format_to_wit(target.format),
+        blend: target.blend.as_ref().map(|blend| wit::BlendState {
+            color: blend_component_to_wit(&blend.color),
+            alpha: blend_component_to_wit(&blend.alpha),
+        }),
+        write_mask: color_writes_to_wit(target.write_mask),
     }
 }
 
-pub fn blend_state_to_wasi(state: &BlendState) -> GpuBlendState {
-    GpuBlendState {
-        color: blend_component_to_wasi(&state.color),
-        alpha: blend_component_to_wasi(&state.alpha),
-    }
-}
-
-pub fn color_target_to_wasi(target: &ColorTargetState) -> GpuColorTargetState {
-    GpuColorTargetState {
-        format: texture_format_to_wasi(target.format),
-        blend: target.blend.as_ref().map(blend_state_to_wasi),
-        write_mask: Some(color_writes_to_wasi(target.write_mask)),
-    }
-}
-
-pub fn primitive_topology_to_wasi(topology: PrimitiveTopology) -> GpuPrimitiveTopology {
-    match topology {
-        PrimitiveTopology::PointList => GpuPrimitiveTopology::PointList,
-        PrimitiveTopology::LineList => GpuPrimitiveTopology::LineList,
-        PrimitiveTopology::LineStrip => GpuPrimitiveTopology::LineStrip,
-        PrimitiveTopology::TriangleList => GpuPrimitiveTopology::TriangleList,
-        PrimitiveTopology::TriangleStrip => GpuPrimitiveTopology::TriangleStrip,
-    }
-}
-
-pub fn front_face_to_wasi(front_face: FrontFace) -> GpuFrontFace {
-    match front_face {
-        FrontFace::Ccw => GpuFrontFace::Ccw,
-        FrontFace::Cw => GpuFrontFace::Cw,
-    }
-}
-
-pub fn cull_mode_to_wasi(cull_mode: Option<Face>) -> GpuCullMode {
-    match cull_mode {
-        None => GpuCullMode::None,
-        Some(Face::Front) => GpuCullMode::Front,
-        Some(Face::Back) => GpuCullMode::Back,
-    }
-}
-
-pub fn primitive_state_to_wasi(state: &PrimitiveState) -> GpuPrimitiveState {
-    match state.polygon_mode {
-        PolygonMode::Fill => {}
-        PolygonMode::Line => feature_gap(Features::POLYGON_MODE_LINE, "PolygonMode::Line"),
-        PolygonMode::Point => feature_gap(Features::POLYGON_MODE_POINT, "PolygonMode::Point"),
-    }
-    if state.conservative {
-        feature_gap(
-            Features::CONSERVATIVE_RASTERIZATION,
-            "PrimitiveState::conservative",
-        );
-    }
-    GpuPrimitiveState {
-        topology: Some(primitive_topology_to_wasi(state.topology)),
-        strip_index_format: state.strip_index_format.map(index_format_to_wasi),
-        front_face: Some(front_face_to_wasi(state.front_face)),
-        cull_mode: Some(cull_mode_to_wasi(state.cull_mode)),
-        unclipped_depth: Some(state.unclipped_depth),
-    }
-}
-
-pub fn multisample_state_to_wasi(state: &MultisampleState) -> GpuMultisampleState {
-    GpuMultisampleState {
-        count: Some(state.count),
-        mask: Some(sample_mask_to_wasi(state.mask)),
-        alpha_to_coverage_enabled: Some(state.alpha_to_coverage_enabled),
-    }
-}
-
-/// WebGPU's sample mask is 32 bits wide, and no sample count reaches 32: the bits wgpu's
-/// 64-bit mask has above them select no sample and are dropped.
-fn sample_mask_to_wasi(mask: u64) -> u32 {
-    mask as u32
-}
-
-pub fn vertex_step_mode_to_wasi(mode: VertexStepMode) -> GpuVertexStepMode {
-    match mode {
-        VertexStepMode::Vertex => GpuVertexStepMode::Vertex,
-        VertexStepMode::Instance => GpuVertexStepMode::Instance,
-    }
-}
-
-pub fn vertex_attribute_to_wasi(attribute: &VertexAttribute) -> GpuVertexAttribute {
-    GpuVertexAttribute {
-        format: vertex_format_to_wasi(attribute.format),
-        offset: attribute.offset,
-        shader_location: attribute.shader_location,
-    }
-}
-
-pub fn vertex_buffer_layout_to_wasi(layout: &VertexBufferLayout<'_>) -> GpuVertexBufferLayout {
-    GpuVertexBufferLayout {
+pub fn vertex_buffer_layout_to_wit(
+    layout: &wgpu::VertexBufferLayout<'_>,
+) -> wit::VertexBufferLayout {
+    wit::VertexBufferLayout {
         array_stride: layout.array_stride,
-        step_mode: Some(vertex_step_mode_to_wasi(layout.step_mode)),
+        step_mode: vertex_step_mode_to_wit(layout.step_mode),
         attributes: layout
             .attributes
             .iter()
-            .map(vertex_attribute_to_wasi)
+            .map(|attribute| wit::VertexAttribute {
+                format: vertex_format_to_wit(attribute.format),
+                offset: attribute.offset,
+                shader_location: attribute.shader_location,
+            })
             .collect(),
     }
 }
 
-pub fn store_op_to_wasi(op: StoreOp) -> GpuStoreOp {
-    match op {
-        StoreOp::Store => GpuStoreOp::Store,
-        StoreOp::Discard => GpuStoreOp::Discard,
+pub fn pipeline_compilation_options_to_wit(
+    options: &wgpu::PipelineCompilationOptions<'_>,
+) -> wit::PipelineCompilationOptions {
+    wit::PipelineCompilationOptions {
+        constants: (options.constants.iter())
+            .map(|&(name, value)| (name.to_owned(), value))
+            .collect(),
     }
 }
 
-/// An attachment's operations as WebGPU states them: a load op plus the value a clear uses.
-#[derive(Debug, Clone, Copy)]
-pub struct AttachmentOps<V> {
-    pub load: GpuLoadOp,
-    pub clear_value: Option<V>,
-    pub store: GpuStoreOp,
+/// `LoadOp::DontCare`, which the WIT leaves out because an undefined attachment could hold another
+/// program's pixels, clears instead, as wgpu's backend for the web does: a clear is one of the
+/// contents "undefined" allows. So do the depth and stencil operations.
+pub fn color_operations_to_wit(ops: &wgpu::Operations<wgpu::Color>) -> wit::ColorOperations {
+    wit::ColorOperations {
+        load: match ops.load {
+            wgpu::LoadOp::Clear(color) => wit::ColorLoadOp::Clear(color_to_wit(color)),
+            wgpu::LoadOp::Load => wit::ColorLoadOp::Load,
+            wgpu::LoadOp::DontCare(_) => wit::ColorLoadOp::Clear(color_to_wit(wgpu::Color::BLACK)),
+        },
+        store: store_op_to_wit(ops.store),
+    }
 }
 
-/// `LoadOp::DontCare` leaves the contents undefined, which WebGPU cannot say; it clears to
-/// `undefined_value`, as wgpu's web backend does.
-pub fn operations_to_wasi<V: Clone>(ops: &Operations<V>, undefined_value: V) -> AttachmentOps<V> {
-    let (load, clear_value) = match &ops.load {
-        LoadOp::Clear(value) => (GpuLoadOp::Clear, Some(value.clone())),
-        LoadOp::Load => (GpuLoadOp::Load, None),
-        LoadOp::DontCare(_) => (GpuLoadOp::Clear, Some(undefined_value)),
-    };
-    AttachmentOps {
-        load,
-        clear_value,
-        store: store_op_to_wasi(ops.store),
+pub fn depth_operations_to_wit(ops: &wgpu::Operations<f32>) -> wit::DepthOperations {
+    wit::DepthOperations {
+        load: match ops.load {
+            wgpu::LoadOp::Clear(depth) => wit::DepthLoadOp::Clear(depth),
+            wgpu::LoadOp::Load => wit::DepthLoadOp::Load,
+            wgpu::LoadOp::DontCare(_) => wit::DepthLoadOp::Clear(1.0),
+        },
+        store: store_op_to_wit(ops.store),
+    }
+}
+
+pub fn stencil_operations_to_wit(ops: &wgpu::Operations<u32>) -> wit::StencilOperations {
+    wit::StencilOperations {
+        load: match ops.load {
+            wgpu::LoadOp::Clear(stencil) => wit::StencilLoadOp::Clear(stencil),
+            wgpu::LoadOp::Load => wit::StencilLoadOp::Load,
+            wgpu::LoadOp::DontCare(_) => wit::StencilLoadOp::Clear(0),
+        },
+        store: store_op_to_wit(ops.store),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_wide_sample_mask_is_carried_whole() {
+        let state = wgpu::MultisampleState {
+            mask: u64::MAX,
+            ..Default::default()
+        };
+        assert_eq!(multisample_state_to_wit(&state).mask, u64::MAX);
     }
 }

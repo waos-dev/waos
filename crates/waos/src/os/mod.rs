@@ -81,12 +81,23 @@ impl HandOver {
     }
 }
 
-/// Resolves the hardware buffer mode once at engine startup. On non-Linux systems this returns
-/// `requested` unchanged.
+/// What programs' pictures are kept in: GPU memory on every system but Linux, whose compositor
+/// shows the system's own buffers whatever it says it imports.
 #[cfg(not(target_os = "linux"))]
-pub(crate) fn resolve_buffer_mode(
+pub(crate) fn buffer_kind(
     _gpu: &crate::gpu::GpuInstance,
-    requested: crate::HardwareBufferMode,
-) -> crate::HardwareBufferMode {
-    requested
+    accepted: Option<&crate::shell::AcceptedBuffers>,
+    _programs_adapter: &crate::gpu::ProgramsAdapter,
+) -> crate::BufferKind {
+    crate::BufferKind::GpuMemory(accepted.and_then(crate::shell::AcceptedBuffers::gpu))
+}
+
+/// The GPU `adapter` is, as the system names it to its compositor: none on a system that names
+/// none, as Apple's and Android do.
+#[cfg(not(any(target_os = "linux", windows)))]
+pub(crate) fn adapter_gpu(
+    _instance: &crate::gpu::wgpu_core::global::Global,
+    _adapter: crate::gpu::wgpu_core::id::AdapterId,
+) -> Option<crate::shell::GpuId> {
+    None
 }

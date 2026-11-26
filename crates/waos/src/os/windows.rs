@@ -1,4 +1,4 @@
-//! A D3D12 texture a program's WebGPU device draws into and the shell shows, shared by an NT
+//! A D3D12 texture a program's GPU device draws into and the shell shows, shared by an NT
 //! handle, and the texture over it on the program's wgpu-core device. Unlike `IOSurfaceCreate` and
 //! `AHardwareBuffer_allocate`, D3D12 makes a shared texture only on a device, so the engine keeps
 //! a device of its own for it, on the adapter a program gets (`shared_texture`); every device on
@@ -27,14 +27,11 @@ use std::os::windows::io::{AsRawHandle as _, OwnedHandle};
 use std::sync::{Arc, LazyLock, Mutex, OnceLock};
 
 use anyhow::{Context as _, Result, anyhow};
-use waos_webgpu_host::wasi::webgpu::webgpu::{
-    GpuTextureDimension, GpuTextureFormat, GpuTextureUsage,
-};
-use waos_webgpu_host::{Device, GpuObject, TextureAttributes};
+use waos_gpu_host::{Device, GpuObject, TextureDescriptor};
 
-use crate::HardwareBufferMode;
+use crate::BufferKind;
 use crate::bindings::wasdk::platform::hardware_buffers::{
-    HardwareBufferUsage, ImageError, ImageErrorKind, PixelBuffer, PixelFormat,
+    HardwareBufferFormat, HardwareBufferUsage, ImageError, ImageErrorKind, PixelBuffer,
 };
 use crate::gpu::{GpuInstance, wgpu_core, wgpu_types};
 use crate::hardware_buffers::Released;
@@ -58,6 +55,22 @@ pub(crate) const LARGEST_SIDE: u32 = 16384;
 /// Whether a texture over a hardware buffer is handed to the compositor and back: on Windows it
 /// is moved to the common state another device's use starts from.
 pub(crate) const HANDS_TEXTURES_OVER: bool = true;
+
+/// The LUID of `adapter`'s DXGI adapter, where it is D3D12's.
+pub(crate) fn adapter_gpu(
+    instance: &wgpu_core::global::Global,
+    adapter: wgpu_core::id::AdapterId,
+) -> Option<crate::shell::GpuId> {
+    // SAFETY: the adapter is only asked for its description, and let go before this returns.
+    let luid = unsafe {
+        let hal = instance.adapter_as_hal::<wgpu_hal::api::Dx12>(adapter)?;
+        hal.raw_adapter().GetDesc1().ok()?.AdapterLuid
+    };
+    Some(crate::shell::GpuId::Luid {
+        low: luid.LowPart,
+        high: luid.HighPart,
+    })
+}
 
 /// GPU memory the system's compositor can show, as the shell hands it and is handed it: a D3D12
 /// texture's NT handle, B8G8R8A8, which Waft's Windows host opens. Cloning it is a hold more on
@@ -131,35 +144,49 @@ impl HardwareBufferMemory {
         width: u32,
         height: u32,
         usage: HardwareBufferUsage,
-        mode: HardwareBufferMode,
+        mode: BufferKind,
     ) -> Result<HardwareBufferMemory> {
-        let _ = (usage, mode);
-        let handle = shared_texture::make([width, height])?;
+        let _ = usage;
+        let gpu = match mode {
+            BufferKind::GpuMemory(gpu) => gpu,
+            BufferKind::SharedMemory => None,
+        };
+        let handle = shared_texture::make([width, height], gpu)?;
         Ok(HardwareBufferMemory {
             buffer: HardwareBuffer::new(handle, [width, height]),
         })
     }
 
+    /// Why a buffer in `format` for `usage` is not made here; none where it is: Windows makes
+    /// shared textures in BGRA, which the CPU does not read.
+    pub(crate) fn unsupported(
+        format: HardwareBufferFormat,
+        usage: HardwareBufferUsage,
+    ) -> Option<&'static str> {
+        if format != HardwareBufferFormat::Bgra8 {
+            Some("Windows makes hardware buffers in BGRA")
+        } else if usage.contains(HardwareBufferUsage::CPU_READ) {
+            Some("a hardware buffer on Windows is not read by the CPU")
+        } else {
+            None
+        }
+    }
+
     /// A program's buffer of `width` by `height` pixels in `format`, for `usage`, sides the
-    /// program checked: `unsupported` for RGBA, which Windows' buffers are not made in, and for a
-    /// buffer the CPU reads, which a shared texture is not; `out-of-memory` where none is made.
+    /// program checked: `unsupported` for any format but BGRA, which Windows' buffers are made in,
+    /// and for a buffer the CPU reads, which a shared texture is not; `out-of-memory` where none
+    /// is made.
     pub(crate) fn allocate(
         width: u32,
         height: u32,
-        format: PixelFormat,
+        format: HardwareBufferFormat,
         usage: HardwareBufferUsage,
-        mode: HardwareBufferMode,
+        mode: BufferKind,
     ) -> Result<HardwareBufferMemory, ImageError> {
-        if format != PixelFormat::Bgra8 {
+        if let Some(message) = HardwareBufferMemory::unsupported(format, usage) {
             return Err(ImageError {
                 kind: ImageErrorKind::Unsupported,
-                message: "Windows makes hardware buffers in BGRA".to_owned(),
-            });
-        }
-        if usage.contains(HardwareBufferUsage::CPU_READ) {
-            return Err(ImageError {
-                kind: ImageErrorKind::Unsupported,
-                message: "a hardware buffer on Windows is not read by the CPU".to_owned(),
+                message: message.to_owned(),
             });
         }
         HardwareBufferMemory::new(width, height, usage, mode).map_err(|error| ImageError {
@@ -194,6 +221,13 @@ impl HardwareBufferMemory {
             | HardwareBufferUsage::COMPOSER_OVERLAY
     }
 
+    /// How the buffer lays out its pixels: BGRA, the DXGI format every shared texture here is in,
+    /// `B8G8R8A8_UNORM` as the engine makes one (`shared_texture::make`) and as
+    /// [`HardwareBuffer::new`] takes another host's. Never a failure here.
+    pub(crate) fn format(&self) -> Result<HardwareBufferFormat> {
+        Ok(HardwareBufferFormat::Bgra8)
+    }
+
     /// The bytes the buffer's pixels take: what a program is counted for holding it.
     pub(crate) fn bytes(&self) -> u64 {
         u64::from(self.width()) * u64::from(self.height()) * 4
@@ -220,7 +254,7 @@ impl HardwareBufferMemory {
         device: &Device,
         usage: wgpu_types::TextureUsages,
         release: Released,
-    ) -> Result<(Arc<GpuObject<wgpu_core::id::TextureId>>, TextureAttributes)> {
+    ) -> Result<(Arc<GpuObject<wgpu_core::id::TextureId>>, TextureDescriptor)> {
         let opened = Opened {
             label: "waos program hardware buffer",
             usage,
@@ -228,20 +262,9 @@ impl HardwareBufferMemory {
         };
         let size = self.buffer.size();
         let texture = opened.over(&self.buffer, gpu, device.device_id(), Some(release))?;
-        let attributes = TextureAttributes {
-            size: wgpu_types::Extent3d {
-                width: size[0],
-                height: size[1],
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: GpuTextureDimension::D2,
-            format: GpuTextureFormat::Bgra8unorm,
-            usage: gpu_usage(usage),
-            texture_binding_view_dimension: None,
-        };
-        Ok((Arc::new(GpuObject::new(texture, gpu)), attributes))
+        let descriptor =
+            crate::gpu::hardware_buffer_texture(size, wgpu_types::TextureFormat::Bgra8Unorm, usage);
+        Ok((Arc::new(GpuObject::new(texture, gpu)), descriptor))
     }
 
     /// A texture over the buffer's memory on `device` of `gpu`, which the GPU samples: a picture
@@ -465,29 +488,4 @@ impl FrameMemory {
     pub(crate) fn hardware_buffer(&self) -> Result<HardwareBufferMemory> {
         match self.0 {}
     }
-}
-
-/// `usage` as the WebGPU host tells the program its texture's usage.
-fn gpu_usage(usage: wgpu_types::TextureUsages) -> GpuTextureUsage {
-    [
-        (
-            wgpu_types::TextureUsages::COPY_SRC,
-            GpuTextureUsage::COPY_SRC,
-        ),
-        (
-            wgpu_types::TextureUsages::COPY_DST,
-            GpuTextureUsage::COPY_DST,
-        ),
-        (
-            wgpu_types::TextureUsages::TEXTURE_BINDING,
-            GpuTextureUsage::TEXTURE_BINDING,
-        ),
-        (
-            wgpu_types::TextureUsages::RENDER_ATTACHMENT,
-            GpuTextureUsage::RENDER_ATTACHMENT,
-        ),
-    ]
-    .into_iter()
-    .filter(|(wgpu, _)| usage.contains(*wgpu))
-    .fold(GpuTextureUsage::empty(), |all, (_, webgpu)| all | webgpu)
 }

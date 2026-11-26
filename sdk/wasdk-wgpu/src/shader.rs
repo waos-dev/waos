@@ -1,65 +1,73 @@
-//! Shader modules. The boundary carries WGSL text alone, as WebGPU does, so a shader given in
-//! another form is written as WGSL first, as wgpu's own backend for the web writes it: naga's
-//! module (`ShaderSource::Naga`), and, with this crate's `spirv` and `glsl` features, SPIR-V and
-//! GLSL, which naga reads into a module.
+//! Shader modules. WGSL, SPIR-V and GLSL go to the engine as they are, where naga reads and
+//! validates them; naga's own module (`ShaderSource::Naga`), which has no form that stays stable
+//! across naga's versions, is written as WGSL here first, as wgpu's backend for the web writes it.
 //!
-//! The invariant: a source that cannot be written as WGSL still makes a module, an invalid one
-//! whose compilation info says why, as the web's does; it never stops the program.
+//! The invariant: a module that cannot be written as WGSL still makes a module, an invalid one
+//! whose compilation info says why, its validation error reported to the device's error scopes,
+//! as an invalid source does in the engine; it never stops the program.
 
 use std::pin::Pin;
 use std::sync::Arc;
 
-use wasdk::webgpu::{GpuDevice, GpuShaderModule, GpuShaderModuleDescriptor};
+use wasdk::gpu::{Device, ShaderModule};
+use wasdk::gpu_types::{ShaderModuleDescriptor, ShaderSource};
 use wgpu::custom::{DispatchShaderModule, ShaderCompilationInfoFuture, ShaderModuleInterface};
 use wgpu::naga;
 
 use crate::convert;
-use crate::gap::wasi_gap;
+use crate::left_out::left_out;
 
+/// The module behind a [`wgpu::ShaderModule`] from this backend.
 #[derive(Debug)]
 pub struct WasdkShaderModule {
-    module: Arc<GpuShaderModule>,
-    /// Why its source, given in another form, could not be written as WGSL: the one message of
-    /// its compilation. None for a source that was, whose messages are the host's.
+    module: Arc<ShaderModule>,
+    /// Why naga's module could not be written as WGSL: the one message of its compilation. None
+    /// for a module the engine read, whose messages are the engine's.
     unwritten: Option<String>,
 }
 
 downcast!(WasdkShaderModule: api wgpu::ShaderModule);
 
 impl WasdkShaderModule {
-    pub(crate) fn gpu_shader_module(&self) -> &GpuShaderModule {
+    pub(crate) fn wit_shader_module(&self) -> &ShaderModule {
         &self.module
     }
 }
 
 pub(crate) fn create_shader_module(
-    device: &GpuDevice,
+    device: &Device,
     desc: &wgpu::ShaderModuleDescriptor<'_>,
 ) -> DispatchShaderModule {
-    match &desc.source {
-        wgpu::ShaderSource::Wgsl(code) => compile(device, code, desc.label),
-        wgpu::ShaderSource::Naga(module) => compile_written(device, wgsl_of(module), desc.label),
+    let source = match &desc.source {
+        wgpu::ShaderSource::Wgsl(code) => ShaderSource::Wgsl(code.to_string()),
+        wgpu::ShaderSource::Naga(module) => match wgsl_of(module) {
+            Ok(code) => ShaderSource::Wgsl(code),
+            Err(why) => return unwritten(device, desc.label, why),
+        },
         #[cfg(feature = "spirv")]
-        wgpu::ShaderSource::SpirV(words) => {
-            let written = module_of_spirv(words).and_then(|module| wgsl_of(&module));
-            compile_written(device, written, desc.label)
-        }
+        wgpu::ShaderSource::SpirV(words) => ShaderSource::Spirv(words.to_vec()),
         #[cfg(feature = "glsl")]
         wgpu::ShaderSource::Glsl {
             shader,
             stage,
             defines,
-        } => {
-            let written =
-                module_of_glsl(shader, *stage, defines).and_then(|module| wgsl_of(&module));
-            compile_written(device, written, desc.label)
-        }
+        } => ShaderSource::Glsl(wasdk::gpu_types::GlslSource {
+            code: shader.to_string(),
+            stage: shader_stage_to_wit(*stage),
+            defines: (defines.iter())
+                .map(|&(name, value)| (name.to_owned(), value.to_owned()))
+                .collect(),
+        }),
         // `ShaderSource` is `#[non_exhaustive]`; SPIR-V and GLSL sit behind wgpu's features, read
         // here with this crate's of the same names.
-        _ => wasi_gap(
+        _ => left_out(
             "SPIR-V and GLSL shader sources without this crate's `spirv` or `glsl` feature",
         ),
-    }
+    };
+    DispatchShaderModule::custom(WasdkShaderModule {
+        module: Arc::new(engine_module(device, desc.label, source)),
+        unwritten: None,
+    })
 }
 
 /// `module` written as WGSL, once it validates; why not, where it does not.
@@ -72,76 +80,40 @@ fn wgsl_of(module: &naga::Module) -> Result<String, String> {
         .map_err(|error| error.to_string())
 }
 
-/// The module SPIR-V's `words` are, read as wgpu's backend for the web reads them.
-#[cfg(feature = "spirv")]
-fn module_of_spirv(words: &[u32]) -> Result<naga::Module, String> {
-    let options = naga::front::spv::Options {
-        adjust_coordinate_space: false,
-        strict_capabilities: true,
-        block_ctx_dump_prefix: None,
-    };
-    naga::front::spv::Frontend::new(words.iter().copied(), &options)
-        .parse()
-        .map_err(|error| error.to_string())
-}
-
-/// The module the GLSL `shader` of `stage` is, with `defines`.
+/// A GLSL shader's stage; the mesh and ray tracing stages are left out.
 #[cfg(feature = "glsl")]
-fn module_of_glsl(
-    shader: &str,
-    stage: naga::ShaderStage,
-    defines: &[(&str, &str)],
-) -> Result<naga::Module, String> {
-    let options = naga::front::glsl::Options {
-        stage,
-        defines: (defines.iter())
-            .map(|&(key, value)| (key.to_owned(), value.to_owned()))
-            .collect(),
-    };
-    naga::front::glsl::Frontend::default()
-        .parse(&options, shader)
-        .map_err(|errors| errors.emit_to_string(shader))
-}
-
-/// A module of the WGSL `written` from a source in another form; an invalid one that says why,
-/// where it could not be written.
-fn compile_written(
-    device: &GpuDevice,
-    written: Result<String, String>,
-    label: wgpu::Label<'_>,
-) -> DispatchShaderModule {
-    match written {
-        Ok(code) => compile(device, &code, label),
-        Err(why) => DispatchShaderModule::custom(WasdkShaderModule {
-            module: Arc::new(host_module(device, "", label)),
-            unwritten: Some(why),
-        }),
+fn shader_stage_to_wit(stage: naga::ShaderStage) -> wasdk::gpu_types::ShaderStage {
+    use wasdk::gpu_types::ShaderStage;
+    match stage {
+        naga::ShaderStage::Vertex => ShaderStage::Vertex,
+        naga::ShaderStage::Fragment => ShaderStage::Fragment,
+        naga::ShaderStage::Compute => ShaderStage::Compute,
+        other => left_out(format_args!("the shader stage {other:?}")),
     }
 }
 
-pub(crate) fn create_shader_module_passthrough(
-    device: &GpuDevice,
-    desc: &wgpu::ShaderModuleDescriptorPassthrough<'_>,
-) -> DispatchShaderModule {
-    match &desc.wgsl {
-        Some(code) => compile(device, code, desc.label),
-        None => wasi_gap("passthrough shaders in a language other than WGSL"),
-    }
-}
+/// What the engine is given for naga's module that could not be written as WGSL: a source naga
+/// refuses to read, so the engine makes an invalid module and reports its validation error, as
+/// wgpu-core does for an invalid module. An empty source would not do: it is a valid module.
+const UNWRITTEN: &str =
+    "wasdk-wgpu: naga's module could not be written as WGSL; its compilation info says why";
 
-fn compile(device: &GpuDevice, code: &str, label: wgpu::Label<'_>) -> DispatchShaderModule {
+/// An invalid module, whose compilation says `why`.
+fn unwritten(device: &Device, label: wgpu::Label<'_>, why: String) -> DispatchShaderModule {
     DispatchShaderModule::custom(WasdkShaderModule {
-        module: Arc::new(host_module(device, code, label)),
-        unwritten: None,
+        module: Arc::new(engine_module(
+            device,
+            label,
+            ShaderSource::Wgsl(UNWRITTEN.to_owned()),
+        )),
+        unwritten: Some(why),
     })
 }
 
-/// The host's module of the WGSL `code`.
-fn host_module(device: &GpuDevice, code: &str, label: wgpu::Label<'_>) -> GpuShaderModule {
-    device.create_shader_module(&GpuShaderModuleDescriptor {
-        code: code.to_owned(),
-        compilation_hints: None,
+fn engine_module(device: &Device, label: wgpu::Label<'_>, source: ShaderSource) -> ShaderModule {
+    device.create_shader_module(&ShaderModuleDescriptor {
         label: convert::label(label),
+        source,
     })
 }
 
@@ -157,8 +129,25 @@ impl ShaderModuleInterface for WasdkShaderModule {
                         location: None,
                     }],
                 },
-                None => convert::compilation_info_from_wasi(&module.get_compilation_info().await),
+                None => convert::compilation_info_from_wit(module.compilation_info().await),
             }
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn what_stands_in_for_an_unwritten_module_is_no_wgsl_naga_reads() {
+        assert!(naga::front::wgsl::parse_str(UNWRITTEN).is_err());
+    }
+
+    #[test]
+    fn a_module_naga_finds_invalid_is_not_written() {
+        let module = naga::front::wgsl::parse_str("@compute @workgroup_size(0) fn main() {}")
+            .expect("it parses");
+        assert!(wgsl_of(&module).is_err());
     }
 }

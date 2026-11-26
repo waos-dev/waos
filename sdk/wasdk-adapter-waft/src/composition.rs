@@ -13,10 +13,13 @@
 use std::any::Any;
 use std::sync::Arc;
 
-use waft_embedder::{CompositionLayer, Compositor, HardwareBuffer, LayerPicture, Placement};
+use waft_embedder::{
+    AcceptedBuffers, AcceptedFormat, CompositionLayer, Compositor, GpuMemory, HardwareBuffer,
+    LayerPicture, Placement,
+};
 use wasdk::views;
 
-use crate::hardware_buffers::wit_buffer;
+use crate::hardware_buffers::{framework_buffer_format, wit_buffer};
 use crate::placements::placement_of;
 
 /// The system's compositor, as Waft's app reaches it.
@@ -32,6 +35,26 @@ impl WasdkCompositor {
 impl Compositor for WasdkCompositor {
     fn make_layer(&self, opaque: bool) -> Arc<dyn CompositionLayer> {
         Arc::new(WasdkLayer(self.0.make_layer(opaque)))
+    }
+
+    /// The buffers the system's compositor shows, in its formats (`accepted-formats`), the first
+    /// shown with no conversion. A program names no GPU, nor shows shared memory.
+    fn accepted_buffers(&self) -> AcceptedBuffers {
+        let formats = self
+            .0
+            .accepted_formats()
+            .into_iter()
+            .map(|format| AcceptedFormat {
+                format: framework_buffer_format(format),
+                modifiers: Vec::new(),
+            });
+        AcceptedBuffers {
+            gpu_memory: vec![GpuMemory {
+                gpu: None,
+                formats: formats.collect(),
+            }],
+            shared_memory: false,
+        }
     }
 }
 

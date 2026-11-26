@@ -19,7 +19,7 @@ mod quads;
 
 use std::sync::Mutex;
 
-use crate::HardwareBufferMode;
+use crate::BufferKind;
 use crate::bindings::wasdk::platform::hardware_buffers::{
     HardwareBufferUsage, ImageError, ImageErrorKind, PixelBuffer,
 };
@@ -37,7 +37,7 @@ use quads::{Fit, Quad, Turn};
 /// once one is taken.
 pub(crate) struct Screenshots {
     gpu: GpuInstance,
-    hardware_buffers: HardwareBufferMode,
+    hardware_buffers: BufferKind,
     /// None before the first screenshot, and after a draw that failed, which opens it again.
     device: Mutex<Option<ScreenshotDevice>>,
 }
@@ -61,7 +61,7 @@ enum Held {
 }
 
 impl Screenshots {
-    pub(crate) fn new(gpu: GpuInstance, hardware_buffers: HardwareBufferMode) -> Screenshots {
+    pub(crate) fn new(gpu: GpuInstance, hardware_buffers: BufferKind) -> Screenshots {
         Screenshots {
             gpu,
             hardware_buffers,
@@ -190,9 +190,9 @@ pub(crate) mod tests {
     /// taken: for a test's views.
     pub(crate) fn screenshots() -> Arc<Screenshots> {
         let mode = if cfg!(target_os = "linux") {
-            super::HardwareBufferMode::Offscreen
+            super::BufferKind::SharedMemory
         } else {
-            super::HardwareBufferMode::Auto
+            super::BufferKind::GpuMemory(None)
         };
         Arc::new(Screenshots::new(crate::gpu::instance(), mode))
     }

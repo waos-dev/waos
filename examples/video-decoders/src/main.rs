@@ -16,7 +16,7 @@ use std::time::Duration;
 use futures::future::{Either, select};
 use wasdk::monotonic_clock;
 use wasdk::video_decoders::{
-    self, DecodingPurpose, VideoDecoder, VideoDecoderOptions, VideoStreamDescription,
+    DecodingPurpose, VideoDecoder, VideoDecoderOptions, VideoStreamDescription,
 };
 use wasdk::video_frames::{PlaneFormat, VideoFrame};
 use wasdk::video_streams::{
@@ -35,7 +35,8 @@ const HELD_FOR: Duration = Duration::from_millis(300);
 
 #[wasdk::main]
 async fn main() -> Result<(), String> {
-    let Some(decoders) = video_decoders::get_video_decoders() else {
+    let (device, queue) = gpu().await?;
+    let Some(decoders) = wasdk_wgpu::video_decoders(&device) else {
         println!("video decoders: none");
         return Ok(());
     };
@@ -90,7 +91,7 @@ async fn main() -> Result<(), String> {
     drop((second, third));
     let fourth = next(&mut frames).await?;
     println!("{}", description(&fourth));
-    for line in planes_read(&fourth).await? {
+    for line in planes_read(&device, &queue, &fourth).await? {
         println!("{line}");
     }
     for line in planes_in_memory(&fourth).await? {
@@ -191,16 +192,18 @@ async fn frame_once_one_is_dropped(
         .ok_or_else(|| "the frames ended early".to_owned())
 }
 
-/// Each of `frame`'s planes, with its first sample as the GPU reads it through a texture
-/// imported of the plane.
-async fn planes_read(frame: &VideoFrame) -> Result<Vec<String>, String> {
+/// Each of `frame`'s planes, with its first sample as `device`'s GPU reads it through the texture
+/// and aspect imported of the plane.
+async fn planes_read(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    frame: &VideoFrame,
+) -> Result<Vec<String>, String> {
     let planes = frame.planes().ok_or("the frame has no planes")?;
-    let (device, queue) = gpu().await?;
-    let buffer = frame.hardware_buffer();
+    let imported = wasdk_wgpu::import_planes(device, &frame.hardware_buffer());
     let mut read = Vec::new();
-    for (index, plane) in planes.iter().enumerate() {
-        let texture = wasdk_wgpu::import_plane(&device, &buffer, index as u32);
-        let sample = first_sample(&device, &queue, &texture).await?;
+    for (index, (plane, imported)) in planes.iter().zip(&imported).enumerate() {
+        let sample = first_sample(device, queue, &imported.texture, imported.aspect).await?;
         read.push(format!(
             "plane {index}: {:?} as {:?}, {}x{} of {} bits, first sample {sample:?}",
             plane.content, plane.format, plane.width, plane.height, plane.bit_depth
@@ -244,7 +247,7 @@ fn sample_bytes(format: PlaneFormat) -> usize {
     }
 }
 
-/// The engine's WebGPU device and its queue.
+/// The engine's GPU device and its queue.
 async fn gpu() -> Result<(wgpu::Device, wgpu::Queue), String> {
     let instance = wasdk_wgpu::instance();
     let adapter = instance
@@ -257,11 +260,13 @@ async fn gpu() -> Result<(wgpu::Device, wgpu::Queue), String> {
         .map_err(|error| format!("no WebGPU device: {error}"))
 }
 
-/// The bytes of `texture`'s first sample, copied out on the GPU: one for each of its channels.
+/// The bytes of the first sample of `texture`'s `aspect`, copied out on the GPU: one for each of
+/// its channels.
 async fn first_sample(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
     texture: &wgpu::Texture,
+    aspect: wgpu::TextureAspect,
 ) -> Result<Vec<u8>, String> {
     let buffer = device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("first sample"),
@@ -271,7 +276,10 @@ async fn first_sample(
     });
     let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
     encoder.copy_texture_to_buffer(
-        texture.as_image_copy(),
+        wgpu::TexelCopyTextureInfo {
+            aspect,
+            ..texture.as_image_copy()
+        },
         wgpu::TexelCopyBufferInfo {
             buffer: &buffer,
             layout: wgpu::TexelCopyBufferLayout {

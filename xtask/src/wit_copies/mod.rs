@@ -29,11 +29,11 @@ pub const COPIES: [WitCopy; 3] = [
         source: "wit",
         destination: "crates/waos/wit",
     },
-    // The WebGPU host's `wasi:webgpu`, whose bindings the engine's reuse for that package, so
-    // the two are generated from the same WIT.
+    // The GPU host's `wasdk:gpu`, whose bindings the engine's reuse for that package, so the two
+    // are generated from the same WIT.
     WitCopy {
-        source: "wit/deps/wasi-webgpu-0.3.0-rc.2",
-        destination: "crates/waos-webgpu-host/wit/deps/wasi-webgpu-0.3.0-rc.2",
+        source: "wit/deps/wasdk-gpu-1.0.0",
+        destination: "crates/waos-gpu-host/wit/deps/wasdk-gpu-1.0.0",
     },
 ];
 

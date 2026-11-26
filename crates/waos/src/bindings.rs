@@ -24,8 +24,8 @@
 //! cameras, a camera,
 //! its outputs and a capture session the cameras', and the workers and a worker the workers'.
 //! The interfaces another crate serves are that crate's generated types: WASI's clocks are
-//! `wasmtime-wasi`'s, its HTTP client `wasmtime-wasi-http`'s, and `wasi:webgpu` is
-//! the WebGPU host's, `waos-webgpu-host`, so a view's canvas context is the host's own resource; a
+//! `wasmtime-wasi`'s, its HTTP client `wasmtime-wasi-http`'s, and `wasdk:gpu` is
+//! the GPU host's, `waos-gpu-host`, so a view's surface is the host's own resource; a
 //! notification's time is Preview 3's system clock's `instant`, which `wasmtime-wasi` serves; and
 //! a machine's root, and the folder a watch is of, is `wasi:filesystem@0.3`'s own `descriptor`,
 //! the files' bindings', which the files serve; and `wasi:sockets@0.3` is the network's bindings',
@@ -86,6 +86,7 @@ wasmtime::component::bindgen!({
     with: {
         "wasdk:platform/views.view": crate::views::ProgramView,
         "wasdk:platform/views.text-input": crate::views::host::TextInput,
+        "wasdk:platform/views.system-bars": crate::views::host::SystemBars,
         "wasdk:platform/views.key-reply": crate::views::KeyReply,
         "wasdk:platform/views.compositor": crate::views::host::Compositor,
         "wasdk:platform/views.composition-layer": crate::views::host::CompositionLayer,
@@ -176,7 +177,8 @@ wasmtime::component::bindgen!({
         "wasdk:media/cameras.capture-session": crate::cameras::CaptureSession,
         "wasdk:platform/workers.workers": crate::workers::Workers,
         "wasdk:platform/workers.worker": crate::workers::Worker,
-        "wasi:webgpu/webgpu": waos_webgpu_host::wasi::webgpu::webgpu,
+        "wasdk:gpu/types": waos_gpu_host::wasdk::gpu::types,
+        "wasdk:gpu/gpu": waos_gpu_host::wasdk::gpu::gpu,
         "wasi:filesystem/types@0.3.0": crate::files::p3::bindings::wasi::filesystem::types,
         "wasi:clocks/types@0.3.0": wasmtime_wasi::p3::bindings::clocks::types,
         "wasi:clocks/monotonic-clock@0.3.0": wasmtime_wasi::p3::bindings::clocks::monotonic_clock,

@@ -35,7 +35,7 @@ use waos_capabilities::ProgramEnvironment;
 use wasmtime::Engine;
 use wasmtime::component::Component;
 
-use crate::HardwareBufferMode;
+use crate::BufferKind;
 use crate::access::{Days, ProgramAccess, TraceKind, TraceStream, WeakAccess};
 use crate::bindings::wasdk::platform::lifecycle::AppExitResponse;
 use crate::bindings::wasdk::platform::menus::MenuEntry;
@@ -46,7 +46,7 @@ use crate::clipboard::{PlatformClipboard, ProgramSources};
 use crate::clock::Clock;
 use crate::engine_time::EngineClock;
 use crate::files::HandedFiles;
-use crate::gpu::{GpuInstance, InFlight, OpenedDevices};
+use crate::gpu::{GpuInstance, InFlight, OpenedDevices, ProgramsAdapter};
 use crate::hardware_buffers::UnaskedRead;
 use crate::inspection::ProgramStorage;
 use crate::lifecycle::{ExecutionState, FreezePolicy, Lifecycle, OpenRequest};
@@ -58,10 +58,10 @@ use crate::screens::Screens;
 use crate::screenshots::Screenshots;
 use crate::service_extensions::ProgramServiceExtensions;
 use crate::shell::{
-    PlacedView, Prompts, ShellAudioOutputPicker, ShellCameras, ShellCompositor, ShellFileDialogs,
+    PlacedView, Prompts, ShellAudioOutputPicker, ShellCameras, ShellFileDialogs, ShellGpus,
     ShellImageCodecs, ShellMachinePicker, ShellMediaAssets, ShellMediaPlayers, ShellNotifications,
-    ShellOpener, ShellRecordingIndicator, ShellSystemPermissions, ShellVideoDecoders,
-    ShellVideoFrameReaders, ViewPlacement,
+    ShellOpener, ShellRecordingIndicator, ShellSystemPermissions, ShellVideoFrameReaders,
+    ViewPlacement,
 };
 use crate::simulated_input::Mouse;
 use crate::source_lines::ComponentFile;
@@ -70,6 +70,7 @@ use crate::sync::locked;
 use crate::system::SystemSettings;
 use crate::targets;
 use crate::temporary_folders::TemporaryFolder;
+use crate::views::host::Compositor;
 use crate::views::{ProgramView, ProgramViews, ScreenRefreshes, ViewLayers, Watching};
 use crate::workers::ProgramWorkers;
 use activity::Activity;
@@ -134,8 +135,10 @@ struct Running {
     sources: ProgramSources,
     /// What of its GPU work is in flight.
     in_flight: Arc<InFlight>,
-    /// The resolved hardware buffer backing mode for the engine this program runs on.
-    hardware_buffers: HardwareBufferMode,
+    /// What its pictures are kept in, as the engine chose.
+    hardware_buffers: BufferKind,
+    /// The adapter its `request-adapter` gives, as the engine chose.
+    programs_adapter: ProgramsAdapter,
     /// Whether it has been warned of reading a hardware buffer it did not ask to read.
     unasked_read: UnaskedRead,
     /// Taken by the first `stop`.
@@ -160,8 +163,10 @@ type Ended =
 pub(crate) struct ProgramStart {
     pub(crate) engine: Engine,
     pub(crate) gpu: GpuInstance,
-    /// The resolved hardware buffer backing mode.
-    pub(crate) hardware_buffers: HardwareBufferMode,
+    /// What its pictures are kept in.
+    pub(crate) hardware_buffers: BufferKind,
+    /// The adapter its `request-adapter` gives.
+    pub(crate) programs_adapter: ProgramsAdapter,
     /// What draws the screenshots of the program's views.
     pub(crate) screenshots: Arc<Screenshots>,
     pub(crate) component: Component,
@@ -171,7 +176,7 @@ pub(crate) struct ProgramStart {
     pub(crate) placement: Arc<dyn ViewPlacement>,
     /// The system's compositor, which makes the program's composition layers, where the shell
     /// has one.
-    pub(crate) compositor: Option<Arc<dyn ShellCompositor>>,
+    pub(crate) compositor: Option<Compositor>,
     /// What asks the program's user for what it may use.
     pub(crate) prompts: Arc<dyn Prompts>,
     /// What the system itself allows of what the user allowed, where it has permissions of its
@@ -205,7 +210,8 @@ pub(crate) struct ProgramStart {
     pub(crate) image_codecs: Option<Arc<dyn ShellImageCodecs>>,
     /// The system's frame readers, where the shell has them.
     pub(crate) video_frame_readers: Option<Arc<dyn ShellVideoFrameReaders>>,
-    pub(crate) video_decoders: Option<Arc<dyn ShellVideoDecoders>>,
+    /// The system's GPUs, where the shell has them.
+    pub(crate) gpus: Option<Arc<dyn ShellGpus>>,
     /// The system's cameras, where the shell has them.
     pub(crate) cameras: Option<Arc<dyn ShellCameras>>,
     /// The cameras of WaOS's own, where the shell has them.
@@ -278,6 +284,7 @@ impl RunningProgram {
             sources: ProgramSources::default(),
             in_flight: InFlight::new(),
             hardware_buffers: start.hardware_buffers,
+            programs_adapter: start.programs_adapter,
             unasked_read: UnaskedRead::default(),
             stop: Mutex::new(Some(stop)),
             ended: ended.map(end_of_thread as fn(_) -> _).shared(),
@@ -437,9 +444,14 @@ impl RunningProgram {
         ))
     }
 
-    /// The resolved hardware buffer backing mode for the engine this program runs on.
-    pub(crate) fn hardware_buffers(&self) -> HardwareBufferMode {
+    /// What its pictures are kept in, as the engine chose.
+    pub(crate) fn hardware_buffers(&self) -> BufferKind {
         self.0.hardware_buffers
+    }
+
+    /// The adapter its `request-adapter` gives, as the engine chose.
+    pub(crate) fn programs_adapter(&self) -> &ProgramsAdapter {
+        &self.0.programs_adapter
     }
 
     /// Its access, from its start on.

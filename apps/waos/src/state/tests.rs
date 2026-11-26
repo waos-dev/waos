@@ -108,7 +108,6 @@ impl Desktop {
             temporary_folders: folder.join("tmp"),
             audit: None,
             inspected_programs: None,
-            hardware_buffers: waos::HardwareBufferMode::Auto,
         };
         let clipboard = MockClipboard::new().with_promised_files_folder(folder.join("pasted"));
         let platform = Rc::new(DesktopPlatform::new(&clipboard, tray));
@@ -141,7 +140,7 @@ impl Desktop {
             media_assets: None,
             image_codecs: None,
             video_frame_readers: None,
-            video_decoders: None,
+            gpus: None,
             cameras: None,
             simulated_cameras: None,
             machine_picker: None,
@@ -528,6 +527,10 @@ impl Compositor for TestCompositor {
         });
         self.layers.lock().unwrap().push(Arc::clone(&layer));
         layer
+    }
+
+    fn accepted_buffers(&self) -> waft::ui::AcceptedBuffers {
+        waft::ui::AcceptedBuffers::default()
     }
 }
 

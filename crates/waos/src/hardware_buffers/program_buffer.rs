@@ -28,13 +28,13 @@
 
 use std::sync::{Arc, Mutex};
 
-use waos_webgpu_host::{Device, GpuObject, Texture, TextureAttributes, WeakDevice};
+use waos_gpu_host::{Device, GpuObject, Texture, TextureDescriptor, WeakDevice};
 
 use super::Released;
 use super::counted_bytes::CountedBytes;
-use crate::HardwareBufferMode;
+use crate::BufferKind;
 use crate::bindings::wasdk::platform::hardware_buffers::{
-    HardwareBufferUsage, ImageError, ImageErrorKind, PixelBuffer, PixelFormat,
+    HardwareBufferFormat, HardwareBufferUsage, ImageError, ImageErrorKind, PixelBuffer,
 };
 use crate::gpu::{GpuInstance, submit_once_running, wait_for, wgpu_core, wgpu_types};
 use crate::lifecycle::Lifecycle;
@@ -97,9 +97,9 @@ impl ProgramHardwareBuffer {
         stats: Arc<Stats>,
         width: u32,
         height: u32,
-        format: PixelFormat,
+        format: HardwareBufferFormat,
         usage: HardwareBufferUsage,
-        mode: HardwareBufferMode,
+        mode: BufferKind,
     ) -> Result<ProgramHardwareBuffer, ImageError> {
         if width.max(height) > LARGEST_SIDE {
             return Err(ImageError {
@@ -171,6 +171,12 @@ impl ProgramHardwareBuffer {
         self.0.pixels.memory.usage()
     }
 
+    /// How the buffer's memory lays out its pixels, as the system's buffer says. A failure is the
+    /// shell's, which handed over a buffer in a layout the interface names no format for.
+    pub(crate) fn format(&self) -> anyhow::Result<HardwareBufferFormat> {
+        self.0.pixels.memory.format()
+    }
+
     /// Whether the CPU reads the buffer though the program did not ask for that when it allocated
     /// it, which works only because this system gives the buffer more; never for a buffer the
     /// program did not allocate.
@@ -202,12 +208,12 @@ impl ProgramHardwareBuffer {
         device: &Device,
         usages: wgpu_types::TextureUsages,
     ) -> anyhow::Result<Texture> {
-        let (texture, attributes) =
+        let (texture, descriptor) =
             self.0
                 .pixels
                 .memory
                 .program_texture(gpu, device, usages, self.release_of_pixels())?;
-        Ok(self.connected(texture, attributes, device, usages))
+        Ok(self.connected(texture, descriptor, device, usages))
     }
 
     /// A texture over the plane at `index` of the buffer's memory on `device` of `gpu`, for
@@ -220,7 +226,7 @@ impl ProgramHardwareBuffer {
         index: u32,
         usages: wgpu_types::TextureUsages,
     ) -> anyhow::Result<Texture> {
-        let (texture, attributes) = os::plane_texture(
+        let (texture, descriptor) = os::plane_texture(
             &self.0.pixels.memory,
             gpu,
             device,
@@ -228,7 +234,21 @@ impl ProgramHardwareBuffer {
             usages,
             self.release_of_pixels(),
         )?;
-        Ok(self.connected(texture, attributes, device, usages))
+        Ok(self.connected(texture, descriptor, device, usages))
+    }
+
+    /// A texture over each plane of the buffer's memory on `device`, in the order of its planes:
+    /// one, over the whole buffer, for a buffer of one plane.
+    pub(crate) fn plane_textures_on(
+        &self,
+        gpu: &GpuInstance,
+        device: &Device,
+        usages: wgpu_types::TextureUsages,
+    ) -> anyhow::Result<Vec<Texture>> {
+        let planes = os::planes(&self.0.pixels.memory).map_or(1, |planes| planes.len());
+        (0..planes as u32)
+            .map(|index| self.plane_texture_on(gpu, device, index, usages))
+            .collect()
     }
 
     /// What wgpu calls once it has freed a texture over the buffer: the buffer's memory, and its
@@ -243,7 +263,7 @@ impl ProgramHardwareBuffer {
     fn connected(
         &self,
         texture: Arc<GpuObject<wgpu_core::id::TextureId>>,
-        attributes: TextureAttributes,
+        descriptor: TextureDescriptor,
         device: &Device,
         usages: wgpu_types::TextureUsages,
     ) -> Texture {
@@ -267,7 +287,7 @@ impl ProgramHardwareBuffer {
         }) {
             devices.push(device.downgrade());
         }
-        device.connect_texture(texture, attributes)
+        device.texture(texture, descriptor)
     }
 
     /// The buffer handed to a reader outside the program's GPU work, once the program of

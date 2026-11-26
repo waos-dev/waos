@@ -40,15 +40,16 @@ async fn main() -> Result<(), String> {
     let frame = first_frame(&view, &reader).await?;
     let buffer = frame.hardware_buffer();
     let texture = wasdk_wgpu::import_texture(&device, &buffer);
-    let pixel = first_pixel(&device, &queue, &texture).await?;
+    let pixel = first_pixel(&device, &queue, &texture, wgpu::TextureAspect::All).await?;
     println!(
         "frame {}x{}, first pixel {pixel:?}",
         buffer.width(),
         buffer.height()
     );
     println!("{}", description(&frame)?);
-    let plane = wasdk_wgpu::import_plane(&device, &buffer, 0);
-    let pixel = first_pixel(&device, &queue, &plane).await?;
+    let planes = wasdk_wgpu::import_planes(&device, &buffer);
+    let plane = planes.first().ok_or("the frame imported no planes")?;
+    let pixel = first_pixel(&device, &queue, &plane.texture, plane.aspect).await?;
     println!("first pixel through its plane {pixel:?}");
     let copied = frame
         .read_planes()
@@ -125,11 +126,12 @@ async fn first_frame(view: &View, reader: &VideoFrameReader) -> Result<VideoFram
     Err("the view's events ended before a frame came".into())
 }
 
-/// The bytes of `texture`'s first pixel, copied out on the GPU.
+/// The bytes of the first pixel of `texture`'s `aspect`, copied out on the GPU.
 async fn first_pixel(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
     texture: &wgpu::Texture,
+    aspect: wgpu::TextureAspect,
 ) -> Result<[u8; 4], String> {
     let buffer = device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("first pixel"),
@@ -139,7 +141,10 @@ async fn first_pixel(
     });
     let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
     encoder.copy_texture_to_buffer(
-        texture.as_image_copy(),
+        wgpu::TexelCopyTextureInfo {
+            aspect,
+            ..texture.as_image_copy()
+        },
         wgpu::TexelCopyBufferInfo {
             buffer: &buffer,
             layout: wgpu::TexelCopyBufferLayout {

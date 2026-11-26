@@ -6,7 +6,7 @@ package wasdk:media@2.2.0;
 /// of its own.
 ///
 /// **Two kinds of memory, and every move a call.** An image decodes into the program's memory, a
-/// `pixel-buffer`, on every system (`decode-pixels`), which the program uploads with WebGPU itself
+/// `pixel-buffer`, on every system (`decode-pixels`), which the program uploads with `wasdk:gpu` itself
 /// to draw, and encodes from one (`encode-pixels`). Where the system can, its hardware codecs
 /// (`hardware-image-codecs`) decode into GPU memory, a `hardware-buffer` of the program's own, which
 /// it draws through a texture it imports with no copy (`wasdk:platform/gpu-interop`) and which

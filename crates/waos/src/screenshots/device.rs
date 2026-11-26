@@ -10,10 +10,10 @@
 use std::borrow::Cow;
 
 use anyhow::{Context, Result, anyhow};
-use waos_webgpu_host::{GpuObject, GpuObjectId};
+use waos_gpu_host::{GpuObject, GpuObjectId};
 
 use super::quads::{Quad, bytes_of};
-use crate::HardwareBufferMode;
+use crate::BufferKind;
 use crate::gpu::{GpuInstance, open_device, wgpu_core, wgpu_types};
 use crate::os::{FORMAT, HardwareBufferMemory};
 
@@ -56,7 +56,7 @@ impl ScreenshotDevice {
     /// A device on `gpu`'s default adapter, opened as a program's is, with the pipeline made.
     pub(super) fn open(
         gpu: &GpuInstance,
-        hardware_buffers: HardwareBufferMode,
+        hardware_buffers: BufferKind,
     ) -> Result<ScreenshotDevice> {
         let adapter = gpu
             .request_adapter(

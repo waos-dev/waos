@@ -4,12 +4,13 @@
 
 use std::sync::Arc;
 
-use waft::ui::image_codecs::{ImageErrorKind, PixelFormat};
-use waft::ui::{HardwareBuffer, HardwareBufferUsage, Platform};
+use waft::ui::image_codecs::ImageErrorKind;
+use waft::ui::{HardwareBuffer, HardwareBufferFormat, HardwareBufferUsage, Platform};
 
 /// The formats a sheet is allocated in, the first the system allocates: Apple's systems allocate
 /// only the first, Android only the second.
-const FORMATS: [PixelFormat; 2] = [PixelFormat::Bgra8, PixelFormat::Rgba8];
+const FORMATS: [HardwareBufferFormat; 2] =
+    [HardwareBufferFormat::Bgra8, HardwareBufferFormat::Rgba8];
 
 pub(crate) struct Sheet {
     pub(crate) buffer: Arc<dyn HardwareBuffer>,
@@ -58,7 +59,8 @@ impl Sheet {
         usage: HardwareBufferUsage,
     ) -> Result<Sheet, String> {
         let allocator = platform
-            .hardware_buffer_allocator()
+            .gpu(None)
+            .and_then(|gpu| gpu.hardware_buffer_allocator())
             .ok_or("this system allocates no hardware buffers")?;
         let mut refusal = String::new();
         for format in FORMATS {

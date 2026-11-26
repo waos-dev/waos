@@ -1,6 +1,6 @@
 # WaOS
 
-WaOS runs apps: WebAssembly components that draw with WebGPU, each in a sandbox with only what its user allows, using the system's own windows, menus and dialogs. One build runs on every platform WaOS runs on.
+WaOS runs apps: WebAssembly components that draw with the GPU through wgpu, each in a sandbox with only what its user allows, using the system's own windows, menus and dialogs. One build runs on every platform WaOS runs on.
 
 - **[Apps](apps/)**: what an app is and how it reaches a user. [Packages](apps/packages.md), [sources](apps/sources.md).
 - **[Engine](engine/)**: runs apps and serves them the interface. [Interface](engine/interface.md), [lifecycle](engine/lifecycle.md), [threads](engine/threads.md), [windows](engine/windows.md), [what the user controls](engine/control.md), [files](engine/files.md), [machines](engine/machines.md), [network](engine/network.md), [media](engine/media.md), [system](engine/system.md).

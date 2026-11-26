@@ -10,7 +10,7 @@
 use std::sync::{Arc, Mutex};
 use std::thread;
 
-use waos_webgpu_host::{Device, DeviceListener, WeakDevice};
+use waos_gpu_host::{Device, DeviceListener, WeakDevice};
 
 use super::in_flight::InFlight;
 use super::{GpuInstance, wgpu_types};

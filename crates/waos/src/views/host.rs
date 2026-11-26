@@ -6,8 +6,8 @@
 //! the program reads it, so an event never read makes none.
 //!
 //! A handle on a view is the view itself in the store's table, so handles on one view share it
-//! and `views()` hands out fresh handles every time. A view's canvas context is the WebGPU
-//! host's, over the view's canvas (`buffers`), which every context on the view shares and which
+//! and `views()` hands out fresh handles every time. A view's surface is the GPU host's, over the
+//! view's canvas (`hardware_buffers`), which every handle on the surface shares and which
 //! `present` hands the frame drawn into to the shell, with the layers the view holds beneath it:
 //! the shell's own layer of each composition layer `set-layers` named last, in the order named,
 //! and its placement as the program gave it (`view_layers`). A transform that is not a 4×4
@@ -18,23 +18,27 @@ use std::sync::{Arc, OnceLock};
 
 use futures::channel::mpsc;
 
-use waos_webgpu_host::CanvasContext;
+use waos_gpu_host::Surface;
 use wasmtime::bail;
 use wasmtime::component::{
     Access, FutureReader, HasData, Linker, Resource, ResourceTable, StreamReader,
 };
 
+use crate::bindings::wasdk::platform::hardware_buffers::HardwareBufferFormat;
 use crate::bindings::wasdk::platform::views::{
     self, Cursor, HostCompositionLayer, HostCompositionLayerWithStore, HostCompositor,
-    HostKeyReply, HostTextInput, HostView, HostViewWithStore, HostWithStore, KeyInput, Metrics,
-    Mutator, OverlayStyle, PixelRect, PlacedLayer, Placement, RequestId, TextEditingValue,
-    TextInputConfiguration, ViewError, ViewEvent, ViewFocusDirection, ViewFocusState, ViewId,
+    HostKeyReply, HostSystemBars, HostTextInput, HostView, HostViewWithStore, HostWithStore,
+    KeyInput, Metrics, Mutator, OverlayStyle, PixelRect, PlacedLayer, Placement, RequestId,
+    SystemBarsBehavior, TextEditingValue, TextInputConfiguration, ViewError, ViewEvent,
+    ViewFocusDirection, ViewFocusState, ViewId,
 };
 use crate::gpu::{Finishing, GpuInstance};
 use crate::hardware_buffers::{Canvases, ProgramHardwareBuffer, SubmittedWork, ViewCanvas};
 use crate::running::RunningProgram;
 use crate::screens::{Screen, Screens};
-use crate::shell::{ShellCompositionLayer, ShellCompositor, ViewPlacement, ViewRequest};
+use crate::shell::{
+    ShellCompositionLayer, ShellCompositor, ShellSystemBars, ViewPlacement, ViewRequest,
+};
 use crate::stream::stream_of_holding;
 use crate::windows::{ProgramWindow, WindowConfig};
 
@@ -46,8 +50,29 @@ use super::{
 /// A program's handle on a view's text input: the view's, which every handle on the view shares.
 pub struct TextInput(ViewTextInput);
 
-/// `views.compositor`: the shell's compositor, as the program reaches it.
-pub struct Compositor(Arc<dyn ShellCompositor>);
+/// A program's handle on the system's bars over a view: the shell's, which every handle on the
+/// view shares.
+pub struct SystemBars(Arc<dyn ShellSystemBars>);
+
+/// `views.compositor`: the shell's compositor, as the program reaches it, and the formats it
+/// shows a program's buffers in, read once as the engine starts (`hardware_buffers::shown_formats`).
+#[derive(Clone)]
+pub struct Compositor {
+    shell: Arc<dyn ShellCompositor>,
+    accepted_formats: Arc<[HardwareBufferFormat]>,
+}
+
+impl Compositor {
+    pub(crate) fn new(
+        shell: Arc<dyn ShellCompositor>,
+        accepted_formats: Vec<HardwareBufferFormat>,
+    ) -> Compositor {
+        Compositor {
+            shell,
+            accepted_formats: accepted_formats.into(),
+        }
+    }
+}
 
 /// A program's composition layer: the layer the shell's compositor made for it, which a view
 /// holding it hands back to the shell with each present, and the presents of the program's
@@ -95,7 +120,7 @@ pub(crate) struct ViewsCtx<'a> {
     /// worker, which lists no view, hears of none and has its requests refused as `unsupported`.
     pub(crate) placement: Option<&'a dyn ViewPlacement>,
     /// The shell's compositor; none where the shell has none.
-    pub(crate) compositor: Option<&'a Arc<dyn ShellCompositor>>,
+    pub(crate) compositor: Option<&'a Compositor>,
     pub(crate) gpu: &'a GpuInstance,
     pub(crate) canvases: &'a Canvases,
     /// The layers each view holds beneath its picture.
@@ -123,9 +148,9 @@ impl ViewsCtx<'_> {
         Ok(self.table.get(view)?)
     }
 
-    /// The canvas `view` is drawn into, made at the first context taken on the view.
-    fn canvas(&self, view: &ProgramView) -> Arc<ViewCanvas> {
-        self.canvases.for_view(view.id(), || {
+    /// The surface of `view`, over a canvas made at the first handle taken on it.
+    fn surface_of(&self, view: &ProgramView) -> Surface {
+        self.canvases.surface_of(view.id(), || {
             ViewCanvas::new(
                 view.clone(),
                 Arc::clone(self.gpu),
@@ -221,7 +246,7 @@ impl views::Host for ViewsCtx<'_> {
     }
 
     fn get_compositor(&mut self) -> wasmtime::Result<Option<Resource<Compositor>>> {
-        let compositor = self.compositor.cloned().map(Compositor);
+        let compositor = self.compositor.cloned();
         Ok(compositor
             .map(|compositor| self.table.push(compositor))
             .transpose()?)
@@ -288,32 +313,13 @@ impl HostView for ViewsCtx<'_> {
         Ok(Some(self.table.push(screen)?))
     }
 
-    fn context(
-        &mut self,
-        view: Resource<ProgramView>,
-    ) -> wasmtime::Result<Resource<CanvasContext>> {
-        let canvas = self.canvas(&self.view(&view)?.clone());
-        Ok(self.table.push(CanvasContext::new(canvas))?)
+    fn surface(&mut self, view: Resource<ProgramView>) -> wasmtime::Result<Resource<Surface>> {
+        let surface = self.surface_of(&self.view(&view)?.clone());
+        Ok(self.table.push(surface)?)
     }
 
     fn metrics(&mut self, view: Resource<ProgramView>) -> wasmtime::Result<Metrics> {
         Ok(self.view(&view)?.metrics())
-    }
-
-    /// The view's canvas hands out textures of `width` by `height` from its next on; a size of
-    /// zero traps the program, and one past its device's largest texture traps it once the canvas
-    /// is configured at it.
-    fn set_canvas_size(
-        &mut self,
-        view: Resource<ProgramView>,
-        width: u32,
-        height: u32,
-    ) -> wasmtime::Result<()> {
-        if width == 0 || height == 0 {
-            bail!("a view's canvas is at least a pixel on each side, not {width}×{height}");
-        }
-        self.view(&view)?.set_canvas_size([width, height]);
-        Ok(())
     }
 
     fn request_frame(&mut self, view: Resource<ProgramView>) -> wasmtime::Result<()> {
@@ -369,13 +375,26 @@ impl HostView for ViewsCtx<'_> {
         Ok(())
     }
 
+    /// The deprecated way to the bars' style: their `set-overlay-style` where there are bars.
     fn set_overlay_style(
         &mut self,
         view: Resource<ProgramView>,
         style: OverlayStyle,
     ) -> wasmtime::Result<()> {
-        self.view(&view)?.shell().set_overlay_style(style);
+        if let Some(bars) = self.view(&view)?.system_bars() {
+            bars.set_overlay_style(style);
+        }
         Ok(())
+    }
+
+    fn system_bars(
+        &mut self,
+        view: Resource<ProgramView>,
+    ) -> wasmtime::Result<Option<Resource<SystemBars>>> {
+        let Some(bars) = self.view(&view)?.system_bars().cloned() else {
+            return Ok(None);
+        };
+        Ok(Some(self.table.push(SystemBars(bars))?))
     }
 
     fn drop(&mut self, view: Resource<ProgramView>) -> wasmtime::Result<()> {
@@ -433,6 +452,36 @@ impl ViewsCtx<'_> {
         text_input: &Resource<TextInput>,
     ) -> wasmtime::Result<&ViewTextInput> {
         Ok(&self.table.get(text_input)?.0)
+    }
+}
+
+impl HostSystemBars for ViewsCtx<'_> {
+    fn set_overlay_style(
+        &mut self,
+        bars: Resource<SystemBars>,
+        style: OverlayStyle,
+    ) -> wasmtime::Result<()> {
+        self.table.get(&bars)?.0.set_overlay_style(style);
+        Ok(())
+    }
+
+    fn hide(
+        &mut self,
+        bars: Resource<SystemBars>,
+        behavior: SystemBarsBehavior,
+    ) -> wasmtime::Result<()> {
+        self.table.get(&bars)?.0.hide(behavior);
+        Ok(())
+    }
+
+    fn show(&mut self, bars: Resource<SystemBars>) -> wasmtime::Result<()> {
+        self.table.get(&bars)?.0.show();
+        Ok(())
+    }
+
+    fn drop(&mut self, bars: Resource<SystemBars>) -> wasmtime::Result<()> {
+        self.table.delete(bars)?;
+        Ok(())
     }
 }
 
@@ -515,8 +564,15 @@ impl HostCompositor for ViewsCtx<'_> {
         compositor: Resource<Compositor>,
         opaque: bool,
     ) -> wasmtime::Result<Resource<CompositionLayer>> {
-        let layer = self.table.get(&compositor)?.0.make_layer(opaque);
+        let layer = self.table.get(&compositor)?.shell.make_layer(opaque);
         Ok(self.table.push(CompositionLayer::of(layer))?)
+    }
+
+    fn accepted_formats(
+        &mut self,
+        compositor: Resource<Compositor>,
+    ) -> wasmtime::Result<Vec<HardwareBufferFormat>> {
+        Ok(self.table.get(&compositor)?.accepted_formats.to_vec())
     }
 
     fn drop(&mut self, compositor: Resource<Compositor>) -> wasmtime::Result<()> {

@@ -14,7 +14,7 @@ use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
 
-use waos_webgpu_host::Device;
+use waos_gpu_host::Device;
 
 use crate::gpu::{Finishing, GpuInstance, wait_for, wgpu_core};
 use crate::os::FinishHandOver;

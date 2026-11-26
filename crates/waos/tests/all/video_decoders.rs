@@ -29,7 +29,12 @@ fn a_decoder_takes_key_frames_first_lends_no_more_frames_than_asked_and_says_why
     let running = engine.run(&program, printing_to(&output)).unwrap();
 
     output.wait_for("waiting for the decoder to end");
-    let decoder = Arc::clone(&shell.video_decoders.opened()[0]);
+    assert_eq!(
+        shell.gpus.asked().len(),
+        1,
+        "the program asked once for the decoders of its device's GPU"
+    );
+    let decoder = Arc::clone(&shell.gpus.video_decoders.opened()[0]);
     assert!(matches!(
         decoder.setup,
         VideoStreamSetup::H264(NalFormat::StartCodes(None))
@@ -98,7 +103,7 @@ fn a_decoder_takes_key_frames_first_lends_no_more_frames_than_asked_and_says_why
 fn a_shell_without_video_decoders_gives_the_program_none() {
     let shell = TestShell::new();
     let mut parts = shell.shell();
-    parts.video_decoders = None;
+    parts.gpus = None;
     let engine = WaOS::new(config(), parts, shell.platform()).unwrap();
     let program = engine
         .load(Path::new(waos_test_programs::VIDEO_DECODERS))

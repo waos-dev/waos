@@ -1,6 +1,7 @@
 //! Gives the GPU a shader as naga's module (`ShaderSource::Naga`), the form a program that builds
 //! or translates its shaders in memory has, and prints what the shader computed: each number
 //! doubled. WaOS's boundary carries WGSL text alone, so the module is written as WGSL on its way.
+//! Then gives it a module naga's validation refuses, and prints what an error scope caught.
 
 use std::borrow::Cow;
 use std::sync::mpsc;
@@ -17,6 +18,9 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
 
 const NUMBERS: [u32; 4] = [1, 2, 3, 4];
 
+/// A shader that parses, as naga's module, and that naga's validation refuses: no workgroup.
+const INVALID: &str = "@compute @workgroup_size(0) fn main() {}";
+
 #[wasdk::main]
 async fn main() -> Result<(), String> {
     let (device, queue) = device().await?;
@@ -31,6 +35,20 @@ async fn main() -> Result<(), String> {
 
     let doubled = doubled(&device, &queue, &shader)?;
     println!("doubled: {doubled:?}");
+
+    let invalid = naga::front::wgsl::parse_str(INVALID)
+        .map_err(|error| format!("the invalid shader does not parse: {error}"))?;
+    let scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
+    let _invalid = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("invalid"),
+        source: wgpu::ShaderSource::Naga(Cow::Owned(invalid)),
+    });
+    let caught = match scope.pop().await {
+        Some(wgpu::Error::Validation { .. }) => "validation",
+        Some(_) => "another error",
+        None => "none",
+    };
+    println!("an invalid module, the scope caught: {caught}");
     Ok(())
 }
 

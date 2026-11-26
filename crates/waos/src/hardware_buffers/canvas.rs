@@ -1,25 +1,26 @@
-//! A view's canvas: what the WebGPU host's canvas context draws into, over the view's hardware
+//! A view's canvas: the target of the view's surface (`wasdk:gpu`'s), over the view's hardware
 //! buffers, and how a drawn frame is presented. The canvas is the one owner of the view's hardware
-//! buffers and of their handle on the program's device: it lives as long as the program's contexts
-//! on it, and the shell keeps a presented hardware buffer on its own.
+//! buffers and of their handle on the program's device: it lives as long as the program's handles
+//! on the view's surface, and the shell keeps a presented hardware buffer on its own.
 //!
-//! The canvas is the size the program set (`view.set-canvas-size`), never the view's: its
-//! hardware buffers are allocated at that size when a context is configured, and again when the
-//! program sets another, at the next texture taken; a change of the view's size changes nothing
-//! here. A canvas with no size set has nothing to allocate, and configuring it traps the program.
+//! The canvas is the size the program configured its surface at, never the view's: its hardware
+//! buffers are allocated at that size when the surface is configured, and again when the program
+//! configures another; a change of the view's size changes nothing here.
 //!
-//! Every context a program takes on one view draws into the same canvas: a program's canvases
-//! are kept by view, weakly, so a canvas goes when the program drops its last context on it.
+//! Every handle a program takes on one view's surface is the same surface over the same canvas:
+//! a program's surfaces are kept by view, weakly, so a canvas goes when the program drops its last
+//! handle on it.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, Weak};
 
-use waos_webgpu_host::{CanvasSurface, Device, GpuObject};
+use waos_gpu_host::{Device, GpuObject, Surface, SurfaceFrame, SurfaceTarget, WeakSurface};
 use wasmtime::bail;
+use wgpu_core::present::ConfigureSurfaceError;
 
 use super::finisher::{FrameFinisher, Wait};
 use super::view_hardware_buffers::{Allocation, DrawnFrame, FrameTexture, ViewHardwareBuffers};
-use crate::HardwareBufferMode;
+use crate::BufferKind;
 use crate::bindings::wasdk::platform::views::ViewId;
 use crate::engine_time::{EngineClock, Timer};
 use crate::gpu::{
@@ -40,10 +41,23 @@ const USAGES: wgpu_types::TextureUsages = wgpu_types::TextureUsages::RENDER_ATTA
     .union(wgpu_types::TextureUsages::COPY_SRC)
     .union(wgpu_types::TextureUsages::COPY_DST);
 
-const NOT_CONFIGURED: &str = "the view's canvas context is not configured";
+const NOT_CONFIGURED: &str = "the view's surface is not configured";
 
-const NO_SIZE: &str =
-    "the view's canvas has no size: the program sets it with `view.set-canvas-size` first";
+/// How the frames wait for the screen: in order, one each time the view is shown; the automatic
+/// modes come to this.
+const PRESENT_MODES: [wgpu_types::PresentMode; 3] = [
+    wgpu_types::PresentMode::Fifo,
+    wgpu_types::PresentMode::AutoVsync,
+    wgpu_types::PresentMode::AutoNoVsync,
+];
+
+/// How the shell composes a frame's alpha: ignored, or premultiplied; the automatic mode is the
+/// first.
+const ALPHA_MODES: [wgpu_types::CompositeAlphaMode; 3] = [
+    wgpu_types::CompositeAlphaMode::Opaque,
+    wgpu_types::CompositeAlphaMode::PreMultiplied,
+    wgpu_types::CompositeAlphaMode::Auto,
+];
 
 /// A view's hardware buffers, and the thread that hands each drawn frame to the shell.
 pub(crate) struct ViewCanvas {
@@ -70,7 +84,7 @@ impl ViewCanvas {
         lifecycle: Lifecycle,
         clock: EngineClock,
         in_flight: Arc<InFlight>,
-        hardware_buffers: HardwareBufferMode,
+        hardware_buffers: BufferKind,
     ) -> Arc<ViewCanvas> {
         let id = view.id();
         let buffers =
@@ -173,34 +187,43 @@ impl ViewCanvas {
     }
 }
 
-impl CanvasSurface for ViewCanvas {
-    /// The size the next frame is drawn at, as the program set it; nothing, zero by zero, before
-    /// it set one, which `configure` refuses.
-    fn size(&self) -> (u32, u32) {
-        let [width, height] = self.buffers.view.canvas_size().unwrap_or_default();
-        (width, height)
+impl SurfaceTarget for ViewCanvas {
+    /// The hardware buffers' one format, in sRGB, on any adapter: drawn into, sampled and copied
+    /// from, presented in order, opaque or with its alpha premultiplied.
+    fn capabilities(
+        &self,
+        _instance: &wgpu_core::global::Global,
+        _adapter: wgpu_core::id::AdapterId,
+    ) -> wgpu_types::SurfaceCapabilities {
+        wgpu_types::SurfaceCapabilities {
+            formats: vec![FORMAT],
+            format_capabilities: vec![wgpu_types::SurfaceFormatCapabilities {
+                format: FORMAT,
+                color_spaces: wgpu_types::SurfaceColorSpaces::SRGB,
+            }],
+            present_modes: PRESENT_MODES[..1].to_vec(),
+            alpha_modes: ALPHA_MODES[..2].to_vec(),
+            usages: USAGES,
+        }
     }
 
     /// Allocates the hardware buffers at the size `configuration` gives, to be drawn on `device`
     /// and finished on its queue, each frame's texture made for the usage it asks and viewable in
-    /// the formats it names. Called again whenever the size the program set no longer fits. A
-    /// format, a view format or a usage the hardware buffers cannot serve is refused rather than
-    /// left out, since a frame that relied on it would be rejected by the GPU; and so are no size
-    /// and a size past the device's largest 2D texture.
+    /// the formats it names. What the hardware buffers cannot serve is refused rather than left
+    /// out, since a frame that relied on it would be rejected by the GPU, as is a size of zero or
+    /// past the device's largest 2D texture. An allocation the system refuses traps the program.
     fn configure(
         &self,
-        instance: &wgpu_core::global::Global,
         device: &Device,
         configuration: &wgpu_types::SurfaceConfiguration<Vec<wgpu_types::TextureFormat>>,
-    ) -> wasmtime::Result<()> {
-        if self.buffers.view.canvas_size().is_none() {
-            bail!(NO_SIZE)
-        }
-        let largest = instance
+    ) -> wasmtime::Result<Result<(), ConfigureSurfaceError>> {
+        let largest = self
+            .gpu
             .device_limits(device.device_id())
             .max_texture_dimension_2d;
-        check_size(configuration, largest)?;
-        check_served(configuration)?;
+        if let Err(refusal) = check_size(configuration, largest).and(check_served(configuration)) {
+            return Ok(Err(refusal));
+        }
         let allocation = Allocation::new(
             configuration,
             device,
@@ -211,7 +234,7 @@ impl CanvasSurface for ViewCanvas {
         // The hardware buffers that were here belong to the old size. A frame the shell is still
         // showing keeps its own alive through the hardware buffer it holds.
         *self.buffers.allocation() = Some(allocation);
-        Ok(())
+        Ok(Ok(()))
     }
 
     /// The texture for the frame being drawn, over a free hardware buffer, or one added when the
@@ -221,13 +244,21 @@ impl CanvasSurface for ViewCanvas {
     /// pixels undefined, which a frame drawn whole never reads, and the system then needs nothing
     /// taken back.
     ///
-    /// On a lost device the texture is invalid, as WebGPU's `getCurrentTexture` answers there,
-    /// and the hardware buffer is not handed out: the frame draws nothing and is skipped.
-    fn current_texture(&self, instance: &GpuInstance) -> wasmtime::Result<FrameTexture> {
+    /// On a lost device the texture is invalid, as wgpu-core's surfaces answer there,
+    /// and the hardware buffer is not handed out: the frame draws nothing and is skipped. While the
+    /// view is out of sight there is no texture: the surface answers `occluded`, as the view's
+    /// frames stop then.
+    fn current_texture(&self) -> wasmtime::Result<SurfaceFrame> {
         let mut guard = self.buffers.allocation();
         let Some(allocation) = guard.as_mut() else {
             bail!(NOT_CONFIGURED)
         };
+        if !self.buffers.view.in_sight() {
+            return Ok(SurfaceFrame {
+                status: wgpu_types::SurfaceStatus::Occluded,
+                texture: None,
+            });
+        }
         let index = self.hardware_buffer_for_next_frame(allocation)?;
         let texture = allocation
             .pool
@@ -239,9 +270,9 @@ impl CanvasSurface for ViewCanvas {
                 &allocation.view_formats,
             )
             .map_err(wasmtime::Error::from_anyhow)?;
-        let texture: FrameTexture = Arc::new(GpuObject::new(texture, instance));
+        let texture: FrameTexture = Arc::new(GpuObject::new(texture, &self.gpu));
         if allocation.device.is_lost() {
-            return Ok(texture);
+            return Ok(drawn_into(texture));
         }
         allocation.hand_out(index, Arc::clone(&texture));
         let (device, usage) = (allocation.device.clone(), allocation.usage);
@@ -257,73 +288,158 @@ impl CanvasSurface for ViewCanvas {
                 "a frame's texture is taken while the program is frozen: drawn into as it arrives"
             );
         }
-        Ok(texture)
+        Ok(drawn_into(texture))
+    }
+
+    /// What sRGB says of the range: the system's display is not read yet.
+    fn hdr_info(
+        &self,
+        _instance: &wgpu_core::global::Global,
+        _adapter: wgpu_core::id::AdapterId,
+    ) -> wgpu_types::DisplayHdrInfo {
+        wgpu_types::DisplayHdrInfo::default()
     }
 }
 
-/// Refuses a size past `largest`, the device's largest 2D texture on a side.
+/// A frame drawn into `texture`, which the view shows when presented.
+fn drawn_into(texture: FrameTexture) -> SurfaceFrame {
+    SurfaceFrame {
+        status: wgpu_types::SurfaceStatus::Good,
+        texture: Some(texture),
+    }
+}
+
+/// Refuses a size of zero, or past `largest`, the device's largest 2D texture on a side.
 fn check_size(
     configuration: &wgpu_types::SurfaceConfiguration<Vec<wgpu_types::TextureFormat>>,
     largest: u32,
-) -> wasmtime::Result<()> {
+) -> Result<(), ConfigureSurfaceError> {
     let (width, height) = (configuration.width, configuration.height);
+    if width == 0 || height == 0 {
+        return Err(ConfigureSurfaceError::ZeroArea);
+    }
     if width > largest || height > largest {
-        bail!(
-            "a view's canvas of {width}×{height} is past the device's largest texture, {largest} on a side"
-        )
+        return Err(ConfigureSurfaceError::TooLarge {
+            width,
+            height,
+            max_texture_dimension_2d: largest,
+        });
     }
     Ok(())
 }
 
-/// Refuses a configuration asking for a format, a view format or a usage the hardware buffers
-/// cannot serve. A texture over one is viewed in its own format or its sRGB counterpart, as
-/// WebGPU's canvas allows.
+/// Refuses a configuration asking for a format, a view format, a usage, a present mode, an
+/// alpha mode or a colour space the hardware buffers cannot serve. A texture over one is viewed
+/// in its own format or its sRGB counterpart, as wgpu's surfaces allow.
 fn check_served(
     configuration: &wgpu_types::SurfaceConfiguration<Vec<wgpu_types::TextureFormat>>,
-) -> wasmtime::Result<()> {
+) -> Result<(), ConfigureSurfaceError> {
     let format = configuration.format;
     if format != FORMAT {
-        bail!("a view's hardware buffers are drawn in {FORMAT:?}, not {format:?}")
+        return Err(ConfigureSurfaceError::UnsupportedFormat {
+            requested: format,
+            available: vec![FORMAT],
+        });
     }
-    let unviewable: Vec<_> = configuration
+    if let Some(&view_format) = configuration
         .view_formats
         .iter()
-        .filter(|view_format| view_format.remove_srgb_suffix() != FORMAT)
-        .collect();
-    if !unviewable.is_empty() {
-        bail!("a view's hardware buffers in {FORMAT:?} cannot be viewed as {unviewable:?}")
+        .find(|view_format| view_format.remove_srgb_suffix() != FORMAT)
+    {
+        return Err(ConfigureSurfaceError::InvalidViewFormat(
+            view_format,
+            FORMAT,
+        ));
     }
-    let unserved = configuration.usage - USAGES;
-    if !unserved.is_empty() {
-        bail!("a view's hardware buffers cannot be used for {unserved:?}")
+    if !USAGES.contains(configuration.usage) {
+        return Err(ConfigureSurfaceError::UnsupportedUsage {
+            requested: texture_uses(configuration.usage),
+            available: texture_uses(USAGES),
+        });
+    }
+    if !PRESENT_MODES.contains(&configuration.present_mode) {
+        return Err(ConfigureSurfaceError::UnsupportedPresentMode {
+            requested: configuration.present_mode,
+            available: PRESENT_MODES[..1].to_vec(),
+        });
+    }
+    if !ALPHA_MODES.contains(&configuration.alpha_mode) {
+        return Err(ConfigureSurfaceError::UnsupportedAlphaMode {
+            requested: configuration.alpha_mode,
+            available: ALPHA_MODES[..2].to_vec(),
+        });
+    }
+    let color_space = configuration.color_space;
+    if !matches!(
+        color_space,
+        wgpu_types::SurfaceColorSpace::Auto | wgpu_types::SurfaceColorSpace::Srgb
+    ) {
+        return Err(ConfigureSurfaceError::UnsupportedColorSpace {
+            requested: color_space,
+            format,
+            available: wgpu_types::SurfaceColorSpaces::SRGB,
+        });
     }
     Ok(())
 }
 
-/// One program's canvases, by view: a context taken on a view draws into the canvas the view
-/// has, and a view gets a new one once the program has dropped every context on the last.
+/// `usage` as the uses wgpu-core names a surface's refusal in.
+fn texture_uses(usage: wgpu_types::TextureUsages) -> wgpu_types::TextureUses {
+    use wgpu_types::{TextureUsages as Usage, TextureUses as Uses};
+    [
+        (Usage::COPY_SRC, Uses::COPY_SRC),
+        (Usage::COPY_DST, Uses::COPY_DST),
+        (Usage::TEXTURE_BINDING, Uses::RESOURCE),
+        (Usage::STORAGE_BINDING, Uses::STORAGE_READ_WRITE),
+        (Usage::RENDER_ATTACHMENT, Uses::COLOR_TARGET),
+        (Usage::STORAGE_ATOMIC, Uses::STORAGE_ATOMIC),
+        (Usage::TRANSIENT_ATTACHMENT, Uses::TRANSIENT),
+    ]
+    .into_iter()
+    .filter(|(flag, _)| usage.contains(*flag))
+    .fold(Uses::empty(), |uses, (_, used)| uses | used)
+}
+
+/// One program's views' surfaces, by view: each handle the program takes on a view's surface is
+/// the one surface over the view's canvas, and a view gets a new one once the program has dropped
+/// every handle on the last.
 #[derive(Default)]
-pub(crate) struct Canvases(Mutex<HashMap<ViewId, Weak<ViewCanvas>>>);
+pub(crate) struct Canvases(Mutex<HashMap<ViewId, ViewSurface>>);
+
+/// A view's surface and its canvas, kept weakly: the surface holds the canvas.
+struct ViewSurface {
+    surface: WeakSurface,
+    canvas: Weak<ViewCanvas>,
+}
 
 impl Canvases {
-    /// The canvas of `view`, or the one `make` makes when it has none.
-    pub(crate) fn for_view(
+    /// The surface of `view`, over the canvas `make` makes when it has none.
+    pub(crate) fn surface_of(
         &self,
         view: ViewId,
         make: impl FnOnce() -> Arc<ViewCanvas>,
-    ) -> Arc<ViewCanvas> {
+    ) -> Surface {
         let mut canvases = locked(&self.0);
-        if let Some(canvas) = canvases.get(&view).and_then(Weak::upgrade) {
-            return canvas;
+        if let Some(surface) = canvases.get(&view).and_then(|kept| kept.surface.upgrade()) {
+            return surface;
         }
         let canvas = make();
-        canvases.insert(view, Arc::downgrade(&canvas));
-        canvas
+        let surface = Surface::new(Arc::clone(&canvas) as Arc<dyn SurfaceTarget>);
+        canvases.insert(
+            view,
+            ViewSurface {
+                surface: surface.downgrade(),
+                canvas: Arc::downgrade(&canvas),
+            },
+        );
+        surface
     }
 
-    /// The canvas of `view`, while the program holds a context on it.
+    /// The canvas of `view`, while the program holds its surface.
     pub(crate) fn of_view(&self, view: ViewId) -> Option<Arc<ViewCanvas>> {
-        locked(&self.0).get(&view).and_then(Weak::upgrade)
+        locked(&self.0)
+            .get(&view)
+            .and_then(|kept| kept.canvas.upgrade())
     }
 }
 
@@ -369,7 +485,10 @@ mod tests {
     fn a_view_format_other_than_the_canvas_format_or_its_srgb_counterpart_is_refused() {
         let other = wgpu_types::TextureFormat::Rgba8UnormSrgb;
         let refusal = check_served(&viewed_as(vec![other])).unwrap_err();
-        assert!(refusal.to_string().contains("Rgba8UnormSrgb"), "{refusal}");
+        assert!(
+            matches!(refusal, ConfigureSurfaceError::InvalidViewFormat(..)),
+            "{refusal}"
+        );
     }
 
     #[test]
@@ -378,7 +497,10 @@ mod tests {
             canvas_configuration(FORMAT, wgpu_types::TextureUsages::RENDER_ATTACHMENT);
         assert!(check_size(&configuration, 4).is_ok());
         let refusal = check_size(&configuration, 3).unwrap_err();
-        assert!(refusal.to_string().contains("4×4"), "{refusal}");
+        assert!(
+            matches!(refusal, ConfigureSurfaceError::TooLarge { width: 4, .. }),
+            "{refusal}"
+        );
     }
 
     /// A renderer that snapshots its target for a backdrop blur copies from the canvas.
@@ -394,7 +516,10 @@ mod tests {
         let usage = wgpu_types::TextureUsages::RENDER_ATTACHMENT
             | wgpu_types::TextureUsages::STORAGE_BINDING;
         let refusal = check_served(&canvas_configuration(FORMAT, usage)).unwrap_err();
-        assert!(refusal.to_string().contains("STORAGE_BINDING"));
+        assert!(
+            matches!(refusal, ConfigureSurfaceError::UnsupportedUsage { .. }),
+            "{refusal}"
+        );
     }
 
     #[test]

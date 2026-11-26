@@ -1,9 +1,8 @@
 //! Pipeline layouts and render and compute pipelines.
 
-use wasdk::webgpu::{
-    GpuComputePipeline, GpuComputePipelineDescriptor, GpuDevice, GpuFragmentState, GpuLayoutMode,
-    GpuPipelineLayout, GpuPipelineLayoutDescriptor, GpuProgrammableStage, GpuRenderPipeline,
-    GpuRenderPipelineDescriptor, GpuVertexState, RecordGpuPipelineConstantValue,
+use wasdk::gpu::{
+    ComputePipeline, ComputePipelineDescriptor, Device, FragmentState, PipelineLayout,
+    PipelineLayoutDescriptor, RenderPipeline, RenderPipelineDescriptor, VertexState,
 };
 use wgpu::custom::{
     ComputePipelineInterface, DispatchBindGroupLayout, DispatchComputePipeline,
@@ -13,12 +12,13 @@ use wgpu::custom::{
 
 use crate::binding::WasdkBindGroupLayout;
 use crate::convert;
-use crate::gap::{feature_gap, wasi_gap};
+use crate::left_out::left_out;
 use crate::shader::WasdkShaderModule;
 
+/// The layout behind a [`wgpu::PipelineLayout`] from this backend.
 #[derive(Debug)]
 pub struct WasdkPipelineLayout {
-    layout: GpuPipelineLayout,
+    layout: PipelineLayout,
 }
 
 downcast!(WasdkPipelineLayout: api wgpu::PipelineLayout);
@@ -26,34 +26,45 @@ downcast!(WasdkPipelineLayout: api wgpu::PipelineLayout);
 impl PipelineLayoutInterface for WasdkPipelineLayout {}
 
 pub(crate) fn create_pipeline_layout(
-    device: &GpuDevice,
+    device: &Device,
     desc: &wgpu::PipelineLayoutDescriptor<'_>,
 ) -> DispatchPipelineLayout {
-    let descriptor = GpuPipelineLayoutDescriptor {
-        bind_group_layouts: desc
-            .bind_group_layouts
-            .iter()
+    let descriptor = PipelineLayoutDescriptor {
+        label: convert::label(desc.label),
+        bind_group_layouts: (desc.bind_group_layouts.iter())
             .map(|layout| {
-                layout.map(|layout| WasdkBindGroupLayout::of(layout).gpu_bind_group_layout())
+                layout.map(|layout| WasdkBindGroupLayout::of(layout).wit_bind_group_layout())
             })
             .collect(),
-        immediate_size: Some(desc.immediate_size),
-        label: convert::label(desc.label),
+        immediate_size: desc.immediate_size,
     };
     DispatchPipelineLayout::custom(WasdkPipelineLayout {
         layout: device.create_pipeline_layout(&descriptor),
     })
 }
 
+/// The layout a pipeline descriptor names; none for one the pipeline makes from its shaders.
+fn layout_of(layout: Option<&wgpu::PipelineLayout>) -> Option<&PipelineLayout> {
+    layout.map(|layout| &WasdkPipelineLayout::of(layout).layout)
+}
+
+/// A pipeline cache is the engine's to keep, for every program's pipelines alike.
+fn check_no_cache(cache: Option<&wgpu::PipelineCache>) {
+    if cache.is_some() {
+        left_out("pipeline caches (a pipeline descriptor's `cache`), which the engine keeps");
+    }
+}
+
+/// The pipeline behind a [`wgpu::RenderPipeline`] from this backend.
 #[derive(Debug)]
 pub struct WasdkRenderPipeline {
-    pipeline: GpuRenderPipeline,
+    pipeline: RenderPipeline,
 }
 
 downcast!(WasdkRenderPipeline: dispatch DispatchRenderPipeline);
 
 impl WasdkRenderPipeline {
-    pub(crate) fn gpu_render_pipeline(&self) -> &GpuRenderPipeline {
+    pub(crate) fn wit_render_pipeline(&self) -> &RenderPipeline {
         &self.pipeline
     }
 }
@@ -61,72 +72,61 @@ impl WasdkRenderPipeline {
 impl RenderPipelineInterface for WasdkRenderPipeline {
     fn get_bind_group_layout(&self, index: u32) -> DispatchBindGroupLayout {
         DispatchBindGroupLayout::custom(WasdkBindGroupLayout::new(
-            self.pipeline.get_bind_group_layout(index),
+            self.pipeline.bind_group_layout(index),
         ))
     }
 }
 
 pub(crate) fn create_render_pipeline(
-    device: &GpuDevice,
+    device: &Device,
     desc: &wgpu::RenderPipelineDescriptor<'_>,
 ) -> DispatchRenderPipeline {
-    if desc.cache.is_some() {
-        wasi_gap("pipeline caches (RenderPipelineDescriptor::cache)");
-    }
-    if desc.multiview_mask.is_some() {
-        feature_gap(
-            wgpu::Features::MULTIVIEW,
-            "RenderPipelineDescriptor::multiview_mask",
-        );
-    }
-    let vertex = GpuVertexState {
-        buffers: Some(
-            desc.vertex
-                .buffers
-                .iter()
-                .map(|layout| layout.as_ref().map(convert::vertex_buffer_layout_to_wasi))
-                .collect(),
-        ),
-        module: WasdkShaderModule::of(desc.vertex.module).gpu_shader_module(),
+    check_no_cache(desc.cache);
+    let vertex = VertexState {
+        module: WasdkShaderModule::of(desc.vertex.module).wit_shader_module(),
         entry_point: desc.vertex.entry_point.map(str::to_owned),
-        constants: constants_to_wasi(&desc.vertex.compilation_options),
-    };
-    let fragment = desc.fragment.as_ref().map(|fragment| GpuFragmentState {
-        targets: fragment
-            .targets
-            .iter()
-            .map(|target| target.as_ref().map(convert::color_target_to_wasi))
+        compilation_options: convert::pipeline_compilation_options_to_wit(
+            &desc.vertex.compilation_options,
+        ),
+        buffers: (desc.vertex.buffers.iter())
+            .map(|layout| layout.as_ref().map(convert::vertex_buffer_layout_to_wit))
             .collect(),
-        module: WasdkShaderModule::of(fragment.module).gpu_shader_module(),
+    };
+    let fragment = desc.fragment.as_ref().map(|fragment| FragmentState {
+        module: WasdkShaderModule::of(fragment.module).wit_shader_module(),
         entry_point: fragment.entry_point.map(str::to_owned),
-        constants: constants_to_wasi(&fragment.compilation_options),
+        compilation_options: convert::pipeline_compilation_options_to_wit(
+            &fragment.compilation_options,
+        ),
+        targets: (fragment.targets.iter())
+            .map(|target| target.as_ref().map(convert::color_target_to_wit))
+            .collect(),
     });
-    let descriptor = GpuRenderPipelineDescriptor {
-        vertex,
-        primitive: Some(convert::primitive_state_to_wasi(&desc.primitive)),
-        depth_stencil: desc
-            .depth_stencil
-            .as_ref()
-            .map(convert::depth_stencil_state_to_wasi),
-        multisample: Some(convert::multisample_state_to_wasi(&desc.multisample)),
-        fragment,
-        layout: layout_mode(desc.layout),
+    let descriptor = RenderPipelineDescriptor {
         label: convert::label(desc.label),
+        layout: layout_of(desc.layout),
+        vertex,
+        primitive: convert::primitive_state_to_wit(&desc.primitive),
+        depth_stencil: (desc.depth_stencil.as_ref()).map(convert::depth_stencil_state_to_wit),
+        multisample: convert::multisample_state_to_wit(&desc.multisample),
+        fragment,
+        multiview_mask: desc.multiview_mask.map(std::num::NonZeroU32::get),
     };
     DispatchRenderPipeline::custom(WasdkRenderPipeline {
-        pipeline: device.create_render_pipeline(descriptor),
+        pipeline: device.create_render_pipeline(&descriptor),
     })
 }
 
+/// The pipeline behind a [`wgpu::ComputePipeline`] from this backend.
 #[derive(Debug)]
 pub struct WasdkComputePipeline {
-    pipeline: GpuComputePipeline,
+    pipeline: ComputePipeline,
 }
 
 downcast!(WasdkComputePipeline: dispatch DispatchComputePipeline);
 
 impl WasdkComputePipeline {
-    pub(crate) fn gpu_compute_pipeline(&self) -> &GpuComputePipeline {
+    pub(crate) fn wit_compute_pipeline(&self) -> &ComputePipeline {
         &self.pipeline
     }
 }
@@ -134,50 +134,26 @@ impl WasdkComputePipeline {
 impl ComputePipelineInterface for WasdkComputePipeline {
     fn get_bind_group_layout(&self, index: u32) -> DispatchBindGroupLayout {
         DispatchBindGroupLayout::custom(WasdkBindGroupLayout::new(
-            self.pipeline.get_bind_group_layout(index),
+            self.pipeline.bind_group_layout(index),
         ))
     }
 }
 
 pub(crate) fn create_compute_pipeline(
-    device: &GpuDevice,
+    device: &Device,
     desc: &wgpu::ComputePipelineDescriptor<'_>,
 ) -> DispatchComputePipeline {
-    if desc.cache.is_some() {
-        wasi_gap("pipeline caches (ComputePipelineDescriptor::cache)");
-    }
-    let descriptor = GpuComputePipelineDescriptor {
-        compute: GpuProgrammableStage {
-            module: WasdkShaderModule::of(desc.module).gpu_shader_module(),
-            entry_point: desc.entry_point.map(str::to_owned),
-            constants: constants_to_wasi(&desc.compilation_options),
-        },
-        layout: layout_mode(desc.layout),
+    check_no_cache(desc.cache);
+    let descriptor = ComputePipelineDescriptor {
         label: convert::label(desc.label),
+        layout: layout_of(desc.layout),
+        module: WasdkShaderModule::of(desc.module).wit_shader_module(),
+        entry_point: desc.entry_point.map(str::to_owned),
+        compilation_options: convert::pipeline_compilation_options_to_wit(
+            &desc.compilation_options,
+        ),
     };
     DispatchComputePipeline::custom(WasdkComputePipeline {
-        pipeline: device.create_compute_pipeline(descriptor),
+        pipeline: device.create_compute_pipeline(&descriptor),
     })
-}
-
-fn layout_mode(layout: Option<&wgpu::PipelineLayout>) -> GpuLayoutMode<'_> {
-    match layout {
-        Some(layout) => GpuLayoutMode::Specific(&WasdkPipelineLayout::of(layout).layout),
-        None => GpuLayoutMode::Auto,
-    }
-}
-
-/// The pipeline's override constants. `zero_initialize_workgroup_memory` has no counterpart:
-/// WebGPU always zeroes workgroup memory.
-fn constants_to_wasi(
-    options: &wgpu::PipelineCompilationOptions<'_>,
-) -> Option<RecordGpuPipelineConstantValue> {
-    if options.constants.is_empty() {
-        return None;
-    }
-    let record = RecordGpuPipelineConstantValue::new();
-    for (key, value) in options.constants {
-        record.add(key, *value);
-    }
-    Some(record)
 }

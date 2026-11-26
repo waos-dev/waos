@@ -1,9 +1,11 @@
 //! Command encoders and the command buffers they finish into.
+//!
+//! The invariant: an encoder is the engine's until `finish`, which consumes it, and a command
+//! buffer until `submit`, which consumes it; wgpu makes neither call twice.
 
-use wasdk::webgpu::{
-    GpuCommandBuffer, GpuCommandBufferDescriptor, GpuCommandEncoder, GpuCommandEncoderDescriptor,
-    GpuDevice,
-};
+use std::sync::{Mutex, PoisonError};
+
+use wasdk::gpu::{CommandBuffer, CommandEncoder, Device};
 use wgpu::custom::{
     CommandBufferInterface, CommandEncoderInterface, DispatchBuffer, DispatchCommandBuffer,
     DispatchCommandEncoder, DispatchComputePass, DispatchQuerySet, DispatchRenderPass,
@@ -11,31 +13,34 @@ use wgpu::custom::{
 };
 use wgpu::{Blas, BufferAddress, Tlas};
 
-use crate::buffer::{WasdkBuffer, texel_copy_buffer_to_wasi};
-use crate::gap::wasi_gap;
+use crate::buffer::{WasdkBuffer, texel_copy_buffer_to_wit};
+use crate::left_out::left_out;
 use crate::query::WasdkQuerySet;
-use crate::texture::texel_copy_texture_to_wasi;
+use crate::texture::{WasdkTexture, texel_copy_texture_to_wit};
 use crate::{convert, pass};
 
+/// The encoder behind a [`wgpu::CommandEncoder`] from this backend.
 #[derive(Debug)]
 pub struct WasdkCommandEncoder {
-    encoder: GpuCommandEncoder,
-    /// The encoder's label, which the command buffer it finishes into inherits.
-    label: Option<String>,
+    /// The engine's encoder; none once finished.
+    encoder: Option<CommandEncoder>,
 }
 
 pub(crate) fn create_command_encoder(
-    device: &GpuDevice,
+    device: &Device,
     desc: &wgpu::CommandEncoderDescriptor<'_>,
 ) -> DispatchCommandEncoder {
-    let label = convert::label(desc.label);
-    let descriptor = GpuCommandEncoderDescriptor {
-        label: label.clone(),
-    };
     DispatchCommandEncoder::custom(WasdkCommandEncoder {
-        encoder: device.create_command_encoder(Some(&descriptor)),
-        label,
+        encoder: Some(device.create_command_encoder(desc.label)),
     })
+}
+
+impl WasdkCommandEncoder {
+    fn encoder(&self) -> &CommandEncoder {
+        self.encoder
+            .as_ref()
+            .expect("wgpu records nothing into a finished encoder")
+    }
 }
 
 impl CommandEncoderInterface for WasdkCommandEncoder {
@@ -47,11 +52,11 @@ impl CommandEncoderInterface for WasdkCommandEncoder {
         destination_offset: BufferAddress,
         copy_size: Option<BufferAddress>,
     ) {
-        self.encoder.copy_buffer_to_buffer(
-            WasdkBuffer::of_dispatch(source).gpu_buffer(),
-            Some(source_offset),
-            WasdkBuffer::of_dispatch(destination).gpu_buffer(),
-            Some(destination_offset),
+        self.encoder().copy_buffer_to_buffer(
+            WasdkBuffer::of_dispatch(source).wit_buffer(),
+            source_offset,
+            WasdkBuffer::of_dispatch(destination).wit_buffer(),
+            destination_offset,
             copy_size,
         );
     }
@@ -62,10 +67,10 @@ impl CommandEncoderInterface for WasdkCommandEncoder {
         destination: wgpu::TexelCopyTextureInfo<'_>,
         copy_size: wgpu::Extent3d,
     ) {
-        self.encoder.copy_buffer_to_texture(
-            &texel_copy_buffer_to_wasi(&source),
-            &texel_copy_texture_to_wasi(&destination),
-            convert::extent_to_wasi(copy_size),
+        self.encoder().copy_buffer_to_texture(
+            &texel_copy_buffer_to_wit(&source),
+            &texel_copy_texture_to_wit(&destination),
+            convert::extent_to_wit(copy_size),
         );
     }
 
@@ -75,10 +80,10 @@ impl CommandEncoderInterface for WasdkCommandEncoder {
         destination: wgpu::TexelCopyBufferInfo<'_>,
         copy_size: wgpu::Extent3d,
     ) {
-        self.encoder.copy_texture_to_buffer(
-            &texel_copy_texture_to_wasi(&source),
-            &texel_copy_buffer_to_wasi(&destination),
-            convert::extent_to_wasi(copy_size),
+        self.encoder().copy_texture_to_buffer(
+            &texel_copy_texture_to_wit(&source),
+            &texel_copy_buffer_to_wit(&destination),
+            convert::extent_to_wit(copy_size),
         );
     }
 
@@ -88,36 +93,37 @@ impl CommandEncoderInterface for WasdkCommandEncoder {
         destination: wgpu::TexelCopyTextureInfo<'_>,
         copy_size: wgpu::Extent3d,
     ) {
-        self.encoder.copy_texture_to_texture(
-            &texel_copy_texture_to_wasi(&source),
-            &texel_copy_texture_to_wasi(&destination),
-            convert::extent_to_wasi(copy_size),
+        self.encoder().copy_texture_to_texture(
+            &texel_copy_texture_to_wit(&source),
+            &texel_copy_texture_to_wit(&destination),
+            convert::extent_to_wit(copy_size),
         );
     }
 
     fn begin_compute_pass(&self, desc: &wgpu::ComputePassDescriptor<'_>) -> DispatchComputePass {
-        pass::begin_compute_pass(&self.encoder, desc)
+        pass::begin_compute_pass(self.encoder(), desc)
     }
 
     fn begin_render_pass(&self, desc: &wgpu::RenderPassDescriptor<'_>) -> DispatchRenderPass {
-        pass::begin_render_pass(&self.encoder, desc)
+        pass::begin_render_pass(self.encoder(), desc)
     }
 
     fn finish(&mut self) -> DispatchCommandBuffer {
-        let descriptor = GpuCommandBufferDescriptor {
-            label: self.label.clone(),
-        };
+        let encoder = self.encoder.take().expect("wgpu finishes an encoder once");
         DispatchCommandBuffer::custom(WasdkCommandBuffer {
-            buffer: self.encoder.finish(Some(&descriptor)),
+            buffer: Mutex::new(Some(CommandEncoder::finish(encoder))),
         })
     }
 
     fn clear_texture(
         &self,
-        _texture: &DispatchTexture,
-        _subresource_range: &wgpu::ImageSubresourceRange,
+        texture: &DispatchTexture,
+        subresource_range: &wgpu::ImageSubresourceRange,
     ) {
-        wasi_gap("CommandEncoder::clear_texture")
+        self.encoder().clear_texture(
+            WasdkTexture::of_dispatch(texture).wit_texture(),
+            convert::image_subresource_range_to_wit(subresource_range),
+        );
     }
 
     fn clear_buffer(
@@ -126,29 +132,27 @@ impl CommandEncoderInterface for WasdkCommandEncoder {
         offset: BufferAddress,
         size: Option<BufferAddress>,
     ) {
-        self.encoder.clear_buffer(
-            WasdkBuffer::of_dispatch(buffer).gpu_buffer(),
-            Some(offset),
-            size,
-        );
+        self.encoder()
+            .clear_buffer(WasdkBuffer::of_dispatch(buffer).wit_buffer(), offset, size);
     }
 
     fn insert_debug_marker(&self, label: &str) {
-        self.encoder.insert_debug_marker(label);
+        self.encoder().insert_debug_marker(label);
     }
 
     fn push_debug_group(&self, label: &str) {
-        self.encoder.push_debug_group(label);
+        self.encoder().push_debug_group(label);
     }
 
     fn pop_debug_group(&self) {
-        self.encoder.pop_debug_group();
+        self.encoder().pop_debug_group();
     }
 
-    fn write_timestamp(&self, _query_set: &DispatchQuerySet, _query_index: u32) {
-        wasi_gap(
-            "timestamps inside an encoder (CommandEncoder::write_timestamp); WebGPU writes them at pass boundaries",
-        )
+    fn write_timestamp(&self, query_set: &DispatchQuerySet, query_index: u32) {
+        self.encoder().write_timestamp(
+            WasdkQuerySet::of_dispatch(query_set).wit_query_set(),
+            query_index,
+        );
     }
 
     fn resolve_query_set(
@@ -159,11 +163,11 @@ impl CommandEncoderInterface for WasdkCommandEncoder {
         destination: &DispatchBuffer,
         destination_offset: BufferAddress,
     ) {
-        self.encoder.resolve_query_set(
-            WasdkQuerySet::of_dispatch(query_set).gpu_query_set(),
+        self.encoder().resolve_query_set(
+            WasdkQuerySet::of_dispatch(query_set).wit_query_set(),
             first_query,
             query_count,
-            WasdkBuffer::of_dispatch(destination).gpu_buffer(),
+            WasdkBuffer::of_dispatch(destination).wit_buffer(),
             destination_offset,
         );
     }
@@ -173,7 +177,7 @@ impl CommandEncoderInterface for WasdkCommandEncoder {
         _blas: &mut dyn Iterator<Item = &'a Blas>,
         _tlas: &mut dyn Iterator<Item = &'a Tlas>,
     ) {
-        wasi_gap("ray tracing (CommandEncoder::mark_acceleration_structures_built)")
+        left_out("ray tracing (CommandEncoder::mark_acceleration_structures_built)")
     }
 
     fn build_acceleration_structures<'a>(
@@ -181,7 +185,7 @@ impl CommandEncoderInterface for WasdkCommandEncoder {
         _blas: &mut dyn Iterator<Item = &'a wgpu::BlasBuildEntry<'a>>,
         _tlas: &mut dyn Iterator<Item = &'a Tlas>,
     ) {
-        wasi_gap("ray tracing (CommandEncoder::build_acceleration_structures)")
+        left_out("ray tracing (CommandEncoder::build_acceleration_structures)")
     }
 
     fn transition_resources<'a>(
@@ -193,20 +197,27 @@ impl CommandEncoderInterface for WasdkCommandEncoder {
             Item = wgpu::wgt::TextureTransition<&'a DispatchTexture>,
         >,
     ) {
-        // WebGPU tracks resource state itself; there is nothing to transition.
+        // wgpu-core tracks resource state itself; there is nothing to transition.
     }
 }
 
+/// The command buffer behind a [`wgpu::CommandBuffer`] from this backend.
 #[derive(Debug)]
 pub struct WasdkCommandBuffer {
-    buffer: GpuCommandBuffer,
+    // Taken by `submit`, which wgpu hands the buffer to by reference only.
+    buffer: Mutex<Option<CommandBuffer>>,
 }
 
 downcast!(WasdkCommandBuffer: dispatch DispatchCommandBuffer);
 
 impl WasdkCommandBuffer {
-    pub(crate) fn gpu_command_buffer(&self) -> &GpuCommandBuffer {
-        &self.buffer
+    /// The engine's command buffer, for the submission that consumes it.
+    pub(crate) fn take(&self) -> CommandBuffer {
+        self.buffer
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .take()
+            .expect("wgpu submits a command buffer once")
     }
 }
 

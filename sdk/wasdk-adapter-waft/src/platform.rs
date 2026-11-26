@@ -25,12 +25,12 @@ use futures::channel::mpsc;
 use waft_embedder::image_codecs::ImageCodecs;
 use waft_embedder::{
     AppExit, AppLifecycleState, Brightness, Cameras, CaptionSettings, Clipboard, Compositor,
-    Dispatcher, FileDialogFuture, FileDialogs, Files, FolderOptions, FontSource, HardwareBuffer,
-    HardwareBufferAllocator, HttpClient, ImageCodecFuture, ImageDecodeError, Instant, Locale,
+    Dispatcher, FileDialogFuture, FileDialogs, Files, FolderOptions, FontSource, GpuId,
+    HardwareBuffer, HostGpu, HttpClient, ImageCodecFuture, ImageDecodeError, Instant, Locale,
     MediaAssets, MenuBar, MenuEntry, Notifications, Offset, OpenOptions, Opener, PickedFile,
     PickedFolder, Platform, Players, PopupMenuFuture, PopupMenus, RequestId, SaveOptions, Screens,
-    SignedDuration, TargetPlatform, TrayIcons, VideoFrame, VideoFrameReaders, ViewError, ViewId,
-    ViewRef, WindowBackground, WindowConfig,
+    SignedDuration, SystemGpu, TargetPlatform, TrayIcons, VideoFrame, VideoFrameReaders, ViewError,
+    ViewId, ViewRef, WindowBackground, WindowConfig,
 };
 use wasdk::{lifecycle, system, views};
 
@@ -100,8 +100,10 @@ pub(crate) struct WasdkPlatform {
     caption_settings: Option<WasdkCaptionSettings>,
     /// The system's compositor, where it has one, which the app's composition layers are made on.
     compositor: Option<Arc<WasdkCompositor>>,
-    /// The system's hardware buffer allocator, where it allocates buffers.
-    hardware_buffer_allocator: Option<Arc<WasdkHardwareBufferAllocator>>,
+    /// The program's one GPU, its renderer's device's, as a program names none: the system's
+    /// allocator of buffers drawn on that device, where it allocates buffers; none where it
+    /// allocates none.
+    gpu: Option<Rc<HostGpu>>,
     /// The program's views, by the engine's id for each, which grows as they arrive.
     views: RefCell<BTreeMap<ViewId, ViewWithWindow>>,
     /// The background of each window asked for whose view has not arrived, for what its frames
@@ -137,7 +139,13 @@ impl WasdkPlatform {
             files: WasdkFiles::get(),
             opener: WasdkOpener::get(),
             compositor: WasdkCompositor::get().map(Arc::new),
-            hardware_buffer_allocator: WasdkHardwareBufferAllocator::get().map(Arc::new),
+            gpu: WasdkHardwareBufferAllocator::get(renderer.device()).map(|allocator| {
+                Rc::new(HostGpu {
+                    id: None,
+                    video_decoders: None,
+                    hardware_buffer_allocator: Some(Arc::new(allocator)),
+                })
+            }),
             notifications: WasdkNotifications::get(),
             players: WasdkPlayers::get(),
             media_assets: WasdkMediaAssets::get(),
@@ -366,10 +374,10 @@ impl Platform for WasdkPlatform {
         gpu_interop::import_texture(buffer, device)
     }
 
-    fn hardware_buffer_allocator(&self) -> Option<Arc<dyn HardwareBufferAllocator>> {
-        self.hardware_buffer_allocator
-            .clone()
-            .map(|allocator| allocator as Arc<dyn HardwareBufferAllocator>)
+    /// The program's one GPU, whatever `id` names: the one its renderer's device is on, which WaOS
+    /// names to no program.
+    fn gpu(&self, _id: Option<GpuId>) -> Option<Rc<dyn SystemGpu>> {
+        self.gpu.clone().map(|gpu| gpu as Rc<dyn SystemGpu>)
     }
 
     fn compositor(&self) -> Option<Arc<dyn Compositor>> {

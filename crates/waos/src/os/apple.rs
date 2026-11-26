@@ -1,4 +1,4 @@
-//! An `IOSurface` a program's WebGPU device draws into and the compositor shows, with the same
+//! An `IOSurface` a program's GPU device draws into and the compositor shows, with the same
 //! bytes under both, and the texture over it on the program's wgpu-core device: Metal wraps the
 //! surface, and wgpu-core takes the Metal texture as one of its own. A drawn frame needs nothing
 //! more to reach the compositor: Metal and Core Animation share the surface without a transfer.
@@ -32,17 +32,15 @@ use objc2_metal::{
     MTLDevice, MTLPixelFormat, MTLStorageMode, MTLTexture, MTLTextureDescriptor, MTLTextureType,
     MTLTextureUsage,
 };
-use waos_webgpu_host::wasi::webgpu::webgpu::{
-    GpuTextureDimension, GpuTextureFormat, GpuTextureUsage,
-};
-use waos_webgpu_host::{Device, GpuObject, TextureAttributes};
+use waos_gpu_host::{Device, GpuObject, TextureDescriptor};
 
-use crate::HardwareBufferMode;
+use crate::BufferKind;
 use crate::bindings::wasdk::media::video_frames::{
     PlaneContent, PlaneFormat, PlanePixels, VideoPlane,
 };
 use crate::bindings::wasdk::platform::hardware_buffers::{
-    AlphaType, HardwareBufferUsage, ImageError, ImageErrorKind, PixelBuffer, PixelFormat,
+    AlphaType, HardwareBufferFormat, HardwareBufferUsage, ImageError, ImageErrorKind, PixelBuffer,
+    PixelFormat,
 };
 use crate::gpu::wgpu_types::error::{ErrorType, WebGpuError};
 use crate::gpu::{GpuInstance, wgpu_core, wgpu_types};
@@ -51,7 +49,7 @@ use crate::os::{FinishHandOver, HandOver};
 use crate::shell::{HardwareBuffer, VideoPicture};
 
 /// The format a hardware buffer is allocated in, and so the only one a canvas can be configured
-/// with: WebGPU's preferred canvas format on this platform.
+/// with: the format a view's surface offers on this platform.
 pub(crate) const FORMAT: wgpu_types::TextureFormat = wgpu_types::TextureFormat::Bgra8Unorm;
 
 /// The `OSType` for 32-bit BGRA, the layout Metal's `BGRA8Unorm` reads.
@@ -62,13 +60,31 @@ const BGRA_OS_TYPE: i32 = 0x4247_5241;
 /// into.
 const TWO_PLANE_8_BIT_OS_TYPES: [u32; 2] = [0x3432_3076, 0x3432_3066];
 
-/// One plane of a surface, as Metal, wgpu and a program each name its samples.
+/// The `OSType`s of 10-bit 4:2:0 laid out as the 8-bit, each sample in the high ten bits of
+/// sixteen, in video's range (`x420`) and the whole range (`xf20`): what VideoToolbox decodes
+/// 10-bit video into.
+const TWO_PLANE_10_BIT_OS_TYPES: [u32; 2] = [0x7834_3230, 0x7866_3230];
+
+/// The format of a surface in `pixel_format`, as the interface names it; none for a layout it
+/// names none of.
+fn format_of(pixel_format: u32) -> Option<HardwareBufferFormat> {
+    if pixel_format == BGRA_OS_TYPE as u32 {
+        Some(HardwareBufferFormat::Bgra8)
+    } else if TWO_PLANE_8_BIT_OS_TYPES.contains(&pixel_format) {
+        Some(HardwareBufferFormat::Nv12)
+    } else if TWO_PLANE_10_BIT_OS_TYPES.contains(&pixel_format) {
+        Some(HardwareBufferFormat::P010)
+    } else {
+        None
+    }
+}
+
+/// One plane of a surface, as Metal, wgpu and a program's video frames each name its samples.
 #[derive(Clone, Copy)]
 struct SurfacePlane {
     index: usize,
     format: wgpu_types::TextureFormat,
     metal_format: MTLPixelFormat,
-    gpu_format: GpuTextureFormat,
     plane_format: PlaneFormat,
     content: PlaneContent,
     bit_depth: u8,
@@ -79,7 +95,6 @@ const BGRA_PLANE: SurfacePlane = SurfacePlane {
     index: 0,
     format: FORMAT,
     metal_format: MTLPixelFormat::BGRA8Unorm,
-    gpu_format: GpuTextureFormat::Bgra8unorm,
     plane_format: PlaneFormat::Bgra8,
     content: PlaneContent::Rgba,
     bit_depth: 8,
@@ -91,7 +106,6 @@ const TWO_PLANES_8_BIT: [SurfacePlane; 2] = [
         index: 0,
         format: wgpu_types::TextureFormat::R8Unorm,
         metal_format: MTLPixelFormat::R8Unorm,
-        gpu_format: GpuTextureFormat::R8unorm,
         plane_format: PlaneFormat::R8,
         content: PlaneContent::Luma,
         bit_depth: 8,
@@ -100,7 +114,6 @@ const TWO_PLANES_8_BIT: [SurfacePlane; 2] = [
         index: 1,
         format: wgpu_types::TextureFormat::Rg8Unorm,
         metal_format: MTLPixelFormat::RG8Unorm,
-        gpu_format: GpuTextureFormat::Rg8unorm,
         plane_format: PlaneFormat::Rg8,
         content: PlaneContent::Chroma,
         bit_depth: 8,
@@ -211,7 +224,7 @@ pub(crate) fn plane_texture(
     index: u32,
     usage: wgpu_types::TextureUsages,
     release: wgpu_hal::DropCallback,
-) -> Result<(Arc<GpuObject<wgpu_core::id::TextureId>>, TextureAttributes)> {
+) -> Result<(Arc<GpuObject<wgpu_core::id::TextureId>>, TextureDescriptor)> {
     let format = buffer.surface.pixel_format();
     let Some(plane) = surface_planes(format).and_then(|planes| planes.get(index as usize)) else {
         bail!("a hardware buffer in the format {format:#x} has no plane {index}")
@@ -232,20 +245,8 @@ pub(crate) fn plane_texture(
         device.device_id(),
         Some(release),
     )?;
-    let attributes = TextureAttributes {
-        size: wgpu_types::Extent3d {
-            width: size[0],
-            height: size[1],
-            depth_or_array_layers: 1,
-        },
-        mip_level_count: 1,
-        sample_count: 1,
-        dimension: GpuTextureDimension::D2,
-        format: plane.gpu_format,
-        usage: gpu_usage(usage),
-        texture_binding_view_dimension: None,
-    };
-    Ok((Arc::new(GpuObject::new(texture, gpu)), attributes))
+    let descriptor = crate::gpu::hardware_buffer_texture(size, plane.format, usage);
+    Ok((Arc::new(GpuObject::new(texture, gpu)), descriptor))
 }
 
 /// Bytes one pixel of that format occupies.
@@ -298,7 +299,7 @@ impl HardwareBufferMemory {
         width: u32,
         height: u32,
         usage: HardwareBufferUsage,
-        mode: HardwareBufferMode,
+        mode: BufferKind,
     ) -> Result<HardwareBufferMemory> {
         let _ = (usage, mode);
         let surface = allocate(width as usize, height as usize)?;
@@ -310,21 +311,32 @@ impl HardwareBufferMemory {
         })
     }
 
+    /// Why a buffer in `format` for `usage` is not made here; none where it is: Apple's systems
+    /// allocate surfaces in BGRA, each for every use.
+    pub(crate) fn unsupported(
+        format: HardwareBufferFormat,
+        usage: HardwareBufferUsage,
+    ) -> Option<&'static str> {
+        let _ = usage;
+        (format != HardwareBufferFormat::Bgra8)
+            .then_some("Apple's systems allocate hardware buffers in BGRA")
+    }
+
     /// A program's buffer of `width` by `height` pixels in `format`, sides the program checked:
-    /// `unsupported` for RGBA, which this system's buffers are not allocated in, and
+    /// `unsupported` for any format but BGRA, which this system's buffers are allocated in, and
     /// `out-of-memory` where the system makes no surface. Every surface serves every use, so the
     /// buffer answers every flag of its usage, whatever `usage` asks.
     pub(crate) fn allocate(
         width: u32,
         height: u32,
-        format: PixelFormat,
+        format: HardwareBufferFormat,
         usage: HardwareBufferUsage,
-        mode: HardwareBufferMode,
+        mode: BufferKind,
     ) -> Result<HardwareBufferMemory, ImageError> {
-        if format != PixelFormat::Bgra8 {
+        if let Some(message) = HardwareBufferMemory::unsupported(format, usage) {
             return Err(ImageError {
                 kind: ImageErrorKind::Unsupported,
-                message: "Apple's systems allocate hardware buffers in BGRA".to_owned(),
+                message: message.to_owned(),
             });
         }
         HardwareBufferMemory::new(width, height, usage, mode).map_err(|error| ImageError {
@@ -375,6 +387,17 @@ impl HardwareBufferMemory {
     /// the CPU's uses every surface has.
     pub(crate) fn usage(&self) -> HardwareBufferUsage {
         self.usage
+    }
+
+    /// How the surface lays out its pixels, as its pixel format says: BGRA for one the engine
+    /// allocated or Image I/O decoded into, and a decoder's planes for a video frame's in them. A
+    /// failure is the shell's, which handed over a surface in a layout the interface names no
+    /// format for.
+    pub(crate) fn format(&self) -> Result<HardwareBufferFormat> {
+        let pixel_format = self.surface.pixel_format();
+        format_of(pixel_format).with_context(|| {
+            format!("a hardware buffer in the pixel format {pixel_format:#x}, which wasdk names no format for")
+        })
     }
 
     /// The bytes the buffer's rows take: what a program is counted for holding it.
@@ -432,7 +455,7 @@ impl HardwareBufferMemory {
         device: &Device,
         usage: wgpu_types::TextureUsages,
         release: wgpu_hal::DropCallback,
-    ) -> Result<(Arc<GpuObject<wgpu_core::id::TextureId>>, TextureAttributes)> {
+    ) -> Result<(Arc<GpuObject<wgpu_core::id::TextureId>>, TextureDescriptor)> {
         let format = self.surface.pixel_format();
         if format != BGRA_OS_TYPE as u32 {
             bail!("a hardware buffer is BGRA on Apple's systems, not the format {format:#x}")
@@ -452,20 +475,9 @@ impl HardwareBufferMemory {
         let size = [self.width, self.height];
         let texture =
             surface_texture.over(&self.surface, size, gpu, device.device_id(), Some(release))?;
-        let attributes = TextureAttributes {
-            size: wgpu_types::Extent3d {
-                width: size[0],
-                height: size[1],
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: GpuTextureDimension::D2,
-            format: GpuTextureFormat::Bgra8unorm,
-            usage: gpu_usage(usage),
-            texture_binding_view_dimension: None,
-        };
-        Ok((Arc::new(GpuObject::new(texture, gpu)), attributes))
+        let descriptor =
+            crate::gpu::hardware_buffer_texture(size, wgpu_types::TextureFormat::Bgra8Unorm, usage);
+        Ok((Arc::new(GpuObject::new(texture, gpu)), descriptor))
     }
 
     /// A texture over the buffer's memory on `device` of `gpu`, which the GPU samples, its pixels
@@ -604,7 +616,7 @@ pub(crate) fn filled(
         width,
         height,
         HardwareBufferUsage::empty(),
-        HardwareBufferMode::Auto,
+        BufferKind::GpuMemory(None),
     )
     .expect("a surface for a test");
     let surface = &*memory.surface;
@@ -788,34 +800,6 @@ fn arriving_state(usage: wgpu_types::TextureUsages) -> wgpu_types::TextureUses {
     }
 }
 
-/// `usage` as the WebGPU host tells the program its texture's usage.
-fn gpu_usage(usage: wgpu_types::TextureUsages) -> GpuTextureUsage {
-    let mut answered = GpuTextureUsage::empty();
-    for (wgpu, webgpu) in [
-        (
-            wgpu_types::TextureUsages::COPY_SRC,
-            GpuTextureUsage::COPY_SRC,
-        ),
-        (
-            wgpu_types::TextureUsages::COPY_DST,
-            GpuTextureUsage::COPY_DST,
-        ),
-        (
-            wgpu_types::TextureUsages::TEXTURE_BINDING,
-            GpuTextureUsage::TEXTURE_BINDING,
-        ),
-        (
-            wgpu_types::TextureUsages::RENDER_ATTACHMENT,
-            GpuTextureUsage::RENDER_ATTACHMENT,
-        ),
-    ] {
-        if usage.contains(wgpu) {
-            answered |= webgpu;
-        }
-    }
-    answered
-}
-
 /// Allocates an `IOSurface` of `width` by `height` BGRA8 pixels.
 fn allocate(width: usize, height: usize) -> Result<CFRetained<IOSurfaceRef>> {
     // IOSurface picks its own row stride; asking for the aligned one keeps Metal's view of
@@ -849,4 +833,20 @@ fn allocate(width: usize, height: usize) -> Result<CFRetained<IOSurfaceRef>> {
     // SAFETY: every value is of the type its key names.
     unsafe { IOSurfaceRef::new(properties.as_opaque()) }
         .context("allocating an IOSurface for a view's hardware buffers")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_surfaces_pixel_format_names_its_layout() {
+        let format = |code: &[u8; 4]| format_of(u32::from_be_bytes(*code));
+        assert_eq!(format(b"BGRA"), Some(HardwareBufferFormat::Bgra8));
+        assert_eq!(format(b"420v"), Some(HardwareBufferFormat::Nv12));
+        assert_eq!(format(b"420f"), Some(HardwareBufferFormat::Nv12));
+        assert_eq!(format(b"x420"), Some(HardwareBufferFormat::P010));
+        assert_eq!(format(b"xf20"), Some(HardwareBufferFormat::P010));
+        assert_eq!(format(b"y420"), None);
+    }
 }

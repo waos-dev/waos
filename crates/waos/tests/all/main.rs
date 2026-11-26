@@ -2,7 +2,7 @@
 //! all of them: each module tests one part of the engine, or one program, under the test shell. A
 //! test is named after its module, so `cargo test -p waos --test all survey::` runs survey's. The
 //! modules that draw, or that run a program that does, run on Apple's systems, where the engine
-//! makes hardware buffers; elsewhere a test in place of each of three says so and passes.
+//! makes hardware buffers; elsewhere a test in place of each says so and passes.
 //!
 //! The invariant: the tests run alongside each other in one process, and each test reads only its
 //! own shell and its own programs' outputs (or its own named program's lines in the engine's log,
@@ -43,6 +43,10 @@ mod file_escapes;
 mod files;
 mod fonts;
 mod freezing;
+#[cfg(target_vendor = "apple")]
+mod gpu_calls;
+#[cfg(target_vendor = "apple")]
+mod gpu_errors;
 #[cfg(target_vendor = "apple")]
 mod hardware_buffers;
 #[cfg(target_vendor = "apple")]
@@ -97,6 +101,26 @@ mod composition_layers {
         eprintln!(
             "the engine makes hardware buffers on Apple's systems; the composition layer tests do \
              not run here"
+        );
+    }
+}
+
+#[cfg(not(target_vendor = "apple"))]
+mod gpu_calls {
+    #[test]
+    fn the_gpu_is_not_called_on_this_system() {
+        eprintln!(
+            "the tests' machines have a GPU on Apple's systems; the GPU calls test does not run here"
+        );
+    }
+}
+
+#[cfg(not(target_vendor = "apple"))]
+mod gpu_errors {
+    #[test]
+    fn no_gpu_errors_are_made_on_this_system() {
+        eprintln!(
+            "the tests' machines have a GPU on Apple's systems; the GPU errors test does not run here"
         );
     }
 }

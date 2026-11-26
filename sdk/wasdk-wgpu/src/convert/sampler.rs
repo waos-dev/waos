@@ -1,55 +1,47 @@
 //! Sampler descriptors.
 
-use wasdk::webgpu::{GpuAddressMode, GpuFilterMode, GpuMipmapFilterMode, GpuSamplerDescriptor};
-use wgpu::{AddressMode, Features, FilterMode, MipmapFilterMode, SamplerDescriptor};
+use wasdk::gpu_types as wit;
 
-use super::{compare_function_to_wasi, label};
-use crate::gap::feature_gap;
+use super::{compare_function_to_wit, enum_conversions, label};
 
-pub fn address_mode_to_wasi(mode: AddressMode) -> GpuAddressMode {
-    match mode {
-        AddressMode::ClampToEdge => GpuAddressMode::ClampToEdge,
-        AddressMode::Repeat => GpuAddressMode::Repeat,
-        AddressMode::MirrorRepeat => GpuAddressMode::MirrorRepeat,
-        AddressMode::ClampToBorder => feature_gap(
-            Features::ADDRESS_MODE_CLAMP_TO_BORDER,
-            "AddressMode::ClampToBorder",
-        ),
+enum_conversions! {
+    address_mode_to_wit, address_mode_from_wit: AddressMode <=> AddressMode {
+        ClampToEdge, Repeat, MirrorRepeat, ClampToBorder,
     }
 }
 
-pub fn filter_mode_to_wasi(mode: FilterMode) -> GpuFilterMode {
-    match mode {
-        FilterMode::Nearest => GpuFilterMode::Nearest,
-        FilterMode::Linear => GpuFilterMode::Linear,
+enum_conversions! {
+    filter_mode_to_wit, filter_mode_from_wit: FilterMode <=> FilterMode {
+        Nearest, Linear,
     }
 }
 
-pub fn mipmap_filter_mode_to_wasi(mode: MipmapFilterMode) -> GpuMipmapFilterMode {
-    match mode {
-        MipmapFilterMode::Nearest => GpuMipmapFilterMode::Nearest,
-        MipmapFilterMode::Linear => GpuMipmapFilterMode::Linear,
+enum_conversions! {
+    mipmap_filter_mode_to_wit, mipmap_filter_mode_from_wit: MipmapFilterMode <=> MipmapFilterMode {
+        Nearest, Linear,
     }
 }
 
-pub fn sampler_descriptor_to_wasi(desc: &SamplerDescriptor<'_>) -> GpuSamplerDescriptor {
-    if desc.border_color.is_some() {
-        feature_gap(
-            Features::ADDRESS_MODE_CLAMP_TO_BORDER,
-            "SamplerDescriptor::border_color",
-        );
+enum_conversions! {
+    sampler_border_color_to_wit, sampler_border_color_from_wit:
+        SamplerBorderColor <=> SamplerBorderColor {
+        TransparentBlack, OpaqueBlack, OpaqueWhite, Zero,
     }
-    GpuSamplerDescriptor {
-        address_mode_u: Some(address_mode_to_wasi(desc.address_mode_u)),
-        address_mode_v: Some(address_mode_to_wasi(desc.address_mode_v)),
-        address_mode_w: Some(address_mode_to_wasi(desc.address_mode_w)),
-        mag_filter: Some(filter_mode_to_wasi(desc.mag_filter)),
-        min_filter: Some(filter_mode_to_wasi(desc.min_filter)),
-        mipmap_filter: Some(mipmap_filter_mode_to_wasi(desc.mipmap_filter)),
-        lod_min_clamp: Some(desc.lod_min_clamp),
-        lod_max_clamp: Some(desc.lod_max_clamp),
-        compare: desc.compare.map(compare_function_to_wasi),
-        max_anisotropy: Some(desc.anisotropy_clamp),
+}
+
+pub fn sampler_descriptor_to_wit(desc: &wgpu::SamplerDescriptor<'_>) -> wit::SamplerDescriptor {
+    wit::SamplerDescriptor {
         label: label(desc.label),
+        address_mode_u: address_mode_to_wit(desc.address_mode_u),
+        address_mode_v: address_mode_to_wit(desc.address_mode_v),
+        address_mode_w: address_mode_to_wit(desc.address_mode_w),
+        mag_filter: filter_mode_to_wit(desc.mag_filter),
+        min_filter: filter_mode_to_wit(desc.min_filter),
+        mipmap_filter: mipmap_filter_mode_to_wit(desc.mipmap_filter),
+        lod_min_clamp: desc.lod_min_clamp,
+        lod_max_clamp: desc.lod_max_clamp,
+        compare: desc.compare.map(compare_function_to_wit),
+        anisotropy_clamp: desc.anisotropy_clamp,
+        border_color: desc.border_color.map(sampler_border_color_to_wit),
     }
 }

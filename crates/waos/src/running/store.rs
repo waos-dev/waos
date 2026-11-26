@@ -10,7 +10,7 @@ use std::future;
 use std::sync::Arc;
 
 use waos_capabilities::Role;
-use waos_webgpu_host::{WasiWebGpuCtx, WasiWebGpuCtxView};
+use waos_gpu_host::{GpuCtx, GpuCtxView};
 use wasmtime::component::{HasData, Linker, ResourceTable};
 use wasmtime::{AsContext, Engine, Store, StoreLimitsBuilder, UpdateDeadline};
 use wasmtime_wasi::{I32Exit, WasiCtx, WasiCtxView, WasiView};
@@ -63,8 +63,8 @@ use crate::screens::Screens;
 use crate::screens::host::{ScreensCtx, ScreensCtxView};
 use crate::service_extensions::host::{ServiceExtensionsCtx, ServiceExtensionsCtxView};
 use crate::shell::{
-    ShellCompositor, ShellFileDialogs, ShellImageCodecs, ShellMediaAssets, ShellMediaPlayers,
-    ShellNotifications, ShellOpener, ShellVideoDecoders, ShellVideoFrameReaders, ViewPlacement,
+    ShellFileDialogs, ShellGpus, ShellImageCodecs, ShellMediaAssets, ShellMediaPlayers,
+    ShellNotifications, ShellOpener, ShellVideoFrameReaders, ViewPlacement,
 };
 use crate::source_lines::{self, ComponentFile};
 use crate::stream::{Forwarded, stream_of};
@@ -75,6 +75,7 @@ use crate::trust::host::{TrustCtx, TrustCtxView};
 use crate::video_decoders::host::{VideoDecodersCtx, VideoDecodersCtxView};
 use crate::video_frames::host::{VideoFramesCtx, VideoFramesCtxView};
 use crate::views::ViewLayers;
+use crate::views::host::Compositor;
 use crate::views::host::{ViewsCtx, ViewsCtxView};
 use crate::wasi;
 use crate::windows::host::{WindowsCtx, WindowsCtxView};
@@ -214,7 +215,7 @@ fn linker(engine: &Engine, held: &[Role]) -> wasmtime::Result<Linker<StoreData>>
     crate::files::p3::add_to_linker(&mut linker)?;
     crate::network::host::add_to_linker(&mut linker)?;
     wasmtime_wasi_http::p3::add_to_linker(&mut linker)?;
-    waos_webgpu_host::add_to_linker(&mut linker)?;
+    waos_gpu_host::add_to_linker(&mut linker)?;
     crate::views::host::add_to_linker(&mut linker)?;
     crate::windows::host::add_to_linker(&mut linker)?;
     crate::screens::host::add_to_linker(&mut linker)?;
@@ -379,7 +380,7 @@ fn store_data(
         media_assets: instances.media_assets.clone(),
         image_codecs: instances.image_codecs.clone(),
         video_frame_readers: user_side.video_frame_readers,
-        video_decoders: user_side.video_decoders,
+        gpus: user_side.gpus,
         cameras,
         machines,
         access: access.clone(),
@@ -433,7 +434,7 @@ pub(crate) struct StoreData {
     /// What places the program's views; none in an instance that has none.
     placement: Option<Arc<dyn ViewPlacement>>,
     /// The system's compositor, which makes its composition layers, where the shell has one.
-    compositor: Option<Arc<dyn ShellCompositor>>,
+    compositor: Option<Compositor>,
     screens: Screens,
     settings: SystemSettings,
     /// The user's caption settings, where the system keeps them.
@@ -478,7 +479,9 @@ pub(crate) struct StoreData {
     image_codecs: Option<Arc<dyn ShellImageCodecs>>,
     /// The system's frame readers, where the shell has them.
     video_frame_readers: Option<Arc<dyn ShellVideoFrameReaders>>,
-    video_decoders: Option<Arc<dyn ShellVideoDecoders>>,
+    /// The system's GPUs, where the shell has them, whose video decoders a program's device asks
+    /// for.
+    gpus: Option<Arc<dyn ShellGpus>>,
     /// The system's cameras, where the shell has them and can show them used, and the sessions it
     /// holds.
     cameras: ProgramCameras,
@@ -507,11 +510,12 @@ impl WasiView for StoreData {
     }
 }
 
-impl WasiWebGpuCtxView for StoreData {
-    fn webgpu_ctx(&mut self) -> WasiWebGpuCtx<'_> {
-        WasiWebGpuCtx {
+impl GpuCtxView for StoreData {
+    fn gpu_ctx(&mut self) -> GpuCtx<'_> {
+        GpuCtx {
             instance: &self.gpu,
             table: &mut self.table,
+            adapters: Some(self.program.programs_adapter()),
             device_opener: gpu::device_opener(self.program.hardware_buffers()),
             submissions: Some(self.program.lifecycle()),
             devices: Some(self.devices.as_ref()),
@@ -786,7 +790,8 @@ impl VideoDecodersCtxView for StoreData {
     fn video_decoders_ctx(&mut self) -> VideoDecodersCtx<'_> {
         VideoDecodersCtx {
             table: &mut self.table,
-            decoders: self.video_decoders.as_ref(),
+            gpu: &self.gpu,
+            gpus: self.gpus.as_ref(),
         }
     }
 }

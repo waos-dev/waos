@@ -126,6 +126,10 @@ impl Compositor for Compositing {
     fn make_layer(&self, _opaque: bool) -> Arc<dyn CompositionLayer> {
         Arc::new(Unshown)
     }
+
+    fn accepted_buffers(&self) -> waft::ui::AcceptedBuffers {
+        waft::ui::AcceptedBuffers::default()
+    }
 }
 
 /// Carries out the next call on the canvases, which must be the making of one, as the main thread

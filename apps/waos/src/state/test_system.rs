@@ -117,7 +117,7 @@ impl TestSystem {
         shell.media_players = media_players.as_ref().map(MediaPlayers::shell);
         shell.media_assets = media_assets.as_ref().map(MediaAssets::shell);
         shell.image_codecs = image_codecs.as_ref().map(ImageCodecs::shell);
-        shell.video_decoders = video_decoders.as_ref().map(VideoDecoders::shell);
+        shell.gpus = video_decoders.as_ref().map(VideoDecoders::shell);
         shell.cameras = cameras.as_ref().map(Cameras::shell);
         shell.simulated_cameras = super::simulated_cameras(shell.image_codecs.clone());
         shell.recording_indicator =

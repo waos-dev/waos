@@ -45,7 +45,7 @@ waos-window-messages = { path = "crates/waos-window-messages" }
 waos-local = { path = "capabilities/local" }
 waos-local-processes = { path = "capabilities/local-processes" }
 waos-local-audio = { path = "capabilities/local-audio" }
-waos-webgpu-host = { version = "0.7.1", path = "crates/waos-webgpu-host" }
+waos-gpu-host = { version = "0.7.1", path = "crates/waos-gpu-host" }
 wasdk = { version = "0.7.1", path = "sdk/wasdk" }
 wasdk-macros = { version = "0.7.1", path = "sdk/wasdk-macros" }
 wasdk-wgpu = { version = "0.7.1", path = "sdk/wasdk-wgpu" }
@@ -115,17 +115,13 @@ rustix = { version = "1", features = ["fs", "net", "time"] }
 # Linux's `/proc/self/fd`, through which a file's times are set where the system has no call that
 # keeps the path beneath its folder, as `wasmtime-wasi`'s copy of cap-std's code sets them.
 rustix-linux-procfs = "0.1.1"
-# What the WebGPU host (`crates/waos-webgpu-host`), the wasi-gfx runtime's, is made of, at the
-# versions it names: wgpu-core and its types, which it serves `wasi:webgpu` over; the
-# channel a device's uncaptured errors are broadcast on; its logging; and the macro that pastes a
-# flag's name together.
+# What the GPU host (`crates/waos-gpu-host`) serves `wasdk:gpu` over: wgpu-core and its types.
 wgpu-core = "30"
 wgpu-types = "30"
-async-broadcast = "0.7"
+# The logging GPUI's adapter forwards GPUI's messages through.
 log = "0.4"
-pastey = "0.2"
 # What a program draws with, over `wasdk-wgpu`'s backend; no backend of wgpu's own, so a program
-# links only what it uses. The engine works at wgpu-core's level, through the WebGPU host's
+# links only what it uses. The engine works at wgpu-core's level, through the GPU host's
 # re-exports, so the two versions move together.
 wgpu = { version = "30", default-features = false }
 # egui, which `wasdk-adapter-egui` puts over wasdk. Its types are in that crate's interface, so an
@@ -216,49 +212,49 @@ png = "0.18"
 # Waft, the framework the WaOS app is built on, from crates.io (`AGENTS.md` says how to build
 # against an unreleased one); and the layers its facade does not name, which an app's view takes
 # its input from: the pointer widget, the pointer events a widget receives, and the keys and text input.
-waft = "0.13.0"
-waft-widgets = "0.13.0"
-waft-gestures = "0.13.0"
-waft-services = "0.13.0"
+waft = "0.14.0"
+waft-widgets = "0.14.0"
+waft-gestures = "0.14.0"
+waft-services = "0.14.0"
 # The ticker a widget reads a player's position with at each frame, which `waft-widgets` does
 # not re-export.
-waft-scheduler = "0.13.0"
+waft-scheduler = "0.14.0"
 # How a gesture detector is hit, which `waft-widgets`' `GestureDetector::behavior` takes but does
 # not re-export.
-waft-rendering = "0.13.0"
+waft-rendering = "0.14.0"
 # The springs and the scroll simulations the WaOS app's deck settles its motions with, which
 # `waft-widgets` does not re-export.
-waft-physics = "0.13.0"
+waft-physics = "0.14.0"
 # A platform with no window server, for the app's tests of its windows.
-waft-test = "0.13.0"
+waft-test = "0.14.0"
 # What `wasdk-adapter-waft` is made of: Waft's host traits and value types, its app, and the
 # client a host drives.
-waft-embedder = "0.13.0"
-waft-foundation = "0.13.0"
-waft-shell = "0.13.0"
+waft-embedder = "0.14.0"
+waft-foundation = "0.14.0"
+waft-shell = "0.14.0"
 # The messages Waft's CLI speaks to an app's service extensions, which `waos ext --stdio` relays.
-waft-service-protocol = "0.13.0"
+waft-service-protocol = "0.14.0"
 # Waft's Cupertino widgets, which `examples/two-windows` spins an activity indicator of, and
 # the library is drawn with at a phone's size.
-waft-cupertino = "0.13.0"
+waft-cupertino = "0.14.0"
 # Fluent's controls over Waft, which the library is drawn with at a desktop's or a tablet's
 # size, and the Video Player throughout.
-waft-winui = "0.13.0"
+waft-winui = "0.14.0"
 # Waft's desktop host, for what only macOS offers beyond its `Platform`: hearing WaOS's Dock
 # icon clicked, a window that slides in, and hiding the app.
-waft-embedder-winit = "0.13.0"
+waft-embedder-winit = "0.14.0"
 # What Waft's hosts on macOS and iOS share, for its `SurfaceBuffer` and `CoreVideoFrame`, which a
 # program's hardware buffers and video frames are shown and read as on Apple's systems.
-waft-embedder-apple = { version = "0.13.0", default-features = false }
+waft-embedder-apple = { version = "0.14.0", default-features = false }
 # Waft's Android host, for its `AndroidHardwareBuffer`, which a program's hardware buffers are
 # shown as on a Waft composition layer on Android.
-waft-embedder-android = "0.13.0"
+waft-embedder-android = "0.14.0"
 # One instance of WaOS: a later launch on Windows or Linux hands the files it was started with to
 # the WaOS running, as macOS does itself.
-waft-single-instance = "0.13.0"
+waft-single-instance = "0.14.0"
 # Waft's painting: its image providers, `NetworkImage` above all, which a program shows with
 # Waft's `Image` widget over the platform's HTTP client.
-waft-painting = "0.13.0"
+waft-painting = "0.14.0"
 # valo, Waft's renderer, which a program's views are drawn with: its context, its fonts and
 # their glyph raster, at the version Waft draws with.
 valo = "0.26.0"

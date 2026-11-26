@@ -1,9 +1,11 @@
-//! The code serving `wasdk:media/video-decoders` to a program: the shell's decoders, what they
-//! say of a stream, a decoder opened on them, the chunks it is handed, and its frames, each
-//! entering the program's table as the program reads it, with why the decoder ended beside them.
+//! The code serving `wasdk:media/video-decoders` to a program: the decoders of its device's GPU,
+//! what they say of a stream, a decoder opened on them, the chunks it is handed, and its frames,
+//! each entering the program's table as the program reads it, with why the decoder ended beside
+//! them.
 
 use std::sync::Arc;
 
+use waos_gpu_host::Device;
 use wasmtime::component::{
     Access, Accessor, FutureReader, HasData, Linker, Resource, ResourceTable, StreamReader,
 };
@@ -15,15 +17,19 @@ use crate::bindings::wasdk::media::video_decoders::{
     HostVideoDecodersWithStore, VideoDecodeSupport, VideoDecoderOptions, VideoStreamDescription,
 };
 use crate::bindings::wasdk::media::video_streams::{CodecKind, EncodedChunk, VideoStreamSetup};
-use crate::shell::ShellVideoDecoders;
+use crate::gpu::GpuInstance;
+use crate::shell::ShellGpus;
 use crate::stream::stream_of;
 use crate::video_frames::ProgramVideoFrame;
 
 /// What the video decoders interface reads and writes in a program's store.
 pub(crate) struct VideoDecodersCtx<'a> {
     pub(crate) table: &'a mut ResourceTable,
-    /// The shell's decoders; none where the system decodes no video for programs.
-    pub(crate) decoders: Option<&'a Arc<dyn ShellVideoDecoders>>,
+    /// The instance the program's devices are on, which names each device's GPU.
+    pub(crate) gpu: &'a GpuInstance,
+    /// The system's GPUs, whose decoders a device asks for; none where the system decodes no
+    /// video for programs.
+    pub(crate) gpus: Option<&'a Arc<dyn ShellGpus>>,
 }
 
 pub(crate) trait VideoDecodersCtxView: Send {
@@ -43,8 +49,18 @@ pub(crate) fn add_to_linker<T: VideoDecodersCtxView + 'static>(
 }
 
 impl video_decoders::Host for VideoDecodersCtx<'_> {
-    fn get_video_decoders(&mut self) -> wasmtime::Result<Option<Resource<VideoDecoders>>> {
-        let decoders = self.decoders.cloned().map(VideoDecoders::new);
+    /// The decoders of the GPU `device` is on, as the system names it, the system's default where
+    /// it names none, as Apple's systems and Android.
+    fn get_video_decoders(
+        &mut self,
+        device: Resource<Device>,
+    ) -> wasmtime::Result<Option<Resource<VideoDecoders>>> {
+        let Some(gpus) = self.gpus else {
+            return Ok(None);
+        };
+        let adapter = self.table.get(&device)?.adapter_id();
+        let gpu = crate::os::adapter_gpu(self.gpu, adapter);
+        let decoders = gpus.video_decoders(gpu).map(VideoDecoders::new);
         Ok(decoders
             .map(|decoders| self.table.push(decoders))
             .transpose()?)

@@ -31,7 +31,7 @@
 //! memory, the system's cameras, opened once its user allows it, run in a format they
 //! list with their preview on its layers, their frames in its readers and their photos, and shown
 //! by the shell's indicator while it holds a session, the WASI a program's `std` imports, and
-//! `wasi:webgpu` on one
+//! `wasdk:gpu` on one
 //! GPU instance; and, on Apple's systems, the hardware buffers a view's frames
 //! are drawn into, of which a frozen view keeps only the one on screen, with the GPU idle before the
 //! app's suspending resolves, each handed to the shell through its [`ShellView`] with the
@@ -105,7 +105,8 @@ mod workers;
 pub use access::{TraceEvent, TraceKind, TraceStream};
 pub use cameras::{CameraOutputs, CaptureSessionReports};
 pub use clipboard::CopyOptions;
-pub use engine::{HardwareBufferMode, PlatformState, WaOS, WaOSConfig};
+pub(crate) use engine::BufferKind;
+pub use engine::{PlatformState, WaOS, WaOSConfig};
 pub use engine_time::{EngineTime, ManualTime};
 pub use file_dialogs::set_answers::refusal as file_dialog_answer_refusal;
 pub use file_dialogs::{FileType, FolderOptions, OpenOptions, SaveOptions};
@@ -123,24 +124,24 @@ pub use running::{HeldProgram, IncompatibleProgram, ProgramEnd, RunningProgram};
 pub use screens::Screen;
 pub use service_extensions::{ExtensionAnswer, ExtensionError, ProgramServiceExtensions};
 pub use shell::{
-    AnswerFuture, AudioOutputPickedFuture, CameraChangeFuture, CameraListFuture, CameraOpenFuture,
-    CaptureStartFuture, ClipboardItemsFuture, ClipboardReadFuture, ClipboardWriteFuture, Content,
-    ContentFuture, CopiedItem, DecodedFrame, FileDialogFuture, FileSink, FileWriteFuture,
-    HardwareBuffer, ImageFuture, LayerPicture, MachinePickedFuture, MediaAssetFuture,
-    MenuChosenFuture, NoPrompts, NotificationFuture, OnRefresh, OpenFuture, OpenedCamera,
-    OpenedImage, OpenedVideoDecoder, PhotoFuture, PlacedView, PlacedWindow, Prompts,
-    RecordingDevice, SettingsClosedFuture, Shell, ShellAttachedMenu, ShellAudioOutputPicker,
-    ShellCamera, ShellCameras, ShellCaptureSession, ShellClipboard, ShellClipboardItem,
-    ShellCompositionLayer, ShellCompositor, ShellContextMenus, ShellFileDialogs,
-    ShellHardwareImageCodecs, ShellImageCodecs, ShellImageSource, ShellMachinePicker,
-    ShellMediaAsset, ShellMediaAssets, ShellMediaPlayer, ShellMediaPlayers, ShellMenuAtIcon,
-    ShellMenuBar, ShellNotificationScheduling, ShellNotifications, ShellOpener,
-    ShellRecordingIndicator, ShellSystemPermissions, ShellTextInput, ShellTrayIcon, ShellTrayIcons,
-    ShellVideoDecoder, ShellVideoDecoders, ShellVideoFrameReader, ShellVideoFrameReaders,
-    ShellView, ShellWindow, ShellWindowSizeLimits, StartedSession, SystemPermission,
-    SystemPermissionFuture, SystemPermissionState, TrayIconAddFuture, VideoDecodeSupportFuture,
-    VideoDecoderFuture, VideoDecoderOpenFuture, VideoFrame, VideoOutput, VideoPicture,
-    ViewPlacement, ViewRequest, VsyncWaiter,
+    AcceptedBuffers, AcceptedFormat, AnswerFuture, AudioOutputPickedFuture, CameraChangeFuture,
+    CameraListFuture, CameraOpenFuture, CaptureStartFuture, ClipboardItemsFuture,
+    ClipboardReadFuture, ClipboardWriteFuture, Content, ContentFuture, CopiedItem, DecodedFrame,
+    FileDialogFuture, FileSink, FileWriteFuture, GpuId, GpuMemory, HardwareBuffer, ImageFuture,
+    LayerPicture, MachinePickedFuture, MediaAssetFuture, MenuChosenFuture, NoPrompts,
+    NotificationFuture, OnRefresh, OpenFuture, OpenedCamera, OpenedImage, OpenedVideoDecoder,
+    PhotoFuture, PlacedView, PlacedWindow, Prompts, RecordingDevice, SettingsClosedFuture, Shell,
+    ShellAttachedMenu, ShellAudioOutputPicker, ShellCamera, ShellCameras, ShellCaptureSession,
+    ShellClipboard, ShellClipboardItem, ShellCompositionLayer, ShellCompositor, ShellContextMenus,
+    ShellFileDialogs, ShellGpus, ShellHardwareImageCodecs, ShellImageCodecs, ShellImageSource,
+    ShellMachinePicker, ShellMediaAsset, ShellMediaAssets, ShellMediaPlayer, ShellMediaPlayers,
+    ShellMenuAtIcon, ShellMenuBar, ShellNotificationScheduling, ShellNotifications, ShellOpener,
+    ShellRecordingIndicator, ShellSystemBars, ShellSystemPermissions, ShellTextInput,
+    ShellTrayIcon, ShellTrayIcons, ShellVideoDecoder, ShellVideoDecoders, ShellVideoFrameReader,
+    ShellVideoFrameReaders, ShellView, ShellWindow, ShellWindowSizeLimits, StartedSession,
+    SystemPermission, SystemPermissionFuture, SystemPermissionState, TrayIconAddFuture,
+    VideoDecodeSupportFuture, VideoDecoderFuture, VideoDecoderOpenFuture, VideoFrame, VideoOutput,
+    VideoPicture, ViewPlacement, ViewRequest, VsyncWaiter,
 };
 pub use simulated_input::{DragPath, Keyboard, Mouse, NoSuchChord, NothingEdited};
 pub use stats::Stats;

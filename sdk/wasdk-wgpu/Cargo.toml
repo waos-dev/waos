@@ -4,14 +4,14 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish = true
-description = "A wgpu backend over wasi:webgpu, so a program written against wgpu draws in a component unchanged."
+description = "A wgpu backend over wasdk:gpu, WaOS's wgpu-shaped WIT, so a program written against wgpu draws in a component unchanged."
 homepage.workspace = true
 repository.workspace = true
 readme = "README.md"
 
 [features]
-# Shaders given as SPIR-V or as GLSL, read by naga and written as WGSL, as wgpu's backend for the
-# web does. A program that enables wgpu's feature of the same name enables this one with it.
+# Shaders given as SPIR-V or as GLSL, which the engine's naga reads: these name wgpu's variants for
+# them. A program that enables wgpu's feature of the same name enables this one with it.
 spirv = ["wgpu/spirv"]
 glsl = ["wgpu/glsl"]
 
@@ -19,14 +19,14 @@ glsl = ["wgpu/glsl"]
 futures.workspace = true
 # The view a window handle points at, which a surface is made on (`instance`).
 wasdk = { workspace = true, features = ["raw-window-handle"] }
-# `wgsl` names WGSL as a shader source, the one the boundary carries; the engine compiles it.
-# `naga-ir` names naga's module as one, which is written as WGSL here, with the writer `webgpu`
-# brings. `webgpu` is on so wgpu's web-only trait items exist whichever features a program using
-# this crate unifies in; nothing of wgpu's browser backend is called, so none of it is linked.
+# `wgsl` names WGSL as a shader source; the engine compiles it. `naga-ir` names naga's module as
+# one, which is written as WGSL here, with the writer `webgpu` brings. `webgpu` is on so wgpu's
+# web-only trait items exist whichever features a program using this crate unifies in; nothing of
+# wgpu's browser backend is called, so none of it is linked.
 wgpu = { workspace = true, features = ["custom", "wgsl", "naga-ir", "webgpu"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-# Only to name the type in the one web-only trait item that has no wasi counterpart.
+# Only to name the type in the one web-only trait item that has no `wasdk:gpu` counterpart.
 js-sys = "0.3"
 
 # Eight methods of wgpu's dispatch traits are declared `unsafe`, so implementing them writes

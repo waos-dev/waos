@@ -28,6 +28,7 @@ cargo xtask sync-wit                               # after editing wit/
 - **An API agents use explains itself.** When an agent has to read the source to use one, its docs or its shape is the bug.
 - **Waft comes from crates.io.** To build against an unreleased Waft, a branch adds `[patch.crates-io]` until Waft releases.
 - **Work goes on a branch and a pull request**, here and in Waft and Valo; never on `main`. The lead merges.
+- **Time matters: Rust builds and tests are slow.** Run the checks a change needs, not every suite at every step, and add a test only where it guards behaviour that could break, never one that restates the code. Raise a waste you find (a slow check, a redundant test, a long wait) with the lead instead of accepting it.
 
 ## Docs
 

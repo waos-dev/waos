@@ -300,7 +300,7 @@ waft = "0.6"
         );
         assert_eq!(
             manifest["dependencies"]["waft-winui"].as_str(),
-            Some("0.13")
+            Some("0.14")
         );
         assert!(!created.folder.join("rust-toolchain.toml").exists());
         assert!(workspace_problem(&created.folder).is_none());

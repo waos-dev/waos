@@ -1,4 +1,4 @@
-//! An `AHardwareBuffer` a program's WebGPU device draws into and the compositor shows, with the
+//! An `AHardwareBuffer` a program's GPU device draws into and the compositor shows, with the
 //! same bytes under both, and the texture over it on the program's wgpu-core device: Vulkan imports
 //! the buffer's memory into an image (`imported_image`), on a device opened to import it
 //! (`device_opener`), and wgpu-core takes the image as a texture of its own. Unlike Apple's
@@ -28,15 +28,13 @@ use anyhow::{Result, bail};
 use ndk::hardware_buffer::{
     HardwareBufferDesc, HardwareBufferRef, HardwareBufferUsage as AndroidUsage,
 };
-use ndk::hardware_buffer_format::HardwareBufferFormat;
-use waos_webgpu_host::wasi::webgpu::webgpu::{
-    GpuTextureDimension, GpuTextureFormat, GpuTextureUsage,
-};
-use waos_webgpu_host::{Device, GpuObject, TextureAttributes};
+use ndk::hardware_buffer_format::HardwareBufferFormat as AndroidFormat;
+use waos_gpu_host::{Device, GpuObject, TextureDescriptor};
 
-use crate::HardwareBufferMode;
+use crate::BufferKind;
 use crate::bindings::wasdk::platform::hardware_buffers::{
-    AlphaType, HardwareBufferUsage, ImageError, ImageErrorKind, PixelBuffer, PixelFormat,
+    AlphaType, HardwareBufferFormat, HardwareBufferUsage, ImageError, ImageErrorKind, PixelBuffer,
+    PixelFormat,
 };
 use crate::gpu::{GpuInstance, wgpu_core, wgpu_types};
 use crate::hardware_buffers::Released;
@@ -49,7 +47,7 @@ use super::vulkan::queue_ownership::{Transfer, handed_state, submit_transfer};
 use imported_image::ImportedTexture;
 
 /// The format a hardware buffer is allocated in, and so the only one a canvas can be configured
-/// with: WebGPU's preferred canvas format on this platform. Android's public formats have no BGRA.
+/// with: the format a view's surface offers on this platform. Android's public formats have no BGRA.
 pub(crate) const FORMAT: wgpu_types::TextureFormat = wgpu_types::TextureFormat::Rgba8Unorm;
 
 /// What a device must enable to import an `AHardwareBuffer` and hand it to the compositor.
@@ -114,13 +112,13 @@ impl HardwareBufferMemory {
         width: u32,
         height: u32,
         usage: HardwareBufferUsage,
-        _mode: HardwareBufferMode,
+        _mode: BufferKind,
     ) -> Result<HardwareBufferMemory> {
         let description = HardwareBufferDesc {
             width,
             height,
             layers: 1,
-            format: HardwareBufferFormat::R8G8B8A8_UNORM,
+            format: AndroidFormat::R8G8B8A8_UNORM,
             usage: android_usage(usage),
             stride: 0,
         };
@@ -133,20 +131,31 @@ impl HardwareBufferMemory {
         })
     }
 
+    /// Why a buffer in `format` for `usage` is not made here; none where it is: Android's
+    /// buffers are allocated in RGBA, for every use.
+    pub(crate) fn unsupported(
+        format: HardwareBufferFormat,
+        usage: HardwareBufferUsage,
+    ) -> Option<&'static str> {
+        let _ = usage;
+        (format != HardwareBufferFormat::Rgba8)
+            .then_some("Android allocates hardware buffers in RGBA")
+    }
+
     /// A program's buffer of `width` by `height` pixels in `format`, for `usage`, sides the
-    /// program checked: `unsupported` for BGRA, which Android's buffers are not allocated in, and
-    /// `out-of-memory` where the system allocates none.
+    /// program checked: `unsupported` for any format but RGBA, which Android's buffers are
+    /// allocated in, and `out-of-memory` where the system allocates none.
     pub(crate) fn allocate(
         width: u32,
         height: u32,
-        format: PixelFormat,
+        format: HardwareBufferFormat,
         usage: HardwareBufferUsage,
-        mode: HardwareBufferMode,
+        mode: BufferKind,
     ) -> Result<HardwareBufferMemory, ImageError> {
-        if format != PixelFormat::Rgba8 {
+        if let Some(message) = HardwareBufferMemory::unsupported(format, usage) {
             return Err(ImageError {
                 kind: ImageErrorKind::Unsupported,
-                message: "Android allocates hardware buffers in RGBA".to_owned(),
+                message: message.to_owned(),
             });
         }
         HardwareBufferMemory::new(width, height, usage, mode).map_err(|error| ImageError {
@@ -184,6 +193,16 @@ impl HardwareBufferMemory {
         usage_of(self.buffer.0.describe().usage)
     }
 
+    /// How the buffer lays out its pixels, as the `AHardwareBuffer` describes itself: RGBA8 for
+    /// one the engine allocated and a frame the shell hands out. A failure is the shell's, which
+    /// handed over a buffer in a layout the interface names no format for.
+    pub(crate) fn format(&self) -> Result<HardwareBufferFormat> {
+        let format = self.buffer.0.describe().format;
+        format_of(format).ok_or_else(|| {
+            anyhow::anyhow!("a hardware buffer in {format:?}, which wasdk names no format for")
+        })
+    }
+
     /// The bytes the buffer's rows take: what a program is counted for holding it.
     pub(crate) fn bytes(&self) -> u64 {
         let description = self.buffer.0.describe();
@@ -196,7 +215,7 @@ impl HardwareBufferMemory {
     /// (`hardware_buffers::program_buffer`).
     pub(crate) fn read_pixels(&self) -> Result<PixelBuffer, ImageError> {
         let description = self.buffer.0.describe();
-        if description.format != HardwareBufferFormat::R8G8B8A8_UNORM {
+        if description.format != AndroidFormat::R8G8B8A8_UNORM {
             return Err(ImageError {
                 kind: ImageErrorKind::Unsupported,
                 message: format!("a buffer in {:?}, not RGBA8", description.format),
@@ -238,7 +257,7 @@ impl HardwareBufferMemory {
         device: &Device,
         usage: wgpu_types::TextureUsages,
         release: wgpu_hal::DropCallback,
-    ) -> Result<(Arc<GpuObject<wgpu_core::id::TextureId>>, TextureAttributes)> {
+    ) -> Result<(Arc<GpuObject<wgpu_core::id::TextureId>>, TextureDescriptor)> {
         let imported = ImportedTexture {
             label: "waos program hardware buffer",
             usage,
@@ -247,20 +266,9 @@ impl HardwareBufferMemory {
         };
         let size = [self.width, self.height];
         let texture = imported.over(&self.buffer, size, gpu, device.device_id(), Some(release))?;
-        let attributes = TextureAttributes {
-            size: wgpu_types::Extent3d {
-                width: size[0],
-                height: size[1],
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: GpuTextureDimension::D2,
-            format: GpuTextureFormat::Rgba8unorm,
-            usage: gpu_usage(usage),
-            texture_binding_view_dimension: None,
-        };
-        Ok((Arc::new(GpuObject::new(texture, gpu)), attributes))
+        let descriptor =
+            crate::gpu::hardware_buffer_texture(size, wgpu_types::TextureFormat::Rgba8Unorm, usage);
+        Ok((Arc::new(GpuObject::new(texture, gpu)), descriptor))
     }
 
     /// A texture over the buffer's memory on `device` of `gpu`, which the GPU samples, its pixels
@@ -471,10 +479,21 @@ impl FrameMemory {
     /// which handed out a frame of another kind.
     pub(crate) fn hardware_buffer(&self) -> Result<HardwareBufferMemory> {
         let format = self.frame.0.describe().format;
-        if format != HardwareBufferFormat::R8G8B8A8_UNORM {
+        if format != AndroidFormat::R8G8B8A8_UNORM {
             bail!("a video's frame is RGBA8, as the shell hands it out, not {format:?}")
         }
         Ok(HardwareBufferMemory::of(self.frame.clone()))
+    }
+}
+
+/// The format of a buffer in Android's `format`, as the interface names it; none for a layout it
+/// names none of. `Y8Cb8Cr8_420` is not `nv12`: its planes lie as the allocator chooses, which
+/// only a lock of the buffer's planes says.
+fn format_of(format: AndroidFormat) -> Option<HardwareBufferFormat> {
+    match format {
+        AndroidFormat::R8G8B8A8_UNORM => Some(HardwareBufferFormat::Rgba8),
+        AndroidFormat::YCbCr_P010 => Some(HardwareBufferFormat::P010),
+        _ => None,
     }
 }
 
@@ -536,31 +555,6 @@ fn arriving_state(usage: wgpu_types::TextureUsages) -> wgpu_types::TextureUses {
     }
 }
 
-/// `usage` as the WebGPU host tells the program its texture's usage.
-fn gpu_usage(usage: wgpu_types::TextureUsages) -> GpuTextureUsage {
-    [
-        (
-            wgpu_types::TextureUsages::COPY_SRC,
-            GpuTextureUsage::COPY_SRC,
-        ),
-        (
-            wgpu_types::TextureUsages::COPY_DST,
-            GpuTextureUsage::COPY_DST,
-        ),
-        (
-            wgpu_types::TextureUsages::TEXTURE_BINDING,
-            GpuTextureUsage::TEXTURE_BINDING,
-        ),
-        (
-            wgpu_types::TextureUsages::RENDER_ATTACHMENT,
-            GpuTextureUsage::RENDER_ATTACHMENT,
-        ),
-    ]
-    .into_iter()
-    .filter(|(wgpu, _)| usage.contains(*wgpu))
-    .fold(GpuTextureUsage::empty(), |all, (_, webgpu)| all | webgpu)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -577,5 +571,18 @@ mod tests {
             usage_of(AndroidUsage::empty()),
             HardwareBufferUsage::empty()
         );
+    }
+
+    #[test]
+    fn a_buffers_description_names_its_layout() {
+        assert_eq!(
+            format_of(AndroidFormat::R8G8B8A8_UNORM),
+            Some(HardwareBufferFormat::Rgba8)
+        );
+        assert_eq!(
+            format_of(AndroidFormat::YCbCr_P010),
+            Some(HardwareBufferFormat::P010)
+        );
+        assert_eq!(format_of(AndroidFormat::Y8Cb8Cr8_420), None);
     }
 }

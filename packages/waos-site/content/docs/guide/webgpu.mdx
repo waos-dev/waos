@@ -1,9 +1,9 @@
 ---
-title: WebGPU
+title: GPU
 description: Draw a view with wgpu, a frame at a time.
 ---
 
-A program draws on its views with WebGPU, through `wgpu` 30 with `wasdk-wgpu` as its backend, so code written for `wgpu` draws unchanged. Add `wasdk-wgpu` and `wgpu = { version = "30", default-features = false }` to `Cargo.toml` (matching `wasdk-wgpu`'s `wgpu` version). Frames are on demand: a program asks for one, and it arrives at the next refresh of the screen the view is on. The canvas is the size the program configures, whatever the view's, so a program configures it again at each `ViewEvent::Metrics`.
+A program draws on its views with the GPU, through `wgpu` 30 with `wasdk-wgpu` as its backend, so code written for `wgpu` draws unchanged. Add `wasdk-wgpu` and `wgpu = { version = "30", default-features = false }` to `Cargo.toml` (matching `wasdk-wgpu`'s `wgpu` version). Frames are on demand: a program asks for one, and it arrives at the next refresh of the screen the view is on. A view's frames are the size the program configures its surface at, whatever the view's, so a program configures it again at each `ViewEvent::Metrics`; while the view is not on screen, `get_current_texture` answers `Occluded`.
 
 ## With wasdk
 
@@ -24,13 +24,13 @@ view.request_frame();
 
 ## With Waft
 
-Waft draws every widget with WebGPU itself, through its renderer, valo, over `wasdk-wgpu`, and asks for each view's frames. It keeps its device to itself: an app that draws with WebGPU makes a device of its own with `wasdk_wgpu::instance()`, draws each frame into a pooled `HardwareBuffer` imported via `platform.import_texture(&*buffer, &device)`, and presents it on a `CompositionLayer` placed by `CompositionLayerView` ([Compositing](/docs/guide/compositing)):
+Waft draws every widget with the GPU itself, through its renderer, valo, over `wasdk-wgpu`, and asks for each view's frames. It keeps its device to itself: an app that draws with the GPU makes a device of its own with `wasdk_wgpu::instance()`, draws each frame into a pooled `HardwareBuffer` imported via `platform.import_texture(&*buffer, &device)`, and presents it on a `CompositionLayer` placed by `CompositionLayerView` ([Compositing](/docs/guide/compositing)):
 
 ```rust
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use waft::ui::image_codecs::{ImageErrorKind, PixelFormat};
-use waft::ui::{CompositionLayer, HardwareBuffer, HardwareBufferUsage, Platform};
+use waft::ui::image_codecs::ImageErrorKind;
+use waft::ui::{CompositionLayer, HardwareBuffer, HardwareBufferFormat, HardwareBufferUsage, Platform};
 
 struct FrameSheet {
     buffer: Arc<dyn HardwareBuffer>,
@@ -49,14 +49,14 @@ fn next_sheet(
     if let Some(idx) = pool.iter().position(|s| s.free.load(Ordering::Acquire)) {
         return Some(&pool[idx]);
     }
-    let allocator = platform.hardware_buffer_allocator()?;
+    let allocator = platform.gpu(None)?.hardware_buffer_allocator()?;
     let usage = HardwareBufferUsage {
         gpu_color_output: true,
         gpu_sampled: true,
         composer_overlay: true,
         ..HardwareBufferUsage::default()
     };
-    for format in [PixelFormat::Bgra8, PixelFormat::Rgba8] {
+    for format in [HardwareBufferFormat::Bgra8, HardwareBufferFormat::Rgba8] {
         match allocator.allocate(width, height, format, usage) {
             Ok(buffer) => {
                 let texture = platform.import_texture(buffer.as_ref(), device)?;
@@ -97,8 +97,8 @@ To process live camera or video frames through a WGSL pass into the same `Compos
 
 ## Where it's missing
 
-What wgpu has beyond WebGPU is not there, and panics at the call, naming the gap: among it ray tracing, mesh shaders, shaders other than WGSL, binding arrays, and a surface on anything but a view. A feature without a WebGPU name fails `request_device`.
+wgpu's safe API is all there, its native features among it; what is left out panics at the call, naming it: the experimental features (ray tracing, mesh shaders, cooperative matrices), passthrough shaders, pipeline caches, which WaOS keeps for every program, and a surface on anything but a view. A required feature WaOS leaves out fails `request_device`.
 
 ## Interface
 
-`wasi:webgpu/webgpu`, with the canvas and its frames in [`wasdk:platform/views`](/docs/reference/wasdk-platform/views)
+`wasdk:gpu`, with a view's surface and its frames in [`wasdk:platform/views`](/docs/reference/wasdk-platform/views)

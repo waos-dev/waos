@@ -74,7 +74,6 @@ mod mouse_cursor;
 mod notifications;
 mod open_requests;
 mod opener;
-mod overlay_style;
 mod placements;
 mod platform;
 mod players;
@@ -85,6 +84,7 @@ mod screens;
 mod service_extensions;
 mod shown_videos;
 mod system;
+mod system_bars;
 pub mod targets;
 mod text_editing;
 mod text_input;
@@ -118,7 +118,7 @@ use crate::renderer::Renderer;
 ///
 /// # Panics
 ///
-/// When the engine gives no WebGPU adapter or device.
+/// When the engine gives no GPU adapter or device.
 pub async fn run(setup: impl FnOnce(&mut App)) {
     let (notice_sender, notices) = mpsc::unbounded();
     let events = Events::open(notices);

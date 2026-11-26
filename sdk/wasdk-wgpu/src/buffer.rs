@@ -1,10 +1,14 @@
 //! Buffers, and the copies that stand in for mapped memory.
+//!
+//! The engine shares no memory with the program, so a mapped range is copied in when wgpu asks
+//! for it (`read-mapped-range`) and, where it was written, copied back when it is dropped
+//! (`write-mapped-range`), which must happen before the buffer is unmapped.
 
 use std::ops::Range;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use wasdk::webgpu::{GpuBuffer, GpuBufferDescriptor, GpuDevice, GpuTexelCopyBufferInfo};
+use wasdk::gpu::{Buffer, Device, TexelCopyBufferInfo};
 use wgpu::custom::{
     BufferInterface, BufferMapCallback, BufferMappedRangeInterface, DispatchBuffer,
     DispatchBufferMappedRange,
@@ -14,34 +18,36 @@ use wgpu::{BufferAddress, MapRangeError, WriteOnly};
 use crate::convert;
 use crate::runtime::{Owed, OwedCallbacks};
 
+/// The buffer behind a [`wgpu::Buffer`] from this backend.
 #[derive(Debug)]
 pub struct WasdkBuffer {
-    buffer: Arc<GpuBuffer>,
+    buffer: Arc<Buffer>,
     /// The callbacks its device owes, a mapping's among them.
     owed: OwedCallbacks,
     /// Whether it was made mapped and no range of it was handed out yet: it holds zeros, as
-    /// WebGPU makes every buffer, so its first range is not copied from the host.
+    /// wgpu-core makes every buffer, so its first range is not copied from the engine.
     untouched_since_creation: AtomicBool,
 }
 
 downcast!(WasdkBuffer: api wgpu::Buffer, dispatch DispatchBuffer);
 
 impl WasdkBuffer {
-    pub(crate) fn gpu_buffer(&self) -> &GpuBuffer {
+    /// The engine's buffer behind the wgpu one.
+    pub(crate) fn wit_buffer(&self) -> &Buffer {
         &self.buffer
     }
 }
 
 pub(crate) fn create_buffer(
-    device: &GpuDevice,
+    device: &Device,
     owed: &OwedCallbacks,
     desc: &wgpu::BufferDescriptor<'_>,
 ) -> DispatchBuffer {
-    let descriptor = GpuBufferDescriptor {
-        size: desc.size,
-        usage: convert::buffer_usages_to_wasi(desc.usage),
-        mapped_at_creation: Some(desc.mapped_at_creation),
+    let descriptor = wasdk::gpu_types::BufferDescriptor {
         label: convert::label(desc.label),
+        size: desc.size,
+        usage: convert::buffer_usages_to_wit(desc.usage),
+        mapped_at_creation: desc.mapped_at_creation,
     };
     DispatchBuffer::custom(WasdkBuffer {
         buffer: Arc::new(device.create_buffer(&descriptor)),
@@ -50,14 +56,12 @@ pub(crate) fn create_buffer(
     })
 }
 
-pub(crate) fn texel_copy_buffer_to_wasi<'a>(
+pub(crate) fn texel_copy_buffer_to_wit<'a>(
     info: &wgpu::TexelCopyBufferInfo<'a>,
-) -> GpuTexelCopyBufferInfo<'a> {
-    GpuTexelCopyBufferInfo {
-        buffer: WasdkBuffer::of(info.buffer).gpu_buffer(),
-        offset: Some(info.layout.offset),
-        bytes_per_row: info.layout.bytes_per_row,
-        rows_per_image: info.layout.rows_per_image,
+) -> TexelCopyBufferInfo<'a> {
+    TexelCopyBufferInfo {
+        buffer: WasdkBuffer::of(info.buffer).wit_buffer(),
+        layout: convert::texel_copy_layout_to_wit(info.layout),
     }
 }
 
@@ -70,25 +74,25 @@ impl BufferInterface for WasdkBuffer {
     ) {
         self.owed.owe(Owed::Mapping {
             buffer: Arc::clone(&self.buffer),
-            mode: convert::map_mode_to_wasi(mode),
+            mode: convert::map_mode_to_wit(mode),
             offset: range.start,
             size: range.end - range.start,
             callback,
         });
     }
 
-    /// The host cannot share the mapping, so the range is copied out, except the first range of
-    /// a buffer made mapped, which is zeros the program makes itself; the only errors are
-    /// misuse (an unmapped buffer or a range outside the mapping), which wgpu's
-    /// [`MapRangeError`] cannot carry from outside wgpu, so they panic with the host's message.
+    /// The range copied in, except the first range of a buffer made mapped, which is zeros the
+    /// program makes itself. A range that is not mapped traps the program in the engine, where
+    /// wgpu-core answers a [`MapRangeError`], which a backend outside wgpu cannot make.
     fn get_mapped_range(
         &self,
         sub_range: Range<BufferAddress>,
     ) -> Result<DispatchBufferMappedRange, MapRangeError> {
+        let size = sub_range.end - sub_range.start;
         let data = if self.untouched_since_creation.swap(false, Ordering::Relaxed) {
-            zeros(sub_range.end - sub_range.start)
+            zeros(size)
         } else {
-            self.copied_from_host(&sub_range)
+            self.buffer.read_mapped_range(sub_range.start, size)
         };
         Ok(DispatchBufferMappedRange::custom(WasdkMappedRange {
             buffer: Arc::clone(&self.buffer),
@@ -102,27 +106,11 @@ impl BufferInterface for WasdkBuffer {
         // What the GPU writes into it from now on is no longer zeros.
         self.untouched_since_creation
             .store(false, Ordering::Relaxed);
-        self.buffer
-            .unmap()
-            .unwrap_or_else(|error| panic!("wasdk-wgpu: Buffer::unmap: {}", error.message));
+        self.buffer.unmap();
     }
 
     fn destroy(&self) {
         self.buffer.destroy();
-    }
-}
-
-impl WasdkBuffer {
-    /// The bytes the host holds in `range` of the mapping.
-    fn copied_from_host(&self, range: &Range<BufferAddress>) -> Vec<u8> {
-        self.buffer
-            .get_mapped_range_get_with_copy(Some(range.start), Some(range.end - range.start))
-            .unwrap_or_else(|error| {
-                panic!(
-                    "wasdk-wgpu: Buffer::get_mapped_range({range:?}): {}",
-                    error.message
-                )
-            })
     }
 }
 
@@ -136,7 +124,7 @@ fn zeros(size: BufferAddress) -> Vec<u8> {
 /// which must happen before the buffer is unmapped.
 #[derive(Debug)]
 pub struct WasdkMappedRange {
-    buffer: Arc<GpuBuffer>,
+    buffer: Arc<Buffer>,
     offset: BufferAddress,
     data: Vec<u8>,
     written: bool,
@@ -148,7 +136,7 @@ pub struct WasdkMappedRange {
 impl BufferMappedRangeInterface for WasdkMappedRange {
     #[cfg(target_arch = "wasm32")]
     fn as_uint8array(&self) -> &js_sys::Uint8Array {
-        crate::gap::wasi_gap("BufferViewMut::as_uint8array (a JavaScript typed array)")
+        crate::left_out::left_out("BufferView::as_uint8array (a JavaScript typed array)")
     }
 
     fn len(&self) -> usize {
@@ -167,20 +155,8 @@ impl BufferMappedRangeInterface for WasdkMappedRange {
 
 impl Drop for WasdkMappedRange {
     fn drop(&mut self) {
-        if !self.written {
-            return;
+        if self.written {
+            self.buffer.write_mapped_range(self.offset, &self.data);
         }
-        self.buffer
-            .get_mapped_range_set_with_copy(
-                &self.data,
-                Some(self.offset),
-                Some(self.data.len() as u64),
-            )
-            .unwrap_or_else(|error| {
-                panic!(
-                    "wasdk-wgpu: writing a mapped range back at {}: {}",
-                    self.offset, error.message
-                )
-            });
     }
 }

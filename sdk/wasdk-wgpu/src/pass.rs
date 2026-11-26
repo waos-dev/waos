@@ -1,137 +1,118 @@
 //! Render passes, compute passes, and render bundles: what draws are recorded into.
+//!
+//! A pass is the engine's until it is dropped, which ends it, as dropping a wgpu pass does.
 
-use wasdk::webgpu::{
-    GpuBindGroup, GpuBuffer, GpuCommandEncoder, GpuComputePassDescriptor, GpuComputePassEncoder,
-    GpuComputePassTimestampWrites, GpuDevice, GpuRenderBundle, GpuRenderBundleDescriptor,
-    GpuRenderBundleEncoder, GpuRenderBundleEncoderDescriptor, GpuRenderPassColorAttachment,
-    GpuRenderPassDepthStencilAttachment, GpuRenderPassDescriptor, GpuRenderPassEncoder,
-    GpuRenderPassTimestampWrites, SetBindGroupError,
+use wasdk::gpu::{
+    BindGroup, Buffer, CommandEncoder, ComputePass, ComputePassDescriptor, Device, RenderBundle,
+    RenderBundleEncoder, RenderPass, RenderPassColorAttachment, RenderPassDepthStencilAttachment,
+    RenderPassDescriptor, TimestampWrites,
 };
+use wasdk::gpu_types::{RenderBundleDepthStencil, RenderBundleEncoderDescriptor};
 use wgpu::custom::{
     ComputePassInterface, DispatchBindGroup, DispatchBuffer, DispatchComputePass,
     DispatchComputePipeline, DispatchQuerySet, DispatchRenderBundle, DispatchRenderBundleEncoder,
     DispatchRenderPass, DispatchRenderPipeline, DispatchTextureView, RenderBundleEncoderInterface,
     RenderBundleInterface, RenderPassInterface,
 };
-use wgpu::{BufferAddress, BufferSize, Color, DynamicOffset, Features, IndexFormat};
+use wgpu::{BufferAddress, BufferSize, Color, DynamicOffset, IndexFormat};
 
 use crate::binding::WasdkBindGroup;
 use crate::buffer::WasdkBuffer;
 use crate::convert;
-use crate::gap::{feature_gap, wasi_gap};
+use crate::left_out::left_out;
 use crate::pipeline::{WasdkComputePipeline, WasdkRenderPipeline};
 use crate::query::WasdkQuerySet;
 use crate::texture::WasdkTextureView;
 
-/// The size of one `DrawIndirectArgs`, the stride `multi_draw_indirect` unrolls by.
-const DRAW_INDIRECT_STRIDE: BufferAddress = 16;
-/// The size of one `DrawIndexedIndirectArgs`.
-const DRAW_INDEXED_INDIRECT_STRIDE: BufferAddress = 20;
-
-fn bind_group(group: Option<&DispatchBindGroup>) -> Option<&GpuBindGroup> {
-    group.map(|group| WasdkBindGroup::of_dispatch(group).gpu_bind_group())
+fn bind_group(group: Option<&DispatchBindGroup>) -> Option<&BindGroup> {
+    group.map(|group| WasdkBindGroup::of_dispatch(group).wit_bind_group())
 }
 
-/// wgpu passes an empty offset list where WebGPU passes none.
-fn dynamic_offsets(offsets: &[DynamicOffset]) -> Option<&[DynamicOffset]> {
-    (!offsets.is_empty()).then_some(offsets)
+fn buffer(buffer: &DispatchBuffer) -> &Buffer {
+    WasdkBuffer::of_dispatch(buffer).wit_buffer()
 }
 
-fn bind_group_set(result: Result<(), SetBindGroupError>) {
-    result.unwrap_or_else(|error| panic!("wasdk-wgpu: set_bind_group: {}", error.message));
+fn wit_query_set(query_set: &DispatchQuerySet) -> &wasdk::gpu::QuerySet {
+    WasdkQuerySet::of_dispatch(query_set).wit_query_set()
 }
 
-fn buffer(buffer: &DispatchBuffer) -> &GpuBuffer {
-    WasdkBuffer::of_dispatch(buffer).gpu_buffer()
+/// The timestamp writes of a pass, which wgpu describes alike for both kinds.
+fn timestamp_writes<'a>(
+    query_set: &'a wgpu::QuerySet,
+    beginning_of_pass_write_index: Option<u32>,
+    end_of_pass_write_index: Option<u32>,
+) -> TimestampWrites<'a> {
+    TimestampWrites {
+        query_set: WasdkQuerySet::of(query_set).wit_query_set(),
+        beginning_of_pass_write_index,
+        end_of_pass_write_index,
+    }
 }
 
 // Render passes.
 
+/// The pass behind a [`wgpu::RenderPass`] from this backend.
 #[derive(Debug)]
 pub struct WasdkRenderPass {
-    pass: GpuRenderPassEncoder,
+    pass: RenderPass,
 }
 
 pub(crate) fn begin_render_pass(
-    encoder: &GpuCommandEncoder,
+    encoder: &CommandEncoder,
     desc: &wgpu::RenderPassDescriptor<'_>,
 ) -> DispatchRenderPass {
-    if desc.multiview_mask.is_some() {
-        feature_gap(Features::MULTIVIEW, "RenderPassDescriptor::multiview_mask");
-    }
-    let descriptor = GpuRenderPassDescriptor {
-        color_attachments: desc
-            .color_attachments
-            .iter()
-            .map(|attachment| attachment.as_ref().map(color_attachment_to_wasi))
-            .collect(),
-        depth_stencil_attachment: desc
-            .depth_stencil_attachment
-            .as_ref()
-            .map(depth_stencil_attachment_to_wasi),
-        occlusion_query_set: desc
-            .occlusion_query_set
-            .map(|query_set| WasdkQuerySet::of(query_set).gpu_query_set()),
-        timestamp_writes: desc.timestamp_writes.as_ref().map(|writes| {
-            GpuRenderPassTimestampWrites {
-                query_set: WasdkQuerySet::of(writes.query_set).gpu_query_set(),
-                beginning_of_pass_write_index: writes.beginning_of_pass_write_index,
-                end_of_pass_write_index: writes.end_of_pass_write_index,
-            }
-        }),
-        max_draw_count: None,
+    let descriptor = RenderPassDescriptor {
         label: convert::label(desc.label),
+        color_attachments: (desc.color_attachments.iter())
+            .map(|attachment| attachment.as_ref().map(color_attachment_to_wit))
+            .collect(),
+        depth_stencil_attachment: (desc.depth_stencil_attachment.as_ref())
+            .map(depth_stencil_attachment_to_wit),
+        timestamp_writes: desc.timestamp_writes.as_ref().map(|writes| {
+            timestamp_writes(
+                writes.query_set,
+                writes.beginning_of_pass_write_index,
+                writes.end_of_pass_write_index,
+            )
+        }),
+        occlusion_query_set: (desc.occlusion_query_set)
+            .map(|query_set| WasdkQuerySet::of(query_set).wit_query_set()),
+        multiview_mask: desc.multiview_mask.map(std::num::NonZeroU32::get),
     };
     DispatchRenderPass::custom(WasdkRenderPass {
         pass: encoder.begin_render_pass(&descriptor),
     })
 }
 
-fn color_attachment_to_wasi<'a>(
+fn color_attachment_to_wit<'a>(
     attachment: &wgpu::RenderPassColorAttachment<'a>,
-) -> GpuRenderPassColorAttachment<'a> {
-    let ops = convert::operations_to_wasi(&attachment.ops, Color::BLACK);
-    GpuRenderPassColorAttachment {
-        view: WasdkTextureView::of(attachment.view).gpu_texture_view(),
+) -> RenderPassColorAttachment<'a> {
+    RenderPassColorAttachment {
+        view: WasdkTextureView::of(attachment.view).wit_texture_view(),
         depth_slice: attachment.depth_slice,
-        resolve_target: attachment
-            .resolve_target
-            .map(|view| WasdkTextureView::of(view).gpu_texture_view()),
-        clear_value: ops.clear_value.map(convert::color_to_wasi),
-        load_op: ops.load,
-        store_op: ops.store,
+        resolve_target: (attachment.resolve_target)
+            .map(|view| WasdkTextureView::of(view).wit_texture_view()),
+        ops: convert::color_operations_to_wit(&attachment.ops),
     }
 }
 
-/// An aspect without operations is read-only for the pass, as wgpu defines it.
-fn depth_stencil_attachment_to_wasi<'a>(
+fn depth_stencil_attachment_to_wit<'a>(
     attachment: &wgpu::RenderPassDepthStencilAttachment<'a>,
-) -> GpuRenderPassDepthStencilAttachment<'a> {
-    let depth = attachment
-        .depth_ops
-        .as_ref()
-        .map(|ops| convert::operations_to_wasi(ops, 1.0));
-    let stencil = attachment
-        .stencil_ops
-        .as_ref()
-        .map(|ops| convert::operations_to_wasi(ops, 0));
-    GpuRenderPassDepthStencilAttachment {
-        view: WasdkTextureView::of(attachment.view).gpu_texture_view(),
-        depth_clear_value: depth.and_then(|ops| ops.clear_value),
-        depth_load_op: depth.map(|ops| ops.load),
-        depth_store_op: depth.map(|ops| ops.store),
-        depth_read_only: Some(depth.is_none()),
-        stencil_clear_value: stencil.and_then(|ops| ops.clear_value),
-        stencil_load_op: stencil.map(|ops| ops.load),
-        stencil_store_op: stencil.map(|ops| ops.store),
-        stencil_read_only: Some(stencil.is_none()),
+) -> RenderPassDepthStencilAttachment<'a> {
+    RenderPassDepthStencilAttachment {
+        view: WasdkTextureView::of(attachment.view).wit_texture_view(),
+        depth_ops: attachment
+            .depth_ops
+            .as_ref()
+            .map(convert::depth_operations_to_wit),
+        stencil_ops: (attachment.stencil_ops.as_ref()).map(convert::stencil_operations_to_wit),
     }
 }
 
 impl RenderPassInterface for WasdkRenderPass {
     fn set_pipeline(&mut self, pipeline: &DispatchRenderPipeline) {
         self.pass
-            .set_pipeline(WasdkRenderPipeline::of_dispatch(pipeline).gpu_render_pipeline());
+            .set_pipeline(WasdkRenderPipeline::of_dispatch(pipeline).wit_render_pipeline());
     }
 
     fn set_bind_group(
@@ -140,13 +121,7 @@ impl RenderPassInterface for WasdkRenderPass {
         group: Option<&DispatchBindGroup>,
         offsets: &[DynamicOffset],
     ) {
-        bind_group_set(self.pass.set_bind_group(
-            index,
-            bind_group(group),
-            dynamic_offsets(offsets),
-            None,
-            None,
-        ));
+        self.pass.set_bind_group(index, bind_group(group), offsets);
     }
 
     fn set_index_buffer(
@@ -158,8 +133,8 @@ impl RenderPassInterface for WasdkRenderPass {
     ) {
         self.pass.set_index_buffer(
             buffer(index_buffer),
-            convert::index_format_to_wasi(index_format),
-            Some(offset),
+            convert::index_format_to_wit(index_format),
+            offset,
             size.map(BufferSize::get),
         );
     }
@@ -174,17 +149,17 @@ impl RenderPassInterface for WasdkRenderPass {
         self.pass.set_vertex_buffer(
             slot,
             vertex_buffer.map(buffer),
-            Some(offset),
+            offset,
             size.map(BufferSize::get),
         );
     }
 
     fn set_immediates(&mut self, offset: u32, data: &[u8]) {
-        self.pass.set_immediates(offset, data, None, None);
+        self.pass.set_immediates(offset, data);
     }
 
     fn set_blend_constant(&mut self, color: Color) {
-        self.pass.set_blend_constant(convert::color_to_wasi(color));
+        self.pass.set_blend_constant(convert::color_to_wit(color));
     }
 
     fn set_scissor_rect(&mut self, x: u32, y: u32, width: u32, height: u32) {
@@ -210,10 +185,8 @@ impl RenderPassInterface for WasdkRenderPass {
 
     fn draw(&mut self, vertices: std::ops::Range<u32>, instances: std::ops::Range<u32>) {
         self.pass.draw(
-            vertices.end - vertices.start,
-            Some(instances.end - instances.start),
-            Some(vertices.start),
-            Some(instances.start),
+            convert::range_to_wit(vertices),
+            convert::range_to_wit(instances),
         );
     }
 
@@ -224,16 +197,14 @@ impl RenderPassInterface for WasdkRenderPass {
         instances: std::ops::Range<u32>,
     ) {
         self.pass.draw_indexed(
-            indices.end - indices.start,
-            Some(instances.end - instances.start),
-            Some(indices.start),
-            Some(base_vertex),
-            Some(instances.start),
+            convert::range_to_wit(indices),
+            base_vertex,
+            convert::range_to_wit(instances),
         );
     }
 
     fn draw_mesh_tasks(&mut self, _x: u32, _y: u32, _z: u32) {
-        wasi_gap("mesh shaders (RenderPass::draw_mesh_tasks)")
+        left_out("mesh shaders (RenderPass::draw_mesh_tasks)")
     }
 
     fn draw_indirect(&mut self, indirect_buffer: &DispatchBuffer, indirect_offset: BufferAddress) {
@@ -255,7 +226,7 @@ impl RenderPassInterface for WasdkRenderPass {
         _indirect_buffer: &DispatchBuffer,
         _indirect_offset: BufferAddress,
     ) {
-        wasi_gap("mesh shaders (RenderPass::draw_mesh_tasks_indirect)")
+        left_out("mesh shaders (RenderPass::draw_mesh_tasks_indirect)")
     }
 
     fn multi_draw_indirect(
@@ -264,13 +235,8 @@ impl RenderPassInterface for WasdkRenderPass {
         indirect_offset: BufferAddress,
         count: u32,
     ) {
-        let indirect_buffer = buffer(indirect_buffer);
-        for draw in 0..BufferAddress::from(count) {
-            self.pass.draw_indirect(
-                indirect_buffer,
-                indirect_offset + draw * DRAW_INDIRECT_STRIDE,
-            );
-        }
+        self.pass
+            .multi_draw_indirect(buffer(indirect_buffer), indirect_offset, count);
     }
 
     fn multi_draw_indexed_indirect(
@@ -279,13 +245,8 @@ impl RenderPassInterface for WasdkRenderPass {
         indirect_offset: BufferAddress,
         count: u32,
     ) {
-        let indirect_buffer = buffer(indirect_buffer);
-        for draw in 0..BufferAddress::from(count) {
-            self.pass.draw_indexed_indirect(
-                indirect_buffer,
-                indirect_offset + draw * DRAW_INDEXED_INDIRECT_STRIDE,
-            );
-        }
+        self.pass
+            .multi_draw_indexed_indirect(buffer(indirect_buffer), indirect_offset, count);
     }
 
     fn multi_draw_mesh_tasks_indirect(
@@ -294,35 +255,41 @@ impl RenderPassInterface for WasdkRenderPass {
         _indirect_offset: BufferAddress,
         _count: u32,
     ) {
-        wasi_gap("mesh shaders (RenderPass::multi_draw_mesh_tasks_indirect)")
+        left_out("mesh shaders (RenderPass::multi_draw_mesh_tasks_indirect)")
     }
 
     fn multi_draw_indirect_count(
         &mut self,
-        _indirect_buffer: &DispatchBuffer,
-        _indirect_offset: BufferAddress,
-        _count_buffer: &DispatchBuffer,
-        _count_buffer_offset: BufferAddress,
-        _max_count: u32,
+        indirect_buffer: &DispatchBuffer,
+        indirect_offset: BufferAddress,
+        count_buffer: &DispatchBuffer,
+        count_buffer_offset: BufferAddress,
+        max_count: u32,
     ) {
-        feature_gap(
-            Features::MULTI_DRAW_INDIRECT_COUNT,
-            "RenderPass::multi_draw_indirect_count",
-        )
+        self.pass.multi_draw_indirect_count(
+            buffer(indirect_buffer),
+            indirect_offset,
+            buffer(count_buffer),
+            count_buffer_offset,
+            max_count,
+        );
     }
 
     fn multi_draw_indexed_indirect_count(
         &mut self,
-        _indirect_buffer: &DispatchBuffer,
-        _indirect_offset: BufferAddress,
-        _count_buffer: &DispatchBuffer,
-        _count_buffer_offset: BufferAddress,
-        _max_count: u32,
+        indirect_buffer: &DispatchBuffer,
+        indirect_offset: BufferAddress,
+        count_buffer: &DispatchBuffer,
+        count_buffer_offset: BufferAddress,
+        max_count: u32,
     ) {
-        feature_gap(
-            Features::MULTI_DRAW_INDIRECT_COUNT,
-            "RenderPass::multi_draw_indexed_indirect_count",
-        )
+        self.pass.multi_draw_indexed_indirect_count(
+            buffer(indirect_buffer),
+            indirect_offset,
+            buffer(count_buffer),
+            count_buffer_offset,
+            max_count,
+        );
     }
 
     fn multi_draw_mesh_tasks_indirect_count(
@@ -333,7 +300,7 @@ impl RenderPassInterface for WasdkRenderPass {
         _count_buffer_offset: BufferAddress,
         _max_count: u32,
     ) {
-        wasi_gap("mesh shaders (RenderPass::multi_draw_mesh_tasks_indirect_count)")
+        left_out("mesh shaders (RenderPass::multi_draw_mesh_tasks_indirect_count)")
     }
 
     fn insert_debug_marker(&mut self, label: &str) {
@@ -348,10 +315,9 @@ impl RenderPassInterface for WasdkRenderPass {
         self.pass.pop_debug_group();
     }
 
-    fn write_timestamp(&mut self, _query_set: &DispatchQuerySet, _query_index: u32) {
-        wasi_gap(
-            "timestamps inside a pass (RenderPass::write_timestamp); WebGPU writes them at pass boundaries",
-        )
+    fn write_timestamp(&mut self, query_set: &DispatchQuerySet, query_index: u32) {
+        self.pass
+            .write_timestamp(wit_query_set(query_set), query_index);
     }
 
     fn begin_occlusion_query(&mut self, query_index: u32) {
@@ -362,68 +328,59 @@ impl RenderPassInterface for WasdkRenderPass {
         self.pass.end_occlusion_query();
     }
 
-    fn begin_pipeline_statistics_query(
-        &mut self,
-        _query_set: &DispatchQuerySet,
-        _query_index: u32,
-    ) {
-        feature_gap(
-            Features::PIPELINE_STATISTICS_QUERY,
-            "RenderPass::begin_pipeline_statistics_query",
-        )
+    fn begin_pipeline_statistics_query(&mut self, query_set: &DispatchQuerySet, query_index: u32) {
+        self.pass
+            .begin_pipeline_statistics_query(wit_query_set(query_set), query_index);
     }
 
     fn end_pipeline_statistics_query(&mut self) {
-        feature_gap(
-            Features::PIPELINE_STATISTICS_QUERY,
-            "RenderPass::end_pipeline_statistics_query",
-        )
+        self.pass.end_pipeline_statistics_query();
     }
 
     fn execute_bundles(&mut self, render_bundles: &mut dyn Iterator<Item = &DispatchRenderBundle>) {
-        let bundles: Vec<&GpuRenderBundle> = render_bundles
-            .map(|bundle| WasdkRenderBundle::of_dispatch(bundle).gpu_render_bundle())
+        let bundles: Vec<&RenderBundle> = render_bundles
+            .map(|bundle| WasdkRenderBundle::of_dispatch(bundle).wit_render_bundle())
             .collect();
         self.pass.execute_bundles(&bundles);
     }
 }
 
 impl Drop for WasdkRenderPass {
-    fn drop(&mut self) {
-        self.pass.end();
-    }
+    /// The engine's pass, dropped with this, ends the pass.
+    fn drop(&mut self) {}
 }
 
 // Compute passes.
 
+/// The pass behind a [`wgpu::ComputePass`] from this backend.
 #[derive(Debug)]
 pub struct WasdkComputePass {
-    pass: GpuComputePassEncoder,
+    pass: ComputePass,
 }
 
 pub(crate) fn begin_compute_pass(
-    encoder: &GpuCommandEncoder,
+    encoder: &CommandEncoder,
     desc: &wgpu::ComputePassDescriptor<'_>,
 ) -> DispatchComputePass {
-    let descriptor = GpuComputePassDescriptor {
-        timestamp_writes: desc.timestamp_writes.as_ref().map(|writes| {
-            GpuComputePassTimestampWrites {
-                query_set: WasdkQuerySet::of(writes.query_set).gpu_query_set(),
-                beginning_of_pass_write_index: writes.beginning_of_pass_write_index,
-                end_of_pass_write_index: writes.end_of_pass_write_index,
-            }
-        }),
+    let descriptor = ComputePassDescriptor {
         label: convert::label(desc.label),
+        timestamp_writes: desc.timestamp_writes.as_ref().map(|writes| {
+            timestamp_writes(
+                writes.query_set,
+                writes.beginning_of_pass_write_index,
+                writes.end_of_pass_write_index,
+            )
+        }),
     };
     DispatchComputePass::custom(WasdkComputePass {
-        pass: encoder.begin_compute_pass(Some(&descriptor)),
+        pass: encoder.begin_compute_pass(&descriptor),
     })
 }
 
 impl ComputePassInterface for WasdkComputePass {
     fn set_pipeline(&mut self, pipeline: &DispatchComputePipeline) {
         self.pass
-            .set_pipeline(WasdkComputePipeline::of_dispatch(pipeline).gpu_compute_pipeline());
+            .set_pipeline(WasdkComputePipeline::of_dispatch(pipeline).wit_compute_pipeline());
     }
 
     fn set_bind_group(
@@ -432,17 +389,11 @@ impl ComputePassInterface for WasdkComputePass {
         group: Option<&DispatchBindGroup>,
         offsets: &[DynamicOffset],
     ) {
-        bind_group_set(self.pass.set_bind_group(
-            index,
-            bind_group(group),
-            dynamic_offsets(offsets),
-            None,
-            None,
-        ));
+        self.pass.set_bind_group(index, bind_group(group), offsets);
     }
 
     fn set_immediates(&mut self, offset: u32, data: &[u8]) {
-        self.pass.set_immediates(offset, data, None, None);
+        self.pass.set_immediates(offset, data);
     }
 
     fn insert_debug_marker(&mut self, label: &str) {
@@ -457,32 +408,22 @@ impl ComputePassInterface for WasdkComputePass {
         self.pass.pop_debug_group();
     }
 
-    fn write_timestamp(&mut self, _query_set: &DispatchQuerySet, _query_index: u32) {
-        wasi_gap(
-            "timestamps inside a pass (ComputePass::write_timestamp); WebGPU writes them at pass boundaries",
-        )
+    fn write_timestamp(&mut self, query_set: &DispatchQuerySet, query_index: u32) {
+        self.pass
+            .write_timestamp(wit_query_set(query_set), query_index);
     }
 
-    fn begin_pipeline_statistics_query(
-        &mut self,
-        _query_set: &DispatchQuerySet,
-        _query_index: u32,
-    ) {
-        feature_gap(
-            Features::PIPELINE_STATISTICS_QUERY,
-            "ComputePass::begin_pipeline_statistics_query",
-        )
+    fn begin_pipeline_statistics_query(&mut self, query_set: &DispatchQuerySet, query_index: u32) {
+        self.pass
+            .begin_pipeline_statistics_query(wit_query_set(query_set), query_index);
     }
 
     fn end_pipeline_statistics_query(&mut self) {
-        feature_gap(
-            Features::PIPELINE_STATISTICS_QUERY,
-            "ComputePass::end_pipeline_statistics_query",
-        )
+        self.pass.end_pipeline_statistics_query();
     }
 
     fn dispatch_workgroups(&mut self, x: u32, y: u32, z: u32) {
-        self.pass.dispatch_workgroups(x, Some(y), Some(z));
+        self.pass.dispatch_workgroups(x, y, z);
     }
 
     fn dispatch_workgroups_indirect(
@@ -503,46 +444,41 @@ impl ComputePassInterface for WasdkComputePass {
             Item = wgpu::wgt::TextureTransition<&'a DispatchTextureView>,
         >,
     ) {
-        // WebGPU tracks resource state itself; there is nothing to transition.
+        // wgpu-core tracks resource state itself; there is nothing to transition.
     }
 }
 
 impl Drop for WasdkComputePass {
-    fn drop(&mut self) {
-        self.pass.end();
-    }
+    /// The engine's pass, dropped with this, ends the pass.
+    fn drop(&mut self) {}
 }
 
 // Render bundles.
 
+/// The encoder behind a [`wgpu::RenderBundleEncoder`] from this backend.
 #[derive(Debug)]
 pub struct WasdkRenderBundleEncoder {
-    encoder: GpuRenderBundleEncoder,
+    encoder: RenderBundleEncoder,
 }
 
 pub(crate) fn create_render_bundle_encoder(
-    device: &GpuDevice,
+    device: &Device,
     desc: &wgpu::RenderBundleEncoderDescriptor<'_>,
 ) -> DispatchRenderBundleEncoder {
-    if desc.multiview.is_some() {
-        feature_gap(
-            Features::MULTIVIEW,
-            "RenderBundleEncoderDescriptor::multiview",
-        );
-    }
-    let descriptor = GpuRenderBundleEncoderDescriptor {
-        depth_read_only: desc.depth_stencil.map(|ds| ds.depth_read_only),
-        stencil_read_only: desc.depth_stencil.map(|ds| ds.stencil_read_only),
-        color_formats: desc
-            .color_formats
-            .iter()
-            .map(|format| format.map(convert::texture_format_to_wasi))
-            .collect(),
-        depth_stencil_format: desc
-            .depth_stencil
-            .map(|ds| convert::texture_format_to_wasi(ds.format)),
-        sample_count: Some(desc.sample_count),
+    let descriptor = RenderBundleEncoderDescriptor {
         label: convert::label(desc.label),
+        color_formats: (desc.color_formats.iter())
+            .map(|format| format.map(convert::texture_format_to_wit))
+            .collect(),
+        depth_stencil: desc
+            .depth_stencil
+            .map(|depth_stencil| RenderBundleDepthStencil {
+                format: convert::texture_format_to_wit(depth_stencil.format),
+                depth_read_only: depth_stencil.depth_read_only,
+                stencil_read_only: depth_stencil.stencil_read_only,
+            }),
+        sample_count: desc.sample_count,
+        multiview: desc.multiview.map(std::num::NonZeroU32::get),
     };
     DispatchRenderBundleEncoder::custom(WasdkRenderBundleEncoder {
         encoder: device.create_render_bundle_encoder(&descriptor),
@@ -552,7 +488,7 @@ pub(crate) fn create_render_bundle_encoder(
 impl RenderBundleEncoderInterface for WasdkRenderBundleEncoder {
     fn set_pipeline(&mut self, pipeline: &DispatchRenderPipeline) {
         self.encoder
-            .set_pipeline(WasdkRenderPipeline::of_dispatch(pipeline).gpu_render_pipeline());
+            .set_pipeline(WasdkRenderPipeline::of_dispatch(pipeline).wit_render_pipeline());
     }
 
     fn set_bind_group(
@@ -561,13 +497,8 @@ impl RenderBundleEncoderInterface for WasdkRenderBundleEncoder {
         group: Option<&DispatchBindGroup>,
         offsets: &[DynamicOffset],
     ) {
-        bind_group_set(self.encoder.set_bind_group(
-            index,
-            bind_group(group),
-            dynamic_offsets(offsets),
-            None,
-            None,
-        ));
+        self.encoder
+            .set_bind_group(index, bind_group(group), offsets);
     }
 
     fn set_index_buffer(
@@ -579,8 +510,8 @@ impl RenderBundleEncoderInterface for WasdkRenderBundleEncoder {
     ) {
         self.encoder.set_index_buffer(
             buffer(index_buffer),
-            convert::index_format_to_wasi(index_format),
-            Some(offset),
+            convert::index_format_to_wit(index_format),
+            offset,
             size.map(BufferSize::get),
         );
     }
@@ -595,21 +526,19 @@ impl RenderBundleEncoderInterface for WasdkRenderBundleEncoder {
         self.encoder.set_vertex_buffer(
             slot,
             vertex_buffer.map(buffer),
-            Some(offset),
+            offset,
             size.map(BufferSize::get),
         );
     }
 
     fn set_immediates(&mut self, offset: u32, data: &[u8]) {
-        self.encoder.set_immediates(offset, data, None, None);
+        self.encoder.set_immediates(offset, data);
     }
 
     fn draw(&mut self, vertices: std::ops::Range<u32>, instances: std::ops::Range<u32>) {
         self.encoder.draw(
-            vertices.end - vertices.start,
-            Some(instances.end - instances.start),
-            Some(vertices.start),
-            Some(instances.start),
+            convert::range_to_wit(vertices),
+            convert::range_to_wit(instances),
         );
     }
 
@@ -620,11 +549,9 @@ impl RenderBundleEncoderInterface for WasdkRenderBundleEncoder {
         instances: std::ops::Range<u32>,
     ) {
         self.encoder.draw_indexed(
-            indices.end - indices.start,
-            Some(instances.end - instances.start),
-            Some(indices.start),
-            Some(base_vertex),
-            Some(instances.start),
+            convert::range_to_wit(indices),
+            base_vertex,
+            convert::range_to_wit(instances),
         );
     }
 
@@ -643,11 +570,8 @@ impl RenderBundleEncoderInterface for WasdkRenderBundleEncoder {
     }
 
     fn finish(self, desc: &wgpu::RenderBundleDescriptor<'_>) -> DispatchRenderBundle {
-        let descriptor = GpuRenderBundleDescriptor {
-            label: convert::label(desc.label),
-        };
         DispatchRenderBundle::custom(WasdkRenderBundle {
-            bundle: self.encoder.finish(Some(&descriptor)),
+            bundle: RenderBundleEncoder::finish(self.encoder, desc.label),
         })
     }
 
@@ -659,15 +583,16 @@ impl RenderBundleEncoderInterface for WasdkRenderBundleEncoder {
     }
 }
 
+/// The bundle behind a [`wgpu::RenderBundle`] from this backend.
 #[derive(Debug)]
 pub struct WasdkRenderBundle {
-    bundle: GpuRenderBundle,
+    bundle: RenderBundle,
 }
 
 downcast!(WasdkRenderBundle: dispatch DispatchRenderBundle);
 
 impl WasdkRenderBundle {
-    pub(crate) fn gpu_render_bundle(&self) -> &GpuRenderBundle {
+    pub(crate) fn wit_render_bundle(&self) -> &RenderBundle {
         &self.bundle
     }
 }

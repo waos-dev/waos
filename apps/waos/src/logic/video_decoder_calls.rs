@@ -1,7 +1,9 @@
 //! Where the programs' video decoders go: each opening, each chunk and each asking for a frame to
 //! the main thread, where Waft's decoders are (`state::video_decoders`), and each answer back in
-//! the program's terms (`video_values`). A frame is asked for only as the engine asks, which it
-//! does once the program has room for one, so none waits between Waft and the engine.
+//! the program's terms (`video_values`). The decoders are a GPU's, the one a program's device is
+//! on, so an opening and a question of what a stream's support is carry the GPU they are for; a
+//! decoder once open is reached by its key alone. A frame is asked for only as the engine asks,
+//! which it does once the program has room for one, so none waits between Waft and the engine.
 //!
 //! The invariant: a decoder's calls reach the main thread after its opening, which answers before
 //! the engine holds the decoder, and its removal last, sent as the engine lets go of it; and a
@@ -23,13 +25,13 @@ use waos::bindings::wasdk::media::video_decoders::{
 };
 use waos::bindings::wasdk::media::video_streams::{EncodedChunk, VideoStreamSetup};
 use waos::{
-    DecodedFrame, OpenedVideoDecoder, ShellVideoDecoder, ShellVideoDecoders,
+    DecodedFrame, GpuId, OpenedVideoDecoder, ShellGpus, ShellVideoDecoder, ShellVideoDecoders,
     VideoDecodeSupportFuture, VideoDecoderFuture, VideoDecoderOpenFuture,
 };
 
 use super::video_values::{
     decoded_frame, program_error, program_kind, program_support, waft_chunk, waft_description,
-    waft_options, waft_setup,
+    waft_gpu, waft_options, waft_setup,
 };
 
 /// The id the app gives each decoder a program opens, which its calls carry.
@@ -41,14 +43,17 @@ type Answer = oneshot::Sender<Result<(), decoders::DecoderError>>;
 /// One call of the programs' video decoders, on its way to the main thread, with where its
 /// answer goes.
 pub(crate) enum DecoderCall {
-    /// What the system says of decoding a stream.
+    /// What the system says of decoding a stream on the GPU `gpu` names, the system's default
+    /// where none.
     Support {
+        gpu: Option<ui::GpuId>,
         description: decoders::VideoStreamDescription,
         answer: oneshot::Sender<decoders::VideoDecodeSupport>,
     },
-    /// A program opens a decoder, kept under `decoder` once it opened; `ended` is told why,
-    /// should it end by itself.
+    /// A program opens a decoder of the GPU `gpu` names, the system's default where none, kept
+    /// under `decoder` once it opened; `ended` is told why, should it end by itself.
     Open {
+        gpu: Option<ui::GpuId>,
         decoder: DecoderKey,
         setup: decoders::VideoStreamSetup,
         options: decoders::VideoDecoderOptions,
@@ -95,22 +100,43 @@ impl DecoderCall {
     }
 }
 
-/// The app's video decoders, as the engine reaches them: every call to the main thread.
-pub(crate) struct DecodersOnRequest {
+/// The video decoders of every GPU, as the engine reaches them: every call to the main thread,
+/// each decoder under a key of its own whichever GPU's it is.
+pub(crate) struct GpusOnRequest {
     calls: Calls,
-    last_decoder: AtomicU64,
+    last_decoder: Arc<AtomicU64>,
 }
 
-impl DecodersOnRequest {
-    /// The decoders, and where their calls arrive on the main thread.
-    pub(crate) fn new() -> (DecodersOnRequest, UnboundedReceiver<DecoderCall>) {
+impl GpusOnRequest {
+    /// The GPUs' decoders, and where their calls arrive on the main thread.
+    pub(crate) fn new() -> (GpusOnRequest, UnboundedReceiver<DecoderCall>) {
         let (calls, arriving) = mpsc::unbounded();
-        let decoders = DecodersOnRequest {
+        let gpus = GpusOnRequest {
             calls: Calls(calls),
-            last_decoder: AtomicU64::default(),
+            last_decoder: Arc::default(),
         };
-        (decoders, arriving)
+        (gpus, arriving)
     }
+}
+
+impl ShellGpus for GpusOnRequest {
+    /// Decoders whose every call carries `gpu`; a GPU without decoders answers that it decodes
+    /// nothing, and opens no decoder.
+    fn video_decoders(&self, gpu: Option<GpuId>) -> Option<Arc<dyn ShellVideoDecoders>> {
+        Some(Arc::new(DecodersOnRequest {
+            gpu: gpu.map(waft_gpu),
+            calls: self.calls.clone(),
+            last_decoder: Arc::clone(&self.last_decoder),
+        }))
+    }
+}
+
+/// One GPU's video decoders, as the engine reaches them: every call to the main thread.
+struct DecodersOnRequest {
+    /// The GPU they are of, the system's default where none.
+    gpu: Option<ui::GpuId>,
+    calls: Calls,
+    last_decoder: Arc<AtomicU64>,
 }
 
 impl ShellVideoDecoders for DecodersOnRequest {
@@ -118,6 +144,7 @@ impl ShellVideoDecoders for DecodersOnRequest {
         let description = waft_description(description);
         let (answer, answered) = oneshot::channel();
         self.calls.send(DecoderCall::Support {
+            gpu: self.gpu,
             description,
             answer,
         });
@@ -134,6 +161,7 @@ impl ShellVideoDecoders for DecodersOnRequest {
         let (answer, answered) = oneshot::channel();
         let (ended, has_ended) = oneshot::channel();
         self.calls.send(DecoderCall::Open {
+            gpu: self.gpu,
             decoder,
             setup: waft_setup(setup),
             options: waft_options(options),
@@ -256,8 +284,9 @@ fn quitting() -> decoders::DecoderError {
     decoders::DecoderError::Failed("WaOS is quitting".to_owned())
 }
 
-/// What is said of decoding a stream where nothing can ask the system: that it decodes none.
-fn no_support() -> decoders::VideoDecodeSupport {
+/// What is said of decoding a stream where nothing can ask the system, or the GPU has no
+/// decoders: that it decodes none.
+pub(crate) fn no_support() -> decoders::VideoDecodeSupport {
     decoders::VideoDecodeSupport {
         hardware: decoders::DecodeSupport::No,
         software: decoders::DecodeSupport::No,
