@@ -3,8 +3,8 @@
 //! across naga's versions, is written as WGSL here first, as wgpu's backend for the web writes it.
 //!
 //! The invariant: a module that cannot be written as WGSL still makes a module, an invalid one
-//! whose compilation info says why, as an invalid source does in the engine; it never stops the
-//! program.
+//! whose compilation info says why, its validation error reported to the device's error scopes,
+//! as an invalid source does in the engine; it never stops the program.
 
 use std::pin::Pin;
 use std::sync::Arc;
@@ -92,13 +92,19 @@ fn shader_stage_to_wit(stage: naga::ShaderStage) -> wasdk::gpu_types::ShaderStag
     }
 }
 
+/// What the engine is given for naga's module that could not be written as WGSL: a source naga
+/// refuses to read, so the engine makes an invalid module and reports its validation error, as
+/// wgpu-core does for an invalid module. An empty source would not do: it is a valid module.
+const UNWRITTEN: &str =
+    "wasdk-wgpu: naga's module could not be written as WGSL; its compilation info says why";
+
 /// An invalid module, whose compilation says `why`.
 fn unwritten(device: &Device, label: wgpu::Label<'_>, why: String) -> DispatchShaderModule {
     DispatchShaderModule::custom(WasdkShaderModule {
         module: Arc::new(engine_module(
             device,
             label,
-            ShaderSource::Wgsl(String::new()),
+            ShaderSource::Wgsl(UNWRITTEN.to_owned()),
         )),
         unwritten: Some(why),
     })
@@ -126,5 +132,22 @@ impl ShaderModuleInterface for WasdkShaderModule {
                 None => convert::compilation_info_from_wit(module.compilation_info().await),
             }
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn what_stands_in_for_an_unwritten_module_is_no_wgsl_naga_reads() {
+        assert!(naga::front::wgsl::parse_str(UNWRITTEN).is_err());
+    }
+
+    #[test]
+    fn a_module_naga_finds_invalid_is_not_written() {
+        let module = naga::front::wgsl::parse_str("@compute @workgroup_size(0) fn main() {}")
+            .expect("it parses");
+        assert!(wgsl_of(&module).is_err());
     }
 }

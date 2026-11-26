@@ -5,7 +5,8 @@
 //! then read hung before, its callback waiting for an `.await` that never came.
 //!
 //! And `examples/naga-shader`: a shader given as naga's module, not as WGSL text, is written as
-//! WGSL on its way to the engine, and runs.
+//! WGSL on its way to the engine, and runs; one naga's validation refuses makes a validation
+//! error.
 
 use std::path::Path;
 use std::sync::Arc;
@@ -56,6 +57,10 @@ fn a_shader_given_as_nagas_module_runs() {
     );
     assert_eq!(
         output.lines(),
-        ["compilation messages: 0", "doubled: [2, 4, 6, 8]"]
+        [
+            "compilation messages: 0",
+            "doubled: [2, 4, 6, 8]",
+            "an invalid module, the scope caught: validation",
+        ]
     );
 }
