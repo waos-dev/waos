@@ -5,7 +5,9 @@
 //! transform (the video is no longer passed), and once the program has ended, the engine holds
 //! none of the layers it made. A screenshot of its view shows a video's frame on its badge whole
 //! at the frame's shape, centred, where the badge's placement puts it, and nothing of a layer its
-//! last picture no longer holds (the design's decision 62). Under a shell with no compositor, the
+//! last picture no longer holds (the design's decision 62). The compositor shows a program's
+//! buffers in the formats the shell's compositor takes that the engine makes. Under a shell with
+//! no compositor, the
 //! program's `get-compositor` answers none, and its presents carry no layers.
 //!
 //! Presents carry hardware buffers, which are made on Apple's systems, where these tests run;
@@ -14,9 +16,10 @@
 use std::path::Path;
 use std::sync::Arc;
 
+use waos::bindings::wasdk::platform::hardware_buffers::HardwareBufferFormat;
 use waos::bindings::wasdk::platform::views::{Mutator, Placement};
 use waos::bindings::wasdk::platform::windows::{Point, Rect, Size};
-use waos::{ProgramEnvironment, WaOS};
+use waos::{ProgramEnvironment, ShellCompositor, WaOS};
 
 use crate::test_shell::composition::{self, PresentedLayer};
 use crate::test_shell::video_frames::{HeldFrame, frame_sized};
@@ -65,6 +68,40 @@ fn a_present_hands_the_shell_the_layers_the_view_holds_in_order_with_their_place
     wait_until("the engine holds no layer of the ended program", || {
         made.iter().all(|layer| Arc::strong_count(layer) <= 2)
     });
+}
+
+#[test]
+fn a_program_hears_the_formats_the_shells_compositor_takes_that_the_engine_makes() {
+    let shell = TestShell::new();
+    let taken: Vec<&str> = shell
+        .compositor
+        .accepted_buffers()
+        .gpu_memory
+        .iter()
+        .flat_map(|memory| memory.formats.iter())
+        .map(|format| match format.format {
+            HardwareBufferFormat::Bgra8 => "bgra8",
+            HardwareBufferFormat::Rgba8 => "rgba8",
+            HardwareBufferFormat::Nv12 => "nv12",
+            HardwareBufferFormat::P010 => "p010",
+        })
+        .collect();
+    assert_eq!(
+        taken,
+        ["bgra8"],
+        "the test shell's compositor takes BGRA, which Apple's systems make"
+    );
+    let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
+    let program = engine
+        .load(Path::new(waos_test_programs::COMPOSITION_LAYERS))
+        .unwrap();
+    let output = Arc::new(RecordedOutput::default());
+    let running = engine
+        .run(&program, printing_to(&output))
+        .expect("the program runs");
+    output.wait_for(&format!("layers made, shown in {}", taken.join(", ")));
+    running.stop();
+    within(running.ended());
 }
 
 /// A video's frame, as its bytes lie: orange.

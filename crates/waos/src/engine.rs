@@ -41,6 +41,7 @@ use crate::source_lines::ComponentFile;
 use crate::system::SystemSettings;
 use crate::temporary_folders::TemporaryFolders;
 use crate::views::ScreenRefreshes;
+use crate::views::host::Compositor;
 
 /// What programs' pictures are kept in on Linux, chosen once as the engine starts from what the
 /// shell's compositor shows (`os::buffer_kind`). Every other system has GPU memory alone.
@@ -118,6 +119,8 @@ pub struct WaOS {
     hardware_buffers: BufferKind,
     /// The adapter programs draw on.
     programs_adapter: ProgramsAdapter,
+    /// The system's compositor as programs reach it, where the shell has one.
+    compositor: Option<Compositor>,
     /// What draws the screenshots of every program's views, on the same instance.
     screenshots: Arc<Screenshots>,
     shell: Shell,
@@ -162,6 +165,14 @@ impl WaOS {
             ProgramsAdapter::new(accepted.as_ref().and_then(AcceptedBuffers::gpu));
         let hardware_buffers = crate::os::buffer_kind(&gpu, accepted.as_ref(), &programs_adapter);
         tracing::info!(?hardware_buffers, "what programs' pictures are kept in");
+        let compositor = shell
+            .compositor
+            .clone()
+            .zip(accepted)
+            .map(|(shell, accepted)| {
+                let formats = crate::hardware_buffers::shown_formats(&accepted, hardware_buffers);
+                Compositor::new(shell, formats)
+            });
         let screens = Screens::new(platform.screens);
         let days = config
             .audit
@@ -173,6 +184,7 @@ impl WaOS {
             screenshots: Arc::new(Screenshots::new(Arc::clone(&gpu), hardware_buffers)),
             gpu,
             hardware_buffers,
+            compositor,
             programs_adapter,
             refreshes: ScreenRefreshes::new(
                 Arc::clone(&shell.vsync),
@@ -335,7 +347,7 @@ impl WaOS {
             name: program.name().to_owned(),
             file: program.file().clone(),
             placement: Arc::clone(&self.shell.views),
-            compositor: self.shell.compositor.clone(),
+            compositor: self.compositor.clone(),
             prompts: Arc::clone(&self.shell.prompts),
             system_permissions: self.shell.system_permissions.clone(),
             screens: self.screens.clone(),

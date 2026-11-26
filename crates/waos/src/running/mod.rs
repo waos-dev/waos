@@ -58,10 +58,10 @@ use crate::screens::Screens;
 use crate::screenshots::Screenshots;
 use crate::service_extensions::ProgramServiceExtensions;
 use crate::shell::{
-    PlacedView, Prompts, ShellAudioOutputPicker, ShellCameras, ShellCompositor, ShellFileDialogs,
-    ShellGpus, ShellImageCodecs, ShellMachinePicker, ShellMediaAssets, ShellMediaPlayers,
-    ShellNotifications, ShellOpener, ShellRecordingIndicator, ShellSystemPermissions,
-    ShellVideoFrameReaders, ViewPlacement,
+    PlacedView, Prompts, ShellAudioOutputPicker, ShellCameras, ShellFileDialogs, ShellGpus,
+    ShellImageCodecs, ShellMachinePicker, ShellMediaAssets, ShellMediaPlayers, ShellNotifications,
+    ShellOpener, ShellRecordingIndicator, ShellSystemPermissions, ShellVideoFrameReaders,
+    ViewPlacement,
 };
 use crate::simulated_input::Mouse;
 use crate::source_lines::ComponentFile;
@@ -70,6 +70,7 @@ use crate::sync::locked;
 use crate::system::SystemSettings;
 use crate::targets;
 use crate::temporary_folders::TemporaryFolder;
+use crate::views::host::Compositor;
 use crate::views::{ProgramView, ProgramViews, ScreenRefreshes, ViewLayers, Watching};
 use crate::workers::ProgramWorkers;
 use activity::Activity;
@@ -175,7 +176,7 @@ pub(crate) struct ProgramStart {
     pub(crate) placement: Arc<dyn ViewPlacement>,
     /// The system's compositor, which makes the program's composition layers, where the shell
     /// has one.
-    pub(crate) compositor: Option<Arc<dyn ShellCompositor>>,
+    pub(crate) compositor: Option<Compositor>,
     /// What asks the program's user for what it may use.
     pub(crate) prompts: Arc<dyn Prompts>,
     /// What the system itself allows of what the user allowed, where it has permissions of its

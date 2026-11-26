@@ -1,5 +1,6 @@
 //! A program that places composition layers beneath its drawing: on the system's compositor it
-//! makes an opaque layer, the video, and one that is not, the badge, and says `layers made`; sets
+//! makes an opaque layer, the video, and one that is not, the badge, and says `layers made` with
+//! the formats the compositor shows buffers in (`shown in bgra8`); sets
 //! its view's layers to both, the video first and so beneath, under every kind of mutator the WIT
 //! carries, and presents its first frame, then to the badge alone, moved, which takes the video
 //! off with its second frame. Where the system has no compositor it says `no compositor` and
@@ -14,6 +15,7 @@
 
 use std::sync::Arc;
 
+use wasdk::hardware_buffers::HardwareBufferFormat;
 use wasdk::views::{
     self, CompositionLayer, Compositor, Mutator, PlacedLayer, Placement, RoundedRect, View,
     ViewChange, ViewEvent,
@@ -40,14 +42,15 @@ async fn main() -> Result<(), String> {
 
     let view = Arc::new(first_view().await?);
     let surface = configured_surface(&instance, &adapter, &device, &view)?;
-    let layers = views::get_compositor().map(|compositor| Layers::on(&compositor));
-    println!(
-        "{}",
-        match layers {
-            Some(_) => "layers made",
-            None => "no compositor",
-        }
-    );
+    let compositor = views::get_compositor();
+    let layers = compositor.as_ref().map(Layers::on);
+    match &compositor {
+        Some(compositor) => println!(
+            "layers made, shown in {}",
+            format_names(&compositor.accepted_formats())
+        ),
+        None => println!("no compositor"),
+    }
     let mut events = view
         .events()
         .ok_or("the view's events were taken already")?;
@@ -82,6 +85,20 @@ async fn main() -> Result<(), String> {
 }
 
 /// The program's two layers.
+/// `formats` as the WIT names them, one after another.
+fn format_names(formats: &[HardwareBufferFormat]) -> String {
+    let names: Vec<&str> = formats
+        .iter()
+        .map(|format| match format {
+            HardwareBufferFormat::Bgra8 => "bgra8",
+            HardwareBufferFormat::Rgba8 => "rgba8",
+            HardwareBufferFormat::Nv12 => "nv12",
+            HardwareBufferFormat::P010 => "p010",
+        })
+        .collect();
+    names.join(", ")
+}
+
 struct Layers {
     video: CompositionLayer,
     badge: CompositionLayer,

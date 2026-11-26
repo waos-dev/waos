@@ -24,6 +24,7 @@ use wasmtime::component::{
     Access, FutureReader, HasData, Linker, Resource, ResourceTable, StreamReader,
 };
 
+use crate::bindings::wasdk::platform::hardware_buffers::HardwareBufferFormat;
 use crate::bindings::wasdk::platform::views::{
     self, Cursor, HostCompositionLayer, HostCompositionLayerWithStore, HostCompositor,
     HostKeyReply, HostSystemBars, HostTextInput, HostView, HostViewWithStore, HostWithStore,
@@ -53,8 +54,25 @@ pub struct TextInput(ViewTextInput);
 /// view shares.
 pub struct SystemBars(Arc<dyn ShellSystemBars>);
 
-/// `views.compositor`: the shell's compositor, as the program reaches it.
-pub struct Compositor(Arc<dyn ShellCompositor>);
+/// `views.compositor`: the shell's compositor, as the program reaches it, and the formats it
+/// shows a program's buffers in, read once as the engine starts (`hardware_buffers::shown_formats`).
+#[derive(Clone)]
+pub struct Compositor {
+    shell: Arc<dyn ShellCompositor>,
+    accepted_formats: Arc<[HardwareBufferFormat]>,
+}
+
+impl Compositor {
+    pub(crate) fn new(
+        shell: Arc<dyn ShellCompositor>,
+        accepted_formats: Vec<HardwareBufferFormat>,
+    ) -> Compositor {
+        Compositor {
+            shell,
+            accepted_formats: accepted_formats.into(),
+        }
+    }
+}
 
 /// A program's composition layer: the layer the shell's compositor made for it, which a view
 /// holding it hands back to the shell with each present, and the presents of the program's
@@ -102,7 +120,7 @@ pub(crate) struct ViewsCtx<'a> {
     /// worker, which lists no view, hears of none and has its requests refused as `unsupported`.
     pub(crate) placement: Option<&'a dyn ViewPlacement>,
     /// The shell's compositor; none where the shell has none.
-    pub(crate) compositor: Option<&'a Arc<dyn ShellCompositor>>,
+    pub(crate) compositor: Option<&'a Compositor>,
     pub(crate) gpu: &'a GpuInstance,
     pub(crate) canvases: &'a Canvases,
     /// The layers each view holds beneath its picture.
@@ -228,7 +246,7 @@ impl views::Host for ViewsCtx<'_> {
     }
 
     fn get_compositor(&mut self) -> wasmtime::Result<Option<Resource<Compositor>>> {
-        let compositor = self.compositor.cloned().map(Compositor);
+        let compositor = self.compositor.cloned();
         Ok(compositor
             .map(|compositor| self.table.push(compositor))
             .transpose()?)
@@ -546,8 +564,15 @@ impl HostCompositor for ViewsCtx<'_> {
         compositor: Resource<Compositor>,
         opaque: bool,
     ) -> wasmtime::Result<Resource<CompositionLayer>> {
-        let layer = self.table.get(&compositor)?.0.make_layer(opaque);
+        let layer = self.table.get(&compositor)?.shell.make_layer(opaque);
         Ok(self.table.push(CompositionLayer::of(layer))?)
+    }
+
+    fn accepted_formats(
+        &mut self,
+        compositor: Resource<Compositor>,
+    ) -> wasmtime::Result<Vec<HardwareBufferFormat>> {
+        Ok(self.table.get(&compositor)?.accepted_formats.to_vec())
     }
 
     fn drop(&mut self, compositor: Resource<Compositor>) -> wasmtime::Result<()> {

@@ -37,6 +37,7 @@ mod finisher;
 pub(crate) mod host;
 mod pool;
 mod program_buffer;
+mod shown_formats;
 mod unasked_read;
 mod view_hardware_buffers;
 
@@ -46,6 +47,7 @@ pub(crate) use canvas::{Canvases, ViewCanvas};
 pub(crate) use pool::Released;
 pub use program_buffer::ProgramHardwareBuffer;
 pub(crate) use program_buffer::SubmittedWork;
+pub(crate) use shown_formats::shown_formats;
 pub(crate) use unasked_read::UnaskedRead;
 
 /// How many hardware buffers a view starts with, and keeps once it has drawn nothing for a while:

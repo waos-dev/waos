@@ -54,7 +54,7 @@ interface views {
   use screens.{screen};
   use windows.{window, window-config, rect, size};
   use clipboard.{copy-request, paste};
-  use hardware-buffers.{hardware-buffer};
+  use hardware-buffers.{hardware-buffer, hardware-buffer-format};
   use system.{brightness};
 
   /// Nanoseconds on `wasi:clocks/monotonic-clock`, the clock behind the program's own
@@ -109,6 +109,10 @@ interface views {
   resource compositor {
     /// A layer placed nowhere yet, `opaque` when nothing beneath it will show through it.
     make-layer: func(opaque: bool) -> composition-layer;
+
+    /// The formats of the buffers it shows, the first shown with no conversion.
+    @since(version = 2.2.0)
+    accepted-formats: func() -> list<hardware-buffer-format>;
   }
 
   /// The system's compositor, where it has one.

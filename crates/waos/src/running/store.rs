@@ -63,8 +63,8 @@ use crate::screens::Screens;
 use crate::screens::host::{ScreensCtx, ScreensCtxView};
 use crate::service_extensions::host::{ServiceExtensionsCtx, ServiceExtensionsCtxView};
 use crate::shell::{
-    ShellCompositor, ShellFileDialogs, ShellGpus, ShellImageCodecs, ShellMediaAssets,
-    ShellMediaPlayers, ShellNotifications, ShellOpener, ShellVideoFrameReaders, ViewPlacement,
+    ShellFileDialogs, ShellGpus, ShellImageCodecs, ShellMediaAssets, ShellMediaPlayers,
+    ShellNotifications, ShellOpener, ShellVideoFrameReaders, ViewPlacement,
 };
 use crate::source_lines::{self, ComponentFile};
 use crate::stream::{Forwarded, stream_of};
@@ -75,6 +75,7 @@ use crate::trust::host::{TrustCtx, TrustCtxView};
 use crate::video_decoders::host::{VideoDecodersCtx, VideoDecodersCtxView};
 use crate::video_frames::host::{VideoFramesCtx, VideoFramesCtxView};
 use crate::views::ViewLayers;
+use crate::views::host::Compositor;
 use crate::views::host::{ViewsCtx, ViewsCtxView};
 use crate::wasi;
 use crate::windows::host::{WindowsCtx, WindowsCtxView};
@@ -433,7 +434,7 @@ pub(crate) struct StoreData {
     /// What places the program's views; none in an instance that has none.
     placement: Option<Arc<dyn ViewPlacement>>,
     /// The system's compositor, which makes its composition layers, where the shell has one.
-    compositor: Option<Arc<dyn ShellCompositor>>,
+    compositor: Option<Compositor>,
     screens: Screens,
     settings: SystemSettings,
     /// The user's caption settings, where the system keeps them.
