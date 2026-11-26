@@ -14,7 +14,6 @@
 pub(crate) mod host;
 
 use std::future::Future;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use futures::channel::oneshot;
@@ -74,7 +73,7 @@ pub struct VideoDecoder {
     shell: Arc<dyn ShellVideoDecoder>,
     kind: CodecKind,
     /// Whether the next chunk must be a key frame.
-    key_frame_due: Arc<AtomicBool>,
+    key_frame_due: Arc<KeyFrameDue>,
     /// What comes out of it, until the program takes it.
     output: Mutex<Option<DecoderOutput>>,
     /// Dropped with the decoder, which resolves `ended` for a decoder the program let go of.
@@ -87,7 +86,7 @@ impl VideoDecoder {
         VideoDecoder {
             shell: opened.decoder,
             kind: opened.kind,
-            key_frame_due: Arc::new(AtomicBool::new(true)),
+            key_frame_due: Arc::new(KeyFrameDue::default()),
             output: Mutex::new(Some(DecoderOutput {
                 frames: lent_one_slot_each(opened.frames, frame_limit),
                 ended: ended_or_dropped(opened.ended, was_dropped),
@@ -106,17 +105,18 @@ impl VideoDecoder {
         &self,
         chunk: EncodedChunk,
     ) -> impl Future<Output = Result<(), DecoderError>> + Send + 'static + use<> {
-        if self.key_frame_due.load(Ordering::Relaxed) && !chunk.key_frame {
+        if self.key_frame_due.is_due() && !chunk.key_frame {
             let refused = Err(DecoderError::BadData(KEY_FRAME_DUE.to_owned()));
             return Either::Left(future::ready(refused));
         }
         let key_frame_due = Arc::clone(&self.key_frame_due);
+        let begun = key_frame_due.made_due_count();
         let decoding = self.shell.decode(chunk);
         Either::Right(async move {
             let decoded = decoding.await;
             match &decoded {
-                Ok(()) => key_frame_due.store(false, Ordering::Relaxed),
-                Err(DecoderError::BadData(_)) => key_frame_due.store(true, Ordering::Relaxed),
+                Ok(()) => key_frame_due.decoded(begun, false),
+                Err(DecoderError::BadData(_)) => key_frame_due.decoded(begun, true),
                 Err(_) => {}
             }
             decoded
@@ -133,7 +133,7 @@ impl VideoDecoder {
     /// Drops what the decoder holds; a key frame is due after it.
     pub(crate) fn reset(&self) {
         self.shell.reset();
-        self.key_frame_due.store(true, Ordering::Relaxed);
+        self.key_frame_due.make_due();
     }
 
     /// Another setup from the next chunk on, which is a key frame.
@@ -157,7 +157,7 @@ impl VideoDecoder {
         let key_frame_due = Arc::clone(&self.key_frame_due);
         async move {
             asked.await?;
-            key_frame_due.store(true, Ordering::Relaxed);
+            key_frame_due.make_due();
             Ok(())
         }
     }
@@ -192,4 +192,68 @@ fn ended_or_dropped(
         }
     }
     .boxed()
+}
+
+/// Whether a decoder's next chunk must be a key frame. A decode's answer counts only where nothing
+/// made a key frame due since the decode began, so a chunk still decoding as the program resets
+/// cannot undo the reset.
+#[derive(Default)]
+struct KeyFrameDue(Mutex<KeyFrameState>);
+
+struct KeyFrameState {
+    due: bool,
+    /// How many times a key frame was made due, which a decode's answer is checked against.
+    made_due: u64,
+}
+
+impl Default for KeyFrameState {
+    /// A key frame is due at the start.
+    fn default() -> KeyFrameState {
+        KeyFrameState {
+            due: true,
+            made_due: 0,
+        }
+    }
+}
+
+impl KeyFrameDue {
+    fn is_due(&self) -> bool {
+        locked(&self.0).due
+    }
+
+    fn made_due_count(&self) -> u64 {
+        locked(&self.0).made_due
+    }
+
+    /// A reset, a drain or another setup: the next chunk must be a key frame.
+    fn make_due(&self) {
+        let mut state = locked(&self.0);
+        state.due = true;
+        state.made_due += 1;
+    }
+
+    /// A decode begun when a key frame had been made due `begun` times answered: `due` holds
+    /// unless a key frame was made due since.
+    fn decoded(&self, begun: u64, due: bool) {
+        let mut state = locked(&self.0);
+        if state.made_due == begun {
+            state.due = due;
+        }
+    }
+}
+
+#[cfg(test)]
+mod key_frame_due_tests {
+    use super::KeyFrameDue;
+
+    #[test]
+    fn a_decode_answering_after_a_reset_leaves_a_key_frame_due() {
+        let key_frame_due = KeyFrameDue::default();
+        key_frame_due.decoded(key_frame_due.made_due_count(), false);
+        assert!(!key_frame_due.is_due());
+        let begun = key_frame_due.made_due_count();
+        key_frame_due.make_due();
+        key_frame_due.decoded(begun, false);
+        assert!(key_frame_due.is_due());
+    }
 }
