@@ -901,15 +901,14 @@ fn upload_shared_pixels(
 }
 
 /// Waits until the fence the dmabuf's readers left, the compositor's among them, has signalled:
-/// the sync file `DMA_BUF_IOCTL_EXPORT_SYNC_FILE` exports, polled for at most [`READERS_WAIT`].
+/// the sync file `DMA_BUF_IOCTL_EXPORT_SYNC_FILE` exports. A buffer is never drawn into while a
+/// reader still reads it, which would show a frame half drawn; the GPU work a reader left always
+/// ends, or its device is lost, which signals the fence too.
 fn wait_for_readers(memory: &HardwareBufferMemory) {
     if let Err(error) = readers_done(memory) {
-        tracing::warn!("a buffer is drawn into without waiting for its readers: {error:#}");
+        tracing::warn!("a buffer's readers could not be waited for: {error:#}");
     }
 }
-
-/// How long a buffer's readers are waited for before it is drawn into anyway.
-const READERS_WAIT: std::time::Duration = std::time::Duration::from_millis(100);
 
 fn readers_done(memory: &HardwareBufferMemory) -> Result<()> {
     let Some(dmabuf) = memory.buffer.dmabuf() else {
@@ -921,13 +920,16 @@ fn readers_done(memory: &HardwareBufferMemory) -> Result<()> {
         events: libc::POLLIN,
         revents: 0,
     };
-    // SAFETY: one live fd, polled for reading.
-    let ready = unsafe { libc::poll(&mut poll, 1, READERS_WAIT.as_millis() as i32) };
-    anyhow::ensure!(
-        ready == 1,
-        "its readers were not done within {READERS_WAIT:?}"
-    );
-    Ok(())
+    loop {
+        // SAFETY: one live fd, polled for reading.
+        if unsafe { libc::poll(&mut poll, 1, -1) } == 1 {
+            return Ok(());
+        }
+        let error = std::io::Error::last_os_error();
+        if error.kind() != std::io::ErrorKind::Interrupted {
+            return Err(error).context("polling its readers' fence");
+        }
+    }
 }
 
 /// A buffer of `width` by `height` pixels, each the bytes `pixel` answers for its column and row
