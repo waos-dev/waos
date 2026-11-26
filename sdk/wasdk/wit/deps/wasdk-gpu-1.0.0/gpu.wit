@@ -138,7 +138,9 @@ interface gpu {
     map-async: async func(mode: map-mode, offset: u64, size: option<u64>) -> result<_, string>;
     /// A copy of the mapped range's bytes. A range not mapped traps the app.
     read-mapped-range: func(offset: u64, size: u64) -> list<u8>;
-    /// Writes `data` into the mapped range at `offset`. A range not mapped for writing traps.
+    /// Writes `data` into the mapped range at `offset`. A range not mapped traps the app; one
+    /// mapped for reading takes the bytes, as wgpu's mapped ranges do, but the GPU need not see
+    /// them.
     write-mapped-range: func(offset: u64, data: list<u8>);
     unmap: func();
     /// Frees the buffer's memory now; later use is a validation error.
