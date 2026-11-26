@@ -72,8 +72,6 @@ mod storage;
 mod survey;
 mod threads;
 mod trust;
-#[cfg(target_vendor = "apple")]
-mod two_windows;
 // The test decoder's frames are Apple's pixel buffers.
 #[cfg(target_vendor = "apple")]
 mod video_decoders;
