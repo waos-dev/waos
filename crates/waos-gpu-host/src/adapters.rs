@@ -174,9 +174,12 @@ impl gpu::HostAdapter for GpuCtx<'_> {
             .into())
     }
 
+    /// wgpu's invalid timestamp, `u128::MAX`, as `u64::MAX`, which no clock in nanoseconds
+    /// reaches.
     fn presentation_timestamp(&mut self, adapter: Resource<Adapter>) -> wasmtime::Result<u64> {
         let adapter = self.table.get(&adapter)?.id();
-        Ok(self.instance.adapter_get_presentation_timestamp(adapter).0 as u64)
+        let timestamp = self.instance.adapter_get_presentation_timestamp(adapter);
+        Ok(u64::try_from(timestamp.0).unwrap_or(u64::MAX))
     }
 
     fn drop(&mut self, adapter: Resource<Adapter>) -> wasmtime::Result<()> {

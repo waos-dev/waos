@@ -108,7 +108,7 @@ impl AdapterInterface for WasdkAdapter {
     }
 
     fn get_presentation_timestamp(&self) -> PresentationTimestamp {
-        PresentationTimestamp(u128::from(self.adapter.presentation_timestamp()))
+        convert::presentation_timestamp_from_wit(self.adapter.presentation_timestamp())
     }
 
     /// Cooperative matrices are experimental, and left out of the WIT.

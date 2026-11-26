@@ -57,7 +57,8 @@ interface gpu {
     /// What `format` can do on this adapter, past WebGPU's guarantees where the adapter has
     /// the `texture-adapter-specific-format-features` feature.
     texture-format-features: func(format: texture-format) -> texture-format-features;
-    /// The adapter's clock now, in the units of presentation timestamps.
+    /// The adapter's clock now, in the units of presentation timestamps; the largest `u64`
+    /// where the adapter has no such clock, wgpu's invalid timestamp.
     presentation-timestamp: func() -> u64;
     /// A device and its queue, with the features and limits asked for; an error with wgpu-core's
     /// message for a feature or a limit the adapter does not have.
