@@ -90,7 +90,9 @@ impl Renderer {
             height: metrics.height,
             present_mode: wgpu::PresentMode::Fifo,
             desired_maximum_frame_latency: 2,
-            alpha_mode: wgpu::CompositeAlphaMode::Auto,
+            // The picture leaves clear where the layers beneath it show (`composition`), which an
+            // opaque surface would hide.
+            alpha_mode: wgpu::CompositeAlphaMode::PreMultiplied,
             view_formats: Vec::new(),
             color_space: wgpu::SurfaceColorSpace::Auto,
         };

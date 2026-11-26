@@ -1,6 +1,7 @@
 //! The smallest program that draws: one view, one pipeline, a triangle of one colour over the
 //! clear colour every frame, drawn the way any wgpu program draws one, on a surface made for its
-//! view. The program draws on the view it is given, or asks for one when given none; asks for its
+//! view. The clear colour has no alpha, which the surface's default configuration, opaque, shows
+//! as opaque all the same. The program draws on the view it is given, or asks for one when given none; asks for its
 //! next frame after each one it presents, so it draws at the screen's rate; closes its window when
 //! asked; and ends when its view is gone. The pipeline is made once.
 //!
@@ -13,12 +14,12 @@ use std::sync::Arc;
 use wasdk::views::{self, View, ViewChange, ViewEvent};
 use wasdk::windows::WindowConfig;
 
-/// What the triangle is drawn over.
+/// What the triangle is drawn over, with no alpha: the surface is opaque.
 const CLEAR: wgpu::Color = wgpu::Color {
     r: 0.06,
     g: 0.06,
     b: 0.08,
-    a: 1.0,
+    a: 0.0,
 };
 
 #[wasdk::main]

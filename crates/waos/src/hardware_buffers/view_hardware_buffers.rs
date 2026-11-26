@@ -72,6 +72,9 @@ pub(super) struct Allocation {
     /// the hardware buffers' own it is viewed in.
     pub(super) usage: wgpu_types::TextureUsages,
     pub(super) view_formats: Vec<wgpu_types::TextureFormat>,
+    /// Whether the program configured its frames opaque, which the engine makes them before
+    /// handing them over (`alpha_clearer`).
+    pub(super) opaque: bool,
     /// Every hardware buffer's size, in physical pixels.
     width: u32,
     height: u32,
@@ -84,14 +87,15 @@ pub(super) struct Allocation {
 }
 
 /// A frame just presented: its hardware buffer, the shell's until it calls `released`, the
-/// texture it was drawn through, for what the program configured it, and the device it was drawn
-/// on.
+/// texture it was drawn through, made for `usage`, the device it was drawn on, and whether the
+/// program configured it opaque.
 pub(super) struct DrawnFrame {
     pub(super) memory: HardwareBufferMemory,
     pub(super) released: Released,
     pub(super) texture: FrameTexture,
     pub(super) usage: wgpu_types::TextureUsages,
     pub(super) device: Device,
+    pub(super) opaque: bool,
 }
 
 impl ViewHardwareBuffers {
@@ -194,6 +198,7 @@ impl Allocation {
             device: device.clone(),
             usage: configuration.usage,
             view_formats: configuration.view_formats.clone(),
+            opaque: is_opaque(configuration.alpha_mode),
             width,
             height,
             hardware_buffers,
@@ -203,6 +208,16 @@ impl Allocation {
         };
         stats.hardware_buffers_changed(0, allocation.bytes());
         Ok(allocation)
+    }
+
+    /// What each frame's texture is made for: what the program configured, and drawing into
+    /// where the engine makes the frame opaque.
+    pub(super) fn texture_usage(&self) -> wgpu_types::TextureUsages {
+        if self.opaque {
+            self.usage | wgpu_types::TextureUsages::RENDER_ATTACHMENT
+        } else {
+            self.usage
+        }
     }
 
     /// One hardware buffer more, at the size of the others; its index.
@@ -248,8 +263,9 @@ impl Allocation {
             memory: memory.clone(),
             released,
             texture,
-            usage: self.usage,
+            usage: self.texture_usage(),
             device: self.device.clone(),
+            opaque: self.opaque,
         })
     }
 
@@ -267,6 +283,15 @@ impl Allocation {
         let buffer = u64::from(self.width) * u64::from(self.height) * BYTES_PER_PIXEL;
         self.pool.count() as u64 * buffer
     }
+}
+
+/// Whether frames configured with `alpha_mode` are opaque: `Opaque`, and `Auto`, which is the
+/// first the canvas offers, `Opaque`.
+fn is_opaque(alpha_mode: wgpu_types::CompositeAlphaMode) -> bool {
+    matches!(
+        alpha_mode,
+        wgpu_types::CompositeAlphaMode::Opaque | wgpu_types::CompositeAlphaMode::Auto
+    )
 }
 
 impl Drop for Allocation {

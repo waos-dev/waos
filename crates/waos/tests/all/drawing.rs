@@ -55,7 +55,8 @@ const FOCUSED: Presence = Presence {
 };
 
 /// Triangle's colour and its clear colour, as the bytes in a hardware buffer: blue, green, red,
-/// alpha, of 0.95, 0.35, 0.25 and 0.06, 0.06, 0.08.
+/// alpha, of 0.95, 0.35, 0.25 and 0.06, 0.06, 0.08. The clear colour is drawn with alpha 0, and
+/// is opaque on the opaque surface triangle configures.
 const TRIANGLE: [u8; 4] = [64, 89, 242, 255];
 const CLEAR: [u8; 4] = [20, 15, 15, 255];
 
@@ -426,6 +427,7 @@ impl ShellView for HoldingBuffersView {
         &self,
         _buffer: HardwareBuffer,
         _layers: Vec<(Arc<dyn ShellCompositionLayer>, Placement)>,
+        _opaque: bool,
         released: Box<dyn FnOnce() + Send + Sync>,
     ) {
         self.held.lock().unwrap().push(released);

@@ -628,13 +628,15 @@ impl ProgramView {
     }
 
     /// The GPU has drawn a frame into `buffer`, which the program presented after reading
-    /// `events_read` of the view's events: it is handed to the shell with `layers` beneath it, and
-    /// is the picture the view shows once the shell has it; `released`, the pool's release of it,
-    /// runs once the shell is done with it and the next picture has replaced it.
+    /// `events_read` of the view's events: it is handed to the shell with `layers` beneath it,
+    /// `opaque` where the engine made it so, and is the picture the view shows once the shell has
+    /// it; `released`, the pool's release of it, runs once the shell is done with it and the next
+    /// picture has replaced it.
     pub(crate) fn present(
         &self,
         buffer: HardwareBuffer,
         layers: Vec<(Arc<dyn ShellCompositionLayer>, Placement)>,
+        opaque: bool,
         released: Released,
         events_read: u64,
     ) {
@@ -646,7 +648,7 @@ impl ProgramView {
         );
         let (picture, released) =
             HandedPicture::new(&buffer, layers.clone(), released, events_read);
-        self.0.shell.present(buffer, layers, released);
+        self.0.shell.present(buffer, layers, opaque, released);
         self.0.shown.show(picture);
     }
 

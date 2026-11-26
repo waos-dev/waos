@@ -388,7 +388,7 @@ impl Gpu {
     }
 
     /// A surface on `view`, configured at the view's size in the surface's preferred format, for
-    /// drawing into and copying into.
+    /// drawing into and copying into, its alpha premultiplied so the layer beneath shows.
     fn surface_on(&self, view: &Arc<View>) -> Result<wgpu::Surface<'static>, String> {
         let surface = self
             .instance
@@ -399,6 +399,7 @@ impl Gpu {
             .get_default_config(&self.adapter, metrics.width, metrics.height)
             .ok_or("the view's surface draws in no format")?;
         config.usage |= wgpu::TextureUsages::COPY_DST;
+        config.alpha_mode = wgpu::CompositeAlphaMode::PreMultiplied;
         surface.configure(&self.device, &config);
         Ok(surface)
     }

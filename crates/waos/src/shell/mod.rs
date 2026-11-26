@@ -287,7 +287,10 @@ pub trait ShellView: Send + Sync {
     /// bottom-most first, each where its placement says in the buffer's pixels, in one step: the
     /// layers the view held as the program presented, made by the shell's [`ShellCompositor`],
     /// every transform among their mutators a 4×4 matrix of 16 values, as the engine checks. A
-    /// layer the last present showed and this one does not name is let go. Calls `released` once, from any
+    /// layer the last present showed and this one does not name is let go. `opaque` says every
+    /// pixel of `buffer` has alpha 1, as the engine makes a frame the program configured opaque:
+    /// a hint a shell may pass to the system where it honours one, which nothing shown depends
+    /// on. Calls `released` once, from any
     /// thread, once the compositor is done with `buffer`, which it may learn only at the view's
     /// next present: the engine never waits for it, and draws a frame into another hardware
     /// buffer meanwhile.
@@ -295,6 +298,7 @@ pub trait ShellView: Send + Sync {
         &self,
         buffer: HardwareBuffer,
         layers: Vec<(Arc<dyn ShellCompositionLayer>, Placement)>,
+        opaque: bool,
         released: Box<dyn FnOnce() + Send + Sync>,
     );
 
@@ -1333,6 +1337,7 @@ pub(crate) mod tests {
             &self,
             _hardware_buffer: HardwareBuffer,
             _layers: Vec<(Arc<dyn ShellCompositionLayer>, Placement)>,
+            _opaque: bool,
             _released: Box<dyn FnOnce() + Send + Sync>,
         ) {
         }
