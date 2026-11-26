@@ -212,49 +212,49 @@ png = "0.18"
 # Waft, the framework the WaOS app is built on, from crates.io (`AGENTS.md` says how to build
 # against an unreleased one); and the layers its facade does not name, which an app's view takes
 # its input from: the pointer widget, the pointer events a widget receives, and the keys and text input.
-waft = "0.13.0"
-waft-widgets = "0.13.0"
-waft-gestures = "0.13.0"
-waft-services = "0.13.0"
+waft = "0.14.0"
+waft-widgets = "0.14.0"
+waft-gestures = "0.14.0"
+waft-services = "0.14.0"
 # The ticker a widget reads a player's position with at each frame, which `waft-widgets` does
 # not re-export.
-waft-scheduler = "0.13.0"
+waft-scheduler = "0.14.0"
 # How a gesture detector is hit, which `waft-widgets`' `GestureDetector::behavior` takes but does
 # not re-export.
-waft-rendering = "0.13.0"
+waft-rendering = "0.14.0"
 # The springs and the scroll simulations the WaOS app's deck settles its motions with, which
 # `waft-widgets` does not re-export.
-waft-physics = "0.13.0"
+waft-physics = "0.14.0"
 # A platform with no window server, for the app's tests of its windows.
-waft-test = "0.13.0"
+waft-test = "0.14.0"
 # What `wasdk-adapter-waft` is made of: Waft's host traits and value types, its app, and the
 # client a host drives.
-waft-embedder = "0.13.0"
-waft-foundation = "0.13.0"
-waft-shell = "0.13.0"
+waft-embedder = "0.14.0"
+waft-foundation = "0.14.0"
+waft-shell = "0.14.0"
 # The messages Waft's CLI speaks to an app's service extensions, which `waos ext --stdio` relays.
-waft-service-protocol = "0.13.0"
+waft-service-protocol = "0.14.0"
 # Waft's Cupertino widgets, which `examples/two-windows` spins an activity indicator of, and
 # the library is drawn with at a phone's size.
-waft-cupertino = "0.13.0"
+waft-cupertino = "0.14.0"
 # Fluent's controls over Waft, which the library is drawn with at a desktop's or a tablet's
 # size, and the Video Player throughout.
-waft-winui = "0.13.0"
+waft-winui = "0.14.0"
 # Waft's desktop host, for what only macOS offers beyond its `Platform`: hearing WaOS's Dock
 # icon clicked, a window that slides in, and hiding the app.
-waft-embedder-winit = "0.13.0"
+waft-embedder-winit = "0.14.0"
 # What Waft's hosts on macOS and iOS share, for its `SurfaceBuffer` and `CoreVideoFrame`, which a
 # program's hardware buffers and video frames are shown and read as on Apple's systems.
-waft-embedder-apple = { version = "0.13.0", default-features = false }
+waft-embedder-apple = { version = "0.14.0", default-features = false }
 # Waft's Android host, for its `AndroidHardwareBuffer`, which a program's hardware buffers are
 # shown as on a Waft composition layer on Android.
-waft-embedder-android = "0.13.0"
+waft-embedder-android = "0.14.0"
 # One instance of WaOS: a later launch on Windows or Linux hands the files it was started with to
 # the WaOS running, as macOS does itself.
-waft-single-instance = "0.13.0"
+waft-single-instance = "0.14.0"
 # Waft's painting: its image providers, `NetworkImage` above all, which a program shows with
 # Waft's `Image` widget over the platform's HTTP client.
-waft-painting = "0.13.0"
+waft-painting = "0.14.0"
 # valo, Waft's renderer, which a program's views are drawn with: its context, its fonts and
 # their glyph raster, at the version Waft draws with.
 valo = "0.26.0"
@@ -368,30 +368,3 @@ opt-level = 3
 # a release build, so a debug WaOS took minutes to show `examples/hello` in the simulator.
 [profile.dev.package.pulley-interpreter]
 opt-level = 3
-
-# Waft with the system bars (waos-dev/waft branch `system-ui-mode`), until it is released.
-[patch.crates-io]
-waft = { git = "https://github.com/waos-dev/waft", branch = "video-codecs" }
-waft-animation = { git = "https://github.com/waos-dev/waft", branch = "video-codecs" }
-waft-cupertino = { git = "https://github.com/waos-dev/waft", branch = "video-codecs" }
-waft-embedder = { git = "https://github.com/waos-dev/waft", branch = "video-codecs" }
-waft-embedder-android = { git = "https://github.com/waos-dev/waft", branch = "video-codecs" }
-waft-embedder-apple = { git = "https://github.com/waos-dev/waft", branch = "video-codecs" }
-waft-embedder-default = { git = "https://github.com/waos-dev/waft", branch = "video-codecs" }
-waft-embedder-ios = { git = "https://github.com/waos-dev/waft", branch = "video-codecs" }
-waft-embedder-web = { git = "https://github.com/waos-dev/waft", branch = "video-codecs" }
-waft-embedder-winit = { git = "https://github.com/waos-dev/waft", branch = "video-codecs" }
-waft-foundation = { git = "https://github.com/waos-dev/waft", branch = "video-codecs" }
-waft-gestures = { git = "https://github.com/waos-dev/waft", branch = "video-codecs" }
-waft-macros = { git = "https://github.com/waos-dev/waft", branch = "video-codecs" }
-waft-painting = { git = "https://github.com/waos-dev/waft", branch = "video-codecs" }
-waft-physics = { git = "https://github.com/waos-dev/waft", branch = "video-codecs" }
-waft-rendering = { git = "https://github.com/waos-dev/waft", branch = "video-codecs" }
-waft-scheduler = { git = "https://github.com/waos-dev/waft", branch = "video-codecs" }
-waft-service-protocol = { git = "https://github.com/waos-dev/waft", branch = "video-codecs" }
-waft-services = { git = "https://github.com/waos-dev/waft", branch = "video-codecs" }
-waft-shell = { git = "https://github.com/waos-dev/waft", branch = "video-codecs" }
-waft-single-instance = { git = "https://github.com/waos-dev/waft", branch = "video-codecs" }
-waft-test = { git = "https://github.com/waos-dev/waft", branch = "video-codecs" }
-waft-widgets = { git = "https://github.com/waos-dev/waft", branch = "video-codecs" }
-waft-winui = { git = "https://github.com/waos-dev/waft", branch = "video-codecs" }
