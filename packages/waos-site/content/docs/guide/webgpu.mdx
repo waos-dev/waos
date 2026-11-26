@@ -49,7 +49,7 @@ fn next_sheet(
     if let Some(idx) = pool.iter().position(|s| s.free.load(Ordering::Acquire)) {
         return Some(&pool[idx]);
     }
-    let allocator = platform.hardware_buffer_allocator()?;
+    let allocator = platform.gpu(None)?.hardware_buffer_allocator()?;
     let usage = HardwareBufferUsage {
         gpu_color_output: true,
         gpu_sampled: true,

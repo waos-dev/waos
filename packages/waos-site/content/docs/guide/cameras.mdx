@@ -67,7 +67,7 @@ struct PooledSheet {
 
 /// Allocates a buffer for compositing: Apple allocates Bgra8, Android allocates Rgba8.
 fn allocate_sheet(platform: &dyn Platform, device: &wgpu::Device, width: u32, height: u32) -> Option<PooledSheet> {
-    let allocator = platform.hardware_buffer_allocator()?;
+    let allocator = platform.gpu(None)?.hardware_buffer_allocator()?;
     let usage = HardwareBufferUsage {
         gpu_color_output: true,
         gpu_sampled: true,
