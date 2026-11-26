@@ -1,6 +1,6 @@
 //! Calls `wasdk:gpu` itself, with no wgpu over it, and prints what each call answered: the
-//! adapter given, first among those offered; a device opened with a limit set by its setter,
-//! refused a feature and a limit the adapter lacks; a buffer written mapped at creation, and one
+//! adapter given, first among those offered; a device opened with the adapter's own limits,
+//! refused a feature and a limit, set by its setter, the adapter lacks; a buffer written mapped at creation, and one
 //! written by the queue and doubled by a compute pass, each read back mapped; a render pass's
 //! colour read back; an error caught by an error scope; an error no scope caught, from the
 //! device's uncaptured errors; and the device lost once destroyed. What the engine's tests check of its GPU host.
@@ -18,11 +18,11 @@ use wasdk::gpu::{
 };
 use wasdk::gpu_types::{
     BufferDescriptor, BufferUsages, Color, ColorLoadOp, ColorOperations, ColorWrites,
-    DeviceLostReason, Error, ErrorFilter, Extent3d, Feature, FrontFace, Limits, MapMode,
-    MemoryHints, MultisampleState, Origin3d, PipelineCompilationOptions, PolygonMode,
-    PowerPreference, PrimitiveState, PrimitiveTopology, ShaderModuleDescriptor, ShaderSource,
-    StoreOp, TexelCopyBufferLayout, TextureAspect, TextureDescriptor, TextureDimension,
-    TextureFormat, TextureUsages, TextureViewDescriptor,
+    DeviceLostReason, Error, ErrorFilter, Extent3d, Feature, FrontFace, MapMode, MemoryHints,
+    MultisampleState, Origin3d, PipelineCompilationOptions, PolygonMode, PowerPreference,
+    PrimitiveState, PrimitiveTopology, ShaderModuleDescriptor, ShaderSource, StoreOp,
+    TexelCopyBufferLayout, TextureAspect, TextureDescriptor, TextureDimension, TextureFormat,
+    TextureUsages, TextureViewDescriptor,
 };
 
 /// Doubles each number of the buffer bound to it.
@@ -125,7 +125,7 @@ async fn first_offered_is(adapter: &Adapter) -> bool {
 async fn refuse_what_the_adapter_lacks(adapter: &Adapter) {
     let has = adapter.features();
     if let Some(&lacked) = RARE_FEATURES.iter().find(|feature| !has.contains(feature)) {
-        let limits = Limits::new();
+        let limits = adapter.limits();
         let refused = adapter
             .request_device(DeviceDescriptor {
                 label: None,
@@ -162,11 +162,11 @@ fn refused_or_opened<T>(answer: &Result<T, String>) -> &'static str {
     }
 }
 
-/// A device with wgpu's default limits but for its bind groups, set to the adapter's own.
+/// A device with the adapter's own limits, which every adapter has, the iOS simulator's among
+/// them, below wgpu's defaults.
 async fn open_device(adapter: &Adapter) -> Result<(Device, Queue), String> {
-    let limits = Limits::new();
-    let most_bind_groups = adapter.limits().max_bind_groups();
-    limits.set_max_bind_groups(most_bind_groups);
+    let limits = adapter.limits();
+    let most_bind_groups = limits.max_bind_groups();
     let (device, queue) = adapter
         .request_device(DeviceDescriptor {
             label: Some("gpu-calls".to_owned()),
@@ -176,7 +176,7 @@ async fn open_device(adapter: &Adapter) -> Result<(Device, Queue), String> {
         })
         .await?;
     println!(
-        "the device has the bind groups asked: {}",
+        "the device has the adapter's bind groups: {}",
         device.limits().max_bind_groups() == most_bind_groups
     );
     Ok((device, queue))

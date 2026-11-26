@@ -12,7 +12,11 @@
 //! ```ignore
 //! let instance = wasdk_wgpu::instance();
 //! let adapter = instance.request_adapter(&wgpu::RequestAdapterOptions::default()).await?;
-//! let (device, queue) = adapter.request_device(&wgpu::DeviceDescriptor::default()).await?;
+//! // wgpu's defaults within what the adapter has: a limit past the adapter's is refused, as with
+//! // wgpu's own backends, and some adapters, as the iOS simulator's, fall below the defaults.
+//! let required_limits = wgpu::Limits::default().or_worse_values_from(&adapter.limits());
+//! let descriptor = wgpu::DeviceDescriptor { required_limits, ..Default::default() };
+//! let (device, queue) = adapter.request_device(&descriptor).await?;
 //!
 //! // A view is the window a surface is made for, shared with it as any window is:
 //! let view = std::sync::Arc::new(view);

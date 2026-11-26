@@ -45,6 +45,9 @@ impl Renderer {
         let (device, queue) = adapter
             .request_device(&wgpu::DeviceDescriptor {
                 label: Some("waft.wasdk"),
+                // wgpu's defaults within what the adapter has: some fall below them, as the iOS
+                // simulator's does.
+                required_limits: wgpu::Limits::default().or_worse_values_from(&adapter.limits()),
                 ..Default::default()
             })
             .await
