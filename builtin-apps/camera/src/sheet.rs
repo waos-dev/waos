@@ -58,7 +58,8 @@ impl Sheet {
         usage: HardwareBufferUsage,
     ) -> Result<Sheet, String> {
         let allocator = platform
-            .hardware_buffer_allocator()
+            .gpu(None)
+            .and_then(|gpu| gpu.hardware_buffer_allocator())
             .ok_or("this system allocates no hardware buffers")?;
         let mut refusal = String::new();
         for format in FORMATS {

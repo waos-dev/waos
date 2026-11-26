@@ -1,14 +1,17 @@
 //! The programs' video decoders on the main thread, over Waft's: the engine's calls arrive here
-//! and are carried out on the platform's decoders (`logic::open_video_decoders`), each wait for
-//! an answer a task of the app's. The decoders are the engine's shell's only where Waft's
-//! platform has them.
+//! and are carried out on the decoders of the GPU programs draw on (`logic::open_video_decoders`),
+//! each wait for an answer a task of the app's. That GPU is the one the compositor shows from,
+//! where the engine puts programs' devices, so a decoded picture opens where it is drawn. The
+//! decoders are the engine's shell's only where Waft's platform has them for that GPU.
 
+use std::rc::Rc;
 use std::sync::Arc;
 
 use futures::StreamExt;
 use futures::channel::mpsc::UnboundedReceiver;
 use waft::App;
-use waft::ui::Platform;
+use waft::ui::video_decoders::VideoDecoders as SystemDecoders;
+use waft::ui::{GpuId, Platform};
 use waos::ShellVideoDecoders;
 
 use crate::logic::open_video_decoders::OpenVideoDecoders;
@@ -18,16 +21,20 @@ use crate::logic::video_decoder_calls::{DecoderCall, DecodersOnRequest};
 pub(crate) struct VideoDecoders {
     shell: Arc<DecodersOnRequest>,
     arriving: UnboundedReceiver<DecoderCall>,
+    /// The decoders of the GPU programs draw on.
+    system: Rc<dyn SystemDecoders>,
 }
 
 impl VideoDecoders {
-    /// Waft's video decoders on `platform`, to serve to the engine; none where it has none.
+    /// Waft's video decoders on `platform`, those of the GPU programs draw on, to serve to the
+    /// engine; none where it has none.
     pub(crate) fn of(platform: &dyn Platform) -> Option<VideoDecoders> {
-        platform.video_decoders()?;
+        let system = platform.gpu(programs_gpu(platform))?.video_decoders()?;
         let (shell, arriving) = DecodersOnRequest::new();
         Some(VideoDecoders {
             shell: Arc::new(shell),
             arriving,
+            system,
         })
     }
 
@@ -39,23 +46,24 @@ impl VideoDecoders {
 
     /// From now on, each decoder a program opens is one of Waft's, handed the program's chunks.
     pub(crate) fn serve(self, app: &mut App) {
-        let mut arriving = self.arriving;
+        let (mut arriving, system) = (self.arriving, self.system);
         app.spawn(async move |cx| {
             let open = OpenVideoDecoders::default();
             while let Some(call) = arriving.next().await {
-                cx.update(|app| take(app, &open, call));
+                cx.update(|app| take(app, &open, system.as_ref(), call));
             }
         });
     }
 }
 
-/// Carries out `call`, from the engine, on the platform's decoders.
-fn take(app: &mut App, open: &OpenVideoDecoders, call: DecoderCall) {
-    let platform = app.platform();
-    // Served only where the platform has decoders, which a platform does not lose.
-    let Some(system) = platform.video_decoders() else {
-        return;
-    };
+/// The GPU programs draw on: the one the compositor shows from, where it names one, as the engine
+/// puts programs' devices there; the system's default otherwise.
+fn programs_gpu(platform: &dyn Platform) -> Option<GpuId> {
+    platform.compositor()?.accepted_buffers().gpu()
+}
+
+/// Carries out `call`, from the engine, on `system`'s decoders.
+fn take(app: &mut App, open: &OpenVideoDecoders, system: &dyn SystemDecoders, call: DecoderCall) {
     let mut start_task = |task| {
         app.spawn(async move |_cx| task.await);
     };
