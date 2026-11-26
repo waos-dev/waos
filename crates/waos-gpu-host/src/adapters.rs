@@ -1,5 +1,6 @@
 //! The instance's calls and the adapter: which adapter a program gets, what an adapter says of
-//! itself, and the device and queue it opens.
+//! itself, and the device and queue it opens, which takes memory in the engine's blocks unless the
+//! program sets their size ([`MEMORY_BLOCK_BYTES`]).
 //!
 //! The invariant: a device is opened with limits checked against its adapter's here, whichever
 //! way it is opened, and the embedder is told of it before the program is handed it.
@@ -177,7 +178,7 @@ impl<T: Send> gpu::HostAdapterWithStore<T> for HasGpuCtx {
                 required_features: feature_set(&descriptor.required_features),
                 required_limits,
                 experimental_features: wgpu_types::ExperimentalFeatures::disabled(),
-                memory_hints: descriptor.memory_hints.into(),
+                memory_hints: memory_hints(descriptor.memory_hints.into()),
                 trace: wgpu_types::Trace::Off,
             };
             let opened = match ctx.device_opener {
@@ -198,5 +199,62 @@ impl<T: Send> gpu::HostAdapterWithStore<T> for HasGpuCtx {
             let queue = Queue::of(&device);
             Ok(Ok((ctx.table.push(device)?, ctx.table.push(queue)?)))
         })
+    }
+}
+
+/// The size of the blocks a program's device takes memory from the system in, on Vulkan and
+/// DX12: what Impeller asks of its allocator, and Skia's default (`allocator_vk.cc`,
+/// `preferredLargeHeapBlockSize`). WaOS runs many programs at once, so what each holds in blocks
+/// it has not filled matters more than how often it asks the system for one: wgpu's own hints
+/// take 128 to 256 MB at a time and give a block back as it empties, and a 15 MB texture that
+/// came and went with a blur cost a Pixel 2 XL a 256 MB allocation, 134 to 225 ms, each time.
+const MEMORY_BLOCK_BYTES: u64 = 4 * 1024 * 1024;
+
+/// How a device the program opens takes memory: wgpu's two hints, `Performance`, its default,
+/// and `MemoryUsage`, in the engine's blocks of [`MEMORY_BLOCK_BYTES`], with a block of its own
+/// for anything larger; the block sizes a program sets itself, as it sets them.
+fn memory_hints(asked: wgpu_types::MemoryHints) -> wgpu_types::MemoryHints {
+    match asked {
+        wgpu_types::MemoryHints::Performance | wgpu_types::MemoryHints::MemoryUsage => {
+            wgpu_types::MemoryHints::Manual {
+                suballocated_device_memory_block_size: MEMORY_BLOCK_BYTES..MEMORY_BLOCK_BYTES,
+            }
+        }
+        manual @ wgpu_types::MemoryHints::Manual { .. } => manual,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn block_sizes(hints: wgpu_types::MemoryHints) -> std::ops::Range<u64> {
+        match hints {
+            wgpu_types::MemoryHints::Manual {
+                suballocated_device_memory_block_size,
+            } => suballocated_device_memory_block_size,
+            other => panic!("{other:?} is no block size"),
+        }
+    }
+
+    #[test]
+    fn wgpus_hints_take_memory_in_the_engines_blocks() {
+        for asked in [
+            wgpu_types::MemoryHints::Performance,
+            wgpu_types::MemoryHints::MemoryUsage,
+        ] {
+            assert_eq!(
+                block_sizes(memory_hints(asked)),
+                MEMORY_BLOCK_BYTES..MEMORY_BLOCK_BYTES
+            );
+        }
+    }
+
+    #[test]
+    fn block_sizes_the_program_sets_are_kept() {
+        let asked = wgpu_types::MemoryHints::Manual {
+            suballocated_device_memory_block_size: (1 << 20)..(64 << 20),
+        };
+        assert_eq!(block_sizes(memory_hints(asked)), (1 << 20)..(64 << 20));
     }
 }

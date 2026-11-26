@@ -424,7 +424,9 @@ interface types {
     shader-model: shader-model,
   }
 
-  /// How the device should allocate memory: a hint.
+  /// How the device should allocate memory: a hint. The engine runs many apps at once, so it
+  /// takes `performance` and `memory-usage` alike as small blocks of its own size; `manual` is
+  /// taken as given.
   variant memory-hints {
     performance,
     memory-usage,
