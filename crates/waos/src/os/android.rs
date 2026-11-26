@@ -28,7 +28,7 @@ use anyhow::{Result, bail};
 use ndk::hardware_buffer::{
     HardwareBufferDesc, HardwareBufferRef, HardwareBufferUsage as AndroidUsage,
 };
-use ndk::hardware_buffer_format::HardwareBufferFormat;
+use ndk::hardware_buffer_format::HardwareBufferFormat as AndroidFormat;
 use waos_webgpu_host::wasi::webgpu::webgpu::{
     GpuTextureDimension, GpuTextureFormat, GpuTextureUsage,
 };
@@ -36,7 +36,8 @@ use waos_webgpu_host::{Device, GpuObject, TextureAttributes};
 
 use crate::BufferKind;
 use crate::bindings::wasdk::platform::hardware_buffers::{
-    AlphaType, HardwareBufferUsage, ImageError, ImageErrorKind, PixelBuffer, PixelFormat,
+    AlphaType, HardwareBufferFormat, HardwareBufferUsage, ImageError, ImageErrorKind, PixelBuffer,
+    PixelFormat,
 };
 use crate::gpu::{GpuInstance, wgpu_core, wgpu_types};
 use crate::hardware_buffers::Released;
@@ -120,7 +121,7 @@ impl HardwareBufferMemory {
             width,
             height,
             layers: 1,
-            format: HardwareBufferFormat::R8G8B8A8_UNORM,
+            format: AndroidFormat::R8G8B8A8_UNORM,
             usage: android_usage(usage),
             stride: 0,
         };
@@ -136,20 +137,21 @@ impl HardwareBufferMemory {
     /// Why a buffer in `format` for `usage` is not made here; none where it is: Android's
     /// buffers are allocated in RGBA, for every use.
     pub(crate) fn unsupported(
-        format: PixelFormat,
+        format: HardwareBufferFormat,
         usage: HardwareBufferUsage,
     ) -> Option<&'static str> {
         let _ = usage;
-        (format != PixelFormat::Rgba8).then_some("Android allocates hardware buffers in RGBA")
+        (format != HardwareBufferFormat::Rgba8)
+            .then_some("Android allocates hardware buffers in RGBA")
     }
 
     /// A program's buffer of `width` by `height` pixels in `format`, for `usage`, sides the
-    /// program checked: `unsupported` for BGRA, which Android's buffers are not allocated in, and
-    /// `out-of-memory` where the system allocates none.
+    /// program checked: `unsupported` for any format but RGBA, which Android's buffers are
+    /// allocated in, and `out-of-memory` where the system allocates none.
     pub(crate) fn allocate(
         width: u32,
         height: u32,
-        format: PixelFormat,
+        format: HardwareBufferFormat,
         usage: HardwareBufferUsage,
         mode: BufferKind,
     ) -> Result<HardwareBufferMemory, ImageError> {
@@ -194,6 +196,16 @@ impl HardwareBufferMemory {
         usage_of(self.buffer.0.describe().usage)
     }
 
+    /// How the buffer lays out its pixels, as the `AHardwareBuffer` describes itself: RGBA8 for
+    /// one the engine allocated and a frame the shell hands out. A failure is the shell's, which
+    /// handed over a buffer in a layout the interface names no format for.
+    pub(crate) fn format(&self) -> Result<HardwareBufferFormat> {
+        let format = self.buffer.0.describe().format;
+        format_of(format).ok_or_else(|| {
+            anyhow::anyhow!("a hardware buffer in {format:?}, which wasdk names no format for")
+        })
+    }
+
     /// The bytes the buffer's rows take: what a program is counted for holding it.
     pub(crate) fn bytes(&self) -> u64 {
         let description = self.buffer.0.describe();
@@ -206,7 +218,7 @@ impl HardwareBufferMemory {
     /// (`hardware_buffers::program_buffer`).
     pub(crate) fn read_pixels(&self) -> Result<PixelBuffer, ImageError> {
         let description = self.buffer.0.describe();
-        if description.format != HardwareBufferFormat::R8G8B8A8_UNORM {
+        if description.format != AndroidFormat::R8G8B8A8_UNORM {
             return Err(ImageError {
                 kind: ImageErrorKind::Unsupported,
                 message: format!("a buffer in {:?}, not RGBA8", description.format),
@@ -481,10 +493,21 @@ impl FrameMemory {
     /// which handed out a frame of another kind.
     pub(crate) fn hardware_buffer(&self) -> Result<HardwareBufferMemory> {
         let format = self.frame.0.describe().format;
-        if format != HardwareBufferFormat::R8G8B8A8_UNORM {
+        if format != AndroidFormat::R8G8B8A8_UNORM {
             bail!("a video's frame is RGBA8, as the shell hands it out, not {format:?}")
         }
         Ok(HardwareBufferMemory::of(self.frame.clone()))
+    }
+}
+
+/// The format of a buffer in Android's `format`, as the interface names it; none for a layout it
+/// names none of. `Y8Cb8Cr8_420` is not `nv12`: its planes lie as the allocator chooses, which
+/// only a lock of the buffer's planes says.
+fn format_of(format: AndroidFormat) -> Option<HardwareBufferFormat> {
+    match format {
+        AndroidFormat::R8G8B8A8_UNORM => Some(HardwareBufferFormat::Rgba8),
+        AndroidFormat::YCbCr_P010 => Some(HardwareBufferFormat::P010),
+        _ => None,
     }
 }
 
@@ -587,5 +610,18 @@ mod tests {
             usage_of(AndroidUsage::empty()),
             HardwareBufferUsage::empty()
         );
+    }
+
+    #[test]
+    fn a_buffers_description_names_its_layout() {
+        assert_eq!(
+            format_of(AndroidFormat::R8G8B8A8_UNORM),
+            Some(HardwareBufferFormat::Rgba8)
+        );
+        assert_eq!(
+            format_of(AndroidFormat::YCbCr_P010),
+            Some(HardwareBufferFormat::P010)
+        );
+        assert_eq!(format_of(AndroidFormat::Y8Cb8Cr8_420), None);
     }
 }

@@ -34,7 +34,7 @@ use super::Released;
 use super::counted_bytes::CountedBytes;
 use crate::BufferKind;
 use crate::bindings::wasdk::platform::hardware_buffers::{
-    HardwareBufferUsage, ImageError, ImageErrorKind, PixelBuffer, PixelFormat,
+    HardwareBufferFormat, HardwareBufferUsage, ImageError, ImageErrorKind, PixelBuffer,
 };
 use crate::gpu::{GpuInstance, submit_once_running, wait_for, wgpu_core, wgpu_types};
 use crate::lifecycle::Lifecycle;
@@ -97,7 +97,7 @@ impl ProgramHardwareBuffer {
         stats: Arc<Stats>,
         width: u32,
         height: u32,
-        format: PixelFormat,
+        format: HardwareBufferFormat,
         usage: HardwareBufferUsage,
         mode: BufferKind,
     ) -> Result<ProgramHardwareBuffer, ImageError> {
@@ -169,6 +169,12 @@ impl ProgramHardwareBuffer {
     /// What the buffer can be used for: at least what the program asked, for one it allocated.
     pub(crate) fn usage(&self) -> HardwareBufferUsage {
         self.0.pixels.memory.usage()
+    }
+
+    /// How the buffer's memory lays out its pixels, as the system's buffer says. A failure is the
+    /// shell's, which handed over a buffer in a layout the interface names no format for.
+    pub(crate) fn format(&self) -> anyhow::Result<HardwareBufferFormat> {
+        self.0.pixels.memory.format()
     }
 
     /// Whether the CPU reads the buffer though the program did not ask for that when it allocated

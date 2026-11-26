@@ -56,8 +56,8 @@ When you want to run a WGSL filter over live camera frames (using `wasdk-wgpu`, 
 ```rust
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use waft::ui::image_codecs::{ImageErrorKind, PixelFormat};
-use waft::ui::{CompositionLayer, HardwareBuffer, HardwareBufferUsage, Platform};
+use waft::ui::image_codecs::ImageErrorKind;
+use waft::ui::{CompositionLayer, HardwareBuffer, HardwareBufferFormat, HardwareBufferUsage, Platform};
 
 struct PooledSheet {
     buffer: Arc<dyn HardwareBuffer>,
@@ -74,7 +74,7 @@ fn allocate_sheet(platform: &dyn Platform, device: &wgpu::Device, width: u32, he
         composer_overlay: true,
         ..HardwareBufferUsage::default()
     };
-    for format in [PixelFormat::Bgra8, PixelFormat::Rgba8] {
+    for format in [HardwareBufferFormat::Bgra8, HardwareBufferFormat::Rgba8] {
         match allocator.allocate(width, height, format, usage) {
             Ok(buffer) => {
                 let texture = platform.import_texture(buffer.as_ref(), device)?;

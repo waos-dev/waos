@@ -34,7 +34,7 @@ use waos_webgpu_host::{Device, GpuObject, TextureAttributes};
 
 use crate::BufferKind;
 use crate::bindings::wasdk::platform::hardware_buffers::{
-    HardwareBufferUsage, ImageError, ImageErrorKind, PixelBuffer, PixelFormat,
+    HardwareBufferFormat, HardwareBufferUsage, ImageError, ImageErrorKind, PixelBuffer,
 };
 use crate::gpu::{GpuInstance, wgpu_core, wgpu_types};
 use crate::hardware_buffers::Released;
@@ -163,10 +163,10 @@ impl HardwareBufferMemory {
     /// Why a buffer in `format` for `usage` is not made here; none where it is: Windows makes
     /// shared textures in BGRA, which the CPU does not read.
     pub(crate) fn unsupported(
-        format: PixelFormat,
+        format: HardwareBufferFormat,
         usage: HardwareBufferUsage,
     ) -> Option<&'static str> {
-        if format != PixelFormat::Bgra8 {
+        if format != HardwareBufferFormat::Bgra8 {
             Some("Windows makes hardware buffers in BGRA")
         } else if usage.contains(HardwareBufferUsage::CPU_READ) {
             Some("a hardware buffer on Windows is not read by the CPU")
@@ -176,12 +176,13 @@ impl HardwareBufferMemory {
     }
 
     /// A program's buffer of `width` by `height` pixels in `format`, for `usage`, sides the
-    /// program checked: `unsupported` for RGBA, which Windows' buffers are not made in, and for a
-    /// buffer the CPU reads, which a shared texture is not; `out-of-memory` where none is made.
+    /// program checked: `unsupported` for any format but BGRA, which Windows' buffers are made in,
+    /// and for a buffer the CPU reads, which a shared texture is not; `out-of-memory` where none
+    /// is made.
     pub(crate) fn allocate(
         width: u32,
         height: u32,
-        format: PixelFormat,
+        format: HardwareBufferFormat,
         usage: HardwareBufferUsage,
         mode: BufferKind,
     ) -> Result<HardwareBufferMemory, ImageError> {
@@ -221,6 +222,13 @@ impl HardwareBufferMemory {
         HardwareBufferUsage::GPU_SAMPLED
             | HardwareBufferUsage::GPU_COLOR_OUTPUT
             | HardwareBufferUsage::COMPOSER_OVERLAY
+    }
+
+    /// How the buffer lays out its pixels: BGRA, the DXGI format every shared texture here is in,
+    /// `B8G8R8A8_UNORM` as the engine makes one (`shared_texture::make`) and as
+    /// [`HardwareBuffer::new`] takes another host's. Never a failure here.
+    pub(crate) fn format(&self) -> Result<HardwareBufferFormat> {
+        Ok(HardwareBufferFormat::Bgra8)
     }
 
     /// The bytes the buffer's pixels take: what a program is counted for holding it.

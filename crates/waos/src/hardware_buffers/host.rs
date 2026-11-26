@@ -1,7 +1,7 @@
 //! The code serving `wasdk:platform/hardware-buffers` to a program: the allocator for one of its
 //! devices, where the engine allocates buffers, a buffer the program allocates with it on that
 //! device's GPU, counted in its stats, and any buffer it holds, its own or a video frame's: its
-//! size, what it can be used for, and its pixels copied into the program's memory once the GPU has
+//! size, how its memory lays out its pixels, what it can be used for, and its pixels copied into the program's memory once the GPU has
 //! finished what the program submitted and wrote to draw into it (`os`), where its usage has
 //! `cpu-read`, the program warned where that is more than it asked (`unasked_read`). A texture of
 //! a buffer is `gpu_interop`'s.
@@ -16,8 +16,8 @@ use wasmtime_wasi::runtime::spawn_blocking;
 use super::ProgramHardwareBuffer;
 use crate::BufferKind;
 use crate::bindings::wasdk::platform::hardware_buffers::{
-    self, HardwareBufferUsage, HostHardwareBuffer, HostHardwareBufferAllocator,
-    HostHardwareBufferWithStore, ImageError, PixelBuffer, PixelFormat,
+    self, HardwareBufferFormat, HardwareBufferUsage, HostHardwareBuffer,
+    HostHardwareBufferAllocator, HostHardwareBufferWithStore, ImageError, PixelBuffer,
 };
 use crate::gpu::GpuInstance;
 use crate::os::{ALLOCATES, HardwareBufferMemory};
@@ -93,7 +93,7 @@ impl HostHardwareBufferAllocator for HardwareBuffersCtx<'_> {
         allocator: Resource<HardwareBufferAllocator>,
         width: u32,
         height: u32,
-        format: PixelFormat,
+        format: HardwareBufferFormat,
         usage: HardwareBufferUsage,
     ) -> wasmtime::Result<Result<Resource<ProgramHardwareBuffer>, ImageError>> {
         if width == 0 || height == 0 {
@@ -115,7 +115,7 @@ impl HostHardwareBufferAllocator for HardwareBuffersCtx<'_> {
     fn supports(
         &mut self,
         _allocator: Resource<HardwareBufferAllocator>,
-        format: PixelFormat,
+        format: HardwareBufferFormat,
         usage: HardwareBufferUsage,
     ) -> wasmtime::Result<bool> {
         Ok(HardwareBufferMemory::unsupported(format, usage).is_none())
@@ -141,6 +141,18 @@ impl HostHardwareBuffer for HardwareBuffersCtx<'_> {
         buffer: Resource<ProgramHardwareBuffer>,
     ) -> wasmtime::Result<HardwareBufferUsage> {
         Ok(self.table.get(&buffer)?.usage())
+    }
+
+    /// The layout of the buffer's memory; a buffer in one the interface names no format for is the
+    /// shell's mistake, which handed it over, and traps.
+    fn format(
+        &mut self,
+        buffer: Resource<ProgramHardwareBuffer>,
+    ) -> wasmtime::Result<HardwareBufferFormat> {
+        self.table
+            .get(&buffer)?
+            .format()
+            .map_err(wasmtime::Error::from_anyhow)
     }
 
     /// The program lets go of the buffer; its textures, and a read, an encoding or a layer

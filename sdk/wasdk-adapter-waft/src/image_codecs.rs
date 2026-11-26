@@ -262,7 +262,7 @@ fn wit_pixels(pixels: PixelBuffer) -> buffers::PixelBuffer {
 }
 
 /// valo's pixel format as the WIT's.
-pub(crate) fn wit_format(format: PixelFormat) -> buffers::PixelFormat {
+fn wit_format(format: PixelFormat) -> buffers::PixelFormat {
     match format {
         PixelFormat::Rgba8 => buffers::PixelFormat::Rgba8,
         PixelFormat::Bgra8 => buffers::PixelFormat::Bgra8,

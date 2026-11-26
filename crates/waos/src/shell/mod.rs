@@ -57,7 +57,9 @@ use crate::bindings::wasdk::media::video_frames::{HdrMetadata, PixelAspect, Vide
 use crate::bindings::wasdk::media::video_streams::{CodecKind, EncodedChunk, VideoStreamSetup};
 use crate::bindings::wasdk::platform::clipboard::ClipboardError;
 use crate::bindings::wasdk::platform::file_dialogs::DialogError;
-use crate::bindings::wasdk::platform::hardware_buffers::{ImageError, PixelBuffer, PixelFormat};
+use crate::bindings::wasdk::platform::hardware_buffers::{
+    HardwareBufferFormat, ImageError, PixelBuffer,
+};
 use crate::bindings::wasdk::platform::menus::{Image, MenuEntry, TrayIconError};
 use crate::bindings::wasdk::platform::notifications::NotificationError;
 use crate::bindings::wasdk::platform::opener::OpenError;
@@ -369,7 +371,7 @@ pub struct GpuMemory {
 /// One format a compositor imports, and on Linux the DRM format modifiers it imports it in.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AcceptedFormat {
-    pub format: PixelFormat,
+    pub format: HardwareBufferFormat,
     pub modifiers: Vec<u64>,
 }
 

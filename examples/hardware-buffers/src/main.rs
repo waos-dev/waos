@@ -3,7 +3,8 @@
 //! and showing, in the format the system says it allocates, the green one for reading back too,
 //! saying first what the system refuses (`rgba8: unsupported` on Apple's systems, `bgra8: unsupported` on
 //! Android, and a side past the largest texture, `16385x48: too-large`), then
-//! `allocated 2 buffers of 64x48`, and what the red one, asked for no reading back, can be used
+//! `allocated 2 buffers of 64x48`, how the red one lays out its pixels, `red is bgra8` on Apple's
+//! systems and `red is rgba8` on Android, and what it, asked for no reading back, can be used
 //! for, as the system answers it: `red can be gpu-sampled, gpu-color-output, composer-overlay,
 //! cpu-read` on Apple's systems, which give a buffer every use, and the same without `cpu-read` on
 //! Android, which gives a buffer what it was allocated for;
@@ -31,8 +32,8 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use wasdk::hardware_buffers::{
-    AlphaType, HardwareBuffer, HardwareBufferAllocator, HardwareBufferUsage, ImageError,
-    ImageErrorKind, PixelFormat,
+    AlphaType, HardwareBuffer, HardwareBufferAllocator, HardwareBufferFormat, HardwareBufferUsage,
+    ImageError, ImageErrorKind, PixelFormat,
 };
 use wasdk::image_codecs;
 use wasdk::views::{
@@ -82,6 +83,7 @@ async fn main() -> Result<(), String> {
     let red = allocated(&allocator, format, SHOWN)?;
     let green = allocated(&allocator, format, SHOWN_AND_READ)?;
     println!("allocated 2 buffers of {WIDTH}x{HEIGHT}");
+    println!("red is {}", name_of(red.format()));
     println!("red can be {}", described_usage(red.usage()));
     gpu.clear(
         &wasdk_wgpu::import_texture(&gpu.device, &red),
@@ -117,11 +119,11 @@ async fn main() -> Result<(), String> {
 /// The format the system says it allocates buffers in, saying the one it refuses, which
 /// `allocate` refuses too: BGRA on Apple's systems, which refuse RGBA, and RGBA on Android, which
 /// refuses BGRA.
-fn system_format(allocator: &HardwareBufferAllocator) -> PixelFormat {
-    let (format, other) = if allocator.supports(PixelFormat::Bgra8, SHOWN) {
-        (PixelFormat::Bgra8, PixelFormat::Rgba8)
+fn system_format(allocator: &HardwareBufferAllocator) -> HardwareBufferFormat {
+    let (format, other) = if allocator.supports(HardwareBufferFormat::Bgra8, SHOWN) {
+        (HardwareBufferFormat::Bgra8, HardwareBufferFormat::Rgba8)
     } else {
-        (PixelFormat::Rgba8, PixelFormat::Bgra8)
+        (HardwareBufferFormat::Rgba8, HardwareBufferFormat::Bgra8)
     };
     if !allocator.supports(other, SHOWN)
         && let Err(error) = allocator.allocate(WIDTH, HEIGHT, other, SHOWN)
@@ -132,7 +134,7 @@ fn system_format(allocator: &HardwareBufferAllocator) -> PixelFormat {
 }
 
 /// Says that the system refuses a side past the largest texture it makes.
-fn say_too_large(allocator: &HardwareBufferAllocator, format: PixelFormat) {
+fn say_too_large(allocator: &HardwareBufferAllocator, format: HardwareBufferFormat) {
     if let Err(error) = allocator.allocate(16385, HEIGHT, format, SHOWN) {
         println!("16385x{HEIGHT}: {}", kind_of(&error));
     }
@@ -141,7 +143,7 @@ fn say_too_large(allocator: &HardwareBufferAllocator, format: PixelFormat) {
 /// A buffer of [`WIDTH`] by [`HEIGHT`] in `format`, for at least `usage`.
 fn allocated(
     allocator: &HardwareBufferAllocator,
-    format: PixelFormat,
+    format: HardwareBufferFormat,
     usage: HardwareBufferUsage,
 ) -> Result<HardwareBuffer, String> {
     allocator
@@ -165,8 +167,18 @@ fn described_usage(usage: HardwareBufferUsage) -> String {
     names.join(", ")
 }
 
-/// A format's name, as the WIT names it.
-fn name_of(format: PixelFormat) -> &'static str {
+/// A buffer's format's name, as the WIT names it.
+fn name_of(format: HardwareBufferFormat) -> &'static str {
+    match format {
+        HardwareBufferFormat::Bgra8 => "bgra8",
+        HardwareBufferFormat::Rgba8 => "rgba8",
+        HardwareBufferFormat::Nv12 => "nv12",
+        HardwareBufferFormat::P010 => "p010",
+    }
+}
+
+/// A pixel format's name, as the WIT names it.
+fn pixel_format_name(format: PixelFormat) -> &'static str {
     match format {
         PixelFormat::Rgba8 => "rgba8",
         PixelFormat::Bgra8 => "bgra8",
@@ -177,7 +189,7 @@ fn name_of(format: PixelFormat) -> &'static str {
 async fn read_back(buffer: &HardwareBuffer) -> String {
     match buffer.read_pixels().await {
         Ok(pixels) => {
-            let format = name_of(pixels.format);
+            let format = pixel_format_name(pixels.format);
             let alpha = match pixels.alpha {
                 AlphaType::Premultiplied => "premultiplied",
                 AlphaType::Straight => "straight",

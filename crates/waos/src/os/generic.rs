@@ -10,7 +10,7 @@ use waos_webgpu_host::Device;
 
 use crate::BufferKind;
 use crate::bindings::wasdk::platform::hardware_buffers::{
-    HardwareBufferUsage, ImageError, ImageErrorKind, PixelBuffer, PixelFormat,
+    HardwareBufferFormat, HardwareBufferUsage, ImageError, ImageErrorKind, PixelBuffer,
 };
 use crate::gpu::{GpuInstance, wgpu_core, wgpu_types};
 use crate::hardware_buffers::Released;
@@ -49,7 +49,7 @@ impl HardwareBufferMemory {
     }
 
     pub(crate) fn unsupported(
-        format: PixelFormat,
+        format: HardwareBufferFormat,
         usage: HardwareBufferUsage,
     ) -> Option<&'static str> {
         let _ = (format, usage);
@@ -59,7 +59,7 @@ impl HardwareBufferMemory {
     pub(crate) fn allocate(
         width: u32,
         height: u32,
-        format: PixelFormat,
+        format: HardwareBufferFormat,
         usage: HardwareBufferUsage,
         mode: BufferKind,
     ) -> Result<HardwareBufferMemory, ImageError> {
@@ -88,6 +88,10 @@ impl HardwareBufferMemory {
     }
 
     pub(crate) fn usage(&self) -> HardwareBufferUsage {
+        match self.0 {}
+    }
+
+    pub(crate) fn format(&self) -> Result<HardwareBufferFormat> {
         match self.0 {}
     }
 

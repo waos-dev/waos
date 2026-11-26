@@ -42,7 +42,8 @@ use crate::bindings::wasdk::media::video_frames::{
     PlaneContent, PlaneFormat, PlanePixels, VideoPlane,
 };
 use crate::bindings::wasdk::platform::hardware_buffers::{
-    AlphaType, HardwareBufferUsage, ImageError, ImageErrorKind, PixelBuffer, PixelFormat,
+    AlphaType, HardwareBufferFormat, HardwareBufferUsage, ImageError, ImageErrorKind, PixelBuffer,
+    PixelFormat,
 };
 use crate::gpu::wgpu_types::error::{ErrorType, WebGpuError};
 use crate::gpu::{GpuInstance, wgpu_core, wgpu_types};
@@ -61,6 +62,25 @@ const BGRA_OS_TYPE: i32 = 0x4247_5241;
 /// video's range (`420v`) and the whole range (`420f`): what VideoToolbox decodes 8-bit video
 /// into.
 const TWO_PLANE_8_BIT_OS_TYPES: [u32; 2] = [0x3432_3076, 0x3432_3066];
+
+/// The `OSType`s of 10-bit 4:2:0 laid out as the 8-bit, each sample in the high ten bits of
+/// sixteen, in video's range (`x420`) and the whole range (`xf20`): what VideoToolbox decodes
+/// 10-bit video into.
+const TWO_PLANE_10_BIT_OS_TYPES: [u32; 2] = [0x7834_3230, 0x7866_3230];
+
+/// The format of a surface in `pixel_format`, as the interface names it; none for a layout it
+/// names none of.
+fn format_of(pixel_format: u32) -> Option<HardwareBufferFormat> {
+    if pixel_format == BGRA_OS_TYPE as u32 {
+        Some(HardwareBufferFormat::Bgra8)
+    } else if TWO_PLANE_8_BIT_OS_TYPES.contains(&pixel_format) {
+        Some(HardwareBufferFormat::Nv12)
+    } else if TWO_PLANE_10_BIT_OS_TYPES.contains(&pixel_format) {
+        Some(HardwareBufferFormat::P010)
+    } else {
+        None
+    }
+}
 
 /// One plane of a surface, as Metal, wgpu and a program each name its samples.
 #[derive(Clone, Copy)]
@@ -313,22 +333,22 @@ impl HardwareBufferMemory {
     /// Why a buffer in `format` for `usage` is not made here; none where it is: Apple's systems
     /// allocate surfaces in BGRA, each for every use.
     pub(crate) fn unsupported(
-        format: PixelFormat,
+        format: HardwareBufferFormat,
         usage: HardwareBufferUsage,
     ) -> Option<&'static str> {
         let _ = usage;
-        (format != PixelFormat::Bgra8)
+        (format != HardwareBufferFormat::Bgra8)
             .then_some("Apple's systems allocate hardware buffers in BGRA")
     }
 
     /// A program's buffer of `width` by `height` pixels in `format`, sides the program checked:
-    /// `unsupported` for RGBA, which this system's buffers are not allocated in, and
+    /// `unsupported` for any format but BGRA, which this system's buffers are allocated in, and
     /// `out-of-memory` where the system makes no surface. Every surface serves every use, so the
     /// buffer answers every flag of its usage, whatever `usage` asks.
     pub(crate) fn allocate(
         width: u32,
         height: u32,
-        format: PixelFormat,
+        format: HardwareBufferFormat,
         usage: HardwareBufferUsage,
         mode: BufferKind,
     ) -> Result<HardwareBufferMemory, ImageError> {
@@ -386,6 +406,17 @@ impl HardwareBufferMemory {
     /// the CPU's uses every surface has.
     pub(crate) fn usage(&self) -> HardwareBufferUsage {
         self.usage
+    }
+
+    /// How the surface lays out its pixels, as its pixel format says: BGRA for one the engine
+    /// allocated or Image I/O decoded into, and a decoder's planes for a video frame's in them. A
+    /// failure is the shell's, which handed over a surface in a layout the interface names no
+    /// format for.
+    pub(crate) fn format(&self) -> Result<HardwareBufferFormat> {
+        let pixel_format = self.surface.pixel_format();
+        format_of(pixel_format).with_context(|| {
+            format!("a hardware buffer in the pixel format {pixel_format:#x}, which wasdk names no format for")
+        })
     }
 
     /// The bytes the buffer's rows take: what a program is counted for holding it.
@@ -860,4 +891,20 @@ fn allocate(width: usize, height: usize) -> Result<CFRetained<IOSurfaceRef>> {
     // SAFETY: every value is of the type its key names.
     unsafe { IOSurfaceRef::new(properties.as_opaque()) }
         .context("allocating an IOSurface for a view's hardware buffers")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_surfaces_pixel_format_names_its_layout() {
+        let format = |code: &[u8; 4]| format_of(u32::from_be_bytes(*code));
+        assert_eq!(format(b"BGRA"), Some(HardwareBufferFormat::Bgra8));
+        assert_eq!(format(b"420v"), Some(HardwareBufferFormat::Nv12));
+        assert_eq!(format(b"420f"), Some(HardwareBufferFormat::Nv12));
+        assert_eq!(format(b"x420"), Some(HardwareBufferFormat::P010));
+        assert_eq!(format(b"xf20"), Some(HardwareBufferFormat::P010));
+        assert_eq!(format(b"y420"), None);
+    }
 }

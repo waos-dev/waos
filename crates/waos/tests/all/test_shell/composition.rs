@@ -8,7 +8,7 @@
 use std::any::Any;
 use std::sync::{Arc, Mutex};
 
-use waos::bindings::wasdk::platform::hardware_buffers::PixelFormat;
+use waos::bindings::wasdk::platform::hardware_buffers::HardwareBufferFormat;
 use waos::bindings::wasdk::platform::views::Placement;
 use waos::{
     AcceptedBuffers, AcceptedFormat, GpuMemory, HardwareBuffer, LayerPicture,
@@ -50,7 +50,7 @@ impl ShellCompositor for TestCompositor {
             gpu_memory: vec![GpuMemory {
                 gpu: None,
                 formats: vec![AcceptedFormat {
-                    format: PixelFormat::Bgra8,
+                    format: HardwareBufferFormat::Bgra8,
                     modifiers: vec![0],
                 }],
             }],

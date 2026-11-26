@@ -41,7 +41,8 @@ use waos_webgpu_host::{Device, GpuObject, TextureAttributes};
 
 use crate::BufferKind;
 use crate::bindings::wasdk::platform::hardware_buffers::{
-    AlphaType, HardwareBufferUsage, ImageError, ImageErrorKind, PixelBuffer, PixelFormat,
+    AlphaType, HardwareBufferFormat, HardwareBufferUsage, ImageError, ImageErrorKind, PixelBuffer,
+    PixelFormat,
 };
 use crate::gpu::wgpu_types::error::{ErrorType, WebGpuError};
 use crate::gpu::{GpuInstance, ProgramsAdapter, wgpu_core, wgpu_types};
@@ -126,7 +127,7 @@ fn imports_linear_bgra(accepted: &AcceptedBuffers) -> bool {
         .iter()
         .flat_map(|memory| &memory.formats)
         .any(|accepted| {
-            accepted.format == PixelFormat::Bgra8
+            accepted.format == HardwareBufferFormat::Bgra8
                 && (accepted.modifiers.contains(&dmabuf::MOD_LINEAR)
                     || accepted.modifiers.contains(&dmabuf::MOD_INVALID))
         })
@@ -307,20 +308,21 @@ impl HardwareBufferMemory {
     /// Why a buffer in `format` for `usage` is not made here; none where it is: Linux's buffers
     /// are allocated in BGRA, linear or in shared memory, for every use.
     pub(crate) fn unsupported(
-        format: PixelFormat,
+        format: HardwareBufferFormat,
         usage: HardwareBufferUsage,
     ) -> Option<&'static str> {
         let _ = usage;
-        (format != PixelFormat::Bgra8).then_some("Linux allocates hardware buffers in BGRA")
+        (format != HardwareBufferFormat::Bgra8)
+            .then_some("Linux allocates hardware buffers in BGRA")
     }
 
     /// A program's buffer of `width` by `height` pixels in `format`, for `usage`, sides the
-    /// program checked: `unsupported` for RGBA, which Linux's buffers are not allocated in, and
-    /// `out-of-memory` where the system allocates none.
+    /// program checked: `unsupported` for any format but BGRA, which Linux's buffers are
+    /// allocated in, and `out-of-memory` where the system allocates none.
     pub(crate) fn allocate(
         width: u32,
         height: u32,
-        format: PixelFormat,
+        format: HardwareBufferFormat,
         usage: HardwareBufferUsage,
         mode: BufferKind,
     ) -> Result<HardwareBufferMemory, ImageError> {
@@ -363,6 +365,13 @@ impl HardwareBufferMemory {
     /// all.
     pub(crate) fn usage(&self) -> HardwareBufferUsage {
         HardwareBufferUsage::all()
+    }
+
+    /// How the buffer lays out its pixels: BGRA, as every dmabuf here is ARGB8888, the engine's
+    /// and one another host made ([`HardwareBuffer::new`]), and shared memory BGRA8 rows. Never a
+    /// failure here.
+    pub(crate) fn format(&self) -> Result<HardwareBufferFormat> {
+        Ok(HardwareBufferFormat::Bgra8)
     }
 
     /// The bytes the buffer's rows take: what a program is counted for holding it.

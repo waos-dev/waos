@@ -62,6 +62,7 @@ fn buffers_the_program_drew_reach_the_codecs_and_the_layer_once_the_gpu_drew_the
         "rgba8: unsupported",
         "16385x48: too-large",
         "allocated 2 buffers of 64x48",
+        "red is bgra8",
         "red can be gpu-sampled, gpu-color-output, composer-overlay, cpu-read",
         "read 64x48 bgra8 premultiplied, first pixel [0, 255, 0, 255]",
         "encoded image/png from 64x48",

@@ -18,7 +18,7 @@ use std::sync::Arc;
 use waft::ui::{self, CompositionLayer, Compositor, Placement};
 #[cfg(any(target_vendor = "apple", target_os = "android"))]
 use waos::VideoFrame;
-use waos::bindings::wasdk::platform::hardware_buffers::PixelFormat;
+use waos::bindings::wasdk::platform::hardware_buffers::HardwareBufferFormat;
 use waos::bindings::wasdk::platform::views;
 use waos::{
     AcceptedBuffers, AcceptedFormat, GpuId, GpuMemory, HardwareBuffer, LayerPicture,
@@ -49,8 +49,10 @@ impl ShellCompositor for WaftCompositor {
 /// Waft's `accepted`, as the engine reads it: formats the engine has no name for are left out.
 fn accepted_buffers_of(accepted: ui::AcceptedBuffers) -> AcceptedBuffers {
     let format_of = |format| match format {
-        ui::HardwareBufferFormat::Bgra8 => Some(PixelFormat::Bgra8),
-        ui::HardwareBufferFormat::Rgba8 => Some(PixelFormat::Rgba8),
+        ui::HardwareBufferFormat::Bgra8 => Some(HardwareBufferFormat::Bgra8),
+        ui::HardwareBufferFormat::Rgba8 => Some(HardwareBufferFormat::Rgba8),
+        ui::HardwareBufferFormat::Nv12 => Some(HardwareBufferFormat::Nv12),
+        ui::HardwareBufferFormat::P010 => Some(HardwareBufferFormat::P010),
         _ => None,
     };
     let gpu_memory = accepted
