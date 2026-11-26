@@ -1,0 +1,450 @@
+package wasdk:gpu@1.0.0;
+
+/// The GPU as wgpu models it: an app asks for an adapter, opens a device and its queue on it,
+/// makes buffers, textures, pipelines and the rest on the device, records commands into encoders
+/// and submits them, and draws a view through the surface the view hands out.
+///
+/// Every object is the engine's wgpu-core object behind a handle the app owns; dropping the
+/// handle drops the app's reference, as dropping a wgpu object does. What wgpu-core refuses is
+/// reported as wgpu reports it, to the innermost error scope that catches it or else to
+/// `uncaptured-errors`, never as a call's result. A call wgpu answers with a panic traps the app.
+///
+/// Only wgpu's safe API is here: wgpu-core's validation and naga's bounds checks always run, and
+/// nothing reaches the backend underneath.
+interface gpu {
+  use types.{
+    feature, wgsl-language-extensions, limits, submission-index, extent3d, origin3d, color, range, power-preference,
+    adapter-info, downlevel-capabilities, memory-hints, texture-format, texture-aspect,
+    texture-descriptor, texture-view-descriptor, image-subresource-range,
+    texture-format-features, texel-copy-buffer-layout, external-texture-descriptor,
+    sampler-descriptor, buffer-descriptor, map-mode, bind-group-layout-descriptor,
+    vertex-buffer-layout, primitive-state, depth-stencil-state, multisample-state,
+    color-target-state, pipeline-compilation-options, shader-module-descriptor,
+    compilation-message, color-operations, depth-operations, stencil-operations,
+    render-bundle-encoder-descriptor, query-set-descriptor, index-format, error-filter, error,
+    device-lost-info, poll-type, poll-status, poll-error, surface-capabilities,
+    surface-configuration, display-hdr-info,
+  };
+
+  /// The adapter the engine gives an app asking with `options`: the GPU the system's compositor
+  /// shows from where the engine draws through one. None where there is no adapter to give.
+  request-adapter: async func(options: request-adapter-options) -> option<adapter>;
+
+  /// Every adapter the engine offers the app.
+  enumerate-adapters: async func() -> list<adapter>;
+
+  /// The WGSL language extensions the engine's naga reads.
+  wgsl-language-features: func() -> wgsl-language-extensions;
+
+  /// What `request-adapter` prefers.
+  record request-adapter-options {
+    power-preference: power-preference,
+    force-fallback-adapter: bool,
+    /// A surface the adapter must be able to draw into.
+    compatible-surface: option<borrow<surface>>,
+  }
+
+  /// A physical GPU, or a software one, as the engine reaches it.
+  resource adapter {
+    /// The features a device opened on this adapter may ask for.
+    features: func() -> list<feature>;
+    /// The best limits a device opened on this adapter may ask for, as a set of its own.
+    limits: func() -> limits;
+    info: func() -> adapter-info;
+    downlevel-capabilities: func() -> downlevel-capabilities;
+    /// What `format` can do on this adapter, past WebGPU's guarantees where the adapter has
+    /// the `texture-adapter-specific-format-features` feature.
+    texture-format-features: func(format: texture-format) -> texture-format-features;
+    /// The adapter's clock now, in the units of presentation timestamps.
+    presentation-timestamp: func() -> u64;
+    /// A device and its queue, with the features and limits asked for; an error with wgpu-core's
+    /// message for a feature or a limit the adapter does not have.
+    request-device: async func(descriptor: device-descriptor) -> result<tuple<device, queue>, string>;
+  }
+
+  /// What a device is opened with, as wgpu's `DeviceDescriptor`.
+  record device-descriptor {
+    label: option<string>,
+    required-features: list<feature>,
+    /// The limits the device must have; a set made with `limits`' constructor asks for wgpu's
+    /// defaults, and the adapter's own `limits` asks for all it has.
+    required-limits: borrow<limits>,
+    memory-hints: memory-hints,
+  }
+
+  /// An open connection to an adapter, which makes every other object.
+  resource device {
+    features: func() -> list<feature>;
+    /// The limits the device was opened with, as a set of its own.
+    limits: func() -> limits;
+    adapter-info: func() -> adapter-info;
+
+    create-buffer: func(descriptor: buffer-descriptor) -> buffer;
+    create-texture: func(descriptor: texture-descriptor) -> texture;
+    /// A texture sampled as one, converting its planes to RGBA as `descriptor` says.
+    create-external-texture: func(descriptor: external-texture-descriptor, planes: list<borrow<texture-view>>) -> external-texture;
+    create-sampler: func(descriptor: sampler-descriptor) -> sampler;
+    create-bind-group-layout: func(descriptor: bind-group-layout-descriptor) -> bind-group-layout;
+    create-bind-group: func(descriptor: bind-group-descriptor) -> bind-group;
+    create-pipeline-layout: func(descriptor: pipeline-layout-descriptor) -> pipeline-layout;
+    /// A shader module, read and validated by naga; its messages are `compilation-info`'s.
+    create-shader-module: func(descriptor: shader-module-descriptor) -> shader-module;
+    create-render-pipeline: func(descriptor: render-pipeline-descriptor) -> render-pipeline;
+    create-compute-pipeline: func(descriptor: compute-pipeline-descriptor) -> compute-pipeline;
+    create-query-set: func(descriptor: query-set-descriptor) -> query-set;
+    create-command-encoder: func(label: option<string>) -> command-encoder;
+    create-render-bundle-encoder: func(descriptor: render-bundle-encoder-descriptor) -> render-bundle-encoder;
+
+    /// Starts catching the errors `filter` names, until the matching `pop-error-scope`.
+    push-error-scope: func(filter: error-filter);
+    /// Ends the innermost error scope, answering the first error it caught. Popping with no
+    /// scope open traps the app.
+    pop-error-scope: async func() -> option<error>;
+    /// The errors no scope caught, in the order reported. The first call takes the stream; a
+    /// later one answers none.
+    uncaptured-errors: func() -> option<stream<error>>;
+    /// Resolves once the device is lost, destroyed or not.
+    lost: func() -> future<device-lost-info>;
+
+    /// Waits for the device's work as `kind` says, finishing the mappings and the
+    /// `on-submitted-work-done` it completes before it answers.
+    poll: async func(kind: poll-type) -> result<poll-status, poll-error>;
+    /// Loses the device at once, unmapping its buffers.
+    destroy: func();
+  }
+
+  /// The device's queue of submitted work.
+  resource queue {
+    /// Writes `data` into `buffer` at `offset` before the next submission's work.
+    write-buffer: func(buffer: borrow<buffer>, offset: u64, data: list<u8>);
+    /// Writes `data`, laid out as `layout` says, into the part of a texture `destination` and
+    /// `size` name, before the next submission's work.
+    write-texture: func(destination: texel-copy-texture-info, data: list<u8>, layout: texel-copy-buffer-layout, size: extent3d);
+    /// Submits the command buffers, in order, consuming them.
+    submit: func(command-buffers: list<command-buffer>) -> submission-index;
+    /// Resolves once the work submitted before the call is done.
+    on-submitted-work-done: async func();
+    /// Nanoseconds per timestamp tick.
+    timestamp-period: func() -> f32;
+  }
+
+  /// GPU memory of bytes.
+  resource buffer {
+    /// Maps the range for the CPU once the GPU is done with it; an error with wgpu-core's message
+    /// where the mapping failed.
+    map-async: async func(mode: map-mode, offset: u64, size: option<u64>) -> result<_, string>;
+    /// A copy of the mapped range's bytes. A range not mapped traps the app.
+    read-mapped-range: func(offset: u64, size: u64) -> list<u8>;
+    /// Writes `data` into the mapped range at `offset`. A range not mapped for writing traps.
+    write-mapped-range: func(offset: u64, data: list<u8>);
+    unmap: func();
+    /// Frees the buffer's memory now; later use is a validation error.
+    destroy: func();
+  }
+
+  /// GPU memory of texels.
+  resource texture {
+    create-view: func(descriptor: texture-view-descriptor) -> texture-view;
+    /// What the texture was made with: what the app gave, or what the engine made it as.
+    descriptor: func() -> texture-descriptor;
+    /// Frees the texture's memory now; later use is a validation error.
+    destroy: func();
+  }
+
+  /// A view of a texture, as a binding or an attachment reads it.
+  resource texture-view;
+
+  /// A texture whose planes the GPU samples as RGBA, as wgpu's `ExternalTexture`.
+  resource external-texture {
+    destroy: func();
+  }
+
+  /// How a shader samples textures.
+  resource sampler;
+
+  /// The shape of a bind group.
+  resource bind-group-layout;
+
+  /// Resources bound to a pipeline's bindings.
+  resource bind-group;
+
+  /// The bind group layouts and immediates a pipeline takes.
+  resource pipeline-layout;
+
+  /// A compiled shader.
+  resource shader-module {
+    /// The messages naga gave reading the module.
+    compilation-info: async func() -> list<compilation-message>;
+  }
+
+  /// A render pipeline.
+  resource render-pipeline {
+    /// The layout at `index` of the pipeline's layout, made by the pipeline where it had none.
+    bind-group-layout: func(index: u32) -> bind-group-layout;
+  }
+
+  /// A compute pipeline.
+  resource compute-pipeline {
+    /// The layout at `index` of the pipeline's layout, made by the pipeline where it had none.
+    bind-group-layout: func(index: u32) -> bind-group-layout;
+  }
+
+  /// A query set's results, written by passes and resolved into a buffer.
+  resource query-set {
+    destroy: func();
+  }
+
+  /// Records commands for one submission.
+  resource command-encoder {
+    copy-buffer-to-buffer: func(source: borrow<buffer>, source-offset: u64, destination: borrow<buffer>, destination-offset: u64, size: option<u64>);
+    copy-buffer-to-texture: func(source: texel-copy-buffer-info, destination: texel-copy-texture-info, size: extent3d);
+    copy-texture-to-buffer: func(source: texel-copy-texture-info, destination: texel-copy-buffer-info, size: extent3d);
+    copy-texture-to-texture: func(source: texel-copy-texture-info, destination: texel-copy-texture-info, size: extent3d);
+    clear-texture: func(texture: borrow<texture>, range: image-subresource-range);
+    clear-buffer: func(buffer: borrow<buffer>, offset: u64, size: option<u64>);
+    /// A compute pass recording into this encoder until it is dropped.
+    begin-compute-pass: func(descriptor: compute-pass-descriptor) -> compute-pass;
+    /// A render pass recording into this encoder until it is dropped.
+    begin-render-pass: func(descriptor: render-pass-descriptor) -> render-pass;
+    write-timestamp: func(query-set: borrow<query-set>, index: u32);
+    resolve-query-set: func(query-set: borrow<query-set>, first-query: u32, query-count: u32, destination: borrow<buffer>, destination-offset: u64);
+    insert-debug-marker: func(label: string);
+    push-debug-group: func(label: string);
+    pop-debug-group: func();
+    /// The commands recorded, consuming the encoder.
+    finish: static func(encoder: command-encoder) -> command-buffer;
+  }
+
+  /// Recorded commands, ready to submit.
+  resource command-buffer;
+
+  /// A compute pass; dropping it ends the pass.
+  resource compute-pass {
+    set-pipeline: func(pipeline: borrow<compute-pipeline>);
+    set-bind-group: func(index: u32, bind-group: option<borrow<bind-group>>, offsets: list<u32>);
+    set-immediates: func(offset: u32, data: list<u8>);
+    dispatch-workgroups: func(x: u32, y: u32, z: u32);
+    dispatch-workgroups-indirect: func(buffer: borrow<buffer>, offset: u64);
+    write-timestamp: func(query-set: borrow<query-set>, index: u32);
+    begin-pipeline-statistics-query: func(query-set: borrow<query-set>, index: u32);
+    end-pipeline-statistics-query: func();
+    insert-debug-marker: func(label: string);
+    push-debug-group: func(label: string);
+    pop-debug-group: func();
+  }
+
+  /// A render pass; dropping it ends the pass.
+  resource render-pass {
+    set-pipeline: func(pipeline: borrow<render-pipeline>);
+    set-bind-group: func(index: u32, bind-group: option<borrow<bind-group>>, offsets: list<u32>);
+    set-index-buffer: func(buffer: borrow<buffer>, format: index-format, offset: u64, size: option<u64>);
+    set-vertex-buffer: func(slot: u32, buffer: option<borrow<buffer>>, offset: u64, size: option<u64>);
+    set-immediates: func(offset: u32, data: list<u8>);
+    set-blend-constant: func(color: color);
+    set-scissor-rect: func(x: u32, y: u32, width: u32, height: u32);
+    set-viewport: func(x: f32, y: f32, width: f32, height: f32, min-depth: f32, max-depth: f32);
+    set-stencil-reference: func(reference: u32);
+    draw: func(vertices: range, instances: range);
+    draw-indexed: func(indices: range, base-vertex: s32, instances: range);
+    draw-indirect: func(buffer: borrow<buffer>, offset: u64);
+    draw-indexed-indirect: func(buffer: borrow<buffer>, offset: u64);
+    multi-draw-indirect: func(buffer: borrow<buffer>, offset: u64, count: u32);
+    multi-draw-indexed-indirect: func(buffer: borrow<buffer>, offset: u64, count: u32);
+    /// Draws as many as the u32 at `count-offset` of `count-buffer` says, at most `max-count`.
+    multi-draw-indirect-count: func(buffer: borrow<buffer>, offset: u64, count-buffer: borrow<buffer>, count-offset: u64, max-count: u32);
+    multi-draw-indexed-indirect-count: func(buffer: borrow<buffer>, offset: u64, count-buffer: borrow<buffer>, count-offset: u64, max-count: u32);
+    execute-bundles: func(bundles: list<borrow<render-bundle>>);
+    write-timestamp: func(query-set: borrow<query-set>, index: u32);
+    begin-occlusion-query: func(index: u32);
+    end-occlusion-query: func();
+    begin-pipeline-statistics-query: func(query-set: borrow<query-set>, index: u32);
+    end-pipeline-statistics-query: func();
+    insert-debug-marker: func(label: string);
+    push-debug-group: func(label: string);
+    pop-debug-group: func();
+  }
+
+  /// Records draws once, to replay in many render passes.
+  resource render-bundle-encoder {
+    set-pipeline: func(pipeline: borrow<render-pipeline>);
+    set-bind-group: func(index: u32, bind-group: option<borrow<bind-group>>, offsets: list<u32>);
+    set-index-buffer: func(buffer: borrow<buffer>, format: index-format, offset: u64, size: option<u64>);
+    set-vertex-buffer: func(slot: u32, buffer: option<borrow<buffer>>, offset: u64, size: option<u64>);
+    set-immediates: func(offset: u32, data: list<u8>);
+    draw: func(vertices: range, instances: range);
+    draw-indexed: func(indices: range, base-vertex: s32, instances: range);
+    draw-indirect: func(buffer: borrow<buffer>, offset: u64);
+    draw-indexed-indirect: func(buffer: borrow<buffer>, offset: u64);
+    /// The draws recorded, consuming the encoder.
+    finish: static func(encoder: render-bundle-encoder, label: option<string>) -> render-bundle;
+  }
+
+  /// Recorded draws, replayed by `execute-bundles`.
+  resource render-bundle;
+
+  /// Where a view's frames come from: a view hands out its own (`wasdk:platform/views`), and
+  /// the view's `present` puts the frame on screen.
+  resource surface {
+    /// What the surface can be configured with on `adapter`.
+    capabilities: func(adapter: borrow<adapter>) -> surface-capabilities;
+    /// Makes the surface hand out frames as `configuration` says, on `device`.
+    configure: func(device: borrow<device>, configuration: surface-configuration);
+    /// What `configure` last set; none before it.
+    configuration: func() -> option<surface-configuration>;
+    /// The texture to draw this frame into, or why there is none.
+    current-texture: func() -> current-surface-texture;
+    /// What the display the surface is on says of its range, as `adapter` reads it.
+    hdr-info: func(adapter: borrow<adapter>) -> display-hdr-info;
+  }
+
+  /// A surface's frame, or why it has none, as wgpu's `CurrentSurfaceTexture`.
+  variant current-surface-texture {
+    success(texture),
+    /// A frame, from a surface that should be configured again.
+    suboptimal(texture),
+    timeout,
+    /// The view is not seen: covered, minimised or behind a locked screen.
+    occluded,
+    /// The configuration no longer fits; configure again.
+    outdated,
+    lost,
+    /// Getting the frame failed validation, which went to the device's errors.
+    validation,
+  }
+
+  /// One resource a bind group binds, as wgpu's `BindingResource`.
+  variant binding-resource {
+    buffer(buffer-binding),
+    buffer-array(list<buffer-binding>),
+    sampler(borrow<sampler>),
+    sampler-array(list<borrow<sampler>>),
+    texture-view(borrow<texture-view>),
+    texture-view-array(list<borrow<texture-view>>),
+    external-texture(borrow<external-texture>),
+  }
+
+  /// A range of a buffer, bound.
+  record buffer-binding {
+    buffer: borrow<buffer>,
+    offset: u64,
+    size: option<u64>,
+  }
+
+  /// One binding of a bind group.
+  record bind-group-entry {
+    binding: u32,
+    %resource: binding-resource,
+  }
+
+  /// A bind group.
+  record bind-group-descriptor {
+    label: option<string>,
+    layout: borrow<bind-group-layout>,
+    entries: list<bind-group-entry>,
+  }
+
+  /// A pipeline layout; a gap in the bind group layouts binds nothing there.
+  record pipeline-layout-descriptor {
+    label: option<string>,
+    bind-group-layouts: list<option<borrow<bind-group-layout>>>,
+    immediate-size: u32,
+  }
+
+  /// A render pipeline's vertex stage.
+  record vertex-state {
+    module: borrow<shader-module>,
+    entry-point: option<string>,
+    compilation-options: pipeline-compilation-options,
+    buffers: list<option<vertex-buffer-layout>>,
+  }
+
+  /// A render pipeline's fragment stage.
+  record fragment-state {
+    module: borrow<shader-module>,
+    entry-point: option<string>,
+    compilation-options: pipeline-compilation-options,
+    targets: list<option<color-target-state>>,
+  }
+
+  /// A render pipeline; with no layout, the pipeline makes its own from its shaders.
+  record render-pipeline-descriptor {
+    label: option<string>,
+    layout: option<borrow<pipeline-layout>>,
+    vertex: vertex-state,
+    primitive: primitive-state,
+    depth-stencil: option<depth-stencil-state>,
+    multisample: multisample-state,
+    fragment: option<fragment-state>,
+    /// The views of a multiview pass the pipeline draws, one bit each.
+    multiview-mask: option<u32>,
+  }
+
+  /// A compute pipeline; with no layout, the pipeline makes its own from its shader.
+  record compute-pipeline-descriptor {
+    label: option<string>,
+    layout: option<borrow<pipeline-layout>>,
+    module: borrow<shader-module>,
+    entry-point: option<string>,
+    compilation-options: pipeline-compilation-options,
+  }
+
+  /// Where a pass writes timestamps at its start and end.
+  record timestamp-writes {
+    query-set: borrow<query-set>,
+    beginning-of-pass-write-index: option<u32>,
+    end-of-pass-write-index: option<u32>,
+  }
+
+  /// A compute pass.
+  record compute-pass-descriptor {
+    label: option<string>,
+    timestamp-writes: option<timestamp-writes>,
+  }
+
+  /// A colour attachment of a render pass.
+  record render-pass-color-attachment {
+    view: borrow<texture-view>,
+    /// The slice of a 3D texture drawn into.
+    depth-slice: option<u32>,
+    resolve-target: option<borrow<texture-view>>,
+    ops: color-operations,
+  }
+
+  /// The depth and stencil attachment of a render pass.
+  record render-pass-depth-stencil-attachment {
+    view: borrow<texture-view>,
+    depth-ops: option<depth-operations>,
+    stencil-ops: option<stencil-operations>,
+  }
+
+  /// A render pass.
+  record render-pass-descriptor {
+    label: option<string>,
+    color-attachments: list<option<render-pass-color-attachment>>,
+    depth-stencil-attachment: option<render-pass-depth-stencil-attachment>,
+    timestamp-writes: option<timestamp-writes>,
+    occlusion-query-set: option<borrow<query-set>>,
+    /// The views of a multiview pass, one bit each.
+    multiview-mask: option<u32>,
+  }
+
+  /// A buffer's side of a copy.
+  record texel-copy-buffer-info {
+    buffer: borrow<buffer>,
+    layout: texel-copy-buffer-layout,
+  }
+
+  /// A texture's side of a copy.
+  record texel-copy-texture-info {
+    texture: borrow<texture>,
+    mip-level: u32,
+    origin: origin3d,
+    aspect: texture-aspect,
+  }
+}
+
+/// What an app that draws imports.
+world imports {
+  import types;
+  import gpu;
+}

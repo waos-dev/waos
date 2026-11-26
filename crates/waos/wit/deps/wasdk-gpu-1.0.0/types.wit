@@ -1,0 +1,1380 @@
+package wasdk:gpu@1.0.0;
+
+/// The values an app's GPU work is described with: wgpu-types' formats, usages, states and
+/// descriptors, each case and field named as wgpu-types names it, in kebab-case.
+///
+/// Nothing here holds a GPU object; descriptors that name one are in `gpu`. A name keeps a run of
+/// digits with the word before it (`Rg11b10Ufloat` is `rg11b10-ufloat`), as WIT requires.
+interface types {
+  /// A device feature, named as its constant in wgpu-types' `Features`. These are every feature of
+  /// wgpu 30's safe API; one a later wgpu adds comes in a new version of this package. Left out: the experimental ones (ray tracing, mesh shaders,
+  /// cooperative matrix) and those that only serve them, `passthrough-shaders`, and the engine's
+  /// own (`pipeline-cache`, the Vulkan external memory and display timing extensions).
+  enum feature {
+    // WebGPU's.
+    /// Depth may be left unclipped (`primitive-state.unclipped-depth`).
+    depth-clip-control,
+    /// The `depth32-float-stencil8` texture format.
+    depth32float-stencil8,
+    /// The BC compressed texture formats.
+    texture-compression-bc,
+    /// 3D textures in the BC formats, with `texture-compression-bc`.
+    texture-compression-bc-sliced3d,
+    /// The ETC2 and EAC compressed texture formats.
+    texture-compression-etc2,
+    /// The ASTC compressed texture formats, low dynamic range.
+    texture-compression-astc,
+    /// 3D textures in the ASTC formats, with `texture-compression-astc`.
+    texture-compression-astc-sliced3d,
+    /// Timestamp queries, written at the start and end of passes.
+    timestamp-query,
+    /// A first instance other than zero in indirect draws.
+    indirect-first-instance,
+    /// `f16` in shaders.
+    shader-f16,
+    /// `rg11b10-ufloat` textures as render targets.
+    rg11b10ufloat-renderable,
+    /// `bgra8-unorm` textures as storage textures.
+    bgra8unorm-storage,
+    /// Filtering `r32-float`, `rg32-float` and `rgba32-float` textures.
+    float32-filterable,
+    /// Blending into `r32-float`, `rg32-float` and `rgba32-float` attachments.
+    float32-blendable,
+    /// Blending with a fragment shader's two outputs.
+    dual-source-blending,
+    /// `@builtin(clip_distances)` in shaders.
+    clip-distances,
+    /// Immediates, set with `set-immediates`, up to the `max-immediate-size` limit.
+    immediates,
+    /// `@builtin(primitive_index)` in fragment shaders.
+    primitive-index,
+
+    // wgpu's own.
+    /// `f32` atomic load, store, add, sub and exchange in shaders.
+    shader-float32-atomic,
+    /// The 16-bit normalized texture formats.
+    texture-format16bit-norm,
+    /// The ASTC compressed texture formats, high dynamic range.
+    texture-compression-astc-hdr,
+    /// The format features the adapter has past WebGPU's, as `texture-format-features` answers.
+    texture-adapter-specific-format-features,
+    /// Pipeline statistics queries.
+    pipeline-statistics-query,
+    /// Timestamps written by command encoders, outside passes.
+    timestamp-query-inside-encoders,
+    /// Timestamps written inside render and compute passes.
+    timestamp-query-inside-passes,
+    /// `map-read` and `map-write` buffers with any other usage.
+    mappable-primary-buffers,
+    /// Binding arrays of textures.
+    texture-binding-array,
+    /// Binding arrays of buffers.
+    buffer-binding-array,
+    /// Binding arrays of storage buffers and storage textures, with the arrays of their kind.
+    storage-resource-binding-array,
+    /// Indexing arrays of sampled textures and storage buffers with non-uniform values.
+    sampled-texture-and-storage-buffer-array-non-uniform-indexing,
+    /// Indexing arrays of storage textures with non-uniform values.
+    storage-texture-array-non-uniform-indexing,
+    /// Bind groups that fill a binding array only partly.
+    partially-bound-binding-array,
+    /// `multi-draw-indirect-count` and `multi-draw-indexed-indirect-count`.
+    multi-draw-indirect-count,
+    /// `clamp-to-border` addressing with the `zero` border colour.
+    address-mode-clamp-to-zero,
+    /// `clamp-to-border` addressing with any border colour.
+    address-mode-clamp-to-border,
+    /// Drawing polygons as lines.
+    polygon-mode-line,
+    /// Drawing polygons as points.
+    polygon-mode-point,
+    /// Overestimating conservative rasterization.
+    conservative-rasterization,
+    /// Writable storage buffers and textures in vertex shaders.
+    vertex-writable-storage,
+    /// `clear-texture` on command encoders.
+    clear-texture,
+    /// Multiview render passes and `@builtin(view_index)`.
+    multiview,
+    /// 64-bit vertex attributes (`float64` and the like), with `shader-f64`.
+    vertex-attribute64bit,
+    /// Atomic operations on `r32-uint` and `r32-sint` storage textures.
+    texture-atomic,
+    /// The `nv12` texture format.
+    texture-format-nv12,
+    /// The `p010` texture format.
+    texture-format-p010,
+    /// External textures, and bind group layouts that hold them.
+    external-texture,
+    /// `f64` in shaders.
+    shader-f64,
+    /// `i16` and `u16` in shaders.
+    shader-i16,
+    /// The `early_depth_test` attribute on fragment shaders.
+    shader-early-depth-test,
+    /// `i64` and `u64` in shaders.
+    shader-int64,
+    /// Subgroup operations in compute and fragment shaders, except barriers.
+    subgroup,
+    /// Subgroup operations in vertex shaders, with `subgroup`.
+    subgroup-vertex,
+    /// Subgroup barriers in compute shaders, with `subgroup`.
+    subgroup-barrier,
+    /// `i64` and `u64` atomic min and max in shaders.
+    shader-int64-atomic-min-max,
+    /// Every `i64` and `u64` atomic operation in shaders.
+    shader-int64-atomic-all-ops,
+    /// Atomic min and max on `r64-uint` storage textures.
+    texture-int64-atomic,
+    /// Binding arrays of uniform buffers.
+    uniform-buffer-binding-arrays,
+    /// Barycentric coordinates in fragment shaders.
+    shader-barycentrics,
+    /// Multiview that draws only some of a texture's layers, with `multiview`.
+    selective-multiview,
+    /// Multisampled texture arrays.
+    multisample-array,
+    /// Per-vertex fragment shader inputs.
+    shader-per-vertex,
+    /// `@builtin(draw_index)` in shaders.
+    shader-draw-index,
+    /// The `@coherent` decoration on storage buffers.
+    memory-decoration-coherent,
+    /// The `@volatile` decoration on storage buffers.
+    memory-decoration-volatile,
+  }
+
+  /// WGSL language extensions, the WGSL specification's term for what wgpu's
+  /// `WgslLanguageFeatures` holds.
+  flags wgsl-language-extensions {
+    read-only-and-read-write-storage-textures,
+    packed4x8-integer-dot-product,
+    unrestricted-pointer-parameters,
+    pointer-composite-access,
+  }
+
+  /// A set of limits, as wgpu-types' `Limits`: what an adapter or a device has, or what a device
+  /// asks for. Each limit has a getter and a `set-` setter. A limit is a bound to stay under,
+  /// higher being better, except the `min-` alignments, where lower is better. A limit wgpu adds
+  /// later comes as a new getter and setter marked `@since`, so this type stays the same. Left
+  /// out: the limits of the experimental features (ray tracing, mesh shaders).
+  resource limits {
+    /// wgpu's default limits (`Limits::default()`), the ones WebGPU guarantees.
+    constructor();
+
+    /// The largest width of a `d1` texture.
+    max-texture-dimension1d: func() -> u32;
+    set-max-texture-dimension1d: func(value: u32);
+
+    /// The largest width and height of a `d2` texture.
+    max-texture-dimension2d: func() -> u32;
+    set-max-texture-dimension2d: func(value: u32);
+
+    /// The largest width, height and depth of a `d3` texture.
+    max-texture-dimension3d: func() -> u32;
+    set-max-texture-dimension3d: func(value: u32);
+
+    /// The most array layers of a `d2` texture.
+    max-texture-array-layers: func() -> u32;
+    set-max-texture-array-layers: func(value: u32);
+
+    /// The most bind groups a pipeline takes at once.
+    max-bind-groups: func() -> u32;
+    set-max-bind-groups: func(value: u32);
+
+    /// The most bind group and vertex buffer slots used at once, counting the empty ones below the
+    /// highest.
+    max-bind-groups-plus-vertex-buffers: func() -> u32;
+    set-max-bind-groups-plus-vertex-buffers: func(value: u32);
+
+    /// The highest binding number in a bind group layout.
+    max-bindings-per-bind-group: func() -> u32;
+    set-max-bindings-per-bind-group: func(value: u32);
+
+    /// The most uniform buffer bindings with dynamic offsets in a pipeline layout.
+    max-dynamic-uniform-buffers-per-pipeline-layout: func() -> u32;
+    set-max-dynamic-uniform-buffers-per-pipeline-layout: func(value: u32);
+
+    /// The most storage buffer bindings with dynamic offsets in a pipeline layout.
+    max-dynamic-storage-buffers-per-pipeline-layout: func() -> u32;
+    set-max-dynamic-storage-buffers-per-pipeline-layout: func(value: u32);
+
+    /// The most sampled textures one shader stage sees.
+    max-sampled-textures-per-shader-stage: func() -> u32;
+    set-max-sampled-textures-per-shader-stage: func(value: u32);
+
+    /// The most samplers one shader stage sees.
+    max-samplers-per-shader-stage: func() -> u32;
+    set-max-samplers-per-shader-stage: func(value: u32);
+
+    /// The most storage buffers one shader stage sees.
+    max-storage-buffers-per-shader-stage: func() -> u32;
+    set-max-storage-buffers-per-shader-stage: func(value: u32);
+
+    /// The most storage textures one shader stage sees.
+    max-storage-textures-per-shader-stage: func() -> u32;
+    set-max-storage-textures-per-shader-stage: func(value: u32);
+
+    /// The most uniform buffers one shader stage sees.
+    max-uniform-buffers-per-shader-stage: func() -> u32;
+    set-max-uniform-buffers-per-shader-stage: func(value: u32);
+
+    /// The most elements of binding arrays, samplers' aside, one shader stage reaches.
+    max-binding-array-elements-per-shader-stage: func() -> u32;
+    set-max-binding-array-elements-per-shader-stage: func(value: u32);
+
+    /// The most elements of sampler binding arrays one shader stage reaches.
+    max-binding-array-sampler-elements-per-shader-stage: func() -> u32;
+    set-max-binding-array-sampler-elements-per-shader-stage: func(value: u32);
+
+    /// The largest uniform buffer binding, in bytes.
+    max-uniform-buffer-binding-size: func() -> u64;
+    set-max-uniform-buffer-binding-size: func(value: u64);
+
+    /// The largest storage buffer binding, in bytes.
+    max-storage-buffer-binding-size: func() -> u64;
+    set-max-storage-buffer-binding-size: func(value: u64);
+
+    /// The most vertex buffers a render pipeline takes.
+    max-vertex-buffers: func() -> u32;
+    set-max-vertex-buffers: func(value: u32);
+
+    /// The size in bytes past which making a buffer always fails.
+    max-buffer-size: func() -> u64;
+    set-max-buffer-size: func(value: u64);
+
+    /// The most vertex attributes of a render pipeline, over all its buffers.
+    max-vertex-attributes: func() -> u32;
+    set-max-vertex-attributes: func(value: u32);
+
+    /// The largest `array-stride` of a vertex buffer layout.
+    max-vertex-buffer-array-stride: func() -> u32;
+    set-max-vertex-buffer-array-stride: func(value: u32);
+
+    /// The most `@location` variables passed between shader stages.
+    max-inter-stage-shader-variables: func() -> u32;
+    set-max-inter-stage-shader-variables: func(value: u32);
+
+    /// The alignment of a uniform buffer binding's offset and dynamic offset; lower is better.
+    min-uniform-buffer-offset-alignment: func() -> u32;
+    set-min-uniform-buffer-offset-alignment: func(value: u32);
+
+    /// The alignment of a storage buffer binding's offset and dynamic offset; lower is better.
+    min-storage-buffer-offset-alignment: func() -> u32;
+    set-min-storage-buffer-offset-alignment: func(value: u32);
+
+    /// The most colour attachments of a render pass.
+    max-color-attachments: func() -> u32;
+    set-max-color-attachments: func(value: u32);
+
+    /// The most bytes one sample takes over all colour attachments.
+    max-color-attachment-bytes-per-sample: func() -> u32;
+    set-max-color-attachment-bytes-per-sample: func(value: u32);
+
+    /// The most bytes of workgroup memory a compute entry point uses.
+    max-compute-workgroup-storage-size: func() -> u32;
+    set-max-compute-workgroup-storage-size: func(value: u32);
+
+    /// The largest product of a compute entry point's workgroup size.
+    max-compute-invocations-per-workgroup: func() -> u32;
+    set-max-compute-invocations-per-workgroup: func(value: u32);
+
+    /// The largest x of a compute entry point's workgroup size.
+    max-compute-workgroup-size-x: func() -> u32;
+    set-max-compute-workgroup-size-x: func(value: u32);
+
+    /// The largest y of a compute entry point's workgroup size.
+    max-compute-workgroup-size-y: func() -> u32;
+    set-max-compute-workgroup-size-y: func(value: u32);
+
+    /// The largest z of a compute entry point's workgroup size.
+    max-compute-workgroup-size-z: func() -> u32;
+    set-max-compute-workgroup-size-z: func(value: u32);
+
+    /// The most workgroups `dispatch-workgroups` takes in each dimension.
+    max-compute-workgroups-per-dimension: func() -> u32;
+    set-max-compute-workgroups-per-dimension: func(value: u32);
+
+    /// The most bytes of immediates, above zero only with the `immediates` feature.
+    max-immediate-size: func() -> u32;
+    set-max-immediate-size: func(value: u32);
+
+    /// The most bindings other than samplers alive at once; only D3D12 is bound by it.
+    max-non-sampler-bindings: func() -> u32;
+    set-max-non-sampler-bindings: func(value: u32);
+
+    /// The most storage, uniform and vertex buffers one shader stage sees together.
+    max-buffers-and-acceleration-structures-per-shader-stage: func() -> u32;
+    set-max-buffers-and-acceleration-structures-per-shader-stage: func(value: u32);
+
+    /// The most views of a multiview render pass.
+    max-multiview-view-count: func() -> u32;
+    set-max-multiview-view-count: func(value: u32);
+  }
+
+  /// What a submission returned, for `device.poll` to wait for.
+  type submission-index = u64;
+
+  /// A size in texels: width, height, and depth or array layers.
+  record extent3d {
+    width: u32,
+    height: u32,
+    depth-or-array-layers: u32,
+  }
+
+  /// A texel position in a texture.
+  record origin3d {
+    x: u32,
+    y: u32,
+    z: u32,
+  }
+
+  /// A colour of four doubles, as a clear value or a blend constant.
+  record color {
+    r: f64,
+    g: f64,
+    b: f64,
+    a: f64,
+  }
+
+  /// A half-open range of indices, as wgpu's `Range<u32>`.
+  record range {
+    start: u32,
+    end: u32,
+  }
+
+  // ---- Adapters ----
+
+  /// Which adapter `request-adapter` prefers.
+  enum power-preference {
+    none,
+    low-power,
+    high-performance,
+  }
+
+  /// The GPU API the engine reaches the adapter through.
+  enum backend {
+    noop,
+    vulkan,
+    metal,
+    dx12,
+    gl,
+    browser-web-gpu,
+  }
+
+  /// What kind of device the adapter is.
+  enum device-type {
+    other,
+    integrated-gpu,
+    discrete-gpu,
+    virtual-gpu,
+    cpu,
+  }
+
+  /// What the adapter says of itself, as wgpu's `AdapterInfo`.
+  record adapter-info {
+    name: string,
+    /// PCI vendor id, or the backend's equivalent; zero where unknown.
+    vendor: u32,
+    /// PCI device id, or the backend's equivalent; zero where unknown.
+    device: u32,
+    device-type: device-type,
+    device-pci-bus-id: string,
+    driver: string,
+    driver-info: string,
+    backend: backend,
+    subgroup-min-size: u32,
+    subgroup-max-size: u32,
+    /// Whether transient attachments save memory here; none where unknown.
+    transient-saves-memory: option<bool>,
+  }
+
+  /// What a downlevel adapter lacks of WebGPU, as wgpu's `DownlevelFlags`.
+  flags downlevel-flags {
+    compute-shaders,
+    fragment-writable-storage,
+    indirect-execution,
+    base-vertex,
+    read-only-depth-stencil,
+    non-power-of-two-mipmapped-textures,
+    cube-array-textures,
+    comparison-samplers,
+    independent-blend,
+    vertex-storage,
+    anisotropic-filtering,
+    fragment-storage,
+    multisampled-shading,
+    depth-texture-and-buffer-copies,
+    webgpu-texture-format-support,
+    buffer-bindings-not16-byte-aligned,
+    unrestricted-index-buffer,
+    full-draw-index-uint32,
+  }
+
+  /// The shader model the adapter supports.
+  enum shader-model {
+    sm2,
+    sm4,
+    sm5,
+  }
+
+  /// What a downlevel adapter can do.
+  record downlevel-capabilities {
+    %flags: downlevel-flags,
+    shader-model: shader-model,
+  }
+
+  /// How the device should allocate memory: a hint.
+  variant memory-hints {
+    performance,
+    memory-usage,
+    /// The smallest and largest block size, in bytes, the allocator suballocates from.
+    manual(tuple<u64, u64>),
+  }
+
+  // ---- Textures ----
+
+  /// A texture's texel format, as wgpu-types' `TextureFormat`.
+  variant texture-format {
+    r8-unorm,
+    r8-snorm,
+    r8-uint,
+    r8-sint,
+    r16-uint,
+    r16-sint,
+    r16-unorm,
+    r16-snorm,
+    r16-float,
+    rg8-unorm,
+    rg8-snorm,
+    rg8-uint,
+    rg8-sint,
+    r32-uint,
+    r32-sint,
+    r32-float,
+    rg16-uint,
+    rg16-sint,
+    rg16-unorm,
+    rg16-snorm,
+    rg16-float,
+    rgba8-unorm,
+    rgba8-unorm-srgb,
+    rgba8-snorm,
+    rgba8-uint,
+    rgba8-sint,
+    bgra8-unorm,
+    bgra8-unorm-srgb,
+    rgb9e5-ufloat,
+    rgb10a2-uint,
+    rgb10a2-unorm,
+    rg11b10-ufloat,
+    r64-uint,
+    rg32-uint,
+    rg32-sint,
+    rg32-float,
+    rgba16-uint,
+    rgba16-sint,
+    rgba16-unorm,
+    rgba16-snorm,
+    rgba16-float,
+    rgba32-uint,
+    rgba32-sint,
+    rgba32-float,
+    stencil8,
+    depth16-unorm,
+    depth24-plus,
+    depth24-plus-stencil8,
+    depth32-float,
+    depth32-float-stencil8,
+    /// 8-bit 4:2:0 in two planes, read through the `plane0` and `plane1` aspects.
+    nv12,
+    /// 10-bit 4:2:0 in two planes, laid out as `nv12` in 16-bit samples.
+    p010,
+    bc1-rgba-unorm,
+    bc1-rgba-unorm-srgb,
+    bc2-rgba-unorm,
+    bc2-rgba-unorm-srgb,
+    bc3-rgba-unorm,
+    bc3-rgba-unorm-srgb,
+    bc4-r-unorm,
+    bc4-r-snorm,
+    bc5-rg-unorm,
+    bc5-rg-snorm,
+    bc6h-rgb-ufloat,
+    bc6h-rgb-float,
+    bc7-rgba-unorm,
+    bc7-rgba-unorm-srgb,
+    etc2-rgb8-unorm,
+    etc2-rgb8-unorm-srgb,
+    etc2-rgb8-a1-unorm,
+    etc2-rgb8-a1-unorm-srgb,
+    etc2-rgba8-unorm,
+    etc2-rgba8-unorm-srgb,
+    eac-r11-unorm,
+    eac-r11-snorm,
+    eac-rg11-unorm,
+    eac-rg11-snorm,
+    /// ASTC of a block size and a channel kind.
+    astc(tuple<astc-block, astc-channel>),
+  }
+
+  /// An ASTC block's size in texels.
+  enum astc-block {
+    b4x4,
+    b5x4,
+    b5x5,
+    b6x5,
+    b6x6,
+    b8x5,
+    b8x6,
+    b8x8,
+    b10x5,
+    b10x6,
+    b10x8,
+    b10x10,
+    b12x10,
+    b12x12,
+  }
+
+  /// What an ASTC texture's channels hold.
+  enum astc-channel {
+    unorm,
+    unorm-srgb,
+    hdr,
+  }
+
+  /// Which part of a texture a view or a copy reaches.
+  enum texture-aspect {
+    all,
+    stencil-only,
+    depth-only,
+    /// The first plane of a multi-planar format: `nv12`'s and `p010`'s brightness.
+    plane0,
+    /// The second plane: `nv12`'s and `p010`'s interleaved colour differences.
+    plane1,
+    /// The third plane, of a three-plane format.
+    plane2,
+  }
+
+  /// A texture's dimensionality.
+  enum texture-dimension {
+    d1,
+    d2,
+    d3,
+  }
+
+  /// How a view reads its texture.
+  enum texture-view-dimension {
+    d1,
+    d2,
+    d2-array,
+    cube,
+    cube-array,
+    d3,
+  }
+
+  /// What a texture can be used for, as wgpu's `TextureUsages`.
+  flags texture-usages {
+    copy-src,
+    copy-dst,
+    texture-binding,
+    storage-binding,
+    render-attachment,
+    /// Lives only within a render pass, in tile memory where the GPU has it.
+    transient-attachment,
+    storage-atomic,
+  }
+
+  /// A texture, as `create-texture` makes it or the engine made it.
+  record texture-descriptor {
+    label: option<string>,
+    size: extent3d,
+    mip-level-count: u32,
+    sample-count: u32,
+    dimension: texture-dimension,
+    format: texture-format,
+    usage: texture-usages,
+    /// Formats views of the texture may take besides its own.
+    view-formats: list<texture-format>,
+  }
+
+  /// A view of a texture; an unset field takes the texture's own.
+  record texture-view-descriptor {
+    label: option<string>,
+    format: option<texture-format>,
+    dimension: option<texture-view-dimension>,
+    usage: option<texture-usages>,
+    aspect: texture-aspect,
+    base-mip-level: u32,
+    mip-level-count: option<u32>,
+    base-array-layer: u32,
+    array-layer-count: option<u32>,
+  }
+
+  /// A part of a texture's mips and layers, as `clear-texture` takes it.
+  record image-subresource-range {
+    aspect: texture-aspect,
+    base-mip-level: u32,
+    mip-level-count: option<u32>,
+    base-array-layer: u32,
+    array-layer-count: option<u32>,
+  }
+
+  /// How a format can be used on an adapter, past its usages.
+  flags texture-format-feature-flags {
+    filterable,
+    multisample-x2,
+    multisample-x4,
+    multisample-x8,
+    multisample-x16,
+    multisample-resolve,
+    storage-read-only,
+    storage-write-only,
+    storage-read-write,
+    storage-atomic,
+    blendable,
+  }
+
+  /// What a format can do on an adapter.
+  record texture-format-features {
+    allowed-usages: texture-usages,
+    %flags: texture-format-feature-flags,
+  }
+
+  /// How bytes in a buffer lay out a texture's texels for a copy.
+  record texel-copy-buffer-layout {
+    offset: u64,
+    bytes-per-row: option<u32>,
+    rows-per-image: option<u32>,
+  }
+
+  /// What an external texture's planes hold.
+  enum external-texture-format {
+    rgba,
+    nv12,
+    yu12,
+  }
+
+  /// A transfer function's parameters, as wgpu's `ExternalTextureTransferFunction`.
+  record external-texture-transfer-function {
+    a: f32,
+    b: f32,
+    g: f32,
+    k: f32,
+  }
+
+  /// How an external texture turns its planes into RGBA, as wgpu's `ExternalTextureDescriptor`.
+  record external-texture-descriptor {
+    label: option<string>,
+    width: u32,
+    height: u32,
+    format: external-texture-format,
+    /// Column-major 4x4 matrix from YUV to RGB.
+    yuv-conversion-matrix: list<f32>,
+    /// Column-major 3x3 matrix from the source gamut to the destination's.
+    gamut-conversion-matrix: list<f32>,
+    src-transfer-function: external-texture-transfer-function,
+    dst-transfer-function: external-texture-transfer-function,
+    /// 3x2 matrix from sample coordinates to the texture's.
+    sample-transform: list<f32>,
+    /// 3x2 matrix from load coordinates to the texture's.
+    load-transform: list<f32>,
+  }
+
+  // ---- Samplers ----
+
+  /// What a sampler does past a texture's edge.
+  enum address-mode {
+    clamp-to-edge,
+    repeat,
+    mirror-repeat,
+    clamp-to-border,
+  }
+
+  /// How a sampler filters between texels.
+  enum filter-mode {
+    nearest,
+    linear,
+  }
+
+  /// How a sampler filters between mip levels.
+  enum mipmap-filter-mode {
+    nearest,
+    linear,
+  }
+
+  /// The colour `clamp-to-border` gives.
+  enum sampler-border-color {
+    transparent-black,
+    opaque-black,
+    opaque-white,
+    zero,
+  }
+
+  /// A comparison, for depth and stencil tests and comparison samplers.
+  enum compare-function {
+    never,
+    less,
+    equal,
+    less-equal,
+    greater,
+    not-equal,
+    greater-equal,
+    always,
+  }
+
+  /// A sampler, as wgpu's `SamplerDescriptor`.
+  record sampler-descriptor {
+    label: option<string>,
+    address-mode-u: address-mode,
+    address-mode-v: address-mode,
+    address-mode-w: address-mode,
+    mag-filter: filter-mode,
+    min-filter: filter-mode,
+    mipmap-filter: mipmap-filter-mode,
+    lod-min-clamp: f32,
+    lod-max-clamp: f32,
+    compare: option<compare-function>,
+    anisotropy-clamp: u16,
+    border-color: option<sampler-border-color>,
+  }
+
+  // ---- Buffers ----
+
+  /// What a buffer can be used for, as wgpu's `BufferUsages`, without ray tracing's inputs.
+  flags buffer-usages {
+    map-read,
+    map-write,
+    copy-src,
+    copy-dst,
+    index,
+    vertex,
+    uniform,
+    storage,
+    indirect,
+    query-resolve,
+  }
+
+  /// A buffer, as wgpu's `BufferDescriptor`.
+  record buffer-descriptor {
+    label: option<string>,
+    size: u64,
+    usage: buffer-usages,
+    mapped-at-creation: bool,
+  }
+
+  /// What a mapping is for.
+  enum map-mode {
+    read,
+    write,
+  }
+
+  // ---- Binding ----
+
+  /// The stages a binding is visible to, as wgpu's `ShaderStages` without experimental stages.
+  flags shader-stages {
+    vertex,
+    fragment,
+    compute,
+  }
+
+  /// How a shader reads a bound buffer.
+  enum buffer-binding-type {
+    uniform,
+    storage,
+    read-only-storage,
+  }
+
+  /// A buffer binding in a layout.
+  record buffer-binding-layout {
+    ty: buffer-binding-type,
+    has-dynamic-offset: bool,
+    min-binding-size: option<u64>,
+  }
+
+  /// How a shader samples a bound texture.
+  enum texture-sample-type {
+    float,
+    unfilterable-float,
+    depth,
+    sint,
+    uint,
+  }
+
+  /// A sampled texture binding in a layout.
+  record texture-binding-layout {
+    sample-type: texture-sample-type,
+    view-dimension: texture-view-dimension,
+    multisampled: bool,
+  }
+
+  /// How a shader reaches a storage texture.
+  enum storage-texture-access {
+    write-only,
+    read-only,
+    read-write,
+    atomic,
+  }
+
+  /// A storage texture binding in a layout.
+  record storage-texture-binding-layout {
+    access: storage-texture-access,
+    format: texture-format,
+    view-dimension: texture-view-dimension,
+  }
+
+  /// What kind of sampler a binding takes.
+  enum sampler-binding-type {
+    filtering,
+    non-filtering,
+    comparison,
+  }
+
+  /// What a binding in a layout takes, as wgpu's `BindingType`.
+  variant binding-type {
+    buffer(buffer-binding-layout),
+    sampler(sampler-binding-type),
+    texture(texture-binding-layout),
+    storage-texture(storage-texture-binding-layout),
+    external-texture,
+  }
+
+  /// One binding of a bind group layout.
+  record bind-group-layout-entry {
+    binding: u32,
+    visibility: shader-stages,
+    ty: binding-type,
+    /// The length of a binding array; none for a single binding.
+    count: option<u32>,
+  }
+
+  /// A bind group layout.
+  record bind-group-layout-descriptor {
+    label: option<string>,
+    entries: list<bind-group-layout-entry>,
+  }
+
+  // ---- Pipelines ----
+
+  /// A vertex attribute's format, as wgpu-types' `VertexFormat`.
+  enum vertex-format {
+    uint8,
+    uint8x2,
+    uint8x4,
+    sint8,
+    sint8x2,
+    sint8x4,
+    unorm8,
+    unorm8x2,
+    unorm8x4,
+    snorm8,
+    snorm8x2,
+    snorm8x4,
+    uint16,
+    uint16x2,
+    uint16x4,
+    sint16,
+    sint16x2,
+    sint16x4,
+    unorm16,
+    unorm16x2,
+    unorm16x4,
+    snorm16,
+    snorm16x2,
+    snorm16x4,
+    float16,
+    float16x2,
+    float16x4,
+    float32,
+    float32x2,
+    float32x3,
+    float32x4,
+    uint32,
+    uint32x2,
+    uint32x3,
+    uint32x4,
+    sint32,
+    sint32x2,
+    sint32x3,
+    sint32x4,
+    float64,
+    float64x2,
+    float64x3,
+    float64x4,
+    /// wgpu's `Unorm10_10_10_2`.
+    unorm1010102,
+    unorm8x4-bgra,
+  }
+
+  /// Whether a vertex buffer advances per vertex or per instance.
+  enum vertex-step-mode {
+    vertex,
+    instance,
+  }
+
+  /// One attribute of a vertex buffer.
+  record vertex-attribute {
+    format: vertex-format,
+    offset: u64,
+    shader-location: u32,
+  }
+
+  /// How a vertex buffer lays out its vertices.
+  record vertex-buffer-layout {
+    array-stride: u64,
+    step-mode: vertex-step-mode,
+    attributes: list<vertex-attribute>,
+  }
+
+  /// How vertices make primitives.
+  enum primitive-topology {
+    point-list,
+    line-list,
+    line-strip,
+    triangle-list,
+    triangle-strip,
+  }
+
+  /// The type of an index buffer's indices.
+  enum index-format {
+    uint16,
+    uint32,
+  }
+
+  /// Which winding faces front.
+  enum front-face {
+    ccw,
+    cw,
+  }
+
+  /// A face of a primitive, to cull.
+  enum face {
+    front,
+    back,
+  }
+
+  /// How a triangle is rasterized.
+  enum polygon-mode {
+    fill,
+    line,
+    point,
+  }
+
+  /// How primitives are assembled and rasterized, as wgpu's `PrimitiveState`.
+  record primitive-state {
+    topology: primitive-topology,
+    strip-index-format: option<index-format>,
+    front-face: front-face,
+    cull-mode: option<face>,
+    unclipped-depth: bool,
+    polygon-mode: polygon-mode,
+    conservative: bool,
+  }
+
+  /// What a stencil test does to the stencil value.
+  enum stencil-operation {
+    keep,
+    zero,
+    replace,
+    invert,
+    increment-clamp,
+    decrement-clamp,
+    increment-wrap,
+    decrement-wrap,
+  }
+
+  /// One face's stencil test.
+  record stencil-face-state {
+    compare: compare-function,
+    fail-op: stencil-operation,
+    depth-fail-op: stencil-operation,
+    pass-op: stencil-operation,
+  }
+
+  /// Both faces' stencil tests and masks.
+  record stencil-state {
+    front: stencil-face-state,
+    back: stencil-face-state,
+    read-mask: u32,
+    write-mask: u32,
+  }
+
+  /// The depth bias added to each fragment.
+  record depth-bias-state {
+    constant: s32,
+    slope-scale: f32,
+    clamp: f32,
+  }
+
+  /// How a pipeline tests and writes depth and stencil.
+  record depth-stencil-state {
+    format: texture-format,
+    depth-write-enabled: option<bool>,
+    depth-compare: option<compare-function>,
+    stencil: stencil-state,
+    bias: depth-bias-state,
+  }
+
+  /// How a pipeline samples.
+  record multisample-state {
+    count: u32,
+    mask: u64,
+    alpha-to-coverage-enabled: bool,
+  }
+
+  /// A blend factor.
+  enum blend-factor {
+    zero,
+    one,
+    src,
+    one-minus-src,
+    src-alpha,
+    one-minus-src-alpha,
+    dst,
+    one-minus-dst,
+    dst-alpha,
+    one-minus-dst-alpha,
+    src-alpha-saturated,
+    constant,
+    one-minus-constant,
+    src1,
+    one-minus-src1,
+    src1-alpha,
+    one-minus-src1-alpha,
+  }
+
+  /// How a blend combines source and destination.
+  enum blend-operation {
+    add,
+    subtract,
+    reverse-subtract,
+    min,
+    max,
+  }
+
+  /// One channel group's blend.
+  record blend-component {
+    src-factor: blend-factor,
+    dst-factor: blend-factor,
+    operation: blend-operation,
+  }
+
+  /// The colour and alpha blends of a target.
+  record blend-state {
+    color: blend-component,
+    alpha: blend-component,
+  }
+
+  /// The channels a target writes.
+  flags color-writes {
+    red,
+    green,
+    blue,
+    alpha,
+  }
+
+  /// One colour target of a pipeline.
+  record color-target-state {
+    format: texture-format,
+    blend: option<blend-state>,
+    write-mask: color-writes,
+  }
+
+  /// Options for compiling a pipeline's stage.
+  record pipeline-compilation-options {
+    /// Values for the shader's overridable constants, by name or id.
+    constants: list<tuple<string, f64>>,
+  }
+
+  // ---- Shaders ----
+
+  /// A GLSL shader's stage.
+  enum shader-stage {
+    vertex,
+    fragment,
+    compute,
+  }
+
+  /// GLSL source and what naga needs to read it.
+  record glsl-source {
+    code: string,
+    stage: shader-stage,
+    defines: list<tuple<string, string>>,
+  }
+
+  /// A shader's source, read and validated by naga in the engine.
+  variant shader-source {
+    wgsl(string),
+    spirv(list<u32>),
+    glsl(glsl-source),
+  }
+
+  /// A shader module.
+  record shader-module-descriptor {
+    label: option<string>,
+    source: shader-source,
+  }
+
+  /// How serious a compilation message is.
+  enum compilation-message-type {
+    error,
+    warning,
+    info,
+  }
+
+  /// Where in the source a message points, in UTF-8 bytes and lines from one.
+  record source-location {
+    line-number: u32,
+    line-position: u32,
+    offset: u32,
+    length: u32,
+  }
+
+  /// One message of a shader's compilation.
+  record compilation-message {
+    message: string,
+    message-type: compilation-message-type,
+    location: option<source-location>,
+  }
+
+  // ---- Passes and queries ----
+
+  /// What a colour attachment holds at the start of a pass.
+  variant color-load-op {
+    clear(color),
+    load,
+  }
+
+  /// What a depth attachment holds at the start of a pass.
+  variant depth-load-op {
+    clear(f32),
+    load,
+  }
+
+  /// What a stencil attachment holds at the start of a pass.
+  variant stencil-load-op {
+    clear(u32),
+    load,
+  }
+
+  /// What an attachment keeps at the end of a pass.
+  enum store-op {
+    store,
+    discard,
+  }
+
+  /// A colour attachment's operations.
+  record color-operations {
+    load: color-load-op,
+    store: store-op,
+  }
+
+  /// A depth attachment's operations.
+  record depth-operations {
+    load: depth-load-op,
+    store: store-op,
+  }
+
+  /// A stencil attachment's operations.
+  record stencil-operations {
+    load: stencil-load-op,
+    store: store-op,
+  }
+
+  /// The depth and stencil target of a render bundle.
+  record render-bundle-depth-stencil {
+    format: texture-format,
+    depth-read-only: bool,
+    stencil-read-only: bool,
+  }
+
+  /// The targets a render bundle draws into.
+  record render-bundle-encoder-descriptor {
+    label: option<string>,
+    color-formats: list<option<texture-format>>,
+    depth-stencil: option<render-bundle-depth-stencil>,
+    sample-count: u32,
+    multiview: option<u32>,
+  }
+
+  /// The counters a pipeline-statistics query counts.
+  flags pipeline-statistics-types {
+    vertex-shader-invocations,
+    clipper-invocations,
+    clipper-primitives-out,
+    fragment-shader-invocations,
+    compute-shader-invocations,
+  }
+
+  /// What a query set's queries measure.
+  variant query-type {
+    occlusion,
+    timestamp,
+    pipeline-statistics(pipeline-statistics-types),
+  }
+
+  /// A query set.
+  record query-set-descriptor {
+    label: option<string>,
+    ty: query-type,
+    count: u32,
+  }
+
+  // ---- Errors and polling ----
+
+  /// Which errors an error scope catches.
+  enum error-filter {
+    out-of-memory,
+    validation,
+    internal,
+  }
+
+  /// An error wgpu-core reported, as wgpu's `Error`.
+  variant error {
+    out-of-memory,
+    /// What failed validation, with its sources.
+    validation(string),
+    internal(string),
+  }
+
+  /// Why a device was lost.
+  enum device-lost-reason {
+    unknown,
+    destroyed,
+  }
+
+  /// A lost device's reason and the engine's message.
+  record device-lost-info {
+    reason: device-lost-reason,
+    message: string,
+  }
+
+  /// What `device.poll` waits for.
+  variant poll-type {
+    /// Reports what is done, without waiting.
+    poll,
+    /// Waits for the submission named, or for all work, at most the timeout in nanoseconds.
+    wait(tuple<option<submission-index>, option<u64>>),
+  }
+
+  /// What a poll found.
+  enum poll-status {
+    queue-empty,
+    wait-succeeded,
+    poll,
+  }
+
+  /// Why a wait ended without the work done.
+  variant poll-error {
+    timeout,
+    /// The index waited for, and the last index submitted.
+    wrong-submission-index(tuple<submission-index, submission-index>),
+  }
+
+  // ---- Surfaces ----
+
+  /// How a surface's frames wait for the screen.
+  enum present-mode {
+    auto-vsync,
+    auto-no-vsync,
+    fifo,
+    fifo-relaxed,
+    immediate,
+    mailbox,
+  }
+
+  /// How the compositor treats a surface's alpha.
+  enum composite-alpha-mode {
+    auto,
+    opaque,
+    pre-multiplied,
+    post-multiplied,
+    inherit,
+  }
+
+  /// The colour space a surface's texels are shown in.
+  enum surface-color-space {
+    auto,
+    srgb,
+    extended-srgb-linear,
+    display-p3,
+    bt2100-pq,
+    bt2100-hlg,
+    extended-srgb,
+    extended-display-p3,
+  }
+
+  /// The colour spaces a surface shows one format in.
+  record surface-format-capabilities {
+    format: texture-format,
+    color-spaces: list<surface-color-space>,
+  }
+
+  /// What a surface can be configured with, on one adapter.
+  record surface-capabilities {
+    formats: list<texture-format>,
+    format-capabilities: list<surface-format-capabilities>,
+    present-modes: list<present-mode>,
+    alpha-modes: list<composite-alpha-mode>,
+    usages: texture-usages,
+  }
+
+  /// How a surface hands out its frames, as wgpu's `SurfaceConfiguration`.
+  record surface-configuration {
+    usage: texture-usages,
+    format: texture-format,
+    color-space: surface-color-space,
+    /// The frames' size in physical pixels, whatever the view's size.
+    width: u32,
+    height: u32,
+    present-mode: present-mode,
+    desired-maximum-frame-latency: u32,
+    alpha-mode: composite-alpha-mode,
+    view-formats: list<texture-format>,
+  }
+
+  /// The colour gamut a display covers.
+  enum display-gamut {
+    srgb,
+    display-p3,
+    rec2020,
+  }
+
+  /// A display's brightness, in nits.
+  record display-luminance {
+    max-nits: option<f32>,
+    max-full-frame-nits: option<f32>,
+    min-nits: option<f32>,
+    sdr-white-nits: option<f32>,
+  }
+
+  /// How far past SDR white a display can go now, can go at most, and goes for reference content.
+  record display-headroom {
+    current: option<f32>,
+    potential: option<f32>,
+    reference: option<f32>,
+  }
+
+  /// A display's primaries and white point, in CIE xy.
+  record display-chromaticity {
+    red: option<tuple<f32, f32>>,
+    green: option<tuple<f32, f32>>,
+    blue: option<tuple<f32, f32>>,
+    white: option<tuple<f32, f32>>,
+  }
+
+  /// Whether a display is HDR and its gamut, where the system says no more.
+  record display-coarse-range {
+    high-dynamic-range: option<bool>,
+    gamut: option<display-gamut>,
+  }
+
+  /// What the display a surface is on says of its range, as wgpu's `DisplayHdrInfo`.
+  record display-hdr-info {
+    luminance: option<display-luminance>,
+    headroom: option<display-headroom>,
+    chromaticity: option<display-chromaticity>,
+    coarse: option<display-coarse-range>,
+    bits-per-color: option<u8>,
+  }
+}
