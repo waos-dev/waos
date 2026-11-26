@@ -8,7 +8,6 @@ use std::sync::Arc;
 
 use waft::ui;
 use waft::ui::video_decoders as decoders;
-use waos::DecodedFrame;
 use waos::bindings::wasdk::media::video_decoders::{
     DecodeSupport, DecoderError, DecodingPurpose, VideoDecodeSupport, VideoDecoderOptions,
     VideoStreamDescription,
@@ -21,8 +20,16 @@ use waos::bindings::wasdk::media::video_streams::{
     ChromaSampling, CodecChoice, CodecKind, EncodedChunk, NalFormat, PictureSize, VideoCodec,
     VideoStreamSetup,
 };
+use waos::{DecodedFrame, GpuId};
 
 use super::frame_readers::engine_frame;
+
+pub(crate) fn waft_gpu(gpu: GpuId) -> ui::GpuId {
+    match gpu {
+        GpuId::Luid { low, high } => ui::GpuId::Luid { low, high },
+        GpuId::DrmRenderNode { major, minor } => ui::GpuId::DrmRenderNode { major, minor },
+    }
+}
 
 pub(crate) fn waft_setup(setup: VideoStreamSetup) -> decoders::VideoStreamSetup {
     match setup {

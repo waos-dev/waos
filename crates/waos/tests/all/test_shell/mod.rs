@@ -18,6 +18,7 @@ pub mod composition;
 mod engine_log;
 mod events;
 pub mod file_dialogs;
+pub mod gpus;
 pub mod hardware_buffer;
 pub mod image_codecs;
 pub mod machines;
@@ -46,7 +47,7 @@ use waos::bindings::wasdk::platform::views::ViewError;
 use waos::{
     EngineTime, FreezePolicy, HttpProxy, PlacedView, PlatformState, Presence, ProgramEnvironment,
     ProgramOutput, ProgramView, Prompts, RunningProgram, Shell, ShellAudioOutputPicker,
-    ShellCameras, ShellClipboard, ShellCompositor, ShellContextMenus, ShellFileDialogs,
+    ShellCameras, ShellClipboard, ShellCompositor, ShellContextMenus, ShellFileDialogs, ShellGpus,
     ShellImageCodecs, ShellMachinePicker, ShellMediaAssets, ShellMediaPlayers, ShellMenuBar,
     ShellNotifications, ShellOpener, ShellRecordingIndicator, ShellSystemPermissions,
     ShellTrayIcons, ShellVideoFrameReaders, ShellView, ViewPlacement, ViewRequest, WaOSConfig,
@@ -59,6 +60,7 @@ use composition::TestCompositor;
 pub use engine_log::engine_log;
 pub use events::{metrics, mouse};
 use file_dialogs::TestFileDialogs;
+use gpus::TestGpus;
 use image_codecs::TestImageCodecs;
 use machines::TestMachinePicker;
 use media_assets::TestMediaAssets;
@@ -101,7 +103,7 @@ pub struct TestShell {
     pub media_assets: Arc<TestMediaAssets>,
     pub image_codecs: Arc<TestImageCodecs>,
     pub video_frame_readers: Arc<TestVideoFrameReaders>,
-    pub video_decoders: Arc<video_decoders::TestVideoDecoders>,
+    pub gpus: Arc<TestGpus>,
     pub cameras: Arc<TestCameras>,
     pub simulated_cameras: Arc<TestCameras>,
     pub machine_picker: Arc<TestMachinePicker>,
@@ -127,7 +129,7 @@ impl TestShell {
             media_assets: Arc::default(),
             image_codecs: Arc::default(),
             video_frame_readers: Arc::default(),
-            video_decoders: Arc::default(),
+            gpus: Arc::default(),
             cameras: Arc::default(),
             simulated_cameras: Arc::new(TestCameras::simulated()),
             machine_picker: Arc::default(),
@@ -156,9 +158,7 @@ impl TestShell {
             video_frame_readers: Some(
                 Arc::clone(&self.video_frame_readers) as Arc<dyn ShellVideoFrameReaders>
             ),
-            video_decoders: Some(
-                Arc::clone(&self.video_decoders) as Arc<dyn waos::ShellVideoDecoders>
-            ),
+            gpus: Some(Arc::clone(&self.gpus) as Arc<dyn ShellGpus>),
             cameras: Some(Arc::clone(&self.cameras) as Arc<dyn ShellCameras>),
             simulated_cameras: Some(Arc::clone(&self.simulated_cameras) as Arc<dyn ShellCameras>),
             machine_picker: Some(Arc::clone(&self.machine_picker) as Arc<dyn ShellMachinePicker>),

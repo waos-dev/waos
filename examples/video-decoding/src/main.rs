@@ -13,7 +13,7 @@
 use std::fs;
 
 use futures::join;
-use wasdk::video_decoders::{self, DecodingPurpose, VideoDecoder, VideoDecoderOptions};
+use wasdk::video_decoders::{DecodingPurpose, VideoDecoder, VideoDecoderOptions};
 use wasdk::video_frames::{PlaneFormat, VideoFrame};
 use wasdk::video_streams::{CodecChoice, EncodedChunk, NalFormat, VideoStreamSetup};
 
@@ -32,7 +32,8 @@ const COPY_ROW: u32 = 256;
 
 #[wasdk::main]
 async fn main() -> Result<(), String> {
-    let Some(decoders) = video_decoders::get_video_decoders() else {
+    let (device, queue) = gpu().await?;
+    let Some(decoders) = wasdk_wgpu::video_decoders(&device) else {
         println!("video decoders: none");
         return Ok(());
     };
@@ -59,7 +60,8 @@ async fn main() -> Result<(), String> {
             let frame = frames.next().await.ok_or("the frames ended early")?;
             println!("{}", description(&frame));
             if number == 0 {
-                println!("its first samples: {}", first_samples(&frame).await?);
+                let samples = first_samples(&device, &queue, &frame)?;
+                println!("its first samples: {samples}");
                 println!("and in memory: {}", first_samples_in_memory(&frame).await?);
             }
         }
@@ -166,16 +168,19 @@ fn description(frame: &VideoFrame) -> String {
     )
 }
 
-/// The first sample of each of `frame`'s planes, as the GPU reads it through a texture imported
-/// of the plane.
-async fn first_samples(frame: &VideoFrame) -> Result<String, String> {
+/// The first sample of each of `frame`'s planes, as `device`'s GPU reads it through a texture
+/// imported of the plane.
+fn first_samples(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    frame: &VideoFrame,
+) -> Result<String, String> {
     let planes = frame.planes().ok_or("the frame has no planes")?;
-    let (device, queue) = gpu().await?;
     let buffer = frame.hardware_buffer();
     let mut read = Vec::new();
     for (index, plane) in planes.iter().enumerate() {
-        let texture = wasdk_wgpu::import_plane(&device, &buffer, index as u32);
-        let sample = first_sample(&device, &queue, &texture)?;
+        let texture = wasdk_wgpu::import_plane(device, &buffer, index as u32);
+        let sample = first_sample(device, queue, &texture)?;
         read.push(format!("{:?} {sample:?}", plane.content));
     }
     Ok(read.join(", "))

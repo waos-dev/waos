@@ -63,8 +63,8 @@ use crate::screens::Screens;
 use crate::screens::host::{ScreensCtx, ScreensCtxView};
 use crate::service_extensions::host::{ServiceExtensionsCtx, ServiceExtensionsCtxView};
 use crate::shell::{
-    ShellCompositor, ShellFileDialogs, ShellImageCodecs, ShellMediaAssets, ShellMediaPlayers,
-    ShellNotifications, ShellOpener, ShellVideoDecoders, ShellVideoFrameReaders, ViewPlacement,
+    ShellCompositor, ShellFileDialogs, ShellGpus, ShellImageCodecs, ShellMediaAssets,
+    ShellMediaPlayers, ShellNotifications, ShellOpener, ShellVideoFrameReaders, ViewPlacement,
 };
 use crate::source_lines::{self, ComponentFile};
 use crate::stream::{Forwarded, stream_of};
@@ -379,7 +379,7 @@ fn store_data(
         media_assets: instances.media_assets.clone(),
         image_codecs: instances.image_codecs.clone(),
         video_frame_readers: user_side.video_frame_readers,
-        video_decoders: user_side.video_decoders,
+        gpus: user_side.gpus,
         cameras,
         machines,
         access: access.clone(),
@@ -478,7 +478,9 @@ pub(crate) struct StoreData {
     image_codecs: Option<Arc<dyn ShellImageCodecs>>,
     /// The system's frame readers, where the shell has them.
     video_frame_readers: Option<Arc<dyn ShellVideoFrameReaders>>,
-    video_decoders: Option<Arc<dyn ShellVideoDecoders>>,
+    /// The system's GPUs, where the shell has them, whose video decoders a program's device asks
+    /// for.
+    gpus: Option<Arc<dyn ShellGpus>>,
     /// The system's cameras, where the shell has them and can show them used, and the sessions it
     /// holds.
     cameras: ProgramCameras,
@@ -787,7 +789,8 @@ impl VideoDecodersCtxView for StoreData {
     fn video_decoders_ctx(&mut self) -> VideoDecodersCtx<'_> {
         VideoDecodersCtx {
             table: &mut self.table,
-            decoders: self.video_decoders.as_ref(),
+            gpu: &self.gpu,
+            gpus: self.gpus.as_ref(),
         }
     }
 }

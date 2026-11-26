@@ -133,7 +133,7 @@ pub use shell::{
     PhotoFuture, PlacedView, PlacedWindow, Prompts, RecordingDevice, SettingsClosedFuture, Shell,
     ShellAttachedMenu, ShellAudioOutputPicker, ShellCamera, ShellCameras, ShellCaptureSession,
     ShellClipboard, ShellClipboardItem, ShellCompositionLayer, ShellCompositor, ShellContextMenus,
-    ShellFileDialogs, ShellHardwareImageCodecs, ShellImageCodecs, ShellImageSource,
+    ShellFileDialogs, ShellGpus, ShellHardwareImageCodecs, ShellImageCodecs, ShellImageSource,
     ShellMachinePicker, ShellMediaAsset, ShellMediaAssets, ShellMediaPlayer, ShellMediaPlayers,
     ShellMenuAtIcon, ShellMenuBar, ShellNotificationScheduling, ShellNotifications, ShellOpener,
     ShellRecordingIndicator, ShellSystemBars, ShellSystemPermissions, ShellTextInput,

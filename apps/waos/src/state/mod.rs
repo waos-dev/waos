@@ -297,7 +297,7 @@ pub(crate) fn start(
             .platform()
             .video_frame_readers()
             .map(|_| Arc::new(ReadersOnRequest) as Arc<dyn ShellVideoFrameReaders>),
-        video_decoders: video_decoders.as_ref().map(VideoDecoders::shell),
+        gpus: video_decoders.as_ref().map(VideoDecoders::shell),
         cameras: cameras.as_ref().map(Cameras::shell),
         simulated_cameras: simulated_cameras(image_codecs.as_ref().map(ImageCodecs::shell)),
         // A machine is picked on a sheet put as a program's questions are.

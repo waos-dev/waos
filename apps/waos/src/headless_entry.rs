@@ -120,7 +120,7 @@ impl HeadlessDaemon {
         let mut shell = headless.shell(Arc::new(prompts));
         shell.audio_output_picker = Some(Arc::new(output_picker));
         shell.machine_picker = Some(Arc::new(machine_picker));
-        shell.video_decoders = video_decoder_thread::start();
+        shell.gpus = video_decoder_thread::start();
 
         let runs = Arc::new(Runs::default());
         let inspected = Arc::new(ProgramsOnThisComputer::new(

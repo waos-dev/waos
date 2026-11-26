@@ -1,9 +1,9 @@
 //! Waft's video decoders the programs opened, and each of the engine's calls carried out on them:
-//! a decoder opened on Waft's as the engine asks, kept once it opened until the program lets it
-//! go, each chunk handed to it and each frame asked of it, and each answer sent back once Waft has
-//! it. Waft's decoders live on one thread, so this does too: the main thread where WaOS is a Waft
-//! app (`state::video_decoders`), a thread of the decoders' own where it is not
-//! (`video_decoder_thread`).
+//! a decoder opened on the decoders of the GPU the call names as the engine asks, kept once it
+//! opened until the program lets it go, each chunk handed to it and each frame asked of it, and
+//! each answer sent back once Waft has it. Waft's decoders live on one thread, so this does too:
+//! the main thread where WaOS is a Waft app (`state::video_decoders`), a thread of the decoders'
+//! own where it is not (`video_decoder_thread`).
 //!
 //! The invariant: every call is answered once, with what Waft answered, or with a failure where
 //! the decoder is not open here; and a decoder opened for a program that no longer waits for it
@@ -17,12 +17,18 @@ use std::sync::Arc;
 use futures::FutureExt;
 use futures::channel::oneshot;
 use futures::future::{Either, LocalBoxFuture, select};
+use waft::ui::GpuId;
 use waft::ui::video_decoders as decoders;
 
-use super::video_decoder_calls::{DecoderCall, DecoderKey};
+use super::video_decoder_calls::{DecoderCall, DecoderKey, no_support};
 
 /// Starts a task on the thread Waft's decoders live on: what waits for one of their answers.
 pub(crate) type StartTask<'a> = &'a mut dyn FnMut(LocalBoxFuture<'static, ()>);
+
+/// Waft's decoders of the GPU an id names, the system's default where none; none where it has
+/// none.
+pub(crate) type GpuDecoders<'a> =
+    &'a dyn Fn(Option<GpuId>) -> Option<Rc<dyn decoders::VideoDecoders>>;
 
 /// Waft's decoders the programs opened, by the app's key for each.
 #[derive(Clone, Default)]
@@ -35,32 +41,39 @@ struct OpenDecoder {
 }
 
 impl OpenVideoDecoders {
-    /// Carries out `call`, from the engine, on `system`, Waft's decoders, each wait for an answer
-    /// a task `start_task` starts.
+    /// Carries out `call`, from the engine, on Waft's decoders of the GPU it names, which
+    /// `decoders_of` answers, each wait for an answer a task `start_task` starts.
     pub(crate) fn take(
         &self,
-        system: &dyn decoders::VideoDecoders,
+        decoders_of: GpuDecoders<'_>,
         start_task: StartTask<'_>,
         call: DecoderCall,
     ) {
         match call {
             DecoderCall::Support {
+                gpu,
                 description,
                 answer,
             } => {
+                let support =
+                    decoders_of(gpu).map_or_else(no_support, |system| system.support(&description));
                 // A program that ended meanwhile hears nothing.
-                let _ = answer.send(system.support(&description));
+                let _ = answer.send(support);
             }
             DecoderCall::Open {
+                gpu,
                 decoder,
                 setup,
                 options,
                 answer,
                 ended,
-            } => {
-                let opening = system.open(setup, options);
-                start_task(self.kept_once_opened(decoder, opening, answer, ended));
-            }
+            } => match decoders_of(gpu) {
+                Some(system) => {
+                    let opening = system.open(setup, options);
+                    start_task(self.kept_once_opened(decoder, opening, answer, ended));
+                }
+                None => drop(answer.send(Err(no_decoders()))),
+            },
             DecoderCall::Decode {
                 decoder,
                 chunk,
@@ -157,4 +170,9 @@ fn answered_once_done<T: 'static>(
 
 fn not_open() -> decoders::DecoderError {
     decoders::DecoderError::Failed("the decoder is not open in WaOS".to_owned())
+}
+
+/// What opening a decoder of a GPU with none is answered.
+fn no_decoders() -> decoders::DecoderError {
+    decoders::DecoderError::Unsupported("the GPU has no video decoders".to_owned())
 }

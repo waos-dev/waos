@@ -134,9 +134,9 @@ pub struct Shell {
     /// The system's frame readers; none for a shell whose system hands out no frames, and then a
     /// program's `get-video-frame-readers` answers none.
     pub video_frame_readers: Option<Arc<dyn ShellVideoFrameReaders>>,
-    /// The system's video decoders; none for a shell without them, and then a program's
-    /// `get-video-decoders` answers none.
-    pub video_decoders: Option<Arc<dyn ShellVideoDecoders>>,
+    /// The system's GPUs, each with its video decoders; none for a shell without them, and then a
+    /// program's `get-video-decoders` answers none.
+    pub gpus: Option<Arc<dyn ShellGpus>>,
     /// The system's cameras; none for a shell without them, and then a program's `get-cameras`
     /// answers none.
     pub cameras: Option<Arc<dyn ShellCameras>>,
@@ -1075,8 +1075,17 @@ pub trait ShellVideoFrameReader: Any + Send + Sync {
     fn frame_for(&self, display_time: Instant) -> Option<VideoFrame>;
 }
 
-/// The shell's side of `video-decoders.video-decoders`: the system's video decoders. Called from
+/// The system's GPUs, as Waft's `Platform::gpu` hands them out: what the system makes for each GPU
+/// a program's device is on, so the GPU memory it makes is where the program draws. Called from
 /// the program's thread.
+pub trait ShellGpus: Send + Sync {
+    /// The video decoders of the GPU `gpu` names, the system's default where none, as Waft's
+    /// `SystemGpu::video_decoders` answers; none where it has none.
+    fn video_decoders(&self, gpu: Option<GpuId>) -> Option<Arc<dyn ShellVideoDecoders>>;
+}
+
+/// The shell's side of `video-decoders.video-decoders`: one GPU's video decoders, whose frames are
+/// in its memory. Called from the program's thread.
 pub trait ShellVideoDecoders: Send + Sync {
     /// What the system can tell, without trying, about decoding a stream like `description`.
     fn support(&self, description: VideoStreamDescription) -> VideoDecodeSupportFuture;

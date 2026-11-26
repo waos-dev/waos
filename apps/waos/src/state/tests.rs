@@ -140,7 +140,7 @@ impl Desktop {
             media_assets: None,
             image_codecs: None,
             video_frame_readers: None,
-            video_decoders: None,
+            gpus: None,
             cameras: None,
             simulated_cameras: None,
             machine_picker: None,
