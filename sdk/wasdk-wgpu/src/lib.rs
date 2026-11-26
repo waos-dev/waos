@@ -45,8 +45,9 @@
 //! makes its surface from a window's handles runs unchanged. The surface is the view's own
 //! (`view.surface()`): its capabilities say what the engine serves, `configure` sets the frames'
 //! size, whatever the view's own, and `get_current_texture` answers `Occluded` while the view is
-//! not on screen. `Queue::present` presents the view, with the layers it holds beneath it
-//! (`view.set_layers`); a frame dropped without a present is not presented.
+//! not on screen and `Validation` while the frame taken last is still held. `Queue::present`
+//! presents the view, with the layers it holds beneath it (`view.set_layers`); a frame dropped
+//! without a present is discarded, as with wgpu's own backends.
 //!
 //! # What `wasdk:gpu` leaves out
 //!

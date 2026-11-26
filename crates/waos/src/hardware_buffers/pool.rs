@@ -59,10 +59,16 @@ impl<T> HardwareBufferPool<T> {
     /// Hands `index` out for the frame being drawn, in place of any hardware buffer handed out
     /// before and not presented.
     pub(super) fn hand_out(&mut self, index: usize) {
+        self.discard_drawn();
+        self.buffers[index].being_drawn = true;
+    }
+
+    /// The hardware buffer being drawn, given back unpresented: free again, and presented by
+    /// no later `present_drawn`.
+    pub(super) fn discard_drawn(&mut self) {
         for buffer in &mut self.buffers {
             buffer.being_drawn = false;
         }
-        self.buffers[index].being_drawn = true;
     }
 
     /// The hardware buffer being drawn, now presented: marked as the shell's until the `released`
@@ -96,10 +102,13 @@ impl<T> HardwareBufferPool<T> {
         let_go
     }
 
-    /// The first hardware buffer the shell does not hold: where the next frame goes; `None` while
-    /// the shell holds every one, and then the next frame goes into a hardware buffer added.
+    /// The first hardware buffer the shell does not hold and nobody draws into: where the next
+    /// frame goes; `None` while every one is, and then the next frame goes into a hardware buffer
+    /// added.
     pub(super) fn first_free(&self) -> Option<usize> {
-        self.buffers.iter().position(PooledHardwareBuffer::is_free)
+        self.buffers
+            .iter()
+            .position(PooledHardwareBuffer::is_unused)
     }
 }
 
@@ -214,6 +223,20 @@ mod tests {
             "the hardware buffer handed out last is the one drawn"
         );
         assert!(pool.present_drawn(|| {}).is_none(), "presented once");
+    }
+
+    #[test]
+    fn a_discarded_hardware_buffer_is_free_and_never_presented() {
+        let mut pool = numbered(3);
+        pool.hand_out(0);
+        assert_eq!(
+            pool.first_free(),
+            Some(1),
+            "the one being drawn is not free"
+        );
+        pool.discard_drawn();
+        assert_eq!(pool.first_free(), Some(0));
+        assert!(pool.present_drawn(|| {}).is_none(), "nothing is drawn");
     }
 
     #[test]

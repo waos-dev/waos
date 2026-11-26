@@ -200,9 +200,9 @@ interface views {
 
     /// Puts the texture last taken from the view's surface on screen, with the view's layers beneath
     /// it, once the GPU has finished the work the program submitted and the writes it queued
-    /// before this call. A present with no picture drawn since the last does nothing, its layers
-    /// included, since a layer moves with the picture that makes room for it: layers set since
-    /// wait for the next picture.
+    /// before this call. A present with no picture drawn since the last, or whose texture the
+    /// surface's `discard` gave back, does nothing, its layers included, since a layer moves with
+    /// the picture that makes room for it: layers set since wait for the next picture.
     present: func();
 
     /// The cursor to show while a pointer is over this view.

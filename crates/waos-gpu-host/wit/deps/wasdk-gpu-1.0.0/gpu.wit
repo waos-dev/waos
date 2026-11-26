@@ -295,7 +295,7 @@ interface gpu {
   resource render-bundle;
 
   /// Where a view's frames come from: a view hands out its own (`wasdk:platform/views`), and
-  /// the view's `present` puts the frame on screen.
+  /// the view's `present` puts the frame on screen, or the surface's `discard` gives it back.
   resource surface {
     /// What the surface can be configured with on `adapter`.
     capabilities: func(adapter: borrow<adapter>) -> surface-capabilities;
@@ -303,8 +303,13 @@ interface gpu {
     configure: func(device: borrow<device>, configuration: surface-configuration);
     /// What `configure` last set; none before it.
     configuration: func() -> option<surface-configuration>;
-    /// The texture to draw this frame into, or why there is none.
+    /// The texture to draw this frame into, or why there is none. Asked again while the texture
+    /// last taken is neither presented nor discarded, it answers `validation`, as wgpu-core
+    /// does.
     current-texture: func() -> current-surface-texture;
+    /// Gives back the texture last taken, unpresented: the view's next present shows nothing
+    /// new, and the next `current-texture` hands out another. Nothing where none is held.
+    discard: func();
     /// What the display the surface is on says of its range, as `adapter` reads it.
     hdr-info: func(adapter: borrow<adapter>) -> display-hdr-info;
   }

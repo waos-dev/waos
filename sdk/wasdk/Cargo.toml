@@ -16,7 +16,7 @@ readme = "README.md"
 # `wasdk::inspect`, the inspector role's interfaces, shown only to a program that asks for it.
 inspector = []
 # A view as the window other libraries take: raw-window-handle's traits on `views::View`, and
-# `view_of_window_handle`, the view a window handle points at.
+# `view_of_window_handle`, the view a window handle names.
 raw-window-handle = ["dep:raw-window-handle"]
 
 [dependencies]

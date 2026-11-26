@@ -1,17 +1,17 @@
 //! The surface: where a view's frames come from, as wgpu's surface is. The embedder brings the
 //! target behind it, the [`SurfaceTarget`], which says what it can be configured with, makes
-//! itself ready for a configuration, and hands out one texture per frame; presenting is the
-//! view's, which owns the frame's timing and its layers.
+//! itself ready for a configuration, hands out one texture per frame, and takes one back
+//! unpresented; presenting is the view's, which owns the frame's timing and its layers.
 //!
 //! The invariant: a frame's texture is handed to the program on the device the surface was last
-//! configured with, its errors that device's.
+//! configured with, its errors, a frame refused among them, that device's.
 
 use std::sync::{Arc, Mutex, Weak};
 
 use wasmtime::component::Resource;
 use wgpu_core::global::Global;
 use wgpu_core::id::{AdapterId, TextureId};
-use wgpu_core::present::ConfigureSurfaceError;
+use wgpu_core::present::{ConfigureSurfaceError, SurfaceError};
 
 use crate::adapters::Adapter;
 use crate::devices::Device;
@@ -43,8 +43,14 @@ pub trait SurfaceTarget: Send + Sync {
     ) -> wasmtime::Result<Result<(), ConfigureSurfaceError>>;
 
     /// The frame to draw, or how the target stands where it has none; asked only once the
-    /// target is configured.
-    fn current_texture(&self) -> wasmtime::Result<SurfaceFrame>;
+    /// target is configured. A frame asked while the last one handed out is neither presented
+    /// nor discarded is refused, as wgpu-core refuses it (`SurfaceError::AlreadyAcquired`).
+    fn current_texture(&self) -> wasmtime::Result<Result<SurfaceFrame, SurfaceError>>;
+
+    /// Takes back the frame last handed out, unpresented, as wgpu-core's
+    /// `surface_texture_discard` does: the next present shows nothing new. Nothing where no
+    /// frame is held.
+    fn discard(&self) -> wasmtime::Result<()>;
 
     /// What the display the target is on says of its range, as `adapter` of `instance` reads it.
     fn hdr_info(&self, instance: &Global, adapter: AdapterId) -> wgpu_types::DisplayHdrInfo;
@@ -178,7 +184,17 @@ impl gpu::HostSurface for GpuCtx<'_> {
         let Some(configured) = surface.configured() else {
             wasmtime::bail!("Surface::get_current_texture before the surface is configured")
         };
-        let frame = surface.0.target.current_texture()?;
+        let frame = match surface.0.target.current_texture()? {
+            Ok(frame) => frame,
+            Err(refusal) => {
+                (configured.device.errors).report(
+                    Some(refusal),
+                    "Surface::get_current_texture",
+                    None,
+                );
+                return Ok(CurrentSurfaceTexture::Validation);
+            }
+        };
         let mut texture = || -> wasmtime::Result<Resource<Texture>> {
             let Some(texture) = frame.texture.clone() else {
                 wasmtime::bail!(
@@ -199,6 +215,10 @@ impl gpu::HostSurface for GpuCtx<'_> {
             wgpu_types::SurfaceStatus::Lost => CurrentSurfaceTexture::Lost,
             wgpu_types::SurfaceStatus::Validation => CurrentSurfaceTexture::Validation,
         })
+    }
+
+    fn discard(&mut self, surface: Resource<Surface>) -> wasmtime::Result<()> {
+        self.table.get(&surface)?.0.target.discard()
     }
 
     fn hdr_info(

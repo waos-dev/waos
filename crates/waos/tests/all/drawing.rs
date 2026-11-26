@@ -262,7 +262,9 @@ fn a_covered_triangle_draws_while_watched_and_not_minimized_nor_after_the_watch(
 }
 
 /// `examples/occluded` takes its surface's texture at each change of its state: a frame in sight,
-/// `occluded` covered or minimized, as wgpu's surfaces answer, and a frame again once shown.
+/// `occluded` covered or minimized, as wgpu's surfaces answer, and a frame again once shown, each
+/// frame given back as it is dropped; asked again while it holds one, `validation`, as wgpu-core
+/// answers.
 #[test]
 fn a_view_out_of_sight_answers_occluded_for_its_surfaces_texture() {
     let shell = TestShell::new();
@@ -279,6 +281,7 @@ fn a_view_out_of_sight_answers_occluded_for_its_surfaces_texture() {
         wait_until(line, || output.lines().iter().any(|said| said == line));
     };
     said("started: a frame");
+    said("asked again while holding a frame: validation, caught: true");
     view.presence_changed(COVERED);
     said("hidden: occluded");
     view.presence_changed(FOCUSED);

@@ -16,7 +16,7 @@ use std::sync::{Arc, Mutex, Weak};
 
 use waos_gpu_host::{Device, GpuObject, Surface, SurfaceFrame, SurfaceTarget, WeakSurface};
 use wasmtime::bail;
-use wgpu_core::present::ConfigureSurfaceError;
+use wgpu_core::present::{ConfigureSurfaceError, SurfaceError};
 
 use super::finisher::{FrameFinisher, Wait};
 use super::view_hardware_buffers::{Allocation, DrawnFrame, FrameTexture, ViewHardwareBuffers};
@@ -242,22 +242,25 @@ impl SurfaceTarget for ViewCanvas {
     /// where the system needs it (`os::take_from_compositor`), once the program may submit. A
     /// program that takes it while frozen draws into it without that: the texture arrives with its
     /// pixels undefined, which a frame drawn whole never reads, and the system then needs nothing
-    /// taken back.
+    /// taken back. A frame asked while the last is neither presented nor discarded is refused.
     ///
     /// On a lost device the texture is invalid, as wgpu-core's surfaces answer there,
     /// and the hardware buffer is not handed out: the frame draws nothing and is skipped. While the
     /// view is out of sight there is no texture: the surface answers `occluded`, as the view's
     /// frames stop then.
-    fn current_texture(&self) -> wasmtime::Result<SurfaceFrame> {
+    fn current_texture(&self) -> wasmtime::Result<Result<SurfaceFrame, SurfaceError>> {
         let mut guard = self.buffers.allocation();
         let Some(allocation) = guard.as_mut() else {
             bail!(NOT_CONFIGURED)
         };
+        if allocation.is_drawing() {
+            return Ok(Err(SurfaceError::AlreadyAcquired));
+        }
         if !self.buffers.view.in_sight() {
-            return Ok(SurfaceFrame {
+            return Ok(Ok(SurfaceFrame {
                 status: wgpu_types::SurfaceStatus::Occluded,
                 texture: None,
-            });
+            }));
         }
         let index = self.hardware_buffer_for_next_frame(allocation)?;
         let texture = allocation
@@ -272,7 +275,7 @@ impl SurfaceTarget for ViewCanvas {
             .map_err(wasmtime::Error::from_anyhow)?;
         let texture: FrameTexture = Arc::new(GpuObject::new(texture, &self.gpu));
         if allocation.device.is_lost() {
-            return Ok(drawn_into(texture));
+            return Ok(Ok(drawn_into(texture)));
         }
         allocation.hand_out(index, Arc::clone(&texture));
         let (device, usage) = (allocation.device.clone(), allocation.usage);
@@ -288,7 +291,16 @@ impl SurfaceTarget for ViewCanvas {
                 "a frame's texture is taken while the program is frozen: drawn into as it arrives"
             );
         }
-        Ok(drawn_into(texture))
+        Ok(Ok(drawn_into(texture)))
+    }
+
+    /// The frame being drawn is let go of unpresented: its hardware buffer is free again, and
+    /// the next present shows nothing new.
+    fn discard(&self) -> wasmtime::Result<()> {
+        if let Some(allocation) = self.buffers.allocation().as_mut() {
+            allocation.discard();
+        }
+        Ok(())
     }
 
     /// What sRGB says of the range: the system's display is not read yet.

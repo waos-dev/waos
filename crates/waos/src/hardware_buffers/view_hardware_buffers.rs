@@ -219,11 +219,21 @@ impl Allocation {
         Ok(index)
     }
 
-    /// Hands hardware buffer `index` out for the frame being drawn through `texture`, in place of
-    /// any handed out before and not presented.
+    /// Hands hardware buffer `index` out for the frame being drawn through `texture`.
     pub(super) fn hand_out(&mut self, index: usize, texture: FrameTexture) {
         self.pool.hand_out(index);
         self.drawing = Some(texture);
+    }
+
+    /// Whether a frame is handed out and neither presented nor discarded.
+    pub(super) fn is_drawing(&self) -> bool {
+        self.drawing.is_some()
+    }
+
+    /// The frame being drawn, given back unpresented: its hardware buffer is free again.
+    pub(super) fn discard(&mut self) {
+        self.drawing = None;
+        self.pool.discard_drawn();
     }
 
     /// The frame being drawn, now presented, its hardware buffer marked as the shell's with `freed`
