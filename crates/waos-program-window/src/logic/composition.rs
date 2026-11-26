@@ -375,6 +375,10 @@ mod tests {
             self.0.lock().unwrap().push((Arc::clone(&layer), opaque));
             layer
         }
+
+        fn accepted_buffers(&self) -> waft::ui::AcceptedBuffers {
+            waft::ui::AcceptedBuffers::default()
+        }
     }
 
     /// A layer no compositor of Waft's made.

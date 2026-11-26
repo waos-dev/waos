@@ -13,8 +13,11 @@
 use std::any::Any;
 use std::sync::Arc;
 
-use waft_embedder::{CompositionLayer, Compositor, HardwareBuffer, LayerPicture, Placement};
-use wasdk::views;
+use waft_embedder::{
+    AcceptedBuffers, AcceptedFormat, CompositionLayer, Compositor, GpuMemory, HardwareBuffer,
+    HardwareBufferFormat, LayerPicture, Placement,
+};
+use wasdk::{views, webgpu};
 
 use crate::hardware_buffers::wit_buffer;
 use crate::placements::placement_of;
@@ -32,6 +35,26 @@ impl WasdkCompositor {
 impl Compositor for WasdkCompositor {
     fn make_layer(&self, opaque: bool) -> Arc<dyn CompositionLayer> {
         Arc::new(WasdkLayer(self.0.make_layer(opaque)))
+    }
+
+    /// The buffers the system's allocator makes, in WebGPU's preferred canvas format, as a web
+    /// page draws in it: what the system shows with no conversion. A program names no GPU, nor
+    /// shows shared memory.
+    fn accepted_buffers(&self) -> AcceptedBuffers {
+        let format = match webgpu::get_gpu().get_preferred_canvas_format() {
+            webgpu::GpuTextureFormat::Rgba8unorm => HardwareBufferFormat::Rgba8,
+            _ => HardwareBufferFormat::Bgra8,
+        };
+        AcceptedBuffers {
+            gpu_memory: vec![GpuMemory {
+                gpu: None,
+                formats: vec![AcceptedFormat {
+                    format,
+                    modifiers: Vec::new(),
+                }],
+            }],
+            shared_memory: false,
+        }
     }
 }
 

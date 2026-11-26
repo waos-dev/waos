@@ -528,6 +528,10 @@ impl Compositor for TestCompositor {
         self.layers.lock().unwrap().push(Arc::clone(&layer));
         layer
     }
+
+    fn accepted_buffers(&self) -> waft::ui::AcceptedBuffers {
+        waft::ui::AcceptedBuffers::default()
+    }
 }
 
 /// The children one present showed, the bottom-most first.

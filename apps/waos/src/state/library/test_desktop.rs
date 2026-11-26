@@ -1051,6 +1051,10 @@ impl Compositor for NoComposition {
     fn make_layer(&self, _opaque: bool) -> Arc<dyn CompositionLayer> {
         Arc::new(NoComposition)
     }
+
+    fn accepted_buffers(&self) -> waft::ui::AcceptedBuffers {
+        waft::ui::AcceptedBuffers::default()
+    }
 }
 
 impl CompositionLayer for NoComposition {

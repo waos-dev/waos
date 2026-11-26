@@ -51,7 +51,10 @@ pub(crate) enum BufferKind {
     /// Memory the CPU reads: a program draws on its device, and each frame is read back into it.
     /// Where the compositor imports nothing the engine's GPU makes, and where there is no
     /// compositor, as in a headless WaOS, whose pictures only screenshots read.
-    #[cfg_attr(not(target_os = "linux"), expect(dead_code, reason = "Linux's alone"))]
+    #[cfg_attr(
+        all(not(target_os = "linux"), not(test)),
+        expect(dead_code, reason = "Linux's alone")
+    )]
     SharedMemory,
 }
 
