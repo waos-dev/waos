@@ -1,6 +1,6 @@
 //! `wasdk:platform/gpu-interop`: a hardware buffer the program holds imported as a texture on its
 //! own GPU device, over the buffer's memory with no copy (`os`), as each system's GPU API
-//! imports such memory, decision 36 of `docs/proposals/2026-11-02-program-media.md`. What the
+//! imports such memory. What the
 //! texture is for follows from what the buffer was made for ([`texture_usages`]): the buffer keeps
 //! only its own usage, named after its users, and its interface names no GPU API. The interface is
 //! served to a program by `host`.

@@ -3,11 +3,10 @@
 //! title bar does; the configuration a request for a view makes its window with, macOS's title bar
 //! among it; and the WIT's `rect`, a window's frame or a screen's, as Waft's.
 //!
-//! The WIT's `window` does not say whether the window is minimized or occluded, nor that it
-//! moved; the framework hears neither (`is_minimized` and `is_occluded` answer false, as on
-//! Wayland, the design's decision 35), and a view off screen gets no frames. Whether it is
-//! maximized or full screen, and what a double-click on a title bar does, are read from the WIT
-//! at each call.
+//! The WIT's `window` does not say whether the window is minimized or occluded, nor that it moved;
+//! the framework hears neither (`is_minimized` and `is_occluded` answer false, as on Wayland), and
+//! a view off screen gets no frames. Whether it is maximized or full screen, and what a
+//! double-click on a title bar does, are read from the WIT at each call.
 
 use std::rc::Rc;
 use std::time::Duration;

@@ -1,8 +1,7 @@
 //! A program started held, before its first instruction: its code is linked, so whoever listens
 //! to its trace and to what it uses now hears it from its start, but it runs nothing, not even its
-//! role's question, until its [`HeldProgram`] is dropped (decision 18 of
-//! `docs/proposals/2026-11-15-inspector-roles-and-compatibility.md`, after Chrome DevTools
-//! Protocol's `waitForDebuggerOnStart`).
+//! role's question, until its [`HeldProgram`] is dropped (after Chrome
+//! DevTools Protocol's `waitForDebuggerOnStart`).
 //!
 //! The invariant: dropping the [`HeldProgram`] is the one way a held program goes on, so whoever
 //! held it cannot leave it held by ending; and its start is told as linked before it waits, so a

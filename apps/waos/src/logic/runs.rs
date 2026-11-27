@@ -1,13 +1,12 @@
-//! The programs running in WaOS, by the id of the program each is, whether `waos launch` started
-//! it or the library opened it. One per id: a later launch takes the place of the one before,
-//! which is stopped first and ends `Replaced` (the design's decision 70), as does a start an
-//! inspector asks for, while a program the library opens again is left running as it is. Every
-//! run of an id is ended before its program is removed or updated ([`Runs::stop`]), as a system
-//! ends an app it uninstalls or updates, so no run outlives the package it came from or the
-//! folders it was given. Every program running is its user's to read and drive through the dev
-//! socket, through its program's own mouse and the keyboard (decision 70), as `driven` finds it,
-//! which a phone, where `waos` reaches no WaOS yet, does not compile. Each run knows whether a later
-//! one took its place, so its end is told as `Replaced`.
+//! The programs running in WaOS, by the id of the program each is, whether `waos launch` started it
+//! or the library opened it. One per id: a later launch takes the place of the one before, which is
+//! stopped first and ends `Replaced`, as does a start an inspector asks for, while a program the
+//! library opens again is left running as it is. Every run of an id is ended before its program is
+//! removed or updated ([`Runs::stop`]), as a system ends an app it uninstalls or updates, so no run
+//! outlives the package it came from or the folders it was given. Every program running is its
+//! user's to read and drive through the dev socket, through its program's own mouse and the
+//! keyboard, as `driven` finds it, which a phone, where `waos` reaches no WaOS yet, does not
+//! compile. Each run knows whether a later one took its place, so its end is told as `Replaced`.
 //!
 //! The invariants: one start or stop of an id at a time. Each holds the id's turn from the moment
 //! it looks for the run before to the moment the new one is in the list, so two runs of one id
@@ -18,7 +17,7 @@
 //! compiles in a turn: a caller loads the program, through the package manager, before it starts
 //! a run.
 
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[cfg(desktop)]
 mod driven;
 
 use std::collections::{BTreeSet, HashMap};
@@ -27,7 +26,7 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Instant;
 
 use anyhow::Result;
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[cfg(desktop)]
 use futures::future::join_all;
 use tokio::sync::{OwnedMutexGuard, watch};
 use tracing::Instrument;
@@ -35,7 +34,7 @@ use waos::{ProgramEnd, RunningProgram};
 use waos_dev_protocol::RunEnd;
 use waos_package::ProgramId;
 
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[cfg(desktop)]
 pub(crate) use driven::DrivenProgram;
 
 /// The runs by id.
@@ -104,11 +103,10 @@ impl Runs {
         Ok(Started::New(self.list(id, program)))
     }
 
-    /// Starts a run of the program `id` in place of the one running, if any, which is stopped
-    /// first and ends `Replaced`, as a later launch takes the place of the one before (decision 18
-    /// of `docs/proposals/2026-11-15-inspector-roles-and-compatibility.md`); then `start` starts
-    /// the program, and the run is in the list. An error from `start`
-    /// leaves the id free. `start` waits for nothing: the program it starts is loaded already.
+    /// Starts a run of the program `id` in place of the one running, if any, which is stopped first
+    /// and ends `Replaced`, as a later launch takes the place of the one before; then `start`
+    /// starts the program, and the run is in the list. An error from `start` leaves the id free.
+    /// `start` waits for nothing: the program it starts is loaded already.
     pub(crate) async fn start_in_place(
         &self,
         id: &ProgramId,
@@ -262,7 +260,7 @@ impl Runs {
 
     /// The programs running now, in no order: what a quit asks, which a phone's system never
     /// does.
-    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    #[cfg(desktop)]
     pub(crate) async fn programs(&self) -> Vec<RunningProgram> {
         let running = self.listed();
         running
@@ -272,7 +270,7 @@ impl Runs {
     }
 
     /// Stops every run and waits until each program has ended: once a quit is agreed to.
-    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    #[cfg(desktop)]
     pub(crate) async fn stop_all(&self) {
         let ends: Vec<_> = self
             .listed()

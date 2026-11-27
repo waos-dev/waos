@@ -1,6 +1,6 @@
-//! A view's screenshot: what it shows on screen, drawn again at its size, for a tool that looks
-//! at the program's window (the design's decisions 60 and 62). The program's last picture lies over
-//! the layers it was presented with, each asked what it shows now
+//! A view's screenshot: what it shows on screen, drawn again at its size, for a tool that looks at
+//! the program's window. The program's last picture lies over the layers it was presented with,
+//! each asked what it shows now
 //! ([`ShellCompositionLayer::current_picture`](crate::shell::ShellCompositionLayer)): the buffer
 //! presented to it last, or the frame of the video or the camera on it. They are drawn together on
 //! the GPU, on a device of the engine's own (`device`), each where its placement puts it in the

@@ -1,14 +1,13 @@
-//! The deck's tabs, on the main thread: the list of them (`logic::tab_list`, which has the rules
-//! of what a tab is, their order, the current one and the overview), how far each program's tab
-//! got, and what each program is told of its view. Opening a program gives it its tab, the home's
-//! where the home is open, and reserves the tab's screen for its first request (`TabView`),
-//! measured as a tab's page in the deck's view (`logic::tab_page`); once the program's first
-//! request takes the screen, the tab shows the view it became, and once the program ends on its
-//! own the tab keeps its view, which holds its last picture, and says how it ended, until the user
-//! closes it. Until the program asks, however long it takes, the tab shows that it starts, and a
-//! program that ends without asking leaves only how it ended. Each view the program asks for after
-//! its first is a tab of its own, beside its others; each tab is a window (decision 6 of
-//! `docs/proposals/2026-11-21-views-a-program-asks-for.md`): closing one takes its view away, and
+//! The deck's tabs, on the main thread: the list of them (`logic::tab_list`, which has the rules of
+//! what a tab is, their order, the current one and the overview), how far each program's tab got,
+//! and what each program is told of its view. Opening a program gives it its tab, the home's where
+//! the home is open, and reserves the tab's screen for its first request (`TabView`), measured as a
+//! tab's page in the deck's view (`logic::tab_page`); once the program's first request takes the
+//! screen, the tab shows the view it became, and once the program ends on its own the tab keeps its
+//! view, which holds its last picture, and says how it ended, until the user closes it. Until the
+//! program asks, however long it takes, the tab shows that it starts, and a program that ends
+//! without asking leaves only how it ended. Each view the program asks for after its first is a tab
+//! of its own, beside its others; each tab is a window: closing one takes its view away, and
 //! closing a program's last tab stops the program without asking, as a phone's switcher ends an
 //! app.
 //!

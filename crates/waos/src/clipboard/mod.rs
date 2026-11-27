@@ -1,16 +1,15 @@
 //! `wasdk:platform/clipboard`: the platform's clipboard as every program sees it
 //! ([`PlatformClipboard`]: the shell that lists and writes it, and what programs are told it
 //! changed to), and as one program reaches it ([`ProgramClipboard`]): what is on it and its
-//! changes, seen only while one of the program's views has the focus, and its reads and writes,
-//! as its switches say at each one, each decided and told through the program's access
-//! (`access`). The user's own commands are free of the switches (the clipboard proposal's
-//! decisions 4 to 6): a [`CopyRequest`], the user's copy or cut, writes once whatever the write
-//! switch says, and a [`Paste`], the clipboard as the user pasted it, reads whatever the read
-//! switch says, each file pasted mounted read-only at its own path as its `text/uri-list` is
-//! read. What a program writes is made into what the shell writes in `written`, and what it put
-//! on the clipboard, its `source`, answering the pastes of its promised forms and files while it
-//! is there, is `sources`, each paste's answer `answers`. The interface is served to a program
-//! by [`host`].
+//! changes, seen only while one of the program's views has the focus, and its reads and writes, as
+//! its switches say at each one, each decided and told through the program's access (`access`). The
+//! user's own commands are free of the switches: a [`CopyRequest`], the user's copy or cut, writes
+//! once whatever the write switch says, and a [`Paste`], the clipboard as the user pasted it, reads
+//! whatever the read switch says, each file pasted mounted read-only at its own path as its
+//! `text/uri-list` is read. What a program writes is made into what the shell writes in `written`,
+//! and what it put on the clipboard, its `source`, answering the pastes of its promised forms and
+//! files while it is there, is `sources`, each paste's answer `answers`. The interface is served to
+//! a program by [`host`].
 //!
 //! What is on the clipboard is asked of the shell when a program lists it and when the user
 //! pastes, never answered from what the engine keeps: the platform's clipboard changes without

@@ -2,13 +2,12 @@
 //! opaque layer and one that is not on the shell's compositor, sets its view's layers to both and
 //! presents its first frame, then to the second alone, moved, and presents its second. Once both
 //! frames are presented, the headless view holds the second frame's layer with its placement and
-//! transform (the video is no longer passed), and once the program has ended, the engine holds
-//! none of the layers it made. A screenshot of its view shows a video's frame on its badge whole
-//! at the frame's shape, centred, where the badge's placement puts it, and nothing of a layer its
-//! last picture no longer holds (the design's decision 62). The compositor shows a program's
-//! buffers in the formats the shell's compositor takes that the engine makes. Under a shell with
-//! no compositor, the
-//! program's `get-compositor` answers none, and its presents carry no layers.
+//! transform (the video is no longer passed), and once the program has ended, the engine holds none
+//! of the layers it made. A screenshot of its view shows a video's frame on its badge whole at the
+//! frame's shape, centred, where the badge's placement puts it, and nothing of a layer its last
+//! picture no longer holds. The compositor shows a program's buffers in the formats the shell's
+//! compositor takes that the engine makes. Under a shell with no compositor, the program's
+//! `get-compositor` answers none, and its presents carry no layers.
 //!
 //! Presents carry hardware buffers, which are made on Apple's systems, where these tests run;
 //! elsewhere one test in their place, in `main.rs`, says so and passes.

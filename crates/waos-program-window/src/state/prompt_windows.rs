@@ -109,9 +109,8 @@ impl PromptWindows {
     /// Shows `prompt` for `program`, as [`PromptPlacement::show`] does, and answers it with what
     /// resolves with the Waft view of the window of its own it is shown in, once that arrives: the
     /// screen a dialog of a program with none of its own is shown over, on a system that shows a
-    /// dialog only over a screen (decision 11 of
-    /// `docs/proposals/2026-11-21-views-a-program-asks-for.md`). It resolves with nothing where the
-    /// program has a screen after all, or Waft makes no window.
+    /// dialog only over a screen. It resolves with nothing where the program has a screen after
+    /// all, or Waft makes no window.
     pub fn show_on_a_screen_of_its_own(
         &self,
         app: &mut App,

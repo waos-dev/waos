@@ -1,14 +1,13 @@
-//! Each installed program's entry where the system lists its apps, on Windows and Linux (decision
-//! 24 of `docs/proposals/2026-11-13-what-six-apps-found.md`): a Start menu shortcut on Windows
-//! (`start_menu`), a desktop entry on Linux (`desktop_entries`), each under the program's identity
-//! (`logic::program_identities`) and starting `waos open --program <id>`. It is what finds the
-//! program by its name, what its pin is, and on GNOME what its windows are matched to. An entry is
-//! written when its program is installed or updated, deleted when it is removed, and the entries
-//! are made to match the store as WaOS starts, for a program installed while an older WaOS ran. A
-//! development run writes none: it shares the installed program's entry, and a program never
-//! installed has none. An entry also offers its program for the kinds of file it opens: a
-//! desktop entry names their MIME types, and on Windows they are registered in the user's classes
-//! (`file_associations`).
+//! Each installed program's entry where the system lists its apps, on Windows and Linux: a Start
+//! menu shortcut on Windows (`start_menu`), a desktop entry on Linux (`desktop_entries`), each
+//! under the program's identity (`logic::program_identities`) and starting `waos open --program
+//! <id>`. It is what finds the program by its name, what its pin is, and on GNOME what its windows
+//! are matched to. An entry is written when its program is installed or updated, deleted when it is
+//! removed, and the entries are made to match the store as WaOS starts, for a program installed
+//! while an older WaOS ran. A development run writes none: it shares the installed program's entry,
+//! and a program never installed has none. An entry also offers its program for the kinds of file
+//! it opens: a desktop entry names their MIME types, and on Windows they are registered in the
+//! user's classes (`file_associations`).
 //!
 //! WaOS keeps the record of the entries it wrote in its data folder: each one's files and what it
 //! set in the registry, and what they were written from, its program's name, version and the WaOS

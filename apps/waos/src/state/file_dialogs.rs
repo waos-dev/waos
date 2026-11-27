@@ -1,7 +1,6 @@
-//! The programs' file dialogs on the main thread, over Waft's: each shown as a sheet on the
-//! window of the program's view it names, or, where it names none, over the program's own screen,
-//! its front window or the window reserved for its first request (decision 11 of
-//! `docs/proposals/2026-11-21-views-a-program-asks-for.md`), never over a screen Waft would pick;
+//! The programs' file dialogs on the main thread, over Waft's: each shown as a sheet on the window
+//! of the program's view it names, or, where it names none, over the program's own screen, its
+//! front window or the window reserved for its first request, never over a screen Waft would pick;
 //! and answered with the paths the user chose, which the engine mounts. The dialogs are the
 //! engine's shell's only where Waft's platform has them.
 //!

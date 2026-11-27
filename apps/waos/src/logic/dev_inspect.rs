@@ -1,13 +1,11 @@
-//! An inspection `waos inspect` asks for (the inspector proposal's protocol): a program's
-//! audit summary, the days kept with today's as the engine counts it now; what it uses
-//! now and each change to it; or its live trace, each event as it comes; the last two until the
-//! connection closes or the program ends.
-//! Each value goes as JSON of `wasdk:inspect`'s, one a line, so the command prints what it reads.
+//! An inspection `waos inspect` asks for: a program's audit summary, the days kept with today's as
+//! the engine counts it now; what it uses now and each change to it; or its live trace, each event
+//! as it comes; the last two until the connection closes or the program ends. Each value goes as
+//! JSON of `wasdk:inspect`'s, one a line, so the command prints what it reads.
 //!
 //! The invariant: every program is inspected, however it was installed or started, as the dev
-//! socket is its user's alone (the design's decision 70): any running program live, and any
-//! program's summary, whether it runs or not, the days the engine keeps of it, none for a program
-//! it keeps none of.
+//! socket is its user's alone: any running program live, and any program's summary, whether it runs
+//! or not, the days the engine keeps of it, none for a program it keeps none of.
 
 use futures::StreamExt;
 use futures::stream::{self, BoxStream};

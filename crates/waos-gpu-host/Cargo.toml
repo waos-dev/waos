@@ -20,7 +20,7 @@ futures.workspace = true
 tracing.workspace = true
 
 # Each system's backend, and naga's three front ends: WGSL, SPIR-V and GLSL all go through naga's
-# validator in wgpu-core (the design's decision on shader languages).
+# validator in wgpu-core.
 [target.'cfg(any(target_os = "linux", target_os = "android"))'.dependencies.wgpu-core]
 workspace = true
 features = ["wgsl", "spirv", "glsl", "vulkan", "noop"]

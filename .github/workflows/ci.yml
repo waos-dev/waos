@@ -1,5 +1,4 @@
-# Every change: the WIT keeps its versions honest, the workspace lints, and its tests pass (the
-# design's decision 67).
+# Every change: the WIT keeps its versions honest, the workspace lints, and its tests pass.
 #
 # The jobs run side by side, each as short as the slowest piece it holds: on macOS the engine and
 # the command, the app, and the rest of the workspace; on Linux and Windows clippy apart from the
@@ -90,9 +89,8 @@ jobs:
         run: cargo test --no-fail-fast -p wasdk-adapter-gpui --target wasm32-wasip3
 
   # Windows and Linux run the engine, the command, local processes and the SDK today; the app's
-  # shell still waits for the decisions of docs/proposals/2026-11-13-windows-and-linux.md (dmabufs,
-  # ConPTY, DirectComposition), so only the system-dependent packages that run there are listed
-  # explicitly (macOS runs every package's tests). The workspace still lints whole on each, in a
+  # shell there still waits for its design (dmabufs, ConPTY, DirectComposition), so only the
+  # system-dependent packages that run there are listed explicitly (macOS runs every package's tests). The workspace still lints whole on each, in a
   # job of its own beside the tests, to catch what is apparent before the real machines arrive;
   # clippy compiles every crate for the system, so it is `cargo check` and more, and there is no
   # check of its own.

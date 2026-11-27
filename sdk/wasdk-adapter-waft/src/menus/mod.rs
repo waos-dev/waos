@@ -1,8 +1,7 @@
 //! Waft's menus over `wasdk:platform/menus`, one to one: the menu bar is `get-menu-bar`'s, a menu
-//! at a point of a view `get-context-menus`', and the tray icons `get-tray-icons`', each none
-//! where the platform has none. A program has no Dock menu of its own (the menus proposal's
-//! decision 5). A menu goes over as the WIT's flat list ([`entries`]), and a choice comes back by
-//! the id Waft's app gave the item.
+//! at a point of a view `get-context-menus`', and the tray icons `get-tray-icons`', each none where
+//! the platform has none. A program has no Dock menu of its own. A menu goes over as the WIT's flat
+//! list ([`entries`]), and a choice comes back by the id Waft's app gave the item.
 //!
 //! What the user chooses in the menu bar and does to a tray icon reaches the loop on streams it
 //! reads ([`events`](crate::events)): the menu bar's, opened as the loop starts, and each icon's,

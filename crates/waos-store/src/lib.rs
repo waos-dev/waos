@@ -21,19 +21,18 @@
 //!   settings.toml         the global settings, which every program follows until it has its own
 //! ```
 //!
-//! What the user lets each program use is its settings, in its folder, over the global ones,
-//! which the store answers to the engine as each program's `ProgramGrants`, read live
-//! (decisions 7 and 8 of the permissions proposal). A program run in development is the one its
-//! id names (decision 11): its folder is made at its first run, installed or not, with its own
-//! folders and settings, and an install of its id keeps them. A program's folder goes with it,
-//! whole, when it is removed, and its audit summary too: what it did with what it was allowed,
+//! What the user lets each program use is its settings, in its folder, over the global ones, which
+//! the store answers to the engine as each program's `ProgramGrants`, read live. A program run in
+//! development is the one its id names: its folder is made at its first run, installed or not, with
+//! its own folders and settings, and an install of its id keeps them. A program's folder goes with
+//! it, whole, when it is removed, and its audit summary too: what it did with what it was allowed,
 //! one file a day, kept seven days, on this device only (`audit`, the engine's `AuditLog`).
 //!
-//! An installed program is its manifest and where it came from, its [`Origin`]: a package, with
-//! its publisher's key and no record of which source listed it (the design's decision 46), which
-//! installs as a new id, or as an update of an installed id when it is signed with the same key and
-//! is newer, any source listing an installed id at a newer version offering an update; or its
-//! source, a development install, which `waos install` makes under the program's development id
+//! An installed program is its manifest and where it came from, its [`Origin`]: a package, with its
+//! publisher's key and no record of which source listed it, which installs as a new id, or as an
+//! update of an installed id when it is signed with the same key and is newer, any source listing
+//! an installed id at a newer version offering an update; or its source, a development install,
+//! which `waos install` makes under the program's development id
 //! (`dev.example.triangle.development`), a program of its own beside the one published under the
 //! plain id, which no package or source replaces.
 //!

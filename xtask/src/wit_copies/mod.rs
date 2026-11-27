@@ -1,7 +1,7 @@
 //! The WIT's copies. `wit/` is the one place the WIT is edited; each crate that generates
 //! bindings from it carries a copy of its own, so the crate builds from what it publishes, and the
-//! repository checks out on Windows, where Git makes a symbolic link a plain file (the design's
-//! decision 57, as wasmtime's crates carry theirs, copied by its `ci/vendor-wit.sh`).
+//! repository checks out on Windows, where Git makes a symbolic link a plain file (as
+//! wasmtime's crates carry theirs, copied by its `ci/vendor-wit.sh`).
 //!
 //! The invariant a later editor will break: [`COPIES`] names every copy. A crate whose
 //! `generate!` or `bindgen!` reads WIT taken from `wit/` is listed here, and nowhere edits its

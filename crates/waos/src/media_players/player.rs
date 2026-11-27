@@ -6,10 +6,10 @@
 //! icon's `TrayIconReports`, its metadata, its cues and where it was too; the engine keeps the
 //! newest of each, which `state` and `metadata` read and every stream of their changes watches.
 //!
-//! The program reads its player's position on its own thread, where the shell's player is not,
-//! so the engine answers it from the position the shell read last, moved on by the time since at
-//! the rate the state says it plays at while it plays, as WebKit's page answers `currentTime` for
-//! a player in its GPU process (program-media decision 23).
+//! The program reads its player's position on its own thread, where the shell's player is not, so
+//! the engine answers it from the position the shell read last, moved on by the time since at the
+//! rate the state says it plays at while it plays, as WebKit's page answers `currentTime` for a
+//! player in its GPU process.
 //!
 //! The invariant: a player whose source was refused has no shell's player, ever, and its state is
 //! `failed` for good; once the program lets a player go, its shell's player is dropped, nothing

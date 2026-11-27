@@ -1,8 +1,8 @@
-//! What a program's media source names, and the URL the system is handed for it, by a player or
-//! by the reading of media without playing it: a link of `http` or `https`, which the system
-//! fetches itself once the program's own lookup of its host lets the program reach it (decision 8
-//! of the media proposal); or an absolute path inside the program, which its mounts map to where
-//! the file is on the machine, given as its `file:` URL.
+//! What a program's media source names, and the URL the system is handed for it, by a player or by
+//! the reading of media without playing it: a link of `http` or `https`, which the system fetches
+//! itself once the program's own lookup of its host lets the program reach it; or an absolute path
+//! inside the program, which its mounts map to where the file is on the machine, given as its
+//! `file:` URL.
 //!
 //! The invariant: a URL leaves here only for a link whose host the program may reach, or for a
 //! file inside its mounts. A link of another scheme is no source, since the network rules say

@@ -1,10 +1,9 @@
 //! A program's identity on the systems that tell a window's app by the window rather than by its
-//! process, Windows and Linux (decision 24 of `docs/proposals/2026-11-13-what-six-apps-found.md`):
-//! `dev.waos.app.<program id>`, its windows' AppUserModelID on Windows and their app id on Linux,
-//! which names its Start menu shortcut's ID and its desktop entry; and what a pin of its window
-//! starts, `waos open --program <id>`, with its name and its icon. Only an installed program has
-//! one: a development run shares the installed program's, and a program never installed has none,
-//! its windows WaOS's.
+//! process, Windows and Linux: `dev.waos.app.<program id>`, its windows' AppUserModelID on Windows
+//! and their app id on Linux, which names its Start menu shortcut's ID and its desktop entry; and
+//! what a pin of its window starts, `waos open --program <id>`, with its name and its icon. Only an
+//! installed program has one: a development run shares the installed program's, and a program never
+//! installed has none, its windows WaOS's.
 //!
 //! The invariant: the identity is the same string on both systems and in every place it is written
 //! (a window, a shortcut, a desktop entry, a notification), and never longer than an

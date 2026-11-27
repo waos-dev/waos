@@ -1,9 +1,9 @@
 //! Where each program's views go, by where it was opened: a program in a tab of the deck has its
-//! tab's screen reserved for its first request, and each later request goes to the deck on the
-//! main thread, which opens another tab for it, each tab a window (`state::deck`, decision 6 of
-//! `docs/proposals/2026-11-21-views-a-program-asks-for.md`); any other program's requests go to
-//! the windows, WaOS's own (`placement`) or, on macOS, its app's. A program opened without saying
-//! where, as `waos` runs one, goes where this WaOS puts programs unless told otherwise.
+//! tab's screen reserved for its first request, and each later request goes to the deck on the main
+//! thread, which opens another tab for it, each tab a window (`state::deck`); any other program's
+//! requests go to the windows, WaOS's own (`placement`) or, on macOS, its app's. A program opened
+//! without saying where, as `waos` runs one, goes where this WaOS puts programs unless told
+//! otherwise.
 //!
 //! The invariant: a program's place is set before its run starts (`InstalledRuns::open`), so its
 //! first request already goes where its run is shown; and a request taken for a tab is on its way

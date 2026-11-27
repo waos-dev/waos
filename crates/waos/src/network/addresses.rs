@@ -1,8 +1,7 @@
 //! Which addresses are this computer's and the local network's, which the local-network switch
-//! guards (decision 12 of the permissions proposal): loopback, the private ranges, link-local
-//! and multicast addresses, and those that stand for this computer or every machine on the
-//! network, the unspecified address and the broadcast address. Every other address is the
-//! internet's, which the network switch guards.
+//! guards: loopback, the private ranges, link-local and multicast addresses, and those that stand
+//! for this computer or every machine on the network, the unspecified address and the broadcast
+//! address. Every other address is the internet's, which the network switch guards.
 //!
 //! The invariant: an IPv4 address written as IPv6 (`::ffff:a.b.c.d`) is judged as the IPv4
 //! address it is, so the form a program writes it in changes nothing.

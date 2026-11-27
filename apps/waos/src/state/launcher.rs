@@ -1,18 +1,16 @@
 //! The launcher: WaOS on a desktop, a card summoned when a program is to be found or opened and
-//! gone once it is, as Spotlight shows its apps (decisions 16 and 17 of
-//! `docs/proposals/2026-11-12-phone-programs-and-library.md`), when the rules of
-//! `logic::launcher_rules` say.
+//! gone once it is, as Spotlight shows its apps, when the rules of `logic::launcher_rules` say.
 //!
-//! Its window is a view WaOS asks for like any other (decision 19): asked with `request_view` the
-//! first time the launcher is summoned, carrying [`LAUNCHER_VIEW`] as its initial data, which WaOS's
-//! one builder shows the launcher in (`ui::every_window`, `ui::launcher`). The launcher keeps the
-//! window as its view arrives and does to it what it decides (decision 21): shows it in the middle
-//! of the screen and focused, minimizes it or hides it; what it decides before the window comes is
-//! done as the window comes. Nothing of this waits for the window's content, which is not built while the
-//! window is out of sight. What is the app's and not the window's is done here as well:
-//! WaOS hidden to hand the focus back on macOS, unless a program's window is on screen to take it,
-//! and the library put away, back on its grid with nothing searched, a program waiting for the user
-//! to leave its settings page counting it as left.
+//! Its window is a view WaOS asks for like any other: asked with `request_view` the first time the
+//! launcher is summoned, carrying [`LAUNCHER_VIEW`] as its initial data, which WaOS's one builder
+//! shows the launcher in (`ui::every_window`, `ui::launcher`). The launcher keeps the window as its
+//! view arrives and does to it what it decides: shows it in the middle of the screen and focused,
+//! minimizes it or hides it; what it decides before the window comes is done as the window comes.
+//! Nothing of this waits for the window's content, which is not built while the window is out of
+//! sight. What is the app's and not the window's is done here as well: WaOS hidden to hand the
+//! focus back on macOS, unless a program's window is on screen to take it, and the library put
+//! away, back on its grid with nothing searched, a program waiting for the user to leave its
+//! settings page counting it as left.
 //!
 //! It is summoned at a click on WaOS's Dock icon (macOS reports it as a reopen), at a click on its
 //! icon in the menu bar or the tray (`state::waos_tray`), whenever the library asks to be seen, a

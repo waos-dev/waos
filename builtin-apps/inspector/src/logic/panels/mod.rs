@@ -1,10 +1,8 @@
 //! The live panels of a program's page, as Chrome DevTools' tabs: each a log of what the program
-//! does from when the panel listens, a typed row an event or a use (decisions 14–16 of
-//! `docs/proposals/2026-11-15-inspector-roles-and-compatibility.md`). A log turns what it hears
-//! into changes of its rows, an event at a time, through [`Rows`], which the app's state backs
-//! with a table's source and the tests with a `Vec`; a row says what both kits draw of it: its
-//! cells under its panel's columns, its kind for the panel's filters, a phone's tile and the
-//! detail pane.
+//! does from when the panel listens, a typed row an event or a use. A log turns what it hears into
+//! changes of its rows, an event at a time, through [`Rows`], which the app's state backs with a
+//! table's source and the tests with a `Vec`; a row says what both kits draw of it: its cells under
+//! its panel's columns, its kind for the panel's filters, a phone's tile and the detail pane.
 //!
 //! The invariant: a row says what its events say, a refusal naming the setting that refused it;
 //! and a log keeps at most `KEPT` rows, the oldest going first, so one event is one change of the
@@ -136,7 +134,7 @@ impl Column {
 }
 
 /// A moment a row says, and how it reads: the UI says it in the user's time zone with the `App`,
-/// and logic never turns it into words (the design's decision on the Inspector's local time).
+/// and logic never turns it into words.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct Moment {
     pub(crate) at: wasdk::system_clock::Instant,

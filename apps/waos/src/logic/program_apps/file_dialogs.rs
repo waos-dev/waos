@@ -1,13 +1,12 @@
-//! A program's file dialogs on macOS, its app's (decisions 13 and 15 of
-//! `docs/proposals/2026-10-29-macos-apps.md`): the engine's file dialogs, each taking the getter,
+//! A program's file dialogs on macOS, its app's: the engine's file dialogs, each taking the getter,
 //! so a program whose app does not run has it launched, with no window, and the dialog opens there
 //! on its own. The window process opens it, a sheet on the window of the view the program names, or
 //! on its own where it names none or no window there shows it, as WaOS's own dialogs open, and
 //! brings the app forward as it shows, WaOS yielding its activation to the app as it asks. The
 //! dialog answers the paths the user picked once it closes, which the engine mounts as it mounts
 //! the picks of WaOS's own dialogs: the window process is WaOS's own code, its code hash and every
-//! connection's sender checked, and the program names no path itself (decisions 2 and 7). A dialog
-//! whose app never comes, or goes while it is open, answers why nothing was picked.
+//! connection's sender checked, and the program names no path itself. A dialog whose app never
+//! comes, or goes while it is open, answers why nothing was picked.
 //!
 //! The invariant a later editor will break: every dialog asked for is answered exactly once, so no
 //! program waits on a dialog nobody shows.

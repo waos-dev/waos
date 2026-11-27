@@ -1,8 +1,7 @@
-//! One paste's answer, between the program and whoever pasted: the content's chunks as the
-//! program streams them, and how producing it ended, the program's `done` (decision 16 of
-//! `docs/proposals/2026-10-25-clipboard.md`). The program's side is [`Answering`], which its
-//! `provide` takes; the paste's is [`Answer`], which a form takes whole and a file writes into the
-//! shell's sink as it comes.
+//! One paste's answer, between the program and whoever pasted: the content's chunks as the program
+//! streams them, and how producing it ended, the program's `done`. The program's side is
+//! [`Answering`], which its `provide` takes; the paste's is [`Answer`], which a form takes whole
+//! and a file writes into the shell's sink as it comes.
 //!
 //! The invariant: an answer counts only once its stream has ended and `done` says ok, so a
 //! producer that breaks half-way, or a request dropped unanswered, fails the paste.

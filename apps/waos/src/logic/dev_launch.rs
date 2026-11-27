@@ -1,7 +1,7 @@
-//! What `waos launch` and `waos stop` ask (the design's decision 70). A launch starts an
+//! What `waos launch` and `waos stop` ask. A launch starts an
 //! installed program, a development install or any other, in place of its run if it runs, which
 //! ends `Replaced` (`InstalledRuns::launch`), with the launch's arguments and the variables it
-//! alone adds (decision 68), and its output going to the attaches (`launch_outputs`). Where its
+//! alone adds, and its output going to the attaches (`launch_outputs`). Where its
 //! code is compiled first, after a compiler change, the package manager says the program is
 //! `Optimizing`, and the connection hears `Compiling`. The launch is answered `Launched` once the
 //! program runs, and the program runs on whoever attaches or not, until it ends or is stopped; a

@@ -1,5 +1,4 @@
-//! Starting a program held for an inspector (decisions 18 and 19 of
-//! `docs/proposals/2026-11-15-inspector-roles-and-compatibility.md`), as `wasdk:inspect` asks: the
+//! Starting a program held for an inspector, as `wasdk:inspect` asks: the
 //! installed program the id names, a development install's among them, started held
 //! (`InstalledRuns::start_held`), and answered once it is linked, so the inspector can listen to it
 //! from its first instruction.
@@ -37,7 +36,7 @@ impl HeldStarts {
     }
 }
 
-#[cfg(all(test, not(any(target_os = "android", target_os = "ios"))))]
+#[cfg(all(test, desktop))]
 mod tests {
     use std::sync::Arc;
 

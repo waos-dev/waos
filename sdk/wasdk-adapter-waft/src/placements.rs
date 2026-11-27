@@ -1,9 +1,9 @@
 //! Where a frame places a composition layer, in the WIT's shape: Waft's [`Placement`], Flutter's
 //! `EmbeddedViewParams`, carried mutator for mutator in the order the scene gives them, the
-//! outermost first. A transform crosses as its 16 values, column-major, as Flutter's arrays are;
-//! a path clip crosses as the rectangle that bounds the path, which the WIT carries where it has
-//! no paths (native-surfaces decision 6): the picture's room is still cut by the exact path, so
-//! the bounds show the layer beyond the path only where the program painted nothing opaque.
+//! outermost first. A transform crosses as its 16 values, column-major, as Flutter's arrays are; a
+//! path clip crosses as the rectangle that bounds the path, which the WIT carries where it has no
+//! paths: the picture's room is still cut by the exact path, so the bounds show the layer beyond
+//! the path only where the program painted nothing opaque.
 //!
 //! The invariant: nothing is dropped, merged or reordered here; a host reads the mutators in the
 //! scene's order.

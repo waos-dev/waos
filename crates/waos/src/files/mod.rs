@@ -31,13 +31,12 @@
 //! blocking threads, a path kept beneath its folder by Apple's flags as well, and a read-only mount
 //! refusing a change with WASI's `read-only`.
 //!
-//! A machine the user gave the program (`machines`) is given whole, beside the mounts: its root
-//! is a folder of the machine, writable, with no table above it ([`folder_of_machine`]), whose
-//! paths resolve with the system's ordinary calls, as they do for any program on the machine,
-//! a symlink holding an absolute path and `..` above `/` among them (the processes proposal's
-//! decision 8). On Windows this computer's root is the folder of its drives, `/c` being `C:\`,
-//! and every path of this computer given to a program, or taken from it, is named as
-//! [`machine_paths`] names it.
+//! A machine the user gave the program (`machines`) is given whole, beside the mounts: its root is
+//! a folder of the machine, writable, with no table above it ([`folder_of_machine`]), whose paths
+//! resolve with the system's ordinary calls, as they do for any program on the machine, a symlink
+//! holding an absolute path and `..` above `/` among them. On Windows this computer's root is the
+//! folder of its drives, `/c` being `C:\`, and every path of this computer given to a program, or
+//! taken from it, is named as [`machine_paths`] names it.
 //!
 //! The invariant: nothing of the machine is reached from a mount but beneath its folder, through
 //! [`beneath`]; only a machine's root, and what is opened from it, resolves paths unconfined; a

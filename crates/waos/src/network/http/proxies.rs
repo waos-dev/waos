@@ -10,10 +10,10 @@
 //! exceptions. Other systems read them as hyper-util's matcher does: the environment's, and on
 //! Windows the registry's Internet Settings.
 //!
-//! A SOCKS 5 proxy is asked for the host by its name (`socks5h`), whether the settings say
-//! `socks5` or not, as an HTTP proxy is: the route has looked the name up already, and sends it
-//! through a proxy only for internet answers (decision 14), so the proxy looking it up again is
-//! the blind spot an HTTP proxy has too, and no address it answered is handed over unchecked.
+//! A SOCKS 5 proxy is asked for the host by its name (`socks5h`), whether the settings say `socks5`
+//! or not, as an HTTP proxy is: the route has looked the name up already, and sends it through a
+//! proxy only for internet answers, so the proxy looking it up again is the blind spot an HTTP
+//! proxy has too, and no address it answered is handed over unchecked.
 //!
 //! The invariant: the route and the connection through a proxy ask the same matcher, so a request
 //! the route sends through a proxy is sent through that proxy, and a name without a dot the

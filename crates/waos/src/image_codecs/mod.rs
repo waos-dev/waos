@@ -1,6 +1,5 @@
 //! `wasdk:media/image-codecs`: a program's images decoded and encoded by the system's codecs, into
-//! its own memory and out of it, and where the system can, into hardware buffers and out of them
-//! (decision 33 of `docs/proposals/2026-11-02-program-media.md`).
+//! its own memory and out of it, and where the system can, into hardware buffers and out of them.
 //!
 //! The shell decodes and encodes ([`ShellImageCodecs`], each image a `ShellImageSource`, the
 //! hardware codecs a `ShellHardwareImageCodecs`); the engine keeps the rules. An image's file is

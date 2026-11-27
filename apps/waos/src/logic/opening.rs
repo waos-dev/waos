@@ -1,9 +1,9 @@
 //! Handing a program what its user does to it from outside it: files opened with it, as `waos open
-//! <file> --program <id>` asks until programs register what opens them (decision 3 of the opening
-//! proposal), and a click on one of its notifications. Each goes to the program the id names
-//! (`program_named`), the one running under it, whether `waos launch` started it or the library opened
-//! it, or else the installed program, opened as the library opens it; the program hears it once it
-//! listens (`RunningProgram::open_requested`, `RunningProgram::notification_activated`).
+//! <file> --program <id>` asks until programs register what opens them, and a click on one of its
+//! notifications. Each goes to the program the id names (`program_named`), the one running under
+//! it, whether `waos launch` started it or the library opened it, or else the installed program,
+//! opened as the library opens it; the program hears it once it listens
+//! (`RunningProgram::open_requested`, `RunningProgram::notification_activated`).
 //!
 //! The invariant: a request or a click reaches a program, or the caller hears why not; nothing is
 //! started for an id that names no installed program.
@@ -11,7 +11,7 @@
 use anyhow::{Context, Result};
 use waos::bindings::wasdk::platform::notifications::Activation;
 use waos::{OpenRequest, RunningProgram};
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[cfg(desktop)]
 use waos_dev_protocol::{OpenAnswer, Refusal, RefusalKind, ServerConnection};
 use waos_package::ProgramId;
 use waos_store::Store;
@@ -34,10 +34,9 @@ pub(crate) async fn open_with(
     Ok(())
 }
 
-/// Hands the click `activation` on a notification to the program `id`, as files are handed: the
-/// one running under it, or else the installed one, opened first; fails, saying so, for an id
-/// neither installed nor running, as a removed program leaves its notifications as they are
-/// (decision 4 of the notifications proposal).
+/// Hands the click `activation` on a notification to the program `id`, as files are handed: the one
+/// running under it, or else the installed one, opened first; fails, saying so, for an id neither
+/// installed nor running, as a removed program leaves its notifications as they are.
 pub(crate) async fn notification_activated(
     installed: &InstalledRuns,
     store: &Store,
@@ -72,7 +71,7 @@ pub(crate) async fn program_named(
 
 /// Answers a connection's `Open`: the files handed to the program `id`, then `Opened`, or why
 /// not.
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[cfg(desktop)]
 pub(crate) async fn answer(
     mut connection: ServerConnection,
     installed: &InstalledRuns,

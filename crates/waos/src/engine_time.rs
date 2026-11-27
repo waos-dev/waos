@@ -1,10 +1,9 @@
-//! The engine's time (decision 49): one clock that what freezes a program, when a view was hidden
-//! or shown, when a view's spare hardware buffers go and when a program's sound is read, all read;
-//! and what moves it, which runs the tick at each 100 ms it passes (`epoch`). The engine's own
-//! thread moves real time ([`EngineTime::Real`]); a test moves time it keeps
-//! ([`EngineTime::Manual`]), as Waft's tests move their `AppCell`'s clock and Flutter's
-//! `FakeAsync.elapse` moves its own. A program's own clock (`clock`), which its `wasi:clocks` and
-//! its sleeps are on, is real time either way.
+//! The engine's time: one clock that what freezes a program, when a view was hidden or shown, when
+//! a view's spare hardware buffers go and when a program's sound is read, all read; and what moves
+//! it, which runs the tick at each 100 ms it passes (`epoch`). The engine's own thread moves real
+//! time ([`EngineTime::Real`]); a test moves time it keeps ([`EngineTime::Manual`]), as Waft's
+//! tests move their `AppCell`'s clock and Flutter's `FakeAsync.elapse` moves its own. A program's
+//! own clock (`clock`), which its `wasi:clocks` and its sleeps are on, is real time either way.
 //!
 //! The invariants a later editor will break: nothing the engine decides by time reads the
 //! system's clock but through [`EngineClock`], so a test that moves time moves all of it; and the

@@ -1,7 +1,6 @@
-//! What a program may reach of the network, read from its grants at each check (decisions 12
-//! and 13 of the permissions proposal). The network switch and its domain rule guard the
-//! internet; the local-network switch guards this computer and the local network
-//! ([`addresses`]), which no name a domain rule could refuse stands in front of.
+//! What a program may reach of the network, read from its grants at each check. The network switch
+//! and its domain rule guard the internet; the local-network switch guards this computer and the
+//! local network ([`addresses`]), which no name a domain rule could refuse stands in front of.
 //!
 //! A name is looked up by the engine itself ([`host`], `wasi:sockets/ip-name-lookup`). `localhost` and the names under it are this computer on every system ([`localhost`]):
 //! answered by the engine, never by the system's resolver, under the local-network switch as

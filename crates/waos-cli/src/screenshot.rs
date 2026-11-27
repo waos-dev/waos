@@ -1,12 +1,11 @@
 //! `waos ui screenshot`: the last picture of each window of a program running, the package's
 //! development install by default, asked of the WaOS running it, written as `window-<id>.png` under
-//! `target/waos/screenshots/<package>`, each printed with its window's id, title and size, so
-//! an agent building the program sees it as its user does (the design's decision 60). `--out`
-//! writes them in a folder instead, one named as a folder or one that exists, all the windows, or
-//! one window's picture at a file's path; `--window` asks WaOS for that window alone. A window's
-//! id is the one it was given as it opened, and no run gives one twice, so a window keeps its id
-//! however others close; a point in a picture's pixels, from its top-left, is where `tap` and
-//! `scroll` reach.
+//! `target/waos/screenshots/<package>`, each printed with its window's id, title and size, so an
+//! agent building the program sees it as its user does. `--out` writes them in a folder instead,
+//! one named as a folder or one that exists, all the windows, or one window's picture at a file's
+//! path; `--window` asks WaOS for that window alone. A window's id is the one it was given as it
+//! opened, and no run gives one twice, so a window keeps its id however others close; a point in a
+//! picture's pixels, from its top-left, is where `tap` and `scroll` reach.
 //!
 //! What WaOS asks the program's user over its windows is the program's prompt, not its picture:
 //! the screenshot says on stderr what is asked.

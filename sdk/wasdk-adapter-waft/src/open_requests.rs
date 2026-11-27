@@ -1,6 +1,6 @@
 //! What the user opens with the program, as Waft's app hears it (`EmbedderClient::open_requested`):
 //! the WIT's open requests, each file as the path WaOS mounted it at, writable, as a file dialog's
-//! pick is answered (decision 6 of the opening proposal).
+//! pick is answered.
 
 use std::path::PathBuf;
 

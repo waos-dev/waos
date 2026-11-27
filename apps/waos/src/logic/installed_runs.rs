@@ -10,7 +10,7 @@
 //! already as it is; a launch and a held start take the place of the run before, which ends
 //! `Replaced`. A tool, a program its manifest declares has no UI, opened by the user from an icon
 //! is refused: no opening here has a terminal for its input and output, and WaOS shows none of
-//! its own yet (decisions 3 and 7 of `docs/proposals/2026-11-21-views-a-program-asks-for.md`). One
+//! its own yet. One
 //! started to be handed files or a click on its notification runs as any program does, which it
 //! may answer with no window.
 //!
@@ -177,7 +177,7 @@ impl InstalledRuns {
     }
 
     /// Runs the installed program `id` with `arguments` and the `variables` it alone adds
-    /// (decision 68), in place of its run if it runs, as `waos launch` asks; answers once it has
+    ///, in place of its run if it runs, as `waos launch` asks; answers once it has
     /// started. Its end is waited for on a task of the runtime this runs on.
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     pub(crate) async fn launch(
@@ -204,8 +204,7 @@ impl InstalledRuns {
     }
 
     /// Starts the installed program `id` held for an inspector, in place of its run if it runs,
-    /// its views where programs usually go (decisions 18 and 19 of
-    /// `docs/proposals/2026-11-15-inspector-roles-and-compatibility.md`); answers it held.
+    /// its views where programs usually go; answers it held.
     pub(crate) async fn start_held(&self, id: &ProgramId) -> Result<HeldProgram> {
         let environment = self.environments.of(id)?;
         let loaded = self.packages.load(id).await?;

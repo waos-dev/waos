@@ -1,8 +1,7 @@
 //! `waos launch`'s side of a launch: an installed program started in the WaOS on this machine, in
 //! place of its run if it runs, with the arguments after `--` and the variables `--env` gave for
-//! this launch alone (the design's decisions 68 and 70); answered once it runs, after WaOS says it
-//! is compiling where it compiles its code first. The program runs on in WaOS whatever this
-//! process does next.
+//! this launch alone; answered once it runs, after WaOS says it is compiling where it compiles its
+//! code first. The program runs on in WaOS whatever this process does next.
 //!
 //! The invariant: nothing here runs a program. It runs in the WaOS app; `waos attach` reads it
 //! and `waos stop` ends it.

@@ -1,24 +1,22 @@
 //! The pictures a program presents to the canvas of a view in its app, and the resize its window
-//! waits in for one (decision 55 of `docs/proposals/2026-10-17-the-waos-project.md`). A picture
-//! goes to the canvas from the frame's thread, as any view's does. A new size the window sends
-//! with a fence is a resize it waits in, inside AppKit's step, until WaOS says the program's
-//! picture at that size is shown: WaOS keeps the fence until the program presents a picture of
-//! that size, by size alone, as Flutter's macOS embedder matches a frame to its resize
-//! (`ResizeSynchronizer.swift`), and then that picture goes to the main thread, where the canvas
-//! is laid out at the new size with it in one transaction under the fence; then the window hears
-//! that the picture is shown ([`ToWindow::PictureShown`]), and lets the resize go on. A resize to
-//! the size of the picture the canvas shows already is laid out at once under its fence, and
-//! answered the same way. Keeping the fence holds no window up, since the window server holds only
-//! commits that carry one (measured: the window process's main thread blocks nowhere while a fence
-//! is held): the window commits the transaction carrying it only once it stops waiting, so WaOS's
-//! commit under it comes first and is held only until the window's, which lets the fence go, and
-//! both land together. Nothing waits before a view's first picture, so a fence before it goes at
-//! once with the layout, and the window hears of the first picture as it is shown, after which it
-//! waits in each resize. Nor does anything
-//! wait while the program awaits the app's answer to a request WaOS made of it, since the program
-//! may wait for that answer before it draws: the window's wait ends as such a request arrives, and
-//! WaOS lets the fence go then, laying the canvas out at the size awaited at once
-//! (`window_process`).
+//! waits in for one. A picture goes to the canvas from the frame's thread, as any view's does. A
+//! new size the window sends with a fence is a resize it waits in, inside AppKit's step, until WaOS
+//! says the program's picture at that size is shown: WaOS keeps the fence until the program
+//! presents a picture of that size, by size alone, as Flutter's macOS embedder matches a frame to
+//! its resize (`ResizeSynchronizer.swift`), and then that picture goes to the main thread, where
+//! the canvas is laid out at the new size with it in one transaction under the fence; then the
+//! window hears that the picture is shown ([`ToWindow::PictureShown`]), and lets the resize go on.
+//! A resize to the size of the picture the canvas shows already is laid out at once under its
+//! fence, and answered the same way. Keeping the fence holds no window up, since the window server
+//! holds only commits that carry one (measured: the window process's main thread blocks nowhere
+//! while a fence is held): the window commits the transaction carrying it only once it stops
+//! waiting, so WaOS's commit under it comes first and is held only until the window's, which lets
+//! the fence go, and both land together. Nothing waits before a view's first picture, so a fence
+//! before it goes at once with the layout, and the window hears of the first picture as it is
+//! shown, after which it waits in each resize. Nor does anything wait while the program awaits the
+//! app's answer to a request WaOS made of it, since the program may wait for that answer before it
+//! draws: the window's wait ends as such a request arrives, and WaOS lets the fence go then, laying
+//! the canvas out at the size awaited at once (`window_process`).
 //!
 //! The invariant a later editor will break: the canvas shows the pictures in the order the program
 //! presented them. Once a picture goes to the main thread, every one after it goes there too until

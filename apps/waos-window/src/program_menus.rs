@@ -1,18 +1,17 @@
-//! The program's menus in its app (decision 10 of `docs/proposals/2026-10-29-macos-apps.md`): its
-//! menu bar, which macOS shows while the app is in front, and its context menus, each opened at a
-//! point of one of its views. WaOS forwards the bar whole, as the program set it, and the window
-//! process shows it through its Waft host's, each choice of one of the program's own items going
-//! back to WaOS by the id the program gave it; until WaOS forwards one, the host shows its
-//! standard bar, as for a program that sets none. A context menu opens through the host at the
-//! point WaOS names, in the physical pixels of the view in the window it names, and the item chosen
-//! goes back once it closes.
+//! The program's menus in its app: its menu bar, which macOS shows while the app is in front, and
+//! its context menus, each opened at a point of one of its views. WaOS forwards the bar whole, as
+//! the program set it, and the window process shows it through its Waft host's, each choice of one
+//! of the program's own items going back to WaOS by the id the program gave it; until WaOS forwards
+//! one, the host shows its standard bar, as for a program that sets none. A context menu opens
+//! through the host at the point WaOS names, in the physical pixels of the view in the window it
+//! names, and the item chosen goes back once it closes.
 //!
 //! The items the platform provides are the host's to carry out: those that act on the app and its
 //! windows (hide, minimize, zoom, full screen, bring all to front) act on the window process's own
 //! windows, which are the program's, and Edit's reach the focused view, whose edit events already
 //! cross. So do About, which shows macOS's standard panel from the program's bundle, and Quit,
 //! which ends the app, its windows going with it while the program runs on in WaOS, until quitting
-//! asks the program (decision 12).
+//! asks the program.
 //!
 //! The invariant a later editor will break: every context menu WaOS asks for is answered, with
 //! none where no window shows its view or the host has no context menus, so the program's call

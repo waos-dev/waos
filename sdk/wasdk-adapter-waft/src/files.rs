@@ -1,6 +1,6 @@
 //! Waft's file system over `wasdk::filesystem`, WASI 0.3's: a path read and written whole, opened
 //! with a mode and read or written at an offset, its metadata, a folder listed, a folder made, and
-//! paths renamed and deleted (the design's decisions 1, 2 and 6).
+//! paths renamed and deleted.
 //!
 //! The program's files are the ones `std::fs` reaches: `/data`, `/cache`, `/tmp`, the user's
 //! mounts, and a file picked for it, each at its own path. WASI 0.3's file system is async, so

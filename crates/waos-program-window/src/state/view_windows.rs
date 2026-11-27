@@ -18,19 +18,17 @@
 //! launch's activation token on Linux, where a desktop lets a window take the focus only for the
 //! launch it meant it for; a program with no window yet shows its next one with the token.
 //!
-//! A program's first window may be open before the program asks for it (decision 10 of
-//! `docs/proposals/2026-11-21-views-a-program-asks-for.md`): opened here at its launch
+//! A program's first window may be open before the program asks for it: opened here at its launch
 //! (`prepare_window`), or brought back by the system and handed here (`adopt_window`). Such a
 //! prepared window waits for the program's first request, and that request is shown in it exactly
 //! as in a window made for it; until then it shows the program's questions, and its dialogs are
 //! shown over it (`screen_of`). Each window asked for carries, as its view's initial data, the
 //! program it shows and whether it is the program's first window or an extra one
 //! (`logic::restoration`), so a window the system restores to a process started afresh, as Android
-//! does a task from Recents, says what goes in it. The user's Back
-//! in a window goes to its program where the program handles Back, and otherwise asks the program
-//! to close the window, as a desktop's close button does: Android's own default for Back is to
-//! finish the screen it is in, and the program decides, as it does on a desktop. A desktop sends
-//! no Back.
+//! does a task from Recents, says what goes in it. The user's Back in a window goes to its program
+//! where the program handles Back, and otherwise asks the program to close the window, as a
+//! desktop's close button does: Android's own default for Back is to finish the screen it is in,
+//! and the program decides, as it does on a desktop. A desktop sends no Back.
 //!
 //! The invariant: every request taken is answered exactly once while its program runs, by
 //! `add_view` or by `view_request_failed`, and every view added is taken away once with
@@ -177,8 +175,7 @@ impl<P: ProgramLink> ViewWindows<P> {
 
     /// The Waft view of `program`'s screen a dialog is shown over: its front window, its focused
     /// one or else the one that arrived last, or else its first window open before it asked for it;
-    /// none where it has neither (decision 11 of
-    /// `docs/proposals/2026-11-21-views-a-program-asks-for.md`).
+    /// none where it has neither.
     pub fn screen_of(&self, program: &P) -> Option<ViewId> {
         let windows = self
             .shown
@@ -370,9 +367,7 @@ impl<P: ProgramLink> ViewWindows<P> {
 
     /// Opens the first window of the program running as `program`, about to start, as the
     /// platform's ordinary window named and shown as `face` says, so the program shows from its
-    /// launch; it waits for the program's first request (decision 10 of
-    /// `docs/proposals/2026-11-21-views-a-program-asks-for.md`). Why not, where Waft refuses it at
-    /// once.
+    /// launch; it waits for the program's first request. Why not, where Waft refuses it at once.
     pub fn prepare_window(
         &mut self,
         program: &str,

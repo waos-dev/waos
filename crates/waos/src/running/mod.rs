@@ -331,12 +331,11 @@ impl RunningProgram {
         self.0.views.request_failed(request, error);
     }
 
-    /// A tool watches the program, as `waos run` does while it is attached (the design's
-    /// decision 63), until the answer is dropped: the program's views count as in sight though
-    /// other windows cover them, so their frames are served and the program is neither hidden nor
-    /// frozen for being covered, while a minimized or hidden window stays out of sight. Nothing is
-    /// forced: a frame a view waits for is asked for, and the program hears its state change only
-    /// as its views' standing changes it.
+    /// A tool watches the program, as `waos run` does while it is attached, until the answer is
+    /// dropped: the program's views count as in sight though other windows cover them, so their
+    /// frames are served and the program is neither hidden nor frozen for being covered, while a
+    /// minimized or hidden window stays out of sight. Nothing is forced: a frame a view waits for
+    /// is asked for, and the program hears its state change only as its views' standing changes it.
     pub fn watch(&self) -> Watching {
         self.0.views.watch()
     }
@@ -478,14 +477,14 @@ impl RunningProgram {
     }
 
     /// The views the program has now, in the order they arrived: what a tool numbers its windows
-    /// by (the design's decision 60).
+    /// by.
     pub fn views(&self) -> Vec<ProgramView> {
         self.0.views.views()
     }
 
     /// The program's own mouse, which a tool that drives the program moves over its views as the
-    /// program's user moves theirs (the design's decision 64); a tool's keys go through
-    /// [`Keyboard`](crate::Keyboard), which needs only the view.
+    /// program's user moves theirs; a tool's keys go through [`Keyboard`](crate::Keyboard), which
+    /// needs only the view.
     pub fn mouse(&self) -> &Mouse {
         &self.0.mouse
     }

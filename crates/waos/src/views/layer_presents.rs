@@ -1,11 +1,11 @@
-//! A composition layer's presents of the program's hardware buffers: each waits, on a thread of
-//! the layer's own, for the GPU work the program submitted and wrote to draw into the buffer, what
-//! it wrote submitted for it as it presented (`ProgramHardwareBuffer::submitted_work`), then goes
-//! to the shell's layer, which shows it in place of what the layer showed (decision 35 of
-//! `docs/proposals/2026-11-02-program-media.md`). The program goes on meanwhile, and hears through
-//! the answer to its present when the shell is done with the buffer. Each wait counts as the
-//! program's GPU work in flight until its hand-over is over, so the app's suspending waits for it.
-//! The thread starts at the layer's first present and ends when the program lets go of the layer.
+//! A composition layer's presents of the program's hardware buffers: each waits, on a thread of the
+//! layer's own, for the GPU work the program submitted and wrote to draw into the buffer, what it
+//! wrote submitted for it as it presented (`ProgramHardwareBuffer::submitted_work`), then goes to
+//! the shell's layer, which shows it in place of what the layer showed. The program goes on
+//! meanwhile, and hears through the answer to its present when the shell is done with the buffer.
+//! Each wait counts as the program's GPU work in flight until its hand-over is over, so the app's
+//! suspending waits for it. The thread starts at the layer's first present and ends when the
+//! program lets go of the layer.
 //!
 //! The invariants: the shell is handed the buffers in the order the program presented them, so a
 //! later present never shows before an earlier one; and a buffer is held, with the frame it is the

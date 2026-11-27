@@ -1,7 +1,7 @@
-//! A key's reply: whether the program handled it, which the shell waits on for each key it sends
-//! (the clipboard proposal's decision 11). The systems want the answer before their key call
-//! returns, so the shell claims a key at once and, once the reply says the program did not handle
-//! it, sends it on past the program, to its menus' key equivalents.
+//! A key's reply: whether the program handled it, which the shell waits on for each key it sends.
+//! The systems want the answer before their key call returns, so the shell claims a key at once
+//! and, once the reply says the program did not handle it, sends it on past the program, to its
+//! menus' key equivalents.
 //!
 //! The invariant: every reply is answered exactly once, by the program or, dropped unanswered,
 //! as not handled, so a shell waiting on one never waits for ever: dropped with the program's

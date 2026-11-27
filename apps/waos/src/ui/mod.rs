@@ -12,7 +12,7 @@ pub(crate) mod deck;
 pub(crate) mod every_window;
 #[cfg(test)]
 mod gallery;
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[cfg(desktop)]
 pub(crate) mod launcher;
 pub(crate) mod library;
 pub(crate) mod question_sheet;

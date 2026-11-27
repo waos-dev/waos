@@ -2,9 +2,9 @@
 //! another process's host, as a prompt's dialog in a program's app reports them: each device of the
 //! stream (its mouse, its trackpad, each touch from landing to lifting) goes by a random 64-bit
 //! number of its own, drawn as the device first reports and let go once it is removed, as Waft's
-//! `ViewEmbedder::send_pointer_reports` asks of an app that forwards reports (native-surfaces
-//! decision 36): the other host numbers its devices as WaOS's own does, 0, 1, 2 upward, and Waft's
-//! converter keeps one state per number.
+//! `ViewEmbedder::send_pointer_reports` asks of an app that forwards reports: the other host
+//! numbers its devices as WaOS's own does, 0, 1, 2 upward, and Waft's converter keeps one state per
+//! number.
 //!
 //! The invariant a later editor will break: a device keeps its number from its first report to its
 //! removal, and no two devices of a stream share one.

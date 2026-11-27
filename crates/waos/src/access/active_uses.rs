@@ -1,18 +1,16 @@
-//! What a program uses now: each use that lasts, from the moment what owns the real thing starts
-//! it until that thing really ends (a capture session, the microphone recording, a command until
-//! it exits, an HTTP request until its response's body ends, a folder watched, a TCP connection,
+//! What a program uses now: each use that lasts, from the moment what owns the real thing starts it
+//! until that thing really ends (a capture session, the microphone recording, a command until it
+//! exits, an HTTP request until its response's body ends, a folder watched, a TCP connection,
 //! listener or UDP socket until the system's socket closes), and each file it has open, until its
-//! last handle goes. One registry holds them all, each entry added as its
-//! [`ActiveUse`] is made and taken away as it is dropped, wherever that is, the program ending
-//! among the ways. The shell's indicator of who records reads the same registry: it hears a
-//! program records with a kind of device as its first one starts, and that it stopped as its last
-//! ends. Whoever listens (decision 11 of
-//! `docs/proposals/2026-11-15-inspector-roles-and-compatibility.md`) is given what is active as it
-//! subscribes, then each start and end; one that falls behind is sent the whole of it again in
-//! place of what it missed, so it never shows a use that ended, and the program never waits for it.
-//! A listener is also told what each TCP connection and UDP socket moved, at most once a second
-//! for each and only as it moved more (decision 20): its own stream reads the counts on its own
-//! tick, so a program nobody listens to pays nothing for it.
+//! last handle goes. One registry holds them all, each entry added as its [`ActiveUse`] is made and
+//! taken away as it is dropped, wherever that is, the program ending among the ways. The shell's
+//! indicator of who records reads the same registry: it hears a program records with a kind of
+//! device as its first one starts, and that it stopped as its last ends. Whoever listens is given
+//! what is active as it subscribes, then each start and end; one that falls behind is sent the
+//! whole of it again in place of what it missed, so it never shows a use that ended, and the
+//! program never waits for it. A listener is also told what each TCP connection and UDP socket
+//! moved, at most once a second for each and only as it moved more: its own stream reads the counts
+//! on its own tick, so a program nobody listens to pays nothing for it.
 //!
 //! An entry is a lock, a map insertion and two clocks read, beside work far slower; an open
 //! file's path is asked of the system only for a listener, and outside the lock: before it for a

@@ -3,16 +3,16 @@
 //! window reports of its view a `ViewReport`, a key a `Key` whose reply comes back later. What a
 //! view shows stays in WaOS: its canvas shows WaOS's layers for it, in a host of the layer context
 //! WaOS named as it asked for the window (`hosted_layers`). A new size waits for the program's
-//! picture at it (decision 55 of `docs/proposals/2026-10-17-the-waos-project.md`): it goes with a
-//! fence of the window's transaction that commits it, and the window waits inside the resize until
-//! WaOS says the program's picture at that size is shown (`resize_waits`), WaOS having laid its
-//! layers out at that size with the picture under the fence, so the two show together; WaOS
-//! answers at once where the picture it shows is of that size already. Nothing waits before the
-//! view's first picture, nor while WaOS may serve the view no frames, out of sight (off screen or
-//! occluded) or on no screen as the window last reported it, since then no picture would come: the
-//! report that brings it back into sight could not leave a main thread that waits; nor while the
-//! program awaits the app's answer to a request, which it may wait for before it draws. An occluded
-//! window waits for nothing even while a tool watches the program, when WaOS serves it frames.
+//! picture at it: it goes with a fence of the window's transaction that commits it, and the window
+//! waits inside the resize until WaOS says the program's picture at that size is shown
+//! (`resize_waits`), WaOS having laid its layers out at that size with the picture under the fence,
+//! so the two show together; WaOS answers at once where the picture it shows is of that size
+//! already. Nothing waits before the view's first picture, nor while WaOS may serve the view no
+//! frames, out of sight (off screen or occluded) or on no screen as the window last reported it,
+//! since then no picture would come: the report that brings it back into sight could not leave a
+//! main thread that waits; nor while the program awaits the app's answer to a request, which it may
+//! wait for before it draws. An occluded window waits for nothing even while a tool watches the
+//! program, when WaOS serves it frames.
 //!
 //! The invariant: a view's link names its window by the request it was made for, the name WaOS
 //! knows it by, so a message never names a view WaOS has not heard of; and a fence goes to WaOS
@@ -58,9 +58,8 @@ pub(crate) struct WaosView {
 
 /// How a view stands, as its window last reported it to WaOS, which serves it frames by it: while
 /// it is in sight, on screen and not occluded, and on a screen. WaOS serves an occluded view frames
-/// too while a tool watches its program (decision 63 of
-/// `docs/proposals/2026-10-17-the-waos-project.md`), which the window is not told: an occluded
-/// window waits in no resize, which nobody sees.
+/// too while a tool watches its program, which the window is not told: an occluded window waits in
+/// no resize, which nobody sees.
 struct ReportedStanding {
     in_sight: Cell<bool>,
     screen: Cell<Option<ScreenId>>,

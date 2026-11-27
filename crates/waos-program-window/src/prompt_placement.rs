@@ -1,7 +1,7 @@
 //! Where WaOS shows what it asks a program's user, apart from what it asks: a prompt is one Waft
 //! widget WaOS draws on every platform, and a [`PromptPlacement`] shows it for the program, over
-//! its window or in a window of the prompt's own, wherever the program's windows are (decisions 8
-//! and 9 of `docs/proposals/2026-10-29-macos-apps.md`, after Chrome's permission bubbles, which the
+//! its window or in a window of the prompt's own, wherever the program's windows are (after
+//! Chrome's permission bubbles, which the
 //! browser draws for an app shim too). Where a program's windows are WaOS's own, the placement is
 //! `PromptWindows`.
 //!

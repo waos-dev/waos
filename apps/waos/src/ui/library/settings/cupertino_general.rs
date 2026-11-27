@@ -20,9 +20,9 @@ use waft_cupertino::{
     ObstructingPreferredSizeWidgetRef,
 };
 
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[cfg(desktop)]
 use super::developer_access_said;
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[cfg(desktop)]
 use crate::logic::developer_access::PairedComputer;
 use crate::state::library::Library;
 use crate::ui::library::cupertino::{back_to_page_beneath, under_bar};
@@ -43,7 +43,7 @@ impl StatelessWidget for CupertinoGeneralSettings {
         ]
         .into_iter()
         .flatten();
-        #[cfg(not(any(target_os = "android", target_os = "ios")))]
+        #[cfg(desktop)]
         let sections = sections.chain(self.developer_access(app));
         let sections: Vec<WidgetRef> = sections.collect();
         let bar = CupertinoNavigationBar::new()
@@ -120,7 +120,7 @@ impl CupertinoGeneralSettings {
         Some(section(words::PHONE_FILES, said, row))
     }
 
-    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    #[cfg(desktop)]
     /// Where WaOS offers it, whether computers on the network may reach WaOS's dev server: a row
     /// whose switch, or a tap anywhere on it, changes it, over what that does and whether it
     /// listens.
@@ -147,7 +147,7 @@ impl CupertinoGeneralSettings {
         vec![switch, pairing, self.paired_computers(paired)]
     }
 
-    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    #[cfg(desktop)]
     /// The code shown for a computer to pair with, or the button that shows one.
     fn pairing(&self, code: Option<waos_dev_protocol::PairingCode>) -> WidgetRef {
         let library = self.library.clone();
@@ -162,7 +162,7 @@ impl CupertinoGeneralSettings {
         section(words::PAIR_A_COMPUTER, &said, row)
     }
 
-    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    #[cfg(desktop)]
     /// The computers `paired`, each with the button that removes it; or that there are none.
     fn paired_computers(&self, paired: Vec<PairedComputer>) -> WidgetRef {
         let rows: Vec<WidgetRef> = paired

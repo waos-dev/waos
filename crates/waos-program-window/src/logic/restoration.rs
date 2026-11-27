@@ -1,8 +1,8 @@
-//! What a program's window carries for the system to hand back: the window's initial data names
-//! the program it shows and whether it is the program's first window or an extra one, so a window
-//! the system restores to a WaOS started afresh, as Android does a task from Recents, says what
-//! goes in it. A program's first window starts the program again; an extra one has no program
-//! state behind it (decision 10 of `docs/proposals/2026-11-12-phone-programs-and-library.md`).
+//! What a program's window carries for the system to hand back: the window's initial data names the
+//! program it shows and whether it is the program's first window or an extra one, so a window the
+//! system restores to a WaOS started afresh, as Android does a task from Recents, says what goes in
+//! it. A program's first window starts the program again; an extra one has no program state behind
+//! it.
 //!
 //! The invariant: what [`WindowRestoration::initial_data`] writes, [`WindowRestoration::of`] reads
 //! back, and nothing else reads as a program's window: a view whose initial data is anything else

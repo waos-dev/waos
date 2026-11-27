@@ -1,4 +1,4 @@
-//! What `waos install` and `waos uninstall` ask (the design's decision 70). An install is a
+//! What `waos install` and `waos uninstall` ask. An install is a
 //! program built from its source, installed as its development install, under its id followed by
 //! `.development`, through the package manager (`Installable::Development`): WaOS answers
 //! `Upload::Have` when that install holds the component already, by its length and digest, and

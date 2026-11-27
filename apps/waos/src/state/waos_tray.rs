@@ -1,9 +1,8 @@
 //! WaOS's own icon in the menu bar or the tray, while the user chose not to keep WaOS in the Dock
 //! or the taskbar ("Keep WaOS in the Dock", in WaOS's preferences): a click on it summons the
-//! launcher, which then goes hidden rather than minimized (decisions 16 and 17 of
-//! `docs/proposals/2026-11-12-phone-programs-and-library.md`). Where Waft's platform has no tray,
-//! there is no icon, which is said. On macOS WaOS keeps its Dock icon meanwhile: the design has it
-//! go, WaOS becoming an accessory app, which Waft's host offers no way to make it yet.
+//! launcher, which then goes hidden rather than minimized. Where Waft's platform has no tray, there
+//! is no icon, which is said. On macOS WaOS keeps its Dock icon meanwhile: the design has it go,
+//! WaOS becoming an accessory app, which Waft's host offers no way to make it yet.
 //!
 //! The invariant: the icon is in the tray exactly while the library says WaOS is not kept in the
 //! Dock; an icon Waft makes after the choice changed back is let go at once.

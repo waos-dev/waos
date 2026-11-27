@@ -7,9 +7,9 @@
 //! makes known to the system, with its name and icon, and a click on one comes back here; every
 //! other program's are WaOS's, titled after the program's name as its user knows it, as they are
 //! everywhere else. GNOME files a notification by its sender's process, whatever app it names, so
-//! on Linux a program's are WaOS's (decision 30 of `docs/proposals/2026-11-13-what-six-apps-found.md`).
-//! Whether a program may post at all is its own permission, which the engine keeps. The
-//! notifications are the engine's shell's only where Waft's platform has them.
+//! on Linux a program's are WaOS's. Whether a program may post at all is its own permission, which
+//! the engine keeps. The notifications are the engine's shell's only where Waft's platform has
+//! them.
 //!
 //! The invariant: the system is asked for WaOS's permission once, before anything is shown, since
 //! the system's post never asks and is refused until the user allows; every post and schedule

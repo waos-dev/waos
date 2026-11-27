@@ -10,8 +10,8 @@
 //! (`Source/WebKit/UIProcess/mac/TiledCoreAnimationDrawingAreaProxy.mm`, `createFence`:
 //! `-[CALayer context]`, then `-[CAContext createFencePort]`), checked at run time the same way.
 //!
-//! The invariant: the window process draws nothing of its own (decision 5 of
-//! `docs/proposals/2026-10-29-macos-apps.md`); a host only shows what WaOS's context holds.
+//! The invariant: the window process draws nothing of its own; a host only shows what WaOS's
+//! context holds.
 
 #![allow(unsafe_code)]
 

@@ -1,5 +1,4 @@
-//! A program's roles: what it may be besides a program, asked for by importing a role's
-//! interfaces (decision 9 of `docs/proposals/2026-11-15-inspector-roles-and-compatibility.md`),
+//! A program's roles: what it may be besides a program, asked for by importing a role's interfaces,
 //! and granted by its user by name. Before a program is linked, the roles its component asks for
 //! are read from its imports, and each is checked against the user's answer, asked at this start
 //! when there is none: a program the user did not grant a role it asks for does not start, and is

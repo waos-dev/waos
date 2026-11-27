@@ -7,8 +7,8 @@
 //! to a program by `host`.
 //!
 //! The invariant: a frame, its hardware buffer, the textures imported of it and a read of its
-//! planes each hold the system's frame, so its decoder does not hand the frame's pixels out again while any of them is
-//! held (decisions 3 and 35 of `docs/proposals/2026-11-02-program-media.md`).
+//! planes each hold the system's frame, so its decoder does not hand the frame's pixels out again
+//! while any of them is held.
 
 pub(crate) mod host;
 

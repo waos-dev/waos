@@ -1,8 +1,7 @@
 //! WaOS's entry on iOS, which the `waos` binary calls as a desktop's does: the engine started over
 //! the store in the app's own container, and the library on the screen, laid out as a phone's, with
-//! the programs opened from it in the deck's tabs, since iPhone gives a program no app of its own
-//! (decision 2 of `docs/proposals/2026-11-12-phone-programs-and-library.md`). iOS keeps one
-//! instance of an app itself and gives it no command line, so nothing here reads one.
+//! the programs opened from it in the deck's tabs, since iPhone gives a program no app of its own.
+//! iOS keeps one instance of an app itself and gives it no command line, so nothing here reads one.
 
 use std::process::ExitCode;
 

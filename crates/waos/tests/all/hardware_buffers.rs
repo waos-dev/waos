@@ -1,19 +1,18 @@
 //! A program's own hardware buffers under the test shell: `examples/hardware-buffers` allocates two
-//! buffers with the system's allocator, after the engine refuses RGBA and a side past the largest texture,
-//! the red one, asked for no reading back, answering every use, as any buffer a program allocates
-//! on Apple's systems does;
-//! through textures it imports of them on its own device, clears one red with a render pass and writes the
-//! other green with `write_texture` alone, which no submission of its own carries; reads the green
-//! one back, seeing the write, which the engine submitted and waited for, and encodes the red one
-//! through the hardware codecs, seeing what the GPU drew; and presents the red one on a composition
-//! layer it places beside its canvas, then the green one at each frame until the red one is back.
-//! The shell's layer is handed the buffers in order, each with what the GPU drew into it, the
-//! encoding is handed the red buffer, the view's present names the layer where the program placed
-//! it, its canvas clear there, written after its last submission, and the program hears that the
-//! red buffer is back once the shell's layer let it go at the green one's present; the bytes it
-//! holds are counted in its stats while it holds them. A screenshot of its view is its canvas over
-//! the green buffer its layer shows last, in the room the canvas makes for it, and the canvas as it
-//! is once the layer shows nothing (the design's decision 62). Under a shell
+//! buffers with the system's allocator, after the engine refuses RGBA and a side past the largest
+//! texture, the red one, asked for no reading back, answering every use, as any buffer a program
+//! allocates on Apple's systems does; through textures it imports of them on its own device, clears
+//! one red with a render pass and writes the other green with `write_texture` alone, which no
+//! submission of its own carries; reads the green one back, seeing the write, which the engine
+//! submitted and waited for, and encodes the red one through the hardware codecs, seeing what the
+//! GPU drew; and presents the red one on a composition layer it places beside its canvas, then the
+//! green one at each frame until the red one is back. The shell's layer is handed the buffers in
+//! order, each with what the GPU drew into it, the encoding is handed the red buffer, the view's
+//! present names the layer where the program placed it, its canvas clear there, written after its
+//! last submission, and the program hears that the red buffer is back once the shell's layer let it
+//! go at the green one's present; the bytes it holds are counted in its stats while it holds them.
+//! A screenshot of its view is its canvas over the green buffer its layer shows last, in the room
+//! the canvas makes for it, and the canvas as it is once the layer shows nothing. Under a shell
 //! with no compositor, the program draws its canvas with no layer.
 //!
 //! Hardware buffers are allocated on Apple's systems, where these tests run; elsewhere one test in

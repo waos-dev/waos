@@ -1,5 +1,5 @@
 //! Which interfaces a component imports, read from its own import section: what `waos package`
-//! checks an app against (decision 3 of `docs/proposals/2026-11-21-views-a-program-asks-for.md`).
+//! checks an app against.
 //!
 //! The invariant: only the component's own imports count, not those of the modules and components
 //! nested in it, which its own satisfy.

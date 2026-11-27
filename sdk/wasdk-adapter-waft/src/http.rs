@@ -1,7 +1,7 @@
 //! Waft's HTTP client over `wasdk::http`, WASI 0.3's `wasi:http/client`: a request's method, URI
 //! and repeated headers, a body streamed both ways, the three timeouts, the response's status,
 //! headers, body and trailers, and WASI's error codes passed through, with `TooManyRedirects` the
-//! one case this client adds (the design's decisions 9 to 11).
+//! one case this client adds.
 //!
 //! WASI follows no redirect, so one is followed here as `SendOptions::redirects` asks, by fetch's
 //! rules, which a browser's client and so Waft's on the web follow: a redirect with a location is

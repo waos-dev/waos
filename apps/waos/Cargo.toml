@@ -206,9 +206,8 @@ microphone = "Programs you allow can record sound."
 camera = "Programs you allow can use the camera."
 
 # Signed into the bundle: what the hardened runtime otherwise denies wasmtime's compiled code. And
-# what WaOS.app carries for its programs' apps, built with it (decision 6 of
-# `docs/proposals/2026-10-29-macos-apps.md`): the loader each program's bundle copies, in
-# `Contents/Helpers`, and the window library each loads, in `Contents/Frameworks`.
+# what WaOS.app carries for its programs' apps, built with it: the loader each program's bundle
+# copies, in `Contents/Helpers`, and the window library each loads, in `Contents/Frameworks`.
 [package.metadata.waft.macos]
 entitlements = "macos/waos.entitlements"
 helpers = [{ package = "waos-window", bin = "waos-program-loader" }]

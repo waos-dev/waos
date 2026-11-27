@@ -1,4 +1,4 @@
-//! What `waos ext` asks (the design's decision 70, and Waft's CLI through it): a call of a service
+//! What `waos ext` asks (Waft's CLI through it): a call of a service
 //! extension of any program running, however it was installed or started, carried to the program
 //! through the engine (`RunningProgram::service_extensions`) and answered with its JSON text, or
 //! refused with why: the program does not run, serves none, serves none of that name (with the

@@ -30,7 +30,7 @@
 //! changes; which programs run is the runs' own list, and what is being done to which program the
 //! package manager's, each as it last changed.
 
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[cfg(desktop)]
 mod developer_access;
 mod package_picker;
 mod phone_files;
@@ -68,7 +68,7 @@ use crate::logic::app_store::{
     AppStorePlace, CatalogApp, ListedSource, catalog, featured, updates,
 };
 use crate::logic::command_line::{Command, command};
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[cfg(desktop)]
 use crate::logic::developer_access::DeveloperAccess;
 use crate::logic::installed_runs::{InstalledRuns, Opening};
 use crate::logic::notification_permissions::NotificationPermissions;
@@ -86,7 +86,7 @@ use crate::logic::setting_changes::Offered;
 use crate::logic::system_notifications::program_activation;
 use crate::state::deck::tabs::Tabs;
 use crate::state::phone_files::PhoneFiles;
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[cfg(desktop)]
 pub(crate) use developer_access::offer_developer_access;
 pub(crate) use package_picker::picks_packages;
 pub(crate) use phone_files::show_phone_files;
@@ -168,7 +168,7 @@ pub(crate) struct Library {
     /// Whether WaOS may reach the phone's files, where it reaches them only as the user allows.
     phone_files: Option<Entity<PhoneFiles>>,
     /// Whether computers on the network may reach WaOS's dev server, where WaOS offers it.
-    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    #[cfg(desktop)]
     developer_access: Option<DeveloperAccess>,
 }
 
@@ -224,9 +224,8 @@ pub(crate) struct ProgramOpened {
 impl EventEmitter<WantsToBeSeen> for Library {}
 
 /// The program `id`, about to start on Android as a task of its own, wants its first window opened
-/// now, showing it as `face` says, which arrives as a program's first window the platform gives
-/// and starts the program with it reserved (decision 10 of
-/// `docs/proposals/2026-11-21-views-a-program-asks-for.md`).
+/// now, showing it as `face` says, which arrives as a program's first window the platform gives and
+/// starts the program with it reserved.
 pub(crate) struct FirstWindowWanted {
     pub(crate) id: ProgramId,
     pub(crate) face: ProgramFace,
@@ -343,7 +342,7 @@ impl Library {
             shortcuts: None,
             shortcuts_matching: ShortcutsMatching::Idle,
             phone_files: None,
-            #[cfg(not(any(target_os = "android", target_os = "ios")))]
+            #[cfg(desktop)]
             developer_access: None,
         };
         library.read_sources(cx);

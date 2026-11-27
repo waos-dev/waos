@@ -1,17 +1,16 @@
 //! Each program's app bundle as WaOS keeps it, as Chrome keeps its app shims: an installed
 //! program's in a folder of the user's applications, named after the program, with its package's
 //! name, version and icon and the kinds of file it opens, a development install's as any other's,
-//! since every program that runs is installed (the design's decision 70). Each is written at
-//! install, or at the first launch that finds none, rewritten when the program is updated or the
-//! kinds of file it opens change, as a development install again may change them at the same
-//! version, and when WaOS's files it is made from are not those it
-//! was written from, as Chrome rewrites its shims when Chrome updates: the loader it carries a copy
-//! of, by its SHA-256, and the window library and the WaOS it names, by their paths
-//! ([`made_from`]); and deleted when it is removed. WaOS keeps, in its data
-//! folder, where each bundle is and the code hash it was signed with, which its process is checked
-//! against at each connection, and the system's version it was signed on: when the system's
-//! version changes, every bundle is rebuilt, since Gatekeeper then treats the ad-hoc signatures
-//! made before as unverified (Chrome's commit `91dc901582`).
+//! since every program that runs is installed. Each is written at install, or at the first launch
+//! that finds none, rewritten when the program is updated or the kinds of file it opens change, as
+//! a development install again may change them at the same version, and when WaOS's files it is
+//! made from are not those it was written from, as Chrome rewrites its shims when Chrome updates:
+//! the loader it carries a copy of, by its SHA-256, and the window library and the WaOS it names,
+//! by their paths ([`made_from`]); and deleted when it is removed. WaOS keeps, in its data folder,
+//! where each bundle is and the code hash it was signed with, which its process is checked against
+//! at each connection, and the system's version it was signed on: when the system's version
+//! changes, every bundle is rebuilt, since Gatekeeper then treats the ad-hoc signatures made before
+//! as unverified (Chrome's commit `91dc901582`).
 //!
 //! Each code hash is kept with its HMAC-SHA256 under WaOS's key in the Keychain, as Chrome's
 //! `AppShimRegistry` keeps `cdhash_hmac` under a key OSCrypt keeps in the Keychain: another program

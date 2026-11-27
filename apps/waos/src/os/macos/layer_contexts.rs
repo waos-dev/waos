@@ -12,11 +12,11 @@
 //! The invariant: a context and its root are touched on the main thread only, where Waft's
 //! `MacOs::place_layer_in` places a layer in the root ("Main thread.", its documentation says); and
 //! a fence is set in the same transaction as the layout it holds the window to, with the program's
-//! picture at that size where the window waits in its resize for it (decision 55 of
-//! `docs/proposals/2026-10-17-the-waos-project.md`), as `setVideoLayerSizeFenced` sets it, then
-//! let go at once, since the window's commit waits for it (WebKit's `createFence`, whose process
-//! cannot answer "during the fence-wait"). WaOS may keep a fence until that picture, never after
-//! it: the window commits the transaction carrying it only once WaOS says the picture is shown.
+//! picture at that size where the window waits in its resize for it, as `setVideoLayerSizeFenced`
+//! sets it, then let go at once, since the window's commit waits for it (WebKit's `createFence`,
+//! whose process cannot answer "during the fence-wait"). WaOS may keep a fence until that picture,
+//! never after it: the window commits the transaction carrying it only once WaOS says the picture
+//! is shown.
 
 #![allow(unsafe_code)]
 

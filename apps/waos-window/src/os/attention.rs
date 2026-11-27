@@ -1,7 +1,6 @@
 //! The user's attention asked for the program's app while it is in the background, as it shows a
 //! prompt's dialog: AppKit's `-[NSApplication requestUserAttention:]`, whose informational request
-//! bounces the app's Dock icon once, in place of bringing the app forward (decision 9 of
-//! `docs/proposals/2026-10-29-macos-apps.md`).
+//! bounces the app's Dock icon once, in place of bringing the app forward.
 //!
 //! The invariant: a request is made only while the app is not active, as AppKit's header asks
 //! ("call this method only if your application is not already active", `NSApplication.h`), and is

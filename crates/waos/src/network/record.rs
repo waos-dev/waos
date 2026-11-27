@@ -1,6 +1,5 @@
 //! The addresses a program's lookups answered, each with the names it was looked up by: what the
-//! connect check reads to judge an address by the domain rule, which names domains, not
-//! addresses (decision 13 of the permissions proposal).
+//! connect check reads to judge an address by the domain rule, which names domains, not addresses.
 //!
 //! An entry lasts [`LIFETIME`] after the last lookup that answered it. A lookup gives no time to
 //! live, so the record keeps an address longer than most DNS answers last, long enough that a
