@@ -9,10 +9,8 @@
 //! no test waits on a compile it did not ask for; a test of the install itself goes through the
 //! package manager, and compiles.
 
-use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, OnceLock};
 
 use waos::WaOS;
 use waos_package::Package;
@@ -68,21 +66,13 @@ fn commit_compiled(
     store.commit(staged).expect("the program installs")
 }
 
-/// The code folder of the test program at `component`, which `engine` has compiled it into: one
-/// test compiles it while the others that need it wait.
+/// The code folder of the test program at `component`, which `engine` has compiled it into: a
+/// load compiles it once, the engine's other loads of it waiting for that compile.
 fn compiled(engine: &WaOS, component: &str) -> PathBuf {
-    static COMPILING: OnceLock<Mutex<HashMap<PathBuf, Arc<Mutex<()>>>>> = OnceLock::new();
     let code = waos_test_programs::code_of(component);
-    let turn = {
-        let mut compiling = COMPILING.get_or_init(Mutex::default).lock().unwrap();
-        Arc::clone(compiling.entry(code.clone()).or_default())
-    };
-    let _turn = turn.lock().unwrap();
-    if !engine.is_compiled(&code) {
-        engine
-            .compile(Path::new(component), &code)
-            .expect("the test program compiles");
-    }
+    engine
+        .load(Path::new(component), &code)
+        .expect("the test program compiles");
     code
 }
 
