@@ -23,8 +23,7 @@
 //! notifications (`notification_calls`), as the system shows them
 //! (`system_notifications`); their players' state and
 //! metadata (`player_states`) and its cues (`cues`) as the program reads them, and their frame
-//! readers, Waft's once a player is given one (`frame_readers`); their media assets' calls
-//! (`media_asset_calls`); their image codecs' calls (`image_codec_calls`), with an image's values
+//! readers, Waft's once a player is given one (`frame_readers`); their image codecs' calls (`image_codec_calls`), with an image's values
 //! as the program reads them (`image_values`); their cameras' calls (`camera_calls`), with a
 //! camera's values as the program reads them (`camera_values`); the machine's facts as Waft reports
 //! them, in the engine's terms; where a program's view request goes, and the screens' refreshes
@@ -101,7 +100,6 @@ pub(crate) mod launcher_placement;
 pub(crate) mod launcher_rules;
 pub(crate) mod library_layout;
 pub(crate) mod machine_facts;
-pub(crate) mod media_asset_calls;
 pub(crate) mod menu_bar;
 pub(crate) mod menu_calls;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
