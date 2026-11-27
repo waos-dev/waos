@@ -23,8 +23,8 @@
 //! notifications (`notification_calls`), as the system shows them
 //! (`system_notifications`); their players' state and
 //! metadata (`player_states`) and its cues (`cues`) as the program reads them, and their frame
-//! readers, Waft's once a player is given one (`frame_readers`); their image codecs' calls (`image_codec_calls`), with an image's values
-//! as the program reads them (`image_values`); their cameras' calls (`camera_calls`), with a
+//! readers, Waft's once a player is given one (`frame_readers`); an image's values as the program
+//! reads them (`image_values`), a
 //! camera's values as the program reads them (`camera_values`); the machine's facts as Waft reports
 //! them, in the engine's terms; where a program's view request goes, and the screens' refreshes
 //! over Waft's vsync waiter, from whichever thread the engine calls them on, the refusal of every
@@ -41,7 +41,6 @@
 pub(crate) mod activity;
 pub(crate) mod app_store;
 pub(crate) mod asking_now;
-pub(crate) mod camera_calls;
 pub(crate) mod camera_values;
 pub(crate) mod caption_style;
 pub(crate) mod clipboard;
@@ -88,7 +87,6 @@ pub(crate) mod frame_readers;
 pub(crate) mod hardware_buffers;
 pub(crate) mod held_starts;
 pub(crate) mod icon_rows;
-pub(crate) mod image_codec_calls;
 pub(crate) mod image_values;
 pub(crate) mod inspected_programs;
 pub(crate) mod installed_code;

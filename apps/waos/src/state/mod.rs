@@ -17,12 +17,11 @@
 //! requests (`logic::placement`), the questions (`logic::prompts`), who records
 //! (`logic::recording_indicator`), the clipboard's calls (`logic::clipboard_calls`), the menus'
 //! calls (`logic::menu_calls`), the notifications' calls
-//! (`logic::notification_calls`), the cameras'
-//! calls (`logic::camera_calls`), each view's calls (`waos-program-window`'s), on macOS what
+//! (`logic::notification_calls`), each view's calls (`waos-program-window`'s), on macOS what
 //! the programs' apps send (`logic::program_apps`), the presence of each of their windows among
 //! it, what the compiles' list says (`logic::installed_code`), and the calls posted to a value on
 //! the main thread that serves them (`app_thread_bound`): the players' (`media_players`), the media
-//! assets' (`media_assets`) and the openings (`opener`).
+//! assets' (`media_assets`), the image codecs' (`image_codecs`), the cameras' (`cameras`) and the openings (`opener`).
 
 #[cfg(any(target_os = "macos", test))]
 pub(crate) mod app_nap_exemption;
