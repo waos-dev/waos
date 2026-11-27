@@ -1,14 +1,11 @@
-//! An engine for the app's tests: no screens, screens that never refresh, the code cache the test
-//! gives it, and the placement the test gives it, or one that makes no windows, with the prompts
+//! An engine for the app's tests: no screens, screens that never refresh, and the placement the test gives it, or one that makes no windows, with the prompts
 //! the test gives it, or none to ask, keeping no days of what the programs do unless the test
 //! gives it the log to keep them in, as the app gives its store; or over a shell the test fills
 //! in further, on the time it gives; or, on Apple's systems and Linux, one whose programs' windows
-//! draw (`drawing::engine`), built over `waos_headless`'s screen. A test that loads
-//! `waos_test_programs`' programs where they are gives it the cache the tests share for them,
-//! `waos_test_programs::CODE_CACHE`; one whose programs are copies at paths of its own, sent to the
-//! dev server or installed from a package, gives it a cache in its own folder, removed with it.
+//! draw (`drawing::engine`), built over `waos_headless`'s screen. A test loads
+//! `waos_test_programs`' programs from their code folders (`waos_test_programs::code_of`), and
+//! installs them with their code compiled already (`test_installs`).
 
-use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -19,10 +16,9 @@ use waos::{
     RunningProgram, Shell, ViewPlacement, ViewRequest, VsyncWaiter, WaOS, WaOSConfig,
 };
 
-/// How long a test waits for a program or the app to do something before it fails. A wait can
-/// include compiling the program it waits on, since each test compiles its own (a cold, slow CI
-/// runner takes past 15 s for a Waft app), so this is a minute until tests share compiled code.
-pub(crate) const WITHIN: Duration = Duration::from_secs(60);
+/// How long a test waits for a program or the app to do something before it fails. No wait
+/// includes compiling a program the test did not install itself: the tests share compiled code.
+pub(crate) const WITHIN: Duration = Duration::from_secs(15);
 
 /// Why [`NoWindows`] refuses every request.
 pub(crate) const REFUSAL: &str = "the tests make no windows";
@@ -47,33 +43,26 @@ impl VsyncWaiter for NoRefreshes {
     fn next_vsync(&self, _screen: u64, _on_refresh: waos::OnRefresh) {}
 }
 
-/// An engine placing views with `views`, with nobody to ask, keeping compiled programs in
-/// `code_cache`.
-pub(crate) fn engine(views: Arc<dyn ViewPlacement>, code_cache: &Path) -> WaOS {
-    engine_asking(views, Arc::new(NoPrompts), code_cache)
+/// An engine placing views with `views`, with nobody to ask.
+pub(crate) fn engine(views: Arc<dyn ViewPlacement>) -> WaOS {
+    engine_asking(views, Arc::new(NoPrompts))
 }
 
-/// An engine placing views with `views` and asking the user through `prompts`, keeping compiled
-/// programs in `code_cache`.
-pub(crate) fn engine_asking(
-    views: Arc<dyn ViewPlacement>,
-    prompts: Arc<dyn Prompts>,
-    code_cache: &Path,
-) -> WaOS {
-    engine_over(shell(views, prompts), EngineTime::Real, code_cache)
+/// An engine placing views with `views` and asking the user through `prompts`.
+pub(crate) fn engine_asking(views: Arc<dyn ViewPlacement>, prompts: Arc<dyn Prompts>) -> WaOS {
+    engine_over(shell(views, prompts), EngineTime::Real)
 }
 
 /// An engine placing views with `views` and asking the user through `prompts`, keeping the days
-/// of what its programs do in `audit` and compiled programs in `code_cache`.
+/// of what its programs do in `audit`.
 pub(crate) fn engine_keeping_days(
     views: Arc<dyn ViewPlacement>,
     prompts: Arc<dyn Prompts>,
     audit: Arc<dyn AuditLog>,
-    code_cache: &Path,
 ) -> WaOS {
     let config = WaOSConfig {
         audit: Some(audit),
-        ..config(EngineTime::Real, code_cache)
+        ..config(EngineTime::Real)
     };
     engine_of(config, shell(views, prompts))
 }
@@ -107,16 +96,14 @@ pub(crate) fn shell(views: Arc<dyn ViewPlacement>, prompts: Arc<dyn Prompts>) ->
     }
 }
 
-/// An engine over `shell`, on `time`, with no screens, keeping compiled programs in `code_cache`.
-pub(crate) fn engine_over(shell: Shell, time: EngineTime, code_cache: &Path) -> WaOS {
-    engine_of(config(time, code_cache), shell)
+/// An engine over `shell`, on `time`, with no screens.
+pub(crate) fn engine_over(shell: Shell, time: EngineTime) -> WaOS {
+    engine_of(config(time), shell)
 }
 
-/// A test engine's configuration: on `time`, keeping compiled programs in `code_cache`, and
-/// nothing else.
-fn config(time: EngineTime, code_cache: &Path) -> WaOSConfig {
+/// A test engine's configuration: on `time`, and nothing else.
+fn config(time: EngineTime) -> WaOSConfig {
     WaOSConfig {
-        code_cache: code_cache.to_owned(),
         freeze: FreezePolicy::default(),
         native_unwind_info: false,
         http_proxy: HttpProxy::None,
@@ -143,7 +130,6 @@ fn engine_of(config: WaOSConfig, shell: Shell) -> WaOS {
 /// offscreen buffers).
 #[cfg(any(target_vendor = "apple", target_os = "linux"))]
 pub(crate) mod drawing {
-    use std::path::Path;
     use std::sync::Arc;
 
     use waos::bindings::wasdk::platform::system::Brightness;
@@ -171,23 +157,21 @@ pub(crate) mod drawing {
 
     /// An engine whose programs' windows draw: each request given a window at once, focused and in
     /// sight, on one screen that refreshes as soon as it is asked, each window keeping the
-    /// picture presented last until the next replaces it; with nobody to ask, keeping compiled
-    /// programs in `code_cache`.
-    pub(crate) fn engine(code_cache: &Path) -> Arc<WaOS> {
-        engine_giving(true, code_cache)
+    /// picture presented last until the next replaces it; with nobody to ask.
+    pub(crate) fn engine() -> Arc<WaOS> {
+        engine_giving(true)
     }
 
     /// An engine as [`engine`]'s, but each view given in no window, as a phone's deck shows a tab.
-    pub(crate) fn deck_engine(code_cache: &Path) -> Arc<WaOS> {
-        engine_giving(false, code_cache)
+    pub(crate) fn deck_engine() -> Arc<WaOS> {
+        engine_giving(false)
     }
 
     /// An engine as [`engine`]'s, placing views in windows when `in_windows`.
-    fn engine_giving(in_windows: bool, code_cache: &Path) -> Arc<WaOS> {
+    fn engine_giving(in_windows: bool) -> Arc<WaOS> {
         let headless = HeadlessShell::new(display(in_windows), Refreshes::WhenAsked);
         let shell = headless.shell(Arc::new(NoPrompts));
         let config = WaOSConfig {
-            code_cache: code_cache.to_owned(),
             freeze: FreezePolicy::default(),
             native_unwind_info: false,
             http_proxy: HttpProxy::None,

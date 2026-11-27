@@ -13,7 +13,7 @@
 //! a texture on the program's device over it, and the shell makes a layer's contents of it.
 
 // Wrapping the system's allocation into a texture is what this module is for; the rest of the
-// crate has no `unsafe` but where `code_cache` maps compiled code.
+// crate has no `unsafe` but where `code_folder` maps compiled code.
 #![allow(unsafe_code)]
 
 use std::ptr;

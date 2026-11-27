@@ -367,7 +367,12 @@ fn run(
     shell: &TestShell,
     output: &Arc<RecordedOutput>,
 ) -> (RunningProgram, ProgramView) {
-    let program = engine.load(Path::new(waos_test_programs::MENUS)).unwrap();
+    let program = engine
+        .load(
+            Path::new(waos_test_programs::MENUS),
+            &waos_test_programs::code_of(waos_test_programs::MENUS),
+        )
+        .unwrap();
     let running = engine.run(&program, printing_to(output)).unwrap();
     let window = within(shell.headless.view(0))
         .and_then(|shown| shown.view())

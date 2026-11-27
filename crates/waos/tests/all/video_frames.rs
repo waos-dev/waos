@@ -115,7 +115,10 @@ impl Run {
             ..printing_to(&output)
         };
         let program = engine
-            .load(Path::new(waos_test_programs::VIDEO_FRAMES))
+            .load(
+                Path::new(waos_test_programs::VIDEO_FRAMES),
+                &waos_test_programs::code_of(waos_test_programs::VIDEO_FRAMES),
+            )
             .unwrap();
         let running = engine.run(&program, environment).unwrap();
         Run {

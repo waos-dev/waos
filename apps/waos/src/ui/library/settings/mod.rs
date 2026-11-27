@@ -136,19 +136,18 @@ pub(crate) fn app_info(library: &Library, id: &ProgramId) -> Option<AppInfo> {
             .find(|read| read.source == listed.source)?;
         Some(source_name(read))
     });
-    let (installing, running) = (library.is_installing(id), library.is_running(id));
+    let (operation, running) = (library.operation(id), library.is_running(id));
     let update = listed
-        .filter(|listed| !installing && matches!(listed.offer, Offer::Update { .. }))
+        .filter(|listed| operation.is_none() && matches!(listed.offer, Offer::Update { .. }))
         .map(|listed| AppAction::Update(Box::new(listed)));
     let close = (running && library.closes_programs()).then_some(AppAction::Close);
     let reset = library
         .settings(&SettingsOf::Program(id.clone()))
         .is_ok_and(|shown| any_set_otherwise(&shown))
         .then_some(AppAction::ResetPermissions);
-    let status = if installing {
-        Some(words::INSTALLING)
-    } else {
-        running.then_some(words::RUNNING)
+    let status = match operation {
+        Some(operation) => Some(words::operation(operation)),
+        None => running.then_some(words::RUNNING),
     };
     Some(AppInfo {
         name: program.name(),

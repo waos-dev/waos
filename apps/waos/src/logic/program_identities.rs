@@ -32,7 +32,9 @@ pub(crate) fn app_id_of(id: &ProgramId) -> Option<String> {
 /// a program never installed, whose windows and notifications are WaOS's.
 pub(crate) fn installed_app_id(store: &Store, runs_as: &str) -> Option<(ProgramId, String)> {
     let id: ProgramId = runs_as.parse().ok()?;
-    store.program(&id)?;
+    store
+        .installed_version(&id)
+        .map(|version| version.component())?;
     let app_id = app_id_of(&id)?;
     Some((id, app_id))
 }

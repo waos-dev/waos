@@ -9,7 +9,6 @@ use waft::{IntoWidget, Shell, SizedBox};
 use waft_test::{TestPlatform, TestWindows};
 use waos::{ProgramEnvironment, WaOS};
 use waos_package::ProgramId;
-use waos_test_programs::CODE_CACHE;
 use waos_window_messages::ToWindow;
 
 use super::*;
@@ -24,7 +23,10 @@ const FOREVER: &str = "dev.example.forever";
 /// Forever, which has no window and runs until stopped, under its id.
 fn forever(engine: &WaOS) -> RunningProgram {
     let forever = engine
-        .load(Path::new(waos_test_programs::FOREVER))
+        .load(
+            Path::new(waos_test_programs::FOREVER),
+            &waos_test_programs::code_of(waos_test_programs::FOREVER),
+        )
         .expect("forever loads")
         .named(FOREVER);
 
@@ -102,7 +104,7 @@ fn a_prompt_of_a_program_with_no_app_launches_the_app_and_shows_there_not_in_wao
     let _within = runtime.enter();
     let launches = Launches::default();
     let reach = launches.reach();
-    let engine = test_engine::engine(Arc::new(NoWindows), Path::new(CODE_CACHE));
+    let engine = test_engine::engine(Arc::new(NoWindows));
     let program = forever(&engine);
     let prompting = Prompting::new(&reach);
 
@@ -145,7 +147,7 @@ fn a_prompts_view_arrives_as_every_view_and_is_built_from_the_data_naming_the_pr
     let _within = runtime.enter();
     let launches = Launches::default();
     let reach = launches.reach();
-    let engine = test_engine::engine(Arc::new(NoWindows), Path::new(CODE_CACHE));
+    let engine = test_engine::engine(Arc::new(NoWindows));
     let program = forever(&engine);
     let mut prompting = Prompting::new(&reach);
     let dismissed = Rc::new(Cell::new(false));
@@ -201,7 +203,7 @@ fn a_prompt_whose_app_never_comes_is_put_away_unanswered() {
     let _within = runtime.enter();
     let launches = Launches::default();
     let reach = launches.reach();
-    let engine = test_engine::engine(Arc::new(NoWindows), Path::new(CODE_CACHE));
+    let engine = test_engine::engine(Arc::new(NoWindows));
     let program = forever(&engine);
     let prompting = Prompting::new(&reach);
 

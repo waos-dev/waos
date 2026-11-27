@@ -15,7 +15,7 @@
 //! makes a texture on the program's device over it, and the shell sets it on a surface control.
 
 // Wrapping the system's allocation into a texture, and handing its image between queue families,
-// is what this module is for; the rest of the crate has no `unsafe` but where `code_cache` maps
+// is what this module is for; the rest of the crate has no `unsafe` but where `code_folder` maps
 // compiled code.
 #![allow(unsafe_code)]
 

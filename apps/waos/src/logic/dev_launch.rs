@@ -1,33 +1,27 @@
-//! What `waos launch` and `waos stop` ask. A launch starts an installed program, a development
-//! install or any other, in place of its run if it runs, which ends `Replaced`: its code waited for
-//! while it is compiled, as at its install, or compiled where the cache holds none current, with
-//! `Compiling` on the connection first, before the runs' lock is taken, which every start,
-//! screenshot, input and quit takes, so a compile holds back no other program; then loaded off this
-//! thread and run with its own settings and folders, this computer's capabilities, the launch's
-//! arguments and the variables it alone adds, and its output going to the attaches
-//! (`launch_outputs`). The launch is answered `Launched` once the program runs, and the program
-//! runs on whoever attaches or not, until it ends or is stopped; a launch whose connection closes
-//! while its code compiles, as Ctrl-C in `waos run` closes it, is not started. A stop ends the
-//! program running, however it was started.
+//! What `waos launch` and `waos stop` ask. A launch starts an
+//! installed program, a development install or any other, in place of its run if it runs, which
+//! ends `Replaced` (`InstalledRuns::launch`), with the launch's arguments and the variables it
+//! alone adds, and its output going to the attaches (`launch_outputs`). Where its
+//! code is compiled first, after a compiler change, the package manager says the program is
+//! `Optimizing`, and the connection hears `Compiling`. The launch is answered `Launched` once the
+//! program runs, and the program runs on whoever attaches or not, until it ends or is stopped; a
+//! launch whose connection closes while its code compiles, as Ctrl-C in `waos run` closes it, is
+//! not started. A stop ends the program running, however it was started.
 //!
 //! The invariant: a launched run's end is told to its output, then the run is taken out of the
 //! runs, by a task of the server's runtime (`InstalledRuns::take_out_once_ended`), so every attach
 //! hears how it ended and the runs never hold an ended program.
 
-use std::sync::Arc;
-
-use anyhow::Context as _;
 use tracing::Instrument;
-use waos::ProgramEnvironment;
 use waos_dev_protocol::{
-    Launch, LaunchAnswer, Refusal, RefusalKind, ServerConnection, ServerReadHalf, ServerWriteHalf,
-    StopAnswer,
+    Launch, LaunchAnswer, Refusal, ServerConnection, ServerReadHalf, ServerWriteHalf, StopAnswer,
 };
 use waos_package::ProgramId;
 use waos_store::Store;
 
 use super::dev_refusal;
 use super::installed_runs::InstalledRuns;
+use super::package_manager::PackageOperation;
 use super::runs::Runs;
 
 /// What launching and stopping need of the app.
@@ -57,8 +51,8 @@ pub(crate) async fn launch(connection: ServerConnection, launch: Launch, context
     let _ = writing.send(&answer).await;
 }
 
-/// Starts the installed program `launch` names, its code compiled first, telling `writing`
-/// `Compiling` where it is; not started where `reading` closes while it compiles.
+/// Starts the installed program `launch` names, telling `writing` `Compiling` while its code is
+/// compiled first; not started where `reading` closes before it starts.
 async fn start(
     writing: &mut ServerWriteHalf,
     reading: ServerReadHalf,
@@ -70,68 +64,43 @@ async fn start(
         arguments,
         variables,
     } = launch;
-    let component = context
-        .store
-        .program(&id)
-        .ok_or_else(|| dev_refusal::not_installed(&id))?;
+    if context.store.installed_program(&id).is_none() {
+        return Err(dev_refusal::not_installed(&id));
+    }
     let installed = &context.installed;
-    let environment = installed.environments.of(&id).map_err(|error| {
-        Refusal::new(
-            RefusalKind::Failed,
-            format!("{id} could not be set up: {error}"),
-        )
-    })?;
-    tokio::select! {
-        ready = code_ready(writing, installed, &id, &component) => {
-            ready.map_err(|error| dev_refusal::cannot_load(&id, &error))?;
+    let launching = installed.launch(&id, arguments, variables);
+    let closing = closed(reading);
+    let mut operations = installed.packages.operations();
+    let mut told = false;
+    tokio::pin!(launching, closing);
+    loop {
+        let optimizing =
+            operations.borrow_and_update().get(&id) == Some(&PackageOperation::Optimizing);
+        if optimizing && !told {
+            told = true;
+            // A client gone meanwhile hears nothing; the launch goes on.
+            let _ = writing.send(&LaunchAnswer::Compiling).await;
         }
-        () = closed(reading) => {
-            tracing::info!("the launch's connection closed while its code compiled: not started");
-            return Err(Refusal::new(RefusalKind::Failed, format!("{id}'s launch was abandoned")));
+        tokio::select! {
+            launched = &mut launching => {
+                return launched.map_err(|error| dev_refusal::cannot_load(&id, &error));
+            }
+            () = &mut closing => {
+                tracing::info!("the launch's connection closed before it started: not started");
+                return Err(Refusal::new(
+                    waos_dev_protocol::RefusalKind::Failed,
+                    format!("{id}'s launch was abandoned"),
+                ));
+            }
+            changed = operations.changed() => {
+                if changed.is_err() {
+                    return launching
+                        .await
+                        .map_err(|error| dev_refusal::cannot_load(&id, &error));
+                }
+            }
         }
     }
-    let engine = Arc::clone(&installed.engine);
-    let loading = tokio::task::spawn_blocking(move || engine.load(&component));
-    let program = loading
-        .await
-        .context("the load's thread")
-        .and_then(|loaded| loaded)
-        .map_err(|error| dev_refusal::cannot_load(&id, &error))?
-        .named(id.as_str());
-    let (environment, output) = installed.with_output(&id, environment);
-    let environment = ProgramEnvironment {
-        variables,
-        arguments,
-        ..environment
-    };
-    let run = installed
-        .runs
-        .start_in_place(&id, || installed.engine.run(&program, environment))
-        .await
-        .map_err(|error| dev_refusal::cannot_load(&id, &error))?;
-    tracing::info!("launched");
-    installed.take_out_once_ended(&id, run, output);
-    Ok(())
-}
-
-/// Resolves once the code of the program `id`, whose component is at `component`, is in the
-/// cache, telling `connection` `Compiling` first where it is not.
-async fn code_ready(
-    connection: &mut ServerWriteHalf,
-    installed: &InstalledRuns,
-    id: &ProgramId,
-    component: &std::path::Path,
-) -> anyhow::Result<()> {
-    let engine = Arc::clone(&installed.engine);
-    let checked = component.to_owned();
-    let compiled = tokio::task::spawn_blocking(move || engine.is_compiled(&checked))
-        .await
-        .context("the check's thread")??;
-    if !compiled {
-        // A client gone meanwhile hears nothing; the launch goes on.
-        let _ = connection.send(&LaunchAnswer::Compiling).await;
-    }
-    installed.code.compile(id, component).await
 }
 
 /// Resolves once the other side closed. What it sends after its `Launch` is not part of the

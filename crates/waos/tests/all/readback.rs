@@ -23,7 +23,10 @@ fn a_buffer_is_read_back_by_polling() {
     let shell = TestShell::new();
     let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
     let program = engine
-        .load(Path::new(waos_test_programs::READBACK))
+        .load(
+            Path::new(waos_test_programs::READBACK),
+            &waos_test_programs::code_of(waos_test_programs::READBACK),
+        )
         .unwrap();
     let output = Arc::new(RecordedOutput::default());
     let running = engine.run(&program, printing_to(&output)).unwrap();
@@ -52,7 +55,10 @@ fn a_shader_given_as_nagas_module_runs() {
     let shell = TestShell::new();
     let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
     let program = engine
-        .load(Path::new(waos_test_programs::NAGA_SHADER))
+        .load(
+            Path::new(waos_test_programs::NAGA_SHADER),
+            &waos_test_programs::code_of(waos_test_programs::NAGA_SHADER),
+        )
         .unwrap();
     let output = Arc::new(RecordedOutput::default());
     let running = engine.run(&program, printing_to(&output)).unwrap();

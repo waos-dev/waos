@@ -110,7 +110,10 @@ fn a_program_importing_wasdk_inspect_is_asked_about_at_its_start_and_refused_wit
     let shell = TestShell::new();
     let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
     let inspector = engine
-        .load(Path::new(waos_test_programs::IMPORTS_INSPECT))
+        .load(
+            Path::new(waos_test_programs::IMPORTS_INSPECT),
+            &waos_test_programs::code_of(waos_test_programs::IMPORTS_INSPECT),
+        )
         .unwrap();
     let grants = Arc::new(RoleGrants::default());
     let running = engine.run(&inspector, with(&grants)).unwrap();
@@ -142,7 +145,10 @@ fn the_role_question_is_told_through_the_programs_access() {
     let shell = TestShell::new();
     let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
     let inspector = engine
-        .load(Path::new(waos_test_programs::IMPORTS_INSPECT))
+        .load(
+            Path::new(waos_test_programs::IMPORTS_INSPECT),
+            &waos_test_programs::code_of(waos_test_programs::IMPORTS_INSPECT),
+        )
         .unwrap();
     let grants = Arc::new(RoleGrants::default());
     let running = engine.run(&inspector, with(&grants)).unwrap();
@@ -167,7 +173,10 @@ fn a_program_with_no_grants_holds_no_role() {
     let shell = TestShell::new();
     let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
     let inspector = engine
-        .load(Path::new(waos_test_programs::IMPORTS_INSPECT))
+        .load(
+            Path::new(waos_test_programs::IMPORTS_INSPECT),
+            &waos_test_programs::code_of(waos_test_programs::IMPORTS_INSPECT),
+        )
         .unwrap();
     let running = engine
         .run(&inspector, ProgramEnvironment::default())
@@ -188,10 +197,20 @@ fn a_program_granted_its_role_sees_the_programs_and_traces_one() {
         ..config()
     };
     let engine = WaOS::new(config, shell.shell(), shell.platform()).unwrap();
-    let forever = engine.load(Path::new(waos_test_programs::FOREVER)).unwrap();
+    let forever = engine
+        .load(
+            Path::new(waos_test_programs::FOREVER),
+            &waos_test_programs::code_of(waos_test_programs::FOREVER),
+        )
+        .unwrap();
     let counted = Arc::new(RecordedOutput::default());
     let counting = engine.run(&forever, printing_to(&counted)).unwrap();
-    let inspect = engine.load(Path::new(waos_test_programs::INSPECT)).unwrap();
+    let inspect = engine
+        .load(
+            Path::new(waos_test_programs::INSPECT),
+            &waos_test_programs::code_of(waos_test_programs::INSPECT),
+        )
+        .unwrap();
     let grants = Arc::new(RoleGrants {
         inspector: Mutex::new(Some(Answer::Granted)),
         ..RoleGrants::default()
@@ -267,7 +286,10 @@ fn a_program_importing_no_role_is_asked_about_none() {
     let shell = TestShell::new();
     let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
     let incompatible = engine
-        .load(Path::new(waos_test_programs::INCOMPATIBLE))
+        .load(
+            Path::new(waos_test_programs::INCOMPATIBLE),
+            &waos_test_programs::code_of(waos_test_programs::INCOMPATIBLE),
+        )
         .unwrap();
     let running = engine
         .run(&incompatible, ProgramEnvironment::default())
@@ -282,7 +304,10 @@ fn a_waiting_role_question_is_answered_by_setting_its_row_and_drops_its_prompt()
     let shell = TestShell::new();
     let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
     let inspector = engine
-        .load(Path::new(waos_test_programs::IMPORTS_INSPECT))
+        .load(
+            Path::new(waos_test_programs::IMPORTS_INSPECT),
+            &waos_test_programs::code_of(waos_test_programs::IMPORTS_INSPECT),
+        )
         .unwrap();
     let grants = Arc::new(RoleGrants::default());
     let running = engine.run(&inspector, with(&grants)).unwrap();

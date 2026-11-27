@@ -35,7 +35,10 @@ fn trailers_go_both_ways_and_a_307_keeps_a_held_body_but_not_a_streamed_one() {
     let output = Arc::new(RecordedOutput::default());
     let grants = TestGrants::new(any(), true);
     let program = engine
-        .load(Path::new(waos_test_programs::WAFT_HTTP))
+        .load(
+            Path::new(waos_test_programs::WAFT_HTTP),
+            &waos_test_programs::code_of(waos_test_programs::WAFT_HTTP),
+        )
         .unwrap();
     let environment = ProgramEnvironment {
         output: Some(Arc::clone(&output) as Arc<dyn ProgramOutput>),

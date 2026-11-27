@@ -11,7 +11,7 @@ use std::path::Path;
 use std::time::Duration;
 
 use futures::FutureExt;
-use support::write_package;
+use support::{install, write_package};
 use waos_capabilities::{Answer, DomainRule, FileDialog, Mount, NetworkGrant, Question, Setting};
 use waos_package::{Package, ProgramId, SigningKey};
 use waos_store::{GlobalSettings, ProgramSettings, SourceProxy, Store, StoreError};
@@ -26,7 +26,7 @@ fn triangle() -> ProgramId {
 fn store_with_triangle(folder: &Path) -> Store {
     let store = Store::open(&folder.join("store"), SourceProxy::None).unwrap();
     let package = write_package(folder, TRIANGLE, "1.0.0", &SigningKey::generate());
-    store.install(Package::open(&package).unwrap()).unwrap();
+    install(&store, Package::open(&package).unwrap()).unwrap();
     store
 }
 
@@ -86,7 +86,7 @@ fn a_programs_settings_are_its_own_kept_beside_its_install_and_go_with_it() {
         Err(StoreError::NotInstalled(_))
     ));
     let package = write_package(scratch.path(), TRIANGLE, "1.0.0", &SigningKey::generate());
-    reopened.install(Package::open(&package).unwrap()).unwrap();
+    install(&reopened, Package::open(&package).unwrap()).unwrap();
     assert_eq!(
         reopened.program_settings(&triangle()).unwrap(),
         ProgramSettings::default(),
@@ -139,7 +139,7 @@ fn a_programs_own_folders_are_made_at_its_first_run_and_kept_until_it_is_removed
     assert_eq!(fs::read(folders.data.join("notes.txt")).unwrap(), b"kept");
 
     let package = write_package(scratch.path(), TRIANGLE, "1.0.0", &SigningKey::generate());
-    reopened.install(Package::open(&package).unwrap()).unwrap();
+    install(&reopened, Package::open(&package).unwrap()).unwrap();
     assert_eq!(reopened.folders(&triangle()).unwrap(), folders);
     assert_eq!(
         fs::read(folders.data.join("notes.txt")).unwrap(),

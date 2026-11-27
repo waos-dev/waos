@@ -88,7 +88,7 @@ impl Library {
         windows: &Entity<ViewWindows>,
         cx: &mut Context<Library>,
     ) {
-        if self.store.program(id).is_none() {
+        if self.store.installed_program(id).is_none() {
             close_window_of(&view);
             // Brought forward while the window is in sight, which Android requires of an app.
             cx.emit(WantsToBeSeen);
@@ -122,25 +122,20 @@ impl Library {
         windows: Entity<ViewWindows>,
         cx: &mut Context<Library>,
     ) {
-        let Some(component) = self.store.program(id) else {
+        if self.store.installed_program(id).is_none() {
             windows.update(cx, |windows, _| windows.prepared_unused(id.as_str()));
             return self.failed(
                 format!("{id} is not installed, or its files cannot be read"),
                 cx,
             );
-        };
+        }
         self.add_recent(id, cx);
         let (runs, opening) = (self.runs.clone(), id.clone());
         let name = id.as_str().to_owned();
         self.work_then(
             async move {
-                runs.open(
-                    &opening,
-                    component,
-                    ProgramPlace::Windows,
-                    Opening::ByTheUser,
-                )
-                .await
+                runs.open(&opening, ProgramPlace::Windows, Opening::ByTheUser)
+                    .await
             },
             move |library, started, cx| match started {
                 Ok(opened) => windows.update(cx, |windows, cx| {

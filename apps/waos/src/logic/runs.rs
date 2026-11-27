@@ -13,10 +13,9 @@
 //! arriving together cannot both start, and an id never names two programs. The list's own lock
 //! is held only to read or change the list, never while a program starts or ends, so a program
 //! slow to end holds back no screenshot, input, open or quit, nor another program's start; the ids
-//! running, which [`Runs::running_ids`] tells, change with the list under that lock. An id being
-//! started is among those starting from before its turn is taken until the start is done, so
-//! [`Runs::runs_or_starts`] misses no run about to be listed. And nothing compiles in a turn: a
-//! caller has the program's code compiled before it starts a run.
+//! running, which [`Runs::running_ids`] tells, change with the list under that lock. And nothing
+//! compiles in a turn: a caller loads the program, through the package manager, before it starts
+//! a run.
 
 #[cfg(desktop)]
 mod driven;
@@ -49,8 +48,6 @@ pub(crate) struct Runs {
     serials: AtomicU64,
     /// The ids in the list, for whoever shows which programs run.
     ids: watch::Sender<BTreeSet<ProgramId>>,
-    /// The ids the library is starting a run of now, each as many times as it is.
-    starting: std::sync::Mutex<Vec<ProgramId>>,
 }
 
 /// One program in the list.
@@ -98,7 +95,6 @@ impl Runs {
         id: &ProgramId,
         start: impl AsyncFnOnce() -> Result<RunningProgram>,
     ) -> Result<Started> {
-        let _starting = Starting::of(self, id);
         let _turn = self.turn_of(id).await;
         if let Some(current) = self.listed().get(id) {
             return Ok(Started::Running(current.program.clone()));
@@ -116,7 +112,6 @@ impl Runs {
         id: &ProgramId,
         start: impl FnOnce() -> Result<RunningProgram>,
     ) -> Result<Run> {
-        let _starting = Starting::of(self, id);
         let _turn = self.turn_of(id).await;
         self.end_the_one_before(id).await;
         let program = start()?;
@@ -181,17 +176,6 @@ impl Runs {
             }
             .instrument(span),
         );
-    }
-
-    /// Whether a run of the program `id` is in the list, or being started: what an end of its
-    /// runs has to wait for.
-    pub(crate) fn runs_or_starts(&self, id: &ProgramId) -> bool {
-        self.ids.borrow().contains(id)
-            || self
-                .starting
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .contains(id)
     }
 
     /// Ends the run of the program `id`, if any, once a start under way is done, and waits until
@@ -314,38 +298,6 @@ impl Runs {
     }
 }
 
-/// An id among those being started, for as long as this is held.
-struct Starting<'a> {
-    runs: &'a Runs,
-    id: ProgramId,
-}
-
-impl<'a> Starting<'a> {
-    fn of(runs: &'a Runs, id: &ProgramId) -> Starting<'a> {
-        runs.starting
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .push(id.clone());
-        Starting {
-            runs,
-            id: id.clone(),
-        }
-    }
-}
-
-impl Drop for Starting<'_> {
-    fn drop(&mut self) {
-        let mut starting = self
-            .runs
-            .starting
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner);
-        if let Some(index) = starting.iter().position(|id| *id == self.id) {
-            starting.remove(index);
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::path::Path;
@@ -358,13 +310,13 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn the_list_is_read_and_another_program_started_while_a_start_waits() {
-        let engine = test_engine::engine(
-            Arc::new(NoWindows),
-            Path::new(waos_test_programs::CODE_CACHE),
-        );
+        let engine = test_engine::engine(Arc::new(NoWindows));
         let run = |name: &'static str| {
             let program = engine
-                .load(Path::new(waos_test_programs::FOREVER))
+                .load(
+                    Path::new(waos_test_programs::FOREVER),
+                    &waos_test_programs::code_of(waos_test_programs::FOREVER),
+                )
                 .unwrap()
                 .named(name);
 
@@ -374,11 +326,13 @@ mod tests {
         let slow: ProgramId = "dev.example.slow".parse().unwrap();
         let other: ProgramId = "dev.example.other".parse().unwrap();
         let (go_on, going_on) = oneshot::channel::<()>();
+        let (entered, under_way) = oneshot::channel::<()>();
         let slow_start = {
             let (runs, slow) = (Arc::clone(&runs), slow.clone());
             let program = run("dev.example.slow");
             tokio::spawn(async move {
                 runs.start_unless_running(&slow, async || {
+                    entered.send(()).unwrap();
                     going_on.await.unwrap();
                     Ok(program)
                 })
@@ -386,14 +340,10 @@ mod tests {
                 .map(|_| ())
             })
         };
-        let under_way = async {
-            while !runs.runs_or_starts(&slow) {
-                tokio::time::sleep(std::time::Duration::from_millis(1)).await;
-            }
-        };
         tokio::time::timeout(std::time::Duration::from_secs(5), under_way)
             .await
-            .expect("its start is under way");
+            .expect("its start is under way")
+            .unwrap();
         let at_once = std::time::Duration::from_secs(1);
         let names = tokio::time::timeout(at_once, runs.names()).await;
         assert!(names.expect("the list is read meanwhile").is_empty());

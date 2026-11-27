@@ -1,14 +1,15 @@
 //! macOS's App Nap kept from throttling WaOS while the user waits on a program: one activity
-//! held from the moment any program's code begins compiling or one of its windows comes into
+//! held from the moment the package manager begins working on any program, as it compiles its
+//! code, or one of a program's windows comes into
 //! sight until none does, as Chrome holds one in a renderer while its tab is in front. App Nap
 //! otherwise runs a process it thinks is in the background at low priority, which made a compile
 //! that takes seconds take minutes (measured: a 5-second compile took 9 minutes 15 seconds without
 //! the activity, and 5 seconds with it).
 //!
 //! The activity is the system's, behind the closure this state is made with, so its rule is tested
-//! without macOS. [`start`] makes it over Waft's macOS host; [`follow_installed_compiling`] and
-//! [`follow_windows`] tell it what the installed programs' compiles, a development install's among
-//! them, and the programs' windows report. None of this is built on
+//! without macOS. [`start`] makes it over Waft's macOS host; [`follow_operations`] and
+//! [`follow_windows`] tell it what the package manager is doing to which program, a development
+//! install among them, and what the programs' windows report. None of this is built on
 //! another system, where there is nothing to keep.
 
 use std::any::Any;
@@ -26,15 +27,16 @@ pub(crate) type WindowKey = (ProgramId, RequestId);
 type Begin = Box<dyn Fn() -> Option<Box<dyn Any>>>;
 
 /// Why WaOS must keep the priority macOS gives an app its user is waiting on now: the programs
-/// whose code compiles and the programs' windows in sight. One activity is held while either is
+/// the package manager works on and the programs' windows in sight. One activity is held while either is
 /// non-empty, begun when the first comes and ended when the last goes.
 pub(crate) struct AppNapExemption {
     begin: Begin,
     /// macOS's activity, held while [`needed`](Self::needed) is true; none before the first
     /// reason and after the last.
     held: Option<Box<dyn Any>>,
-    /// The installed programs whose code is being compiled now.
-    installed_compiling: BTreeSet<ProgramId>,
+    /// The programs the package manager works on now: downloading, installing (compiling),
+    /// optimizing (compiling again) or removing.
+    operated: BTreeSet<ProgramId>,
     /// The programs' windows in sight now.
     in_sight: BTreeSet<WindowKey>,
 }
@@ -45,14 +47,14 @@ impl AppNapExemption {
         AppNapExemption {
             begin,
             held: None,
-            installed_compiling: BTreeSet::new(),
+            operated: BTreeSet::new(),
             in_sight: BTreeSet::new(),
         }
     }
 
-    /// The programs whose code is being compiled are `compiling`.
-    pub(crate) fn installed_compiling_changed(&mut self, compiling: BTreeSet<ProgramId>) {
-        self.installed_compiling = compiling;
+    /// The programs the package manager works on are `operated`.
+    pub(crate) fn operated_changed(&mut self, operated: BTreeSet<ProgramId>) {
+        self.operated = operated;
         self.keep_while_needed();
     }
 
@@ -68,7 +70,7 @@ impl AppNapExemption {
 
     /// Whether WaOS is doing work its user waits on now.
     pub(crate) fn needed(&self) -> bool {
-        !self.installed_compiling.is_empty() || !self.in_sight.is_empty()
+        !self.operated.is_empty() || !self.in_sight.is_empty()
     }
 
     /// Begins the activity with the first reason and ends it with the last.
@@ -93,15 +95,17 @@ impl AppNapExemption {
 #[cfg(target_os = "macos")]
 mod host {
     use std::any::Any;
-    use std::collections::BTreeSet;
+    use std::collections::BTreeMap;
 
     use futures::StreamExt;
     use futures::channel::mpsc::UnboundedReceiver;
+
     use tokio::sync::watch;
     use waft::{App, Entity};
     use waos_package::ProgramId;
 
     use super::{AppNapExemption, WindowKey};
+    use crate::logic::package_manager::PackageOperation;
     use crate::logic::program_apps::WindowPresence;
     use crate::state::desktop_host::with_macos_platform;
 
@@ -119,20 +123,20 @@ mod host {
         app.new_entity(|_| AppNapExemption::new(begin))
     }
 
-    /// Keeps the activity while the programs whose code is being compiled are those `compiling`
-    /// tells, from now on.
-    pub(crate) fn follow_installed_compiling(
+    /// Keeps the activity while the package manager works on any program, as `operations` tells,
+    /// from now on.
+    pub(crate) fn follow_operations(
         app: &mut App,
         activity: Entity<AppNapExemption>,
-        mut compiling: watch::Receiver<BTreeSet<ProgramId>>,
+        mut operations: watch::Receiver<BTreeMap<ProgramId, PackageOperation>>,
     ) {
-        let now = compiling.borrow_and_update().clone();
-        activity.update(app, |activity, _| activity.installed_compiling_changed(now));
+        let now = operations.borrow_and_update().keys().cloned().collect();
+        activity.update(app, |activity, _| activity.operated_changed(now));
         app.spawn(async move |cx| {
-            while compiling.changed().await.is_ok() {
-                let now = compiling.borrow_and_update().clone();
+            while operations.changed().await.is_ok() {
+                let now = operations.borrow_and_update().keys().cloned().collect();
                 cx.update(|app| {
-                    activity.update(app, |activity, _| activity.installed_compiling_changed(now));
+                    activity.update(app, |activity, _| activity.operated_changed(now));
                 });
             }
         });
@@ -158,7 +162,7 @@ mod host {
 }
 
 #[cfg(target_os = "macos")]
-pub(crate) use host::{follow_installed_compiling, follow_windows, start};
+pub(crate) use host::{follow_operations, follow_windows, start};
 
 #[cfg(test)]
 mod tests {
@@ -200,19 +204,19 @@ mod tests {
         assert!(!activity.needed());
         assert_eq!((begun.get(), ended.get()), (0, 0));
 
-        activity.installed_compiling_changed([first.clone()].into());
+        activity.operated_changed([first.clone()].into());
         assert!(activity.needed());
         assert_eq!((begun.get(), ended.get()), (1, 0));
 
         activity.window_in_sight_changed((first.clone(), 1), true);
-        activity.installed_compiling_changed([first.clone(), second.clone()].into());
+        activity.operated_changed([first.clone(), second.clone()].into());
         assert_eq!(
             (begun.get(), ended.get()),
             (1, 0),
             "one activity for every reason together"
         );
 
-        activity.installed_compiling_changed(BTreeSet::new());
+        activity.operated_changed(BTreeSet::new());
         assert_eq!((begun.get(), ended.get()), (1, 0), "a window keeps it");
 
         activity.window_in_sight_changed((first.clone(), 1), true);
@@ -241,11 +245,11 @@ mod tests {
     fn a_development_installs_compile_holds_it_as_any_installs_does() {
         let (mut activity, begun, ended) = activity();
         let development: ProgramId = "dev.example.notes.development".parse().unwrap();
-        activity.installed_compiling_changed([development].into());
+        activity.operated_changed([development].into());
         assert!(activity.needed());
         assert_eq!((begun.get(), ended.get()), (1, 0));
 
-        activity.installed_compiling_changed(BTreeSet::new());
+        activity.operated_changed(BTreeSet::new());
         assert!(!activity.needed());
         assert_eq!((begun.get(), ended.get()), (1, 1));
     }

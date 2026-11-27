@@ -30,6 +30,6 @@ fn a_component_using_cooperative_threads_loads() {
     let shell = TestShell::new();
     let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
     engine
-        .load(&component)
+        .load(&component, &folder.path().join("code"))
         .unwrap_or_else(|error| panic!("the threads' built-ins are refused: {error:#}"));
 }

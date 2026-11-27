@@ -276,7 +276,7 @@ fn a_package_opened_while_a_tab_is_in_sight_is_asked_about_over_the_tab() {
         SURVEY,
         "Survey",
         "1.0.0",
-        b"\0asm",
+        crate::logic::test_installs::EMPTY_COMPONENT,
         &phone.key,
     );
     phone.library.update(&mut phone.shell.app(), |library, cx| {

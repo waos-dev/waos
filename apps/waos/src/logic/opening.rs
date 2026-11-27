@@ -60,15 +60,13 @@ pub(crate) async fn program_named(
     store: &Store,
     id: &ProgramId,
 ) -> Result<Option<RunningProgram>> {
-    match store.program(id) {
-        Some(component) => {
-            let opened = installed
-                .open(id, component, installed.places.usual(), Opening::ToHandOver)
-                .await?;
-            Ok(Some(opened.program().clone()))
-        }
-        None => Ok(installed.runs.running(id).await),
+    if store.installed_program(id).is_none() {
+        return Ok(installed.runs.running(id).await);
     }
+    let opened = installed
+        .open(id, installed.places.usual(), Opening::ToHandOver)
+        .await?;
+    Ok(Some(opened.program().clone()))
 }
 
 /// Answers a connection's `Open`: the files handed to the program `id`, then `Opened`, or why

@@ -8,7 +8,8 @@
 //! programs put to their user, the picker of their sound's output among them, shown on macOS in
 //! dialogs of the programs' apps (`prompt_dialogs`), the programs recording, and the quit that
 //! asks every program first; and on macOS the activity that keeps App Nap from throttling WaOS
-//! while a program compiles or its window is in sight (`app_nap_exemption`).
+//! while WaOS installs or optimizes a program or a program's window is in sight
+//! (`app_nap_exemption`).
 //!
 //! The invariant: nothing here is touched off the main thread, and the system is asked on it alone;
 //! what the programs' commands read of it, This computer's home, is kept for them
@@ -19,8 +20,8 @@
 //! calls (`logic::menu_calls`), the notifications' calls
 //! (`logic::notification_calls`), each view's calls (`waos-program-window`'s), on macOS what
 //! the programs' apps send (`logic::program_apps`), the presence of each of their windows among
-//! it, what the compiles' list says (`logic::installed_code`), and the calls posted to a value on
-//! the main thread that serves them (`app_thread_bound`): the players' (`media_players`), the media
+//! it, what the package manager is doing (`logic::package_manager`), and the calls posted to a value
+//! on the main thread that serves them (`app_thread_bound`): the players' (`media_players`), the media
 //! assets' (`media_assets`), the image codecs' (`image_codecs`), the cameras' (`cameras`) and the openings (`opener`).
 
 #[cfg(any(target_os = "macos", test))]
@@ -314,7 +315,6 @@ pub(crate) fn start(
         Arc::clone(&runs),
     ));
     let config = WaOSConfig {
-        code_cache: folders.code_cache,
         freeze: crate::os::freeze_policy(),
         native_unwind_info: native_unwind_info_asked(),
         http_proxy: HttpProxy::System,
@@ -349,12 +349,18 @@ pub(crate) fn start(
     let environments = ProgramEnvironments::new(capabilities, store.clone());
     // What a tab closed on a phone stops its program among.
     let tabs_runs = Arc::clone(&runs);
-    let installed_runs = InstalledRuns::new(Arc::clone(&engine), environments, runs, places);
+    let installed_runs = InstalledRuns::new(
+        Arc::clone(&engine),
+        store.clone(),
+        environments,
+        runs,
+        places,
+    );
     #[cfg(target_os = "macos")]
-    app_nap_exemption::follow_installed_compiling(
+    app_nap_exemption::follow_operations(
         app,
         app_nap_exemption.clone(),
-        installed_runs.code.compiling_ids(),
+        installed_runs.packages.operations(),
     );
     #[cfg(desktop)]
     let developer_access = DeveloperAccess::at(folders.developer_access.clone());

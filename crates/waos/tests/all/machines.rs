@@ -256,7 +256,10 @@ fn run(
         ..printing_to(output)
     };
     let program = engine
-        .load(Path::new(waos_test_programs::MACHINES))
+        .load(
+            Path::new(waos_test_programs::MACHINES),
+            &waos_test_programs::code_of(waos_test_programs::MACHINES),
+        )
         .unwrap();
     engine.run(&program, environment).unwrap()
 }

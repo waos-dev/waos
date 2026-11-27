@@ -38,7 +38,12 @@ fn a_waft_app_draws_its_window_serves_its_extensions_follows_its_resize_and_quit
 
     let shell = TestShell::new();
     let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
-    let app = engine.load(Path::new(waos_test_programs::NOTES)).unwrap();
+    let app = engine
+        .load(
+            Path::new(waos_test_programs::NOTES),
+            &waos_test_programs::code_of(waos_test_programs::NOTES),
+        )
+        .unwrap();
     let running = engine.run(&app, environment).unwrap();
 
     let shown = within(shell.headless.view(0)).expect("the app asks for its window");

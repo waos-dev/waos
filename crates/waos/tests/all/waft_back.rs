@@ -17,7 +17,10 @@ fn its_navigator_handles_back_while_it_can_pop() {
     let shell = TestShell::new();
     let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
     let program = engine
-        .load(Path::new(waos_test_programs::WAFT_BACK))
+        .load(
+            Path::new(waos_test_programs::WAFT_BACK),
+            &waos_test_programs::code_of(waos_test_programs::WAFT_BACK),
+        )
         .unwrap();
     let output = Arc::new(RecordedOutput::default());
     let environment = ProgramEnvironment {

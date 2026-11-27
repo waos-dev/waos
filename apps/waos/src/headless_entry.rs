@@ -129,7 +129,6 @@ impl HeadlessDaemon {
             Arc::clone(&runs),
         ));
         let waos_config = WaOSConfig {
-            code_cache: config.folders.code_cache,
             freeze: FreezePolicy::default(),
             native_unwind_info: native_unwind_info_asked(),
             http_proxy: HttpProxy::System,
@@ -151,8 +150,13 @@ impl HeadlessDaemon {
         let capabilities = LocalCapabilities::new();
         let environments = ProgramEnvironments::new(capabilities, store.clone());
         let places = ProgramPlaces::new(ProgramPlace::Windows);
-        let installed =
-            InstalledRuns::new(Arc::clone(&engine), environments, Arc::clone(&runs), places);
+        let installed = InstalledRuns::new(
+            Arc::clone(&engine),
+            store.clone(),
+            environments,
+            Arc::clone(&runs),
+            places,
+        );
         let starts = HeldStarts {
             installed: installed.clone(),
             store: store.clone(),
@@ -331,7 +335,6 @@ mod tests {
 
     fn test_folders(root: &Path) -> AppFolders {
         AppFolders {
-            code_cache: PathBuf::from(waos_test_programs::CODE_CACHE),
             temporary_folders: root.join("tmp"),
             package_copies: root.join("packages"),
             store: root.join("store"),

@@ -98,7 +98,6 @@ impl Desktop {
         let (placement, requests) = WindowsOnRequest::new(ProgramFaces::new(store.clone(), None));
         let (prompts, prompted) = PromptsOnRequest::new(crate::logic::asking_now::AskingNow::new());
         let config = WaOSConfig {
-            code_cache: waos_test_programs::CODE_CACHE.into(),
             freeze: FreezePolicy::default(),
             native_unwind_info: false,
             http_proxy: HttpProxy::None,
@@ -189,7 +188,10 @@ impl Desktop {
     fn run(&self, component: &str, output: &Arc<Lines>) -> RunningProgram {
         let program = self
             .engine
-            .load(std::path::Path::new(component))
+            .load(
+                std::path::Path::new(component),
+                &waos_test_programs::code_of(component),
+            )
             .expect("the program loads");
         let environment = ProgramEnvironment {
             output: Some(Arc::clone(output) as Arc<dyn ProgramOutput>),
@@ -206,7 +208,10 @@ impl Desktop {
     fn run_as(&self, component: &str, id: &str, output: &Arc<Lines>) -> RunningProgram {
         let program = self
             .engine
-            .load(std::path::Path::new(component))
+            .load(
+                std::path::Path::new(component),
+                &waos_test_programs::code_of(component),
+            )
             .expect("the program loads");
         let id: ProgramId = id.parse().expect("an id");
         let environment = ProgramEnvironment {

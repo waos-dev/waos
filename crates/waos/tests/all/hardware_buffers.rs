@@ -52,7 +52,10 @@ fn buffers_the_program_drew_reach_the_codecs_and_the_layer_once_the_gpu_drew_the
     shell.image_codecs.answer_with(answers());
     let output = Arc::new(RecordedOutput::default());
     let program = engine
-        .load(Path::new(waos_test_programs::HARDWARE_BUFFERS))
+        .load(
+            Path::new(waos_test_programs::HARDWARE_BUFFERS),
+            &waos_test_programs::code_of(waos_test_programs::HARDWARE_BUFFERS),
+        )
         .unwrap();
     let running = engine.run(&program, printing_to(&output)).unwrap();
     let shown = within(shell.headless.view(0)).expect("its view arrives");
@@ -133,7 +136,10 @@ fn a_screenshot_is_the_canvas_over_what_its_layer_shows() {
     shell.image_codecs.answer_with(answers());
     let output = Arc::new(RecordedOutput::default());
     let program = engine
-        .load(Path::new(waos_test_programs::HARDWARE_BUFFERS))
+        .load(
+            Path::new(waos_test_programs::HARDWARE_BUFFERS),
+            &waos_test_programs::code_of(waos_test_programs::HARDWARE_BUFFERS),
+        )
         .unwrap();
     let running = engine.run(&program, printing_to(&output)).unwrap();
     let shown = within(shell.headless.view(0)).expect("its view arrives");
@@ -174,7 +180,10 @@ fn without_a_compositor_the_program_draws_its_canvas_with_no_layer() {
     shell.image_codecs.answer_with(answers());
     let output = Arc::new(RecordedOutput::default());
     let program = engine
-        .load(Path::new(waos_test_programs::HARDWARE_BUFFERS))
+        .load(
+            Path::new(waos_test_programs::HARDWARE_BUFFERS),
+            &waos_test_programs::code_of(waos_test_programs::HARDWARE_BUFFERS),
+        )
         .unwrap();
     let running = engine.run(&program, printing_to(&output)).unwrap();
     let shown = within(shell.headless.view(0)).expect("its view arrives");

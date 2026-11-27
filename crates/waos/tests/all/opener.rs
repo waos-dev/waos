@@ -48,7 +48,12 @@ fn links_open_as_their_schemes_allow_and_files_where_they_are_on_the_machine() {
         folders: Some(own.clone()),
         ..printing_to(&output)
     };
-    let program = engine.load(Path::new(waos_test_programs::OPENER)).unwrap();
+    let program = engine
+        .load(
+            Path::new(waos_test_programs::OPENER),
+            &waos_test_programs::code_of(waos_test_programs::OPENER),
+        )
+        .unwrap();
     let running = engine.run(&program, environment).unwrap();
 
     output.wait_for("open https://example.com/: ok");
@@ -110,7 +115,12 @@ fn a_program_given_no_grants_is_refused_links_of_its_own_schemes_without_asking(
     let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
     let output = Arc::new(RecordedOutput::default());
     let environment = printing_to(&output);
-    let program = engine.load(Path::new(waos_test_programs::OPENER)).unwrap();
+    let program = engine
+        .load(
+            Path::new(waos_test_programs::OPENER),
+            &waos_test_programs::code_of(waos_test_programs::OPENER),
+        )
+        .unwrap();
     let running = engine.run(&program, environment).unwrap();
     output.wait_for("listening for open requests");
     running.stop();
@@ -136,7 +146,12 @@ fn a_shell_without_an_opener_gives_the_program_none() {
     let engine = WaOS::new(config(), parts, shell.platform()).unwrap();
     let output = Arc::new(RecordedOutput::default());
     let environment = printing_to(&output);
-    let program = engine.load(Path::new(waos_test_programs::OPENER)).unwrap();
+    let program = engine
+        .load(
+            Path::new(waos_test_programs::OPENER),
+            &waos_test_programs::code_of(waos_test_programs::OPENER),
+        )
+        .unwrap();
     let running = engine.run(&program, environment).unwrap();
     output.wait_for("listening for open requests");
     running.stop();
@@ -266,7 +281,12 @@ fn run(
         folders: Some(own.clone()),
         ..printing_to(output)
     };
-    let program = engine.load(Path::new(waos_test_programs::OPENER)).unwrap();
+    let program = engine
+        .load(
+            Path::new(waos_test_programs::OPENER),
+            &waos_test_programs::code_of(waos_test_programs::OPENER),
+        )
+        .unwrap();
     let running = engine.run(&program, environment).unwrap();
     (running, own)
 }

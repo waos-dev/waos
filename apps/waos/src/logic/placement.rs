@@ -68,7 +68,6 @@ pub(crate) mod tests {
     use futures::StreamExt;
     use waos::{ProgramEnd, ProgramEnvironment, WaOS};
     use waos_store::Store;
-    use waos_test_programs::CODE_CACHE;
 
     use super::*;
     use crate::logic::test_engine::{self, WITHIN};
@@ -81,7 +80,10 @@ pub(crate) mod tests {
     /// Runs survey, which asks for a view as it starts, on `engine`.
     fn run_survey(engine: &WaOS) -> RunningProgram {
         let survey = engine
-            .load(Path::new(waos_test_programs::SURVEY))
+            .load(
+                Path::new(waos_test_programs::SURVEY),
+                &waos_test_programs::code_of(waos_test_programs::SURVEY),
+            )
             .expect("survey loads");
 
         engine
@@ -94,7 +96,7 @@ pub(crate) mod tests {
         let folder = tempfile::tempdir().unwrap();
         let (placement, mut arriving) =
             WindowsOnRequest::new(ProgramFaces::new(store_in(folder.path()), None));
-        let engine = test_engine::engine(Arc::new(placement), Path::new(CODE_CACHE));
+        let engine = test_engine::engine(Arc::new(placement));
         let running = run_survey(&engine);
         let arrived = tokio::time::timeout(WITHIN, arriving.next())
             .await
@@ -123,7 +125,7 @@ pub(crate) mod tests {
         let (placement, arriving) =
             WindowsOnRequest::new(ProgramFaces::new(store_in(folder.path()), None));
         drop(arriving);
-        let engine = test_engine::engine(Arc::new(placement), Path::new(CODE_CACHE));
+        let engine = test_engine::engine(Arc::new(placement));
         let running = run_survey(&engine);
         let end = tokio::time::timeout(WITHIN, running.ended()).await.unwrap();
         assert!(matches!(end, ProgramEnd::Returned(Err(()))), "{end:?}");

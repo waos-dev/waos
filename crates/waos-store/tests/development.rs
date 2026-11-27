@@ -9,7 +9,7 @@ use std::fs;
 use std::path::Path;
 
 use sha2::{Digest, Sha256};
-use support::write_package;
+use support::{install, install_development, write_package};
 use waos_package::{Manifest, Package, PackageError, ProgramId, SigningKey};
 use waos_store::{DevelopmentBuild, Setting, SourceProxy, Store};
 
@@ -42,11 +42,9 @@ fn a_development_install_is_a_program_of_its_own_beside_the_published_one() {
     let store = store(scratch.path());
     let key = SigningKey::generate();
     let package = write_package(scratch.path(), TRIANGLE, "1.0.0", &key);
-    store.install(Package::open(&package).unwrap()).unwrap();
+    install(&store, Package::open(&package).unwrap()).unwrap();
     let source = manifest("0.1.0");
-    let installed = store
-        .install_development(&build(&source, b"\0asm from source"))
-        .unwrap();
+    let installed = install_development(&store, &build(&source, b"\0asm from source")).unwrap();
 
     let development = triangle().development();
     assert_eq!(installed.manifest.id(), &development);
@@ -72,7 +70,13 @@ fn a_development_install_is_a_program_of_its_own_beside_the_published_one() {
         "published"
     );
     assert_eq!(
-        fs::read(store.program(&development).unwrap()).unwrap(),
+        fs::read(
+            store
+                .installed_version(&development)
+                .map(|version| version.component())
+                .unwrap()
+        )
+        .unwrap(),
         b"\0asm from source"
     );
     assert_eq!(store.icon(&development), None, "the build had no icon");
@@ -84,9 +88,7 @@ fn installing_again_replaces_the_component_and_keeps_its_data_and_settings() {
     let store = store(scratch.path());
     let development = triangle().development();
     let first = manifest("0.2.0");
-    store
-        .install_development(&build(&first, b"\0asm first"))
-        .unwrap();
+    install_development(&store, &build(&first, b"\0asm first")).unwrap();
     let data = store.folders(&development).unwrap().data;
     fs::write(data.join("notes.txt"), "kept").unwrap();
     store
@@ -100,11 +102,15 @@ fn installing_again_replaces_the_component_and_keeps_its_data_and_settings() {
     assert!(!store.holds_development(&first, &sha256(b"\0asm first"), Some(b"png")));
 
     let older = manifest("0.1.0");
-    store
-        .install_development(&build(&older, b"\0asm second"))
-        .unwrap();
+    install_development(&store, &build(&older, b"\0asm second")).unwrap();
     assert_eq!(
-        fs::read(store.program(&development).unwrap()).unwrap(),
+        fs::read(
+            store
+                .installed_version(&development)
+                .map(|version| version.component())
+                .unwrap()
+        )
+        .unwrap(),
         b"\0asm second",
         "whatever its version"
     );
@@ -143,9 +149,7 @@ async fn what_is_installed_tells_each_install_and_removal() {
     let mut changes = store.installed_changes();
     changes.borrow_and_update();
     let source = manifest("0.1.0");
-    store
-        .install_development(&build(&source, b"\0asm from source"))
-        .unwrap();
+    install_development(&store, &build(&source, b"\0asm from source")).unwrap();
     assert!(changes.has_changed().unwrap());
     changes.borrow_and_update();
     store.remove(&triangle().development()).unwrap();
@@ -164,9 +168,7 @@ fn a_development_install_opens_the_kinds_of_file_its_build_declares() {
     let source = manifest("0.1.0")
         .with_file_associations(vec![flash.clone()])
         .unwrap();
-    store
-        .install_development(&build(&source, b"\0asm from source"))
-        .unwrap();
+    install_development(&store, &build(&source, b"\0asm from source")).unwrap();
     let installed = store.installed_program(&triangle().development()).unwrap();
     assert_eq!(installed.manifest.file_associations(), [flash]);
 }

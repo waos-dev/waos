@@ -15,7 +15,7 @@
 //! state, and the program draws into a buffer only once its release says the copy is done.
 
 // Wrapping D3D12's shared textures into wgpu-core's textures is what this module is for; the rest
-// of the crate has no `unsafe` but where `code_cache` maps compiled code and `files` makes
+// of the crate has no `unsafe` but where `code_folder` maps compiled code and `files` makes
 // Windows' file calls.
 #![allow(unsafe_code)]
 

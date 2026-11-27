@@ -3,10 +3,13 @@
 
 mod support;
 
-use support::{Server, component_of, listing, write_package};
+use support::{
+    Server, component_of, install, install_development, install_from, listing, write_package,
+};
 use waos_package::{Index, Manifest, SigningKey};
 use waos_store::{
-    DevelopmentBuild, InstallError, Source, SourceError, SourceProxy, Store, StoreError,
+    DevelopmentBuild, DownloadProgress, InstallError, Source, SourceError, SourceProxy, Store,
+    StoreError,
 };
 
 const TRIANGLE: &str = "dev.example.triangle";
@@ -169,9 +172,28 @@ async fn a_listed_package_is_downloaded_and_installed() {
     .await;
     let store = Store::open(&scratch.path().join("store"), SourceProxy::None).unwrap();
     let source = source(&server.url("waos"));
-    let installed = store.install_from(&source, &listed).await.unwrap();
+    let mut heard = Vec::new();
+    let download = store
+        .download(&source, &listed, |progress| heard.push(progress))
+        .await
+        .unwrap();
+    let length = std::fs::metadata(&package).unwrap().len();
+    assert_eq!(
+        heard.last(),
+        Some(&DownloadProgress {
+            received: length,
+            total: Some(length)
+        }),
+        "{heard:?}"
+    );
+    let installed = store
+        .commit(store.stage_download(download).await.unwrap())
+        .unwrap();
     assert_eq!(installed.publisher(), Some(key.publisher()));
-    let component = store.program(&TRIANGLE.parse().unwrap()).unwrap();
+    let component = store
+        .installed_version(&TRIANGLE.parse().unwrap())
+        .map(|version| version.component())
+        .unwrap();
     assert_eq!(
         std::fs::read(component).unwrap(),
         component_of(TRIANGLE, "1.2.0")
@@ -190,8 +212,7 @@ async fn a_download_unlike_its_listing_is_refused_before_it_is_opened() {
     )])
     .await;
     let store = Store::open(&scratch.path().join("store"), SourceProxy::None).unwrap();
-    let error = store
-        .install_from(&source(&server.url("apps")), &listed)
+    let error = install_from(&store, &source(&server.url("apps")), &listed)
         .await
         .unwrap_err();
     assert!(
@@ -223,8 +244,7 @@ async fn a_package_that_is_not_the_program_listed_is_refused() {
     )])
     .await;
     let store = Store::open(&scratch.path().join("store"), SourceProxy::None).unwrap();
-    let error = store
-        .install_from(&source(&server.url("apps")), &listed)
+    let error = install_from(&store, &source(&server.url("apps")), &listed)
         .await
         .unwrap_err();
     assert!(matches!(error, InstallError::NotAsListed { .. }), "{error}");
@@ -236,9 +256,7 @@ async fn an_update_from_a_source_must_be_signed_with_the_installed_key() {
     let scratch = tempfile::tempdir().unwrap();
     let store = Store::open(&scratch.path().join("store"), SourceProxy::None).unwrap();
     let first = write_package(scratch.path(), TRIANGLE, "1.0.0", &SigningKey::generate());
-    store
-        .install(waos_package::Package::open(&first).unwrap())
-        .unwrap();
+    install(&store, waos_package::Package::open(&first).unwrap()).unwrap();
     let other = write_package(scratch.path(), TRIANGLE, "2.0.0", &SigningKey::generate());
     let listed = listing(&other, TRIANGLE, "2.0.0");
     let server = Server::serve(vec![(
@@ -246,8 +264,7 @@ async fn an_update_from_a_source_must_be_signed_with_the_installed_key() {
         std::fs::read(&other).unwrap(),
     )])
     .await;
-    let error = store
-        .install_from(&source(&server.url("apps")), &listed)
+    let error = install_from(&store, &source(&server.url("apps")), &listed)
         .await
         .unwrap_err();
     assert!(
@@ -264,22 +281,22 @@ async fn an_update_from_a_source_never_touches_a_development_install() {
     let store = Store::open(&scratch.path().join("store"), SourceProxy::None).unwrap();
     let key = SigningKey::generate();
     let published = write_package(scratch.path(), TRIANGLE, "1.0.0", &key);
-    store
-        .install(waos_package::Package::open(&published).unwrap())
-        .unwrap();
+    install(&store, waos_package::Package::open(&published).unwrap()).unwrap();
     let source_manifest = Manifest::new(
         TRIANGLE.parse().unwrap(),
         "Triangle",
         "0.1.0".parse().unwrap(),
     )
     .unwrap();
-    store
-        .install_development(&DevelopmentBuild {
+    install_development(
+        &store,
+        &DevelopmentBuild {
             manifest: &source_manifest,
             component: b"\0asm from source",
             icon: None,
-        })
-        .unwrap();
+        },
+    )
+    .unwrap();
     let development = "dev.example.triangle.development";
     let update = write_package(scratch.path(), TRIANGLE, "2.0.0", &key);
     let update_listed = listing(&update, TRIANGLE, "2.0.0");
@@ -296,9 +313,8 @@ async fn an_update_from_a_source_never_touches_a_development_install() {
     .await;
     let source = source(&server.url("apps"));
 
-    store.install_from(&source, &update_listed).await.unwrap();
-    let error = store
-        .install_from(&source, &posing_listed)
+    install_from(&store, &source, &update_listed).await.unwrap();
+    let error = install_from(&store, &source, &posing_listed)
         .await
         .unwrap_err();
     assert!(
@@ -325,6 +341,9 @@ async fn an_update_from_a_source_never_touches_a_development_install() {
             (development.to_owned(), "0.1.0".to_owned(), true),
         ]
     );
-    let component = store.program(&development.parse().unwrap()).unwrap();
+    let component = store
+        .installed_version(&development.parse().unwrap())
+        .map(|version| version.component())
+        .unwrap();
     assert_eq!(std::fs::read(component).unwrap(), b"\0asm from source");
 }

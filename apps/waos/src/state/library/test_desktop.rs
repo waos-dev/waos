@@ -43,7 +43,6 @@ use waos_store::{SourceProxy, Store};
 
 use super::{Library, ProgramsOpen, open_library, open_settings_when_asked, show_phone_files};
 use crate::logic::environments::ProgramEnvironments;
-use crate::logic::installed_code::HeldCompiles;
 use crate::logic::installed_runs::InstalledRuns;
 use crate::logic::opened_package::tests::{write_package, write_package_of, write_package_showing};
 use crate::logic::package_copies::PackageCopies;
@@ -178,10 +177,10 @@ impl LibraryDesktop {
             Arc::new(placement),
             Arc::clone(&prompts) as Arc<dyn waos::Prompts>,
             Arc::new(store.clone()),
-            &folder.path().join("code"),
         );
         let installed_runs = InstalledRuns::new(
             Arc::new(engine),
+            store.clone(),
             ProgramEnvironments::with_audio(
                 waos_local::LocalCapabilities::new(),
                 Some(Arc::new(StatedOutputs)),
@@ -285,7 +284,13 @@ impl LibraryDesktop {
         let manifest = Manifest::new(id.parse().unwrap(), name, "1.0.0".parse().unwrap())
             .unwrap()
             .with_category(category);
-        write_package_showing(&packages, &manifest, b"\0asm", icon, &self.key)
+        write_package_showing(
+            &packages,
+            &manifest,
+            crate::logic::test_installs::EMPTY_COMPONENT,
+            icon,
+            &self.key,
+        )
     }
 
     /// A package of `id` named `name` at 1.0.0, filed under `category`.
@@ -300,7 +305,12 @@ impl LibraryDesktop {
         let manifest = Manifest::new(id.parse().unwrap(), name, "1.0.0".parse().unwrap())
             .unwrap()
             .with_category(Some(category));
-        write_package_of(&packages, &manifest, b"\0asm", &self.key)
+        write_package_of(
+            &packages,
+            &manifest,
+            crate::logic::test_installs::EMPTY_COMPONENT,
+            &self.key,
+        )
     }
 
     /// WaOS goes to the background and comes back to the front, as the user leaving it for the
@@ -325,21 +335,44 @@ impl LibraryDesktop {
         read(self.library.read(&self.shell.app()))
     }
 
-    /// Frames until no installed program's code is being compiled, as after an install.
-    pub(crate) fn settle_until_code_is_ready(&mut self) {
-        self.settle_until("the programs' code", |desktop| {
-            desktop.read(|library| {
-                library
-                    .installed()
-                    .iter()
-                    .all(|program| !library.is_compiling(program.manifest.id()))
-            })
+    /// Installs the test program at `component` as `id`, named `name`, at 1.0.0, from a package,
+    /// its code compiled already (`logic::test_installs`), and frames until the library shows it.
+    pub(crate) fn install_compiled(&mut self, id: &str, name: &str, component: &str) {
+        let bytes = std::fs::read(component).unwrap();
+        let package =
+            waos_package::Package::open(&self.package(id, name, "1.0.0", &bytes)).unwrap();
+        let (store, engine) =
+            self.read(|library| (library.store.clone(), Arc::clone(&library.runs.engine)));
+        crate::logic::test_installs::install_package(&store, &engine, package, component);
+        let installed: waos_package::ProgramId = id.parse().unwrap();
+        self.settle_until("the library shows the program", |desktop| {
+            desktop.read(|library| library.installed_program(&installed).is_some())
         });
     }
 
-    /// Holds the library's compiles back until the answer is dropped.
-    pub(crate) fn hold_compiles(&self) -> HeldCompiles {
-        self.read(|library| library.runs.code.hold())
+    /// The code folder of the version of the program `id` installed now.
+    pub(crate) fn code_of(&self, id: &str) -> std::path::PathBuf {
+        let id = id.parse().unwrap();
+        self.read(|library| library.store.installed_version(&id).unwrap().code())
+    }
+
+    /// The program `id` loaded, which holds its turn until the answer is dropped, as an open
+    /// holds it from its load to its start: an install or removal of it waits meanwhile.
+    pub(crate) fn hold_turn(&self, id: &str) -> crate::logic::package_manager::Loaded {
+        let id = id.parse().unwrap();
+        let (runtime, packages) =
+            self.read(|library| (library.runtime(), Arc::clone(&library.runs.packages)));
+        runtime
+            .block_on(packages.load(&id))
+            .expect("the program loads")
+    }
+
+    /// Frames until the package manager is done with every program, as after an install, its
+    /// code compiled.
+    pub(crate) fn settle_until_operations_end(&mut self) {
+        self.settle_until("the package manager's work", |desktop| {
+            desktop.read(|library| library.operations.borrow().is_empty())
+        });
     }
 
     /// The windows made so far, in the order they were asked for.

@@ -124,7 +124,12 @@ fn a_waiting_output_picker_is_answered_by_setting_its_row_and_drops_its_prompt()
     let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
     shell.sound.hold_picks();
     let grants = Arc::new(QuestionsAsked::default());
-    let program = engine.load(Path::new(waos_test_programs::SOUND)).unwrap();
+    let program = engine
+        .load(
+            Path::new(waos_test_programs::SOUND),
+            &waos_test_programs::code_of(waos_test_programs::SOUND),
+        )
+        .unwrap();
     let output = Arc::new(RecordedOutput::default());
     let devices = Arc::new(TestDevices::default());
     let environment = ProgramEnvironment {
@@ -214,7 +219,12 @@ fn devices_without_a_microphone_refuse_it_and_ask_nothing() {
 fn a_program_given_no_sound_devices_has_no_sound() {
     let shell = TestShell::new();
     let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
-    let program = engine.load(Path::new(waos_test_programs::SOUND)).unwrap();
+    let program = engine
+        .load(
+            Path::new(waos_test_programs::SOUND),
+            &waos_test_programs::code_of(waos_test_programs::SOUND),
+        )
+        .unwrap();
     let output = Arc::new(RecordedOutput::default());
     let environment = printing_to(&output);
     let running = engine.run(&program, environment).unwrap();
@@ -253,7 +263,12 @@ fn a_program_is_unfrozen_while_it_plays_frozen_while_its_tone_waits_and_trapped_
         ..config()
     };
     let engine = WaOS::new(config, shell.shell(), shell.platform()).unwrap();
-    let program = engine.load(Path::new(waos_test_programs::TONE)).unwrap();
+    let program = engine
+        .load(
+            Path::new(waos_test_programs::TONE),
+            &waos_test_programs::code_of(waos_test_programs::TONE),
+        )
+        .unwrap();
     let output = Arc::new(RecordedOutput::default());
     let environment = ProgramEnvironment {
         audio: Some(Arc::new(TestDevices::default()) as Arc<dyn AudioDevices>),
@@ -312,7 +327,12 @@ fn run_sound_with(
     devices: TestDevices,
     grants: QuestionsAsked,
 ) -> (Arc<RecordedOutput>, Arc<TestDevices>, RunningProgram) {
-    let program = engine.load(Path::new(waos_test_programs::SOUND)).unwrap();
+    let program = engine
+        .load(
+            Path::new(waos_test_programs::SOUND),
+            &waos_test_programs::code_of(waos_test_programs::SOUND),
+        )
+        .unwrap();
     let output = Arc::new(RecordedOutput::default());
     let devices = Arc::new(devices);
     let environment = ProgramEnvironment {

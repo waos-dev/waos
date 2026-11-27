@@ -43,7 +43,7 @@ use waft_test::{
     BarsShown, MockCompositor, TestPlatform, TestView, TestWindow, TestWindows, TextInputCall,
 };
 use waft_winui::install_icon_font;
-use waos::{ProgramEnd, ProgramView, ViewPlacement};
+use waos::{ProgramEnd, ProgramView, ViewPlacement, WaOS};
 use waos_package::{ProgramId, SigningKey};
 use waos_program_window::{ProgramCanvas, WindowRestoration};
 use waos_store::{SourceProxy, Store};
@@ -216,6 +216,9 @@ pub(crate) struct TestPhone {
     /// The programs' windows, on a phone of tasks.
     pub(crate) view_windows: Entity<ViewWindows>,
     pub(crate) runs: Arc<Runs>,
+    /// The store the library is over, and the engine its programs run on.
+    store: Store,
+    engine: Arc<WaOS>,
     /// Where the programs' questions to their user are put.
     pub(crate) prompts: Arc<PromptsOnRequest>,
     pub(crate) folder: TempDir,
@@ -268,12 +271,13 @@ impl TestPhone {
         };
         let (prompts, prompted) = PromptsOnRequest::new(crate::logic::asking_now::AskingNow::new());
         let prompts = Arc::new(prompts);
+        let engine = Arc::new(test_engine::engine_asking(
+            Arc::new(placement),
+            Arc::clone(&prompts) as Arc<dyn waos::Prompts>,
+        ));
         let installed_runs = InstalledRuns::new(
-            Arc::new(test_engine::engine_asking(
-                Arc::new(placement),
-                Arc::clone(&prompts) as Arc<dyn waos::Prompts>,
-                &folder.path().join("code"),
-            )),
+            Arc::clone(&engine),
+            store.clone(),
             ProgramEnvironments::new(waos_local::LocalCapabilities::new(), store.clone()),
             Arc::clone(&runs),
             places,
@@ -292,7 +296,7 @@ impl TestPhone {
         }
         let platform = Rc::new(platform);
         let (_indicator, recording_changes) = RecordingIndicatorOnRequest::new();
-        let (served, deck_runs) = (store, Arc::clone(&runs));
+        let (served, deck_runs) = (store.clone(), Arc::clone(&runs));
         let started = Rc::new(std::cell::RefCell::new(None));
         let kept = Rc::clone(&started);
         let shell = Shell::new(Rc::clone(&platform) as PlatformRef, move |app| {
@@ -348,6 +352,8 @@ impl TestPhone {
             tabs,
             view_windows,
             runs,
+            store,
+            engine,
             prompts,
             folder,
             key: SigningKey::generate(),
@@ -369,28 +375,23 @@ impl TestPhone {
         phone
     }
 
-    /// Installs the test program at `component` as `id`, named `name`, as a package opened with
-    /// WaOS is once the user says yes, and waits until its code is ready.
+    /// Installs the test program at `component` as `id`, named `name`, from a package, its code
+    /// compiled already (`logic::test_installs`), and waits until the library shows it.
     pub(crate) fn install(&mut self, component: &str, id: &str, name: &str) {
         let packages = self.folder.path().join("packages");
         std::fs::create_dir_all(&packages).unwrap();
-        let component = std::fs::read(component).unwrap();
-        let file = write_package(&packages, id, name, "1.0.0", &component, &self.key);
-        self.library.update(&mut self.shell.app(), |library, cx| {
-            library.open_files(vec![file], cx)
-        });
-        self.library.update(&mut self.shell.app(), |library, cx| {
-            library.answer(true, cx)
-        });
+        let bytes = std::fs::read(component).unwrap();
+        let file = write_package(&packages, id, name, "1.0.0", &bytes, &self.key);
+        let package = waos_package::Package::open(&file).unwrap();
+        crate::logic::test_installs::install_package(&self.store, &self.engine, package, component);
         let installed: ProgramId = id.parse().unwrap();
-        self.settle_until("the program is installed, its code ready", |phone| {
+        self.settle_until("the library shows the program", |phone| {
             let app = phone.shell.app();
             let library = phone.library.read(&app);
-            let is_installed = library
+            library
                 .installed()
                 .iter()
-                .any(|program| program.manifest.id() == &installed);
-            is_installed && !library.is_compiling(&installed)
+                .any(|program| program.manifest.id() == &installed)
         });
     }
 

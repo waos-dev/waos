@@ -341,12 +341,11 @@ impl ProgramApps {
         if let Some(program) = runs.runs.running(id).await {
             return Ok(program);
         }
-        let component = self
-            .store
-            .program(id)
-            .ok_or_else(|| format!("{id} is not installed, and does not run"))?;
+        if self.store.installed_program(id).is_none() {
+            return Err(format!("{id} is not installed, and does not run"));
+        }
         let opened = runs
-            .open(id, component, ProgramPlace::Windows, Opening::ByTheUser)
+            .open(id, ProgramPlace::Windows, Opening::ByTheUser)
             .await
             .map_err(|error| format!("{error:#}"))?;
         Ok(opened.program().clone())

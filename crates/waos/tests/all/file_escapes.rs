@@ -106,7 +106,10 @@ fn a_program_leaves_its_mounts_by_no_name_ending_in_a_slash_and_by_no_mount_besi
     let shell = TestShell::new();
     let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
     let program = engine
-        .load(Path::new(waos_test_programs::FILE_ESCAPES))
+        .load(
+            Path::new(waos_test_programs::FILE_ESCAPES),
+            &waos_test_programs::code_of(waos_test_programs::FILE_ESCAPES),
+        )
         .unwrap();
     let grants = Arc::new(TestGrants::new(machine.mounts()));
     let output = Arc::new(RecordedOutput::default());

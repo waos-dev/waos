@@ -32,7 +32,10 @@ fn a_program_reads_its_permissions_asks_once_and_hears_each_change() {
     let shell = TestShell::new();
     let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
     let program = engine
-        .load(Path::new(waos_test_programs::PERMISSIONS))
+        .load(
+            Path::new(waos_test_programs::PERMISSIONS),
+            &waos_test_programs::code_of(waos_test_programs::PERMISSIONS),
+        )
         .unwrap();
     let grants = Arc::new(TestGrants::new());
     let output = Arc::new(RecordedOutput::default());
@@ -100,7 +103,10 @@ fn notifications_the_user_allowed_read_denied_once_the_system_asked_after_denies
     shell.notifications.keep_permissions();
     shell.notifications.refuse(true);
     let program = engine
-        .load(Path::new(waos_test_programs::PERMISSIONS))
+        .load(
+            Path::new(waos_test_programs::PERMISSIONS),
+            &waos_test_programs::code_of(waos_test_programs::PERMISSIONS),
+        )
         .unwrap();
     let grants = Arc::new(TestGrants::new());
     let output = Arc::new(RecordedOutput::default());
@@ -139,7 +145,10 @@ fn a_program_given_no_grants_is_granted_nothing_and_asks_nobody() {
     let shell = TestShell::new();
     let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
     let program = engine
-        .load(Path::new(waos_test_programs::PERMISSIONS))
+        .load(
+            Path::new(waos_test_programs::PERMISSIONS),
+            &waos_test_programs::code_of(waos_test_programs::PERMISSIONS),
+        )
         .unwrap();
     let output = Arc::new(RecordedOutput::default());
     let running = engine.run(&program, printing_to(&output)).unwrap();
@@ -177,7 +186,10 @@ fn a_waiting_permission_question_is_answered_by_setting_its_row_and_drops_its_pr
         let shell = TestShell::new();
         let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
         let program = engine
-            .load(Path::new(waos_test_programs::PERMISSIONS))
+            .load(
+                Path::new(waos_test_programs::PERMISSIONS),
+                &waos_test_programs::code_of(waos_test_programs::PERMISSIONS),
+            )
             .unwrap();
         let grants = Arc::new(TestGrants::new());
         let output = Arc::new(RecordedOutput::default());

@@ -1,32 +1,35 @@
-//! Opening an installed program: its component, from the store, its code waited for while it is
-//! compiled (`installed_code`), as at its install, or compiled where the cache holds none current,
-//! then loaded off the caller's thread and run in WaOS as `waos launch` runs one, its output to
-//! WaOS's log and to whoever attaches (`launch_outputs`), with this computer's capabilities, the
-//! grants of its own settings and its own folders, its views going where its place says, set before
-//! it starts (`program_places`). It is named by its id, which names it among the runs, so a quit
-//! asks it while it runs, in WaOS's log, where its output goes under the `program` target, and to
-//! the questions it puts to its user. A program running already is left as it is. A tool, a program
-//! its manifest declares has no UI, opened by the user from an icon is refused: no opening here has
-//! a terminal for its input and output, and WaOS shows none of its own yet. One started to be
-//! handed files or a click on its notification runs as any program does, which it may answer with
-//! no window.
+//! Starting a run of an installed program, however it is asked for: opened by the user or to be
+//! handed something (`open`), launched by `waos launch` with its arguments and variables
+//! (`launch`), or held for an inspector (`start_held`). Each loads the program through the package
+//! manager (`package_manager`), which compiles its code first where it is missing, then runs it in
+//! WaOS with this computer's capabilities, the grants of its own settings and its own folders, its
+//! output to WaOS's log and to whoever attaches (`launch_outputs`), its views going where its
+//! place says, set before it starts (`program_places`). It is named by its id, which names it
+//! among the runs, so a quit asks it while it runs, in WaOS's log, where its output goes under the
+//! `program` target, and to the questions it puts to its user. An open leaves a program running
+//! already as it is; a launch and a held start take the place of the run before, which ends
+//! `Replaced`. A tool, a program its manifest declares has no UI, opened by the user from an icon
+//! is refused: no opening here has a terminal for its input and output, and WaOS shows none of
+//! its own yet. One
+//! started to be handed files or a click on its notification runs as any program does, which it
+//! may answer with no window.
 //!
 //! The invariant: a run started here is taken out of the runs once it ends, by a task of the
 //! runtime it was started on, its output told how it ended first, so the runs never hold an ended
-//! program of the library's and every attach hears its end; and every run of every program, the
-//! library's, `waos launch`'s and an inspector's, writes to an output of `outputs`, so any program
-//! running is attached to.
+//! program and every attach hears its end; every run of every program writes to an output of
+//! `outputs`, so any program running is attached to; and the program loaded keeps its app's turn
+//! until its run is among the runs, so no removal or update lands between the two.
 
-use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::{Context, Result, ensure};
-use waos::{ProgramEnvironment, ProgramOutput, RunningProgram, WaOS};
+use waos::{HeldProgram, ProgramEnvironment, ProgramOutput, RunningProgram, WaOS};
 use waos_package::{ProgramId, ProgramKind};
+use waos_store::Store;
 
 use super::environments::ProgramEnvironments;
-use super::installed_code::InstalledCode;
 use super::launch_outputs::{LaunchOutput, LaunchOutputs};
+use super::package_manager::PackageManager;
 use super::program_places::{ProgramPlace, ProgramPlaces};
 use super::runs::{Run, Runs, Started};
 
@@ -64,8 +67,8 @@ impl OpenedRun {
 #[derive(Clone)]
 pub(crate) struct InstalledRuns {
     pub(crate) engine: Arc<WaOS>,
-    /// The installed programs' code, which an open waits for while it is compiled.
-    pub(crate) code: Arc<InstalledCode>,
+    /// What installs, removes and loads the programs.
+    pub(crate) packages: Arc<PackageManager>,
     /// What each program runs with.
     pub(crate) environments: Arc<ProgramEnvironments>,
     pub(crate) runs: Arc<Runs>,
@@ -76,16 +79,21 @@ pub(crate) struct InstalledRuns {
 }
 
 impl InstalledRuns {
-    /// Opening installed programs on `engine`, each run with what `environments` gives it, among
-    /// `runs`, its views going where `places` says.
+    /// Running the programs installed in `store` on `engine`, each run with what `environments`
+    /// gives it, among `runs`, its views going where `places` says.
     pub(crate) fn new(
         engine: Arc<WaOS>,
+        store: Store,
         environments: Arc<ProgramEnvironments>,
         runs: Arc<Runs>,
         places: ProgramPlaces,
     ) -> InstalledRuns {
         InstalledRuns {
-            code: Arc::new(InstalledCode::new(Arc::clone(&engine))),
+            packages: Arc::new(PackageManager::new(
+                store,
+                Arc::clone(&engine),
+                Arc::clone(&runs),
+            )),
             engine,
             environments,
             runs,
@@ -121,40 +129,39 @@ impl InstalledRuns {
         });
     }
 
-    /// Runs the installed program `id`, whose component is at `component`, its views going to
-    /// `place`, unless it runs already, which keeps its place, for `opening`, which refuses a tool
-    /// the user opened; answers the program once it has started, or the one running, or why it
-    /// could not start. Its end is waited for on a task of the runtime this runs on.
+    /// Runs the installed program `id`, its views going to `place`, unless it runs already,
+    /// which keeps its place, for `opening`, which refuses a tool the user opened; answers the
+    /// program once it has started, or the one running, or why it could not start. Its end is
+    /// waited for on a task of the runtime this runs on.
     pub(crate) async fn open(
         &self,
         id: &ProgramId,
-        component: PathBuf,
         place: ProgramPlace,
         opening: Opening,
     ) -> Result<OpenedRun> {
-        let name = id.as_str();
+        if let Some(program) = self.runs.running(id).await {
+            tracing::info!(%id, "opened again while it runs: left as it is");
+            return Ok(OpenedRun::RunningAlready(program));
+        }
         let mut output = None;
-        self.code_ready(id, &component)
-            .await
-            .with_context(|| format!("{id} could not be opened"))?;
-        let started = self
-            .runs
-            .start_unless_running(id, async || {
-                let engine = Arc::clone(&self.engine);
-                let loading = tokio::task::spawn_blocking(move || engine.load(&component));
-                let program = loading.await.context("the load's thread")??.named(name);
-                ensure!(
-                    opening != Opening::ByTheUser
-                        || self.environments.kind_of(id) == ProgramKind::App,
-                    NO_TERMINAL
-                );
-                let (environment, its_output) = self.with_output(id, self.environments.of(id)?);
-                output = Some(its_output);
-                self.places.set(id, place);
-                self.engine.run(&program, environment)
-            })
-            .await
-            .with_context(|| format!("{id} could not be opened"))?;
+        let started = async {
+            let loaded = self.packages.load(id).await?;
+            self.runs
+                .start_unless_running(id, async || {
+                    ensure!(
+                        opening != Opening::ByTheUser
+                            || self.environments.kind_of(id) == ProgramKind::App,
+                        NO_TERMINAL
+                    );
+                    let (environment, its_output) = self.with_output(id, self.environments.of(id)?);
+                    output = Some(its_output);
+                    self.places.set(id, place);
+                    self.engine.run(&loaded.program, environment)
+                })
+                .await
+        }
+        .await
+        .with_context(|| format!("{id} could not be opened"))?;
         let run = match started {
             Started::New(run) => run,
             Started::Running(program) => {
@@ -162,20 +169,58 @@ impl InstalledRuns {
                 return Ok(OpenedRun::RunningAlready(program));
             }
         };
-        tracing::info!(%id, "opened from the library");
+        tracing::info!(%id, "opened");
         let program = run.program.clone();
         let output = output.context("a run that started writes to its output")?;
         self.take_out_once_ended(id, run, output);
         Ok(OpenedRun::Started(program))
     }
 
-    /// Resolves once the code of the program `id`, whose component is at `component`, is in the
-    /// cache, or at once while the program runs. Waited for before the runs' lock is taken, which
-    /// every start and every quit takes, so a compile holds back no other program's open.
-    async fn code_ready(&self, id: &ProgramId, component: &Path) -> Result<()> {
-        if self.runs.running(id).await.is_some() {
-            return Ok(());
-        }
-        self.code.compile(id, component).await
+    /// Runs the installed program `id` with `arguments` and the `variables` it alone adds
+    ///, in place of its run if it runs, as `waos launch` asks; answers once it has
+    /// started. Its end is waited for on a task of the runtime this runs on.
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    pub(crate) async fn launch(
+        &self,
+        id: &ProgramId,
+        arguments: Vec<String>,
+        variables: Vec<(String, String)>,
+    ) -> Result<()> {
+        let environment = self.environments.of(id)?;
+        let loaded = self.packages.load(id).await?;
+        let (environment, output) = self.with_output(id, environment);
+        let environment = ProgramEnvironment {
+            variables,
+            arguments,
+            ..environment
+        };
+        let run = self
+            .runs
+            .start_in_place(id, || self.engine.run(&loaded.program, environment))
+            .await?;
+        tracing::info!(%id, "launched");
+        self.take_out_once_ended(id, run, output);
+        Ok(())
+    }
+
+    /// Starts the installed program `id` held for an inspector, in place of its run if it runs,
+    /// its views where programs usually go; answers it held.
+    pub(crate) async fn start_held(&self, id: &ProgramId) -> Result<HeldProgram> {
+        let environment = self.environments.of(id)?;
+        let loaded = self.packages.load(id).await?;
+        let (environment, output) = self.with_output(id, environment);
+        self.places.set(id, self.places.usual());
+        let mut held = None;
+        let run = self
+            .runs
+            .start_in_place(id, || {
+                let (running, hold) = self.engine.run_held(&loaded.program, environment)?;
+                held = Some(hold);
+                Ok(running)
+            })
+            .await?;
+        tracing::info!(%id, "started held for an inspector");
+        self.take_out_once_ended(id, run, output);
+        held.context("a run that started is held")
     }
 }

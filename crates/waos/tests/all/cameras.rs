@@ -319,7 +319,12 @@ impl Run {
             folders: Some(own),
             ..printing_to(&output)
         };
-        let program = engine.load(Path::new(waos_test_programs::CAMERAS)).unwrap();
+        let program = engine
+            .load(
+                Path::new(waos_test_programs::CAMERAS),
+                &waos_test_programs::code_of(waos_test_programs::CAMERAS),
+            )
+            .unwrap();
         let running = engine.run(&program, environment).unwrap();
         Run {
             running,

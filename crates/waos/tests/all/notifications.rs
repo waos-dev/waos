@@ -103,7 +103,10 @@ fn a_program_given_no_grants_is_denied_every_post_and_nobody_is_asked() {
     let output = Arc::new(RecordedOutput::default());
     let environment = printing_to(&output);
     let program = engine
-        .load(Path::new(waos_test_programs::NOTIFICATIONS))
+        .load(
+            Path::new(waos_test_programs::NOTIFICATIONS),
+            &waos_test_programs::code_of(waos_test_programs::NOTIFICATIONS),
+        )
         .unwrap();
     let running = engine.run(&program, environment).unwrap();
     for line in [
@@ -398,7 +401,10 @@ fn run(
         ..printing_to(output)
     };
     let program = engine
-        .load(Path::new(waos_test_programs::NOTIFICATIONS))
+        .load(
+            Path::new(waos_test_programs::NOTIFICATIONS),
+            &waos_test_programs::code_of(waos_test_programs::NOTIFICATIONS),
+        )
         .unwrap()
         .named(name);
     engine.run(&program, environment).unwrap()

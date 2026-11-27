@@ -8,7 +8,6 @@ use waos::{
     EngineTime, NoPrompts, ProgramEnd, ProgramEnvironment, ProgramOutput, ShellFileDialogs,
 };
 use waos_package::ProgramId;
-use waos_test_programs::CODE_CACHE;
 use waos_window_messages::{FileDialogId, FromWindow, ToWindow};
 
 use super::*;
@@ -32,9 +31,12 @@ fn file_dialogs_id() -> ProgramId {
 fn file_dialogs_through(reach: &Arc<AppReach>, printed: &Arc<Printed>) -> RunningProgram {
     let mut shell = test_engine::shell(Arc::new(NoWindows), Arc::new(NoPrompts));
     shell.file_dialogs = Some(Arc::clone(reach) as Arc<dyn ShellFileDialogs>);
-    let engine = test_engine::engine_over(shell, EngineTime::Real, Path::new(CODE_CACHE));
+    let engine = test_engine::engine_over(shell, EngineTime::Real);
     let file_dialogs = engine
-        .load(Path::new(waos_test_programs::FILE_DIALOGS))
+        .load(
+            Path::new(waos_test_programs::FILE_DIALOGS),
+            &waos_test_programs::code_of(waos_test_programs::FILE_DIALOGS),
+        )
         .expect("file-dialogs loads")
         .named(FILE_DIALOGS);
     let environment = ProgramEnvironment {

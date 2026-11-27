@@ -192,10 +192,12 @@ mod tests {
         let component = fs::read(waos_test_programs::OPENER).unwrap();
         let key = waos_package::SigningKey::generate();
         let package = write_package(&packages, OPENER, "Opener", "1.0.0", &component, &key);
-        server
-            .store
-            .install(waos_package::Package::open(&package).unwrap())
-            .unwrap();
+        crate::logic::test_installs::install_package(
+            &server.store,
+            &server.installed.engine,
+            waos_package::Package::open(&package).unwrap(),
+            waos_test_programs::OPENER,
+        );
         let file = fs::canonicalize(&server.folder).unwrap().join("notes.md");
         fs::write(&file, "my notes").unwrap();
         let id = OPENER.parse().unwrap();

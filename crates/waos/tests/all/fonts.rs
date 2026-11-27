@@ -108,7 +108,12 @@ fn a_program_given_no_fonts_gets_empty_answers() {
 fn run_fonts(environment: ProgramEnvironment) -> Vec<String> {
     let shell = TestShell::new();
     let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
-    let fonts = engine.load(Path::new(waos_test_programs::FONTS)).unwrap();
+    let fonts = engine
+        .load(
+            Path::new(waos_test_programs::FONTS),
+            &waos_test_programs::code_of(waos_test_programs::FONTS),
+        )
+        .unwrap();
     let output = Arc::new(RecordedOutput::default());
     let environment = ProgramEnvironment {
         output: Some(Arc::clone(&output) as Arc<dyn ProgramOutput>),

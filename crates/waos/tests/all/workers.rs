@@ -141,7 +141,12 @@ fn a_frozen_programs_worker_stops_counting_until_the_unfreeze() {
         ..config()
     };
     let engine = WaOS::new(config, shell.shell(), shell.platform()).unwrap();
-    let workers = engine.load(Path::new(waos_test_programs::WORKERS)).unwrap();
+    let workers = engine
+        .load(
+            Path::new(waos_test_programs::WORKERS),
+            &waos_test_programs::code_of(waos_test_programs::WORKERS),
+        )
+        .unwrap();
     let output = Arc::new(RecordedOutput::default());
     let running = engine.run(&workers, printing_to(&output)).unwrap();
     let view = within(shell.headless.view(0))
@@ -188,7 +193,12 @@ const FOCUSED: Presence = Presence {
 fn run_workers() -> (WaOS, RunningProgram, Arc<RecordedOutput>) {
     let shell = TestShell::new();
     let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
-    let workers = engine.load(Path::new(waos_test_programs::WORKERS)).unwrap();
+    let workers = engine
+        .load(
+            Path::new(waos_test_programs::WORKERS),
+            &waos_test_programs::code_of(waos_test_programs::WORKERS),
+        )
+        .unwrap();
     let output = Arc::new(RecordedOutput::default());
     let running = engine.run(&workers, printing_to(&output)).unwrap();
     (engine, running, output)
