@@ -1,6 +1,6 @@
 //! What `waos launch` and `waos stop` ask. A launch starts an
 //! installed program, a development install or any other, in place of its run if it runs, which
-//! ends `Replaced` (`InstalledRuns::launch`), with the launch's arguments and the variables it
+//! ends `Replaced` (`app_starter`), with the launch's arguments and the variables it
 //! alone adds, and its output going to the attaches (`launch_outputs`). Where its
 //! code is compiled first, after a compiler change, the package manager says the program is
 //! `Optimizing`, and the connection hears `Compiling`. The launch is answered `Launched` once the
@@ -9,8 +9,10 @@
 //! not started. A stop ends the program running, however it was started.
 //!
 //! The invariant: a launched run's end is told to its output, then the run is taken out of the
-//! runs, by a task of the server's runtime (`InstalledRuns::take_out_once_ended`), so every attach
+//! running apps, by a task of the server's runtime (`app_starter`), so every attach
 //! hears how it ended and the runs never hold an ended program.
+
+use std::sync::Arc;
 
 use tracing::Instrument;
 use waos_dev_protocol::{
@@ -19,15 +21,16 @@ use waos_dev_protocol::{
 use waos_package::ProgramId;
 use waos_store::Store;
 
+use super::app_starter::{AppStarter, Opening, StartRequest};
 use super::dev_refusal;
-use super::installed_runs::InstalledRuns;
-use super::package_manager::PackageOperation;
-use super::running_apps::RunningApps;
+use super::package_manager::{PackageManager, PackageOperation};
+use super::running_apps::{IfRunning, RunningApps};
 
 /// What launching and stopping need of the app.
 #[derive(Clone)]
 pub(crate) struct LaunchContext {
-    pub(crate) installed: InstalledRuns,
+    pub(crate) starter: Arc<AppStarter>,
+    pub(crate) packages: Arc<PackageManager>,
     pub(crate) store: Store,
 }
 
@@ -67,10 +70,15 @@ async fn start(
     if context.store.installed_program(&id).is_none() {
         return Err(dev_refusal::not_installed(&id));
     }
-    let installed = &context.installed;
-    let launching = installed.launch(&id, arguments, variables);
+    let request = StartRequest {
+        if_running: IfRunning::Replace,
+        arguments,
+        variables,
+        ..StartRequest::open(id.clone(), Opening::ByTheDeveloper)
+    };
+    let launching = context.starter.start(request);
     let closing = closed(reading);
-    let mut operations = installed.packages.operations();
+    let mut operations = context.packages.operations();
     let mut told = false;
     tokio::pin!(launching, closing);
     loop {
@@ -83,7 +91,9 @@ async fn start(
         }
         tokio::select! {
             launched = &mut launching => {
-                return launched.map_err(|error| dev_refusal::cannot_load(&id, &error));
+                return launched
+                    .map(drop)
+                    .map_err(|error| dev_refusal::cannot_load(&id, &error));
             }
             () = &mut closing => {
                 tracing::info!("the launch's connection closed before it started: not started");
@@ -96,6 +106,7 @@ async fn start(
                 if changed.is_err() {
                     return launching
                         .await
+                        .map(drop)
                         .map_err(|error| dev_refusal::cannot_load(&id, &error));
                 }
             }

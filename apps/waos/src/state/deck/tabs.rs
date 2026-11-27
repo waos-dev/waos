@@ -42,7 +42,7 @@ use waos_package::ProgramId;
 use waos_program_window::ShownView;
 
 use super::tab_view::TabView;
-use crate::logic::installed_runs::OpenedRun;
+use crate::logic::app_starter::StartAnswer;
 use crate::logic::program_places::TabRequest;
 use crate::logic::running_apps::RunningApps;
 use crate::logic::tab_list::{TabId, TabKind, TabList};
@@ -271,13 +271,13 @@ impl Tabs {
     pub(crate) fn started(
         &mut self,
         id: &ProgramId,
-        started: Option<OpenedRun>,
+        started: Option<StartAnswer>,
         cx: &mut Context<Tabs>,
     ) {
         let starting = self.starting(id);
         let program = match started {
-            Some(OpenedRun::Started(program)) => program,
-            Some(OpenedRun::RunningAlready(_)) | None => {
+            Some(StartAnswer::Started { program, .. }) => program,
+            Some(StartAnswer::RunningAlready(_)) | None => {
                 if starting.is_some() {
                     tracing::info!(%id, "it did not start in its tab: the tab goes");
                 }

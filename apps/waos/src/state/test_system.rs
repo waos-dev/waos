@@ -37,9 +37,9 @@ use super::media_players::MediaPlayers;
 use super::notifications::Notifications;
 use super::opener::Opener;
 use super::video_decoders::VideoDecoders;
+use crate::logic::app_services::AppServices;
 use crate::logic::environments::ProgramEnvironments;
 use crate::logic::frame_readers::ReadersOnRequest;
-use crate::logic::installed_runs::InstalledRuns;
 use crate::logic::opened_package::OpenedPackage;
 use crate::logic::opened_package::tests::write_package;
 use crate::logic::package_copies::PackageCopies;
@@ -114,11 +114,11 @@ impl TestSystem {
             EngineTime::Manual(time.clone()),
         ));
         let runs = Arc::new(RunningApps::default());
-        let installed_runs = InstalledRuns::new(
+        let services = AppServices::new(
+            Arc::clone(&runs),
             Arc::clone(&engine),
             store.clone(),
             ProgramEnvironments::new(waos_local::LocalCapabilities::new(), store.clone()),
-            Arc::clone(&runs),
             ProgramPlaces::new(ProgramPlace::Windows),
         );
         let (served_store, started) = (store.clone(), Rc::new(RefCell::new(None)));
@@ -149,7 +149,7 @@ impl TestSystem {
             let library = open_library(
                 app,
                 served_store,
-                installed_runs,
+                services,
                 copies,
                 ProgramsOpen::InWindows,
                 None,

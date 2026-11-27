@@ -7,5 +7,5 @@
 - **Opening an app opens it where apps open;** an app already running comes forward. ([state::library](/apps/waos/src/state/library/mod.rs))
 - **A package opened with WaOS asks before it installs.** ([state::library](/apps/waos/src/state/library/mod.rs))
 - **An app being changed says so, in Android's words:** Downloading…, Installing… (its code compiling), Optimizing… (compiling again at an open after a WaOS update), Removing…. An app shows on the home only once it is installed, its code compiled. ([package_manager.rs](/apps/waos/src/logic/package_manager.rs))
-- **A tool opens in a terminal of WaOS's own.** ([installed_runs.rs](/apps/waos/src/logic/installed_runs.rs))
+- **A tool opens in a terminal of WaOS's own.** ([app_starter.rs](/apps/waos/src/logic/app_starter.rs))
   - *Today:* WaOS has no terminal yet, so a tool opened from its icon is refused; one started to be handed files, or by a notification's click, runs. ([TODO](/TODO.md))

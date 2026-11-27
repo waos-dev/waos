@@ -10,13 +10,15 @@
 //! The invariant: what the user chose is kept in WaOS's preferences before it holds
 //! (`logic::preferences`), so a WaOS started again opens programs as the user last saw it do.
 
+use std::sync::Arc;
+
 use waft::ui::ViewRef;
 use waft::{Context, Entity};
 use waos::RunningProgram;
 use waos_package::ProgramId;
 
 use super::{Library, WantsToBeSeen};
-use crate::logic::installed_runs::Opening;
+use crate::logic::app_starter::{Opening, StartRequest};
 use crate::logic::program_faces::program_face;
 use crate::logic::program_places::ProgramPlace;
 use crate::state::ViewWindows;
@@ -46,7 +48,7 @@ impl Library {
     /// Where the program `id` opens: where it runs, or where programs open.
     pub(super) fn place_to_open(&self, id: &ProgramId) -> ProgramPlace {
         if self.is_running(id) {
-            return self.runs.places.place_of(id);
+            return self.services.places.place_of(id);
         }
         if self.programs_open_in_tabs() {
             ProgramPlace::Tab
@@ -130,11 +132,15 @@ impl Library {
             );
         }
         self.add_recent(id, cx);
-        let (runs, opening) = (self.runs.clone(), id.clone());
+        let (starter, opening) = (Arc::clone(&self.services.starter), id.clone());
         let name = id.as_str().to_owned();
         self.work_then(
             async move {
-                runs.open(&opening, ProgramPlace::Windows, Opening::ByTheUser)
+                starter
+                    .start(StartRequest {
+                        place: Some(ProgramPlace::Windows),
+                        ..StartRequest::open(opening.clone(), Opening::ByTheUser)
+                    })
                     .await
             },
             move |library, started, cx| match started {

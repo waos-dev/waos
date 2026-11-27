@@ -23,6 +23,7 @@ use waos_headless::{Display, HeadlessShell, Refreshes};
 use waos_local::LocalCapabilities;
 use waos_store::{SourceProxy, Store};
 
+use crate::logic::app_services::AppServices;
 use crate::logic::asking_now::AskingNow;
 use crate::logic::dev_server::DevServer;
 use crate::logic::developer_access::DeveloperAccess;
@@ -30,7 +31,6 @@ use crate::logic::environments::ProgramEnvironments;
 use crate::logic::folders::{self, AppFolders};
 use crate::logic::held_starts::HeldStarts;
 use crate::logic::inspected_programs::ProgramsOnThisComputer;
-use crate::logic::installed_runs::InstalledRuns;
 use crate::logic::program_places::{ProgramPlace, ProgramPlaces};
 use crate::logic::prompts::{PromptRequests, PromptsOnRequest};
 use crate::logic::running_apps::RunningApps;
@@ -150,15 +150,15 @@ impl HeadlessDaemon {
         let capabilities = LocalCapabilities::new();
         let environments = ProgramEnvironments::new(capabilities, store.clone());
         let places = ProgramPlaces::new(ProgramPlace::Windows);
-        let installed = InstalledRuns::new(
+        let services = AppServices::new(
+            Arc::clone(&runs),
             Arc::clone(&engine),
             store.clone(),
             environments,
-            Arc::clone(&runs),
             places,
         );
         let starts = HeldStarts {
-            installed: installed.clone(),
+            starter: Arc::clone(&services.starter),
             store: store.clone(),
         };
         inspected.serve_starts(starts, runtime.clone());
@@ -168,7 +168,7 @@ impl HeadlessDaemon {
 
         // Developer access stays off: a headless WaOS is reached from this machine alone.
         let access = DeveloperAccess::at(config.folders.developer_access.clone());
-        let server = DevServer::start(installed, store, asking, &config.socket, access)
+        let server = DevServer::start(services, store, asking, &config.socket, access)
             .with_context(|| {
                 format!("listening for dev commands at {}", config.socket.display())
             })?;

@@ -49,8 +49,8 @@ use waos_program_window::{ProgramCanvas, WindowRestoration};
 use waos_store::{SourceProxy, Store};
 
 use super::tabs::{TabContent, TabStage, Tabs};
+use crate::logic::app_services::AppServices;
 use crate::logic::environments::ProgramEnvironments;
-use crate::logic::installed_runs::InstalledRuns;
 use crate::logic::opened_package::tests::write_package;
 use crate::logic::package_copies::PackageCopies;
 use crate::logic::placement::WindowsOnRequest;
@@ -275,11 +275,11 @@ impl TestPhone {
             Arc::new(placement),
             Arc::clone(&prompts) as Arc<dyn waos::Prompts>,
         ));
-        let installed_runs = InstalledRuns::new(
+        let services = AppServices::new(
+            Arc::clone(&runs),
             Arc::clone(&engine),
             store.clone(),
             ProgramEnvironments::new(waos_local::LocalCapabilities::new(), store.clone()),
-            Arc::clone(&runs),
             places,
         );
         let screen = Rc::new(PhoneScreen::new());
@@ -316,7 +316,7 @@ impl TestPhone {
             let library = open_library(
                 app,
                 served,
-                installed_runs,
+                services,
                 copies,
                 programs_open,
                 Some(preferences),

@@ -194,7 +194,7 @@ mod tests {
         let package = write_package(&packages, OPENER, "Opener", "1.0.0", &component, &key);
         crate::logic::test_installs::install_package(
             &server.store,
-            &server.installed.engine,
+            &server.services.engine,
             waos_package::Package::open(&package).unwrap(),
             waos_test_programs::OPENER,
         );

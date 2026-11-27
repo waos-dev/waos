@@ -1,21 +1,25 @@
 //! Starting a program held for an inspector, as `wasdk:inspect` asks: the
-//! installed program the id names, a development install's among them, started held
-//! (`InstalledRuns::start_held`), and answered once it is linked, so the inspector can listen to it
-//! from its first instruction.
+//! installed program the id names, a development install's among them, started held in place of
+//! the one running (`app_starter`), and answered once it is linked, so the inspector can listen to
+//! it from its first instruction.
 //!
 //! The invariant: a program is started only by the id of one installed, so an inspector starts
 //! nothing WaOS does not already know as that program.
 
+use std::sync::Arc;
+
+use anyhow::Context as _;
 use waos::HeldProgram;
 use waos::inspection::bindings::wasdk::inspect::devices::StartError;
 use waos_package::ProgramId;
 use waos_store::Store;
 
-use super::installed_runs::InstalledRuns;
+use super::app_starter::{AppStarter, Opening, StartRequest};
+use super::running_apps::IfRunning;
 
 /// What starting a program held needs of the app.
 pub(crate) struct HeldStarts {
-    pub(crate) installed: InstalledRuns,
+    pub(crate) starter: Arc<AppStarter>,
     pub(crate) store: Store,
 }
 
@@ -27,7 +31,14 @@ impl HeldStarts {
         if self.store.installed_program(&id).is_none() {
             return Err(StartError::Unknown);
         }
-        let mut held = self.installed.start_held(&id).await.map_err(|error| {
+        let request = StartRequest {
+            if_running: IfRunning::Replace,
+            held: true,
+            ..StartRequest::open(id.clone(), Opening::ByTheDeveloper)
+        };
+        let started = self.starter.start(request).await;
+        let held = started.and_then(|answer| answer.held().context("a held start holds the app"));
+        let mut held = held.map_err(|error| {
             tracing::info!(%id, "a held start refused: {error:#}");
             StartError::Failed(format!("{error:#}"))
         })?;
@@ -38,8 +49,6 @@ impl HeldStarts {
 
 #[cfg(all(test, desktop))]
 mod tests {
-    use std::sync::Arc;
-
     use futures::StreamExt;
     use waos::TraceKind;
     use waos_local::LocalCapabilities;
@@ -47,6 +56,7 @@ mod tests {
     use super::*;
     use waos::inspection::InspectedPrograms;
 
+    use crate::logic::app_services::AppServices;
     use crate::logic::environments::ProgramEnvironments;
     use crate::logic::inspected_programs::ProgramsOnThisComputer;
     use crate::logic::program_places::{ProgramPlace, ProgramPlaces};
@@ -61,11 +71,11 @@ mod tests {
         let store =
             Store::open(&folder.path().join("store"), waos_store::SourceProxy::None).unwrap();
         let runs = Arc::new(RunningApps::default());
-        let installed = InstalledRuns::new(
+        let services = AppServices::new(
+            Arc::clone(&runs),
             Arc::clone(&engine),
             store.clone(),
             ProgramEnvironments::new(LocalCapabilities::new(), store.clone()),
-            Arc::clone(&runs),
             ProgramPlaces::new(ProgramPlace::Windows),
         );
         let programs = ProgramsOnThisComputer::new(store.clone(), Arc::clone(&runs));
@@ -88,7 +98,10 @@ mod tests {
             waos_test_programs::FOREVER,
         );
         let id: ProgramId = "dev.example.forever.development".parse().unwrap();
-        let starts = HeldStarts { installed, store };
+        let starts = HeldStarts {
+            starter: services.starter,
+            store,
+        };
         programs.serve_starts(starts, tokio::runtime::Handle::current());
 
         let held = programs.start_held(id.as_str()).await.unwrap();

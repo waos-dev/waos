@@ -42,8 +42,8 @@ use waos_package::{Category, Manifest, SigningKey};
 use waos_store::{SourceProxy, Store};
 
 use super::{Library, ProgramsOpen, open_library, open_settings_when_asked, show_phone_files};
+use crate::logic::app_services::AppServices;
 use crate::logic::environments::ProgramEnvironments;
-use crate::logic::installed_runs::InstalledRuns;
 use crate::logic::opened_package::tests::{write_package, write_package_of, write_package_showing};
 use crate::logic::package_copies::PackageCopies;
 use crate::logic::phone_files::PhoneFilesAccess;
@@ -178,7 +178,8 @@ impl LibraryDesktop {
             Arc::clone(&prompts) as Arc<dyn waos::Prompts>,
             Arc::new(store.clone()),
         );
-        let installed_runs = InstalledRuns::new(
+        let services = AppServices::new(
+            Arc::clone(&runs),
             Arc::new(engine),
             store.clone(),
             ProgramEnvironments::with_audio(
@@ -186,7 +187,6 @@ impl LibraryDesktop {
                 Some(Arc::new(StatedOutputs)),
                 store.clone(),
             ),
-            Arc::clone(&runs),
             ProgramPlaces::new(ProgramPlace::Windows),
         );
         let platform = Rc::new(LibraryPlatform::new(kind.system));
@@ -214,7 +214,7 @@ impl LibraryDesktop {
             let library = open_library(
                 app,
                 store,
-                installed_runs,
+                services,
                 copies,
                 ProgramsOpen::InWindows,
                 preferences,
@@ -342,7 +342,7 @@ impl LibraryDesktop {
         let package =
             waos_package::Package::open(&self.package(id, name, "1.0.0", &bytes)).unwrap();
         let (store, engine) =
-            self.read(|library| (library.store.clone(), Arc::clone(&library.runs.engine)));
+            self.read(|library| (library.store.clone(), Arc::clone(&library.services.engine)));
         crate::logic::test_installs::install_package(&store, &engine, package, component);
         let installed: waos_package::ProgramId = id.parse().unwrap();
         self.settle_until("the library shows the program", |desktop| {
@@ -361,7 +361,7 @@ impl LibraryDesktop {
     pub(crate) fn hold_turn(&self, id: &str) -> crate::logic::package_manager::Loaded {
         let id = id.parse().unwrap();
         let (runtime, packages) =
-            self.read(|library| (library.runtime(), Arc::clone(&library.runs.packages)));
+            self.read(|library| (library.runtime(), Arc::clone(&library.services.packages)));
         runtime
             .block_on(packages.load(&id))
             .expect("the program loads")
