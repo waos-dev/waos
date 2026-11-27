@@ -259,7 +259,13 @@ async fn a_removal_takes_the_apps_folder_whole_and_says_so() {
     fs::create_dir_all(&data).unwrap();
     fs::write(data.join("notes.txt"), "the app's").unwrap();
     let mut removals = manager.packages.removals();
-    manager.packages.remove(&triangle()).await.unwrap();
+    let removal = manager.packages.remove(&triangle());
+    assert!(
+        manager.packages.removing().borrow().contains(&triangle()),
+        "being removed from the call"
+    );
+    removal.await.unwrap();
+    assert!(manager.packages.removing().borrow().is_empty());
     assert!(!manager.program_folder(&triangle()).exists());
     assert_eq!(removals.recv().await, Some(triangle()));
     let again = manager.packages.remove(&triangle()).await;
@@ -306,6 +312,34 @@ async fn a_session_is_told_from_its_first_byte_to_its_end_with_who_asked() {
     session.finished().await.unwrap();
     assert!(manager.packages.sessions().borrow().is_empty());
     assert!(changes.has_changed().unwrap(), "the install is announced");
+}
+
+#[tokio::test]
+async fn a_session_asked_before_its_bytes_hears_its_size_later_and_ends_with_their_error() {
+    let manager = Manager::new();
+    let (content, sender) = sent(None);
+    let session = manager.packages.install(content, Caller::User);
+    let mut progress = session.progress();
+    let nothing_yet = InstallProgress::Receiving {
+        received: 0,
+        total: None,
+    };
+    assert_eq!(*progress.borrow(), nothing_yet);
+    session.set_size(1000);
+    let sized = InstallProgress::Receiving {
+        received: 0,
+        total: Some(1000),
+    };
+    progress.wait_for(|now| *now == sized).await.unwrap();
+    let listed = manager.packages.sessions().borrow()[0].progress;
+    assert_eq!(listed, sized, "the list hears it too");
+    sender
+        .unbounded_send(Err(std::io::Error::other("the server is gone")))
+        .unwrap();
+    let error = session.finished().await.unwrap_err();
+    assert!(matches!(error, InstallError::Receiving(_)), "{error}");
+    assert!(error.to_string().contains("the server is gone"), "{error}");
+    assert!(manager.packages.sessions().borrow().is_empty());
 }
 
 // The overlaps.
@@ -397,13 +431,11 @@ async fn a_development_install_is_an_app_of_its_own_replaced_by_each_build() {
         .await
         .unwrap();
     let install = |component: &'static [u8]| {
-        manager
-            .packages
-            .install(
-                PackageContent::Development(build("0.2.0", component)),
-                Caller::DeveloperTools,
-            )
-            .finished()
+        let session = manager.packages.install(
+            PackageContent::Development(build("0.2.0", component)),
+            Caller::DeveloperTools,
+        );
+        async move { session.finished().await }
     };
     let installed = install(b"\0asm first").await.unwrap();
     let development = triangle().development();

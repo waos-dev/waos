@@ -75,7 +75,7 @@ pub enum InstallError {
         expected: ProgramId,
         package: ProgramId,
     },
-    /// The package's bytes did not all arrive: what their stream said.
+    /// The package's bytes did not all arrive, or none did: what their stream said.
     Receiving(io::Error),
     /// Its component did not compile, in the compiler's words.
     Compile(anyhow::Error),
@@ -112,7 +112,7 @@ impl fmt::Display for InstallError {
                 write!(f, "the package is of {package}, not of {expected}")
             }
             InstallError::Receiving(error) => {
-                write!(f, "the package did not arrive whole: {error}")
+                write!(f, "the package did not arrive: {error}")
             }
             InstallError::Compile(error) => write!(f, "it does not compile: {error:#}"),
             InstallError::Cancelled => write!(f, "the install was cancelled"),

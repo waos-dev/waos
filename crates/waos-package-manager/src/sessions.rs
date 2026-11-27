@@ -46,14 +46,16 @@ pub struct InstallSessionInfo {
     pub progress: InstallProgress,
 }
 
-/// An install in flight, as its caller holds it. Dropping it leaves the install going; cancel it
-/// to stop it.
+/// An install in flight, as its caller holds it, from the moment it is asked for: its package's
+/// bytes may start later, as a download's do once its server answers. Dropping it leaves the
+/// install going; cancel it to stop it.
 pub struct InstallSession {
     pub(crate) app: ProgramId,
     pub(crate) caller: Caller,
     pub(crate) progress: watch::Receiver<InstallProgress>,
+    pub(crate) size: Arc<watch::Sender<Option<u64>>>,
     pub(crate) cancel: Arc<watch::Sender<bool>>,
-    pub(crate) answer: oneshot::Receiver<Result<InstalledProgram, InstallError>>,
+    pub(crate) answer: Mutex<Option<oneshot::Receiver<Result<InstalledProgram, InstallError>>>>,
 }
 
 impl InstallSession {
@@ -72,15 +74,31 @@ impl InstallSession {
         self.progress.clone()
     }
 
+    /// Its package is `size` bytes long, as whoever feeds it learns once its bytes begin, as
+    /// Android's session is told the length as its writing opens: its progress has a total from
+    /// now on.
+    pub fn set_size(&self, size: u64) {
+        self.size.send_replace(Some(size));
+    }
+
     /// Stops it, unless it is installing its app already: what it received goes, and the app
     /// stays as it was.
     pub fn cancel(&self) {
         self.cancel.send_replace(true);
     }
 
-    /// What it came to: the app installed, or why not.
-    pub async fn finished(self) -> Result<InstalledProgram, InstallError> {
-        self.answer.await.unwrap_or(Err(InstallError::Cancelled))
+    /// What it came to: the app installed, or why not. Answered once; a second wait answers
+    /// `Cancelled`.
+    pub async fn finished(&self) -> Result<InstalledProgram, InstallError> {
+        let answer = self
+            .answer
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .take();
+        match answer {
+            Some(answer) => answer.await.unwrap_or(Err(InstallError::Cancelled)),
+            None => Err(InstallError::Cancelled),
+        }
     }
 }
 

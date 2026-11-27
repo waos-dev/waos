@@ -326,7 +326,8 @@ fn update_waiting_for_its_lock(desktop: &mut LibraryDesktop) -> AppLock {
 fn an_installing_program_says_so_and_a_tap_meanwhile_opens_it_once_it_is_installed() {
     let mut desktop = desktop();
     let held = update_waiting_for_its_lock(&mut desktop);
-    assert!(desktop.shows(words::INSTALLING), "{:?}", desktop.labels());
+    // Taken in, the update waits for the lock, installing.
+    desktop.settle_until("installing", |desktop| desktop.shows(words::INSTALLING));
     assert!(!desktop.shows("Triangle"), "in place of its name");
     assert_eq!(desktop.count::<IconTile>(|tile| tile.status.is_some()), 1);
     let view = phone_view(&desktop);
@@ -358,9 +359,8 @@ fn an_installing_program_says_so_in_fluents_layout_too() {
         .set_physical_size(waft::ui::Size::new(768.0, 1024.0));
     let view = phone_view(&desktop);
     desktop.shell.view_metrics_changed(view);
-    desktop.settle();
+    desktop.settle_until("installing", |desktop| desktop.shows(words::INSTALLING));
     assert!(desktop.has::<FluentHome>());
-    assert!(desktop.shows(words::INSTALLING), "{:?}", desktop.labels());
     assert_eq!(desktop.count::<IconTile>(|tile| tile.status.is_some()), 1);
 }
 

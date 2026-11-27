@@ -13,7 +13,7 @@
 //!   it removed, and no file of theirs is open in the folder it moves.
 //! - An install is done only once its code is compiled, so an installed app opens at once.
 
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::fs;
 use std::future::Future;
 use std::io::Write as _;
@@ -51,9 +51,10 @@ pub type ByteStream = BoxStream<'static, std::io::Result<Vec<u8>>>;
 
 /// What an install installs.
 pub enum PackageContent {
-    /// A `.wapk`'s bytes, and their length where known, of the app `app`: a package of another
-    /// app is refused, as Android's session refuses one that is not of the package its caller
-    /// named.
+    /// A `.wapk`'s bytes, and their length where known at the start (else told to the session
+    /// later, [`InstallSession::set_size`]), of the app `app`: a package of another app is
+    /// refused, as Android's session refuses one that is not of the package its caller named.
+    /// The bytes may begin later, as a download's do; an error before any ends the install.
     Package {
         app: ProgramId,
         bytes: ByteStream,
@@ -70,6 +71,14 @@ impl PackageContent {
         match self {
             PackageContent::Package { app, .. } => app.clone(),
             PackageContent::Development(build) => build.manifest.id().development(),
+        }
+    }
+
+    /// The package's size where it is known at the start.
+    fn size(&self) -> Option<u64> {
+        match self {
+            PackageContent::Package { size, .. } => *size,
+            PackageContent::Development(_) => None,
         }
     }
 
@@ -117,7 +126,7 @@ pub struct PackageManager {
 /// What the package manager and its sessions' work share.
 struct Shared {
     programs: PathBuf,
-    removing: PathBuf,
+    removing_folder: PathBuf,
     compiler: Arc<dyn CodeCompiler>,
     stop_app: Arc<dyn StopApp>,
     /// Each app's lock.
@@ -127,6 +136,8 @@ struct Shared {
     installs: watch::Sender<u64>,
     /// Who hears each removal.
     removals: Mutex<Vec<mpsc::UnboundedSender<ProgramId>>>,
+    /// The apps being removed now.
+    removing: watch::Sender<BTreeSet<ProgramId>>,
 }
 
 impl PackageManager {
@@ -140,13 +151,14 @@ impl PackageManager {
     ) -> Result<PackageManager, FolderError> {
         let shared = Shared {
             programs: folder.join(PROGRAMS),
-            removing: folder.join(REMOVING),
+            removing_folder: folder.join(REMOVING),
             compiler,
             stop_app,
             locks: Mutex::default(),
             sessions: Sessions::default(),
             installs: watch::Sender::new(0),
             removals: Mutex::default(),
+            removing: watch::Sender::default(),
         };
         fs::create_dir_all(&shared.programs).map_err(FolderError::io_at(&shared.programs))?;
         shared.clear_unfinished();
@@ -243,11 +255,13 @@ impl PackageManager {
         } = self.shared.sessions.begin(&app, caller, first);
         let (progress, watched) = watch::channel(first);
         let (answer, answered) = oneshot::channel();
+        let (size, sized) = watch::channel(content.size());
         let work = SessionWork {
             shared: Arc::clone(&self.shared),
             session_id,
             app: app.clone(),
             progress,
+            size: sized,
             cancelled,
         };
         tokio::spawn(async move {
@@ -265,14 +279,21 @@ impl PackageManager {
             app,
             caller,
             progress: watched,
+            size: Arc::new(size),
             cancel,
-            answer: answered,
+            answer: Mutex::new(Some(answered)),
         }
     }
 
     /// The installs in flight now, and each change of them from now on.
     pub fn sessions(&self) -> watch::Receiver<Vec<InstallSessionInfo>> {
         self.shared.sessions.subscribe()
+    }
+
+    /// The apps being removed now, each from the call that asked until its removal ends, however
+    /// it ends, and each change of them from now on.
+    pub fn removing(&self) -> watch::Receiver<BTreeSet<ProgramId>> {
+        self.shared.removing.subscribe()
     }
 
     /// Removes the app `id`, with everything kept in its folder: cancels its sessions at once and
@@ -283,14 +304,16 @@ impl PackageManager {
         id: &ProgramId,
     ) -> impl Future<Output = Result<(), RemoveError>> + Send + 'static {
         let cancelled = self.shared.sessions.cancel_all_of(id);
+        let removal = Removal::begin(&self.shared, id);
         let (shared, id) = (Arc::clone(&self.shared), id.clone());
         async move {
+            let _removal = removal;
             shared.sessions.ended(&cancelled).await;
             let _lock = shared.lock(&id).await;
             shared.stop_app.stop(&id, PackageChange::Removal).await;
             let (folder, removing, taken) = (
                 shared.program_folder(&id),
-                shared.removing.clone(),
+                shared.removing_folder.clone(),
                 id.clone(),
             );
             blocking(move || programs::take_out(&folder, &taken, &removing)).await?;
@@ -358,12 +381,40 @@ impl AppLock {
     }
 }
 
+/// A removal under way, among the apps being removed until it is dropped.
+struct Removal {
+    shared: Arc<Shared>,
+    id: ProgramId,
+}
+
+impl Removal {
+    fn begin(shared: &Arc<Shared>, id: &ProgramId) -> Removal {
+        shared.removing.send_modify(|removing| {
+            removing.insert(id.clone());
+        });
+        Removal {
+            shared: Arc::clone(shared),
+            id: id.clone(),
+        }
+    }
+}
+
+impl Drop for Removal {
+    fn drop(&mut self) {
+        self.shared.removing.send_modify(|removing| {
+            removing.remove(&self.id);
+        });
+    }
+}
+
 /// A session's work, which ends the session when it is dropped.
 struct SessionWork {
     shared: Arc<Shared>,
     session_id: u64,
     app: ProgramId,
     progress: watch::Sender<InstallProgress>,
+    /// The package's size, where its caller has told it.
+    size: watch::Receiver<Option<u64>>,
     cancelled: watch::Receiver<bool>,
 }
 
@@ -371,8 +422,8 @@ impl SessionWork {
     /// Installs `content`: staged and compiled, then committed under the app's lock.
     async fn install(&self, content: PackageContent) -> Result<InstalledProgram, InstallError> {
         let staged = match content {
-            PackageContent::Package { app, bytes, size } => {
-                let received = self.receive_until_cancelled(bytes, size).await?;
+            PackageContent::Package { app, bytes, .. } => {
+                let received = self.receive_until_cancelled(bytes).await?;
                 self.set(InstallProgress::Installing);
                 let (shared, folder) = (Arc::clone(&self.shared), self.shared.program_folder(&app));
                 blocking(move || shared.stage_package(&app, &folder, received.path())).await?
@@ -409,31 +460,37 @@ impl SessionWork {
     async fn receive_until_cancelled(
         &self,
         bytes: ByteStream,
-        size: Option<u64>,
     ) -> Result<NamedTempFile, InstallError> {
         let mut cancelled = self.cancelled.clone();
         tokio::select! {
-            received = self.receive(bytes, size) => received,
+            received = self.receive(bytes) => received,
             _ = cancelled.wait_for(|cancelled| *cancelled) => Err(InstallError::Cancelled),
         }
     }
 
     /// The package's bytes, taken into a file in its app's folder, which goes when it is dropped,
-    /// or which the package manager's next opening clears.
-    async fn receive(
-        &self,
-        mut bytes: ByteStream,
-        size: Option<u64>,
-    ) -> Result<NamedTempFile, InstallError> {
+    /// or which the package manager's next opening clears; its size heard whenever its caller
+    /// tells it.
+    async fn receive(&self, mut bytes: ByteStream) -> Result<NamedTempFile, InstallError> {
         let folder = self.shared.program_folder(&self.app);
         fs::create_dir_all(&folder).map_err(FolderError::io_at(&folder))?;
         let mut file = tempfile::Builder::new()
             .prefix(RECEIVING)
             .tempfile_in(&folder)
             .map_err(FolderError::io_at(&folder))?;
+        let mut size = self.size.clone();
         let mut received = 0;
         let mut told = 0;
-        while let Some(chunk) = bytes.next().await {
+        loop {
+            let chunk = tokio::select! {
+                chunk = bytes.next() => chunk,
+                // A size told while no bytes come is told at once.
+                Ok(()) = size.changed() => {
+                    self.receiving(received, &size);
+                    continue;
+                }
+            };
+            let Some(chunk) = chunk else { break };
             let chunk = chunk.map_err(InstallError::Receiving)?;
             // A part is written to a local file in far less time than it took to come.
             file.write_all(&chunk)
@@ -442,17 +499,19 @@ impl SessionWork {
             // A change of a step is told, not every part that arrives.
             if received / RECEIVING_STEP != told / RECEIVING_STEP {
                 told = received;
-                self.set(InstallProgress::Receiving {
-                    received,
-                    total: size,
-                });
+                self.receiving(received, &size);
             }
         }
+        self.receiving(received, &size);
+        Ok(file)
+    }
+
+    /// The session has received `received` bytes, of the size `size` holds.
+    fn receiving(&self, received: u64, size: &watch::Receiver<Option<u64>>) {
         self.set(InstallProgress::Receiving {
             received,
-            total: size,
+            total: *size.borrow(),
         });
-        Ok(file)
     }
 
     /// Refuses to go on once the session is cancelled.
@@ -574,7 +633,7 @@ impl Shared {
                 tracing::warn!("what an interrupted install left stays: {error}");
             }
         }
-        if let Err(error) = programs::remove_if_there(&self.removing) {
+        if let Err(error) = programs::remove_if_there(&self.removing_folder) {
             tracing::warn!("what an interrupted removal left stays: {error}");
         }
     }
