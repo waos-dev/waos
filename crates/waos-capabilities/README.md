@@ -1,3 +1,3 @@
 # waos-capabilities
 
-The capabilities an app uses (files, network, machines, sound, cameras, media, fonts), as traits a provider implements, and what its user lets each app use.
+The capabilities a provider outside the engine serves (machines, sound devices; fonts through valo's font manager), as traits it implements, and what its user lets each app use.

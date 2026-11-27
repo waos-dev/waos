@@ -9459,22 +9459,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "waos-local-cameras"
-version = "0.8.0"
-
-[[package]]
-name = "waos-local-fs"
-version = "0.8.0"
-
-[[package]]
-name = "waos-local-media"
-version = "0.8.0"
-
-[[package]]
-name = "waos-local-network"
-version = "0.8.0"
-
-[[package]]
 name = "waos-local-processes"
 version = "0.8.0"
 dependencies = [

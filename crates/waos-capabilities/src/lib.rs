@@ -1,8 +1,11 @@
-//! The capability traits and their records, in WIT's shape: one trait per service a program uses
-//! (files, network, machines, sound devices, cameras, media, fonts), each in the shape of its
+//! The capability traits and their records, in WIT's shape: a trait for each service a provider
+//! outside the engine serves, sound devices and machines, each in the shape of its
 //! `wasdk:platform` or `wasdk:media` interface; [`ProgramEnvironment`], which holds one program's providers, what
 //! the user lets it use and where its output goes; and [`ProgramGrants`], what the user lets one
 //! program use, with its values, which the store implements over the user's settings.
+//!
+//! Files and the network are the engine's own, each system's code inside it; cameras, players and
+//! reading media are the embedding app's, given to the engine with its shell.
 //!
 //! The clipboard is not a capability: the platform has one, which every program shares, and the
 //! embedding app gives it to the engine whole. Only its switches are here, in [`ProgramGrants`].
