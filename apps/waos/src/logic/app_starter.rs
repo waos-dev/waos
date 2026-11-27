@@ -108,9 +108,12 @@ impl StartAnswer {
     }
 }
 
-/// Where a start under way is.
+/// Where a start under way is, in the words Android shows its user.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum StartStage {
+    /// Its code is being compiled again: missing for this engine, after an update of WaOS changed
+    /// it, or no longer loading.
+    Optimizing,
     /// Its program is loaded and started.
     Starting,
 }
@@ -153,9 +156,9 @@ impl AppStarter {
     /// end is waited for on a task of the runtime this runs on.
     pub(crate) async fn start(&self, request: StartRequest) -> Result<StartAnswer> {
         let id = request.id.clone();
-        let _start = Start::begin(&self.starts, &id);
+        let start = Start::begin(&self.starts, &id);
         let opening = request.opening;
-        let answer = self.start_now(request).await;
+        let answer = self.start_now(request, &start).await;
         // A developer's tool says what it asked for itself; the library says what the user did.
         let answer = match opening {
             Opening::ByTheDeveloper => answer,
@@ -177,15 +180,18 @@ impl AppStarter {
         self.starts.stages.subscribe()
     }
 
-    /// [`start`](Self::start), told already.
-    async fn start_now(&self, request: StartRequest) -> Result<StartAnswer> {
+    /// [`start`](Self::start), told as `start`.
+    async fn start_now(&self, request: StartRequest, start: &Start) -> Result<StartAnswer> {
         let id = &request.id;
         if request.if_running == IfRunning::Leave
             && let Some(program) = self.running.running(id)
         {
             return Ok(StartAnswer::RunningAlready(program));
         }
-        let loaded = self.packages.load(id).await?;
+        let optimizing = start.set_later(StartStage::Optimizing);
+        let loaded = self.packages.load(id, optimizing).await;
+        start.set(StartStage::Starting);
+        let (program, lock) = loaded?;
         let mut held = None;
         let mut output = None;
         let started = self
@@ -201,14 +207,14 @@ impl AppStarter {
                 self.places
                     .set(id, request.place.unwrap_or(self.places.usual()));
                 if !request.held {
-                    return self.engine.run(&loaded.program, environment);
+                    return self.engine.run(&program, environment);
                 }
-                let (running, hold) = self.engine.run_held(&loaded.program, environment)?;
+                let (running, hold) = self.engine.run_held(&program, environment)?;
                 held = Some(hold);
                 Ok(running)
             })
             .await?;
-        drop(loaded);
+        drop(lock);
         let run = match started {
             Started::New(run) => run,
             Started::Running(program) => return Ok(StartAnswer::RunningAlready(program)),
@@ -278,6 +284,31 @@ impl Start {
         Start {
             starts: Arc::clone(starts),
             id: id.clone(),
+        }
+    }
+
+    /// The start is at `stage` from now on.
+    fn set(&self, stage: StartStage) {
+        self.starts.set(&self.id, stage);
+    }
+
+    /// What sets the start at `stage` when called, from any thread, as a load calls it as its
+    /// compile begins.
+    fn set_later(&self, stage: StartStage) -> impl FnOnce() + Send + 'static {
+        let (starts, id) = (Arc::clone(&self.starts), self.id.clone());
+        move || starts.set(&id, stage)
+    }
+}
+
+impl Starts {
+    /// The start of `id` under way is at `stage` from now on; its watchers hear only a change.
+    /// Nothing where no start of `id` is under way, as when a compile goes on after its start was
+    /// given up.
+    fn set(&self, id: &ProgramId, stage: StartStage) {
+        let counts = self.counts.lock().unwrap_or_else(PoisonError::into_inner);
+        if counts.contains_key(id) {
+            self.stages
+                .send_if_modified(|stages| stages.insert(id.clone(), stage) != Some(stage));
         }
     }
 }

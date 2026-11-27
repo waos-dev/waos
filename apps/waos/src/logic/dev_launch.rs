@@ -2,8 +2,8 @@
 //! installed program, a development install or any other, in place of its run if it runs, which
 //! ends `Replaced` (`app_starter`), with the launch's arguments and the variables it
 //! alone adds, and its output going to the attaches (`launch_outputs`). Where its
-//! code is compiled first, after a compiler change, the package manager says the program is
-//! `Optimizing`, and the connection hears `Compiling`. The launch is answered `Launched` once the
+//! code is compiled first, after a compiler change, the starter says the start is `Optimizing`,
+//! and the connection hears `Compiling`. The launch is answered `Launched` once the
 //! program runs, and the program runs on whoever attaches or not, until it ends or is stopped; a
 //! launch whose connection closes while its code compiles, as Ctrl-C in `waos run` closes it, is
 //! not started. A stop ends the program running, however it was started.
@@ -21,16 +21,14 @@ use waos_dev_protocol::{
 use waos_package::ProgramId;
 use waos_store::Store;
 
-use super::app_starter::{AppStarter, Opening, StartRequest};
+use super::app_starter::{AppStarter, Opening, StartRequest, StartStage};
 use super::dev_refusal;
-use super::package_manager::{PackageManager, PackageOperation};
 use super::running_apps::{IfRunning, RunningApps};
 
 /// What launching and stopping need of the app.
 #[derive(Clone)]
 pub(crate) struct LaunchContext {
     pub(crate) starter: Arc<AppStarter>,
-    pub(crate) packages: Arc<PackageManager>,
     pub(crate) store: Store,
 }
 
@@ -78,12 +76,11 @@ async fn start(
     };
     let launching = context.starter.start(request);
     let closing = closed(reading);
-    let mut operations = context.packages.operations();
+    let mut starting = context.starter.starting();
     let mut told = false;
     tokio::pin!(launching, closing);
     loop {
-        let optimizing =
-            operations.borrow_and_update().get(&id) == Some(&PackageOperation::Optimizing);
+        let optimizing = starting.borrow_and_update().get(&id) == Some(&StartStage::Optimizing);
         if optimizing && !told {
             told = true;
             // A client gone meanwhile hears nothing; the launch goes on.
@@ -102,7 +99,7 @@ async fn start(
                     format!("{id}'s launch was abandoned"),
                 ));
             }
-            changed = operations.changed() => {
+            changed = starting.changed() => {
                 if changed.is_err() {
                     return launching
                         .await

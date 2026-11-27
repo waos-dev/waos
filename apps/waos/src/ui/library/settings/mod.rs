@@ -145,10 +145,8 @@ pub(crate) fn app_info(library: &Library, id: &ProgramId) -> Option<AppInfo> {
         .settings(&SettingsOf::Program(id.clone()))
         .is_ok_and(|shown| any_set_otherwise(&shown))
         .then_some(AppAction::ResetPermissions);
-    let status = match operation {
-        Some(operation) => Some(words::operation(operation)),
-        None => running.then_some(words::RUNNING),
-    };
+    let status =
+        words::status(operation, library.start_stage(id)).or(running.then_some(words::RUNNING));
     Some(AppInfo {
         name: program.name(),
         icon: library.icon(id).cloned(),

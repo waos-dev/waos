@@ -267,7 +267,6 @@ impl ConnectionContext {
     fn launch(&self) -> LaunchContext {
         LaunchContext {
             starter: Arc::clone(&self.services.starter),
-            packages: Arc::clone(&self.services.packages),
             store: self.store.clone(),
         }
     }

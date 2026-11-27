@@ -4,6 +4,7 @@ use waft::ui::TargetPlatform;
 use waos::{RecordingDevice, Switch};
 use waos_package::Category;
 
+use crate::logic::app_starter::StartStage;
 use crate::logic::package_manager::PackageOperation;
 use crate::logic::permissions::Permission;
 use crate::logic::setting_changes::{SettingsOf, ShownSettings};
@@ -566,13 +567,19 @@ pub(crate) fn category(category: Category) -> &'static str {
     }
 }
 
-/// What the package manager is doing to a program, as its tile and its page say it.
-pub(crate) fn operation(operation: PackageOperation) -> &'static str {
-    match operation {
-        PackageOperation::Downloading { .. } => DOWNLOADING,
-        PackageOperation::Installing => INSTALLING,
-        PackageOperation::Optimizing => OPTIMIZING,
-        PackageOperation::Removing => REMOVING,
+/// What WaOS is doing to an app, as its tile and its page say it: what the package manager does
+/// to it, `operation`, or Optimizing… while a start compiles its code again, `stage`; none while
+/// neither, and nothing while a start only starts it, which takes a moment.
+pub(crate) fn status(
+    operation: Option<PackageOperation>,
+    stage: Option<StartStage>,
+) -> Option<&'static str> {
+    match (operation, stage) {
+        (Some(PackageOperation::Downloading { .. }), _) => Some(DOWNLOADING),
+        (Some(PackageOperation::Installing), _) => Some(INSTALLING),
+        (Some(PackageOperation::Removing), _) => Some(REMOVING),
+        (None, Some(StartStage::Optimizing)) => Some(OPTIMIZING),
+        (None, Some(StartStage::Starting) | None) => None,
     }
 }
 

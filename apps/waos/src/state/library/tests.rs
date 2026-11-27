@@ -25,6 +25,7 @@ use waos_store::SourceProxy;
 
 use super::test_server::Server;
 use super::*;
+use crate::logic::app_starter::StartStage;
 use crate::logic::environments::ProgramEnvironments;
 use crate::logic::opened_package::tests::{write_package, write_package_of};
 use crate::logic::package_copies::PackageCopies;
@@ -782,7 +783,7 @@ fn an_install_is_installing_until_its_code_is_compiled_and_then_shows() {
 }
 
 /// As after an update of WaOS that changed its engine: the version installed holds no code of
-/// this engine's, so the first open compiles it, and the program is optimizing meanwhile.
+/// this engine's, so the first open compiles it, and its start is optimizing meanwhile.
 #[test]
 fn the_first_open_after_a_compiler_change_optimizes_the_program() {
     let library = TestLibrary::new();
@@ -792,9 +793,12 @@ fn the_first_open_after_a_compiler_change_optimizes_the_program() {
     std::fs::remove_dir_all(&code).unwrap();
     library.update(|library, cx| library.open(&triangle, cx));
     library.wait_until("the open's compile", |library| {
-        library.operation(&triangle) == Some(PackageOperation::Optimizing)
+        library.start_stage(&triangle) == Some(StartStage::Optimizing)
     });
     wait_for_runs(&library, &[TRIANGLE]);
+    library.wait_until("the start's end", |library| {
+        library.start_stage(&triangle).is_none()
+    });
     assert_eq!(library.read(|library| library.operation(&triangle)), None);
     assert!(library.read(|library| library.services.engine.is_compiled(&code)));
     futures::executor::block_on(library.runs.stop_all());

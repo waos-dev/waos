@@ -356,15 +356,16 @@ impl LibraryDesktop {
         self.read(|library| library.store.installed_version(&id).unwrap().code())
     }
 
-    /// The program `id` loaded, which holds its turn until the answer is dropped, as an open
-    /// holds it from its load to its start: an install or removal of it waits meanwhile.
-    pub(crate) fn hold_turn(&self, id: &str) -> crate::logic::package_manager::Loaded {
+    /// The program `id` loaded, and its lock, held until the answer is dropped, as an open holds
+    /// it from its load to its start: an install or removal of it waits meanwhile.
+    pub(crate) fn hold_lock(&self, id: &str) -> crate::logic::package_manager::AppLock {
         let id = id.parse().unwrap();
         let (runtime, packages) =
             self.read(|library| (library.runtime(), Arc::clone(&library.services.packages)));
-        runtime
-            .block_on(packages.load(&id))
-            .expect("the program loads")
+        let (_program, lock) = runtime
+            .block_on(packages.load(&id, || {}))
+            .expect("the program loads");
+        lock
     }
 
     /// Frames until the package manager is done with every program, as after an install, its

@@ -19,16 +19,17 @@
 //! the library changes and notifies. A program is installed, updated and removed by the package
 //! manager (`logic::package_manager`), as Android's launcher asks its package manager: an install
 //! is done once its code is compiled, and a program removed or updated while it runs ends first,
-//! its tab closing and its windows with it, as a system ends an app it uninstalls or updates. What
-//! the package manager is doing to each program, downloading, installing, optimizing or removing
-//! it, is shown on its tile and its page. What was asked last and failed is the library's problem,
+//! its tab closing and its windows with it, as a system ends an app it uninstalls or updates, and
+//! opened by the app starter (`logic::app_starter`). What the package manager is doing to each
+//! program, downloading, installing or removing it, and a start optimizing it, compiling its code
+//! again, are shown on its tile and its page. What was asked last and failed is the library's problem,
 //! until the next thing asked succeeds or the user dismisses it.
 //!
 //! The invariant: the library changes what is installed only through the package manager, and
 //! reads what is installed again after every change, with each program's icon, so what it shows
 //! is what is installed; a source's listing is read against the installed programs whenever either
-//! changes; which programs run is the runs' own list, and what is being done to which program the
-//! package manager's, each as it last changed.
+//! changes; which programs run is the running apps' own list, what is being done to which program
+//! the package manager's, and the starts under way the starter's, each as it last changed.
 
 #[cfg(desktop)]
 mod developer_access;
@@ -65,7 +66,7 @@ use waos_package::{Category, ListedProgram, ProgramId, ProgramKind};
 use waos_store::{InstalledProgram, Source, Store, Url};
 
 use crate::logic::app_services::AppServices;
-use crate::logic::app_starter::{Opening, StartRequest};
+use crate::logic::app_starter::{Opening, StartRequest, StartStage};
 use crate::logic::app_store::{
     AppStorePlace, CatalogApp, ListedSource, catalog, featured, updates,
 };
@@ -125,6 +126,8 @@ pub(crate) struct Library {
     sources: Vec<SourceListing>,
     /// What the package manager is doing to which program.
     operations: watch::Receiver<BTreeMap<ProgramId, PackageOperation>>,
+    /// The starts under way, with their stage.
+    starting: watch::Receiver<BTreeMap<ProgramId, StartStage>>,
     /// What the user is asked now, and then the packages opened with WaOS waiting their turn.
     questions: Vec<Question>,
     /// Why what was asked last failed.
@@ -310,6 +313,7 @@ impl Library {
         let installed_at = *store.installed_changes().borrow();
         let installed = store.installed();
         let operations = services.packages.operations();
+        let starting = services.starter.starting();
         let mut library = Library {
             icons: icons_of(&store, &installed),
             installed,
@@ -323,6 +327,7 @@ impl Library {
             preferences,
             work,
             operations,
+            starting,
             questions: Vec::new(),
             problem: None,
             package_copies,
@@ -349,6 +354,7 @@ impl Library {
         library.read_sources(cx);
         library.follow_running(cx);
         library.follow_operations(cx);
+        library.follow_starts(cx);
         library.follow_installed(cx);
         library.often_used = library.most_started_lately();
         library
@@ -387,6 +393,13 @@ impl Library {
     fn follow_operations(&mut self, cx: &mut Context<Library>) {
         let operations = self.services.packages.operations();
         follow(operations, |_library, _operations, cx| cx.notify(), cx);
+    }
+
+    /// Shows the starts under way and their stage each time they change, from now on; they are
+    /// read from the starter as the library is shown.
+    fn follow_starts(&mut self, cx: &mut Context<Library>) {
+        let starting = self.services.starter.starting();
+        follow(starting, |_library, _starting, cx| cx.notify(), cx);
     }
 
     /// From now on a program opened from the library may open in a tab of `tabs`, as on a phone,
@@ -631,10 +644,16 @@ impl Library {
         self.running.contains(id)
     }
 
-    /// What the package manager is doing to the program `id` now: downloading, installing,
-    /// optimizing or removing it; none while it does nothing to it.
+    /// What the package manager is doing to the program `id` now: downloading, installing or
+    /// removing it; none while it does nothing to it.
     pub(crate) fn operation(&self, id: &ProgramId) -> Option<PackageOperation> {
         self.operations.borrow().get(id).copied()
+    }
+
+    /// Where a start of the app `id` under way is: optimizing its code or starting it; none while
+    /// no start of it is under way.
+    pub(crate) fn start_stage(&self, id: &ProgramId) -> Option<StartStage> {
+        self.starting.borrow().get(id).copied()
     }
 
     /// Whether the library closes the programs it opened: where they open in tabs; not where they

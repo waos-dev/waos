@@ -12,7 +12,7 @@
 use std::rc::Rc;
 use std::sync::Arc;
 
-use crate::logic::package_manager::Loaded;
+use crate::logic::package_manager::AppLock;
 use waft::ui::{EmbedderClient as _, OpenOptions, View as _, ViewId};
 use waft::{Icon, IntoWidget, Offset};
 use waft_cupertino::{
@@ -308,13 +308,13 @@ fn a_tapped_icon_opens_its_program_which_is_marked_running() {
     desktop.settle_until("the dot gone", |desktop| !desktop.has::<RunningDot>());
 }
 
-/// An update of triangle, installed, opened with WaOS and said yes to while triangle's turn is
-/// held, as an open holds it from its load to its start: it is compiled, then waits for the turn
-/// to install. The turn held, which the answer keeps until it is dropped.
-fn update_waiting_for_its_turn(desktop: &mut LibraryDesktop) -> Loaded {
+/// An update of triangle, installed, opened with WaOS and said yes to while triangle's lock is
+/// held, as an open holds it from its load to its start: it is compiled, then waits for the lock
+/// to install. The lock held, which the answer keeps until it is dropped.
+fn update_waiting_for_its_lock(desktop: &mut LibraryDesktop) -> AppLock {
     let forever = std::fs::read(waos_test_programs::FOREVER_SHOWN).unwrap();
     install_on_the_phone(desktop, &forever);
-    let held = desktop.hold_turn(TRIANGLE);
+    let held = desktop.hold_lock(TRIANGLE);
     let update = desktop.package(TRIANGLE, "Triangle", "1.1.0", &forever);
     desktop.update(|library, cx| library.open_files(vec![update], cx));
     let view = phone_view(desktop);
@@ -325,13 +325,10 @@ fn update_waiting_for_its_turn(desktop: &mut LibraryDesktop) -> Loaded {
 #[test]
 fn an_installing_program_says_so_and_a_tap_meanwhile_opens_it_once_it_is_installed() {
     let mut desktop = desktop();
-    let held = update_waiting_for_its_turn(&mut desktop);
+    let held = update_waiting_for_its_lock(&mut desktop);
     assert!(desktop.shows(words::INSTALLING), "{:?}", desktop.labels());
     assert!(!desktop.shows("Triangle"), "in place of its name");
-    assert_eq!(
-        desktop.count::<IconTile>(|tile| tile.operation.is_some()),
-        1
-    );
+    assert_eq!(desktop.count::<IconTile>(|tile| tile.status.is_some()), 1);
     let view = phone_view(&desktop);
     desktop.tap(view, words::INSTALLING);
     assert!(
@@ -346,10 +343,7 @@ fn an_installing_program_says_so_and_a_tap_meanwhile_opens_it_once_it_is_install
     desktop.settle_until("its name back", |desktop| {
         desktop.shows("Triangle") && !desktop.shows(words::INSTALLING)
     });
-    assert_eq!(
-        desktop.count::<IconTile>(|tile| tile.operation.is_some()),
-        0
-    );
+    assert_eq!(desktop.count::<IconTile>(|tile| tile.status.is_some()), 0);
     let version = desktop.read(|library| library.installed()[0].manifest.version().to_string());
     assert_eq!(version, "1.1.0", "the version opened is the update");
     futures::executor::block_on(desktop.runs.stop_all());
@@ -358,7 +352,7 @@ fn an_installing_program_says_so_and_a_tap_meanwhile_opens_it_once_it_is_install
 #[test]
 fn an_installing_program_says_so_in_fluents_layout_too() {
     let mut desktop = desktop();
-    let _held = update_waiting_for_its_turn(&mut desktop);
+    let _held = update_waiting_for_its_lock(&mut desktop);
     phone_window(&desktop)
         .test_view()
         .set_physical_size(waft::ui::Size::new(768.0, 1024.0));
@@ -367,10 +361,7 @@ fn an_installing_program_says_so_in_fluents_layout_too() {
     desktop.settle();
     assert!(desktop.has::<FluentHome>());
     assert!(desktop.shows(words::INSTALLING), "{:?}", desktop.labels());
-    assert_eq!(
-        desktop.count::<IconTile>(|tile| tile.operation.is_some()),
-        1
-    );
+    assert_eq!(desktop.count::<IconTile>(|tile| tile.status.is_some()), 1);
 }
 
 #[test]
@@ -410,7 +401,7 @@ fn the_store_says_installing_until_the_update_is_installed() {
     desktop.settle_until("the source's listing", |desktop| {
         desktop.shows(words::UPDATE)
     });
-    let held = desktop.hold_turn(TRIANGLE);
+    let held = desktop.hold_lock(TRIANGLE);
     let view = phone_view(&desktop);
     desktop.tap(view, words::UPDATE);
     assert!(desktop.shows(words::INSTALLING), "{:?}", desktop.labels());

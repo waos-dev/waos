@@ -362,6 +362,8 @@ pub(crate) fn start(
         app_nap_exemption.clone(),
         services.packages.operations(),
     );
+    #[cfg(target_os = "macos")]
+    app_nap_exemption::follow_starts(app, app_nap_exemption.clone(), services.starter.starting());
     #[cfg(desktop)]
     let developer_access = DeveloperAccess::at(folders.developer_access.clone());
     #[cfg(desktop)]
