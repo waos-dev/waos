@@ -970,8 +970,8 @@ fn a_program_that_cannot_be_loaded_is_the_librarys_problem() {
         crate::logic::test_installs::EMPTY_COMPONENT,
     ));
     let triangle: ProgramId = TRIANGLE.parse().unwrap();
-    let code = library.read(|library| library.store.installed_version(&triangle).unwrap().code());
-    test_installs::spoil(&code);
+    let version = library.read(|library| library.store.installed_version(&triangle).unwrap());
+    test_installs::spoil(&version);
     library.update(|library, cx| library.open(&triangle, cx));
     library.wait_until("the open's answer", |library| library.problem().is_some());
     let problem = library

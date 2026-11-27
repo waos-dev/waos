@@ -1043,7 +1043,8 @@ pub(crate) mod tests {
     }
 
     #[tokio::test]
-    async fn a_component_is_compiled_at_its_install_and_again_at_a_launch_that_finds_no_code() {
+    async fn a_component_is_compiled_at_its_install_and_again_at_a_launch_that_finds_no_code_it_loads()
+     {
         let server = TestServer::start("unchanged");
         let component = fs::read(waos_test_programs::FOREVER).unwrap();
         let id = development(FOREVER);
@@ -1057,6 +1058,18 @@ pub(crate) mod tests {
         // What a compiler change leaves: no code of this engine's.
         let code = server.store.installed_version(&id).unwrap().code();
         fs::remove_dir_all(&code).unwrap();
+        let optimized = server.launch(&id, Vec::new(), Vec::new()).await;
+        assert_eq!(optimized, [LaunchAnswer::Compiling, LaunchAnswer::Launched]);
+        server
+            .ask::<StopAnswer>(&Request::Stop { id: id.clone() })
+            .await;
+        server.wait_for_runs(&[]).await;
+        // What a damaged file leaves: code of this engine's that does not load.
+        for file in fs::read_dir(&code).unwrap() {
+            let file = file.unwrap().path();
+            fs::remove_file(&file).unwrap();
+            fs::write(&file, b"not code").unwrap();
+        }
         let optimized = server.launch(&id, Vec::new(), Vec::new()).await;
         assert_eq!(optimized, [LaunchAnswer::Compiling, LaunchAnswer::Launched]);
         server

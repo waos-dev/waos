@@ -16,7 +16,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 use waos::WaOS;
 use waos_package::Package;
-use waos_store::{DevelopmentBuild, InstalledProgram, Staged, Store};
+use waos_store::{DevelopmentBuild, InstalledProgram, InstalledVersion, Staged, Store};
 
 /// The smallest component, as text, which the engine compiles as it does a binary: what a test
 /// installs where it shows or removes a program but never runs it, since an install compiles, and
@@ -86,10 +86,11 @@ fn compiled(engine: &WaOS, component: &str) -> PathBuf {
     code
 }
 
-/// Spoils every code file in `code`, a code folder an install compiled into, as a disk that lost
-/// them would: the engine refuses to map them.
-pub(crate) fn spoil(code: &Path) {
-    for file in fs::read_dir(code).unwrap() {
+/// Spoils `version`, installed, as a disk that lost its files would: its component and every code
+/// file in its code folder, so the engine neither maps the code nor compiles it again.
+pub(crate) fn spoil(version: &InstalledVersion) {
+    fs::write(version.component(), b"spoiled").unwrap();
+    for file in fs::read_dir(version.code()).unwrap() {
         fs::write(file.unwrap().path(), b"spoiled").unwrap();
     }
 }

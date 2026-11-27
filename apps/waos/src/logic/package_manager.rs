@@ -24,7 +24,7 @@ use anyhow::{Context as _, Result};
 use tokio::sync::{OwnedMutexGuard, watch};
 use waos::{Program, WaOS};
 use waos_package::{ListedProgram, Manifest, Package, ProgramId};
-use waos_store::{DevelopmentBuild, InstalledProgram, Source, Staged, Store};
+use waos_store::{DevelopmentBuild, InstalledProgram, InstalledVersion, Source, Staged, Store};
 
 use super::running_apps::RunningApps;
 
@@ -174,8 +174,10 @@ impl PackageManager {
     }
 
     /// The app `id`'s version installed now, loaded under its lock, and the lock, held until it
-    /// is dropped, and through a compile even when the caller stops waiting. Where this engine's
-    /// code is missing it is compiled first, `compiling` called as the compile begins.
+    /// is dropped, and through a compile even when the caller stops waiting. Its code is a cache:
+    /// where this engine's is missing or does not load it is compiled again first, `compiling`
+    /// called as the compile begins, and code compiled again that still does not load fails the
+    /// load.
     pub(crate) async fn load(
         &self,
         id: &ProgramId,
@@ -188,11 +190,7 @@ impl PackageManager {
             .with_context(|| format!("{id} is not installed, or its files cannot be read"))?;
         let (engine, id) = (Arc::clone(&self.engine), id.clone());
         let loading = tokio::task::spawn_blocking(move || {
-            let code = version.code();
-            if !engine.is_compiled(&code) {
-                compiling();
-            }
-            let program = engine.load(&version.component(), &code)?;
+            let program = load_or_compile(&engine, &version, compiling)?;
             Ok((program.named(id.as_str()), lock))
         });
         loading.await.context("the load's thread")?
@@ -270,6 +268,28 @@ impl PackageManager {
             _guard: lock.lock_owned().await,
         }
     }
+}
+
+/// `version`'s program, mapped from this engine's code; compiled again first where that code is
+/// missing or does not load, `compiling` called as the compile begins. Blocks while it compiles.
+fn load_or_compile(
+    engine: &WaOS,
+    version: &InstalledVersion,
+    compiling: impl FnOnce(),
+) -> Result<Program> {
+    let (component, code) = (version.component(), version.code());
+    if engine.is_compiled(&code) {
+        match engine.load(&component, &code) {
+            Ok(program) => return Ok(program),
+            Err(error) => tracing::warn!(
+                code = %code.display(),
+                "the code compiled does not load, so it is compiled again: {error:#}"
+            ),
+        }
+    }
+    compiling();
+    engine.compile(&component, &code)?;
+    engine.load(&component, &code)
 }
 
 /// An operation on one app, told to the operations' watchers from its start until it is dropped.

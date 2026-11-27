@@ -849,8 +849,8 @@ fn a_program_that_cannot_be_opened_summons_the_launcher_again_with_why() {
         "1.0.0",
         crate::logic::test_installs::EMPTY_COMPONENT,
     );
-    let code = desktop.code_of(TRIANGLE);
-    crate::logic::test_installs::spoil(&code);
+    let version = desktop.version_of(TRIANGLE);
+    crate::logic::test_installs::spoil(&version);
     let view = launcher_view(&desktop);
     desktop.tap(view, "Triangle");
     desktop.settle_until("the launcher shows again", is_on_screen);

@@ -350,10 +350,10 @@ impl LibraryDesktop {
         });
     }
 
-    /// The code folder of the version of the program `id` installed now.
-    pub(crate) fn code_of(&self, id: &str) -> std::path::PathBuf {
+    /// The version of the program `id` installed now.
+    pub(crate) fn version_of(&self, id: &str) -> waos_store::InstalledVersion {
         let id = id.parse().unwrap();
-        self.read(|library| library.store.installed_version(&id).unwrap().code())
+        self.read(|library| library.store.installed_version(&id).unwrap())
     }
 
     /// The program `id` loaded, and its lock, held until the answer is dropped, as an open holds
