@@ -2,8 +2,7 @@
 //! `audit/<program>/<date>.postcard`, each written whole in place of the last, the days older than
 //! [`DAYS_KEPT`] removed as a new one is kept, and all of a program's with the program.
 //!
-//! A program whose record is off, by its own setting or the global one (decision 13 of
-//! `docs/proposals/2026-11-15-inspector-roles-and-compatibility.md`), has none kept, and what was
+//! A program whose record is off, by its own setting or the global one, has none kept, and what was
 //! kept of it is removed as the setting changes.
 //!
 //! The invariant: a day is kept only for a program the store has a folder of and keeps a record

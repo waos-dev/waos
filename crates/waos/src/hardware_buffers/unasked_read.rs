@@ -1,9 +1,8 @@
 //! The warning a program hears when it reads the pixels of a hardware buffer it allocated without
 //! `cpu-read`, which works only because this system gives the buffer more than was asked, as
-//! Apple's systems give any buffer a program allocates every use (decision 10 of
-//! `docs/proposals/2026-11-11-android-pictures.md`). The same program is refused on a system that
-//! gives a buffer only what was asked, such as Android, so the warning says so, as a `tracing`
-//! event under [`targets::PROGRAM`] naming the program.
+//! Apple's systems give any buffer a program allocates every use. The same program is refused on a
+//! system that gives a buffer only what was asked, such as Android, so the warning says so, as a
+//! `tracing` event under [`targets::PROGRAM`] naming the program.
 //!
 //! A texture of a buffer the program samples or draws into without having asked is the same trap,
 //! and is not warned of: the engine sees the texture imported, not what the program then does with

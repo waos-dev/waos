@@ -141,8 +141,8 @@ impl Request {
 }
 
 /// A launch of the installed program `id`: its `arguments`, after `waos launch --`, and the
-/// `variables` this launch alone adds to its environment (the design's decision 68). Nothing of
-/// the client's own environment is sent, and WaOS's own variables win where both name one.
+/// `variables` this launch alone adds to its environment. Nothing of the client's own environment
+/// is sent, and WaOS's own variables win where both name one.
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct Launch {
     pub id: ProgramId,
@@ -172,10 +172,9 @@ impl fmt::Debug for Launch {
 }
 
 /// A program built from its source, which WaOS installs as its development install, under its id
-/// followed by `.development` (the design's decision 70): the program's own id, what it is, the
-/// name its user sees, its version, its icon where it has one, and the component's length and
-/// SHA-256 (`component_digest`), which the parts that follow carry unless WaOS answers it holds
-/// them already.
+/// followed by `.development`: the program's own id, what it is, the name its user sees, its
+/// version, its icon where it has one, and the component's length and SHA-256 (`component_digest`),
+/// which the parts that follow carry unless WaOS answers it holds them already.
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct Install {
     /// The program's own id, its `[package.metadata.waos]`'s, not its development id.
@@ -427,8 +426,8 @@ impl TracedCapability {
 
 /// Input to a program's window, as its user would give it, which WaOS simulates: it makes the
 /// events itself and hands them to the program as it hands over the user's, so the system and the
-/// window's menu bar never see them (the design's decision 64). A point is in the window's
-/// physical pixels, a screenshot's, from its top-left.
+/// window's menu bar never see them. A point is in the window's physical pixels, a screenshot's,
+/// from its top-left.
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
 #[serde(remote = "Self", tag = "kind", content = "data")]
 pub enum Input {

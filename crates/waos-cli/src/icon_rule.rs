@@ -1,8 +1,7 @@
-//! What `waos package` says of a program's icon that breaks the rule every icon follows: it
-//! fills its whole square, at least `waos_package::ICON_MINIMUM_SIDE` pixels on a side, with no
-//! rounded corners, margin or transparency, since WaOS shapes it on each system (decision 10 of
-//! `docs/proposals/2026-11-13-what-six-apps-found.md`). An icon drawn as a rounded tile on a
-//! transparent margin shows smaller than every other.
+//! What `waos package` says of a program's icon that breaks the rule every icon follows: it fills
+//! its whole square, at least `waos_package::ICON_MINIMUM_SIDE` pixels on a side, with no rounded
+//! corners, margin or transparency, since WaOS shapes it on each system. An icon drawn as a rounded
+//! tile on a transparent margin shows smaller than every other.
 //!
 //! The invariant: this only warns. Whether a package may carry the icon is `waos-package`'s to
 //! decide, and a PNG this cannot decode is left to it.

@@ -1,13 +1,12 @@
 //! A size `waos ui resize` asks for one window of a program running, however it was installed or
-//! started (the design's decision 70), by the id its run gave it, so
-//! a test sees the program's layout at a phone's width or a narrow window's (the design's decision
-//! 60): through the engine's view, which sizes its window through the shell as the program's own
-//! `set-frame` does (`ProgramView::resize_window`), so each placement answers as it answers the
-//! program. A window in WaOS's process and a program's own app on macOS take the size, or what
-//! their window system clamps it to; a phone's deck shows a tab in no window, and is answered
-//! `InNoWindow`. The connection is answered with the size the view reports after it; a window its
-//! system left as it was reports nothing, and is answered with its size once WaOS has waited
-//! [`REPORT_WAIT`] for a report.
+//! started, by the id its run gave it, so a test sees the program's layout at a phone's width or a
+//! narrow window's: through the engine's view, which sizes its window through the shell as the
+//! program's own `set-frame` does (`ProgramView::resize_window`), so each placement answers as it
+//! answers the program. A window in WaOS's process and a program's own app on macOS take the size,
+//! or what their window system clamps it to; a phone's deck shows a tab in no window, and is
+//! answered `InNoWindow`. The connection is answered with the size the view reports after it; a
+//! window its system left as it was reports nothing, and is answered with its size once WaOS has
+//! waited [`REPORT_WAIT`] for a report.
 //!
 //! The invariant: the size goes the way a program's request goes, through the shell's window,
 //! never to a window of the app's own reached around the engine.

@@ -413,10 +413,9 @@ impl Drop for WaOS {
 
 /// Components with their async ABI, fuel and an epoch tick for what a program costs and for
 /// freezing it, backtraces without wasmtime's details, and native unwind information where
-/// `native_unwind_info` asks for it. Cranelift
-/// compiles programs for this system's engine ([`compile_for_this_system`]). A program's trap is
-/// caught on macOS by a signal handler on its own thread, as on every other Unix (the project
-/// proposal's decision 58).
+/// `native_unwind_info` asks for it. Cranelift compiles programs for this system's engine
+/// ([`compile_for_this_system`]). A program's trap is caught on macOS by a signal handler on its
+/// own thread, as on every other Unix.
 ///
 /// The invariant: every engine in the process is made from this config, since wasmtime installs
 /// its trap handler once, at the first engine, and refuses an engine that asks for another.
@@ -428,9 +427,8 @@ pub(crate) fn engine_config(native_unwind_info: bool) -> Config {
     config.macos_use_mach_ports(false);
     config.wasm_component_model(true);
     config.wasm_component_model_async(true);
-    // A program's `std::thread`s, the component model's cooperative threads: they take turns on
-    // the program's one thread, so threaded crates run, never faster (decision 1 of
-    // `docs/proposals/2026-11-22-cooperative-threads.md`).
+    // A program's `std::thread`s, the component model's cooperative threads: they take turns on the
+    // program's one thread, so threaded crates run, never faster.
     config.wasm_component_model_threading(true);
     config.consume_fuel(true);
     // How a program's fuel gets read: a tick interrupts it wherever it is, which is the one

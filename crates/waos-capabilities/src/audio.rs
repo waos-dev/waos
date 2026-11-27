@@ -1,11 +1,10 @@
 //! A program's sound devices: what its Web Audio graph plays on and records from.
 //!
 //! The graph itself is `web_audio_api`'s, Web Audio implemented whole, which the engine serves to
-//! the program node for node (the sound proposal's decision 1); the crate is re-exported, as
-//! valo's font manager is, so a provider names the version the engine serves. What a provider
-//! decides is which devices a context plays on and the microphone records from, this machine's
-//! through the system's audio, or none, as a test's are; and whether there is a microphone to give
-//! at all.
+//! the program node for node; the crate is re-exported, as valo's font manager is, so a provider
+//! names the version the engine serves. What a provider decides is which devices a context plays on
+//! and the microphone records from, this machine's through the system's audio, or none, as a test's
+//! are; and whether there is a microphone to give at all.
 //!
 //! The invariant: a provider makes and moves contexts and opens the microphone; it keeps no graph
 //! and asks the user nothing. Which outputs a program may use is the engine's to decide, from what

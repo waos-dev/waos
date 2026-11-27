@@ -1,10 +1,9 @@
-//! The programs an inspector sees on this computer (decision 12 of
-//! `docs/proposals/2026-11-15-inspector-roles-and-compatibility.md`): every program installed,
-//! by the store's manifests; every one running, by the runs; and every one run in development the
-//! store keeps days of, though it has ended; a program not installed by its id alone. Each change
-//! to them as it happens, an install or a removal as the library makes it, a start or an end as
-//! the runs list it; each one's icon, read as it is asked for; and a program started held
-//! (`held_starts`), or ended, on WaOS's own runtime, so it outlives the inspector that asked.
+//! The programs an inspector sees on this computer: every program installed, by the store's
+//! manifests; every one running, by the runs; and every one run in development the store keeps days
+//! of, though it has ended; a program not installed by its id alone. Each change to them as it
+//! happens, an install or a removal as the library makes it, a start or an end as the runs list it;
+//! each one's icon, read as it is asked for; and a program started held (`held_starts`), or ended,
+//! on WaOS's own runtime, so it outlives the inspector that asked.
 //!
 //! The invariant: a program is named by its id, as the runs name the program they run, so what an
 //! inspector reads of a running one the engine finds under that name.

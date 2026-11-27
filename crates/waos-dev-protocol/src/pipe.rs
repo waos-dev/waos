@@ -1,10 +1,10 @@
 //! The named pipe a WaOS listens on, on Windows: where it is, connecting to it, and listening on
 //! it. Windows has no folder of the user's own for it, so the pipe is named after the user and
-//! guarded as the Unix socket's folder guards it (the design's decision 30): the pipe's security
-//! descriptor makes the user its owner and gives the user alone access, so no other user may
-//! connect, or read what WaOS writes, as the default descriptor lets everyone; and `waos`
-//! talks only to a pipe the user owns, since any user may make a pipe of any free name, and one
-//! made before WaOS starts would otherwise receive the program.
+//! guarded as the Unix socket's folder guards it: the pipe's security descriptor makes the user its
+//! owner and gives the user alone access, so no other user may connect, or read what WaOS writes,
+//! as the default descriptor lets everyone; and `waos` talks only to a pipe the user owns, since
+//! any user may make a pipe of any free name, and one made before WaOS starts would otherwise
+//! receive the program.
 //!
 //! The invariants a later editor will break:
 //! - A WaOS makes the pipe's first instance as the first (`FILE_FLAG_FIRST_PIPE_INSTANCE`), so it

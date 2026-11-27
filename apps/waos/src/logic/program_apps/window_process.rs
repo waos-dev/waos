@@ -1,34 +1,32 @@
-//! One program's window process, as WaOS serves it once it said hello: each window the program
-//! asks for is opened there, once WaOS made the canvas its view shows (`canvases`), with where
-//! that canvas's layers are; each view shown there is added to the program, its hardware buffers
+//! One program's window process, as WaOS serves it once it said hello: each window the program asks
+//! for is opened there, once WaOS made the canvas its view shows (`canvases`), with where that
+//! canvas's layers are; each view shown there is added to the program, its hardware buffers
 //! presented to the canvas, in WaOS, and its calls handed back as `ViewCall`s; what the window
 //! reports of a view goes to the view, a new size placing the canvas at it, at once, or, where the
 //! window waits in the resize, with the program's picture at that size under the window's fence,
 //! the window then hearing the picture is shown (`canvas_pictures`); a key's reply goes back once
 //! the program gives it; and when a window goes, its view and its canvas go with it, as every one
-//! does when the window process goes. The program's menu bar
-//! is shown there, the app's while it is in front, sent whole each time the program sets it and
-//! as the window process connects, and a choice in it goes back to the program by its id; its
-//! context menus open there at a point of a view shown there, each answering the program's call
-//! once it closes, or with none once the window process goes (`awaited_answers`, decision 10 of
-//! `docs/proposals/2026-10-29-macos-apps.md`). WaOS's prompts for the program are shown in dialogs
-//! there, and what a dialog reports goes on to the main thread, where WaOS's view of the prompt is
-//! ([`DialogReport`]); when the window process goes, every dialog it showed is reported closed.
-//! The user's quitting the program's app asks the program, as WaOS's own Quit does, and the app
-//! hears its answer; a program that agrees is stopped, and its app ends with it (decision 12). Its
-//! file dialogs open there, a sheet on the window showing the view the program names, or on their
-//! own where it names none or no window there shows it, each answering the program's call with the
-//! paths the user picked once it closes, which the engine mounts, or with why none were once the
-//! window process goes (decision 13). Its notifications are posted, scheduled and removed there,
-//! under the app's bundle, each post answering the program's call once the system has it, or with
-//! why not once the window process goes, and what the user does to one there goes to the program
-//! (decision 14). macOS's own question for them is put there too, answering what macOS says of the
-//! program's notifications then, or nothing once the window process goes; macOS's permission for
-//! them is read there again when WaOS asks; and whatever the app says macOS said of them, as WaOS
-//! welcomed it, as the question is answered, as it comes to the front, as WaOS asks and as a post
-//! is answered, is kept for the engine, which reads it with the program's permission, and goes on
-//! to the main thread, where WaOS's settings page for the program says so
-//! ([`NotificationPermissions`]).
+//! does when the window process goes. The program's menu bar is shown there, the app's while it is
+//! in front, sent whole each time the program sets it and as the window process connects, and a
+//! choice in it goes back to the program by its id; its context menus open there at a point of a
+//! view shown there, each answering the program's call once it closes, or with none once the window
+//! process goes (`awaited_answers`). WaOS's prompts for the program are shown in dialogs there, and
+//! what a dialog reports goes on to the main thread, where WaOS's view of the prompt is
+//! ([`DialogReport`]); when the window process goes, every dialog it showed is reported closed. The
+//! user's quitting the program's app asks the program, as WaOS's own Quit does, and the app hears
+//! its answer; a program that agrees is stopped, and its app ends with it. Its file dialogs open
+//! there, a sheet on the window showing the view the program names, or on their own where it names
+//! none or no window there shows it, each answering the program's call with the paths the user
+//! picked once it closes, which the engine mounts, or with why none were once the window process
+//! goes. Its notifications are posted, scheduled and removed there, under the app's bundle, each
+//! post answering the program's call once the system has it, or with why not once the window
+//! process goes, and what the user does to one there goes to the program. macOS's own question for
+//! them is put there too, answering what macOS says of the program's notifications then, or nothing
+//! once the window process goes; macOS's permission for them is read there again when WaOS asks;
+//! and whatever the app says macOS said of them, as WaOS welcomed it, as the question is answered,
+//! as it comes to the front, as WaOS asks and as a post is answered, is kept for the engine, which
+//! reads it with the program's permission, and goes on to the main thread, where WaOS's settings
+//! page for the program says so ([`NotificationPermissions`]).
 //!
 //! Everything WaOS keeps of the window process while it is there, its windows, its prompts'
 //! dialogs and what it was asked and owes an answer to, is one [`Connected`], taken whole as it

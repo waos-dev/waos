@@ -1,16 +1,14 @@
-//! How what WaOS shows for a program reaches the program's app (decision 15 of
-//! `docs/proposals/2026-10-29-macos-apps.md`): through one getter, which launches the app the
-//! first time something needs it, with no window and not brought forward, shares that launch with
-//! everything that asks while it comes, and answers why if the app never comes; and a second,
-//! which never launches, answering the app only while it runs. Each route is a line on top of
-//! them: the program's windows, its file dialogs (`file_dialogs`) and WaOS's prompts for it
+//! How what WaOS shows for a program reaches the program's app: through one getter, which launches
+//! the app the first time something needs it, with no window and not brought forward, shares that
+//! launch with everything that asks while it comes, and answers why if the app never comes; and a
+//! second, which never launches, answering the app only while it runs. Each route is a line on top
+//! of them: the program's windows, its file dialogs (`file_dialogs`) and WaOS's prompts for it
 //! (`state::prompt_dialogs`) take the first; its context menus, which open at a view the app
 //! already shows, and its menu bar, which is sent as the app connects, take the second. What the
 //! user must see brings the app forward as it shows, by macOS's cooperative activation: WaOS yields
 //! its activation to the app as it asks for a window that takes the focus, or a file dialog, and
 //! the app takes it as the window or the dialog opens, so a launch for anything else stays in the
-//! background; a prompt's dialog in an app in the background bounces its Dock icon instead
-//! (decision 9).
+//! background; a prompt's dialog in an app in the background bounces its Dock icon instead.
 //!
 //! The launches are `ProgramApps`'s, which tells this whether an app started, failed or said
 //! hello: a launch that fails, or an app that ends before its hello, is launched once more, its

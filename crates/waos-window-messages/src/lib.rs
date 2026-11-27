@@ -16,22 +16,21 @@
 //! a port of its own, and WaOS, once it has checked who sent it, answers [`Welcome`] with a port of
 //! the connection's. The protocol's number ([`PROTOCOL`]) is every Mach message's id.
 //!
-//! The invariant a later editor will break: nothing here is a question WaOS waits on, and a
-//! window process waits on one alone. Every message is one-way; a key is answered by a later
+//! The invariant a later editor will break: nothing here is a question WaOS waits on, and a window
+//! process waits on one alone. Every message is one-way; a key is answered by a later
 //! [`ToWindow::KeyReplied`] naming it, a window request by a later [`FromWindow::WindowOpened`] or
 //! [`FromWindow::WindowRefused`] naming the request, a context menu by a later
-//! [`FromWindow::ContextMenuClosed`] naming it, a quit by a later [`ToWindow::QuitAnswered`], a file
-//! dialog by a later [`FromWindow::FileDialogClosed`] naming it, a notification's post or schedule
-//! by a later [`FromWindow::NotificationPosted`] naming it, macOS's question for the program's
-//! notifications by a later [`FromWindow::NotificationPermissionAnswered`] naming it, and a
-//! reading of macOS's permission for them by a later [`FromWindow::NotificationPermission`]. The
-//! one wait is a window's, in a resize (decision 55 of
-//! `docs/proposals/2026-10-17-the-waos-project.md`): a view's new size sent with a fence is
-//! answered by a later [`ToWindow::PictureShown`] of that size, which the window process waits for
-//! inside the resize, so a fence comes only with a size the window waits at; but neither side waits
-//! while the program awaits the window process's answer to a request WaOS made of it, which the
-//! window process gives from the thread that waits: the window's wait ends as such a request
-//! arrives, and WaOS lets the fence go as it makes it.
+//! [`FromWindow::ContextMenuClosed`] naming it, a quit by a later [`ToWindow::QuitAnswered`], a
+//! file dialog by a later [`FromWindow::FileDialogClosed`] naming it, a notification's post or
+//! schedule by a later [`FromWindow::NotificationPosted`] naming it, macOS's question for the
+//! program's notifications by a later [`FromWindow::NotificationPermissionAnswered`] naming it, and
+//! a reading of macOS's permission for them by a later [`FromWindow::NotificationPermission`]. The
+//! one wait is a window's, in a resize: a view's new size sent with a fence is answered by a later
+//! [`ToWindow::PictureShown`] of that size, which the window process waits for inside the resize,
+//! so a fence comes only with a size the window waits at; but neither side waits while the program
+//! awaits the window process's answer to a request WaOS made of it, which the window process gives
+//! from the thread that waits: the window's wait ends as such a request arrives, and WaOS lets the
+//! fence go as it makes it.
 
 pub mod bundle;
 mod prompts;
@@ -150,17 +149,15 @@ pub enum ToWindow {
     QuitAnswered(#[serde(with = "AppExitResponseDef")] AppExitResponse),
     /// Open the file dialog `kind`, a sheet on the window made for `parent` when one is named and
     /// on its own otherwise; the window process answers [`FromWindow::FileDialogClosed`] with
-    /// `dialog` once the user has chosen or cancelled (decision 13 of
-    /// `docs/proposals/2026-10-29-macos-apps.md`).
+    /// `dialog` once the user has chosen or cancelled.
     OpenFileDialog {
         dialog: FileDialogId,
         parent: Option<RequestId>,
         kind: FileDialog,
     },
-    /// Post the program's `notification` under the app's bundle, in place of one of the
-    /// program's under the same id: now, or at `at`, the system holding it until then; the window
-    /// process answers [`FromWindow::NotificationPosted`] with `post` once the system has it, or
-    /// why not (decision 14 of `docs/proposals/2026-10-29-macos-apps.md`).
+    /// Post the program's `notification` under the app's bundle, in place of one of the program's
+    /// under the same id: now, or at `at`, the system holding it until then; the window process
+    /// answers [`FromWindow::NotificationPosted`] with `post` once the system has it, or why not.
     PostNotification {
         post: PostId,
         #[serde(with = "NotificationDef")]
@@ -171,7 +168,7 @@ pub enum ToWindow {
     RemoveNotification { id: String },
     /// Put macOS's own question for the program's notifications, which asks the user only if they
     /// were never asked; the window process answers [`FromWindow::NotificationPermissionAnswered`]
-    /// with `request` once macOS has answered (decision 14).
+    /// with `request` once macOS has answered.
     RequestNotificationPermission { request: PermissionRequestId },
     /// Read macOS's permission for the program's notifications again, without asking: WaOS came
     /// to the front, the user having perhaps changed it in System Settings, where WaOS's settings
@@ -181,8 +178,7 @@ pub enum ToWindow {
     /// The view in the window made for `window` shows the program's picture at `size`, its width
     /// and height in physical pixels: the view's first picture, after which its window waits in
     /// each resize, or the picture a resize waits for, which WaOS showed with the view's layers
-    /// laid out at that size under the fence the new size came with (decision 55 of
-    /// `docs/proposals/2026-10-17-the-waos-project.md`).
+    /// laid out at that size under the fence the new size came with.
     PictureShown { window: RequestId, size: [u32; 2] },
     /// Take the file dialog `dialog` away: WaOS no longer awaits its answer.
     CloseFileDialog { dialog: FileDialogId },
@@ -198,9 +194,8 @@ pub enum FileDialog {
 }
 
 /// Where WaOS keeps a view's layers for its window to show: the program's hardware buffers and its
-/// composition layers beneath them, which stay in WaOS (decision 3 of
-/// `docs/proposals/2026-10-29-macos-apps.md`). On macOS, the id of the `CAContext` whose root layer
-/// holds them, which the window shows in a `CALayerHost`.
+/// composition layers beneath them, which stay in WaOS. On macOS, the id of the `CAContext` whose
+/// root layer holds them, which the window shows in a `CALayerHost`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HostedLayers {
     pub context_id: u32,
@@ -260,12 +255,11 @@ pub enum FromWindow {
         chosen: Option<u32>,
     },
     /// The user quit the program's app, from its menu, the Dock or by logging out: WaOS asks the
-    /// program, and answers [`ToWindow::QuitAnswered`] (decision 12 of
-    /// `docs/proposals/2026-10-29-macos-apps.md`).
+    /// program, and answers [`ToWindow::QuitAnswered`].
     QuitRequested,
     /// The file dialog `dialog` closed, with the paths on the machine the user picked, none when
     /// the user cancelled; or why it answered nothing. WaOS mounts the paths for the program as
-    /// they are: the window process is WaOS's own code, and the program names no path (decision 13).
+    /// they are: the window process is WaOS's own code, and the program names no path.
     FileDialogClosed {
         dialog: FileDialogId,
         #[serde(with = "picked_paths")]
@@ -318,8 +312,7 @@ pub enum LaunchReason {
     UserOpened,
     /// The user clicked one of the program's notifications, or one of its actions, or replied,
     /// while the app did not run, and macOS launched the app for it: WaOS runs the program as its
-    /// library opens it, and hands it the click (decision 14 of
-    /// `docs/proposals/2026-10-29-macos-apps.md`).
+    /// library opens it, and hands it the click.
     NotificationActivated(#[serde(with = "ActivationDef")] Activation),
 }
 

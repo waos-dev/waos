@@ -1,8 +1,7 @@
-//! The WIT's versions against the last release's: a program built against a release imports
-//! that release's packages by name and version, so a package whose contents change keeps those
-//! programs running only under a new version (the design's decision 67). `cargo xtask
-//! check-wit-versions` compares `wit/` with the last `v*` tag's and names every package that
-//! changed under the same version.
+//! The WIT's versions against the last release's: a program built against a release imports that
+//! release's packages by name and version, so a package whose contents change keeps those programs
+//! running only under a new version. `cargo xtask check-wit-versions` compares `wit/` with the last
+//! `v*` tag's and names every package that changed under the same version.
 //!
 //! The invariant a later editor will break: a package's contract is its files' text without
 //! comments or the spacing between words, so a doc comment or reflowed line changes nothing and

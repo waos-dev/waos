@@ -224,9 +224,8 @@ pub(crate) struct ProgramOpened {
 impl EventEmitter<WantsToBeSeen> for Library {}
 
 /// The program `id`, about to start on Android as a task of its own, wants its first window opened
-/// now, showing it as `face` says, which arrives as a program's first window the platform gives
-/// and starts the program with it reserved (decision 10 of
-/// `docs/proposals/2026-11-21-views-a-program-asks-for.md`).
+/// now, showing it as `face` says, which arrives as a program's first window the platform gives and
+/// starts the program with it reserved.
 pub(crate) struct FirstWindowWanted {
     pub(crate) id: ProgramId,
     pub(crate) face: ProgramFace,

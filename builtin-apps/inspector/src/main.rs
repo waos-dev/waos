@@ -1,12 +1,11 @@
 //! WaOS's inspector: a program holding the inspector role, which it asks for by calling
-//! `wasdk::inspect`. It lists the programs on this device, those that used something guarded
-//! lately first, and shows for the one chosen its report, what it did over the last seven days,
-//! and its live panels, what it does as it happens (the inspector's panels, decisions 1, 2 and 14
-//! in `docs/proposals/2026-11-15-inspector-roles-and-compatibility.md`). In Fluent's controls from
-//! 600 logical points wide, the list beside the page of the program chosen; narrower, as on a
-//! phone, in Cupertino's, the list, then a page of each program. A Waft app over
-//! `wasdk-adapter-waft`, in Waft's three layers: the logic as plain Rust (`logic`), the state as
-//! entities over it, one a feature (`state`), and thin widgets (`ui`).
+//! `wasdk::inspect`. It lists the programs on this device, those that used something guarded lately
+//! first, and shows for the one chosen its report, what it did over the last seven days, and its
+//! live panels, what it does as it happens (the inspector's panels). In Fluent's controls from 600
+//! logical points wide, the list beside the page of the program chosen; narrower, as on a phone, in
+//! Cupertino's, the list, then a page of each program. A Waft app over `wasdk-adapter-waft`, in
+//! Waft's three layers: the logic as plain Rust (`logic`), the state as entities over it, one a
+//! feature (`state`), and thin widgets (`ui`).
 //!
 //! ```text
 //! waos run -p inspector

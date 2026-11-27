@@ -1,9 +1,9 @@
 //! One request to the WaOS on this machine about a program: for `waos ui screenshot`, `tap`,
 //! `press`, `drag`, `type`, `key` and `scroll`, `waos attach` and `waos stop`, connected to as it
-//! runs, never started, since only a program running is read, driven or stopped (the design's
-//! decisions 60 and 70); for `waos settings` and `set`, on a connection the caller made. Each side says its hello
-//! first: a different protocol's major, or a request WaOS does not serve, is refused before it is
-//! sent, with both builds named and which one to update.
+//! runs, never started, since only a program running is read, driven or stopped; for `waos
+//! settings` and `set`, on a connection the caller made. Each side says its hello first: a
+//! different protocol's major, or a request WaOS does not serve, is refused before it is sent, with
+//! both builds named and which one to update.
 //!
 //! The invariant: [`ask`] never starts WaOS. With none answering, no program runs to ask about.
 

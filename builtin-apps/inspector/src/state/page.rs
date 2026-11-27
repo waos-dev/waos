@@ -48,7 +48,7 @@ impl Log for InUse {
     type Row = InUseRow;
 }
 
-/// The tabs of a program's page: its report, then the live panels (decision 14).
+/// The tabs of a program's page: its report, then the live panels.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Tab {
     Report,
@@ -386,10 +386,9 @@ pub(crate) fn show_tab(app: &mut App, page: &Entity<ProgramPage>, tab: Tab) {
     });
 }
 
-/// Starts the program chosen again, or starts it where it ended, held until every panel listens
-/// to it, so each hears it from its first instruction (decision 18 of
-/// `docs/proposals/2026-11-15-inspector-roles-and-compatibility.md`); one WaOS could not start
-/// says why in each panel.
+/// Starts the program chosen again, or starts it where it ended, held until every panel listens to
+/// it, so each hears it from its first instruction; one WaOS could not start says why in each
+/// panel.
 pub(crate) fn start_inspected(app: &mut App, page: &Entity<ProgramPage>) {
     let Some((device, _running)) = chosen_device(app, page) else {
         return;
@@ -444,8 +443,8 @@ pub(crate) fn start_inspected(app: &mut App, page: &Entity<ProgramPage>) {
     });
 }
 
-/// Ends the program chosen, with a stop, as its user may from the inspector (decision 19); its
-/// panels keep what they heard.
+/// Ends the program chosen, with a stop, as its user may from the inspector; its panels keep what
+/// they heard.
 pub(crate) fn end_program(app: &mut App, page: &Entity<ProgramPage>) {
     let Some((device, _running)) = chosen_device(app, page) else {
         return;

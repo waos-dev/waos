@@ -8,8 +8,7 @@
 //! call is one-way, or answered later through a future, as a key's reply is, so a window never
 //! waits on another thread or another process; but a link may hold [`ViewLink::metrics_changed`]
 //! until the program's picture at the new size is shown, as a program's window process does on
-//! macOS (decision 55 of `docs/proposals/2026-10-17-the-waos-project.md`), so the window's new
-//! size shows with it.
+//! macOS, so the window's new size shows with it.
 
 use std::sync::Arc;
 

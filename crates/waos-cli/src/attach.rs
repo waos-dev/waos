@@ -1,9 +1,9 @@
-//! `waos attach`'s side of an attach: what a program running writes, however it was started, as
-//! it writes it, to this process's stdout and stderr, each line after the program's name, so two programs'
-//! output read apart, from what it wrote with nobody attached on; what WaOS asks its user while
-//! the program waits for the answer, with the row that answers it ahead; and how it ended, which
-//! becomes the exit status (the design's decision 70). Ctrl-C, or the terminal closing, detaches
-//! and the program runs on, or, for `waos run`, stops it.
+//! `waos attach`'s side of an attach: what a program running writes, however it was started, as it
+//! writes it, to this process's stdout and stderr, each line after the program's name, so two
+//! programs' output read apart, from what it wrote with nobody attached on; what WaOS asks its user
+//! while the program waits for the answer, with the row that answers it ahead; and how it ended,
+//! which becomes the exit status. Ctrl-C, or the terminal closing, detaches and the program runs
+//! on, or, for `waos run`, stops it.
 //!
 //! The invariant: nothing here runs a program. It runs in the WaOS app, and this process holds
 //! only the connection, which closing detaches from.

@@ -1,14 +1,14 @@
-//! What `waos launch` and `waos stop` ask (the design's decision 70). A launch starts an
-//! installed program, a development install or any other, in place of its run if it runs, which
-//! ends `Replaced`: its code waited for while it is compiled, as at its install, or compiled where
-//! the cache holds none current, with `Compiling` on the connection first, before the runs' lock
-//! is taken, which every start, screenshot, input and quit takes, so a compile holds back no other
-//! program; then loaded off this thread and run with its own settings and folders, this
-//! computer's capabilities, the launch's arguments and the variables it alone adds (decision 68),
-//! and its output going to the attaches (`launch_outputs`). The launch is answered `Launched` once
-//! the program runs, and the program runs on whoever attaches or not, until it ends or is stopped;
-//! a launch whose connection closes while its code compiles, as Ctrl-C in `waos run` closes it, is
-//! not started. A stop ends the program running, however it was started.
+//! What `waos launch` and `waos stop` ask. A launch starts an installed program, a development
+//! install or any other, in place of its run if it runs, which ends `Replaced`: its code waited for
+//! while it is compiled, as at its install, or compiled where the cache holds none current, with
+//! `Compiling` on the connection first, before the runs' lock is taken, which every start,
+//! screenshot, input and quit takes, so a compile holds back no other program; then loaded off this
+//! thread and run with its own settings and folders, this computer's capabilities, the launch's
+//! arguments and the variables it alone adds, and its output going to the attaches
+//! (`launch_outputs`). The launch is answered `Launched` once the program runs, and the program
+//! runs on whoever attaches or not, until it ends or is stopped; a launch whose connection closes
+//! while its code compiles, as Ctrl-C in `waos run` closes it, is not started. A stop ends the
+//! program running, however it was started.
 //!
 //! The invariant: a launched run's end is told to its output, then the run is taken out of the
 //! runs, by a task of the server's runtime (`InstalledRuns::take_out_once_ended`), so every attach

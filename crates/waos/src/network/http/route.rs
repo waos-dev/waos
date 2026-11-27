@@ -1,16 +1,16 @@
-//! Which way a program's request goes (decision 14 of the permissions proposal). With no proxy in
-//! effect for it, as the proxy settings and their exceptions say, it goes straight to its host,
-//! which its connection looks up through the program's checked lookup (`connector`). With one, WaOS looks the host up
-//! itself first, through the program's own lookup (the domain rule, the address record, the
-//! local-network switch), and picks the way by where the host lands: an address on this computer
-//! or the local network is connected to directly, at the addresses that lookup answered, under
-//! the local-network switch; an internet address goes through the proxy, under the network
-//! switch and its domain rule. A name let through only for its local addresses that has none is
-//! refused, as it is without a proxy; a host that is an address goes directly when it is local.
-//! A name answering both kinds goes directly to its local addresses alone when the local-network
-//! switch lets the program reach them, so a connection lands where it was checked, never on an
-//! internet address the proxy was meant to carry; without the switch its local addresses are not
-//! answered, and its internet ones go through the proxy.
+//! Which way a program's request goes. With no proxy in effect for it, as the proxy settings and
+//! their exceptions say, it goes straight to its host, which its connection looks up through the
+//! program's checked lookup (`connector`). With one, WaOS looks the host up itself first, through
+//! the program's own lookup (the domain rule, the address record, the local-network switch), and
+//! picks the way by where the host lands: an address on this computer or the local network is
+//! connected to directly, at the addresses that lookup answered, under the local-network switch; an
+//! internet address goes through the proxy, under the network switch and its domain rule. A name
+//! let through only for its local addresses that has none is refused, as it is without a proxy; a
+//! host that is an address goes directly when it is local. A name answering both kinds goes
+//! directly to its local addresses alone when the local-network switch lets the program reach them,
+//! so a connection lands where it was checked, never on an internet address the proxy was meant to
+//! carry; without the switch its local addresses are not answered, and its internet ones go through
+//! the proxy.
 //!
 //! The blind spot that remains: the proxy looks an internet name up again, so a DNS answering it
 //! differently the second time, with an address on this computer or the local network, leads the

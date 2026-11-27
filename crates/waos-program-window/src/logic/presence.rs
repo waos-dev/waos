@@ -3,13 +3,13 @@
 //! hid its window; and whether the window is minimized or occluded, as Waft's window says each
 //! time Waft reports that it changed.
 //!
-//! The window answers for itself, whatever the process's other windows show: a window minimized
-//! is off screen, and one covered all over occluded, while another of the process's shows. An
-//! occluded window is reported on screen and occluded, apart, since the engine decides what being
-//! covered means: out of sight, unless a tool watches the program (the design's decision 63).
-//! Where the system does not say one of them, as Windows does not say a window is covered, the
-//! window answers no. The invariant: a view is off screen or occluded only for what is known, so a
-//! program is never frozen while its window shows.
+//! The window answers for itself, whatever the process's other windows show: a window minimized is
+//! off screen, and one covered all over occluded, while another of the process's shows. An occluded
+//! window is reported on screen and occluded, apart, since the engine decides what being covered
+//! means: out of sight, unless a tool watches the program. Where the system does not say one of
+//! them, as Windows does not say a window is covered, the window answers no. The invariant: a view
+//! is off screen or occluded only for what is known, so a program is never frozen while its window
+//! shows.
 
 use waft::HostWindow;
 use waos::Presence;

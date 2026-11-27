@@ -1,8 +1,7 @@
-//! The code serving `wasdk:platform/mounts` to a program: a folder it holds, a machine's root
-//! among them, mounted at a path of its own files for as long as it keeps the `mounted`, so what
-//! reaches files by their paths reaches it there (the projects-on-machines proposal's decisions).
-//! The mount is one of the program's handed files' ([`HandedFiles::mount`]), which the mount table
-//! takes up at the program's next call.
+//! The code serving `wasdk:platform/mounts` to a program: a folder it holds, a machine's root among
+//! them, mounted at a path of its own files for as long as it keeps the `mounted`, so what reaches
+//! files by their paths reaches it there. The mount is one of the program's handed files'
+//! ([`HandedFiles::mount`]), which the mount table takes up at the program's next call.
 //!
 //! The invariant: a program mounts only a folder it holds, as writable as its descriptor is and of
 //! the kind its folder is, so mounting gives it nothing it did not have.

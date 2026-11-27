@@ -1,6 +1,5 @@
 //! What a program did with what it was allowed, one day at a time ([`AuditDay`]), and where those
-//! days are kept ([`AuditLog`]): the audit summary of
-//! `docs/proposals/2026-11-15-inspector-roles-and-compatibility.md`, counted by the engine and
+//! days are kept ([`AuditLog`]): the audit summary an inspector shows, counted by the engine and
 //! kept by the store, on the device only, seven days.
 //!
 //! A day is small and bounded whatever the program does: counts, refusals, first and last use, and

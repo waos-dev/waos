@@ -1,7 +1,6 @@
 //! A hardware buffer's image handed between the program's device and the compositor: released to
 //! `VK_QUEUE_FAMILY_FOREIGN_EXT` once the work that drew it is submitted, and acquired back before
-//! it is drawn into again (decision 8 of `docs/proposals/2026-11-11-android-pictures.md`, as
-//! amended). On the emulator a buffer whose last write was a copy shows black without the release
+//! it is drawn into again. On the emulator a buffer whose last write was a copy shows black without the release
 //! and right with it, a change of layout alone not helping.
 //!
 //! wgpu-core records no transfer to another queue family and offers no way to read the layout it

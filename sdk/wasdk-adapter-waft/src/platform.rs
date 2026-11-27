@@ -3,10 +3,10 @@
 //! of media, the image codecs, the frame readers and the cameras, the compositor its composition layers are made on, and the frame requests, cursors, focus requests,
 //! view requests and wake-ups it passes on.
 //!
-//! Waft's model and the WIT's map one to one (the design's decision 4): the views the
-//! shell gave are [`Platform::views`] when the app starts, a view that arrives later is the
-//! client's `view_added`, and [`Platform::request_view`] is `request-view`, whose id the view
-//! carries when it arrives. A view keeps the engine's id for it.
+//! Waft's model and the WIT's map one to one: the views the shell gave are [`Platform::views`] when
+//! the app starts, a view that arrives later is the client's `view_added`, and
+//! [`Platform::request_view`] is `request-view`, whose id the view carries when it arrives. A view
+//! keeps the engine's id for it.
 //!
 //! Frames are per view, one to one: [`Platform::request_frame`] of a view is that view's
 //! `request-frame`, and the loop gives the frame that answers it to the client as that view's. A

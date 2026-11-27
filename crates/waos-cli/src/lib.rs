@@ -8,13 +8,13 @@
 //! This crate is engine-free and builds on stable Rust. Both its own `waos` binary, the command
 //! alone, and the `waos` binary that also is WaOS call into [`run_from_args`] with their own [`WaOSStarter`].
 //!
-//! The invariant: every command is about a program and the WaOS it runs in. An install, a launch,
-//! a run and an uninstall go to the WaOS already running, starting one through the caller's
+//! The invariant: every command is about a program and the WaOS it runs in. An install, a launch, a
+//! run and an uninstall go to the WaOS already running, starting one through the caller's
 //! [`WaOSStarter`] when none answers, never to an engine of this crate's own; a program's settings
 //! go to the WaOS keeping them, started the same way; an attach, a stop, a screenshot, resize,
 //! input, or live inspection goes to the WaOS running the program, never starting one. Inside a
 //! program's project, a command with no id names the project's development id, its
-//! `[package.metadata.waos]` id followed by `.development` (the design's decision 70).
+//! `[package.metadata.waos]` id followed by `.development`.
 
 mod asked;
 mod asking;

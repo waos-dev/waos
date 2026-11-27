@@ -1,9 +1,9 @@
 //! What a source's listing of a program offers, against the programs installed: to install it, to
-//! update the installed one to the version listed, or nothing, for a version not newer than the
-//! one installed, by semver's precedence as the store compares them. An update is any listing of
-//! an installed id at a newer version (the design's decision 46); whether the package is signed
-//! with the installed program's key is the store's to check when it installs it. A development
-//! install is never offered an update, since no source updates it (decision 70).
+//! update the installed one to the version listed, or nothing, for a version not newer than the one
+//! installed, by semver's precedence as the store compares them. An update is any listing of an
+//! installed id at a newer version; whether the package is signed with the installed program's key
+//! is the store's to check when it installs it. A development install is never offered an update,
+//! since no source updates it.
 
 use std::cmp::Ordering;
 

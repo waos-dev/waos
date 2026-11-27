@@ -1,6 +1,6 @@
-//! How a command starts on this computer: its program and arguments, its variables, the
-//! login environment's with the command's on top (the processes proposal's decision 4), and its
-//! folder, the one it names or the user's home: `HOME`, or `USERPROFILE` on Windows.
+//! How a command starts on this computer: its program and arguments, its variables, the login
+//! environment's with the command's on top, and its folder, the one it names or the user's home:
+//! `HOME`, or `USERPROFILE` on Windows.
 
 use std::ffi::OsString;
 use std::path::PathBuf;

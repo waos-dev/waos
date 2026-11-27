@@ -1,39 +1,36 @@
-//! Each running program's app of its own, on macOS (`docs/proposals/2026-10-29-macos-apps.md`),
-//! as Chrome's app shims are: the program's windows open in a window process of its own, launched
-//! from the program's bundle (`bundles`) through Launch Services, and served by WaOS once it said
-//! hello over Mach (`server`, `window_process`); what each view shows stays in WaOS, on a canvas
-//! WaOS keeps in a layer context the window shows (`canvases`), a window's new size showing only
-//! with the program's picture at it, which the window waits for inside the resize
-//! (`canvas_pictures`, decision 55 of `docs/proposals/2026-10-17-the-waos-project.md`); and so do
-//! WaOS's prompts for the program, which its app shows in dialogs of their own, reporting back
-//! what each dialog does. The
-//! program's menu bar and its context menus are its app's too, macOS showing the bar of the app in
-//! front (decision 10 of the proposal): the bar is sent whole each time the program sets it while
-//! its app runs, and as the app connects; a context menu opens there and is answered once it
-//! closes, or with none once the app goes or while it does not run (`awaited_answers`). So do its
-//! file dialogs (decision 13): each opens there, a sheet on the window of the view it names or on
-//! its own, and is answered with the paths the user picked once it closes, which the engine
-//! mounts, or with why none were (`file_dialogs`). So do its notifications (decision 14): each is
-//! posted, scheduled or removed there, under the program's bundle, a post answered once the system
-//! has it, `denied` where macOS refuses the program, macOS's own question for them put there after
-//! WaOS's, and a click on one goes from there to the program (`notifications`); whatever the app
-//! says macOS said of them is kept for the program's permission and told to WaOS's settings
-//! (`notification_permissions`), each app that runs reading it again when WaOS asks, as WaOS comes to the
-//! front.
+//! Each running program's app of its own, on macOS, as Chrome's app shims are: the program's
+//! windows open in a window process of its own, launched from the program's bundle (`bundles`)
+//! through Launch Services, and served by WaOS once it said hello over Mach (`server`,
+//! `window_process`); what each view shows stays in WaOS, on a canvas WaOS keeps in a layer context
+//! the window shows (`canvases`), a window's new size showing only with the program's picture at
+//! it, which the window waits for inside the resize (`canvas_pictures`); and so do WaOS's prompts
+//! for the program, which its app shows in dialogs of their own, reporting back what each dialog
+//! does. The program's menu bar and its context menus are its app's too, macOS showing the bar of
+//! the app in front: the bar is sent whole each time the program sets it while its app runs, and as
+//! the app connects; a context menu opens there and is answered once it closes, or with none once
+//! the app goes or while it does not run (`awaited_answers`). So do its file dialogs: each opens
+//! there, a sheet on the window of the view it names or on its own, and is answered with the paths
+//! the user picked once it closes, which the engine mounts, or with why none were (`file_dialogs`).
+//! So do its notifications: each is posted, scheduled or removed there, under the program's bundle,
+//! a post answered once the system has it, `denied` where macOS refuses the program, macOS's own
+//! question for them put there after WaOS's, and a click on one goes from there to the program
+//! (`notifications`); whatever the app says macOS said of them is kept for the program's permission
+//! and told to WaOS's settings (`notification_permissions`), each app that runs reading it again
+//! when WaOS asks, as WaOS comes to the front.
 //!
-//! Everything that reaches a program's app goes through one getter (`app_reach`, decision 15):
-//! WaOS launches the app the first time something needs it, a window, a file dialog, one of
-//! WaOS's prompts or a notification, with no window of its own and not brought forward, and
-//! everything that asks while it comes waits for that launch; a window that takes the focus, or a
-//! file dialog, brings the app forward as it shows, as a window a user opens does. An app the user
-//! opens alone, from the Dock or the Finder, finds WaOS, or starts it, and says hello; WaOS runs
-//! its program as the library opens it, and so it does for an app macOS launched for a click on
-//! one of its notifications, which the hello carries and the program then hears. Every hello is
-//! checked: the process that sent it must be the program's bundle as WaOS signed it, by the code
-//! hash WaOS kept, which the record's HMAC must vouch for first. A launch that fails, or an app that ends
-//! before its hello, has its bundle rebuilt and is launched once more, as Chrome does; a second
-//! failure fails everything that waited. An app that ends after its hello, while its program
-//! runs, was crashed or force quit: the program ends with it, as nothing could show it any more.
+//! Everything that reaches a program's app goes through one getter (`app_reach`): WaOS launches the
+//! app the first time something needs it, a window, a file dialog, one of WaOS's prompts or a
+//! notification, with no window of its own and not brought forward, and everything that asks while
+//! it comes waits for that launch; a window that takes the focus, or a file dialog, brings the app
+//! forward as it shows, as a window a user opens does. An app the user opens alone, from the Dock
+//! or the Finder, finds WaOS, or starts it, and says hello; WaOS runs its program as the library
+//! opens it, and so it does for an app macOS launched for a click on one of its notifications,
+//! which the hello carries and the program then hears. Every hello is checked: the process that
+//! sent it must be the program's bundle as WaOS signed it, by the code hash WaOS kept, which the
+//! record's HMAC must vouch for first. A launch that fails, or an app that ends before its hello,
+//! has its bundle rebuilt and is launched once more, as Chrome does; a second failure fails
+//! everything that waited. An app that ends after its hello, while its program runs, was crashed or
+//! force quit: the program ends with it, as nothing could show it any more.
 //!
 //! Where there can be no apps, as when WaOS finds no window library or loader, or the system lacks
 //! the layer contexts a window shows its view's layers through, every window a program asks for
@@ -401,7 +398,7 @@ impl ProgramApps {
 
     /// What `id`'s bundle is written from: its install, a development install's as any other's;
     /// none for a program not installed, which has no app, since every program that runs is
-    /// installed (the design's decision 70).
+    /// installed.
     fn describe(&self, id: &ProgramId) -> Option<ProgramDescription> {
         let program = self.store.installed_program(id)?;
         Some(ProgramDescription {

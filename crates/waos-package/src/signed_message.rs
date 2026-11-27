@@ -12,10 +12,10 @@
 //! The lines after the first are what `shasum -a 256 manifest.toml program.wasm icon.png` prints
 //! in a folder the package was unzipped into, so a person can check a package by hand.
 //!
-//! The invariant a later editor will break: the message is a function of the three entries'
-//! bytes alone, never of how the zip holds them, so packing the entries again keeps the signature
-//! (the design's decision 44). A change to the form is a new first line, which an installer must
-//! know before a package signed that way opens.
+//! The invariant a later editor will break: the message is a function of the three entries' bytes
+//! alone, never of how the zip holds them, so packing the entries again keeps the signature. A
+//! change to the form is a new first line, which an installer must know before a package signed
+//! that way opens.
 
 use std::fmt::Write as _;
 

@@ -1,6 +1,6 @@
 //! Waft's file dialogs over `wasdk:platform/file-dialogs`, one to one: each kind a function, its
 //! options set on the WIT's resources, and each pick answered as a path, which WaOS has mounted
-//! where the program reads it (the file dialogs proposal's decision 4).
+//! where the program reads it.
 
 use std::path::{Path, PathBuf};
 use std::rc::Rc;

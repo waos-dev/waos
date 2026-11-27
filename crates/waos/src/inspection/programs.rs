@@ -1,10 +1,9 @@
 //! What a program holding the inspector role sees of the others, which the embedder gives: every
-//! program it knows, installed or running, the inspector among them (decision 12 of
-//! `docs/proposals/2026-11-15-inspector-roles-and-compatibility.md`), each change to them, and a
+//! program it knows, installed or running, the inspector among them, each change to them, and a
 //! program's icon, asked for one at a time; and a program started held, which the embedder starts
-//! as it starts any, or ended (decisions 18 and 19); and what a program sees of this computer's
-//! files, from its own folders, grants and handed files. What a running one does the engine reads
-//! itself, of the program it runs under that id.
+//! as it starts any, or ended; and what a program sees of this computer's files, from its own
+//! folders, grants and handed files. What a running one does the engine reads itself, of the
+//! program it runs under that id.
 //!
 //! The invariant: the programs are said in `wasdk:inspect`'s own types, so what the embedder gives
 //! is what the inspector reads, with no second schema between them.

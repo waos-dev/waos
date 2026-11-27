@@ -1,7 +1,7 @@
 //! Waft's opener over `wasdk:platform/opener`, one to one: a link, a file and a file shown in the
 //! system's file manager, each a call, a file named by its path inside the program. Whether a link
-//! can be opened is not asked: the WIT does not ask it (decision 2 of the opening proposal), and
-//! a program learns no app opens a link when opening it fails.
+//! can be opened is not asked: the WIT does not ask it, and a program learns no app opens a link
+//! when opening it fails.
 
 use std::path::Path;
 use std::rc::Rc;

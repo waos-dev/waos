@@ -20,7 +20,7 @@ pub use waos_local_processes::{HomeFolder, THIS_COMPUTER};
 /// This computer's providers, made once and shared by every program they serve: an embedder keeps
 /// one and gives each program it runs an [`environment`](LocalCapabilities::environment).
 pub struct LocalCapabilities {
-    /// This computer's fonts: valo's font manager for this platform (the design's decision 33).
+    /// This computer's fonts: valo's font manager for this platform.
     fonts: Arc<Mutex<dyn FontManager>>,
     /// This computer's sound devices, through the system's audio.
     audio: Arc<dyn AudioDevices>,

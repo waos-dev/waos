@@ -1,8 +1,6 @@
 //! WaOS's own menu bar: its app menu, Edit and Window, every item the platform's, which macOS shows
 //! while WaOS is in front. A program's bar is its app's, which macOS shows while the program's
-//! window is in front (decision 10 of `docs/proposals/2026-10-29-macos-apps.md`), so WaOS's bar
-//! never holds a program's menus, as decision 7 of `docs/proposals/2026-10-28-menus.md` had it
-//! before programs had apps of their own.
+//! window is in front, so WaOS's bar never holds a program's menus.
 //!
 //! The invariant: every item is the platform's, which carries it out itself, so no choice in the
 //! bar is WaOS's to carry out, and its entries need no ids of their own: each is 0, as those of

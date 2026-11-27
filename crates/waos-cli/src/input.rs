@@ -1,9 +1,9 @@
 //! `waos ui tap`, `press`, `drag`, `type`, `key` and `scroll`: input to a window of a program
-//! running, the package's development install by default, sent to the WaOS running it, which gives it to the program as
-//! its user would give it and answers once it has handed it over, saying whether the window was in
-//! sight (the design's decision 60). What the program draws in answer, a screenshot shows once it
-//! has drawn it. A point is in the window's pixels, a screenshot's, from its
-//! top-left, written `<x>,<y>`.
+//! running, the package's development install by default, sent to the WaOS running it, which gives
+//! it to the program as its user would give it and answers once it has handed it over, saying
+//! whether the window was in sight. What the program draws in answer, a screenshot shows once it
+//! has drawn it. A point is in the window's pixels, a screenshot's, from its top-left, written
+//! `<x>,<y>`.
 //!
 //! The invariant: a command returns only once WaOS has answered, the input given or why not.
 

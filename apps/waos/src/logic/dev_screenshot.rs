@@ -1,11 +1,11 @@
 //! A screenshot `waos ui screenshot` asks for: the last picture of each window of a program
-//! running, however it was installed or started (the design's decision 70), or of the one window
-//! asked for, each with the id its run gave it as it opened, its title, its size, whether it is in sight, and the picture as a PNG (the
-//! design's decision 60). A picture is what the window shows, at its view's size (`ProgramView::picture`,
-//! decision 62): the program's drawing over what each composition layer beneath it shows now, a
-//! buffer it presented, a player's video or a camera's picture, drawn together by the engine on
-//! the GPU; BGRA with its alpha premultiplied, as the compositor shows it, made a PNG's RGBA with
-//! its alpha straight, marked sRGB.
+//! running, however it was installed or started, or of the one window asked for, each with the id
+//! its run gave it as it opened, its title, its size, whether it is in sight, and the picture as a
+//! PNG. A picture is what the window shows, at its view's size (`ProgramView::picture`): the
+//! program's drawing over what each composition layer beneath it shows now, a buffer it presented,
+//! a player's video or a camera's picture, drawn together by the engine on the GPU; BGRA with its
+//! alpha premultiplied, as the compositor shows it, made a PNG's RGBA with its alpha straight,
+//! marked sRGB.
 //!
 //! What WaOS asks the program's user over its windows is the shell's, not the program's picture:
 //! each window says what is asked (`asking_now`).
@@ -395,7 +395,7 @@ mod tests {
             pictures_once_middle_is(&server, INPUT_DEVELOPMENT, SECOND).await;
         }
 
-        /// The design's decision 63: a program is watched while an attach to it is open.
+        /// A program is watched while an attach to it is open, so its covered windows draw.
         #[tokio::test]
         async fn a_covered_window_is_in_sight_and_draws_while_attached_and_not_after() {
             let server = TestServer::drawing("screenshot-covered");

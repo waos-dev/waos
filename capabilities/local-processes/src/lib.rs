@@ -1,14 +1,13 @@
-//! This computer as a machine a program acts on (the processes proposal's decision 2): the
-//! provider of `waos-capabilities`' [`Machines`] for the machine in front of the user, which
-//! offers this computer alone. Its files are given from `/`; its commands run with pipes
-//! (`pipes`) or in a terminal of their own (`terminal`), as the user running WaOS, in the user's
-//! login environment read once (`login_environment`, decision 4), each command's variables on top
-//! (`starting`), its home the one the embedder gives, where it gives one ([`HomeFolder`]). A
-//! started command is in a group of its own, which takes its signals, under the
+//! This computer as a machine a program acts on: the provider of `waos-capabilities`' [`Machines`]
+//! for the machine in front of the user, which offers this computer alone. Its files are given from
+//! `/`; its commands run with pipes (`pipes`) or in a terminal of their own (`terminal`), as the
+//! user running WaOS, in the user's login environment read once (`login_environment`), each
+//! command's variables on top (`starting`), its home the one the embedder gives, where it gives one
+//! ([`HomeFolder`]). A started command is in a group of its own, which takes its signals, under the
 //! names `system` gives each system's: a process group on Unix's (`process_group`), its terminal a
-//! pseudo-terminal (`pseudo_terminal`); on Windows a job, its terminal a pseudoconsole
-//! (`windows`). What it runs (`platform`) and its user's login shell, the user database's on
-//! Unix's systems (`user_database`) and none on Windows, are read once, as it is made.
+//! pseudo-terminal (`pseudo_terminal`); on Windows a job, its terminal a pseudoconsole (`windows`).
+//! What it runs (`platform`) and its user's login shell, the user database's on Unix's systems
+//! (`user_database`) and none on Windows, are read once, as it is made.
 //!
 //! The invariant: this crate depends on `waos-capabilities` only of ours. It names no shell, no
 //! engine and no program's internals; a program gets it when its environment is chosen, at start,

@@ -1,6 +1,5 @@
 //! `wasdk:media/media-assets`: a program's media read by the system without playing it, its length,
-//! its tracks, its tags and a picture at a time, for a library before anything plays (decision 32
-//! of `docs/proposals/2026-11-02-program-media.md`).
+//! its tracks, its tags and a picture at a time, for a library before anything plays.
 //!
 //! The shell reads ([`ShellMediaAssets`], each asset a `ShellMediaAsset`); the engine keeps the
 //! rules, a source checked as a player's is (`media_sources`): a link passes the program's network

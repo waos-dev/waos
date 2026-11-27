@@ -1,12 +1,10 @@
-//! Starting a program held for an inspector (decisions 18 and 19 of
-//! `docs/proposals/2026-11-15-inspector-roles-and-compatibility.md`): the program the id names,
-//! installed, by its component in the store, a development install's among them; loaded off the
-//! caller's thread, which compiles it unless the code cache holds its code; then started held in
-//! place of the one running, which is stopped first, as a later `waos launch` replaces a run, and
-//! kept among the runs as one the library opened,
-//! with its settings and folders and this computer's capabilities, its output going to WaOS's log,
-//! to an inspector that listens and to whoever attaches. Answered once it is linked, so the inspector can listen to it
-//! from its first instruction.
+//! Starting a program held for an inspector: the program the id names, installed, by its component
+//! in the store, a development install's among them; loaded off the caller's thread, which compiles
+//! it unless the code cache holds its code; then started held in place of the one running, which is
+//! stopped first, as a later `waos launch` replaces a run, and kept among the runs as one the
+//! library opened, with its settings and folders and this computer's capabilities, its output going
+//! to WaOS's log, to an inspector that listens and to whoever attaches. Answered once it is linked,
+//! so the inspector can listen to it from its first instruction.
 //!
 //! The invariant: a program is started only by the id of one installed, so an inspector starts
 //! nothing WaOS does not already know as that program.

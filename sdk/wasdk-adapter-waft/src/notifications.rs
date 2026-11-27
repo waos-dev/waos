@@ -5,8 +5,8 @@
 //! `EmbedderClient::notification_activated`, from the stream the loop reads (`events`).
 //!
 //! A post is the WIT's, which answers `denied` without asking while the program's user has not
-//! allowed it (decision 7 of WaOS's v1 interface), where Waft's native hosts ask first: an app asks
-//! through the permission before it posts.
+//! allowed it, where Waft's native hosts ask first: an app asks through the permission before it
+//! posts.
 
 use std::future::ready;
 use std::rc::Rc;

@@ -13,9 +13,8 @@
 //! indicator of who records, and its keeping the program from freezing, are `session`'s. The interface is served to a program by `host`.
 //!
 //! The invariant: no shell's camera is opened for a program whose user has not allowed it the
-//! camera (decision 10 of `docs/proposals/2026-11-02-program-media.md`), and no shell's session is
-//! started in a format, or with photos at a size, its camera does not list: those are the
-//! program's mistakes, which trap.
+//! camera, and no shell's session is started in a format, or with photos at a size, its camera does
+//! not list: those are the program's mistakes, which trap.
 
 pub(crate) mod host;
 mod session;

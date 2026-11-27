@@ -1,16 +1,16 @@
-//! WaOS's prompts for the program, each in a dialog window of its own in the program's app
-//! (decision 9 of `docs/proposals/2026-10-29-macos-apps.md`): a window of the window process's,
-//! asked for hidden and shown once it arrived, centred on the screen of the program's front window,
-//! or on the main screen while the program has none (`dialog_frame`), whose canvas shows the layer
-//! context WaOS draws the prompt in (`hosted_layers`), so the window process draws nothing of it
-//! (decision 5). Showing it leaves the app where it is: an app in the background asks for the
-//! user's attention instead (`os::Attention`), which bounces its Dock icon. What Waft's host
-//! reports of the dialog's view goes to WaOS as the prompt's reports: its metrics as it is shown
-//! and each time they change, whether it is in sight, and its focus; its canvas sends its pointers
-//! and keys (`prompt_canvas`). What WaOS's view asks of it, a cursor or the keyboard's focus, goes
-//! to the dialog's view's host, as Waft's own views ask theirs. The dialog's window arrives as every
-//! view does, and is built by whoever builds the process's views from the dialogs' content for it
-//! (`PromptDialogs::content_of`), which reports each change of the window back here.
+//! WaOS's prompts for the program, each in a dialog window of its own in the program's app: a
+//! window of the window process's, asked for hidden and shown once it arrived, centred on the
+//! screen of the program's front window, or on the main screen while the program has none
+//! (`dialog_frame`), whose canvas shows the layer context WaOS draws the prompt in
+//! (`hosted_layers`), so the window process draws nothing of it. Showing it leaves the app where it
+//! is: an app in the background asks for the user's attention instead (`os::Attention`), which
+//! bounces its Dock icon. What Waft's host reports of the dialog's view goes to WaOS as the
+//! prompt's reports: its metrics as it is shown and each time they change, whether it is in sight,
+//! and its focus; its canvas sends its pointers and keys (`prompt_canvas`). What WaOS's view asks
+//! of it, a cursor or the keyboard's focus, goes to the dialog's view's host, as Waft's own views
+//! ask theirs. The dialog's window arrives as every view does, and is built by whoever builds the
+//! process's views from the dialogs' content for it (`PromptDialogs::content_of`), which reports
+//! each change of the window back here.
 //!
 //! The invariant a later editor will break: a dialog is shown from WaOS's `ShowPrompt` until its
 //! `HidePrompt`, or until it goes otherwise, when the user closes it or no window could be made for

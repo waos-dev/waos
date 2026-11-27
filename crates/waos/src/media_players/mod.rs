@@ -4,7 +4,7 @@
 //! The shell plays ([`ShellMediaPlayers`], each player a `ShellMediaPlayer`); the engine keeps the
 //! rules and the copies. Where a source is (`media_sources`): a link passes the program's network
 //! rules before the shell is handed it, its host looked up first by the program's own lookup, off
-//! the program's thread, as decision 8 of the media proposal has it; a path is where its mount puts
+//! the program's thread, so a link reaches only what the program may; a path is where its mount puts
 //! it on the machine. And each player's state, its media's metadata and its cues as the shell reports
 //! them (`player`), which the program reads. The interface is served to a program by `host`.
 //!

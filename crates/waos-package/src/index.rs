@@ -1,8 +1,7 @@
-//! A package source's `index.json`: each program it offers, at a version, with its package and
-//! that package's SHA-256 (the design's decision 45), and what a store shows of it before it is
-//! downloaded: its icon, a line and a description, its category, who publishes it, when this
-//! version was released and its screenshots; with what the source calls itself, its own icon
-//! and the apps it puts forward.
+//! A package source's `index.json`: each program it offers, at a version, with its package and that
+//! package's SHA-256, and what a store shows of it before it is downloaded: its icon, a line and a
+//! description, its category, who publishes it, when this version was released and its screenshots;
+//! with what the source calls itself, its own icon and the apps it puts forward.
 //!
 //! ```json
 //! {

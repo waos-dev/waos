@@ -167,10 +167,10 @@ impl TextInputHost for WasdkTextInput {
         false
     }
 
-    /// Where the program has a menu bar, its host sends a view Edit's commands as events (the
-    /// menus proposal's decisions 8 and 10): a text field leaves ⌘C, ⌘X and ⌘V unhandled, so the
-    /// key's reply says so, and acts on the view's `copy`, `cut` and `paste` events. Elsewhere, as
-    /// on Windows and Linux, the field handles them itself, as every app there does.
+    /// Where the program has a menu bar, its host sends a view Edit's commands as events: a text
+    /// field leaves ⌘C, ⌘X and ⌘V unhandled, so the key's reply says so, and acts on the view's
+    /// `copy`, `cut` and `paste` events. Elsewhere, as on Windows and Linux, the field handles them
+    /// itself, as every app there does.
     fn provides_edit_commands(&self) -> bool {
         self.host_edit_commands
     }

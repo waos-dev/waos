@@ -1,10 +1,9 @@
-//! The signing key, the private key that signs every package this user makes, as Android names
-//! it (the design's decision 47): the text of `WAOS_SIGNING_KEY` when it is set, as on CI, and
-//! otherwise the file `signing.key` in the user's configuration folder, made on first use, which
-//! the user alone may read: by its mode on Unix, and on Windows by its access list, which names the
-//! user alone. Both hold the same text, the key's PKCS#8 PEM, so a CI secret is set to the file's
-//! content and a backup restores on any machine. The public half, which each package carries, is
-//! the publisher's key.
+//! The signing key, the private key that signs every package this user makes, as Android names it:
+//! the text of `WAOS_SIGNING_KEY` when it is set, as on CI, and otherwise the file `signing.key` in
+//! the user's configuration folder, made on first use, which the user alone may read: by its mode
+//! on Unix, and on Windows by its access list, which names the user alone. Both hold the same text,
+//! the key's PKCS#8 PEM, so a CI secret is set to the file's content and a backup restores on any
+//! machine. The public half, which each package carries, is the publisher's key.
 //!
 //! The invariant a later editor will break: a key is never replaced, and never made where it
 //! would be thrown away. Every update of a program must be signed with the key that signed it

@@ -16,9 +16,8 @@
 //!
 //! Fonts are the one capability whose trait is not here: its provider is valo's
 //! [`FontManager`](valo_fontmgr::FontManager), the platform's fonts in the shape of Skia's
-//! `SkFontMgr`, which the engine serves `wasdk:platform/fonts` from (the design's decision 33).
-//! The crate re-exports [`valo_fontmgr`], so whoever provides fonts names the version the field
-//! holds.
+//! `SkFontMgr`, which the engine serves `wasdk:platform/fonts` from. The crate re-exports
+//! [`valo_fontmgr`], so whoever provides fonts names the version the field holds.
 //!
 //! Sound's trait, [`AudioDevices`], is the devices alone: Web Audio's graph is `web_audio_api`'s,
 //! which the engine serves node for node, and a provider makes its contexts on an output, lists
@@ -26,9 +25,8 @@
 //! reason as [`valo_fontmgr`].
 //!
 //! A machine's traits, [`Machines`] and [`Machine`], are a provider of one kind of machine and a
-//! machine it offers: its files from its root, its commands, with pipes or in a terminal (the
-//! processes proposal's decisions 2 and 5), what it runs ([`Platform`]) and its user's login
-//! shell. Which machines a program holds is among its
+//! machine it offers: its files from its root, its commands, with pipes or in a terminal, what it
+//! runs ([`Platform`]) and its user's login shell. Which machines a program holds is among its
 //! grants, by their ids.
 //!
 //! A provider called from the program's thread is called on a stack of the engine's, not the
@@ -80,12 +78,12 @@ pub use web_audio_api;
 /// interface shown to the lead first.
 #[derive(Default)]
 pub struct ProgramEnvironment {
-    /// Where what the program writes to its standard output and error goes, as it writes it;
-    /// with none, the engine writes it to its log (the design's decision 31).
+    /// Where what the program writes to its standard output and error goes, as it writes it; with
+    /// none, the engine writes it to its log.
     pub output: Option<Arc<dyn ProgramOutput>>,
-    /// The fonts the program is given: the manager its `wasdk:platform/fonts` answers from,
-    /// behind a lock since one manager serves every program and caches its lookups (the design's
-    /// decision 35). With none, every answer is empty, as on a machine with no fonts installed.
+    /// The fonts the program is given: the manager its `wasdk:platform/fonts` answers from, behind
+    /// a lock since one manager serves every program and caches its lookups. With none, every
+    /// answer is empty, as on a machine with no fonts installed.
     pub fonts: Option<Arc<Mutex<dyn FontManager>>>,
     /// What the user lets the program use, read at each check. With none, nothing is granted:
     /// every switch is off, nothing is mounted, and every question is denied without asking.
@@ -100,8 +98,8 @@ pub struct ProgramEnvironment {
     /// offers the user. With none, it has no machines: its `get-machines` answers none.
     pub machines: Vec<Arc<dyn Machines>>,
     /// The variables the program reads besides the engine's own, each its name and value, as
-    /// whoever runs it gave them: a development run's `--env` (the design's decision 68). With
-    /// none, it reads only the engine's own, `TMPDIR`, which wins where both name one.
+    /// whoever runs it gave them: a development run's `--env`. With none, it reads only the
+    /// engine's own, `TMPDIR`, which wins where both name one.
     pub variables: Vec<(String, String)>,
     /// The program's arguments, after its own name, as whoever runs it gave them: a development
     /// run's after `--`. With none, it gets its name alone.

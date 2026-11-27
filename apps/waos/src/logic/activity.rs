@@ -1,6 +1,5 @@
 //! What a program did over the days the engine keeps of it, today's as counted now, summed as
-//! `waos-activity` says it, for its settings page to show in short (the inspector's first panels,
-//! decision 2).
+//! `waos-activity` says it, for its settings page to show in short (the inspector's first panels).
 
 use waos::{AuditDay, WaOS};
 use waos_activity::{Activity, Counts, Folder};

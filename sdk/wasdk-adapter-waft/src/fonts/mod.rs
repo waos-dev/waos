@@ -1,6 +1,6 @@
-//! The program's fonts, as the design's decisions 36 and 37 set them: the engine's `fonts`
-//! functions as valo's [`FontSource`](valo::FontSource) ([`source`]), and the engine's glyph calls
-//! as valo's [`GlyphRaster`](valo::GlyphRaster) ([`glyphs`]).
+//! The program's fonts, the engine's: its `fonts` functions as valo's
+//! [`FontSource`](valo::FontSource) ([`source`]), and its glyph calls as valo's
+//! [`GlyphRaster`](valo::GlyphRaster) ([`glyphs`]).
 //!
 //! The program shapes and lays text out itself, from each face's tables as the engine serves
 //! them, which is the font without its outline tables; a glyph's shape comes from the engine,

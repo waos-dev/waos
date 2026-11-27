@@ -3,7 +3,7 @@
 //! (`MacOs::show_system_layer`), for a program's view and for a prompt's dialog alike.
 //!
 //! The invariant: the window process draws nothing of what it shows so; the layer only shows what
-//! WaOS's context holds (decision 5 of `docs/proposals/2026-10-29-macos-apps.md`).
+//! WaOS's context holds.
 
 use std::sync::Arc;
 
