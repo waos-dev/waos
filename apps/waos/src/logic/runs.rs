@@ -19,7 +19,7 @@
 //! [`Runs::runs_or_starts`] misses no run about to be listed. And nothing compiles in a turn: a
 //! caller has the program's code compiled before it starts a run.
 
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[cfg(desktop)]
 mod driven;
 
 use std::collections::{BTreeSet, HashMap};
@@ -28,7 +28,7 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Instant;
 
 use anyhow::Result;
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[cfg(desktop)]
 use futures::future::join_all;
 use tokio::sync::{OwnedMutexGuard, watch};
 use tracing::Instrument;
@@ -36,7 +36,7 @@ use waos::{ProgramEnd, RunningProgram};
 use waos_dev_protocol::RunEnd;
 use waos_package::ProgramId;
 
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[cfg(desktop)]
 pub(crate) use driven::DrivenProgram;
 
 /// The runs by id.
@@ -278,7 +278,7 @@ impl Runs {
 
     /// The programs running now, in no order: what a quit asks, which a phone's system never
     /// does.
-    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    #[cfg(desktop)]
     pub(crate) async fn programs(&self) -> Vec<RunningProgram> {
         let running = self.listed();
         running
@@ -288,7 +288,7 @@ impl Runs {
     }
 
     /// Stops every run and waits until each program has ended: once a quit is agreed to.
-    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    #[cfg(desktop)]
     pub(crate) async fn stop_all(&self) {
         let ends: Vec<_> = self
             .listed()

@@ -40,12 +40,12 @@ pub(crate) struct AppFolders {
     /// WaOS's data folder, which names the port its programs' apps find it by on macOS, and keeps
     /// the record of what WaOS wrote for its programs' apps or entries; none on a phone, where
     /// WaOS writes neither.
-    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    #[cfg(desktop)]
     pub(crate) data: PathBuf,
     /// Where developer access keeps the device's identity and the computers paired with it
     /// (`logic::developer_access`), the user's alone; not on a phone yet, where `waos` reaches no
     /// WaOS.
-    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    #[cfg(desktop)]
     pub(crate) developer_access: PathBuf,
     /// The installed programs' apps, among the user's applications, as Chrome puts its web apps in
     /// `~/Applications/Chrome Apps`.

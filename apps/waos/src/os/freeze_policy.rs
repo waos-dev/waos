@@ -7,7 +7,7 @@ use waos::FreezePolicy;
 /// A phone: an app hidden inside WaOS is frozen ten seconds later, as Android freezes one that
 /// left the screen, and one WaOS was suspended with has three seconds, under the five iOS gives
 /// WaOS itself to finish in.
-#[cfg(any(target_os = "android", target_os = "ios"))]
+#[cfg(mobile)]
 pub(crate) fn freeze_policy() -> FreezePolicy {
     use std::time::Duration;
 
@@ -19,7 +19,7 @@ pub(crate) fn freeze_policy() -> FreezePolicy {
 
 /// A desktop: a hidden app runs on, as an app whose window is covered or minimized does on
 /// macOS, Windows and Linux, and no system suspends WaOS.
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[cfg(desktop)]
 pub(crate) fn freeze_policy() -> FreezePolicy {
     FreezePolicy::default()
 }

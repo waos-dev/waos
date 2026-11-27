@@ -81,7 +81,7 @@ impl HeldStarts {
     }
 }
 
-#[cfg(all(test, not(any(target_os = "android", target_os = "ios"))))]
+#[cfg(all(test, desktop))]
 mod tests {
     use futures::StreamExt;
     use waos::TraceKind;

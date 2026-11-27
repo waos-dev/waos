@@ -70,14 +70,14 @@ impl AskingNow {
     }
 
     /// What the program `name` names is asked first of what is asked now; none while nothing is.
-    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    #[cfg(desktop)]
     pub(crate) fn of(&self, name: &str) -> Option<Asked> {
         let asked = self.asked.lock().unwrap_or_else(PoisonError::into_inner);
         asked.get(name)?.first().map(|(_, asked)| asked.clone())
     }
 
     /// Each asking from now on as it starts, with its program's name.
-    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    #[cfg(desktop)]
     pub(crate) fn told(&self) -> broadcast::Receiver<(String, Asked)> {
         self.told.subscribe()
     }

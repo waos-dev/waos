@@ -33,9 +33,9 @@
 
 #[cfg(target_os = "android")]
 mod android_entry;
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[cfg(desktop)]
 mod desktop_entry;
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[cfg(desktop)]
 mod headless_entry;
 #[cfg(target_os = "ios")]
 mod ios_entry;
@@ -47,7 +47,7 @@ mod ui;
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::fmt::MakeWriter;
 
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[cfg(desktop)]
 pub use desktop_entry::main;
 #[cfg(target_os = "ios")]
 pub use ios_entry::main;

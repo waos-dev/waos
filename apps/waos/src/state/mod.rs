@@ -31,12 +31,12 @@ pub(crate) mod cameras;
 pub(crate) mod clipboard;
 mod days_kept;
 pub(crate) mod deck;
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[cfg(desktop)]
 pub(crate) mod desktop_host;
 pub(crate) mod file_dialogs;
 pub(crate) mod given_views;
 pub(crate) mod image_codecs;
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[cfg(desktop)]
 pub(crate) mod launcher;
 pub(crate) mod library;
 pub(crate) mod machine_facts;
@@ -51,7 +51,7 @@ pub(crate) mod program_apps;
 #[cfg(target_os = "macos")]
 pub(crate) mod prompt_dialogs;
 pub(crate) mod questions;
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[cfg(desktop)]
 pub(crate) mod quitting;
 pub(crate) mod recordings;
 #[cfg(test)]
@@ -59,7 +59,7 @@ pub(crate) mod test_system;
 #[cfg(test)]
 mod tests;
 pub(crate) mod video_decoders;
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[cfg(desktop)]
 pub(crate) mod waos_tray;
 
 use std::path::PathBuf;
@@ -85,10 +85,10 @@ use waos_store::{SourceProxy, Store};
 
 use crate::logic::asking_now::AskingNow;
 use crate::logic::command_line::LibraryPlace;
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[cfg(desktop)]
+#[cfg(desktop)]
 use crate::logic::dev_server::DevServer;
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[cfg(desktop)]
 use crate::logic::developer_access::DeveloperAccess;
 use crate::logic::environments::ProgramEnvironments;
 use crate::logic::folders::AppFolders;
@@ -114,7 +114,7 @@ use crate::logic::runs::Runs;
 use crate::logic::vsync_waiter::WaftVsync;
 use crate::ui::deck::Deck;
 use crate::ui::every_window::{LibraryWindow, every_window, program_windows};
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[cfg(desktop)]
 use crate::ui::launcher::launcher_window;
 use cameras::Cameras;
 use clipboard::Clipboard;
@@ -123,9 +123,9 @@ use deck::tabs::Tabs;
 use file_dialogs::FileDialogs;
 use given_views::follow_given_views;
 use image_codecs::ImageCodecs;
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[cfg(desktop)]
 use launcher::Launcher;
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[cfg(desktop)]
 use library::offer_developer_access;
 use library::{
     FirstWindowWanted, InstalledChanged, Library, ProgramOpened, ProgramsOpen, open_library,
@@ -142,7 +142,7 @@ use phone_window::in_phone_window;
 use questions::Questions;
 use recordings::Recordings;
 use video_decoders::VideoDecoders;
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[cfg(desktop)]
 use waos_tray::WaosTray;
 
 /// The windows WaOS shows in its own process for the programs running in it.
@@ -165,7 +165,7 @@ const CAMERA_USAGE_DECLARED: bool = true;
 
 /// What WaOS's command line opened as it started WaOS.
 #[cfg_attr(
-    any(target_os = "android", target_os = "ios"),
+    mobile,
     allow(dead_code, reason = "a phone gives WaOS no command line")
 )]
 pub(crate) enum OpenedAtStart {
@@ -356,9 +356,9 @@ pub(crate) fn start(
         app_nap_exemption.clone(),
         installed_runs.code.compiling_ids(),
     );
-    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    #[cfg(desktop)]
     let developer_access = DeveloperAccess::at(folders.developer_access.clone());
-    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    #[cfg(desktop)]
     listen_for_the_command(
         app,
         installed_runs.clone(),
@@ -381,7 +381,7 @@ pub(crate) fn start(
         programs_open,
         preferences,
     )?;
-    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    #[cfg(desktop)]
     offer_developer_access(app, &library, developer_access);
     bring_opened_programs_forward(app, &library, &view_windows);
     inspected.serve_starts(starts, library.read(app).runtime());
@@ -455,8 +455,7 @@ pub(crate) fn start(
     install_cupertino_icon_font(app);
     if let Some(file_dialogs) = file_dialogs {
         // A phone shows a dialog only over a screen; a desktop's floats where its program has none.
-        let screens_of_their_own = cfg!(any(target_os = "android", target_os = "ios"))
-            .then(|| Rc::clone(&prompt_windows_for_dialogs));
+        let screens_of_their_own = cfg!(mobile).then(|| Rc::clone(&prompt_windows_for_dialogs));
         file_dialogs.serve(
             app,
             view_windows.clone(),
@@ -493,7 +492,7 @@ pub(crate) fn start(
 /// every program in its runs first, stopping the server and keeping the engine's days once they
 /// agree. Not on a phone: `waos` reaches none yet, and the system ends an app there without
 /// asking it.
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[cfg(desktop)]
 fn listen_for_the_command(
     app: &mut App,
     installed: InstalledRuns,
@@ -675,7 +674,7 @@ fn library_window(
     view_windows: &Entity<ViewWindows>,
 ) -> LibraryWindow {
     match place {
-        #[cfg(not(any(target_os = "android", target_os = "ios")))]
+        #[cfg(desktop)]
         LibraryPlace::Launcher | LibraryPlace::ClosedLauncher => {
             let launcher = Launcher::new(app, &library, view_windows.clone());
             launcher.update(app, |launcher, cx| {
@@ -689,7 +688,7 @@ fn library_window(
             launcher_window(&launcher, &library, &recordings)
         }
         // Android and iOS have no desktop, whose launcher WaOS is there: the library is a phone's.
-        #[cfg(any(target_os = "android", target_os = "ios"))]
+        #[cfg(mobile)]
         LibraryPlace::Launcher | LibraryPlace::ClosedLauncher => {
             let tabs = Tabs::listen(app, runs, tab_requests);
             phone_deck(app, library, recordings, tabs, view_windows)
