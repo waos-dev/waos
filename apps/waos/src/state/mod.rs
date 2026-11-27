@@ -75,7 +75,7 @@ use waft_single_instance::LaterLaunches;
 use waft_winui::install_icon_font;
 use waos::inspection::InspectedPrograms;
 use waos::{
-    EngineTime, HttpProxy, OpenRequest, RunningProgram, Shell, ShellCompositor, ShellFileDialogs,
+    Compiler, EngineTime, HttpProxy, OpenRequest, RunningProgram, Shell, ShellCompositor, ShellFileDialogs,
     ShellRecordingIndicator, ShellSystemPermissions, ShellVideoFrameReaders, VsyncWaiter, WaOS,
     WaOSConfig,
 };
@@ -314,18 +314,19 @@ pub(crate) fn start(
         store.clone(),
         Arc::clone(&runs),
     ));
+    let native_unwind_info = native_unwind_info_asked();
+    if native_unwind_info {
+        tracing::info!("programs are compiled with native unwind information");
+    }
     let config = WaOSConfig {
         freeze: crate::os::freeze_policy(),
-        native_unwind_info: native_unwind_info_asked(),
+        compiler: Compiler::new(native_unwind_info).context("starting the compiler")?,
         http_proxy: HttpProxy::System,
         time: EngineTime::Real,
         temporary_folders: folders.temporary_folders,
         audit: Some(Arc::new(store.clone())),
         inspected_programs: Some(Arc::clone(&inspected) as Arc<dyn InspectedPrograms>),
     };
-    if config.native_unwind_info {
-        tracing::info!("programs are compiled with native unwind information");
-    }
     let engine = Arc::new(WaOS::new(config, shell, facts).context("starting the engine")?);
     machine_facts::keep_current(app, Arc::clone(&engine));
     days_kept::keep_every_day_when_paused(app, Arc::clone(&engine));
@@ -753,7 +754,7 @@ fn identities(_folders: &AppFolders) -> Option<Identities> {
 
 /// Whether WaOS was started with `WAOS_NATIVE_UNWIND_INFO=1` in its environment, asking for
 /// programs compiled with what a native profiler or debugger needs to walk through their frames
-/// (`WaOSConfig::native_unwind_info`).
+/// (`Compiler::new`).
 fn native_unwind_info_asked() -> bool {
     std::env::var_os("WAOS_NATIVE_UNWIND_INFO").is_some_and(|value| value == "1")
 }

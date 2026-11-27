@@ -250,7 +250,7 @@ impl PackageManager {
         let engine = Arc::clone(&self.engine);
         tokio::task::spawn_blocking(move || {
             let version = staged.version();
-            engine.compile(&version.component(), &version.code())?;
+            engine.compiler().compile(&version.component(), &version.code())?;
             Ok(staged)
         })
         .await
@@ -278,7 +278,7 @@ fn load_or_compile(
     compiling: impl FnOnce(),
 ) -> Result<Program> {
     let (component, code) = (version.component(), version.code());
-    if engine.is_compiled(&code) {
+    if engine.compiler().is_compiled(&code) {
         match engine.load(&component, &code) {
             Ok(program) => return Ok(program),
             Err(error) => tracing::warn!(
@@ -288,7 +288,7 @@ fn load_or_compile(
         }
     }
     compiling();
-    engine.compile(&component, &code)?;
+    engine.compiler().compile(&component, &code)?;
     engine.load(&component, &code)
 }
 

@@ -18,7 +18,7 @@ use futures::StreamExt;
 use tokio::sync::{oneshot, watch};
 use waos::bindings::wasdk::platform::system::{Brightness, Locale};
 use waos::inspection::InspectedPrograms;
-use waos::{EngineTime, FreezePolicy, HttpProxy, PlatformState, WaOS, WaOSConfig};
+use waos::{Compiler, EngineTime, FreezePolicy, HttpProxy, PlatformState, WaOS, WaOSConfig};
 use waos_headless::{Display, HeadlessShell, Refreshes};
 use waos_local::LocalCapabilities;
 use waos_store::{SourceProxy, Store};
@@ -130,7 +130,7 @@ impl HeadlessDaemon {
         ));
         let waos_config = WaOSConfig {
             freeze: FreezePolicy::default(),
-            native_unwind_info: native_unwind_info_asked(),
+            compiler: Compiler::new(native_unwind_info_asked()).context("starting the compiler")?,
             http_proxy: HttpProxy::System,
             time: EngineTime::Real,
             temporary_folders: config.folders.temporary_folders,

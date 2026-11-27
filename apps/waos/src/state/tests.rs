@@ -99,7 +99,7 @@ impl Desktop {
         let (prompts, prompted) = PromptsOnRequest::new(crate::logic::asking_now::AskingNow::new());
         let config = WaOSConfig {
             freeze: FreezePolicy::default(),
-            native_unwind_info: false,
+            compiler: waos::Compiler::new(false).expect("a compiler"),
             http_proxy: HttpProxy::None,
             time: EngineTime::Real,
             temporary_folders: folder.join("tmp"),

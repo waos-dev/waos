@@ -9,7 +9,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use waos::{IncompatibleProgram, ProgramEnd, ProgramEnvironment, WaOS, WaOSConfig};
+use waos::{Compiler, IncompatibleProgram, ProgramEnd, ProgramEnvironment, WaOS, WaOSConfig};
 
 use crate::test_shell::{self, RecordedOutput, TestShell, printing_to, within};
 
@@ -141,11 +141,13 @@ fn a_program_loaded_twice_is_compiled_once() {
 #[test]
 fn a_program_compiled_ahead_is_loaded_without_compiling() {
     let code = tempfile::tempdir().unwrap();
-    let engine = engine_with(config(false));
+    let config = config(false);
+    let compiler = config.compiler.clone();
+    let engine = engine_with(config);
     let trap = Path::new(waos_test_programs::TRAP);
-    assert!(!engine.is_compiled(code.path()), "nothing compiled yet");
-    engine.compile(trap, code.path()).unwrap();
-    assert!(engine.is_compiled(code.path()));
+    assert!(!compiler.is_compiled(code.path()), "nothing compiled yet");
+    compiler.compile(trap, code.path()).unwrap();
+    assert!(compiler.is_compiled(code.path()));
     let compiled = compiled_files(code.path());
     assert_eq!(compiled.len(), 1, "one file per engine: {compiled:?}");
     let written = file_identity(&compiled[0]);
@@ -164,12 +166,17 @@ fn a_program_compiled_ahead_is_loaded_without_compiling() {
 fn code_compiled_with_native_unwind_information_is_never_mapped_without_it() {
     let code = tempfile::tempdir().unwrap();
     let trap = Path::new(waos_test_programs::TRAP);
-    let with = engine_with(config(true));
-    with.load(trap, code.path()).unwrap();
-    let without = engine_with(config(false));
+    let (with_config, without_config) = (config(true), config(false));
+    let (with, without) = (
+        with_config.compiler.clone(),
+        without_config.compiler.clone(),
+    );
+    engine_with(with_config).load(trap, code.path()).unwrap();
     // Windows keeps native unwind information whatever the engine asks: one setting, one file.
     assert_eq!(without.is_compiled(code.path()), cfg!(windows));
-    without.load(trap, code.path()).unwrap();
+    engine_with(without_config)
+        .load(trap, code.path())
+        .unwrap();
     assert_eq!(
         compiled_files(code.path()).len(),
         1,
@@ -187,7 +194,7 @@ fn engine_with(config: WaOSConfig) -> WaOS {
 /// The tests' engine, compiling with native unwind information or without it.
 fn config(native_unwind_info: bool) -> WaOSConfig {
     WaOSConfig {
-        native_unwind_info,
+        compiler: Compiler::new(native_unwind_info).unwrap(),
         ..test_shell::config()
     }
 }

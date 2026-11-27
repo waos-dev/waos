@@ -105,7 +105,7 @@ pub(crate) fn engine_over(shell: Shell, time: EngineTime) -> WaOS {
 fn config(time: EngineTime) -> WaOSConfig {
     WaOSConfig {
         freeze: FreezePolicy::default(),
-        native_unwind_info: false,
+        compiler: waos::Compiler::new(false).expect("a compiler"),
         http_proxy: HttpProxy::None,
         time,
         temporary_folders: std::env::temp_dir().join("waos-tests"),
@@ -173,7 +173,7 @@ pub(crate) mod drawing {
         let shell = headless.shell(Arc::new(NoPrompts));
         let config = WaOSConfig {
             freeze: FreezePolicy::default(),
-            native_unwind_info: false,
+            compiler: waos::Compiler::new(false).expect("a compiler"),
             http_proxy: HttpProxy::None,
             time: EngineTime::Real,
             temporary_folders: std::env::temp_dir().join("waos-tests"),

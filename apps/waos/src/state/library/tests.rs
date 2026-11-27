@@ -777,7 +777,7 @@ fn an_install_is_installing_until_its_code_is_compiled_and_then_shows() {
     });
     let code = library.read(|library| library.store.installed_version(&triangle).unwrap().code());
     assert!(
-        library.read(|library| library.services.engine.is_compiled(&code)),
+        library.read(|library| library.services.engine.compiler().is_compiled(&code)),
         "installed with its code compiled"
     );
 }
@@ -800,7 +800,7 @@ fn the_first_open_after_a_compiler_change_optimizes_the_program() {
         library.start_stage(&triangle).is_none()
     });
     assert_eq!(library.read(|library| library.operation(&triangle)), None);
-    assert!(library.read(|library| library.services.engine.is_compiled(&code)));
+    assert!(library.read(|library| library.services.engine.compiler().is_compiled(&code)));
     futures::executor::block_on(library.runs.stop_all());
     wait_for_runs(&library, &[]);
 }
@@ -838,7 +838,7 @@ fn an_update_of_a_running_program_ends_the_old_run_first_and_leaves_the_new_vers
     assert!(!old_code.exists(), "the old version's code went with it");
     let code = library.read(|library| library.store.installed_version(&triangle).unwrap().code());
     assert!(
-        library.read(|library| library.services.engine.is_compiled(&code)),
+        library.read(|library| library.services.engine.compiler().is_compiled(&code)),
         "the new version's, compiled at its install"
     );
 }
