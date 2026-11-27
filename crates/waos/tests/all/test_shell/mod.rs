@@ -74,9 +74,9 @@ use sound::TestSound;
 use system_permissions::TestSystemPermissions;
 use video_frames::TestVideoFrameReaders;
 
-/// How long a test waits for what it expects before it fails: long enough that only a broken
-/// build reaches it, a debug build of Waft starting on a busy machine among what does not.
-pub const WITHIN: Duration = Duration::from_secs(60);
+/// How long a test waits for what it expects before it fails: longer than any passing test takes
+/// alone, so that a hung wait costs seconds, not minutes.
+pub const WITHIN: Duration = Duration::from_secs(15);
 
 /// The screen the tests' programs are shown on: 1600 by 1000 pixels at 2x, each view in a window
 /// of its own.

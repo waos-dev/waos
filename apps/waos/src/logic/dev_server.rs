@@ -483,10 +483,7 @@ pub(crate) mod tests {
     use crate::logic::program_places::{ProgramPlace, ProgramPlaces};
     use crate::logic::quit_question::every_program_agrees;
     use crate::logic::runs::Runs;
-    use crate::logic::test_engine::{self, NoWindows, REFUSAL};
-
-    /// How long a test waits for a program to do something.
-    pub(crate) const WITHIN: Duration = Duration::from_secs(60);
+    use crate::logic::test_engine::{self, NoWindows, REFUSAL, WITHIN};
 
     /// The development id of the program `id`: what `waos install` installs it as, and what a run
     /// of it runs as.
@@ -1995,27 +1992,27 @@ pub(crate) mod tests {
             assert!(Instant::now() < deadline, "flood never filled the queue");
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
-        let (wrote_before, ticks_before) = loop {
-            let wrote_a = read_u64("wrote");
-            let ticks_a = read_u64("ticks");
-            tokio::time::sleep(Duration::from_millis(150)).await;
-            let wrote_b = read_u64("wrote");
-            let ticks_b = read_u64("ticks");
-            if wrote_b == wrote_a {
-                break (wrote_a, (ticks_a, ticks_b));
+        // Stdout waits once the writer stands still while the timer ticks on: a writer free to
+        // write writes every millisecond, so between five of the timer's ticks, 10 ms apart. A
+        // file read while the program rewrites it reads as 0.
+        loop {
+            let wrote = read_u64("wrote");
+            let ticks = read_u64("ticks");
+            while read_u64("ticks") < ticks + 5 {
+                assert!(
+                    Instant::now() < deadline,
+                    "the timer stopped while stdout waited"
+                );
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+            if wrote >= (1 << 20) && read_u64("wrote") == wrote {
+                break;
             }
             assert!(
                 Instant::now() < deadline,
-                "output never stalled on full backpressure ({wrote_a} -> {wrote_b})"
+                "stdout never waited for a reader ({wrote} bytes written)"
             );
-        };
-        assert!(wrote_before >= (1 << 20));
-        assert!(
-            ticks_before.1 > ticks_before.0,
-            "timer kept running while stdout waited ({} -> {})",
-            ticks_before.0,
-            ticks_before.1
-        );
+        }
 
         let frames = tokio::time::timeout(Duration::from_secs(1), async {
             let mut replacing = server

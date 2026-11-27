@@ -10,6 +10,7 @@
 
 use std::path::Path;
 use std::sync::Arc;
+use std::time::Duration;
 
 use waos::bindings::wasdk::platform::system::Brightness;
 use waos::bindings::wasdk::platform::views::ViewError;
@@ -17,6 +18,11 @@ use waos::{
     AuditLog, EngineTime, FreezePolicy, HttpProxy, NoPrompts, PlatformState, Prompts,
     RunningProgram, Shell, ViewPlacement, ViewRequest, VsyncWaiter, WaOS, WaOSConfig,
 };
+
+/// How long a test waits for a program or the app to do something before it fails. A wait can
+/// include compiling the program it waits on, since each test compiles its own (a cold, slow CI
+/// runner takes past 15 s for a Waft app), so this is a minute until tests share compiled code.
+pub(crate) const WITHIN: Duration = Duration::from_secs(60);
 
 /// Why [`NoWindows`] refuses every request.
 pub(crate) const REFUSAL: &str = "the tests make no windows";

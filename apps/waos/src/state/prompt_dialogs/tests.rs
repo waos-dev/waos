@@ -16,10 +16,7 @@ use super::*;
 use crate::logic::program_apps::{
     Compositing, LaunchAttempt, Launches, Served, launch_failed, said_hello, window_process,
 };
-use crate::logic::test_engine::{self, NoWindows};
-
-/// How long a test waits for the app to do something.
-const WITHIN: Duration = Duration::from_secs(60);
+use crate::logic::test_engine::{self, NoWindows, WITHIN};
 
 /// The id forever runs under, as an installed program's.
 const FOREVER: &str = "dev.example.forever";

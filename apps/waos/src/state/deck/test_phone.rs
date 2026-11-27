@@ -60,7 +60,7 @@ use crate::logic::program_places::{PlacedWhereOpened, ProgramPlace, ProgramPlace
 use crate::logic::prompts::PromptsOnRequest;
 use crate::logic::recording_indicator::RecordingIndicatorOnRequest;
 use crate::logic::runs::Runs;
-use crate::logic::test_engine::{self, NoWindows};
+use crate::logic::test_engine::{self, NoWindows, WITHIN};
 use crate::state::ViewWindows;
 use crate::state::library::test_desktop::label_of;
 use crate::state::library::{Library, ProgramsOpen, open_library};
@@ -68,9 +68,6 @@ use crate::state::questions::{self, Questions};
 use crate::state::recordings::Recordings;
 use crate::state::{bring_opened_programs_forward, phone_deck};
 use crate::ui::every_window::{every_window, program_windows};
-
-/// How long a test waits for a program or the app to do something.
-const WITHIN: Duration = Duration::from_secs(60);
 
 /// How far apart the frames are drawn, on the test's clock: a screen's sixty a second.
 pub(crate) const FRAME_INTERVAL: Duration = Duration::from_micros(16_667);

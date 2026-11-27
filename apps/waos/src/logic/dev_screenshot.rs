@@ -279,7 +279,7 @@ mod tests {
         use waos_dev_protocol::Input;
 
         use super::*;
-        use crate::logic::dev_server::tests::WITHIN;
+        use crate::logic::test_engine::WITHIN;
         use crate::logic::test_engine::drawing::{WINDOW_HEIGHT, WINDOW_WIDTH};
 
         /// The id `examples/input` is installed as, and the development id it runs as.

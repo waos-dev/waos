@@ -170,7 +170,8 @@ mod tests {
 
         use waos_dev_protocol::Request;
 
-        use crate::logic::dev_server::tests::{TestServer, WITHIN, development, started};
+        use crate::logic::dev_server::tests::{TestServer, development, started};
+        use crate::logic::test_engine::WITHIN;
 
         const NOTES: &str = "dev.waos.notes";
         let server = TestServer::drawing("extensions");

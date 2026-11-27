@@ -41,4 +41,3 @@ What stands between today and a first stable release, in the order it blocks one
 - [ ] Every built-in app on a release build, end to end.
 - [ ] The Inspector's report counts by UTC day, so an event just after local midnight east of UTC lands in the previous day: count by the user's days.
 - [ ] The trial apps rebuilt from crates.io alone, as the last outside check.
-- [ ] Four of the app's tests fail now and then when the machine is busy: the dev server's `a_program_writing_while_nobody_reads_keeps_running_and_is_stopped_in_time`, which times a timer while a program floods output, and the library's `a_long_name_is_laid_out_across_its_tile`, `a_package_opened_with_waos_is_installed_from_the_alert_once_the_user_says_so` and `a_held_icon_offers_settings_and_remove_and_remove_asks_first`, which read the home before an install's code is compiled.

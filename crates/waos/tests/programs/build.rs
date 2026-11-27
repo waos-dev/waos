@@ -100,14 +100,17 @@ fn main() {
 }
 
 /// The target directory of the build running this script, from where cargo puts `out_dir`:
-/// `<target>/[<triple>/]<profile>/build/<package>-<hash>/out`, the triple there when the build
-/// names one. Not a marker such as `CACHEDIR.TAG`, which cargo writes only into a target
-/// directory it makes itself, and CI restores `target/test-programs` before cargo runs.
+/// `<target>/[<triple>/]<profile>/build/<package>/<hash>/out`, or `…/build/<package>-<hash>/out`
+/// before cargo's build-dir layout, the triple there when the build names one. So the profile
+/// folder is the one holding the nearest `build`, whichever layout. Not a marker such as
+/// `CACHEDIR.TAG`, which cargo writes only into a target directory it makes itself, and CI
+/// restores `target/test-programs` before cargo runs.
 fn cargo_target_dir(out_dir: &Path) -> PathBuf {
     let profile = out_dir
         .ancestors()
-        .nth(3)
-        .expect("OUT_DIR is <target>/<profile>/build/<package>/out");
+        .find(|folder| folder.file_name() == Some("build".as_ref()))
+        .and_then(Path::parent)
+        .expect("OUT_DIR is inside <target>/<profile>/build");
     let above_profile = profile
         .parent()
         .expect("a profile folder is inside the target directory");

@@ -16,7 +16,8 @@ use waos_dev_protocol::{
     ScreenshotAnswer, WindowId,
 };
 
-use crate::logic::dev_server::tests::{TestServer, WITHIN, development, next, stdout_of};
+use crate::logic::dev_server::tests::{TestServer, development, next, stdout_of};
+use crate::logic::test_engine::WITHIN;
 use crate::logic::test_engine::drawing::{WINDOW_HEIGHT, WINDOW_WIDTH};
 
 /// The id `examples/input` is installed as.

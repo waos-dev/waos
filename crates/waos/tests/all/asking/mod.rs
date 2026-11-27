@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 
 use tokio::sync::Notify;
 use waos::{Answer, ProgramGrants, Question};
-use waos_capabilities::{ChangedFuture, DomainRule, FileSystemGrant, NetworkGrant, SimulatedSound};
+use waos_capabilities::{ChangedFuture, DomainRule, FileSystemGrant, NetworkGrant};
 
 /// Grants that switch nothing on and keep the answers to the questions put, none answered yet.
 #[derive(Default)]
@@ -15,22 +15,10 @@ pub struct QuestionsAsked {
     answers: Mutex<HashMap<Question, Answer>>,
     /// The output, by its id, set as the picker of outputs' answer.
     audio_output: Mutex<Option<String>>,
-    /// What a simulated microphone records.
-    simulated_microphone: SimulatedSound,
     changed: Arc<Notify>,
 }
 
 impl QuestionsAsked {
-    /// Grants whose microphone is simulated, recording silence.
-    pub fn silent_simulated_microphone() -> QuestionsAsked {
-        let grants = QuestionsAsked {
-            simulated_microphone: SimulatedSound::Silence,
-            ..QuestionsAsked::default()
-        };
-        grants.set_answer(Question::Microphone, Answer::Simulated);
-        grants
-    }
-
     /// The same grants, with `output` set as the picker of outputs' answer.
     pub fn answering_the_output_picker_with(output: &str) -> QuestionsAsked {
         QuestionsAsked {
@@ -86,10 +74,6 @@ impl ProgramGrants for QuestionsAsked {
 
     fn audio_output_answer(&self) -> Option<String> {
         self.audio_output.lock().unwrap().clone()
-    }
-
-    fn simulated_microphone(&self) -> SimulatedSound {
-        self.simulated_microphone
     }
 
     fn changed(&self) -> ChangedFuture {
