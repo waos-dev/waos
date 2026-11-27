@@ -22,7 +22,7 @@ use waos::{MediaAssetFuture, RunningProgram, ShellMediaAsset, ShellMediaAssets, 
 
 use super::camera_values::waft_size;
 use super::frame_readers::engine_frame;
-use super::media_player_calls::waft_tolerance;
+use super::player_states::waft_tolerance;
 
 /// The id the app gives each asset a program opens, which its calls carry.
 pub(crate) type AssetKey = u64;

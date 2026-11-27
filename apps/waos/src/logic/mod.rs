@@ -21,7 +21,7 @@
 //! their clipboard calls (`clipboard_calls`), with what goes between their clipboard and Waft's
 //! (`clipboard`); their menu calls (`menu_calls`), and WaOS's own menu bar (`menu_bar`); their
 //! openings (`opener_calls`); their notifications (`notification_calls`), as the system shows them
-//! (`system_notifications`); their players' calls (`media_player_calls`), with a player's state and
+//! (`system_notifications`); their players' state and
 //! metadata (`player_states`) and its cues (`cues`) as the program reads them, and their frame
 //! readers, Waft's once a player is given one (`frame_readers`); their media assets' calls
 //! (`media_asset_calls`); their image codecs' calls (`image_codec_calls`), with an image's values
@@ -102,7 +102,6 @@ pub(crate) mod launcher_rules;
 pub(crate) mod library_layout;
 pub(crate) mod machine_facts;
 pub(crate) mod media_asset_calls;
-pub(crate) mod media_player_calls;
 pub(crate) mod menu_bar;
 pub(crate) mod menu_calls;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
