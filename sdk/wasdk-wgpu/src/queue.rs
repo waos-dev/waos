@@ -14,7 +14,7 @@ use crate::buffer::WasdkBuffer;
 use crate::command::WasdkCommandBuffer;
 use crate::convert;
 use crate::left_out::left_out;
-use crate::runtime::PendingCallbacks;
+use crate::runtime::DeviceCallbacks;
 use crate::surface::WasdkSurfaceOutputDetail;
 use crate::texture::texel_copy_texture_to_wit;
 
@@ -22,12 +22,12 @@ use crate::texture::texel_copy_texture_to_wit;
 #[derive(Debug)]
 pub struct WasdkQueue {
     queue: Arc<Queue>,
-    /// The callbacks its device waits to run, its submitted work's among them.
-    callbacks: PendingCallbacks,
+    /// Its device's, which it asks submitted work's callbacks of and runs at each submission.
+    callbacks: Arc<DeviceCallbacks>,
 }
 
 impl WasdkQueue {
-    pub(crate) fn new(queue: Queue, callbacks: PendingCallbacks) -> Self {
+    pub(crate) fn new(queue: Queue, callbacks: Arc<DeviceCallbacks>) -> Self {
         WasdkQueue {
             queue: Arc::new(queue),
             callbacks,
@@ -96,11 +96,15 @@ impl QueueInterface for WasdkQueue {
         );
     }
 
+    /// Submits, then runs the device's callbacks whose answers have come, as wgpu-core runs
+    /// them at each submission.
     fn submit(&self, command_buffers: &mut dyn Iterator<Item = DispatchCommandBuffer>) -> u64 {
         let command_buffers = command_buffers
             .map(|buffer| WasdkCommandBuffer::of_dispatch(&buffer).take())
             .collect();
-        self.queue.submit(command_buffers)
+        let index = self.queue.submit(command_buffers);
+        self.callbacks.run_ready();
+        index
     }
 
     fn get_timestamp_period(&self) -> f32 {
@@ -109,7 +113,9 @@ impl QueueInterface for WasdkQueue {
 
     fn on_submitted_work_done(&self, callback: BoxSubmittedWorkDoneCallback) {
         let answer = self.queue.on_submitted_work_done();
-        self.callbacks.add_submitted_work_done(answer, callback);
+        self.callbacks
+            .pending
+            .add_submitted_work_done(answer, callback);
     }
 
     fn compact_blas(&self, _blas: &DispatchBlas) -> (Option<u64>, DispatchBlas) {

@@ -48,6 +48,8 @@ mod gpu_calls;
 #[cfg(target_vendor = "apple")]
 mod gpu_errors;
 #[cfg(target_vendor = "apple")]
+mod gpu_in_block_on;
+#[cfg(target_vendor = "apple")]
 mod hardware_buffers;
 #[cfg(target_vendor = "apple")]
 mod image_codecs;
@@ -119,6 +121,17 @@ mod gpu_errors {
     fn no_gpu_errors_are_made_on_this_system() {
         eprintln!(
             "the tests' machines have a GPU on Apple's systems; the GPU errors test does not run here"
+        );
+    }
+}
+
+#[cfg(not(target_vendor = "apple"))]
+mod gpu_in_block_on {
+    #[test]
+    fn no_device_is_opened_inside_block_on_on_this_system() {
+        eprintln!(
+            "the tests' machines have a GPU on Apple's systems; the GPU in block_on test does not \
+             run here"
         );
     }
 }

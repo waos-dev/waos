@@ -7,8 +7,6 @@ publish.workspace = true
 description = "A program that says where wgpu's errors reach it, as wgpu's own backends route them: to the error scope open as each is made, or else to the device's uncaptured-error handler. `cargo build -p gpu-errors --target wasm32-wasip3`."
 
 [dependencies]
-# The uncaptured-error handler's errors, awaited as the handler hears them.
-futures.workspace = true
 wasdk.workspace = true
 wasdk-wgpu.workspace = true
 wgpu.workspace = true

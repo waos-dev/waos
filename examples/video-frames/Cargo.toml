@@ -7,8 +7,6 @@ publish.workspace = true
 description = "A program that draws a player's frames itself: a frame reader given to a player, each frame's buffer sampled through a texture it imports on its own device. `cargo build -p video-frames --target wasm32-wasip3`."
 
 [dependencies]
-# Waiting for a buffer's mapping, which wgpu answers through a callback.
-futures.workspace = true
 wasdk.workspace = true
 wasdk-wgpu.workspace = true
 wgpu.workspace = true

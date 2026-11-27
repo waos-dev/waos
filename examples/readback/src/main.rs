@@ -1,11 +1,9 @@
-//! Reads a buffer back from the GPU both ways wgpu programs do, and prints what it read.
+//! Reads a buffer back from the GPU as native wgpu programs do, and prints what it read.
 //!
-//! Code written for native wgpu asks for a mapping, calls `Device::poll` with `Wait`, and reads
-//! the answer at once: the callback has run before `poll` returns. Code written for the web never
-//! polls: it awaits, and the callback runs as the program yields. Both hold on WaOS, and so does
-//! the order wgpu promises: a queue's submitted work is told done after the mappings asked before
-//! it. What is read back was written through a buffer made mapped, as `create_buffer_init` writes
-//! a buffer's first data.
+//! The program asks for a mapping, calls `Device::poll` with `Wait`, and reads the answer at
+//! once: the callback has run before `poll` returns, as on native wgpu, and so has a queue's
+//! submitted-work callback asked after it, in the order wgpu promises. What is read back was
+//! written through a buffer made mapped, as `create_buffer_init` writes a buffer's first data.
 //!
 //! Each request reaches the GPU at the call, as in wgpu: submitted work is told done once the work
 //! submitted before the ask is, whatever is submitted after; an `unmap` before the mapping is
@@ -16,7 +14,6 @@
 
 use std::sync::mpsc;
 
-use futures::channel::oneshot;
 use wgpu::util::DeviceExt;
 
 /// What is written to the GPU and read back.
@@ -49,18 +46,6 @@ async fn main() -> Result<(), String> {
         Ok(()) => println!("submitted work done: told before poll returned"),
         Err(_) => println!("submitted work done: not told before poll returned"),
     }
-
-    let copy = copy_of_written(&device, &queue);
-    let (mapped, answered) = oneshot::channel();
-    copy.slice(..)
-        .map_async(wgpu::MapMode::Read, move |result| {
-            let _ = mapped.send(result);
-        });
-    answered
-        .await
-        .map_err(|_| "the mapping was never answered")?
-        .map_err(|error| format!("the buffer did not map: {error}"))?;
-    println!("awaited: {:?}", read(&copy)?);
 
     println!("{}", done_before_a_later_submission(&device, &queue)?);
     println!("{}", unmapped_before_mapped(&device, &queue)?);

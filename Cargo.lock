@@ -2877,7 +2877,15 @@ dependencies = [
 name = "gpu-errors"
 version = "0.8.0"
 dependencies = [
- "futures",
+ "wasdk",
+ "wasdk-wgpu",
+ "wgpu",
+]
+
+[[package]]
+name = "gpu-in-block-on"
+version = "0.8.0"
+dependencies = [
  "wasdk",
  "wasdk-wgpu",
  "wgpu",
@@ -5964,7 +5972,6 @@ dependencies = [
 name = "readback"
 version = "0.8.0"
 dependencies = [
- "futures",
  "wasdk",
  "wasdk-wgpu",
  "wgpu",
@@ -8634,7 +8641,6 @@ dependencies = [
 name = "video-frames"
 version = "0.8.0"
 dependencies = [
- "futures",
  "wasdk",
  "wasdk-wgpu",
  "wgpu",
@@ -9666,7 +9672,6 @@ dependencies = [
 name = "wasdk-wgpu"
 version = "0.8.0"
 dependencies = [
- "futures",
  "js-sys",
  "wasdk",
  "wgpu",
