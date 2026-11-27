@@ -29,7 +29,7 @@ use waft::ui::{self, NotificationActivation, Platform, PlatformRef};
 use waft::{App, AsyncApp};
 use waos::bindings::wasdk::platform::notifications::NotificationError;
 use waos::{Notification, RunningProgram, ShellNotifications};
-use waos_store::Store;
+use waos_package_manager::PackageManager;
 
 use crate::logic::notification_calls::{
     NotificationCall, NotificationRequest, NotificationsOnRequest, Offered,
@@ -63,17 +63,17 @@ impl Notifications {
     }
 
     /// From now on, each call of a program's is carried out through Waft's notifications, the
-    /// program named as `store` names it to its user. Answers where the clicks on the
+    /// program named as `packages` names it to its user. Answers where the clicks on the
     /// notifications posted as a program arrive, which WaOS's own handler never hears.
     pub(crate) fn serve(
         self,
         app: &mut App,
-        store: Store,
+        packages: Arc<PackageManager>,
     ) -> UnboundedReceiver<NotificationActivation> {
         let (clicks, arriving_clicks) = mpsc::unbounded();
         let mut serving = Serving {
             platform: app.platform(),
-            store,
+            packages,
             permission_asked: false,
             as_programs: HashMap::new(),
             clicks,
@@ -92,7 +92,7 @@ impl Notifications {
 struct Serving {
     platform: PlatformRef,
     /// Where an installed program's name is read.
-    store: Store,
+    packages: Arc<PackageManager>,
     /// Whether the system was asked for WaOS's permission.
     permission_asked: bool,
     /// The notifications posted as each program, by its identity, made at its first; none for a
@@ -167,7 +167,7 @@ impl Serving {
                 None => return failed("the system has no notifications"),
             },
         };
-        let name = program_name(&self.store, program);
+        let name = program_name(&self.packages, program);
         let shown = system_notification(
             program.name(),
             &name,
@@ -186,7 +186,7 @@ impl Serving {
     /// The notifications `program`'s are posted as it through, where it is installed and the
     /// system lets WaOS post as it; none where they are WaOS's, titled after the program.
     fn posted_as(&mut self, program: &RunningProgram) -> Option<Rc<dyn ui::Notifications>> {
-        let (_, app_id) = installed_app_id(&self.store, program.name())?;
+        let (_, app_id) = installed_app_id(&self.packages, program.name())?;
         self.notifications_as(&app_id)
     }
 

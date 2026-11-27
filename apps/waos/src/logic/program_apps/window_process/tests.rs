@@ -21,7 +21,7 @@ use waos_window_messages::{ViewCall, WindowCall};
 use super::super::canvases::{CanvasCall, CanvasPlace};
 use super::*;
 use crate::logic::placement::WindowsOnRequest;
-use crate::logic::placement::tests::store_in;
+use crate::logic::placement::tests::packages_in;
 use crate::logic::program_faces::ProgramFaces;
 use crate::logic::test_engine::{self, WITHIN};
 
@@ -82,7 +82,7 @@ pub(crate) fn window_process_keeping(
 async fn survey() -> (RunningProgram, ViewRequest) {
     let folder = tempfile::tempdir().unwrap();
     let (placement, mut requests) =
-        WindowsOnRequest::new(ProgramFaces::new(store_in(folder.path()), None));
+        WindowsOnRequest::new(ProgramFaces::new(packages_in(folder.path()), None));
     let engine = test_engine::engine(Arc::new(placement));
     let survey = engine
         .load(
@@ -847,7 +847,7 @@ impl Printed {
 async fn menus(app_menus: &AppMenus, printed: &Arc<Printed>) -> (RunningProgram, ViewRequest) {
     let folder = tempfile::tempdir().unwrap();
     let (placement, mut requests) =
-        WindowsOnRequest::new(ProgramFaces::new(store_in(folder.path()), None));
+        WindowsOnRequest::new(ProgramFaces::new(packages_in(folder.path()), None));
     let mut shell = test_engine::shell(Arc::new(placement), Arc::new(NoPrompts));
     shell.menu_bar = Some(Arc::new(app_menus.clone()));
     shell.context_menus = Some(Arc::new(app_menus.clone()));

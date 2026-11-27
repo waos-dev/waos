@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 
 use reqwest::StatusCode;
 use url::Url;
-use waos_package::{IndexError, PackageError, ProgramId, PublisherKey, Version};
+use waos_package::{IndexError, ProgramId};
 
 use crate::Source;
 
@@ -19,7 +19,7 @@ pub enum StoreError {
     Io { path: PathBuf, error: io::Error },
     /// The file at `path` is not as the store writes it: changed by hand, or damaged.
     Unreadable { path: PathBuf, reason: String },
-    /// No program of this id is installed.
+    /// No app of this id is installed, or run in development.
     NotInstalled(ProgramId),
     /// The source is not among the sources added.
     NotAdded(Source),
@@ -65,87 +65,6 @@ impl fmt::Display for StoreError {
 /// The causes are in each message already, so a chain of errors does not say them twice.
 impl Error for StoreError {}
 
-/// Why a package was not installed.
-#[derive(Debug)]
-pub enum InstallError {
-    /// The package could not be opened, verified or unpacked.
-    Package(PackageError),
-    /// The program is installed from a package signed with another key: this package is not an
-    /// update of it.
-    DifferentPublisher {
-        id: ProgramId,
-        installed: PublisherKey,
-        package: PublisherKey,
-    },
-    /// The package's version is not newer than the one installed.
-    NotNewer {
-        id: ProgramId,
-        installed: Version,
-        package: Version,
-    },
-    /// A source's package is not the program at the version the source lists it as: each as
-    /// its id and version, `dev.example.triangle 1.2.0`.
-    NotAsListed { listed: String, package: String },
-
-    /// The package could not be downloaded from its source.
-    Download(SourceError),
-    /// The store's own files could not be read or written.
-    Store(StoreError),
-}
-
-impl fmt::Display for InstallError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            InstallError::Package(error) => write!(f, "{error}"),
-            InstallError::DifferentPublisher {
-                id,
-                installed,
-                package,
-            } => write!(
-                f,
-                "{id} is installed from the publisher whose key is {}; this package is signed with another key, {}, so it is not an update of it",
-                installed.fingerprint(),
-                package.fingerprint()
-            ),
-            InstallError::NotNewer {
-                id,
-                installed,
-                package,
-            } => write!(
-                f,
-                "{id} {installed} is installed, and this package is {package}, which is not newer"
-            ),
-            InstallError::NotAsListed { listed, package } => {
-                write!(f, "the source lists {listed}, but its package is {package}")
-            }
-
-            InstallError::Download(error) => write!(f, "{error}"),
-            InstallError::Store(error) => write!(f, "{error}"),
-        }
-    }
-}
-
-/// The causes are in each message already, so a chain of errors does not say them twice.
-impl Error for InstallError {}
-
-impl From<PackageError> for InstallError {
-    fn from(error: PackageError) -> InstallError {
-        InstallError::Package(error)
-    }
-}
-
-impl From<StoreError> for InstallError {
-    fn from(error: StoreError) -> InstallError {
-        InstallError::Store(error)
-    }
-}
-
-impl From<SourceError> for InstallError {
-    fn from(error: SourceError) -> InstallError {
-        InstallError::Download(error)
-    }
-}
-
 /// Why text is not a source, or a source could not be read or downloaded from.
 #[derive(Debug)]
 pub enum SourceError {
@@ -173,13 +92,13 @@ pub enum SourceError {
         package: String,
         error: url::ParseError,
     },
+    /// The index lists a package of a development id, which no package may take.
+    DevelopmentId(ProgramId),
     /// The package downloaded is not the one the index lists.
     Sha256Mismatch {
         listed: [u8; 32],
         downloaded: [u8; 32],
     },
-    /// Writing the download at `path` failed.
-    Io { path: PathBuf, error: io::Error },
 }
 
 impl SourceError {
@@ -226,13 +145,16 @@ impl fmt::Display for SourceError {
                     "the index lists the package {package:?}, which is not a URL: {error}"
                 )
             }
+            SourceError::DevelopmentId(id) => write!(
+                f,
+                "the source lists {id}, a development install's id, which no package may take"
+            ),
             SourceError::Sha256Mismatch { listed, downloaded } => write!(
                 f,
                 "the package downloaded is not the one the index lists: its SHA-256 is {}, and the index lists {}",
                 hex::encode(downloaded),
                 hex::encode(listed)
             ),
-            SourceError::Io { path, error } => write!(f, "{}: {error}", path.display()),
         }
     }
 }

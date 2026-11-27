@@ -15,14 +15,15 @@
 mod tests;
 
 use std::rc::Rc;
+use std::sync::Arc;
 
 use futures::StreamExt;
 use futures::channel::mpsc::UnboundedReceiver;
 use futures::channel::oneshot;
 use waft::{App, Context, Entity, IntoWidget, WeakEntity};
 use waos::RunningProgram;
+use waos_package_manager::PackageManager;
 use waos_program_window::{PromptPlacement, PromptWindows, ShownPrompt};
-use waos_store::Store;
 
 use crate::logic::program_faces::ProgramFaces;
 use crate::logic::program_name::program_name;
@@ -39,7 +40,7 @@ pub(crate) struct Questions {
     /// The prompt of each program with a question waiting.
     shown: Vec<(RunningProgram, ShownPrompt)>,
     /// Where an installed program's name is read.
-    store: Store,
+    packages: Arc<PackageManager>,
 }
 
 /// A question waiting for its reply.
@@ -55,19 +56,19 @@ pub(crate) struct Pending {
 impl Questions {
     /// The questions, which take each arriving on `asked` for as long as questions can
     /// arrive, each program's prompt shown by `placement`; an installed program's name is read
-    /// from `store`.
+    /// from `packages`.
     pub(crate) fn listen(
         app: &mut App,
         asked: UnboundedReceiver<Asked>,
         placement: Rc<dyn PromptPlacement>,
-        store: Store,
+        packages: Arc<PackageManager>,
     ) {
         let questions = app.new_entity(|_cx| Questions {
             asked: Vec::new(),
             next_id: 1,
             placement,
             shown: Vec::new(),
-            store,
+            packages,
         });
         take_questions(app, questions, asked);
     }
@@ -103,7 +104,7 @@ impl Questions {
         }
         let id = self.next_id;
         self.next_id += 1;
-        let name = program_name(&self.store, &program);
+        let name = program_name(&self.packages, &program);
         self.asked.push(Pending {
             id,
             program,

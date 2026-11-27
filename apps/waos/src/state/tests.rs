@@ -60,6 +60,7 @@ use crate::logic::placement::WindowsOnRequest;
 use crate::logic::program_faces::ProgramFaces;
 use crate::logic::prompts::PromptsOnRequest;
 use crate::logic::test_engine::WITHIN;
+use crate::logic::test_installs;
 use crate::logic::vsync_waiter::WaftVsync;
 use crate::state::questions::{self, Questions};
 use crate::ui::every_window::{every_window, program_windows};
@@ -95,7 +96,9 @@ impl Desktop {
         let folder =
             std::env::temp_dir().join(format!("waos-desktop-{}-{test}", std::process::id()));
         let store = Store::open(&folder.join("store"), SourceProxy::None).expect("a store");
-        let (placement, requests) = WindowsOnRequest::new(ProgramFaces::new(store.clone(), None));
+        let packages = test_installs::packages_never_run(&folder.join("store"), &store);
+        let (placement, requests) =
+            WindowsOnRequest::new(ProgramFaces::new(Arc::clone(&packages), None));
         let (prompts, prompted) = PromptsOnRequest::new(crate::logic::asking_now::AskingNow::new());
         let config = WaOSConfig {
             freeze: FreezePolicy::default(),
@@ -145,20 +148,20 @@ impl Desktop {
         let engine = Arc::new(WaOS::new(config, shell, facts).expect("an engine"));
         let view_windows = Rc::new(RefCell::new(None));
         let kept = Rc::clone(&view_windows);
-        let (served_to, questions_store) = (Arc::clone(&engine), store.clone());
+        let (served_to, questions_packages) = (Arc::clone(&engine), packages);
         let shell = Shell::new(Rc::clone(&platform) as PlatformRef, move |app| {
             served.serve(app, served_to);
             let windows = ViewWindows::listen(app, requests);
             let prompt_windows = questions::prompt_windows(
                 app,
                 windows.clone(),
-                ProgramFaces::new(questions_store.clone(), None),
+                ProgramFaces::new(Arc::clone(&questions_packages), None),
             );
             Questions::listen(
                 app,
                 prompted.questions,
                 prompt_windows.clone(),
-                questions_store,
+                questions_packages,
             );
             let program_windows = program_windows(&windows, &prompt_windows);
             run_widget(

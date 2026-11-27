@@ -1,6 +1,6 @@
 //! What `waos install` and `waos uninstall` ask. An install is a
 //! program built from its source, installed as its development install, under its id followed by
-//! `.development`, through the package manager (`Installable::Development`): WaOS answers
+//! `.development`, through the package manager (`PackageContent::Development`): WaOS answers
 //! `Upload::Have` when that install holds the component already, by its length and digest, and
 //! `Upload::Send` when it must receive it; a build installed already as it is, manifest, component
 //! and icon, changes nothing, so its code compiled before stays; any other is compiled, then
@@ -9,8 +9,8 @@
 //! its run stopped first.
 //!
 //! The invariant: what is installed changes only through the package manager, which takes the
-//! program's turn, so an install never interleaves with another of the same program, an
-//! uninstall, or an open.
+//! app's lock, so an install never interleaves with another of the same app, an uninstall, or an
+//! open; the dev tools' newer install of an app cancels their older one.
 
 use std::sync::Arc;
 
@@ -19,16 +19,14 @@ use waos_dev_protocol::{
     Install, InstallAnswer, Refusal, RefusalKind, ServerConnection, UninstallAnswer, Upload,
 };
 use waos_package::{Manifest, ProgramId};
-use waos_store::{Origin, Store};
+use waos_package_manager::{Caller, DevelopmentBuild, Origin, PackageContent, PackageManager};
 
 use super::dev_refusal;
-use super::package_manager::{Installable, PackageManager};
 
 /// What installing and uninstalling need of the app.
 #[derive(Clone)]
 pub(crate) struct InstallContext {
     pub(crate) packages: Arc<PackageManager>,
-    pub(crate) store: Store,
 }
 
 /// Serves a connection's `Install` to its end: the upload WaOS answers, the component's parts,
@@ -59,11 +57,11 @@ pub(crate) async fn install(
         }
     };
     let development = install.id.development();
-    let held = context
-        .store
-        .installed_program(&development)
-        .filter(|held| holds_component(&context.store, held.origin, &development, &install));
-    let component = if held.is_some() {
+    let held = match context.packages.installed_program(&development) {
+        Some(held) => holds_component(&context.packages, held.origin, &development, &install).await,
+        None => false,
+    };
+    let component = if held {
         if connection.send(&Upload::Have).await.is_err() {
             return;
         }
@@ -104,8 +102,8 @@ pub(crate) async fn install(
 
 /// Whether the development install `development`, from `origin`, holds the component `install`
 /// announces, by its length and digest.
-fn holds_component(
-    store: &Store,
+async fn holds_component(
+    packages: &PackageManager,
     origin: Origin,
     development: &ProgramId,
     install: &Install,
@@ -114,8 +112,10 @@ fn holds_component(
         == Origin::Development {
             component_sha256: install.digest,
         };
-    let same_length = store
-        .installed_version(development)
+    let same_length = packages
+        .lock(development)
+        .await
+        .version()
         .map(|version| version.component())
         .and_then(|component| std::fs::metadata(component).ok())
         .is_some_and(|metadata| metadata.len() == install.length);
@@ -130,17 +130,19 @@ async fn put_in_place(
     install: &Install,
     component: Option<Vec<u8>>,
 ) -> anyhow::Result<()> {
-    let store = &context.store;
+    let packages = &context.packages;
     let icon = install.icon.as_deref();
-    if store.holds_development(manifest, &install.digest, icon) {
+    if packages.holds_development(manifest, &install.digest, icon) {
         tracing::info!(id = %install.id, "its development build is installed as it is");
         return Ok(());
     }
     let component = match component {
         Some(component) => component,
         None => {
-            let held = store
-                .installed_version(&manifest.id().development())
+            let held = packages
+                .lock(&manifest.id().development())
+                .await
+                .version()
                 .context("the development install went meanwhile")?
                 .component();
             tokio::task::spawn_blocking(move || std::fs::read(held))
@@ -148,13 +150,14 @@ async fn put_in_place(
                 .context("the read's thread")??
         }
     };
-    let installed = context
-        .packages
-        .install(Installable::Development {
-            manifest: manifest.clone(),
-            component,
-            icon: install.icon.clone(),
-        })
+    let build = DevelopmentBuild {
+        manifest: manifest.clone(),
+        component,
+        icon: install.icon.clone(),
+    };
+    let installed = packages
+        .install(PackageContent::Development(build), Caller::DeveloperTools)
+        .finished()
         .await?;
     tracing::info!(id = %installed.manifest.id(), "installed from its source");
     Ok(())
@@ -177,7 +180,7 @@ pub(crate) async fn uninstall(
 
 /// Removes the installed program `id`, its run stopped first.
 async fn remove(context: &InstallContext, id: &ProgramId) -> Result<(), Refusal> {
-    if context.store.installed_program(id).is_none() {
+    if context.packages.installed_program(id).is_none() {
         return Err(dev_refusal::not_installed(id));
     }
     context

@@ -59,7 +59,7 @@ use anyhow::{Context, Result};
 use waos::bindings::wasdk::platform::views::ViewError;
 use waos::{RunningProgram, ViewPlacement, ViewRequest};
 use waos_package::ProgramId;
-use waos_store::{InstalledProgram, Store};
+use waos_package_manager::{InstalledProgram, PackageManager};
 use waos_window_messages::bundle::LAUNCHED_BY_WAOS;
 use waos_window_messages::os::macos::AuditToken;
 use waos_window_messages::{Hello, LaunchReason, bootstrap_name};
@@ -104,7 +104,7 @@ pub(crate) struct AppsFolders {
 pub(crate) struct ProgramApps {
     me: Weak<ProgramApps>,
     bundles: Bundles,
-    store: Store,
+    packages: Arc<PackageManager>,
     /// Where the canvases of the programs' views are kept, on the main thread.
     canvases: Arc<CanvasesOnRequest>,
     /// Where what the dialogs of WaOS's prompts report goes, on the main thread.
@@ -129,7 +129,7 @@ impl ProgramApps {
     /// since it was signed.
     pub(crate) fn start(
         folders: AppsFolders,
-        store: Store,
+        packages: Arc<PackageManager>,
         canvases: CanvasesOnRequest,
         dialog_reports: DialogReports,
         notification_permissions: NotificationPermissions,
@@ -167,7 +167,7 @@ impl ProgramApps {
             ProgramApps {
                 me: me.clone(),
                 bundles,
-                store,
+                packages,
                 canvases: Arc::new(canvases),
                 dialog_reports,
                 notification_permissions,
@@ -397,12 +397,12 @@ impl ProgramApps {
     /// none for a program not installed, which has no app, since every program that runs is
     /// installed.
     fn describe(&self, id: &ProgramId) -> Option<ProgramDescription> {
-        let program = self.store.installed_program(id)?;
+        let program = self.packages.installed_program(id)?;
         Some(ProgramDescription {
             id: id.clone(),
             name: program.name(),
             version: program.manifest.version().to_string(),
-            icon: self.store.icon(id),
+            icon: self.packages.icon(id),
             category: program.manifest.category(),
             file_associations: program.manifest.file_associations().to_vec(),
         })

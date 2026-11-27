@@ -3,7 +3,7 @@
 //! and variables, or an inspector, which starts it held. How a start was asked is a value
 //! ([`StartRequest`]), and the starts under way are told with their stage
 //! ([`AppStarter::starting`]), as Android's `ActivityStarter` sits beside its list of processes.
-//! Each start loads the app's program through the package manager (`package_manager`), then
+//! Each start loads the app's program under its lock from the package manager, then
 //! starts it among the running apps (`running_apps`) with this computer's capabilities, the grants
 //! of its own settings and its own folders, its output to WaOS's log and to whoever attaches
 //! (`launch_outputs`), its views going where its place says, set before it starts
@@ -28,10 +28,10 @@ use anyhow::{Context, Result, ensure};
 use tokio::sync::watch;
 use waos::{HeldProgram, ProgramEnvironment, ProgramOutput, RunningProgram, WaOS};
 use waos_package::{ProgramId, ProgramKind};
+use waos_package_manager::PackageManager;
 
 use super::environments::ProgramEnvironments;
 use super::launch_outputs::{LaunchOutput, LaunchOutputs};
-use super::package_manager::PackageManager;
 use super::program_places::{ProgramPlace, ProgramPlaces};
 use super::running_apps::{IfRunning, Run, RunningApps, Started};
 
@@ -199,17 +199,23 @@ impl AppStarter {
             return Ok(StartAnswer::RunningAlready(program));
         }
         let optimizing = start.set_later(StartStage::Optimizing);
-        let loaded = self.packages.load(id, optimizing).await;
+        let lock = self.packages.lock(id).await;
+        let (engine, name) = (Arc::clone(&self.engine), id.clone());
+        let loaded = lock
+            .open(optimizing, move |version| {
+                let program = engine.load(&version.component(), &version.code())?;
+                Ok(program.named(name.as_str()))
+            })
+            .await;
         start.set(StartStage::Starting);
-        let (program, lock) = loaded?;
+        let program = loaded?;
         let mut held = None;
         let mut output = None;
         let started = self
             .running
             .start(id, request.if_running, || {
                 ensure!(
-                    request.opening != Opening::ByTheUser
-                        || self.environments.kind_of(id) == ProgramKind::App,
+                    request.opening != Opening::ByTheUser || self.kind_of(id) == ProgramKind::App,
                     NO_TERMINAL
                 );
                 let (environment, its_output) = self.environment_of(&request)?;
@@ -236,6 +242,14 @@ impl AppStarter {
         let output = output.context("a run that started writes to its output")?;
         self.take_out_once_ended(id, run, output);
         Ok(StartAnswer::Started { program, held })
+    }
+
+    /// What the installed app `id` declares it is, an app or a tool; an app where its manifest
+    /// cannot be read.
+    fn kind_of(&self, id: &ProgramId) -> ProgramKind {
+        self.packages
+            .installed_program(id)
+            .map_or(ProgramKind::App, |installed| installed.manifest.kind())
     }
 
     /// What the app `request` names runs with, its arguments and variables among it, with its

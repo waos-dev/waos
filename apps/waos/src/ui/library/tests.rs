@@ -12,13 +12,13 @@
 use std::rc::Rc;
 use std::sync::Arc;
 
-use crate::logic::package_manager::AppLock;
 use waft::ui::{EmbedderClient as _, OpenOptions, View as _, ViewId};
 use waft::{Icon, IntoWidget, Offset};
 use waft_cupertino::{
     CupertinoActionSheet, CupertinoAlertDialog, CupertinoIcons, CupertinoNavigationBar,
 };
 use waft_test::{AskedDialog, MemoryFile, TestWindow};
+use waos_package_manager::AppLock;
 
 use super::app_store::fluent::FluentAppStore;
 use super::home::cupertino::CupertinoHome;

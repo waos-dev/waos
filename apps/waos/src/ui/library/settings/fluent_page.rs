@@ -183,9 +183,9 @@ pub(crate) fn app_header(
             .style(TextBlockStyle::Body.text_style(resources, secondary))
             .into_widget(),
     ];
-    if let Some(status) = info.status {
+    if let Some(status) = &info.status {
         lines.push(
-            Text::new(status)
+            Text::new(status.clone())
                 .style(TextBlockStyle::Body.text_style(resources, primary))
                 .into_widget(),
         );

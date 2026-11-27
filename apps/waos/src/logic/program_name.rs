@@ -3,22 +3,20 @@
 
 use waos::RunningProgram;
 use waos_package::ProgramId;
-use waos_store::Store;
+use waos_package_manager::PackageManager;
 
-/// `program`'s name: its name in `store` where it is installed there, else what it runs as.
-pub(crate) fn program_name(store: &Store, program: &RunningProgram) -> String {
-    name_of(store, program.name())
+/// `program`'s name: its name in `packages` where it is installed there, else what it runs as.
+pub(crate) fn program_name(packages: &PackageManager, program: &RunningProgram) -> String {
+    name_of(packages, program.name())
 }
 
-/// The name of the program that runs as `runs_as`: its name in `store` where it is installed
+/// The name of the program that runs as `runs_as`: its name in `packages` where it is installed
 /// there, else `runs_as`.
-pub(crate) fn name_of(store: &Store, runs_as: &str) -> String {
-    let installed = runs_as.parse::<ProgramId>().ok().and_then(|id| {
-        store
-            .installed()
-            .into_iter()
-            .find(|installed| installed.manifest.id() == &id)
-    });
+pub(crate) fn name_of(packages: &PackageManager, runs_as: &str) -> String {
+    let installed = runs_as
+        .parse::<ProgramId>()
+        .ok()
+        .and_then(|id| packages.installed_program(&id));
     match installed {
         Some(installed) => installed.name(),
         None => runs_as.to_owned(),

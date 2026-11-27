@@ -1,24 +1,27 @@
 //! The services that keep WaOS's apps, put together once, at WaOS's start or a test's: the apps
-//! running (`running_apps`), the package manager, which installs, removes and loads them
-//! (`package_manager`), and the one way to start an installed app (`app_starter`), with the engine
-//! they run on, what each runs with (`environments`), where its views go (`program_places`) and
-//! what it writes (`launch_outputs`). Whoever shows or drives apps (the library, the dev server,
-//! the programs' apps on macOS) is handed these, as Android hands an app's process its system
-//! services.
+//! running (`running_apps`), the package manager (`waos-package-manager`), handed the engine's
+//! compiler and the running apps, and the one way to start an installed app (`app_starter`), with
+//! the engine they run on, what each runs with (`environments`), where its views go
+//! (`program_places`) and what it writes (`launch_outputs`). Whoever shows or drives apps (the
+//! library, the dev server, the programs' apps on macOS) is handed these, as Android hands an
+//! app's process its system services.
 //!
-//! The invariant: each service is made once, here, from the others it needs, so no service is
-//! handed another after it is made; the running apps alone are made before the engine, since what
-//! an inspector sees of the engine's apps reads them.
+//! The invariant: each service is made once, from the others it needs, so no service is handed
+//! another after it is made; the running apps and the package manager are made before the engine,
+//! since what an inspector and the shell's parts see of the apps reads them, and the compiler the
+//! package manager is handed is made before the engine for that reason.
 
+use std::path::Path;
 use std::sync::Arc;
 
-use waos::WaOS;
+use anyhow::{Context as _, Result};
+use waos::{Compiler, WaOS};
+use waos_package_manager::{CodeCompiler, PackageManager, StopApp};
 use waos_store::Store;
 
 use super::app_starter::AppStarter;
 use super::environments::ProgramEnvironments;
 use super::launch_outputs::LaunchOutputs;
-use super::package_manager::PackageManager;
 use super::program_places::ProgramPlaces;
 use super::running_apps::RunningApps;
 
@@ -37,20 +40,15 @@ pub(crate) struct AppServices {
 }
 
 impl AppServices {
-    /// The services over the apps installed in `store`, running among `running` on `engine`,
+    /// The services over the apps `packages` installs, running among `running` on `engine`,
     /// each with what `environments` gives it, its views going where `places` says.
     pub(crate) fn new(
         running: Arc<RunningApps>,
+        packages: Arc<PackageManager>,
         engine: Arc<WaOS>,
-        store: Store,
         environments: Arc<ProgramEnvironments>,
         places: ProgramPlaces,
     ) -> AppServices {
-        let packages = Arc::new(PackageManager::new(
-            store,
-            Arc::clone(&engine),
-            Arc::clone(&running),
-        ));
         let outputs = Arc::new(LaunchOutputs::default());
         let starter = Arc::new(AppStarter::new(
             Arc::clone(&running),
@@ -70,5 +68,44 @@ impl AppServices {
             #[cfg(desktop)]
             outputs,
         }
+    }
+}
+
+/// The package manager over the apps in `folder`, the store's directory, compiling with
+/// `compiler`, stopping apps among `running`; `store` forgets what it holds of each app it
+/// removes, on a thread of its own, since the app's folder, its settings and own folders in it,
+/// goes whole with the removal.
+pub(crate) fn open_packages(
+    folder: &Path,
+    compiler: Arc<dyn CodeCompiler>,
+    running: &Arc<RunningApps>,
+    store: Store,
+) -> Result<Arc<PackageManager>> {
+    let packages = PackageManager::open(folder, compiler, Arc::clone(running) as Arc<dyn StopApp>)
+        .with_context(|| format!("opening the apps installed at {}", folder.display()))?;
+    let mut removals = packages.removals();
+    std::thread::Builder::new()
+        .name("removals".to_owned())
+        .spawn(move || {
+            // It ends with the package manager.
+            while let Some(id) = removals.blocking_recv() {
+                store.forget(&id);
+            }
+        })
+        .context("starting the thread that follows removals")?;
+    Ok(Arc::new(packages))
+}
+
+/// The engine's compiler, as the package manager is handed it: a type of the app's own, since
+/// neither the engine nor the package manager knows the other.
+pub(crate) struct EngineCompiler(pub(crate) Compiler);
+
+impl CodeCompiler for EngineCompiler {
+    fn compile(&self, component: &Path, code: &Path) -> Result<()> {
+        self.0.compile(component, code)
+    }
+
+    fn is_usable(&self, code: &Path) -> bool {
+        self.0.is_compiled(code)
     }
 }

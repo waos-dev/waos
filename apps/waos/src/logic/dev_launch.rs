@@ -19,7 +19,7 @@ use waos_dev_protocol::{
     Launch, LaunchAnswer, Refusal, ServerConnection, ServerReadHalf, ServerWriteHalf, StopAnswer,
 };
 use waos_package::ProgramId;
-use waos_store::Store;
+use waos_package_manager::PackageManager;
 
 use super::app_starter::{AppStarter, Opening, StartPlace, StartRequest, StartStage};
 use super::dev_refusal;
@@ -29,7 +29,7 @@ use super::running_apps::{IfRunning, RunningApps};
 #[derive(Clone)]
 pub(crate) struct LaunchContext {
     pub(crate) starter: Arc<AppStarter>,
-    pub(crate) store: Store,
+    pub(crate) packages: Arc<PackageManager>,
 }
 
 /// Serves a connection's `Launch`: the program started, answered `Launched`, or why not, after
@@ -65,7 +65,7 @@ async fn start(
         arguments,
         variables,
     } = launch;
-    if context.store.installed_program(&id).is_none() {
+    if context.packages.installed_program(&id).is_none() {
         return Err(dev_refusal::not_installed(&id));
     }
     let request = StartRequest {

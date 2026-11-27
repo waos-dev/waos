@@ -16,7 +16,7 @@
 //! slow to end holds back no screenshot, input, open or quit, nor another app's start; the ids
 //! running, which [`RunningApps::running_ids`] tells, change with the list under that lock. And
 //! nothing compiles in a turn: a caller loads the program, through the package manager, before it
-//! starts the app.
+//! starts the app. The package manager stops an app here before it changes (`StopApp`).
 
 #[cfg(desktop)]
 mod driven;
@@ -27,6 +27,8 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Instant;
 
 use anyhow::Result;
+use futures::FutureExt as _;
+use futures::future::BoxFuture;
 #[cfg(desktop)]
 use futures::future::join_all;
 use tokio::sync::{OwnedMutexGuard, watch};
@@ -34,6 +36,7 @@ use tracing::Instrument;
 use waos::{ProgramEnd, RunningProgram};
 use waos_dev_protocol::RunEnd;
 use waos_package::ProgramId;
+use waos_package_manager::{PackageChange, StopApp};
 
 #[cfg(desktop)]
 pub(crate) use driven::DrivenProgram;
@@ -293,6 +296,20 @@ impl RunningApps {
             Arc::clone(turns.entry(id.clone()).or_default())
         };
         turn.lock_owned().await
+    }
+}
+
+/// The package manager stops an app among these before it changes: one an install replaces ends
+/// `Replaced`, one removed `Stopped`.
+impl StopApp for RunningApps {
+    fn stop<'a>(&'a self, id: &'a ProgramId, change: PackageChange) -> BoxFuture<'a, ()> {
+        async move {
+            match change {
+                PackageChange::Install => self.stop_replaced(id).await,
+                PackageChange::Removal => RunningApps::stop(self, id).await,
+            };
+        }
+        .boxed()
     }
 }
 

@@ -11,9 +11,10 @@ use std::path::Path;
 use std::time::Duration;
 
 use futures::FutureExt;
-use support::{install, write_package};
+use support::{block_on, install, packages, remove, write_package};
 use waos_capabilities::{Answer, DomainRule, FileDialog, Mount, NetworkGrant, Question, Setting};
-use waos_package::{Package, ProgramId, SigningKey};
+use waos_package::{ProgramId, SigningKey};
+use waos_package_manager::PackageManager;
 use waos_store::{GlobalSettings, ProgramSettings, SourceProxy, Store, StoreError};
 
 const TRIANGLE: &str = "dev.example.triangle";
@@ -22,12 +23,18 @@ fn triangle() -> ProgramId {
     TRIANGLE.parse().unwrap()
 }
 
-/// A store in `folder` with the triangle installed.
-fn store_with_triangle(folder: &Path) -> Store {
+/// A store in `folder` with the triangle installed, and the package manager it was installed with.
+fn store_with_triangle(folder: &Path) -> (Store, PackageManager) {
     let store = Store::open(&folder.join("store"), SourceProxy::None).unwrap();
+    let packages = packages(&folder.join("store"));
+    install_triangle(folder, &packages);
+    (store, packages)
+}
+
+/// Installs the triangle with `packages`, from a package written in `folder`.
+fn install_triangle(folder: &Path, packages: &PackageManager) {
     let package = write_package(folder, TRIANGLE, "1.0.0", &SigningKey::generate());
-    install(&store, Package::open(&package).unwrap()).unwrap();
-    store
+    block_on(install(packages, &package)).unwrap();
 }
 
 fn network_off() -> NetworkGrant {
@@ -63,7 +70,7 @@ fn the_global_settings_start_as_the_defaults_and_are_kept() {
 #[test]
 fn a_programs_settings_are_its_own_kept_beside_its_install_and_go_with_it() {
     let scratch = tempfile::tempdir().unwrap();
-    let store = store_with_triangle(scratch.path());
+    let (store, packages) = store_with_triangle(scratch.path());
     assert_eq!(
         store.program_settings(&triangle()).unwrap(),
         ProgramSettings::default()
@@ -80,13 +87,12 @@ fn a_programs_settings_are_its_own_kept_beside_its_install_and_go_with_it() {
         "kept across a reopen, which clears what an install left"
     );
 
-    reopened.remove(&triangle()).unwrap();
+    block_on(remove(&reopened, &packages, &triangle()));
     assert!(matches!(
         reopened.program_settings(&triangle()),
         Err(StoreError::NotInstalled(_))
     ));
-    let package = write_package(scratch.path(), TRIANGLE, "1.0.0", &SigningKey::generate());
-    install(&reopened, Package::open(&package).unwrap()).unwrap();
+    install_triangle(scratch.path(), &packages);
     assert_eq!(
         reopened.program_settings(&triangle()).unwrap(),
         ProgramSettings::default(),
@@ -135,11 +141,11 @@ fn a_programs_own_folders_are_made_at_its_first_run_and_kept_until_it_is_removed
     fs::write(folders.data.join("notes.txt"), "kept").unwrap();
 
     let reopened = Store::open(&directory, SourceProxy::None).unwrap();
-    assert!(reopened.installed().is_empty(), "run, not installed");
+    let packages = packages(&directory);
+    assert!(packages.installed().is_empty(), "run, not installed");
     assert_eq!(fs::read(folders.data.join("notes.txt")).unwrap(), b"kept");
 
-    let package = write_package(scratch.path(), TRIANGLE, "1.0.0", &SigningKey::generate());
-    install(&reopened, Package::open(&package).unwrap()).unwrap();
+    install_triangle(scratch.path(), &packages);
     assert_eq!(reopened.folders(&triangle()).unwrap(), folders);
     assert_eq!(
         fs::read(folders.data.join("notes.txt")).unwrap(),
@@ -147,7 +153,7 @@ fn a_programs_own_folders_are_made_at_its_first_run_and_kept_until_it_is_removed
         "the installed program is the one its development runs were"
     );
 
-    reopened.remove(&triangle()).unwrap();
+    block_on(remove(&reopened, &packages, &triangle()));
     assert!(!folders.data.exists() && !folders.cache.exists());
 }
 
@@ -178,22 +184,9 @@ fn a_program_run_in_development_has_its_own_settings_installed_or_not() {
 }
 
 #[test]
-fn a_removal_a_crash_interrupted_is_finished_when_the_store_opens_again() {
-    let scratch = tempfile::tempdir().unwrap();
-    let directory = scratch.path().join("store");
-    store_with_triangle(scratch.path());
-    let moved = directory.join("removing").join(TRIANGLE);
-    fs::create_dir_all(directory.join("removing")).unwrap();
-    fs::rename(directory.join("programs").join(TRIANGLE), &moved).unwrap();
-    let reopened = Store::open(&directory, SourceProxy::None).unwrap();
-    assert!(reopened.installed().is_empty());
-    assert!(!directory.join("removing").exists());
-}
-
-#[test]
 fn a_programs_grants_follow_the_global_settings_until_it_has_its_own() {
     let scratch = tempfile::tempdir().unwrap();
-    let store = store_with_triangle(scratch.path());
+    let (store, _packages) = store_with_triangle(scratch.path());
     let grants = store.grants(&triangle());
     assert!(grants.network().on);
     store
@@ -227,7 +220,7 @@ fn a_programs_grants_follow_the_global_settings_until_it_has_its_own() {
 #[test]
 fn a_programs_answer_is_kept_in_its_settings() {
     let scratch = tempfile::tempdir().unwrap();
-    let store = store_with_triangle(scratch.path());
+    let (store, _packages) = store_with_triangle(scratch.path());
     let grants = store.grants(&triangle());
     assert_eq!(grants.answer(Question::Camera), None, "to be asked");
     grants.set_answer(Question::Camera, Answer::Granted);
@@ -249,7 +242,7 @@ fn a_programs_answer_is_kept_in_its_settings() {
 #[test]
 fn a_programs_answer_to_a_link_scheme_is_kept_in_its_settings() {
     let scratch = tempfile::tempdir().unwrap();
-    let store = store_with_triangle(scratch.path());
+    let (store, _packages) = store_with_triangle(scratch.path());
     let grants = store.grants(&triangle());
     assert_eq!(grants.link_scheme_answer("zoommtg"), None, "to be asked");
     grants.set_link_scheme_answer("zoommtg", Answer::Granted);
@@ -266,7 +259,7 @@ fn a_programs_answer_to_a_link_scheme_is_kept_in_its_settings() {
 #[test]
 fn a_pick_is_kept_among_a_programs_own_mounts_beside_the_global_ones() {
     let scratch = tempfile::tempdir().unwrap();
-    let store = store_with_triangle(scratch.path());
+    let (store, _packages) = store_with_triangle(scratch.path());
     let shared = Mount {
         host: scratch.path().join("shared"),
         at: "/shared".into(),
@@ -299,7 +292,7 @@ fn a_pick_is_kept_among_a_programs_own_mounts_beside_the_global_ones() {
 #[test]
 fn a_machine_picked_is_kept_among_a_programs_own_once_however_often_it_is_picked() {
     let scratch = tempfile::tempdir().unwrap();
-    let store = store_with_triangle(scratch.path());
+    let (store, _packages) = store_with_triangle(scratch.path());
     let grants = store.grants(&triangle());
     assert!(
         grants.machines().is_empty(),
@@ -319,7 +312,7 @@ fn a_machine_picked_is_kept_among_a_programs_own_once_however_often_it_is_picked
 #[test]
 fn a_programs_grants_answer_its_pickers_and_dialogs_as_its_user_set_them_across_a_reopen() {
     let scratch = tempfile::tempdir().unwrap();
-    let store = store_with_triangle(scratch.path());
+    let (store, _packages) = store_with_triangle(scratch.path());
     let grants = store.grants(&triangle());
     assert_eq!(grants.machine_answer(), None, "to be asked");
     assert_eq!(grants.file_dialog_answer(FileDialog::SaveFile), None);
@@ -346,7 +339,7 @@ fn a_programs_grants_answer_its_pickers_and_dialogs_as_its_user_set_them_across_
 #[test]
 fn a_change_of_settings_is_heard_by_a_programs_grants() {
     let scratch = tempfile::tempdir().unwrap();
-    let store = store_with_triangle(scratch.path());
+    let (store, _packages) = store_with_triangle(scratch.path());
     let grants = store.grants(&triangle());
 
     let changed = grants.changed();

@@ -9,34 +9,41 @@
 
 use std::io::Cursor;
 use std::path::Path;
+use std::sync::Arc;
 
 use waft::ui::IconImage;
 use waos_package::ProgramId;
+use waos_package_manager::PackageManager;
 use waos_program_window::{ProgramFace, ProgramIdentity};
-use waos_store::Store;
 
 use super::program_identities::{Identities, installed_app_id};
 use super::program_name::name_of;
 
-/// The faces of the programs, as the store has them, with their identities where the system's
+/// The faces of the programs, as the package manager has them, with their identities where the system's
 /// windows take them.
 #[derive(Clone)]
 pub(crate) struct ProgramFaces {
-    store: Store,
+    packages: Arc<PackageManager>,
     /// What the programs' identities are made of; none where a window is no app of its own.
     identities: Option<Identities>,
 }
 
 impl ProgramFaces {
-    /// The faces of the programs in `store`, the installed ones' with identities made of
+    /// The faces of the programs in `packages`, the installed ones' with identities made of
     /// `identities`, where there are any.
-    pub(crate) fn new(store: Store, identities: Option<Identities>) -> ProgramFaces {
-        ProgramFaces { store, identities }
+    pub(crate) fn new(
+        packages: Arc<PackageManager>,
+        identities: Option<Identities>,
+    ) -> ProgramFaces {
+        ProgramFaces {
+            packages,
+            identities,
+        }
     }
 
     /// The face of the program that runs as `runs_as`, with its identity where it is installed.
     pub(crate) fn face(&self, runs_as: &str) -> ProgramFace {
-        let face = program_face(&self.store, runs_as);
+        let face = program_face(&self.packages, runs_as);
         ProgramFace {
             identity: self.identity_of(runs_as, &face.name),
             ..face
@@ -47,22 +54,22 @@ impl ProgramFaces {
     /// for a program not installed.
     fn identity_of(&self, runs_as: &str, name: &str) -> Option<ProgramIdentity> {
         let identities = self.identities.as_ref()?;
-        let (id, app_id) = installed_app_id(&self.store, runs_as)?;
+        let (id, app_id) = installed_app_id(&self.packages, runs_as)?;
         Some(identities.identity_of(&id, app_id, name))
     }
 }
 
-/// The face of the program that runs as `runs_as`: its name in `store`, and its icon there where
+/// The face of the program that runs as `runs_as`: its name in `packages`, and its icon there where
 /// it is installed with one that reads; no identity, as on a system whose windows are no apps of
 /// their own.
-pub(crate) fn program_face(store: &Store, runs_as: &str) -> ProgramFace {
+pub(crate) fn program_face(packages: &PackageManager, runs_as: &str) -> ProgramFace {
     let icon = runs_as
         .parse::<ProgramId>()
         .ok()
-        .and_then(|id| store.icon(&id))
+        .and_then(|id| packages.icon(&id))
         .and_then(|path| icon_at(&path));
     ProgramFace {
-        name: name_of(store, runs_as),
+        name: name_of(packages, runs_as),
         icon,
         identity: None,
     }

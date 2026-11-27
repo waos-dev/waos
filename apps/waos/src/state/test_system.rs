@@ -40,7 +40,6 @@ use super::video_decoders::VideoDecoders;
 use crate::logic::app_services::AppServices;
 use crate::logic::environments::ProgramEnvironments;
 use crate::logic::frame_readers::ReadersOnRequest;
-use crate::logic::opened_package::OpenedPackage;
 use crate::logic::opened_package::tests::write_package;
 use crate::logic::package_copies::PackageCopies;
 use crate::logic::program_places::{ProgramPlace, ProgramPlaces};
@@ -61,6 +60,7 @@ pub(crate) struct TestSystem {
     /// The app's notifications as the engine reaches them, for a test to call as the engine does.
     pub(crate) notifications: Option<Arc<dyn ShellNotifications>>,
     pub(crate) store: Store,
+    packages: Arc<waos_package_manager::PackageManager>,
     pub(crate) runs: Arc<RunningApps>,
     pub(crate) library: Entity<Library>,
     /// How many times the library asked to be seen.
@@ -114,14 +114,16 @@ impl TestSystem {
             EngineTime::Manual(time.clone()),
         ));
         let runs = Arc::new(RunningApps::default());
+        let packages = test_installs::packages(&folder.path().join("store"), &store, &runs);
         let services = AppServices::new(
             Arc::clone(&runs),
+            Arc::clone(&packages),
             Arc::clone(&engine),
-            store.clone(),
             ProgramEnvironments::new(waos_local::LocalCapabilities::new(), store.clone()),
             ProgramPlaces::new(ProgramPlace::Windows),
         );
         let (served_store, started) = (store.clone(), Rc::new(RefCell::new(None)));
+        let served_packages = Arc::clone(&packages);
         let kept = Rc::clone(&started);
         let suspended = Arc::clone(&engine);
         let shell = Shell::new(Rc::new(platform) as PlatformRef, move |app| {
@@ -130,7 +132,7 @@ impl TestSystem {
                 opener.serve(app);
             }
             let posted_as_programs =
-                notifications.map(|notifications| notifications.serve(app, served_store.clone()));
+                notifications.map(|notifications| notifications.serve(app, served_packages));
             if let Some(video_decoders) = video_decoders {
                 video_decoders.serve(app);
             }
@@ -171,6 +173,7 @@ impl TestSystem {
             engine,
             notifications: shell_notifications,
             store,
+            packages,
             runs,
             library,
             asked_to_be_seen,
@@ -190,13 +193,7 @@ impl TestSystem {
         let bytes = std::fs::read(component).unwrap();
         let key = SigningKey::generate();
         let file = write_package(&packages, id, name, "1.0.0", &bytes, &key);
-        let package = OpenedPackage::open(&file).expect("a package");
-        test_installs::install_package(
-            &self.store,
-            &self.engine,
-            package.into_package(),
-            component,
-        );
+        test_installs::install_package(&self.packages, &file);
     }
 
     /// Runs the test program at `component` as the program `id`, among the runs, with the store's

@@ -123,7 +123,7 @@ fn serve(
     } = hello;
     let connection = ReceiveRight::new()?;
     let welcome = Welcome {
-        name: program_name(&apps.store, &program),
+        name: program_name(&apps.packages, &program),
     };
     let give = connection.make_send()?;
     connection.notify_when_no_senders()?;

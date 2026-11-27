@@ -1,6 +1,6 @@
 //! What the store's tests install and read from: signed packages written to a folder, their
-//! listings, and a local HTTP server; and installing in the store's two steps, staged then
-//! committed, as the app does around its compile.
+//! listings, and a local HTTP server; and the package manager over the store's directory, with
+//! instant stand-ins for its compiler and the running apps, installing as the app does.
 
 #![allow(dead_code, reason = "each test crate uses its own part of the support")]
 
@@ -10,33 +10,95 @@ use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use futures::future::BoxFuture;
+use futures::{FutureExt as _, StreamExt as _, stream};
 use sha2::{Digest, Sha256};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
-use waos_package::{ListedProgram, Manifest, Package, SigningKey};
-use waos_store::{DevelopmentBuild, InstallError, InstalledProgram, Source, Store};
+use waos_package::{ListedProgram, Manifest, ProgramId, SigningKey};
+use waos_package_manager::{
+    Caller, CodeCompiler, InstallError, InstalledProgram, PackageChange, PackageContent,
+    PackageManager, StopApp,
+};
+use waos_store::{Source, Store};
 
-/// Installs `package` into `store`: staged, then committed.
-pub fn install(store: &Store, package: Package) -> Result<InstalledProgram, InstallError> {
-    store.commit(store.stage(package)?)
+/// A compiler that compiles nothing, and finds nothing to compile.
+struct NoCompiler;
+
+impl CodeCompiler for NoCompiler {
+    fn compile(&self, _component: &Path, _code: &Path) -> anyhow::Result<()> {
+        Ok(())
+    }
+
+    fn is_usable(&self, _code: &Path) -> bool {
+        true
+    }
 }
 
-/// Installs `build` into `store` as its development install: staged, then committed.
-pub fn install_development(
-    store: &Store,
-    build: &DevelopmentBuild<'_>,
+/// No app runs in the store's tests.
+struct NothingRuns;
+
+impl StopApp for NothingRuns {
+    fn stop<'a>(&'a self, _id: &'a ProgramId, _change: PackageChange) -> BoxFuture<'a, ()> {
+        async {}.boxed()
+    }
+}
+
+/// The package manager over `store`'s directory, `directory`.
+pub fn packages(directory: &Path) -> PackageManager {
+    PackageManager::open(directory, Arc::new(NoCompiler), Arc::new(NothingRuns)).unwrap()
+}
+
+/// Installs the package at `path` with `packages`, for the user.
+pub async fn install(
+    packages: &PackageManager,
+    path: &Path,
 ) -> Result<InstalledProgram, InstallError> {
-    store.commit(store.stage_development(build)?)
+    let bytes = fs::read(path).unwrap();
+    let app = waos_package::Package::open(path)
+        .unwrap()
+        .manifest()
+        .id()
+        .clone();
+    let size = Some(bytes.len() as u64);
+    let content = PackageContent::Package {
+        app,
+        bytes: stream::iter([Ok(bytes)]).boxed(),
+        size,
+    };
+    packages.install(content, Caller::User).finished().await
 }
 
-/// Installs `program` into `store` as `source` lists it: downloaded, staged, then committed.
+/// Installs `program` with `packages` as `source` lists it, downloaded by `store`.
 pub async fn install_from(
     store: &Store,
+    packages: &PackageManager,
     source: &Source,
     program: &ListedProgram,
 ) -> Result<InstalledProgram, InstallError> {
-    let download = store.download(source, program, |_| {}).await?;
-    store.commit(store.stage_download(download).await?)
+    let download = store.download(source, program).await.unwrap();
+    let content = PackageContent::Package {
+        app: program.id.clone(),
+        bytes: download.bytes,
+        size: download.size,
+    };
+    packages.install(content, Caller::User).finished().await
+}
+
+/// Removes the app `id` with `packages`, and `store` forgets it, as the app's startup has the
+/// store follow the package manager's removals.
+pub async fn remove(store: &Store, packages: &PackageManager, id: &ProgramId) {
+    packages.remove(id).await.unwrap();
+    store.forget(id);
+}
+
+/// What `future` comes to, on a runtime of its own: for a test that is not async.
+pub fn block_on<T>(future: impl Future<Output = T>) -> T {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+        .block_on(future)
 }
 
 /// The component of `id` at `version`: bytes that say which they are.

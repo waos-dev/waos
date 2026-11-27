@@ -1,48 +1,35 @@
-//! The programs installed in WaOS, their updates, and the package sources they come from, kept in
-//! a directory the app gives the [`Store`]. An app bundling one program builds none of it.
+//! The package sources the user added and their downloads, what the user lets each app use, each
+//! app's own folders, and what each app did, kept in a directory the app gives the [`Store`]. What
+//! is installed is the package manager's (`waos-package-manager`), in the same directory. An app
+//! bundling one program builds none of it.
 //!
 //! ```text
 //! <directory>/
 //!   programs/
 //!     dev.example.triangle/
-//!       current           the name of the folder below that is installed
-//!       1.2.0-Xk3q9a/     what the package unpacked to: manifest.toml, program.wasm, icon.png, publisher.key
-//!         code/           the engine's code compiled from program.wasm, a file per compiler
-//!       settings.toml     the program's own settings: what the user lets it use
-//!       data/             the program's own folders, which it sees at /data and /cache
+//!       current, 1.2.0-Xk3q9a/   the package manager's: what is installed
+//!       settings.toml     the app's own settings: what the user lets it use
+//!       data/             the app's own folders, which it sees at /data and /cache
 //!       cache/
-//!     dev.example.triangle.development/   its development install, a program of its own
 //!   audit/
 //!     dev.example.triangle/
-//!       2026-11-15.postcard  what the program did that day, its last seven days kept
+//!       2026-11-15.postcard  what the app did that day, its last seven days kept
 //!   pictures/             the sources' icons and screenshots, kept as read, by their addresses
-//!   removing/             a program being removed, moved here whole first
 //!   sources.toml          the sources the user added, in the order added
-//!   settings.toml         the global settings, which every program follows until it has its own
+//!   settings.toml         the global settings, which every app follows until it has its own
 //! ```
 //!
-//! What the user lets each program use is its settings, in its folder, over the global ones, which
-//! the store answers to the engine as each program's `ProgramGrants`, read live. A program run in
-//! development is the one its id names: its folder is made at its first run, installed or not, with
-//! its own folders and settings, and an install of its id keeps them. A program's folder goes with
-//! it, whole, when it is removed, and its audit summary too: what it did with what it was allowed,
-//! one file a day, kept seven days, on this device only (`audit`, the engine's `AuditLog`).
+//! What the user lets each app use is its settings, in its folder, over the global ones, which the
+//! store answers to the engine as each app's `ProgramGrants`, read live. An app run in development
+//! is the one its id names: its folder is made at its first run, installed or not, with its own
+//! folders and settings, and an install of its id keeps them. The package manager removes an
+//! app's folder whole, its settings and own folders with it; the store then forgets what it holds
+//! of the app ([`Store::forget`]): its settings in memory and its activity, one file a day, kept
+//! seven days, on this device only (`audit`, the engine's `AuditLog`).
 //!
-//! An installed program is its manifest and where it came from, its [`Origin`]: a package, with its
-//! publisher's key and no record of which source listed it, which installs as a new id, or as an
-//! update of an installed id when it is signed with the same key and is newer, any source listing
-//! an installed id at a newer version offering an update; or its source, a development install,
-//! which `waos install` makes under the program's development id
-//! (`dev.example.triangle.development`), a program of its own beside the one published under the
-//! plain id, which no package or source replaces.
-//!
-//! The invariants a later editor will break: the store believes a package only once
-//! `waos-package` has verified it, and installs a development build under its development id
-//! alone, and a download only once its SHA-256 is the one its index
-//! lists; and replacing a program's `current` ([`Store::commit`]) is the one step that changes
-//! what is installed,
-//! and moving its folder into `removing/` the one that removes it, so a crash leaves the earlier
-//! install or the new one, the program or none of it, never part of either.
+//! The invariant a later editor will break: a download's bytes end in an error unless their
+//! SHA-256 is the one its index lists, and a listing of a development id is refused before its
+//! download, so the package manager installs only what a source listed.
 
 mod audit;
 mod error;
@@ -56,13 +43,11 @@ mod source;
 mod sources_file;
 mod store;
 
-pub use error::{InstallError, SourceError, StoreError};
-pub use fetch::{DownloadProgress, SourceProxy};
+pub use error::{SourceError, StoreError};
+pub use fetch::{Download, SourceProxy};
 pub use settings::{AnswerWith, GlobalSettings, PerQuestion, ProgramSettings};
 pub use source::Source;
-pub use store::{
-    DevelopmentBuild, Download, InstalledProgram, InstalledVersion, Origin, Staged, Store,
-};
+pub use store::Store;
 /// The addresses a source's files are at, which [`Source::picture_url`] answers.
 pub use url::Url;
 /// What the settings are made of, as `waos-capabilities` names them.

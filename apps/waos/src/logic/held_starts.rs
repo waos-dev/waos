@@ -12,7 +12,7 @@ use anyhow::Context as _;
 use waos::HeldProgram;
 use waos::inspection::bindings::wasdk::inspect::devices::StartError;
 use waos_package::ProgramId;
-use waos_store::Store;
+use waos_package_manager::PackageManager;
 
 use super::app_starter::{AppStarter, Opening, StartRequest};
 use super::running_apps::IfRunning;
@@ -20,7 +20,7 @@ use super::running_apps::IfRunning;
 /// What starting a program held needs of the app.
 pub(crate) struct HeldStarts {
     pub(crate) starter: Arc<AppStarter>,
-    pub(crate) store: Store,
+    pub(crate) packages: Arc<PackageManager>,
 }
 
 impl HeldStarts {
@@ -28,7 +28,7 @@ impl HeldStarts {
     pub(crate) async fn start(&self, id: &str) -> Result<HeldProgram, StartError> {
         let id: ProgramId = id.parse().map_err(|_| StartError::Unknown)?;
         tracing::info!(%id, "an inspector asks to start it held");
-        if self.store.installed_program(&id).is_none() {
+        if self.packages.installed_program(&id).is_none() {
             return Err(StartError::Unknown);
         }
         let request = StartRequest {
@@ -62,45 +62,36 @@ mod tests {
     use crate::logic::program_places::{ProgramPlace, ProgramPlaces};
     use crate::logic::running_apps::RunningApps;
     use crate::logic::test_engine::{self, NoWindows};
+    use crate::logic::test_installs;
 
     #[tokio::test(flavor = "multi_thread")]
     async fn an_inspector_starts_a_development_install_held_in_place_of_the_one_running_and_ends_it()
      {
         let folder = tempfile::tempdir().unwrap();
         let engine = Arc::new(test_engine::engine(Arc::new(NoWindows)));
-        let store =
-            Store::open(&folder.path().join("store"), waos_store::SourceProxy::None).unwrap();
+        let directory = folder.path().join("store");
+        let store = waos_store::Store::open(&directory, waos_store::SourceProxy::None).unwrap();
         let runs = Arc::new(RunningApps::default());
+        let packages = test_installs::packages(&directory, &store, &runs);
         let services = AppServices::new(
             Arc::clone(&runs),
+            Arc::clone(&packages),
             Arc::clone(&engine),
-            store.clone(),
             ProgramEnvironments::new(LocalCapabilities::new(), store.clone()),
             ProgramPlaces::new(ProgramPlace::Windows),
         );
-        let programs = ProgramsOnThisComputer::new(store.clone(), Arc::clone(&runs));
+        let programs = ProgramsOnThisComputer::new(store, Arc::clone(&packages), Arc::clone(&runs));
         let manifest = waos_package::Manifest::new(
             "dev.example.forever".parse().unwrap(),
             "Forever",
             "0.1.0".parse().unwrap(),
         )
         .unwrap();
-        let forever = std::fs::read(waos_test_programs::FOREVER).unwrap();
-        let build = waos_store::DevelopmentBuild {
-            manifest: &manifest,
-            component: &forever,
-            icon: None,
-        };
-        crate::logic::test_installs::install_development(
-            &store,
-            &engine,
-            &build,
-            waos_test_programs::FOREVER,
-        );
+        test_installs::install_development(&packages, manifest, waos_test_programs::FOREVER);
         let id: ProgramId = "dev.example.forever.development".parse().unwrap();
         let starts = HeldStarts {
             starter: services.starter,
-            store,
+            packages,
         };
         programs.serve_starts(starts, tokio::runtime::Handle::current());
 

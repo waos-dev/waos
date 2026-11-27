@@ -9353,6 +9353,7 @@ dependencies = [
  "waos-headless",
  "waos-local",
  "waos-package",
+ "waos-package-manager",
  "waos-program-window",
  "waos-store",
  "waos-test-programs",
@@ -9533,6 +9534,7 @@ dependencies = [
 name = "waos-store"
 version = "0.8.1"
 dependencies = [
+ "anyhow",
  "futures",
  "hex",
  "postcard",
@@ -9546,6 +9548,7 @@ dependencies = [
  "url",
  "waos-capabilities",
  "waos-package",
+ "waos-package-manager",
 ]
 
 [[package]]

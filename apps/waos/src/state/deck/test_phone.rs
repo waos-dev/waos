@@ -43,7 +43,7 @@ use waft_test::{
     BarsShown, MockCompositor, TestPlatform, TestView, TestWindow, TestWindows, TextInputCall,
 };
 use waft_winui::install_icon_font;
-use waos::{ProgramEnd, ProgramView, ViewPlacement, WaOS};
+use waos::{ProgramEnd, ProgramView, ViewPlacement};
 use waos_package::{ProgramId, SigningKey};
 use waos_program_window::{ProgramCanvas, WindowRestoration};
 use waos_store::{SourceProxy, Store};
@@ -216,9 +216,8 @@ pub(crate) struct TestPhone {
     /// The programs' windows, on a phone of tasks.
     pub(crate) view_windows: Entity<ViewWindows>,
     pub(crate) runs: Arc<RunningApps>,
-    /// The store the library is over, and the engine its programs run on.
-    store: Store,
-    engine: Arc<WaOS>,
+    /// What installs the library's apps.
+    packages: Arc<waos_package_manager::PackageManager>,
     /// Where the programs' questions to their user are put.
     pub(crate) prompts: Arc<PromptsOnRequest>,
     pub(crate) folder: TempDir,
@@ -252,7 +251,10 @@ impl TestPhone {
         let copies = PackageCopies::clear(folder.path().join("package-copies")).unwrap();
         let runs = Arc::new(RunningApps::default());
         let store = Store::open(&folder.path().join("store"), SourceProxy::None).expect("a store");
-        let (own_windows, requests) = WindowsOnRequest::new(ProgramFaces::new(store.clone(), None));
+        let packages =
+            crate::logic::test_installs::packages(&folder.path().join("store"), &store, &runs);
+        let (own_windows, requests) =
+            WindowsOnRequest::new(ProgramFaces::new(Arc::clone(&packages), None));
         let (usual, windows, programs_open): (_, Arc<dyn ViewPlacement>, _) = match kind {
             PhoneKind::Tabs => (ProgramPlace::Tab, Arc::new(NoWindows), ProgramsOpen::InTabs),
             PhoneKind::Tasks => (
@@ -277,8 +279,8 @@ impl TestPhone {
         ));
         let services = AppServices::new(
             Arc::clone(&runs),
+            Arc::clone(&packages),
             Arc::clone(&engine),
-            store.clone(),
             ProgramEnvironments::new(waos_local::LocalCapabilities::new(), store.clone()),
             places,
         );
@@ -297,6 +299,7 @@ impl TestPhone {
         let platform = Rc::new(platform);
         let (_indicator, recording_changes) = RecordingIndicatorOnRequest::new();
         let (served, deck_runs) = (store.clone(), Arc::clone(&runs));
+        let served_packages = Arc::clone(&packages);
         let started = Rc::new(std::cell::RefCell::new(None));
         let kept = Rc::clone(&started);
         let shell = Shell::new(Rc::clone(&platform) as PlatformRef, move |app| {
@@ -304,15 +307,15 @@ impl TestPhone {
             let prompt_windows = questions::prompt_windows(
                 app,
                 view_windows.clone(),
-                ProgramFaces::new(served.clone(), None),
+                ProgramFaces::new(Arc::clone(&served_packages), None),
             );
             Questions::listen(
                 app,
                 prompted.questions,
                 prompt_windows.clone(),
-                served.clone(),
+                Arc::clone(&served_packages),
             );
-            let recordings = Recordings::listen(app, recording_changes, served.clone());
+            let recordings = Recordings::listen(app, recording_changes, served_packages);
             let library = open_library(
                 app,
                 served,
@@ -352,8 +355,7 @@ impl TestPhone {
             tabs,
             view_windows,
             runs,
-            store,
-            engine,
+            packages,
             prompts,
             folder,
             key: SigningKey::generate(),
@@ -382,8 +384,7 @@ impl TestPhone {
         std::fs::create_dir_all(&packages).unwrap();
         let bytes = std::fs::read(component).unwrap();
         let file = write_package(&packages, id, name, "1.0.0", &bytes, &self.key);
-        let package = waos_package::Package::open(&file).unwrap();
-        crate::logic::test_installs::install_package(&self.store, &self.engine, package, component);
+        crate::logic::test_installs::install_package(&self.packages, &file);
         let installed: ProgramId = id.parse().unwrap();
         self.settle_until("the library shows the program", |phone| {
             let app = phone.shell.app();
