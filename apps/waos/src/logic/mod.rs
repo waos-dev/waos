@@ -20,7 +20,7 @@
 //! asks for on Android (`phone_files`), and where the engine's indicator of who records goes (`recording_indicator`);
 //! their clipboard calls (`clipboard_calls`), with what goes between their clipboard and Waft's
 //! (`clipboard`); their menu calls (`menu_calls`), and WaOS's own menu bar (`menu_bar`); their
-//! openings (`opener_calls`); their notifications (`notification_calls`), as the system shows them
+//! notifications (`notification_calls`), as the system shows them
 //! (`system_notifications`); their players' state and
 //! metadata (`player_states`) and its cues (`cues`) as the program reads them, and their frame
 //! readers, Waft's once a player is given one (`frame_readers`); their media assets' calls
@@ -122,7 +122,6 @@ pub(crate) mod often_used;
 pub(crate) mod open_command;
 pub(crate) mod open_video_decoders;
 pub(crate) mod opened_package;
-pub(crate) mod opener_calls;
 pub(crate) mod opening;
 pub(crate) mod package_copies;
 pub(crate) mod permissions;

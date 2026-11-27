@@ -1,69 +1,96 @@
-//! The programs' openings on the main thread, over Waft's opener: each link opened in the app the
-//! system picks for its scheme, each file in the app it picks for its type or shown in its file
-//! manager, and answered with whether the system handed it on. The opener is the engine's shell's
-//! only where Waft's platform has one.
+//! The programs' openings, over Waft's opener: the engine asks from a program's thread once its
+//! rules allow what is opened, a file by where it is on the machine; each opening is posted to the
+//! App's thread (`app_thread_bound`), where a link is opened in the app the system picks for its
+//! scheme, a file in the app it picks for its type or shown in its file manager, and answered with
+//! whether the system handed it on. The opener is the engine's shell's only where Waft's platform
+//! has one.
 //!
-//! The invariant: every opening arriving is answered, so no program waits for an answer that
-//! cannot come.
+//! The invariant: every opening asked for is answered, at once where it cannot reach the App's
+//! thread, so no program waits for an answer that cannot come.
 
+use std::path::Path;
 use std::sync::Arc;
 
-use futures::StreamExt;
-use futures::channel::mpsc::UnboundedReceiver;
+use futures::FutureExt;
 use waft::App;
-use waft::ui::{self, OpenFuture, Platform};
-use waos::ShellOpener;
+use waft::ui::{self, Platform, PlatformRef};
 use waos::bindings::wasdk::platform::opener::OpenError;
+use waos::{OpenFuture, RunningProgram, ShellOpener};
 
-use crate::logic::opener_calls::{OpenerOnRequest, Opening, OpeningCall};
+use super::app_thread_bound::{AppThreadBound, AppThreadCalls};
 
 /// Waft's opener, served to the engine as its shell's.
 pub(crate) struct Opener {
-    calls: OpenerOnRequest,
-    arriving: UnboundedReceiver<OpeningCall>,
+    shell: OpenerOnRequest,
+    calls: AppThreadCalls<PlatformRef>,
 }
 
 impl Opener {
     /// Waft's opener on `platform`, to serve to the engine; none where it has none.
     pub(crate) fn of(platform: &dyn Platform) -> Option<Opener> {
         platform.opener()?;
-        let (calls, arriving) = OpenerOnRequest::new();
-        Some(Opener { calls, arriving })
+        let (platform, calls) = AppThreadBound::new();
+        let shell = OpenerOnRequest { platform };
+        Some(Opener { shell, calls })
     }
 
-    /// The opener as the engine's shell has it: each opening goes to the main thread, where
-    /// [`serve`](Self::serve) carries it out.
+    /// The opener as the engine's shell has it: each opening is posted to the App's thread, where
+    /// [`serve`](Self::serve) runs it.
     pub(crate) fn shell(&self) -> Arc<dyn ShellOpener> {
-        Arc::new(self.calls.clone())
+        Arc::new(self.shell.clone())
     }
 
     /// From now on, each opening a program asks for is carried out through Waft's opener.
     pub(crate) fn serve(self, app: &mut App) {
-        let (platform, mut arriving) = (app.platform(), self.arriving);
-        app.spawn(async move |cx| {
-            while let Some(OpeningCall { opening, opened }) = arriving.next().await {
-                let opening = open(platform.as_ref(), opening);
-                cx.update(|app| {
-                    app.spawn(async move |_cx| {
-                        // A program that ended meanwhile hears nothing.
-                        let _ = opened.send(opening.await.map_err(program_error));
-                    })
-                });
-            }
-        });
+        self.calls.serve(app, app.platform());
     }
 }
 
-/// Hands `opening` to the system through `platform`'s opener.
-fn open(platform: &dyn Platform, opening: Opening) -> OpenFuture {
-    let Some(opener) = platform.opener() else {
-        let failed = ui::OpenError::Failed("the system has no opener".to_owned());
-        return Box::pin(std::future::ready(Err(failed)));
-    };
-    match opening {
-        Opening::Link(link) => opener.open_link(&link),
-        Opening::File(path) => opener.open_file(&path),
-        Opening::Reveal(path) => opener.reveal_file(&path),
+/// The app's opener, as the engine reaches it: every opening is posted to the App's thread.
+#[derive(Clone)]
+struct OpenerOnRequest {
+    platform: AppThreadBound<PlatformRef>,
+}
+
+impl OpenerOnRequest {
+    /// Hands `opening` to Waft's opener on the App's thread, and answers whether the system handed
+    /// it on.
+    fn ask(
+        &self,
+        opening: impl FnOnce(&dyn ui::Opener) -> ui::OpenFuture + Send + 'static,
+    ) -> OpenFuture {
+        let opened = self.platform.ask(move |platform| {
+            let opening = match platform.opener() {
+                Some(opener) => opening(opener),
+                None => Box::pin(std::future::ready(Err(ui::OpenError::Failed(
+                    "the system has no opener".to_owned(),
+                )))),
+            };
+            opening.map(|opened| opened.map_err(program_error))
+        });
+        Box::pin(opened.map(|opened| {
+            opened.unwrap_or_else(|_| Err(OpenError::Failed("WaOS is quitting".to_owned())))
+        }))
+    }
+}
+
+impl ShellOpener for OpenerOnRequest {
+    fn open_link(&self, program: &RunningProgram, link: &str) -> OpenFuture {
+        tracing::info!(program = program.name(), link, "a program opens a link");
+        let link = link.to_owned();
+        self.ask(move |opener| opener.open_link(&link))
+    }
+
+    fn open_file(&self, program: &RunningProgram, path: &Path) -> OpenFuture {
+        tracing::info!(program = program.name(), ?path, "a program opens a file");
+        let path = path.to_owned();
+        self.ask(move |opener| opener.open_file(&path))
+    }
+
+    fn reveal_file(&self, program: &RunningProgram, path: &Path) -> OpenFuture {
+        tracing::info!(program = program.name(), ?path, "a program reveals a file");
+        let path = path.to_owned();
+        self.ask(move |opener| opener.reveal_file(&path))
     }
 }
 
