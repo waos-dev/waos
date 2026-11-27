@@ -9498,6 +9498,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "waos-package-manager"
+version = "0.8.1"
+dependencies = [
+ "anyhow",
+ "futures",
+ "sha2 0.11.1",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "waos-package",
+]
+
+[[package]]
 name = "waos-program-window"
 version = "0.8.1"
 dependencies = [
