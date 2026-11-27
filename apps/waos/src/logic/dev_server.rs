@@ -1159,7 +1159,8 @@ pub(crate) mod tests {
         let package = write_package(&packages, FOREVER, "Forever", "1.0.0", &component, &key);
         server
             .store
-            .install(waos_package::Package::open(&package).unwrap())
+            .stage(waos_package::Package::open(&package).unwrap())
+            .and_then(|staged| server.store.commit(staged))
             .unwrap();
         let mut client = server
             .run(FOREVER, Path::new(waos_test_programs::FOREVER))
@@ -1240,10 +1241,15 @@ pub(crate) mod tests {
         let package = write_package(&packages, FOREVER, "Forever", "1.0.0", &component, &key);
         server
             .store
-            .install(waos_package::Package::open(&package).unwrap())
+            .stage(waos_package::Package::open(&package).unwrap())
+            .and_then(|staged| server.store.commit(staged))
             .unwrap();
         let id: ProgramId = FOREVER.parse().unwrap();
-        let component = server.store.program(&id).unwrap();
+        let component = server
+            .store
+            .installed_version(&id)
+            .map(|version| version.component())
+            .unwrap();
         server
             .installed
             .open(
@@ -1340,7 +1346,8 @@ pub(crate) mod tests {
         let package = write_package(&packages, FOREVER, "Forever", "1.0.0", &component, &key);
         server
             .store
-            .install(waos_package::Package::open(&package).unwrap())
+            .stage(waos_package::Package::open(&package).unwrap())
+            .and_then(|staged| server.store.commit(staged))
             .unwrap();
         let id: ProgramId = FOREVER.parse().unwrap();
         let set = Request::Set {
@@ -1714,7 +1721,8 @@ pub(crate) mod tests {
         let package = write_package(&packages, OPENER, "Opener", "1.0.0", &component, &key);
         server
             .store
-            .install(waos_package::Package::open(&package).unwrap())
+            .stage(waos_package::Package::open(&package).unwrap())
+            .and_then(|staged| server.store.commit(staged))
             .unwrap();
         let file = file_to_open(&server, "my notes");
         let id = OPENER.parse().unwrap();

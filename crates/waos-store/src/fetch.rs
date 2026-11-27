@@ -93,14 +93,28 @@ pub(crate) async fn read_picture(http: &Client, url: &Url) -> Result<Vec<u8>, So
     Ok(picture)
 }
 
+/// How far a download is: the bytes received so far, of the total its server announced, where it
+/// announced one.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DownloadProgress {
+    pub received: u64,
+    pub total: Option<u64>,
+}
+
 /// Downloads the package at `url` into a temporary file, removed when dropped, and refuses it
-/// unless its SHA-256 is `listed`.
+/// unless its SHA-256 is `listed`; `progress` hears how far it is as each part arrives.
 pub(crate) async fn download(
     http: &Client,
     url: &Url,
     listed: &[u8; 32],
+    mut progress: impl FnMut(DownloadProgress),
 ) -> Result<NamedTempFile, SourceError> {
     let mut response = get(http, url).await?;
+    let mut far = DownloadProgress {
+        received: 0,
+        total: response.content_length(),
+    };
+    progress(far);
     let mut file = NamedTempFile::new().map_err(|error| SourceError::Io {
         path: std::env::temp_dir(),
         error,
@@ -117,6 +131,8 @@ pub(crate) async fn download(
             path: file.path().to_path_buf(),
             error,
         })?;
+        far.received += chunk.len() as u64;
+        progress(far);
     }
     let downloaded: [u8; 32] = sha256.finalize().into();
     if downloaded != *listed {

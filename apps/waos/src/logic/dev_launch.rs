@@ -72,7 +72,8 @@ async fn start(
     } = launch;
     let component = context
         .store
-        .program(&id)
+        .installed_version(&id)
+        .map(|version| version.component())
         .ok_or_else(|| dev_refusal::not_installed(&id))?;
     let installed = &context.installed;
     let environment = installed.environments.of(&id).map_err(|error| {

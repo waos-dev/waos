@@ -706,7 +706,12 @@ impl Library {
             activation_token = activation_token.is_some(),
             "a launch asked for the program"
         );
-        if self.store.program(id).is_none() {
+        if self
+            .store
+            .installed_version(id)
+            .map(|version| version.component())
+            .is_none()
+        {
             cx.emit(WantsToBeSeen);
         }
         self.open_bringing_forward(id, activation_token, cx);
@@ -719,7 +724,11 @@ impl Library {
         activation_token: Option<String>,
         cx: &mut Context<Library>,
     ) {
-        let Some(component) = self.store.program(id) else {
+        let Some(component) = self
+            .store
+            .installed_version(id)
+            .map(|version| version.component())
+        else {
             self.failed(
                 format!("{id} is not installed, or its files cannot be read"),
                 cx,
@@ -955,10 +964,11 @@ impl Library {
         let (runs, id) = (Arc::clone(&self.runs.runs), program.id.clone());
         self.work_then(
             async move {
-                let download = store.download(&source, &listed).await?;
+                let download = store.download(&source, &listed, |_| {}).await?;
                 // Once the package is here, so a failed download leaves the program running.
                 runs.stop(&listed.id).await;
-                store.install_download(download).await
+                let staged = store.stage_download(download).await?;
+                store.commit(staged)
             },
             move |library, installed, cx| {
                 library.installing.retain(|installing| installing != &id);
@@ -1097,7 +1107,8 @@ impl Library {
         self.remove_code(&id);
         let installed = self
             .store
-            .install(package.into_package())
+            .stage(package.into_package())
+            .and_then(|staged| self.store.commit(staged))
             .map(|installed| self.compile(installed.manifest.id()));
         self.package_copies.remove(&copy);
         let succeeded = installed.is_ok();
@@ -1159,7 +1170,11 @@ impl Library {
     /// thread; until it is ready, the program says so (`is_compiling`). One whose code cannot be
     /// compiled is said to whoever subscribes, and its open compiles it again and says why not.
     fn compile(&self, id: &ProgramId) {
-        let Some(component) = self.store.program(id) else {
+        let Some(component) = self
+            .store
+            .installed_version(id)
+            .map(|version| version.component())
+        else {
             return;
         };
         if let Err(error) = self.runs.code.start(id, &component) {
@@ -1173,7 +1188,11 @@ impl Library {
     /// version installed to be compiled again at its next open. Code that cannot be removed
     /// stays, which is said to whoever subscribes.
     fn remove_code(&self, id: &ProgramId) {
-        let Some(component) = self.store.program(id) else {
+        let Some(component) = self
+            .store
+            .installed_version(id)
+            .map(|version| version.component())
+        else {
             return;
         };
         if let Err(error) = self.runs.code.remove(&component) {

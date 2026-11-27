@@ -118,7 +118,8 @@ fn holds_component(
             component_sha256: install.digest,
         };
     let same_length = store
-        .program(development)
+        .installed_version(development)
+        .map(|version| version.component())
         .and_then(|component| std::fs::metadata(component).ok())
         .is_some_and(|metadata| metadata.len() == install.length);
     same_digest && same_length
@@ -145,7 +146,8 @@ async fn put_in_place(
         Some(component) => component,
         None => {
             let held = store
-                .program(&development)
+                .installed_version(&development)
+                .map(|version| version.component())
                 .context("the development install went meanwhile")?;
             tokio::task::spawn_blocking(move || std::fs::read(held))
                 .await
@@ -160,7 +162,9 @@ async fn put_in_place(
             component: &component,
             icon: icon.as_deref(),
         };
-        store.install_development(&build)
+        store
+            .stage_development(&build)
+            .and_then(|staged| store.commit(staged))
     })
     .await
     .context("the install's thread")??;
@@ -186,7 +190,12 @@ pub(crate) async fn uninstall(
 
 /// Removes the installed program `id`, its run stopped and its code removed first.
 async fn remove(context: &InstallContext, id: &ProgramId) -> Result<(), Refusal> {
-    if context.store.program(id).is_none() {
+    if context
+        .store
+        .installed_version(id)
+        .map(|version| version.component())
+        .is_none()
+    {
         return Err(dev_refusal::not_installed(id));
     }
     let _changing = context.changing.lock().await;
@@ -205,7 +214,11 @@ async fn remove(context: &InstallContext, id: &ProgramId) -> Result<(), Refusal>
 /// replaced or removed, while it is there to find it by; code that cannot be removed stays, and
 /// is said.
 fn remove_code(context: &InstallContext, id: &ProgramId) {
-    let Some(component) = context.store.program(id) else {
+    let Some(component) = context
+        .store
+        .installed_version(id)
+        .map(|version| version.component())
+    else {
         return;
     };
     if let Err(error) = context.installed.code.remove(&component) {
@@ -216,7 +229,11 @@ fn remove_code(context: &InstallContext, id: &ProgramId) {
 /// Starts compiling the program `id`'s code, as the library does after an install, so a launch
 /// waits for it rather than compiling it again.
 fn compile(context: &InstallContext, id: &ProgramId) {
-    let Some(component) = context.store.program(id) else {
+    let Some(component) = context
+        .store
+        .installed_version(id)
+        .map(|version| version.component())
+    else {
         return;
     };
     if let Err(error) = context.installed.code.start(id, &component) {

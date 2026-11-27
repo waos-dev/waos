@@ -61,7 +61,10 @@ pub(crate) async fn program_named(
     store: &Store,
     id: &ProgramId,
 ) -> Result<Option<RunningProgram>> {
-    match store.program(id) {
+    match store
+        .installed_version(id)
+        .map(|version| version.component())
+    {
         Some(component) => {
             let opened = installed
                 .open(id, component, installed.places.usual(), Opening::ToHandOver)

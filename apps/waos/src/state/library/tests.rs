@@ -252,11 +252,12 @@ fn a_development_install_made_elsewhere_shows_named_as_one() {
     )
     .unwrap();
     store
-        .install_development(&waos_store::DevelopmentBuild {
+        .stage_development(&waos_store::DevelopmentBuild {
             manifest: &manifest,
             component: b"\0asm from source",
             icon: None,
         })
+        .and_then(|staged| store.commit(staged))
         .unwrap();
     test.wait_until("the development install shows", |library| {
         !library.installed().is_empty()
@@ -773,7 +774,13 @@ fn an_update_of_a_running_program_ends_the_old_run_first_and_leaves_the_new_vers
         !library.is_compiling(&triangle)
     });
     assert_eq!(library.compiled_files().len(), 1, "one version's code");
-    let updated = library.read(|library| library.store.program(&triangle).unwrap());
+    let updated = library.read(|library| {
+        library
+            .store
+            .installed_version(&triangle)
+            .map(|version| version.component())
+            .unwrap()
+    });
     assert!(
         library.read(|library| library.runs.engine.is_compiled(&updated).unwrap()),
         "the new version's"

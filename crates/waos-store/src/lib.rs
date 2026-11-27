@@ -7,6 +7,7 @@
 //!     dev.example.triangle/
 //!       current           the name of the folder below that is installed
 //!       1.2.0-Xk3q9a/     what the package unpacked to: manifest.toml, program.wasm, icon.png, publisher.key
+//!         code/           the engine's code compiled from program.wasm, a file per compiler
 //!       settings.toml     the program's own settings: what the user lets it use
 //!       data/             the program's own folders, which it sees at /data and /cache
 //!       cache/
@@ -39,7 +40,8 @@
 //! The invariants a later editor will break: the store believes a package only once
 //! `waos-package` has verified it, and installs a development build under its development id
 //! alone, and a download only once its SHA-256 is the one its index
-//! lists; and replacing a program's `current` is the one step that changes what is installed,
+//! lists; and replacing a program's `current` ([`Store::commit`]) is the one step that changes
+//! what is installed,
 //! and moving its folder into `removing/` the one that removes it, so a crash leaves the earlier
 //! install or the new one, the program or none of it, never part of either.
 
@@ -56,10 +58,12 @@ mod sources_file;
 mod store;
 
 pub use error::{InstallError, SourceError, StoreError};
-pub use fetch::SourceProxy;
+pub use fetch::{DownloadProgress, SourceProxy};
 pub use settings::{AnswerWith, GlobalSettings, PerQuestion, ProgramSettings};
 pub use source::Source;
-pub use store::{DevelopmentBuild, Download, InstalledProgram, Origin, Store};
+pub use store::{
+    DevelopmentBuild, Download, InstalledProgram, InstalledVersion, Origin, Staged, Store,
+};
 /// The addresses a source's files are at, which [`Source::picture_url`] answers.
 pub use url::Url;
 /// What the settings are made of, as `waos-capabilities` names them.

@@ -270,7 +270,8 @@ mod tests {
             &key,
         );
         store
-            .install(waos_package::Package::open(&package).unwrap())
+            .stage(waos_package::Package::open(&package).unwrap())
+            .and_then(|staged| store.commit(staged))
             .unwrap();
         programs.installed_changed();
         let notes = Program {
@@ -303,7 +304,8 @@ mod tests {
             &key,
         );
         store
-            .install(waos_package::Package::open(&package).unwrap())
+            .stage(waos_package::Package::open(&package).unwrap())
+            .and_then(|staged| store.commit(staged))
             .unwrap();
         let id: waos_package::ProgramId = "dev.example.notes".parse().unwrap();
         let folders = store.folders(&id).unwrap();

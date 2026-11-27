@@ -346,7 +346,8 @@ impl ProgramApps {
         }
         let component = self
             .store
-            .program(id)
+            .installed_version(id)
+            .map(|version| version.component())
             .ok_or_else(|| format!("{id} is not installed, and does not run"))?;
         let opened = runs
             .open(id, component, ProgramPlace::Windows, Opening::ByTheUser)

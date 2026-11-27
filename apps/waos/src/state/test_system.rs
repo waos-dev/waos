@@ -209,7 +209,8 @@ impl TestSystem {
         let file = write_package(&packages, id, name, "1.0.0", &component, &key);
         let package = OpenedPackage::open(&file).expect("a package");
         self.store
-            .install(package.into_package())
+            .stage(package.into_package())
+            .and_then(|staged| self.store.commit(staged))
             .expect("installed");
     }
 

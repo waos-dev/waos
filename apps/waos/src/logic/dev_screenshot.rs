@@ -194,7 +194,8 @@ mod tests {
         let package = write_package(&packages, OPENER, "Opener", "1.0.0", &component, &key);
         server
             .store
-            .install(waos_package::Package::open(&package).unwrap())
+            .stage(waos_package::Package::open(&package).unwrap())
+            .and_then(|staged| server.store.commit(staged))
             .unwrap();
         let file = fs::canonicalize(&server.folder).unwrap().join("notes.md");
         fs::write(&file, "my notes").unwrap();

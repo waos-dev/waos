@@ -32,7 +32,11 @@ impl HeldStarts {
     pub(crate) async fn start(&self, id: &str) -> Result<HeldProgram, StartError> {
         let id: ProgramId = id.parse().map_err(|_| StartError::Unknown)?;
         tracing::info!(%id, "an inspector asks to start it held");
-        match self.store.program(&id) {
+        match self
+            .store
+            .installed_version(&id)
+            .map(|version| version.component())
+        {
             Some(installed) => self.start_from(&id, installed).await,
             None => Err(StartError::Unknown),
         }
@@ -119,11 +123,12 @@ mod tests {
         .unwrap();
         let forever = std::fs::read(waos_test_programs::FOREVER).unwrap();
         store
-            .install_development(&waos_store::DevelopmentBuild {
+            .stage_development(&waos_store::DevelopmentBuild {
                 manifest: &manifest,
                 component: &forever,
                 icon: None,
             })
+            .and_then(|staged| store.commit(staged))
             .unwrap();
         let id: ProgramId = "dev.example.forever.development".parse().unwrap();
         let starts = HeldStarts { installed, store };

@@ -1,5 +1,6 @@
 //! What the store's tests install and read from: signed packages written to a folder, their
-//! listings, and a local HTTP server.
+//! listings, and a local HTTP server; and installing in the store's two steps, staged then
+//! committed, as the app does around its compile.
 
 #![allow(dead_code, reason = "each test crate uses its own part of the support")]
 
@@ -12,7 +13,31 @@ use std::sync::Arc;
 use sha2::{Digest, Sha256};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
-use waos_package::{ListedProgram, Manifest, SigningKey};
+use waos_package::{ListedProgram, Manifest, Package, SigningKey};
+use waos_store::{DevelopmentBuild, InstallError, InstalledProgram, Source, Store};
+
+/// Installs `package` into `store`: staged, then committed.
+pub fn install(store: &Store, package: Package) -> Result<InstalledProgram, InstallError> {
+    store.commit(store.stage(package)?)
+}
+
+/// Installs `build` into `store` as its development install: staged, then committed.
+pub fn install_development(
+    store: &Store,
+    build: &DevelopmentBuild<'_>,
+) -> Result<InstalledProgram, InstallError> {
+    store.commit(store.stage_development(build)?)
+}
+
+/// Installs `program` into `store` as `source` lists it: downloaded, staged, then committed.
+pub async fn install_from(
+    store: &Store,
+    source: &Source,
+    program: &ListedProgram,
+) -> Result<InstalledProgram, InstallError> {
+    let download = store.download(source, program, |_| {}).await?;
+    store.commit(store.stage_download(download).await?)
+}
 
 /// The component of `id` at `version`: bytes that say which they are.
 pub fn component_of(id: &str, version: &str) -> Vec<u8> {

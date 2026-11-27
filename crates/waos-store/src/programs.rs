@@ -4,13 +4,14 @@
 //! that folder; its settings; and its own folders, `data` and `cache`. A program run only in
 //! development has the last two. What an install came from is in the folder it unpacked into: a
 //! package's `publisher.key`, or a development build's `development.sha256`, its component's
-//! SHA-256.
+//! SHA-256; beside them its `code`, the folder the engine compiles its component into.
 //!
 //! The invariant a later editor will break: replacing `current` is the one step that changes
 //! what is installed, and moving the program's folder out of `programs/` the one step that
 //! removes it; the system does each whole. An install unpacks into a folder of its own, under a
-//! fresh name, before `current` names it, and the folder of the version it replaces is removed
-//! only after; a removal moves the program's folder into the store's `removing/` before removing
+//! fresh name (it is staged), before `current` names it (it is committed), and the folder of the
+//! version it replaces is removed only after; a version's files never change once `current`
+//! names it, but for its code folder, which the engine alone writes; a removal moves the program's folder into the store's `removing/` before removing
 //! it there. So a crash at any point leaves the earlier install or the new one, the program or
 //! none of it, and [`clear_unfinished`] and the store's opening remove what else it left.
 
@@ -19,6 +20,7 @@ use std::io::{ErrorKind, Write};
 use std::path::{Component, Path, PathBuf};
 
 use sha2::{Digest, Sha256};
+use tempfile::TempDir;
 use waos_capabilities::ProgramFolders;
 use waos_package::{
     COMPONENT, ICON, MANIFEST, Manifest, PUBLISHER_KEY, ProgramId, PublisherKey, Version,
@@ -34,6 +36,10 @@ const DEVELOPMENT_SHA256: &str = "development.sha256";
 
 /// The file naming the installed folder, in a program's folder.
 const CURRENT: &str = "current";
+
+/// The code folder, in the folder a version unpacked into: the code the engine compiles from its
+/// component, which goes with the version.
+pub(crate) const CODE: &str = "code";
 
 /// The program's own folders, in its folder: what it keeps, and what it keeps that may be thrown
 /// away.
@@ -99,26 +105,43 @@ fn read_origin(folder: &Path) -> Result<Origin, StoreError> {
     Ok(Origin::Development { component_sha256 })
 }
 
-/// Installs a program at `version` in `program`, the folder of its id: `unpack` writes it into a
-/// folder of its own, then `current` names that folder, then the version it replaced is removed.
-pub(crate) fn put_in_place(
+/// Unpacks a program at `version` into a folder of its own in `program`, the folder of its id, as
+/// `unpack` writes it: nothing installed changes, and the folder goes when the answer is dropped
+/// uncommitted.
+pub(crate) fn stage(
     program: &Path,
     version: &Version,
     unpack: impl FnOnce(&Path) -> Result<(), InstallError>,
-) -> Result<(), InstallError> {
+) -> Result<TempDir, InstallError> {
     fs::create_dir_all(program).map_err(StoreError::io_at(program))?;
     let unpacked = tempfile::Builder::new()
         .prefix(&format!("{version}-"))
         .tempdir_in(program)
         .map_err(StoreError::io_at(program))?;
     unpack(unpacked.path())?;
-    let installed = unpacked.keep();
+    Ok(unpacked)
+}
+
+/// Installs `staged`, a folder [`stage`] unpacked in `program`: `current` names it, then the
+/// version it replaced is removed. One that cannot be, as a file another process maps on
+/// Windows, stays for [`clear_unfinished`] at the store's next opening.
+pub(crate) fn commit(program: &Path, staged: TempDir) -> Result<(), InstallError> {
+    if !staged.path().is_dir() {
+        let reason = "the program was removed while it was being installed";
+        return Err(StoreError::unreadable_at(staged.path())(reason).into());
+    }
+    let replaced = installed_folder(program)?;
+    let installed = staged.keep();
     let name = installed
         .file_name()
         .expect("a folder made in another has a name");
     let current = program.join(CURRENT);
     write_whole(&current, name.as_encoded_bytes()).map_err(StoreError::io_at(&current))?;
-    clear_unfinished(program)?;
+    if let Some(replaced) = replaced
+        && let Err(error) = remove(&replaced)
+    {
+        tracing::warn!("the version replaced stays until the store opens again: {error}");
+    }
     Ok(())
 }
 
@@ -284,7 +307,8 @@ mod tests {
     /// Installs `package` in `program`, as the store installs one.
     fn put_package(program: &Path, mut package: Package) {
         let version = package.manifest().version().clone();
-        put_in_place(program, &version, |folder| Ok(package.unpack(folder)?)).unwrap();
+        let staged = stage(program, &version, |folder| Ok(package.unpack(folder)?)).unwrap();
+        commit(program, staged).unwrap();
     }
 
     fn installed_version(program: &Path) -> Option<Version> {
