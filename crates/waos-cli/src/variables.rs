@@ -1,6 +1,5 @@
 //! The variables a development run adds to a program's environment, as `--env NAME=VALUE` spells
-//! each: the name, then everything after the first `=`, which a value may hold more of (the
-//! design's decision 68).
+//! each: the name, then everything after the first `=`, which a value may hold more of.
 //!
 //! The invariant: a variable has a name, and the first `=` is the one that ends it, so a value
 //! may hold `=` and an empty one is a value of nothing.

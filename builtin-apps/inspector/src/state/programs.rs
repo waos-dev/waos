@@ -1,8 +1,7 @@
 //! The device inspected, this one, and the programs on it, each with what it did over the days
 //! kept, those that used something guarded lately first; which of them is chosen; and each one's
-//! icon, read only as its row is first shown (decision 10 of
-//! `docs/proposals/2026-11-15-inspector-roles-and-compatibility.md`). The programs are read when
-//! the app starts and again at each change the device tells.
+//! icon, read only as its row is first shown. The programs are read when the app starts and again
+//! at each change the device tells.
 //!
 //! The program chosen is the selection of the list's `ItemsViewSource`, which this entity owns, as
 //! a WinUI app owns its `ItemsSource`: the user's click, a phone's tap and the way back all change

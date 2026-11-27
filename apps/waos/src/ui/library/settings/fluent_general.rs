@@ -11,12 +11,12 @@
 use waft::{App, BuildContext, Entity, Listener, StatelessWidget, WidgetRef};
 use waft_winui::ThemeResources;
 
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[cfg(desktop)]
 use super::developer_access_said;
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[cfg(desktop)]
 use super::fluent_page::{ListRow, list_block};
 use super::fluent_page::{Start, card_button, card_switch, page, setting_card};
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[cfg(desktop)]
 use crate::logic::developer_access::PairedComputer;
 use crate::state::library::Library;
 use crate::ui::library::words;
@@ -40,7 +40,7 @@ impl StatelessWidget for FluentGeneralSettings {
         ]
         .into_iter()
         .flatten();
-        #[cfg(not(any(target_os = "android", target_os = "ios")))]
+        #[cfg(desktop)]
         let cards = cards.chain(shown.developer_access(app, &resources));
         let cards: Vec<WidgetRef> = cards.collect();
         page(&self.library, &resources, &[words::WAOS_SETTINGS], cards)
@@ -102,7 +102,7 @@ impl Shown {
         Some(self.setting(words::PHONE_FILES, said, button))
     }
 
-    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    #[cfg(desktop)]
     /// Where WaOS offers it, whether computers on the network may reach WaOS's dev server, over
     /// what that does and whether it listens; and while they may, pairing a computer and the
     /// computers paired.
@@ -125,7 +125,7 @@ impl Shown {
         vec![switch, pairing, self.paired_computers(paired, resources)]
     }
 
-    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    #[cfg(desktop)]
     /// The code shown for a computer to pair with, or the button that shows one.
     fn pairing(&self, code: Option<waos_dev_protocol::PairingCode>) -> WidgetRef {
         let library = self.library.clone();
@@ -140,7 +140,7 @@ impl Shown {
         self.setting(words::PAIR_A_COMPUTER, &said, button)
     }
 
-    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    #[cfg(desktop)]
     /// The computers `paired`, each with the button that removes it; or that there are none.
     fn paired_computers(
         &self,

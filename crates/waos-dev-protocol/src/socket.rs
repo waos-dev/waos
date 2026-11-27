@@ -1,6 +1,6 @@
-//! The Unix socket a WaOS listens on, on this machine: where it is, connecting to it, and
-//! listening on it. The socket is in the user's own folder, made for the user alone, so the
-//! system's file permissions decide who may connect (the design's decision 30).
+//! The Unix socket a WaOS listens on, on this machine: where it is, connecting to it, and listening
+//! on it. The socket is in the user's own folder, made for the user alone, so the system's file
+//! permissions decide who may connect.
 //!
 //! The invariants a later editor will break:
 //! - A WaOS removes a socket file only when nobody answers on it: its own on the way out, or

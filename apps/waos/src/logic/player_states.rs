@@ -1,13 +1,14 @@
 //! A player's state and its media's metadata in Waft's terms, as the program reads them: field for
 //! field, a time in the nanoseconds of a WIT `duration`. A media asset's tracks, metadata and
-//! failures are the player's, and read so too.
+//! failures are the player's, and read so too; a program's seek tolerance goes the other way, as
+//! Waft takes it.
 
 use std::time::Duration;
 
 use waft::ui;
 use waos::bindings::wasdk::media::media_players::{
     EncodedImage, MediaMetadata, MediaTrack, MediaTrackKind, PauseReason, PlayerActivity,
-    PlayerError, PlayerErrorKind, PlayerState, PlayerStatus, TimeRange, WaitReason,
+    PlayerError, PlayerErrorKind, PlayerState, PlayerStatus, SeekTolerance, TimeRange, WaitReason,
 };
 use waos::bindings::wasdk::platform::windows::Size;
 
@@ -118,6 +119,19 @@ pub(crate) fn program_error(error: ui::PlayerError) -> PlayerError {
 }
 
 /// `duration` in nanoseconds; the longest a WIT `duration` holds for one past it.
+/// A program's seek tolerance as Waft's player and media assets take it: the longest WIT duration
+/// on a side is no bound there.
+pub(crate) fn waft_tolerance(tolerance: SeekTolerance) -> ui::SeekTolerance {
+    let side = |nanoseconds: u64| match nanoseconds {
+        u64::MAX => Duration::MAX,
+        nanoseconds => Duration::from_nanos(nanoseconds),
+    };
+    ui::SeekTolerance {
+        before: side(tolerance.before),
+        after: side(tolerance.after),
+    }
+}
+
 fn nanoseconds(duration: Duration) -> u64 {
     u64::try_from(duration.as_nanos()).unwrap_or(u64::MAX)
 }

@@ -1,9 +1,8 @@
-//! Quitting the program's app asks the program, through WaOS (decision 12 of
-//! `docs/proposals/2026-10-29-macos-apps.md`). Asked by macOS to quit (its Quit, the Dock's,
-//! logging out), Waft's host asks the app, which may answer later; the window process asks WaOS,
-//! which asks the program as its own Quit does, and answers with the program's answer once WaOS
-//! sends it. Until WaOS welcomes the app there is no one to ask, and Waft's host quits it as it
-//! would any app.
+//! Quitting the program's app asks the program, through WaOS. Asked by macOS to quit (its Quit, the
+//! Dock's, logging out), Waft's host asks the app, which may answer later; the window process asks
+//! WaOS, which asks the program as its own Quit does, and answers with the program's answer once
+//! WaOS sends it. Until WaOS welcomes the app there is no one to ask, and Waft's host quits it as
+//! it would any app.
 //!
 //! The invariant a later editor will break: every quit asked is answered, by the program's answer
 //! or, once the app ends, with exit, so macOS never waits on an app that cannot answer.

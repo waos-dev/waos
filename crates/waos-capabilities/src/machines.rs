@@ -1,17 +1,16 @@
 //! The machines a program may act on as their user: this computer, and SSH machines once their
-//! provider exists (the processes proposal's decision 2). A machine gives its files from its root
-//! and runs commands, with pipes or in a terminal, as one SSH login gives files, `exec` and a
-//! `pty`; and says what it runs and which shell its user logs in to, learnt once: on this computer
-//! from the system, on an SSH machine by asking `uname -sm` and the shell SSH starts as it connects
-//! ([`Platform::of_uname`] reads the first).
+//! provider exists. A machine gives its files from its root and runs commands, with pipes or in a
+//! terminal, as one SSH login gives files, `exec` and a `pty`; and says what it runs and which
+//! shell its user logs in to, learnt once: on this computer from the system, on an SSH machine by
+//! asking `uname -sm` and the shell SSH starts as it connects ([`Platform::of_uname`] reads the
+//! first).
 //!
 //! A provider serves one kind of machine ([`Machines`]): it offers the user its machines to pick
 //! from, and answers the machine an id names. Which machines a program holds is the user's, kept
 //! among its grants by their ids; a provider asks nothing.
 //!
-//! The invariant: what a machine starts runs as the machine's user, outside the program's
-//! sandbox (decision 1), in that user's login environment with the command's variables on top
-//! (decision 4). Nothing here confines it.
+//! The invariant: what a machine starts runs as the machine's user, outside the program's sandbox,
+//! in that user's login environment with the command's variables on top. Nothing here confines it.
 
 use std::fmt;
 use std::path::PathBuf;

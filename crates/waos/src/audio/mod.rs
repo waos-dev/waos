@@ -1,15 +1,15 @@
 //! `wasdk:platform/audio`: a program's sound, Web Audio's graph as web-audio-api implements it,
-//! served node for node over the contexts its environment's [`AudioDevices`] make (the sound
-//! proposal's decisions 1 and 2). This module is the program's sound as a whole, [`ProgramAudio`]:
-//! its devices, the outputs it may play on and the microphones it has open. A context is
-//! `context`'s, an offline one `offline_context`'s, and what every kind of context is, with the
-//! changes of its state, `base_context`'s; each node, as its kind's handle and as any node,
-//! `nodes`', each kind's handle named in [`handles`]; a scheduled source, with its end,
-//! `sources`'; the platform's own inputs `stream_input`'s and `microphone`'s; which outputs a
-//! program may play on `outputs`'; what of its sound keeps it unfrozen, read at each tick of the
-//! engine's time, `sound`'s; a file decoded, within what a buffer holds, `decoding`'s; the spec's
-//! enumerations `enumerations`'; and how a mistake of the program's, which the crate reports by
-//! panicking, ends it, `mistakes`'. The interface is served to a program by [`host`].
+//! served node for node over the contexts its environment's [`AudioDevices`] make. This module is
+//! the program's sound as a whole, [`ProgramAudio`]: its devices, the outputs it may play on and
+//! the microphones it has open. A context is `context`'s, an offline one `offline_context`'s, and
+//! what every kind of context is, with the changes of its state, `base_context`'s; each node, as
+//! its kind's handle and as any node, `nodes`', each kind's handle named in [`handles`]; a
+//! scheduled source, with its end, `sources`'; the platform's own inputs `stream_input`'s and
+//! `microphone`'s; which outputs a program may play on `outputs`'; what of its sound keeps it
+//! unfrozen, read at each tick of the engine's time, `sound`'s; a file decoded, within what a
+//! buffer holds, `decoding`'s; the spec's enumerations `enumerations`'; and how a mistake of the
+//! program's, which the crate reports by panicking, ends it, `mistakes`'. The interface is served
+//! to a program by [`host`].
 //!
 //! The invariant: the graph renders on web-audio-api's own thread, and nothing of the program runs
 //! there or waits for it: a program's call only queues what the render thread reads, so a frozen

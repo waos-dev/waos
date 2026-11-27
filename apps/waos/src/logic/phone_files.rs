@@ -1,12 +1,11 @@
 //! The phone's files: whether WaOS may reach the phone's shared storage by its paths, which on
 //! Android is the user's to allow, as "All files access" (`MANAGE_EXTERNAL_STORAGE`), on a page of
 //! Android's settings; and so This computer's home, that storage once WaOS may reach it, WaOS's own
-//! folder before (the projects on machines proposal's decisions 4 and 5). It is the system's own
-//! permission beside what a program's user allowed it in WaOS: as the user picks This computer for
-//! a program, or a file or folder on the phone's storage, WaOS opens the system's page for it
-//! (`PhoneFilesOnRequest`, one request for both), and tells them where they come back with it
-//! still off; its settings say whether it is on. Only Android has it; elsewhere WaOS reaches what
-//! its user does.
+//! folder before. It is the system's own permission beside what a program's user allowed it in
+//! WaOS: as the user picks This computer for a program, or a file or folder on the phone's storage,
+//! WaOS opens the system's page for it (`PhoneFilesOnRequest`, one request for both), and tells
+//! them where they come back with it still off; its settings say whether it is on. Only Android has
+//! it; elsewhere WaOS reaches what its user does.
 //!
 //! The invariant: the system is asked only on the main thread (`state::phone_files`), as WaOS
 //! starts and each time it comes back to the front, which is enough, since the user changes the

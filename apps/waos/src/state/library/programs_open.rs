@@ -1,9 +1,8 @@
 //! Where the programs the library opens open, and the windows the system restores to them: on a
 //! desktop in windows each program asks for; where nothing else can show a program, as `waos
-//! phone`'s window, in the deck's tabs; and on Android where the user chose, each a task of its
-//! own by default, or inside WaOS in the deck's tabs (decisions 1 and 2 of
-//! `docs/proposals/2026-11-12-phone-programs-and-library.md`), the choice kept in WaOS's
-//! preferences and holding for programs opened after it. A program running opens where it runs.
+//! phone`'s window, in the deck's tabs; and on Android where the user chose, each a task of its own
+//! by default, or inside WaOS in the deck's tabs, the choice kept in WaOS's preferences and holding
+//! for programs opened after it. A program running opens where it runs.
 //!
 //! A program's first window that Android brings back from Recents after the process died starts
 //! its program again with that window as its first, as a view the platform gave it.

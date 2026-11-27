@@ -1,10 +1,9 @@
 //! `examples/input` under the test shell, read as a tool that looks at a program's window and
-//! drives it reads it (the design's decision 60): its window carries the title it asked for, and
-//! its picture is the last one it presented, in the colour it drew; a press reaches it as the
-//! pointer events a mouse gives, and the picture the program presented after reading them is the
-//! next colour; once its first press starts editing, what it edits is the engine's copy, which an
-//! input method's change replaces; and once its window is gone, a wait for a picture ends without
-//! one and there is none to read.
+//! drives it reads it: its window carries the title it asked for, and its picture is the last one
+//! it presented, in the colour it drew; a press reaches it as the pointer events a mouse gives, and
+//! the picture the program presented after reading them is the next colour; once its first press
+//! starts editing, what it edits is the engine's copy, which an input method's change replaces; and
+//! once its window is gone, a wait for a picture ends without one and there is none to read.
 //!
 //! It draws, so it runs where the engine makes hardware buffers, on Apple's systems.
 

@@ -1,15 +1,14 @@
 //! A hardware buffer a program holds: one it allocated, an image the hardware codecs decoded for
 //! it, both counted in the program's stats (`counted_bytes`), or a video frame's, which keeps the
-//! frame and its slot in the decoder's pool (decision 35 of
-//! `docs/proposals/2026-11-02-program-media.md`). Its usage is what its memory answers it can be
-//! used for (`os`), at least what the program asked for one it allocated, which it keeps too, so
-//! that a read beyond the ask is told apart (`unasked_read`); `gpu_interop` works out from the usage
-//! what a texture of it is for, and its pixels are read only where the usage has `cpu-read`. Its
-//! textures are made on the
-//! program's devices over its memory, and each holds the buffer's memory until wgpu frees it, once
-//! the GPU is done with it. Where the system hands a texture's memory over (`os::HANDS_TEXTURES_OVER`),
-//! the buffer holds its textures in turn until it is next handed out (below), since a program may
-//! draw through a texture it lets go of at once; elsewhere it keeps only those the program holds.
+//! frame and its slot in the decoder's pool. Its usage is what its memory answers it can be used
+//! for (`os`), at least what the program asked for one it allocated, which it keeps too, so that a
+//! read beyond the ask is told apart (`unasked_read`); `gpu_interop` works out from the usage what
+//! a texture of it is for, and its pixels are read only where the usage has `cpu-read`. Its
+//! textures are made on the program's devices over its memory, and each holds the buffer's memory
+//! until wgpu frees it, once the GPU is done with it. Where the system hands a texture's memory
+//! over (`os::HANDS_TEXTURES_OVER`), the buffer holds its textures in turn until it is next handed
+//! out (below), since a program may draw through a texture it lets go of at once; elsewhere it
+//! keeps only those the program holds.
 //!
 //! The program draws into a buffer with work it submits and writes it makes on its queue, which
 //! nothing tells the system of: so whatever reads the buffer outside the program's GPU work, its

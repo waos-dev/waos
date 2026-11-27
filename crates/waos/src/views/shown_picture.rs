@@ -1,8 +1,7 @@
 //! The picture a view shows: the last one handed to the shell, with the layers handed with it,
-//! beneath it, kept for whoever reads it, a tool that looks at the program's window among them
-//! (the design's decisions 60 and 62), with how many of the view's events the program had read
-//! when it presented it, so a reader waits for the first picture drawn after the program heard what
-//! the view was told up to some moment.
+//! beneath it, kept for whoever reads it, a tool that looks at the program's window among them,
+//! with how many of the view's events the program had read when it presented it, so a reader waits
+//! for the first picture drawn after the program heard what the view was told up to some moment.
 //!
 //! The invariant a later editor will break: the hardware buffer of the picture kept is held from
 //! its pool as the shell's is, and goes back to the pool only once the next picture replaces it

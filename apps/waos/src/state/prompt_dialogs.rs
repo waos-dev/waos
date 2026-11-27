@@ -1,20 +1,19 @@
 //! WaOS's prompts on macOS, each in a dialog window of its own in the program's app and drawn by
-//! WaOS (decision 9 of `docs/proposals/2026-10-29-macos-apps.md`): for each prompt WaOS makes a
-//! composition layer, places it in a layer context of its own, and asks the program's window
-//! process for a dialog showing that context (`logic::program_apps`); once the dialog reports its
-//! size and scale, WaOS asks Waft's view embedder for a view drawing into the layer
-//! (`ViewEmbedder::add_view`), its initial data naming the prompt ([`dialog_data`]); the view arrives
-//! as every view does, and WaOS's one builder builds the prompt's widget in it from that data
-//! ([`ShownDialogs::content_of`], `ui::every_window`), and WaOS hands it what
-//! the dialog reports: its metrics (`set_view_metrics`, the layer placed again at them), whether it
-//! is in sight (`set_view_in_sight`), its pointers (`send_pointer_reports`, each device under a
-//! number of WaOS's own, `logic::forwarded_pointers`), its keys (the framework's own entry,
+//! WaOS: for each prompt WaOS makes a composition layer, places it in a layer context of its own,
+//! and asks the program's window process for a dialog showing that context (`logic::program_apps`);
+//! once the dialog reports its size and scale, WaOS asks Waft's view embedder for a view drawing
+//! into the layer (`ViewEmbedder::add_view`), its initial data naming the prompt ([`dialog_data`]);
+//! the view arrives as every view does, and WaOS's one builder builds the prompt's widget in it
+//! from that data ([`ShownDialogs::content_of`], `ui::every_window`), and WaOS hands it what the
+//! dialog reports: its metrics (`set_view_metrics`, the layer placed again at them), whether it is
+//! in sight (`set_view_in_sight`), its pointers (`send_pointer_reports`, each device under a number
+//! of WaOS's own, `logic::forwarded_pointers`), its keys (the framework's own entry,
 //! `KeyEventManager::handle_key_data`, as Waft's shell hands it its host's keys, so they go where
 //! the framework's focus is) and its focus (`send_view_focus_event`). The view's cursor and focus
 //! requests go to the dialog ([`DialogHost`]); it takes no text. A prompt takes the getter of its
-//! program's app (decision 15 of the proposal): a program whose app does not run has it launched,
-//! with no window and in the background, and the prompt waits for it, its dialog shown there once
-//! it said hello; a prompt whose app never comes is put away unanswered, as one whose dialog went.
+//! program's app: a program whose app does not run has it launched, with no window and in the
+//! background, and the prompt waits for it, its dialog shown there once it said hello; a prompt
+//! whose app never comes is put away unanswered, as one whose dialog went.
 //!
 //! The invariant a later editor will break: a prompt's layer, context and view are kept from the
 //! moment its app is there until its answer is dropped, when the view is removed, the dialog hidden

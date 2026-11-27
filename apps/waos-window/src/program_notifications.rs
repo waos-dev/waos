@@ -1,20 +1,19 @@
-//! The program's notifications in its app (decision 14 of `docs/proposals/2026-10-29-macos-apps.md`):
-//! posted, scheduled and removed through the window process's Waft host, under the app's bundle,
-//! so they show under the program's name and icon, and macOS holds a scheduled one under that
-//! bundle whether or not the app runs. Each keeps the program's own id and title, the bundle being
-//! the program's alone. macOS's own question for the app is put when WaOS asks for it, which the
-//! engine does after WaOS's question, and the first time WaOS asks for a post or a schedule, for a
-//! program allowed in WaOS's settings that never asked; a post macOS refuses answers `denied`, as
-//! the host's does. What macOS says of the program's notifications goes to WaOS as macOS
-//! answers its question, as WaOS welcomes the app, each time the app comes to the front
-//! (`PermissionAtTheFront`), and each time WaOS asks, as WaOS comes to the front, the user having
-//! perhaps changed it in System Settings meanwhile, as Chromium's notification service reads it
-//! again each time its app becomes active
-//! (`MacNotificationServiceUN::OnApplicationDidBecomeActive`); a user sent there by WaOS's
-//! settings page comes back to WaOS, not to the app. What the user does to one of the
-//! program's notifications goes to WaOS as the program hears it (`NotificationClicks`): once WaOS
-//! welcomed the app, as it comes; before, it waits, and the first is the reason the app was
-//! launched when the user's click launched it, which the hello carries.
+//! The program's notifications in its app: posted, scheduled and removed through the window
+//! process's Waft host, under the app's bundle, so they show under the program's name and icon, and
+//! macOS holds a scheduled one under that bundle whether or not the app runs. Each keeps the
+//! program's own id and title, the bundle being the program's alone. macOS's own question for the
+//! app is put when WaOS asks for it, which the engine does after WaOS's question, and the first
+//! time WaOS asks for a post or a schedule, for a program allowed in WaOS's settings that never
+//! asked; a post macOS refuses answers `denied`, as the host's does. What macOS says of the
+//! program's notifications goes to WaOS as macOS answers its question, as WaOS welcomes the app,
+//! each time the app comes to the front (`PermissionAtTheFront`), and each time WaOS asks, as WaOS
+//! comes to the front, the user having perhaps changed it in System Settings meanwhile, as
+//! Chromium's notification service reads it again each time its app becomes active
+//! (`MacNotificationServiceUN::OnApplicationDidBecomeActive`); a user sent there by WaOS's settings
+//! page comes back to WaOS, not to the app. What the user does to one of the program's
+//! notifications goes to WaOS as the program hears it (`NotificationClicks`): once WaOS welcomed
+//! the app, as it comes; before, it waits, and the first is the reason the app was launched when
+//! the user's click launched it, which the hello carries.
 //!
 //! The invariant a later editor will break: every post, schedule and question WaOS asks for is
 //! answered once, in the order asked, with why where the host has no notifications, and none is

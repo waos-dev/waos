@@ -1,7 +1,6 @@
 //! Verifying a package as WaOS opens it: its signature, its manifest and its icon, by
 //! `waos_package::Package::open`; and, where a publisher is named, that the package is signed with
-//! that publisher's key, as a catalog that pins each app's key checks every package it collects
-//! (decision 3 of `docs/proposals/2026-11-22-official-source.md`).
+//! that publisher's key, as a catalog that pins each app's key checks every package it collects.
 //!
 //! The invariant: a package passes only what WaOS's own opening passes, never a check of this
 //! module's alone, and the publisher is compared by its whole key, never its fingerprint.

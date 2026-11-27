@@ -1,9 +1,7 @@
 //! The canvases of the views a program shows in its app, as WaOS keeps them: each a composition
 //! layer of WaOS's own, which the engine presents the program's hardware buffers to with its
 //! layers beneath them, placed in a layer context of its own, whose id the app's window shows
-//! (decision 3 of `docs/proposals/2026-10-29-macos-apps.md`, and decision 20 of
-//! `2026-10-30-native-surfaces.md`: the canvas is placed in the context's root as a view's frame
-//! places a layer in its window). A canvas is made before its window is asked for, placed at each
+//! (the canvas is placed in the context's root as a view's frame places a layer in its window). A canvas is made before its window is asked for, placed at each
 //! size the window reports, at once where nothing waits, or with the program's picture at that
 //! size under the window's fence where the window waits in its resize for it (`canvas_pictures`),
 //! and let go once its window is gone. Each of those is a call on its way to the main thread

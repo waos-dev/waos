@@ -1,6 +1,6 @@
 //! Every program running, however it was installed or started, as the user reads and drives it
-//! through the dev socket, its input given through the program's own mouse and the keyboard
-//! (decisions 60 and 70). Not on a phone, which `waos` reaches not yet.
+//! through the dev socket, its input given through the program's own mouse and the keyboard. Not on
+//! a phone, which `waos` reaches not yet.
 //!
 //! The invariant: a program is reached by the id it runs as, the one the runs list it under.
 

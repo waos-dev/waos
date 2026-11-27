@@ -1,5 +1,4 @@
-//! When the launcher shows and goes on a desktop (decisions 16 and 17 of
-//! `docs/proposals/2026-11-12-phone-programs-and-library.md`), as Spotlight shows and goes:
+//! When the launcher shows and goes on a desktop, as Spotlight shows and goes:
 //!
 //! 1. It is summoned by WaOS's icon in the Dock or the taskbar, by its icon in the menu bar or the
 //!    tray, by a second start of WaOS, by WaOS's first start, and by the library asking to be seen.

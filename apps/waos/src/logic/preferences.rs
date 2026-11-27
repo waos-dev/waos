@@ -1,10 +1,10 @@
 //! WaOS's own preferences, kept in a small file of its own in its data folder, apart from the
 //! store's settings, which are what programs are granted: whether programs are shown inside WaOS,
 //! in the deck's tabs, rather than each as a task of its own, which Android alone offers a choice
-//! of (decision 2 of `docs/proposals/2026-11-12-phone-programs-and-library.md`), and whether WaOS
-//! is kept in a desktop's Dock or taskbar, or else only has an icon in the menu bar or the tray
-//! (decisions 16 and 17), and whether computers on the network may reach WaOS's dev server
-//! (`logic::developer_access`); and the preferences as chosen, each kept in the file before it holds (`KeptPreferences`).
+//! of, and whether WaOS is kept in a desktop's Dock or taskbar, or else only has an icon in the
+//! menu bar or the tray, and whether computers on the network may reach WaOS's dev server
+//! (`logic::developer_access`); and the preferences as chosen, each kept in the file before it
+//! holds (`KeptPreferences`).
 //!
 //! The invariant: a file that is missing or cannot be read gives the defaults, which is said, so
 //! WaOS always starts; a preference the file does not name takes its default, so a file written by

@@ -1,13 +1,12 @@
-//! What `waos install` and `waos uninstall` ask (the design's decision 70). An install is a
-//! program built from its source, installed as its development install, under its id followed by
-//! `.development`, through the store's `install_development`: WaOS answers `Upload::Have` when
-//! that install holds the component already, by its length and digest, and `Upload::Send` when it
-//! must receive it; a build installed already as it is, manifest, component and icon, changes
-//! nothing, so its code compiled before stays; any other replaces the build before, its run
-//! stopped first, ending `Replaced`, and its code removed while its component is still there to
-//! find it by, then compiles in the background, as the library compiles an install, so a launch
-//! after waits for that compile. An uninstall removes any installed program, as the library
-//! does, its run stopped first.
+//! What `waos install` and `waos uninstall` ask. An install is a program built from its source,
+//! installed as its development install, under its id followed by `.development`, through the
+//! store's `install_development`: WaOS answers `Upload::Have` when that install holds the component
+//! already, by its length and digest, and `Upload::Send` when it must receive it; a build installed
+//! already as it is, manifest, component and icon, changes nothing, so its code compiled before
+//! stays; any other replaces the build before, its run stopped first, ending `Replaced`, and its
+//! code removed while its component is still there to find it by, then compiles in the background,
+//! as the library compiles an install, so a launch after waits for that compile. An uninstall
+//! removes any installed program, as the library does, its run stopped first.
 //!
 //! The invariant: one install or uninstall at a time, from the run's stop to the store's change,
 //! so a stop never leaves a run of a build another install is removing.

@@ -20,12 +20,11 @@
 //! asks for on Android (`phone_files`), and where the engine's indicator of who records goes (`recording_indicator`);
 //! their clipboard calls (`clipboard_calls`), with what goes between their clipboard and Waft's
 //! (`clipboard`); their menu calls (`menu_calls`), and WaOS's own menu bar (`menu_bar`); their
-//! openings (`opener_calls`); their notifications (`notification_calls`), as the system shows them
-//! (`system_notifications`); their players' calls (`media_player_calls`), with a player's state and
+//! notifications (`notification_calls`), as the system shows them
+//! (`system_notifications`); their players' state and
 //! metadata (`player_states`) and its cues (`cues`) as the program reads them, and their frame
-//! readers, Waft's once a player is given one (`frame_readers`); their media assets' calls
-//! (`media_asset_calls`); their image codecs' calls (`image_codec_calls`), with an image's values
-//! as the program reads them (`image_values`); their cameras' calls (`camera_calls`), with a
+//! readers, Waft's once a player is given one (`frame_readers`); an image's values as the program
+//! reads them (`image_values`), a
 //! camera's values as the program reads them (`camera_values`); the machine's facts as Waft reports
 //! them, in the engine's terms; where a program's view request goes, and the screens' refreshes
 //! over Waft's vsync waiter, from whichever thread the engine calls them on, the refusal of every
@@ -42,7 +41,6 @@
 pub(crate) mod activity;
 pub(crate) mod app_store;
 pub(crate) mod asking_now;
-pub(crate) mod camera_calls;
 pub(crate) mod camera_values;
 pub(crate) mod caption_style;
 pub(crate) mod clipboard;
@@ -50,35 +48,35 @@ pub(crate) mod clipboard_calls;
 pub(crate) mod command_line;
 pub(crate) mod cues;
 pub(crate) mod deck_geometry;
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[cfg(desktop)]
 pub(crate) mod dev_announce;
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[cfg(desktop)]
 pub(crate) mod dev_attach;
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[cfg(desktop)]
 pub(crate) mod dev_extensions;
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[cfg(desktop)]
 pub(crate) mod dev_input;
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[cfg(desktop)]
 pub(crate) mod dev_inspect;
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[cfg(desktop)]
 pub(crate) mod dev_install;
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[cfg(desktop)]
 pub(crate) mod dev_launch;
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[cfg(desktop)]
 pub(crate) mod dev_network;
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[cfg(desktop)]
 pub(crate) mod dev_pairing;
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[cfg(desktop)]
 pub(crate) mod dev_refusal;
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[cfg(desktop)]
 pub(crate) mod dev_resize;
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[cfg(desktop)]
 pub(crate) mod dev_screenshot;
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[cfg(desktop)]
 pub(crate) mod dev_server;
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[cfg(desktop)]
 pub(crate) mod dev_settings;
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[cfg(desktop)]
 pub(crate) mod developer_access;
 pub(crate) mod environments;
 pub(crate) mod file_dialog_calls;
@@ -89,23 +87,20 @@ pub(crate) mod frame_readers;
 pub(crate) mod hardware_buffers;
 pub(crate) mod held_starts;
 pub(crate) mod icon_rows;
-pub(crate) mod image_codec_calls;
 pub(crate) mod image_values;
 pub(crate) mod inspected_programs;
 pub(crate) mod installed_code;
 pub(crate) mod installed_runs;
 pub(crate) mod launch_outputs;
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[cfg(desktop)]
 pub(crate) mod launcher_placement;
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[cfg(desktop)]
 pub(crate) mod launcher_rules;
 pub(crate) mod library_layout;
 pub(crate) mod machine_facts;
-pub(crate) mod media_asset_calls;
-pub(crate) mod media_player_calls;
 pub(crate) mod menu_bar;
 pub(crate) mod menu_calls;
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[cfg(desktop)]
 pub(crate) mod network_addresses;
 pub(crate) mod noted_file_dialogs;
 pub(crate) mod notification_calls;
@@ -119,11 +114,10 @@ pub(crate) mod notification_calls;
 pub(crate) mod notification_permissions;
 pub(crate) mod offers;
 pub(crate) mod often_used;
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[cfg(desktop)]
 pub(crate) mod open_command;
 pub(crate) mod open_video_decoders;
 pub(crate) mod opened_package;
-pub(crate) mod opener_calls;
 pub(crate) mod opening;
 pub(crate) mod package_copies;
 pub(crate) mod permissions;
@@ -148,7 +142,7 @@ pub(crate) mod program_name;
 pub(crate) mod program_places;
 pub(crate) mod program_shortcuts;
 pub(crate) mod prompts;
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[cfg(desktop)]
 pub(crate) mod quit_question;
 pub(crate) mod recording_indicator;
 pub(crate) mod runs;
@@ -164,7 +158,7 @@ pub(crate) mod test_engine;
 pub(crate) mod test_outputs;
 #[cfg(any(target_os = "macos", target_os = "android"))]
 pub(crate) mod test_pattern;
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[cfg(desktop)]
 pub(crate) mod tray_image;
 pub(crate) mod video_decoder_calls;
 pub(crate) mod video_decoder_thread;

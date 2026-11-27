@@ -18,8 +18,8 @@ default-members = ["crates/*", "capabilities/*", "sdk/*", "apps/*"]
 version = "0.8.0"
 edition = "2024"
 license = "MIT"
-# A crate is published only where its manifest says so: the SDK, `waos` and the engine with
-# what it needs (the design's decision 57).
+# A crate is published only where its manifest says so: the SDK, `waos` and the engine with what it
+# needs.
 publish = false
 homepage = "https://waos.app"
 repository = "https://github.com/waos-dev/waos"
@@ -53,14 +53,12 @@ wasdk-adapter-waft = { version = "0.8.0", path = "sdk/wasdk-adapter-waft" }
 wasdk-adapter-gpui = { path = "sdk/wasdk-adapter-gpui" }
 wasdk-adapter-egui = { version = "0.8.0", path = "sdk/wasdk-adapter-egui" }
 
-# What we take from crates.io, one version for the workspace.
-# The bindings generator a program's API comes from, pinned: the SDK pins one wit-bindgen per
-# release (the design's decision 7). 0.63, whose `block_on`, which runs a program from its `main`,
-# goes on through a yield made before the program waits on anything; 0.62's aborts there.
-# `futures-stream` makes a WIT stream a `futures::Stream` too; `async-spawn` is the executor's
-# `spawn_local`; `inter-task-wakeup` lets a waker another thread holds wake the executor, as a
-# program's threads do (`docs/proposals/2026-11-22-cooperative-threads.md`): without it, such a
-# wake panics.
+# What we take from crates.io, one version for the workspace. The bindings generator a program's API
+# comes from, pinned: the SDK pins one wit-bindgen per release. 0.63, whose `block_on`, which runs a
+# program from its `main`, goes on through a yield made before the program waits on anything; 0.62's
+# aborts there. `futures-stream` makes a WIT stream a `futures::Stream` too; `async-spawn` is the
+# executor's `spawn_local`; `inter-task-wakeup` lets a waker another thread holds wake the executor,
+# as a program's threads do: without it, such a wake panics.
 wit-bindgen = { version = "=0.63.0", features = ["futures-stream", "async-spawn", "inter-task-wakeup"] }
 # Where each `#[wasdk::worker]` of a program registers its entry, for the one `worker-entry.run`
 # the program exports to find: a static constructor per entry, which `wasm-ld` runs from
@@ -258,8 +256,8 @@ waft-painting = "0.14.0"
 # valo, Waft's renderer, which a program's views are drawn with: its context, its fonts and
 # their glyph raster, at the version Waft draws with.
 valo = "0.26.0"
-# The platform's fonts in the shape of Skia's `SkFontMgr`, from valo, Waft's renderer: a
-# program's fonts are a capability whose provider is its `FontManager` (the design's decision 33).
+# The platform's fonts in the shape of Skia's `SkFontMgr`, from valo, Waft's renderer: a program's
+# fonts are a capability whose provider is its `FontManager`.
 valo-fontmgr = "0.26.0"
 # valo's text stack, which the engine draws a program's glyphs with: its fonts and `Rasterizer`,
 # and the geometry its strokes and outlines are in.
@@ -301,8 +299,8 @@ indexmap = "2"
 # What the app writes of its `tracing` events to standard error, picked by `RUST_LOG`.
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 # Sound: Web Audio's graph, rendered on a thread of its own, its nodes, its decoding of the common
-# formats with symphonia, and the system's audio devices through cpal, which only the local
-# provider turns on (sound decision 1).
+# formats with symphonia, and the system's audio devices through cpal, which only the local provider
+# turns on.
 web-audio-api = { version = "1.7.0", default-features = false }
 # What a sound file decodes to, measured before web-audio-api decodes it: the symphonia it decodes
 # with, every format and codec of it.

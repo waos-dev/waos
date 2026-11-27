@@ -14,7 +14,7 @@
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[cfg(desktop)]
 use std::time::Duration;
 
 use waos_package::ProgramId;
@@ -78,7 +78,7 @@ pub(crate) enum Command {
 
 /// Top-level classification of a desktop launch's full `argv` (including `argv[0]`), decided
 /// before `claim_the_one_instance()` and `winit`.
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[cfg(desktop)]
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum Launch {
     /// Hand off directly to `waos-cli` without claiming single-instance or starting `winit`.
@@ -109,7 +109,7 @@ impl Command {
 
 /// Classifies a full process `argv` (including `argv[0]`) into CLI dispatch, headless daemon, or
 /// desktop app launch.
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[cfg(desktop)]
 pub(crate) fn classify_launch(
     argv: impl IntoIterator<Item = OsString>,
 ) -> Result<Launch, &'static str> {
@@ -133,7 +133,7 @@ pub(crate) fn classify_launch(
 
 /// Parses `--headless [--idle-timeout <secs>]` (in either flag order). Returns `Ok(None)` when
 /// `--headless` is not present.
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[cfg(desktop)]
 fn parse_headless(words: &[Option<&str>]) -> Result<Option<Launch>, &'static str> {
     if !words.contains(&Some("--headless")) {
         return Ok(None);
@@ -208,7 +208,7 @@ mod tests {
         command(args.iter().map(OsString::from))
     }
 
-    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    #[cfg(desktop)]
     fn launch_of(argv: &[&str]) -> Result<Launch, &'static str> {
         classify_launch(argv.iter().map(OsString::from))
     }
@@ -288,7 +288,7 @@ mod tests {
         assert_eq!(command_of(&["a.wapk", "--launcher-closed"]), Err(USAGE));
     }
 
-    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    #[cfg(desktop)]
     #[test]
     fn classify_launch_routes_cli_headless_and_gui_correctly() {
         // GUI & open preserved

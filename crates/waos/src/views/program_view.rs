@@ -1,13 +1,12 @@
-//! One view's state, as the shell reports into it from any thread and the engine reads it: what
-//! the view is (its id, the request it arrived for, what that request attached), where it is (its
+//! One view's state, as the shell reports into it from any thread and the engine reads it: what the
+//! view is (its id, the request it arrived for, what that request attached), where it is (its
 //! geometry, which a tool that resizes its window waits on, its screen, how it stands on screen,
-//! its window), whether a tool watches its program, which keeps it in sight though occluded (the
-//! design's decision 63), the shell's side of it,
-//! which the program's requests go to, whether the program goes back within itself when the user
-//! asks, the events on their way to the program, the size the
-//! program set its canvas to, whether it waits for a frame, the refresh it had its last frame of,
-//! how many of its frames are in flight, and the picture it shows with the layers beneath it
-//! (`shown_picture`), which a tool waits on and takes a screenshot of (`screenshots`).
+//! its window), whether a tool watches its program, which keeps it in sight though occluded, the
+//! shell's side of it, which the program's requests go to, whether the program goes back within
+//! itself when the user asks, the events on their way to the program, the size the program set its
+//! canvas to, whether it waits for a frame, the refresh it had its last frame of, how many of its
+//! frames are in flight, and the picture it shows with the layers beneath it (`shown_picture`),
+//! which a tool waits on and takes a screenshot of (`screenshots`).
 //!
 //! A view gets one frame for each refresh of the screen it is on, as an observer of Chromium's
 //! `BeginFrameSource` gets one begin-frame for each tick: a refresh is an interval a view's frame
@@ -272,10 +271,10 @@ impl ProgramView {
     /// Sizes the window the view is in so the view is `size` logical points, its top-left where it
     /// is: through the shell's window, as the program's `set-frame` goes, so each placement answers
     /// as it answers the program (`ProgramWindow::size_view`). What a tool that tries a program's
-    /// layout at another size asks (the design's decision 60). Resolves with the view's metrics
-    /// at the shell's next report of them, which a window system may have clamped, or with none
-    /// once the view is gone; a window left as it was reports nothing. None for a view in no
-    /// window, a phone's, whose size is the platform's.
+    /// layout at another size asks. Resolves with the view's metrics at the shell's next report of
+    /// them, which a window system may have clamped, or with none once the view is gone; a window
+    /// left as it was reports nothing. None for a view in no window, a phone's, whose size is the
+    /// platform's.
     pub fn resize_window(
         &self,
         size: Size,
@@ -317,9 +316,9 @@ impl ProgramView {
         self.0.text_input.as_ref()
     }
 
-    /// What the view's input methods edit now: the value the program set or an input method
-    /// changed last, which a tool typing into the view commits its text into (the design's
-    /// decision 60); none while nothing in the view is edited, and where it has no text input.
+    /// What the view's input methods edit now: the value the program set or an input method changed
+    /// last, which a tool typing into the view commits its text into; none while nothing in the
+    /// view is edited, and where it has no text input.
     pub fn editing_value(&self) -> Option<TextEditingValue> {
         self.0.text_input.as_ref()?.editing_value()
     }
@@ -659,10 +658,9 @@ impl ProgramView {
 
     /// What the view shows, at its size: the last picture it handed the shell, which the shell
     /// shows from its compositor's next frame on, over what each layer it was handed with shows
-    /// now, drawn together on the GPU (`screenshots`); BGRA, premultiplied, in rows of
-    /// `row_bytes`. None before the first picture, once the view is gone, and while it has no
-    /// size. What a tool that looks at the program's window reads (the design's decisions 60 and
-    /// 62). Blocks while the GPU draws it.
+    /// now, drawn together on the GPU (`screenshots`); BGRA, premultiplied, in rows of `row_bytes`.
+    /// None before the first picture, once the view is gone, and while it has no size. What a tool
+    /// that looks at the program's window reads. Blocks while the GPU draws it.
     pub fn picture(&self) -> Result<Option<PixelBuffer>, ImageError> {
         let Some(shown) = self.0.shown.now() else {
             return Ok(None);

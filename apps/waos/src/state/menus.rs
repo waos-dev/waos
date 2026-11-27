@@ -5,8 +5,8 @@
 //! icon. Each is there only where Waft's platform has the place.
 //!
 //! A program's menu bar is never WaOS's: on macOS it is its app's, as its context menus are
-//! (`logic::program_apps`, decision 10 of `docs/proposals/2026-10-29-macos-apps.md`), and the other
-//! desktops have no menu bar. Its tray icons stay WaOS's everywhere, belonging to no window.
+//! (`logic::program_apps`), and the other desktops have no menu bar. Its tray icons stay WaOS's
+//! everywhere, belonging to no window.
 //!
 //! The invariant: every menu opened is answered once it closes, and at once with none where none
 //! could open; every icon asked for is answered once Waft has made it or refused it, and an icon

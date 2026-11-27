@@ -3,7 +3,7 @@
 import { useEffect, useRef } from 'react';
 
 /**
- * The home page's one piece of art (decision 4): fine lines bending into a slow wave, drawn on a
+ * The home page's one piece of art: fine lines bending into a slow wave, drawn on a
  * plain canvas that fills the first section behind its text, the wave low in it. The canvas takes
  * no room of its own, so the text never moves; it is still when the user asks for reduced motion.
  */

@@ -1,11 +1,10 @@
-# A release is one tag, `v<version>` (the design's decision 67): its tests pass, the SDK, the
-# command and the engine are published together at the tag's version, so the SDK always matches
-# its WaOS, and a program written by the published `cargo waos new` builds from crates.io alone.
-# Waft's crates the SDK names must be on crates.io first, at the versions the workspace names. The
-# release on GitHub carries the docs of that version, which `cargo waos docs` downloads, and
-# WaOS's built-in apps, each a package signed with the WaOS project's key, with the `index.json`
-# that lists them, so github.com/waos-dev/waos is a source of them (the official source's decision
-# 1, `docs/proposals/2026-11-22-official-source.md`).
+# A release is one tag, `v<version>`: its tests pass, the SDK, the command and the engine are
+# published together at the tag's version, so the SDK always matches its WaOS, and a program written
+# by the published `cargo waos new` builds from crates.io alone. Waft's crates the SDK names must be
+# on crates.io first, at the versions the workspace names. The release on GitHub carries the docs of
+# that version, which `cargo waos docs` downloads, and WaOS's built-in apps, each a package signed
+# with the WaOS project's key, with the `index.json` that lists them, so github.com/waos-dev/waos is
+# a source of them.
 #
 # Secrets: CARGO_REGISTRY_TOKEN; WAOS_SIGNING_KEY, the WaOS project's signing key, the PEM text
 # `waos package` reads; and mirror-release.yml's.

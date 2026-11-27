@@ -1,10 +1,9 @@
-//! What `waos attach` asks (the design's decision 70): the output of any program running, however
-//! it was started, `Started` first, then what it wrote with nobody attached, then what it writes
-//! as it writes it and how it ended (`launch_outputs`); or how its run ended, where it ended with
-//! nobody attached. While attached, the program's windows count as in sight though other windows
-//! cover them (the design's decision 63), so a tool's screenshot and input meet windows that draw,
-//! and what WaOS asks the program's user, a row of its settings on Ask, is heard as `Asking`.
-//! Closing the connection detaches: the program runs on.
+//! What `waos attach` asks: the output of any program running, however it was started, `Started`
+//! first, then what it wrote with nobody attached, then what it writes as it writes it and how it
+//! ended (`launch_outputs`); or how its run ended, where it ended with nobody attached. While
+//! attached, the program's windows count as in sight though other windows cover them, so a tool's
+//! screenshot and input meet windows that draw, and what WaOS asks the program's user, a row of its
+//! settings on Ask, is heard as `Asking`. Closing the connection detaches: the program runs on.
 //!
 //! The invariant: every frame to the connection goes through the attach's queue, in the order it
 //! was pushed, so `Started` comes before the first `Output` and `Ended` after the last; and the

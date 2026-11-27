@@ -24,8 +24,7 @@ pub struct Manifest {
     file_associations: Vec<FileAssociation>,
 }
 
-/// What a program is to its user, as its author declares it (decision 3 of
-/// `docs/proposals/2026-11-21-views-a-program-asks-for.md`).
+/// What a program is to its user, as its author declares it.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ProgramKind {

@@ -2,12 +2,11 @@
 //! user sets its own, and one program's own settings, each a [`Setting`] that is the global
 //! default or its own value.
 //!
-//! The global settings start as the design's defaults (decisions 8 and 12 of the permissions
-//! proposal): the network on for any domain, the local network off, the clipboard on both ways,
-//! nothing mounted, and every question to be asked. A program's answers to opening
-//! links of a scheme of its own are its own alone, with no global default: each scheme is asked
-//! of its user once; and so are the machines its user picked for it, and the answers its user set
-//! for its pickers and file dialogs, given in place of asking.
+//! The global settings start as the design's defaults: the network on for any domain, the local
+//! network off, the clipboard on both ways, nothing mounted, and every question to be asked. A
+//! program's answers to opening links of a scheme of its own are its own alone, with no global
+//! default: each scheme is asked of its user once; and so are the machines its user picked for it,
+//! and the answers its user set for its pickers and file dialogs, given in place of asking.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;

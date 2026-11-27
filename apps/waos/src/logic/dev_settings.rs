@@ -3,9 +3,9 @@
 //! set made as the page makes the same change, so the command and the page are one rule. A set
 //! answer is the program's setting, used by every run of it.
 //!
-//! The invariant: every program's settings are read and set, however it was installed, a
-//! published one as a development install, and an id the store does not have installed, which may
-//! be set before its install (the design's decision 70): the dev socket is its user's alone.
+//! The invariant: every program's settings are read and set, however it was installed, a published
+//! one as a development install, and an id the store does not have installed, which may be set
+//! before its install: the dev socket is its user's alone.
 
 use std::sync::Arc;
 

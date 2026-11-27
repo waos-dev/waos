@@ -1,12 +1,12 @@
-//! What each program running writes, and how it ended, for `waos attach` (the design's decision
-//! 70), whoever started it: a launch from `waos`, the library, the launcher, files opened with it,
-//! its app on macOS, or an inspector. A run's output goes to WaOS's log, as it always has, and to
-//! every attach's connection as the program writes it, with backpressure, so a program writing
-//! faster than the slowest attach reads waits, as on a pipe; while nobody is attached it is kept,
-//! its last [`KEPT_UNATTACHED`] bytes, and the next attach hears it first, so what a program writes
-//! between its launch and `waos run`'s attach, or a tool's whole output when it ends before
-//! anything attaches, is not lost. A run that ended with nobody attached is kept until one attach
-//! hears how, or the next run of its id.
+//! What each program running writes, and how it ended, for `waos attach`, whoever started it: a
+//! launch from `waos`, the library, the launcher, files opened with it, its app on macOS, or an
+//! inspector. A run's output goes to WaOS's log, as it always has, and to every attach's connection
+//! as the program writes it, with backpressure, so a program writing faster than the slowest attach
+//! reads waits, as on a pipe; while nobody is attached it is kept, its last [`KEPT_UNATTACHED`]
+//! bytes, and the next attach hears it first, so what a program writes between its launch and `waos
+//! run`'s attach, or a tool's whole output when it ends before anything attaches, is not lost. A
+//! run that ended with nobody attached is kept until one attach hears how, or the next run of its
+//! id.
 //!
 //! The invariants: every attach hears `Started` first, then what was kept, then what the program
 //! writes, in the order written, then `Ended` once; an attach that went away holds back no write;

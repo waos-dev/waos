@@ -1,14 +1,14 @@
-//! An input `waos ui tap`, `press`, `drag`, `type`, `key` or `scroll` sends, given to a window
-//! of a program running, however it was installed or started, as its user would give it (the
-//! design's decisions 60 and 70): through the engine's view, as the shell reports its user's input, so the program cannot
-//! tell the two apart: the program's own mouse (`RunningProgram::mouse`), a US keyboard and an
-//! input method's text (`Keyboard`), a press and a drag taking the time they say before the
-//! answer. This is the protocol's side alone: the window the input goes to, what is refused, and
-//! the answer. The connection is answered once the input is handed over, saying whether the window
-//! was in sight; what the program draws in answer is its own to draw, and whoever expects a
-//! picture waits for it, as a test does. While WaOS
-//! asks the program's user something over its windows (`asking_now`), the input is not given, as
-//! a person's click goes to the question first, and the answer says what is asked.
+//! An input `waos ui tap`, `press`, `drag`, `type`, `key` or `scroll` sends, given to a window of a
+//! program running, however it was installed or started, as its user would give it: through the
+//! engine's view, as the shell reports its user's input, so the program cannot tell the two apart:
+//! the program's own mouse (`RunningProgram::mouse`), a US keyboard and an input method's text
+//! (`Keyboard`), a press and a drag taking the time they say before the answer. This is the
+//! protocol's side alone: the window the input goes to, what is refused, and the answer. The
+//! connection is answered once the input is handed over, saying whether the window was in sight;
+//! what the program draws in answer is its own to draw, and whoever expects a picture waits for it,
+//! as a test does. While WaOS asks the program's user something over its windows (`asking_now`),
+//! the input is not given, as a person's click goes to the question first, and the answer says what
+//! is asked.
 
 use waos::{DragPath, Keyboard, ProgramView};
 use waos_dev_protocol::{Input, InputAnswer, InputDone, Refusal, ServerConnection, WindowId};

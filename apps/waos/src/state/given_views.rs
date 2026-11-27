@@ -1,13 +1,13 @@
-//! The views the platform hosts for WaOS on a phone that no one here asked for, told apart by
-//! their initial data (`WindowRestoration`): WaOS's own, the launcher's on Android or the window of
-//! a phone's size on a desktop, where the deck is; a program's first window, which Android brought
+//! The views the platform hosts for WaOS on a phone that no one here asked for, told apart by their
+//! initial data (`WindowRestoration`): WaOS's own, the launcher's on Android or the window of a
+//! phone's size on a desktop, where the deck is; a program's first window, which Android brought
 //! back from Recents to a WaOS started afresh, which starts its program again with that window as
-//! its first; and a program's extra window brought back so, which closes at once, having no
-//! program state behind it (decision 10 of `docs/proposals/2026-11-12-phone-programs-and-library.md`).
-//! A window a running program asked for is its windows' (`ViewWindows`). What each starts is here,
-//! as each arrives; what is built in each is `ui::every_window`'s. On Android, where the system
-//! keeps a window's card in Recents after WaOS's process ended, the extra windows an earlier run
-//! left are removed as WaOS starts, rather than each closing only once the user picks its card.
+//! its first; and a program's extra window brought back so, which closes at once, having no program
+//! state behind it. A window a running program asked for is its windows' (`ViewWindows`). What each
+//! starts is here, as each arrives; what is built in each is `ui::every_window`'s. On Android,
+//! where the system keeps a window's card in Recents after WaOS's process ended, the extra windows
+//! an earlier run left are removed as WaOS starts, rather than each closing only once the user
+//! picks its card.
 //!
 //! The invariant: each view is handled once, as it arrives, the views there at start before the
 //! deck is built and every later one as Waft's binding tells its observers of it, after the

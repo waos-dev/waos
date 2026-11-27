@@ -1,8 +1,7 @@
 //! A view's text input, as the program's calls reach the shell's input methods and what they do
 //! reaches the program: the shell's side, which every call of the program's goes on to, and the
-//! engine's copy of what is edited, whether the program is editing and the value it set or an
-//! input method changed last, which a tool typing into the view commits its text into (the
-//! design's decision 60).
+//! engine's copy of what is edited, whether the program is editing and the value it set or an input
+//! method changed last, which a tool typing into the view commits its text into.
 //!
 //! The invariant a later editor will break: every change of the text passes through the copy, the
 //! program's and the input methods', each of which hands over the whole value, so the copy is what

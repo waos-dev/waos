@@ -1,6 +1,6 @@
-//! A publisher's keys, Ed25519 as RFC 8032 defines it: the [`SigningKey`] a package is signed
-//! with, which its publisher keeps, and the [`PublisherKey`] the package carries, which an
-//! installer remembers and holds every update of the program to (the design's decision 43).
+//! A publisher's keys, Ed25519 as RFC 8032 defines it: the [`SigningKey`] a package is signed with,
+//! which its publisher keeps, and the [`PublisherKey`] the package carries, which an installer
+//! remembers and holds every update of the program to.
 //!
 //! The invariants a later editor will break: a signature is checked with dalek's
 //! `verify_strict`, which refuses the forms of a signature or key that would let one signature

@@ -59,7 +59,7 @@ pub trait ProgramGrants: Send + Sync {
     fn set_link_scheme_answer(&self, scheme: &str, answer: Answer);
 
     /// The machines the user picked for the program, by their ids, which it acts on as each
-    /// machine's user (the processes proposal's decisions 2 and 3); none where nothing keeps them.
+    /// machine's user; none where nothing keeps them.
     fn machines(&self) -> Vec<String> {
         Vec::new()
     }
@@ -117,9 +117,8 @@ pub trait ProgramGrants: Send + Sync {
         let _ = (role, answer);
     }
 
-    /// Whether a record is kept of what the program does, its audit summary (decision 13 of
-    /// `docs/proposals/2026-11-15-inspector-roles-and-compatibility.md`): its own setting, or the
-    /// global one, on until the user turns it off; on where nothing keeps a choice.
+    /// Whether a record is kept of what the program does, its audit summary: its own setting, or
+    /// the global one, on until the user turns it off; on where nothing keeps a choice.
     fn keeps_record(&self) -> bool {
         true
     }
@@ -281,10 +280,9 @@ impl FileDialog {
     ];
 }
 
-/// What a program may be besides a program, which sees or does more than a program sees of
-/// itself: a role, which it asks for by importing the role's interfaces, and the user grants it
-/// by name, with no setting for every program (decisions 6 and 9 of
-/// `docs/proposals/2026-11-15-inspector-roles-and-compatibility.md`).
+/// What a program may be besides a program, which sees or does more than a program sees of itself:
+/// a role, which it asks for by importing the role's interfaces, and the user grants it by name,
+/// with no setting for every program.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Role {
     /// Sees what other programs do: `wasdk:inspect`.

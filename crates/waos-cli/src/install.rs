@@ -1,9 +1,8 @@
-//! `waos install`'s side of an install: a program built from its source sent to the WaOS on
-//! this machine, which installs it as its development install, under its id followed by
-//! `.development`, a program of its own beside the one published under the plain id (the design's
-//! decision 70). The component goes over in parts when the development install does not hold it
-//! already, so a component of any size installs; the install says how much it is sending when
-//! that takes noticeable time.
+//! `waos install`'s side of an install: a program built from its source sent to the WaOS on this
+//! machine, which installs it as its development install, under its id followed by `.development`,
+//! a program of its own beside the one published under the plain id. The component goes over in
+//! parts when the development install does not hold it already, so a component of any size
+//! installs; the install says how much it is sending when that takes noticeable time.
 //!
 //! The invariant: what is installed is what was built: the component's length and SHA-256 go
 //! first, and WaOS checks the parts against them.

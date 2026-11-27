@@ -1,21 +1,20 @@
-//! A program's HTTP requests, `wasi:http/client@0.3.0`'s, through `wasmtime-wasi-http`'s hook
-//! (decision 13 of the permissions proposal): each checked by its URL's host as a lookup and a
-//! connection are checked, then sent with hyper's client, over connections of the program's own
-//! (`sockets`), so their bytes are counted as its sockets' are ([`connector`]), through the
-//! system's proxy, in TLS checked as the system checks a server's certificate, and following no
-//! redirect, so a redirect's target is a request of the program's own, checked the same way. An
-//! engine set up with [`HttpProxy::None`], as the tests' are, sends each request straight to its
-//! host, whatever proxy the machine has set.
+//! A program's HTTP requests, `wasi:http/client@0.3.0`'s, through `wasmtime-wasi-http`'s hook: each
+//! checked by its URL's host as a lookup and a connection are checked, then sent with hyper's
+//! client, over connections of the program's own (`sockets`), so their bytes are counted as its
+//! sockets' are ([`connector`]), through the system's proxy, in TLS checked as the system checks a
+//! server's certificate, and following no redirect, so a redirect's target is a request of the
+//! program's own, checked the same way. An engine set up with [`HttpProxy::None`], as the tests'
+//! are, sends each request straight to its host, whatever proxy the machine has set.
 //!
-//! A host that is an address is judged by the address rules before the request is sent. A host
-//! that is a name the domain rule refuses is refused then too. With no proxy in effect, any other
-//! name is resolved as its connection is made, through the program's own checked lookup, which
-//! answers only the addresses the program may reach, so the connection goes to exactly those,
-//! resolved once: a name whose answer changes between a check and a connection cannot lead one to
-//! this computer or the local network without the local-network switch. With a proxy in effect,
-//! WaOS looks the host up itself first and picks the way by where it lands ([`route`], decision
-//! 14): this computer and the local network directly, at the addresses that lookup answered
-//! ([`pins`]), the internet through the proxy, which looks the name up again.
+//! A host that is an address is judged by the address rules before the request is sent. A host that
+//! is a name the domain rule refuses is refused then too. With no proxy in effect, any other name
+//! is resolved as its connection is made, through the program's own checked lookup, which answers
+//! only the addresses the program may reach, so the connection goes to exactly those, resolved
+//! once: a name whose answer changes between a check and a connection cannot lead one to this
+//! computer or the local network without the local-network switch. With a proxy in effect, WaOS
+//! looks the host up itself first and picks the way by where it lands ([`route`]): this computer
+//! and the local network directly, at the addresses that lookup answered ([`pins`]), the internet
+//! through the proxy, which looks the name up again.
 //!
 //! Each request is decided and told through the program's access by its host's check
 //! ([`check_host`]), the lookups it causes told apart as its own, and held from then until its

@@ -1,70 +1,221 @@
-//! The programs' cameras on the main thread, over Waft's: listed and opened on Waft's cameras as
-//! the engine asks, each answered once Waft has, the next change of Waft's list told as it comes,
-//! the camera named by its id among those Waft lists, each opened camera kept
-//! with its formats; a session started on one in the Waft format the program named, its preview on
-//! Waft's layer behind the program's, its frames in the program's reader, Waft's from the first
-//! time a camera or a player is given it, and its photos at the size named; each kept until the
-//! program lets it go, its photos taken as the program asks and its state reported to the program
-//! as it starts and at each change after, as Waft's own `CameraSession` follows the host's. The
-//! cameras are the engine's shell's where Waft's platform has them.
+//! The programs' cameras, over Waft's: the engine lists, opens, starts and takes photos from a
+//! program's thread; each call is posted to the App's thread (`app_thread_bound`), where it is
+//! carried out on Waft's cameras and answered once Waft has: the list, its next change as it
+//! comes, a camera named by its id among those Waft lists opened and kept with its formats, a
+//! session started on one in the Waft format the program named, its preview on Waft's layer behind
+//! the program's, its frames in the program's reader, Waft's from the first time a camera or a
+//! player is given it, and its photos at the size named. Each camera and session is kept until the
+//! program lets it go, its photos taken as the program asks and its state reported to the program,
+//! through the reports the engine handed with its start, as it starts and at each change after, as
+//! Waft's own `CameraSession` follows the host's. The cameras are the engine's shell's where Waft's
+//! platform has them.
 //!
-//! The invariant: every call that asks for an answer is answered once Waft has, so no program
-//! waits for a camera that cannot come, and a wait for the list's next change ends at the change;
-//! and what the engine let go of meanwhile, its answer refused, is let go here too.
+//! The invariant: a camera's or a session's removal is posted as the engine lets go of it, or as
+//! its opening's or start's answer is dropped unheard, so the App's thread holds nothing the
+//! engine no longer does; and every call that asks for an answer is answered once Waft has, or at
+//! once as WaOS quits, so no program waits for a camera that cannot come, but for a wait for the
+//! list's next change, which no change then ends.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::future::ready;
-use std::rc::{Rc, Weak};
+use std::future::{Future, pending, ready};
+use std::rc::Rc;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
-use futures::StreamExt;
-use futures::channel::mpsc::UnboundedReceiver;
-use futures::channel::oneshot;
-use waft::App;
-use waft::ui::{self, CameraDevice, CaptureSession, Platform};
-use waos::bindings::wasdk::media::cameras::{CameraError, CameraFormat, CameraInfo};
-use waos::{CaptureSessionReports, ShellCameras};
+use futures::FutureExt;
+use waft::ui::{self, CameraDevice, CaptureSession, CompositionLayer, Platform, PlatformRef};
+use waft::{App, AsyncApp};
+use waos::bindings::wasdk::media::cameras::{CameraError, CameraFormat, CameraInfo, Photo};
+use waos::{
+    CameraChangeFuture, CameraListFuture, CameraOpenFuture, CameraOutputs, CaptureSessionReports,
+    CaptureStartFuture, OpenedCamera, PhotoFuture, RunningProgram, ShellCamera, ShellCameras,
+    ShellCaptureSession, StartedSession,
+};
+use waos_program_window::waft_layer;
 
-use crate::logic::camera_calls::{CameraCall, CameraKey, CamerasOnRequest, SessionOutputs};
+use super::app_thread_bound::{AppThreadBound, AppThreadCalls};
 use crate::logic::camera_values::{
     program_angles, program_camera, program_error, program_format, program_photo, program_state,
-    waft_format,
+    waft_format, waft_size,
 };
+use crate::logic::frame_readers::ReaderOnRequest;
+
+/// The id the app gives each camera and each session a program opens or starts, which its calls
+/// carry.
+type CameraKey = u64;
 
 /// Waft's cameras, served to the engine as its shell's.
 pub(crate) struct Cameras {
     shell: Arc<CamerasOnRequest>,
-    arriving: UnboundedReceiver<CameraCall>,
+    calls: AppThreadCalls<OpenCameras>,
 }
 
 impl Cameras {
     /// Waft's cameras on `platform`, to serve to the engine; none where it has none.
     pub(crate) fn of(platform: &dyn Platform) -> Option<Cameras> {
         platform.cameras()?;
-        let (shell, arriving) = CamerasOnRequest::new();
+        let (cameras, calls) = AppThreadBound::new();
+        let shell = CamerasOnRequest {
+            cameras,
+            last_key: Arc::default(),
+        };
         Some(Cameras {
             shell: Arc::new(shell),
-            arriving,
+            calls,
         })
     }
 
-    /// The cameras as the engine's shell has them: each call goes to the main thread, where
-    /// [`serve`](Self::serve) carries it out.
+    /// The cameras as the engine's shell has them: each call is posted to the App's thread, where
+    /// [`serve`](Self::serve) runs it.
     pub(crate) fn shell(&self) -> Arc<dyn ShellCameras> {
         Arc::clone(&self.shell) as Arc<dyn ShellCameras>
     }
 
     /// From now on, each camera a program opens is one of Waft's, and does as the program asks.
     pub(crate) fn serve(self, app: &mut App) {
-        let mut arriving = self.arriving;
-        app.spawn(async move |cx| {
-            let held = Rc::new(RefCell::new(Held::default()));
-            while let Some(call) = arriving.next().await {
-                cx.update(|app| take(app, &held, call));
+        let cameras = OpenCameras {
+            platform: app.platform(),
+            app: app.to_async(),
+            held: Rc::default(),
+        };
+        self.calls.serve(app, cameras);
+    }
+}
+
+/// The app's cameras, as the engine reaches them: every call is posted to the App's thread, with
+/// the keys it carries.
+#[derive(Clone)]
+struct CamerasOnRequest {
+    cameras: AppThreadBound<OpenCameras>,
+    last_key: Arc<AtomicU64>,
+}
+
+impl CamerasOnRequest {
+    fn next_key(&self) -> CameraKey {
+        self.last_key.fetch_add(1, Ordering::Relaxed) + 1
+    }
+}
+
+impl ShellCameras for CamerasOnRequest {
+    /// None once WaOS quits.
+    fn list(&self) -> CameraListFuture {
+        let listed = self.cameras.ask(|cameras| cameras.list());
+        Box::pin(listed.map(Result::unwrap_or_default))
+    }
+
+    /// Never once WaOS quits, when no change can be heard.
+    fn changed(&self) -> CameraChangeFuture {
+        let heard = self.cameras.ask(|cameras| cameras.changed());
+        Box::pin(async move {
+            if heard.await.is_err() {
+                pending::<()>().await;
             }
+        })
+    }
+
+    fn open(&self, program: &RunningProgram, id: &str) -> CameraOpenFuture {
+        tracing::info!(program = program.name(), id, "a program opens a camera");
+        let camera = self.next_key();
+        let id = id.to_owned();
+        let handle = self.clone();
+        let opened = self
+            .cameras
+            .ask(move |cameras| cameras.open(camera, id, handle));
+        Box::pin(opened.map(|opened| opened.unwrap_or_else(|_| Err(quitting()))))
+    }
+}
+
+/// One camera, as the engine holds it: its starts are posted to the App's thread, and its removal
+/// as it drops.
+struct CameraOnRequest {
+    camera: CameraKey,
+    cameras: CamerasOnRequest,
+}
+
+impl ShellCamera for CameraOnRequest {
+    fn start(
+        &self,
+        format: CameraFormat,
+        outputs: CameraOutputs,
+        reports: CaptureSessionReports,
+    ) -> CaptureStartFuture {
+        let starting = Starting {
+            camera: self.camera,
+            session: self.cameras.next_key(),
+            format,
+            outputs: session_outputs(outputs),
+            reports,
+        };
+        let handle = self.cameras.cameras.clone();
+        let started = self
+            .cameras
+            .cameras
+            .ask(move |cameras| cameras.start(starting, handle));
+        Box::pin(started.map(|started| started.unwrap_or_else(|_| Err(quitting()))))
+    }
+}
+
+impl Drop for CameraOnRequest {
+    fn drop(&mut self) {
+        let camera = self.camera;
+        let _ = self.cameras.cameras.post(move |cameras| {
+            cameras.held.borrow_mut().cameras.remove(&camera);
         });
     }
+}
+
+/// One session, as the engine holds it: its photos are posted to the App's thread, and its
+/// removal as it drops.
+struct SessionOnRequest {
+    session: CameraKey,
+    cameras: AppThreadBound<OpenCameras>,
+}
+
+impl ShellCaptureSession for SessionOnRequest {
+    fn take_photo(&self) -> PhotoFuture {
+        let session = self.session;
+        let taken = self.cameras.ask(move |cameras| cameras.take_photo(session));
+        Box::pin(taken.map(|taken| taken.unwrap_or_else(|_| Err(quitting()))))
+    }
+}
+
+impl Drop for SessionOnRequest {
+    fn drop(&mut self) {
+        let session = self.session;
+        let _ = self.cameras.post(move |cameras| {
+            cameras.held.borrow_mut().sessions.remove(&session);
+        });
+    }
+}
+
+/// What a session feeds, as the App's thread gives it to Waft's camera.
+struct SessionOutputs {
+    /// Waft's layer behind the program's.
+    preview: Option<Arc<dyn CompositionLayer>>,
+    /// The program's reader, Waft's once a camera or a player is given it.
+    frames: Option<Arc<ReaderOnRequest>>,
+    photos: Option<ui::Size>,
+    /// Whether the frames are to come turned and mirrored as they show.
+    upright_frames: bool,
+}
+
+/// A session to start: on which camera, under which key, in which format, feeding what, and where
+/// its state is reported.
+struct Starting {
+    camera: CameraKey,
+    session: CameraKey,
+    format: CameraFormat,
+    outputs: SessionOutputs,
+    reports: CaptureSessionReports,
+}
+
+/// Waft's cameras on the App's thread, with what the programs opened and started on them; shared
+/// with the openings and starts, which keep a camera or a session once Waft has it.
+struct OpenCameras {
+    platform: PlatformRef,
+    app: AsyncApp,
+    held: Rc<RefCell<Held>>,
 }
 
 /// What the programs opened and started on Waft's cameras, by the app's key for each.
@@ -80,45 +231,111 @@ struct OpenCamera {
     formats: Vec<ui::CameraFormat>,
 }
 
-/// Carries out `call`, from the engine.
-fn take(app: &mut App, held: &Rc<RefCell<Held>>, call: CameraCall) {
-    match call {
-        CameraCall::List(listed) => list(app, listed),
-        CameraCall::Changed(changed) => tell_next_change(app, changed),
-        CameraCall::Open { camera, id, opened } => open(app, held, camera, id, opened),
-        CameraCall::Start {
+impl OpenCameras {
+    /// The cameras Waft lists, once it has.
+    fn list(&self) -> impl Future<Output = Vec<CameraInfo>> + use<> {
+        let listing = waft_cameras(self.platform.as_ref());
+        listing.map(|cameras| cameras.into_iter().map(program_camera).collect())
+    }
+
+    /// Resolves once Waft's list may answer something else than now; never where Waft's platform
+    /// has no cameras.
+    fn changed(&self) -> impl Future<Output = ()> + use<> {
+        let next = self.platform.cameras().map(|cameras| cameras.changed());
+        async move {
+            match next {
+                Some(next) => next.await,
+                None => pending().await,
+            }
+        }
+    }
+
+    /// Opens the camera `id` on Waft's cameras, kept under `camera` once it opened, and answers it
+    /// as the engine holds it, through `cameras`, with its formats; `unplugged` for an id Waft no
+    /// longer lists. Dropped unheard, the answer lets the camera go.
+    fn open(
+        &self,
+        camera: CameraKey,
+        id: String,
+        cameras: CamerasOnRequest,
+    ) -> impl Future<Output = Result<OpenedCamera, CameraError>> + use<> {
+        let platform = Rc::clone(&self.platform);
+        let held = Rc::clone(&self.held);
+        async move {
+            let listed = waft_cameras(platform.as_ref()).await;
+            let listed = listed.into_iter().find(|listed| listed.id.0 == id);
+            let opening = listed
+                .zip(platform.cameras())
+                .map(|(listed, waft)| waft.open(&listed))
+                .ok_or(CameraError::Unplugged)?;
+            let device = opening.await.map_err(program_error)?;
+            let formats = device.formats();
+            let answer = formats.iter().map(program_format).collect();
+            held.borrow_mut()
+                .cameras
+                .insert(camera, OpenCamera { device, formats });
+            Ok(OpenedCamera {
+                camera: Box::new(CameraOnRequest { camera, cameras }),
+                formats: answer,
+            })
+        }
+    }
+
+    /// Starts the session `starting` names, kept once Waft has started it, its state reported from
+    /// then on, and answers it as the engine holds it, through `cameras`, with the format it runs
+    /// in; why not, where the camera is no longer open or does not list the format. Dropped
+    /// unheard, the answer lets the session go.
+    fn start(
+        &self,
+        starting: Starting,
+        cameras: AppThreadBound<OpenCameras>,
+    ) -> impl Future<Output = Result<StartedSession, CameraError>> + use<> {
+        let Starting {
             camera,
             session,
             format,
             outputs,
             reports,
-            started,
-        } => {
-            let starting = Starting {
-                session,
-                reports,
-                started,
-            };
-            start(app, held, camera, &format, outputs, starting);
-        }
-        CameraCall::TakePhoto { session, taken } => take_photo(app, &held.borrow(), session, taken),
-        CameraCall::RemoveCamera(camera) => {
-            held.borrow_mut().cameras.remove(&camera);
-        }
-        CameraCall::RemoveSession(session) => {
-            held.borrow_mut().sessions.remove(&session);
+        } = starting;
+        let waft = start_on(
+            self.platform.as_ref(),
+            &self.held.borrow(),
+            camera,
+            &format,
+            outputs,
+        );
+        let held = Rc::clone(&self.held);
+        let app = self.app.clone();
+        async move {
+            let started: Rc<dyn CaptureSession> = Rc::from(waft?.await.map_err(program_error)?);
+            app.update(|app| report_changes(app, &started, reports));
+            let format = program_format(&started.format());
+            held.borrow_mut().sessions.insert(session, started);
+            Ok(StartedSession {
+                session: Box::new(SessionOnRequest { session, cameras }),
+                format,
+            })
         }
     }
-}
 
-/// Answers the cameras Waft lists into `listed`, once Waft has.
-fn list(app: &mut App, listed: oneshot::Sender<Vec<CameraInfo>>) {
-    let listing = waft_cameras(app.platform().as_ref());
-    app.spawn(async move |_cx| {
-        let cameras = listing.await;
-        // A program that ended meanwhile hears nothing.
-        let _ = listed.send(cameras.into_iter().map(program_camera).collect());
-    });
+    /// A photo of `session`, once Waft has taken it.
+    fn take_photo(
+        &self,
+        session: CameraKey,
+    ) -> impl Future<Output = Result<Photo, CameraError>> + use<> {
+        let taking = self
+            .held
+            .borrow()
+            .sessions
+            .get(&session)
+            .map(|session| session.take_photo());
+        async move {
+            match taking {
+                Some(taking) => program_photo(taking.await),
+                None => Err(CameraError::Failed("the session is gone".to_owned())),
+            }
+        }
+    }
 }
 
 /// The cameras Waft's `platform` lists, once it has; none where it has none.
@@ -127,115 +344,6 @@ fn waft_cameras(platform: &dyn Platform) -> ui::CameraListFuture {
         Some(cameras) => cameras.cameras(),
         None => Box::pin(ready(Vec::new())),
     }
-}
-
-/// Tells `changed` once Waft's list may answer something else than now; never where Waft's
-/// platform has no cameras.
-fn tell_next_change(app: &mut App, changed: oneshot::Sender<()>) {
-    let Some(next) = app.platform().cameras().map(|cameras| cameras.changed()) else {
-        return;
-    };
-    app.spawn(async move |_cx| {
-        next.await;
-        // A program that ended meanwhile hears nothing.
-        let _ = changed.send(());
-    });
-}
-
-/// Opens the camera `id` on Waft's cameras as `camera`, answering its formats into `opened` once
-/// Waft has, or why it did not open: `unplugged` for an id Waft no longer lists.
-fn open(
-    app: &mut App,
-    held: &Rc<RefCell<Held>>,
-    camera: CameraKey,
-    id: String,
-    opened: oneshot::Sender<Result<Vec<CameraFormat>, CameraError>>,
-) {
-    let platform = app.platform();
-    let listing = waft_cameras(platform.as_ref());
-    let held = Rc::downgrade(held);
-    app.spawn(async move |_cx| {
-        let listed = listing.await.into_iter().find(|listed| listed.id.0 == id);
-        let opening = listed
-            .zip(platform.cameras())
-            .map(|(listed, cameras)| cameras.open(&listed));
-        let Some(opening) = opening else {
-            let _ = opened.send(Err(CameraError::Unplugged));
-            return;
-        };
-        match opening.await {
-            Ok(device) => keep_opened(&held, camera, device, opened),
-            Err(error) => {
-                let _ = opened.send(Err(program_error(error)));
-            }
-        }
-    });
-}
-
-/// Keeps `device`, opened as `camera`, and answers its formats into `opened`; lets it go where the
-/// engine no longer waits for it.
-fn keep_opened(
-    held: &Weak<RefCell<Held>>,
-    camera: CameraKey,
-    device: Box<dyn CameraDevice>,
-    opened: oneshot::Sender<Result<Vec<CameraFormat>, CameraError>>,
-) {
-    let Some(held) = held.upgrade() else {
-        return;
-    };
-    let formats = device.formats();
-    let answer = formats.iter().map(program_format).collect();
-    held.borrow_mut()
-        .cameras
-        .insert(camera, OpenCamera { device, formats });
-    if opened.send(Ok(answer)).is_err() {
-        held.borrow_mut().cameras.remove(&camera);
-    }
-}
-
-/// A session being started: the app's key for it, where its state is reported, and where the
-/// format it runs in, or why it did not start, is answered.
-struct Starting {
-    session: CameraKey,
-    reports: CaptureSessionReports,
-    started: oneshot::Sender<Result<CameraFormat, CameraError>>,
-}
-
-/// Starts `camera` in the Waft format `format` names, feeding `outputs`, and once Waft has, keeps
-/// the session as `starting` says.
-fn start(
-    app: &mut App,
-    held: &Rc<RefCell<Held>>,
-    camera: CameraKey,
-    format: &CameraFormat,
-    outputs: SessionOutputs,
-    starting: Starting,
-) {
-    let waft = match start_on(
-        app.platform().as_ref(),
-        &held.borrow(),
-        camera,
-        format,
-        outputs,
-    ) {
-        Ok(waft) => waft,
-        Err(error) => {
-            let _ = starting.started.send(Err(error));
-            return;
-        }
-    };
-    let held = Rc::downgrade(held);
-    app.spawn(async move |cx| {
-        let answer = match waft.await {
-            Ok(session) => cx.update(|app| keep_started(app, &held, session, &starting)),
-            Err(error) => Err(program_error(error)),
-        };
-        if starting.started.send(answer).is_err()
-            && let Some(held) = held.upgrade()
-        {
-            held.borrow_mut().sessions.remove(&starting.session);
-        }
-    });
 }
 
 /// Waft's start of `camera` in the Waft format `format` names, feeding `outputs`, on `platform`'s
@@ -260,22 +368,31 @@ fn start_on(
     Ok(open.device.start(format, waft_outputs(platform, outputs)))
 }
 
-/// Keeps `session`, Waft's, as `starting` says, its state reported from now on; answers the format
-/// it runs in.
-fn keep_started(
-    app: &mut App,
-    held: &Weak<RefCell<Held>>,
-    session: Box<dyn CaptureSession>,
-    starting: &Starting,
-) -> Result<CameraFormat, CameraError> {
-    let held = held
-        .upgrade()
-        .ok_or_else(|| CameraError::Failed("WaOS is quitting".to_owned()))?;
-    let session: Rc<dyn CaptureSession> = Rc::from(session);
-    report_changes(app, &session, starting.reports.clone());
-    let format = program_format(&session.format());
-    held.borrow_mut().sessions.insert(starting.session, session);
-    Ok(format)
+/// `outputs` as the App's thread gives them to Waft's camera: Waft's layer behind the program's,
+/// and the program's reader; none, said so, for a layer Waft's compositor did not make or a reader
+/// the app's readers did not, which would show nothing.
+fn session_outputs(outputs: CameraOutputs) -> SessionOutputs {
+    let preview = outputs.preview.and_then(|layer| {
+        let waft = waft_layer(layer);
+        if waft.is_none() {
+            tracing::warn!("a camera was given a layer the app did not make; it shows nowhere");
+        }
+        waft
+    });
+    let frames = outputs.frames.and_then(|reader| {
+        let reader: Arc<dyn std::any::Any + Send + Sync> = reader;
+        let reader = reader.downcast().ok();
+        if reader.is_none() {
+            tracing::warn!("a camera was given a reader the app did not make; it reads nothing");
+        }
+        reader
+    });
+    SessionOutputs {
+        preview,
+        frames,
+        photos: outputs.photos.map(waft_size),
+        upright_frames: outputs.upright_frames,
+    }
 }
 
 /// `outputs` as Waft's camera is given them: the program's reader as Waft's, made on
@@ -321,22 +438,9 @@ fn report_changes(app: &mut App, session: &Rc<dyn CaptureSession>, reports: Capt
     });
 }
 
-/// Takes a photo of `session`, answering it into `taken` once Waft has.
-fn take_photo(
-    app: &mut App,
-    held: &Held,
-    session: CameraKey,
-    taken: oneshot::Sender<Result<waos::bindings::wasdk::media::cameras::Photo, CameraError>>,
-) {
-    let Some(session) = held.sessions.get(&session) else {
-        let _ = taken.send(Err(CameraError::Failed("the session is gone".to_owned())));
-        return;
-    };
-    let photo = session.take_photo();
-    app.spawn(async move |_cx| {
-        // A program that ended meanwhile hears nothing.
-        let _ = taken.send(program_photo(photo.await));
-    });
+/// What a call answers once the App's thread no longer takes calls.
+fn quitting() -> CameraError {
+    CameraError::Failed("WaOS is quitting".to_owned())
 }
 
 #[cfg(test)]

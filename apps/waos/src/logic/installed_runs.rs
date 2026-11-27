@@ -1,16 +1,15 @@
 //! Opening an installed program: its component, from the store, its code waited for while it is
 //! compiled (`installed_code`), as at its install, or compiled where the cache holds none current,
 //! then loaded off the caller's thread and run in WaOS as `waos launch` runs one, its output to
-//! WaOS's log and to whoever attaches (`launch_outputs`),
-//! with this computer's capabilities, the grants of its own settings and its own folders, its views
-//! going where its place says, set before it starts (`program_places`). It is named by its id,
-//! which names it among the runs, so a quit asks it while it runs, in WaOS's log, where its output
-//! goes under the `program` target, and to the questions it puts to its user. A program running
-//! already is left as it is. A tool, a program
+//! WaOS's log and to whoever attaches (`launch_outputs`), with this computer's capabilities, the
+//! grants of its own settings and its own folders, its views going where its place says, set before
+//! it starts (`program_places`). It is named by its id, which names it among the runs, so a quit
+//! asks it while it runs, in WaOS's log, where its output goes under the `program` target, and to
+//! the questions it puts to its user. A program running already is left as it is. A tool, a program
 //! its manifest declares has no UI, opened by the user from an icon is refused: no opening here has
-//! a terminal for its input and output, and WaOS shows none of its own yet (decisions 3 and 7 of
-//! `docs/proposals/2026-11-21-views-a-program-asks-for.md`). One started to be handed files or a
-//! click on its notification runs as any program does, which it may answer with no window.
+//! a terminal for its input and output, and WaOS shows none of its own yet. One started to be
+//! handed files or a click on its notification runs as any program does, which it may answer with
+//! no window.
 //!
 //! The invariant: a run started here is taken out of the runs once it ends, by a task of the
 //! runtime it was started on, its output told how it ended first, so the runs never hold an ended

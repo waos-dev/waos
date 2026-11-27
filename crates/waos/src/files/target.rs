@@ -13,9 +13,9 @@
 //! | anywhere else outside the mounts | `no-entry` | `no-entry` | `no-entry` | `no-entry` |
 //!
 //! A path from a machine's root ([`Target::OnMachine`]) is the machine's, as any program on it
-//! reaches it (the processes proposal's decision 8): it is opened and its status read through the
-//! system's ordinary calls, which follow every symlink and `..` as they lead, and a change is made
-//! in the folder that holds what it names, opened as the system resolves it.
+//! reaches it: it is opened and its status read through the system's ordinary calls, which follow
+//! every symlink and `..` as they lead, and a change is made in the folder that holds what it
+//! names, opened as the system resolves it.
 //!
 //! The table, and what an open is refused with, are callable apart from making the change or the
 //! open ([`Target::refusal_for`], [`Target::open_refusal`]), so the program's access decides a use
@@ -326,7 +326,7 @@ impl Target {
 
     /// Moves what the path names to `to`, in place of what may be there. Onto a file mounted, a
     /// rename from another volume, which the system refuses, is one replace all the same: the file
-    /// is copied beside the target first (the file dialogs proposal's decision 3).
+    /// is copied beside the target first.
     pub(crate) fn rename_to(&self, to: &Target) -> Result<(), ErrorCode> {
         let (from_folder, from_path) = self.place_for(Change::Remove)?;
         let (to_folder, to_path) = to.place_for(Change::Replace)?;

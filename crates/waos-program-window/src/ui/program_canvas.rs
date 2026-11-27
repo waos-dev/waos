@@ -255,10 +255,9 @@ fn deliver_key(
     KeyEventResult::Handled
 }
 
-/// Once the program replies that it left `key`, a key going down, the menu bar is offered it
-/// (the menus proposal's decision 9), as Chrome sends on a key its page did not consume: a key
-/// equivalent, such as ⌘C to Edit's Copy, then chooses its item. Where the platform has no menu
-/// bar, a key left goes nowhere further.
+/// Once the program replies that it left `key`, a key going down, the menu bar is offered it, as
+/// Chrome sends on a key its page did not consume: a key equivalent, such as ⌘C to Edit's Copy,
+/// then chooses its item. Where the platform has no menu bar, a key left goes nowhere further.
 fn offer_to_menu_bar_if_left(app: &mut App, key: KeyData, reply: KeyHandledFuture) {
     if key.event_type == KeyEventType::Up {
         return;

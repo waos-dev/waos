@@ -1,0 +1,25 @@
+---
+title: Code that cannot await
+description: Call WaOS from synchronous code, and what a blocking wait holds up.
+---
+
+Every call into WaOS answers later: a program awaits it. Code written for a native system often cannot: a library's plain function reads a font or a file and returns the bytes. `wasdk::block_on` runs a future to its end on the calling thread and returns its answer.
+
+```rust
+// A library's plain function, which cannot await; `read` is the program's own async function.
+fn read_now(path: &str) -> Vec<u8> {
+    wasdk::block_on(read(path))
+}
+```
+
+## What a `block_on` holds up
+
+- **It returns once every task started inside it has ended.** A task that runs on, a listener or a loop started with `wasdk::spawn`, keeps it from returning. Start such a task from the program's own async code, and await once before the first `block_on`: it also takes up the tasks started since the program last awaited.
+- **It holds its thread.** The code that called it goes no further until it returns, so it must not wait for work that runs only after it does, such as a task queued on a library's own executor on the same thread.
+- **What WaOS sends meanwhile waits.** A view's events queue and none are lost. A key's reply, which WaOS waits for, takes as long as the wait does.
+
+## Work that must go on
+
+Put it on a thread. A program's [threads](/docs/guide/threads) keep taking their turns while another thread waits in a `block_on` or in any call into WaOS. A program whose loop is a library's, as winit's is, starts its tasks on that loop.
+
+A loop that never waits calls `wasdk::yield_blocking()` to give WaOS a turn; it answers `false` once the program is being stopped.

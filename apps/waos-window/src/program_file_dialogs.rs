@@ -1,11 +1,10 @@
-//! The program's file dialogs in its app (decisions 13 and 15 of
-//! `docs/proposals/2026-10-29-macos-apps.md`): each the system's own panel, opened through the
-//! window process's Waft host as a sheet on the window WaOS names, the one made for the view the
-//! program named, and on its own where WaOS names none or that window is gone, as WaOS's own
-//! dialogs open; showing it brings the app forward (`os::come_forward`), since the user must see
-//! it, and WaOS launches the app in the background. The paths on the machine the user picked go
-//! back to WaOS once it closes, and WaOS mounts them for the program: the window process decides
-//! nothing of what the program may reach, the user picks and the program names no path.
+//! The program's file dialogs in its app: each the system's own panel, opened through the window
+//! process's Waft host as a sheet on the window WaOS names, the one made for the view the program
+//! named, and on its own where WaOS names none or that window is gone, as WaOS's own dialogs open;
+//! showing it brings the app forward (`os::come_forward`), since the user must see it, and WaOS
+//! launches the app in the background. The paths on the machine the user picked go back to WaOS
+//! once it closes, and WaOS mounts them for the program: the window process decides nothing of what
+//! the program may reach, the user picks and the program names no path.
 //!
 //! The invariant a later editor will break: every dialog WaOS asks for is answered once, with why
 //! none was picked where the host has no file dialogs, so the program's call returns; and nothing

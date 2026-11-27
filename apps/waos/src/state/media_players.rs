@@ -1,90 +1,205 @@
-//! The programs' players on the main thread, over Waft's: each opened on Waft's players as the
-//! engine asks, its picture sent to the layer the program made, which is Waft's, or to the reader
-//! it made, Waft's from the first time a player is given it, controlled as the program asks, its
-//! tracks picked among them, and dropped as the program lets it go; its state, its media's
-//! metadata and its cues reported to its program as it opens and at each change after, as Waft's
-//! own `Player` follows the host's. The players are the engine's shell's only where Waft's
-//! platform has them.
+//! The programs' players, over Waft's: the engine opens one from a program's thread, or from the
+//! thread its link's host was looked up on, and calls it from the program's; each call is posted
+//! to the App's thread (`app_thread_bound`), where the player is opened on Waft's players, its
+//! picture sent to the layer the program made, which is Waft's, or to the reader it made, Waft's
+//! from the first time a player is given it, controlled as the program asks, its tracks picked
+//! among them, and dropped as the program lets it go; its state, its media's metadata and its cues
+//! reported to its program as it opens and at each change after, as Waft's own `Player` follows the
+//! host's. The players are the engine's shell's only where Waft's platform has them.
 //!
-//! The invariant: each change of a player's state is reported while Waft's player is kept, since
-//! the next change is asked for before the state is read; and a player let go of is reported no
-//! more.
+//! The invariant: a player's calls reach the App's thread in the order made, its opening first and
+//! its removal last; an opening that cannot reach it, as WaOS quits, is reported failed at once, so
+//! no program waits for a player that cannot load; each change of a player's state is reported
+//! while Waft's player is kept, since the next change is asked for before the state is read; and a
+//! player let go of is reported no more.
 
+use std::any::Any;
 use std::collections::HashMap;
 use std::rc::{Rc, Weak};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
-use futures::StreamExt;
-use futures::channel::mpsc::UnboundedReceiver;
-use waft::App;
-use waft::ui::{self, MediaPlayer, Platform, VideoOutput};
-use waos::{MediaPlayerReports, ShellMediaPlayers};
+use waft::ui::{self, MediaPlayer, Platform};
+use waft::{App, AsyncApp};
+use waos::bindings::wasdk::media::media_players::SeekTolerance;
+use waos::{MediaPlayerReports, RunningProgram, ShellMediaPlayer, ShellMediaPlayers, VideoOutput};
+use waos_program_window::waft_layer;
 
+use super::app_thread_bound::{AppThreadBound, AppThreadCalls};
 use crate::logic::cues::program_cue;
-use crate::logic::media_player_calls::{
-    PlayerCall, PlayerKey, PlayerRequest, PlayersOnRequest, VideoDestination,
-};
-use crate::logic::player_states::{program_metadata, program_state};
+use crate::logic::frame_readers::ReaderOnRequest;
+use crate::logic::player_states::{program_metadata, program_state, waft_tolerance};
+
+/// The id the app gives each player a program opens, which its calls carry.
+type PlayerKey = u64;
 
 /// Waft's players, served to the engine as its shell's.
 pub(crate) struct MediaPlayers {
     shell: Arc<PlayersOnRequest>,
-    arriving: UnboundedReceiver<PlayerCall>,
+    calls: AppThreadCalls<OpenPlayers>,
 }
-
-/// Waft's players the programs opened, by the app's key for each.
-type OpenPlayers = HashMap<PlayerKey, Rc<dyn MediaPlayer>>;
 
 impl MediaPlayers {
     /// Waft's players on `platform`, to serve to the engine; none where it has none.
     pub(crate) fn of(platform: &dyn Platform) -> Option<MediaPlayers> {
         platform.players()?;
-        let (shell, arriving) = PlayersOnRequest::new();
+        let (players, calls) = AppThreadBound::new();
+        let shell = PlayersOnRequest {
+            players,
+            last_player: AtomicU64::default(),
+        };
         Some(MediaPlayers {
             shell: Arc::new(shell),
-            arriving,
+            calls,
         })
     }
 
-    /// The players as the engine's shell has them: each call goes to the main thread, where
-    /// [`serve`](Self::serve) carries it out.
+    /// The players as the engine's shell has them: each call is posted to the App's thread, where
+    /// [`serve`](Self::serve) runs it.
     pub(crate) fn shell(&self) -> Arc<dyn ShellMediaPlayers> {
         Arc::clone(&self.shell) as Arc<dyn ShellMediaPlayers>
     }
 
     /// From now on, each player a program opens is one of Waft's, and does as the program asks.
     pub(crate) fn serve(self, app: &mut App) {
-        let mut arriving = self.arriving;
-        app.spawn(async move |cx| {
-            let mut open = OpenPlayers::new();
-            while let Some(call) = arriving.next().await {
-                cx.update(|app| take(app, &mut open, call));
+        let open = OpenPlayers {
+            app: app.to_async(),
+            open: HashMap::new(),
+        };
+        self.calls.serve(app, open);
+    }
+}
+
+/// The app's players, as the engine reaches them: every call is posted to the App's thread.
+struct PlayersOnRequest {
+    players: AppThreadBound<OpenPlayers>,
+    last_player: AtomicU64,
+}
+
+impl ShellMediaPlayers for PlayersOnRequest {
+    fn open(
+        &self,
+        program: &RunningProgram,
+        url: &str,
+        reports: MediaPlayerReports,
+    ) -> Box<dyn ShellMediaPlayer> {
+        tracing::info!(program = program.name(), url, "a program opens a player");
+        let key = self.last_player.fetch_add(1, Ordering::Relaxed) + 1;
+        let opening = self.players.post({
+            let url = url.to_owned();
+            let reports = reports.clone();
+            move |players| players.open(key, &url, reports)
+        });
+        if opening.is_err() {
+            reports.state_changed(failed("WaOS is quitting"));
+        }
+        Box::new(PlayerOnRequest {
+            key,
+            players: self.players.clone(),
+        })
+    }
+}
+
+/// One player, as the engine holds it: its calls are posted to the App's thread, and its removal
+/// as it drops.
+struct PlayerOnRequest {
+    key: PlayerKey,
+    players: AppThreadBound<OpenPlayers>,
+}
+
+impl PlayerOnRequest {
+    /// Does `call` to Waft's player on the App's thread, if it opened; nothing once WaOS quits.
+    fn on_player(&self, call: impl FnOnce(&dyn MediaPlayer) + Send + 'static) {
+        let key = self.key;
+        let _ = self.players.post(move |players| {
+            if let Some(waft) = players.open.get(&key) {
+                call(waft.as_ref());
             }
         });
     }
 }
 
-/// Carries out `call`, from the engine.
-fn take(app: &mut App, open: &mut OpenPlayers, call: PlayerCall) {
-    match call {
-        PlayerCall::Open {
-            player,
-            url,
-            reports,
-        } => {
-            if let Some(waft) = open_player(app, &url, reports) {
-                open.insert(player, waft);
-            }
+impl ShellMediaPlayer for PlayerOnRequest {
+    fn play(&self) {
+        self.on_player(|waft| waft.play());
+    }
+
+    fn pause(&self) {
+        self.on_player(|waft| waft.pause());
+    }
+
+    fn seek(&self, position: Duration, tolerance: SeekTolerance) {
+        let tolerance = waft_tolerance(tolerance);
+        self.on_player(move |waft| waft.seek(position, tolerance));
+    }
+
+    fn set_rate(&self, rate: f64) {
+        self.on_player(move |waft| waft.set_rate(rate));
+    }
+
+    fn set_volume(&self, volume: f32) {
+        self.on_player(move |waft| waft.set_volume(f64::from(volume)));
+    }
+
+    fn set_muted(&self, muted: bool) {
+        self.on_player(move |waft| waft.set_muted(muted));
+    }
+
+    fn set_looping(&self, looping: bool) {
+        self.on_player(move |waft| waft.set_looping(looping));
+    }
+
+    fn set_video_output(&self, output: Option<VideoOutput>) {
+        let key = self.key;
+        let _ = self
+            .players
+            .post(move |players| players.set_video_output(key, output));
+    }
+
+    fn select_audio_track(&self, id: &str) {
+        let id = id.to_owned();
+        self.on_player(move |waft| waft.select_audio_track(&id));
+    }
+
+    fn select_text_track(&self, id: Option<&str>) {
+        let id = id.map(str::to_owned);
+        self.on_player(move |waft| waft.select_text_track(id.as_deref()));
+    }
+}
+
+impl Drop for PlayerOnRequest {
+    fn drop(&mut self) {
+        let key = self.key;
+        let _ = self.players.post(move |players| {
+            players.open.remove(&key);
+        });
+    }
+}
+
+/// Waft's players the programs opened, by the app's key for each, on the App's thread.
+struct OpenPlayers {
+    app: AsyncApp,
+    open: HashMap<PlayerKey, Rc<dyn MediaPlayer>>,
+}
+
+impl OpenPlayers {
+    /// Opens Waft's player of `url` as `key`, its state reported into `reports` from now on;
+    /// reported failed where Waft's platform has no players.
+    fn open(&mut self, key: PlayerKey, url: &str, reports: MediaPlayerReports) {
+        let opened = self.app.update(|app| open_player(app, url, reports));
+        if let Some(waft) = opened {
+            self.open.insert(key, waft);
         }
-        PlayerCall::Player(player, request) => {
-            if let Some(waft) = open.get(&player) {
-                carry_out(app.platform().as_ref(), waft.as_ref(), request);
-            }
-        }
-        PlayerCall::Remove(player) => {
-            open.remove(&player);
-        }
+    }
+
+    /// Sends the picture of the player `key` to `output`, or nowhere for none.
+    fn set_video_output(&self, key: PlayerKey, output: Option<VideoOutput>) {
+        let Some(waft) = self.open.get(&key) else {
+            return;
+        };
+        let platform = self.app.update(|app| app.platform());
+        waft.set_video_output(output.and_then(|output| waft_output(platform.as_ref(), output)));
     }
 }
 
@@ -97,15 +212,20 @@ fn open_player(
 ) -> Option<Rc<dyn MediaPlayer>> {
     let platform = app.platform();
     let Some(players) = platform.players() else {
-        reports.state_changed(program_state(ui::PlayerState::failed(ui::PlayerError {
-            kind: ui::PlayerErrorKind::Other,
-            message: "the system has no players".to_owned(),
-        })));
+        reports.state_changed(failed("the system has no players"));
         return None;
     };
     let waft: Rc<dyn MediaPlayer> = Rc::from(players.open(url));
     report_changes(app, &waft, reports);
     Some(waft)
+}
+
+/// A player's state that failed for `message`, as the program reads it.
+fn failed(message: &str) -> waos::bindings::wasdk::media::media_players::PlayerState {
+    program_state(ui::PlayerState::failed(ui::PlayerError {
+        kind: ui::PlayerErrorKind::Other,
+        message: message.to_owned(),
+    }))
 }
 
 /// Reports `waft`'s state, its media's metadata, its cues and its position into `reports` now,
@@ -173,36 +293,33 @@ impl Reported {
     }
 }
 
-/// Asks `request` of Waft's player, a frame reader made on `platform`'s readers.
-fn carry_out(platform: &dyn Platform, waft: &dyn MediaPlayer, request: PlayerRequest) {
-    match request {
-        PlayerRequest::Play => waft.play(),
-        PlayerRequest::Pause => waft.pause(),
-        PlayerRequest::Seek(position, tolerance) => waft.seek(position, tolerance),
-        PlayerRequest::SetRate(rate) => waft.set_rate(rate),
-        PlayerRequest::SetVolume(volume) => waft.set_volume(volume),
-        PlayerRequest::SetMuted(muted) => waft.set_muted(muted),
-        PlayerRequest::SetLooping(looping) => waft.set_looping(looping),
-        PlayerRequest::SetVideoOutput(destination) => {
-            let output = destination.and_then(|destination| waft_output(platform, destination));
-            waft.set_video_output(output);
+/// `output` as Waft's player is given it: Waft's layer behind the program's, or the program's
+/// reader as Waft's, made on `platform`'s readers; none where the platform has no readers or the
+/// reader is WaOS's simulated camera's, and none, said so, for a layer Waft's compositor did not
+/// make or a reader the app's readers did not, which would show nothing.
+fn waft_output(platform: &dyn Platform, output: VideoOutput) -> Option<ui::VideoOutput> {
+    match output {
+        VideoOutput::Layer(layer) => match waft_layer(layer) {
+            Some(layer) => Some(ui::VideoOutput::Layer(layer)),
+            None => not_made_by_the_app(),
+        },
+        VideoOutput::Frames(reader) => {
+            let reader: Arc<dyn Any + Send + Sync> = reader;
+            match reader.downcast::<ReaderOnRequest>() {
+                Ok(reader) => {
+                    let readers = platform.video_frame_readers()?;
+                    reader.waft_reader(readers).map(ui::VideoOutput::Frames)
+                }
+                Err(_) => not_made_by_the_app(),
+            }
         }
-        PlayerRequest::SelectAudioTrack(id) => waft.select_audio_track(&id),
-        PlayerRequest::SelectTextTrack(id) => waft.select_text_track(id.as_deref()),
     }
 }
 
-/// `destination` as Waft's player is given it: its layer, or the program's reader as Waft's,
-/// made on `platform`'s readers; none where the platform has none, or the reader is WaOS's
-/// simulated camera's.
-fn waft_output(platform: &dyn Platform, destination: VideoDestination) -> Option<VideoOutput> {
-    match destination {
-        VideoDestination::Layer(layer) => Some(VideoOutput::Layer(layer)),
-        VideoDestination::Frames(reader) => {
-            let readers = platform.video_frame_readers()?;
-            Some(VideoOutput::Frames(reader.waft_reader(readers)?))
-        }
-    }
+/// No output, said so, for one the app did not make.
+fn not_made_by_the_app() -> Option<ui::VideoOutput> {
+    tracing::warn!("a player was given an output the app did not make; it shows nowhere");
+    None
 }
 
 #[cfg(test)]

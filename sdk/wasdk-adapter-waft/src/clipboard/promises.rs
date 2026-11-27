@@ -1,8 +1,7 @@
-//! A write's promises, answered: each paste of a promised form or file is a request of the
-//! write's source, answered in a task of the program's own by the producer Waft gave, with the
-//! content and whether it was made whole, the WIT's `done` (decision 16 of the clipboard
-//! proposal). A promised file is produced into a sink that writes the request's stream as the
-//! bytes come.
+//! A write's promises, answered: each paste of a promised form or file is a request of the write's
+//! source, answered in a task of the program's own by the producer Waft gave, with the content and
+//! whether it was made whole, the WIT's `done`. A promised file is produced into a sink that writes
+//! the request's stream as the bytes come.
 //!
 //! The invariant: a write's promises are answered only from the requests of the source that write
 //! answered, which end once another copy replaces it, so a paste never reaches the producer of a

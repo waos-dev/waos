@@ -3,27 +3,23 @@
 //! `opener`, `notifications`, `media_players`, `media_assets`, `image_codecs`, `cameras`, `http`
 //! and `files`, drawn with valo over `wasdk-wgpu`. [`run`] is the body of a program's `main`.
 //!
-//! It maps Waft's model one to one (the design's decision 4): the views that arrive for the
-//! program's requests, each carrying its request's id and initial data; each view's events,
-//! carried field for field into Waft's Flutter shapes; each view's frames through its own
-//! `request-frame` and `present`, a refresh serving several views drawn as one frame of them all,
-//! each view holding the composition layers its scene places as it presents, which Waft's
-//! compositor makes as the WIT's ([`composition`]);
+//! It maps Waft's model one to one: the views that arrive for the program's requests, each carrying
+//! its request's id and initial data; each view's events, carried field for field into Waft's
+//! Flutter shapes; each view's frames through its own `request-frame` and `present`, a refresh
+//! serving several views drawn as one frame of them all, each view holding the composition layers
+//! its scene places as it presents, which Waft's compositor makes as the WIT's ([`composition`]);
 //! windows through `request-view` and `view.window()`; the screens and the screen each view is on;
 //! light or dark, the languages and the local time zone; the lifecycle state and the requests to
 //! end; the clipboard, its items, writes and changes, flushed as the program ends, and the user's
 //! copy, cut and paste and Edit's other commands, which a view hears; the menu bar, context menus
-//! and tray icons
-//! ([`menus`]); the file dialogs ([`file_dialogs`]); the program's file system ([`files`]) and HTTP
-//! ([`http`]); the system's opener ([`opener`]) and what the
-//! user opens with the program ([`open_requests`]); the system's notifications and the clicks on
-//! them ([`notifications`]); the system's players, their pictures on the program's composition
-//! layers ([`players`]); the system's reading of media without playing it ([`media_assets`]); the
-//! system's image codecs ([`image_codecs`]), which Waft's own images decode with too
-//! ([`image_decoding`]); and the system's cameras, their previews on those
-//! layers too
-//! ([`cameras`]). The program's fonts are the engine's, as decisions 36 and 37 set
-//! them ([`fonts`]).
+//! and tray icons ([`menus`]); the file dialogs ([`file_dialogs`]); the program's file system
+//! ([`files`]) and HTTP ([`http`]); the system's opener ([`opener`]) and what the user opens with
+//! the program ([`open_requests`]); the system's notifications and the clicks on them
+//! ([`notifications`]); the system's players, their pictures on the program's composition layers
+//! ([`players`]); the system's reading of media without playing it ([`media_assets`]); the system's
+//! image codecs ([`image_codecs`]), which Waft's own images decode with too ([`image_decoding`]);
+//! and the system's cameras, their previews on those layers too ([`cameras`]). The program's fonts
+//! are the engine's ([`fonts`]).
 //!
 //! The modules: [`event_loop`] turns every event into one push into Waft's client, [`events`]
 //! merges the streams it reads, and [`refreshes`] gathers a refresh's frames from the streams of

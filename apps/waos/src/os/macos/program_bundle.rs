@@ -1,5 +1,4 @@
-//! A program's app bundle, as Chrome writes an app shim (`docs/proposals/2026-10-29-macos-app-
-//! shims-research.md`, §1): an `Info.plist` with the namespaced bundle id `dev.waos.program.<id>`,
+//! A program's app bundle, as Chrome writes an app shim: an `Info.plist` with the namespaced bundle id `dev.waos.program.<id>`,
 //! the program's name and version, and the keys its window process reads
 //! (`waos_window_messages::bundle`); the kinds of file the program opens, each a document type
 //! matched by its extensions and ranked `Alternate`, so the Finder offers the app in Open With and

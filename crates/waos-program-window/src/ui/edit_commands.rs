@@ -1,8 +1,8 @@
 //! Edit's commands, sent to a program's view: what a program's canvas does with the text editing
 //! intents Waft sends the focused widget when the user chooses an item of Edit's, the platform's,
-//! in the menu bar, as AppKit sends `copy:` to the first responder. Each is the program's
-//! view's `copy`, `cut`, `paste` or `edit` event, whose paste reads whatever the program's read
-//! switch says (the clipboard proposal's decisions 4 and 5).
+//! in the menu bar, as AppKit sends `copy:` to the first responder. Each is the program's view's
+//! `copy`, `cut`, `paste` or `edit` event, whose paste reads whatever the program's read switch
+//! says.
 
 use std::any::TypeId;
 use std::collections::HashMap;

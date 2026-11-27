@@ -1,10 +1,9 @@
 //! What WaOS and a program's window process say of WaOS's prompts for the program, each shown in a
-//! dialog window of its own in the program's app (decision 9 of
-//! `docs/proposals/2026-10-29-macos-apps.md`): WaOS draws the prompt into an Waft view of its own,
-//! on a composition layer in a layer context the dialog hosts, and the dialog sends back what
+//! dialog window of its own in the program's app: WaOS draws the prompt into an Waft view of its
+//! own, on a composition layer in a layer context the dialog hosts, and the dialog sends back what
 //! Waft's host in the window process reports of the view it is: its metrics, whether it is in
-//! sight, its pointers, its keys and its focus ([`PromptReport`]), as Waft's own values, which
-//! its `serde` feature lets cross. WaOS's view asks the dialog for a cursor and for the keyboard's
+//! sight, its pointers, its keys and its focus ([`PromptReport`]), as Waft's own values, which its
+//! `serde` feature lets cross. WaOS's view asks the dialog for a cursor and for the keyboard's
 //! focus ([`PromptCall`]).
 //!
 //! The invariant a later editor will break: a dialog's reports are what Waft's host in the window

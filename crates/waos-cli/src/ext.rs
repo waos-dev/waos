@@ -1,11 +1,10 @@
 //! `waos ext`: the service extensions of the programs running in the WaOS a command goes to, as
 //! Waft's CLI (`cargo waft ext`) reaches an app's, so WaOS is a platform to it and `waos` only
-//! carries the messages (the design's decision 70). `waos ext list --json` lists each program
-//! running that serves extensions as Waft's discovery lists an app, its address the command that
-//! relays to it; `waos ext --id <id> --stdio` is that relay: it reads one message of Waft's
-//! service protocol a line on stdin and writes one a line on stdout until stdin closes, each
-//! request one `Extension` to WaOS, on a connection of its own as the command's other requests
-//! are, and its answer one response.
+//! carries the messages. `waos ext list --json` lists each program running that serves extensions
+//! as Waft's discovery lists an app, its address the command that relays to it; `waos ext --id <id>
+//! --stdio` is that relay: it reads one message of Waft's service protocol a line on stdin and
+//! writes one a line on stdout until stdin closes, each request one `Extension` to WaOS, on a
+//! connection of its own as the command's other requests are, and its answer one response.
 //!
 //! The invariants: every request read is answered with one response line, whatever WaOS says or
 //! fails to, so a client never waits for one; and a hello is taken and not forwarded, since what

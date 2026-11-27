@@ -1,8 +1,7 @@
-//! A program's notifications on macOS, its app's (decisions 14 and 15 of
-//! `docs/proposals/2026-10-29-macos-apps.md`): the engine's notifications, each post, schedule and
-//! removal taking the getter, so a program whose app does not run has it launched, with no window
-//! and in the background, and the notification goes there. The window process posts it under the
-//! program's bundle, so it shows under the program's name and icon, and macOS holds a scheduled
+//! A program's notifications on macOS, its app's: the engine's notifications, each post, schedule
+//! and removal taking the getter, so a program whose app does not run has it launched, with no
+//! window and in the background, and the notification goes there. The window process posts it under
+//! the program's bundle, so it shows under the program's name and icon, and macOS holds a scheduled
 //! one under that bundle whether or not the app runs. macOS's permission for the app is the
 //! engine's system permission for notifications here (`ShellSystemPermissions`): the engine reads
 //! what the app last said of it, and asks for it after WaOS's question, once its user allowed the
@@ -12,13 +11,12 @@
 //! later in System Settings, answers `denied`. What the app says macOS said of the program's
 //! notifications, as WaOS welcomed it, as the question is answered, as it comes to the front, as
 //! WaOS asks and as a post is answered, is kept (`notification_permissions`) and told to WaOS's
-//! settings page for the program, which says so and sends the user to System Settings, since
-//! macOS asks only once. WaOS asks each
-//! app that runs to read it again as WaOS comes to the front (`state::program_apps`), since a user
-//! the page sent to System Settings comes back to WaOS, not to the program's app; an app that does
-//! not run is not launched for it. What the user does to one comes
-//! back from the window process to the program, and a click that launched the app comes with its
-//! hello (`server`).
+//! settings page for the program, which says so and sends the user to System Settings, since macOS
+//! asks only once. WaOS asks each app that runs to read it again as WaOS comes to the front
+//! (`state::program_apps`), since a user the page sent to System Settings comes back to WaOS, not
+//! to the program's app; an app that does not run is not launched for it. What the user does to one
+//! comes back from the window process to the program, and a click that launched the app comes with
+//! its hello (`server`).
 //!
 //! macOS's notifications take replies and schedule (`UNTextInputNotificationAction`, calendar
 //! triggers), and Waft's macOS host offers both wherever it has notifications, which a program's

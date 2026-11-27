@@ -1,10 +1,9 @@
 //! `waos settings` and `waos settings set`: a program's settings, as its settings page in WaOS
 //! shows them, one row each, read or set by the WaOS on this machine, which keeps them; a set
-//! answer is the program's setting, used by every run of it. Any program is reached, however it
-//! was installed, the package's development install by default, and one the store does not have
-//! installed, which may be set before its install (the design's decision 70).
-//! WaOS is started when none answers, since the settings are there to be set before the run that
-//! needs them.
+//! answer is the program's setting, used by every run of it. Any program is reached, however it was
+//! installed, the package's development install by default, and one the store does not have
+//! installed, which may be set before its install. WaOS is started when none answers, since the
+//! settings are there to be set before the run that needs them.
 //!
 //! The invariant: a path set is whole before it is sent, made so against this directory, as
 //! `waos open` makes the files it opens; WaOS resolves it as it was written before keeping it,

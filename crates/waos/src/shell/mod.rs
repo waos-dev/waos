@@ -402,11 +402,10 @@ pub trait ShellCompositionLayer: Any + Send + Sync {
     /// layer's next present, or as the layer goes.
     fn present(&self, buffer: HardwareBuffer, released: Box<dyn FnOnce() + Send + Sync>);
 
-    /// What the layer shows now, as Waft's `CompositionLayer::current_picture` answers it, case
-    /// for case: the buffer presented last, or the current frame of the player's video or the
-    /// camera's picture on it; none while it shows nothing. What a tool's picture of the program's
-    /// window draws beneath the program's own (the design's decision 62); programs never see it.
-    /// Called from any thread.
+    /// What the layer shows now, as Waft's `CompositionLayer::current_picture` answers it, case for
+    /// case: the buffer presented last, or the current frame of the player's video or the camera's
+    /// picture on it; none while it shows nothing. What a tool's picture of the program's window
+    /// draws beneath the program's own; programs never see it. Called from any thread.
     fn current_picture(&self) -> Option<LayerPicture>;
 }
 
@@ -686,8 +685,8 @@ pub trait ShellAudioOutputPicker: Send + Sync {
 pub type AudioOutputPickedFuture = Pin<Box<dyn Future<Output = Option<String>> + Send>>;
 
 /// The shell's side of `machines.pick`: the platform's sheet where the user picks a machine for a
-/// program, as a photo picker shows its photos, the pick being the program's grant (the processes
-/// proposal's decision 3). It shows the machine as the program can act on it: as the user.
+/// program, as a photo picker shows its photos, the pick being the program's grant. It shows the
+/// machine as the program can act on it: as the user.
 pub trait ShellMachinePicker: Send + Sync {
     /// Shows `machines` to the user for `program`, and resolves to the id of the one picked; to
     /// none when the user cancelled, or the program ended first. Called from the program's
@@ -1217,7 +1216,7 @@ pub struct StartedSession {
     pub session: Box<dyn ShellCaptureSession>,
     /// The format it runs in: the one picked, unless it joined the format the camera ran in for
     /// another session. It stays the same while it runs, since changing a shared camera's format
-    /// comes later (decision 9 of `docs/proposals/2026-11-02-program-media.md`).
+    /// comes later.
     pub format: CameraFormat,
 }
 

@@ -1,7 +1,7 @@
 /**
  * A smoke test for the site: every page and route answers, and with its title. It also checks
- * what the home page's actions and its sample do, what decision 4 asks of the art short of how
- * it looks, that the reference has every interface of the WIT with all of its code, that the
+ * what the home page's actions and its sample do, that its art is drawn, moves, and is still
+ * with reduced motion, that the reference has every interface of the WIT with all of its code, that the
  * icons page shows every built-in app's icon, and that no page logs an error. How the pages look is the lead's to check.
  *
  * Run against a production build: `npm run build && npm test`, which serves it with `next start`;

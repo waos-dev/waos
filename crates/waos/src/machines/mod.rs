@@ -1,6 +1,6 @@
-//! `wasdk:platform/machines`: the machines a program acts on as their user (the processes
-//! proposal's decisions 1 to 6), each the provider's in its environment ([`Machines`], one per
-//! kind), which give its files from its root and run its commands.
+//! `wasdk:platform/machines`: the machines a program acts on as their user, each the provider's in
+//! its environment ([`Machines`], one per kind), which give its files from its root and run its
+//! commands.
 //!
 //! The engine keeps which machines the program holds: those its user picked for it, kept among
 //! its grants by their ids and read at each `granted`; a machine handed to the program, granted or

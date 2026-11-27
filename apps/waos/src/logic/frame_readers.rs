@@ -5,7 +5,7 @@
 //! (`simulated_cameras`).
 //! A frame Waft's reader answers is handed to the engine as the platform's own, on Apple's systems
 //! the pixel buffer behind Waft's Core Video frame and on Android the `AHardwareBuffer` behind
-//! Waft's Android frame, as a media asset's picture is (`media_asset_calls`).
+//! Waft's Android frame, as a media asset's picture is (`state::media_assets`).
 //!
 //! The invariant: a reader has one source at most, Waft's or WaOS's, given it once, so a source
 //! given it twice sends its frames to one reader; before it has one, it answers no frame, as a

@@ -2,8 +2,8 @@
 //! system or from WaOS's command line, and as the program hears them on `open-requests`.
 //!
 //! The invariant: a file reaches the program only mounted, writable at its own path, as the user
-//! chose to open it in this program (the opening proposal's decision 5); it is mounted as the
-//! program reads the request, so the path it reads is one it reaches.
+//! chose to open it in this program; it is mounted as the program reads the request, so the path it
+//! reads is one it reaches.
 
 use std::path::PathBuf;
 

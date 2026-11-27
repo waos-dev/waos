@@ -1,11 +1,11 @@
-//! A window's wait in its resize for the program's picture at the new size (decision 55 of
-//! `docs/proposals/2026-10-17-the-waos-project.md`): the window sends its view's new size to WaOS
-//! and waits there, inside AppKit's step and before macOS shows the new size, with no timeout,
-//! until WaOS says the program's picture at that size is shown, so the window's new size and that
-//! picture show together, as Flutter's macOS embedder waits in its view's `setFrameSize:`
-//! (`ResizeSynchronizer.swift`). Nothing waits before a view's first picture, which WaOS says is
-//! shown as it shows it; from then on the window waits in each resize, for a picture WaOS says is
-//! shown after it sent the size, as Flutter's waits for a frame committed after the resize began.
+//! A window's wait in its resize for the program's picture at the new size: the window sends its
+//! view's new size to WaOS and waits there, inside AppKit's step and before macOS shows the new
+//! size, with no timeout, until WaOS says the program's picture at that size is shown, so the
+//! window's new size and that picture show together, as Flutter's macOS embedder waits in its
+//! view's `setFrameSize:` (`ResizeSynchronizer.swift`). Nothing waits before a view's first
+//! picture, which WaOS says is shown as it shows it; from then on the window waits in each resize,
+//! for a picture WaOS says is shown after it sent the size, as Flutter's waits for a frame
+//! committed after the resize began.
 //!
 //! The wait ends too, the window then showing its new size without the picture at it, once the
 //! program ends or WaOS goes, and once the program awaits the app: while WaOS has asked the app on
