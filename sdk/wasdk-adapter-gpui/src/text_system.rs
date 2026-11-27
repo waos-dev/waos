@@ -179,9 +179,8 @@ impl WasdkTextSystem {
 ///
 /// `wasdk::block_on` runs, and waits for, every task spawned since the program last awaited
 /// (wit-bindgen keeps spawned tasks in one list, taken up by whichever task runs next), so a read
-/// here would never return behind a task that never ends, as `wasdk-wgpu`'s device listeners
-/// never do. So the adapter spawns nothing of its own with `wasdk::spawn`, and `run` awaits once
-/// after making the device, before GPUI can ask for a font.
+/// here would never return behind a task that never ends. So the adapter spawns nothing of its own
+/// with `wasdk::spawn`.
 fn read_font_file(file: FontFile) -> Vec<u8> {
     let FontFile {
         mut data, length, ..

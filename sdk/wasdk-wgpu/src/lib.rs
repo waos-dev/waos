@@ -94,18 +94,15 @@
 //!   Nor is a buffer made mapped (`mapped_at_creation`), which is zeros, so `create_buffer_init`
 //!   sends its data once. A range outside the mapping panics, where wgpu-core answers a
 //!   [`wgpu::MapRangeError`], which no backend outside wgpu can make.
-//! - **A mapping's and submitted work's callbacks run at `Device::poll`, or as the program
-//!   yields**, whichever comes first, each once, in the order asked. The request reaches the
-//!   engine at the call, as with wgpu's own backend, so an `unmap` aborts a mapping not yet
-//!   answered, running its callback at once, and submitted work is told done once the work
-//!   submitted before the ask is. `poll`, with `Wait` or `Poll`, runs every callback whose work is
-//!   done when the engine's poll returns: code written for native wgpu, which asks, polls and
-//!   reads at once, and code written for the web, which awaits, both work.
-//! - **Uncaptured errors and device loss arrive as the program awaits.** The device's uncaptured
-//!   errors are read by a task started as the device opens, which hands each to the handler set
-//!   with `on_uncaptured_error`, or else panics, as wgpu's default handler does;
-//!   `set_device_lost_callback` starts a task too. A device opened inside a `wasdk::block_on`
-//!   keeps that wait from returning, since the wait waits for the task: open it from async code.
+//! - **Uncaptured errors arrive at the program's next `Device::poll`, `Queue::submit` or
+//!   `Instance::poll_all`**, where wgpu-core reports each at the call that made it: each goes to
+//!   the handler set with `on_uncaptured_error`, or else panics, as wgpu's default handler does.
+//!   A mapping's and submitted work's callbacks, and the device-lost callback, run at those same
+//!   calls, as with wgpu's own backend: each once, in the order asked, so code that awaits a
+//!   mapping and never polls or submits is never answered, as on native wgpu. The request reaches
+//!   the engine at the call, so an `unmap` aborts a mapping not yet answered, running its callback
+//!   at once, and submitted work is told done once the work submitted before the ask is. Nothing
+//!   runs on a task of its own, so a device opened inside a `wasdk::block_on` lets it return.
 //! - **`Queue::write_buffer_with` answers `None` without reporting an error**, for a buffer without
 //!   `COPY_DST`, an offset or size not aligned to `COPY_BUFFER_ALIGNMENT`, or a write past the
 //!   buffer's end, checked here as wgpu's backend for the web checks it; wgpu-core's backend also

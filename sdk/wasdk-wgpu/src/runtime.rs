@@ -1,30 +1,28 @@
-//! Where this backend's callbacks run.
+//! Where this backend's callbacks run: at the program's calls into wgpu, as native wgpu runs
+//! them, and never on a task of their own.
 //!
 //! wgpu answers a buffer's mapping and a queue's submitted work through callbacks. The request
 //! reaches the engine at the call: `map-async` and `on-submitted-work-done` ask wgpu-core then, in
 //! order with the calls around them, and answer a future the engine resolves once the GPU has
 //! done the work, so an `unmap` after a mapping aborts it, and work submitted after
 //! `on_submitted_work_done` is not waited for. Only the answer comes later. A device keeps each
-//! future with its callback, in the order asked ([`PendingCallbacks`]), and runs a callback once
-//! its future has resolved, at whichever comes first: the device's `poll`, which runs those whose
-//! future has resolved by the time the engine's poll returns, as native wgpu runs its callbacks
-//! inside `Device::poll`, so a program that asks, polls and reads works; or the program's next
-//! `.await`, where a task of the device's awaits them, as the web resolves its promises, so a
-//! program that never polls works too. An `unmap` runs its buffer's aborted mapping at once, as
-//! wgpu-core does.
+//! future with its callback, in the order asked ([`PendingCallbacks`]), and runs the callbacks
+//! whose futures have resolved at `Device::poll` (once the engine's poll returns), at
+//! `Queue::submit` and at `Instance::poll_all`, where wgpu-core fires its callbacks, then the
+//! device's uncaptured errors and its loss ([`DeviceCallbacks`]). A program that awaits a mapping
+//! without ever polling or submitting is never answered, as with native wgpu. An `unmap` runs
+//! its buffer's aborted mapping at once, as wgpu-core does.
 //!
-//! The device-lost and uncaptured-error handlers are no answer to a request: each is a task
-//! spawned onto the program's executor, which runs while the program awaits ([`spawn`]).
-//!
-//! The invariant: a callback runs exactly once, taken from the list by whichever finds its
-//! future resolved first, and nothing is held while it runs, so a callback may ask for another. A
-//! future read by `poll` without waiting is read again by the device's task afterwards, which
-//! `poll` wakes for it.
+//! The invariant: nothing here is spawned, since a task started while a device opens inside a
+//! `wasdk::block_on` keeps that wait from returning. Each future or stream is read without
+//! waiting: polled once with a waker that does nothing, and the read cancelled back into its
+//! reader where it has no answer yet. A callback runs once, and nothing is held while it runs, so
+//! a callback may ask for another or call into wgpu.
 
 use std::collections::VecDeque;
 use std::fmt;
 use std::future::{Future, IntoFuture};
-use std::pin::Pin;
+use std::pin::pin;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
 use std::task::{Context, Poll, Waker};
 
@@ -32,62 +30,53 @@ use wasdk::FutureReader;
 use wasdk::gpu::Buffer;
 use wgpu::custom::{BoxSubmittedWorkDoneCallback, BufferMapCallback};
 
-pub(crate) fn spawn(task: impl Future<Output = ()> + 'static) {
-    wasdk::spawn(task);
+use crate::device_lost::DeviceLostCallback;
+use crate::uncaptured_errors::UncapturedErrors;
+
+/// Everything one device answers the program through, shared by the device and its queue, which
+/// run it at the calls wgpu-core fires its callbacks at.
+#[derive(Debug)]
+pub(crate) struct DeviceCallbacks {
+    /// Its buffers' mappings and its queue's submitted work.
+    pub(crate) pending: PendingCallbacks,
+    pub(crate) uncaptured_errors: UncapturedErrors,
+    pub(crate) device_lost: DeviceLostCallback,
+}
+
+impl DeviceCallbacks {
+    /// The callbacks of `device`, its uncaptured errors and its loss read from now on.
+    pub(crate) fn of(device: &wasdk::gpu::Device) -> DeviceCallbacks {
+        DeviceCallbacks {
+            pending: PendingCallbacks::default(),
+            uncaptured_errors: UncapturedErrors::listen(device),
+            device_lost: DeviceLostCallback::listen(device),
+        }
+    }
+
+    /// Runs, without waiting, every callback whose answer has come: the mappings and submitted
+    /// work done, in the order asked, then the errors no scope caught, then the device's loss, as
+    /// wgpu-core fires its callbacks.
+    pub(crate) fn run_ready(&self) {
+        self.pending.run_resolved();
+        self.uncaptured_errors.handle_reported();
+        self.device_lost.run_if_lost();
+    }
 }
 
 /// The callbacks one device waits to run, in the order asked, shared by the device, its queue
 /// and its buffers. Every clone is the same list.
 #[derive(Clone, Default)]
-pub(crate) struct PendingCallbacks(Arc<Shared>);
-
-#[derive(Default)]
-struct Shared {
-    // Shared by what asks (a buffer, the queue) and what runs the callbacks (the device's poll,
-    // a buffer's unmap, the device's task), none of which owns the others. Never held while a
-    // callback runs.
-    state: Mutex<State>,
-}
-
-#[derive(Default)]
-struct State {
-    callbacks: VecDeque<PendingCallback>,
-    /// The device's task, woken for each callback added and each future `poll` read.
-    task: Option<Waker>,
-}
-
-impl Drop for Shared {
-    /// The device, its queue and its buffers are gone: the task ends.
-    fn drop(&mut self) {
-        let state = self.state.get_mut().unwrap_or_else(PoisonError::into_inner);
-        if let Some(task) = state.task.take() {
-            task.wake();
-        }
-    }
-}
+pub(crate) struct PendingCallbacks(Arc<Mutex<VecDeque<PendingCallback>>>);
 
 impl fmt::Debug for PendingCallbacks {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("PendingCallbacks")
-            .field("callbacks", &self.state().callbacks.len())
+            .field("callbacks", &self.callbacks().len())
             .finish()
     }
 }
 
 impl PendingCallbacks {
-    /// A device's callbacks, with the task that runs them as the program yields started on the
-    /// executor running now: started inside `request_device`'s future, as the uncaptured errors'
-    /// listener is (`uncaptured_errors`), it ends once the device, its queue and its buffers are
-    /// gone.
-    pub(crate) fn start() -> PendingCallbacks {
-        let callbacks = PendingCallbacks::default();
-        let shared = Arc::downgrade(&callbacks.0);
-        spawn(std::future::poll_fn(move |cx| {
-            run_as_the_program_yields(&shared, cx)
-        }));
-        callbacks
-    }
-
     /// Waits for `answer`, the future of `buffer`'s mapping, to run `callback`.
     pub(crate) fn add_mapping(
         &self,
@@ -95,9 +84,9 @@ impl PendingCallbacks {
         answer: FutureReader<Result<(), String>>,
         callback: BufferMapCallback,
     ) {
-        self.add(PendingCallback::Mapping {
+        self.callbacks().push_back(PendingCallback::Mapping {
             buffer: Arc::downgrade(buffer),
-            answer: Answer::Unread(answer),
+            answer,
             callback,
         });
     }
@@ -108,57 +97,36 @@ impl PendingCallbacks {
         answer: FutureReader<()>,
         callback: BoxSubmittedWorkDoneCallback,
     ) {
-        self.add(PendingCallback::SubmittedWorkDone {
-            answer: Answer::Unread(answer),
-            callback,
-        });
+        self.callbacks()
+            .push_back(PendingCallback::SubmittedWorkDone { answer, callback });
     }
 
-    /// Runs, in the order asked, every callback whose future has resolved by now: what the
-    /// device's `poll` runs once the engine's poll returns.
+    /// Runs, in the order asked, every callback whose future has resolved by now.
     pub(crate) fn run_resolved(&self) {
-        self.run(&mut Reading::Now, |_| true);
+        self.run(|_| true);
     }
 
     /// Runs the callback of `buffer`'s mapping where its future has resolved: an `unmap`
     /// resolves the future of a mapping it aborts as it is made.
     pub(crate) fn run_resolved_mapping(&self, buffer: &Arc<Buffer>) {
-        self.run(&mut Reading::Now, |callback| callback.is_mapping_of(buffer));
+        self.run(|callback| callback.is_mapping_of(buffer));
     }
 
-    fn add(&self, callback: PendingCallback) {
-        let mut state = self.state();
-        state.callbacks.push_back(callback);
-        if let Some(task) = &state.task {
-            task.wake_by_ref();
-        }
-    }
-
-    /// Runs, in the order asked, each callback `chosen` picks whose future `reading` finds
-    /// resolved, taken from the list first; the rest stay, in order.
-    fn run(&self, reading: &mut Reading<'_, '_>, chosen: impl Fn(&PendingCallback) -> bool) {
+    /// Runs, in the order asked, each callback `chosen` picks whose future has resolved, taken
+    /// from the list first; the rest stay, in order.
+    fn run(&self, chosen: impl Fn(&PendingCallback) -> bool) {
         let resolved = {
-            let mut state = self.state();
-            if let Reading::ByTask(cx) = reading {
-                state.task = Some(cx.waker().clone());
-            }
+            let mut callbacks = self.callbacks();
             let mut resolved = Vec::new();
-            for callback in std::mem::take(&mut state.callbacks) {
+            for callback in std::mem::take(&mut *callbacks) {
                 if !chosen(&callback) {
-                    state.callbacks.push_back(callback);
+                    callbacks.push_back(callback);
                     continue;
                 }
-                match callback.read(reading) {
+                match callback.read() {
                     Ok(callback) => resolved.push(callback),
-                    Err(callback) => state.callbacks.push_back(callback),
+                    Err(callback) => callbacks.push_back(callback),
                 }
-            }
-            // A future read without waiting is the task's to wait for again.
-            if matches!(reading, Reading::Now)
-                && !state.callbacks.is_empty()
-                && let Some(task) = &state.task
-            {
-                task.wake_by_ref();
             }
             resolved
         };
@@ -167,26 +135,9 @@ impl PendingCallbacks {
         }
     }
 
-    fn state(&self) -> MutexGuard<'_, State> {
-        self.0.state.lock().unwrap_or_else(PoisonError::into_inner)
+    fn callbacks(&self) -> MutexGuard<'_, VecDeque<PendingCallback>> {
+        self.0.lock().unwrap_or_else(PoisonError::into_inner)
     }
-}
-
-/// The device's task: runs the callbacks whose futures resolve, woken by each, until the device,
-/// its queue and its buffers are gone.
-fn run_as_the_program_yields(shared: &Weak<Shared>, cx: &mut Context<'_>) -> Poll<()> {
-    let Some(shared) = shared.upgrade() else {
-        return Poll::Ready(());
-    };
-    PendingCallbacks(shared).run(&mut Reading::ByTask(cx), |_| true);
-    Poll::Pending
-}
-
-/// How a callback's future is read: by the device's task, woken once it resolves, or at once,
-/// without waiting.
-enum Reading<'a, 'b> {
-    ByTask(&'a mut Context<'b>),
-    Now,
 }
 
 /// A callback waiting for the future of the request it was asked with.
@@ -194,12 +145,12 @@ enum PendingCallback {
     /// A buffer's range mapped, or why not.
     Mapping {
         buffer: Weak<Buffer>,
-        answer: Answer<Result<(), String>>,
+        answer: FutureReader<Result<(), String>>,
         callback: BufferMapCallback,
     },
     /// The work submitted to the queue before it was asked done.
     SubmittedWorkDone {
-        answer: Answer<()>,
+        answer: FutureReader<()>,
         callback: BoxSubmittedWorkDoneCallback,
     },
 }
@@ -215,14 +166,14 @@ impl PendingCallback {
         matches!(self, PendingCallback::Mapping { buffer: of, .. } if Weak::as_ptr(of) == Arc::as_ptr(buffer))
     }
 
-    /// The callback with its answer where `reading` finds its future resolved; itself where not.
-    fn read(self, reading: &mut Reading<'_, '_>) -> Result<ResolvedCallback, PendingCallback> {
+    /// The callback with its answer where its future has resolved; itself where not.
+    fn read(self) -> Result<ResolvedCallback, PendingCallback> {
         match self {
             PendingCallback::Mapping {
                 buffer,
                 answer,
                 callback,
-            } => match answer.read(reading) {
+            } => match read_now(answer) {
                 Ok(mapped) => Ok(ResolvedCallback::Mapping(callback, mapped)),
                 Err(answer) => Err(PendingCallback::Mapping {
                     buffer,
@@ -230,7 +181,7 @@ impl PendingCallback {
                     callback,
                 }),
             },
-            PendingCallback::SubmittedWorkDone { answer, callback } => match answer.read(reading) {
+            PendingCallback::SubmittedWorkDone { answer, callback } => match read_now(answer) {
                 Ok(()) => Ok(ResolvedCallback::SubmittedWorkDone(callback)),
                 Err(answer) => Err(PendingCallback::SubmittedWorkDone { answer, callback }),
             },
@@ -249,40 +200,12 @@ impl ResolvedCallback {
     }
 }
 
-/// A read of `FutureReader<T>`, in progress.
-type FutureRead<T> = Pin<Box<<FutureReader<T> as IntoFuture>::IntoFuture>>;
-
-/// The engine's future for a request, as the program reads it: not being read, or being read by
-/// the device's task.
-enum Answer<T: 'static> {
-    Unread(FutureReader<T>),
-    Reading(FutureRead<T>),
-}
-
-impl<T: 'static> Answer<T> {
-    /// What the future resolved to, where `reading` finds it resolved; the future, read on or
-    /// given back unread, where not.
-    fn read(self, reading: &mut Reading<'_, '_>) -> Result<T, Answer<T>> {
-        let mut read = match self {
-            Answer::Unread(reader) => Box::pin(reader.into_future()),
-            Answer::Reading(read) => read,
-        };
-        let cx = match reading {
-            Reading::ByTask(cx) => cx,
-            // A read that does not resolve as it starts is cancelled, which asks the engine once
-            // more, and given back unread.
-            Reading::Now => {
-                if let Poll::Ready(value) =
-                    read.as_mut().poll(&mut Context::from_waker(Waker::noop()))
-                {
-                    return Ok(value);
-                }
-                return read.as_mut().cancel().map_err(Answer::Unread);
-            }
-        };
-        match read.as_mut().poll(cx) {
-            Poll::Ready(value) => Ok(value),
-            Poll::Pending => Err(Answer::Reading(read)),
-        }
+/// What `reader`'s future resolved to, where it has; the reader where not, its read cancelled,
+/// which asks the engine once more, so it is read again next time.
+pub(crate) fn read_now<T: 'static>(reader: FutureReader<T>) -> Result<T, FutureReader<T>> {
+    let mut read = pin!(reader.into_future());
+    if let Poll::Ready(value) = read.as_mut().poll(&mut Context::from_waker(Waker::noop())) {
+        return Ok(value);
     }
+    read.as_mut().cancel()
 }

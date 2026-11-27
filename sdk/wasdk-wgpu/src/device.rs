@@ -15,38 +15,30 @@ use wgpu::custom::{
 };
 use wgpu::{AdapterInfo, Features, Limits};
 
-use crate::device_lost::DeviceLostCallback;
 use crate::left_out::left_out;
-use crate::runtime::PendingCallbacks;
-use crate::uncaptured_errors::UncapturedErrors;
+use crate::runtime::DeviceCallbacks;
 use crate::{binding, buffer, command, convert, pass, pipeline, query, sampler, shader, texture};
 
 /// The device behind a [`wgpu::Device`] from this backend: `device.as_custom::<WasdkDevice>()`.
 #[derive(Debug)]
 pub struct WasdkDevice {
     device: Arc<Device>,
-    /// The callbacks it waits to run: its buffers' mappings and its queue's submitted work.
-    callbacks: PendingCallbacks,
+    /// What it answers the program through, shared with its queue.
+    callbacks: Arc<DeviceCallbacks>,
     /// How many error scopes are open, so a pop out of order is caught here.
     open_error_scopes: AtomicU32,
-    uncaptured_errors: UncapturedErrors,
-    device_lost: DeviceLostCallback,
 }
 
 downcast!(WasdkDevice: api wgpu::Device, dispatch DispatchDevice);
 
 impl WasdkDevice {
-    /// The device over the engine's, listening to its uncaptured errors and its loss from now
-    /// on.
-    pub(crate) fn new(device: Device, callbacks: PendingCallbacks) -> Self {
-        let device_lost = DeviceLostCallback::listen(&device);
-        let uncaptured_errors = UncapturedErrors::listen(&device);
+    /// The device over the engine's, with `callbacks`, which are `device`'s.
+    pub(crate) fn new(device: Device, callbacks: Arc<DeviceCallbacks>) -> Self {
         let device = Arc::new(device);
-        LIVE_DEVICES
-            .with_borrow_mut(|live| live.push((Arc::downgrade(&device), callbacks.clone())));
+        LIVE_DEVICES.with_borrow_mut(|live| {
+            live.push((Arc::downgrade(&device), Arc::downgrade(&callbacks)));
+        });
         WasdkDevice {
-            uncaptured_errors,
-            device_lost,
             device,
             callbacks,
             open_error_scopes: AtomicU32::new(0),
@@ -62,19 +54,19 @@ impl WasdkDevice {
 
 thread_local! {
     /// The devices the program made and has not dropped, with their callbacks, which
-    /// [`poll_all`] polls.
-    static LIVE_DEVICES: RefCell<Vec<(Weak<Device>, PendingCallbacks)>> =
+    /// [`poll_all`] polls. Held weakly, so a device dropped drops its callbacks.
+    static LIVE_DEVICES: RefCell<Vec<(Weak<Device>, Weak<DeviceCallbacks>)>> =
         const { RefCell::new(Vec::new()) };
 }
 
 /// Polls `device` as `poll_type` says, then runs the callbacks whose answers came.
 fn poll(
     device: &Device,
-    callbacks: &PendingCallbacks,
+    callbacks: &DeviceCallbacks,
     poll_type: wgpu::wgt::PollType<u64>,
 ) -> Result<wgpu::PollStatus, wgpu::PollError> {
     let polled = device.poll(convert::poll_type_to_wit(poll_type));
-    callbacks.run_resolved();
+    callbacks.run_ready();
     let status = polled.map_err(convert::poll_error_from_wit)?;
     Ok(convert::poll_status_from_wit(status))
 }
@@ -86,7 +78,7 @@ pub(crate) fn poll_all(force_wait: bool) -> bool {
     let devices: Vec<_> = LIVE_DEVICES.with_borrow_mut(|live| {
         live.retain(|(device, _)| device.strong_count() > 0);
         live.iter()
-            .filter_map(|(device, callbacks)| Some((device.upgrade()?, callbacks.clone())))
+            .filter_map(|(device, callbacks)| Some((device.upgrade()?, callbacks.upgrade()?)))
             .collect()
     });
     let poll_type = if force_wait {
@@ -183,7 +175,7 @@ impl DeviceInterface for WasdkDevice {
     }
 
     fn create_buffer(&self, desc: &wgpu::BufferDescriptor<'_>) -> DispatchBuffer {
-        buffer::create_buffer(&self.device, &self.callbacks, desc)
+        buffer::create_buffer(&self.device, &self.callbacks.pending, desc)
     }
 
     fn create_texture(&self, desc: &wgpu::TextureDescriptor<'_>) -> DispatchTexture {
@@ -233,11 +225,11 @@ impl DeviceInterface for WasdkDevice {
     }
 
     fn set_device_lost_callback(&self, callback: BoxDeviceLostCallback) {
-        self.device_lost.set(callback);
+        self.callbacks.device_lost.set(callback);
     }
 
     fn on_uncaptured_error(&self, handler: Arc<dyn wgpu::UncapturedErrorHandler>) {
-        self.uncaptured_errors.set_handler(handler);
+        self.callbacks.uncaptured_errors.set_handler(handler);
     }
 
     fn push_error_scope(&self, filter: wgpu::ErrorFilter) -> u32 {
@@ -272,7 +264,7 @@ impl DeviceInterface for WasdkDevice {
 
     /// The engine's poll, its submission and timeout honoured; then every callback whose work
     /// is done by now, in the order asked, as wgpu-core runs them inside its poll, whether it
-    /// waited or timed out.
+    /// waited or timed out, and the device's uncaptured errors and loss.
     fn poll(
         &self,
         poll_type: wgpu::wgt::PollType<u64>,

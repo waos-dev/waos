@@ -70,9 +70,6 @@ pub async fn run_with(
             return;
         }
     };
-    // The device's listeners, which `wasdk-wgpu` spawned and which never end, go to this task
-    // now, rather than to the first `wasdk::block_on` (`text_system`).
-    wasdk::yield_async().await;
     let (notices, notices_received) = mpsc::unbounded();
     let events = Events::open(notices_received);
     let platform = Rc::new(WasdkPlatform::new(context, notices));

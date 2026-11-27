@@ -1,34 +1,31 @@
-//! What a device tells the program of its loss: the engine's `lost` future, awaited for the
-//! device's life by a task on the program's executor, which calls the callback the program set
-//! with `Device::set_device_lost_callback`, once.
+//! What a device tells the program of its loss: the engine's `lost` future, read without waiting
+//! whenever the device's callbacks run (`runtime`) while a callback is set, which calls the
+//! callback the program set with `Device::set_device_lost_callback`, once.
 //!
-//! The task is started as the device opens, inside `request_device`'s future, as the uncaptured
-//! errors' listener is (`uncaptured_errors`), and ends with the device: a device dropped without
-//! being lost drops its callback uncalled, as wgpu-core does, and the engine's `lost` never
-//! resolves for it.
+//! A device dropped without being lost drops its callback uncalled, as wgpu-core does, and the
+//! engine's `lost` never resolves for it.
 //!
-//! The invariant: one listener per device, and the callback is replaced, not added to, as wgpu's
-//! `set_device_lost_callback` replaces it.
+//! The invariant: the future is read only while a callback waits for it, so a loss that comes
+//! before one is set reaches the one set later; the callback is replaced, not added to, as
+//! wgpu's `set_device_lost_callback` replaces it, and is never called with a lock held.
 
-use std::future::IntoFuture;
-use std::pin::pin;
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Mutex, MutexGuard, PoisonError};
 
-use futures::channel::oneshot;
-use futures::future::{Either, select};
+use wasdk::FutureReader;
 use wasdk::gpu::Device;
+use wasdk::gpu_types as wit;
 use wgpu::custom::BoxDeviceLostCallback;
 
 use crate::convert;
-use crate::runtime;
+use crate::runtime::read_now;
 
-/// The callback a device's loss goes to, shared by the device, which replaces it, and the task
-/// that waits for the loss.
-pub(crate) struct DeviceLostCallback {
-    // Replaced by the program's thread through the device, taken by the listening task.
-    callback: Arc<Mutex<Option<BoxDeviceLostCallback>>>,
-    /// Dropped with the device, which ends the task.
-    _device: oneshot::Sender<()>,
+/// A device's loss and the callback it goes to.
+pub(crate) struct DeviceLostCallback(Mutex<State>);
+
+struct State {
+    /// The engine's `lost`, until it resolves.
+    lost: Option<FutureReader<wit::DeviceLostInfo>>,
+    callback: Option<BoxDeviceLostCallback>,
 }
 
 impl std::fmt::Debug for DeviceLostCallback {
@@ -38,36 +35,47 @@ impl std::fmt::Debug for DeviceLostCallback {
 }
 
 impl DeviceLostCallback {
-    /// Starts waiting for `device`'s loss, with no callback yet.
+    /// `device`'s loss from now on, with no callback yet.
     pub(crate) fn listen(device: &Device) -> DeviceLostCallback {
-        let callback: Arc<Mutex<Option<BoxDeviceLostCallback>>> = Arc::default();
-        let (device_alive, device_gone) = oneshot::channel();
-        let lost = device.lost();
-        let listener = Arc::clone(&callback);
-        runtime::spawn(async move {
-            let lost = pin!(lost.into_future());
-            let Either::Left((info, _)) = select(lost, device_gone).await else {
-                return;
-            };
-            let callback = listener
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .take();
-            if let Some(callback) = callback {
-                callback(
-                    convert::device_lost_reason_from_wit(info.reason),
-                    info.message,
-                );
-            }
-        });
-        DeviceLostCallback {
-            callback,
-            _device: device_alive,
-        }
+        DeviceLostCallback(Mutex::new(State {
+            lost: Some(device.lost()),
+            callback: None,
+        }))
     }
 
     /// Sends the loss to `callback`, dropping the one set before.
     pub(crate) fn set(&self, callback: BoxDeviceLostCallback) {
-        *self.callback.lock().unwrap_or_else(PoisonError::into_inner) = Some(callback);
+        let replaced = self.state().callback.replace(callback);
+        drop(replaced);
+    }
+
+    /// Calls the callback where the device has been lost by now.
+    pub(crate) fn run_if_lost(&self) {
+        let lost = {
+            let mut state = self.state();
+            if state.callback.is_none() {
+                return;
+            }
+            let Some(lost) = state.lost.take() else {
+                return;
+            };
+            match read_now(lost) {
+                Ok(info) => state.callback.take().map(|callback| (callback, info)),
+                Err(lost) => {
+                    state.lost = Some(lost);
+                    None
+                }
+            }
+        };
+        if let Some((callback, info)) = lost {
+            callback(
+                convert::device_lost_reason_from_wit(info.reason),
+                info.message,
+            );
+        }
+    }
+
+    fn state(&self) -> MutexGuard<'_, State> {
+        self.0.lock().unwrap_or_else(PoisonError::into_inner)
     }
 }

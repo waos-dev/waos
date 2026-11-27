@@ -11,7 +11,6 @@
 //! cargo build -p video-frames --target wasm32-wasip3
 //! ```
 
-use futures::channel::oneshot;
 use wasdk::media_players::{self, MediaPlayer};
 use wasdk::video_frames::{self, VideoFrame, VideoFrameReader, VideoOutput};
 use wasdk::views::{self, View, ViewChange, ViewEvent};
@@ -40,7 +39,7 @@ async fn main() -> Result<(), String> {
     let frame = first_frame(&view, &reader).await?;
     let buffer = frame.hardware_buffer();
     let texture = wasdk_wgpu::import_texture(&device, &buffer);
-    let pixel = first_pixel(&device, &queue, &texture, wgpu::TextureAspect::All).await?;
+    let pixel = first_pixel(&device, &queue, &texture, wgpu::TextureAspect::All)?;
     println!(
         "frame {}x{}, first pixel {pixel:?}",
         buffer.width(),
@@ -49,7 +48,7 @@ async fn main() -> Result<(), String> {
     println!("{}", description(&frame)?);
     let planes = wasdk_wgpu::import_planes(&device, &buffer);
     let plane = planes.first().ok_or("the frame imported no planes")?;
-    let pixel = first_pixel(&device, &queue, &plane.texture, plane.aspect).await?;
+    let pixel = first_pixel(&device, &queue, &plane.texture, plane.aspect)?;
     println!("first pixel through its plane {pixel:?}");
     let copied = frame
         .read_planes()
@@ -132,7 +131,7 @@ async fn first_frame(view: &View, reader: &VideoFrameReader) -> Result<VideoFram
 }
 
 /// The bytes of the first pixel of `texture`'s `aspect`, copied out on the GPU.
-async fn first_pixel(
+fn first_pixel(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
     texture: &wgpu::Texture,
@@ -165,15 +164,18 @@ async fn first_pixel(
         },
     );
     queue.submit([encoder.finish()]);
-    let (mapped, answered) = oneshot::channel();
+    let (mapped, answered) = std::sync::mpsc::channel();
     buffer
         .slice(..)
         .map_async(wgpu::MapMode::Read, move |result| {
             let _ = mapped.send(result);
         });
+    device
+        .poll(wgpu::PollType::wait_indefinitely())
+        .map_err(|error| format!("the device did not poll: {error}"))?;
     answered
-        .await
-        .map_err(|_| "the mapping was never answered")?
+        .try_recv()
+        .map_err(|_| "the mapping was not answered")?
         .map_err(|error| format!("the buffer did not map: {error}"))?;
     let bytes = buffer
         .slice(..4)

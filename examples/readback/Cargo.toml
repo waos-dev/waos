@@ -4,11 +4,9 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
-description = "A program that reads a buffer back from the GPU both ways wgpu programs do: asking, then `Device::poll` and reading at once, as code written for native wgpu; and asking, then awaiting, as code written for the web. `cargo build -p readback --target wasm32-wasip3`."
+description = "A program that reads a buffer back from the GPU as native wgpu programs do: asking, then `Device::poll` and reading at once. `cargo build -p readback --target wasm32-wasip3`."
 
 [dependencies]
-# Waiting for a mapping by awaiting, as code written for the web does.
-futures.workspace = true
 wasdk.workspace = true
 wasdk-wgpu.workspace = true
 wgpu.workspace = true

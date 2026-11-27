@@ -1,8 +1,8 @@
-//! `examples/readback` under the test shell: a buffer read back from the GPU both ways wgpu
-//! programs do. Code written for native wgpu asks, calls `Device::poll` with `Wait`, and reads at
-//! once, so the mapping's callback, and the queue's submitted-work callback asked after it, have
-//! run before `poll` returns; code written for the web asks and awaits. A program that polled and
-//! then read hung before, its callback waiting for an `.await` that never came. Each request
+//! `examples/readback` under the test shell: a buffer read back from the GPU as native wgpu
+//! programs do. The program asks, calls `Device::poll` with `Wait`, and reads at once, so the
+//! mapping's callback, and the queue's submitted-work callback asked after it, have run before
+//! `poll` returns. A program that polled and then read hung before, its callback waiting for an
+//! `.await` that never came. Each request
 //! reaches the GPU at the call: an `unmap` before a mapping is answered aborts it, and `poll` with
 //! `Poll` answers what is done. A buffer mapped for writing keeps what was written between
 //! mappings, though its bytes are never read back from the engine.
@@ -19,7 +19,7 @@ use waos::{ProgramEnd, WaOS};
 use crate::test_shell::{RecordedOutput, TestShell, config, printing_to, within};
 
 #[test]
-fn a_buffer_is_read_back_by_polling_and_by_awaiting() {
+fn a_buffer_is_read_back_by_polling() {
     let shell = TestShell::new();
     let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
     let program = engine
@@ -38,7 +38,6 @@ fn a_buffer_is_read_back_by_polling_and_by_awaiting() {
         [
             "polled: [1, 2, 3, 4, 5, 6, 7, 8]",
             "submitted work done: told before poll returned",
-            "awaited: [1, 2, 3, 4, 5, 6, 7, 8]",
             "work done before a later submission: told once the earlier was",
             "unmapped before mapped: aborted, and maps again",
             "polled without waiting: answered",

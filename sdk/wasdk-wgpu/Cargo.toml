@@ -16,7 +16,6 @@ spirv = ["wgpu/spirv"]
 glsl = ["wgpu/glsl"]
 
 [dependencies]
-futures.workspace = true
 # The view a window handle points at, which a surface is made on (`instance`).
 wasdk = { workspace = true, features = ["raw-window-handle"] }
 # `wgsl` names WGSL as a shader source; the engine compiles it. `naga-ir` names naga's module as
