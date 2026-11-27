@@ -476,7 +476,7 @@ pub(crate) mod tests {
     use crate::logic::opened_package::tests::write_package;
     use crate::logic::program_places::{ProgramPlace, ProgramPlaces};
     use crate::logic::quit_question::every_program_agrees;
-    use crate::logic::runs::Runs;
+    use crate::logic::running_apps::RunningApps;
     use crate::logic::test_engine::{self, NoWindows, REFUSAL, WITHIN};
 
     /// The development id of the program `id`: what `waos install` installs it as, and what a run
@@ -506,7 +506,7 @@ pub(crate) mod tests {
     pub(crate) struct TestServer {
         pub(crate) folder: PathBuf,
         pub(crate) socket: PathBuf,
-        runs: Arc<Runs>,
+        runs: Arc<RunningApps>,
         pub(crate) store: waos_store::Store,
         /// What the server's programs' users are asked, which a test notes as the prompts do.
         pub(crate) asking: Arc<AskingNow>,
@@ -564,7 +564,7 @@ pub(crate) mod tests {
             let _ = fs::remove_dir_all(&folder);
             let engine = engine();
             let socket = Self::test_listener(&folder, test);
-            let runs = Arc::new(Runs::default());
+            let runs = Arc::new(RunningApps::default());
             let store =
                 waos_store::Store::open(&folder.join("store"), waos_store::SourceProxy::None)
                     .expect("a store");

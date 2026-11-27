@@ -59,7 +59,7 @@ use crate::logic::program_faces::ProgramFaces;
 use crate::logic::program_places::{PlacedWhereOpened, ProgramPlace, ProgramPlaces, TabsOnRequest};
 use crate::logic::prompts::PromptsOnRequest;
 use crate::logic::recording_indicator::RecordingIndicatorOnRequest;
-use crate::logic::runs::Runs;
+use crate::logic::running_apps::RunningApps;
 use crate::logic::test_engine::{self, NoWindows, WITHIN};
 use crate::state::ViewWindows;
 use crate::state::library::test_desktop::label_of;
@@ -215,7 +215,7 @@ pub(crate) struct TestPhone {
     pub(crate) tabs: Entity<Tabs>,
     /// The programs' windows, on a phone of tasks.
     pub(crate) view_windows: Entity<ViewWindows>,
-    pub(crate) runs: Arc<Runs>,
+    pub(crate) runs: Arc<RunningApps>,
     /// The store the library is over, and the engine its programs run on.
     store: Store,
     engine: Arc<WaOS>,
@@ -250,7 +250,7 @@ impl TestPhone {
     pub(crate) fn of(kind: PhoneKind) -> TestPhone {
         let folder = tempfile::tempdir().unwrap();
         let copies = PackageCopies::clear(folder.path().join("package-copies")).unwrap();
-        let runs = Arc::new(Runs::default());
+        let runs = Arc::new(RunningApps::default());
         let store = Store::open(&folder.path().join("store"), SourceProxy::None).expect("a store");
         let (own_windows, requests) = WindowsOnRequest::new(ProgramFaces::new(store.clone(), None));
         let (usual, windows, programs_open): (_, Arc<dyn ViewPlacement>, _) = match kind {
@@ -519,7 +519,7 @@ impl TestPhone {
     /// The program `id` running, and its one view.
     pub(crate) fn program_view(&self, id: &str) -> ProgramView {
         let id: ProgramId = id.parse().unwrap();
-        let program = futures::executor::block_on(self.runs.running(&id)).expect("it runs");
+        let program = self.runs.running(&id).expect("it runs");
         let views = program.views();
         assert_eq!(views.len(), 1, "the tab's view, and no other");
         views.into_iter().next().unwrap()
@@ -757,7 +757,7 @@ impl TestPhone {
     /// Every view of the program `id` running, in the order they arrived.
     pub(crate) fn program_views(&self, id: &str) -> Vec<ProgramView> {
         let id: ProgramId = id.parse().unwrap();
-        let program = futures::executor::block_on(self.runs.running(&id)).expect("it runs");
+        let program = self.runs.running(&id).expect("it runs");
         program.views()
     }
 
@@ -772,14 +772,14 @@ impl TestPhone {
     pub(crate) fn wait_until_running_still(&mut self, id: &str) {
         self.pump_for(Duration::from_millis(500));
         let program_id: ProgramId = id.parse().unwrap();
-        let program = futures::executor::block_on(self.runs.running(&program_id)).expect("it runs");
+        let program = self.runs.running(&program_id).expect("it runs");
         futures::executor::block_on(program.idle());
     }
 
     /// Whether the program `id` runs.
     pub(crate) fn runs(&self, id: &str) -> bool {
         let id: ProgramId = id.parse().unwrap();
-        futures::executor::block_on(self.runs.running(&id)).is_some()
+        self.runs.running(&id).is_some()
     }
 
     /// The windows made at the program `id`'s requests and still open, on a phone of tasks, in

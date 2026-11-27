@@ -45,7 +45,7 @@ use crate::logic::opened_package::tests::write_package;
 use crate::logic::package_copies::PackageCopies;
 use crate::logic::program_places::{ProgramPlace, ProgramPlaces};
 use crate::logic::recording_indicator::{RecordingChanged, RecordingIndicatorOnRequest};
-use crate::logic::runs::Runs;
+use crate::logic::running_apps::{IfRunning, RunningApps};
 use crate::logic::test_engine::{self, NoWindows, WITHIN};
 use crate::logic::test_installs;
 
@@ -61,7 +61,7 @@ pub(crate) struct TestSystem {
     /// The app's notifications as the engine reaches them, for a test to call as the engine does.
     pub(crate) notifications: Option<Arc<dyn ShellNotifications>>,
     pub(crate) store: Store,
-    pub(crate) runs: Arc<Runs>,
+    pub(crate) runs: Arc<RunningApps>,
     pub(crate) library: Entity<Library>,
     /// How many times the library asked to be seen.
     asked_to_be_seen: Rc<Cell<usize>>,
@@ -113,7 +113,7 @@ impl TestSystem {
             shell,
             EngineTime::Manual(time.clone()),
         ));
-        let runs = Arc::new(Runs::default());
+        let runs = Arc::new(RunningApps::default());
         let installed_runs = InstalledRuns::new(
             Arc::clone(&engine),
             store.clone(),
@@ -222,7 +222,7 @@ impl TestSystem {
             .run(&program, environment)
             .expect("the program runs");
         let listed = running.clone();
-        futures::executor::block_on(self.runs.start_in_place(&id, || Ok(listed)))
+        futures::executor::block_on(self.runs.start(&id, IfRunning::Replace, || Ok(listed)))
             .expect("among the runs");
         running
     }

@@ -31,7 +31,7 @@ use super::environments::ProgramEnvironments;
 use super::launch_outputs::{LaunchOutput, LaunchOutputs};
 use super::package_manager::PackageManager;
 use super::program_places::{ProgramPlace, ProgramPlaces};
-use super::runs::{Run, Runs, Started};
+use super::running_apps::{IfRunning, Run, RunningApps, Started};
 
 /// Why a tool the user opens does not open: there is nowhere for its input and output to go.
 const NO_TERMINAL: &str = "it is a command-line program, with no window of its own, and WaOS cannot show its terminal yet";
@@ -71,7 +71,7 @@ pub(crate) struct InstalledRuns {
     pub(crate) packages: Arc<PackageManager>,
     /// What each program runs with.
     pub(crate) environments: Arc<ProgramEnvironments>,
-    pub(crate) runs: Arc<Runs>,
+    pub(crate) runs: Arc<RunningApps>,
     /// Where each program's views go, which the engine's placement reads.
     pub(crate) places: ProgramPlaces,
     /// What each program running writes, for the attaches to it.
@@ -85,7 +85,7 @@ impl InstalledRuns {
         engine: Arc<WaOS>,
         store: Store,
         environments: Arc<ProgramEnvironments>,
-        runs: Arc<Runs>,
+        runs: Arc<RunningApps>,
         places: ProgramPlaces,
     ) -> InstalledRuns {
         InstalledRuns {
@@ -139,7 +139,7 @@ impl InstalledRuns {
         place: ProgramPlace,
         opening: Opening,
     ) -> Result<OpenedRun> {
-        if let Some(program) = self.runs.running(id).await {
+        if let Some(program) = self.runs.running(id) {
             tracing::info!(%id, "opened again while it runs: left as it is");
             return Ok(OpenedRun::RunningAlready(program));
         }
@@ -147,7 +147,7 @@ impl InstalledRuns {
         let started = async {
             let loaded = self.packages.load(id).await?;
             self.runs
-                .start_unless_running(id, async || {
+                .start(id, IfRunning::Leave, || {
                     ensure!(
                         opening != Opening::ByTheUser
                             || self.environments.kind_of(id) == ProgramKind::App,
@@ -194,10 +194,15 @@ impl InstalledRuns {
             arguments,
             ..environment
         };
-        let run = self
+        let Started::New(run) = self
             .runs
-            .start_in_place(id, || self.engine.run(&loaded.program, environment))
-            .await?;
+            .start(id, IfRunning::Replace, || {
+                self.engine.run(&loaded.program, environment)
+            })
+            .await?
+        else {
+            unreachable!("a start that replaces starts a run")
+        };
         tracing::info!(%id, "launched");
         self.take_out_once_ended(id, run, output);
         Ok(())
@@ -211,14 +216,17 @@ impl InstalledRuns {
         let (environment, output) = self.with_output(id, environment);
         self.places.set(id, self.places.usual());
         let mut held = None;
-        let run = self
+        let Started::New(run) = self
             .runs
-            .start_in_place(id, || {
+            .start(id, IfRunning::Replace, || {
                 let (running, hold) = self.engine.run_held(&loaded.program, environment)?;
                 held = Some(hold);
                 Ok(running)
             })
-            .await?;
+            .await?
+        else {
+            unreachable!("a start that replaces starts a run")
+        };
         tracing::info!(%id, "started held for an inspector");
         self.take_out_once_ended(id, run, output);
         held.context("a run that started is held")

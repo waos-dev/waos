@@ -50,7 +50,7 @@ mod tests {
     use crate::logic::environments::ProgramEnvironments;
     use crate::logic::inspected_programs::ProgramsOnThisComputer;
     use crate::logic::program_places::{ProgramPlace, ProgramPlaces};
-    use crate::logic::runs::Runs;
+    use crate::logic::running_apps::RunningApps;
     use crate::logic::test_engine::{self, NoWindows};
 
     #[tokio::test(flavor = "multi_thread")]
@@ -60,7 +60,7 @@ mod tests {
         let engine = Arc::new(test_engine::engine(Arc::new(NoWindows)));
         let store =
             Store::open(&folder.path().join("store"), waos_store::SourceProxy::None).unwrap();
-        let runs = Arc::new(Runs::default());
+        let runs = Arc::new(RunningApps::default());
         let installed = InstalledRuns::new(
             Arc::clone(&engine),
             store.clone(),
@@ -92,7 +92,7 @@ mod tests {
         programs.serve_starts(starts, tokio::runtime::Handle::current());
 
         let held = programs.start_held(id.as_str()).await.unwrap();
-        let program = runs.running(&id).await.expect("among the runs");
+        let program = runs.running(&id).expect("among the runs");
         let mut output = program.trace(TraceKind::Output).expect("linked");
         drop(held);
         let first = output.next().await.expect("its first write");
@@ -105,7 +105,7 @@ mod tests {
             matches!(program.ended().await, waos::ProgramEnd::Stopped),
             "the run before is stopped first"
         );
-        let started_again = runs.running(&id).await.expect("the new run");
+        let started_again = runs.running(&id).expect("the new run");
         drop(again);
         assert!(
             matches!(
@@ -119,6 +119,6 @@ mod tests {
             matches!(started_again.ended().await, waos::ProgramEnd::Stopped),
             "ended by an inspector"
         );
-        assert!(runs.running(&id).await.is_none(), "and out of the runs");
+        assert!(runs.running(&id).is_none(), "and out of the runs");
     }
 }

@@ -22,7 +22,7 @@ use waos_store::Store;
 use super::dev_refusal;
 use super::installed_runs::InstalledRuns;
 use super::package_manager::PackageOperation;
-use super::runs::Runs;
+use super::running_apps::RunningApps;
 
 /// What launching and stopping need of the app.
 #[derive(Clone)]
@@ -115,7 +115,7 @@ async fn closed(mut reading: ServerReadHalf) {
 }
 
 /// Serves a connection's `Stop`: the program `id` ended, however it was started, or why not.
-pub(crate) async fn stop(mut connection: ServerConnection, id: &ProgramId, runs: &Runs) {
+pub(crate) async fn stop(mut connection: ServerConnection, id: &ProgramId, runs: &RunningApps) {
     let answer = if runs.stop(id).await {
         StopAnswer::Stopped
     } else {

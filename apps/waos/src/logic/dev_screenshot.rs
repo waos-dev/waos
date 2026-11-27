@@ -22,13 +22,13 @@ use waos_package::ProgramId;
 
 use super::asking_now::AskingNow;
 use super::dev_refusal;
-use super::runs::{DrivenProgram, Runs};
+use super::running_apps::{DrivenProgram, RunningApps};
 
 /// Answers a connection's `Screenshot`: the pictures of the windows of the program `id`, or of
 /// `window` alone, or why neither was taken.
 pub(crate) async fn answer(
     mut connection: ServerConnection,
-    runs: &Runs,
+    runs: &RunningApps,
     asking: &AskingNow,
     id: &ProgramId,
     window: Option<WindowId>,

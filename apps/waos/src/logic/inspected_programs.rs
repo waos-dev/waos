@@ -23,7 +23,7 @@ use waos_package::ProgramId;
 use waos_store::{InstalledProgram, Store};
 
 use super::held_starts::HeldStarts;
-use super::runs::Runs;
+use super::running_apps::RunningApps;
 
 /// What this computer is called to an inspector, as its machine is to a program.
 const THIS_COMPUTER: &str = "This computer";
@@ -31,7 +31,7 @@ const THIS_COMPUTER: &str = "This computer";
 /// The programs on this computer, as an inspector sees them.
 pub(crate) struct ProgramsOnThisComputer {
     store: Store,
-    runs: Arc<Runs>,
+    runs: Arc<RunningApps>,
     /// The programs installed as the library last said, which a change is told against.
     installed: Mutex<BTreeSet<ProgramId>>,
     /// Who hears each install and removal.
@@ -42,7 +42,7 @@ pub(crate) struct ProgramsOnThisComputer {
 }
 
 impl ProgramsOnThisComputer {
-    pub(crate) fn new(store: Store, runs: Arc<Runs>) -> ProgramsOnThisComputer {
+    pub(crate) fn new(store: Store, runs: Arc<RunningApps>) -> ProgramsOnThisComputer {
         let installed = ids_of(&store.installed());
         ProgramsOnThisComputer {
             store,
@@ -154,7 +154,7 @@ impl InspectedPrograms for ProgramsOnThisComputer {
 
     fn storage(&self, id: &str) -> Option<ProgramStorage> {
         let id: ProgramId = id.parse().ok()?;
-        if let Some(program) = self.runs.running_now(&id) {
+        if let Some(program) = self.runs.running(&id) {
             return Some(program.storage());
         }
         // A program that does not run is known by the folder the store keeps of it, installed
@@ -205,7 +205,7 @@ fn run_in_development(id: String, running: bool) -> Program {
 }
 
 /// Each start and end of a run from now on, as the runs list them.
-fn runs_changes(runs: &Runs) -> BoxStream<'static, ProgramChange> {
+fn runs_changes(runs: &RunningApps) -> BoxStream<'static, ProgramChange> {
     let ids = runs.running_ids();
     let before = ids.borrow().clone();
     stream::unfold((ids, before), |(mut ids, before)| async move {
@@ -256,7 +256,7 @@ mod tests {
     async fn an_inspector_sees_each_program_installed_with_its_icon_and_hears_an_install() {
         let folder = tempfile::tempdir().unwrap();
         let store = store_in(folder.path());
-        let programs = ProgramsOnThisComputer::new(store.clone(), Arc::new(Runs::default()));
+        let programs = ProgramsOnThisComputer::new(store.clone(), Arc::new(RunningApps::default()));
         assert!(programs.programs().await.is_empty());
         let mut changes = programs.program_changes();
         let key = SigningKey::generate();
@@ -310,7 +310,7 @@ mod tests {
         let folders = store.folders(&id).unwrap();
         std::fs::write(folders.data.join("a note.txt"), b"hi").unwrap();
 
-        let programs = ProgramsOnThisComputer::new(store, Arc::new(Runs::default()));
+        let programs = ProgramsOnThisComputer::new(store, Arc::new(RunningApps::default()));
         let storage = programs.storage("dev.example.notes").expect("its storage");
         let mounts = storage.mounts();
         let data = mounts

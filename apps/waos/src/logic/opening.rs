@@ -61,7 +61,7 @@ pub(crate) async fn program_named(
     id: &ProgramId,
 ) -> Result<Option<RunningProgram>> {
     if store.installed_program(id).is_none() {
-        return Ok(installed.runs.running(id).await);
+        return Ok(installed.runs.running(id));
     }
     let opened = installed
         .open(id, installed.places.usual(), Opening::ToHandOver)

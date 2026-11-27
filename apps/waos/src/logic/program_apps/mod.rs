@@ -338,7 +338,7 @@ impl ProgramApps {
             .runs
             .get()
             .ok_or_else(|| "WaOS is still starting".to_owned())?;
-        if let Some(program) = runs.runs.running(id).await {
+        if let Some(program) = runs.runs.running(id) {
             return Ok(program);
         }
         if self.store.installed_program(id).is_none() {

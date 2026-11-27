@@ -68,7 +68,7 @@ mod macos {
         CanvasesOnRequest, DialogReport, NoProgramApps, NotificationPermissionReading,
         NotificationPermissions, ProgramApps, ToShow, WindowPresence,
     };
-    use crate::logic::runs::Runs;
+    use crate::logic::running_apps::RunningApps;
     use crate::os::LayerContext;
     use crate::state::app_nap_exemption::{self, AppNapExemption};
     use crate::state::desktop_host::with_macos;
@@ -261,7 +261,7 @@ mod macos {
     fn read_system_permissions_at_the_front(
         app: &mut App,
         notifications: Arc<AppNotifications>,
-        runs: Arc<Runs>,
+        runs: Arc<RunningApps>,
     ) {
         let read_again = move |app: &mut App| {
             let (notifications, runs) = (Arc::clone(&notifications), Arc::clone(&runs));

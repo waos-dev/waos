@@ -111,7 +111,7 @@ use crate::logic::program_places::{
 use crate::logic::program_shortcuts::SystemShortcuts;
 use crate::logic::prompts::PromptsOnRequest;
 use crate::logic::recording_indicator::RecordingIndicatorOnRequest;
-use crate::logic::runs::Runs;
+use crate::logic::running_apps::RunningApps;
 use crate::logic::vsync_waiter::WaftVsync;
 use crate::ui::deck::Deck;
 use crate::ui::every_window::{LibraryWindow, every_window, program_windows};
@@ -309,7 +309,7 @@ pub(crate) fn start(
         // A machine is picked on a sheet put as a program's questions are.
         machine_picker: Some(Arc::new(machine_picker)),
     };
-    let runs = Arc::new(Runs::default());
+    let runs = Arc::new(RunningApps::default());
     let inspected = Arc::new(ProgramsOnThisComputer::new(
         store.clone(),
         Arc::clone(&runs),
@@ -675,7 +675,7 @@ fn library_window(
     place: LibraryPlace,
     library: Entity<Library>,
     recordings: Entity<Recordings>,
-    runs: Arc<Runs>,
+    runs: Arc<RunningApps>,
     tab_requests: UnboundedReceiver<TabRequest>,
     view_windows: &Entity<ViewWindows>,
 ) -> LibraryWindow {

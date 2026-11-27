@@ -85,7 +85,7 @@ fn a_question_of_an_app_before_its_first_window_is_put_over_the_window_held_for_
         phone.runs(FOREVER) && phone.windows_of(FOREVER).len() == 1
     });
     let id = FOREVER.parse().unwrap();
-    let program = futures::executor::block_on(phone.runs.running(&id)).expect("it runs");
+    let program = phone.runs.running(&id).expect("it runs");
     let _answer = phone.prompts.ask(&program, Question::Camera);
     phone.settle_until("the question is put", |phone| {
         phone.shows("Allow Forever to use the camera?")

@@ -54,7 +54,7 @@ use crate::logic::program_faces::ProgramFaces;
 use crate::logic::program_places::{ProgramPlace, ProgramPlaces};
 use crate::logic::prompts::{MachinePickerOnRequest, OutputPickerOnRequest, PromptsOnRequest};
 use crate::logic::recording_indicator::RecordingIndicatorOnRequest;
-use crate::logic::runs::Runs;
+use crate::logic::running_apps::RunningApps;
 use crate::logic::test_engine::{self, WITHIN};
 use crate::logic::test_outputs::StatedOutputs;
 use crate::state::ViewWindows;
@@ -85,7 +85,7 @@ pub(crate) struct LibraryDesktop {
     platform: Rc<LibraryPlatform>,
     pub(crate) library: Entity<Library>,
     pub(crate) store: Store,
-    pub(crate) runs: Arc<Runs>,
+    pub(crate) runs: Arc<RunningApps>,
     /// What the engine asks the user through, for a test to ask as a program does.
     pub(crate) prompts: Arc<PromptsOnRequest>,
     /// What the engine shows its picker of outputs through, for a test to pick as a program does.
@@ -162,7 +162,7 @@ impl LibraryDesktop {
             .own_preferences
             .then(|| PreferencesFile::at(folder.path().join("preferences.toml")));
         let copies = PackageCopies::clear(folder.path().join("package-copies")).unwrap();
-        let runs = Arc::new(Runs::default());
+        let runs = Arc::new(RunningApps::default());
         let store = Store::open(&folder.path().join("store"), SourceProxy::None).expect("a store");
         let (placement, requests) = WindowsOnRequest::new(ProgramFaces::new(store.clone(), None));
         let (prompts, prompted) = PromptsOnRequest::new(crate::logic::asking_now::AskingNow::new());

@@ -469,9 +469,7 @@ fn a_program_ending_under_the_finger_leaves_the_drag_going() {
     let before = page_left(&phone, SURVEYS);
     phone.program_view(SURVEY);
     let survey: waos_package::ProgramId = SURVEY.parse().unwrap();
-    futures::executor::block_on(phone.runs.running(&survey))
-        .expect("it runs")
-        .stop();
+    phone.runs.running(&survey).expect("it runs").stop();
     phone.settle_until("survey ends in its tab", |phone| {
         phone.stage(SURVEY) == Some("ended")
     });
@@ -1168,7 +1166,7 @@ fn a_card_thrown_sideways_closes_its_tab_and_ends_its_program() {
     assert!(phone.shows("1 tab"), "{:?}", phone.labels());
     let survey: waos_package::ProgramId = SURVEY.parse().unwrap();
     phone.settle_until("survey stops", |phone| {
-        futures::executor::block_on(phone.runs.running(&survey)).is_none()
+        phone.runs.running(&survey).is_none()
     });
 }
 
@@ -1608,7 +1606,7 @@ fn a_program_that_asks_for_a_switch_sends_the_deck_home_to_its_settings_page() {
     let mut phone = home_with_triangle_installed();
     phone.open(TRIANGLE);
     let id: waos_package::ProgramId = TRIANGLE.parse().unwrap();
-    let program = futures::executor::block_on(phone.runs.running(&id)).expect("it runs");
+    let program = phone.runs.running(&id).expect("it runs");
     let (asked, opened) = futures::channel::mpsc::unbounded();
     let (left, mut hears_left) = futures::channel::oneshot::channel();
     open_settings_when_asked(&mut phone.shell.app(), &phone.library, opened);

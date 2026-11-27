@@ -33,7 +33,7 @@ use crate::logic::program_places::{ProgramPlace, ProgramPlaces};
 use crate::logic::program_shortcuts::{
     KeptShortcut, ProgramShortcut, ShortcutOpens, SystemShortcuts,
 };
-use crate::logic::runs::Runs;
+use crate::logic::running_apps::RunningApps;
 use crate::logic::test_engine::{self, NoWindows, WITHIN};
 use crate::logic::test_installs;
 
@@ -45,7 +45,7 @@ const SURVEY: &str = "dev.example.survey";
 struct TestLibrary {
     cell: Rc<AppCell>,
     library: Entity<Library>,
-    runs: Arc<Runs>,
+    runs: Arc<RunningApps>,
     folder: TempDir,
     key: SigningKey,
     /// How many times the library asked to be seen.
@@ -67,7 +67,7 @@ impl TestLibrary {
         let folder = tempfile::tempdir().unwrap();
         let preferences = preferences(folder.path());
         let copies = PackageCopies::clear(folder.path().join("package-copies")).unwrap();
-        let runs = Arc::new(Runs::default());
+        let runs = Arc::new(RunningApps::default());
         let store = Store::open(&folder.path().join("store"), SourceProxy::None).unwrap();
         let installed_runs = InstalledRuns::new(
             Arc::new(test_engine::engine(Arc::new(NoWindows))),

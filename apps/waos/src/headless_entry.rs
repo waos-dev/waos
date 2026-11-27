@@ -33,7 +33,7 @@ use crate::logic::inspected_programs::ProgramsOnThisComputer;
 use crate::logic::installed_runs::InstalledRuns;
 use crate::logic::program_places::{ProgramPlace, ProgramPlaces};
 use crate::logic::prompts::{PromptRequests, PromptsOnRequest};
-use crate::logic::runs::Runs;
+use crate::logic::running_apps::RunningApps;
 use crate::logic::video_decoder_thread;
 use crate::os;
 use crate::write_traces;
@@ -103,7 +103,7 @@ async fn serve_until_shutdown(config: HeadlessConfig) -> Result<()> {
 /// A running headless WaOS daemon: engine, store, prompt waiter, and dev server. Dropping it stops
 /// the dev server (stopping every run and removing the socket file) and closes prompt tasks.
 struct HeadlessDaemon {
-    runs: Arc<Runs>,
+    runs: Arc<RunningApps>,
     server: DevServer,
     stop_prompts: Option<oneshot::Sender<()>>,
     _engine: Arc<WaOS>,
@@ -123,7 +123,7 @@ impl HeadlessDaemon {
         shell.machine_picker = Some(Arc::new(machine_picker));
         shell.gpus = video_decoder_thread::start();
 
-        let runs = Arc::new(Runs::default());
+        let runs = Arc::new(RunningApps::default());
         let inspected = Arc::new(ProgramsOnThisComputer::new(
             store.clone(),
             Arc::clone(&runs),
@@ -220,7 +220,7 @@ async fn hold_prompts(mut prompted: PromptRequests, mut stop: oneshot::Receiver<
 /// Resolves once `idle_timeout` elapses with no running programs and no active dev-server
 /// connections; pends forever when `idle_timeout` is `None`.
 async fn wait_until_idle(
-    runs: &Runs,
+    runs: &RunningApps,
     mut connections: watch::Receiver<usize>,
     idle_timeout: Option<Duration>,
 ) {

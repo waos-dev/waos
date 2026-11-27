@@ -23,7 +23,7 @@ use waos::{Program, WaOS};
 use waos_package::{ListedProgram, Manifest, Package, ProgramId};
 use waos_store::{DevelopmentBuild, InstalledProgram, Source, Staged, Store};
 
-use super::runs::Runs;
+use super::running_apps::RunningApps;
 
 /// How much more of a download arrives before its watchers hear how far it is.
 const DOWNLOAD_STEP: u64 = 256 * 1024;
@@ -83,7 +83,7 @@ pub(crate) struct Loaded {
 pub(crate) struct PackageManager {
     store: Store,
     engine: Arc<WaOS>,
-    runs: Arc<Runs>,
+    runs: Arc<RunningApps>,
     /// Each app's turn.
     turns: Mutex<HashMap<ProgramId, Arc<tokio::sync::Mutex<()>>>>,
     /// What is being done to which app now.
@@ -93,7 +93,7 @@ pub(crate) struct PackageManager {
 impl PackageManager {
     /// The apps of `store`, compiled and loaded by `engine`, whose runs among `runs` stop before
     /// an app changes.
-    pub(crate) fn new(store: Store, engine: Arc<WaOS>, runs: Arc<Runs>) -> PackageManager {
+    pub(crate) fn new(store: Store, engine: Arc<WaOS>, runs: Arc<RunningApps>) -> PackageManager {
         PackageManager {
             store,
             engine,

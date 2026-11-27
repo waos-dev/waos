@@ -146,7 +146,7 @@ pub(crate) mod prompts;
 #[cfg(desktop)]
 pub(crate) mod quit_question;
 pub(crate) mod recording_indicator;
-pub(crate) mod runs;
+pub(crate) mod running_apps;
 pub(crate) mod setting_changes;
 #[cfg(any(target_os = "macos", target_os = "android"))]
 pub(crate) mod simulated_cameras;
