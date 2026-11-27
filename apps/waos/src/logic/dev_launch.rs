@@ -21,7 +21,7 @@ use waos_dev_protocol::{
 use waos_package::ProgramId;
 use waos_store::Store;
 
-use super::app_starter::{AppStarter, Opening, StartRequest, StartStage};
+use super::app_starter::{AppStarter, Opening, StartPlace, StartRequest, StartStage};
 use super::dev_refusal;
 use super::running_apps::{IfRunning, RunningApps};
 
@@ -70,6 +70,7 @@ async fn start(
     }
     let request = StartRequest {
         if_running: IfRunning::Replace,
+        place: StartPlace::AsItWas,
         arguments,
         variables,
         ..StartRequest::open(id.clone(), Opening::ByTheDeveloper)

@@ -69,7 +69,7 @@ use crate::os::{
     system_version, wait_for_exit,
 };
 
-use super::app_starter::{AppStarter, Opening, StartRequest};
+use super::app_starter::{AppStarter, Opening, StartPlace, StartRequest};
 use super::program_places::ProgramPlace;
 pub(crate) use crate::logic::notification_permissions::{
     NotificationPermissionReading, NotificationPermissions,
@@ -339,7 +339,7 @@ impl ProgramApps {
             .get()
             .ok_or_else(|| "WaOS is still starting".to_owned())?;
         let request = StartRequest {
-            place: Some(ProgramPlace::Windows),
+            place: StartPlace::Named(ProgramPlace::Windows),
             ..StartRequest::open(id.clone(), Opening::ByTheUser)
         };
         let opened = starter

@@ -66,7 +66,7 @@ use waos_package::{Category, ListedProgram, ProgramId, ProgramKind};
 use waos_store::{InstalledProgram, Source, Store, Url};
 
 use crate::logic::app_services::AppServices;
-use crate::logic::app_starter::{Opening, StartRequest, StartStage};
+use crate::logic::app_starter::{Opening, StartPlace, StartRequest, StartStage};
 use crate::logic::app_store::{
     AppStorePlace, CatalogApp, ListedSource, catalog, featured, updates,
 };
@@ -764,7 +764,7 @@ impl Library {
             async move {
                 starter
                     .start(StartRequest {
-                        place: Some(ProgramPlace::Windows),
+                        place: StartPlace::Named(ProgramPlace::Windows),
                         ..StartRequest::open(id.clone(), Opening::ByTheUser)
                     })
                     .await
@@ -789,7 +789,7 @@ impl Library {
             async move {
                 starter
                     .start(StartRequest {
-                        place: Some(ProgramPlace::Tab),
+                        place: StartPlace::Named(ProgramPlace::Tab),
                         ..StartRequest::open(opening.clone(), Opening::ByTheUser)
                     })
                     .await

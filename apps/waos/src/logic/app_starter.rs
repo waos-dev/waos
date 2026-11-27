@@ -7,7 +7,7 @@
 //! starts it among the running apps (`running_apps`) with this computer's capabilities, the grants
 //! of its own settings and its own folders, its output to WaOS's log and to whoever attaches
 //! (`launch_outputs`), its views going where its place says, set before it starts
-//! (`program_places`). It is named by its id, which names it among the running apps, so a quit
+//! (`program_places`): an open and a held start set it, a launch leaves it as it was. It is named by its id, which names it among the running apps, so a quit
 //! asks it while it runs, in WaOS's log, where its output goes under the `program` target, and
 //! to the questions it puts to its user. A tool, an app its manifest declares has no UI, opened by
 //! the user from an icon is refused: no opening here has a terminal for its input and output, and
@@ -51,13 +51,23 @@ pub(crate) enum Opening {
     ByTheDeveloper,
 }
 
+/// Where a start puts the app's views.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum StartPlace {
+    /// Where they went before, or where apps usually go for an app not placed yet: a launch's.
+    AsItWas,
+    /// Where apps usually go.
+    Usual,
+    /// Where the request names.
+    Named(ProgramPlace),
+}
+
 /// How a start of an installed app was asked for.
 pub(crate) struct StartRequest {
     pub(crate) id: ProgramId,
     pub(crate) opening: Opening,
     pub(crate) if_running: IfRunning,
-    /// Where its views go; none for where apps usually go.
-    pub(crate) place: Option<ProgramPlace>,
+    pub(crate) place: StartPlace,
     pub(crate) arguments: Vec<String>,
     /// The variables it alone adds to its environment.
     pub(crate) variables: Vec<(String, String)>,
@@ -73,7 +83,7 @@ impl StartRequest {
             id,
             opening,
             if_running: IfRunning::Leave,
-            place: None,
+            place: StartPlace::Usual,
             arguments: Vec::new(),
             variables: Vec::new(),
             held: false,
@@ -204,8 +214,11 @@ impl AppStarter {
                 );
                 let (environment, its_output) = self.environment_of(&request)?;
                 output = Some(its_output);
-                self.places
-                    .set(id, request.place.unwrap_or(self.places.usual()));
+                match request.place {
+                    StartPlace::AsItWas => {}
+                    StartPlace::Usual => self.places.set(id, self.places.usual()),
+                    StartPlace::Named(place) => self.places.set(id, place),
+                }
                 if !request.held {
                     return self.engine.run(&program, environment);
                 }

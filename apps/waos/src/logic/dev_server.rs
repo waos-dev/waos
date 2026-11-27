@@ -1082,6 +1082,22 @@ pub(crate) mod tests {
     }
 
     #[tokio::test]
+    async fn a_launch_leaves_the_apps_place_as_it_was() {
+        let server = TestServer::start("launch-place");
+        let component = fs::read(waos_test_programs::FOREVER).unwrap();
+        let id = development(FOREVER);
+        server.install(FOREVER, &component).await;
+        server.services.places.set(&id, ProgramPlace::Tab);
+        let launched = server.launch(&id, Vec::new(), Vec::new()).await;
+        assert_eq!(launched, [LaunchAnswer::Launched]);
+        assert_eq!(server.services.places.place_of(&id), ProgramPlace::Tab);
+        server
+            .ask::<StopAnswer>(&Request::Stop { id: id.clone() })
+            .await;
+        server.wait_for_runs(&[]).await;
+    }
+
+    #[tokio::test]
     async fn a_component_the_development_install_holds_is_answered_have_and_nothing_is_sent() {
         let server = TestServer::start("have");
         let component = fs::read(waos_test_programs::FOREVER).unwrap();

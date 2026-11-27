@@ -18,7 +18,7 @@ use waos::RunningProgram;
 use waos_package::ProgramId;
 
 use super::{Library, WantsToBeSeen};
-use crate::logic::app_starter::{Opening, StartRequest};
+use crate::logic::app_starter::{Opening, StartPlace, StartRequest};
 use crate::logic::program_faces::program_face;
 use crate::logic::program_places::ProgramPlace;
 use crate::state::ViewWindows;
@@ -138,7 +138,7 @@ impl Library {
             async move {
                 starter
                     .start(StartRequest {
-                        place: Some(ProgramPlace::Windows),
+                        place: StartPlace::Named(ProgramPlace::Windows),
                         ..StartRequest::open(opening.clone(), Opening::ByTheUser)
                     })
                     .await
