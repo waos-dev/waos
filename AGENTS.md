@@ -24,6 +24,7 @@ cargo xtask sync-wit                               # after editing wit/
 - **`unsafe` only where a system API is wrapped**, so unsafe code stays in a few known places; a crate that needs it denies the lint rather than forbidding it.
 - **Names are the words anyone would use for the thing:** plain nouns for values (`request_id`, `granted_folder`), plain verbs for actions. Never a shorthand that reads only once you know the code: a verb or a loose word made into a type or field (`Pick`, `needs`, `gone_on`, `NotKept`), a phrase made into an identifier (`time_to_finish`), a made-up role (`Keeper`), a verb that says nothing (`tell`).
 - **A concept takes the term the systems or a major project already use** (`grace period`, `freeze`, `inhibitor`, `policy`), meaning here what it means there, and one word for it everywhere. A design starts with its terms and where each comes from.
+- **Every resource has one owner, which keeps its rules, so no caller can forget one.** The package manager stops an app before changing it; its callers don't. An owner is handed what it needs (a compiler, a way to stop apps) when it is made. [docs/domains.md](docs/domains.md) is the map.
 - **No `RefCell` unless the problem needs it.** Shared mutable state hides who changes what.
 - **An API agents use explains itself.** When an agent has to read the source to use one, its docs or its shape is the bug.
 - **Waft comes from crates.io.** To build against an unreleased Waft, a branch adds `[patch.crates-io]` until Waft releases.
