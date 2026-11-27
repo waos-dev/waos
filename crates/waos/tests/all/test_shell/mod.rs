@@ -44,12 +44,13 @@ use waos::bindings::wasdk::platform::hardware_buffers::PixelBuffer;
 use waos::bindings::wasdk::platform::system::{Brightness, Locale};
 use waos::bindings::wasdk::platform::views::ViewError;
 use waos::{
-    Compiler, EngineTime, FreezePolicy, HttpProxy, PlacedView, PlatformState, Presence, ProgramEnvironment,
-    ProgramOutput, ProgramView, Prompts, RunningProgram, Shell, ShellAudioOutputPicker,
-    ShellCameras, ShellClipboard, ShellCompositor, ShellContextMenus, ShellFileDialogs, ShellGpus,
-    ShellImageCodecs, ShellMachinePicker, ShellMediaAssets, ShellMediaPlayers, ShellMenuBar,
-    ShellNotifications, ShellOpener, ShellRecordingIndicator, ShellSystemPermissions,
-    ShellTrayIcons, ShellVideoFrameReaders, ShellView, ViewPlacement, ViewRequest, WaOSConfig,
+    Compiler, EngineTime, FreezePolicy, HttpProxy, PlacedView, PlatformState, Presence,
+    ProgramEnvironment, ProgramOutput, ProgramView, Prompts, RunningProgram, Shell,
+    ShellAudioOutputPicker, ShellCameras, ShellClipboard, ShellCompositor, ShellContextMenus,
+    ShellFileDialogs, ShellGpus, ShellImageCodecs, ShellMachinePicker, ShellMediaAssets,
+    ShellMediaPlayers, ShellMenuBar, ShellNotifications, ShellOpener, ShellRecordingIndicator,
+    ShellSystemPermissions, ShellTrayIcons, ShellVideoFrameReaders, ShellView, ViewPlacement,
+    ViewRequest, WaOSConfig,
 };
 use waos_headless::{Display, HeadlessShell, Refreshes, SCREEN};
 

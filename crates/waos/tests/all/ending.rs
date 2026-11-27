@@ -174,9 +174,7 @@ fn code_compiled_with_native_unwind_information_is_never_mapped_without_it() {
     engine_with(with_config).load(trap, code.path()).unwrap();
     // Windows keeps native unwind information whatever the engine asks: one setting, one file.
     assert_eq!(without.is_compiled(code.path()), cfg!(windows));
-    engine_with(without_config)
-        .load(trap, code.path())
-        .unwrap();
+    engine_with(without_config).load(trap, code.path()).unwrap();
     assert_eq!(
         compiled_files(code.path()).len(),
         1,
