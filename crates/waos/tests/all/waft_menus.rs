@@ -293,7 +293,10 @@ fn run_with(
     grants: Option<Arc<dyn ProgramGrants>>,
 ) -> (RunningProgram, ProgramView) {
     let program = engine
-        .load(Path::new(waos_test_programs::WAFT_MENUS))
+        .load(
+            Path::new(waos_test_programs::WAFT_MENUS),
+            &waos_test_programs::code_of(waos_test_programs::WAFT_MENUS),
+        )
         .unwrap();
     let environment = ProgramEnvironment {
         output: Some(Arc::clone(output) as Arc<dyn ProgramOutput>),

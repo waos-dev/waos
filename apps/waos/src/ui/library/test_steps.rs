@@ -79,7 +79,7 @@ pub(crate) fn installs_filed(
 fn installs_package(desktop: &mut LibraryDesktop, package: std::path::PathBuf) {
     desktop.update(|library, cx| library.open_files(vec![package], cx));
     desktop.update(|library, cx| library.answer(true, cx));
-    desktop.settle_until_code_is_ready();
+    desktop.settle_until_operations_end();
 }
 
 /// The source at `index` added, once its listing is read.

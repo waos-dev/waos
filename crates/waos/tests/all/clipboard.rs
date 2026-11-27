@@ -254,7 +254,10 @@ fn run_until_written(
 #[cfg(target_vendor = "apple")]
 fn start_copy_paste(engine: &WaOS, output: &Arc<RecordedOutput>) -> RunningProgram {
     let program = engine
-        .load(Path::new(waos_test_programs::COPY_PASTE))
+        .load(
+            Path::new(waos_test_programs::COPY_PASTE),
+            &waos_test_programs::code_of(waos_test_programs::COPY_PASTE),
+        )
         .unwrap();
     let environment = ProgramEnvironment {
         output: Some(Arc::clone(output) as Arc<dyn ProgramOutput>),
@@ -271,7 +274,10 @@ fn start(
     switches: Arc<Switches>,
 ) -> RunningProgram {
     let program = engine
-        .load(Path::new(waos_test_programs::CLIPBOARD))
+        .load(
+            Path::new(waos_test_programs::CLIPBOARD),
+            &waos_test_programs::code_of(waos_test_programs::CLIPBOARD),
+        )
         .unwrap();
     let environment = ProgramEnvironment {
         grants: Some(switches as Arc<dyn ProgramGrants>),

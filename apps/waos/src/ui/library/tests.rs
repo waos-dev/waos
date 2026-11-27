@@ -12,6 +12,7 @@
 use std::rc::Rc;
 use std::sync::Arc;
 
+use crate::logic::package_manager::Loaded;
 use waft::ui::{EmbedderClient as _, OpenOptions, View as _, ViewId};
 use waft::{Icon, IntoWidget, Offset};
 use waft_cupertino::{
@@ -67,11 +68,17 @@ fn install_on_the_phone(desktop: &mut LibraryDesktop, component: &[u8]) {
     assert!(desktop.shows("Install Triangle?"), "{:?}", desktop.labels());
     let view = phone_view(desktop);
     desktop.tap(view, words::INSTALL);
+    desktop.settle_until_operations_end();
 }
 
 /// The source at `index` added, serving triangle at `version`, once it is read.
 fn source_listing_triangle(desktop: &mut LibraryDesktop, server: &Server, version: &str) -> String {
-    let package = desktop.package(TRIANGLE, "Triangle", version, b"\0asm");
+    let package = desktop.package(
+        TRIANGLE,
+        "Triangle",
+        version,
+        crate::logic::test_installs::EMPTY_COMPONENT,
+    );
     server.publish(TRIANGLE, &package, version);
     let index = server.source();
     adds_source(desktop, &index);
@@ -184,7 +191,12 @@ fn a_window_made_as_wide_as_a_tablets_takes_fluents_layout() {
 #[test]
 fn a_package_opened_with_waos_is_installed_from_the_alert_once_the_user_says_so() {
     let mut desktop = desktop();
-    let package = desktop.package(TRIANGLE, "Triangle", "1.0.0", b"\0asm");
+    let package = desktop.package(
+        TRIANGLE,
+        "Triangle",
+        "1.0.0",
+        crate::logic::test_installs::EMPTY_COMPONENT,
+    );
     desktop.update(|library, cx| library.open_files(vec![package], cx));
     assert!(
         desktop.has::<CupertinoAlertDialog>(),
@@ -197,7 +209,7 @@ fn a_package_opened_with_waos_is_installed_from_the_alert_once_the_user_says_so(
     );
     let view = phone_view(&desktop);
     desktop.tap(view, words::INSTALL);
-    desktop.settle_until_code_is_ready();
+    desktop.settle_until_operations_end();
     assert_eq!(desktop.read(|library| library.installed().len()), 1);
     assert!(!desktop.shows("Install Triangle?"));
     assert!(!desktop.has::<CupertinoAlertDialog>(), "the alert goes");
@@ -219,8 +231,8 @@ fn a_package_opened_with_waos_is_installed_from_the_alert_once_the_user_says_so(
 #[test]
 fn a_held_icon_offers_settings_and_remove_and_remove_asks_first() {
     let mut desktop = desktop();
-    install_on_the_phone(&mut desktop, b"\0asm");
-    desktop.settle_until_code_is_ready();
+    install_on_the_phone(&mut desktop, crate::logic::test_installs::EMPTY_COMPONENT);
+    desktop.settle_until_operations_end();
     let view = phone_view(&desktop);
     desktop.long_press(view, "Triangle");
     assert!(
@@ -243,6 +255,7 @@ fn a_held_icon_offers_settings_and_remove_and_remove_asks_first() {
         "not yet"
     );
     desktop.tap(view, words::REMOVE);
+    desktop.settle_until_operations_end();
     assert!(desktop.read(|library| library.installed().is_empty()));
     assert!(desktop.shows(words::NO_PROGRAMS));
 }
@@ -254,7 +267,12 @@ fn on_a_phone_the_apps_used_often_stand_in_a_row_over_the_others() {
     let mut desktop = desktop();
     for name in ["Alpha", "Bravo", "Charlie", "Delta", "Echo"] {
         let id = format!("dev.example.{}", name.to_lowercase());
-        installs(&mut desktop, &id, name, b"\0asm");
+        installs(
+            &mut desktop,
+            &id,
+            name,
+            crate::logic::test_installs::EMPTY_COMPONENT,
+        );
     }
     assert!(!desktop.has::<SectionLine>(), "no row yet, so no line");
     started_yesterday(&mut desktop, "dev.example.echo", 3);
@@ -277,7 +295,7 @@ fn a_tapped_icon_opens_its_program_which_is_marked_running() {
     let mut desktop = desktop();
     let forever = std::fs::read(waos_test_programs::FOREVER_SHOWN).unwrap();
     install_on_the_phone(&mut desktop, &forever);
-    desktop.settle_until_code_is_ready();
+    desktop.settle_until_operations_end();
     assert!(!desktop.has::<RunningDot>(), "nothing runs yet");
     let view = phone_view(&desktop);
     desktop.tap(view, "Triangle");
@@ -290,38 +308,57 @@ fn a_tapped_icon_opens_its_program_which_is_marked_running() {
     desktop.settle_until("the dot gone", |desktop| !desktop.has::<RunningDot>());
 }
 
-#[test]
-fn an_installing_program_says_so_and_a_tap_meanwhile_opens_it_once_its_code_is_ready() {
-    let mut desktop = desktop();
-    let held = desktop.hold_compiles();
+/// An update of triangle, installed, opened with WaOS and said yes to while triangle's turn is
+/// held, as an open holds it from its load to its start: it is compiled, then waits for the turn
+/// to install. The turn held, which the answer keeps until it is dropped.
+fn update_waiting_for_its_turn(desktop: &mut LibraryDesktop) -> Loaded {
     let forever = std::fs::read(waos_test_programs::FOREVER_SHOWN).unwrap();
-    install_on_the_phone(&mut desktop, &forever);
+    install_on_the_phone(desktop, &forever);
+    let held = desktop.hold_turn(TRIANGLE);
+    let update = desktop.package(TRIANGLE, "Triangle", "1.1.0", &forever);
+    desktop.update(|library, cx| library.open_files(vec![update], cx));
+    let view = phone_view(desktop);
+    desktop.tap(view, words::INSTALL);
+    held
+}
+
+#[test]
+fn an_installing_program_says_so_and_a_tap_meanwhile_opens_it_once_it_is_installed() {
+    let mut desktop = desktop();
+    let held = update_waiting_for_its_turn(&mut desktop);
     assert!(desktop.shows(words::INSTALLING), "{:?}", desktop.labels());
     assert!(!desktop.shows("Triangle"), "in place of its name");
-    assert_eq!(desktop.count::<IconTile>(|tile| tile.installing), 1);
+    assert_eq!(
+        desktop.count::<IconTile>(|tile| tile.operation.is_some()),
+        1
+    );
     let view = phone_view(&desktop);
     desktop.tap(view, words::INSTALLING);
     assert!(
         futures::executor::block_on(desktop.runs.names()).is_empty(),
-        "the open waits for its code"
+        "the open waits for the install"
     );
-    assert!(desktop.shows(words::INSTALLING));
     drop(held);
     let runs = Arc::clone(&desktop.runs);
     desktop.settle_until("the program runs", |_| {
         futures::executor::block_on(runs.names()) == [TRIANGLE]
     });
-    assert!(desktop.shows("Triangle") && !desktop.shows(words::INSTALLING));
-    assert_eq!(desktop.count::<IconTile>(|tile| tile.installing), 0);
+    desktop.settle_until("its name back", |desktop| {
+        desktop.shows("Triangle") && !desktop.shows(words::INSTALLING)
+    });
+    assert_eq!(
+        desktop.count::<IconTile>(|tile| tile.operation.is_some()),
+        0
+    );
+    let version = desktop.read(|library| library.installed()[0].manifest.version().to_string());
+    assert_eq!(version, "1.1.0", "the version opened is the update");
     futures::executor::block_on(desktop.runs.stop_all());
 }
 
 #[test]
 fn an_installing_program_says_so_in_fluents_layout_too() {
     let mut desktop = desktop();
-    let _held = desktop.hold_compiles();
-    let forever = std::fs::read(waos_test_programs::FOREVER_SHOWN).unwrap();
-    install_on_the_phone(&mut desktop, &forever);
+    let _held = update_waiting_for_its_turn(&mut desktop);
     phone_window(&desktop)
         .test_view()
         .set_physical_size(waft::ui::Size::new(768.0, 1024.0));
@@ -330,7 +367,10 @@ fn an_installing_program_says_so_in_fluents_layout_too() {
     desktop.settle();
     assert!(desktop.has::<FluentHome>());
     assert!(desktop.shows(words::INSTALLING), "{:?}", desktop.labels());
-    assert_eq!(desktop.count::<IconTile>(|tile| tile.installing), 1);
+    assert_eq!(
+        desktop.count::<IconTile>(|tile| tile.operation.is_some()),
+        1
+    );
 }
 
 #[test]
@@ -356,37 +396,37 @@ fn a_sources_program_installs_from_the_page_behind_the_plus() {
 }
 
 #[test]
-fn the_get_page_says_installing_until_the_programs_code_is_ready() {
+fn the_store_says_installing_until_the_update_is_installed() {
     let mut desktop = desktop();
     let forever = std::fs::read(waos_test_programs::FOREVER_SHOWN).unwrap();
-    let package = desktop.package(TRIANGLE, "Triangle", "1.0.0", &forever);
+    install_on_the_phone(&mut desktop, &forever);
+    let package = desktop.package(TRIANGLE, "Triangle", "2.0.0", &forever);
     let server = Server::start();
-    server.publish(TRIANGLE, &package, "1.0.0");
+    server.publish(TRIANGLE, &package, "2.0.0");
     let index = server.source();
     desktop.update(|library, cx| library.add_source(&index, cx));
     desktop
         .update(|library, cx| library.show_page(crate::state::library::LibraryPage::AppStore, cx));
-    desktop.settle_until("the source's listing", |desktop| desktop.shows(words::GET));
-    let held = desktop.hold_compiles();
-    let view = phone_view(&desktop);
-    desktop.tap(view, words::GET);
-    desktop.settle_until("the install", |desktop| {
-        desktop.read(|library| !library.installed().is_empty())
+    desktop.settle_until("the source's listing", |desktop| {
+        desktop.shows(words::UPDATE)
     });
+    let held = desktop.hold_turn(TRIANGLE);
+    let view = phone_view(&desktop);
+    desktop.tap(view, words::UPDATE);
     assert!(desktop.shows(words::INSTALLING), "{:?}", desktop.labels());
     assert!(
         !desktop.shows(words::INSTALLED),
-        "not before its code is ready"
+        "not before it is installed"
     );
     drop(held);
-    desktop.settle_until("its code", |desktop| desktop.shows(words::INSTALLED));
+    desktop.settle_until("the update", |desktop| desktop.shows(words::INSTALLED));
     assert!(!desktop.shows(words::INSTALLING));
 }
 
 #[test]
 fn an_update_a_source_lists_is_offered_in_the_store() {
     let mut desktop = desktop();
-    install_on_the_phone(&mut desktop, b"\0asm");
+    install_on_the_phone(&mut desktop, crate::logic::test_installs::EMPTY_COMPONENT);
     let server = Server::start();
     source_listing_triangle(&mut desktop, &server, "2.0.0");
     desktop
@@ -414,11 +454,16 @@ fn a_problem_is_an_alert_until_dismissed() {
 fn a_long_name_is_laid_out_across_its_tile() {
     let mut desktop = desktop();
     let name = "Notes with a rather long name of many words";
-    let package = desktop.package(TRIANGLE, name, "1.0.0", b"\0asm");
+    let package = desktop.package(
+        TRIANGLE,
+        name,
+        "1.0.0",
+        crate::logic::test_installs::EMPTY_COMPONENT,
+    );
     desktop.update(|library, cx| library.open_files(vec![package], cx));
     let view = phone_view(&desktop);
     desktop.tap(view, words::INSTALL);
-    desktop.settle_until_code_is_ready();
+    desktop.settle_until_operations_end();
     let label = desktop
         .bounds_of::<waft::Text>(&|text| text.data.as_deref() == Some(name))
         .expect("the name");
@@ -458,7 +503,12 @@ fn package_dialog(view: ViewId) -> AskedDialog {
 #[test]
 fn a_package_picked_from_a_file_is_asked_about_and_installed_once_the_user_says_so() {
     let mut desktop = desktop();
-    let package = desktop.package(TRIANGLE, "Triangle", "1.0.0", b"\0asm");
+    let package = desktop.package(
+        TRIANGLE,
+        "Triangle",
+        "1.0.0",
+        crate::logic::test_installs::EMPTY_COMPONENT,
+    );
     let dialogs = desktop.file_dialogs().answering_paths(vec![package]);
     on_the_get_pages_sources(&mut desktop);
     let view = phone_view(&desktop);
@@ -471,7 +521,7 @@ fn a_package_picked_from_a_file_is_asked_about_and_installed_once_the_user_says_
     );
     assert!(!desktop.read(|library| library.is_picking()));
     desktop.tap(view, words::INSTALL);
-    desktop.settle_until_code_is_ready();
+    desktop.settle_until_operations_end();
     assert_eq!(desktop.read(|library| library.installed().len()), 1);
     assert!(!desktop.has::<CupertinoAlertDialog>(), "the alert goes");
 }
@@ -509,7 +559,12 @@ fn the_library_is_picking_until_the_picker_answers_a_cancelled_one_too() {
 #[test]
 fn a_package_picked_without_a_path_is_copied_and_asked_about() {
     let mut desktop = desktop();
-    let package = desktop.package(TRIANGLE, "Triangle", "1.0.0", b"\0asm");
+    let package = desktop.package(
+        TRIANGLE,
+        "Triangle",
+        "1.0.0",
+        crate::logic::test_installs::EMPTY_COMPONENT,
+    );
     let document = MemoryFile::new("triangle.wapk", std::fs::read(&package).unwrap());
     desktop
         .file_dialogs()
@@ -519,7 +574,7 @@ fn a_package_picked_without_a_path_is_copied_and_asked_about() {
     desktop.tap(view, words::INSTALL_FROM_FILE_ROW);
     desktop.settle_until("the question", |desktop| desktop.shows("Install Triangle?"));
     desktop.tap(view, words::INSTALL);
-    desktop.settle_until_code_is_ready();
+    desktop.settle_until_operations_end();
     assert_eq!(desktop.read(|library| library.installed().len()), 1);
 }
 
@@ -531,7 +586,12 @@ fn a_package_picked_from_a_file_in_fluents_layout_is_asked_about() {
         .set_physical_size(waft::ui::Size::new(768.0, 1024.0));
     let view = phone_view(&desktop);
     desktop.shell.view_metrics_changed(view);
-    let package = desktop.package(TRIANGLE, "Triangle", "1.0.0", b"\0asm");
+    let package = desktop.package(
+        TRIANGLE,
+        "Triangle",
+        "1.0.0",
+        crate::logic::test_installs::EMPTY_COMPONENT,
+    );
     let dialogs = desktop.file_dialogs().answering_paths(vec![package]);
     on_the_get_page(&mut desktop);
     assert!(desktop.has::<FluentAppStore>(), "{:?}", desktop.labels());

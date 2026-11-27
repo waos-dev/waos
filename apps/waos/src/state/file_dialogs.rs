@@ -187,7 +187,6 @@ mod tests {
     };
     use waft_test::TestPlatform;
     use waos::OpenOptions;
-    use waos_test_programs::CODE_CACHE;
 
     use super::*;
     use crate::logic::placement::WindowsOnRequest;
@@ -252,9 +251,12 @@ mod tests {
         let folder = tempfile::tempdir().unwrap();
         let store = waos_store::Store::open(folder.path(), waos_store::SourceProxy::None).unwrap();
         let (placement, requests) = WindowsOnRequest::new(ProgramFaces::new(store, None));
-        let engine = test_engine::engine(Arc::new(placement), Path::new(CODE_CACHE));
+        let engine = test_engine::engine(Arc::new(placement));
         let program = engine
-            .load(Path::new(waos_test_programs::FOREVER))
+            .load(
+                Path::new(waos_test_programs::FOREVER),
+                &waos_test_programs::code_of(waos_test_programs::FOREVER),
+            )
             .expect("forever loads");
         let running = engine
             .run(&program, Default::default())

@@ -4,7 +4,6 @@ use std::time::Duration;
 use futures::channel::oneshot;
 use futures::{FutureExt, StreamExt};
 use waos::{ProgramEnd, ProgramEnvironment};
-use waos_test_programs::CODE_CACHE;
 
 use super::*;
 use crate::logic::program_apps::CanvasCall;
@@ -59,9 +58,12 @@ pub(crate) fn launch_failed(reach: &AppReach, id: &ProgramId, reason: &str) {
 /// Survey, under its id, its windows placed by `reach`, as the engine places a program's on macOS.
 fn survey_through(reach: &Arc<AppReach>) -> RunningProgram {
     let placement = Arc::clone(reach) as Arc<dyn ViewPlacement>;
-    let engine = test_engine::engine(placement, Path::new(CODE_CACHE));
+    let engine = test_engine::engine(placement);
     let survey = engine
-        .load(Path::new(waos_test_programs::SURVEY))
+        .load(
+            Path::new(waos_test_programs::SURVEY),
+            &waos_test_programs::code_of(waos_test_programs::SURVEY),
+        )
         .expect("survey loads")
         .named(SURVEY);
 

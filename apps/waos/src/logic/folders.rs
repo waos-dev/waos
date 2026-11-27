@@ -1,8 +1,8 @@
-//! The app's own folders on this machine: where compiled programs are kept for the engine's code
-//! cache, a cache the system may clear and the next run makes again, the copies of the packages
-//! handed without a path while they are asked about, and the running programs' `/tmp`, each
-//! emptied when its program ends; WaOS's data folder, with the store in it, the programs installed and the sources added, which the user
-//! keeps; and, on macOS, where the installed programs' apps go, among the user's applications.
+//! The app's own folders on this machine: among its caches, which the system may clear, the copies
+//! of the packages handed without a path while they are asked about, and the running programs'
+//! `/tmp`, each emptied when its program ends; WaOS's data folder, with the store in it, the
+//! programs installed, their code compiled, and the sources added, which the user keeps; and, on
+//! macOS, where the installed programs' apps go, among the user's applications.
 //!
 //! The invariant: the caches are under the user's caches, beside each other, so clearing WaOS's
 //! caches is one folder; the store is under the user's application data, which nothing clears.
@@ -11,8 +11,6 @@ use std::path::PathBuf;
 
 /// Where the app keeps what it may lose, and what it keeps.
 pub(crate) struct AppFolders {
-    /// The engine's code cache: `WaOSConfig::code_cache`.
-    pub(crate) code_cache: PathBuf,
     /// Where the running programs' `/tmp` are made, `WaOSConfig::temporary_folders`, under the
     /// caches: on the volume of the user's home, where the store and the programs' `/data` are,
     /// so a program's file renamed from `/tmp` into `/data` is one rename.
@@ -63,7 +61,6 @@ pub(crate) struct AppFolders {
 pub(crate) fn app_folders() -> AppFolders {
     let caches = caches_folder();
     AppFolders {
-        code_cache: caches.join("code"),
         temporary_folders: caches.join("tmp"),
         package_copies: caches.join("packages"),
         store: data_folder().join("store"),
@@ -152,14 +149,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_code_cache_and_the_programs_tmp_are_under_the_users_caches() {
+    fn the_package_copies_and_the_programs_tmp_are_under_the_users_caches() {
         let folders = app_folders();
-        assert!(folders.code_cache.starts_with(home()));
+        assert!(folders.temporary_folders.starts_with(home()));
         assert_eq!(
-            folders.code_cache.parent(),
+            folders.package_copies.parent(),
             folders.temporary_folders.parent()
         );
-        assert_ne!(folders.code_cache, folders.temporary_folders);
+        assert_ne!(folders.package_copies, folders.temporary_folders);
     }
 
     #[test]
@@ -169,7 +166,7 @@ mod tests {
         assert!(
             !folders
                 .store
-                .starts_with(folders.code_cache.parent().unwrap())
+                .starts_with(folders.temporary_folders.parent().unwrap())
         );
     }
 }

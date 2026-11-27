@@ -89,7 +89,10 @@ fn a_presented_hardware_buffer_holds_the_triangle_over_the_clear_colour() {
     let shell = TestShell::new();
     let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
     let triangle = engine
-        .load(Path::new(waos_test_programs::TRIANGLE))
+        .load(
+            Path::new(waos_test_programs::TRIANGLE),
+            &waos_test_programs::code_of(waos_test_programs::TRIANGLE),
+        )
         .unwrap();
     let running = engine
         .run(&triangle, ProgramEnvironment::default())
@@ -142,7 +145,10 @@ fn a_frame_due_while_the_shell_holds_every_hardware_buffer_gets_another_and_the_
     .unwrap();
 
     let triangle = engine
-        .load(Path::new(waos_test_programs::TRIANGLE))
+        .load(
+            Path::new(waos_test_programs::TRIANGLE),
+            &waos_test_programs::code_of(waos_test_programs::TRIANGLE),
+        )
         .unwrap();
     let running = engine
         .run(&triangle, ProgramEnvironment::default())
@@ -188,7 +194,10 @@ fn a_covered_triangle_draws_while_watched_and_not_minimized_nor_after_the_watch(
     let shell = TestShell::new();
     let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
     let triangle = engine
-        .load(Path::new(waos_test_programs::TRIANGLE))
+        .load(
+            Path::new(waos_test_programs::TRIANGLE),
+            &waos_test_programs::code_of(waos_test_programs::TRIANGLE),
+        )
         .unwrap();
     let running = engine
         .run(&triangle, ProgramEnvironment::default())
@@ -271,7 +280,10 @@ fn a_view_out_of_sight_answers_occluded_for_its_surfaces_texture() {
     let shell = TestShell::new();
     let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
     let occluded = engine
-        .load(Path::new(waos_test_programs::OCCLUDED))
+        .load(
+            Path::new(waos_test_programs::OCCLUDED),
+            &waos_test_programs::code_of(waos_test_programs::OCCLUDED),
+        )
         .unwrap();
     let output = Arc::new(RecordedOutput::default());
     let running = engine.run(&occluded, printing_to(&output)).unwrap();
@@ -324,7 +336,10 @@ fn freezing_engine() -> (WaOS, TestShell, ManualTime) {
 fn a_frozen_triangle_keeps_one_hardware_buffer_and_draws_again_after_the_unfreeze() {
     let (engine, shell, time) = freezing_engine();
     let triangle = engine
-        .load(Path::new(waos_test_programs::TRIANGLE))
+        .load(
+            Path::new(waos_test_programs::TRIANGLE),
+            &waos_test_programs::code_of(waos_test_programs::TRIANGLE),
+        )
         .unwrap();
     let running = engine
         .run(&triangle, ProgramEnvironment::default())
@@ -368,7 +383,10 @@ fn a_frozen_triangle_keeps_one_hardware_buffer_and_draws_again_after_the_unfreez
 fn app_suspending_with_triangle_drawing_resolves_with_no_gpu_work_in_flight() {
     let (engine, shell, time) = freezing_engine();
     let triangle = engine
-        .load(Path::new(waos_test_programs::TRIANGLE))
+        .load(
+            Path::new(waos_test_programs::TRIANGLE),
+            &waos_test_programs::code_of(waos_test_programs::TRIANGLE),
+        )
         .unwrap();
     let running = engine
         .run(&triangle, ProgramEnvironment::default())

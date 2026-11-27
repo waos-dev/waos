@@ -47,6 +47,7 @@ use crate::logic::program_places::{ProgramPlace, ProgramPlaces};
 use crate::logic::recording_indicator::{RecordingChanged, RecordingIndicatorOnRequest};
 use crate::logic::runs::Runs;
 use crate::logic::test_engine::{self, NoWindows, WITHIN};
+use crate::logic::test_installs;
 
 /// `path` as the engine hands it to the system: its links resolved, named as the system's apps
 /// name it (`waos::machine_paths::plain`).
@@ -73,31 +74,13 @@ pub(crate) struct TestSystem {
     folder: TempDir,
 }
 
-/// Where the engine keeps the code it compiles.
-pub(crate) enum CodeCache {
-    /// With the code of `waos_test_programs`' programs, for a test that runs them where they are.
-    Shared,
-    /// In the test's own folder, removed with it, for a test that runs copies, as installed
-    /// programs are.
-    Own,
-}
-
 impl TestSystem {
     /// The app over `platform`, with an engine whose shell has the app's opener, notifications,
     /// compositor, players, reading of media, frame readers and cameras where `platform` has them, and the app's
-    /// indicator of who records, keeping its code in the cache the tests share.
+    /// indicator of who records.
     pub(crate) fn new(platform: TestPlatform) -> TestSystem {
-        TestSystem::compiling_into(platform, CodeCache::Shared)
-    }
-
-    /// [`new`](Self::new), keeping its code in `cache`.
-    pub(crate) fn compiling_into(platform: TestPlatform, cache: CodeCache) -> TestSystem {
         let folder = tempfile::tempdir().unwrap();
         let copies = PackageCopies::clear(folder.path().join("package-copies")).unwrap();
-        let code_cache = match cache {
-            CodeCache::Shared => PathBuf::from(waos_test_programs::CODE_CACHE),
-            CodeCache::Own => folder.path().join("code"),
-        };
         let store = Store::open(&folder.path().join("store"), SourceProxy::None).expect("a store");
         let opener = Opener::of(&platform);
         let notifications = Notifications::of(&platform);
@@ -129,11 +112,11 @@ impl TestSystem {
         let engine = Arc::new(test_engine::engine_over(
             shell,
             EngineTime::Manual(time.clone()),
-            &code_cache,
         ));
         let runs = Arc::new(Runs::default());
         let installed_runs = InstalledRuns::new(
             Arc::clone(&engine),
+            store.clone(),
             ProgramEnvironments::new(waos_local::LocalCapabilities::new(), store.clone()),
             Arc::clone(&runs),
             ProgramPlaces::new(ProgramPlace::Windows),
@@ -199,19 +182,21 @@ impl TestSystem {
         }
     }
 
-    /// Installs the program at `component` as `id`, named `name`, from a package signed with a
-    /// key of the test's own.
+    /// Installs the test program at `component` as `id`, named `name`, from a package signed
+    /// with a key of the test's own, its code compiled already (`logic::test_installs`).
     pub(crate) fn install(&self, component: &str, id: &str, name: &str) {
         let packages = self.folder.path().join("packages");
         std::fs::create_dir_all(&packages).unwrap();
-        let component = std::fs::read(component).unwrap();
+        let bytes = std::fs::read(component).unwrap();
         let key = SigningKey::generate();
-        let file = write_package(&packages, id, name, "1.0.0", &component, &key);
+        let file = write_package(&packages, id, name, "1.0.0", &bytes, &key);
         let package = OpenedPackage::open(&file).expect("a package");
-        self.store
-            .stage(package.into_package())
-            .and_then(|staged| self.store.commit(staged))
-            .expect("installed");
+        test_installs::install_package(
+            &self.store,
+            &self.engine,
+            package.into_package(),
+            component,
+        );
     }
 
     /// Runs the test program at `component` as the program `id`, among the runs, with the store's
@@ -220,7 +205,10 @@ impl TestSystem {
         let id: ProgramId = id.parse().expect("an id");
         let program = self
             .engine
-            .load(Path::new(component))
+            .load(
+                Path::new(component),
+                &waos_test_programs::code_of(component),
+            )
             .expect("the program loads")
             .named(id.as_str());
         let environment = ProgramEnvironment {

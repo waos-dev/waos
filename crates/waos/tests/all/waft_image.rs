@@ -56,7 +56,10 @@ fn a_memory_image_decodes_into_the_programs_memory_without_hardware_codecs_and_d
 /// Waft-image running on `engine`, over `shell`, and its window's view, once it has arrived.
 fn run(engine: &WaOS, shell: &TestShell) -> (RunningProgram, ProgramView) {
     let program = engine
-        .load(Path::new(waos_test_programs::WAFT_IMAGE))
+        .load(
+            Path::new(waos_test_programs::WAFT_IMAGE),
+            &waos_test_programs::code_of(waos_test_programs::WAFT_IMAGE),
+        )
         .unwrap();
     let output = Arc::new(RecordedOutput::default());
     let environment = ProgramEnvironment {

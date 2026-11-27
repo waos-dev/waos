@@ -254,7 +254,10 @@ fn a_program_started_while_the_app_is_suspended_runs_nothing_until_it_resumes() 
     let (engine, _shell, time) = engine();
     within(engine.suspend());
     let forever = engine
-        .load(Path::new(waos_test_programs::FOREVER_SHOWN))
+        .load(
+            Path::new(waos_test_programs::FOREVER_SHOWN),
+            &waos_test_programs::code_of(waos_test_programs::FOREVER_SHOWN),
+        )
         .unwrap();
     let output = Arc::new(RecordedOutput::default());
     let running = engine.run(&forever, printing_to(&output)).unwrap();
@@ -354,7 +357,12 @@ fn a_frozen_program_asked_to_close_its_view_hears_it_and_is_frozen_again_once_it
         shell.platform(),
     )
     .unwrap();
-    let survey = engine.load(Path::new(waos_test_programs::SURVEY)).unwrap();
+    let survey = engine
+        .load(
+            Path::new(waos_test_programs::SURVEY),
+            &waos_test_programs::code_of(waos_test_programs::SURVEY),
+        )
+        .unwrap();
     let output = Arc::new(RecordedOutput::default());
     let running = engine.run(&survey, printing_to(&output)).unwrap();
     let view = within(shell.headless.view(0))
@@ -419,7 +427,10 @@ fn run_forever_shown(
     view_index: usize,
 ) -> (RunningProgram, ProgramView, Arc<RecordedOutput>) {
     let forever = engine
-        .load(Path::new(waos_test_programs::FOREVER_SHOWN))
+        .load(
+            Path::new(waos_test_programs::FOREVER_SHOWN),
+            &waos_test_programs::code_of(waos_test_programs::FOREVER_SHOWN),
+        )
         .unwrap();
     let output = Arc::new(RecordedOutput::default());
     let running = engine.run(&forever, printing_to(&output)).unwrap();
@@ -436,7 +447,12 @@ fn run_survey_shown(
     shell: &TestShell,
     view_index: usize,
 ) -> (RunningProgram, ProgramView, Arc<RecordedOutput>) {
-    let survey = engine.load(Path::new(waos_test_programs::SURVEY)).unwrap();
+    let survey = engine
+        .load(
+            Path::new(waos_test_programs::SURVEY),
+            &waos_test_programs::code_of(waos_test_programs::SURVEY),
+        )
+        .unwrap();
     let output = Arc::new(RecordedOutput::default());
     let running = engine.run(&survey, printing_to(&output)).unwrap();
     let view = within(shell.headless.view(view_index))

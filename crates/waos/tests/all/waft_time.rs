@@ -17,7 +17,10 @@ fn a_local_date_time_reads_the_users_hour_and_zone_name() {
     let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
     engine.set_time_zone(Some("America/New_York".into()));
     let program = engine
-        .load(Path::new(waos_test_programs::WAFT_TIME))
+        .load(
+            Path::new(waos_test_programs::WAFT_TIME),
+            &waos_test_programs::code_of(waos_test_programs::WAFT_TIME),
+        )
         .unwrap();
     let output = Arc::new(RecordedOutput::default());
     let environment = ProgramEnvironment {

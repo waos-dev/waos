@@ -339,7 +339,10 @@ impl Run {
             ..printing_to(&output)
         };
         let program = engine
-            .load(Path::new(waos_test_programs::IMAGE_CODECS))
+            .load(
+                Path::new(waos_test_programs::IMAGE_CODECS),
+                &waos_test_programs::code_of(waos_test_programs::IMAGE_CODECS),
+            )
             .unwrap();
         let running = engine.run(&program, environment).unwrap();
         Run {

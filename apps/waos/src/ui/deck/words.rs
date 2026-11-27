@@ -70,7 +70,6 @@ mod tests {
     use std::sync::Arc;
 
     use waos::ProgramEnvironment;
-    use waos_test_programs::CODE_CACHE;
 
     use super::*;
     use crate::logic::test_engine::{self, NoWindows};
@@ -142,8 +141,10 @@ mod tests {
 
     /// How the engine ends the component at `path`, run with nothing granted.
     fn end_of(path: &str) -> ProgramEnd {
-        let engine = test_engine::engine(Arc::new(NoWindows), Path::new(CODE_CACHE));
-        let program = engine.load(Path::new(path)).expect("it loads");
+        let engine = test_engine::engine(Arc::new(NoWindows));
+        let program = engine
+            .load(Path::new(path), &waos_test_programs::code_of(path))
+            .expect("it loads");
         let running = engine
             .run(&program, ProgramEnvironment::default())
             .expect("it starts");

@@ -14,7 +14,10 @@ fn a_run_reads_the_variables_it_was_given_and_waos_s_own_win() {
     let shell = TestShell::new();
     let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
     let program = engine
-        .load(Path::new(waos_test_programs::ENVIRONMENT))
+        .load(
+            Path::new(waos_test_programs::ENVIRONMENT),
+            &waos_test_programs::code_of(waos_test_programs::ENVIRONMENT),
+        )
         .unwrap();
     let output = Arc::new(RecordedOutput::default());
     let environment = ProgramEnvironment {
@@ -41,7 +44,10 @@ fn a_runs_arguments_start_with_the_programs_name() {
     let shell = TestShell::new();
     let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
     let program = engine
-        .load(Path::new(waos_test_programs::ARGUMENTS))
+        .load(
+            Path::new(waos_test_programs::ARGUMENTS),
+            &waos_test_programs::code_of(waos_test_programs::ARGUMENTS),
+        )
         .unwrap()
         .named("dev.example.args");
     let output = Arc::new(RecordedOutput::default());

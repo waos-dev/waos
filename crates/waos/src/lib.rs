@@ -12,7 +12,7 @@
 //! Within it, an interface's state names no wasmtime runtime type and no GPU type, only the types
 //! wasmtime generates from the WIT ([`bindings`]), so its tests need no engine; the code serving
 //! the interface, its `host` module, is where wasmtime's resources and streams are made. Built so
-//! far, steps 4a to 4c of the design: [`WaOS`] loads a program through its code cache and runs it
+//! far, steps 4a to 4c of the design: [`WaOS`] loads a program from its code folder and runs it
 //! on a thread of its own, with the views the shell gives it, until it ends or is stopped, when
 //! every GPU object it held goes back with its store, freezing it out of sight by [`FreezePolicy`]
 //! and while the app is suspended; the bindings for views, windows, screens, the system and the
@@ -52,7 +52,7 @@ mod caption_settings;
 mod channel;
 mod clipboard;
 mod clock;
-mod code_cache;
+mod code_folder;
 mod engine;
 mod engine_time;
 mod epoch;

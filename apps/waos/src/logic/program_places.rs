@@ -136,7 +136,6 @@ mod tests {
 
     use futures::StreamExt;
     use waos::{ProgramEnd, ProgramEnvironment, WaOS};
-    use waos_test_programs::CODE_CACHE;
 
     use super::*;
     use crate::logic::placement::WindowsOnRequest;
@@ -150,7 +149,10 @@ mod tests {
     /// Runs survey, which asks for a view as it starts, as `SURVEY`, on `engine`.
     fn run_survey(engine: &WaOS) -> RunningProgram {
         let survey = engine
-            .load(Path::new(waos_test_programs::SURVEY))
+            .load(
+                Path::new(waos_test_programs::SURVEY),
+                &waos_test_programs::code_of(waos_test_programs::SURVEY),
+            )
             .expect("survey loads")
             .named(SURVEY);
 
@@ -173,7 +175,7 @@ mod tests {
             tabs,
             windows: Arc::new(windows),
         };
-        let engine = test_engine::engine(Arc::new(placement), Path::new(CODE_CACHE));
+        let engine = test_engine::engine(Arc::new(placement));
         let running = run_survey(&engine);
         let arrived = tokio::time::timeout(WITHIN, tabs_asked.next())
             .await
@@ -199,7 +201,7 @@ mod tests {
             tabs,
             windows: Arc::new(windows),
         };
-        let engine = test_engine::engine(Arc::new(placement), Path::new(CODE_CACHE));
+        let engine = test_engine::engine(Arc::new(placement));
         let running = run_survey(&engine);
         let end = tokio::time::timeout(WITHIN, running.ended()).await.unwrap();
         assert!(matches!(end, ProgramEnd::Returned(Err(()))), "{end:?}");
@@ -215,7 +217,7 @@ mod tests {
             tabs: TabsOnRequest::new().0,
             windows: Arc::new(windows),
         };
-        let engine = test_engine::engine(Arc::new(placement), Path::new(CODE_CACHE));
+        let engine = test_engine::engine(Arc::new(placement));
         let running = run_survey(&engine);
         let arrived = tokio::time::timeout(WITHIN, arriving.next())
             .await

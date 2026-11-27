@@ -16,20 +16,19 @@
 //!
 //! What reads the network or the disk at length, a source's index, a download, a program's load,
 //! runs on the library's own tokio runtime, and its answer comes back to the main thread, where
-//! the library changes and notifies. A program installed or updated has its code compiled, on a
-//! thread of its own (`logic::installed_code`), and is compiling until its code is ready; a
-//! program removed, or the version an update replaces, has its code removed first. A program
-//! removed or updated while it runs ends first, its tab closing and its windows with it, as a
-//! system ends an app it uninstalls or updates: the removal waits for the end before it takes the
-//! program's folders, and an update from a source ends it once the package is downloaded; so no
-//! run outlives the package it came from. What was asked last and failed is the library's
-//! problem, until the next thing asked succeeds or the user dismisses it.
+//! the library changes and notifies. A program is installed, updated and removed by the package
+//! manager (`logic::package_manager`), as Android's launcher asks its package manager: an install
+//! is done once its code is compiled, and a program removed or updated while it runs ends first,
+//! its tab closing and its windows with it, as a system ends an app it uninstalls or updates. What
+//! the package manager is doing to each program, downloading, installing, optimizing or removing
+//! it, is shown on its tile and its page. What was asked last and failed is the library's problem,
+//! until the next thing asked succeeds or the user dismisses it.
 //!
-//! The invariant: the library changes the store only through the store's own rules, and reads
-//! what is installed again after every change it makes, with each program's icon, so what it shows
+//! The invariant: the library changes what is installed only through the package manager, and
+//! reads what is installed again after every change, with each program's icon, so what it shows
 //! is what is installed; a source's listing is read against the installed programs whenever either
-//! changes; which programs run is the runs' own list, as it last changed; and which programs'
-//! code is compiled is the compiles' own list, read as the library is shown.
+//! changes; which programs run is the runs' own list, and what is being done to which program the
+//! package manager's, each as it last changed.
 
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 mod developer_access;
@@ -45,7 +44,7 @@ pub(crate) mod test_server;
 #[cfg(test)]
 mod tests;
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::future::Future;
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -78,6 +77,7 @@ use crate::logic::often_used::{most_started, starts_lately};
 use crate::logic::opened_package::OpenedPackage;
 use crate::logic::opening;
 use crate::logic::package_copies::{PackageCopies, document_name};
+use crate::logic::package_manager::{Installable, PackageOperation};
 use crate::logic::preferences::{KeptPreferences, Preferences, PreferencesFile};
 use crate::logic::program_faces::program_face;
 use crate::logic::program_places::ProgramPlace;
@@ -122,8 +122,8 @@ pub(crate) struct Library {
     /// The programs running now, by id, whoever started them.
     running: BTreeSet<ProgramId>,
     sources: Vec<SourceListing>,
-    /// The programs being installed from a source now, by id.
-    installing: Vec<ProgramId>,
+    /// What the package manager is doing to which program.
+    operations: watch::Receiver<BTreeMap<ProgramId, PackageOperation>>,
     /// What the user is asked now, and then the packages opened with WaOS waiting their turn.
     questions: Vec<Question>,
     /// Why what was asked last failed.
@@ -309,6 +309,7 @@ impl Library {
     ) -> Library {
         let installed_at = *store.installed_changes().borrow();
         let installed = store.installed();
+        let operations = runs.packages.operations();
         let mut library = Library {
             icons: icons_of(&store, &installed),
             installed,
@@ -321,7 +322,7 @@ impl Library {
             programs_open,
             preferences,
             work,
-            installing: Vec::new(),
+            operations,
             questions: Vec::new(),
             problem: None,
             package_copies,
@@ -347,7 +348,7 @@ impl Library {
         };
         library.read_sources(cx);
         library.follow_running(cx);
-        library.follow_compiling(cx);
+        library.follow_operations(cx);
         library.follow_installed(cx);
         library.often_used = library.most_started_lately();
         library
@@ -381,11 +382,11 @@ impl Library {
         );
     }
 
-    /// Shows which programs' code is being compiled each time that changes, from now on; the
-    /// compiles' own list is read as the library is shown.
-    fn follow_compiling(&mut self, cx: &mut Context<Library>) {
-        let ids = self.runs.code.compiling_ids();
-        follow(ids, |_library, _compiling, cx| cx.notify(), cx);
+    /// Shows what the package manager is doing to which program each time that changes, from
+    /// now on; what it does is read from it as the library is shown.
+    fn follow_operations(&mut self, cx: &mut Context<Library>) {
+        let operations = self.runs.packages.operations();
+        follow(operations, |_library, _operations, cx| cx.notify(), cx);
     }
 
     /// From now on a program opened from the library may open in a tab of `tabs`, as on a phone,
@@ -630,11 +631,10 @@ impl Library {
         self.running.contains(id)
     }
 
-    /// Whether the installed program `id`'s code is being compiled now, as at its install, or at
-    /// its first open once an update of WaOS changed the engine: until it is, it is not ready to
-    /// open, and an open waits for it.
-    pub(crate) fn is_compiling(&self, id: &ProgramId) -> bool {
-        self.runs.code.is_compiling(id)
+    /// What the package manager is doing to the program `id` now: downloading, installing,
+    /// optimizing or removing it; none while it does nothing to it.
+    pub(crate) fn operation(&self, id: &ProgramId) -> Option<PackageOperation> {
+        self.operations.borrow().get(id).copied()
     }
 
     /// Whether the library closes the programs it opened: where they open in tabs; not where they
@@ -662,11 +662,6 @@ impl Library {
     /// The sources added, in the order added, with what each lists.
     pub(crate) fn sources(&self) -> &[SourceListing] {
         &self.sources
-    }
-
-    /// Whether the program `id` is being installed from a source now.
-    pub(crate) fn is_installing(&self, id: &ProgramId) -> bool {
-        self.installing.contains(id)
     }
 
     /// What the user is asked now.
@@ -706,12 +701,7 @@ impl Library {
             activation_token = activation_token.is_some(),
             "a launch asked for the program"
         );
-        if self
-            .store
-            .installed_version(id)
-            .map(|version| version.component())
-            .is_none()
-        {
+        if self.store.installed_program(id).is_none() {
             cx.emit(WantsToBeSeen);
         }
         self.open_bringing_forward(id, activation_token, cx);
@@ -724,22 +714,18 @@ impl Library {
         activation_token: Option<String>,
         cx: &mut Context<Library>,
     ) {
-        let Some(component) = self
-            .store
-            .installed_version(id)
-            .map(|version| version.component())
-        else {
+        if self.store.installed_program(id).is_none() {
             self.failed(
                 format!("{id} is not installed, or its files cannot be read"),
                 cx,
             );
             return;
-        };
+        }
         self.opened(id, activation_token, cx);
         if let Some(tabs) = self.tabs.clone()
             && self.place_to_open(id) == ProgramPlace::Tab
         {
-            self.open_in_tab(tabs, id, component, cx);
+            self.open_in_tab(tabs, id, cx);
             return;
         }
         let is_an_app = self
@@ -757,7 +743,7 @@ impl Library {
         let (runs, id) = (self.runs.clone(), id.clone());
         self.work_then(
             async move {
-                runs.open(&id, component, ProgramPlace::Windows, Opening::ByTheUser)
+                runs.open(&id, ProgramPlace::Windows, Opening::ByTheUser)
                     .await
                     .map(drop)
             },
@@ -766,15 +752,9 @@ impl Library {
         );
     }
 
-    /// Opens the program `id`, whose component is at `component`, in a tab of `tabs`, whose screen
-    /// its first request takes; where it has a tab already, that tab comes into sight.
-    fn open_in_tab(
-        &mut self,
-        tabs: Entity<Tabs>,
-        id: &ProgramId,
-        component: PathBuf,
-        cx: &mut Context<Library>,
-    ) {
+    /// Opens the program `id` in a tab of `tabs`, whose screen its first request takes; where it
+    /// has a tab already, that tab comes into sight.
+    fn open_in_tab(&mut self, tabs: Entity<Tabs>, id: &ProgramId, cx: &mut Context<Library>) {
         match tabs.update(cx, |tabs, cx| tabs.open(id, cx)) {
             Ok(true) => {}
             Ok(false) => return,
@@ -784,7 +764,7 @@ impl Library {
         let opening = id.clone();
         self.work_then(
             async move {
-                runs.open(&opening, component, ProgramPlace::Tab, Opening::ByTheUser)
+                runs.open(&opening, ProgramPlace::Tab, Opening::ByTheUser)
                     .await
             },
             move |library, opened, cx| {
@@ -946,43 +926,51 @@ impl Library {
         cx.notify();
     }
 
-    /// Installs `program` as `source` lists it, a new program or an update of an installed one; a
-    /// run of it ends once the package is downloaded, before the update replaces it.
+    /// Installs `program` as `source` lists it, a new program or an update of an installed one,
+    /// unless the package manager is doing something to it already; a run of it ends before the
+    /// update replaces it, its tab closing.
     pub(crate) fn install_from(
         &mut self,
         source: &Source,
         program: &ListedProgram,
         cx: &mut Context<Library>,
     ) {
-        if self.is_installing(&program.id) {
+        if self.operation(&program.id).is_some() {
             return;
         }
-        self.installing.push(program.id.clone());
-        let first_install = self.installed_program(&program.id).is_none();
-        self.remove_code(&program.id);
-        let (store, source, listed) = (self.store.clone(), source.clone(), program.clone());
-        let (runs, id) = (Arc::clone(&self.runs.runs), program.id.clone());
+        let from = Installable::Listed {
+            source: source.clone(),
+            program: program.clone(),
+        };
+        self.install(&program.id, from, None, cx);
+    }
+
+    /// Installs the program `id` from `from`, then removes `copy`, the package's copy where it was
+    /// copied to be asked about: once it is installed, its tab closes where an update ended its
+    /// run, and a new program is offered a place on the home screen.
+    fn install(
+        &mut self,
+        id: &ProgramId,
+        from: Installable,
+        copy: Option<PathBuf>,
+        cx: &mut Context<Library>,
+    ) {
+        let first_install = self.installed_program(id).is_none();
+        let (installing, id) = (self.runs.packages.install(from), id.clone());
         self.work_then(
-            async move {
-                let download = store.download(&source, &listed, |_| {}).await?;
-                // Once the package is here, so a failed download leaves the program running.
-                runs.stop(&listed.id).await;
-                let staged = store.stage_download(download).await?;
-                store.commit(staged)
-            },
+            installing,
             move |library, installed, cx| {
-                library.installing.retain(|installing| installing != &id);
-                let succeeded = installed.is_ok();
-                if succeeded {
-                    // The tab of the run the update ended, where it had one.
-                    library.close(&id, cx);
+                if let Some(copy) = &copy {
+                    library.package_copies.remove(copy);
                 }
+                let succeeded = installed.is_ok();
                 match installed {
                     Ok(_) => {
-                        library.compile(&id);
+                        // The tab of the run the update ended, where it had one.
+                        library.close(&id, cx);
                         library.succeeded(cx);
                     }
-                    Err(error) => library.failed(format!("{error}"), cx),
+                    Err(error) => library.failed(format!("{error:#}"), cx),
                 }
                 library.installed_changed(cx);
                 if succeeded && first_install {
@@ -1083,121 +1071,35 @@ impl Library {
         cx.notify();
     }
 
-    /// Installs `package`, opened with WaOS, once no run of its program is left: a program that
-    /// runs, updated so, ends first, its tab closing, as a system ends an app it updates.
+    /// Installs `package`, opened with WaOS, its copy removed once it is installed or refused.
     fn install_opened(&mut self, package: Box<OpenedPackage>, cx: &mut Context<Library>) {
         tracing::info!(file = %package.file().display(), "the user said to install");
         let id = package.manifest().id().clone();
-        self.close(&id, cx);
-        self.once_ended(
+        let copy = package.file().to_path_buf();
+        self.install(
             &id,
-            move |library, cx| library.put_in_place(package, cx),
+            Installable::Package(package.into_package()),
+            Some(copy),
             cx,
         );
     }
 
-    /// Installs `package`, its copy removed after, and offers its program a place on the home
-    /// screen where it is new.
-    fn put_in_place(&mut self, package: Box<OpenedPackage>, cx: &mut Context<Library>) {
-        let (id, copy) = (
-            package.manifest().id().clone(),
-            package.file().to_path_buf(),
-        );
-        let first_install = self.installed_program(&id).is_none();
-        self.remove_code(&id);
-        let installed = self
-            .store
-            .stage(package.into_package())
-            .and_then(|staged| self.store.commit(staged))
-            .map(|installed| self.compile(installed.manifest.id()));
-        self.package_copies.remove(&copy);
-        let succeeded = installed.is_ok();
-        match installed {
-            Ok(()) => self.succeeded(cx),
-            Err(error) => self.failed(format!("{error}"), cx),
-        }
-        self.installed_changed(cx);
-        if succeeded && first_install {
-            self.offer_home_screen(&id, cx);
-        }
-    }
-
-    /// Removes the installed program `id` once no run of it is left: one that runs ends first,
-    /// its tab closing and its windows with it, as a system ends an app it uninstalls, so no run
-    /// goes on over the folders the removal takes.
+    /// Removes the installed program `id`: one that runs ends first, its tab closing and its
+    /// windows with it, as a system ends an app it uninstalls.
     fn remove(&mut self, id: &ProgramId, cx: &mut Context<Library>) {
         self.close(id, cx);
-        let id = id.clone();
-        self.once_ended(
-            &id.clone(),
-            move |library, cx| library.take_out(&id, cx),
-            cx,
-        );
-    }
-
-    /// Takes the program `id` out of the store, with its code and what the system kept for its
-    /// app.
-    fn take_out(&mut self, id: &ProgramId, cx: &mut Context<Library>) {
-        self.remove_code(id);
-        let removed = self.store.remove(id);
-        match removed {
-            Ok(()) => self.succeeded(cx),
-            Err(error) => self.failed(format!("{error}"), cx),
-        }
-        self.installed_changed(cx);
-    }
-
-    /// Does `then` once no run of the program `id` is left: at once where none runs or is being
-    /// started, and otherwise once its run is ended, on the library's runtime.
-    fn once_ended(
-        &mut self,
-        id: &ProgramId,
-        then: impl FnOnce(&mut Library, &mut Context<Library>) + 'static,
-        cx: &mut Context<Library>,
-    ) {
-        if !self.runs.runs.runs_or_starts(id) {
-            return then(self, cx);
-        }
-        let (runs, id) = (Arc::clone(&self.runs.runs), id.clone());
         self.work_then(
-            async move { runs.stop(&id).await },
-            move |library, _stopped, cx| then(library, cx),
+            self.runs.packages.remove(id),
+            |library, removed, cx| {
+                match removed {
+                    Ok(()) => library.succeeded(cx),
+                    Err(error) => library.failed(format!("{error:#}"), cx),
+                }
+                library.installed_changed(cx);
+            },
             cx,
         );
-    }
-
-    /// Starts compiling the code of the program `id`, installed or updated just now, off the main
-    /// thread; until it is ready, the program says so (`is_compiling`). One whose code cannot be
-    /// compiled is said to whoever subscribes, and its open compiles it again and says why not.
-    fn compile(&self, id: &ProgramId) {
-        let Some(component) = self
-            .store
-            .installed_version(id)
-            .map(|version| version.component())
-        else {
-            return;
-        };
-        if let Err(error) = self.runs.code.start(id, &component) {
-            tracing::warn!(%id, "the program's code cannot be compiled: {error:#}");
-        }
-    }
-
-    /// Removes the code compiled from the version of the program `id` installed now, which is
-    /// about to be removed or replaced by an update, while its component is still there to find
-    /// it by; a run of that version keeps the code it mapped. An update that then fails leaves the
-    /// version installed to be compiled again at its next open. Code that cannot be removed
-    /// stays, which is said to whoever subscribes.
-    fn remove_code(&self, id: &ProgramId) {
-        let Some(component) = self
-            .store
-            .installed_version(id)
-            .map(|version| version.component())
-        else {
-            return;
-        };
-        if let Err(error) = self.runs.code.remove(&component) {
-            tracing::warn!(%id, "the program's code stays: {error:#}");
-        }
+        cx.notify();
     }
 
     fn ask(&mut self, question: Question) {

@@ -267,19 +267,15 @@ mod tests {
     use waos_package::ProgramId;
 
     use super::*;
-    use crate::state::test_system::{CodeCache, Lines, TestSystem};
+    use crate::state::test_system::{Lines, TestSystem};
 
     const NOTIFICATIONS: &str = "dev.example.notifications";
 
-    /// The app over a platform whose notifications are `notifications`, its engine's code kept in
-    /// `cache`, with `examples/notifications` installed, named Notifications, its user having
+    /// The app over a platform whose notifications are `notifications`, with `examples/notifications` installed, named Notifications, its user having
     /// allowed it notifications.
-    fn with_notifications_installed(
-        notifications: &MockNotifications,
-        cache: CodeCache,
-    ) -> TestSystem {
+    fn with_notifications_installed(notifications: &MockNotifications) -> TestSystem {
         let platform = TestPlatform::new().with_notifications(Rc::new(notifications.clone()));
-        let system = TestSystem::compiling_into(platform, cache);
+        let system = TestSystem::new(platform);
         system.install(
             waos_test_programs::NOTIFICATIONS,
             NOTIFICATIONS,
@@ -297,7 +293,7 @@ mod tests {
     fn run_notifications(
         notifications: &MockNotifications,
     ) -> (TestSystem, RunningProgram, Arc<Lines>) {
-        let system = with_notifications_installed(notifications, CodeCache::Shared);
+        let system = with_notifications_installed(notifications);
         let lines = Arc::new(Lines::default());
         let program = system.run_as(waos_test_programs::NOTIFICATIONS, NOTIFICATIONS, &lines);
         system.run_tasks_until("the program done posting", || {
@@ -407,7 +403,7 @@ mod tests {
     #[test]
     fn a_click_on_an_installed_programs_notification_starts_it() {
         let notifications = MockNotifications::new();
-        let mut system = with_notifications_installed(&notifications, CodeCache::Own);
+        let mut system = with_notifications_installed(&notifications);
         let later = click("dev.example.notifications/greeting", Some("later"), None);
         system.shell.notification_activated(later);
         system.run_tasks_until("the program started, posting its greeting", || {

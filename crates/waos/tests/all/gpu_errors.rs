@@ -17,7 +17,10 @@ fn a_programs_gpu_errors_reach_it_as_wgpu_routes_them() {
     let shell = TestShell::new();
     let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
     let program = engine
-        .load(Path::new(waos_test_programs::GPU_ERRORS))
+        .load(
+            Path::new(waos_test_programs::GPU_ERRORS),
+            &waos_test_programs::code_of(waos_test_programs::GPU_ERRORS),
+        )
         .unwrap();
     let output = Arc::new(RecordedOutput::default());
     let running = engine.run(&program, printing_to(&output)).unwrap();

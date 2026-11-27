@@ -24,6 +24,7 @@ use waft::{
 use waos_package::ProgramId;
 use waos_store::InstalledProgram;
 
+use crate::logic::package_manager::PackageOperation;
 use crate::state::library::Library;
 use crate::ui::library::words;
 
@@ -34,8 +35,8 @@ pub(crate) struct HomeEntry {
     pub(crate) name: String,
     pub(crate) icon: Option<Arc<[u8]>>,
     pub(crate) running: bool,
-    /// Its code is being compiled, as at its install: it is not ready to open.
-    pub(crate) installing: bool,
+    /// What the package manager is doing to it, as optimizing its code after a compiler change.
+    pub(crate) operation: Option<PackageOperation>,
 }
 
 /// The programs `library` has installed, as the home shows them, in the order of their names:
@@ -83,7 +84,7 @@ fn entry_of(library: &Library, app: &InstalledProgram) -> HomeEntry {
         name: app.name(),
         icon: library.icon(id).cloned(),
         running: library.is_running(id),
-        installing: library.is_compiling(id),
+        operation: library.operation(id),
     }
 }
 
@@ -107,29 +108,31 @@ pub(crate) struct TileLook {
 const DOT_SIDE: f64 = 4.0;
 const DOT_GAP: f64 = 3.0;
 
-/// How much of an icon shows while its program installs.
+/// How much of an icon shows while the package manager works on its program.
 const INSTALLING_OPACITY: f64 = 0.5;
 
 /// An icon with its name beneath on one line, cut with an ellipsis, and the running dot under the
 /// name while the program runs; the dot's room is kept when it does not, so names line up. The
-/// name takes the tile's whole width, centred in it. While the program installs, the icon is
-/// dimmed and Installing… stands in place of the name.
+/// name takes the tile's whole width, centred in it. While the package manager works on the
+/// program, the icon is dimmed and what it does, Optimizing… or Removing…, stands in place of the
+/// name.
 #[derive(Clone, Debug)]
 pub(crate) struct IconTile {
     pub(crate) icon: WidgetRef,
     pub(crate) name: String,
     pub(crate) running: bool,
-    pub(crate) installing: bool,
+    pub(crate) operation: Option<PackageOperation>,
     pub(crate) look: TileLook,
 }
 
 impl StatelessWidget for IconTile {
     fn build(&self, _app: &mut App, _context: BuildContext) -> WidgetRef {
-        let (icon, name) = if self.installing {
-            let dimmed = Opacity::new(INSTALLING_OPACITY).child(self.icon.clone());
-            (dimmed.into_widget(), words::INSTALLING.to_owned())
-        } else {
-            (self.icon.clone(), self.name.clone())
+        let (icon, name) = match self.operation {
+            Some(operation) => {
+                let dimmed = Opacity::new(INSTALLING_OPACITY).child(self.icon.clone());
+                (dimmed.into_widget(), words::operation(operation).to_owned())
+            }
+            None => (self.icon.clone(), self.name.clone()),
         };
         let name = Text::new(name)
             .style(self.look.name_style.clone())

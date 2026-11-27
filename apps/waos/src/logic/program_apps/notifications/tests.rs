@@ -11,7 +11,6 @@ use waos::{
 };
 use waos_package::ProgramId;
 use waos_store::{SourceProxy, Store};
-use waos_test_programs::CODE_CACHE;
 use waos_window_messages::{FromWindow, LaunchReason, PermissionRequestId, PostId, ToWindow};
 
 use super::*;
@@ -49,9 +48,12 @@ fn notifications_through(
     ));
     shell.notifications = Some(Arc::clone(&in_apps) as Arc<dyn ShellNotifications>);
     shell.system_permissions = Some(in_apps as Arc<dyn ShellSystemPermissions>);
-    let engine = test_engine::engine_over(shell, EngineTime::Real, Path::new(CODE_CACHE));
+    let engine = test_engine::engine_over(shell, EngineTime::Real);
     let notifications = engine
-        .load(Path::new(waos_test_programs::NOTIFICATIONS))
+        .load(
+            Path::new(waos_test_programs::NOTIFICATIONS),
+            &waos_test_programs::code_of(waos_test_programs::NOTIFICATIONS),
+        )
         .expect("notifications loads")
         .named(NOTIFICATIONS);
     store

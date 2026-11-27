@@ -1,37 +1,34 @@
 //! What `waos install` and `waos uninstall` ask (the design's decision 70). An install is a
 //! program built from its source, installed as its development install, under its id followed by
-//! `.development`, through the store's `install_development`: WaOS answers `Upload::Have` when
-//! that install holds the component already, by its length and digest, and `Upload::Send` when it
-//! must receive it; a build installed already as it is, manifest, component and icon, changes
-//! nothing, so its code compiled before stays; any other replaces the build before, its run
-//! stopped first, ending `Replaced`, and its code removed while its component is still there to
-//! find it by, then compiles in the background, as the library compiles an install, so a launch
-//! after waits for that compile. An uninstall removes any installed program, as the library
-//! does, its run stopped first.
+//! `.development`, through the package manager (`Installable::Development`): WaOS answers
+//! `Upload::Have` when that install holds the component already, by its length and digest, and
+//! `Upload::Send` when it must receive it; a build installed already as it is, manifest, component
+//! and icon, changes nothing, so its code compiled before stays; any other is compiled, then
+//! replaces the build before, its run stopped first, ending `Replaced`, and the install is
+//! answered once that is done. An uninstall removes any installed program, as the library does,
+//! its run stopped first.
 //!
-//! The invariant: one install or uninstall at a time, from the run's stop to the store's change,
-//! so a stop never leaves a run of a build another install is removing.
+//! The invariant: what is installed changes only through the package manager, which takes the
+//! program's turn, so an install never interleaves with another of the same program, an
+//! uninstall, or an open.
 
 use std::sync::Arc;
 
 use anyhow::Context as _;
-use tokio::sync::Mutex;
 use waos_dev_protocol::{
     Install, InstallAnswer, Refusal, RefusalKind, ServerConnection, UninstallAnswer, Upload,
 };
 use waos_package::{Manifest, ProgramId};
-use waos_store::{DevelopmentBuild, Origin, Store};
+use waos_store::{Origin, Store};
 
 use super::dev_refusal;
-use super::installed_runs::InstalledRuns;
+use super::package_manager::{Installable, PackageManager};
 
 /// What installing and uninstalling need of the app.
 #[derive(Clone)]
 pub(crate) struct InstallContext {
-    pub(crate) installed: InstalledRuns,
+    pub(crate) packages: Arc<PackageManager>,
     pub(crate) store: Store,
-    /// Held from the run's stop to the store's change, one install or uninstall at a time.
-    pub(crate) changing: Arc<Mutex<()>>,
 }
 
 /// Serves a connection's `Install` to its end: the upload WaOS answers, the component's parts,
@@ -139,37 +136,27 @@ async fn put_in_place(
         tracing::info!(id = %install.id, "its development build is installed as it is");
         return Ok(());
     }
-    let _changing = context.changing.lock().await;
-    let development = manifest.id().development();
-    context.installed.runs.stop_replaced(&development).await;
     let component = match component {
         Some(component) => component,
         None => {
             let held = store
-                .installed_version(&development)
-                .map(|version| version.component())
-                .context("the development install went meanwhile")?;
+                .installed_version(&manifest.id().development())
+                .context("the development install went meanwhile")?
+                .component();
             tokio::task::spawn_blocking(move || std::fs::read(held))
                 .await
                 .context("the read's thread")??
         }
     };
-    remove_code(context, &development);
-    let (store, manifest, icon) = (store.clone(), manifest.clone(), install.icon.clone());
-    let installed = tokio::task::spawn_blocking(move || {
-        let build = DevelopmentBuild {
-            manifest: &manifest,
-            component: &component,
-            icon: icon.as_deref(),
-        };
-        store
-            .stage_development(&build)
-            .and_then(|staged| store.commit(staged))
-    })
-    .await
-    .context("the install's thread")??;
+    let installed = context
+        .packages
+        .install(Installable::Development {
+            manifest: manifest.clone(),
+            component,
+            icon: install.icon.clone(),
+        })
+        .await?;
     tracing::info!(id = %installed.manifest.id(), "installed from its source");
-    compile(context, &development);
     Ok(())
 }
 
@@ -188,55 +175,16 @@ pub(crate) async fn uninstall(
     let _ = connection.send(&answer).await;
 }
 
-/// Removes the installed program `id`, its run stopped and its code removed first.
+/// Removes the installed program `id`, its run stopped first.
 async fn remove(context: &InstallContext, id: &ProgramId) -> Result<(), Refusal> {
-    if context
-        .store
-        .installed_version(id)
-        .map(|version| version.component())
-        .is_none()
-    {
+    if context.store.installed_program(id).is_none() {
         return Err(dev_refusal::not_installed(id));
     }
-    let _changing = context.changing.lock().await;
-    context.installed.runs.stop(id).await;
-    remove_code(context, id);
-    let (store, removed) = (context.store.clone(), id.clone());
-    tokio::task::spawn_blocking(move || store.remove(&removed))
+    context
+        .packages
+        .remove(id)
         .await
-        .map_err(|error| Refusal::new(RefusalKind::Failed, format!("{error}")))?
-        .map_err(|error| Refusal::new(RefusalKind::Failed, format!("{error}")))?;
+        .map_err(|error| Refusal::new(RefusalKind::Failed, format!("{error:#}")))?;
     tracing::info!(%id, "uninstalled by waos");
     Ok(())
-}
-
-/// Removes the code compiled from the program `id`'s component installed now, about to be
-/// replaced or removed, while it is there to find it by; code that cannot be removed stays, and
-/// is said.
-fn remove_code(context: &InstallContext, id: &ProgramId) {
-    let Some(component) = context
-        .store
-        .installed_version(id)
-        .map(|version| version.component())
-    else {
-        return;
-    };
-    if let Err(error) = context.installed.code.remove(&component) {
-        tracing::warn!(%id, "the program's code stays: {error:#}");
-    }
-}
-
-/// Starts compiling the program `id`'s code, as the library does after an install, so a launch
-/// waits for it rather than compiling it again.
-fn compile(context: &InstallContext, id: &ProgramId) {
-    let Some(component) = context
-        .store
-        .installed_version(id)
-        .map(|version| version.component())
-    else {
-        return;
-    };
-    if let Err(error) = context.installed.code.start(id, &component) {
-        tracing::warn!(%id, "the program's code cannot be compiled: {error:#}");
-    }
 }

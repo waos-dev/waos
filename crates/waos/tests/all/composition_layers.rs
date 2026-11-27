@@ -36,7 +36,10 @@ fn a_present_hands_the_shell_the_layers_the_view_holds_in_order_with_their_place
     let shell = TestShell::new();
     let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
     let program = engine
-        .load(Path::new(waos_test_programs::COMPOSITION_LAYERS))
+        .load(
+            Path::new(waos_test_programs::COMPOSITION_LAYERS),
+            &waos_test_programs::code_of(waos_test_programs::COMPOSITION_LAYERS),
+        )
         .unwrap();
     let running = engine
         .run(&program, ProgramEnvironment::default())
@@ -93,7 +96,10 @@ fn a_program_hears_the_formats_the_shells_compositor_takes_that_the_engine_makes
     );
     let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
     let program = engine
-        .load(Path::new(waos_test_programs::COMPOSITION_LAYERS))
+        .load(
+            Path::new(waos_test_programs::COMPOSITION_LAYERS),
+            &waos_test_programs::code_of(waos_test_programs::COMPOSITION_LAYERS),
+        )
         .unwrap();
     let output = Arc::new(RecordedOutput::default());
     let running = engine
@@ -113,7 +119,10 @@ fn a_screenshot_shows_a_frame_on_a_layer_whole_where_the_last_picture_places_the
     let shell = TestShell::new();
     let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
     let program = engine
-        .load(Path::new(waos_test_programs::COMPOSITION_LAYERS))
+        .load(
+            Path::new(waos_test_programs::COMPOSITION_LAYERS),
+            &waos_test_programs::code_of(waos_test_programs::COMPOSITION_LAYERS),
+        )
         .unwrap();
     let running = engine
         .run(&program, ProgramEnvironment::default())
@@ -175,7 +184,10 @@ fn under_a_shell_without_a_compositor_a_program_gets_none_and_presents_no_layers
     parts.compositor = None;
     let engine = WaOS::new(config(), parts, shell.platform()).unwrap();
     let program = engine
-        .load(Path::new(waos_test_programs::COMPOSITION_LAYERS))
+        .load(
+            Path::new(waos_test_programs::COMPOSITION_LAYERS),
+            &waos_test_programs::code_of(waos_test_programs::COMPOSITION_LAYERS),
+        )
         .unwrap();
     let output = Arc::new(RecordedOutput::default());
     let running = engine

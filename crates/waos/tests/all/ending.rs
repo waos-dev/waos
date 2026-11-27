@@ -1,23 +1,27 @@
 //! How a program ends: `stop` ends one that never returns, one built for another version of the
 //! interface ends failed, told apart as incompatible, and one that traps ends failed, its
-//! backtrace naming the program's file and line; and what `load`, `compile` and
-//! `remove_compiled` keep in the code cache. That a
+//! backtrace naming the program's file and line; and what `load` and `compile` keep in a code
+//! folder. That a
 //! program stopped gives every GPU object it held back is the engine's own test, which reads
 //! wgpu-core's registries from inside the crate.
 
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::SystemTime;
 
 use waos::{IncompatibleProgram, ProgramEnd, ProgramEnvironment, WaOS, WaOSConfig};
 
-use crate::test_shell::{RecordedOutput, TestShell, config, printing_to, within};
+use crate::test_shell::{self, RecordedOutput, TestShell, printing_to, within};
 
 #[test]
 fn stop_ends_a_program_that_never_returns() {
-    let engine = engine_with(config());
-    let forever = engine.load(Path::new(waos_test_programs::FOREVER)).unwrap();
+    let engine = engine_with(test_shell::config());
+    let forever = engine
+        .load(
+            Path::new(waos_test_programs::FOREVER),
+            &waos_test_programs::code_of(waos_test_programs::FOREVER),
+        )
+        .unwrap();
     let output = Arc::new(RecordedOutput::default());
     let running = engine.run(&forever, printing_to(&output)).unwrap();
     // Its first count says it runs the loop it never leaves.
@@ -33,8 +37,13 @@ fn stop_ends_a_program_that_never_returns() {
 
 #[test]
 fn a_program_that_traps_ends_failed() {
-    let engine = engine_with(config());
-    let trap = engine.load(Path::new(waos_test_programs::TRAP)).unwrap();
+    let engine = engine_with(test_shell::config());
+    let trap = engine
+        .load(
+            Path::new(waos_test_programs::TRAP),
+            &waos_test_programs::code_of(waos_test_programs::TRAP),
+        )
+        .unwrap();
     let running = engine.run(&trap, ProgramEnvironment::default()).unwrap();
     let ProgramEnd::Failed(error) = within(running.ended()) else {
         panic!("a trap is a failure");
@@ -52,9 +61,12 @@ fn a_program_that_traps_ends_failed() {
 
 #[test]
 fn a_program_built_for_another_version_of_the_interface_ends_incompatible() {
-    let engine = engine_with(config());
+    let engine = engine_with(test_shell::config());
     let incompatible = engine
-        .load(Path::new(waos_test_programs::INCOMPATIBLE))
+        .load(
+            Path::new(waos_test_programs::INCOMPATIBLE),
+            &waos_test_programs::code_of(waos_test_programs::INCOMPATIBLE),
+        )
         .unwrap();
     let running = engine
         .run(&incompatible, ProgramEnvironment::default())
@@ -76,9 +88,12 @@ fn a_program_built_for_another_version_of_the_interface_ends_incompatible() {
 
 #[test]
 fn a_program_built_against_an_earlier_minor_version_of_the_interface_is_linked() {
-    let engine = engine_with(config());
+    let engine = engine_with(test_shell::config());
     let earlier = engine
-        .load(Path::new(waos_test_programs::BUILT_AGAINST_2_0))
+        .load(
+            Path::new(waos_test_programs::BUILT_AGAINST_2_0),
+            &waos_test_programs::code_of(waos_test_programs::BUILT_AGAINST_2_0),
+        )
         .unwrap();
     let running = engine.run(&earlier, ProgramEnvironment::default()).unwrap();
     let ProgramEnd::Failed(error) = within(running.ended()) else {
@@ -92,8 +107,13 @@ fn a_program_built_against_an_earlier_minor_version_of_the_interface_is_linked()
 
 #[test]
 fn a_trap_is_not_incompatible() {
-    let engine = engine_with(config());
-    let trap = engine.load(Path::new(waos_test_programs::TRAP)).unwrap();
+    let engine = engine_with(test_shell::config());
+    let trap = engine
+        .load(
+            Path::new(waos_test_programs::TRAP),
+            &waos_test_programs::code_of(waos_test_programs::TRAP),
+        )
+        .unwrap();
     let running = engine.run(&trap, ProgramEnvironment::default()).unwrap();
     let ProgramEnd::Failed(error) = within(running.ended()) else {
         panic!("a trap is a failure");
@@ -103,46 +123,33 @@ fn a_trap_is_not_incompatible() {
 
 #[test]
 fn a_program_loaded_twice_is_compiled_once() {
-    let cache = CodeCache::empty("loaded-twice");
-    let engine = engine_with(cache.config(false));
-    engine.load(Path::new(waos_test_programs::TRAP)).unwrap();
-    let compiled = compiled_files(&cache.0, "trap");
-    assert_eq!(compiled.len(), 1, "one file per program: {compiled:?}");
-    let modified = fs::metadata(&compiled[0]).unwrap().modified().unwrap();
-    engine.load(Path::new(waos_test_programs::TRAP)).unwrap();
+    let code = tempfile::tempdir().unwrap();
+    let engine = engine_with(config(false));
+    let trap = Path::new(waos_test_programs::TRAP);
+    engine.load(trap, code.path()).unwrap();
+    let compiled = compiled_files(code.path());
+    assert_eq!(compiled.len(), 1, "one file per engine: {compiled:?}");
+    let written = file_identity(&compiled[0]);
+    engine.load(trap, code.path()).unwrap();
     assert_eq!(
-        compiled_files(&cache.0, "trap"),
-        compiled,
+        file_identity(&compiled[0]),
+        written,
         "the second load mapped the file"
-    );
-    assert_eq!(
-        modified,
-        fs::metadata(waos_test_programs::TRAP)
-            .unwrap()
-            .modified()
-            .unwrap(),
-        "the file is dated as the component"
     );
 }
 
 #[test]
-fn a_program_compiled_ahead_is_compiled_once_and_loaded_without_compiling() {
-    let cache = CodeCache::empty("compiled-ahead");
-    let engine = engine_with(cache.config(false));
+fn a_program_compiled_ahead_is_loaded_without_compiling() {
+    let code = tempfile::tempdir().unwrap();
+    let engine = engine_with(config(false));
     let trap = Path::new(waos_test_programs::TRAP);
-    assert!(!engine.is_compiled(trap).unwrap(), "nothing compiled yet");
-    engine.compile(trap).unwrap();
-    assert!(engine.is_compiled(trap).unwrap());
-    let compiled = compiled_files(&cache.0, "trap");
-    assert_eq!(compiled.len(), 1, "one file per program: {compiled:?}");
+    assert!(!engine.is_compiled(code.path()), "nothing compiled yet");
+    engine.compile(trap, code.path()).unwrap();
+    assert!(engine.is_compiled(code.path()));
+    let compiled = compiled_files(code.path());
+    assert_eq!(compiled.len(), 1, "one file per engine: {compiled:?}");
     let written = file_identity(&compiled[0]);
-    engine.compile(trap).unwrap();
-    assert_eq!(
-        file_identity(&compiled[0]),
-        written,
-        "a second compile does nothing"
-    );
-    engine.load(Path::new(waos_test_programs::TRAP)).unwrap();
+    engine.load(trap, code.path()).unwrap();
     assert_eq!(
         file_identity(&compiled[0]),
         written,
@@ -150,47 +157,25 @@ fn a_program_compiled_ahead_is_compiled_once_and_loaded_without_compiling() {
     );
 }
 
-#[test]
-fn removing_a_programs_code_leaves_none_of_it_and_the_next_load_compiles() {
-    let cache = CodeCache::empty("removed-code");
-    let engine = engine_with(cache.config(false));
-    let trap = Path::new(waos_test_programs::TRAP);
-    let loaded = engine.load(Path::new(waos_test_programs::TRAP)).unwrap();
-    engine.remove_compiled(trap).unwrap();
-    assert_eq!(live_files(&cache.0, "trap"), Vec::<PathBuf>::new());
-    assert!(!engine.is_compiled(trap).unwrap());
-    engine.remove_compiled(trap).unwrap();
-    let running = engine.run(&loaded, ProgramEnvironment::default()).unwrap();
-    assert!(
-        matches!(within(running.ended()), ProgramEnd::Failed(_)),
-        "a program loaded before keeps the code it mapped, and runs to its trap"
-    );
-    drop((running, loaded));
-    engine.load(Path::new(waos_test_programs::TRAP)).unwrap();
-    assert_eq!(
-        compiled_files(&cache.0, "trap").len(),
-        1,
-        "the code the program mapped went once nothing mapped it"
-    );
-}
-
 /// wasmtime maps code compiled with native unwind information into an engine without it, and the
-/// other way round, so the cache keeps the two apart.
+/// other way round, so a code folder keeps the two apart; the engine compiling last removes the
+/// other's code.
 #[test]
 fn code_compiled_with_native_unwind_information_is_never_mapped_without_it() {
-    let cache = CodeCache::empty("unwind-information");
-    let with = engine_with(cache.config(true));
-    with.load(Path::new(waos_test_programs::TRAP)).unwrap();
-    let without = engine_with(cache.config(false));
-    without.load(Path::new(waos_test_programs::TRAP)).unwrap();
-    let compiled = compiled_files(&cache.0, "trap");
+    let code = tempfile::tempdir().unwrap();
+    let trap = Path::new(waos_test_programs::TRAP);
+    let with = engine_with(config(true));
+    with.load(trap, code.path()).unwrap();
+    let without = engine_with(config(false));
     // Windows keeps native unwind information whatever the engine asks: one setting, one file.
-    let settings = if cfg!(windows) { 1 } else { 2 };
+    assert_eq!(without.is_compiled(code.path()), cfg!(windows));
+    without.load(trap, code.path()).unwrap();
     assert_eq!(
-        compiled.len(),
-        settings,
-        "one file per program and setting: {compiled:?}"
+        compiled_files(code.path()).len(),
+        1,
+        "the other engine's code went"
     );
+    assert_eq!(with.is_compiled(code.path()), cfg!(windows));
 }
 
 /// An engine set up as `config` says, over a test shell.
@@ -199,36 +184,15 @@ fn engine_with(config: WaOSConfig) -> WaOS {
     WaOS::new(config, shell.shell(), shell.platform()).unwrap()
 }
 
-/// A code cache of one test's own, empty when made, and removed with what it holds when dropped.
-struct CodeCache(PathBuf);
-
-impl CodeCache {
-    fn empty(test: &str) -> CodeCache {
-        let folder = Path::new(env!("CARGO_TARGET_TMPDIR"))
-            .join(format!("code-cache-{test}-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&folder);
-        CodeCache(folder)
-    }
-
-    /// The tests' engine set up with this cache, compiling with native unwind information or
-    /// without it.
-    fn config(&self, native_unwind_info: bool) -> WaOSConfig {
-        WaOSConfig {
-            code_cache: self.0.clone(),
-            native_unwind_info,
-            ..config()
-        }
+/// The tests' engine, compiling with native unwind information or without it.
+fn config(native_unwind_info: bool) -> WaOSConfig {
+    WaOSConfig {
+        native_unwind_info,
+        ..test_shell::config()
     }
 }
 
-impl Drop for CodeCache {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.0);
-    }
-}
-
-/// Which file is at `path`: a file compiled again is a new one, renamed over the one before,
-/// though it carries the same modification time.
+/// Which file is at `path`: a file compiled again is a new one, renamed over the one before.
 #[cfg(unix)]
 fn file_identity(path: &Path) -> (u64, u64) {
     use std::os::unix::fs::MetadataExt;
@@ -246,25 +210,14 @@ fn file_identity(path: &Path) -> (u64, u64) {
     )
 }
 
-/// The compiled files of the program `name` in `cache`.
-/// The files of `name`'s code in `cache` that a load may map: on Windows the code cache keeps a
-/// file a program maps after its removal until nothing does, dated at the epoch, never mapped.
-fn live_files(cache: &Path, name: &str) -> Vec<PathBuf> {
-    compiled_files(cache, name)
-        .into_iter()
-        .filter(|file| fs::metadata(file).unwrap().modified().unwrap() != SystemTime::UNIX_EPOCH)
-        .collect()
-}
-
-fn compiled_files(cache: &Path, name: &str) -> Vec<PathBuf> {
-    let Ok(entries) = fs::read_dir(cache) else {
-        return Vec::new();
-    };
-    entries
+/// The code files in `code`, a code folder.
+fn compiled_files(code: &Path) -> Vec<PathBuf> {
+    fs::read_dir(code)
+        .unwrap()
         .map(|entry| entry.unwrap().path())
         .filter(|path| {
-            let file = path.file_name().unwrap().to_string_lossy();
-            file.starts_with(&format!("{name}-")) && file.ends_with(".cwasm")
+            path.extension()
+                .is_some_and(|extension| extension == "cwasm")
         })
         .collect()
 }

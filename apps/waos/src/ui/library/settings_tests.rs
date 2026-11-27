@@ -202,7 +202,12 @@ fn the_settings_first_page_leads_to_each_apps_settings_and_back_in_either_layout
     let layouts: [fn() -> (LibraryDesktop, ViewId); 2] = [in_launcher, on_phone];
     for layout in layouts {
         let (mut desktop, view) = layout();
-        installs(&mut desktop, TRIANGLE, "Triangle", b"\0asm");
+        installs(
+            &mut desktop,
+            TRIANGLE,
+            "Triangle",
+            crate::logic::test_installs::EMPTY_COMPONENT,
+        );
         let page = |desktop: &LibraryDesktop| desktop.read(|library| library.page().clone());
         open_settings(&mut desktop, view);
         assert_eq!(page(&desktop), LibraryPage::Settings(SettingsPage::Root));
@@ -304,7 +309,7 @@ fn an_apps_page_says_what_it_is_and_whether_it_runs_and_removes_it_in_either_lay
         let (mut desktop, view) = layout();
         let forever = std::fs::read(waos_test_programs::FOREVER_SHOWN).unwrap();
         installs(&mut desktop, TRIANGLE, "Triangle", &forever);
-        desktop.settle_until_code_is_ready();
+        desktop.settle_until_operations_end();
         let its_page = LibraryPage::Settings(SettingsPage::App(triangle()));
         desktop.update(|library, cx| library.show_page(its_page.clone(), cx));
         assert!(
@@ -351,7 +356,12 @@ fn a_permissions_page_lists_the_apps_set_otherwise_each_leading_to_its_page() {
     let layouts: [fn() -> (LibraryDesktop, ViewId); 2] = [in_launcher, on_phone];
     for layout in layouts {
         let (mut desktop, view) = layout();
-        installs(&mut desktop, TRIANGLE, "Triangle", b"\0asm");
+        installs(
+            &mut desktop,
+            TRIANGLE,
+            "Triangle",
+            crate::logic::test_installs::EMPTY_COMPONENT,
+        );
         open_permission(&mut desktop, view, Permission::Network);
         assert!(
             desktop.shows(words::NONE_SET_OTHERWISE) && !desktop.shows("Triangle"),
@@ -387,7 +397,12 @@ fn a_permissions_page_lists_the_apps_set_otherwise_each_leading_to_its_page() {
 #[test]
 fn a_programs_settings_follow_those_for_every_program_until_changed_in_the_launcher() {
     let (mut desktop, view) = in_launcher();
-    installs(&mut desktop, TRIANGLE, "Triangle", b"\0asm");
+    installs(
+        &mut desktop,
+        TRIANGLE,
+        "Triangle",
+        crate::logic::test_installs::EMPTY_COMPONENT,
+    );
     let settings_of_triangle = || LibraryPage::Settings(SettingsPage::App(triangle()));
     desktop.update(|library, cx| library.show_page(settings_of_triangle(), cx));
     assert!(
@@ -429,7 +444,12 @@ fn a_programs_settings_follow_those_for_every_program_until_changed_in_the_launc
 #[test]
 fn a_programs_machines_are_shown_under_the_warning_and_taken_back_in_the_launcher() {
     let (mut desktop, view) = in_launcher();
-    installs(&mut desktop, TRIANGLE, "Triangle", b"\0asm");
+    installs(
+        &mut desktop,
+        TRIANGLE,
+        "Triangle",
+        crate::logic::test_installs::EMPTY_COMPONENT,
+    );
     desktop
         .store
         .grants(&triangle())
@@ -510,7 +530,12 @@ fn simulates_saving(desktop: &mut LibraryDesktop, view: ViewId) -> &'static str 
 #[test]
 fn a_programs_file_pickers_ask_or_are_simulated_with_a_path_in_the_launcher() {
     let (mut desktop, view) = in_launcher();
-    installs(&mut desktop, TRIANGLE, "Triangle", b"\0asm");
+    installs(
+        &mut desktop,
+        TRIANGLE,
+        "Triangle",
+        crate::logic::test_installs::EMPTY_COMPONENT,
+    );
     let scratch = tempfile::tempdir().unwrap();
     let save = triangle_answered(&desktop, scratch.path());
     simulates_saving(&mut desktop, view);
@@ -534,7 +559,12 @@ fn a_programs_file_pickers_ask_or_are_simulated_with_a_path_in_the_launcher() {
 #[test]
 fn a_programs_sound_output_and_computer_show_as_set_and_change_in_the_launcher() {
     let (mut desktop, view) = in_launcher();
-    installs(&mut desktop, TRIANGLE, "Triangle", b"\0asm");
+    installs(
+        &mut desktop,
+        TRIANGLE,
+        "Triangle",
+        crate::logic::test_installs::EMPTY_COMPONENT,
+    );
     let scratch = tempfile::tempdir().unwrap();
     triangle_answered(&desktop, scratch.path());
     open_app_detail(&mut desktop, view, "Triangle", AppDetail::SoundOutput);
@@ -564,7 +594,12 @@ fn a_programs_sound_output_and_computer_show_as_set_and_change_in_the_launcher()
 #[test]
 fn a_path_no_dialog_could_choose_is_refused_and_kept_out_of_the_settings() {
     let (mut desktop, view) = in_launcher();
-    installs(&mut desktop, TRIANGLE, "Triangle", b"\0asm");
+    installs(
+        &mut desktop,
+        TRIANGLE,
+        "Triangle",
+        crate::logic::test_installs::EMPTY_COMPONENT,
+    );
     let scratch = tempfile::tempdir().unwrap();
     triangle_answered(&desktop, scratch.path());
     simulates_saving(&mut desktop, view);
@@ -583,7 +618,12 @@ fn a_path_no_dialog_could_choose_is_refused_and_kept_out_of_the_settings() {
 #[test]
 fn a_programs_sound_output_changes_on_the_phone() {
     let (mut desktop, view) = on_phone();
-    installs(&mut desktop, TRIANGLE, "Triangle", b"\0asm");
+    installs(
+        &mut desktop,
+        TRIANGLE,
+        "Triangle",
+        crate::logic::test_installs::EMPTY_COMPONENT,
+    );
     let scratch = tempfile::tempdir().unwrap();
     triangle_answered(&desktop, scratch.path());
     open_app_detail(&mut desktop, view, "Triangle", AppDetail::SoundOutput);
@@ -615,7 +655,12 @@ fn a_programs_sound_output_changes_on_the_phone() {
 #[test]
 fn a_programs_file_picker_is_simulated_with_a_path_on_the_phone() {
     let (mut desktop, view) = on_phone();
-    installs(&mut desktop, TRIANGLE, "Triangle", b"\0asm");
+    installs(
+        &mut desktop,
+        TRIANGLE,
+        "Triangle",
+        crate::logic::test_installs::EMPTY_COMPONENT,
+    );
     let scratch = tempfile::tempdir().unwrap();
     let save = triangle_answered(&desktop, scratch.path());
     let placeholder = simulates_saving(&mut desktop, view);
@@ -629,7 +674,12 @@ fn a_programs_file_picker_is_simulated_with_a_path_on_the_phone() {
 #[test]
 fn a_programs_answer_to_a_link_scheme_shows_and_is_forgotten_in_the_launcher() {
     let (mut desktop, view) = in_launcher();
-    installs(&mut desktop, TRIANGLE, "Triangle", b"\0asm");
+    installs(
+        &mut desktop,
+        TRIANGLE,
+        "Triangle",
+        crate::logic::test_installs::EMPTY_COMPONENT,
+    );
     let scratch = tempfile::tempdir().unwrap();
     triangle_answered(&desktop, scratch.path());
     open_app_detail(&mut desktop, view, "Triangle", AppDetail::Links);
@@ -643,7 +693,12 @@ fn a_programs_answer_to_a_link_scheme_shows_and_is_forgotten_in_the_launcher() {
 #[test]
 fn a_programs_answer_to_a_role_shows_and_is_forgotten_in_the_launcher() {
     let (mut desktop, view) = in_launcher();
-    installs(&mut desktop, TRIANGLE, "Triangle", b"\0asm");
+    installs(
+        &mut desktop,
+        TRIANGLE,
+        "Triangle",
+        crate::logic::test_installs::EMPTY_COMPONENT,
+    );
     let scratch = tempfile::tempdir().unwrap();
     triangle_answered(&desktop, scratch.path());
     open_app_detail(&mut desktop, view, "Triangle", AppDetail::Roles);
@@ -672,7 +727,12 @@ fn the_camera_is_simulated_for_every_program_in_the_launcher() {
 #[test]
 fn a_programs_simulated_microphone_records_what_its_page_picks_in_the_launcher_and_on_the_phone() {
     for (mut desktop, view) in [in_launcher(), on_phone()] {
-        installs(&mut desktop, TRIANGLE, "Triangle", b"\0asm");
+        installs(
+            &mut desktop,
+            TRIANGLE,
+            "Triangle",
+            crate::logic::test_installs::EMPTY_COMPONENT,
+        );
         let simulated = desktop.store.change_program_settings(&triangle(), |own| {
             own.answers.set(
                 waos_store::Question::Microphone,
@@ -704,7 +764,12 @@ fn a_programs_simulated_microphone_records_what_its_page_picks_in_the_launcher_a
 #[test]
 fn no_page_offers_commands_in_the_launcher_or_on_the_phone() {
     let (mut desktop, view) = in_launcher();
-    installs(&mut desktop, TRIANGLE, "Triangle", b"\0asm");
+    installs(
+        &mut desktop,
+        TRIANGLE,
+        "Triangle",
+        crate::logic::test_installs::EMPTY_COMPONENT,
+    );
     open_permission(&mut desktop, view, Permission::Network);
     assert!(desktop.shows(words::NETWORK), "{:?}", desktop.labels());
     assert!(!desktop.shows("Commands") && !desktop.shows("Any command"));
@@ -726,7 +791,12 @@ fn no_page_offers_commands_in_the_launcher_or_on_the_phone() {
 #[test]
 fn a_programs_settings_open_from_its_icon_in_the_launcher() {
     let (mut desktop, view) = in_launcher();
-    installs(&mut desktop, TRIANGLE, "Triangle", b"\0asm");
+    installs(
+        &mut desktop,
+        TRIANGLE,
+        "Triangle",
+        crate::logic::test_installs::EMPTY_COMPONENT,
+    );
     open_settings_from_icon(&mut desktop, view, "Triangle");
     assert!(desktop.shows("Triangle"), "{:?}", desktop.labels());
 }
@@ -796,7 +866,12 @@ fn a_permissions_default_changes_on_its_page_on_the_phone() {
 #[test]
 fn a_programs_settings_change_on_the_phone_and_follow_again() {
     let (mut desktop, view) = on_phone();
-    installs(&mut desktop, TRIANGLE, "Triangle", b"\0asm");
+    installs(
+        &mut desktop,
+        TRIANGLE,
+        "Triangle",
+        crate::logic::test_installs::EMPTY_COMPONENT,
+    );
     open_app_permission(&mut desktop, view, "Triangle", Permission::Network);
     assert!(
         desktop.shows(words::ANY_DOMAIN_BUT),
@@ -908,7 +983,12 @@ fn triangle_posted_once(desktop: &LibraryDesktop) {
 #[test]
 fn a_programs_last_seven_days_are_said_on_its_page_on_the_phone() {
     let (mut desktop, view) = on_phone();
-    installs(&mut desktop, TRIANGLE, "Triangle", b"\0asm");
+    installs(
+        &mut desktop,
+        TRIANGLE,
+        "Triangle",
+        crate::logic::test_installs::EMPTY_COMPONENT,
+    );
     triangle_posted_once(&desktop);
     open_app_permission(&mut desktop, view, "Triangle", Permission::ActivityRecord);
     desktop.scroll_until_visible(view, words::LAST_DAYS, words::RECORD, SCROLL_STEP);
@@ -922,7 +1002,12 @@ fn a_programs_last_seven_days_are_said_on_its_page_on_the_phone() {
 #[test]
 fn a_programs_last_seven_days_are_said_on_its_page_in_the_launcher() {
     let (mut desktop, view) = in_launcher();
-    installs(&mut desktop, TRIANGLE, "Triangle", b"\0asm");
+    installs(
+        &mut desktop,
+        TRIANGLE,
+        "Triangle",
+        crate::logic::test_installs::EMPTY_COMPONENT,
+    );
     triangle_posted_once(&desktop);
     open_app_permission(&mut desktop, view, "Triangle", Permission::ActivityRecord);
     desktop.scroll_until_visible(
@@ -937,7 +1022,12 @@ fn a_programs_last_seven_days_are_said_on_its_page_in_the_launcher() {
 fn a_programs_record_turned_off_removes_what_was_kept_of_it_on_the_phone() {
     use waos::AuditLog;
     let (mut desktop, view) = on_phone();
-    installs(&mut desktop, TRIANGLE, "Triangle", b"\0asm");
+    installs(
+        &mut desktop,
+        TRIANGLE,
+        "Triangle",
+        crate::logic::test_installs::EMPTY_COMPONENT,
+    );
     let day = waos::AuditDay::starting(std::time::SystemTime::UNIX_EPOCH);
     desktop.store.keep(triangle().as_str(), &day);
     assert_eq!(desktop.store.days(triangle().as_str()).len(), 1);
@@ -958,7 +1048,12 @@ fn a_programs_record_turned_off_removes_what_was_kept_of_it_on_the_phone() {
 #[test]
 fn a_programs_switch_says_it_follows_the_setting_for_every_program_on_the_phone() {
     let (mut desktop, view) = on_phone();
-    installs(&mut desktop, TRIANGLE, "Triangle", b"\0asm");
+    installs(
+        &mut desktop,
+        TRIANGLE,
+        "Triangle",
+        crate::logic::test_installs::EMPTY_COMPONENT,
+    );
     open_app_permission(&mut desktop, view, "Triangle", Permission::Network);
     let global = desktop.store.global_settings().unwrap();
     assert_eq!(switch_shows(&desktop, words::NETWORK), global.network.on);
@@ -1063,7 +1158,12 @@ mod system_refusals {
     fn a_programs_page_says_the_system_refuses_its_notifications_and_opens_system_settings_at_a_desktops_width()
      {
         let (mut desktop, view) = in_tall_window();
-        installs(&mut desktop, TRIANGLE, "Triangle", b"\0asm");
+        installs(
+            &mut desktop,
+            TRIANGLE,
+            "Triangle",
+            crate::logic::test_installs::EMPTY_COMPONENT,
+        );
         let permissions = macos_permissions(&mut desktop);
         open_app_permission(&mut desktop, view, "Triangle", Permission::Notifications);
         assert!(
@@ -1105,7 +1205,12 @@ mod system_refusals {
     #[test]
     fn a_programs_page_says_the_system_refuses_its_notifications_on_the_phone() {
         let (mut desktop, view) = on_phone();
-        installs(&mut desktop, TRIANGLE, "Triangle", b"\0asm");
+        installs(
+            &mut desktop,
+            TRIANGLE,
+            "Triangle",
+            crate::logic::test_installs::EMPTY_COMPONENT,
+        );
         let permissions = macos_permissions(&mut desktop);
         macos_says_of_triangle(&mut desktop, &permissions, SystemPermissionState::Denied);
         open_app_permission(&mut desktop, view, "Triangle", Permission::Notifications);

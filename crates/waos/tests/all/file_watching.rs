@@ -41,7 +41,10 @@ fn a_program_watches_a_folder_in_its_tmp_and_its_tmp_goes_when_it_returns() {
     let shell = TestShell::new();
     let engine = engine_with_temporary_folders(&shell, folders.path());
     let program = engine
-        .load(Path::new(waos_test_programs::FILE_WATCHING))
+        .load(
+            Path::new(waos_test_programs::FILE_WATCHING),
+            &waos_test_programs::code_of(waos_test_programs::FILE_WATCHING),
+        )
         .unwrap();
     let output = Arc::new(RecordedOutput::default());
     let running = engine.run(&program, printing_to(&output)).unwrap();
@@ -62,7 +65,12 @@ fn a_programs_tmp_goes_when_it_traps_and_when_it_is_stopped() {
     let engine = engine_with_temporary_folders(&shell, folders.path());
     let output = Arc::new(RecordedOutput::default());
 
-    let trap = engine.load(Path::new(waos_test_programs::TRAP)).unwrap();
+    let trap = engine
+        .load(
+            Path::new(waos_test_programs::TRAP),
+            &waos_test_programs::code_of(waos_test_programs::TRAP),
+        )
+        .unwrap();
     let running = engine.run(&trap, printing_to(&output)).unwrap();
     assert!(matches!(within(running.ended()), ProgramEnd::Failed(_)));
     assert_eq!(
@@ -71,7 +79,12 @@ fn a_programs_tmp_goes_when_it_traps_and_when_it_is_stopped() {
         "after a trap"
     );
 
-    let forever = engine.load(Path::new(waos_test_programs::FOREVER)).unwrap();
+    let forever = engine
+        .load(
+            Path::new(waos_test_programs::FOREVER),
+            &waos_test_programs::code_of(waos_test_programs::FOREVER),
+        )
+        .unwrap();
     let running = engine.run(&forever, printing_to(&output)).unwrap();
     let held = left_in(folders.path());
     assert_eq!(held.len(), 2, "its folder and the lock beside it: {held:?}");

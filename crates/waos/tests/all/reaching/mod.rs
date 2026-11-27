@@ -130,7 +130,12 @@ impl Run {
         let data = data_folder;
         let shell = TestShell::new();
         let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
-        let program = engine.load(Path::new(component)).unwrap();
+        let program = engine
+            .load(
+                Path::new(component),
+                &waos_test_programs::code_of(component),
+            )
+            .unwrap();
         let output = Arc::new(RecordedOutput::default());
         let environment = ProgramEnvironment {
             grants: Some(Arc::clone(grants) as Arc<dyn ProgramGrants>),

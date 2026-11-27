@@ -14,7 +14,10 @@ fn a_device_opened_inside_block_on_lets_it_return() {
     let shell = TestShell::new();
     let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
     let program = engine
-        .load(Path::new(waos_test_programs::GPU_IN_BLOCK_ON))
+        .load(
+            Path::new(waos_test_programs::GPU_IN_BLOCK_ON),
+            &waos_test_programs::code_of(waos_test_programs::GPU_IN_BLOCK_ON),
+        )
         .unwrap();
     let output = Arc::new(RecordedOutput::default());
     let running = engine.run(&program, printing_to(&output)).unwrap();

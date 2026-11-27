@@ -238,7 +238,7 @@ impl FluentHomeBody {
             icon: icon.into_widget(),
             name: entry.name.clone(),
             running: entry.running,
-            installing: entry.installing,
+            operation: entry.operation,
             look: look.clone(),
         };
         let (library, id) = (self.library.clone(), entry.id.clone());

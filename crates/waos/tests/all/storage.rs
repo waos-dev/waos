@@ -137,7 +137,12 @@ fn an_inspector_reads_a_programs_mounts_and_a_folders_entries_and_no_path_out_of
         ..config()
     };
     let engine = WaOS::new(config, shell.shell(), shell.platform()).unwrap();
-    let inspect = engine.load(Path::new(waos_test_programs::INSPECT)).unwrap();
+    let inspect = engine
+        .load(
+            Path::new(waos_test_programs::INSPECT),
+            &waos_test_programs::code_of(waos_test_programs::INSPECT),
+        )
+        .unwrap();
     let output = Arc::new(RecordedOutput::default());
     let environment = ProgramEnvironment {
         grants: Some(Arc::new(Granted)),

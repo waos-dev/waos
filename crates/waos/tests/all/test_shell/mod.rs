@@ -35,7 +35,6 @@ pub mod video_decoders;
 pub mod video_frames;
 
 use std::future::Future;
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::mpsc;
 use std::thread;
@@ -185,13 +184,11 @@ impl TestShell {
     }
 }
 
-/// How the tests' engines are set up unless a test says otherwise: the code cache every test
-/// shares, freezing by the default policy, no native unwind information, as an app has it, HTTP
+/// How the tests' engines are set up unless a test says otherwise: freezing by the default policy, no native unwind information, as an app has it, HTTP
 /// through no proxy, whatever the machine's settings, real time, and the programs' `/tmp` in a
 /// folder of the tests' own in the system's temporary folder.
 pub fn config() -> WaOSConfig {
     WaOSConfig {
-        code_cache: PathBuf::from(waos_test_programs::CODE_CACHE),
         freeze: FreezePolicy::default(),
         native_unwind_info: false,
         http_proxy: HttpProxy::None,

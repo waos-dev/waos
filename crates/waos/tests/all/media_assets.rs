@@ -180,7 +180,10 @@ impl Run {
             ..printing_to(&output)
         };
         let program = engine
-            .load(Path::new(waos_test_programs::MEDIA_ASSETS))
+            .load(
+                Path::new(waos_test_programs::MEDIA_ASSETS),
+                &waos_test_programs::code_of(waos_test_programs::MEDIA_ASSETS),
+            )
             .unwrap();
         let running = engine.run(&program, environment).unwrap();
         Run {

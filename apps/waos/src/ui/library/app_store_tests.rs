@@ -59,7 +59,12 @@ fn on_the_store_of(
     (mut desktop, view): (LibraryDesktop, waft::ui::ViewId),
 ) -> (LibraryDesktop, waft::ui::ViewId, Server) {
     let server = Server::start();
-    let triangle = desktop.package(TRIANGLE, "Triangle", "1.0.0", b"\0asm");
+    let triangle = desktop.package(
+        TRIANGLE,
+        "Triangle",
+        "1.0.0",
+        crate::logic::test_installs::EMPTY_COMPONENT,
+    );
     server.publish_saying(TRIANGLE, &triangle, "1.0.0", says_what_a_store_shows);
     server.serve_beside_index(
         TRIANGLE_SCREENSHOT,
@@ -77,7 +82,7 @@ fn the_install_is_done(desktop: &mut LibraryDesktop) {
     desktop.settle_until("the install", |desktop| {
         desktop.read(|library| !library.installed().is_empty())
     });
-    desktop.settle_until_code_is_ready();
+    desktop.settle_until_operations_end();
 }
 
 /// How many labels say `text`.
@@ -163,7 +168,12 @@ fn updates_lists_what_has_a_newer_version_and_updates_them_all() {
     desktop.tap(view, words::DISCOVER);
     desktop.tap_beside_label(view, "Triangle", words::GET);
     the_install_is_done(&mut desktop);
-    let newer = desktop.package(TRIANGLE, "Triangle", "1.1.0", b"\0asm");
+    let newer = desktop.package(
+        TRIANGLE,
+        "Triangle",
+        "1.1.0",
+        crate::logic::test_installs::EMPTY_COMPONENT,
+    );
     server.publish_saying(TRIANGLE, &newer, "1.1.0", says_what_a_store_shows);
     desktop.update(|library, cx| library.read_sources(cx));
     desktop.settle_until("the newer listing", |desktop| {
@@ -177,7 +187,7 @@ fn updates_lists_what_has_a_newer_version_and_updates_them_all() {
     desktop.settle_until("the update", |desktop| {
         desktop.read(|library| library.updates().is_empty())
     });
-    desktop.settle_until_code_is_ready();
+    desktop.settle_until_operations_end();
     assert!(desktop.shows(words::UP_TO_DATE), "{:?}", desktop.labels());
 }
 

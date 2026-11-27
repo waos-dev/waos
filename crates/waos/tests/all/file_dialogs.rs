@@ -48,7 +48,10 @@ fn picks_are_mounted_as_asked_and_a_save_is_replaced_safely_from_the_programs_ca
         ..printing_to(&output)
     };
     let program = engine
-        .load(Path::new(waos_test_programs::FILE_DIALOGS))
+        .load(
+            Path::new(waos_test_programs::FILE_DIALOGS),
+            &waos_test_programs::code_of(waos_test_programs::FILE_DIALOGS),
+        )
         .unwrap();
     let running = engine.run(&program, environment).unwrap();
     let end = within(running.ended());
@@ -171,7 +174,10 @@ fn a_waiting_file_dialog_is_answered_by_setting_its_path_and_drops_its_prompt() 
         ..printing_to(&output)
     };
     let program = engine
-        .load(Path::new(waos_test_programs::FILE_DIALOGS))
+        .load(
+            Path::new(waos_test_programs::FILE_DIALOGS),
+            &waos_test_programs::code_of(waos_test_programs::FILE_DIALOGS),
+        )
         .unwrap();
     let running = engine.run(&program, environment).unwrap();
 
@@ -290,7 +296,10 @@ fn run_file_dialogs(
         ..printing_to(&output)
     };
     let program = engine
-        .load(Path::new(waos_test_programs::FILE_DIALOGS))
+        .load(
+            Path::new(waos_test_programs::FILE_DIALOGS),
+            &waos_test_programs::code_of(waos_test_programs::FILE_DIALOGS),
+        )
         .unwrap();
     let running = engine.run(&program, environment).unwrap();
     let end = within(running.ended());

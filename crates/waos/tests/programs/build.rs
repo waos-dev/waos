@@ -1,19 +1,23 @@
 //! Builds the example programs the engine's tests run, as components, and writes the path of
-//! each into `OUT_DIR/programs.rs` for the crate to include, with the folder beside them that the
-//! tests' engines keep their compiled code in.
+//! each into `OUT_DIR/programs.rs` for the crate to include, with each component's code folder,
+//! named by its content, which the tests' engines compile it into.
 //!
 //! The invariants:
 //! - The programs are built into a target directory of their own, never the workspace's, which
 //!   the build running this script holds locked. The workspace's `Cargo.lock` is shared, and the
 //!   outer build has already brought it up to date.
-//! - That directory and the code cache are `<target>/test-programs/`, one place whatever build
+//! - That directory and the code folders are in `<target>/test-programs/`, one place whatever build
 //!   runs this script (`cargo test`, `cargo clippy`, another profile), not its `OUT_DIR`, which
 //!   differs between them: so the programs are built once, and CI keeps the folder between runs.
 //!   `waos-cli`'s `tests/new.rs` builds its templates into the same target directory, with the
 //!   same profile settings, so they reuse the SDK and Waft built here.
+//! - A code folder is named by its component's content, so a program built again gets a fresh one
+//!   and the engine's contract holds: a code folder belongs to one component that never changes.
+//!   Folders of components no longer built go.
 
 use std::env;
 use std::fs;
+use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -81,6 +85,14 @@ const TARGET: &str = "wasm32-wasip3";
 /// WIT, and the versions of what they depend on, Waft's among them.
 const WATCHED: [&str; 5] = ["builtin-apps", "examples", "sdk", "wit", "Cargo.lock"];
 
+/// The components written by hand, in this crate's folder, by the constant `src/lib.rs` names
+/// each with.
+const WRITTEN: [(&str, &str); 3] = [
+    ("INCOMPATIBLE", "incompatible.wat"),
+    ("BUILT_AGAINST_2_0", "built-against-2-0.wat"),
+    ("IMPORTS_INSPECT", "imports-inspect.wat"),
+];
+
 fn main() {
     let workspace = workspace_root();
     let out_dir = PathBuf::from(env::var_os("OUT_DIR").expect("cargo sets OUT_DIR"));
@@ -92,12 +104,31 @@ fn main() {
             workspace.join(watched).display()
         );
     }
+    let manifest_dir = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").expect("cargo sets it"));
+    for (_, file) in WRITTEN {
+        println!(
+            "cargo:rerun-if-changed={}",
+            manifest_dir.join(file).display()
+        );
+    }
     build_programs(&workspace, &target_dir);
-    write_paths(
-        &out_dir.join("programs.rs"),
-        &target_dir,
-        &test_programs.join("code-cache"),
-    );
+    let built = target_dir.join(TARGET).join("debug");
+    let components: Vec<(String, PathBuf)> = PROGRAMS
+        .iter()
+        .map(|program| {
+            let component = built.join(format!("{program}.wasm"));
+            (constant_name(program), component)
+        })
+        .chain(
+            WRITTEN
+                .iter()
+                .map(|(constant, file)| ((*constant).to_owned(), manifest_dir.join(file))),
+        )
+        .collect();
+    let code = test_programs.join("code");
+    let folders = code_folders(&components, &code);
+    remove_other_folders(&code, &folders);
+    write_paths(&out_dir.join("programs.rs"), &components, &folders);
 }
 
 /// The target directory of the build running this script, from where cargo puts `out_dir`:
@@ -172,26 +203,62 @@ fn build_programs(workspace: &Path, target_dir: &Path) {
     );
 }
 
-/// Writes a constant per program, naming its component's path, and `CODE_CACHE`, naming
-/// `code_cache`.
-fn write_paths(path: &Path, target_dir: &Path, code_cache: &Path) {
-    let built = target_dir.join(TARGET).join("debug");
-    let programs: String = PROGRAMS
+/// The code folder of each of `components`, in `code`: named by the component's file and a hash
+/// of its content.
+fn code_folders(components: &[(String, PathBuf)], code: &Path) -> Vec<PathBuf> {
+    components
         .iter()
-        .map(|program| {
-            let component = built.join(format!("{program}.wasm"));
+        .map(|(_, component)| {
+            let bytes = fs::read(component).expect("a component built or written");
+            let mut hasher = DefaultHasher::new();
+            bytes.hash(&mut hasher);
+            let stem = component.file_stem().unwrap_or_default().to_string_lossy();
+            code.join(format!("{stem}-{:016x}", hasher.finish()))
+        })
+        .collect()
+}
+
+/// Removes every folder of `code` but `kept`: the code of components built before.
+fn remove_other_folders(code: &Path, kept: &[PathBuf]) {
+    let Ok(entries) = fs::read_dir(code) else {
+        return;
+    };
+    for folder in entries
+        .filter_map(|entry| entry.ok())
+        .map(|entry| entry.path())
+    {
+        if !kept.contains(&folder) {
+            let _ = fs::remove_dir_all(&folder);
+        }
+    }
+}
+
+/// Writes a constant per program built, naming its component's path, and `CODE`, pairing each
+/// component, built or written, with its code folder.
+fn write_paths(path: &Path, components: &[(String, PathBuf)], folders: &[PathBuf]) {
+    let programs: String = components
+        .iter()
+        .take(PROGRAMS.len())
+        .zip(PROGRAMS)
+        .map(|((constant, component), program)| {
             format!(
-                "/// `examples/{program}`, built as a component.\npub const {}: &str = {:?};\n",
-                constant_name(program),
+                "/// `examples/{program}`, built as a component.\npub const {constant}: &str = {:?};\n",
                 component.display().to_string()
             )
         })
         .collect();
-    let cache = format!(
-        "/// Where the tests' engines keep the code compiled from these programs.\npub const CODE_CACHE: &str = {:?};\n",
-        code_cache.display().to_string()
+    let pairs: String = components
+        .iter()
+        .zip(folders)
+        .map(|((constant, _), folder)| {
+            format!("    ({constant}, {:?}),\n", folder.display().to_string())
+        })
+        .collect();
+    let code = format!(
+        "/// Each component and its code folder.\nconst CODE: [(&str, &str); {}] = [\n{pairs}];\n",
+        components.len()
     );
-    fs::write(path, programs + &cache).expect("OUT_DIR is writable");
+    fs::write(path, programs + &code).expect("OUT_DIR is writable");
 }
 
 /// The constant naming `program`'s path: `TWO_WINDOWS` for `two-windows`.

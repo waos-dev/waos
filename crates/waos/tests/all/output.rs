@@ -25,7 +25,10 @@ fn a_chosen_output_gets_what_the_program_writes_in_order_and_the_log_nothing() {
     let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
     let name = "dev.test.output-to-a-chosen-output";
     let forever = engine
-        .load(Path::new(waos_test_programs::FOREVER))
+        .load(
+            Path::new(waos_test_programs::FOREVER),
+            &waos_test_programs::code_of(waos_test_programs::FOREVER),
+        )
         .unwrap()
         .named(name);
     let log = engine_log();
@@ -48,7 +51,10 @@ fn with_no_output_chosen_the_program_writes_to_the_log() {
     let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
     let name = "dev.test.output-to-the-log";
     let forever = engine
-        .load(Path::new(waos_test_programs::FOREVER))
+        .load(
+            Path::new(waos_test_programs::FOREVER),
+            &waos_test_programs::code_of(waos_test_programs::FOREVER),
+        )
         .unwrap()
         .named(name);
     let log = engine_log();
@@ -63,7 +69,12 @@ fn with_no_output_chosen_the_program_writes_to_the_log() {
 fn a_listener_of_the_programs_output_hears_what_it_writes_from_then_on() {
     let shell = TestShell::new();
     let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
-    let forever = engine.load(Path::new(waos_test_programs::FOREVER)).unwrap();
+    let forever = engine
+        .load(
+            Path::new(waos_test_programs::FOREVER),
+            &waos_test_programs::code_of(waos_test_programs::FOREVER),
+        )
+        .unwrap();
     let output = Arc::new(RecordedOutput::default());
     let running = engine.run(&forever, printing_to(&output)).unwrap();
     // Writing, it is linked, and so can be listened to.
@@ -86,7 +97,12 @@ fn a_listener_of_the_programs_output_hears_what_it_writes_from_then_on() {
 fn a_program_is_inspected_from_the_moment_it_starts() {
     let shell = TestShell::new();
     let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
-    let forever = engine.load(Path::new(waos_test_programs::FOREVER)).unwrap();
+    let forever = engine
+        .load(
+            Path::new(waos_test_programs::FOREVER),
+            &waos_test_programs::code_of(waos_test_programs::FOREVER),
+        )
+        .unwrap();
     let (running, held) = engine
         .run_held(&forever, printing_to(&Arc::new(RecordedOutput::default())))
         .unwrap();
@@ -107,7 +123,12 @@ fn a_program_is_inspected_from_the_moment_it_starts() {
 fn a_program_started_held_writes_nothing_until_let_go_and_a_listener_hears_its_first_write() {
     let shell = TestShell::new();
     let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
-    let forever = engine.load(Path::new(waos_test_programs::FOREVER)).unwrap();
+    let forever = engine
+        .load(
+            Path::new(waos_test_programs::FOREVER),
+            &waos_test_programs::code_of(waos_test_programs::FOREVER),
+        )
+        .unwrap();
     let output = Arc::new(RecordedOutput::default());
     let (running, held) = engine.run_held(&forever, printing_to(&output)).unwrap();
     let held = within(async move {

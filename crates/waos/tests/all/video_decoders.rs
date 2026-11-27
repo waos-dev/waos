@@ -23,7 +23,10 @@ fn a_decoder_takes_key_frames_first_lends_no_more_frames_than_asked_and_says_why
     let shell = TestShell::new();
     let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
     let program = engine
-        .load(Path::new(waos_test_programs::VIDEO_DECODERS))
+        .load(
+            Path::new(waos_test_programs::VIDEO_DECODERS),
+            &waos_test_programs::code_of(waos_test_programs::VIDEO_DECODERS),
+        )
         .unwrap();
     let output = Arc::new(RecordedOutput::default());
     let running = engine.run(&program, printing_to(&output)).unwrap();
@@ -106,7 +109,10 @@ fn a_shell_without_video_decoders_gives_the_program_none() {
     parts.gpus = None;
     let engine = WaOS::new(config(), parts, shell.platform()).unwrap();
     let program = engine
-        .load(Path::new(waos_test_programs::VIDEO_DECODERS))
+        .load(
+            Path::new(waos_test_programs::VIDEO_DECODERS),
+            &waos_test_programs::code_of(waos_test_programs::VIDEO_DECODERS),
+        )
         .unwrap();
     let output = Arc::new(RecordedOutput::default());
     let running = engine.run(&program, printing_to(&output)).unwrap();

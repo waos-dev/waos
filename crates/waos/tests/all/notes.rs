@@ -490,7 +490,12 @@ fn launch(
     ProgramView,
     Arc<RecordedOutput>,
 ) {
-    let program = engine.load(Path::new(waos_test_programs::NOTES)).unwrap();
+    let program = engine
+        .load(
+            Path::new(waos_test_programs::NOTES),
+            &waos_test_programs::code_of(waos_test_programs::NOTES),
+        )
+        .unwrap();
     let output = Arc::new(RecordedOutput::default());
     let environment = ProgramEnvironment {
         output: Some(Arc::clone(&output) as Arc<dyn ProgramOutput>),

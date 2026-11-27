@@ -10,8 +10,9 @@
 //! (`noted_file_dialogs`); what each program
 //! runs with (`environments`): this computer's capabilities and the grants of the store's settings;
 //! the library's side of the store: a package opened with WaOS, what a source's listing offers
-//! against what is installed, an installed program run as `waos launch` runs one, its code
-//! compiled at its install and removed with it (`installed_code`), each installed program's shortcut on Android's home screen and WaOS's
+//! against what is installed, the one place an installed program changes, its code compiled at
+//! its install and inside its version (`package_manager`), an installed program started however it
+//! is asked (`installed_runs`), each installed program's shortcut on Android's home screen and WaOS's
 //! icon's menu, made to match what is installed (`program_shortcuts`), and a settings
 //! page and what the user changes on it (`setting_changes`); when the desktop's launcher shows and
 //! goes (`launcher_rules`), and where it shows (`launcher_placement`); where the programs' prompts go (`prompts`), their questions
@@ -92,7 +93,6 @@ pub(crate) mod icon_rows;
 pub(crate) mod image_codec_calls;
 pub(crate) mod image_values;
 pub(crate) mod inspected_programs;
-pub(crate) mod installed_code;
 pub(crate) mod installed_runs;
 pub(crate) mod launch_outputs;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
@@ -126,6 +126,7 @@ pub(crate) mod opened_package;
 pub(crate) mod opener_calls;
 pub(crate) mod opening;
 pub(crate) mod package_copies;
+pub(crate) mod package_manager;
 pub(crate) mod permissions;
 pub(crate) mod phone_files;
 pub(crate) mod placement;
@@ -160,6 +161,8 @@ pub(crate) mod tab_list;
 pub(crate) mod tab_page;
 #[cfg(test)]
 pub(crate) mod test_engine;
+#[cfg(test)]
+pub(crate) mod test_installs;
 #[cfg(test)]
 pub(crate) mod test_outputs;
 #[cfg(any(target_os = "macos", target_os = "android"))]

@@ -10,7 +10,7 @@
 //! proxy settings the system's own apps follow, which a program's HTTP follows too (`proxies`).
 //!
 //! The invariant: wrapping the system's APIs is what this module is for, and it is the one place
-//! in the crate, with the code cache's mapping and the Windows file calls of `files`, where `unsafe`
+//! in the crate, with the code folder's mapping and the Windows file calls of `files`, where `unsafe`
 //! is written.
 
 #[cfg(target_os = "android")]

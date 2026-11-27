@@ -18,7 +18,10 @@ fn a_program_calling_the_gpu_itself_is_answered_as_wgpu_answers() {
     let shell = TestShell::new();
     let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
     let program = engine
-        .load(Path::new(waos_test_programs::GPU_CALLS))
+        .load(
+            Path::new(waos_test_programs::GPU_CALLS),
+            &waos_test_programs::code_of(waos_test_programs::GPU_CALLS),
+        )
         .unwrap();
     let output = Arc::new(RecordedOutput::default());
     let running = engine.run(&program, printing_to(&output)).unwrap();

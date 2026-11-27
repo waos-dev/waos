@@ -54,7 +54,10 @@ fn run(
     output: &Arc<RecordedOutput>,
 ) -> (RunningProgram, ProgramView) {
     let program = engine
-        .load(Path::new(waos_test_programs::EGUI_WIDGETS))
+        .load(
+            Path::new(waos_test_programs::EGUI_WIDGETS),
+            &waos_test_programs::code_of(waos_test_programs::EGUI_WIDGETS),
+        )
         .unwrap();
     let running = engine.run(&program, printing_to(output)).unwrap();
     let window = within(shell.headless.view(0))

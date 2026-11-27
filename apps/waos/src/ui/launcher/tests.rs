@@ -112,7 +112,7 @@ fn install(desktop: &mut LibraryDesktop, id: &str, name: &str, version: &str, co
     desktop.update(|library, cx| library.open_files(vec![package], cx));
     let view = launcher_view(desktop);
     desktop.tap(view, words::INSTALL);
-    desktop.settle_until_code_is_ready();
+    desktop.settle_until_operations_end();
 }
 
 /// Taps the button whose icon is `symbol`.
@@ -163,8 +163,20 @@ fn started_closed_on_macos_the_launcher_has_no_window_until_it_is_summoned() {
 #[test]
 fn typing_filters_the_grid() {
     let (mut desktop, _launcher) = desktop();
-    install(&mut desktop, TRIANGLE, "Triangle", "1.0.0", b"\0asm");
-    install(&mut desktop, GALLERY, "Gallery", "1.0.0", b"\0asm");
+    install(
+        &mut desktop,
+        TRIANGLE,
+        "Triangle",
+        "1.0.0",
+        crate::logic::test_installs::EMPTY_COMPONENT,
+    );
+    install(
+        &mut desktop,
+        GALLERY,
+        "Gallery",
+        "1.0.0",
+        crate::logic::test_installs::EMPTY_COMPONENT,
+    );
     assert!(desktop.shows("Triangle") && desktop.shows("Gallery"));
     let view = launcher_view(&desktop);
     desktop.type_text(view, "tri");
@@ -184,7 +196,13 @@ fn enter_opens_the_first_program_shown_and_dismisses_the_launcher() {
     let (mut desktop, _launcher) = desktop();
     let forever = std::fs::read(waos_test_programs::FOREVER_SHOWN).unwrap();
     install(&mut desktop, TRIANGLE, "Triangle", "1.0.0", &forever);
-    install(&mut desktop, GALLERY, "Gallery", "1.0.0", b"\0asm");
+    install(
+        &mut desktop,
+        GALLERY,
+        "Gallery",
+        "1.0.0",
+        crate::logic::test_installs::EMPTY_COMPONENT,
+    );
     let view = launcher_view(&desktop);
     desktop.type_text(view, "tri");
     desktop.press_enter();
@@ -276,7 +294,13 @@ fn search_draws_its_caret(desktop: &mut LibraryDesktop) -> bool {
 #[test]
 fn the_empty_search_field_shows_no_caret_and_takes_what_is_typed() {
     let (mut desktop, _launcher) = desktop();
-    install(&mut desktop, TRIANGLE, "Triangle", "1.0.0", b"\0asm");
+    install(
+        &mut desktop,
+        TRIANGLE,
+        "Triangle",
+        "1.0.0",
+        crate::logic::test_installs::EMPTY_COMPONENT,
+    );
     let view = launcher_view(&desktop);
     assert!(!search_draws_its_caret(&mut desktop), "empty");
     desktop.type_text(view, "tri");
@@ -305,7 +329,12 @@ fn id_of(name: &str) -> String {
 fn with_apps(count: usize) -> LibraryDesktop {
     let (mut desktop, _launcher) = desktop();
     for name in &MANY[..count] {
-        installs(&mut desktop, &id_of(name), name, b"\0asm");
+        installs(
+            &mut desktop,
+            &id_of(name),
+            name,
+            crate::logic::test_installs::EMPTY_COMPONENT,
+        );
     }
     desktop
 }
@@ -462,7 +491,12 @@ fn a_categorys_chip_shows_its_apps_alone_until_backspace_takes_it_back_or_the_la
         "Charlie",
         Category::Productivity,
     );
-    installs(&mut desktop, &id_of("Delta"), "Delta", b"\0asm");
+    installs(
+        &mut desktop,
+        &id_of("Delta"),
+        "Delta",
+        crate::logic::test_installs::EMPTY_COMPONENT,
+    );
     let view = launcher_view(&desktop);
     let across = |desktop: &LibraryDesktop, chip: &str| desktop.find(chip).expect("a chip").dx();
     assert!(
@@ -599,7 +633,13 @@ fn a_highlight_moved_out_of_sight_is_scrolled_into_it() {
 fn enter_opens_the_highlighted_app_and_typing_clears_the_highlight() {
     let (mut desktop, _launcher) = desktop();
     let forever = std::fs::read(waos_test_programs::FOREVER_SHOWN).unwrap();
-    install(&mut desktop, &id_of("Alpha"), "Alpha", "1.0.0", b"\0asm");
+    install(
+        &mut desktop,
+        &id_of("Alpha"),
+        "Alpha",
+        "1.0.0",
+        crate::logic::test_installs::EMPTY_COMPONENT,
+    );
     install(&mut desktop, &id_of("Bravo"), "Bravo", "1.0.0", &forever);
     let view = launcher_view(&desktop);
 
@@ -625,9 +665,27 @@ fn enter_opens_the_highlighted_app_and_typing_clears_the_highlight() {
 #[test]
 fn the_grid_lists_the_apps_from_a_to_z_by_name() {
     let (mut desktop, _launcher) = desktop();
-    install(&mut desktop, "dev.example.a", "Zebra", "1.0.0", b"\0asm");
-    install(&mut desktop, "dev.example.b", "apple", "1.0.0", b"\0asm");
-    install(&mut desktop, "dev.example.c", "Mango", "1.0.0", b"\0asm");
+    install(
+        &mut desktop,
+        "dev.example.a",
+        "Zebra",
+        "1.0.0",
+        crate::logic::test_installs::EMPTY_COMPONENT,
+    );
+    install(
+        &mut desktop,
+        "dev.example.b",
+        "apple",
+        "1.0.0",
+        crate::logic::test_installs::EMPTY_COMPONENT,
+    );
+    install(
+        &mut desktop,
+        "dev.example.c",
+        "Mango",
+        "1.0.0",
+        crate::logic::test_installs::EMPTY_COMPONENT,
+    );
     let across = |name: &str| desktop.find(name).expect("in the grid").dx();
     assert!(
         across("apple") < across("Mango") && across("Mango") < across("Zebra"),
@@ -640,7 +698,13 @@ fn the_grid_lists_the_apps_from_a_to_z_by_name() {
 fn more_reaches_getting_programs_and_the_settings_each_with_back_to_the_grid() {
     let (mut desktop, _launcher) = desktop();
     // So the menu's Get programs is the one label saying so: the home has no button for it.
-    install(&mut desktop, TRIANGLE, "Triangle", "1.0.0", b"\0asm");
+    install(
+        &mut desktop,
+        TRIANGLE,
+        "Triangle",
+        "1.0.0",
+        crate::logic::test_installs::EMPTY_COMPONENT,
+    );
     let view = launcher_view(&desktop);
     tap_symbol(&mut desktop, FluentSymbol::More);
     desktop.tap(view, words::GET_PROGRAMS);
@@ -668,7 +732,13 @@ fn more_reaches_getting_programs_and_the_settings_each_with_back_to_the_grid() {
 #[test]
 fn a_page_rises_into_place_over_the_grid_as_winuis_pages_enter() {
     let (mut desktop, _launcher) = desktop();
-    install(&mut desktop, TRIANGLE, "Triangle", "1.0.0", b"\0asm");
+    install(
+        &mut desktop,
+        TRIANGLE,
+        "Triangle",
+        "1.0.0",
+        crate::logic::test_installs::EMPTY_COMPONENT,
+    );
     let view = launcher_view(&desktop);
     tap_symbol(&mut desktop, FluentSymbol::More);
     desktop.tap_in_motion(view, words::GET_PROGRAMS);
@@ -690,7 +760,13 @@ fn a_page_rises_into_place_over_the_grid_as_winuis_pages_enter() {
 #[test]
 fn a_dismissed_launcher_comes_back_on_its_grid() {
     let (mut desktop, launcher) = desktop();
-    install(&mut desktop, TRIANGLE, "Triangle", "1.0.0", b"\0asm");
+    install(
+        &mut desktop,
+        TRIANGLE,
+        "Triangle",
+        "1.0.0",
+        crate::logic::test_installs::EMPTY_COMPONENT,
+    );
     let view = launcher_view(&desktop);
     tap_symbol(&mut desktop, FluentSymbol::More);
     desktop.tap(view, words::GET_PROGRAMS);
@@ -704,13 +780,18 @@ fn a_dismissed_launcher_comes_back_on_its_grid() {
 fn a_package_opened_with_waos_summons_the_launcher_with_the_question() {
     let (mut desktop, _launcher) = desktop();
     desktop.press_escape();
-    let package = desktop.package(TRIANGLE, "Triangle", "1.0.0", b"\0asm");
+    let package = desktop.package(
+        TRIANGLE,
+        "Triangle",
+        "1.0.0",
+        crate::logic::test_installs::EMPTY_COMPONENT,
+    );
     desktop.update(|library, cx| library.open_files(vec![package], cx));
     assert!(is_on_screen(&desktop));
     assert!(desktop.shows("Install Triangle?"), "{:?}", desktop.labels());
     let view = launcher_view(&desktop);
     desktop.tap(view, words::INSTALL);
-    desktop.settle_until_code_is_ready();
+    desktop.settle_until_operations_end();
     assert!(desktop.shows("Triangle"), "{:?}", desktop.labels());
 }
 
@@ -742,19 +823,34 @@ fn a_running_program_is_force_quit_from_its_icons_menu() {
 #[test]
 fn a_program_is_removed_from_its_icons_menu_once_the_user_says_so() {
     let (mut desktop, _launcher) = desktop();
-    install(&mut desktop, TRIANGLE, "Triangle", "1.0.0", b"\0asm");
+    install(
+        &mut desktop,
+        TRIANGLE,
+        "Triangle",
+        "1.0.0",
+        crate::logic::test_installs::EMPTY_COMPONENT,
+    );
     let view = launcher_view(&desktop);
     desktop.right_click(view, "Triangle");
     desktop.tap(view, words::ASK_TO_REMOVE);
     assert!(desktop.shows("Remove Triangle?"), "{:?}", desktop.labels());
     desktop.tap(view, words::REMOVE);
+    desktop.settle_until_operations_end();
     assert!(desktop.read(|library| library.installed().is_empty()));
 }
 
 #[test]
 fn a_program_that_cannot_be_opened_summons_the_launcher_again_with_why() {
     let (mut desktop, _launcher) = desktop();
-    install(&mut desktop, TRIANGLE, "Triangle", "1.0.0", b"\0asm");
+    install(
+        &mut desktop,
+        TRIANGLE,
+        "Triangle",
+        "1.0.0",
+        crate::logic::test_installs::EMPTY_COMPONENT,
+    );
+    let code = desktop.code_of(TRIANGLE);
+    crate::logic::test_installs::spoil(&code);
     let view = launcher_view(&desktop);
     desktop.tap(view, "Triangle");
     desktop.settle_until("the launcher shows again", is_on_screen);

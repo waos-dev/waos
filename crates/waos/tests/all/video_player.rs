@@ -446,7 +446,10 @@ impl Run {
             ..waos_local::LocalCapabilities::new().environment()
         };
         let program = engine
-            .load(Path::new(waos_test_programs::VIDEO_PLAYER))
+            .load(
+                Path::new(waos_test_programs::VIDEO_PLAYER),
+                &waos_test_programs::code_of(waos_test_programs::VIDEO_PLAYER),
+            )
             .unwrap();
         let running = engine.run(&program, environment).unwrap();
         let shown =

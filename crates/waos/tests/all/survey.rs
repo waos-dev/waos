@@ -44,7 +44,12 @@ struct Survey {
 fn survey() -> Survey {
     let shell = TestShell::new();
     let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
-    let survey = engine.load(Path::new(waos_test_programs::SURVEY)).unwrap();
+    let survey = engine
+        .load(
+            Path::new(waos_test_programs::SURVEY),
+            &waos_test_programs::code_of(waos_test_programs::SURVEY),
+        )
+        .unwrap();
     let output = Arc::new(RecordedOutput::default());
     let running = engine.run(&survey, printing_to(&output)).unwrap();
     let shown = within(shell.headless.view(0)).expect("survey asks for a view");

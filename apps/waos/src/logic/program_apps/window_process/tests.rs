@@ -15,7 +15,6 @@ use waos::{
     ShellContextMenus, ShellMenuBar,
 };
 use waos_program_window::Canvas;
-use waos_test_programs::CODE_CACHE;
 use waos_window_messages::os::macos::ReceiveRight;
 use waos_window_messages::{ViewCall, WindowCall};
 
@@ -84,9 +83,12 @@ async fn survey() -> (RunningProgram, ViewRequest) {
     let folder = tempfile::tempdir().unwrap();
     let (placement, mut requests) =
         WindowsOnRequest::new(ProgramFaces::new(store_in(folder.path()), None));
-    let engine = test_engine::engine(Arc::new(placement), Path::new(CODE_CACHE));
+    let engine = test_engine::engine(Arc::new(placement));
     let survey = engine
-        .load(Path::new(waos_test_programs::SURVEY))
+        .load(
+            Path::new(waos_test_programs::SURVEY),
+            &waos_test_programs::code_of(waos_test_programs::SURVEY),
+        )
         .expect("survey loads")
         .named("dev.example.survey");
     let program = engine
@@ -849,9 +851,12 @@ async fn menus(app_menus: &AppMenus, printed: &Arc<Printed>) -> (RunningProgram,
     let mut shell = test_engine::shell(Arc::new(placement), Arc::new(NoPrompts));
     shell.menu_bar = Some(Arc::new(app_menus.clone()));
     shell.context_menus = Some(Arc::new(app_menus.clone()));
-    let engine = test_engine::engine_over(shell, EngineTime::Real, Path::new(CODE_CACHE));
+    let engine = test_engine::engine_over(shell, EngineTime::Real);
     let menus = engine
-        .load(Path::new(waos_test_programs::MENUS))
+        .load(
+            Path::new(waos_test_programs::MENUS),
+            &waos_test_programs::code_of(waos_test_programs::MENUS),
+        )
         .expect("menus loads");
     let environment = ProgramEnvironment {
         output: Some(Arc::clone(printed) as Arc<dyn ProgramOutput>),

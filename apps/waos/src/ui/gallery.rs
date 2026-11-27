@@ -212,19 +212,29 @@ fn walks_the_library(layout: &str, (mut desktop, view): (LibraryDesktop, ViewId)
     desktop.update(|library, cx| library.open_files(vec![package], cx));
     scenes.draw(&mut desktop, "install-question");
     desktop.update(|library, cx| library.answer(true, cx));
-    desktop.settle_until_code_is_ready();
+    desktop.settle_until_operations_end();
     for (id, name, built_in) in &INSTALLED[1..] {
         match built_in {
             Some((category, icon)) => {
                 installs_showing(&mut desktop, id, name, Some(*category), icon);
             }
-            None => installs(&mut desktop, id, name, b"\0asm"),
+            None => installs(
+                &mut desktop,
+                id,
+                name,
+                crate::logic::test_installs::EMPTY_COMPONENT,
+            ),
         }
     }
     let home_drawn = scenes.draw(&mut desktop, "programs");
 
     let server = Server::start();
-    let listed = desktop.package(LISTED, "Triangle", "1.0.0", b"\0asm");
+    let listed = desktop.package(
+        LISTED,
+        "Triangle",
+        "1.0.0",
+        crate::logic::test_installs::EMPTY_COMPONENT,
+    );
     server.publish_saying(LISTED, &listed, "1.0.0", says_what_a_store_shows);
     for (_, _, built_in) in INSTALLED {
         if let Some((category, icon)) = built_in {
@@ -381,7 +391,12 @@ fn walks_the_library(layout: &str, (mut desktop, view): (LibraryDesktop, ViewId)
 
     shows(&mut desktop, LibraryPage::Home);
     for (id, name) in MORE {
-        installs(&mut desktop, id, name, b"\0asm");
+        installs(
+            &mut desktop,
+            id,
+            name,
+            crate::logic::test_installs::EMPTY_COMPONENT,
+        );
     }
     for (id, starts) in [
         ("dev.waos.zed", 9),

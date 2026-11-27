@@ -236,7 +236,10 @@ impl Run {
             ..printing_to(&output)
         };
         let program = engine
-            .load(Path::new(waos_test_programs::MEDIA_PLAYERS))
+            .load(
+                Path::new(waos_test_programs::MEDIA_PLAYERS),
+                &waos_test_programs::code_of(waos_test_programs::MEDIA_PLAYERS),
+            )
             .unwrap();
         let running = engine.run(&program, environment).unwrap();
         Run {

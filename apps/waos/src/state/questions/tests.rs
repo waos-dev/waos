@@ -41,10 +41,7 @@ fn desktop() -> LibraryDesktop {
 /// Installs the program `id`, named `name`, made of the test program at `component`, and opens
 /// it from the library.
 fn open_program(desktop: &mut LibraryDesktop, id: &str, name: &str, component: &str) {
-    let component = std::fs::read(component).unwrap();
-    let package = desktop.package(id, name, "1.0.0", &component);
-    desktop.update(|library, cx| library.open_files(vec![package], cx));
-    desktop.update(|library, cx| library.answer(true, cx));
+    desktop.install_compiled(id, name, component);
     let id: ProgramId = id.parse().unwrap();
     desktop.update(|library, cx| library.open(&id, cx));
     let runs = Arc::clone(&desktop.runs);
@@ -58,10 +55,7 @@ fn open_program(desktop: &mut LibraryDesktop, id: &str, name: &str, component: &
 /// starts it as a click on one of its notifications does, the one way the library starts a
 /// program with no window.
 fn start_console_program(desktop: &mut LibraryDesktop, id: &str, name: &str, component: &str) {
-    let component = std::fs::read(component).unwrap();
-    let package = desktop.package(id, name, "1.0.0", &component);
-    desktop.update(|library, cx| library.open_files(vec![package], cx));
-    desktop.update(|library, cx| library.answer(true, cx));
+    desktop.install_compiled(id, name, component);
     let id: ProgramId = id.parse().unwrap();
     let click = Activation {
         id: "greeting".into(),

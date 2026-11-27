@@ -53,7 +53,12 @@ fn a_program_uses_its_mounts_and_nothing_outside_them() {
     let machine = Machine::new();
     let shell = TestShell::new();
     let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
-    let program = engine.load(Path::new(waos_test_programs::FILES)).unwrap();
+    let program = engine
+        .load(
+            Path::new(waos_test_programs::FILES),
+            &waos_test_programs::code_of(waos_test_programs::FILES),
+        )
+        .unwrap();
     let grants = Arc::new(TestGrants::new(machine.mounts()));
     let output = Arc::new(RecordedOutput::default());
     let environment = ProgramEnvironment {

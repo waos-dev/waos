@@ -7,8 +7,9 @@
 //!
 //! The invariant: code compiled ahead of time loads only into an engine of the same wasmtime and
 //! the same settings. wasmtime checks most of them at every load, but not native unwind
-//! information, so the code cache names each file after the engine's settings too: a setting
-//! changed here names other files, and each program is compiled again at its next load.
+//! information, so a code folder names each file after the engine's settings too
+//! (`code_folder`): a setting changed here names other files, and each program is compiled again
+//! at its next load.
 
 use std::future::Future;
 use std::path::{Path, PathBuf};
@@ -25,7 +26,7 @@ use crate::bindings::wasdk::media::caption_settings::CaptionStyle;
 use crate::bindings::wasdk::platform::system::{Brightness, Locale};
 use crate::caption_settings::CaptionSettings;
 use crate::clipboard::PlatformClipboard;
-use crate::code_cache;
+use crate::code_folder;
 use crate::engine_time::{EngineClock, EngineTime};
 use crate::gpu::{self, GpuInstance, ProgramsAdapter};
 use crate::inspection::InspectedPrograms;
@@ -64,9 +65,6 @@ pub(crate) enum BufferKind {
 /// How the engine is set up.
 #[derive(Clone)]
 pub struct WaOSConfig {
-    /// Where compiled programs are kept, so the next start maps the code instead of compiling
-    /// it. A directory of the app's own: wasmtime trusts the code it maps.
-    pub code_cache: PathBuf,
     /// When a program out of sight is frozen.
     pub freeze: FreezePolicy,
     /// Whether programs are compiled with native unwind information (wasmtime's
@@ -130,7 +128,6 @@ pub struct WaOS {
     settings: SystemSettings,
     caption_settings: Option<CaptionSettings>,
     clipboard: PlatformClipboard,
-    code_cache: PathBuf,
     /// Where each program's `/tmp` is made.
     temporary_folders: Arc<TemporaryFolders>,
     /// The days of what each program did, counted in memory and kept by their writer, where the
@@ -149,8 +146,6 @@ impl WaOS {
     /// An engine over `shell`, knowing the machine as `platform` says. Its time ticks for as
     /// long as it lives, as `config.time` moves it.
     pub fn new(config: WaOSConfig, shell: Shell, platform: PlatformState) -> Result<WaOS> {
-        std::fs::create_dir_all(&config.code_cache)
-            .with_context(|| format!("making {}", config.code_cache.display()))?;
         let temporary_folders = Arc::new(TemporaryFolders::new(config.temporary_folders)?);
         let engine = Arc::new(Engine::new(&engine_config(config.native_unwind_info))?);
         let programs = Programs::default();
@@ -200,7 +195,6 @@ impl WaOS {
                 platform.time_zone,
             ),
             caption_settings: platform.caption_style.map(CaptionSettings::new),
-            code_cache: config.code_cache,
             temporary_folders,
             days,
             inspected_programs: config.inspected_programs,
@@ -250,35 +244,30 @@ impl WaOS {
         self.clipboard.set(items);
     }
 
-    /// The program at `component`, compiled once, at its first load unless `compile` compiled it
-    /// before, and mapped from the code cache after; blocks while compiling, so call it off the
-    /// main thread.
-    pub fn load(&self, component: &Path) -> Result<Program> {
+    /// Whether `code`, the component's code folder, holds the code this engine compiles, so that
+    /// [`load`](Self::load) maps it without compiling.
+    pub fn is_compiled(&self, code: &Path) -> bool {
+        code_folder::is_compiled(&self.engine, code)
+    }
+
+    /// Compiles the program at `component` into `code`, its code folder, as an app compiles a
+    /// program it installs, so that [`load`](Self::load) maps it without compiling; the code
+    /// other engines compiled there goes. Blocks for seconds, so call it off the main thread.
+    pub fn compile(&self, component: &Path, code: &Path) -> Result<()> {
+        code_folder::compile(&self.engine, component, code)
+    }
+
+    /// The program at `component`, mapped from its code in `code`, compiled there first when this
+    /// engine's is not; blocks while compiling, so call it off the main thread.
+    ///
+    /// The caller's contract, which the code mapped is trusted on: `code` is a folder of the
+    /// caller's own that only the engine writes in, and it belongs to `component` alone, whose
+    /// file never changes once compiled. A component that may change, as a program being built
+    /// does, gets a code folder named by its content.
+    pub fn load(&self, component: &Path, code: &Path) -> Result<Program> {
         let file = ComponentFile::at(component);
-        let compiled = code_cache::load(&self.engine, component, &self.code_cache)?;
+        let compiled = code_folder::load(&self.engine, component, code)?;
         Ok(Program::new(compiled, name_of(component), file))
-    }
-
-    /// Compiles the program at `component` into the code cache ahead of its load, as an app
-    /// compiles a program it installs, so that `load` maps it without compiling; nothing to do
-    /// when the cache holds its code already. Blocks while compiling, so call it off the main
-    /// thread.
-    pub fn compile(&self, component: &Path) -> Result<()> {
-        code_cache::compile(&self.engine, component, &self.code_cache)
-    }
-
-    /// Whether the code cache holds the code of the program at `component` as it is now, compiled
-    /// by this engine, so that `load` maps it without compiling.
-    pub fn is_compiled(&self, component: &Path) -> Result<bool> {
-        code_cache::is_compiled(&self.engine, component, &self.code_cache)
-    }
-
-    /// Removes the code this engine compiled from the program at `component` from the code
-    /// cache, as an app does with a program it removes; call it while the component is still
-    /// there, since its code is found by its path. A program running keeps the code it mapped.
-    /// The code engines of other settings or another wasmtime compiled from it stays.
-    pub fn remove_compiled(&self, component: &Path) -> Result<()> {
-        code_cache::remove(&self.engine, component, &self.code_cache)
     }
 
     /// The days kept of what the program `name` did, newest first, today's as counted now in
@@ -438,7 +427,7 @@ pub(crate) fn engine_config(native_unwind_info: bool) -> Config {
     config.epoch_interruption(true);
     // A backtrace names each frame by its function alone: wasmtime's details would read the
     // program's DWARF at every unwind, a stop's among them. A program that fails has its frames'
-    // files and lines read then (`source_lines`). Part of the code cache's key, as every setting.
+    // files and lines read then (`source_lines`). Part of the code file's name, as every setting.
     config.wasm_backtrace_details(WasmBacktraceDetails::Disable);
     // Windows walks every frame with it to handle an exception, so wasmtime refuses it off there.
     config.native_unwind_info(native_unwind_info || cfg!(windows));
@@ -446,7 +435,7 @@ pub(crate) fn engine_config(native_unwind_info: bool) -> Config {
 }
 
 /// iOS gives an app no executable memory, so programs are compiled to Pulley's bytecode, which
-/// wasmtime's interpreter runs, and which the code cache keeps as it keeps native code. The
+/// wasmtime's interpreter runs, and which a code folder keeps as it keeps native code. The
 /// simulator is held to the same rule, though it would map Cranelift's code, so that it fails
 /// where an iPhone would.
 ///
@@ -582,11 +571,9 @@ mod tests {
         }
     }
 
-    /// An engine over `shell`, with the code cache the tests share, which `shell` reports its
-    /// refreshes to.
+    /// An engine over `shell`, which `shell` reports its refreshes to.
     fn engine(shell: &Arc<Refreshing>) -> Arc<WaOS> {
         let config = WaOSConfig {
-            code_cache: PathBuf::from(waos_test_programs::CODE_CACHE),
             freeze: FreezePolicy::default(),
             native_unwind_info: false,
             http_proxy: HttpProxy::None,
@@ -726,7 +713,10 @@ mod tests {
         let shell = Arc::new(Refreshing::default());
         let engine = engine(&shell);
         let triangle = engine
-            .load(Path::new(waos_test_programs::TRIANGLE))
+            .load(
+                Path::new(waos_test_programs::TRIANGLE),
+                &waos_test_programs::code_of(waos_test_programs::TRIANGLE),
+            )
             .expect("triangle loads");
         let metal = objc2_metal::MTLCreateSystemDefaultDevice().expect("a Metal device");
         let runs = [
