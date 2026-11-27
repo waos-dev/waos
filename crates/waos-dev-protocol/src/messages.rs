@@ -200,6 +200,10 @@ pub struct Install {
     pub length: u64,
     /// The component's SHA-256, checked once its bytes are all there.
     pub digest: [u8; 32],
+    /// Whether this `waos` reads [`InstallAnswer::Compiling`]; an older one sends none, and is
+    /// never sent it.
+    #[serde(default)]
+    pub compiling_answer: bool,
 }
 
 /// What WaOS answers an `Install` with before any component arrives: whether to send it, whether
@@ -254,8 +258,9 @@ impl fmt::Debug for Component {
     }
 }
 
-/// What an install answers once its component is there: the id it is installed under, its
-/// development id, or why not.
+/// What an install answers once its component is there: `Compiling` first where WaOS compiles it,
+/// to a `waos` that said it reads it (`Install::compiling_answer`); then the id it is installed
+/// under, its development id, or why not.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(remote = "Self", tag = "kind", content = "data")]
 pub enum InstallAnswer {
@@ -263,6 +268,7 @@ pub enum InstallAnswer {
         id: ProgramId,
     },
     Refused(Refusal),
+    Compiling,
     #[serde(skip)]
     Unknown,
 }
@@ -761,6 +767,7 @@ mod tests {
                 file_associations: Vec::new(),
                 length: 1024,
                 digest: [0xab; 32],
+                compiling_answer: true,
             }),
             Request::Launch(Launch {
                 id: id.development(),
@@ -860,6 +867,7 @@ mod tests {
         cbor(InstallAnswer::Installed {
             id: "dev.example.notes.development".parse().unwrap(),
         });
+        cbor(InstallAnswer::Compiling);
         cbor(LaunchAnswer::Compiling);
         cbor(LaunchAnswer::Launched);
         cbor(StopAnswer::Stopped);
@@ -1148,6 +1156,7 @@ mod tests {
             file_associations: Vec::new(),
             length: 1024,
             digest: [0xab; 32],
+            compiling_answer: false,
         };
         assert_eq!(
             format!("{install:?}"),

@@ -691,6 +691,19 @@ pub(crate) mod tests {
             parts: usize,
             digest: [u8; 32],
         ) -> InstallAnswer {
+            let answers = self.install_answers(id, component, parts, digest).await;
+            answers.last().cloned().expect("an install's answer")
+        }
+
+        /// Every answer WaOS gives an install of `component` as the program `id`, from a `waos`
+        /// that reads `Compiling`, sent in parts of `parts` bytes.
+        pub(crate) async fn install_answers(
+            &self,
+            id: &str,
+            component: &[u8],
+            parts: usize,
+            digest: [u8; 32],
+        ) -> Vec<InstallAnswer> {
             let mut client = self.client().await;
             client
                 .send(&Request::Install(Install {
@@ -703,6 +716,7 @@ pub(crate) mod tests {
                     file_associations: Vec::new(),
                     length: component.len() as u64,
                     digest,
+                    compiling_answer: true,
                 }))
                 .await
                 .unwrap();
@@ -716,7 +730,15 @@ pub(crate) mod tests {
                         .unwrap();
                 }
             }
-            next(&mut client).await
+            let mut answers = Vec::new();
+            loop {
+                let answer = next::<InstallAnswer>(&mut client).await;
+                let last = answer != InstallAnswer::Compiling;
+                answers.push(answer);
+                if last {
+                    return answers;
+                }
+            }
         }
 
         /// What WaOS answers a launch of the installed program `id`, with `arguments` and
@@ -1092,6 +1114,25 @@ pub(crate) mod tests {
     }
 
     #[tokio::test]
+    async fn an_install_that_compiles_says_so_first() {
+        let server = TestServer::start("install-compiling");
+        let component = fs::read(waos_test_programs::FOREVER).unwrap();
+        let digest = component_digest(&component);
+        let answers = server
+            .install_answers(FOREVER, &component, component.len(), digest)
+            .await;
+        assert_eq!(
+            answers,
+            [
+                InstallAnswer::Compiling,
+                InstallAnswer::Installed {
+                    id: development(FOREVER)
+                }
+            ]
+        );
+    }
+
+    #[tokio::test]
     async fn a_component_the_development_install_holds_is_answered_have_and_nothing_is_sent() {
         let server = TestServer::start("have");
         let component = fs::read(waos_test_programs::FOREVER).unwrap();
@@ -1108,6 +1149,7 @@ pub(crate) mod tests {
                 file_associations: Vec::new(),
                 length: component.len() as u64,
                 digest: component_digest(&component),
+                compiling_answer: false,
             }))
             .await
             .unwrap();

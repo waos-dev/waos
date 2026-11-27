@@ -387,6 +387,7 @@ mod tests {
             file_associations: Vec::new(),
             length: component.len() as u64,
             digest: component_digest(&component),
+            compiling_answer: false,
         }))
         .await
         .expect("send install");

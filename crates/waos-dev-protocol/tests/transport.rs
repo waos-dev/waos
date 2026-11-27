@@ -96,6 +96,7 @@ fn install(id: &waos_package::ProgramId, length: u64, digest: [u8; 32]) -> Insta
         file_associations: Vec::new(),
         length,
         digest,
+        compiling_answer: false,
     }
 }
 

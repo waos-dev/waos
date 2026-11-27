@@ -3,7 +3,8 @@
 //! `.development`, through the package manager (`PackageContent::Development`): WaOS answers
 //! `Upload::Have` when that install holds the component already, by its length and digest, and
 //! `Upload::Send` when it must receive it; a build installed already as it is, manifest, component
-//! and icon, changes nothing, so its code compiled before stays; any other is compiled, then
+//! and icon, changes nothing, so its code compiled before stays; any other is compiled, told as
+//! `Compiling` to a `waos` that reads it, then
 //! replaces the build before, its run stopped first, ending `Replaced`, and the install is
 //! answered once that is done. An uninstall removes any installed program, as the library does,
 //! its run stopped first.
@@ -89,7 +90,8 @@ pub(crate) async fn install(
             }
         }
     };
-    let answer = match put_in_place(context, &manifest, &install, component).await {
+    let answer = match put_in_place(context, &manifest, &install, component, &mut connection).await
+    {
         Ok(()) => InstallAnswer::Installed { id: development },
         Err(error) => InstallAnswer::Refused(Refusal::new(
             RefusalKind::Failed,
@@ -123,12 +125,14 @@ async fn holds_component(
 }
 
 /// Installs the build `manifest` and `install` describe, its component `component`, or the one
-/// installed already where WaOS held it, unless it is installed as it is.
+/// installed already where WaOS held it, unless it is installed as it is; `connection` hears
+/// `Compiling` as the install begins, where its `waos` reads it.
 async fn put_in_place(
     context: &InstallContext,
     manifest: &Manifest,
     install: &Install,
     component: Option<Vec<u8>>,
+    connection: &mut ServerConnection,
 ) -> anyhow::Result<()> {
     let packages = &context.packages;
     let icon = install.icon.as_deref();
@@ -155,10 +159,12 @@ async fn put_in_place(
         component,
         icon: install.icon.clone(),
     };
-    let installed = packages
-        .install(PackageContent::Development(build), Caller::DeveloperTools)
-        .finished()
-        .await?;
+    let session = packages.install(PackageContent::Development(build), Caller::DeveloperTools);
+    if install.compiling_answer {
+        // A client gone meanwhile has nobody to tell; the install goes on.
+        let _ = connection.send(&InstallAnswer::Compiling).await;
+    }
+    let installed = session.finished().await?;
     tracing::info!(id = %installed.manifest.id(), "installed from its source");
     Ok(())
 }

@@ -145,8 +145,7 @@ pub(crate) fn app_info(library: &Library, id: &ProgramId) -> Option<AppInfo> {
         .settings(&SettingsOf::Program(id.clone()))
         .is_ok_and(|shown| any_set_otherwise(&shown))
         .then_some(AppAction::ResetPermissions);
-    let status =
-        words::status(operation, library.start_stage(id))
+    let status = words::status(operation, library.start_stage(id))
         .or_else(|| running.then(|| words::RUNNING.to_owned()));
     Some(AppInfo {
         name: program.name(),

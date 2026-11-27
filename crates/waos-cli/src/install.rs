@@ -71,6 +71,7 @@ pub async fn install_on(
         file_associations: build.file_associations.clone(),
         length: build.component.len() as u64,
         digest: component_digest(&build.component),
+        compiling_answer: true,
     });
     let mut connection = asking::greeted(connection, destination, &request).await?;
     let name = &build.name;
@@ -79,17 +80,22 @@ pub async fn install_on(
         .await
         .with_context(|| format!("sending {name} to WaOS"))?;
     upload(&mut connection, name, &build.component).await?;
-    match connection
-        .receive::<InstallAnswer>()
-        .await
-        .context("reading from WaOS")?
-    {
-        Some(InstallAnswer::Installed { id }) => Ok(id),
-        Some(InstallAnswer::Refused(refusal)) => bail!("WaOS refused {name}: {}", refusal.message),
-        Some(InstallAnswer::Unknown) => bail!(
-            "WaOS answered the install in a way this waos does not know: update waos with `curl -fsSL https://waos.app/install.sh | sh`"
-        ),
-        None => bail!("WaOS closed the connection before {name} was installed"),
+    loop {
+        match connection
+            .receive::<InstallAnswer>()
+            .await
+            .context("reading from WaOS")?
+        {
+            Some(InstallAnswer::Compiling) => eprintln!("waos: WaOS is compiling {name}"),
+            Some(InstallAnswer::Installed { id }) => return Ok(id),
+            Some(InstallAnswer::Refused(refusal)) => {
+                bail!("WaOS refused {name}: {}", refusal.message)
+            }
+            Some(InstallAnswer::Unknown) => bail!(
+                "WaOS answered the install in a way this waos does not know: update waos with `curl -fsSL https://waos.app/install.sh | sh`"
+            ),
+            None => bail!("WaOS closed the connection before {name} was installed"),
+        }
     }
 }
 
