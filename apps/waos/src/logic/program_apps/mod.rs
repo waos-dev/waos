@@ -69,7 +69,7 @@ use crate::os::{
     system_version, wait_for_exit,
 };
 
-use super::installed_runs::{InstalledRuns, Opening};
+use super::app_starter::{AppStarter, Opening, StartPlace, StartRequest};
 use super::program_places::ProgramPlace;
 pub(crate) use crate::logic::notification_permissions::{
     NotificationPermissionReading, NotificationPermissions,
@@ -114,7 +114,7 @@ pub(crate) struct ProgramApps {
     /// Where whether each of the programs' windows is in sight goes, on the main thread.
     window_presences: WindowPresences,
     /// What opens an installed program the user opened the app of, once the engine is made.
-    runs: OnceLock<InstalledRuns>,
+    starter: OnceLock<Arc<AppStarter>>,
     runtime: tokio::runtime::Runtime,
     /// Each program's app as what WaOS shows for it reaches it, launched here.
     reach: Arc<AppReach>,
@@ -172,7 +172,7 @@ impl ProgramApps {
                 dialog_reports,
                 notification_permissions,
                 window_presences,
-                runs: OnceLock::new(),
+                starter: OnceLock::new(),
                 runtime,
                 reach: Arc::new(reach),
             }
@@ -183,9 +183,9 @@ impl ProgramApps {
         Ok(apps)
     }
 
-    /// Opens with `runs` the installed programs whose app the user opens alone.
-    pub(crate) fn open_with(&self, runs: InstalledRuns) {
-        let _ = self.runs.set(runs);
+    /// Opens with `starter` the installed programs whose app the user opens alone.
+    pub(crate) fn open_with(&self, starter: Arc<AppStarter>) {
+        let _ = self.starter.set(starter);
     }
 
     /// The installed programs are `installed` now: each has its app, at its version, and a
@@ -334,18 +334,16 @@ impl ProgramApps {
     }
 
     async fn running_or_opened(&self, id: &ProgramId) -> Result<RunningProgram, String> {
-        let runs = self
-            .runs
+        let starter = self
+            .starter
             .get()
             .ok_or_else(|| "WaOS is still starting".to_owned())?;
-        if let Some(program) = runs.runs.running(id).await {
-            return Ok(program);
-        }
-        if self.store.installed_program(id).is_none() {
-            return Err(format!("{id} is not installed, and does not run"));
-        }
-        let opened = runs
-            .open(id, ProgramPlace::Windows, Opening::ByTheUser)
+        let request = StartRequest {
+            place: StartPlace::Named(ProgramPlace::Windows),
+            ..StartRequest::open(id.clone(), Opening::ByTheUser)
+        };
+        let opened = starter
+            .start(request)
             .await
             .map_err(|error| format!("{error:#}"))?;
         Ok(opened.program().clone())

@@ -15,11 +15,11 @@ use waos_package::ProgramId;
 
 use super::dev_refusal;
 use super::dev_server::BUILD;
-use super::runs::Runs;
+use super::running_apps::RunningApps;
 
 /// What an inspection reads of the app.
 pub(crate) struct InspectionContext<'a> {
-    pub(crate) runs: &'a Runs,
+    pub(crate) runs: &'a RunningApps,
     pub(crate) engine: &'a WaOS,
 }
 
@@ -30,7 +30,7 @@ pub(crate) async fn answer(
     id: &ProgramId,
     asked: Inspection,
 ) {
-    let running = context.runs.running_now(id);
+    let running = context.runs.running(id);
     let answered = match asked {
         Inspection::Summary { days } => Ok(summary(context.engine, id, days)),
         Inspection::ActiveUses => match running.as_ref().and_then(RunningProgram::active_uses) {

@@ -60,15 +60,15 @@ mod macos {
     use waos_window_messages::os::macos::SendRight;
 
     use super::ProgramPrompts;
+    use crate::logic::app_services::AppServices;
     use crate::logic::folders::AppFolders;
-    use crate::logic::installed_runs::InstalledRuns;
     use crate::logic::placement::WindowsOnRequest;
     use crate::logic::program_apps::{
         AppNotifications, AppsFolders, CanvasCall, CanvasKey, CanvasPictures, CanvasPlace,
         CanvasesOnRequest, DialogReport, NoProgramApps, NotificationPermissionReading,
         NotificationPermissions, ProgramApps, ToShow, WindowPresence,
     };
-    use crate::logic::runs::Runs;
+    use crate::logic::running_apps::RunningApps;
     use crate::os::LayerContext;
     use crate::state::app_nap_exemption::{self, AppNapExemption};
     use crate::state::desktop_host::with_macos;
@@ -187,7 +187,7 @@ mod macos {
     }
 
     /// From now on, the canvases of the views in the programs' apps are kept on the main thread,
-    /// the programs whose app the user opens alone are opened with `runs`, each program `library`
+    /// the programs whose app the user opens alone are opened by `services`' starter, each program `library`
     /// has installed has its app, what macOS says of a program's notifications goes to `library`,
     /// every running program's app reads it again each time WaOS comes to the front, and whether
     /// each of their windows is in sight tells `activity`; answers where the programs' prompts are
@@ -196,7 +196,7 @@ mod macos {
     pub(crate) fn follow(
         app: &mut App,
         started: Started,
-        runs: InstalledRuns,
+        services: AppServices,
         library: &Entity<Library>,
         own_windows: Rc<PromptWindows>,
         activity: &Entity<AppNapExemption>,
@@ -220,10 +220,10 @@ mod macos {
         tell_system_permissions(app, library, notification_permission_readings);
         app_nap_exemption::follow_windows(app, activity.clone(), window_presences);
         if let Some(notifications) = notifications {
-            read_system_permissions_at_the_front(app, notifications, Arc::clone(&runs.runs));
+            read_system_permissions_at_the_front(app, notifications, Arc::clone(&services.running));
         }
         let prompts = prompts_in_apps(app, &apps, dialog_reports, own_windows);
-        apps.open_with(runs);
+        apps.open_with(services.starter);
         apps.installed_changed(library.read(app).installed());
         let followed = library.clone();
         app.subscribe(library, move |app, _changed: &InstalledChanged| {
@@ -261,7 +261,7 @@ mod macos {
     fn read_system_permissions_at_the_front(
         app: &mut App,
         notifications: Arc<AppNotifications>,
-        runs: Arc<Runs>,
+        runs: Arc<RunningApps>,
     ) {
         let read_again = move |app: &mut App| {
             let (notifications, runs) = (Arc::clone(&notifications), Arc::clone(&runs));
@@ -472,8 +472,8 @@ mod other {
     use waos_store::Store;
 
     use super::ProgramPrompts;
+    use crate::logic::app_services::AppServices;
     use crate::logic::folders::AppFolders;
-    use crate::logic::installed_runs::InstalledRuns;
     use crate::logic::placement::WindowsOnRequest;
     #[cfg(any(windows, target_os = "linux"))]
     use crate::logic::program_entries::ProgramEntries;
@@ -591,7 +591,7 @@ mod other {
     pub(crate) fn follow(
         app: &mut App,
         started: Started,
-        _runs: InstalledRuns,
+        _services: AppServices,
         library: &Entity<Library>,
         own_windows: Rc<PromptWindows>,
     ) -> ProgramPrompts {

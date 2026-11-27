@@ -24,7 +24,6 @@ use waft::{
 use waos_package::ProgramId;
 use waos_store::InstalledProgram;
 
-use crate::logic::package_manager::PackageOperation;
 use crate::state::library::Library;
 use crate::ui::library::words;
 
@@ -35,8 +34,8 @@ pub(crate) struct HomeEntry {
     pub(crate) name: String,
     pub(crate) icon: Option<Arc<[u8]>>,
     pub(crate) running: bool,
-    /// What the package manager is doing to it, as optimizing its code after a compiler change.
-    pub(crate) operation: Option<PackageOperation>,
+    /// What WaOS is doing to it, as optimizing its code after a compiler change (`words::status`).
+    pub(crate) status: Option<&'static str>,
 }
 
 /// The programs `library` has installed, as the home shows them, in the order of their names:
@@ -84,7 +83,7 @@ fn entry_of(library: &Library, app: &InstalledProgram) -> HomeEntry {
         name: app.name(),
         icon: library.icon(id).cloned(),
         running: library.is_running(id),
-        operation: library.operation(id),
+        status: words::status(library.operation(id), library.start_stage(id)),
     }
 }
 
@@ -108,29 +107,29 @@ pub(crate) struct TileLook {
 const DOT_SIDE: f64 = 4.0;
 const DOT_GAP: f64 = 3.0;
 
-/// How much of an icon shows while the package manager works on its program.
+/// How much of an icon shows while WaOS works on its program.
 const INSTALLING_OPACITY: f64 = 0.5;
 
 /// An icon with its name beneath on one line, cut with an ellipsis, and the running dot under the
 /// name while the program runs; the dot's room is kept when it does not, so names line up. The
-/// name takes the tile's whole width, centred in it. While the package manager works on the
-/// program, the icon is dimmed and what it does, Optimizing… or Removing…, stands in place of the
-/// name.
+/// name takes the tile's whole width, centred in it. While WaOS works on the program, the icon is
+/// dimmed and what it does, Optimizing… or Removing…, stands in place of the name.
 #[derive(Clone, Debug)]
 pub(crate) struct IconTile {
     pub(crate) icon: WidgetRef,
     pub(crate) name: String,
     pub(crate) running: bool,
-    pub(crate) operation: Option<PackageOperation>,
+    /// What WaOS is doing to the program (`words::status`).
+    pub(crate) status: Option<&'static str>,
     pub(crate) look: TileLook,
 }
 
 impl StatelessWidget for IconTile {
     fn build(&self, _app: &mut App, _context: BuildContext) -> WidgetRef {
-        let (icon, name) = match self.operation {
-            Some(operation) => {
+        let (icon, name) = match self.status {
+            Some(status) => {
                 let dimmed = Opacity::new(INSTALLING_OPACITY).child(self.icon.clone());
-                (dimmed.into_widget(), words::operation(operation).to_owned())
+                (dimmed.into_widget(), status.to_owned())
             }
             None => (self.icon.clone(), self.name.clone()),
         };

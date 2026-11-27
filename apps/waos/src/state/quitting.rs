@@ -26,13 +26,13 @@ use waos::{RunningProgram, WaOS};
 
 use crate::logic::dev_server::DevServer;
 use crate::logic::quit_question::every_program_agrees;
-use crate::logic::runs::Runs;
+use crate::logic::running_apps::RunningApps;
 
 /// From now on, a quit asks every program in `runs` first, and once they agree stops `server`
 /// and keeps the days `engine` counted.
 pub(crate) fn ask_programs_before_quitting(
     app: &mut App,
-    runs: Arc<Runs>,
+    runs: Arc<RunningApps>,
     server: DevServer,
     engine: Arc<WaOS>,
 ) {
@@ -45,7 +45,11 @@ pub(crate) fn ask_programs_before_quitting(
 
 /// Asks every program whether it may end, and answers once every one has: exit, once the
 /// server is stopped, if every one agreed; cancel if any refused.
-fn answer_quit(app: &mut App, runs: &Arc<Runs>, stop: &Rc<ServerStop>) -> Task<AppExitResponse> {
+fn answer_quit(
+    app: &mut App,
+    runs: &Arc<RunningApps>,
+    stop: &Rc<ServerStop>,
+) -> Task<AppExitResponse> {
     tracing::info!("WaOS is asked to quit: asking every program");
     let (runs, stop) = (Arc::clone(runs), Rc::clone(stop));
     app.spawn(async move |cx| {

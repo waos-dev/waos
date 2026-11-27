@@ -181,7 +181,7 @@ impl Library {
                     | SettingsPage::AppPermission(..)
                     | SettingsPage::AppDetail(..),
                 ) => {
-                    self.offered = self.runs.environments.offered();
+                    self.offered = self.services.environments.offered();
                 }
                 LibraryPage::App(id) => self.read_screenshots_of(&id.clone(), cx),
                 LibraryPage::Home | LibraryPage::AppStore | LibraryPage::Settings(_) => {}
@@ -222,7 +222,7 @@ impl Library {
     pub(crate) fn activity(&self, of: &SettingsOf) -> Option<waos_activity::Activity> {
         match of {
             SettingsOf::Global => None,
-            SettingsOf::Program(id) => Some(activity_of(&self.runs.engine, id)),
+            SettingsOf::Program(id) => Some(activity_of(&self.services.engine, id)),
         }
     }
 

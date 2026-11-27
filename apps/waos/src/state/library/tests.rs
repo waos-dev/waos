@@ -25,6 +25,7 @@ use waos_store::SourceProxy;
 
 use super::test_server::Server;
 use super::*;
+use crate::logic::app_starter::StartStage;
 use crate::logic::environments::ProgramEnvironments;
 use crate::logic::opened_package::tests::{write_package, write_package_of};
 use crate::logic::package_copies::PackageCopies;
@@ -33,7 +34,7 @@ use crate::logic::program_places::{ProgramPlace, ProgramPlaces};
 use crate::logic::program_shortcuts::{
     KeptShortcut, ProgramShortcut, ShortcutOpens, SystemShortcuts,
 };
-use crate::logic::runs::Runs;
+use crate::logic::running_apps::RunningApps;
 use crate::logic::test_engine::{self, NoWindows, WITHIN};
 use crate::logic::test_installs;
 
@@ -45,7 +46,7 @@ const SURVEY: &str = "dev.example.survey";
 struct TestLibrary {
     cell: Rc<AppCell>,
     library: Entity<Library>,
-    runs: Arc<Runs>,
+    runs: Arc<RunningApps>,
     folder: TempDir,
     key: SigningKey,
     /// How many times the library asked to be seen.
@@ -67,20 +68,20 @@ impl TestLibrary {
         let folder = tempfile::tempdir().unwrap();
         let preferences = preferences(folder.path());
         let copies = PackageCopies::clear(folder.path().join("package-copies")).unwrap();
-        let runs = Arc::new(Runs::default());
+        let runs = Arc::new(RunningApps::default());
         let store = Store::open(&folder.path().join("store"), SourceProxy::None).unwrap();
-        let installed_runs = InstalledRuns::new(
+        let services = AppServices::new(
+            Arc::clone(&runs),
             Arc::new(test_engine::engine(Arc::new(NoWindows))),
             store.clone(),
             ProgramEnvironments::new(waos_local::LocalCapabilities::new(), store.clone()),
-            Arc::clone(&runs),
             ProgramPlaces::new(ProgramPlace::Windows),
         );
         let cell = AppCell::new();
         let library = open_library(
             &mut cell.borrow_mut(),
             store,
-            installed_runs,
+            services,
             copies,
             programs_open,
             preferences,
@@ -208,7 +209,7 @@ impl TestLibrary {
         let package =
             waos_package::Package::open(&self.package(TRIANGLE, "1.0.0", &forever)).unwrap();
         let (store, engine) =
-            self.read(|library| (library.store.clone(), Arc::clone(&library.runs.engine)));
+            self.read(|library| (library.store.clone(), Arc::clone(&library.services.engine)));
         test_installs::install_package(&store, &engine, package, waos_test_programs::FOREVER_SHOWN);
         self.wait_until("the install read", |library| {
             !library.installed().is_empty()
@@ -750,7 +751,7 @@ fn an_install_is_installing_until_its_code_is_compiled_and_then_shows() {
     let package = library.package(TRIANGLE, "1.0.0", &forever);
     library.update(|library, cx| library.open_files(vec![package], cx));
     let triangle: ProgramId = TRIANGLE.parse().unwrap();
-    let mut operations = library.read(|library| library.runs.packages.operations());
+    let mut operations = library.read(|library| library.services.packages.operations());
     let watched = triangle.clone();
     // Each change heard as it comes, on a thread of its own, however soon the next follows.
     let heard = thread::spawn(move || {
@@ -776,13 +777,13 @@ fn an_install_is_installing_until_its_code_is_compiled_and_then_shows() {
     });
     let code = library.read(|library| library.store.installed_version(&triangle).unwrap().code());
     assert!(
-        library.read(|library| library.runs.engine.is_compiled(&code)),
+        library.read(|library| library.services.engine.is_compiled(&code)),
         "installed with its code compiled"
     );
 }
 
 /// As after an update of WaOS that changed its engine: the version installed holds no code of
-/// this engine's, so the first open compiles it, and the program is optimizing meanwhile.
+/// this engine's, so the first open compiles it, and its start is optimizing meanwhile.
 #[test]
 fn the_first_open_after_a_compiler_change_optimizes_the_program() {
     let library = TestLibrary::new();
@@ -792,11 +793,14 @@ fn the_first_open_after_a_compiler_change_optimizes_the_program() {
     std::fs::remove_dir_all(&code).unwrap();
     library.update(|library, cx| library.open(&triangle, cx));
     library.wait_until("the open's compile", |library| {
-        library.operation(&triangle) == Some(PackageOperation::Optimizing)
+        library.start_stage(&triangle) == Some(StartStage::Optimizing)
     });
     wait_for_runs(&library, &[TRIANGLE]);
+    library.wait_until("the start's end", |library| {
+        library.start_stage(&triangle).is_none()
+    });
     assert_eq!(library.read(|library| library.operation(&triangle)), None);
-    assert!(library.read(|library| library.runs.engine.is_compiled(&code)));
+    assert!(library.read(|library| library.services.engine.is_compiled(&code)));
     futures::executor::block_on(library.runs.stop_all());
     wait_for_runs(&library, &[]);
 }
@@ -834,7 +838,7 @@ fn an_update_of_a_running_program_ends_the_old_run_first_and_leaves_the_new_vers
     assert!(!old_code.exists(), "the old version's code went with it");
     let code = library.read(|library| library.store.installed_version(&triangle).unwrap().code());
     assert!(
-        library.read(|library| library.runs.engine.is_compiled(&code)),
+        library.read(|library| library.services.engine.is_compiled(&code)),
         "the new version's, compiled at its install"
     );
 }
@@ -966,8 +970,8 @@ fn a_program_that_cannot_be_loaded_is_the_librarys_problem() {
         crate::logic::test_installs::EMPTY_COMPONENT,
     ));
     let triangle: ProgramId = TRIANGLE.parse().unwrap();
-    let code = library.read(|library| library.store.installed_version(&triangle).unwrap().code());
-    test_installs::spoil(&code);
+    let version = library.read(|library| library.store.installed_version(&triangle).unwrap());
+    test_installs::spoil(&version);
     library.update(|library, cx| library.open(&triangle, cx));
     library.wait_until("the open's answer", |library| library.problem().is_some());
     let problem = library

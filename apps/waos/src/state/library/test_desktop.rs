@@ -42,8 +42,8 @@ use waos_package::{Category, Manifest, SigningKey};
 use waos_store::{SourceProxy, Store};
 
 use super::{Library, ProgramsOpen, open_library, open_settings_when_asked, show_phone_files};
+use crate::logic::app_services::AppServices;
 use crate::logic::environments::ProgramEnvironments;
-use crate::logic::installed_runs::InstalledRuns;
 use crate::logic::opened_package::tests::{write_package, write_package_of, write_package_showing};
 use crate::logic::package_copies::PackageCopies;
 use crate::logic::phone_files::PhoneFilesAccess;
@@ -54,7 +54,7 @@ use crate::logic::program_faces::ProgramFaces;
 use crate::logic::program_places::{ProgramPlace, ProgramPlaces};
 use crate::logic::prompts::{MachinePickerOnRequest, OutputPickerOnRequest, PromptsOnRequest};
 use crate::logic::recording_indicator::RecordingIndicatorOnRequest;
-use crate::logic::runs::Runs;
+use crate::logic::running_apps::RunningApps;
 use crate::logic::test_engine::{self, WITHIN};
 use crate::logic::test_outputs::StatedOutputs;
 use crate::state::ViewWindows;
@@ -85,7 +85,7 @@ pub(crate) struct LibraryDesktop {
     platform: Rc<LibraryPlatform>,
     pub(crate) library: Entity<Library>,
     pub(crate) store: Store,
-    pub(crate) runs: Arc<Runs>,
+    pub(crate) runs: Arc<RunningApps>,
     /// What the engine asks the user through, for a test to ask as a program does.
     pub(crate) prompts: Arc<PromptsOnRequest>,
     /// What the engine shows its picker of outputs through, for a test to pick as a program does.
@@ -162,7 +162,7 @@ impl LibraryDesktop {
             .own_preferences
             .then(|| PreferencesFile::at(folder.path().join("preferences.toml")));
         let copies = PackageCopies::clear(folder.path().join("package-copies")).unwrap();
-        let runs = Arc::new(Runs::default());
+        let runs = Arc::new(RunningApps::default());
         let store = Store::open(&folder.path().join("store"), SourceProxy::None).expect("a store");
         let (placement, requests) = WindowsOnRequest::new(ProgramFaces::new(store.clone(), None));
         let (prompts, prompted) = PromptsOnRequest::new(crate::logic::asking_now::AskingNow::new());
@@ -178,7 +178,8 @@ impl LibraryDesktop {
             Arc::clone(&prompts) as Arc<dyn waos::Prompts>,
             Arc::new(store.clone()),
         );
-        let installed_runs = InstalledRuns::new(
+        let services = AppServices::new(
+            Arc::clone(&runs),
             Arc::new(engine),
             store.clone(),
             ProgramEnvironments::with_audio(
@@ -186,7 +187,6 @@ impl LibraryDesktop {
                 Some(Arc::new(StatedOutputs)),
                 store.clone(),
             ),
-            Arc::clone(&runs),
             ProgramPlaces::new(ProgramPlace::Windows),
         );
         let platform = Rc::new(LibraryPlatform::new(kind.system));
@@ -214,7 +214,7 @@ impl LibraryDesktop {
             let library = open_library(
                 app,
                 store,
-                installed_runs,
+                services,
                 copies,
                 ProgramsOpen::InWindows,
                 preferences,
@@ -342,7 +342,7 @@ impl LibraryDesktop {
         let package =
             waos_package::Package::open(&self.package(id, name, "1.0.0", &bytes)).unwrap();
         let (store, engine) =
-            self.read(|library| (library.store.clone(), Arc::clone(&library.runs.engine)));
+            self.read(|library| (library.store.clone(), Arc::clone(&library.services.engine)));
         crate::logic::test_installs::install_package(&store, &engine, package, component);
         let installed: waos_package::ProgramId = id.parse().unwrap();
         self.settle_until("the library shows the program", |desktop| {
@@ -350,21 +350,22 @@ impl LibraryDesktop {
         });
     }
 
-    /// The code folder of the version of the program `id` installed now.
-    pub(crate) fn code_of(&self, id: &str) -> std::path::PathBuf {
+    /// The version of the program `id` installed now.
+    pub(crate) fn version_of(&self, id: &str) -> waos_store::InstalledVersion {
         let id = id.parse().unwrap();
-        self.read(|library| library.store.installed_version(&id).unwrap().code())
+        self.read(|library| library.store.installed_version(&id).unwrap())
     }
 
-    /// The program `id` loaded, which holds its turn until the answer is dropped, as an open
-    /// holds it from its load to its start: an install or removal of it waits meanwhile.
-    pub(crate) fn hold_turn(&self, id: &str) -> crate::logic::package_manager::Loaded {
+    /// The program `id` loaded, and its lock, held until the answer is dropped, as an open holds
+    /// it from its load to its start: an install or removal of it waits meanwhile.
+    pub(crate) fn hold_lock(&self, id: &str) -> crate::logic::package_manager::AppLock {
         let id = id.parse().unwrap();
         let (runtime, packages) =
-            self.read(|library| (library.runtime(), Arc::clone(&library.runs.packages)));
-        runtime
-            .block_on(packages.load(&id))
-            .expect("the program loads")
+            self.read(|library| (library.runtime(), Arc::clone(&library.services.packages)));
+        let (_program, lock) = runtime
+            .block_on(packages.load(&id, || {}))
+            .expect("the program loads");
+        lock
     }
 
     /// Frames until the package manager is done with every program, as after an install, its

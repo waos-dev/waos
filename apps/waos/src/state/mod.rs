@@ -84,6 +84,7 @@ use waos_package::ProgramId;
 use waos_program_window::WaftCompositor;
 use waos_store::{SourceProxy, Store};
 
+use crate::logic::app_services::AppServices;
 use crate::logic::asking_now::AskingNow;
 use crate::logic::command_line::LibraryPlace;
 #[cfg(desktop)]
@@ -96,7 +97,6 @@ use crate::logic::folders::AppFolders;
 use crate::logic::frame_readers::ReadersOnRequest;
 use crate::logic::held_starts::HeldStarts;
 use crate::logic::inspected_programs::ProgramsOnThisComputer;
-use crate::logic::installed_runs::InstalledRuns;
 use crate::logic::machine_facts::platform_state;
 use crate::logic::noted_file_dialogs::NotedFileDialogs;
 use crate::logic::package_copies::PackageCopies;
@@ -111,7 +111,7 @@ use crate::logic::program_places::{
 use crate::logic::program_shortcuts::SystemShortcuts;
 use crate::logic::prompts::PromptsOnRequest;
 use crate::logic::recording_indicator::RecordingIndicatorOnRequest;
-use crate::logic::runs::Runs;
+use crate::logic::running_apps::RunningApps;
 use crate::logic::vsync_waiter::WaftVsync;
 use crate::ui::deck::Deck;
 use crate::ui::every_window::{LibraryWindow, every_window, program_windows};
@@ -309,7 +309,7 @@ pub(crate) fn start(
         // A machine is picked on a sheet put as a program's questions are.
         machine_picker: Some(Arc::new(machine_picker)),
     };
-    let runs = Arc::new(Runs::default());
+    let runs = Arc::new(RunningApps::default());
     let inspected = Arc::new(ProgramsOnThisComputer::new(
         store.clone(),
         Arc::clone(&runs),
@@ -349,31 +349,33 @@ pub(crate) fn start(
     let environments = ProgramEnvironments::new(capabilities, store.clone());
     // What a tab closed on a phone stops its program among.
     let tabs_runs = Arc::clone(&runs);
-    let installed_runs = InstalledRuns::new(
+    let services = AppServices::new(
+        runs,
         Arc::clone(&engine),
         store.clone(),
         environments,
-        runs,
         places,
     );
     #[cfg(target_os = "macos")]
     app_nap_exemption::follow_operations(
         app,
         app_nap_exemption.clone(),
-        installed_runs.packages.operations(),
+        services.packages.operations(),
     );
+    #[cfg(target_os = "macos")]
+    app_nap_exemption::follow_starts(app, app_nap_exemption.clone(), services.starter.starting());
     #[cfg(desktop)]
     let developer_access = DeveloperAccess::at(folders.developer_access.clone());
     #[cfg(desktop)]
     listen_for_the_command(
         app,
-        installed_runs.clone(),
+        services.clone(),
         &store,
         asking,
         developer_access.clone(),
     )?;
     let starts = HeldStarts {
-        installed: installed_runs.clone(),
+        starter: Arc::clone(&services.starter),
         store: store.clone(),
     };
     let prompt_windows = questions::prompt_windows(app, view_windows.clone(), faces);
@@ -382,7 +384,7 @@ pub(crate) fn start(
     let library = open_library(
         app,
         store,
-        installed_runs.clone(),
+        services.clone(),
         package_copies,
         programs_open,
         preferences,
@@ -396,7 +398,7 @@ pub(crate) fn start(
     let prompts = program_apps::follow(
         app,
         program_apps,
-        installed_runs,
+        services,
         &library,
         Rc::clone(&prompt_windows),
         &app_nap_exemption,
@@ -405,7 +407,7 @@ pub(crate) fn start(
     let prompts = program_apps::follow(
         app,
         program_apps,
-        installed_runs,
+        services,
         &library,
         Rc::clone(&prompt_windows),
     );
@@ -501,13 +503,13 @@ pub(crate) fn start(
 #[cfg(desktop)]
 fn listen_for_the_command(
     app: &mut App,
-    installed: InstalledRuns,
+    installed: AppServices,
     store: &Store,
     asking: Arc<AskingNow>,
     access: DeveloperAccess,
 ) -> Result<()> {
     let socket = waos_dev_protocol::listener_path();
-    let runs = Arc::clone(&installed.runs);
+    let runs = Arc::clone(&installed.running);
     let engine = Arc::clone(&installed.engine);
     let server = DevServer::start(installed, store.clone(), asking, &socket, access)
         .with_context(|| format!("listening for waos at {}", socket.display()))?;
@@ -675,7 +677,7 @@ fn library_window(
     place: LibraryPlace,
     library: Entity<Library>,
     recordings: Entity<Recordings>,
-    runs: Arc<Runs>,
+    runs: Arc<RunningApps>,
     tab_requests: UnboundedReceiver<TabRequest>,
     view_windows: &Entity<ViewWindows>,
 ) -> LibraryWindow {

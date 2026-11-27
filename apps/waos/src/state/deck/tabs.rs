@@ -42,9 +42,9 @@ use waos_package::ProgramId;
 use waos_program_window::ShownView;
 
 use super::tab_view::TabView;
-use crate::logic::installed_runs::OpenedRun;
+use crate::logic::app_starter::StartAnswer;
 use crate::logic::program_places::TabRequest;
-use crate::logic::runs::Runs;
+use crate::logic::running_apps::RunningApps;
 use crate::logic::tab_list::{TabId, TabKind, TabList};
 use crate::logic::tab_page::page_metrics;
 
@@ -62,7 +62,7 @@ pub(crate) struct Tabs {
     /// request takes.
     screens: HashMap<TabId, (TabView, PlacedView)>,
     /// The programs running, which a tab closed stops.
-    runs: Arc<Runs>,
+    runs: Arc<RunningApps>,
 }
 
 /// One tab, as the deck shows it.
@@ -103,7 +103,7 @@ impl Tabs {
     /// in the deck after its first.
     pub(crate) fn listen(
         app: &mut App,
-        runs: Arc<Runs>,
+        runs: Arc<RunningApps>,
         requests: UnboundedReceiver<TabRequest>,
     ) -> Entity<Tabs> {
         let tabs = app.new_entity(|_| Tabs {
@@ -271,13 +271,13 @@ impl Tabs {
     pub(crate) fn started(
         &mut self,
         id: &ProgramId,
-        started: Option<OpenedRun>,
+        started: Option<StartAnswer>,
         cx: &mut Context<Tabs>,
     ) {
         let starting = self.starting(id);
         let program = match started {
-            Some(OpenedRun::Started(program)) => program,
-            Some(OpenedRun::RunningAlready(_)) | None => {
+            Some(StartAnswer::Started { program, .. }) => program,
+            Some(StartAnswer::RunningAlready(_)) | None => {
                 if starting.is_some() {
                     tracing::info!(%id, "it did not start in its tab: the tab goes");
                 }
@@ -393,7 +393,7 @@ impl Tabs {
             let last = self.list.tab_of(&id).is_none();
             let runs = Arc::clone(&self.runs);
             cx.spawn(async move |_cx| {
-                let Some(program) = runs.running(&id).await else {
+                let Some(program) = runs.running(&id) else {
                     return;
                 };
                 match view {

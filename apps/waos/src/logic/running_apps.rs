@@ -1,21 +1,22 @@
-//! The programs running in WaOS, by the id of the program each is, whether `waos launch` started it
-//! or the library opened it. One per id: a later launch takes the place of the one before, which is
-//! stopped first and ends `Replaced`, as does a start an inspector asks for, while a program the
-//! library opens again is left running as it is. Every run of an id is ended before its program is
-//! removed or updated ([`Runs::stop`]), as a system ends an app it uninstalls or updates, so no run
-//! outlives the package it came from or the folders it was given. Every program running is its
+//! The apps running in WaOS, one per app, by its id, whoever started it: the library opening it,
+//! `waos launch`, or an inspector. A start says what to do when the app runs already
+//! ([`IfRunning`]): opening it again leaves it as it is, while a launch, or a start an inspector
+//! asks for, replaces it, and the one before ends `Replaced`. An app is stopped before it is
+//! removed or updated ([`RunningApps::stop`]), as a system ends an app it uninstalls or updates,
+//! so no run outlives the package it came from or the folders it was given. This knows nothing of
+//! packages: whoever starts an app hands it the app's program, loaded. Every app running is its
 //! user's to read and drive through the dev socket, through its program's own mouse and the
 //! keyboard, as `driven` finds it, which a phone, where `waos` reaches no WaOS yet, does not
 //! compile. Each run knows whether a later one took its place, so its end is told as `Replaced`.
 //!
-//! The invariants: one start or stop of an id at a time. Each holds the id's turn from the moment
-//! it looks for the run before to the moment the new one is in the list, so two runs of one id
+//! The invariants: one start or stop of an app at a time. Each holds the app's turn from the moment
+//! it looks for the run before to the moment the new one is in the list, so two starts of one app
 //! arriving together cannot both start, and an id never names two programs. The list's own lock
 //! is held only to read or change the list, never while a program starts or ends, so a program
-//! slow to end holds back no screenshot, input, open or quit, nor another program's start; the ids
-//! running, which [`Runs::running_ids`] tells, change with the list under that lock. And nothing
-//! compiles in a turn: a caller loads the program, through the package manager, before it starts
-//! a run.
+//! slow to end holds back no screenshot, input, open or quit, nor another app's start; the ids
+//! running, which [`RunningApps::running_ids`] tells, change with the list under that lock. And
+//! nothing compiles in a turn: a caller loads the program, through the package manager, before it
+//! starts the app.
 
 #[cfg(desktop)]
 mod driven;
@@ -37,12 +38,12 @@ use waos_package::ProgramId;
 #[cfg(desktop)]
 pub(crate) use driven::DrivenProgram;
 
-/// The runs by id.
+/// The apps running, by id.
 #[derive(Default)]
-pub(crate) struct Runs {
+pub(crate) struct RunningApps {
     /// The programs in the list, held only to read or change it.
     running: Mutex<HashMap<ProgramId, Running>>,
-    /// Each id's turn, one start or stop of the id at a time.
+    /// Each app's turn, one start or stop of the app at a time.
     turns: Mutex<HashMap<ProgramId, Arc<tokio::sync::Mutex<()>>>>,
     /// Tells one run of an id from the next.
     serials: AtomicU64,
@@ -58,7 +59,17 @@ struct Running {
     replaced: Arc<AtomicBool>,
 }
 
-/// What [`Runs::start_unless_running`] found: a run it started, or the program running already.
+/// What to do when an app asked to start runs already.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum IfRunning {
+    /// Leave it running as it is, as opening an app again does.
+    Leave,
+    /// Stop it first, so it ends `Replaced`, and start the app again, as `waos launch` does.
+    Replace,
+}
+
+/// What [`RunningApps::start`] came to: a run it started, or the program running already, left as
+/// it is.
 pub(crate) enum Started {
     New(Run),
     Running(RunningProgram),
@@ -86,36 +97,28 @@ impl Run {
     }
 }
 
-impl Runs {
-    /// Starts a run of the program `id` unless one runs already, which is left as it is; then
-    /// `start` starts the program, and the run is in the list. Answers the run started, or the
-    /// program running. An error from `start` leaves the id free.
-    pub(crate) async fn start_unless_running(
+impl RunningApps {
+    /// Starts the app `id`: unless it runs already and `if_running` leaves it, `run` starts its
+    /// program, which is in the list once it has started; one replaced is stopped first and ends
+    /// `Replaced`. Answers the run started, or the program running. An error from `run` leaves the
+    /// app not running. `run` waits for nothing: the program it starts is loaded already.
+    pub(crate) async fn start(
         &self,
         id: &ProgramId,
-        start: impl AsyncFnOnce() -> Result<RunningProgram>,
+        if_running: IfRunning,
+        run: impl FnOnce() -> Result<RunningProgram>,
     ) -> Result<Started> {
         let _turn = self.turn_of(id).await;
-        if let Some(current) = self.listed().get(id) {
-            return Ok(Started::Running(current.program.clone()));
+        match if_running {
+            IfRunning::Leave => {
+                if let Some(current) = self.running(id) {
+                    return Ok(Started::Running(current));
+                }
+            }
+            IfRunning::Replace => self.end_the_one_before(id).await,
         }
-        let program = start().await?;
+        let program = run()?;
         Ok(Started::New(self.list(id, program)))
-    }
-
-    /// Starts a run of the program `id` in place of the one running, if any, which is stopped first
-    /// and ends `Replaced`, as a later launch takes the place of the one before; then `start`
-    /// starts the program, and the run is in the list. An error from `start` leaves the id free.
-    /// `start` waits for nothing: the program it starts is loaded already.
-    pub(crate) async fn start_in_place(
-        &self,
-        id: &ProgramId,
-        start: impl FnOnce() -> Result<RunningProgram>,
-    ) -> Result<Run> {
-        let _turn = self.turn_of(id).await;
-        self.end_the_one_before(id).await;
-        let program = start()?;
-        Ok(self.list(id, program))
     }
 
     /// Stops the program running as `id`, if any, and waits until it has ended, out of the list
@@ -159,7 +162,7 @@ impl Runs {
         run: Run,
         heard: impl FnOnce(RunEnd) + Send + 'static,
     ) {
-        let runs = Arc::clone(self);
+        let apps = Arc::clone(self);
         let started_at = Instant::now();
         let span = tracing::info_span!("run", name = %run.id);
         tokio::spawn(
@@ -172,7 +175,7 @@ impl Runs {
                     "ended"
                 );
                 heard(run.end(&end));
-                runs.ended(&run).await;
+                apps.ended(&run).await;
             }
             .instrument(span),
         );
@@ -198,12 +201,7 @@ impl Runs {
     }
 
     /// The program `id` running now, if one is.
-    pub(crate) async fn running(&self, id: &ProgramId) -> Option<RunningProgram> {
-        self.running_now(id)
-    }
-
-    /// The program `id` running now, if one is, without waiting.
-    pub(crate) fn running_now(&self, id: &ProgramId) -> Option<RunningProgram> {
+    pub(crate) fn running(&self, id: &ProgramId) -> Option<RunningProgram> {
         self.listed().get(id).map(|current| current.program.clone())
     }
 
@@ -322,18 +320,19 @@ mod tests {
 
             engine.run(&program, ProgramEnvironment::default()).unwrap()
         };
-        let runs = Arc::new(Runs::default());
+        let apps = Arc::new(RunningApps::default());
         let slow: ProgramId = "dev.example.slow".parse().unwrap();
         let other: ProgramId = "dev.example.other".parse().unwrap();
-        let (go_on, going_on) = oneshot::channel::<()>();
+        let (go_on, going_on) = std::sync::mpsc::channel::<()>();
         let (entered, under_way) = oneshot::channel::<()>();
         let slow_start = {
-            let (runs, slow) = (Arc::clone(&runs), slow.clone());
+            let (apps, slow) = (Arc::clone(&apps), slow.clone());
             let program = run("dev.example.slow");
             tokio::spawn(async move {
-                runs.start_unless_running(&slow, async || {
+                apps.start(&slow, IfRunning::Leave, move || {
                     entered.send(()).unwrap();
-                    going_on.await.unwrap();
+                    // Blocks this worker alone, as a program slow to start would.
+                    going_on.recv().unwrap();
                     Ok(program)
                 })
                 .await
@@ -345,22 +344,22 @@ mod tests {
             .expect("its start is under way")
             .unwrap();
         let at_once = std::time::Duration::from_secs(1);
-        let names = tokio::time::timeout(at_once, runs.names()).await;
+        let names = tokio::time::timeout(at_once, apps.names()).await;
         assert!(names.expect("the list is read meanwhile").is_empty());
         let other_program = run("dev.example.other");
         let started = tokio::time::timeout(
             at_once,
-            runs.start_in_place(&other, || Ok(other_program.clone())),
+            apps.start(&other, IfRunning::Replace, || Ok(other_program.clone())),
         )
         .await
-        .expect("and another program starts meanwhile")
+        .expect("and another app starts meanwhile")
         .unwrap();
-        assert_eq!(runs.names().await, ["dev.example.other"]);
+        assert_eq!(apps.names().await, ["dev.example.other"]);
         go_on.send(()).unwrap();
         slow_start.await.unwrap().unwrap();
-        assert!(runs.running(&slow).await.is_some());
+        assert!(apps.running(&slow).is_some());
 
-        runs.stop_all().await;
+        apps.stop_all().await;
         drop(started);
     }
 }

@@ -17,18 +17,18 @@ use waos_package::ProgramId;
 use waos_store::Store;
 
 use super::dev_refusal;
-use super::runs::Runs;
+use super::running_apps::RunningApps;
 
 /// Answers a connection's `Extension`: the extension `name` of the program `id` called with
 /// `params`, and its answer, or why there is none.
 pub(crate) async fn call(
     mut connection: ServerConnection,
-    runs: &Runs,
+    runs: &RunningApps,
     id: &ProgramId,
     name: &str,
     params: Vec<(String, String)>,
 ) {
-    let answer = match runs.running_now(id) {
+    let answer = match runs.running(id) {
         None => ExtensionAnswer::Refused(dev_refusal::not_running(id)),
         Some(program) if !program.service_extensions().serves() => {
             ExtensionAnswer::Refused(not_serving(id))
@@ -45,7 +45,7 @@ pub(crate) async fn call(
 
 /// Answers a connection's `ServingPrograms`: each program running that serves extensions, by the
 /// name `store` gives it, in this WaOS's process.
-pub(crate) async fn serving(mut connection: ServerConnection, runs: &Runs, store: &Store) {
+pub(crate) async fn serving(mut connection: ServerConnection, runs: &RunningApps, store: &Store) {
     let programs = runs
         .programs()
         .await

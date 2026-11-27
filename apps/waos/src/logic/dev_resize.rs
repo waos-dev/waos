@@ -18,7 +18,7 @@ use waos_dev_protocol::{Refusal, ResizeAnswer, Resized, ServerConnection, Window
 use waos_package::ProgramId;
 
 use super::dev_refusal;
-use super::runs::Runs;
+use super::running_apps::RunningApps;
 
 /// How long WaOS waits for the view to report the size it took: a window its system leaves as it
 /// was reports nothing.
@@ -28,7 +28,7 @@ const REPORT_WAIT: Duration = Duration::from_secs(2);
 /// `size` logical points, then `Resized` with the size it took, or why it reached none.
 pub(crate) async fn answer(
     mut connection: ServerConnection,
-    runs: &Runs,
+    runs: &RunningApps,
     id: &ProgramId,
     window: Option<WindowId>,
     size: Size,
@@ -47,7 +47,7 @@ pub(crate) async fn answer(
 /// Sizes the window `window` (or the program's first open window) of the program `id` so its
 /// view is `size`; answers the size the view then reports.
 async fn resize(
-    runs: &Runs,
+    runs: &RunningApps,
     id: &ProgramId,
     window: Option<WindowId>,
     size: Size,

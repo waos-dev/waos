@@ -1,15 +1,17 @@
 //! macOS's App Nap kept from throttling WaOS while the user waits on a program: one activity
 //! held from the moment the package manager begins working on any program, as it compiles its
-//! code, or one of a program's windows comes into
+//! code, or a start begins optimizing one, compiling its code again, or one of a program's windows
+//! comes into
 //! sight until none does, as Chrome holds one in a renderer while its tab is in front. App Nap
 //! otherwise runs a process it thinks is in the background at low priority, which made a compile
 //! that takes seconds take minutes (measured: a 5-second compile took 9 minutes 15 seconds without
 //! the activity, and 5 seconds with it).
 //!
 //! The activity is the system's, behind the closure this state is made with, so its rule is tested
-//! without macOS. [`start`] makes it over Waft's macOS host; [`follow_operations`] and
-//! [`follow_windows`] tell it what the package manager is doing to which program, a development
-//! install among them, and what the programs' windows report. None of this is built on
+//! without macOS. [`start`] makes it over Waft's macOS host; [`follow_operations`],
+//! [`follow_starts`] and [`follow_windows`] tell it what the package manager is doing to which
+//! program, a development install among them, which starts optimize, and what the programs'
+//! windows report. None of this is built on
 //! another system, where there is nothing to keep.
 
 use std::any::Any;
@@ -27,16 +29,19 @@ pub(crate) type WindowKey = (ProgramId, RequestId);
 type Begin = Box<dyn Fn() -> Option<Box<dyn Any>>>;
 
 /// Why WaOS must keep the priority macOS gives an app its user is waiting on now: the programs
-/// the package manager works on and the programs' windows in sight. One activity is held while either is
-/// non-empty, begun when the first comes and ended when the last goes.
+/// the package manager works on, the starts optimizing and the programs' windows in sight. One
+/// activity is held while any is non-empty, begun when the first comes and ended when the last
+/// goes.
 pub(crate) struct AppNapExemption {
     begin: Begin,
     /// macOS's activity, held while [`needed`](Self::needed) is true; none before the first
     /// reason and after the last.
     held: Option<Box<dyn Any>>,
-    /// The programs the package manager works on now: downloading, installing (compiling),
-    /// optimizing (compiling again) or removing.
+    /// The programs the package manager works on now: downloading, installing (compiling) or
+    /// removing.
     operated: BTreeSet<ProgramId>,
+    /// The apps whose start compiles their code again now.
+    optimizing: BTreeSet<ProgramId>,
     /// The programs' windows in sight now.
     in_sight: BTreeSet<WindowKey>,
 }
@@ -48,6 +53,7 @@ impl AppNapExemption {
             begin,
             held: None,
             operated: BTreeSet::new(),
+            optimizing: BTreeSet::new(),
             in_sight: BTreeSet::new(),
         }
     }
@@ -55,6 +61,12 @@ impl AppNapExemption {
     /// The programs the package manager works on are `operated`.
     pub(crate) fn operated_changed(&mut self, operated: BTreeSet<ProgramId>) {
         self.operated = operated;
+        self.keep_while_needed();
+    }
+
+    /// The apps whose start compiles their code again are `optimizing`.
+    pub(crate) fn optimizing_changed(&mut self, optimizing: BTreeSet<ProgramId>) {
+        self.optimizing = optimizing;
         self.keep_while_needed();
     }
 
@@ -70,7 +82,7 @@ impl AppNapExemption {
 
     /// Whether WaOS is doing work its user waits on now.
     pub(crate) fn needed(&self) -> bool {
-        !self.operated.is_empty() || !self.in_sight.is_empty()
+        !self.operated.is_empty() || !self.optimizing.is_empty() || !self.in_sight.is_empty()
     }
 
     /// Begins the activity with the first reason and ends it with the last.
@@ -105,6 +117,7 @@ mod host {
     use waos_package::ProgramId;
 
     use super::{AppNapExemption, WindowKey};
+    use crate::logic::app_starter::StartStage;
     use crate::logic::package_manager::PackageOperation;
     use crate::logic::program_apps::WindowPresence;
     use crate::state::desktop_host::with_macos_platform;
@@ -142,6 +155,31 @@ mod host {
         });
     }
 
+    /// Keeps the activity while a start optimizes any app, as `starting` tells, from now on.
+    pub(crate) fn follow_starts(
+        app: &mut App,
+        activity: Entity<AppNapExemption>,
+        mut starting: watch::Receiver<BTreeMap<ProgramId, StartStage>>,
+    ) {
+        let optimizing = |starting: &BTreeMap<ProgramId, StartStage>| {
+            starting
+                .iter()
+                .filter(|(_, stage)| **stage == StartStage::Optimizing)
+                .map(|(id, _)| id.clone())
+                .collect()
+        };
+        let now = optimizing(&starting.borrow_and_update());
+        activity.update(app, |activity, _| activity.optimizing_changed(now));
+        app.spawn(async move |cx| {
+            while starting.changed().await.is_ok() {
+                let now = optimizing(&starting.borrow_and_update());
+                cx.update(|app| {
+                    activity.update(app, |activity, _| activity.optimizing_changed(now));
+                });
+            }
+        });
+    }
+
     /// Keeps the activity while a window the programs' apps report in sight is.
     pub(crate) fn follow_windows(
         app: &mut App,
@@ -162,7 +200,7 @@ mod host {
 }
 
 #[cfg(target_os = "macos")]
-pub(crate) use host::{follow_operations, follow_windows, start};
+pub(crate) use host::{follow_operations, follow_starts, follow_windows, start};
 
 #[cfg(test)]
 mod tests {
@@ -250,6 +288,19 @@ mod tests {
         assert_eq!((begun.get(), ended.get()), (1, 0));
 
         activity.operated_changed(BTreeSet::new());
+        assert!(!activity.needed());
+        assert_eq!((begun.get(), ended.get()), (1, 1));
+    }
+
+    #[test]
+    fn a_start_optimizing_an_app_holds_it() {
+        let (mut activity, begun, ended) = activity();
+        let notes: ProgramId = "dev.example.notes".parse().unwrap();
+        activity.optimizing_changed([notes].into());
+        assert!(activity.needed());
+        assert_eq!((begun.get(), ended.get()), (1, 0));
+
+        activity.optimizing_changed(BTreeSet::new());
         assert!(!activity.needed());
         assert_eq!((begun.get(), ended.get()), (1, 1));
     }

@@ -4,14 +4,17 @@
 //! an update of the system. What WaOS can do is the engine's (compile, load) and the store's
 //! (stage, commit, remove); this decides when, and tells whoever shows it what it is doing to each
 //! app ([`PackageOperation`]). An install is done only once its code is compiled, so an app on
-//! the home opens at once, and a component that does not compile is refused at its install.
+//! the home opens at once, and a component that does not compile is refused at its install. A
+//! compile at an open is the start's to show, as Optimizing (`app_starter`): a load tells its
+//! caller as the compile begins.
 //!
 //! The invariant a later editor will break: everything that changes an app, or compiles its code,
-//! takes the app's turn, one at a time, and the turn is always taken before the runs' own turn
-//! of the app. So an open during an update opens the new version, two opens share one compile,
-//! and a removal never lands between an open's load and its start. A download, and the compile
-//! of a staged version, take no turn, since nothing installed changes then: an open of the old
-//! version is not held back for a minute's download.
+//! holds the app's lock ([`AppLock`], as Chrome's web-app commands take one on an app), one at a
+//! time, and the lock is always taken before the running apps' own turn of the app. So an open
+//! during an update opens the new version, two opens share one compile, and a removal never lands
+//! between an open's load and its start. A download, and the compile of a staged version, take no
+//! lock, since nothing installed changes then: an open of the old version is not held back for a
+//! minute's download.
 
 use std::collections::{BTreeMap, HashMap};
 use std::future::Future;
@@ -21,9 +24,9 @@ use anyhow::{Context as _, Result};
 use tokio::sync::{OwnedMutexGuard, watch};
 use waos::{Program, WaOS};
 use waos_package::{ListedProgram, Manifest, Package, ProgramId};
-use waos_store::{DevelopmentBuild, InstalledProgram, Source, Staged, Store};
+use waos_store::{DevelopmentBuild, InstalledProgram, InstalledVersion, Source, Staged, Store};
 
-use super::runs::Runs;
+use super::running_apps::RunningApps;
 
 /// How much more of a download arrives before its watchers hear how far it is.
 const DOWNLOAD_STEP: u64 = 256 * 1024;
@@ -37,8 +40,6 @@ pub(crate) enum PackageOperation {
     /// Its package is unpacked and checked, and its code is being compiled; it is installed once
     /// that is done.
     Installing,
-    /// It is installed, and its code is being compiled again, at an open after a compiler change.
-    Optimizing,
     /// It is being removed.
     Removing,
 }
@@ -72,20 +73,20 @@ impl Installable {
     }
 }
 
-/// An app's program loaded, which keeps the app as it is, in its turn, until it is dropped: once
-/// its run has started.
-pub(crate) struct Loaded {
-    pub(crate) program: Program,
-    _turn: OwnedMutexGuard<()>,
+/// The lock on one app that its install, update, removal and start take, which keeps the app as it
+/// is until it is dropped: a start drops it once the app runs.
+pub(crate) struct AppLock {
+    _guard: OwnedMutexGuard<()>,
 }
 
-/// Installs, updates and removes apps, and compiles and loads their code, each in its app's turn.
+/// Installs, updates and removes apps, and compiles and loads their code, each under its app's
+/// lock.
 pub(crate) struct PackageManager {
     store: Store,
     engine: Arc<WaOS>,
-    runs: Arc<Runs>,
-    /// Each app's turn.
-    turns: Mutex<HashMap<ProgramId, Arc<tokio::sync::Mutex<()>>>>,
+    runs: Arc<RunningApps>,
+    /// Each app's lock.
+    locks: Mutex<HashMap<ProgramId, Arc<tokio::sync::Mutex<()>>>>,
     /// What is being done to which app now.
     operations: Arc<watch::Sender<BTreeMap<ProgramId, PackageOperation>>>,
 }
@@ -93,17 +94,17 @@ pub(crate) struct PackageManager {
 impl PackageManager {
     /// The apps of `store`, compiled and loaded by `engine`, whose runs among `runs` stop before
     /// an app changes.
-    pub(crate) fn new(store: Store, engine: Arc<WaOS>, runs: Arc<Runs>) -> PackageManager {
+    pub(crate) fn new(store: Store, engine: Arc<WaOS>, runs: Arc<RunningApps>) -> PackageManager {
         PackageManager {
             store,
             engine,
             runs,
-            turns: Mutex::default(),
+            locks: Mutex::default(),
             operations: Arc::new(watch::Sender::default()),
         }
     }
 
-    /// Downloads, stages and compiles the app `from` gives, then, in its turn, stops its runs
+    /// Downloads, stages and compiles the app `from` gives, then, under its lock, stops its runs
     /// (they end `Replaced`) and commits it: a new app or an update. One whose component does not
     /// compile is refused, and the app installed stays as it was. The operation is told from the
     /// moment this is called, before the answer is first polled.
@@ -135,7 +136,7 @@ impl PackageManager {
         let staged = self.stage(from, &operation).await?;
         operation.set(PackageOperation::Installing);
         let staged = self.compile(staged).await?;
-        let _turn = self.turn_of(&id).await;
+        let _lock = self.lock(&id).await;
         self.runs.stop_replaced(&id).await;
         let store = self.store.clone();
         let installed = tokio::task::spawn_blocking(move || store.commit(staged))
@@ -145,7 +146,7 @@ impl PackageManager {
         Ok(installed)
     }
 
-    /// In the app `id`'s turn, stops its runs and removes it, with its code, settings and own
+    /// Under the app `id`'s lock, stops its runs and removes it, with its code, settings and own
     /// folders. The operation is told from the moment this is called.
     pub(crate) fn remove(
         self: &Arc<Self>,
@@ -160,9 +161,9 @@ impl PackageManager {
         }
     }
 
-    /// [`remove`](Self::remove), in the app's turn.
+    /// [`remove`](Self::remove), under the app's lock.
     async fn remove_now(&self, id: &ProgramId) -> Result<()> {
-        let _turn = self.turn_of(id).await;
+        let _lock = self.lock(id).await;
         self.runs.stop(id).await;
         let (store, removed) = (self.store.clone(), id.clone());
         tokio::task::spawn_blocking(move || store.remove(&removed))
@@ -172,29 +173,25 @@ impl PackageManager {
         Ok(())
     }
 
-    /// The app `id`'s version installed now, loaded in its turn, compiled first where this
-    /// engine's code is missing, which is `Optimizing` meanwhile. The turn is held until the
-    /// answer is dropped, and through the compile even when the caller stops waiting.
-    pub(crate) async fn load(&self, id: &ProgramId) -> Result<Loaded> {
-        let turn = self.turn_of(id).await;
+    /// The app `id`'s version installed now, loaded under its lock, and the lock, held until it
+    /// is dropped, and through a compile even when the caller stops waiting. Its code is a cache:
+    /// where this engine's is missing or does not load it is compiled again first, `compiling`
+    /// called as the compile begins, and code compiled again that still does not load fails the
+    /// load.
+    pub(crate) async fn load(
+        &self,
+        id: &ProgramId,
+        compiling: impl FnOnce() + Send + 'static,
+    ) -> Result<(Program, AppLock)> {
+        let lock = self.lock(id).await;
         let version = self
             .store
             .installed_version(id)
             .with_context(|| format!("{id} is not installed, or its files cannot be read"))?;
-        let (engine, operations, id) = (
-            Arc::clone(&self.engine),
-            Arc::clone(&self.operations),
-            id.clone(),
-        );
+        let (engine, id) = (Arc::clone(&self.engine), id.clone());
         let loading = tokio::task::spawn_blocking(move || {
-            let code = version.code();
-            let _operation = (!engine.is_compiled(&code))
-                .then(|| Operation::start(&operations, &id, PackageOperation::Optimizing));
-            let program = engine.load(&version.component(), &code);
-            program.map(|program| Loaded {
-                program: program.named(id.as_str()),
-                _turn: turn,
-            })
+            let program = load_or_compile(&engine, &version, compiling)?;
+            Ok((program.named(id.as_str()), lock))
         });
         loading.await.context("the load's thread")?
     }
@@ -260,15 +257,39 @@ impl PackageManager {
         .context("the compile's thread")?
     }
 
-    /// Waits for the app `id`'s turn, and holds it until the answer is dropped.
-    async fn turn_of(&self, id: &ProgramId) -> OwnedMutexGuard<()> {
-        let turn = {
+    /// Waits for the app `id`'s lock, and holds it until the answer is dropped.
+    async fn lock(&self, id: &ProgramId) -> AppLock {
+        let lock = {
             // Every change leaves the map whole, so one that panicked leaves nothing half-changed.
-            let mut turns = self.turns.lock().unwrap_or_else(PoisonError::into_inner);
-            Arc::clone(turns.entry(id.clone()).or_default())
+            let mut locks = self.locks.lock().unwrap_or_else(PoisonError::into_inner);
+            Arc::clone(locks.entry(id.clone()).or_default())
         };
-        turn.lock_owned().await
+        AppLock {
+            _guard: lock.lock_owned().await,
+        }
     }
+}
+
+/// `version`'s program, mapped from this engine's code; compiled again first where that code is
+/// missing or does not load, `compiling` called as the compile begins. Blocks while it compiles.
+fn load_or_compile(
+    engine: &WaOS,
+    version: &InstalledVersion,
+    compiling: impl FnOnce(),
+) -> Result<Program> {
+    let (component, code) = (version.component(), version.code());
+    if engine.is_compiled(&code) {
+        match engine.load(&component, &code) {
+            Ok(program) => return Ok(program),
+            Err(error) => tracing::warn!(
+                code = %code.display(),
+                "the code compiled does not load, so it is compiled again: {error:#}"
+            ),
+        }
+    }
+    compiling();
+    engine.compile(&component, &code)?;
+    engine.load(&component, &code)
 }
 
 /// An operation on one app, told to the operations' watchers from its start until it is dropped.

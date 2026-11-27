@@ -165,7 +165,7 @@ impl CupertinoHome {
             icon: icon.into_widget(),
             name: entry.name.clone(),
             running: entry.running,
-            operation: entry.operation,
+            status: entry.status,
             look: look.clone(),
         };
         let (library, id) = (self.library.clone(), entry.id.clone());

@@ -15,14 +15,22 @@
 //!   beside its name and renamed to it. Other engines' files are removed when this one's is
 //!   written; one a program maps (Windows refuses to remove it) stays, never mapped again, and
 //!   goes at a later compile or with the folder.
+//! - One compile of a folder at a time in a process, and a load compiles only where no file is
+//!   there once its turn comes, so it never replaces a file another load may be opening: Windows
+//!   refuses to open a file while a rename replaces it ("used by another process"), and loads of
+//!   one program at once, as tests sharing a folder make, would each compile and replace it.
+//!   Only [`compile`], asked for by name, replaces this engine's file, for code that no longer
+//!   loads.
 //! - Only this module writes the files it maps. wasmtime trusts what it maps, as it trusts its
 //!   own cache directory: a file anyone else can write is a way into the process.
 
+use std::collections::HashMap;
 use std::fs::{self, File};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 
 use anyhow::{Context, Result};
 use wasmtime::Engine;
@@ -36,9 +44,14 @@ pub(crate) fn is_compiled(engine: &Engine, code: &Path) -> bool {
     file_of(engine, code).is_file()
 }
 
-/// Compiles the component at `component` with `engine` into `code`, and removes the code other
-/// engines compiled there.
+/// Compiles the component at `component` with `engine` into `code`, in place of this engine's
+/// code there if any, and removes the code other engines compiled there.
 pub(crate) fn compile(engine: &Engine, component: &Path, code: &Path) -> Result<()> {
+    in_turn(code, || compile_now(engine, component, code))
+}
+
+/// [`compile`], in `code`'s turn.
+fn compile_now(engine: &Engine, component: &Path, code: &Path) -> Result<()> {
     tracing::info!(
         component = %component.display(),
         "compiling the component into {}",
@@ -60,9 +73,31 @@ pub(crate) fn compile(engine: &Engine, component: &Path, code: &Path) -> Result<
 /// when there is none.
 pub(crate) fn load(engine: &Engine, component: &Path, code: &Path) -> Result<Component> {
     if !is_compiled(engine, code) {
-        compile(engine, component, code)?;
+        in_turn(code, || {
+            // Another load may have compiled it while this one waited for the turn.
+            if is_compiled(engine, code) {
+                return Ok(());
+            }
+            compile_now(engine, component, code)
+        })?;
     }
     map(engine, &file_of(engine, code))
+}
+
+/// Runs `compile` in `code`'s turn: one compile of a folder at a time in this process.
+fn in_turn<T>(code: &Path, compile: impl FnOnce() -> T) -> T {
+    static TURNS: OnceLock<Mutex<HashMap<PathBuf, Arc<Mutex<()>>>>> = OnceLock::new();
+    let turn = {
+        // Every change leaves the map whole, so one that panicked leaves nothing half-changed.
+        let mut turns = TURNS
+            .get_or_init(Mutex::default)
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        Arc::clone(turns.entry(code.to_owned()).or_default())
+    };
+    // A compile that panicked wrote nothing whole, so the folder is as it was.
+    let _turn = turn.lock().unwrap_or_else(PoisonError::into_inner);
+    compile()
 }
 
 /// The file `engine`'s code is kept in, in `code`.

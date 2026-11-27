@@ -16,17 +16,19 @@ use waos_dev_protocol::{OpenAnswer, Refusal, RefusalKind, ServerConnection};
 use waos_package::ProgramId;
 use waos_store::Store;
 
-use super::installed_runs::{InstalledRuns, Opening};
+use super::app_starter::{AppStarter, Opening, StartRequest};
+use super::running_apps::RunningApps;
 
 /// Hands `request` to the program `id`: the one running under it, or else the installed one,
 /// opened first; fails for an id neither installed nor running.
 pub(crate) async fn open_with(
-    installed: &InstalledRuns,
+    starter: &AppStarter,
+    running: &RunningApps,
     store: &Store,
     id: &ProgramId,
     request: OpenRequest,
 ) -> Result<()> {
-    let program = program_named(installed, store, id)
+    let program = program_named(starter, running, store, id)
         .await?
         .with_context(|| format!("{id} is neither installed nor running"))?;
     tracing::info!(%id, ?request, "files opened with the program");
@@ -38,12 +40,13 @@ pub(crate) async fn open_with(
 /// running under it, or else the installed one, opened first; fails, saying so, for an id neither
 /// installed nor running, as a removed program leaves its notifications as they are.
 pub(crate) async fn notification_activated(
-    installed: &InstalledRuns,
+    starter: &AppStarter,
+    running: &RunningApps,
     store: &Store,
     id: &ProgramId,
     activation: Activation,
 ) -> Result<()> {
-    let program = program_named(installed, store, id)
+    let program = program_named(starter, running, store, id)
         .await?
         .with_context(|| {
             format!("{id} is no longer installed, so its notification has nothing to open")
@@ -56,15 +59,16 @@ pub(crate) async fn notification_activated(
 /// The program `id` names: the installed one, opened unless it runs already, or else the one
 /// running under it, as `waos` runs one; none for an id neither installed nor running.
 pub(crate) async fn program_named(
-    installed: &InstalledRuns,
+    starter: &AppStarter,
+    running: &RunningApps,
     store: &Store,
     id: &ProgramId,
 ) -> Result<Option<RunningProgram>> {
     if store.installed_program(id).is_none() {
-        return Ok(installed.runs.running(id).await);
+        return Ok(running.running(id));
     }
-    let opened = installed
-        .open(id, installed.places.usual(), Opening::ToHandOver)
+    let opened = starter
+        .start(StartRequest::open(id.clone(), Opening::ToHandOver))
         .await?;
     Ok(Some(opened.program().clone()))
 }
@@ -74,12 +78,13 @@ pub(crate) async fn program_named(
 #[cfg(desktop)]
 pub(crate) async fn answer(
     mut connection: ServerConnection,
-    installed: &InstalledRuns,
+    starter: &AppStarter,
+    running: &RunningApps,
     store: &Store,
     id: &ProgramId,
     request: OpenRequest,
 ) {
-    let answer = match open_with(installed, store, id, request).await {
+    let answer = match open_with(starter, running, store, id, request).await {
         Ok(()) => OpenAnswer::Opened,
         Err(why) => {
             tracing::info!("an opening refused: {why:#}");

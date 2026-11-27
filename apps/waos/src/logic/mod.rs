@@ -11,8 +11,9 @@
 //! runs with (`environments`): this computer's capabilities and the grants of the store's settings;
 //! the library's side of the store: a package opened with WaOS, what a source's listing offers
 //! against what is installed, the one place an installed program changes, its code compiled at
-//! its install and inside its version (`package_manager`), an installed program started however it
-//! is asked (`installed_runs`), each installed program's shortcut on Android's home screen and WaOS's
+//! its install and inside its version (`package_manager`), an installed app started however it
+//! is asked (`app_starter`), the apps running (`running_apps`) and the services that keep them put
+//! together (`app_services`), each installed program's shortcut on Android's home screen and WaOS's
 //! icon's menu, made to match what is installed (`program_shortcuts`), and a settings
 //! page and what the user changes on it (`setting_changes`); when the desktop's launcher shows and
 //! goes (`launcher_rules`), and where it shows (`launcher_placement`); where the programs' prompts go (`prompts`), their questions
@@ -40,6 +41,8 @@
 //! application is `state`'s.
 
 pub(crate) mod activity;
+pub(crate) mod app_services;
+pub(crate) mod app_starter;
 pub(crate) mod app_store;
 pub(crate) mod asking_now;
 pub(crate) mod camera_values;
@@ -90,7 +93,6 @@ pub(crate) mod held_starts;
 pub(crate) mod icon_rows;
 pub(crate) mod image_values;
 pub(crate) mod inspected_programs;
-pub(crate) mod installed_runs;
 pub(crate) mod launch_outputs;
 #[cfg(desktop)]
 pub(crate) mod launcher_placement;
@@ -146,7 +148,7 @@ pub(crate) mod prompts;
 #[cfg(desktop)]
 pub(crate) mod quit_question;
 pub(crate) mod recording_indicator;
-pub(crate) mod runs;
+pub(crate) mod running_apps;
 pub(crate) mod setting_changes;
 #[cfg(any(target_os = "macos", target_os = "android"))]
 pub(crate) mod simulated_cameras;

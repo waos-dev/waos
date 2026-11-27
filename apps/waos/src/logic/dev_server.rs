@@ -24,6 +24,7 @@ use std::sync::mpsc;
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
+use super::app_services::AppServices;
 use super::asking_now::AskingNow;
 use super::dev_attach::{self, AttachContext};
 use super::dev_extensions;
@@ -35,7 +36,6 @@ use super::dev_pairing;
 use super::dev_refusal;
 use super::dev_settings::{self, SettingsContext};
 use super::developer_access::DeveloperAccess;
-use super::installed_runs::InstalledRuns;
 use super::opening;
 use super::{dev_input, dev_resize, dev_screenshot};
 use tokio::sync::{oneshot, watch};
@@ -67,16 +67,15 @@ pub(crate) struct DevServer {
 }
 
 impl DevServer {
-    /// Listens at `socket` for `waos`'s requests on `installed`'s engine: installing what it
-    /// sends into `store` as development installs, launching any installed program as its
-    /// environments say, among its runs, and telling each attach what `asking` says its program's
-    /// user is asked; opening files with a program, installed in `store`, opened as `installed`
-    /// opens it, or running; reading and driving any program running; and reading and setting the
+    /// Listens at `socket` for `waos`'s requests on the apps `services` keeps: installing what it
+    /// sends into `store` as development installs, launching any installed app through its
+    /// starter, and telling each attach what `asking` says its app's user is asked; opening
+    /// files with an app, installed in `store` and opened, or running; reading and driving any program running; and reading and setting the
     /// settings `store` keeps of a development program. Takes connections from the network too
     /// while `access` is on. Refused, as `Listener::bind` refuses, while another WaOS answers
     /// there.
     pub(crate) fn start(
-        installed: InstalledRuns,
+        services: AppServices,
         store: Store,
         asking: Arc<AskingNow>,
         socket: &Path,
@@ -86,7 +85,7 @@ impl DevServer {
         let (bound, binding) = mpsc::channel();
         let (connections_tx, active_connections) = watch::channel(0usize);
         let context = ServerContext {
-            installed,
+            services,
             store,
             asking,
             socket: socket.to_owned(),
@@ -135,9 +134,8 @@ impl Drop for DevServer {
 
 /// What the server's thread serves with.
 struct ServerContext {
-    /// The engine, what programs run with and the runs, with how an installed program opens and
-    /// its code.
-    installed: InstalledRuns,
+    /// The apps running, installed and started, and the engine they run on.
+    services: AppServices,
     /// Where development builds are installed, where an installed program to launch or open
     /// files with is found, and every program's settings.
     store: Store,
@@ -217,7 +215,7 @@ async fn serve(mut listener: Listener, context: ServerContext, mut stopped: ones
             _ = &mut stopped => break,
         }
     }
-    context.installed.runs.stop_all().await;
+    context.services.running.stop_all().await;
     let closing = async { while connections.join_next().await.is_some() {} };
     if tokio::time::timeout(CLOSING_WAIT, closing).await.is_err() {
         tracing::warn!("some connections did not close in time");
@@ -243,7 +241,7 @@ impl Drop for ActiveConnection {
 
 /// What one connection is served with.
 struct ConnectionContext {
-    installed: InstalledRuns,
+    services: AppServices,
     store: Store,
     asking: Arc<AskingNow>,
     access: DeveloperAccess,
@@ -251,7 +249,7 @@ struct ConnectionContext {
 
 fn connection_context(context: &ServerContext) -> ConnectionContext {
     ConnectionContext {
-        installed: context.installed.clone(),
+        services: context.services.clone(),
         store: context.store.clone(),
         asking: Arc::clone(&context.asking),
         access: context.access.clone(),
@@ -261,14 +259,14 @@ fn connection_context(context: &ServerContext) -> ConnectionContext {
 impl ConnectionContext {
     fn install(&self) -> InstallContext {
         InstallContext {
-            packages: Arc::clone(&self.installed.packages),
+            packages: Arc::clone(&self.services.packages),
             store: self.store.clone(),
         }
     }
 
     fn launch(&self) -> LaunchContext {
         LaunchContext {
-            installed: self.installed.clone(),
+            starter: Arc::clone(&self.services.starter),
             store: self.store.clone(),
         }
     }
@@ -276,7 +274,7 @@ impl ConnectionContext {
     fn settings(&self) -> SettingsContext {
         SettingsContext {
             store: self.store.clone(),
-            environments: Arc::clone(&self.installed.environments),
+            environments: Arc::clone(&self.services.environments),
         }
     }
 }
@@ -377,7 +375,7 @@ async fn serve_request(
     request: Request,
     context: &ConnectionContext,
 ) {
-    let runs = &context.installed.runs;
+    let runs = &context.services.running;
     match request {
         Request::Install(install) => {
             dev_install::install(connection, install, &context.install()).await;
@@ -392,7 +390,7 @@ async fn serve_request(
         Request::Attach { id } => {
             let attach = AttachContext {
                 runs,
-                outputs: &context.installed.outputs,
+                outputs: &context.services.outputs,
                 asking: &context.asking,
             };
             dev_attach::serve(connection, &id, attach).await;
@@ -412,8 +410,8 @@ async fn serve_request(
                 files,
                 links: Vec::new(),
             };
-            let (installed, store) = (&context.installed, &context.store);
-            opening::answer(connection, installed, store, &id, request).await;
+            let (services, store) = (&context.services, &context.store);
+            opening::answer(connection, &services.starter, runs, store, &id, request).await;
         }
         Request::Screenshot { id, window } => {
             dev_screenshot::answer(connection, runs, &context.asking, &id, window).await;
@@ -430,7 +428,7 @@ async fn serve_request(
         Request::Inspect { id, asked } => {
             let inspection = InspectionContext {
                 runs,
-                engine: &context.installed.engine,
+                engine: &context.services.engine,
             };
             dev_inspect::answer(connection, inspection, &id, asked).await;
         }
@@ -476,7 +474,7 @@ pub(crate) mod tests {
     use crate::logic::opened_package::tests::write_package;
     use crate::logic::program_places::{ProgramPlace, ProgramPlaces};
     use crate::logic::quit_question::every_program_agrees;
-    use crate::logic::runs::Runs;
+    use crate::logic::running_apps::RunningApps;
     use crate::logic::test_engine::{self, NoWindows, REFUSAL, WITHIN};
 
     /// The development id of the program `id`: what `waos install` installs it as, and what a run
@@ -506,11 +504,11 @@ pub(crate) mod tests {
     pub(crate) struct TestServer {
         pub(crate) folder: PathBuf,
         pub(crate) socket: PathBuf,
-        runs: Arc<Runs>,
+        runs: Arc<RunningApps>,
         pub(crate) store: waos_store::Store,
         /// What the server's programs' users are asked, which a test notes as the prompts do.
         pub(crate) asking: Arc<AskingNow>,
-        pub(crate) installed: InstalledRuns,
+        pub(crate) services: AppServices,
         /// Its developer access, off until a test turns it on, listening on the loopback.
         pub(crate) access: DeveloperAccess,
         server: Option<DevServer>,
@@ -564,20 +562,20 @@ pub(crate) mod tests {
             let _ = fs::remove_dir_all(&folder);
             let engine = engine();
             let socket = Self::test_listener(&folder, test);
-            let runs = Arc::new(Runs::default());
+            let runs = Arc::new(RunningApps::default());
             let store =
                 waos_store::Store::open(&folder.join("store"), waos_store::SourceProxy::None)
                     .expect("a store");
-            let installed = InstalledRuns::new(
+            let services = AppServices::new(
+                Arc::clone(&runs),
                 engine,
                 store.clone(),
                 ProgramEnvironments::new(waos_local::LocalCapabilities::new(), store.clone()),
-                Arc::clone(&runs),
                 ProgramPlaces::new(ProgramPlace::Windows),
             );
             let access = DeveloperAccess::on_loopback(folder.join("developer"));
             let server = DevServer::start(
-                installed.clone(),
+                services.clone(),
                 store.clone(),
                 Arc::clone(&asking),
                 &socket,
@@ -590,7 +588,7 @@ pub(crate) mod tests {
                 runs,
                 store,
                 asking,
-                installed,
+                services,
                 access,
                 server: Some(server),
             }
@@ -676,7 +674,7 @@ pub(crate) mod tests {
             };
             crate::logic::test_installs::install_development(
                 &self.store,
-                &self.installed.engine,
+                &self.services.engine,
                 &build,
                 component,
             );
@@ -1045,7 +1043,8 @@ pub(crate) mod tests {
     }
 
     #[tokio::test]
-    async fn a_component_is_compiled_at_its_install_and_again_at_a_launch_that_finds_no_code() {
+    async fn a_component_is_compiled_at_its_install_and_again_at_a_launch_that_finds_no_code_it_loads()
+     {
         let server = TestServer::start("unchanged");
         let component = fs::read(waos_test_programs::FOREVER).unwrap();
         let id = development(FOREVER);
@@ -1065,9 +1064,37 @@ pub(crate) mod tests {
             .ask::<StopAnswer>(&Request::Stop { id: id.clone() })
             .await;
         server.wait_for_runs(&[]).await;
+        // What a damaged file leaves: code of this engine's that does not load.
+        for file in fs::read_dir(&code).unwrap() {
+            let file = file.unwrap().path();
+            fs::remove_file(&file).unwrap();
+            fs::write(&file, b"not code").unwrap();
+        }
+        let optimized = server.launch(&id, Vec::new(), Vec::new()).await;
+        assert_eq!(optimized, [LaunchAnswer::Compiling, LaunchAnswer::Launched]);
+        server
+            .ask::<StopAnswer>(&Request::Stop { id: id.clone() })
+            .await;
+        server.wait_for_runs(&[]).await;
         server.install(FOREVER, &component).await;
         let again = server.launch(&id, Vec::new(), Vec::new()).await;
         assert_eq!(again, [LaunchAnswer::Launched], "nothing compiled again");
+    }
+
+    #[tokio::test]
+    async fn a_launch_leaves_the_apps_place_as_it_was() {
+        let server = TestServer::start("launch-place");
+        let component = fs::read(waos_test_programs::FOREVER).unwrap();
+        let id = development(FOREVER);
+        server.install(FOREVER, &component).await;
+        server.services.places.set(&id, ProgramPlace::Tab);
+        let launched = server.launch(&id, Vec::new(), Vec::new()).await;
+        assert_eq!(launched, [LaunchAnswer::Launched]);
+        assert_eq!(server.services.places.place_of(&id), ProgramPlace::Tab);
+        server
+            .ask::<StopAnswer>(&Request::Stop { id: id.clone() })
+            .await;
+        server.wait_for_runs(&[]).await;
     }
 
     #[tokio::test]
@@ -1206,7 +1233,7 @@ pub(crate) mod tests {
         let package = write_package(&packages, FOREVER, "Forever", "1.0.0", &component, &key);
         crate::logic::test_installs::install_package(
             &server.store,
-            &server.installed.engine,
+            &server.services.engine,
             waos_package::Package::open(&package).unwrap(),
             waos_test_programs::FOREVER,
         );
@@ -1289,20 +1316,16 @@ pub(crate) mod tests {
         let package = write_package(&packages, FOREVER, "Forever", "1.0.0", &component, &key);
         crate::logic::test_installs::install_package(
             &server.store,
-            &server.installed.engine,
+            &server.services.engine,
             waos_package::Package::open(&package).unwrap(),
             waos_test_programs::FOREVER,
         );
         let id: ProgramId = FOREVER.parse().unwrap();
-        server
-            .installed
-            .open(
-                &id,
-                ProgramPlace::Windows,
-                crate::logic::installed_runs::Opening::ByTheUser,
-            )
-            .await
-            .unwrap();
+        let opened = crate::logic::app_starter::StartRequest::open(
+            id.clone(),
+            crate::logic::app_starter::Opening::ByTheUser,
+        );
+        server.services.starter.start(opened).await.unwrap();
         let mut client = server.attach(&id).await;
         started(&mut client).await;
         let mut frames = Vec::new();
@@ -1389,7 +1412,7 @@ pub(crate) mod tests {
         let package = write_package(&packages, FOREVER, "Forever", "1.0.0", &component, &key);
         crate::logic::test_installs::install_package(
             &server.store,
-            &server.installed.engine,
+            &server.services.engine,
             waos_package::Package::open(&package).unwrap(),
             waos_test_programs::FOREVER,
         );
@@ -1757,7 +1780,7 @@ pub(crate) mod tests {
         let package = write_package(&packages, OPENER, "Opener", "1.0.0", &component, &key);
         crate::logic::test_installs::install_package(
             &server.store,
-            &server.installed.engine,
+            &server.services.engine,
             waos_package::Package::open(&package).unwrap(),
             waos_test_programs::OPENER,
         );
