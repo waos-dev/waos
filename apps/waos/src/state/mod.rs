@@ -220,7 +220,7 @@ pub(crate) fn start(
     let app_nap_exemption = app_nap_exemption::start(app);
     let waft = WaftParts::of(app);
     let (recording_indicator, recording_changes) = RecordingIndicatorOnRequest::new();
-    let setup = desktop_setup(&folders, place, work.handle().clone())?;
+    let setup = desktop_setup(&folders, place)?;
     let (started, made) = startup::start(
         setup,
         |running| {
@@ -252,8 +252,6 @@ pub(crate) fn start(
         engine,
         environments,
         places,
-        #[cfg(desktop)]
-        outputs,
         starter,
         ..
     } = started;
@@ -308,7 +306,6 @@ pub(crate) fn start(
         starter: Arc::clone(&starter),
         permissions: permissions.clone(),
         environments: Arc::clone(&environments),
-        outputs,
         engine: Arc::clone(&engine),
     };
     #[cfg(desktop)]
@@ -432,13 +429,8 @@ pub(crate) fn start(
 
 /// How the WaOS app starts: its store and its apps' `/tmp` among `folders`, compiling with native
 /// unwind information where it was asked for, through the system's proxy, freezing an app out of
-/// sight as the system does, its apps' views going where WaOS shown in `place` puts them, and an
-/// inspector's starts on `work`, the library's runtime.
-fn desktop_setup(
-    folders: &AppFolders,
-    place: LibraryPlace,
-    work: tokio::runtime::Handle,
-) -> Result<Setup> {
+/// sight as the system does, and its apps' views going where WaOS shown in `place` puts them.
+fn desktop_setup(folders: &AppFolders, place: LibraryPlace) -> Result<Setup> {
     let native_unwind_info = native_unwind_info_asked();
     if native_unwind_info {
         tracing::info!("programs are compiled with native unwind information");
@@ -454,7 +446,6 @@ fn desktop_setup(
         freeze: crate::os::freeze_policy(),
         time: EngineTime::Real,
         usual_place: usual_place(place),
-        work,
     })
 }
 

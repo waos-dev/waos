@@ -96,7 +96,7 @@ impl ProgramInstances {
         let entry = run::GuestIndices::new(&linked)?;
         let worker_entry = worker_entry::GuestIndices::new(&linked).ok();
         let inspector_reach = InspectorReach {
-            programs: start.inspected_programs.clone(),
+            programs: start.environment.inspected.clone(),
             running: start.programs.clone(),
             days: start.days.clone(),
             access: access.clone(),

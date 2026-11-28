@@ -298,8 +298,7 @@ pub(crate) fn first_sources() -> Vec<Source> {
     ]
 }
 
-/// The runtime the library reads sources, installs and loads apps on, and an inspector's starts
-/// run on: reqwest needs tokio.
+/// The runtime the library reads sources, installs and loads apps on: reqwest needs tokio.
 pub(crate) fn work() -> Result<Arc<Runtime>> {
     let work = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(WORK_THREADS)

@@ -26,11 +26,16 @@ use std::sync::{Arc, Mutex, PoisonError};
 
 use anyhow::{Context, Result, ensure};
 use tokio::sync::watch;
-use waos::{HeldProgram, ProgramEnvironment, ProgramOutput, RunningProgram, WaOS};
+use waos::{HeldProgram, Program, ProgramEnvironment, ProgramOutput, Role, RunningProgram, WaOS};
+use waos_capabilities::InspectedApps;
 use waos_package::{ProgramId, ProgramKind};
+use waos_services::app_storage::AppStorage;
 use waos_services::packages::PackageManager;
+use waos_services::permissions::Permissions;
 
 use super::environments::ProgramEnvironments;
+use super::held_starts::HeldStarts;
+use super::inspected_programs::ProgramsOnThisComputer;
 use super::launch_outputs::{LaunchOutput, LaunchOutputs};
 use super::program_places::{ProgramPlace, ProgramPlaces};
 use super::running_apps::{IfRunning, Run, RunningApps, Started};
@@ -132,6 +137,10 @@ pub(crate) enum StartStage {
 pub(crate) struct AppStarter {
     running: Arc<RunningApps>,
     packages: Arc<PackageManager>,
+    /// What the user lets each app use, which an inspector reads of an app that does not run.
+    permissions: Permissions,
+    /// Each app's own folders, which an inspector reads of an app that does not run.
+    storage: AppStorage,
     engine: Arc<WaOS>,
     environments: Arc<ProgramEnvironments>,
     places: ProgramPlaces,
@@ -141,30 +150,39 @@ pub(crate) struct AppStarter {
 
 impl AppStarter {
     /// Starting the apps `packages` loads among `running`, on `engine`, each with what
-    /// `environments` gives it, its views going where `places` says and its output to `outputs`.
+    /// `environments` gives it, its views going where `places` says, and an inspector with the
+    /// apps it sees, what `permissions` let each and its own folders in `storage` among them.
     pub(crate) fn new(
         running: Arc<RunningApps>,
         packages: Arc<PackageManager>,
+        permissions: Permissions,
+        storage: AppStorage,
         engine: Arc<WaOS>,
         environments: Arc<ProgramEnvironments>,
         places: ProgramPlaces,
-        outputs: Arc<LaunchOutputs>,
     ) -> AppStarter {
         AppStarter {
             running,
             packages,
+            permissions,
+            storage,
             engine,
             environments,
             places,
-            outputs,
+            outputs: Arc::default(),
             starts: Arc::default(),
         }
+    }
+
+    /// What each app it started writes, which an attach reads.
+    pub(crate) fn outputs(&self) -> &Arc<LaunchOutputs> {
+        &self.outputs
     }
 
     /// Starts the installed app `request` names as it asks; answers the program once it has
     /// started, or the one running where the request leaves it, or why it could not start. Its
     /// end is waited for on a task of the runtime this runs on.
-    pub(crate) async fn start(&self, request: StartRequest) -> Result<StartAnswer> {
+    pub(crate) async fn start(self: &Arc<Self>, request: StartRequest) -> Result<StartAnswer> {
         let id = request.id.clone();
         let start = Start::begin(&self.starts, &id);
         let opening = request.opening;
@@ -191,7 +209,11 @@ impl AppStarter {
     }
 
     /// [`start`](Self::start), told as `start`.
-    async fn start_now(&self, request: StartRequest, start: &Start) -> Result<StartAnswer> {
+    async fn start_now(
+        self: &Arc<Self>,
+        request: StartRequest,
+        start: &Start,
+    ) -> Result<StartAnswer> {
         let id = &request.id;
         if request.if_running == IfRunning::Leave
             && let Some(program) = self.running.running(id)
@@ -218,7 +240,7 @@ impl AppStarter {
                     request.opening != Opening::ByTheUser || self.kind_of(id) == ProgramKind::App,
                     NO_TERMINAL
                 );
-                let (environment, its_output) = self.environment_of(&request)?;
+                let (environment, its_output) = self.environment_of(&request, &program)?;
                 output = Some(its_output);
                 match request.place {
                     StartPlace::AsItWas => {}
@@ -253,21 +275,44 @@ impl AppStarter {
     }
 
     /// What the app `request` names runs with, its arguments and variables among it, with its
-    /// output to a new output of `outputs`, the log's and the attaches': made as the run starts,
-    /// never for an app that runs already, whose output it would take the place of.
+    /// output to a new output of `outputs`, the log's and the attaches', and the apps on this
+    /// computer where its `program` asks for the inspector role: made as the run starts, never
+    /// for an app that runs already, whose output it would take the place of.
     fn environment_of(
-        &self,
+        self: &Arc<Self>,
         request: &StartRequest,
+        program: &Program,
     ) -> Result<(ProgramEnvironment, Arc<LaunchOutput>)> {
         let environment = self.environments.of(&request.id)?;
         let output = self.outputs.launched(&request.id);
+        let inspected = program
+            .roles()
+            .contains(&Role::Inspector)
+            .then(|| self.inspected_apps());
         let environment = ProgramEnvironment {
             output: Some(Arc::clone(&output) as Arc<dyn ProgramOutput>),
             arguments: request.arguments.clone(),
             variables: request.variables.clone(),
+            inspected,
             ..environment
         };
         Ok((environment, output))
+    }
+
+    /// The apps on this computer as an inspector sees them, started held here and ended on the
+    /// runtime this runs on.
+    fn inspected_apps(self: &Arc<Self>) -> Arc<dyn InspectedApps> {
+        let starts = HeldStarts {
+            starter: Arc::clone(self),
+            packages: Arc::clone(&self.packages),
+        };
+        Arc::new(ProgramsOnThisComputer::new(
+            self.storage.clone(),
+            self.permissions.clone(),
+            Arc::clone(&self.running),
+            starts,
+            tokio::runtime::Handle::current(),
+        ))
     }
 
     /// Takes `run`, of the app `id`, out of the running apps once it ends, on a task of the

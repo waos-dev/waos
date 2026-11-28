@@ -8,20 +8,18 @@
 //! summary ([`day_of`]), and what it uses now and each change to it (`RunningProgram::active_uses`).
 //! A program's storage ([`ProgramStorage`]) is its mounts and a folder's entries, resolved through
 //! its own mount table. The package is served
-//! to a program holding the inspector role in [`host`], over the programs the embedder gives
-//! ([`InspectedPrograms`]).
+//! to a program holding the inspector role in [`host`], over the apps its run's environment gives
+//! (`waos_capabilities::InspectedApps`).
 //!
 //! The invariant: nothing here holds a resource, so every record and variant serializes; the
 //! package's resources, a device and a program held before its start, are the engine's own
 //! values.
 
 pub(crate) mod host;
-mod programs;
 mod storage;
 mod values;
 
-pub use programs::InspectedPrograms;
-pub use storage::ProgramStorage;
+pub(crate) use storage::ProgramStorage;
 pub use values::day_of;
 pub(crate) use values::{active_use_change_of, active_use_of};
 
@@ -42,7 +40,7 @@ pub mod bindings {
         additional_derives: [waos_wit_serialize::WitSerialize, PartialEq],
         with: {
             "wasdk:inspect/devices.device": crate::inspection::Device,
-            "wasdk:inspect/devices.held-program": crate::running::HeldProgram,
+            "wasdk:inspect/devices.held-program": waos_capabilities::AppHold,
         },
     });
 }

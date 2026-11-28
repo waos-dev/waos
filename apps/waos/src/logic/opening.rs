@@ -8,6 +8,8 @@
 //! The invariant: a request or a click reaches a program, or the caller hears why not; nothing is
 //! started for an id that names no installed program.
 
+use std::sync::Arc;
+
 use anyhow::{Context, Result};
 use waos::bindings::wasdk::platform::notifications::Activation;
 use waos::{OpenRequest, RunningProgram};
@@ -22,7 +24,7 @@ use super::running_apps::RunningApps;
 /// Hands `request` to the program `id`: the one running under it, or else the installed one,
 /// opened first; fails for an id neither installed nor running.
 pub(crate) async fn open_with(
-    starter: &AppStarter,
+    starter: &Arc<AppStarter>,
     running: &RunningApps,
     packages: &PackageManager,
     id: &ProgramId,
@@ -40,7 +42,7 @@ pub(crate) async fn open_with(
 /// running under it, or else the installed one, opened first; fails, saying so, for an id neither
 /// installed nor running, as a removed program leaves its notifications as they are.
 pub(crate) async fn notification_activated(
-    starter: &AppStarter,
+    starter: &Arc<AppStarter>,
     running: &RunningApps,
     packages: &PackageManager,
     id: &ProgramId,
@@ -59,7 +61,7 @@ pub(crate) async fn notification_activated(
 /// The program `id` names: the installed one, opened unless it runs already, or else the one
 /// running under it, as `waos` runs one; none for an id neither installed nor running.
 pub(crate) async fn program_named(
-    starter: &AppStarter,
+    starter: &Arc<AppStarter>,
     running: &RunningApps,
     packages: &PackageManager,
     id: &ProgramId,
@@ -78,7 +80,7 @@ pub(crate) async fn program_named(
 #[cfg(desktop)]
 pub(crate) async fn answer(
     mut connection: ServerConnection,
-    starter: &AppStarter,
+    starter: &Arc<AppStarter>,
     running: &RunningApps,
     packages: &PackageManager,
     id: &ProgramId,

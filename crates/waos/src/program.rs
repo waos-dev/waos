@@ -1,7 +1,9 @@
 //! A program as the engine loaded it: compiled, validated, and bound to the engine that did.
 
+use waos_capabilities::Role;
 use wasmtime::component::Component;
 
+use crate::roles;
 use crate::source_lines::ComponentFile;
 
 /// A program the engine loaded, which it runs any number of times.
@@ -34,6 +36,12 @@ impl Program {
             name: name.into(),
             ..self
         }
+    }
+
+    /// The roles it asks for, by the interfaces it imports: what its user is asked to grant as it
+    /// starts, and what whoever runs it hands it the providers of.
+    pub fn roles(&self) -> Vec<Role> {
+        roles::asked_for(&self.component, self.component.engine())
     }
 
     pub(crate) fn component(&self) -> &Component {

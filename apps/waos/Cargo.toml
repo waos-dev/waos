@@ -17,6 +17,9 @@ path = "src/main.rs"
 
 [dependencies]
 waos.workspace = true
+# The contracts the app serves its runs through, the inspector's among them, in the WIT's plain
+# types.
+waos-capabilities.workspace = true
 waos-local.workspace = true
 # The services that keep the apps: what is installed, what the user lets each use, the sources,
 # each app's activity and its own folders.
@@ -159,8 +162,6 @@ waft-widgets = { workspace = true, features = ["test-support"] }
 tempfile.workspace = true
 # The digest a source's listing gives of each package.
 sha2.workspace = true
-# Web Audio's context and stream, as the tests' own sound devices name them.
-waos-capabilities.workspace = true
 
 # Image I/O's codecs without the event loop, which a program's real photo is decoded through.
 [target.'cfg(target_os = "macos")'.dev-dependencies]

@@ -90,7 +90,6 @@ fn config(time: EngineTime) -> WaOSConfig {
         time,
         temporary_folders: std::env::temp_dir().join("waos-tests"),
         audit: None,
-        inspected_programs: None,
     }
 }
 

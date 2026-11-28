@@ -112,7 +112,7 @@ impl TestSystem {
         let work = work().unwrap();
         let setup = Setup {
             time: EngineTime::Manual(time.clone()),
-            ..Setup::for_tests(folder.path(), work.handle().clone())
+            ..Setup::for_tests(folder.path())
         };
         let started = start_asking_nobody(setup, |_before| (shell, test_engine::no_screens()));
         let domains = LibraryDomains::of(&started);

@@ -1,14 +1,15 @@
 //! The code serving `wasdk:inspect` to a program holding the inspector role: this device, the
-//! programs on it as the embedder gives them (`InspectedPrograms`), each one's icon as it is asked
-//! for, a program started held as the embedder starts it, kept until the inspector drops it, or
-//! ended; a program's audit summary, the days kept with today's as counted in memory; what it uses
+//! apps on it as its run's environment gives them (`InspectedApps`), each one's icon as it is
+//! asked for, an app started held as whoever runs the inspector starts it, kept until the
+//! inspector drops it, or ended; a program's audit summary, the days kept with today's as counted in memory; what it uses
 //! now and each change to it; its live trace, a stream per capability; and what it sees of this
-//! computer's files, its mounts and the entries of a folder inside them. A running program is
-//! the one the engine runs under the id asked for, its name, as the embedder names it
+//! computer's files, its mounts and the entries of a folder inside them, the engine's own account
+//! of a running one and its environment's of one that does not run. A running program is the one
+//! the engine runs under the id asked for, its name, as the embedder names it
 //! (`Program::named`). Linked only for a program its user granted the role (`roles`).
 //!
 //! The invariant: the role is read again at each call and each stream ends as the user takes it
-//! back, so a program whose role is turned off sees what a program with no embedder sees: no
+//! back, so a program whose role is turned off sees what a program given no apps sees: no
 //! device, no program, and no stream, from then on.
 
 use std::future::Future;
@@ -17,7 +18,7 @@ use std::sync::Arc;
 use futures::future;
 use futures::stream::{self, BoxStream};
 use futures::{FutureExt, StreamExt};
-use waos_capabilities::{Answer, Role};
+use waos_capabilities::{Answer, AppHold, InspectedApps, Role};
 use wasmtime::component::{
     Access, Accessor, HasData, Linker, Resource, ResourceTable, StreamReader,
 };
@@ -34,26 +35,26 @@ use super::bindings::wasdk::inspect::trace::{
     self, ClipboardEvent, DeviceEvent, FileEvent, LinkEvent, MachineEvent, NetworkEvent,
     NotificationEvent, OutputChunk, PermissionEvent,
 };
-use super::{Device, InspectedPrograms, day_of};
+use super::{Device, ProgramStorage, day_of};
 use crate::access::{Days, ProgramAccess, TraceEvent, TraceKind};
-use crate::running::{HeldProgram, Programs, RunningProgram};
+use crate::running::{Programs, RunningProgram};
 use crate::stream::stream_of;
 
-/// What an inspector reaches: the programs the embedder gives, those the engine runs, the days
-/// the engine counts and keeps, and its own access, whose grants say whether it still holds the
-/// role.
+/// What an inspector reaches: the apps its run's environment gives, those the engine runs, the
+/// days the engine counts and keeps, and its own access, whose grants say whether it still holds
+/// the role.
 #[derive(Clone)]
 pub(crate) struct InspectorReach {
-    pub(crate) programs: Option<Arc<dyn InspectedPrograms>>,
+    pub(crate) programs: Option<Arc<dyn InspectedApps>>,
     pub(crate) running: Programs,
     pub(crate) days: Option<Days>,
     pub(crate) access: ProgramAccess,
 }
 
 impl InspectorReach {
-    /// The programs it sees, while it holds the role; none once its user took it back, or where
-    /// the embedder gives none.
-    fn programs(&self) -> Option<Arc<dyn InspectedPrograms>> {
+    /// The apps it sees, while it holds the role; none once its user took it back, or where its
+    /// run was given none.
+    fn programs(&self) -> Option<Arc<dyn InspectedApps>> {
         let holds = self.access.grants().role(Role::Inspector) == Some(Answer::Granted);
         self.programs.clone().filter(|_| holds)
     }
@@ -62,6 +63,17 @@ impl InspectorReach {
     fn running(&self, id: &str) -> Option<RunningProgram> {
         self.programs()?;
         self.running.named(id)
+    }
+
+    /// What the app `id` sees of this computer's files, while the role is held: the engine's own
+    /// account of one it runs, or else what its run's environment says of one that does not run.
+    fn storage(&self, id: &str) -> Option<ProgramStorage> {
+        let programs = self.programs()?;
+        if let Some(running) = self.running.named(id) {
+            return Some(running.storage());
+        }
+        let files = programs.files(id)?;
+        Some(ProgramStorage::of(files.folders, None, files.grants))
     }
 
     /// Resolves once its user takes the role back.
@@ -181,9 +193,9 @@ impl<T: InspectCtxView + 'static> HostDeviceWithStore<T> for HasInspect {
     ) -> wasmtime::Result<Vec<Program>> {
         let asked = reach_of(accessor)
             .programs()
-            .map(|programs| programs.programs());
+            .map(|programs| programs.apps());
         Ok(match asked {
-            Some(asked) => asked.await,
+            Some(asked) => asked.await.into_iter().map(Program::from).collect(),
             None => Vec::new(),
         })
     }
@@ -194,7 +206,10 @@ impl<T: InspectCtxView + 'static> HostDeviceWithStore<T> for HasInspect {
     ) -> wasmtime::Result<StreamReader<ProgramChange>> {
         let reach = access.get().reach;
         let changes = match reach.programs() {
-            Some(programs) => reach.while_held(programs.program_changes()),
+            Some(programs) => {
+                let changes = programs.app_changes().map(ProgramChange::from).boxed();
+                reach.while_held(changes)
+            }
             None => stream::empty().boxed(),
         };
         stream_to(access, changes)
@@ -214,19 +229,19 @@ impl<T: InspectCtxView + 'static> HostDeviceWithStore<T> for HasInspect {
         })
     }
 
-    /// The program started held, while the role is held; a program the embedder knows not, for
+    /// The program started held, while the role is held; an app its environment knows not, for
     /// an inspector without it.
     async fn start_held(
         accessor: &Accessor<T, Self>,
         _device: Resource<Device>,
         id: String,
-    ) -> wasmtime::Result<Result<Resource<HeldProgram>, StartError>> {
+    ) -> wasmtime::Result<Result<Resource<AppHold>, StartError>> {
         let Some(programs) = reach_of(accessor).programs() else {
             return Ok(Err(StartError::Unknown));
         };
         let held = match programs.start_held(&id).await {
             Ok(held) => held,
-            Err(error) => return Ok(Err(error)),
+            Err(error) => return Ok(Err(error.into())),
         };
         let pushed = accessor.with(|mut access| access.get().table.push(held))?;
         Ok(Ok(pushed))
@@ -252,7 +267,7 @@ impl<T: InspectCtxView + 'static> HostDeviceWithStore<T> for HasInspect {
 
 impl<T: InspectCtxView + 'static> HostHeldProgramWithStore<T> for HasInspect {
     /// The program goes on from its first instruction.
-    fn drop(mut access: Access<'_, T, Self>, held: Resource<HeldProgram>) -> wasmtime::Result<()> {
+    fn drop(mut access: Access<'_, T, Self>, held: Resource<AppHold>) -> wasmtime::Result<()> {
         access.get().table.delete(held)?;
         Ok(())
     }
@@ -284,13 +299,8 @@ impl<T: InspectCtxView + 'static> storage::HostWithStore<T> for HasInspect {
         _device: Resource<Device>,
         id: String,
     ) -> wasmtime::Result<Vec<Mount>> {
-        let Some(programs) = access.get().reach.programs() else {
-            return Ok(Vec::new());
-        };
-        Ok(programs
-            .storage(&id)
-            .map(|storage| storage.mounts())
-            .unwrap_or_default())
+        let storage = access.get().reach.storage(&id);
+        Ok(storage.map(|storage| storage.mounts()).unwrap_or_default())
     }
 
     /// The entries of a folder inside the program's mounts, read off the program's thread; a
@@ -301,10 +311,11 @@ impl<T: InspectCtxView + 'static> storage::HostWithStore<T> for HasInspect {
         id: String,
         path: String,
     ) -> wasmtime::Result<Result<Vec<Entry>, String>> {
-        let Some(programs) = reach_of(accessor).programs() else {
+        let reach = reach_of(accessor);
+        if reach.programs().is_none() {
             return Ok(Err("no device".to_owned()));
-        };
-        let Some(storage) = programs.storage(&id) else {
+        }
+        let Some(storage) = reach.storage(&id) else {
             return Ok(Err("no such program".to_owned()));
         };
         Ok(spawn_blocking(move || storage.read_folder(&path)).await)
@@ -467,23 +478,25 @@ mod tests {
     use futures::FutureExt;
     use futures::future::BoxFuture;
 
+    use waos_capabilities::AppFiles;
+    use waos_capabilities::wit::wasdk::inspect::devices as plain;
+
     use super::*;
     use crate::access::Answers;
-    use crate::inspection::ProgramStorage;
 
-    /// The embedder's programs, of which the test reads none.
-    struct NoPrograms;
+    /// The apps an inspector is given, of which the test reads none.
+    struct NoApps;
 
-    impl InspectedPrograms for NoPrograms {
+    impl InspectedApps for NoApps {
         fn device_name(&self) -> String {
             String::new()
         }
 
-        fn programs(&self) -> BoxFuture<'static, Vec<Program>> {
+        fn apps(&self) -> BoxFuture<'static, Vec<plain::Program>> {
             future::ready(Vec::new()).boxed()
         }
 
-        fn program_changes(&self) -> BoxStream<'static, ProgramChange> {
+        fn app_changes(&self) -> BoxStream<'static, plain::ProgramChange> {
             stream::pending().boxed()
         }
 
@@ -491,15 +504,15 @@ mod tests {
             future::ready(None).boxed()
         }
 
-        fn start_held(&self, _id: &str) -> BoxFuture<'static, Result<HeldProgram, StartError>> {
-            future::ready(Err(StartError::Unknown)).boxed()
+        fn start_held(&self, _id: &str) -> BoxFuture<'static, Result<AppHold, plain::StartError>> {
+            future::ready(Err(plain::StartError::Unknown)).boxed()
         }
 
         fn end(&self, _id: &str) -> BoxFuture<'static, ()> {
             future::ready(()).boxed()
         }
 
-        fn storage(&self, _id: &str) -> Option<ProgramStorage> {
+        fn files(&self, _id: &str) -> Option<AppFiles> {
             None
         }
     }
@@ -509,7 +522,7 @@ mod tests {
         let answers = Arc::new(Answers::default());
         answers.set_role(Role::Inspector, Answer::Granted);
         let reach = InspectorReach {
-            programs: Some(Arc::new(NoPrograms)),
+            programs: Some(Arc::new(NoApps)),
             running: Programs::default(),
             days: None,
             access: answers.access(),

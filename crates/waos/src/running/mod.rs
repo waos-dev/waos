@@ -222,9 +222,6 @@ pub(crate) struct ProgramStart {
     /// The days of what programs did, which its summary counts into, where the engine keeps
     /// them.
     pub(crate) days: Option<Days>,
-    /// What it sees of the programs while it holds the inspector role, where the embedder gives
-    /// it.
-    pub(crate) inspected_programs: Option<Arc<dyn crate::inspection::InspectedPrograms>>,
     pub(crate) freeze: FreezePolicy,
     /// The engine's time, which its freeze and its hardware buffers read.
     pub(crate) clock: EngineClock,
