@@ -11,8 +11,9 @@
 //! runs with (`environments`): this computer's capabilities and the grants of the store's settings;
 //! the library's side of the store: a package opened with WaOS, what a source's listing offers
 //! against what is installed, an installed app started however it is asked (`app_starter`), the
-//! apps running (`running_apps`), and WaOS's one startup, which puts the domains together for the
-//! desktop app, the headless entry and the tests (`startup`), each installed program's shortcut on Android's home screen and WaOS's
+//! apps running (`running_apps`), and WaOS's one startup, which puts the domains together over where
+//! each keeps what it owns (`stores`) for the desktop app, the headless entry and the tests
+//! (`startup`), each installed program's shortcut on Android's home screen and WaOS's
 //! icon's menu, made to match what is installed (`program_shortcuts`), and a settings
 //! page and what the user changes on it (`setting_changes`); when the desktop's launcher shows and
 //! goes (`launcher_rules`), and where it shows (`launcher_placement`); where the programs' prompts go (`prompts`), their questions

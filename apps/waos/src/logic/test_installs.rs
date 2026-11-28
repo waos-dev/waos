@@ -24,10 +24,10 @@ use futures::StreamExt as _;
 use sha2::{Digest, Sha256};
 use waos::Compiler;
 use waos_headless::testing::{Hold, HoldGuard};
-use waos_package::Manifest;
+use waos_package::{Manifest, SigningKey};
 use waos_services::packages::{
-    Caller, CodeCompiler, DevelopmentBuild, InstalledProgram, InstalledVersion, PackageContent,
-    PackageManager,
+    AppInMemory, Caller, CodeCompiler, DevelopmentBuild, InstalledProgram, InstalledVersion,
+    Origin, PackageContent, PackageManager,
 };
 use waos_services::permissions::NoPrompts;
 use waos_services::sources::SourceProxy;
@@ -136,10 +136,10 @@ impl CodeCompiler for MarkerCompiler {
     }
 }
 
-/// A test's domains over files in `folder`, the store's directory, as WaOS opens them, for apps
-/// it never runs, with nobody to ask.
+/// A test's domains, kept in memory, as WaOS opens them, for apps it never runs, with nobody to
+/// ask: each app's own folders in `folder`.
 pub(crate) fn domains_never_run(folder: &Path) -> Domains {
-    let stores = Stores::files(folder).expect("the stores open");
+    let stores = Stores::in_memory(Vec::new());
     let running = Arc::new(RunningApps::default());
     let (compiler, prompts) = (Arc::new(MarkerCompiler), Arc::new(NoPrompts));
     startup::open_domains(
@@ -151,6 +151,24 @@ pub(crate) fn domains_never_run(folder: &Path) -> Domains {
         prompts,
     )
     .expect("the domains open")
+}
+
+/// The test program at `component` as an app kept in memory, `id` named `name`, published with a
+/// key of the test's own: its version the component and the code folder the build made, so it
+/// runs with nothing installed on disk.
+pub(crate) fn built_app(component: &str, id: &str, name: &str) -> AppInMemory {
+    let manifest = Manifest::new(id.parse().unwrap(), name, "1.0.0".parse().unwrap()).unwrap();
+    let program = InstalledProgram {
+        manifest,
+        origin: Origin::Package {
+            publisher: SigningKey::generate().publisher(),
+        },
+    };
+    let code = waos_test_programs::code_of(component);
+    AppInMemory {
+        version: Some(InstalledVersion::new(component.into(), code)),
+        ..AppInMemory::new(program)
+    }
 }
 
 /// Installs the package at `file` with `packages`, for the user, and waits until it is installed,

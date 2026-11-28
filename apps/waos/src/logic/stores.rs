@@ -61,3 +61,53 @@ mod in_memory {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::path::{Path, PathBuf};
+    use std::sync::Arc;
+
+    use super::Stores;
+    use crate::logic::app_starter::{Opening, StartRequest};
+    use crate::logic::startup::Setup;
+    use crate::logic::startup::tests::start_asking_nobody;
+    use crate::logic::test_engine::{self, NoWindows};
+    use crate::logic::test_installs;
+
+    const FOREVER: &str = "dev.example.forever";
+
+    /// Every file under `folder`, at any depth; none of the folders.
+    fn files_under(folder: &Path) -> Vec<PathBuf> {
+        let Ok(entries) = std::fs::read_dir(folder) else {
+            return Vec::new();
+        };
+        let mut files = Vec::new();
+        for entry in entries.flatten() {
+            if entry.file_type().is_ok_and(|kind| kind.is_dir()) {
+                files.extend(files_under(&entry.path()));
+            } else {
+                files.push(entry.path());
+            }
+        }
+        files
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn an_app_kept_in_memory_starts_from_its_build_with_no_file_in_the_store() {
+        let folder = tempfile::tempdir().unwrap();
+        let app = test_installs::built_app(waos_test_programs::FOREVER, FOREVER, "Forever");
+        let setup = Setup::for_tests(folder.path(), Stores::in_memory(vec![app]));
+        let app_folders = setup.app_folders.clone();
+        let started = start_asking_nobody(setup, |_before| {
+            let shell = test_engine::shell(Arc::new(NoWindows));
+            (shell, test_engine::no_screens())
+        });
+
+        let id = FOREVER.parse().unwrap();
+        let request = StartRequest::open(FOREVER.parse().unwrap(), Opening::ByTheUser);
+        started.starter.start(request).await.expect("it starts");
+
+        assert!(started.running.running(&id).is_some(), "it runs");
+        assert_eq!(files_under(&app_folders), Vec::<PathBuf>::new());
+    }
+}

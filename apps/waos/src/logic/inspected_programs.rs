@@ -247,7 +247,7 @@ mod tests {
 
     /// What an inspector sees of a test's WaOS in `folder`, with nothing running.
     fn programs_of(folder: &std::path::Path) -> (Started, ProgramsOnThisComputer) {
-        let setup = Setup::on_files(folder);
+        let setup = Setup::in_memory(folder);
         let started = start_asking_nobody(setup, |_before| {
             let shell = test_engine::shell(Arc::new(NoWindows));
             (shell, test_engine::no_screens())
