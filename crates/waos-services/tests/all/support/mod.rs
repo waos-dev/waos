@@ -88,14 +88,9 @@ pub async fn install_from(
     packages.install(content, Caller::User).finished().await
 }
 
-/// The sources, kept in memory, read straight from each server, their pictures kept in `pictures`.
-pub fn sources(pictures: &Path) -> Sources {
-    Sources::open(
-        Arc::new(SourcesInMemory::default()),
-        pictures,
-        SourceProxy::None,
-    )
-    .unwrap()
+/// The sources, kept in memory with their pictures, read straight from each server.
+pub fn sources() -> Sources {
+    Sources::open(Arc::new(SourcesInMemory::default()), SourceProxy::None).unwrap()
 }
 
 /// What `future` comes to, on a runtime of its own: for a test that is not async.

@@ -32,6 +32,7 @@ use crate::logic::program_places::ProgramPlace;
 use crate::logic::prompts::{PromptRequests, PromptsOnRequest};
 use crate::logic::running_apps::RunningApps;
 use crate::logic::startup::{self, BeforeTheEngine, EngineCompiler, Outside, Setup};
+use crate::logic::stores::Stores;
 use crate::logic::video_decoder_thread;
 use crate::os;
 use crate::write_traces;
@@ -112,7 +113,8 @@ impl HeadlessDaemon {
         let compiler =
             Compiler::new(native_unwind_info_asked()).context("starting the compiler")?;
         let setup = Setup {
-            store: config.folders.store.clone(),
+            stores: Stores::files(&config.folders.store)?,
+            app_folders: config.folders.store.clone(),
             temporary_folders: config.folders.temporary_folders.clone(),
             install_compiler: Arc::new(EngineCompiler(compiler.clone())),
             compiler,

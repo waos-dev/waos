@@ -162,6 +162,15 @@ impl InstalledAppsFiles {
         self.programs.join(id.as_str())
     }
 
+    /// The folder `id`'s installed version is unpacked in; none when it has none, or it cannot be
+    /// read, which is said to whoever subscribes.
+    fn installed_folder(&self, id: &ProgramId) -> Option<PathBuf> {
+        installed_folder(&self.program_folder(id)).unwrap_or_else(|error| {
+            tracing::warn!("{id} cannot be read: {error}");
+            None
+        })
+    }
+
     /// The folder of each app installed, or left by an interrupted install, and no other file the
     /// system or a person put there; none when the folder of apps cannot be read, which is said to
     /// whoever subscribes.
@@ -199,7 +208,7 @@ impl InstalledAppsStore for InstalledAppsFiles {
     }
 
     fn icon(&self, id: &ProgramId) -> Option<Arc<[u8]>> {
-        let folder = self.version(id)?.folder;
+        let folder = self.installed_folder(id)?;
         match read_icon(&folder) {
             Ok(icon) => icon.map(Arc::from),
             Err(error) => {
@@ -210,13 +219,8 @@ impl InstalledAppsStore for InstalledAppsFiles {
     }
 
     fn version(&self, id: &ProgramId) -> Option<InstalledVersion> {
-        match installed_folder(&self.program_folder(id)) {
-            Ok(folder) => folder.map(InstalledVersion::new),
-            Err(error) => {
-                tracing::warn!("{id} cannot be read: {error}");
-                None
-            }
-        }
+        let folder = self.installed_folder(id)?;
+        Some(InstalledVersion::unpacked_in(&folder))
     }
 
     fn receiving_file(&self, app: &ProgramId) -> Result<NamedTempFile, FolderError> {
@@ -268,7 +272,7 @@ impl StagedVersion for StagedFolder {
     }
 
     fn files(&self) -> Option<InstalledVersion> {
-        Some(InstalledVersion::new(self.unpacked.path().to_owned()))
+        Some(InstalledVersion::unpacked_in(self.unpacked.path()))
     }
 
     /// `current` names it, then the version it replaced is removed. One that cannot be, as a file

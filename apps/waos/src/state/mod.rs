@@ -110,6 +110,7 @@ use crate::logic::prompts::{PromptRequests, PromptsOnRequest};
 use crate::logic::recording_indicator::RecordingIndicatorOnRequest;
 use crate::logic::running_apps::RunningApps;
 use crate::logic::startup::{self, BeforeTheEngine, EngineCompiler, Outside, Setup};
+use crate::logic::stores::Stores;
 use crate::logic::vsync_waiter::WaftVsync;
 use crate::ui::deck::Deck;
 use crate::ui::every_window::{LibraryWindow, every_window, program_windows};
@@ -439,7 +440,8 @@ fn desktop_setup(folders: &AppFolders, place: LibraryPlace) -> Result<Setup> {
     }
     let compiler = Compiler::new(native_unwind_info).context("starting the compiler")?;
     Ok(Setup {
-        store: folders.store.clone(),
+        stores: Stores::files(&folders.store)?,
+        app_folders: folders.store.clone(),
         temporary_folders: folders.temporary_folders.clone(),
         install_compiler: Arc::new(EngineCompiler(compiler.clone())),
         compiler,

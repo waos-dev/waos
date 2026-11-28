@@ -634,7 +634,7 @@ pub(crate) mod tests {
                 std::env::temp_dir().join(format!("waos-app-{}-{test}", std::process::id()));
             let _ = fs::remove_dir_all(&folder);
             let socket = Self::test_listener(&folder, test);
-            let setup = Setup::for_tests(&folder);
+            let setup = Setup::on_files(&folder);
             let (started, (asking, prompted)) = startup::start(setup, prompts, |before, kept| {
                 let (shell, platform) = outside();
                 let asking = AskingNow::new(before.permissions.asking());
