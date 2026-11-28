@@ -82,8 +82,9 @@ pub(crate) struct MacosShell {
 }
 
 impl MacosShell {
-    /// WaOS on macOS: the window processes of the apps `before`'s package manager installs, their
-    /// bundles among `folders`, their views placed as `before`'s places say, in `tabs` or in their
+    /// WaOS on macOS: the window processes of the apps `before`'s package manager installs, each
+    /// lasting while its app's instance runs, as `before` tells, their bundles among `folders`,
+    /// their views placed as `before`'s places say, in `tabs` or in their
     /// window processes, their file dialogs noted in `asking`, their canvases kept on `app`'s main
     /// thread and whether each of their windows is in sight telling the activity macOS must not
     /// throttle WaOS under from now on; the rest of the engine's shell is `shared`.
@@ -114,14 +115,18 @@ impl MacosShell {
             data: folders.data.clone(),
             installed: folders.installed_apps.clone(),
         };
-        let window_processes =
-            macos_shell::start(apps_folders, Arc::clone(before.packages), routes, opens).map_err(
-                |error| {
-                    let why = format!("{error:#}");
-                    tracing::error!("no program's windows can be shown: {why}");
-                    why
-                },
-            );
+        let window_processes = macos_shell::start(
+            apps_folders,
+            Arc::clone(before.packages),
+            before.running.clone(),
+            routes,
+            opens,
+        )
+        .map_err(|error| {
+            let why = format!("{error:#}");
+            tracing::error!("no program's windows can be shown: {why}");
+            why
+        });
         let notifications = window_processes.as_ref().ok().map(|window_processes| {
             Arc::new(AppNotifications::new(
                 Arc::clone(window_processes),

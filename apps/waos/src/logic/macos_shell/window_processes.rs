@@ -1,9 +1,11 @@
 //! At most one window process per app, as Chrome's `AppShimManager` keeps a shim per app: the
 //! processes the apps' windows, menus, dialogs, notifications and WaOS's prompts for them are shown
 //! in, launched from the apps' bundles by the app's id, and the listener they connect to
-//! (`server`). A window process belongs to the app, not to one of its instances: one launched for a
-//! prompt is served before any instance of the app exists, and the app's instance attaches to it
-//! when it first reaches it, once, so a window process serves at most one instance in its life.
+//! (`server`). A window process belongs to the app, and lasts as long as the app's instance runs,
+//! as a macOS app's process does, its Dock icon and menu bar with it: the instance running, as the
+//! watch of the instances running tells ([`RunningInstances`]), attaches to it as the instance
+//! starts or as the window process is launched, once, so a window process serves at most one
+//! instance in its life; one launched for a prompt while no instance runs is served with none.
 //! What an instance shows reaches its window process through one getter
 //! ([`WindowProcesses::of_instance`]), which launches it the first time something needs it, with no
 //! window and not brought forward, shares that launch with everything that asks while it comes,
@@ -14,8 +16,9 @@
 //! its menu bar, which is sent as the window process connects, take the second. WaOS's prompts
 //! for an app go by the app's id ([`WindowProcesses::show_prompt`]): shown in its window process,
 //! launched for them where it does not run, and kept here until they are hidden, so a window
-//! process no instance attached to ends once it shows no prompt, as Android's task of a permission
-//! question goes once it is answered. What the user must see brings the window process forward as
+//! process launched while its app does not run ends once it shows no prompt, as Android's task of
+//! a permission question goes once it is answered, unless the app started meanwhile: the app's
+//! first window then opens in it. What the user must see brings the window process forward as
 //! it shows, by macOS's cooperative activation: WaOS yields its activation as it asks for a window
 //! that takes the focus, or a file dialog, so a launch for anything else stays in the background.
 //!
@@ -37,9 +40,10 @@
 //!
 //! The invariant a later editor will break: an app has one window process at a time, launched
 //! once however many ask while it comes, and everything that asks is answered exactly once, in the
-//! order it asked: with the window process, or with why it never came. An instance attaches and a
-//! window process with none is ended under the table's one lock, so no instance attaches to a
-//! window process that is ending. Nothing a thread or a task holds holds `WindowProcesses` itself,
+//! order it asked: with the window process, or with why it never came. An instance attaches, and a
+//! window process with none is ended where no instance of its app runs, under the table's one
+//! lock, so no instance attaches to a window process that is ending, and none that runs is left
+//! without its window process. Nothing a thread or a task holds holds `WindowProcesses` itself,
 //! or the listener would never stop.
 
 use std::collections::HashMap;
@@ -52,6 +56,7 @@ use futures::FutureExt;
 use futures::channel::mpsc::UnboundedSender;
 use futures::channel::oneshot;
 use futures::future::BoxFuture;
+use tokio::sync::watch;
 use waos::bindings::wasdk::platform::menus::MenuEntry;
 use waos::bindings::wasdk::platform::views::{ViewError, ViewId};
 use waos::{
@@ -66,6 +71,7 @@ use super::server::Listener;
 use super::window_process::{
     DialogReport, DialogReports, SendToWindow, WindowPresences, WindowProcess,
 };
+use crate::logic::app_instances::RunningInstances;
 use crate::logic::notification_permissions::NotificationPermissions;
 use crate::os::yield_activation_to;
 use crate::system_shell::UserOpen;
@@ -141,12 +147,14 @@ pub(crate) struct WindowProcesses {
 }
 
 impl WindowProcesses {
-    /// The window processes of the apps in `bundles`, launched and ended on `runtime`, what each
-    /// reports going by `routes`, and listening for their hellos under the bootstrap name `name`
-    /// from now on; the apps the user opens go to `user_opens`.
+    /// The window processes of the apps in `bundles`, launched and ended on `runtime`, each
+    /// lasting while its app's instance in `running` runs, what each reports going by `routes`,
+    /// and listening for their hellos under the bootstrap name `name` from now on; the apps the
+    /// user opens go to `user_opens`.
     pub(crate) fn start(
         runtime: tokio::runtime::Runtime,
         bundles: Arc<dyn Bundles>,
+        running: watch::Receiver<RunningInstances>,
         routes: Routes,
         name: &str,
         user_opens: UnboundedSender<UserOpen>,
@@ -155,8 +163,10 @@ impl WindowProcesses {
             bundles: Arc::clone(&bundles),
             runtime: runtime.handle().clone(),
             routes,
+            running: running.clone(),
             apps: Mutex::default(),
         });
+        table.follow_running(running);
         let listener = Listener::listen(name, Arc::clone(&table), bundles, user_opens)
             .context("listening for the apps' window processes")?;
         Ok(Arc::new(WindowProcesses {
@@ -228,7 +238,7 @@ impl WindowProcesses {
     }
 
     /// Takes the dialog of `app`'s prompt `prompt` away, or the prompt from those waiting for
-    /// the app; a window process no instance attached to ends once it shows no prompt.
+    /// the app; a window process ends once it shows no prompt, unless its app runs.
     pub(crate) fn hide_prompt(&self, app: &ProgramId, prompt: PromptId) {
         self.table.hide_prompt(app, prompt);
     }
@@ -268,6 +278,8 @@ pub(crate) struct ProcessTable {
     /// Where launches and endings are awaited, and a key's reply.
     runtime: tokio::runtime::Handle,
     routes: Routes,
+    /// The instances running, each of which its app's window process serves.
+    running: watch::Receiver<RunningInstances>,
     apps: Mutex<HashMap<ProgramId, App>>,
 }
 
@@ -281,8 +293,8 @@ enum App {
 
 /// An app's window process WaOS launched, until its hello comes.
 struct Launching {
-    /// The app's instance that reached it first, attached to it once it is there; none where it
-    /// was launched for a prompt alone.
+    /// The app's instance that runs or reached it first, attached to it once it is there; none
+    /// where it was launched for a prompt while its app does not run.
     instance: Option<AppInstance>,
     /// What asked for it meanwhile, in the order it asked.
     waiting: Vec<Waiting>,
@@ -343,9 +355,7 @@ impl ProcessTable {
             }
             Some(App::Connected(process)) if process.instance().is_none() => {
                 let process = Arc::clone(process);
-                process.attach(program.clone());
-                drop(apps);
-                self.end_with_its_instance(id, Arc::clone(&process), program.clone());
+                self.attach(apps, &id, &process, program.clone());
                 return then(Ok(process));
             }
             Some(App::Launching(launching))
@@ -400,7 +410,7 @@ impl ProcessTable {
     }
 
     /// Shows `shown` in `id`'s window process: at once while it runs, or once it is there,
-    /// launched for it where it does not.
+    /// launched for it where it does not, for the app's instance where one runs.
     fn show_prompt(self: &Arc<Self>, id: &ProgramId, shown: PromptShown) {
         let mut apps = self.apps();
         match apps.get_mut(id) {
@@ -409,7 +419,11 @@ impl ProcessTable {
             }
             Some(App::Launching(launching)) => launching.prompts.push(shown),
             None => {
-                apps.insert(id.clone(), Launching::first(None, Vec::new(), vec![shown]));
+                let instance = self.instance_running(id);
+                apps.insert(
+                    id.clone(),
+                    Launching::first(instance, Vec::new(), vec![shown]),
+                );
                 drop(apps);
                 self.launch(id.clone(), LaunchAttempt::First);
             }
@@ -417,8 +431,8 @@ impl ProcessTable {
     }
 
     /// Takes `id`'s prompt `prompt` away, shown or waiting for its window process; one connected
-    /// with no instance and no prompt left is ended.
-    fn hide_prompt(&self, id: &ProgramId, prompt: PromptId) {
+    /// with no prompt left is ended where its app does not run.
+    fn hide_prompt(self: &Arc<Self>, id: &ProgramId, prompt: PromptId) {
         let mut apps = self.apps();
         match apps.get_mut(id) {
             Some(App::Connected(process)) => {
@@ -433,11 +447,12 @@ impl ProcessTable {
         }
     }
 
-    /// Ends `process`, `id`'s window process, where no instance attached to it and it shows no
-    /// prompt: nothing needs it any more. Decided under `apps`, the table's lock, which an
+    /// Ends `process`, `id`'s window process, where it shows no prompt and its app does not run:
+    /// nothing needs it any more. Where the app's instance runs and has not attached to it yet, it
+    /// attaches now, and `process` ends with it. Decided under `apps`, the table's lock, which an
     /// instance attaches under.
     fn end_if_unneeded(
-        &self,
+        self: &Arc<Self>,
         mut apps: MutexGuard<'_, HashMap<ProgramId, App>>,
         id: &ProgramId,
         process: &Arc<WindowProcess>,
@@ -445,13 +460,73 @@ impl ProcessTable {
         if process.instance().is_some() || process.shows_prompts() {
             return;
         }
-        if matches!(apps.get(id), Some(App::Connected(connected)) if Arc::ptr_eq(connected, process))
+        if !matches!(apps.get(id), Some(App::Connected(connected)) if Arc::ptr_eq(connected, process))
         {
-            apps.remove(id);
-            drop(apps);
-            tracing::info!(app = %id, "the app's window process shows nothing more: it ends");
-            process.end();
+            return;
         }
+        if let Some(instance) = self.instance_running(id) {
+            return self.attach(apps, id, process, instance);
+        }
+        apps.remove(id);
+        drop(apps);
+        tracing::info!(app = %id, "the app's window process shows nothing more: it ends");
+        process.end();
+    }
+
+    /// The instance of `id` running now, if one is.
+    fn instance_running(&self, id: &ProgramId) -> Option<AppInstance> {
+        self.running.borrow().get(id).cloned()
+    }
+
+    /// From now on, each instance that starts attaches to its app's window process, launching or
+    /// connected, where there is one serving none, as [`attach_running`](Self::attach_running)
+    /// does: until the instances running are no longer told.
+    fn follow_running(self: &Arc<Self>, mut running: watch::Receiver<RunningInstances>) {
+        let table = Arc::clone(self);
+        self.runtime.spawn(async move {
+            while running.changed().await.is_ok() {
+                let ids: Vec<ProgramId> = running.borrow_and_update().keys().cloned().collect();
+                for id in ids {
+                    table.attach_running(&id);
+                }
+            }
+        });
+    }
+
+    /// The instance of `id` running now, if one is, attaches to `id`'s window process, launching
+    /// or connected, where it serves none yet: the window process lasts as long as that instance
+    /// runs.
+    fn attach_running(self: &Arc<Self>, id: &ProgramId) {
+        let Some(instance) = self.instance_running(id) else {
+            return;
+        };
+        let mut apps = self.apps();
+        match apps.get_mut(id) {
+            Some(App::Launching(launching)) if launching.instance.is_none() => {
+                launching.instance = Some(instance);
+            }
+            Some(App::Connected(process)) if process.instance().is_none() => {
+                let process = Arc::clone(process);
+                self.attach(apps, id, &process, instance);
+            }
+            _ => {}
+        }
+    }
+
+    /// `instance` attaches to `process`, `id`'s connected window process, which serves none yet,
+    /// under `apps`, the table's lock, let go of after: `process` shows the instance's menu bar,
+    /// and ends when `instance` does.
+    fn attach(
+        self: &Arc<Self>,
+        apps: MutexGuard<'_, HashMap<ProgramId, App>>,
+        id: &ProgramId,
+        process: &Arc<WindowProcess>,
+        instance: AppInstance,
+    ) {
+        process.attach(instance.clone());
+        drop(apps);
+        process.show_menu_bar();
+        self.end_with_its_instance(id.clone(), Arc::clone(process), instance);
     }
 
     /// Launches `id`'s window process from its bundle, written again for `attempt`'s sake after a

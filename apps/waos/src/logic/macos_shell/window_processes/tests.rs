@@ -3,6 +3,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use futures::channel::mpsc::{self, UnboundedReceiver};
 use futures::{FutureExt, StreamExt};
+use tokio::sync::watch;
 use waos::{OpenRequest, ProgramEnd, ProgramEnvironment};
 use waos_headless::testing::Changes;
 use waos_window_messages::os::macos::{Arrival, ReceiveRight, SendRight};
@@ -18,6 +19,9 @@ use crate::logic::test_engine::WITHIN;
 
 /// The id survey runs under, as an installed program's.
 const SURVEY: &str = "dev.example.survey";
+
+/// The id forever runs under, as an installed program's.
+const FOREVER: &str = "dev.example.forever";
 
 /// The apps' bundles as a test stands them in: each launch asked for is noted, in order, and
 /// answered as the test says; every window process that says hello is the one WaOS signed.
@@ -37,12 +41,13 @@ struct AskedLaunch {
     answer: Option<oneshot::Sender<Result<LaunchedProcess, LaunchFailure>>>,
 }
 
-/// Window processes over stand-in bundles, listening under a name of the test's own, the apps the
-/// user opens through them, and where what their prompts' dialogs report goes, as the main thread
-/// takes it and as a test reports it.
+/// Window processes over stand-in bundles, listening under a name of the test's own, the
+/// instances running as a test tells them, the apps the user opens through them, and where what
+/// their prompts' dialogs report goes, as the main thread takes it and as a test reports it.
 pub(crate) struct Listening {
     pub(crate) window_processes: Arc<WindowProcesses>,
     pub(crate) name: String,
+    pub(crate) running: watch::Sender<RunningInstances>,
     pub(crate) user_opens: UnboundedReceiver<UserOpen>,
     pub(crate) dialog_reports: UnboundedReceiver<DialogReport>,
     pub(crate) report: DialogReports,
@@ -79,11 +84,14 @@ impl Launches {
         };
         let (opens, user_opens) = mpsc::unbounded();
         let bundles = Arc::clone(&self.0) as Arc<dyn Bundles>;
-        let window_processes = WindowProcesses::start(runtime, bundles, routes, &name, opens)
-            .expect("the window processes listen");
+        let (running, read_running) = watch::channel(RunningInstances::new());
+        let window_processes =
+            WindowProcesses::start(runtime, bundles, read_running, routes, &name, opens)
+                .expect("the window processes listen");
         Listening {
             window_processes,
             name,
+            running,
             user_opens,
             dialog_reports,
             report,
@@ -186,6 +194,28 @@ fn survey_through(window_processes: &Arc<WindowProcesses>) -> AppInstance {
 
 fn survey_id() -> ProgramId {
     SURVEY.parse().unwrap()
+}
+
+/// Forever, under its id, which shows nothing until asked, its windows placed by
+/// `window_processes`.
+fn forever_through(window_processes: &Arc<WindowProcesses>) -> AppInstance {
+    let placement = Arc::clone(window_processes) as Arc<dyn ViewPlacement>;
+    let engine = test_engine::engine(placement);
+    let forever = engine
+        .load(
+            Path::new(waos_test_programs::FOREVER),
+            &waos_test_programs::code_of(waos_test_programs::FOREVER),
+        )
+        .expect("forever loads")
+        .named(FOREVER);
+
+    engine
+        .run(&forever, ProgramEnvironment::default())
+        .expect("forever runs")
+}
+
+fn forever_id() -> ProgramId {
+    FOREVER.parse().unwrap()
 }
 
 /// Asks `window_processes` for `program`'s window process now; resolves with what they hand
@@ -383,5 +413,50 @@ async fn a_question_for_an_app_with_no_instance_launches_its_window_process_and_
     assert!(
         matches!(next_sent(&mut sent).await, ToWindow::ProgramEnded),
         "and it ends once it shows nothing more"
+    );
+}
+
+#[tokio::test]
+async fn a_question_asked_as_an_app_starts_launches_the_window_process_its_first_window_opens_in() {
+    let launches = Launches::default();
+    let Listening {
+        window_processes,
+        running,
+        ..
+    } = launches.listening();
+    let layers = HostedLayers { context_id: 7 };
+    window_processes.show_prompt(&forever_id(), 1, [440.0, 320.0], layers);
+    launches.until(1).await;
+    let Served {
+        process, mut sent, ..
+    } = window_process_of(forever_id());
+    said_hello(&window_processes, &forever_id(), &process);
+    assert!(matches!(
+        next_sent(&mut sent).await,
+        ToWindow::ShowPrompt { prompt: 1, .. }
+    ));
+
+    let program = forever_through(&window_processes);
+    running.send_modify(|running| {
+        running.insert(forever_id(), program.clone());
+    });
+    window_processes.hide_prompt(&forever_id(), 1);
+    assert!(matches!(
+        next_sent(&mut sent).await,
+        ToWindow::HidePrompt { prompt: 1 }
+    ));
+
+    let reached = tokio::time::timeout(WITHIN, asked(&window_processes, &program))
+        .await
+        .expect("the app's window process is there")
+        .expect("and serves the app");
+    assert!(
+        Arc::ptr_eq(&reached, &process),
+        "the app's first window opens in the window process its question launched"
+    );
+    assert_eq!(
+        launches.asked(),
+        [(forever_id(), LaunchAttempt::First)],
+        "no second launch"
     );
 }

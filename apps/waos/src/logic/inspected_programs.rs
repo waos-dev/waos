@@ -23,7 +23,7 @@ use waos_services::app_storage::AppStorage;
 use waos_services::packages::{InstalledProgram, PackageManager};
 use waos_services::permissions::Permissions;
 
-use super::app_instances::AppInstances;
+use super::app_instances::{AppInstances, RunningInstances};
 use super::held_starts::HeldStarts;
 
 /// What this computer is called to an inspector, as its machine is to a program.
@@ -69,7 +69,7 @@ impl InspectedApps for ProgramsOnThisComputer {
 
     fn apps(&self) -> BoxFuture<'static, Vec<Program>> {
         let packages = Arc::clone(&self.packages);
-        let running = self.runs.running().borrow().clone();
+        let running = ids_running(&self.runs.running().borrow());
         async move {
             // The installed apps are read from their files.
             let installed = tokio::task::spawn_blocking(move || packages.installed())
@@ -200,11 +200,11 @@ fn installs_changes(packages: &Arc<PackageManager>) -> BoxStream<'static, Progra
 
 /// Each start and end of a run from now on, as the runs list them.
 fn runs_changes(runs: &AppInstances) -> BoxStream<'static, ProgramChange> {
-    let ids = runs.running();
-    let before = ids.borrow().clone();
-    stream::unfold((ids, before), |(mut ids, before)| async move {
-        ids.changed().await.ok()?;
-        let now = ids.borrow_and_update().clone();
+    let running = runs.running();
+    let before = ids_running(&running.borrow());
+    stream::unfold((running, before), |(mut running, before)| async move {
+        running.changed().await.ok()?;
+        let now = ids_running(&running.borrow_and_update());
         let started = now
             .difference(&before)
             .map(|id| ProgramChange::Started(id.to_string()));
@@ -212,7 +212,7 @@ fn runs_changes(runs: &AppInstances) -> BoxStream<'static, ProgramChange> {
             .difference(&now)
             .map(|id| ProgramChange::Ended(id.to_string()));
         let changes: Vec<ProgramChange> = started.chain(ended).collect();
-        Some((stream::iter(changes), (ids, now)))
+        Some((stream::iter(changes), (running, now)))
     })
     .flatten()
     .boxed()
@@ -225,6 +225,10 @@ fn program_of(program: &InstalledProgram, running: bool) -> Program {
         version: Some(program.manifest.version().to_string()),
         running,
     }
+}
+
+fn ids_running(running: &RunningInstances) -> BTreeSet<ProgramId> {
+    running.keys().cloned().collect()
 }
 
 fn ids_of(installed: &[InstalledProgram]) -> BTreeSet<ProgramId> {

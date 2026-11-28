@@ -7,7 +7,9 @@
 //! and an inspector, which opens it held at its first instruction: each is an
 //! [`OpenConfiguration`], and each starts the app's instance here, or finds the one running and
 //! leaves it as it is, for the caller to bring forward. The opens under way are told with their
-//! stage ([`AppInstances::opening`]), and the apps running ([`AppInstances::running`]).
+//! stage ([`AppInstances::opening`]), and the instances running ([`RunningInstances`]) as each
+//! starts and ends, to a watch made first in startup, so what follows them can be made before the
+//! app instances: the macOS shell keeps each app's window process while its instance runs.
 //!
 //! An open loads the app's program under its lock from the package manager, then starts its
 //! instance with this computer's capabilities, the grants of its own settings and its own folders,
@@ -43,7 +45,7 @@ mod driven;
 mod list;
 mod opens;
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::fmt;
 use std::sync::Arc;
 use std::time::Instant;
@@ -178,6 +180,9 @@ impl fmt::Display for OpenError {
 
 impl std::error::Error for OpenError {}
 
+/// The instances running, by their app's id: what the watch made first in startup holds.
+pub(crate) type RunningInstances = BTreeMap<ProgramId, AppInstance>;
+
 /// The package manager's end of the mailbox its stops go through: each stop is a request in it,
 /// answered once the app's instance has stopped; one answered at once once nobody reads the
 /// mailbox, which leaves nothing running.
@@ -244,16 +249,18 @@ impl AppInstances {
     /// The instances of the apps `domains`' package manager loads, on `engine`, each with what
     /// `environments` gives it, its views going where `places` says, and an inspector with the
     /// apps it sees, what `domains`' permissions let each and its own folders among them; the
-    /// package manager's stops read from `stops`, and every task of theirs run on `runtime`.
+    /// package manager's stops read from `stops`, the instances running told to `running`, and
+    /// every task of theirs run on `runtime`.
     pub(crate) fn new(
         domains: &Domains,
         engine: Arc<WaOS>,
         environments: Arc<ProgramEnvironments>,
         places: ProgramPlaces,
         stops: StopRequests,
+        running: watch::Sender<RunningInstances>,
         runtime: tokio::runtime::Handle,
     ) -> Arc<AppInstances> {
-        let list = Arc::new(InstanceList::default());
+        let list = Arc::new(InstanceList::new(running));
         answer_stops(&runtime, Arc::clone(&list), stops);
         Arc::new(AppInstances {
             list,
@@ -373,9 +380,9 @@ impl AppInstances {
         self.list.stop(id, false).await
     }
 
-    /// The ids of the apps running now, and each change of them from now on.
-    pub(crate) fn running(&self) -> watch::Receiver<BTreeSet<ProgramId>> {
-        self.list.ids()
+    /// The instances running now, and each change of them from now on.
+    pub(crate) fn running(&self) -> watch::Receiver<RunningInstances> {
+        self.list.instances_running()
     }
 
     /// The opens under way now, each with its stage, and each change of them from now on.
@@ -418,9 +425,9 @@ impl AppInstances {
     #[cfg(test)]
     pub(crate) async fn names(&self) -> Vec<String> {
         self.list
-            .ids()
+            .instances_running()
             .borrow()
-            .iter()
+            .keys()
             .map(ToString::to_string)
             .collect()
     }
