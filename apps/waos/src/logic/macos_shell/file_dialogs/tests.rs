@@ -9,12 +9,12 @@ use waos_package::ProgramId;
 use waos_window_messages::{FileDialogId, FromWindow, ToWindow};
 
 use super::*;
-use crate::logic::macos_shell::app_reach::LaunchAttempt;
-use crate::logic::macos_shell::app_reach::tests::Launches;
 use crate::logic::macos_shell::awaited_answers::APP_GONE;
 use crate::logic::macos_shell::window_process::tests::{
     Printed, Served, next_wanted, window_process,
 };
+use crate::logic::macos_shell::window_processes::LaunchAttempt;
+use crate::logic::macos_shell::window_processes::tests::{Launches, said_hello};
 use crate::logic::test_engine::{self, NoWindows, WITHIN};
 
 /// The id file-dialogs runs under, as an installed program's.
@@ -24,11 +24,14 @@ fn file_dialogs_id() -> ProgramId {
     FILE_DIALOGS.parse().unwrap()
 }
 
-/// File-dialogs, under its id, with no window, its dialogs opened through `reach`, as the engine
-/// opens a program's on macOS, what it prints going into `printed`.
-fn file_dialogs_through(reach: &Arc<AppReach>, printed: &Arc<Printed>) -> RunningProgram {
+/// File-dialogs, under its id, with no window, its dialogs opened through `window_processes`, as
+/// the engine opens a program's on macOS, what it prints going into `printed`.
+fn file_dialogs_through(
+    window_processes: &Arc<WindowProcesses>,
+    printed: &Arc<Printed>,
+) -> RunningProgram {
     let mut shell = test_engine::shell(Arc::new(NoWindows));
-    shell.file_dialogs = Some(Arc::clone(reach) as Arc<dyn ShellFileDialogs>);
+    shell.file_dialogs = Some(Arc::clone(window_processes) as Arc<dyn ShellFileDialogs>);
     let engine = test_engine::engine_over(shell, EngineTime::Real);
     let file_dialogs = engine
         .load(
@@ -77,9 +80,9 @@ async fn a_file_dialog_of_a_program_with_no_app_launches_the_app_and_the_paths_p
     std::fs::write(picks.join("read-me.txt"), "a line to read").unwrap();
     std::fs::write(picks.join("change-me.txt"), "a line").unwrap();
     let launches = Launches::default();
-    let reach = launches.reach();
+    let window_processes = launches.window_processes();
     let printed = Arc::new(Printed::default());
-    let program = file_dialogs_through(&reach, &printed);
+    let program = file_dialogs_through(&window_processes, &printed);
     launches.until(1).await;
     assert_eq!(
         launches.asked(),
@@ -90,7 +93,7 @@ async fn a_file_dialog_of_a_program_with_no_app_launches_the_app_and_the_paths_p
     let Served {
         process, mut sent, ..
     } = window_process(program.clone());
-    reach.connected(&file_dialogs_id(), &process);
+    said_hello(&window_processes, &file_dialogs_id(), &process);
     let (dialog, parent, kind) = file_dialog_asked(&mut sent).await;
     assert_eq!(parent, None, "on its own, the program naming no view");
     assert!(
@@ -140,12 +143,12 @@ async fn a_file_dialog_of_a_program_with_no_app_launches_the_app_and_the_paths_p
 #[tokio::test]
 async fn a_file_dialog_whose_app_never_comes_fails_with_why() {
     let launches = Launches::default();
-    let reach = launches.reach();
+    let window_processes = launches.window_processes();
     let printed = Arc::new(Printed::default());
-    let _program = file_dialogs_through(&reach, &printed);
+    let _program = file_dialogs_through(&window_processes, &printed);
     launches.until(1).await;
-    reach.launch_failed(&file_dialogs_id(), "Launch Services: no app");
-    reach.launch_failed(&file_dialogs_id(), "Launch Services: no app");
+    launches.fail(0, "Launch Services: no app").await;
+    launches.fail(1, "Launch Services: no app").await;
     printed
         .line("open: failed (the program's app did not start: Launch Services: no app)")
         .await;
@@ -160,14 +163,14 @@ async fn a_file_dialog_whose_app_never_comes_fails_with_why() {
 #[tokio::test]
 async fn a_file_dialog_on_a_view_no_window_shows_opens_on_its_own_and_fails_once_the_app_goes() {
     let launches = Launches::default();
-    let reach = launches.reach();
+    let window_processes = launches.window_processes();
     let printed = Arc::new(Printed::default());
-    let program = file_dialogs_through(&reach, &printed);
+    let program = file_dialogs_through(&window_processes, &printed);
     launches.until(1).await;
     let Served {
         process, mut sent, ..
     } = window_process(program);
-    reach.connected(&file_dialogs_id(), &process);
+    said_hello(&window_processes, &file_dialogs_id(), &process);
     file_dialog_asked(&mut sent).await;
 
     let unshown = process.open_file_dialog(Some(41), FileDialog::OpenFiles(OpenOptions::default()));
@@ -192,14 +195,14 @@ async fn a_file_dialog_on_a_view_no_window_shows_opens_on_its_own_and_fails_once
 #[tokio::test]
 async fn dropping_a_file_dialogs_future_sends_close_file_dialog_to_the_window_process() {
     let launches = Launches::default();
-    let reach = launches.reach();
+    let window_processes = launches.window_processes();
     let printed = Arc::new(Printed::default());
-    let program = file_dialogs_through(&reach, &printed);
+    let program = file_dialogs_through(&window_processes, &printed);
     launches.until(1).await;
     let Served {
         process, mut sent, ..
     } = window_process(program);
-    reach.connected(&file_dialogs_id(), &process);
+    said_hello(&window_processes, &file_dialogs_id(), &process);
     file_dialog_asked(&mut sent).await;
 
     let open = process.open_file_dialog(None, FileDialog::OpenFiles(OpenOptions::default()));

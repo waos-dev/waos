@@ -1,90 +1,216 @@
-//! WaOS's end of the Mach connections to its programs' apps, as Chrome's `AppShimListener` and
+//! WaOS's end of the Mach connections to its window processes, as Chrome's `AppShimListener` and
 //! `MachBootstrapAcceptor` are the browser's: the bootstrap name of WaOS's data folder, checked in
-//! for as long as WaOS runs, which every app's hello arrives on, with the app's own port; each hello
-//! answered `Welcome` with a port of the connection's once the app is found to be its program's,
-//! or `Refused` with why, and what it carried handed to the program; and each connection's
-//! messages carried out on a thread of its own until the app is gone.
+//! while WaOS serves window processes, which every window process's hello arrives on, with its own
+//! port; each hello answered `Welcome` with a port of the connection's once the window process is
+//! found to be its app's and the run it serves is known, or `Refused` with why, and what it carried
+//! handed to the run; and each connection's messages carried out on a thread of its own until the
+//! window process is gone. A hello the user's open sent, from the Dock or a notification's click,
+//! waits for the run that open answers, and the hellos after it wait behind it: one is taken at a
+//! time.
 //!
-//! The invariant: a hello's sender is known by the audit token the kernel wrote on its message,
-//! never by what the hello says, and nothing is welcomed before its code is checked.
+//! The invariants: a hello's sender is known by the audit token the kernel wrote on its message,
+//! never by what the hello says, and nothing is welcomed, nor opened for the user, before its code
+//! is checked; and the listener's thread holds the process table, never `WindowProcesses`, whose
+//! going stops it.
 
 use std::io;
 use std::sync::Arc;
-use std::thread;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::thread::{self, JoinHandle};
 
+use futures::channel::mpsc::UnboundedSender;
+use futures::channel::oneshot;
 use waos::{OpenRequest, RunningProgram};
+use waos_package::ProgramId;
 use waos_window_messages::os::macos::{Arrival, ReceiveRight, Received, SendRight};
 use waos_window_messages::{
     FromWindow, Hello, LaunchReason, PROTOCOL, ToWindow, Welcome, decode, encode,
 };
 
-use super::ProgramApps;
 use super::window_process::{SendToWindow, WindowProcess};
-use crate::logic::program_name::program_name;
+use super::window_processes::{Bundles, ProcessTable};
+use crate::system_shell::UserOpen;
 
-/// Checks `name` in, and takes every hello that arrives on it on a thread of its own, for as long
-/// as WaOS runs.
-pub(super) fn listen(apps: &Arc<ProgramApps>, name: &str) -> io::Result<()> {
-    let port = ReceiveRight::check_in(name)?;
-    let apps = Arc::downgrade(apps);
-    thread::Builder::new()
-        .name("waos-program-apps".to_owned())
-        .spawn(move || {
-            loop {
-                let hello = match port.receive(PROTOCOL) {
-                    Ok(Arrival::Message(hello)) => hello,
-                    Ok(Arrival::NoSenders) => continue,
-                    Ok(Arrival::OtherProtocol { protocol, received }) => {
-                        refuse_other_protocol(protocol, received);
-                        continue;
-                    }
-                    Err(error) => {
-                        tracing::warn!(%error, "a message no app could have sent");
-                        continue;
-                    }
-                };
-                let Some(apps) = apps.upgrade() else {
-                    return;
-                };
-                take_hello(&apps, hello);
-            }
-        })?;
-    tracing::info!(name, "WaOS listens for its programs' apps");
-    Ok(())
+/// The thread that takes the window processes' hellos, until it is stopped.
+pub(super) struct Listener {
+    /// Set as the listener stops, before it is woken.
+    stopping: Arc<AtomicBool>,
+    /// A right to the listener's own port, which wakes it to stop.
+    wake: SendRight,
+    thread: Option<JoinHandle<()>>,
 }
 
-/// Welcomes the app that sent `received` if it is its program's, and serves it; refuses it if not.
-fn take_hello(apps: &Arc<ProgramApps>, received: Received) {
-    let Received {
-        bytes,
-        ports,
-        sender,
-    } = received;
-    let Some(app) = ports.into_iter().next() else {
-        tracing::warn!(pid = sender.pid(), "a hello with no port to answer on");
-        return;
-    };
-    let hello = match decode::<FromWindow>(&bytes) {
-        Ok(FromWindow::Hello(hello)) => hello,
-        Ok(message) => return tracing::warn!(?message, "a message before any hello"),
-        Err(error) => return refuse(&app, &format!("a hello this WaOS cannot read: {error}")),
-    };
-    tracing::info!(?hello, pid = sender.pid(), "a program's app said hello");
-    let found = apps.runtime.block_on(apps.program_for(&hello, &sender));
-    match found {
-        Ok(program) => {
-            if let Err(error) = serve(apps, hello, program, app) {
-                tracing::warn!(%error, "the program's app could not be served");
-            }
+impl Listener {
+    /// Checks `name` in, and takes every hello that arrives on it on a thread of its own, until
+    /// stopped: each checked by `bundles`, a hello the user's open sent going to `user_opens`,
+    /// and each window process welcomed served into `table`.
+    pub(super) fn listen(
+        name: &str,
+        table: Arc<ProcessTable>,
+        bundles: Arc<dyn Bundles>,
+        user_opens: UnboundedSender<UserOpen>,
+    ) -> io::Result<Listener> {
+        let port = ReceiveRight::check_in(name)?;
+        let wake = port.make_send()?;
+        let stopping = Arc::new(AtomicBool::new(false));
+        let hellos = Hellos {
+            table,
+            bundles,
+            user_opens,
+        };
+        let stopped = Arc::clone(&stopping);
+        let thread = thread::Builder::new()
+            .name("waos-window-processes".to_owned())
+            .spawn(move || hellos.take_each(&port, &stopped))?;
+        tracing::info!(name, "WaOS listens for its apps' window processes");
+        Ok(Listener {
+            stopping,
+            wake,
+            thread: Some(thread),
+        })
+    }
+
+    /// Stops taking hellos once the one being taken is: the port is let go, so a window process
+    /// that looks the name up finds none, and the thread ends.
+    pub(super) fn stop(&mut self) {
+        self.stopping.store(true, Ordering::Release);
+        if let Err(error) = self.wake.send(PROTOCOL, &[], Vec::new()) {
+            tracing::warn!(%error, "the listener for the window processes could not be woken to stop");
+            return;
         }
-        Err(reason) => refuse(&app, &reason),
+        let Some(thread) = self.thread.take() else {
+            return;
+        };
+        // The listener's own thread lets go of the last holder when a run it served was the last
+        // thing holding the engine's shell: it ends as it returns.
+        if thread.thread().id() != thread::current().id() {
+            let _ = thread.join();
+        }
     }
 }
 
-/// Refuses the app whose hello, `received`, is of `protocol`, not this WaOS's: one plain line names
-/// both, and the app is answered in this WaOS's protocol, which it cannot read, so it ends rather
-/// than waits. Its bundle is written again at its next launch through WaOS, or as WaOS starts, being
-/// made from another WaOS's files (`bundles`).
+/// The hellos the listener takes, and what it takes them with.
+struct Hellos {
+    table: Arc<ProcessTable>,
+    bundles: Arc<dyn Bundles>,
+    user_opens: UnboundedSender<UserOpen>,
+}
+
+impl Hellos {
+    /// Takes every hello that arrives on `port`, one at a time, until `stopping` is set.
+    fn take_each(&self, port: &ReceiveRight, stopping: &AtomicBool) {
+        loop {
+            let arrival = port.receive(PROTOCOL);
+            if stopping.load(Ordering::Acquire) {
+                return;
+            }
+            match arrival {
+                Ok(Arrival::Message(hello)) => self.take(hello),
+                Ok(Arrival::NoSenders) => {}
+                Ok(Arrival::OtherProtocol { protocol, received }) => {
+                    refuse_other_protocol(protocol, received);
+                }
+                Err(error) => tracing::warn!(%error, "a message no window process could have sent"),
+            }
+        }
+    }
+
+    /// Welcomes the window process that sent `received` if it is its app's, and serves it;
+    /// refuses it if not.
+    fn take(&self, received: Received) {
+        let Received {
+            bytes,
+            ports,
+            sender,
+        } = received;
+        let Some(app) = ports.into_iter().next() else {
+            tracing::warn!(pid = sender.pid(), "a hello with no port to answer on");
+            return;
+        };
+        let hello = match decode::<FromWindow>(&bytes) {
+            Ok(FromWindow::Hello(hello)) => hello,
+            Ok(message) => return tracing::warn!(?message, "a message before any hello"),
+            Err(error) => return refuse(&app, &format!("a hello this WaOS cannot read: {error}")),
+        };
+        tracing::info!(?hello, pid = sender.pid(), "a program's app said hello");
+        let found = Arc::clone(&self.bundles)
+            .check(&hello.program, &sender)
+            .and_then(|()| self.program_for(&hello));
+        match found {
+            Ok(program) => {
+                if let Err(error) = self.serve(hello, program, app) {
+                    tracing::warn!(%error, "the program's app could not be served");
+                }
+            }
+            Err(reason) => refuse(&app, &reason),
+        }
+    }
+
+    /// The run a checked hello's window process serves: the one WaOS launched it for, or, for a
+    /// window process the user opened or a click on one of its app's notifications launched, the
+    /// run opening it answers.
+    fn program_for(&self, hello: &Hello) -> Result<RunningProgram, String> {
+        match &hello.launched_for {
+            LaunchReason::ProgramRunning => (self.table.launching(&hello.program))
+                .ok_or_else(|| "WaOS launched no app for it".to_owned()),
+            LaunchReason::UserOpened | LaunchReason::NotificationActivated(_) => {
+                self.opened_by_the_user(&hello.program)
+            }
+        }
+    }
+
+    /// The run the user's open of `app` answers, once it does; the hellos after this one wait.
+    fn opened_by_the_user(&self, app: &ProgramId) -> Result<RunningProgram, String> {
+        let (opened, answered) = oneshot::channel();
+        let open = UserOpen {
+            app: app.clone(),
+            opened,
+        };
+        if self.user_opens.unbounded_send(open).is_err() {
+            return Err("WaOS opens no apps now".to_owned());
+        }
+        futures::executor::block_on(answered)
+            .unwrap_or_else(|_| Err("WaOS did not open it".to_owned()))
+    }
+
+    /// Welcomes the window process `app` with a port of the connection's, serves it as
+    /// `program`'s, hands the program what the hello carried, and carries out what the window
+    /// process sends on a thread of its own.
+    fn serve(&self, hello: Hello, program: RunningProgram, app: SendRight) -> io::Result<()> {
+        let Hello {
+            program: id,
+            launched_for,
+            opened,
+        } = hello;
+        let connection = ReceiveRight::new()?;
+        let welcome = Welcome {
+            name: self.bundles.name(&program),
+        };
+        let give = connection.make_send()?;
+        connection.notify_when_no_senders()?;
+        app.send(PROTOCOL, &encode(&ToWindow::Welcome(welcome)), vec![give])?;
+        let send = SendToWindow::new(move |message| {
+            if let Err(error) = app.send(PROTOCOL, &encode(&message), Vec::new()) {
+                tracing::warn!(%error, ?message, "the program's app did not take a message");
+            }
+        });
+        let process = self.table.connect(&id, program.clone(), send);
+        deliver_hello(&program, launched_for, opened);
+        let table = Arc::clone(&self.table);
+        thread::Builder::new()
+            .name(format!("waos-app {id}"))
+            .spawn(move || {
+                carry_out(&connection, &process);
+                table.disconnected(&id, &process);
+            })?;
+        Ok(())
+    }
+}
+
+/// Refuses the window process whose hello, `received`, is of `protocol`, not this WaOS's: one
+/// plain line names both, and it is answered in this WaOS's protocol, which it cannot read, so it
+/// ends rather than waits. Its bundle is written again at its next launch through WaOS, or as WaOS
+/// starts, being made from another WaOS's files (`bundles`).
 fn refuse_other_protocol(protocol: u32, received: Received) {
     let pid = received.sender.pid();
     tracing::warn!(
@@ -93,12 +219,12 @@ fn refuse_other_protocol(protocol: u32, received: Received) {
     );
     if let Some(app) = received.ports.into_iter().next() {
         let reason = format!("this WaOS speaks the window protocol {PROTOCOL}, not {protocol}");
-        // An app gone meanwhile has nobody to tell.
+        // A window process gone meanwhile has nobody to tell.
         let _ = app.send(PROTOCOL, &encode(&ToWindow::Refused(reason)), Vec::new());
     }
 }
 
-/// Answers the app `app` that it is refused, and why.
+/// Answers the window process `app` that it is refused, and why.
 fn refuse(app: &SendRight, reason: &str) {
     tracing::warn!(reason, "a program's app was refused");
     let _ = app.send(
@@ -106,45 +232,6 @@ fn refuse(app: &SendRight, reason: &str) {
         &encode(&ToWindow::Refused(reason.to_owned())),
         Vec::new(),
     );
-}
-
-/// Welcomes the app `app` with a port of the connection's, serves it as `program`'s, hands the
-/// program what the hello carried, and carries out what the app sends on a thread of its own.
-fn serve(
-    apps: &Arc<ProgramApps>,
-    hello: Hello,
-    program: RunningProgram,
-    app: SendRight,
-) -> io::Result<()> {
-    let Hello {
-        program: id,
-        launched_for,
-        opened,
-    } = hello;
-    let connection = ReceiveRight::new()?;
-    let welcome = Welcome {
-        name: program_name(&apps.packages, &program),
-    };
-    let give = connection.make_send()?;
-    connection.notify_when_no_senders()?;
-    app.send(PROTOCOL, &encode(&ToWindow::Welcome(welcome)), vec![give])?;
-    let send = SendToWindow::new(move |message| {
-        if let Err(error) = app.send(PROTOCOL, &encode(&message), Vec::new()) {
-            tracing::warn!(%error, ?message, "the program's app did not take a message");
-        }
-    });
-    let process = apps.connected(&id, program.clone(), send);
-    deliver_hello(&program, launched_for, opened);
-    let apps = Arc::downgrade(apps);
-    thread::Builder::new()
-        .name(format!("waos-app {id}"))
-        .spawn(move || {
-            carry_out(&connection, &process);
-            if let Some(apps) = apps.upgrade() {
-                apps.disconnected(&id, &process);
-            }
-        })?;
-    Ok(())
 }
 
 /// Hands `program` what its app's hello carried: the files and links the system opened the app

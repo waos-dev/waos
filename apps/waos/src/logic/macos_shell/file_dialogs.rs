@@ -21,11 +21,11 @@ use waos::{
 };
 use waos_window_messages::FileDialog;
 
-use super::app_reach::{AppReach, let_come_forward};
+use super::window_processes::{WindowProcesses, let_come_forward};
 
 /// The engine's file dialogs on macOS: a program's open in its app, launched for it when it does
 /// not run, a sheet on the window of its view `parent` there when one is given.
-impl ShellFileDialogs for AppReach {
+impl ShellFileDialogs for WindowProcesses {
     fn open_file(
         &self,
         program: &RunningProgram,
@@ -78,16 +78,16 @@ impl ShellFileDialogs for AppReach {
     }
 }
 
-/// Opens the file dialog `kind` in `program`'s app as `reach` reaches it, the app brought forward
-/// as it shows; answers the paths picked in it, or why none were.
+/// Opens the file dialog `kind` in `program`'s app as `window_processes` reach it, the app
+/// brought forward as it shows; answers the paths picked in it, or why none were.
 fn open_in_app(
-    reach: &AppReach,
+    window_processes: &WindowProcesses,
     program: &RunningProgram,
     parent: Option<ViewId>,
     kind: FileDialog,
 ) -> FileDialogFuture<Vec<PathBuf>> {
     let_come_forward(program);
-    let app = reach.app(program);
+    let app = window_processes.of(program);
     Box::pin(async move {
         match app.await {
             Ok(app) => app.open_file_dialog(parent, kind).await,

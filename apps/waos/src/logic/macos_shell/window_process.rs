@@ -69,14 +69,15 @@ use waos_window_messages::{
     PromptReport, ToWindow, ViewReport,
 };
 
-use super::app_reach::app_id;
 use super::awaited_answers::{APP_GONE, AppGone, AwaitedAnswer, AwaitedAnswers};
 use super::canvas_pictures::CanvasPictures;
 use super::canvases::{CanvasKey, CanvasesOnRequest};
 use super::file_dialogs::failed;
+use super::window_processes::app_id;
 use crate::logic::notification_permissions::NotificationPermissions;
 
-/// What sends messages to the window process.
+/// What sends messages to the window process, until WaOS closes it: nothing is sent after, and the
+/// window process, left with none of WaOS's rights to its port, hears its connection end.
 #[derive(Clone)]
 pub(crate) struct SendToWindow(Arc<Mutex<Option<SendMessage>>>);
 
@@ -84,16 +85,21 @@ pub(crate) struct SendToWindow(Arc<Mutex<Option<SendMessage>>>);
 type SendMessage = Box<dyn Fn(ToWindow) + Send + Sync>;
 
 impl SendToWindow {
-    /// Sends each message with `send`.
+    /// Sends each message with `send`, until closed.
     pub(crate) fn new(send: impl Fn(ToWindow) + Send + Sync + 'static) -> SendToWindow {
         SendToWindow(Arc::new(Mutex::new(Some(Box::new(send)))))
     }
 
-    /// Sends `message`.
+    /// Sends `message`; nothing once closed.
     pub(crate) fn send(&self, message: ToWindow) {
         if let Some(send) = self.sending().as_ref() {
             send(message);
         }
+    }
+
+    /// Sends nothing more, letting go of what sends, the window process's port among it.
+    pub(crate) fn close(&self) {
+        self.sending().take();
     }
 
     fn sending(&self) -> MutexGuard<'_, Option<SendMessage>> {
@@ -426,6 +432,12 @@ impl WindowProcess {
         if self.connected().is_some() {
             self.send.send(ToWindow::ProgramEnded);
         }
+    }
+
+    /// WaOS no longer serves the window process: nothing more is sent to it, and, its port let
+    /// go, it hears its connection end and quits.
+    pub(crate) fn close(&self) {
+        self.send.close();
     }
 
     /// Carries out what the window process sent, with the ports that came with it.
