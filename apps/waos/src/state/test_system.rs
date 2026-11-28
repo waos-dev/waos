@@ -30,7 +30,8 @@ use waos_services::app_storage::AppStorage;
 use super::cameras::Cameras;
 use super::image_codecs::ImageCodecs;
 use super::library::{
-    Library, ProgramsOpen, WantsToBeSeen, open_library, take_notification_clicks, work,
+    Library, LibraryDomains, ProgramsOpen, WantsToBeSeen, open_library, take_notification_clicks,
+    work,
 };
 use super::media_assets::MediaAssets;
 use super::media_players::MediaPlayers;
@@ -43,7 +44,7 @@ use crate::logic::package_copies::PackageCopies;
 use crate::logic::recording_indicator::{RecordingChanged, RecordingIndicatorOnRequest};
 use crate::logic::running_apps::{IfRunning, RunningApps};
 use crate::logic::startup::tests::start_asking_nobody;
-use crate::logic::startup::{self, AppServices, Setup};
+use crate::logic::startup::{self, Setup};
 use crate::logic::test_engine::{self, NoWindows, WITHIN};
 use crate::logic::test_installs;
 
@@ -114,17 +115,16 @@ impl TestSystem {
             ..Setup::for_tests(folder.path(), work.handle().clone())
         };
         let started = start_asking_nobody(setup, |_before| (shell, test_engine::no_screens()));
-        let services = AppServices::of(&started);
+        let domains = LibraryDomains::of(&started);
         let startup::Started {
             running: runs,
             packages,
             permissions,
-            sources,
             storage,
             engine,
             ..
         } = started;
-        let (served_sources, started) = (sources, Rc::new(RefCell::new(None)));
+        let started = Rc::new(RefCell::new(None));
         let served_packages = Arc::clone(&packages);
         let kept = Rc::clone(&started);
         let suspended = Arc::clone(&engine);
@@ -150,15 +150,7 @@ impl TestSystem {
             if let Some(cameras) = cameras {
                 cameras.serve(app);
             }
-            let library = open_library(
-                app,
-                served_sources,
-                services,
-                copies,
-                ProgramsOpen::InWindows,
-                None,
-                work,
-            );
+            let library = open_library(app, domains, copies, ProgramsOpen::InWindows, None, work);
             take_notification_clicks(app, &library, posted_as_programs);
             *kept.borrow_mut() = Some(library);
         });

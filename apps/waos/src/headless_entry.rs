@@ -25,13 +25,13 @@ use waos_services::permissions::Prompts;
 use waos_services::sources::SourceProxy;
 
 use crate::logic::asking_now::AskingNow;
-use crate::logic::dev_server::DevServer;
+use crate::logic::dev_server::{DevServer, ServedDomains};
 use crate::logic::developer_access::DeveloperAccess;
 use crate::logic::folders::{self, AppFolders};
 use crate::logic::program_places::ProgramPlace;
 use crate::logic::prompts::{PromptRequests, PromptsOnRequest};
 use crate::logic::running_apps::RunningApps;
-use crate::logic::startup::{self, AppServices, BeforeTheEngine, EngineCompiler, Outside, Setup};
+use crate::logic::startup::{self, BeforeTheEngine, EngineCompiler, Outside, Setup};
 use crate::logic::video_decoder_thread;
 use crate::os;
 use crate::write_traces;
@@ -136,7 +136,25 @@ impl HeadlessDaemon {
             },
             |before, (prompts, prompted)| Ok(headless_outside(display, before, &prompts, prompted)),
         )?;
-        let services = AppServices::of(&started);
+        let startup::Started {
+            running,
+            packages,
+            permissions,
+            engine,
+            environments,
+            outputs,
+            starter,
+            ..
+        } = started;
+        let served = ServedDomains {
+            running: Arc::clone(&running),
+            packages,
+            starter,
+            permissions,
+            environments,
+            outputs,
+            engine: Arc::clone(&engine),
+        };
 
         let (stop_prompts, stop_prompts_rx) = oneshot::channel();
         runtime.spawn(hold_prompts(prompted, stop_prompts_rx));
@@ -144,16 +162,16 @@ impl HeadlessDaemon {
         // Developer access stays off: a headless WaOS is reached from this machine alone.
         let access = DeveloperAccess::at(config.folders.developer_access.clone());
         let server =
-            DevServer::start(services, asking, &config.socket, access).with_context(|| {
+            DevServer::start(served, asking, &config.socket, access).with_context(|| {
                 format!("listening for dev commands at {}", config.socket.display())
             })?;
         tracing::info!(socket = %config.socket.display(), "headless WaOS listening");
 
         Ok(HeadlessDaemon {
-            runs: started.running,
+            runs: running,
             server,
             stop_prompts: Some(stop_prompts),
-            _engine: started.engine,
+            _engine: engine,
         })
     }
 

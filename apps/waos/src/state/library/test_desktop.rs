@@ -42,7 +42,8 @@ use waos_package::{Category, Manifest, SigningKey};
 use waos_services::activity::ActivityRecord;
 
 use super::{
-    Library, ProgramsOpen, open_library, open_settings_when_asked, show_phone_files, work,
+    Library, LibraryDomains, ProgramsOpen, open_library, open_settings_when_asked,
+    show_phone_files, work,
 };
 use crate::logic::opened_package::tests::{write_package, write_package_of, write_package_showing};
 use crate::logic::package_copies::PackageCopies;
@@ -54,7 +55,7 @@ use crate::logic::program_faces::ProgramFaces;
 use crate::logic::prompts::{MachinePickerOnRequest, OutputPickerOnRequest, PromptsOnRequest};
 use crate::logic::recording_indicator::RecordingIndicatorOnRequest;
 use crate::logic::running_apps::RunningApps;
-use crate::logic::startup::{self, AppServices, Outside, Setup};
+use crate::logic::startup::{self, Outside, Setup};
 use crate::logic::test_engine::{self, WITHIN};
 use crate::logic::test_outputs::StatedOutputs;
 use crate::state::ViewWindows;
@@ -190,12 +191,11 @@ impl LibraryDesktop {
             },
         )
         .expect("WaOS starts");
-        let services = AppServices::of(&started);
+        let domains = LibraryDomains::of(&started);
         let startup::Started {
             running: runs,
             packages,
             permissions,
-            sources,
             activity,
             ..
         } = started;
@@ -231,8 +231,7 @@ impl LibraryDesktop {
             let recordings = Recordings::listen(app, recording_changes, Arc::clone(&packages));
             let library = open_library(
                 app,
-                sources,
-                services,
+                domains,
                 copies,
                 ProgramsOpen::InWindows,
                 preferences,
@@ -359,7 +358,7 @@ impl LibraryDesktop {
     pub(crate) fn install_compiled(&mut self, id: &str, name: &str, component: &str) {
         let bytes = std::fs::read(component).unwrap();
         let package = self.package(id, name, "1.0.0", &bytes);
-        let packages = self.read(|library| Arc::clone(&library.services.packages));
+        let packages = self.read(|library| Arc::clone(&library.packages));
         crate::logic::test_installs::install_package(&packages, &package);
         let installed: waos_package::ProgramId = id.parse().unwrap();
         self.settle_until("the library shows the program", |desktop| {
@@ -369,7 +368,7 @@ impl LibraryDesktop {
 
     /// The version of the program `id` installed now.
     pub(crate) fn version_of(&self, id: &str) -> waos_services::packages::InstalledVersion {
-        let packages = self.read(|library| Arc::clone(&library.services.packages));
+        let packages = self.read(|library| Arc::clone(&library.packages));
         crate::logic::test_installs::installed_version(&packages, id)
     }
 
@@ -378,7 +377,7 @@ impl LibraryDesktop {
     pub(crate) fn hold_lock(&self, id: &str) -> waos_services::packages::AppLock {
         let id = id.parse().unwrap();
         let (runtime, packages) =
-            self.read(|library| (library.runtime(), Arc::clone(&library.services.packages)));
+            self.read(|library| (library.runtime(), Arc::clone(&library.packages)));
         runtime.block_on(packages.lock(&id))
     }
 

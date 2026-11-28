@@ -125,7 +125,8 @@ pub(crate) struct Started {
     pub(crate) engine: Arc<WaOS>,
     pub(crate) environments: Arc<ProgramEnvironments>,
     pub(crate) places: ProgramPlaces,
-    /// What each app writes, which the dev server's attaches read.
+    /// What each app writes, which the dev server's attaches read; a phone has no dev server yet.
+    #[cfg_attr(mobile, expect(dead_code, reason = "the dev server's alone"))]
     pub(crate) outputs: Arc<LaunchOutputs>,
     pub(crate) starter: Arc<AppStarter>,
 }
@@ -213,39 +214,6 @@ pub(crate) fn start<P, S>(
         starter,
     };
     Ok((started, outside.own))
-}
-
-/// The services that keep WaOS's apps, as the library, the dev server and the programs' apps on
-/// macOS are handed them.
-#[derive(Clone)]
-pub(crate) struct AppServices {
-    pub(crate) running: Arc<RunningApps>,
-    pub(crate) packages: Arc<PackageManager>,
-    pub(crate) permissions: Permissions,
-    pub(crate) starter: Arc<AppStarter>,
-    pub(crate) engine: Arc<WaOS>,
-    pub(crate) environments: Arc<ProgramEnvironments>,
-    pub(crate) places: ProgramPlaces,
-    /// What each app writes, which the dev server's attaches read; a phone has no dev server yet.
-    #[cfg(desktop)]
-    pub(crate) outputs: Arc<LaunchOutputs>,
-}
-
-impl AppServices {
-    /// The services among what `started` put together.
-    pub(crate) fn of(started: &Started) -> AppServices {
-        AppServices {
-            running: Arc::clone(&started.running),
-            packages: Arc::clone(&started.packages),
-            permissions: started.permissions.clone(),
-            starter: Arc::clone(&started.starter),
-            engine: Arc::clone(&started.engine),
-            environments: Arc::clone(&started.environments),
-            places: started.places.clone(),
-            #[cfg(desktop)]
-            outputs: Arc::clone(&started.outputs),
-        }
-    }
 }
 
 /// What WaOS keeps of its apps over the store, each with the domain that owns it: what is

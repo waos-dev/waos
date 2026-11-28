@@ -61,6 +61,7 @@ mod macos {
     use waos_window_messages::os::macos::SendRight;
 
     use super::ProgramPrompts;
+    use crate::logic::app_starter::AppStarter;
     use crate::logic::folders::AppFolders;
     use crate::logic::placement::WindowsOnRequest;
     use crate::logic::program_apps::{
@@ -69,7 +70,6 @@ mod macos {
         NotificationPermissions, ProgramApps, ToShow, WindowPresence,
     };
     use crate::logic::running_apps::RunningApps;
-    use crate::logic::startup::AppServices;
     use crate::os::LayerContext;
     use crate::state::app_nap_exemption::{self, AppNapExemption};
     use crate::state::desktop_host::with_macos;
@@ -188,7 +188,7 @@ mod macos {
     }
 
     /// From now on, the canvases of the views in the programs' apps are kept on the main thread,
-    /// the programs whose app the user opens alone are opened by `services`' starter, what macOS says of a program's notifications goes to `library`,
+    /// the programs whose app the user opens alone are opened by `starter`, what macOS says of a program's notifications goes to `library`,
     /// every running program's app reads it again each time WaOS comes to the front, and whether
     /// each of their windows is in sight tells `activity`; answers where the programs' prompts are
     /// shown: in dialogs of their apps, launched for a prompt when they do not run, or by
@@ -196,7 +196,8 @@ mod macos {
     pub(crate) fn follow(
         app: &mut App,
         started: Started,
-        services: AppServices,
+        running: &Arc<RunningApps>,
+        starter: Arc<AppStarter>,
         library: &Entity<Library>,
         own_windows: Rc<PromptWindows>,
         activity: &Entity<AppNapExemption>,
@@ -220,10 +221,10 @@ mod macos {
         tell_system_permissions(app, library, notification_permission_readings);
         app_nap_exemption::follow_windows(app, activity.clone(), window_presences);
         if let Some(notifications) = notifications {
-            read_system_permissions_at_the_front(app, notifications, Arc::clone(&services.running));
+            read_system_permissions_at_the_front(app, notifications, Arc::clone(running));
         }
         let prompts = prompts_in_apps(app, &apps, dialog_reports, own_windows);
-        apps.open_with(services.starter);
+        apps.open_with(starter);
         prompts
     }
 

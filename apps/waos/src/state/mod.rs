@@ -89,7 +89,7 @@ use crate::logic::asking_now::AskingNow;
 use crate::logic::command_line::LibraryPlace;
 #[cfg(desktop)]
 #[cfg(desktop)]
-use crate::logic::dev_server::DevServer;
+use crate::logic::dev_server::{DevServer, ServedDomains};
 #[cfg(desktop)]
 use crate::logic::developer_access::DeveloperAccess;
 use crate::logic::folders::AppFolders;
@@ -107,7 +107,7 @@ use crate::logic::program_shortcuts::SystemShortcuts;
 use crate::logic::prompts::{PromptRequests, PromptsOnRequest};
 use crate::logic::recording_indicator::RecordingIndicatorOnRequest;
 use crate::logic::running_apps::RunningApps;
-use crate::logic::startup::{self, AppServices, BeforeTheEngine, EngineCompiler, Outside, Setup};
+use crate::logic::startup::{self, BeforeTheEngine, EngineCompiler, Outside, Setup};
 use crate::logic::vsync_waiter::WaftVsync;
 use crate::ui::deck::Deck;
 use crate::ui::every_window::{LibraryWindow, every_window, program_windows};
@@ -125,7 +125,7 @@ use launcher::Launcher;
 #[cfg(desktop)]
 use library::offer_developer_access;
 use library::{
-    FirstWindowWanted, Library, ProgramOpened, ProgramsOpen, open_library,
+    FirstWindowWanted, Library, LibraryDomains, ProgramOpened, ProgramsOpen, open_library,
     open_settings_when_asked, request_to_open_with_waos, show_phone_files,
     take_files_opened_with_waos, take_notification_clicks,
 };
@@ -244,12 +244,16 @@ pub(crate) fn start(
             )
         },
     )?;
-    let services = AppServices::of(&started);
     let startup::Started {
         running,
         packages,
+        permissions,
         sources,
         engine,
+        environments,
+        places,
+        #[cfg(desktop)]
+        outputs,
         starter,
         ..
     } = started;
@@ -258,10 +262,12 @@ pub(crate) fn start(
         faces,
         program_apps,
         tab_requests,
+        #[cfg(desktop)]
         asking,
         prompted,
         phone_files,
         phone_storage,
+        ..
     } = made;
     let WaftParts {
         clipboard,
@@ -296,13 +302,32 @@ pub(crate) fn start(
     #[cfg(desktop)]
     let developer_access = DeveloperAccess::at(folders.developer_access.clone());
     #[cfg(desktop)]
-    listen_for_the_command(app, services.clone(), asking, developer_access.clone())?;
+    let served = ServedDomains {
+        running: Arc::clone(&running),
+        packages: Arc::clone(&packages),
+        starter: Arc::clone(&starter),
+        permissions: permissions.clone(),
+        environments: Arc::clone(&environments),
+        outputs,
+        engine: Arc::clone(&engine),
+    };
+    #[cfg(desktop)]
+    listen_for_the_command(app, served, asking, developer_access.clone())?;
     let prompt_windows = questions::prompt_windows(app, view_windows.clone(), faces);
     let recordings = Recordings::listen(app, recording_changes, Arc::clone(&packages));
+    let domains = LibraryDomains {
+        sources,
+        packages: Arc::clone(&packages),
+        running: Arc::clone(&running),
+        starter: Arc::clone(&starter),
+        permissions,
+        environments,
+        places,
+        engine,
+    };
     let library = open_library(
         app,
-        sources,
-        services.clone(),
+        domains,
         package_copies,
         programs_open,
         preferences,
@@ -315,7 +340,8 @@ pub(crate) fn start(
     let prompts = program_apps::follow(
         app,
         program_apps,
-        services,
+        &running,
+        starter,
         &library,
         Rc::clone(&prompt_windows),
         &app_nap_exemption,
@@ -482,6 +508,8 @@ struct MadeWithTheShell {
     faces: ProgramFaces,
     program_apps: program_apps::Started,
     tab_requests: UnboundedReceiver<TabRequest>,
+    /// What the programs' users are asked now, which the dev server tells; a phone has none.
+    #[cfg_attr(mobile, expect(dead_code, reason = "the dev server's alone"))]
     asking: Arc<AskingNow>,
     prompted: PromptRequests,
     phone_files: Option<Entity<PhoneFiles>>,
@@ -596,27 +624,25 @@ fn desktop_outside(
     Ok(Outside::new(shell, facts, local_capabilities(home), made))
 }
 
-/// Listens for `waos` on the socket `waos-dev-protocol` names, installing what it sends and
-/// launching it on `installed`'s engine with its environments, counted in its runs,
-/// its code compiled as an install's, and opening files with an installed program as `installed`
-/// opens it, and from computers on the network too while `access` is on; and makes a quit ask
-/// every program in its runs first, stopping the server and keeping the engine's days once they
-/// agree. Not on a phone: `waos` reaches none yet, and the system ends an app there without
-/// asking it.
+/// Listens for `waos` on the socket `waos-dev-protocol` names, serving it with `served`: installing
+/// what it sends, launching an installed app and opening files with one, telling each attach what
+/// `asking` says its app's user is asked, and taking computers on the network too while `access`
+/// is on; and makes a quit ask every app running first, stopping the server and keeping the
+/// engine's days once they agree. Not on a phone: `waos` reaches none yet, and the system ends an
+/// app there without asking it.
 #[cfg(desktop)]
 fn listen_for_the_command(
     app: &mut App,
-    installed: AppServices,
+    served: ServedDomains,
     asking: Arc<AskingNow>,
     access: DeveloperAccess,
 ) -> Result<()> {
     let socket = waos_dev_protocol::listener_path();
-    let runs = Arc::clone(&installed.running);
-    let engine = Arc::clone(&installed.engine);
-    let server = DevServer::start(installed, asking, &socket, access)
+    let (running, engine) = (Arc::clone(&served.running), Arc::clone(&served.engine));
+    let server = DevServer::start(served, asking, &socket, access)
         .with_context(|| format!("listening for waos at {}", socket.display()))?;
     tracing::info!(socket = %socket.display(), "WaOS listens for waos");
-    quitting::ask_programs_before_quitting(app, runs, server, engine);
+    quitting::ask_programs_before_quitting(app, running, server, engine);
     Ok(())
 }
 

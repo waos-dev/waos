@@ -48,7 +48,7 @@ impl Library {
     /// Where the program `id` opens: where it runs, or where programs open.
     pub(super) fn place_to_open(&self, id: &ProgramId) -> ProgramPlace {
         if self.is_running(id) {
-            return self.services.places.place_of(id);
+            return self.places.place_of(id);
         }
         if self.programs_open_in_tabs() {
             ProgramPlace::Tab
@@ -90,7 +90,7 @@ impl Library {
         windows: &Entity<ViewWindows>,
         cx: &mut Context<Library>,
     ) {
-        if self.services.packages.installed_program(id).is_none() {
+        if self.packages.installed_program(id).is_none() {
             close_window_of(&view);
             // Brought forward while the window is in sight, which Android requires of an app.
             cx.emit(WantsToBeSeen);
@@ -108,7 +108,7 @@ impl Library {
             });
             return;
         }
-        let face = program_face(&self.services.packages, id.as_str());
+        let face = program_face(&self.packages, id.as_str());
         windows.update(cx, |windows, _| {
             windows.adopt_window(view, id.as_str(), &face)
         });
@@ -124,7 +124,7 @@ impl Library {
         windows: Entity<ViewWindows>,
         cx: &mut Context<Library>,
     ) {
-        if self.services.packages.installed_program(id).is_none() {
+        if self.packages.installed_program(id).is_none() {
             windows.update(cx, |windows, _| windows.prepared_unused(id.as_str()));
             return self.failed(
                 format!("{id} is not installed, or its files cannot be read"),
@@ -132,7 +132,7 @@ impl Library {
             );
         }
         self.add_recent(id, cx);
-        let (starter, opening) = (Arc::clone(&self.services.starter), id.clone());
+        let (starter, opening) = (Arc::clone(&self.starter), id.clone());
         let name = id.as_str().to_owned();
         self.work_then(
             async move {

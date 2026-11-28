@@ -57,11 +57,11 @@ use crate::logic::program_places::{PlacedWhereOpened, ProgramPlace, TabsOnReques
 use crate::logic::prompts::PromptsOnRequest;
 use crate::logic::recording_indicator::RecordingIndicatorOnRequest;
 use crate::logic::running_apps::RunningApps;
-use crate::logic::startup::{self, AppServices, Outside, Setup};
+use crate::logic::startup::{self, Outside, Setup};
 use crate::logic::test_engine::{self, NoWindows, WITHIN};
 use crate::state::ViewWindows;
 use crate::state::library::test_desktop::label_of;
-use crate::state::library::{Library, ProgramsOpen, open_library, work};
+use crate::state::library::{Library, LibraryDomains, ProgramsOpen, open_library, work};
 use crate::state::questions::{self, Questions};
 use crate::state::recordings::Recordings;
 use crate::state::{bring_opened_programs_forward, phone_deck};
@@ -292,11 +292,10 @@ impl TestPhone {
             .expect("WaOS starts");
             (started, tab_requests)
         };
-        let services = AppServices::of(&started);
+        let domains = LibraryDomains::of(&started);
         let startup::Started {
             running: runs,
             packages,
-            sources,
             ..
         } = started;
         let screen = Rc::new(PhoneScreen::new());
@@ -313,7 +312,7 @@ impl TestPhone {
         }
         let platform = Rc::new(platform);
         let (_indicator, recording_changes) = RecordingIndicatorOnRequest::new();
-        let (served, deck_runs) = (sources, Arc::clone(&runs));
+        let deck_runs = Arc::clone(&runs);
         let served_packages = Arc::clone(&packages);
         let started = Rc::new(std::cell::RefCell::new(None));
         let kept = Rc::clone(&started);
@@ -331,15 +330,8 @@ impl TestPhone {
                 Arc::clone(&served_packages),
             );
             let recordings = Recordings::listen(app, recording_changes, served_packages);
-            let library = open_library(
-                app,
-                served,
-                services,
-                copies,
-                programs_open,
-                Some(preferences),
-                work,
-            );
+            let library =
+                open_library(app, domains, copies, programs_open, Some(preferences), work);
             bring_opened_programs_forward(app, &library, &view_windows);
             let tabs = Tabs::listen(app, deck_runs, tab_requests);
             let deck = phone_deck(

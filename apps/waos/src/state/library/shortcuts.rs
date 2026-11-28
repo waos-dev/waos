@@ -30,7 +30,7 @@ impl Library {
     ) {
         self.shortcuts = Some(system);
         self.match_shortcuts(cx);
-        let changes = self.services.packages.installed_changes();
+        let changes = self.packages.installed_changes();
         follow(
             changes,
             |library, changes, cx| {
