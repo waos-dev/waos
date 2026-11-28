@@ -16,8 +16,8 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use waos_package::{ListedProgram, Manifest, ProgramId, SigningKey};
 use waos_services::packages::{
-    Caller, CodeCompiler, InstallError, InstalledProgram, PackageChange, PackageContent,
-    PackageManager, StopApp,
+    Caller, CodeCompiler, InstallError, InstalledAppsFiles, InstalledProgram, PackageChange,
+    PackageContent, PackageManager, StopApp,
 };
 use waos_services::sources::{Source, SourceProxy, Sources, SourcesInMemory};
 
@@ -45,7 +45,11 @@ impl StopApp for NothingRuns {
 
 /// The package manager over `directory`, a store directory.
 pub fn packages(directory: &Path) -> PackageManager {
-    PackageManager::open(directory, Arc::new(NoCompiler), Arc::new(NothingRuns)).unwrap()
+    PackageManager::new(
+        Arc::new(InstalledAppsFiles::open(directory).unwrap()),
+        Arc::new(NoCompiler),
+        Arc::new(NothingRuns),
+    )
 }
 
 /// Installs the package at `path` with `packages`, for the user.

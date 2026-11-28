@@ -74,7 +74,7 @@ fn a_bundle_carries_the_packages_icon_at_every_size() {
     let program = ProgramId::try_from("dev.example.notes".to_owned()).unwrap();
     let waos = waos_files(folder.path());
     let bundle = folder.path().join("Notes.app");
-    let icon = Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/icon.png");
+    let icon = fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/icon.png")).unwrap();
     let contents = BundleContents {
         program: &program,
         name: "Notes",

@@ -41,7 +41,7 @@ impl SystemEntries for DesktopEntries {
         let icon = match &entry.icon {
             Some(png) => {
                 let copy = identities.png_of(&entry.app_id);
-                write_in_place(&copy, &fs::read(png)?)?;
+                write_in_place(&copy, png)?;
                 files.push(copy.clone());
                 Some(copy)
             }
@@ -205,11 +205,13 @@ fn write_in_place(path: &Path, bytes: &[u8]) -> io::Result<()> {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use waos_package::FileAssociation;
 
     use super::*;
 
-    fn entry(name: &str, icon: Option<PathBuf>) -> ProgramEntry {
+    fn entry(name: &str, icon: Option<Arc<[u8]>>) -> ProgramEntry {
         ProgramEntry {
             id: "dev.example.notes".parse().unwrap(),
             app_id: "dev.waos.app.dev.example.notes".to_owned(),
@@ -277,8 +279,6 @@ mod tests {
     #[test]
     fn writing_an_entry_puts_it_and_a_copy_of_its_icon_in_place() {
         let folder = tempfile::tempdir().unwrap();
-        let png = folder.path().join("package-icon.png");
-        fs::write(&png, b"a picture").unwrap();
         let entries = DesktopEntries {
             applications: folder.path().join("applications"),
         };
@@ -287,7 +287,11 @@ mod tests {
             icons: folder.path().join("icons"),
         };
         let files = entries
-            .write(&entry("Notes", Some(png)), &identities, &[])
+            .write(
+                &entry("Notes", Some(Arc::from(&b"a picture"[..]))),
+                &identities,
+                &[],
+            )
             .unwrap()
             .files;
         let copy = folder

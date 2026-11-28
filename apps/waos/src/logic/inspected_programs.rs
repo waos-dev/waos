@@ -115,12 +115,13 @@ impl InspectedApps for ProgramsOnThisComputer {
         let packages = Arc::clone(&self.packages);
         let id: Option<ProgramId> = id.parse().ok();
         async move {
-            let path = packages.icon(&id?)?;
-            // The icon is read from its file.
-            tokio::task::spawn_blocking(move || std::fs::read(path).ok())
+            let id = id?;
+            // The package manager may read the icon from its file.
+            tokio::task::spawn_blocking(move || packages.icon(&id))
                 .await
                 .ok()
                 .flatten()
+                .map(|icon| icon.to_vec())
         }
         .boxed()
     }

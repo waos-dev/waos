@@ -3,7 +3,7 @@
 
 use std::path::PathBuf;
 
-use waos_package::{COMPONENT, ICON, Manifest, PublisherKey};
+use waos_package::{COMPONENT, Manifest, PublisherKey};
 
 use crate::packages::programs;
 
@@ -85,6 +85,12 @@ pub struct InstalledVersion {
 }
 
 impl InstalledVersion {
+    /// The version unpacked in `folder`: its component `program.wasm`, and its code folder `code`
+    /// beside it.
+    pub fn new(folder: PathBuf) -> InstalledVersion {
+        InstalledVersion { folder }
+    }
+
     /// Its component, which the app runs.
     pub fn component(&self) -> PathBuf {
         self.folder.join(COMPONENT)
@@ -93,11 +99,5 @@ impl InstalledVersion {
     /// Its code folder, for the code compiled from its component.
     pub fn code(&self) -> PathBuf {
         self.folder.join(programs::CODE)
-    }
-
-    /// Its icon, a square PNG; none for a development build that had none.
-    pub(crate) fn icon(&self) -> Option<PathBuf> {
-        let icon = self.folder.join(ICON);
-        icon.is_file().then_some(icon)
     }
 }

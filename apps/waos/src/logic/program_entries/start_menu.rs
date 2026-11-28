@@ -49,8 +49,7 @@ impl SystemEntries for StartMenu {
         let icon = match &entry.icon {
             Some(png) => {
                 let ico = identities.ico_of(&entry.app_id);
-                let picture = std::fs::read(png)?;
-                let written = super::ico::ico_of(&picture).map_err(io::Error::other)?;
+                let written = super::ico::ico_of(png).map_err(io::Error::other)?;
                 write_file(&ico, &written)?;
                 files.push(ico.clone());
                 Some(ico)

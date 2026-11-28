@@ -25,7 +25,7 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, PoisonError};
+use std::sync::{Arc, Mutex, PoisonError};
 
 use hmac::{Hmac, KeyInit, Mac};
 use serde::{Deserialize, Serialize};
@@ -44,8 +44,9 @@ pub(crate) struct ProgramDescription {
     /// Its name as its user knows it.
     pub(crate) name: String,
     pub(crate) version: String,
-    /// Its icon, as its install keeps it; none for a development build that had none.
-    pub(crate) icon: Option<PathBuf>,
+    /// Its icon, a PNG's bytes, as its install keeps it; none for a development build that had
+    /// none.
+    pub(crate) icon: Option<Arc<[u8]>>,
     /// What it is for, where its author said, which macOS groups its apps by.
     pub(crate) category: Option<Category>,
     /// The kinds of file it opens, which the Finder offers its app for.

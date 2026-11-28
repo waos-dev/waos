@@ -30,7 +30,9 @@ use waos::{
 use waos_local::LocalCapabilities;
 use waos_services::activity::{ActivityFiles, ActivityRecord};
 use waos_services::app_storage::AppStorage;
-use waos_services::packages::{CodeCompiler, InstalledApps, PackageManager, StopApp};
+use waos_services::packages::{
+    CodeCompiler, InstalledApps, InstalledAppsFiles, PackageManager, StopApp,
+};
 use waos_services::permissions::{Permissions, Prompts, SettingsFiles};
 use waos_services::sources::{SourceProxy, Sources, SourcesFile};
 
@@ -215,9 +217,13 @@ pub(crate) fn open_domains(
     proxy: SourceProxy,
     prompts: Arc<dyn Prompts>,
 ) -> Result<Domains> {
-    let packages = PackageManager::open(folder, compiler, Arc::clone(running) as Arc<dyn StopApp>)
+    let installed = InstalledAppsFiles::open(folder)
         .with_context(|| format!("opening the apps installed at {}", folder.display()))?;
-    let packages = Arc::new(packages);
+    let packages = Arc::new(PackageManager::new(
+        Arc::new(installed),
+        compiler,
+        Arc::clone(running) as Arc<dyn StopApp>,
+    ));
     let permissions = Permissions::open(
         Arc::new(SettingsFiles::new(folder)),
         prompts,

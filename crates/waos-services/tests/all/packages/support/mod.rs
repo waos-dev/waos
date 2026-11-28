@@ -1,5 +1,5 @@
-//! What the package manager's tests install with: the real manager over a throwaway folder, with
-//! instant stand-ins for what it is handed (a compiler that writes a marker file, and a way to
+//! What the package manager's tests install with: the real manager over a throwaway folder, or over
+//! the installed apps kept in memory, with instant stand-ins for what it is handed (a compiler that writes a marker file, and a way to
 //! stop apps that records each stop), and signed packages written to a folder.
 
 #![allow(dead_code, reason = "each test crate uses its own part of the support")]
@@ -15,8 +15,9 @@ use futures::stream::{self, StreamExt as _};
 use tempfile::TempDir;
 use waos_package::{Manifest, ProgramId, SigningKey};
 use waos_services::packages::{
-    ByteStream, Caller, CodeCompiler, DevelopmentBuild, InstallError, InstalledProgram,
-    PackageChange, PackageContent, PackageManager, StopApp,
+    ByteStream, Caller, CodeCompiler, DevelopmentBuild, InstallError, InstalledAppsFiles,
+    InstalledAppsInMemory, InstalledProgram, PackageChange, PackageContent, PackageManager,
+    StopApp,
 };
 
 pub const TRIANGLE: &str = "dev.example.triangle";
@@ -66,12 +67,14 @@ impl StopApp for RecordedStops {
     }
 }
 
-/// A package manager over a throwaway folder, with what it was handed.
+/// A package manager over a throwaway folder, or over memory, with what it was handed.
 pub struct Manager {
     pub packages: PackageManager,
     pub compiler: Arc<MarkerCompiler>,
     pub stops: Arc<RecordedStops>,
+    /// The folder the installed apps are kept in, for a manager over a folder.
     pub folder: PathBuf,
+    /// Where the packages it installs are written first.
     pub scratch: TempDir,
 }
 
@@ -82,6 +85,26 @@ impl Manager {
         let compiler = Arc::new(MarkerCompiler::default());
         let stops = Arc::new(RecordedStops::default());
         let packages = open(&folder, &compiler, &stops);
+        Manager {
+            packages,
+            compiler,
+            stops,
+            folder,
+            scratch,
+        }
+    }
+
+    /// A package manager over the installed apps kept in memory, nothing installed.
+    pub fn in_memory() -> Manager {
+        let scratch = tempfile::tempdir().unwrap();
+        let folder = scratch.path().join("store");
+        let compiler = Arc::new(MarkerCompiler::default());
+        let stops = Arc::new(RecordedStops::default());
+        let packages = PackageManager::new(
+            Arc::new(InstalledAppsInMemory::default()),
+            Arc::clone(&compiler) as Arc<dyn CodeCompiler>,
+            Arc::clone(&stops) as Arc<dyn StopApp>,
+        );
         Manager {
             packages,
             compiler,
@@ -132,12 +155,11 @@ fn open(
     compiler: &Arc<MarkerCompiler>,
     stops: &Arc<RecordedStops>,
 ) -> PackageManager {
-    PackageManager::open(
-        folder,
+    PackageManager::new(
+        Arc::new(InstalledAppsFiles::open(folder).unwrap()),
         Arc::clone(compiler) as Arc<dyn CodeCompiler>,
         Arc::clone(stops) as Arc<dyn StopApp>,
     )
-    .unwrap()
 }
 
 pub fn triangle_at(version: &str) -> Vec<(String, String)> {
