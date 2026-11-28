@@ -15,6 +15,8 @@ use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use tokio::sync::watch;
+
 /// How long a test waits for what it expects before it fails: longer than any passing test takes
 /// alone, so a hung wait costs seconds, not minutes.
 pub const WITHIN: Duration = Duration::from_secs(15);
@@ -35,14 +37,25 @@ pub fn within<T: Send + 'static>(future: impl Future<Output = T> + Send + 'stati
 }
 
 /// The changes of something a test reads, which its keeper announces ([`Changes::announce`]) and
-/// a test waits on ([`Changes::wait_until`]): a stand-in's records, a shell's windows, a
-/// program's output. One `Changes` may serve many things: a wait checks what it waits for again
+/// a test waits on ([`Changes::wait_until`], or [`Changes::until`] in an async test): a
+/// stand-in's records, a shell's windows, a program's output. One `Changes` may serve many things: a wait checks what it waits for again
 /// at each change, so a change to something else only costs a check.
-#[derive(Default)]
 pub struct Changes {
     /// How many changes were announced.
     count: Mutex<u64>,
     changed: Condvar,
+    /// The same changes, for an async wait, which must not block its runtime's thread.
+    announced: watch::Sender<()>,
+}
+
+impl Default for Changes {
+    fn default() -> Changes {
+        Changes {
+            count: Mutex::default(),
+            changed: Condvar::new(),
+            announced: watch::Sender::new(()),
+        }
+    }
 }
 
 impl Changes {
@@ -50,6 +63,26 @@ impl Changes {
     pub fn announce(&self) {
         *self.count() += 1;
         self.changed.notify_all();
+        self.announced.send_replace(());
+    }
+
+    /// Resolves once `done`, checked now and after each change, failing after [`WITHIN`] with
+    /// `what` was awaited: [`wait_until`](Self::wait_until) for an async test, on tokio's clock.
+    pub async fn until(&self, what: &str, mut done: impl FnMut() -> bool) {
+        let mut announced = self.announced.subscribe();
+        let waited = tokio::time::timeout(WITHIN, async {
+            loop {
+                announced.borrow_and_update();
+                if done() {
+                    return;
+                }
+                // The sender lives as long as `self`, which this borrows.
+                let _ = announced.changed().await;
+            }
+        });
+        waited
+            .await
+            .unwrap_or_else(|_| panic!("never within {WITHIN:?}: {what}"));
     }
 
     /// Returns once `done`, checked now and after each change, failing after [`WITHIN`] with
