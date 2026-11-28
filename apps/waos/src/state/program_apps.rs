@@ -21,7 +21,10 @@
 //!
 //! The invariant a later editor will break: macOS has no second route. Where the programs' apps
 //! cannot be, as when WaOS finds no window library or loader, WaOS says why as an error, and every
-//! window a program asks for fails with it; WaOS shows no program's windows itself.
+//! window a program asks for fails with it; WaOS shows no program's windows itself. And the
+//! programs' apps have one holder, the main thread's task that keeps their canvases (`keep`):
+//! everything else reaches them weakly, so a change that drops that holder ends every app as it
+//! says hello, its icon marked running and no window shown.
 
 #[cfg(target_os = "macos")]
 pub(crate) use macos::*;
@@ -187,7 +190,8 @@ mod macos {
         Some(notifications as Arc<dyn ShellSystemPermissions>)
     }
 
-    /// From now on, the canvases of the views in the programs' apps are kept on the main thread,
+    /// From now on, the programs' apps are kept for as long as WaOS runs (`keep`), the canvases of
+    /// their views on the main thread,
     /// the programs whose app the user opens alone are opened by `starter`, what macOS says of a program's notifications goes to `library`,
     /// every running program's app reads it again each time WaOS comes to the front, and whether
     /// each of their windows is in sight tells `activity`; answers where the programs' prompts are
@@ -213,7 +217,7 @@ mod macos {
         let Ok(apps) = apps else {
             return in_own_windows(own_windows);
         };
-        keep_canvases(app, canvas_calls);
+        keep(app, Arc::clone(&apps), canvas_calls);
         let permissions = apps.notification_permissions();
         library.update(app, |library, _| {
             library.read_notification_permissions(permissions)
@@ -327,9 +331,15 @@ mod macos {
         }
     }
 
-    /// Carries out every call on the canvases, in order, on the main thread.
-    fn keep_canvases(app: &mut App, mut calls: UnboundedReceiver<CanvasCall>) {
+    /// Keeps `apps` for as long as WaOS runs, carrying out every call on their views' canvases,
+    /// in order, on the main thread. Nothing else keeps the apps: their listener, what follows
+    /// the package manager and what reaches them (`AppReach`) all hold them weakly, so without
+    /// this they go as `follow` returns, and every app's first word to WaOS is thrown away.
+    fn keep(app: &mut App, apps: Arc<ProgramApps>, mut calls: UnboundedReceiver<CanvasCall>) {
         app.spawn(async move |cx| {
+            // The calls end only once the apps, which send them, are let go of: never, while
+            // this holds them.
+            let _apps = apps;
             let mut kept = KeptCanvases::default();
             while let Some(call) = calls.next().await {
                 cx.update(|app| kept.carry_out(app, call));
