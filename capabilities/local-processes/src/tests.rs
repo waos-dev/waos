@@ -124,9 +124,15 @@ async fn a_shell_in_a_terminal_echoes_what_is_typed_takes_a_new_size_and_ends() 
             .exec_in_terminal(command("/bin/sh", &[]), size)
             .await
             .unwrap();
+        // The size changes while the shell waits in a command of its own. Between two commands, a
+        // shell that reads its lines with readline (macOS's `sh`) reads the terminal's size and
+        // writes it back before each prompt, undoing a change that lands between the two; and
+        // while a command it started runs, that command is told of the change, not the shell.
+        let says_its_size_once_told =
+            "trap 'stty size; exit 4' WINCH; echo $((6 * 7)); read line\n";
         started
             .terminal
-            .write(b"echo $((6 * 7))\n".to_vec())
+            .write(says_its_size_once_told.as_bytes().to_vec())
             .await
             .unwrap();
         read_until(&mut started.output, "42").await;
@@ -136,14 +142,7 @@ async fn a_shell_in_a_terminal_echoes_what_is_typed_takes_a_new_size_and_ends() 
             rows: 30,
             ..TerminalSize::default()
         });
-        started
-            .terminal
-            .write(b"stty size\n".to_vec())
-            .await
-            .unwrap();
         read_until(&mut started.output, "30 100").await;
-
-        started.terminal.write(b"exit 4\n".to_vec()).await.unwrap();
         assert_eq!(started.child.exit_status().await, ExitStatus::Exited(4));
     })
     .await;
