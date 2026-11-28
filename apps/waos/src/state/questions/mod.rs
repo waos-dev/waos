@@ -66,7 +66,7 @@ impl Questions {
         asked: UnboundedReceiver<Asked>,
         placement: Rc<dyn PromptPlacement>,
         packages: Arc<PackageManager>,
-    ) {
+    ) -> Entity<Questions> {
         let questions = app.new_entity(|_cx| Questions {
             asked: Vec::new(),
             next_id: 1,
@@ -74,7 +74,8 @@ impl Questions {
             shown: Vec::new(),
             packages,
         });
-        take_questions(app, questions, asked);
+        take_questions(app, questions.clone(), asked);
+        questions
     }
 
     /// The question `app`'s user is asked now: its first one waiting.

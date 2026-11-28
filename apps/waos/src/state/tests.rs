@@ -21,613 +21,24 @@
 //! why Waft's tray refused it; and a key it leaves is offered to the menu bar, and one it handles
 //! is not.
 
-use crate::state::test_system::Lines;
-use crate::state::test_turns::{Turn, turn_until, wake_at_end};
-use std::cell::RefCell;
 use std::rc::Rc;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, Weak};
-use std::time::{Duration, Instant};
+use std::sync::Arc;
+use std::time::Duration;
 
 use futures::FutureExt;
 use futures::executor::block_on;
 use waft::ui::{
-    Clipboard as WaftClipboard, ClipboardEvent, CompositionLayer, Compositor, Contact, CopyRequest,
-    Dispatcher, EditCommand, EmbedderClient, FileDialogs as WaftFileDialogs, Frame, HardwareBuffer,
-    KeyData, KeyEventType, MenuBar, MenuEntry, MenuShortcut, Offset, PickedFile, Placement,
-    Platform, PlatformRef, PointerDeviceKind, PointerReport, PopupMenus, Rect, ReportedChange,
-    RequestId, Screen, ScreenId, Screens, ShortcutModifiers, TargetPlatform, TrayIconEvent,
-    TrayIcons, URI_LIST, View, ViewError, ViewFocusDirection, ViewFocusEvent, ViewFocusState,
-    ViewId, ViewRef, VsyncObserver, VsyncWaiter, WindowConfig,
+    Clipboard as _, ClipboardEvent, Contact, CopyRequest, EditCommand, EmbedderClient, KeyData,
+    KeyEventType, MenuEntry, Offset, Placement, PointerDeviceKind, PointerReport, Rect,
+    ReportedChange, TrayIconEvent, URI_LIST, View, ViewFocusDirection, ViewFocusEvent,
+    ViewFocusState,
 };
-use waft::{Entity, HostWindow, MacosTitleBar, Shell, run_widget};
-use waft_test::{
-    AskedDialog, MockClipboard, MockFileDialogs, MockMenuBar, MockPopupMenus, MockTrayIcons,
-    TestPlatform, TestWindows,
-};
-use waos::{
-    AppInstance, EngineTime, FreezePolicy, HttpProxy, ProgramEnd, ProgramEnvironment,
-    ProgramOutput, WaOS, WaOSConfig,
-};
-use waos_package::ProgramId;
-use waos_program_window::WaftCompositor;
+use waft::{HostWindow, MacosTitleBar};
+use waft_test::{AskedDialog, MockTrayIcons};
+use waos::{AppInstance, ProgramEnd};
 
-use super::ViewWindows;
-use super::clipboard::Clipboard;
-use super::file_dialogs::FileDialogs;
-use super::menus::Menus;
-use crate::logic::machine_facts::platform_state;
-use crate::logic::placement::WindowsOnRequest;
-use crate::logic::program_faces::ProgramFaces;
-use crate::logic::prompts::PromptsOnRequest;
-use crate::logic::test_installs;
-use crate::logic::vsync_waiter::WaftVsync;
-use crate::state::questions::{self, Questions};
-use crate::ui::every_window::{every_window, program_windows};
-use waos_services::app_storage::AppStorage;
-
-/// The desktop's one screen, which every window is made on.
-const SCREEN: ScreenId = ScreenId(1);
-
-/// A desktop of the tests' own, with WaOS's windows on it and an engine whose views they place,
-/// and a clipboard in memory, which the engine's programs reach through the app.
-struct Desktop {
-    shell: Shell,
-    platform: Rc<DesktopPlatform>,
-    engine: Arc<WaOS>,
-    clipboard: MockClipboard,
-    storage: AppStorage,
-    permissions: waos_services::permissions::Permissions,
-    view_windows: Entity<ViewWindows>,
-    /// How many of the windows made the app has heard of, and which closed ones.
-    reported_made: usize,
-    reported_closed: Vec<ViewId>,
-    started: Instant,
-    folder: std::path::PathBuf,
-}
-
-impl Desktop {
-    fn new(test: &str) -> Desktop {
-        Desktop::with_tray(test, |tray| tray)
-    }
-
-    /// A desktop whose tray is as `tray` makes Waft's mock one: its icons offering both menus, as
-    /// macOS's do, unless it says otherwise.
-    fn with_tray(test: &str, tray: impl FnOnce(MockTrayIcons) -> MockTrayIcons) -> Desktop {
-        let folder =
-            std::env::temp_dir().join(format!("waos-desktop-{}-{test}", std::process::id()));
-        let crate::logic::startup::Domains {
-            packages,
-            permissions,
-            storage,
-            ..
-        } = test_installs::domains_never_run(&folder.join("store"));
-        let (placement, requests) =
-            WindowsOnRequest::new(ProgramFaces::new(Arc::clone(&packages), None));
-        // Nobody asks the user here; the questions are listened to as the app listens to them.
-        let (_prompts, prompted) = PromptsOnRequest::new();
-        let config = WaOSConfig {
-            freeze: FreezePolicy::default(),
-            compiler: waos::Compiler::new(false).expect("a compiler"),
-            http_proxy: HttpProxy::None,
-            time: EngineTime::Real,
-            temporary_folders: folder.join("tmp"),
-            audit: None,
-        };
-        let clipboard = MockClipboard::new().with_promised_files_folder(folder.join("pasted"));
-        let platform = Rc::new(DesktopPlatform::new(&clipboard, tray));
-        let facts = platform_state(platform.as_ref());
-        let served = Clipboard::of(platform.as_ref()).expect("the desktop's clipboard");
-        let menus = Menus::of(platform.as_ref());
-        let file_dialogs = FileDialogs::of(platform.as_ref()).expect("the desktop's dialogs");
-        let vsync = Arc::new(WaftVsync::new(
-            Arc::clone(&platform.vsync) as Arc<dyn VsyncWaiter>
-        ));
-        let shell = waos::Shell {
-            views: Arc::new(placement),
-            vsync: Arc::clone(&vsync) as Arc<dyn waos::VsyncWaiter>,
-            compositor: Some(Arc::new(WaftCompositor::new(
-                Arc::clone(&platform.compositor) as Arc<dyn Compositor>,
-            ))),
-            system_permissions: None,
-            clipboard: Some(served.shell()),
-            // A program's menu bar is its app's, never WaOS's own windows'.
-            menu_bar: None,
-            context_menus: menus.context_menus(),
-            tray_icons: menus.tray_icons(),
-            audio_output_picker: None,
-            recording_indicator: None,
-            file_dialogs: Some(file_dialogs.shell()),
-            opener: None,
-            notifications: None,
-            media_players: None,
-            media_assets: None,
-            image_codecs: None,
-            video_frame_readers: None,
-            gpus: None,
-            cameras: None,
-            simulated_cameras: None,
-            machine_picker: None,
-        };
-        let engine = Arc::new(WaOS::new(config, shell, facts).expect("an engine"));
-        let view_windows = Rc::new(RefCell::new(None));
-        let kept = Rc::clone(&view_windows);
-        let (served_to, questions_packages) = (Arc::clone(&engine), packages);
-        let shell = Shell::new(Rc::clone(&platform) as PlatformRef, move |app| {
-            served.serve(app, served_to);
-            let windows = ViewWindows::listen(app, requests);
-            let prompt_windows = questions::prompt_windows(
-                app,
-                windows.clone(),
-                ProgramFaces::new(Arc::clone(&questions_packages), None),
-            );
-            Questions::listen(
-                app,
-                prompted.questions,
-                prompt_windows.clone(),
-                questions_packages,
-            );
-            let program_windows = program_windows(&windows, &prompt_windows);
-            run_widget(
-                app,
-                every_window(None, program_windows, prompt_windows, None),
-            );
-            menus.serve(app, windows.clone());
-            file_dialogs.serve(app, windows.clone(), None, None);
-            *kept.borrow_mut() = Some(windows);
-        });
-        let view_windows = view_windows.borrow_mut().take().expect("the app started");
-        Desktop {
-            shell,
-            platform,
-            engine,
-            clipboard,
-            storage,
-            permissions,
-            view_windows,
-            reported_made: 0,
-            reported_closed: Vec::new(),
-            started: Instant::now(),
-            folder,
-        }
-    }
-
-    /// Runs the test program at `component`, its output into `output`.
-    fn run(&self, component: &str, output: &Arc<Lines>) -> AppInstance {
-        let program = self
-            .engine
-            .load(
-                std::path::Path::new(component),
-                &waos_test_programs::code_of(component),
-            )
-            .expect("the program loads");
-        let environment = ProgramEnvironment {
-            output: Some(Arc::clone(output) as Arc<dyn ProgramOutput>),
-            ..ProgramEnvironment::default()
-        };
-
-        let running = self
-            .engine
-            .run(&program, environment)
-            .expect("the program runs");
-        output.wake(self.platform.inner.dispatcher());
-        wake_at_end(&running, self.platform.inner.dispatcher());
-        running
-    }
-
-    /// Runs the test program at `component` as the program `id`, with the store's settings for it,
-    /// which start as the design's defaults, and its own folders, its output into `output`.
-    fn run_as(&self, component: &str, id: &str, output: &Arc<Lines>) -> AppInstance {
-        let program = self
-            .engine
-            .load(
-                std::path::Path::new(component),
-                &waos_test_programs::code_of(component),
-            )
-            .expect("the program loads");
-        let id: ProgramId = id.parse().expect("an id");
-        let environment = ProgramEnvironment {
-            output: Some(Arc::clone(output) as Arc<dyn ProgramOutput>),
-            grants: Some(self.permissions.of(&id)),
-            folders: Some(self.storage.folders(&id).expect("its folders")),
-            ..ProgramEnvironment::default()
-        };
-
-        let running = self
-            .engine
-            .run(&program, environment)
-            .expect("the program runs");
-        output.wake(self.platform.inner.dispatcher());
-        wake_at_end(&running, self.platform.inner.dispatcher());
-        running
-    }
-
-    /// Plays the host until `done`, failing after `WITHIN`: a turn follows at once while the app
-    /// has a frame, a window, a vsync or a timer to turn for, and otherwise once a task wakes it.
-    fn pump_until(&mut self, what: &str, done: impl Fn(&Desktop) -> bool) {
-        let platform = Rc::clone(&self.platform);
-        turn_until(&platform.inner, what, || {
-            if done(self) {
-                return Turn::Done;
-            }
-            self.pump();
-            if done(self) {
-                Turn::Done
-            } else if self.has_turns_to_take() {
-                Turn::FrameAsked
-            } else {
-                Turn::Idle
-            }
-        });
-    }
-
-    /// Whether the host's loop has something to turn for without a wake: a frame asked for, a
-    /// window made or closed that the app has not heard of, a vsync waited for, or a timer.
-    fn has_turns_to_take(&self) -> bool {
-        let made = self.platform.windows.made();
-        !self.platform.inner.frame_requests().is_empty()
-            || made.len() > self.reported_made
-            || made.iter().any(|window| {
-                window.closes() > 0 && !self.reported_closed.contains(&window.test_view().id())
-            })
-            || self.platform.vsync.is_waited_for()
-            || self
-                .platform
-                .inner
-                .wakes()
-                .last()
-                .is_some_and(Option::is_some)
-    }
-
-    /// One turn of the host's loop: the windows made and closed are reported, the frame each view
-    /// asked for is drawn, the vsyncs waited for come, and the app's tasks run.
-    fn pump(&mut self) {
-        let made = self.platform.windows.made();
-        for window in &made[self.reported_made..] {
-            self.shell.view_added(window.test_view().id());
-        }
-        self.reported_made = made.len();
-        for window in &made {
-            let view = window.test_view().id();
-            if window.closes() > 0 && !self.reported_closed.contains(&view) {
-                self.reported_closed.push(view);
-                self.shell.view_removed(view);
-            }
-        }
-        let elapsed = self.started.elapsed();
-        let views = self.platform.inner.take_frame_requests();
-        if !views.is_empty() {
-            self.shell.frame(
-                &views,
-                Frame {
-                    elapsed,
-                    vsync: None,
-                },
-            );
-        }
-        self.platform.vsync.serve(Instant::now());
-        self.shell.wake(elapsed);
-    }
-
-    fn windows_made(&self) -> usize {
-        self.platform.windows.made().len()
-    }
-
-    /// The window of the first view made has the focus, as Waft reports it.
-    fn focus_first_window(&mut self) {
-        let view = self.platform.windows.made()[0].test_view().id();
-        self.shell.view_focus_changed(ViewFocusEvent {
-            view_id: view,
-            state: ViewFocusState::Focused,
-            direction: ViewFocusDirection::Undefined,
-        });
-    }
-
-    /// Another app copies `text`, and Waft says the clipboard changed.
-    fn copied_elsewhere(&mut self, text: &str) {
-        self.clipboard.set_clipboard_data(Some(text.to_owned()));
-        self.shell.clipboard_changed();
-    }
-}
-
-impl Drop for Desktop {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.folder);
-    }
-}
-
-/// Waft's test platform, with windows made on request on its one screen, a compositor, the
-/// screen's vsyncs, a clipboard, a menu bar, context menus that answer the item at [`CHOSEN`],
-/// and a tray whose menus opened at an icon answer the same.
-struct DesktopPlatform {
-    inner: TestPlatform,
-    windows: Rc<TestWindows>,
-    compositor: Arc<TestCompositor>,
-    vsync: Arc<TestVsync>,
-    menu_bar: MockMenuBar,
-    popup_menus: MockPopupMenus,
-    tray: MockTrayIcons,
-    /// Dialogs that answer each in turn with the paths `answer_dialogs` gave.
-    file_dialogs: MockFileDialogs,
-    dialog_answers: Rc<RefCell<std::collections::VecDeque<std::path::PathBuf>>>,
-}
-
-/// The item the user chooses in every menu opened at a point or at a tray icon.
-const CHOSEN: u32 = 40;
-
-/// The key the menu bar takes when it is offered: `B`'s.
-const TAKEN: MenuShortcut = MenuShortcut {
-    key: 'b' as u64,
-    modifiers: ShortcutModifiers {
-        meta: false,
-        control: false,
-        alt: false,
-        shift: false,
-    },
-};
-
-impl DesktopPlatform {
-    fn new(
-        clipboard: &MockClipboard,
-        tray: impl FnOnce(MockTrayIcons) -> MockTrayIcons,
-    ) -> DesktopPlatform {
-        let windows = Rc::new(TestWindows::new().on_screen(SCREEN));
-        let menu_bar = MockMenuBar::new().taking([TAKEN]);
-        let popup_menus = MockPopupMenus::new().answering(Some(CHOSEN));
-        let tray = tray(MockTrayIcons::new().answering(Some(CHOSEN)));
-        let dialog_answers = Rc::new(RefCell::new(std::collections::VecDeque::new()));
-        let answers = Rc::clone(&dialog_answers);
-        let file_dialogs = MockFileDialogs::new().answering(move || {
-            answers
-                .borrow_mut()
-                .pop_front()
-                .map(PickedFile::Path)
-                .into_iter()
-                .collect()
-        });
-        let inner = TestPlatform::new()
-            .on(TargetPlatform::MacOS)
-            .with_windows(Rc::clone(&windows))
-            .with_clipboard(Rc::new(clipboard.clone()))
-            .with_menu_bar(Rc::new(menu_bar.clone()))
-            .with_popup_menus(Rc::new(popup_menus.clone()))
-            .with_tray_icons(Rc::new(tray.clone()))
-            .with_file_dialogs(Rc::new(file_dialogs.clone()));
-        let compositor = Arc::new(TestCompositor {
-            layers: Arc::default(),
-            host: inner.dispatcher(),
-        });
-        let vsync = Arc::new(TestVsync {
-            waiting: Mutex::default(),
-            host: inner.dispatcher(),
-        });
-        DesktopPlatform {
-            inner,
-            windows,
-            compositor,
-            vsync,
-            menu_bar,
-            popup_menus,
-            tray,
-            file_dialogs,
-            dialog_answers,
-        }
-    }
-}
-
-impl Platform for DesktopPlatform {
-    fn target_platform(&self) -> TargetPlatform {
-        self.inner.target_platform()
-    }
-
-    fn request_frame(&self, view: ViewId) {
-        self.inner.request_frame(view);
-    }
-
-    fn now(&self) -> waft::ui::Instant {
-        self.inner.now()
-    }
-
-    fn dispatcher(&self) -> Arc<dyn Dispatcher> {
-        self.inner.dispatcher()
-    }
-
-    fn views(&self) -> Vec<ViewRef> {
-        self.inner.views()
-    }
-
-    fn view(&self, id: ViewId) -> Option<ViewRef> {
-        self.inner.view(id)
-    }
-
-    fn request_view(
-        &self,
-        config: WindowConfig,
-        initial_data: Option<String>,
-    ) -> Result<RequestId, ViewError> {
-        self.inner.request_view(config, initial_data)
-    }
-
-    fn compositor(&self) -> Option<Arc<dyn Compositor>> {
-        Some(Arc::clone(&self.compositor) as Arc<dyn Compositor>)
-    }
-
-    fn vsync_waiter(&self) -> Option<Arc<dyn VsyncWaiter>> {
-        Some(Arc::clone(&self.vsync) as Arc<dyn VsyncWaiter>)
-    }
-
-    fn screens(&self) -> Option<&dyn Screens> {
-        Some(self)
-    }
-
-    fn clipboard(&self) -> Option<&dyn WaftClipboard> {
-        self.inner.clipboard()
-    }
-
-    fn menu_bar(&self) -> Option<&dyn MenuBar> {
-        self.inner.menu_bar()
-    }
-
-    fn popup_menus(&self) -> Option<&dyn PopupMenus> {
-        self.inner.popup_menus()
-    }
-
-    fn tray_icons(&self) -> Option<&dyn TrayIcons> {
-        self.inner.tray_icons()
-    }
-
-    fn file_dialogs(&self) -> Option<&dyn WaftFileDialogs> {
-        self.inner.file_dialogs()
-    }
-}
-
-/// The desktop's one screen, a laptop's at 1x.
-impl Screens for DesktopPlatform {
-    fn screens(&self) -> Vec<Screen> {
-        let frame = Rect::from_ltwh(0.0, 0.0, 1440.0, 900.0);
-        vec![Screen {
-            id: SCREEN,
-            name: "Test Display".to_owned(),
-            frame,
-            visible_frame: frame,
-            scale: 1.0,
-            refresh_rate: Some(60.0),
-        }]
-    }
-
-    fn pointer_location(&self) -> Option<Offset> {
-        None
-    }
-}
-
-/// The screen's vsyncs: every wait is served at the host's next turn, which the wait wakes the app
-/// for, as a screen's refresh does.
-struct TestVsync {
-    waiting: Mutex<Vec<Weak<dyn VsyncObserver>>>,
-    host: Arc<dyn Dispatcher>,
-}
-
-impl TestVsync {
-    /// Whether a vsync is waited for.
-    fn is_waited_for(&self) -> bool {
-        !self.waiting.lock().unwrap().is_empty()
-    }
-
-    /// Every vsync waited for comes, at `at`, on this thread: the main one, its picture expected
-    /// on screen at the same moment.
-    fn serve(&self, at: Instant) {
-        let waiting = std::mem::take(&mut *self.waiting.lock().unwrap());
-        for observer in waiting.iter().filter_map(Weak::upgrade) {
-            observer.vsync(at, at);
-        }
-    }
-}
-
-impl VsyncWaiter for TestVsync {
-    fn next_vsync(&self, _screen: ScreenId, observer: Weak<dyn VsyncObserver>) {
-        self.waiting.lock().unwrap().push(observer);
-        self.host.wake_now();
-    }
-}
-
-/// Composition layers that show nothing: each counts the hardware buffers it is shown, keeps the
-/// children each present showed, lets go of each buffer at once, and wakes the test's host, which
-/// a test waiting for a present turns for.
-struct TestCompositor {
-    /// Each layer made, in order.
-    layers: Arc<Mutex<Vec<Arc<TestLayer>>>>,
-    host: Arc<dyn Dispatcher>,
-}
-
-impl TestCompositor {
-    /// How many hardware buffers the layers have been shown.
-    fn presents(&self) -> usize {
-        self.layers
-            .lock()
-            .unwrap()
-            .iter()
-            .map(|layer| layer.presents.load(Ordering::SeqCst))
-            .sum()
-    }
-
-    /// Whether each layer made, in order, was made opaque.
-    fn opaque(&self) -> Vec<bool> {
-        let layers = self.layers.lock().unwrap();
-        layers.iter().map(|layer| layer.opaque).collect()
-    }
-
-    /// The children each present to the layer made `index`th showed, each by the order it was
-    /// made in, with its placement.
-    fn children_presented(&self, index: usize) -> Vec<Vec<(usize, Placement)>> {
-        let layers = self.layers.lock().unwrap();
-        let presented = layers[index].children.lock().unwrap();
-        presented
-            .iter()
-            .map(|children| {
-                children
-                    .iter()
-                    .map(|(child, placement)| {
-                        let made = layers
-                            .iter()
-                            .position(|layer| {
-                                std::ptr::addr_eq(Arc::as_ptr(layer), Arc::as_ptr(child))
-                            })
-                            .expect("a child this compositor made");
-                        (made, placement.clone())
-                    })
-                    .collect()
-            })
-            .collect()
-    }
-}
-
-impl Compositor for TestCompositor {
-    fn make_layer(&self, opaque: bool) -> Arc<dyn CompositionLayer> {
-        let layer = Arc::new(TestLayer {
-            opaque,
-            presents: AtomicUsize::new(0),
-            children: Mutex::default(),
-            host: Arc::clone(&self.host),
-        });
-        self.layers.lock().unwrap().push(Arc::clone(&layer));
-        layer
-    }
-
-    fn accepted_buffers(&self) -> waft::ui::AcceptedBuffers {
-        waft::ui::AcceptedBuffers::default()
-    }
-}
-
-/// The children one present showed, the bottom-most first.
-type Children = Vec<(Arc<dyn CompositionLayer>, Placement)>;
-
-struct TestLayer {
-    opaque: bool,
-    presents: AtomicUsize,
-    /// The children each present showed, in order.
-    children: Mutex<Vec<Children>>,
-    host: Arc<dyn Dispatcher>,
-}
-
-impl CompositionLayer for TestLayer {
-    fn present(
-        &self,
-        buffer: Arc<dyn HardwareBuffer>,
-        children: Children,
-        released: Box<dyn FnOnce() + Send + Sync>,
-    ) {
-        self.children.lock().unwrap().push(children);
-        self.presents.fetch_add(1, Ordering::SeqCst);
-        drop(buffer);
-        released();
-        self.host.wake_now();
-    }
-
-    /// Nothing: each buffer is let go of as it is presented.
-    fn current_picture(&self) -> Option<waft::ui::LayerPicture> {
-        None
-    }
-}
+use crate::state::test_system::Lines;
+use crate::state::test_windows::Desktop;
 
 fn has_ended(program: &AppInstance) -> Option<ProgramEnd> {
     program.ended().now_or_never()
@@ -635,7 +46,7 @@ fn has_ended(program: &AppInstance) -> Option<ProgramEnd> {
 
 #[test]
 fn a_requested_view_arrives_in_its_window_hears_a_resize_and_goes_with_its_window() {
-    let mut desktop = Desktop::new("survey");
+    let mut desktop = Desktop::new();
     let output = Arc::new(Lines::default());
     let survey = desktop.run(waos_test_programs::SURVEY, &output);
     desktop.pump_until("survey's view arriving", |_| {
@@ -663,7 +74,7 @@ fn a_requested_view_arrives_in_its_window_hears_a_resize_and_goes_with_its_windo
 
     desktop.shell.view_close_requested(view);
     desktop.pump_until("survey closing its window", |_| window.closes() == 1);
-    desktop.pump_until("survey ending", |_| has_ended(&survey).is_some());
+    desktop.pump_until("survey's end heard", |_| output.ended().is_some());
     let end = has_ended(&survey).unwrap();
     assert!(matches!(end, ProgramEnd::Returned(Ok(()))), "{end:?}");
     assert!(output.has("view 1: asked to close"), "{:#?}", output.all());
@@ -673,7 +84,7 @@ fn a_requested_view_arrives_in_its_window_hears_a_resize_and_goes_with_its_windo
 
 #[test]
 fn a_launch_for_a_program_with_no_window_yet_gives_its_next_window_the_launchs_token() {
-    let mut desktop = Desktop::new("launch-token");
+    let mut desktop = Desktop::new();
     let output = Arc::new(Lines::default());
     let survey = desktop.run(waos_test_programs::SURVEY, &output);
     let token = "gnome-shell/Survey/2313-3_TIME121955272";
@@ -696,7 +107,7 @@ fn a_launch_for_a_program_with_no_window_yet_gives_its_next_window_the_launchs_t
 
 #[test]
 fn a_views_presence_follows_its_windows_focus_and_whether_it_is_minimized_or_occluded() {
-    let mut desktop = Desktop::new("presence");
+    let mut desktop = Desktop::new();
     let output = Arc::new(Lines::default());
     let survey = desktop.run(waos_test_programs::SURVEY, &output);
     desktop.pump_until("survey's view arriving", |_| {
@@ -748,7 +159,7 @@ fn a_views_presence_follows_its_windows_focus_and_whether_it_is_minimized_or_occ
 
 #[test]
 fn a_press_on_surveys_title_bar_moves_its_window_and_survey_hears_it_maximized() {
-    let mut desktop = Desktop::new("title-bar");
+    let mut desktop = Desktop::new();
     let output = Arc::new(Lines::default());
     let survey = desktop.run(waos_test_programs::SURVEY, &output);
     desktop.pump_until("survey's view arriving", |_| {
@@ -791,7 +202,7 @@ fn a_press_on_surveys_title_bar_moves_its_window_and_survey_hears_it_maximized()
 
 #[test]
 fn a_secondary_press_on_surveys_title_bar_takes_its_window_full_screen_and_survey_hears_it() {
-    let mut desktop = Desktop::new("full-screen");
+    let mut desktop = Desktop::new();
     let output = Arc::new(Lines::default());
     let survey = desktop.run(waos_test_programs::SURVEY, &output);
     desktop.pump_until("survey's view arriving", |_| {
@@ -840,7 +251,7 @@ enum Step {
 #[cfg(target_vendor = "apple")]
 #[test]
 fn a_program_draws_on_its_surface_and_its_window_closes_when_it_ends() {
-    let mut desktop = Desktop::new("triangle");
+    let mut desktop = Desktop::new();
     let output = Arc::new(Lines::default());
     let triangle = desktop.run(waos_test_programs::TRIANGLE, &output);
     desktop.pump_until("triangle presenting ten frames", |desktop| {
@@ -863,7 +274,7 @@ fn a_programs_layers_are_shown_beneath_its_canvas_where_each_present_places_them
     const CANVAS: usize = 0;
     const VIDEO: usize = 1;
     const BADGE: usize = 2;
-    let mut desktop = Desktop::new("composition-layers");
+    let mut desktop = Desktop::new();
     let output = Arc::new(Lines::default());
     let program = desktop.run(waos_test_programs::COMPOSITION_LAYERS, &output);
     desktop.pump_until("its two frames presented", |desktop| {
@@ -922,10 +333,16 @@ fn a_programs_layers_are_shown_beneath_its_canvas_where_each_present_places_them
 
 #[test]
 fn a_program_reads_another_apps_copy_and_its_own_copy_is_pasted_from_waft_until_replaced() {
-    let mut desktop = Desktop::new("clipboard");
-    std::fs::create_dir_all(desktop.folder.join("pasted")).expect("the pasted files' folder");
+    let mut desktop = Desktop::new();
+    std::fs::create_dir_all(desktop.folder.path().join("pasted"))
+        .expect("the pasted files' folder");
     let output = Arc::new(Lines::default());
-    let program = desktop.run_as(waos_test_programs::CLIPBOARD, "dev.waos.clipboard", &output);
+    let program = desktop.run_as(
+        waos_test_programs::CLIPBOARD,
+        "dev.waos.clipboard",
+        "Clipboard",
+        &output,
+    );
     desktop.pump_until("its window", |_| output.has("a window"));
     desktop.focus_first_window();
     desktop.copied_elsewhere("copied elsewhere");
@@ -946,7 +363,7 @@ fn a_program_reads_another_apps_copy_and_its_own_copy_is_pasted_from_waft_until_
     assert_eq!(items[1].types(), [URI_LIST]);
     let files = block_on(items[1].read(URI_LIST)).expect("its files");
     let files = String::from_utf8(files).expect("a list of URLs");
-    let picture = desktop.folder.join("pasted").join("picture.png");
+    let picture = desktop.folder.path().join("pasted").join("picture.png");
     assert_eq!(
         std::fs::read(&picture).expect("the picture, written"),
         b"PNG"
@@ -961,7 +378,7 @@ fn a_program_reads_another_apps_copy_and_its_own_copy_is_pasted_from_waft_until_
     desktop.pump_until("its copy replaced", |_| output.has("replaced"));
     let window = desktop.platform.windows.made()[0].test_view().id();
     desktop.shell.view_close_requested(window);
-    desktop.pump_until("its end", |_| has_ended(&program).is_some());
+    desktop.pump_until("its end heard", |_| output.ended().is_some());
     assert!(output.has("flushed"));
     assert!(matches!(
         has_ended(&program),
@@ -971,7 +388,7 @@ fn a_program_reads_another_apps_copy_and_its_own_copy_is_pasted_from_waft_until_
 
 #[test]
 fn waos_own_bar_stays_while_a_programs_window_is_in_front_and_edits_commands_reach_the_program() {
-    let mut desktop = Desktop::new("menu-bar");
+    let mut desktop = Desktop::new();
     let bar = desktop.platform.menu_bar.clone();
     assert_eq!(
         titles(&bar.menus()),
@@ -1019,7 +436,7 @@ fn waos_own_bar_stays_while_a_programs_window_is_in_front_and_edits_commands_rea
 
 #[test]
 fn a_programs_context_menu_and_tray_icon_go_through_wafts() {
-    let mut desktop = Desktop::new("menus-at");
+    let mut desktop = Desktop::new();
     let output = Arc::new(Lines::default());
     let program = desktop.run(waos_test_programs::MENUS, &output);
     desktop.pump_until("its tray icon", |_| output.has("tray icon: added"));
@@ -1070,7 +487,7 @@ fn a_programs_context_menu_and_tray_icon_go_through_wafts() {
 
 #[test]
 fn a_key_the_program_leaves_is_offered_to_the_menu_bar_and_one_it_handles_is_not() {
-    let mut desktop = Desktop::new("key-equivalents");
+    let mut desktop = Desktop::new();
     let output = Arc::new(Lines::default());
     let program = desktop.run(waos_test_programs::MENUS, &output);
     desktop.pump_until("its window", |_| output.has("menu bar: none"));
@@ -1082,15 +499,18 @@ fn a_key_the_program_leaves_is_offered_to_the_menu_bar_and_one_it_handles_is_not
     }
     let bar = desktop.platform.menu_bar.clone();
     let offered = || -> Vec<u64> { bar.offered().iter().map(|key| key.logical).collect() };
-    desktop.pump_until("B, left, offered", |_| offered().contains(&u64::from('b')));
-    assert!(output.has("key a: handled") && output.has("key b: left"));
+    desktop.pump_until("A handled, and B left and offered", |_| {
+        output.has("key a: handled")
+            && output.has("key b: left")
+            && offered().contains(&u64::from('b'))
+    });
     assert_eq!(offered(), [u64::from('b')], "A, handled, is not offered");
     program.stop();
 }
 
 #[test]
 fn a_programs_tray_icon_offers_the_menus_wafts_icon_offers() {
-    let mut desktop = Desktop::with_tray("tray-menus", MockTrayIcons::without_attached_menus);
+    let mut desktop = Desktop::with_tray(MockTrayIcons::without_attached_menus);
     let output = Arc::new(Lines::default());
     let program = desktop.run(waos_test_programs::MENUS, &output);
     desktop.pump_until("its tray icon", |_| output.has("tray icon: added"));
@@ -1103,7 +523,7 @@ fn a_programs_tray_icon_offers_the_menus_wafts_icon_offers() {
 
 #[test]
 fn a_tray_icon_wafts_tray_refuses_fails_with_why() {
-    let mut desktop = Desktop::with_tray("tray-refused", |tray| tray.refusing("no tray here"));
+    let mut desktop = Desktop::with_tray(|tray| tray.refusing("no tray here"));
     let output = Arc::new(Lines::default());
     let program = desktop.run(waos_test_programs::MENUS, &output);
     desktop.pump_until("its tray icon refused", |_| {
@@ -1115,7 +535,7 @@ fn a_tray_icon_wafts_tray_refuses_fails_with_why() {
 
 #[test]
 fn a_programs_file_dialogs_go_through_wafts_and_their_picks_are_mounted() {
-    let mut desktop = Desktop::new("file-dialogs");
+    let mut desktop = Desktop::new();
     let picks = std::fs::canonicalize(&desktop.folder)
         .unwrap()
         .join("picks");
@@ -1128,8 +548,13 @@ fn a_programs_file_dialogs_go_through_wafts_and_their_picks_are_mounted() {
     }
     let output = Arc::new(Lines::default());
     let id = "dev.waos.filedialogs";
-    let program = desktop.run_as(waos_test_programs::FILE_DIALOGS, id, &output);
-    desktop.pump_until("its end", |_| has_ended(&program).is_some());
+    desktop.run_as(
+        waos_test_programs::FILE_DIALOGS,
+        id,
+        "File dialogs",
+        &output,
+    );
+    desktop.pump_until("its end heard", |_| output.ended().is_some());
     for line in [
         "read file written to: no",
         "changed: yes",
