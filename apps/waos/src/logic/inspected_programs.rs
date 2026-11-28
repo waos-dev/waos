@@ -1,6 +1,5 @@
 //! The programs an inspector sees on this computer: every program installed, by the package
-//! manager's manifests; every one running, by the runs; and every one run in development the store keeps days
-//! of, though it has ended; a program not installed by its id alone. Each change to them as it
+//! manager's manifests; and every one running, by the runs, one not installed by its id alone. Each change to them as it
 //! happens, an install or a removal as the library makes it, a start or an end as the runs list it;
 //! each one's icon, read as it is asked for; and a program started held (`held_starts`), or ended,
 //! on WaOS's own runtime, so it outlives the inspector that asked.
@@ -23,7 +22,6 @@ use waos_package::ProgramId;
 use waos_services::app_storage::AppStorage;
 use waos_services::packages::{InstalledProgram, PackageManager};
 use waos_services::permissions::Permissions;
-use waos_services::store::Store;
 
 use super::held_starts::HeldStarts;
 use super::running_apps::RunningApps;
@@ -33,7 +31,6 @@ const THIS_COMPUTER: &str = "This computer";
 
 /// The programs on this computer, as an inspector sees them.
 pub(crate) struct ProgramsOnThisComputer {
-    store: Store,
     storage: AppStorage,
     permissions: Permissions,
     packages: Arc<PackageManager>,
@@ -49,7 +46,6 @@ pub(crate) struct ProgramsOnThisComputer {
 
 impl ProgramsOnThisComputer {
     pub(crate) fn new(
-        store: Store,
         storage: AppStorage,
         permissions: Permissions,
         packages: Arc<PackageManager>,
@@ -57,7 +53,6 @@ impl ProgramsOnThisComputer {
     ) -> ProgramsOnThisComputer {
         let installed = ids_of(&packages.installed());
         ProgramsOnThisComputer {
-            store,
             storage,
             permissions,
             packages,
@@ -102,16 +97,14 @@ impl InspectedPrograms for ProgramsOnThisComputer {
     }
 
     fn programs(&self) -> BoxFuture<'static, Vec<Program>> {
-        let (store, packages) = (self.store.clone(), Arc::clone(&self.packages));
+        let packages = Arc::clone(&self.packages);
         let running = self.runs.running_ids().borrow().clone();
         async move {
-            // The installed programs and the days kept are read from their files.
-            let (installed, recorded) = tokio::task::spawn_blocking(move || {
-                (packages.installed(), store.programs_with_days())
-            })
-            .await
-            .unwrap_or_default();
-            listed(&installed, &running, &recorded)
+            // The installed programs are read from their files.
+            let installed = tokio::task::spawn_blocking(move || packages.installed())
+                .await
+                .unwrap_or_default();
+            listed(&installed, &running)
         }
         .boxed()
     }
@@ -186,13 +179,8 @@ impl InspectedPrograms for ProgramsOnThisComputer {
     }
 }
 
-/// Every program installed; then each one not installed, by its id alone: those running, then
-/// those ended that days are kept of.
-fn listed(
-    installed: &[InstalledProgram],
-    running: &BTreeSet<ProgramId>,
-    recorded: &[String],
-) -> Vec<Program> {
+/// Every program installed; then each one running not installed, by its id alone.
+fn listed(installed: &[InstalledProgram], running: &BTreeSet<ProgramId>) -> Vec<Program> {
     let installed_ids = ids_of(installed);
     let mut programs: Vec<Program> = installed
         .iter()
@@ -203,11 +191,6 @@ fn listed(
             .difference(&installed_ids)
             .map(|id| run_in_development(id.to_string(), true)),
     );
-    let ended = recorded.iter().filter(|name| {
-        let id: Option<ProgramId> = name.parse().ok();
-        id.is_some_and(|id| !installed_ids.contains(&id) && !running.contains(&id))
-    });
-    programs.extend(ended.map(|name| run_in_development(name.clone(), false)));
     programs
 }
 
@@ -276,11 +259,9 @@ mod tests {
             packages,
             permissions,
             storage,
-            store,
             ..
         } = test_installs::domains_never_run(&folder.path().join("store"));
         let programs = ProgramsOnThisComputer::new(
-            store,
             storage,
             permissions,
             Arc::clone(&packages),
@@ -322,7 +303,6 @@ mod tests {
             packages,
             permissions,
             storage,
-            store,
             ..
         } = test_installs::domains_never_run(&folder.path().join("store"));
         let key = SigningKey::generate();
@@ -340,7 +320,6 @@ mod tests {
         std::fs::write(folders.data.join("a note.txt"), b"hi").unwrap();
 
         let programs = ProgramsOnThisComputer::new(
-            store,
             storage,
             permissions,
             packages,
@@ -371,27 +350,12 @@ mod tests {
     fn a_run_of_a_program_not_installed_is_listed_by_its_id() {
         let running = BTreeSet::from(["dev.example.forever".parse().unwrap()]);
         assert_eq!(
-            listed(&[], &running, &["dev.example.forever".to_owned()]),
+            listed(&[], &running),
             [Program {
                 id: "dev.example.forever".to_owned(),
                 name: "dev.example.forever".to_owned(),
                 version: None,
                 running: true,
-            }],
-            "once, though days are kept of it too"
-        );
-    }
-
-    #[test]
-    fn a_development_run_that_ended_stays_listed_while_days_are_kept_of_it() {
-        let recorded = ["dev.example.camera".to_owned()];
-        assert_eq!(
-            listed(&[], &BTreeSet::new(), &recorded),
-            [Program {
-                id: "dev.example.camera".to_owned(),
-                name: "dev.example.camera".to_owned(),
-                version: None,
-                running: false,
             }]
         );
     }

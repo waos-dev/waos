@@ -233,7 +233,7 @@ pub(crate) fn start(
         permissions,
         sources,
         storage,
-        store,
+        activity,
     } = open_domains(
         &folders.store,
         Arc::new(EngineCompiler(compiler.clone())),
@@ -330,7 +330,6 @@ pub(crate) fn start(
         machine_picker: Some(Arc::new(machine_picker)),
     };
     let inspected = Arc::new(ProgramsOnThisComputer::new(
-        store.clone(),
         storage.clone(),
         permissions.clone(),
         Arc::clone(&packages),
@@ -342,7 +341,7 @@ pub(crate) fn start(
         http_proxy: HttpProxy::System,
         time: EngineTime::Real,
         temporary_folders: folders.temporary_folders,
-        audit: Some(Arc::new(store.clone())),
+        audit: Some(Arc::new(activity.clone())),
         inspected_programs: Some(Arc::clone(&inspected) as Arc<dyn InspectedPrograms>),
     };
     let engine = Arc::new(WaOS::new(config, shell, facts).context("starting the engine")?);

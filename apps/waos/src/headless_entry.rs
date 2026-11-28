@@ -122,7 +122,7 @@ impl HeadlessDaemon {
             packages,
             permissions,
             storage,
-            store,
+            activity,
             ..
         } = open_domains(
             &config.folders.store,
@@ -140,7 +140,6 @@ impl HeadlessDaemon {
         shell.machine_picker = Some(Arc::new(machine_picker));
         shell.gpus = video_decoder_thread::start();
         let inspected = Arc::new(ProgramsOnThisComputer::new(
-            store.clone(),
             storage.clone(),
             permissions.clone(),
             Arc::clone(&packages),
@@ -152,7 +151,7 @@ impl HeadlessDaemon {
             http_proxy: HttpProxy::System,
             time: EngineTime::Real,
             temporary_folders: config.folders.temporary_folders,
-            audit: Some(Arc::new(store.clone())),
+            audit: Some(Arc::new(activity.clone())),
             inspected_programs: Some(Arc::clone(&inspected) as Arc<dyn InspectedPrograms>),
         };
         let platform = PlatformState {

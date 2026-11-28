@@ -75,7 +75,6 @@ mod tests {
             packages,
             permissions,
             storage,
-            store,
             ..
         } = test_installs::domains(
             &directory,
@@ -95,7 +94,6 @@ mod tests {
             ProgramPlaces::new(ProgramPlace::Windows),
         );
         let programs = ProgramsOnThisComputer::new(
-            store,
             storage,
             permissions,
             Arc::clone(&packages),

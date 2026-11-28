@@ -5,7 +5,7 @@
 //! that show nothing; and the
 //! app as it starts, over a store in a folder of the test's own: the library, the programs'
 //! windows, the questions they put to their user and the programs recording, on an engine whose
-//! screens never refresh, which keeps the programs' days in the store, as the app's does. The test plays the host: it reports each window made, draws the frames
+//! screens never refresh, which keeps the programs' days in the activity record, as the app's does. The test plays the host: it reports each window made, draws the frames
 //! asked for, a twentieth of a second apart, runs the app's tasks, and taps and types as a user
 //! does.
 
@@ -39,7 +39,7 @@ use waft_test::{
 };
 use waft_winui::install_icon_font;
 use waos_package::{Category, Manifest, SigningKey};
-use waos_services::store::Store;
+use waos_services::activity::ActivityRecord;
 
 use super::{Library, ProgramsOpen, open_library, open_settings_when_asked, show_phone_files};
 use crate::logic::app_services::AppServices;
@@ -84,7 +84,7 @@ pub(crate) struct LibraryDesktop {
     pub(crate) shell: Shell,
     platform: Rc<LibraryPlatform>,
     pub(crate) library: Entity<Library>,
-    pub(crate) store: Store,
+    pub(crate) activity: ActivityRecord,
     /// What the user lets each app use.
     pub(crate) permissions: waos_services::permissions::Permissions,
     pub(crate) runs: Arc<RunningApps>,
@@ -172,7 +172,7 @@ impl LibraryDesktop {
             permissions,
             sources,
             storage,
-            store,
+            activity,
         } = crate::logic::test_installs::domains(
             &folder.path().join("store"),
             &runs,
@@ -188,7 +188,8 @@ impl LibraryDesktop {
         let machine_picker =
             Arc::new(prompts.machine_picker(asking, phone_files_on_request.clone()));
         let (recording_indicator, recording_changes) = RecordingIndicatorOnRequest::new();
-        let engine = test_engine::engine_keeping_days(Arc::new(placement), Arc::new(store.clone()));
+        let engine =
+            test_engine::engine_keeping_days(Arc::new(placement), Arc::new(activity.clone()));
         let services = AppServices::new(
             Arc::clone(&runs),
             Arc::clone(&packages),
@@ -206,7 +207,7 @@ impl LibraryDesktop {
         let phone_files = kind.phone_files;
         let started = Rc::new(RefCell::new(None));
         let kept = Rc::clone(&started);
-        let kept_store = store.clone();
+        let kept_activity = activity.clone();
         let shell = Shell::new(Rc::clone(&platform) as PlatformRef, move |app| {
             let view_windows = ViewWindows::listen(app, requests);
             let prompt_windows = questions::prompt_windows(
@@ -252,7 +253,7 @@ impl LibraryDesktop {
             shell,
             platform,
             library,
-            store: kept_store,
+            activity: kept_activity,
             permissions,
             runs,
             prompts,

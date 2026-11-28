@@ -1,7 +1,7 @@
 //! Apps on disk. Each has a folder under `programs/`, named by its id, holding `current`, a file naming
 //! the folder its package, or its development build, unpacked into; beside them, what other
-//! owners keep there (the app's settings and its own folders, `waos_services::store`'s), which this keeps
-//! and never reads. What an install came from is in the folder it unpacked into: a package's
+//! owners keep there (the app's settings, Permissions', and its own folders, app storage's), which
+//! this keeps and never reads. What an install came from is in the folder it unpacked into: a package's
 //! `publisher.key`, or a development build's `development.sha256`, its component's SHA-256;
 //! beside them its `code`, the folder the compiler writes its component's code into.
 //!
@@ -38,7 +38,7 @@ const CURRENT: &str = "current";
 pub(crate) const CODE: &str = "code";
 
 /// What others keep in an app's folder, installed or not, which an install keeps and a removal
-/// takes with the folder: `waos_services::store`'s settings of the app and the app's own folders.
+/// takes with the folder: Permissions' settings of the app and app storage's own folders.
 const KEPT_BY_OTHERS: [&str; 3] = ["settings.toml", "data", "cache"];
 
 /// The folder `current` names in `program`, a program's folder: the one its package unpacked

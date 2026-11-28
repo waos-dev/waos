@@ -982,7 +982,7 @@ fn triangle_posted_once(desktop: &LibraryDesktop) {
     use waos::AuditLog;
     let mut day = waos::AuditDay::starting(std::time::SystemTime::UNIX_EPOCH);
     day.notifications.allowed = 1;
-    desktop.store.keep(triangle().as_str(), &day);
+    desktop.activity.keep(triangle().as_str(), &day);
 }
 
 #[test]
@@ -1034,8 +1034,8 @@ fn a_programs_record_turned_off_removes_what_was_kept_of_it_on_the_phone() {
         crate::logic::test_installs::EMPTY_COMPONENT,
     );
     let day = waos::AuditDay::starting(std::time::SystemTime::UNIX_EPOCH);
-    desktop.store.keep(triangle().as_str(), &day);
-    assert_eq!(desktop.store.days(triangle().as_str()).len(), 1);
+    desktop.activity.keep(triangle().as_str(), &day);
+    assert_eq!(desktop.activity.days(triangle().as_str()).len(), 1);
     open_app_permission(&mut desktop, view, "Triangle", Permission::ActivityRecord);
     assert!(
         switch_shows(&desktop, words::RECORD),
@@ -1045,7 +1045,7 @@ fn a_programs_record_turned_off_removes_what_was_kept_of_it_on_the_phone() {
     let own = desktop.permissions.app_settings(&triangle()).unwrap();
     assert_eq!(own.record, Setting::Own(false));
     assert!(
-        desktop.store.days(triangle().as_str()).is_empty(),
+        desktop.activity.days(triangle().as_str()).is_empty(),
         "what was kept is removed"
     );
 }
