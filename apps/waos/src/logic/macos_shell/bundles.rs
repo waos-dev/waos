@@ -56,6 +56,17 @@ pub(crate) struct ProgramDescription {
     pub(crate) kind: ProgramKind,
 }
 
+impl ProgramDescription {
+    /// The kinds of file its bundle declares, which the Finder offers its app for: none for a
+    /// tool, run from a terminal, so the Finder's Open With does not offer it.
+    pub(crate) fn declared_file_types(&self) -> &[FileAssociation] {
+        match self.kind {
+            ProgramKind::App => &self.file_associations,
+            ProgramKind::Tool => &[],
+        }
+    }
+}
+
 /// Where the bundles go.
 #[derive(Clone, Debug)]
 pub(crate) struct BundleFolders {
@@ -183,12 +194,12 @@ impl BundleFiles {
         }
     }
 
-    /// Whether `kept`, `program`'s bundle, is written as it is now: at its version, opening the
-    /// kinds of file it opens, from WaOS's files as they are now, and in place; a tool's not
+    /// Whether `kept`, `program`'s bundle, is written as it is now: at its version, declaring the
+    /// kinds of file it declares, from WaOS's files as they are now, and in place; a tool's not
     /// among the user's applications.
     fn is_current(&self, kept: &KeptBundle, program: &ProgramDescription) -> bool {
         kept.version == program.version
-            && kept.file_associations == program.file_associations
+            && kept.file_associations == program.declared_file_types()
             && kept.made_from == self.made_from
             && (program.kind == ProgramKind::App || !self.among_applications(kept))
             && kept.path.exists()
@@ -215,7 +226,7 @@ impl BundleFiles {
             version: &program.version,
             icon: program.icon.as_deref(),
             category: program.category,
-            file_associations: &program.file_associations,
+            file_associations: program.declared_file_types(),
             waos: &self.waos,
         };
         if let Some(before) = self.kept(&program.id).filter(|before| before.path != path) {
@@ -227,7 +238,7 @@ impl BundleFiles {
             code_hash_hmac: hex::encode(self.hmac(&code_hash).finalize().into_bytes()),
             code_hash: hex::encode(code_hash),
             version: program.version.clone(),
-            file_associations: program.file_associations.clone(),
+            file_associations: program.declared_file_types().to_vec(),
             made_from: self.made_from.clone(),
         };
         tracing::info!(program = %program.id, path = %kept.path.display(), "the program's app was written");

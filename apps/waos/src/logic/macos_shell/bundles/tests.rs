@@ -308,3 +308,27 @@ fn a_tools_app_an_older_waos_wrote_among_the_applications_is_listed_and_not_curr
     assert!(bundles.listed(&grep.id));
     assert!(!bundles.is_current(&kept, &grep));
 }
+
+#[test]
+fn a_tools_app_declares_none_of_its_kinds_of_file() {
+    let folder = tempfile::tempdir().unwrap();
+    let bundles = bundles(folder.path(), "27.0.1");
+    let grep = ProgramDescription {
+        file_associations: vec![FileAssociation {
+            extensions: vec!["txt".to_owned()],
+            name: "Text".to_owned(),
+            mime_type: None,
+        }],
+        ..tool("dev.example.grep", "Grep")
+    };
+    assert!(grep.declared_file_types().is_empty());
+    let path = folder.path().join("data/Tools/Grep.app");
+    fs::create_dir_all(&path).unwrap();
+    // As an older WaOS wrote it, declaring the tool's kinds of file.
+    record(&bundles, &grep, path);
+    let kept = bundles.kept(&grep.id).unwrap();
+    assert!(
+        !bundles.is_current(&kept, &grep),
+        "a tool's app that declares its kinds of file is written again"
+    );
+}
