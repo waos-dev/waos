@@ -21,11 +21,12 @@
 //! why Waft's tray refused it; and a key it leaves is offered to the menu bar, and one it handles
 //! is not.
 
+use crate::state::test_system::Lines;
+use crate::state::test_turns::{Turn, turn_until, wake_at_end};
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, Weak};
-use std::thread;
 use std::time::{Duration, Instant};
 
 use futures::FutureExt;
@@ -45,8 +46,8 @@ use waft_test::{
     TestPlatform, TestWindows,
 };
 use waos::{
-    EngineTime, FreezePolicy, HttpProxy, OutputStream, ProgramEnd, ProgramEnvironment,
-    ProgramOutput, RunningProgram, WaOS, WaOSConfig,
+    EngineTime, FreezePolicy, HttpProxy, ProgramEnd, ProgramEnvironment, ProgramOutput,
+    RunningProgram, WaOS, WaOSConfig,
 };
 use waos_package::ProgramId;
 use waos_program_window::WaftCompositor;
@@ -59,7 +60,6 @@ use crate::logic::machine_facts::platform_state;
 use crate::logic::placement::WindowsOnRequest;
 use crate::logic::program_faces::ProgramFaces;
 use crate::logic::prompts::PromptsOnRequest;
-use crate::logic::test_engine::WITHIN;
 use crate::logic::test_installs;
 use crate::logic::vsync_waiter::WaftVsync;
 use crate::state::questions::{self, Questions};
@@ -206,9 +206,13 @@ impl Desktop {
             ..ProgramEnvironment::default()
         };
 
-        self.engine
+        let running = self
+            .engine
             .run(&program, environment)
-            .expect("the program runs")
+            .expect("the program runs");
+        output.wake(self.platform.inner.dispatcher());
+        wake_at_end(&running, self.platform.inner.dispatcher());
+        running
     }
 
     /// Runs the test program at `component` as the program `id`, with the store's settings for it,
@@ -229,19 +233,50 @@ impl Desktop {
             ..ProgramEnvironment::default()
         };
 
-        self.engine
+        let running = self
+            .engine
             .run(&program, environment)
-            .expect("the program runs")
+            .expect("the program runs");
+        output.wake(self.platform.inner.dispatcher());
+        wake_at_end(&running, self.platform.inner.dispatcher());
+        running
     }
 
-    /// Plays the host until `done`, failing after [`WITHIN`].
+    /// Plays the host until `done`, failing after `WITHIN`: a turn follows at once while the app
+    /// has a frame, a window, a vsync or a timer to turn for, and otherwise once a task wakes it.
     fn pump_until(&mut self, what: &str, done: impl Fn(&Desktop) -> bool) {
-        let deadline = Instant::now() + WITHIN;
-        while !done(self) {
-            assert!(Instant::now() < deadline, "{what} never happened");
+        let platform = Rc::clone(&self.platform);
+        turn_until(&platform.inner, what, || {
+            if done(self) {
+                return Turn::Done;
+            }
             self.pump();
-            thread::sleep(Duration::from_millis(2));
-        }
+            if done(self) {
+                Turn::Done
+            } else if self.has_turns_to_take() {
+                Turn::FrameAsked
+            } else {
+                Turn::Idle
+            }
+        });
+    }
+
+    /// Whether the host's loop has something to turn for without a wake: a frame asked for, a
+    /// window made or closed that the app has not heard of, a vsync waited for, or a timer.
+    fn has_turns_to_take(&self) -> bool {
+        let made = self.platform.windows.made();
+        !self.platform.inner.frame_requests().is_empty()
+            || made.len() > self.reported_made
+            || made.iter().any(|window| {
+                window.closes() > 0 && !self.reported_closed.contains(&window.test_view().id())
+            })
+            || self.platform.vsync.is_waited_for()
+            || self
+                .platform
+                .inner
+                .wakes()
+                .last()
+                .is_some_and(Option::is_some)
     }
 
     /// One turn of the host's loop: the windows made and closed are reported, the frame each view
@@ -350,18 +385,27 @@ impl DesktopPlatform {
                 .into_iter()
                 .collect()
         });
+        let inner = TestPlatform::new()
+            .on(TargetPlatform::MacOS)
+            .with_windows(Rc::clone(&windows))
+            .with_clipboard(Rc::new(clipboard.clone()))
+            .with_menu_bar(Rc::new(menu_bar.clone()))
+            .with_popup_menus(Rc::new(popup_menus.clone()))
+            .with_tray_icons(Rc::new(tray.clone()))
+            .with_file_dialogs(Rc::new(file_dialogs.clone()));
+        let compositor = Arc::new(TestCompositor {
+            layers: Arc::default(),
+            host: inner.dispatcher(),
+        });
+        let vsync = Arc::new(TestVsync {
+            waiting: Mutex::default(),
+            host: inner.dispatcher(),
+        });
         DesktopPlatform {
-            inner: TestPlatform::new()
-                .on(TargetPlatform::MacOS)
-                .with_windows(Rc::clone(&windows))
-                .with_clipboard(Rc::new(clipboard.clone()))
-                .with_menu_bar(Rc::new(menu_bar.clone()))
-                .with_popup_menus(Rc::new(popup_menus.clone()))
-                .with_tray_icons(Rc::new(tray.clone()))
-                .with_file_dialogs(Rc::new(file_dialogs.clone())),
+            inner,
             windows,
-            compositor: Arc::new(TestCompositor::default()),
-            vsync: Arc::new(TestVsync::default()),
+            compositor,
+            vsync,
             menu_bar,
             popup_menus,
             tray,
@@ -456,13 +500,19 @@ impl Screens for DesktopPlatform {
     }
 }
 
-/// The screen's vsyncs: every wait is served at the host's next turn.
-#[derive(Default)]
+/// The screen's vsyncs: every wait is served at the host's next turn, which the wait wakes the app
+/// for, as a screen's refresh does.
 struct TestVsync {
     waiting: Mutex<Vec<Weak<dyn VsyncObserver>>>,
+    host: Arc<dyn Dispatcher>,
 }
 
 impl TestVsync {
+    /// Whether a vsync is waited for.
+    fn is_waited_for(&self) -> bool {
+        !self.waiting.lock().unwrap().is_empty()
+    }
+
     /// Every vsync waited for comes, at `at`, on this thread: the main one, its picture expected
     /// on screen at the same moment.
     fn serve(&self, at: Instant) {
@@ -476,15 +526,17 @@ impl TestVsync {
 impl VsyncWaiter for TestVsync {
     fn next_vsync(&self, _screen: ScreenId, observer: Weak<dyn VsyncObserver>) {
         self.waiting.lock().unwrap().push(observer);
+        self.host.wake_now();
     }
 }
 
 /// Composition layers that show nothing: each counts the hardware buffers it is shown, keeps the
-/// children each present showed, and lets go of each buffer at once.
-#[derive(Default)]
+/// children each present showed, lets go of each buffer at once, and wakes the test's host, which
+/// a test waiting for a present turns for.
 struct TestCompositor {
     /// Each layer made, in order.
     layers: Arc<Mutex<Vec<Arc<TestLayer>>>>,
+    host: Arc<dyn Dispatcher>,
 }
 
 impl TestCompositor {
@@ -535,6 +587,7 @@ impl Compositor for TestCompositor {
             opaque,
             presents: AtomicUsize::new(0),
             children: Mutex::default(),
+            host: Arc::clone(&self.host),
         });
         self.layers.lock().unwrap().push(Arc::clone(&layer));
         layer
@@ -553,6 +606,7 @@ struct TestLayer {
     presents: AtomicUsize,
     /// The children each present showed, in order.
     children: Mutex<Vec<Children>>,
+    host: Arc<dyn Dispatcher>,
 }
 
 impl CompositionLayer for TestLayer {
@@ -566,44 +620,12 @@ impl CompositionLayer for TestLayer {
         self.presents.fetch_add(1, Ordering::SeqCst);
         drop(buffer);
         released();
+        self.host.wake_now();
     }
 
     /// Nothing: each buffer is let go of as it is presented.
     fn current_picture(&self) -> Option<waft::ui::LayerPicture> {
         None
-    }
-}
-
-/// What a program wrote to its standard output, line by line.
-#[derive(Default)]
-struct Lines {
-    bytes: Mutex<Vec<u8>>,
-}
-
-impl Lines {
-    fn all(&self) -> Vec<String> {
-        String::from_utf8_lossy(&self.bytes.lock().unwrap())
-            .lines()
-            .map(str::to_owned)
-            .collect()
-    }
-
-    fn has(&self, line: &str) -> bool {
-        self.all().iter().any(|written| written == line)
-    }
-}
-
-impl ProgramOutput for Lines {
-    fn poll_write(
-        &self,
-        stream: OutputStream,
-        _cx: &mut std::task::Context<'_>,
-        bytes: &[u8],
-    ) -> std::task::Poll<usize> {
-        if matches!(stream, OutputStream::Stdout) {
-            self.bytes.lock().unwrap().extend_from_slice(bytes);
-        }
-        std::task::Poll::Ready(bytes.len())
     }
 }
 

@@ -34,11 +34,12 @@ use waos::{
 use waos_capabilities::ProgramFolders;
 use waos_headless::HeadlessView;
 
+use waos_headless::testing::Changes;
+
 use crate::test_shell::image_codecs::{Asked, ImageAnswers, ImageFacts, OpenedFrom};
 use crate::test_shell::media_assets::{AssetAnswers, FrameAsked};
 use crate::test_shell::media_players::{Destination, OpenedPlayer, PlayerCall};
-use crate::test_shell::menus::TestMenus;
-use crate::test_shell::{RecordedOutput, TestShell, config, pixel_of, wait_until, within};
+use crate::test_shell::{RecordedOutput, TestShell, config, pixel_of, poll_until, within};
 
 /// How long the media the tests play is.
 const MINUTE: Duration = Duration::from_secs(60);
@@ -57,15 +58,17 @@ fn it_shows_its_window_under_its_menu_bar_and_quits_as_the_window_closes() {
         within(run.window.picture_after_events()),
         "the video player draws its window"
     );
-    wait_until("its window keeps a smallest size", || {
-        window.size_limits().0.is_some()
-    });
+    shell
+        .changes
+        .wait_until("its window keeps a smallest size", || {
+            window.size_limits().0.is_some()
+        });
     assert_eq!(
         window.size_limits().0.map(|size| (size.width, size.height)),
         Some((480.0, 270.0))
     );
 
-    let bar = wait_for_bar(&shell.menus, |bar| has(bar, "File"));
+    let bar = wait_for_bar(&shell, |bar| has(bar, "File"));
     let titles: Vec<_> = bar
         .iter()
         .filter(|entry| entry.parent.is_none())
@@ -87,7 +90,7 @@ fn a_video_picked_through_open_plays_and_its_keys_and_menus_reach_the_player() {
     fs::write(&video, "a clip").unwrap();
     shell.file_dialogs.answer_next(vec![video.clone()]);
     let run = Run::start(&engine, &shell, "");
-    let bar = wait_for_bar(&shell.menus, |bar| has(bar, "File"));
+    let bar = wait_for_bar(&shell, |bar| has(bar, "File"));
 
     run.running.menu_chosen(id_of(&bar, "Open…"));
     let player = opened(&shell, 0);
@@ -99,29 +102,34 @@ fn a_video_picked_through_open_plays_and_its_keys_and_menus_reach_the_player() {
         "a sheet on its window"
     );
     assert_eq!(player.url, Url::from_file_path(&video).unwrap().as_str());
-    wait_until("the video goes to a layer the app made, and plays", || {
-        let calls = player.calls();
-        calls.contains(&PlayerCall::Play)
-            && calls.iter().any(|call| {
-                matches!(
-                    call,
-                    PlayerCall::SetVideoOutput(Some(Destination::Layer(_)))
-                )
-            })
-    });
+    shell
+        .changes
+        .wait_until("the video goes to a layer the app made, and plays", || {
+            let calls = player.calls();
+            calls.contains(&PlayerCall::Play)
+                && calls.iter().any(|call| {
+                    matches!(
+                        call,
+                        PlayerCall::SetVideoOutput(Some(Destination::Layer(_)))
+                    )
+                })
+        });
     let window = run.shown.window().expect("in a window");
-    wait_until("the window is titled for the video", || {
-        window.title() == "clip.mp4"
-    });
+    shell
+        .changes
+        .wait_until("the window is titled for the video", || {
+            window.title() == "clip.mp4"
+        });
 
     player.report_position(Duration::from_secs(3));
     player.report(ready(PlayerActivity::Paused(Some(PauseReason::Requested))));
-    let bar = wait_for_bar(&shell.menus, |bar| has(bar, "English"));
+    let bar = wait_for_bar(&shell, |bar| has(bar, "English"));
 
     Keyboard::press(&run.window, "space").unwrap();
-    wait_for_call(&player, &PlayerCall::Play, 2);
+    wait_for_call(&shell.changes, &player, &PlayerCall::Play, 2);
     Keyboard::press(&run.window, "right").unwrap();
     wait_for_call(
+        &shell.changes,
         &player,
         &PlayerCall::Seek {
             position: Duration::from_secs(13),
@@ -132,11 +140,12 @@ fn a_video_picked_through_open_plays_and_its_keys_and_menus_reach_the_player() {
     );
 
     run.running.menu_chosen(id_of(&bar, "Faster"));
-    wait_for_call(&player, &PlayerCall::SetRate(1.25), 1);
+    wait_for_call(&shell.changes, &player, &PlayerCall::SetRate(1.25), 1);
     run.running.menu_chosen(id_of(&bar, "Mute"));
-    wait_for_call(&player, &PlayerCall::SetMuted(true), 1);
+    wait_for_call(&shell.changes, &player, &PlayerCall::SetMuted(true), 1);
     run.running.menu_chosen(id_of(&bar, "English"));
     wait_for_call(
+        &shell.changes,
         &player,
         &PlayerCall::SelectTextTrack(Some("text-en".to_owned())),
         1,
@@ -157,7 +166,7 @@ fn a_recent_video_opens_where_it_was_left_and_is_kept_where_it_stands_as_the_app
     let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
     let run = Run::start(&engine, &shell, "4000\tfile:///data/clip.mp4\n");
     fs::write(run.data().join("clip.mp4"), "a clip").unwrap();
-    let bar = wait_for_bar(&shell.menus, |bar| has(bar, "clip.mp4"));
+    let bar = wait_for_bar(&shell, |bar| has(bar, "clip.mp4"));
 
     run.running.menu_chosen(id_of(&bar, "clip.mp4"));
     let player = opened(&shell, 0);
@@ -165,6 +174,7 @@ fn a_recent_video_opens_where_it_was_left_and_is_kept_where_it_stands_as_the_app
     assert_eq!(player.url, Url::from_file_path(&clip).unwrap().as_str());
     player.report(ready(PlayerActivity::Playing));
     wait_for_call(
+        &shell.changes,
         &player,
         &PlayerCall::Seek {
             position: Duration::from_secs(4),
@@ -176,7 +186,7 @@ fn a_recent_video_opens_where_it_was_left_and_is_kept_where_it_stands_as_the_app
 
     player.report_position(Duration::from_secs(30));
     player.report(ready(PlayerActivity::Paused(Some(PauseReason::Requested))));
-    wait_until("where it paused is kept", || {
+    poll_until("where it paused is kept", || {
         kept_list(&run) == "30000\tfile:///data/clip.mp4\n"
     });
     player.report_position(Duration::from_secs(42));
@@ -201,12 +211,14 @@ fn a_folder_added_lists_its_video_which_a_click_plays_from_where_it_was_left_and
     let clip = Url::from_file_path(films.join("clip.mp4")).unwrap();
     shell.file_dialogs.answer_next(vec![films.clone()]);
     let run = Run::start(&engine, &shell, &format!("30000\t{clip}\n"));
-    let bar = wait_for_bar(&shell.menus, |bar| has(bar, "Add Folder…"));
+    let bar = wait_for_bar(&shell, |bar| has(bar, "Add Folder…"));
 
     run.running.menu_chosen(id_of(&bar, "Add Folder…"));
-    wait_until("the library reads the folder's video", || {
-        shell.media_assets.opened().len() == 1
-    });
+    shell
+        .changes
+        .wait_until("the library reads the folder's video", || {
+            shell.media_assets.opened().len() == 1
+        });
     assert_eq!(shell.file_dialogs.asked()[0].kind, "open-folder");
     let asset = &shell.media_assets.opened()[0];
     assert_eq!(
@@ -214,9 +226,11 @@ fn a_folder_added_lists_its_video_which_a_click_plays_from_where_it_was_left_and
         clip.as_str(),
         "the video, not the notes beside it"
     );
-    wait_until("its length is read, then its thumbnail", || {
-        asset.reads() == ["duration", "metadata", "frame-at"]
-    });
+    shell
+        .changes
+        .wait_until("its length is read, then its thumbnail", || {
+            asset.reads() == ["duration", "metadata", "frame-at"]
+        });
     assert_eq!(
         asset.frames_asked(),
         [FrameAsked {
@@ -227,7 +241,7 @@ fn a_folder_added_lists_its_video_which_a_click_plays_from_where_it_was_left_and
         }],
         "a tenth of the way in, at the nearest keyframe, small"
     );
-    let (shown, thumbnail) = wait_for_thumbnail(&run.window);
+    let (shown, thumbnail) = wait_for_thumbnail(&shell.changes, &run.window);
     let watched_at = |fraction: f64| {
         let x = thumbnail.left + ((thumbnail.right - thumbnail.left) as f64 * fraction) as usize;
         // Just beneath the red: the bar takes the thumbnail's bottom rows.
@@ -249,6 +263,7 @@ fn a_folder_added_lists_its_video_which_a_click_plays_from_where_it_was_left_and
     assert_eq!(player.url, clip.as_str());
     player.report(ready(PlayerActivity::Playing));
     wait_for_call(
+        &shell.changes,
         &player,
         &PlayerCall::Seek {
             position: Duration::from_secs(30),
@@ -259,8 +274,10 @@ fn a_folder_added_lists_its_video_which_a_click_plays_from_where_it_was_left_and
     );
 
     Keyboard::press(&run.window, "escape").unwrap();
-    wait_until("Esc goes back to the library", || player.is_dropped());
-    wait_for_thumbnail(&run.window);
+    shell
+        .changes
+        .wait_until("Esc goes back to the library", || player.is_dropped());
+    wait_for_thumbnail(&shell.changes, &run.window);
     run.close();
 }
 
@@ -284,8 +301,8 @@ fn a_thumbnail_is_kept_encoded_from_its_frame_and_the_next_run_draws_it_decoded_
     fs::write(folders.path().join("data/Films/clip.mp4"), "a clip").unwrap();
     fs::write(folders.path().join("data/folders"), "/data/Films\n").unwrap();
     let first = Run::in_folders(&engine, &shell, 0, folders);
-    wait_for_thumbnail(&first.window);
-    wait_until("the thumbnail is kept", || {
+    wait_for_thumbnail(&shell.changes, &first.window);
+    poll_until("the thumbnail is kept", || {
         first.kept_thumbnails().len() == 1
     });
     let kept = first.kept_thumbnails()[0].clone();
@@ -306,7 +323,7 @@ fn a_thumbnail_is_kept_encoded_from_its_frame_and_the_next_run_draws_it_decoded_
     let opened_before = shell.media_assets.opened().len();
     let asked_before = shell.image_codecs.asked().len();
     let again = Run::in_folders(&engine, &shell, 1, first.folders);
-    wait_for_thumbnail(&again.window);
+    wait_for_thumbnail(&shell.changes, &again.window);
     let asked = shell.image_codecs.asked()[asked_before..].to_vec();
     let machine_path = fs::canonicalize(&kept).unwrap();
     assert_eq!(
@@ -372,9 +389,9 @@ impl Region {
 
 /// Waits until `window` shows a red thumbnail, and answers what it shows with where the thumbnail
 /// is.
-fn wait_for_thumbnail(window: &ProgramView) -> (PixelBuffer, Region) {
+fn wait_for_thumbnail(changes: &Changes, window: &ProgramView) -> (PixelBuffer, Region) {
     let found = std::cell::RefCell::new(None);
-    wait_until("the window shows the video's thumbnail", || {
+    changes.wait_until("the window shows the video's thumbnail", || {
         let Some(shown) = window.picture().expect("the screenshot is drawn") else {
             return false;
         };
@@ -539,15 +556,15 @@ fn nanoseconds(duration: Duration) -> u64 {
 
 /// The player opened after `before` others, once the shell has it.
 fn opened(shell: &TestShell, before: usize) -> OpenedPlayer {
-    wait_until("the shell opens a player", || {
+    shell.changes.wait_until("the shell opens a player", || {
         shell.media_players.opened().len() > before
     });
     shell.media_players.opened()[before].clone()
 }
 
 /// Waits until `player` has been asked `call` `count` times.
-fn wait_for_call(player: &OpenedPlayer, call: &PlayerCall, count: usize) {
-    wait_until(&format!("{call:?} asked {count} times"), || {
+fn wait_for_call(changes: &Changes, player: &OpenedPlayer, call: &PlayerCall, count: usize) {
+    changes.wait_until(&format!("{call:?} asked {count} times"), || {
         calls_of(player, |asked| asked == call) >= count
     });
 }
@@ -557,11 +574,15 @@ fn calls_of(player: &OpenedPlayer, which: impl Fn(&PlayerCall) -> bool) -> usize
 }
 
 /// Waits until the program has set a menu bar `wanted` accepts, and answers it.
-fn wait_for_bar(menus: &TestMenus, wanted: impl Fn(&[MenuEntry]) -> bool) -> Vec<MenuEntry> {
-    wait_until("the menu bar wanted", || {
-        menus.bars().last().is_some_and(|(_, bar)| wanted(bar))
+fn wait_for_bar(shell: &TestShell, wanted: impl Fn(&[MenuEntry]) -> bool) -> Vec<MenuEntry> {
+    shell.changes.wait_until("the menu bar wanted", || {
+        shell
+            .menus
+            .bars()
+            .last()
+            .is_some_and(|(_, bar)| wanted(bar))
     });
-    menus.bars().pop().expect("a bar").1
+    shell.menus.bars().pop().expect("a bar").1
 }
 
 fn has(bar: &[MenuEntry], label: &str) -> bool {

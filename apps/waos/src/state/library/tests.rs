@@ -15,11 +15,11 @@
 
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
-use std::thread;
-use std::time::{Duration, Instant};
 
 use tempfile::TempDir;
+use waft::ui::PlatformRef;
 use waft::{AppCell, Subscription};
+use waft_test::TestPlatform;
 use waos_package::{Manifest, ProgramKind, SigningKey};
 
 use super::test_server::Server;
@@ -33,8 +33,10 @@ use crate::logic::program_shortcuts::{
 use crate::logic::running_apps::RunningApps;
 use crate::logic::startup::Setup;
 use crate::logic::startup::tests::start_asking_nobody;
-use crate::logic::test_engine::{self, NoWindows, WITHIN};
+use crate::logic::test_engine::{self, NoWindows};
 use crate::logic::test_installs::{self, HeldCompiler};
+use crate::state::test_turns::{Turn, turn_until};
+use waos_headless::testing::poll_until;
 
 const TRIANGLE: &str = "dev.example.triangle";
 const SURVEY: &str = "dev.example.survey";
@@ -43,6 +45,8 @@ const SURVEY: &str = "dev.example.survey";
 /// engine in a folder of the test's own.
 struct TestLibrary {
     cell: Rc<AppCell>,
+    /// The platform the app runs on, which tells the test when a task wakes the app.
+    platform: Rc<TestPlatform>,
     library: Entity<Library>,
     runs: Arc<RunningApps>,
     /// The package manager's compiler, which a test holds to see what happens while it compiles.
@@ -80,7 +84,8 @@ impl TestLibrary {
             (shell, test_engine::no_screens())
         });
         let runs = Arc::clone(&started.running);
-        let cell = AppCell::new();
+        let platform = Rc::new(TestPlatform::new());
+        let cell = AppCell::with_platform(Rc::clone(&platform) as PlatformRef);
         let library = open_library(
             &mut cell.borrow_mut(),
             LibraryDomains::of(&started),
@@ -99,6 +104,7 @@ impl TestLibrary {
         cell.checkpoint();
         TestLibrary {
             cell,
+            platform,
             library,
             runs,
             compiler,
@@ -136,14 +142,16 @@ impl TestLibrary {
         f(self.library.read(&self.cell.borrow()))
     }
 
-    /// Runs the app's tasks until `done`, failing after [`WITHIN`].
+    /// Runs the app's tasks as they wake until `done`, failing after the tests' deadline.
     fn wait_until(&self, what: &str, done: impl Fn(&Library) -> bool) {
-        let deadline = Instant::now() + WITHIN;
-        while !self.read(&done) {
-            assert!(Instant::now() < deadline, "{what} never happened");
-            thread::sleep(Duration::from_millis(5));
+        turn_until(&self.platform, what, || {
             self.cell.checkpoint();
-        }
+            if self.read(&done) {
+                Turn::Done
+            } else {
+                Turn::Idle
+            }
+        });
     }
 
     /// The ids and versions installed, by id.
@@ -647,9 +655,7 @@ fn a_removed_source_takes_its_listing_with_it() {
     let source = library.read(|library| library.sources()[0].source.clone());
     library.update(|library, cx| library.remove_source(&source, cx));
     assert!(library.read(|library| library.sources().is_empty()));
-    library.cell.checkpoint();
-    thread::sleep(Duration::from_millis(50));
-    library.cell.checkpoint();
+    library.wait_until("the listing read", |library| library.is_idle());
     assert!(
         library.read(|library| library.sources().is_empty()),
         "a listing read after the source went is dropped"
@@ -668,8 +674,7 @@ fn an_installed_program_opens_in_waos_once_however_often_it_is_opened() {
     library.wait_until("the second open's answer", |library| {
         library.problem().is_none()
     });
-    thread::sleep(Duration::from_millis(50));
-    library.cell.checkpoint();
+    library.wait_until("the second open's work", |library| library.is_idle());
     assert_eq!(
         futures::executor::block_on(library.runs.programs()).len(),
         1
@@ -922,11 +927,9 @@ fn files_opened_with_an_installed_program_at_start_open_it_and_reach_it() {
     let triangle: ProgramId = TRIANGLE.parse().unwrap();
     library.update(|library, cx| library.open_with(&triangle, request, cx));
     wait_for_runs(&library, &[TRIANGLE]);
-    let deadline = Instant::now() + WITHIN;
-    while std::fs::read_to_string(&notes).unwrap() != "my notes, seen" {
-        assert!(Instant::now() < deadline, "the program never wrote to it");
-        thread::sleep(Duration::from_millis(10));
-    }
+    poll_until("the program writes to the file", || {
+        std::fs::read_to_string(&notes).unwrap() == "my notes, seen"
+    });
     futures::executor::block_on(library.runs.stop_all());
     wait_for_runs(&library, &[]);
 }
@@ -977,19 +980,18 @@ fn a_program_that_cannot_be_loaded_is_the_librarys_problem() {
     assert!(futures::executor::block_on(library.runs.names()).is_empty());
 }
 
-/// Waits until the runs are exactly `names`.
+/// Waits until the runs are exactly `names`, as the library hears of them.
 fn wait_for_runs(library: &TestLibrary, names: &[&str]) {
-    let deadline = Instant::now() + WITHIN;
-    loop {
+    turn_until(&library.platform, &format!("the runs {names:?}"), || {
+        library.cell.checkpoint();
         let mut running = futures::executor::block_on(library.runs.names());
         running.sort();
         if running == names {
-            return;
+            Turn::Done
+        } else {
+            Turn::Idle
         }
-        assert!(Instant::now() < deadline, "the runs stayed {running:?}");
-        thread::sleep(Duration::from_millis(10));
-        library.cell.checkpoint();
-    }
+    });
 }
 
 /// A document handed without a path that seeks, as Android hands one from its Files app: `bytes`
@@ -1318,8 +1320,7 @@ fn the_home_screen_is_offered_only_where_the_launcher_pins() {
     ));
     let triangle: ProgramId = TRIANGLE.parse().unwrap();
     assert!(!library.read(|library| library.adds_to_home_screen(&triangle)));
-    thread::sleep(Duration::from_millis(50));
-    library.cell.checkpoint();
+    library.wait_until("the install's work", |library| library.is_idle());
     assert!(shortcuts.pin_requests.borrow().is_empty());
 }
 
@@ -1367,8 +1368,7 @@ fn a_removed_programs_shortcut_is_disabled_and_enabled_once_it_is_installed_agai
     library.wait_until("the shortcut enabled again", |_| {
         shortcuts.state_of(TRIANGLE) == Some(true)
     });
-    thread::sleep(Duration::from_millis(50));
-    library.cell.checkpoint();
+    library.wait_until("the install's work", |library| library.is_idle());
     assert!(
         shortcuts.pin_requests.borrow().is_empty(),
         "an icon on the home screen already is not asked for again"

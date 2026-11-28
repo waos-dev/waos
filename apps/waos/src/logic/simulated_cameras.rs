@@ -193,6 +193,10 @@ impl Drawing {
             self.frame.store(number, Ordering::Relaxed);
             number += 1;
             next += every;
+            #[allow(
+                clippy::disallowed_methods,
+                reason = "a camera hands out frames at its rate"
+            )]
             thread::sleep(next.saturating_duration_since(Instant::now()));
         }
     }
@@ -345,6 +349,10 @@ mod tests {
                 return frame.picture;
             }
             assert!(Now::now() < deadline, "no frame came");
+            #[allow(
+                clippy::disallowed_methods,
+                reason = "a reader announces no frame; exact once the camera's frames can be awaited"
+            )]
             thread::sleep(Duration::from_millis(5));
         }
     }

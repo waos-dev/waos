@@ -13,11 +13,10 @@ use std::time::{Duration, Instant};
 use waos::{Mouse, Presence};
 use waos_dev_protocol::{
     ClientConnection, Input, InputAnswer, InputDone, Refusal, RefusalKind, Request, RunEvent,
-    ScreenshotAnswer, WindowId,
+    WindowId,
 };
 
 use crate::logic::dev_server::tests::{TestServer, development, next, stdout_of};
-use crate::logic::test_engine::WITHIN;
 use crate::logic::test_engine::drawing::{WINDOW_HEIGHT, WINDOW_WIDTH};
 
 /// The id `examples/input` is installed as.
@@ -37,26 +36,17 @@ pub(crate) async fn run_input(server: &TestServer) -> (ClientConnection, Vec<Run
 
 /// Waits until the program's window shows a picture.
 async fn wait_for_first_picture(server: &TestServer) {
-    let deadline = Instant::now() + WITHIN;
     let screenshot = Request::Screenshot {
         id: development(INPUT),
         window: None,
     };
-    loop {
-        if let ScreenshotAnswer::Pictures(pictures) =
-            server.ask::<ScreenshotAnswer>(&screenshot).await
-            && pictures
+    server
+        .screenshot_once(&screenshot, "the window shows a picture", |pictures| {
+            pictures
                 .first()
                 .is_some_and(|picture| picture.png.is_some())
-        {
-            return;
-        }
-        assert!(
-            Instant::now() < deadline,
-            "the window never showed a picture"
-        );
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    }
+        })
+        .await;
 }
 
 /// Reads the run's connection until the program has written `line`.

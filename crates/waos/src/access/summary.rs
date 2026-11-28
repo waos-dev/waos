@@ -566,13 +566,14 @@ mod tests {
     /// A day, in seconds.
     const DAY: u64 = 24 * 60 * 60;
 
-    /// An audit log that keeps every day it is given, in order.
+    /// An audit log that keeps every day it is given, in order, telling its condvar of each.
     #[derive(Default)]
-    struct Kept(Mutex<Vec<(String, AuditDay)>>);
+    struct Kept(Mutex<Vec<(String, AuditDay)>>, std::sync::Condvar);
 
     impl AuditLog for Kept {
         fn keep(&self, program: &str, day: &AuditDay) {
             locked(&self.0).push((program.to_owned(), day.clone()));
+            self.1.notify_all();
         }
 
         /// The days kept of `program`, newest first, each as it was kept last.
@@ -884,15 +885,14 @@ mod tests {
         );
         post(&summary);
         drop(summary);
-        let deadline = std::time::Instant::now() + Duration::from_secs(5);
-        while locked(&log.0).is_empty() {
-            assert!(
-                std::time::Instant::now() < deadline,
-                "kept by the writer, off the run"
-            );
-            std::thread::sleep(Duration::from_millis(5));
-        }
-        assert_eq!(locked(&log.0)[0].1.notifications.allowed, 1);
+        let (kept, waited) = log
+            .1
+            .wait_timeout_while(locked(&log.0), Duration::from_secs(15), |kept| {
+                kept.is_empty()
+            })
+            .unwrap();
+        assert!(!waited.timed_out(), "kept by the writer, off the run");
+        assert_eq!(kept[0].1.notifications.allowed, 1);
     }
 
     #[test]

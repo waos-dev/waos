@@ -12,12 +12,14 @@ use waos::bindings::wasdk::media::media_players::{
 };
 use waos::bindings::wasdk::platform::windows::Size;
 use waos::{MediaAssetFuture, RunningProgram, ShellMediaAsset, ShellMediaAssets, VideoFrame};
+use waos_headless::testing::Changes;
 
 /// Assets that each answer what the test set, and are kept as they are opened.
 #[derive(Default)]
 pub struct TestMediaAssets {
     answers: Arc<Mutex<AssetAnswers>>,
     opened: Mutex<Vec<OpenedAsset>>,
+    changes: Arc<Changes>,
 }
 
 /// What every asset answers: its length, none for a live stream, its tracks and tags, and the
@@ -99,6 +101,16 @@ impl OpenedAsset {
     }
 }
 
+impl TestMediaAssets {
+    /// Assets of which none is opened, announcing each opening, read and drop to `changes`.
+    pub fn announcing(changes: &Arc<Changes>) -> TestMediaAssets {
+        TestMediaAssets {
+            changes: Arc::clone(changes),
+            ..TestMediaAssets::default()
+        }
+    }
+}
+
 impl ShellMediaAssets for TestMediaAssets {
     fn open(&self, program: &RunningProgram, url: &str) -> Box<dyn ShellMediaAsset> {
         let opened = OpenedAsset {
@@ -113,8 +125,10 @@ impl ShellMediaAssets for TestMediaAssets {
             reads: Arc::clone(&opened.reads),
             frames_asked: Arc::clone(&opened.frames_asked),
             dropped: Arc::clone(&opened.dropped),
+            changes: Arc::clone(&self.changes),
         };
         self.opened.lock().unwrap().push(opened);
+        self.changes.announce();
         Box::new(asset)
     }
 }
@@ -125,12 +139,14 @@ struct TestAsset {
     reads: Arc<Mutex<Vec<&'static str>>>,
     frames_asked: Arc<Mutex<Vec<FrameAsked>>>,
     dropped: Arc<AtomicBool>,
+    changes: Arc<Changes>,
 }
 
 impl TestAsset {
     /// What the test set, as `read` asks it.
     fn answers(&self, read: &'static str) -> AssetAnswers {
         self.reads.lock().unwrap().push(read);
+        self.changes.announce();
         self.answers.lock().unwrap().clone()
     }
 }
@@ -160,6 +176,7 @@ impl ShellMediaAsset for TestAsset {
             after: tolerance.after,
             max_size: max_size.map(|size| (size.width, size.height)),
         });
+        self.changes.announce();
         picture(self.answers("frame-at").picture)
     }
 }
@@ -193,5 +210,6 @@ fn picture(_picture: Result<[u8; 4], PlayerError>) -> MediaAssetFuture<VideoFram
 impl Drop for TestAsset {
     fn drop(&mut self) {
         self.dropped.store(true, Ordering::SeqCst);
+        self.changes.announce();
     }
 }

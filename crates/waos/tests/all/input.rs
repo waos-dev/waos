@@ -17,7 +17,7 @@ use waos::bindings::wasdk::platform::views::{
 use waos::{HeldModifiers, Keyboard, ProgramEnd, ProgramView, RunningProgram, WaOS};
 
 use crate::test_shell::{
-    DISPLAY, RecordedOutput, TestShell, config, pixel_of, printing_to, wait_until, within,
+    DISPLAY, RecordedOutput, TestShell, config, pixel_of, printing_to, within,
 };
 
 /// The program's first two colours, as the bytes of a hardware buffer: blue, green, red, alpha,
@@ -78,11 +78,13 @@ fn what_it_edits_is_the_engines_copy_which_an_input_methods_change_replaces() {
     assert!(window.editing_value().is_none(), "nothing edited before");
     running.mouse().tap(&window, (1.0, 1.0));
     output.wait_for("text: editing");
-    wait_until("the program's empty text is kept", || {
-        window
-            .editing_value()
-            .is_some_and(|value| value.text.is_empty())
-    });
+    shell
+        .changes
+        .wait_until("the program's empty text is kept", || {
+            window
+                .editing_value()
+                .is_some_and(|value| value.text.is_empty())
+        });
 
     Keyboard::insert_text(&window, "milk").unwrap();
     output.wait_for("text: \"milk\" selection Some(\"4..4\")");

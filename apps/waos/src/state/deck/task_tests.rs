@@ -198,7 +198,9 @@ fn an_extra_window_brought_back_closes_at_once() {
         role: WindowRole::Extra,
     };
     let restored = phone.restore_window(&extra.initial_data());
-    phone.pump_for(A_MOMENT);
+    phone.settle_until("the library's work", |phone| {
+        phone.library.read(&phone.shell.app()).is_idle()
+    });
     assert_eq!(restored.closes(), 1);
     assert!(!phone.runs(TRIANGLE), "nothing started for it");
 }

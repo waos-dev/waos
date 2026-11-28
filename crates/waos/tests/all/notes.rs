@@ -39,9 +39,10 @@ use waos_capabilities::ProgramFolders;
 use waos_headless::HeadlessView;
 
 use crate::asking::app;
+use waos_headless::testing::Changes;
+
 use crate::test_shell::clipboard::CopiedText;
-use crate::test_shell::menus::TestMenus;
-use crate::test_shell::{DISPLAY, RecordedOutput, TestShell, config, metrics, wait_until, within};
+use crate::test_shell::{DISPLAY, RecordedOutput, TestShell, config, metrics, poll_until, within};
 
 /// A note typed in, and its title.
 const SHOPPING: &str = "Shopping\nmilk, eggs";
@@ -61,17 +62,19 @@ fn an_empty_library_opens_one_window_kept_at_its_minimum_size_under_its_menus_an
     let headless_window = shown.window().expect("in a window");
     assert_eq!(headless_window.config().title, "Notes");
     assert!(within(window.picture_after_events()), "notes draws");
-    wait_until("the window keeps its minimum size", || {
-        headless_window
-            .size_limits()
-            .0
-            .map(|size| (size.width, size.height))
-            == Some((320.0, 400.0))
-    });
-    wait_for_title(&window, "Notes");
+    shell
+        .changes
+        .wait_until("the window keeps its minimum size", || {
+            headless_window
+                .size_limits()
+                .0
+                .map(|size| (size.width, size.height))
+                == Some((320.0, 400.0))
+        });
+    wait_for_title(&shell.changes, &window, "Notes");
     assert!(kept_notes(&folders).is_empty(), "an empty library");
 
-    let bar = wait_for_bar(&shell.menus);
+    let bar = wait_for_bar(&shell);
     let titles: Vec<_> = bar
         .iter()
         .filter(|entry| entry.parent.is_none())
@@ -123,18 +126,18 @@ fn a_new_note_is_kept_as_it_is_typed_and_found_by_its_text() {
     let folders = Folders::new();
     let grants = shell.permissions().of(&app());
     let (running, _shown, window, _output) = launch(&engine, &shell, &folders, &grants);
-    let bar = wait_for_bar(&shell.menus);
+    let bar = wait_for_bar(&shell);
 
     type_new_note(&engine, &shell, &running, &window, SHOPPING, SHOPPING_TITLE);
-    wait_until("the note is kept as it is typed", || {
+    poll_until("the note is kept as it is typed", || {
         kept_notes(&folders) == [kept(SHOPPING)]
     });
     running.menu_chosen(id_of(&bar, "File", "New Note"));
-    wait_for_title(&window, "New Note");
+    wait_for_title(&shell.changes, &window, "New Note");
 
     running.menu_chosen(id_of(&bar, "Edit", "Search"));
     paste(&engine, &shell, &window, "eggs");
-    wait_for_title(&window, SHOPPING_TITLE);
+    wait_for_title(&shell.changes, &window, SHOPPING_TITLE);
     close(&running, &window);
 }
 
@@ -145,27 +148,27 @@ fn a_deleted_note_goes_to_recently_deleted_and_is_recovered_from_there() {
     let folders = Folders::new();
     let grants = shell.permissions().of(&app());
     let (running, _shown, window, _output) = launch(&engine, &shell, &folders, &grants);
-    let bar = wait_for_bar(&shell.menus);
+    let bar = wait_for_bar(&shell);
     type_new_note(&engine, &shell, &running, &window, "Plans", "Plans");
 
     running.menu_chosen(id_of(&bar, "File", "Delete"));
-    wait_for_title(&window, "Notes");
-    wait_until("the note is kept as deleted", || {
+    wait_for_title(&shell.changes, &window, "Notes");
+    poll_until("the note is kept as deleted", || {
         kept_notes(&folders)
             .first()
             .is_some_and(|note| note.deleted)
     });
     running.menu_chosen(id_of(&bar, "View", "Recently Deleted"));
-    wait_for_title(&window, "Plans");
+    wait_for_title(&shell.changes, &window, "Plans");
 
     running.menu_chosen(id_of(&bar, "File", "Recover"));
-    wait_until("the note is kept as recovered", || {
+    poll_until("the note is kept as recovered", || {
         kept_notes(&folders) == [kept("Plans")]
     });
     running.menu_chosen(id_of(&bar, "View", "Recently Deleted"));
-    wait_for_title(&window, "Notes");
+    wait_for_title(&shell.changes, &window, "Notes");
     running.menu_chosen(id_of(&bar, "View", "Notes"));
-    wait_for_title(&window, "Plans");
+    wait_for_title(&shell.changes, &window, "Plans");
     close(&running, &window);
 }
 
@@ -176,19 +179,19 @@ fn at_a_phones_width_the_list_is_a_pane_over_the_note_that_search_opens() {
     let folders = Folders::new();
     let grants = shell.permissions().of(&app());
     let (running, shown, window, _output) = launch(&engine, &shell, &folders, &grants);
-    let bar = wait_for_bar(&shell.menus);
+    let bar = wait_for_bar(&shell);
     window.metrics_changed(metrics(PHONE_WIDTH, DISPLAY.height));
 
     type_new_note(&engine, &shell, &running, &window, SHOPPING, SHOPPING_TITLE);
     running.menu_chosen(id_of(&bar, "File", "New Note"));
-    wait_for_title(&window, "New Note");
+    wait_for_title(&shell.changes, &window, "New Note");
     running.menu_chosen(id_of(&bar, "Edit", "Search"));
-    wait_until(
+    shell.changes.wait_until(
         "the search field has the focus, once the pane has opened",
         || matches!(shown.text_input_type(), Some(TextInputType::Text)),
     );
     paste(&engine, &shell, &window, "milk");
-    wait_for_title(&window, SHOPPING_TITLE);
+    wait_for_title(&shell.changes, &window, SHOPPING_TITLE);
     close(&running, &window);
 }
 
@@ -212,7 +215,7 @@ fn the_notes_kept_are_there_at_the_next_launch() {
     let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
     let (running, shown, window, _output) = launch(&engine, &shell, &folders, &grants);
     assert_eq!(shown.window().expect("in a window").config().title, "Notes");
-    wait_for_title(&window, SHOPPING_TITLE);
+    wait_for_title(&shell.changes, &window, SHOPPING_TITLE);
     close(&running, &window);
 }
 
@@ -232,16 +235,16 @@ fn import_reads_a_picked_text_file_into_a_note_and_export_writes_the_note_where_
     let pancakes = "Pancakes\nflour, eggs, milk";
     fs::write(&recipe, pancakes).unwrap();
     let (running, _shown, window, _output) = launch(&engine, &shell, &folders, &grants);
-    let bar = wait_for_bar(&shell.menus);
+    let bar = wait_for_bar(&shell);
 
     shell.file_dialogs.answer_next(vec![recipe]);
     running.menu_chosen(id_of(&bar, "File", "Import…"));
-    wait_for_title(&window, "Pancakes");
+    wait_for_title(&shell.changes, &window, "Pancakes");
     assert_eq!(kept_notes(&folders), [kept(pancakes)]);
 
     shell.file_dialogs.answer_next(vec![exported.clone()]);
     running.menu_chosen(id_of(&bar, "File", "Export…"));
-    wait_until("the note is exported", || {
+    poll_until("the note is exported", || {
         fs::read_to_string(&exported).is_ok_and(|text| text == pancakes)
     });
     let asked = shell.file_dialogs.asked();
@@ -270,18 +273,20 @@ fn a_pick_the_system_denies_waos_is_asked_of_the_system_and_mounted_only_once_it
     fs::write(&recipe, pancakes).unwrap();
     shell.system_permissions.deny_folder(&scratch_path);
     let (running, _shown, window, _output) = launch(&engine, &shell, &folders, &grants);
-    let bar = wait_for_bar(&shell.menus);
+    let bar = wait_for_bar(&shell);
 
     shell.file_dialogs.answer_next(vec![recipe.clone()]);
     running.menu_chosen(id_of(&bar, "File", "Import…"));
-    wait_until("the system is asked for the pick", || {
-        shell.system_permissions.paths_asked() == [recipe.clone()]
-    });
+    shell
+        .changes
+        .wait_until("the system is asked for the pick", || {
+            shell.system_permissions.paths_asked() == [recipe.clone()]
+        });
 
     shell.system_permissions.allow_when_asked();
     shell.file_dialogs.answer_next(vec![recipe.clone()]);
     running.menu_chosen(id_of(&bar, "File", "Import…"));
-    wait_for_title(&window, "Pancakes");
+    wait_for_title(&shell.changes, &window, "Pancakes");
     assert_eq!(
         kept_notes(&folders),
         [kept(pancakes)],
@@ -302,15 +307,17 @@ fn a_reminder_is_scheduled_a_minute_later_with_the_notes_title_and_its_click_sho
     let folders = Folders::new();
     let grants = shell.permissions().of(&app());
     let (running, _shown, window, _output) = launch(&engine, &shell, &folders, &grants);
-    let bar = wait_for_bar(&shell.menus);
+    let bar = wait_for_bar(&shell);
     type_new_note(&engine, &shell, &running, &window, "Call Mum", "Call Mum");
 
     let asked_at = SystemTime::now();
     running.menu_chosen(id_of(&bar, "File", "Remind Me in 1 Minute"));
-    wait_until("the program asks", || !shell.prompts.questions().is_empty());
+    shell
+        .changes
+        .wait_until("the program asks", || !shell.prompts.questions().is_empty());
     assert_eq!(shell.prompts.questions()[0].1, Question::Notifications);
     shell.prompts.answer_questions(Some(Answer::Granted));
-    wait_until("the reminder is scheduled", || {
+    shell.changes.wait_until("the reminder is scheduled", || {
         !shell.notifications.scheduled().is_empty()
     });
     let seen_at = SystemTime::now();
@@ -334,13 +341,13 @@ fn a_reminder_is_scheduled_a_minute_later_with_the_notes_title_and_its_click_sho
     );
 
     running.menu_chosen(id_of(&bar, "File", "New Note"));
-    wait_for_title(&window, "New Note");
+    wait_for_title(&shell.changes, &window, "New Note");
     running.notification_activated(Activation {
         id: scheduled.notification.id,
         action: None,
         reply: None,
     });
-    wait_for_title(&window, "Call Mum");
+    wait_for_title(&shell.changes, &window, "Call Mum");
     close(&running, &window);
 }
 
@@ -351,20 +358,22 @@ fn a_quit_while_a_note_cannot_be_saved_waits_for_the_users_answer() {
     let folders = Folders::new();
     let grants = shell.permissions().of(&app());
     let (running, _shown, window, output) = launch(&engine, &shell, &folders, &grants);
-    let bar = wait_for_bar(&shell.menus);
+    let bar = wait_for_bar(&shell);
     assert!(within(window.picture_after_events()), "notes draws");
     let store = folders.notes();
     fs::set_permissions(&store, fs::Permissions::from_mode(0o555)).unwrap();
 
     running.menu_chosen(id_of(&bar, "File", "New Note"));
-    wait_for_title(&window, "New Note");
+    wait_for_title(&shell.changes, &window, "New Note");
     assert!(kept_notes(&folders).is_empty(), "the store cannot keep it");
     let mut asked = Box::pin(running.request_exit());
     // Asking whether to lose the note pushes a ContentDialog onto the navigator, so the view
     // handles Back while the question waits for the user's answer.
-    wait_until("the window asks whether to lose the note", || {
-        window.handles_back()
-    });
+    shell
+        .changes
+        .wait_until("the window asks whether to lose the note", || {
+            window.handles_back()
+        });
     assert!(
         asked.as_mut().now_or_never().is_none(),
         "a quit waits while the window asks whether to lose the note"
@@ -391,14 +400,14 @@ fn a_text_file_opened_from_the_open_dialog_is_edited_where_it_is_and_closed_from
     let grants = shell.permissions().of(&app());
     let todo = TextFile::new("todo.txt", "milk");
     let (running, _shown, window, _output) = launch(&engine, &shell, &folders, &grants);
-    let bar = wait_for_bar(&shell.menus);
+    let bar = wait_for_bar(&shell);
     assert!(within(window.picture_after_events()), "notes draws");
 
     shell.file_dialogs.answer_next(vec![todo.path.clone()]);
     running.menu_chosen(id_of(&bar, "File", "Open…"));
-    wait_for_title(&window, "todo.txt");
+    wait_for_title(&shell.changes, &window, "todo.txt");
     paste(&engine, &shell, &window, "eggs, ");
-    wait_until("the file is saved where it is as it is typed", || {
+    poll_until("the file is saved where it is as it is typed", || {
         todo.text() == "eggs, milk"
     });
     let asked = shell.file_dialogs.asked();
@@ -407,7 +416,7 @@ fn a_text_file_opened_from_the_open_dialog_is_edited_where_it_is_and_closed_from
     assert!(kept_notes(&folders).is_empty(), "the file is no note");
 
     running.menu_chosen(id_of(&bar, "File", "Close File"));
-    wait_for_title(&window, "Notes");
+    wait_for_title(&shell.changes, &window, "Notes");
     assert_eq!(todo.text(), "eggs, milk", "left as it was saved");
     close(&running, &window);
 }
@@ -426,9 +435,9 @@ fn a_text_file_the_system_opens_notes_with_arrives_through_an_open_request() {
         files: vec![letter.path.clone()],
         links: Vec::new(),
     });
-    wait_for_title(&window, "letter.txt");
+    wait_for_title(&shell.changes, &window, "letter.txt");
     paste(&engine, &shell, &window, "Hello. ");
-    wait_until("the file is saved where it is as it is typed", || {
+    poll_until("the file is saved where it is as it is typed", || {
         letter.text() == "Hello. Dear Sam,"
     });
     assert_eq!(
@@ -447,10 +456,10 @@ fn a_text_file_open_is_open_again_at_the_next_launch() {
     let grants = shell.permissions().of(&app());
     let todo = TextFile::new("todo.txt", "milk");
     let (running, _shown, window, _output) = launch(&engine, &shell, &folders, &grants);
-    let bar = wait_for_bar(&shell.menus);
+    let bar = wait_for_bar(&shell);
     shell.file_dialogs.answer_next(vec![todo.path.clone()]);
     running.menu_chosen(id_of(&bar, "File", "Open…"));
-    wait_for_title(&window, "todo.txt");
+    wait_for_title(&shell.changes, &window, "todo.txt");
     assert_eq!(
         within(running.request_exit()),
         AppExitResponse::Exit,
@@ -462,7 +471,7 @@ fn a_text_file_open_is_open_again_at_the_next_launch() {
     let shell = TestShell::new();
     let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
     let (running, _shown, window, _output) = launch(&engine, &shell, &folders, &grants);
-    wait_for_title(&window, "todo.txt");
+    wait_for_title(&shell.changes, &window, "todo.txt");
     assert!(
         grants
             .file_system()
@@ -523,10 +532,10 @@ fn type_new_note(
     title: &str,
 ) {
     assert!(within(window.picture_after_events()), "notes draws");
-    running.menu_chosen(id_of(&wait_for_bar(&shell.menus), "File", "New Note"));
-    wait_for_title(window, "New Note");
+    running.menu_chosen(id_of(&wait_for_bar(shell), "File", "New Note"));
+    wait_for_title(&shell.changes, window, "New Note");
     paste(engine, shell, window, text);
-    wait_for_title(window, title);
+    wait_for_title(&shell.changes, window, title);
 }
 
 /// Pastes `text` where the window's focus is.
@@ -537,8 +546,8 @@ fn paste(engine: &WaOS, shell: &TestShell, window: &ProgramView, text: &str) {
 }
 
 /// Waits until `window` is titled `title`.
-fn wait_for_title(window: &ProgramView, title: &str) {
-    wait_until(&format!("the window is titled {title}"), || {
+fn wait_for_title(changes: &Changes, window: &ProgramView, title: &str) {
+    changes.wait_until(&format!("the window is titled {title}"), || {
         window.window_title().as_deref() == Some(title)
     });
 }
@@ -582,9 +591,18 @@ fn kept_notes(folders: &Folders) -> Vec<KeptNote> {
 
 /// Waits until the program has set its menu bar, and answers it. Waft's `PlatformMenuBar` clears
 /// the bar before it sets its own.
-fn wait_for_bar(menus: &TestMenus) -> Vec<MenuEntry> {
-    let last = || menus.bars().pop().map(|(_, bar)| bar).unwrap_or_default();
-    wait_until("a menu bar set", || !last().is_empty());
+fn wait_for_bar(shell: &TestShell) -> Vec<MenuEntry> {
+    let last = || {
+        shell
+            .menus
+            .bars()
+            .pop()
+            .map(|(_, bar)| bar)
+            .unwrap_or_default()
+    };
+    shell
+        .changes
+        .wait_until("a menu bar set", || !last().is_empty());
     last()
 }
 

@@ -168,26 +168,33 @@ async fn a_dropped_terminal_hangs_its_command_up() {
 #[tokio::test]
 async fn an_ended_command_is_asked_to_end_its_own_way_and_killed_where_it_does_not() {
     within(async {
-        let piped = exec(command(
+        let mut piped = exec(command(
             "/bin/sh",
-            &["-c", "trap 'exit 3' TERM; while :; do sleep 0.1; done"],
+            &[
+                "-c",
+                "trap 'exit 3' TERM; echo ready; while :; do sleep 0.1; done",
+            ],
         ))
         .await
         .unwrap();
+        read_until(&mut piped.output, "ready").await;
         let script = "trap 'exit 5' HUP; echo ready; while :; do sleep 0.1; done";
         let mut in_terminal = machine()
             .exec_in_terminal(command("/bin/sh", &["-c", script]), TerminalSize::default())
             .await
             .unwrap();
         read_until(&mut in_terminal.output, "ready").await;
-        let stubborn = exec(command(
+        let mut stubborn = exec(command(
             "/bin/sh",
-            &["-c", "trap '' TERM; while :; do sleep 0.1; done"],
+            &[
+                "-c",
+                "trap '' TERM; echo ready; while :; do sleep 0.1; done",
+            ],
         ))
         .await
         .unwrap();
-        // The traps are set before the first sleep; give the shells the moment to get there.
-        tokio::time::sleep(Duration::from_millis(200)).await;
+        // Each shell says so once its trap is set.
+        read_until(&mut stubborn.output, "ready").await;
 
         piped.child.end();
         in_terminal.child.end();

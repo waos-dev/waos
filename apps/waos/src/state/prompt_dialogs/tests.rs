@@ -1,7 +1,6 @@
+use crate::state::test_turns::{Turn, turn_until};
 use std::cell::{Cell, RefCell};
 use std::path::Path;
-use std::thread;
-use std::time::{Duration, Instant};
 
 use waft::ui::PlatformRef;
 use waft::ui::{EmbedderClient, View as _};
@@ -15,7 +14,7 @@ use super::*;
 use crate::logic::program_apps::{
     Compositing, LaunchAttempt, Launches, Served, launch_failed, said_hello, window_process,
 };
-use crate::logic::test_engine::{self, NoWindows, WITHIN};
+use crate::logic::test_engine::{self, NoWindows};
 
 /// The id forever runs under, as an installed program's.
 const FOREVER: &str = "dev.example.forever";
@@ -87,14 +86,12 @@ impl Prompting {
         )
     }
 
-    /// Runs the app's tasks until `done`, failing after [`WITHIN`].
+    /// Runs the app's tasks as they wake until `done`, failing after `WITHIN`.
     fn run_tasks_until(&self, what: &str, mut done: impl FnMut() -> bool) {
-        let deadline = Instant::now() + WITHIN;
-        while !done() {
-            assert!(Instant::now() < deadline, "{what} never happened");
-            thread::sleep(Duration::from_millis(1));
+        turn_until(&self.platform, what, || {
             self.shell.cell().checkpoint();
-        }
+            if done() { Turn::Done } else { Turn::Idle }
+        });
     }
 }
 

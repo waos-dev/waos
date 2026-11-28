@@ -146,6 +146,10 @@ impl ProcessGroup {
             .spawn(move || {
                 let deadline = Instant::now() + GRACE;
                 while !group.is_collected() && Instant::now() < deadline {
+                    #[allow(
+                        clippy::disallowed_methods,
+                        reason = "the grace period is looked at every ENDING_CHECK"
+                    )]
                     thread::sleep(ENDING_CHECK);
                 }
                 group.send(OsSignal::KILL);

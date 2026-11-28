@@ -13,7 +13,7 @@ use waos::bindings::wasdk::media::video_streams::{NalFormat, VideoStreamSetup};
 use waos::{ProgramEnd, WaOS};
 
 use crate::test_shell::video_decoders::DecoderCall;
-use crate::test_shell::{RecordedOutput, TestShell, config, printing_to, wait_until, within};
+use crate::test_shell::{RecordedOutput, TestShell, config, poll_until, printing_to, within};
 
 /// What the engine answers a chunk that is no key frame while the decoder waits for one.
 const KEY_FRAME_DUE: &str = r#"Err(DecoderError::BadData("the decoder takes a key frame next"))"#;
@@ -96,7 +96,7 @@ fn a_decoder_takes_key_frames_first_lends_no_more_frames_than_asked_and_says_why
             "the decoder ended: Err(DecoderError::Lost)".to_owned(),
         ]
     );
-    wait_until(
+    poll_until(
         "the engine lets go of the decoder as the program ends",
         || Arc::strong_count(&decoder) == 2,
     );

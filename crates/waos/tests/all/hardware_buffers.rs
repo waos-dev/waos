@@ -30,7 +30,7 @@ use crate::test_shell::composition::{self, PresentedLayer};
 use crate::test_shell::hardware_buffer::pixel;
 use crate::test_shell::image_codecs::{Asked, ImageAnswers};
 use crate::test_shell::{
-    DISPLAY, RecordedOutput, TestShell, config, pixel_of, printing_to, wait_until, within,
+    DISPLAY, RecordedOutput, TestShell, config, pixel_of, printing_to, within,
 };
 
 /// A pixel as the bytes lie in a BGRA buffer.
@@ -76,7 +76,9 @@ fn buffers_the_program_drew_reach_the_codecs_and_the_layer_once_the_gpu_drew_the
     }
     // The program stops presenting once "red is back", so wait for its two presented frames rather
     // than a picture after that final frame event.
-    wait_until("its frames are on screen", || shown.pictures_shown() >= 2);
+    shell
+        .changes
+        .wait_until("its frames are on screen", || shown.pictures_shown() >= 2);
     let counted = running.stats().hardware_buffer_bytes();
     assert!(
         counted >= 2 * (WIDTH * HEIGHT * 4) as u64,
@@ -147,7 +149,9 @@ fn a_screenshot_is_the_canvas_over_what_its_layer_shows() {
     output.wait_for("red is back");
     // The program stops presenting once "red is back", so wait for its two presented frames rather
     // than a picture after that final frame event.
-    wait_until("its frames are on screen", || shown.pictures_shown() >= 2);
+    shell
+        .changes
+        .wait_until("its frames are on screen", || shown.pictures_shown() >= 2);
     let screenshot = view.picture().unwrap().expect("a picture");
     assert_eq!(
         (screenshot.width, screenshot.height),

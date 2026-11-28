@@ -26,7 +26,7 @@ use waos_capabilities::{ProgramFolders, Setting};
 
 use crate::asking::{app, permissions_with};
 use crate::test_shell::cameras::{Started, formats, listed};
-use crate::test_shell::{RecordedOutput, TestShell, config, printing_to, wait_until, within};
+use crate::test_shell::{RecordedOutput, TestShell, config, printing_to, within};
 
 /// What the program says of the cameras listed, before it opens one.
 const LISTED: [&str; 2] = [
@@ -48,7 +48,7 @@ fn a_camera_opens_once_allowed_and_runs_on_the_shells_own_layer_and_reader_until
     for line in LISTED {
         run.output.wait_for(line);
     }
-    wait_until("the camera question is put", || {
+    shell.changes.wait_until("the camera question is put", || {
         !shell.prompts.questions().is_empty()
     });
     assert_eq!(
@@ -204,7 +204,7 @@ fn a_refused_camera_opens_nothing_and_the_program_hears_why() {
     let shell = TestShell::new();
     let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
     let run = Run::start(&engine, Run::asking(&shell));
-    wait_until("the camera question is put", || {
+    shell.changes.wait_until("the camera question is put", || {
         !shell.prompts.questions().is_empty()
     });
     shell.prompts.answer_questions(Some(Answer::Denied));
@@ -275,7 +275,7 @@ fn a_shell_without_cameras_or_without_an_indicator_gives_the_program_none() {
 
 /// The session started first, once the shell has it.
 fn started(shell: &TestShell) -> Started {
-    wait_until("the shell starts a session", || {
+    shell.changes.wait_until("the shell starts a session", || {
         !shell.cameras.started().is_empty()
     });
     shell.cameras.started()[0].clone()

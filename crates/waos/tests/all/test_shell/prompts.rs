@@ -3,11 +3,12 @@
 //! settings page an app opens, until the test leaves it. Each is said by the app's name, which for
 //! an app not installed is its id.
 
-use std::sync::{Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use futures::FutureExt;
 use futures::channel::oneshot;
 use waos::{Answer, AnswerFuture, Question, Role, SettingsClosedFuture, Switch};
+use waos_headless::testing::Changes;
 use waos_services::permissions::{App, Prompts};
 
 /// What the user was asked, and what is still waiting for an answer.
@@ -17,6 +18,7 @@ pub struct TestPrompts {
     link_schemes: Mutex<Vec<Put<String>>>,
     roles: Mutex<Vec<Put<Role>>>,
     settings: Mutex<Vec<OpenedSettings>>,
+    changes: Arc<Changes>,
 }
 
 /// One thing put to the user by a program, and its answer while it waits.
@@ -34,6 +36,14 @@ struct OpenedSettings {
 }
 
 impl TestPrompts {
+    /// A user who has been asked nothing, announcing each thing put to them to `changes`.
+    pub fn announcing(changes: &Arc<Changes>) -> TestPrompts {
+        TestPrompts {
+            changes: Arc::clone(changes),
+            ..TestPrompts::default()
+        }
+    }
+
     /// Each question put to the user so far, with the app that put it, in order.
     pub fn questions(&self) -> Vec<(String, Question)> {
         asked(&self.questions, |question| *question)
@@ -99,15 +109,21 @@ impl TestPrompts {
 
 impl Prompts for TestPrompts {
     fn ask(&self, app: &App, question: Question) -> AnswerFuture {
-        put(&self.questions, app, question)
+        let answer = put(&self.questions, app, question);
+        self.changes.announce();
+        answer
     }
 
     fn ask_to_open_links(&self, app: &App, scheme: &str) -> AnswerFuture {
-        put(&self.link_schemes, app, scheme.to_owned())
+        let answer = put(&self.link_schemes, app, scheme.to_owned());
+        self.changes.announce();
+        answer
     }
 
     fn ask_for_role(&self, app: &App, role: Role) -> AnswerFuture {
-        put(&self.roles, app, role)
+        let answer = put(&self.roles, app, role);
+        self.changes.announce();
+        answer
     }
 
     fn open_settings(&self, app: &App, switch: Switch) -> SettingsClosedFuture {
@@ -117,6 +133,7 @@ impl Prompts for TestPrompts {
             switch,
             leave: Some(leave),
         });
+        self.changes.announce();
         Box::pin(left.map(|_left| ()))
     }
 }

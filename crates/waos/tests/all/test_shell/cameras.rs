@@ -23,6 +23,7 @@ use waos::{
     CaptureStartFuture, OpenedCamera, PhotoFuture, RunningProgram, ShellCamera, ShellCameras,
     ShellCaptureSession, StartedSession,
 };
+use waos_headless::testing::Changes;
 
 use super::composition::TestLayer;
 use super::video_frames::number_of;
@@ -41,6 +42,7 @@ pub struct TestCameras {
     /// The format the cameras run in for someone else, which a session joins; none while they run
     /// for nobody else.
     elsewhere: Arc<Mutex<Option<CameraFormat>>>,
+    changes: Arc<Changes>,
 }
 
 /// One session a program started, as the test sees it.
@@ -60,28 +62,30 @@ pub struct Started {
     dropped: Arc<AtomicBool>,
 }
 
-impl Default for TestCameras {
-    fn default() -> TestCameras {
+impl TestCameras {
+    /// The two cameras, opened by nobody, announcing each opening, each session started and each
+    /// session dropped to `changes`.
+    pub fn announcing(changes: &Arc<Changes>) -> TestCameras {
         TestCameras {
             listed: Mutex::new(listed()),
             waiting: Mutex::default(),
             opened: Mutex::default(),
             sessions: Arc::default(),
             elsewhere: Arc::default(),
+            changes: Arc::clone(changes),
         }
     }
-}
 
-impl TestCameras {
-    /// The cameras of WaOS's own, as the shell gives them: one test pattern.
-    pub fn simulated() -> TestCameras {
+    /// The cameras of WaOS's own, as the shell gives them: one test pattern, announcing as
+    /// [`TestCameras::announcing`] does.
+    pub fn simulated(changes: &Arc<Changes>) -> TestCameras {
         TestCameras {
             listed: Mutex::new(vec![CameraInfo {
                 id: "waos-test-pattern".to_owned(),
                 name: "WaOS test pattern".to_owned(),
                 facing: CameraFacing::External,
             }]),
-            ..TestCameras::default()
+            ..TestCameras::announcing(changes)
         }
     }
 
@@ -179,6 +183,7 @@ impl ShellCameras for TestCameras {
             .lock()
             .unwrap()
             .push((program.name().to_owned(), id.to_owned()));
+        self.changes.announce();
         if !self
             .listed
             .lock()
@@ -191,6 +196,7 @@ impl ShellCameras for TestCameras {
         let camera = TestCamera {
             sessions: Arc::clone(&self.sessions),
             elsewhere: Arc::clone(&self.elsewhere),
+            changes: Arc::clone(&self.changes),
         };
         Box::pin(ready(Ok(OpenedCamera {
             camera: Box::new(camera),
@@ -203,6 +209,7 @@ impl ShellCameras for TestCameras {
 struct TestCamera {
     sessions: Arc<Mutex<Vec<Started>>>,
     elsewhere: Arc<Mutex<Option<CameraFormat>>>,
+    changes: Arc<Changes>,
 }
 
 impl ShellCamera for TestCamera {
@@ -225,10 +232,12 @@ impl ShellCamera for TestCamera {
         let session = StartedSession {
             session: Box::new(TestSession {
                 dropped: Arc::clone(&started.dropped),
+                changes: Arc::clone(&self.changes),
             }),
             format: started.format.clone(),
         };
         self.sessions.lock().unwrap().push(started);
+        self.changes.announce();
         Box::pin(ready(Ok(session)))
     }
 }
@@ -245,6 +254,7 @@ fn layer_number(layer: Arc<dyn waos::ShellCompositionLayer>) -> usize {
 /// The session the engine holds.
 struct TestSession {
     dropped: Arc<AtomicBool>,
+    changes: Arc<Changes>,
 }
 
 impl ShellCaptureSession for TestSession {
@@ -260,5 +270,6 @@ impl ShellCaptureSession for TestSession {
 impl Drop for TestSession {
     fn drop(&mut self) {
         self.dropped.store(true, Ordering::SeqCst);
+        self.changes.announce();
     }
 }

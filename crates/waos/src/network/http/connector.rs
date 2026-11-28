@@ -241,13 +241,17 @@ where
         if connecting.is_empty() {
             return Err(failed);
         }
-        let until_next = ATTEMPT_DELAY.saturating_sub(started.elapsed());
+        #[allow(
+            clippy::disallowed_methods,
+            reason = "the next address is tried ATTEMPT_DELAY after the last, as Happy Eyeballs does"
+        )]
+        let next_attempt = tokio::time::sleep(ATTEMPT_DELAY.saturating_sub(started.elapsed()));
         tokio::select! {
             Some(result) = connecting.next() => match result {
                 Ok(connected) => return Ok(connected),
                 Err(error) => failed = error,
             },
-            () = tokio::time::sleep(until_next), if next < addresses.len() => {}
+            () = next_attempt, if next < addresses.len() => {}
         }
     }
 }

@@ -9,8 +9,8 @@
 
 use std::collections::HashMap;
 use std::future::ready;
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 
 use waos::bindings::wasdk::platform::notifications::NotificationError;
@@ -18,6 +18,7 @@ use waos::{
     Notification, NotificationFuture, RunningProgram, ShellNotificationScheduling,
     ShellNotifications, SystemPermissionState,
 };
+use waos_headless::testing::Changes;
 
 /// What the programs posted, removed and scheduled.
 pub struct TestNotifications {
@@ -37,6 +38,7 @@ pub struct TestNotifications {
     asked: Mutex<Vec<String>>,
     /// What the system last said of each program's permission, by the program's name.
     permissions: Mutex<HashMap<String, SystemPermissionState>>,
+    changes: Arc<Changes>,
 }
 
 /// A notification a program scheduled.
@@ -49,6 +51,13 @@ pub struct Scheduled {
 
 impl Default for TestNotifications {
     fn default() -> TestNotifications {
+        TestNotifications::announcing(&Arc::default())
+    }
+}
+
+impl TestNotifications {
+    /// Nothing posted, with replies and scheduling, announcing each call to `changes`.
+    pub fn announcing(changes: &Arc<Changes>) -> TestNotifications {
         TestNotifications {
             shown: Mutex::default(),
             removed: Mutex::default(),
@@ -60,6 +69,7 @@ impl Default for TestNotifications {
             keeps_permissions: AtomicBool::new(false),
             asked: Mutex::default(),
             permissions: Mutex::default(),
+            changes: Arc::clone(changes),
         }
     }
 }
@@ -101,6 +111,7 @@ impl TestNotifications {
             self.refused.lock().unwrap().push(refused);
         }
         self.read_permission(program);
+        self.changes.announce();
         refusing
     }
 
@@ -117,7 +128,9 @@ impl TestNotifications {
     /// The system's question for `program`'s notifications, answered at once.
     pub fn request_permission(&self, program: &RunningProgram) -> SystemPermissionState {
         self.asked.lock().unwrap().push(program.name().to_owned());
-        self.read_permission(program)
+        let state = self.read_permission(program);
+        self.changes.announce();
+        state
     }
 
     /// The system's permission for `program` as it stands now, which it has said from now on.
@@ -162,6 +175,8 @@ impl ShellNotifications for TestNotifications {
             Some((_, kept)) => *kept = notification.clone(),
             None => shown.push((name.to_owned(), notification.clone())),
         }
+        drop(shown);
+        self.changes.announce();
         Box::pin(ready(Ok(())))
     }
 
@@ -175,6 +190,7 @@ impl ShellNotifications for TestNotifications {
             .lock()
             .unwrap()
             .retain(|(of, kept)| !(of == name && kept.id == id));
+        self.changes.announce();
     }
 
     fn offers_replies(&self) -> bool {
@@ -202,6 +218,7 @@ impl ShellNotificationScheduling for TestNotifications {
             notification: notification.clone(),
             at,
         });
+        self.changes.announce();
         Box::pin(ready(Ok(())))
     }
 }

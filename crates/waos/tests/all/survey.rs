@@ -7,8 +7,6 @@
 
 use std::path::Path;
 use std::sync::Arc;
-use std::thread;
-use std::time::{Duration, Instant};
 
 use waos::bindings::wasdk::platform::lifecycle::AppExitResponse;
 use waos::bindings::wasdk::platform::views::{PointerButtons, PointerChange};
@@ -16,9 +14,7 @@ use waos::bindings::wasdk::platform::windows::{MacosTitleBar, Size, TitleBarActi
 use waos::{HeldModifiers, ProgramEnd, ProgramView, RunningProgram, WaOS};
 use waos_headless::HeadlessView;
 
-use crate::test_shell::{
-    RecordedOutput, TestShell, WITHIN, config, metrics, mouse, printing_to, wait_until, within,
-};
+use crate::test_shell::{RecordedOutput, TestShell, config, metrics, mouse, printing_to, within};
 
 /// A point in the band survey treats as its title bar, 28 logical points tall, in the view's
 /// physical pixels at the test shell's 2x.
@@ -32,7 +28,7 @@ const MS: u64 = 1_000_000;
 
 /// Survey running under a test shell of its own, the view it asked for, and what it prints.
 struct Survey {
-    _shell: TestShell,
+    shell: TestShell,
     _engine: WaOS,
     running: RunningProgram,
     shown: Arc<HeadlessView>,
@@ -55,7 +51,7 @@ fn survey() -> Survey {
     let shown = within(shell.headless.view(0)).expect("survey asks for a view");
     let view = shown.view().expect("survey's view");
     Survey {
-        _shell: shell,
+        shell,
         _engine: engine,
         running,
         shown,
@@ -124,6 +120,7 @@ fn asks_for_a_view_sees_it_arrive_and_ends_when_it_is_taken_away() {
 #[test]
 fn moves_maximizes_minimizes_and_takes_full_screen_its_window_from_its_title_bar() {
     let Survey {
+        shell,
         running,
         shown,
         view,
@@ -141,13 +138,17 @@ fn moves_maximizes_minimizes_and_takes_full_screen_its_window_from_its_title_bar
     press(&view, ON_TITLE_BAR, 0);
     output.wait_for("view 1: pressed on its title bar: moving its window");
     // Survey says so before it asks its window to move.
-    wait_until("a press on the band moves the window", || {
-        window.drags() == 1
-    });
+    shell
+        .changes
+        .wait_until("a press on the band moves the window", || {
+            window.drags() == 1
+        });
 
     press(&view, ON_TITLE_BAR, 200 * MS);
     output.wait_for("view 1: double-clicked its title bar: Some(TitleBarAction::Maximize)");
-    wait_until("survey maximizes its window", || window.is_maximized());
+    shell
+        .changes
+        .wait_until("survey maximizes its window", || window.is_maximized());
     assert_eq!(
         window.drags(),
         1,
@@ -159,18 +160,22 @@ fn moves_maximizes_minimizes_and_takes_full_screen_its_window_from_its_title_bar
     output.wait_for("view 1: its window is maximized");
 
     double_click(&view, 1000 * MS);
-    wait_until("survey returns its window to its size from before", || {
-        !window.is_maximized()
-    });
+    shell
+        .changes
+        .wait_until("survey returns its window to its size from before", || {
+            !window.is_maximized()
+        });
     view.window_maximized_changed(false);
     view.metrics_changed(metrics(1600, 1000));
     output.wait_for("view 1: its window is no longer maximized");
 
     secondary_press(&view, ON_TITLE_BAR, 1500 * MS);
     output.wait_for("view 1: secondary press on its title bar: full screen true");
-    wait_until("survey asks for its window full screen", || {
-        window.is_fullscreen()
-    });
+    shell
+        .changes
+        .wait_until("survey asks for its window full screen", || {
+            window.is_fullscreen()
+        });
     view.window_fullscreen_changed(true);
     output.wait_for("view 1: its window is full screen");
     // The user leaves it by the system's own means: survey hears, having asked for nothing.
@@ -184,7 +189,9 @@ fn moves_maximizes_minimizes_and_takes_full_screen_its_window_from_its_title_bar
 
     view.title_bar_double_click_action_changed(Some(TitleBarAction::Minimize));
     double_click(&view, 2000 * MS);
-    wait_until("survey minimizes its window", || window.is_minimized());
+    shell
+        .changes
+        .wait_until("survey minimizes its window", || window.is_minimized());
 
     view.title_bar_double_click_action_changed(Some(TitleBarAction::Nothing));
     double_click(&view, 3000 * MS);
@@ -195,7 +202,9 @@ fn moves_maximizes_minimizes_and_takes_full_screen_its_window_from_its_title_bar
 
     press(&view, BELOW_TITLE_BAR, 5000 * MS);
     press(&view, ON_TITLE_BAR, 6000 * MS);
-    wait_until("survey moves its window once more", || window.drags() == 6);
+    shell
+        .changes
+        .wait_until("survey moves its window once more", || window.drags() == 6);
     assert_eq!(
         output.count("view 1: pressed on its title bar: moving its window"),
         6,
@@ -280,20 +289,9 @@ fn answers_a_request_to_end() {
     } = survey();
     output.wait_for("view 1: 1600x1000 at 2x, on screen Some(1), in a window: true, for request 1 with Some(\"opened at start\")");
 
-    // A request before the program listens is answered exit by nobody: asked again until the
-    // program has heard one, which it says.
-    let deadline = Instant::now() + WITHIN;
-    loop {
-        assert_eq!(within(running.request_exit()), AppExitResponse::Exit);
-        if output.has("program: asked whether it may end: yes") {
-            break;
-        }
-        assert!(
-            Instant::now() < deadline,
-            "survey never heard a request to end"
-        );
-        thread::sleep(Duration::from_millis(10));
-    }
+    // Survey opens its requests to end before it says anything, so it hears this one.
+    assert_eq!(within(running.request_exit()), AppExitResponse::Exit);
+    output.wait_for("program: asked whether it may end: yes");
     running.stop();
     assert!(matches!(within(running.ended()), ProgramEnd::Stopped));
 }

@@ -13,7 +13,7 @@ use waos::{ProgramEnd, ProgramEnvironment, ProgramOutput, ProgramView, RunningPr
 use crate::test_shell::image_codecs::{
     Asked, ImageAnswers, ImageFacts, OpenedFrom, TestImageCodecs,
 };
-use crate::test_shell::{DISPLAY, RecordedOutput, TestShell, config, pixel_of, wait_until, within};
+use crate::test_shell::{DISPLAY, RecordedOutput, TestShell, config, pixel_of, within};
 
 /// The length of the program's PNG, `examples/waft-image/src/red.png`.
 const PNG_BYTES: usize = 73;
@@ -30,9 +30,11 @@ fn a_memory_image_decodes_by_the_hardware_codecs_and_draws() {
     let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
     shell.image_codecs.answer_with(answers());
     let (running, view) = run(&engine, &shell);
-    wait_until("the window shows the decoded colour", || {
-        middle_of(&view) == Some(DECODED_BGRA)
-    });
+    shell
+        .changes
+        .wait_until("the window shows the decoded colour", || {
+            middle_of(&view) == Some(DECODED_BGRA)
+        });
     assert_eq!(shell.image_codecs.asked(), decoded(true));
     end(&running, &view);
 }
@@ -46,9 +48,11 @@ fn a_memory_image_decodes_into_the_programs_memory_without_hardware_codecs_and_d
     parts.image_codecs = Some(Arc::clone(&codecs) as _);
     let engine = WaOS::new(config(), parts, shell.platform()).unwrap();
     let (running, view) = run(&engine, &shell);
-    wait_until("the window shows the decoded colour", || {
-        middle_of(&view) == Some(DECODED_BGRA)
-    });
+    shell
+        .changes
+        .wait_until("the window shows the decoded colour", || {
+            middle_of(&view) == Some(DECODED_BGRA)
+        });
     assert_eq!(codecs.asked(), decoded(false));
     end(&running, &view);
 }

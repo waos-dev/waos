@@ -15,7 +15,7 @@ use waos_capabilities::wit::wasdk::inspect::devices::{Program, ProgramChange, St
 use waos_capabilities::{AppFiles, AppHold, InspectedApps};
 use waos_services::permissions::{Permissions, ProgramId};
 
-use crate::test_shell::{RecordedOutput, TestShell, config, printing_to, wait_until, within};
+use crate::test_shell::{RecordedOutput, TestShell, config, printing_to, within};
 
 /// The id the inspector runs as, which its permissions are kept by.
 fn app() -> ProgramId {
@@ -50,7 +50,7 @@ fn a_program_importing_wasdk_inspect_is_asked_about_at_its_start_and_refused_wit
         .unwrap();
     let permissions = shell.permissions();
     let running = engine.run(&inspector, with(&permissions)).unwrap();
-    wait_until("the role asked about", || {
+    shell.changes.wait_until("the role asked about", || {
         !shell.prompts.roles_asked().is_empty()
     });
     assert_eq!(shell.prompts.roles_asked()[0].1, Role::Inspector);
@@ -84,7 +84,7 @@ fn the_role_question_is_told_through_the_programs_access() {
         )
         .unwrap();
     let running = engine.run(&inspector, with(&shell.permissions())).unwrap();
-    wait_until("the role asked about", || {
+    shell.changes.wait_until("the role asked about", || {
         !shell.prompts.roles_asked().is_empty()
     });
     let mut permissions = running

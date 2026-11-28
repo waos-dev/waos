@@ -30,3 +30,7 @@ mach2.workspace = true
 # `unsafe`.
 [lints.rust]
 unsafe_code = "deny"
+
+[lints.clippy]
+# As the workspace's: a sleep in a test fails the lint (`clippy.toml`).
+disallowed_methods = "deny"

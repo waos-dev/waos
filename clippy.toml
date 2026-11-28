@@ -1,0 +1,10 @@
+# A test waits for what it expects, never on the clock (docs/tools/tests.md): it waits on what it
+# watches announcing a change, or on a future, with one deadline (`waos_headless::testing`). Clippy
+# cannot tell a test from the code it tests, so code that sleeps for a reason of its own (a ticker,
+# a pause before a retry, a pace it keeps) says so beside the call, with
+# `#[allow(clippy::disallowed_methods, reason = "...")]`.
+disallowed-methods = [
+    { path = "std::thread::sleep", reason = "a test waits on a change or a future (waos_headless::testing), not the clock; code that sleeps for a reason says why in an #[allow]" },
+    { path = "tokio::time::sleep", reason = "a test waits on a change or a future (waos_headless::testing), not the clock; code that sleeps for a reason says why in an #[allow]" },
+    { path = "tokio::time::sleep_until", reason = "a test waits on a change or a future (waos_headless::testing), not the clock; code that sleeps for a reason says why in an #[allow]" },
+]

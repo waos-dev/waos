@@ -205,6 +205,7 @@ async fn serve(mut listener: Listener, context: ServerContext, mut stopped: ones
                 }
                 Err(error) => {
                     tracing::warn!(%error, "accepting a connection");
+                    #[allow(clippy::disallowed_methods, reason = "a pause before accepting again")]
                     tokio::time::sleep(Duration::from_millis(100)).await;
                 }
             },
@@ -219,6 +220,7 @@ async fn serve(mut listener: Listener, context: ServerContext, mut stopped: ones
                 }
                 Err(error) => {
                     tracing::warn!(%error, "accepting a connection from the network");
+                    #[allow(clippy::disallowed_methods, reason = "a pause before accepting again")]
                     tokio::time::sleep(Duration::from_millis(100)).await;
                 }
             },
@@ -525,6 +527,8 @@ pub(crate) mod tests {
         /// Its developer access, off until a test turns it on, listening on the loopback.
         pub(crate) access: DeveloperAccess,
         server: Option<DevServer>,
+        /// The headless shell its programs draw on, where they draw.
+        headless: Option<waos_headless::HeadlessShell>,
     }
 
     impl TestServer {
@@ -539,13 +543,63 @@ pub(crate) mod tests {
         /// A server whose programs' windows draw.
         #[cfg(any(target_vendor = "apple", target_os = "linux"))]
         pub(crate) fn drawing(test: &str) -> TestServer {
-            TestServer::over(test, || test_engine::drawing::outside(true))
+            TestServer::drawing_over(test, test_engine::drawing::outside(true))
         }
 
         /// A server whose programs' views draw in no window, as a phone's deck shows a tab.
         #[cfg(any(target_vendor = "apple", target_os = "linux"))]
         pub(crate) fn drawing_in_no_window(test: &str) -> TestServer {
-            TestServer::over(test, || test_engine::drawing::outside(false))
+            TestServer::drawing_over(test, test_engine::drawing::outside(false))
+        }
+
+        /// A server over `headless`, whose views it keeps for the test to wait on.
+        #[cfg(any(target_vendor = "apple", target_os = "linux"))]
+        fn drawing_over(
+            test: &str,
+            (headless, platform): (waos_headless::HeadlessShell, PlatformState),
+        ) -> TestServer {
+            let shell = headless.shell();
+            let mut server = TestServer::over(test, || (shell, platform));
+            server.headless = Some(headless);
+            server
+        }
+
+        /// The pictures the server answers `screenshot` with once they are as `wanted` says,
+        /// asked again each time a view of the server's headless shell shows a new one; fails
+        /// after [`WITHIN`] with `what` was awaited.
+        pub(crate) async fn screenshot_once(
+            &self,
+            screenshot: &Request,
+            what: &str,
+            wanted: impl Fn(&[waos_dev_protocol::WindowPicture]) -> bool,
+        ) -> Vec<waos_dev_protocol::WindowPicture> {
+            let headless = self
+                .headless
+                .as_ref()
+                .expect("a server whose programs draw");
+            let shown = || {
+                headless
+                    .views()
+                    .iter()
+                    .map(|view| view.pictures_shown())
+                    .sum::<usize>()
+            };
+            let answered = async {
+                loop {
+                    let before = shown();
+                    if let waos_dev_protocol::ScreenshotAnswer::Pictures(pictures) = self
+                        .ask::<waos_dev_protocol::ScreenshotAnswer>(screenshot)
+                        .await
+                        && wanted(&pictures)
+                    {
+                        return pictures;
+                    }
+                    headless.changes().until(what, || shown() > before).await;
+                }
+            };
+            tokio::time::timeout(WITHIN, answered)
+                .await
+                .unwrap_or_else(|_| panic!("never within {WITHIN:?}: {what}"))
         }
 
         /// A server whose apps' users are asked through `PromptsOnRequest`, and where its
@@ -624,6 +678,7 @@ pub(crate) mod tests {
                 places,
                 access,
                 server: Some(server),
+                headless: None,
             };
             (server, prompted)
         }
@@ -902,16 +957,16 @@ pub(crate) mod tests {
 
         /// Waits until the runs are exactly `names`.
         pub(crate) async fn wait_for_runs(&self, names: &[&str]) {
-            let deadline = Instant::now() + WITHIN;
-            loop {
-                let mut running = self.runs.names().await;
-                running.sort();
-                if running == names {
-                    return;
-                }
-                assert!(Instant::now() < deadline, "the runs stayed {running:?}");
-                tokio::time::sleep(Duration::from_millis(10)).await;
-            }
+            let mut running = self.runs.running_ids();
+            let named = |ids: &std::collections::BTreeSet<ProgramId>| {
+                ids.iter()
+                    .map(ToString::to_string)
+                    .eq(names.iter().copied())
+            };
+            tokio::time::timeout(WITHIN, running.wait_for(named))
+                .await
+                .unwrap_or_else(|_| panic!("the runs never became {names:?}"))
+                .expect("the runs are kept as long as the server");
         }
     }
 
@@ -1841,6 +1896,10 @@ pub(crate) mod tests {
         let deadline = Instant::now() + WITHIN;
         while fs::read_to_string(&file).unwrap() != "my notes, seen" {
             assert!(Instant::now() < deadline, "the program never wrote to it");
+            #[allow(
+                clippy::disallowed_methods,
+                reason = "a file a program writes announces nothing; exact once it prints that it wrote"
+            )]
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
     }
@@ -2107,6 +2166,10 @@ pub(crate) mod tests {
         let deadline = Instant::now() + WITHIN;
         while read_u64("wrote") < (1 << 20) || read_u64("ticks") == 0 {
             assert!(Instant::now() < deadline, "flood never filled the queue");
+            #[allow(
+                clippy::disallowed_methods,
+                reason = "flood says what it wrote in files, which announce nothing"
+            )]
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
         // Stdout waits once the writer stands still while the timer ticks on: a writer free to
@@ -2120,6 +2183,10 @@ pub(crate) mod tests {
                     Instant::now() < deadline,
                     "the timer stopped while stdout waited"
                 );
+                #[allow(
+                    clippy::disallowed_methods,
+                    reason = "flood says what it wrote in files, which announce nothing"
+                )]
                 tokio::time::sleep(Duration::from_millis(10)).await;
             }
             if wrote >= (1 << 20) && read_u64("wrote") == wrote {
@@ -2131,7 +2198,8 @@ pub(crate) mod tests {
             );
         }
 
-        let frames = tokio::time::timeout(Duration::from_secs(1), async {
+        // The replacing run starts once the blocked one is stopped, before anything reads it.
+        let frames = async {
             let mut replacing = server
                 .run(FLOOD, Path::new(waos_test_programs::FLOOD))
                 .await;
@@ -2140,9 +2208,8 @@ pub(crate) mod tests {
                 frames_until(&mut first, |frame| matches!(frame, RunEvent::Ended(_))).await;
             drop(replacing);
             frames
-        })
-        .await
-        .expect("a replacing launch stops the blocked writer within a second");
+        }
+        .await;
         assert_eq!(frames.last(), Some(&RunEvent::Ended(RunEnd::Replaced)));
         assert!(stdout_of(&frames).len() >= (1 << 20));
     }
@@ -2174,10 +2241,18 @@ pub(crate) mod tests {
         let deadline = Instant::now() + WITHIN;
         while read_wrote() < (1 << 20) {
             assert!(Instant::now() < deadline, "println never filled the queue");
+            #[allow(
+                clippy::disallowed_methods,
+                reason = "flood says what it wrote in files, which announce nothing"
+            )]
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
         loop {
             let wrote_a = read_wrote();
+            #[allow(
+                clippy::disallowed_methods,
+                reason = "a writer standing still shows only over time; exact once the engine says a write waits"
+            )]
             tokio::time::sleep(Duration::from_millis(150)).await;
             let wrote_b = read_wrote();
             if wrote_b == wrote_a {
@@ -2189,7 +2264,8 @@ pub(crate) mod tests {
             );
         }
 
-        let frames = tokio::time::timeout(Duration::from_secs(1), async {
+        // The replacing run starts once the blocked one is stopped, before anything reads it.
+        let frames = async {
             let mut replacing = server
                 .run(FLOOD, Path::new(waos_test_programs::FLOOD))
                 .await;
@@ -2198,9 +2274,8 @@ pub(crate) mod tests {
                 frames_until(&mut first, |frame| matches!(frame, RunEvent::Ended(_))).await;
             drop(replacing);
             frames
-        })
-        .await
-        .expect("a replacing launch stops the println writer within a second");
+        }
+        .await;
         assert_eq!(frames.last(), Some(&RunEvent::Ended(RunEnd::Replaced)));
         assert!(stdout_of(&frames).len() >= (1 << 20));
     }

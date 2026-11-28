@@ -137,6 +137,11 @@ mod tests {
         let deadline = Instant::now() + Duration::from_secs(60);
         while context.current_time() < time {
             assert!(Instant::now() < deadline, "the context's clock stands");
+            #[allow(
+                clippy::disallowed_methods,
+                reason = "the context's clock runs in real time on its render thread and announces \
+                          nothing; exact would take a context on a clock the test moves"
+            )]
             thread::sleep(Duration::from_millis(5));
         }
     }

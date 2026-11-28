@@ -289,22 +289,13 @@ mod tests {
 
         /// The pictures `server` answers for the program `id` once its first window shows one.
         async fn pictures_once_shown(server: &TestServer, id: &str) -> Vec<WindowPicture> {
-            let deadline = Instant::now() + WITHIN;
-            loop {
-                if let ScreenshotAnswer::Pictures(pictures) =
-                    server.ask::<ScreenshotAnswer>(&screenshot(id)).await
-                    && pictures
+            server
+                .screenshot_once(&screenshot(id), "the window shows a picture", |pictures| {
+                    pictures
                         .first()
                         .is_some_and(|picture| picture.png.is_some())
-                {
-                    return pictures;
-                }
-                assert!(
-                    Instant::now() < deadline,
-                    "the window never showed a picture"
-                );
-                tokio::time::sleep(Duration::from_millis(10)).await;
-            }
+                })
+                .await
         }
 
         /// The pictures `server` answers for the program `id` once its first window's middle is
@@ -314,19 +305,19 @@ mod tests {
             id: &str,
             colour: [u8; 4],
         ) -> Vec<WindowPicture> {
-            let deadline = Instant::now() + WITHIN;
-            loop {
-                let pictures = pictures_once_shown(server, id).await;
-                let (middle, _) = middle_of(pictures[0].png.as_ref().unwrap());
-                if is_colour(middle, colour) {
-                    return pictures;
-                }
-                assert!(
-                    Instant::now() < deadline,
-                    "the window never showed {colour:?}: {middle:?}"
-                );
-                tokio::time::sleep(Duration::from_millis(10)).await;
-            }
+            let shows_colour = |pictures: &[WindowPicture]| {
+                pictures
+                    .first()
+                    .and_then(|picture| picture.png.as_ref())
+                    .is_some_and(|png| is_colour(middle_of(png).0, colour))
+            };
+            server
+                .screenshot_once(
+                    &screenshot(id),
+                    &format!("the window shows {colour:?}"),
+                    shows_colour,
+                )
+                .await
         }
 
         /// The middle pixel of `png`, as RGBA, and its size.
@@ -430,6 +421,10 @@ mod tests {
                     Instant::now() < deadline,
                     "once detached, covered is out of sight"
                 );
+                #[allow(
+                    clippy::disallowed_methods,
+                    reason = "the engine announces no change of a view's presence; exact once it does"
+                )]
                 tokio::time::sleep(Duration::from_millis(10)).await;
             }
             server.wait_for_runs(&[INPUT_DEVELOPMENT]).await;
@@ -443,19 +438,15 @@ mod tests {
             let _client = server
                 .run(TWO_WINDOWS, Path::new(waos_test_programs::TWO_WINDOWS))
                 .await;
-            let deadline = Instant::now() + WITHIN;
-            let both = loop {
-                if let ScreenshotAnswer::Pictures(pictures) = server
-                    .ask::<ScreenshotAnswer>(&screenshot(TWO_WINDOWS_DEVELOPMENT))
-                    .await
-                    && pictures.len() == 2
-                    && pictures.iter().all(|picture| picture.png.is_some())
-                {
-                    break pictures;
-                }
-                assert!(Instant::now() < deadline, "both windows never drew");
-                tokio::time::sleep(Duration::from_millis(10)).await;
-            };
+            let both = server
+                .screenshot_once(
+                    &screenshot(TWO_WINDOWS_DEVELOPMENT),
+                    "both windows draw",
+                    |pictures| {
+                        pictures.len() == 2 && pictures.iter().all(|picture| picture.png.is_some())
+                    },
+                )
+                .await;
             assert_eq!(
                 (both[0].window, both[0].title.as_str()),
                 (WindowId(1), "first")

@@ -61,6 +61,10 @@ pub(crate) fn tick_in_real_time(ticks: Ticks) {
         .name("epoch tick".into())
         .spawn(move || {
             loop {
+                #[allow(
+                    clippy::disallowed_methods,
+                    reason = "the epoch ticks every TICK of real time"
+                )]
                 thread::sleep(TICK);
                 if !ticks.run() {
                     return;

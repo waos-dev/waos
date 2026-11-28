@@ -259,8 +259,10 @@ async fn wait_until_idle(
             }
             continue;
         }
+        #[allow(clippy::disallowed_methods, reason = "WaOS ends once idle this long")]
+        let idle = tokio::time::sleep(idle_timeout);
         tokio::select! {
-            _ = tokio::time::sleep(idle_timeout) => return,
+            () = idle => return,
             changed = running_ids.changed() => if changed.is_err() { return; },
             changed = connections.changed() => if changed.is_err() { return; },
         }
@@ -494,6 +496,10 @@ mod tests {
                 break png.clone();
             }
             assert!(Instant::now() < deadline, "timed out waiting for picture");
+            #[allow(
+                clippy::disallowed_methods,
+                reason = "the daemon's headless shell is its own; exact once it hands a test its changes"
+            )]
             tokio::time::sleep(Duration::from_millis(20)).await;
         };
         assert!(!first_png.is_empty());

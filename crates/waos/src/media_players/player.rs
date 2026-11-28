@@ -420,6 +420,11 @@ mod tests {
     }
 
     #[test]
+    #[allow(
+        clippy::disallowed_methods,
+        reason = "the position moves with real time since the shell's last read; exact would take \
+                  the player reading a clock the test moves"
+    )]
     fn the_position_moves_on_from_the_shells_last_read_only_while_playing() {
         let player = MediaPlayer::loading();
         let reports = player.reports();

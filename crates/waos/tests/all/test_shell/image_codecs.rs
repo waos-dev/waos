@@ -18,6 +18,7 @@ use waos::{
     HardwareBuffer, ImageFuture, OpenedImage, RunningProgram, ShellHardwareImageCodecs,
     ShellImageCodecs, ShellImageSource,
 };
+use waos_headless::testing::Changes;
 
 /// Image codecs that answer what the test set, with hardware codecs or without.
 pub struct TestImageCodecs {
@@ -28,6 +29,7 @@ pub struct TestImageCodecs {
 struct Shared {
     answers: Mutex<ImageAnswers>,
     asked: Mutex<Vec<Asked>>,
+    changes: Arc<Changes>,
 }
 
 /// What every image and every encoding answers. Each fails until the test sets it.
@@ -139,9 +141,15 @@ pub enum OpenedFrom {
 impl TestImageCodecs {
     /// Codecs with hardware codecs, as on Apple's systems.
     pub fn with_hardware() -> TestImageCodecs {
+        TestImageCodecs::announcing(&Arc::default())
+    }
+
+    /// Codecs with hardware codecs, announcing each call to `changes`.
+    pub fn announcing(changes: &Arc<Changes>) -> TestImageCodecs {
         let shared = Arc::new(Shared {
             answers: Mutex::default(),
             asked: Mutex::default(),
+            changes: Arc::clone(changes),
         });
         let hardware = Arc::new(TestHardwareImageCodecs(Arc::clone(&shared)));
         TestImageCodecs {
@@ -182,6 +190,7 @@ impl Shared {
 
     fn ask(&self, asked: Asked) {
         self.asked.lock().unwrap().push(asked);
+        self.changes.announce();
     }
 
     fn opened(

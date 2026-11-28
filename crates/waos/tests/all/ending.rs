@@ -38,11 +38,13 @@ fn stop_ends_a_program_that_never_returns() {
 #[test]
 fn a_program_that_traps_ends_failed() {
     let engine = engine_with(test_shell::config());
+    // A copy of the test's own: the engine locates a backtrace only in the file the program was
+    // loaded from, unchanged, and a build running beside the tests may write the shared one again.
+    let folder = tempfile::tempdir().unwrap();
+    let component = folder.path().join("trap.wasm");
+    fs::copy(waos_test_programs::TRAP, &component).unwrap();
     let trap = engine
-        .load(
-            Path::new(waos_test_programs::TRAP),
-            &waos_test_programs::code_of(waos_test_programs::TRAP),
-        )
+        .load(&component, &folder.path().join("code"))
         .unwrap();
     let running = engine.run(&trap, ProgramEnvironment::default()).unwrap();
     let ProgramEnd::Failed(error) = within(running.ended()) else {

@@ -17,8 +17,9 @@ use waos::{Answer, ProgramEnd, ProgramEnvironment, ProgramGrants, Question, WaOS
 use waos_capabilities::{
     ChangedFuture, DomainRule, FileDialog, FileSystemGrant, NetworkGrant, ProgramFolders,
 };
+use waos_headless::testing::Changes;
 
-use crate::test_shell::{RecordedOutput, TestShell, config, printing_to, wait_until, within};
+use crate::test_shell::{RecordedOutput, TestShell, config, printing_to, within};
 
 #[test]
 fn picks_are_mounted_as_asked_and_a_save_is_replaced_safely_from_the_programs_cache() {
@@ -181,17 +182,21 @@ fn a_waiting_file_dialog_is_answered_by_setting_its_path_and_drops_its_prompt() 
         .unwrap();
     let running = engine.run(&program, environment).unwrap();
 
-    wait_until("the open-file dialog is asked", || {
-        !dialogs.asked().is_empty()
-    });
+    shell
+        .changes
+        .wait_until("the open-file dialog is asked", || {
+            !dialogs.asked().is_empty()
+        });
     assert!(!dialogs.held_cancelled(0));
 
     // Setting an unrelated dialog's path leaves the waiting open-file dialog up.
     let reads = grants.reads();
     grants.set(FileDialog::OpenFolder, picks.join("pictures"));
-    wait_until("the open-file answer is read again", || {
-        grants.reads() > reads
-    });
+    grants
+        .read
+        .wait_until("the open-file answer is read again", || {
+            grants.reads() > reads
+        });
     assert!(
         !dialogs.held_cancelled(0),
         "unrelated dialog setting left open-file waiting"
@@ -200,9 +205,11 @@ fn a_waiting_file_dialog_is_answered_by_setting_its_path_and_drops_its_prompt() 
 
     // Setting open-file answers it and drops the shell's dialog future.
     grants.set(FileDialog::OpenFile, read_me);
-    wait_until("the waiting dialog future is dropped", || {
-        dialogs.held_cancelled(0)
-    });
+    shell
+        .changes
+        .wait_until("the waiting dialog future is dropped", || {
+            dialogs.held_cancelled(0)
+        });
     output.wait_for("read: a line to read");
     running.stop();
     within(running.ended());
@@ -214,6 +221,8 @@ struct LiveFileDialogGrants {
     open_folder: Mutex<Option<PathBuf>>,
     reads: AtomicUsize,
     changed: Arc<Notify>,
+    /// Announces each read of what the dialogs answer.
+    read: Changes,
 }
 
 impl LiveFileDialogGrants {
@@ -266,6 +275,7 @@ impl ProgramGrants for LiveFileDialogGrants {
     fn file_dialog_answer(&self, dialog: FileDialog) -> Option<Vec<PathBuf>> {
         if dialog == FileDialog::OpenFile {
             self.reads.fetch_add(1, Ordering::SeqCst);
+            self.read.announce();
         }
         match dialog {
             FileDialog::OpenFile => self.open_file.lock().unwrap().clone().map(|p| vec![p]),

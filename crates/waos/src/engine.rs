@@ -452,7 +452,7 @@ fn name_of(path: &Path) -> String {
 /// releases each hardware buffer as it is presented.
 #[cfg(all(test, target_os = "macos"))]
 mod tests {
-    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::{Condvar, Mutex};
     use std::thread;
     use std::time::{Duration, Instant};
 
@@ -492,19 +492,24 @@ mod tests {
     /// request.
     #[derive(Default)]
     struct Refreshing {
-        presents: AtomicUsize,
+        presents: Mutex<usize>,
+        /// Told at each present.
+        presented: Condvar,
     }
 
     impl Refreshing {
+        fn presents(&self) -> usize {
+            *self.presents.lock().unwrap()
+        }
+
         fn wait_for_presents(&self, count: usize) {
-            let deadline = Instant::now() + DRAWING_TIMEOUT;
-            while self.presents.load(Ordering::SeqCst) < count {
-                assert!(
-                    Instant::now() < deadline,
-                    "{count} frames were never presented"
-                );
-                thread::sleep(Duration::from_millis(5));
-            }
+            let (_presents, waited) = self
+                .presented
+                .wait_timeout_while(self.presents.lock().unwrap(), DRAWING_TIMEOUT, |presents| {
+                    *presents < count
+                })
+                .unwrap();
+            assert!(!waited.timed_out(), "{count} frames were never presented");
         }
     }
 
@@ -516,7 +521,8 @@ mod tests {
             _opaque: bool,
             released: Box<dyn FnOnce() + Send + Sync>,
         ) {
-            self.presents.fetch_add(1, Ordering::SeqCst);
+            *self.presents.lock().unwrap() += 1;
+            self.presented.notify_all();
             released();
         }
 
@@ -530,6 +536,10 @@ mod tests {
     impl VsyncWaiter for Refreshing {
         fn next_vsync(&self, _screen: ScreenId, on_refresh: OnRefresh) {
             thread::spawn(move || {
+                #[allow(
+                    clippy::disallowed_methods,
+                    reason = "the stand-in's screen refreshes a moment after it is asked, as a screen does"
+                )]
                 thread::sleep(REFRESH_INTERVAL);
                 let now = Instant::now();
                 on_refresh(now, now + REFRESH_INTERVAL);
@@ -653,6 +663,11 @@ mod tests {
                 if now.is_back_to(before, checked) || Instant::now() > deadline {
                     return now;
                 }
+                #[allow(
+                    clippy::disallowed_methods,
+                    reason = "wgpu-core and Metal announce no release; exact would take the engine \
+                              saying when a stopped program's GPU objects are gone"
+                )]
                 thread::sleep(Duration::from_millis(50));
             }
         }
@@ -703,7 +718,7 @@ mod tests {
         ];
         let [first, second] = runs.map(|(run, checked)| {
             let before = GpuHoldings::read(&engine, &metal);
-            let presented = shell.presents.load(Ordering::SeqCst);
+            let presented = shell.presents();
             let running = engine
                 .run(&triangle, ProgramEnvironment::default())
                 .expect("triangle runs");

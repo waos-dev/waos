@@ -17,12 +17,13 @@
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Condvar, Mutex, OnceLock, PoisonError};
+use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 
 use anyhow::Result;
 use futures::StreamExt as _;
 use sha2::{Digest, Sha256};
 use waos::Compiler;
+use waos_headless::testing::{Hold, HoldGuard};
 use waos_package::Manifest;
 use waos_services::packages::{
     Caller, CodeCompiler, DevelopmentBuild, InstalledProgram, InstalledVersion, PackageContent,
@@ -86,44 +87,20 @@ fn turn_of(sha256: &str) -> Arc<Mutex<()>> {
     Arc::clone(turns.entry(sha256.to_owned()).or_default())
 }
 
-/// The tests' compiler, whose compiles wait while a test holds it.
+/// The tests' compiler, whose compiles wait while a test holds it (`waos_headless::testing::Hold`).
 #[derive(Default)]
-pub(crate) struct HeldCompiler {
-    /// How many holds are taken.
-    holds: Mutex<usize>,
-    released: Condvar,
-}
-
-/// A hold on a [`HeldCompiler`]: its compiles wait until this is dropped.
-pub(crate) struct CompilerHold(Arc<HeldCompiler>);
+pub(crate) struct HeldCompiler(Arc<Hold>);
 
 impl HeldCompiler {
-    /// Holds the compiler: a compile begun from now waits until the hold is dropped.
-    pub(crate) fn hold(self: &Arc<Self>) -> CompilerHold {
-        *self.holds.lock().unwrap_or_else(PoisonError::into_inner) += 1;
-        CompilerHold(Arc::clone(self))
-    }
-
-    /// Returns once no hold is taken.
-    fn wait_for_release(&self) {
-        let holds = self.holds.lock().unwrap_or_else(PoisonError::into_inner);
-        let _released = self
-            .released
-            .wait_while(holds, |holds| *holds > 0)
-            .unwrap_or_else(PoisonError::into_inner);
-    }
-}
-
-impl Drop for CompilerHold {
-    fn drop(&mut self) {
-        *self.0.holds.lock().unwrap_or_else(PoisonError::into_inner) -= 1;
-        self.0.released.notify_all();
+    /// Holds the compiler: a compile begun from now waits until the guard is dropped.
+    pub(crate) fn hold(&self) -> HoldGuard {
+        self.0.take()
     }
 }
 
 impl CodeCompiler for HeldCompiler {
     fn compile(&self, component: &Path, code: &Path) -> Result<()> {
-        self.wait_for_release();
+        self.0.wait_for_release();
         test_compiler().compile(component, code)
     }
 

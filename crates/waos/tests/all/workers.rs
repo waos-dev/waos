@@ -18,7 +18,7 @@ use waos::{
     EngineTime, FreezePolicy, ManualTime, Presence, ProgramEnd, RunningProgram, WaOS, WaOSConfig,
 };
 
-use crate::test_shell::{RecordedOutput, TestShell, config, printing_to, wait_until, within};
+use crate::test_shell::{RecordedOutput, TestShell, config, poll_until, printing_to, within};
 
 /// The primes below 200,000, which the program counts on a worker.
 const PRIMES_BELOW_200_000: u32 = 17_984;
@@ -98,7 +98,7 @@ fn a_worker_dropped_mid_work_ends() {
     let (_engine, running, output) = run_workers();
     output.wait_for("dropped: a counting worker");
     output.wait_for(COUNTING);
-    wait_until("only the last step's worker runs", || {
+    poll_until("only the last step's worker runs", || {
         running.stats().workers() == 1
     });
     end(&running);

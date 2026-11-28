@@ -3,8 +3,9 @@
 //! an app's permissions ask (`prompts`), the clipboard, the menus, the dialogs, the cameras and the rest,
 //! each recording what the engine asked of it. A test makes one, makes an engine over it with the
 //! engine's own calls, and reads back what the engine told it; what a program prints, it reads
-//! from the program's own output (`output`), and whatever it waits for, it waits for with one
-//! deadline (`within`).
+//! from the program's own output (`output`), and whatever else it waits for, it waits for on the
+//! shell's changes (`TestShell::changes`), which every part announces, or with one deadline
+//! (`within`), as `waos_headless::testing` has them.
 //!
 //! The invariant: a test reads only its own shell and its own programs' outputs, so the tests run
 //! side by side in one process without seeing each other.
@@ -35,10 +36,10 @@ pub mod video_decoders;
 pub mod video_frames;
 
 use std::future::Future;
+use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::mpsc;
-use std::thread;
-use std::time::{Duration, Instant};
+use std::task::{Context, Poll};
 
 use waos::bindings::wasdk::platform::hardware_buffers::PixelBuffer;
 use waos::bindings::wasdk::platform::system::{Brightness, Locale};
@@ -51,6 +52,8 @@ use waos::{
     ShellNotifications, ShellOpener, ShellRecordingIndicator, ShellSystemPermissions,
     ShellTrayIcons, ShellVideoFrameReaders, ShellView, ViewPlacement, ViewRequest, WaOSConfig,
 };
+use waos_headless::testing::Changes;
+pub use waos_headless::testing::{WITHIN, poll_until, within};
 use waos_headless::{Display, HeadlessShell, Refreshes, SCREEN};
 use waos_services::packages::NothingInstalled;
 use waos_services::permissions::{Permissions, Prompts, SettingsInMemory};
@@ -75,10 +78,6 @@ use sound::TestSound;
 use system_permissions::TestSystemPermissions;
 use video_frames::TestVideoFrameReaders;
 
-/// How long a test waits for what it expects before it fails: longer than any passing test takes
-/// alone, so that a hung wait costs seconds, not minutes.
-pub const WITHIN: Duration = Duration::from_secs(15);
-
 /// The screen the tests' programs are shown on: 1600 by 1000 pixels at 2x, each view in a window
 /// of its own.
 pub const DISPLAY: Display = Display {
@@ -91,6 +90,9 @@ pub const DISPLAY: Display = Display {
 /// The headless shell's windowing parts and a stand-in for every other part of the platform.
 pub struct TestShell {
     pub headless: HeadlessShell,
+    /// The changes to what any part was told, the headless shell's and every stand-in's: what a
+    /// test waits on for what a part keeps but does not announce to the engine.
+    pub changes: Arc<Changes>,
     pub prompts: Arc<TestPrompts>,
     pub compositor: Arc<TestCompositor>,
     pub clipboard: Arc<TestClipboard>,
@@ -114,26 +116,29 @@ impl TestShell {
     /// A shell over [`DISPLAY`], which refreshes as soon as a frame is asked for, nothing asked of
     /// any part yet.
     pub fn new() -> TestShell {
-        let notifications = Arc::<TestNotifications>::default();
+        let headless = HeadlessShell::new(DISPLAY, Refreshes::WhenAsked);
+        let changes = Arc::clone(headless.changes());
+        let notifications = Arc::new(TestNotifications::announcing(&changes));
         TestShell {
-            headless: HeadlessShell::new(DISPLAY, Refreshes::WhenAsked),
-            prompts: Arc::default(),
-            compositor: Arc::default(),
-            clipboard: Arc::default(),
-            menus: Arc::default(),
-            sound: Arc::default(),
-            file_dialogs: Arc::default(),
-            opener: Arc::default(),
+            headless,
+            prompts: Arc::new(TestPrompts::announcing(&changes)),
+            compositor: Arc::new(TestCompositor::announcing(&changes)),
+            clipboard: Arc::new(TestClipboard::announcing(&changes)),
+            menus: Arc::new(TestMenus::announcing(&changes)),
+            sound: Arc::new(TestSound::announcing(&changes)),
+            file_dialogs: Arc::new(TestFileDialogs::announcing(&changes)),
+            opener: Arc::new(TestOpener::announcing(&changes)),
             notifications: Arc::clone(&notifications),
-            system_permissions: Arc::new(TestSystemPermissions::new(notifications)),
-            media_players: Arc::default(),
-            media_assets: Arc::default(),
-            image_codecs: Arc::default(),
-            video_frame_readers: Arc::default(),
-            gpus: Arc::default(),
-            cameras: Arc::default(),
-            simulated_cameras: Arc::new(TestCameras::simulated()),
-            machine_picker: Arc::default(),
+            system_permissions: Arc::new(TestSystemPermissions::new(notifications, &changes)),
+            media_players: Arc::new(TestMediaPlayers::announcing(&changes)),
+            media_assets: Arc::new(TestMediaAssets::announcing(&changes)),
+            image_codecs: Arc::new(TestImageCodecs::announcing(&changes)),
+            video_frame_readers: Arc::new(TestVideoFrameReaders::announcing(&changes)),
+            gpus: Arc::new(TestGpus::announcing(&changes)),
+            cameras: Arc::new(TestCameras::announcing(&changes)),
+            simulated_cameras: Arc::new(TestCameras::simulated(&changes)),
+            machine_picker: Arc::new(TestMachinePicker::announcing(&changes)),
+            changes,
         }
     }
 
@@ -206,29 +211,52 @@ pub fn config() -> WaOSConfig {
     }
 }
 
-/// What `future` resolves with, failing after [`WITHIN`] with the line that waited: the one wait a
-/// test has, for what it expects. It blocks the test's thread; the programs run on threads of
-/// their own.
-#[track_caller]
-pub fn within<T: Send + 'static>(future: impl Future<Output = T> + Send + 'static) -> T {
-    let waiting_at = std::panic::Location::caller();
-    let (resolved, came) = mpsc::channel();
-    thread::spawn(move || {
-        // A test that timed out has dropped the receiver.
-        let _ = resolved.send(futures::executor::block_on(future));
-    });
-    came.recv_timeout(WITHIN).unwrap_or_else(|_| {
-        panic!("what the test waited for at {waiting_at} never came within {WITHIN:?}")
+// What the tests wait for with `poll_until` (`waos_headless::testing`), since no part announces
+// it, and what would let them wait on a change instead:
+// - a worker's end in `RunningProgram::stats` (`workers`): the engine announcing its workers'
+//   ends, as `RunningProgram::ended` does the program's;
+// - a process of this computer gone (`machines`): the local processes' capability saying when a
+//   process it started has ended;
+// - the engine letting go of what the shell handed it (`Arc::strong_count` in `video_decoders`
+//   and `composition_layers`): the shell's part handed to the engine as a value whose drop
+//   announces, as `announced_when_dropped` does for a future;
+// - a file a program writes (`notes`, `video_player`): a line the program prints once it is
+//   written.
+
+/// `future`, announcing to `changes` once it is dropped, answered or not: for a stand-in's held
+/// answer, so a test waits on the shell's changes for the engine to let go of it.
+pub fn announced_when_dropped<T: 'static>(
+    changes: &Arc<Changes>,
+    future: impl Future<Output = T> + Send + 'static,
+) -> Pin<Box<dyn Future<Output = T> + Send>> {
+    Box::pin(AnnouncedWhenDropped {
+        future: Some(Box::pin(future)),
+        changes: Arc::clone(changes),
     })
 }
 
-/// Waits until `done`, failing after [`WITHIN`] with `what` was awaited: for what a part of the
-/// shell was told, which it keeps but does not announce.
-pub fn wait_until(what: &str, done: impl Fn() -> bool) {
-    let deadline = Instant::now() + WITHIN;
-    while !done() {
-        assert!(Instant::now() < deadline, "never: {what}");
-        thread::sleep(Duration::from_millis(5));
+/// A future that announces its drop once what it wraps is dropped, so a wait sees the drop.
+struct AnnouncedWhenDropped<T> {
+    future: Option<Pin<Box<dyn Future<Output = T> + Send>>>,
+    changes: Arc<Changes>,
+}
+
+impl<T> Future for AnnouncedWhenDropped<T> {
+    type Output = T;
+
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<T> {
+        self.future
+            .as_mut()
+            .expect("a future polled after its drop")
+            .as_mut()
+            .poll(cx)
+    }
+}
+
+impl<T> Drop for AnnouncedWhenDropped<T> {
+    fn drop(&mut self) {
+        drop(self.future.take());
+        self.changes.announce();
     }
 }
 

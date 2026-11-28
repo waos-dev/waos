@@ -10,6 +10,7 @@ use std::time::Duration;
 
 use waos::bindings::wasdk::media::media_players::{Cue, MediaMetadata, PlayerState, SeekTolerance};
 use waos::{MediaPlayerReports, RunningProgram, ShellMediaPlayer, ShellMediaPlayers, VideoOutput};
+use waos_headless::testing::Changes;
 
 use super::composition::TestLayer;
 use super::video_frames::number_of;
@@ -18,6 +19,7 @@ use super::video_frames::number_of;
 #[derive(Default)]
 pub struct TestMediaPlayers {
     opened: Mutex<Vec<OpenedPlayer>>,
+    changes: Arc<Changes>,
 }
 
 /// One player a program opened, as the test sees it.
@@ -62,6 +64,14 @@ pub enum Destination {
 }
 
 impl TestMediaPlayers {
+    /// Players of which none is opened, announcing each opening, call and drop to `changes`.
+    pub fn announcing(changes: &Arc<Changes>) -> TestMediaPlayers {
+        TestMediaPlayers {
+            changes: Arc::clone(changes),
+            ..TestMediaPlayers::default()
+        }
+    }
+
     /// The players opened so far, in order.
     pub fn opened(&self) -> Vec<OpenedPlayer> {
         self.opened.lock().unwrap().clone()
@@ -117,8 +127,10 @@ impl ShellMediaPlayers for TestMediaPlayers {
         let player = TestPlayer {
             calls: Arc::clone(&opened.calls),
             dropped: Arc::clone(&opened.dropped),
+            changes: Arc::clone(&self.changes),
         };
         self.opened.lock().unwrap().push(opened);
+        self.changes.announce();
         Box::new(player)
     }
 }
@@ -127,11 +139,13 @@ impl ShellMediaPlayers for TestMediaPlayers {
 struct TestPlayer {
     calls: Arc<Mutex<Vec<PlayerCall>>>,
     dropped: Arc<AtomicBool>,
+    changes: Arc<Changes>,
 }
 
 impl TestPlayer {
     fn call(&self, call: PlayerCall) {
         self.calls.lock().unwrap().push(call);
+        self.changes.announce();
     }
 }
 
@@ -198,5 +212,6 @@ fn destination_of(output: VideoOutput) -> Destination {
 impl Drop for TestPlayer {
     fn drop(&mut self) {
         self.dropped.store(true, Ordering::SeqCst);
+        self.changes.announce();
     }
 }

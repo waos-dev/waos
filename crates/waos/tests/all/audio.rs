@@ -27,7 +27,7 @@ use waos_capabilities::Setting;
 
 use crate::asking::{app, permissions_with};
 use crate::test_shell::sound::{HEADPHONES, TestDevices};
-use crate::test_shell::{RecordedOutput, TestShell, config, printing_to, wait_until, within};
+use crate::test_shell::{RecordedOutput, TestShell, config, printing_to, within};
 
 /// What `examples/sound` prints before it opens the microphone, in order.
 const BEFORE_THE_MICROPHONE: [&str; 11] = [
@@ -55,9 +55,11 @@ fn a_program_plays_every_node_streams_picks_an_output_and_records_once_allowed()
     assert_eq!(shell.sound.shown(), [["speakers", HEADPHONES]]);
     assert_eq!(devices.moves(), [HEADPHONES]);
 
-    wait_until("the microphone question is put", || {
-        !shell.prompts.questions().is_empty()
-    });
+    shell
+        .changes
+        .wait_until("the microphone question is put", || {
+            !shell.prompts.questions().is_empty()
+        });
     assert_eq!(
         shell.prompts.questions(),
         [(app().to_string(), Question::Microphone)]
@@ -85,9 +87,11 @@ fn a_dismissed_picker_and_a_refused_microphone_say_why_and_nothing_records() {
     shell.sound.set_pick(None);
     let (output, devices, running) = run_sound(&engine, &shell);
     output.wait_for("pick refused: not-allowed");
-    wait_until("the microphone question is put", || {
-        !shell.prompts.questions().is_empty()
-    });
+    shell
+        .changes
+        .wait_until("the microphone question is put", || {
+            !shell.prompts.questions().is_empty()
+        });
     shell.prompts.answer_questions(Some(Answer::Denied));
     output.wait_for("microphone refused: not-allowed");
     within(running.ended());
@@ -141,7 +145,7 @@ fn a_waiting_output_picker_is_answered_by_setting_its_row_and_drops_its_prompt()
     };
     let running = engine.run(&program, environment).unwrap();
 
-    wait_until("output picker is waiting", || {
+    shell.changes.wait_until("output picker is waiting", || {
         !shell.sound.shown().is_empty()
     });
     assert!(!shell.sound.held_cancelled(0));
@@ -150,9 +154,11 @@ fn a_waiting_output_picker_is_answered_by_setting_its_row_and_drops_its_prompt()
         own.answer_with.audio_output = Some(HEADPHONES.to_owned());
     });
     set.unwrap();
-    wait_until("output picker future is dropped", || {
-        shell.sound.held_cancelled(0)
-    });
+    shell
+        .changes
+        .wait_until("output picker future is dropped", || {
+            shell.sound.held_cancelled(0)
+        });
     output.wait_for("picked: Headphones");
     output.wait_for("moved: headphones");
     running.stop();

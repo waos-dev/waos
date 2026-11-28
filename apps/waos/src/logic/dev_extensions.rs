@@ -198,6 +198,10 @@ mod tests {
                 Instant::now() < deadline,
                 "the app never served its extensions"
             );
+            #[allow(
+                clippy::disallowed_methods,
+                reason = "nothing announces an app serving its extensions; exact once the served list is watched"
+            )]
             tokio::time::sleep(std::time::Duration::from_millis(10)).await;
         };
         assert_eq!(listed.pid, std::process::id());

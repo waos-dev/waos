@@ -6,12 +6,12 @@
 //! them, on time that stands still, with no windows and nobody to ask. The test plays the host: it
 //! runs the app's tasks, and reports through Waft's client what the system does.
 
+use crate::state::test_turns::{Turn, turn_until, wake_at_end};
 use std::cell::{Cell, RefCell};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
-use std::sync::{Arc, Mutex};
-use std::thread;
-use std::time::{Duration, Instant};
+use std::sync::{Arc, Mutex, OnceLock};
+use waft::ui::Dispatcher;
 
 use futures::channel::mpsc::UnboundedReceiver;
 use tempfile::TempDir;
@@ -45,7 +45,7 @@ use crate::logic::recording_indicator::{RecordingChanged, RecordingIndicatorOnRe
 use crate::logic::running_apps::{IfRunning, RunningApps};
 use crate::logic::startup::tests::start_asking_nobody;
 use crate::logic::startup::{self, Setup};
-use crate::logic::test_engine::{self, NoWindows, WITHIN};
+use crate::logic::test_engine::{self, NoWindows};
 use crate::logic::test_installs;
 
 /// `path` as the engine hands it to the system: its links resolved, named as the system's apps
@@ -56,6 +56,8 @@ pub(crate) fn real_path(path: &Path) -> PathBuf {
 
 pub(crate) struct TestSystem {
     pub(crate) shell: Shell,
+    /// The platform the app runs on, which tells the test when a task wakes the app.
+    platform: Rc<TestPlatform>,
     engine: Arc<WaOS>,
     /// The app's notifications as the engine reaches them, for a test to call as the engine does.
     pub(crate) notifications: Option<Arc<dyn ShellNotifications>>,
@@ -128,7 +130,8 @@ impl TestSystem {
         let served_packages = Arc::clone(&packages);
         let kept = Rc::clone(&started);
         let suspended = Arc::clone(&engine);
-        let shell = Shell::new(Rc::new(platform) as PlatformRef, move |app| {
+        let platform = Rc::new(platform);
+        let shell = Shell::new(Rc::clone(&platform) as PlatformRef, move |app| {
             super::app_suspension::follow_app_suspension(app, suspended);
             if let Some(opener) = opener {
                 opener.serve(app);
@@ -164,6 +167,7 @@ impl TestSystem {
             });
         TestSystem {
             shell,
+            platform,
             engine,
             notifications: shell_notifications,
             storage,
@@ -213,6 +217,8 @@ impl TestSystem {
             .engine
             .run(&program, environment)
             .expect("the program runs");
+        output.wake(self.platform.dispatcher());
+        wake_at_end(&running, self.platform.dispatcher());
         let listed = running.clone();
         futures::executor::block_on(self.runs.start(&id, IfRunning::Replace, || Ok(listed)))
             .expect("among the runs");
@@ -246,14 +252,12 @@ impl TestSystem {
         told.clone()
     }
 
-    /// Runs the app's tasks until `done`, failing after [`WITHIN`].
+    /// Runs the app's tasks as they wake until `done`, failing after `WITHIN`.
     pub(crate) fn run_tasks_until(&self, what: &str, done: impl Fn() -> bool) {
-        let deadline = Instant::now() + WITHIN;
-        while !done() {
-            assert!(Instant::now() < deadline, "{what} never happened");
-            thread::sleep(Duration::from_millis(1));
+        turn_until(&self.platform, what, || {
             self.shell.cell().checkpoint();
-        }
+            if done() { Turn::Done } else { Turn::Idle }
+        });
     }
 }
 
@@ -267,9 +271,16 @@ impl Drop for TestSystem {
 #[derive(Default)]
 pub(crate) struct Lines {
     bytes: Mutex<Vec<u8>>,
+    /// The test's host, woken as the program writes, so a test turning its app looks again.
+    host: OnceLock<Arc<dyn Dispatcher>>,
 }
 
 impl Lines {
+    /// Wakes `host` from now on as the program writes.
+    pub(crate) fn wake(&self, host: Arc<dyn Dispatcher>) {
+        let _ = self.host.set(host);
+    }
+
     pub(crate) fn has(&self, line: &str) -> bool {
         self.all().iter().any(|written| written == line)
     }
@@ -292,6 +303,9 @@ impl ProgramOutput for Lines {
     ) -> std::task::Poll<usize> {
         if matches!(stream, OutputStream::Stdout) {
             self.bytes.lock().unwrap().extend_from_slice(bytes);
+            if let Some(host) = self.host.get() {
+                host.wake_now();
+            }
         }
         std::task::Poll::Ready(bytes.len())
     }

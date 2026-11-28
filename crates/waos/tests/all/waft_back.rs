@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 use waos::{ProgramEnd, ProgramEnvironment, ProgramOutput, WaOS};
 
-use crate::test_shell::{RecordedOutput, TestShell, config, wait_until, within};
+use crate::test_shell::{RecordedOutput, TestShell, config, within};
 
 #[test]
 fn its_navigator_handles_back_while_it_can_pop() {
@@ -42,11 +42,15 @@ fn its_navigator_handles_back_while_it_can_pop() {
 
     running.mouse().tap(&view, (100.0, 100.0));
     output.wait_for("page 1");
-    wait_until("the app handles Back", || shown.handles_back());
+    shell
+        .changes
+        .wait_until("the app handles Back", || shown.handles_back());
     assert!(view.handles_back());
 
     view.pop_route();
-    wait_until("the app no longer handles Back", || !shown.handles_back());
+    shell
+        .changes
+        .wait_until("the app no longer handles Back", || !shown.handles_back());
     assert!(!view.handles_back());
 
     view.close_requested();

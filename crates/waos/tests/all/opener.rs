@@ -25,7 +25,7 @@ use waos_capabilities::{Mount, ProgramFolders, Setting};
 use waos_services::permissions::{Permissions, ProgramId};
 
 use crate::test_shell::opener::Opened;
-use crate::test_shell::{RecordedOutput, TestShell, config, printing_to, wait_until, within};
+use crate::test_shell::{RecordedOutput, TestShell, config, printing_to, within};
 
 /// The engine's tick, at which a freeze takes.
 const TICK: Duration = Duration::from_millis(100);
@@ -170,9 +170,11 @@ fn a_request_made_before_the_program_listens_is_heard_once_it_does_its_files_mou
     let notes = fs::canonicalize(scratch.path()).unwrap().join("notes.md");
     fs::write(&notes, "my notes").unwrap();
 
-    wait_until("the program asks about zoommtg, not listening yet", || {
-        !shell.prompts.link_schemes_asked().is_empty()
-    });
+    shell
+        .changes
+        .wait_until("the program asks about zoommtg, not listening yet", || {
+            !shell.prompts.link_schemes_asked().is_empty()
+        });
     running.open_requested(OpenRequest {
         files: vec![notes.clone()],
         links: vec!["notes://today".to_owned()],
@@ -276,9 +278,11 @@ fn answer_every_scheme(shell: &TestShell) {
 /// Waits until the program asks its user about links of `scheme`, the scheme it asks about after
 /// `before` others, and answers `answer`.
 fn answer_scheme(shell: &TestShell, before: usize, scheme: &str, answer: Answer) {
-    wait_until(&format!("{scheme} is asked about"), || {
-        shell.prompts.link_schemes_asked().len() > before
-    });
+    shell
+        .changes
+        .wait_until(&format!("{scheme} is asked about"), || {
+            shell.prompts.link_schemes_asked().len() > before
+        });
     let asked = shell.prompts.link_schemes_asked();
     assert_eq!(asked[before], (app().to_string(), scheme.to_owned()));
     shell.prompts.answer_link_schemes(Some(answer));

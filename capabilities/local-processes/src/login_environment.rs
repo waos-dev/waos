@@ -60,6 +60,10 @@ impl LoginEnvironment {
     pub fn of_login_shell() -> LoginEnvironment {
         let shell = crate::user_database::login_shell()
             .map_or_else(|| PathBuf::from("/bin/sh"), PathBuf::from);
+        #[allow(
+            clippy::disallowed_methods,
+            reason = "the login shell's timeout, by tokio's clock"
+        )]
         let timer: Timer = Arc::new(|wait| tokio::time::sleep(wait).boxed());
         LoginEnvironment::of_shell(shell, TIMEOUT, timer)
     }

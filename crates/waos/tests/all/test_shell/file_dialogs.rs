@@ -4,7 +4,7 @@
 use std::collections::VecDeque;
 use std::future::ready;
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use futures::FutureExt;
 use futures::channel::oneshot;
@@ -12,6 +12,9 @@ use waos::bindings::wasdk::platform::views::ViewId;
 use waos::{
     FileDialogFuture, FolderOptions, OpenOptions, RunningProgram, SaveOptions, ShellFileDialogs,
 };
+use waos_headless::testing::Changes;
+
+use super::announced_when_dropped;
 
 enum NextAnswer {
     Ready(Vec<PathBuf>),
@@ -24,6 +27,7 @@ pub struct TestFileDialogs {
     answers: Mutex<VecDeque<NextAnswer>>,
     asked: Mutex<Vec<AskedDialog>>,
     held: Mutex<Vec<oneshot::Sender<Vec<PathBuf>>>>,
+    changes: Arc<Changes>,
 }
 
 /// One dialog as a program asked for it.
@@ -37,6 +41,15 @@ pub struct AskedDialog {
 }
 
 impl TestFileDialogs {
+    /// Dialogs asked for nothing, announcing each one asked, and each held one's future dropped,
+    /// to `changes`.
+    pub fn announcing(changes: &Arc<Changes>) -> TestFileDialogs {
+        TestFileDialogs {
+            changes: Arc::clone(changes),
+            ..TestFileDialogs::default()
+        }
+    }
+
     /// The user chooses `paths` in the next dialog; none cancels it.
     pub fn answer_next(&self, paths: Vec<PathBuf>) {
         self.answers
@@ -67,12 +80,13 @@ impl TestFileDialogs {
     /// Keeps `asked`, and returns the next future for it.
     fn answer(&self, asked: AskedDialog) -> FileDialogFuture<Vec<PathBuf>> {
         self.asked.lock().unwrap().push(asked);
+        self.changes.announce();
         match self.answers.lock().unwrap().pop_front() {
             Some(NextAnswer::Ready(paths)) => Box::pin(ready(Ok(paths))),
             Some(NextAnswer::Hold) => {
                 let (tx, rx) = oneshot::channel();
                 self.held.lock().unwrap().push(tx);
-                Box::pin(rx.map(|paths| Ok(paths.unwrap_or_default())))
+                announced_when_dropped(&self.changes, rx.map(|paths| Ok(paths.unwrap_or_default())))
             }
             None => Box::pin(ready(Ok(Vec::new()))),
         }
