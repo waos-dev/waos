@@ -29,10 +29,9 @@ cargo xtask sync-wit                               # after editing wit/
 - **An API agents use explains itself.** When an agent has to read the source to use one, its docs or its shape is the bug.
 - **Waft comes from crates.io.** To build against an unreleased Waft, a branch adds `[patch.crates-io]` until Waft releases.
 - **Work goes on a branch and a pull request**, here and in Waft and Valo; never on `main`. The lead merges.
-- **Time matters: Rust builds and tests are slow.** Run the checks a change needs, not every suite at every step, and add a test only where it guards behaviour that could break, never one that restates the code. Raise a waste you find (a slow check, a redundant test, a long wait) with the lead instead of accepting it.
-- **A test waits for the fact, never for time.** It holds what makes a state pass, so the state cannot be missed: the test of "Optimizing…" holds the compile until it has seen it. A sleep, or a poll for a state that passes, is a guess another machine gets wrong.
-- **A test runs the real code, and stands in only for the slow outside: a compile, the network, the clock, the user's answer.** The home screen's tests install through the real package manager, handed a compiler that writes a marker file; a fake manager would keep none of its rules. What is costly to make, a compiled app, is made once for the run.
-- **A test says one behaviour a caller relies on, where its owner keeps it.** One that restates the code, or reaches a domain's rule through the whole app, costs time and guards nothing. A test that cannot be made exact is deleted, not retried.
+- **Time matters: Rust builds and tests are slow.** Run the checks a change needs, not every suite at every step. Raise a waste you find (a slow check, a redundant test, a long wait) with the lead instead of accepting it.
+- **Tests follow Clean Code's F.I.R.S.T.:** fast, independent, repeatable, self-validating, timely, and one concept each, as clean as the code they test. How WaOS's tests do it is in [docs/tools/tests.md](docs/tools/tests.md).
+- **A test that only passes with a patch is rejected:** a sleep, a retry, a longer timeout, a fake of one of our own domains, a hook in production code. Use what the tests share (a hold, a stand-in for the slow outside, the engine's clock); where that lacks what a test needs, raise it with the lead.
 
 ## Docs
 
