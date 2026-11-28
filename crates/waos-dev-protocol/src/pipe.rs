@@ -69,6 +69,10 @@ async fn open_when_free(path: &OsStr) -> io::Result<NamedPipeClient> {
             Err(error) if is_busy(&error) && Instant::now() < deadline => {}
             opened => return opened,
         }
+        #[allow(
+            clippy::disallowed_methods,
+            reason = "a busy pipe announces no free instance; tried again RETRY_EVERY apart"
+        )]
         tokio::time::sleep(RETRY_EVERY).await;
     }
 }

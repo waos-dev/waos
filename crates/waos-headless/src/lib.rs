@@ -544,6 +544,10 @@ impl Refresher {
             .name("headless refreshes".into())
             .spawn(move || {
                 for on_refresh in asked {
+                    #[allow(
+                        clippy::disallowed_methods,
+                        reason = "a refresh comes `interval` after it is asked, as a screen's does"
+                    )]
                     thread::sleep(interval);
                     let now = Instant::now();
                     on_refresh(now, now + interval);

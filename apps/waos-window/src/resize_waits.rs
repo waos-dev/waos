@@ -284,9 +284,7 @@ impl AwaitedRequest {
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
-    use std::sync::atomic::{AtomicBool, Ordering};
     use std::thread;
-    use std::time::Duration;
 
     use waos::bindings::wasdk::platform::views::Cursor;
     use waos_window_messages::ViewCall;
@@ -296,9 +294,6 @@ mod tests {
     const WINDOW: RequestId = 4;
     const SHOWN: PhysicalSize = [1600, 1200];
     const RESIZED: PhysicalSize = [2000, 1200];
-
-    /// How long a test lets a wait go on before it says the wait has not ended.
-    const MEANWHILE: Duration = Duration::from_millis(50);
 
     /// Waits of which the view in `WINDOW` shows a picture at `SHOWN`, its window about to send a
     /// new size.
@@ -310,16 +305,11 @@ mod tests {
     }
 
     /// Waits in `waits` for `RESIZED` on a thread of its own, as the main thread does; answers
-    /// whether it ended, and how.
-    fn waiting(waits: &Arc<ResizeWaits>) -> (Arc<AtomicBool>, thread::JoinHandle<WaitEnd>) {
-        let ended = Arc::new(AtomicBool::new(false));
-        let (waits, ending) = (Arc::clone(waits), Arc::clone(&ended));
-        let waiter = thread::spawn(move || {
-            let end = waits.wait(WINDOW, RESIZED);
-            ending.store(true, Ordering::SeqCst);
-            end
-        });
-        (ended, waiter)
+    /// how it ended. A wait ends by what `waits` holds, a picture first, so what ends it last
+    /// shows that what came before ended nothing.
+    fn waiting(waits: &Arc<ResizeWaits>) -> thread::JoinHandle<WaitEnd> {
+        let waits = Arc::clone(waits);
+        thread::spawn(move || waits.wait(WINDOW, RESIZED))
     }
 
     fn context_menu(menu: ContextMenuId) -> ToWindow {
@@ -345,14 +335,18 @@ mod tests {
     #[test]
     fn a_wait_ends_on_the_picture_of_its_size_alone() {
         let waits = resizing();
-        let (ended, waiter) = waiting(&waits);
+        let waiter = waiting(&waits);
         waits.shown(WINDOW + 1, RESIZED);
         waits.shown(WINDOW, [1800, 1200]);
-        thread::sleep(MEANWHILE);
-        assert!(
-            !ended.load(Ordering::SeqCst),
+        waits.end();
+        assert_eq!(
+            waiter.join().unwrap(),
+            WaitEnd::Ended,
             "another view's picture, and one of another size, end nothing"
         );
+
+        let waits = resizing();
+        let waiter = waiting(&waits);
         waits.shown(WINDOW, RESIZED);
         assert_eq!(waiter.join().unwrap(), WaitEnd::Shown);
     }
@@ -362,22 +356,25 @@ mod tests {
         let waits = Arc::new(ResizeWaits::default());
         waits.shown(WINDOW, RESIZED);
         waits.expect(WINDOW);
-        let (ended, waiter) = waiting(&waits);
-        thread::sleep(MEANWHILE);
-        assert!(
-            !ended.load(Ordering::SeqCst),
+        let waiter = waiting(&waits);
+        waits.heard(&context_menu(7));
+        assert_eq!(
+            waiter.join().unwrap(),
+            WaitEnd::Requested,
             "what WaOS said before is no answer"
         );
+        waits.sent(&FromWindow::ContextMenuClosed {
+            menu: 7,
+            chosen: None,
+        });
         waits.shown(WINDOW, RESIZED);
-        assert_eq!(waiter.join().unwrap(), WaitEnd::Shown);
+        assert_eq!(waits.wait(WINDOW, RESIZED), WaitEnd::Shown);
     }
 
     #[test]
     fn a_wait_ends_with_the_connection() {
         let waits = resizing();
-        let (ended, waiter) = waiting(&waits);
-        thread::sleep(MEANWHILE);
-        assert!(!ended.load(Ordering::SeqCst), "it has no timeout");
+        let waiter = waiting(&waits);
         waits.end();
         assert_eq!(waiter.join().unwrap(), WaitEnd::Ended);
         assert!(!waits.awaits(WINDOW), "and none begins once it ended");
@@ -386,13 +383,20 @@ mod tests {
     #[test]
     fn a_wait_ends_on_a_request_the_program_awaits_and_none_begins_until_it_is_answered() {
         let waits = resizing();
-        let (ended, waiter) = waiting(&waits);
+        let waiter = waiting(&waits);
         waits.heard(&ToWindow::View {
             window: WINDOW,
             call: ViewCall::SetCursor(Cursor::Text),
         });
-        thread::sleep(MEANWHILE);
-        assert!(!ended.load(Ordering::SeqCst), "a one-way call ends nothing");
+        waits.shown(WINDOW, RESIZED);
+        assert_eq!(
+            waiter.join().unwrap(),
+            WaitEnd::Shown,
+            "a one-way call ends nothing"
+        );
+
+        waits.expect(WINDOW);
+        let waiter = waiting(&waits);
         waits.heard(&context_menu(7));
         assert_eq!(waiter.join().unwrap(), WaitEnd::Requested);
         assert!(

@@ -1,5 +1,3 @@
-use std::time::Duration;
-
 use futures::executor::block_on;
 use waos_window_messages::encode;
 
@@ -127,8 +125,11 @@ fn a_request_the_program_awaits_ends_the_resize_waiting_and_a_one_way_call_does_
         handed,
         Some(Event::Received(ToWindow::View { .. }, _))
     ));
-    thread::sleep(Duration::from_millis(50));
-    assert!(!waiter.is_finished(), "a call on the view ends nothing");
+    // The connection's thread records what it hears before it hands it on.
+    assert!(
+        receiving.waits.awaits(WINDOW),
+        "a call on the view ends nothing"
+    );
     receiving.send(&ToWindow::OpenFileDialog {
         dialog: 5,
         parent: Some(WINDOW),

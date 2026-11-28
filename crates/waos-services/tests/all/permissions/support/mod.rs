@@ -4,7 +4,7 @@
 
 use std::collections::BTreeSet;
 use std::sync::Mutex;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use futures::FutureExt;
 use futures::channel::oneshot;
@@ -62,16 +62,19 @@ impl InstalledApps for Removals {
     }
 }
 
-/// Whether `changed` resolves within a moment.
-pub fn heard(mut changed: ChangedFuture) -> bool {
-    let deadline = Instant::now() + Duration::from_millis(200);
-    while Instant::now() < deadline {
-        if changed.as_mut().now_or_never().is_some() {
-            return true;
-        }
-        std::thread::sleep(Duration::from_millis(5));
-    }
-    false
+/// How long a test waits for what it expects before it fails: only a broken build reaches it.
+const WITHIN: Duration = Duration::from_secs(15);
+
+/// Whether `changed` resolves within [`WITHIN`], on a thread of its own, as the engine's tests'
+/// `within` waits.
+pub fn heard(changed: ChangedFuture) -> bool {
+    let (resolved, came) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        futures::executor::block_on(changed);
+        // A test that gave up has dropped the receiver.
+        let _ = resolved.send(());
+    });
+    came.recv_timeout(WITHIN).is_ok()
 }
 
 /// The user, as a test plays them: what is asked of them, kept until the test answers it, and each
