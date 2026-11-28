@@ -12,16 +12,13 @@
 //! since what an inspector and the shell's parts see of the apps reads them, and the compiler the
 //! package manager is handed is made before the engine for that reason.
 
-use std::collections::BTreeSet;
 use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::{Context as _, Result};
-use tokio::sync::{mpsc, watch};
 use waos::{Compiler, WaOS};
-use waos_package::ProgramId;
-use waos_services::packages::{CodeCompiler, PackageManager, StopApp};
-use waos_services::permissions::{InstalledApps, Permissions, Prompts, SettingsFiles};
+use waos_services::packages::{CodeCompiler, InstalledApps, PackageManager, StopApp};
+use waos_services::permissions::{Permissions, Prompts, SettingsFiles};
 use waos_services::store::{SourceProxy, Store};
 
 use super::app_starter::AppStarter;
@@ -106,7 +103,7 @@ pub(crate) fn open_domains(
     let permissions = Permissions::open(
         Arc::new(SettingsFiles::new(folder)),
         prompts,
-        Arc::new(PackageRecord(Arc::clone(&packages))),
+        Arc::clone(&packages) as Arc<dyn InstalledApps>,
     );
     let store = Store::open(folder, proxy, permissions.clone())
         .with_context(|| format!("opening the store at {}", folder.display()))?;
@@ -126,24 +123,6 @@ pub(crate) fn open_domains(
         permissions,
         store,
     })
-}
-
-/// The package manager's record, as Permissions follows it: a type of the app's own, since neither
-/// knows the other.
-struct PackageRecord(Arc<PackageManager>);
-
-impl InstalledApps for PackageRecord {
-    fn name(&self, id: &ProgramId) -> Option<String> {
-        Some(self.0.installed_program(id)?.name())
-    }
-
-    fn removing(&self) -> watch::Receiver<BTreeSet<ProgramId>> {
-        self.0.removing()
-    }
-
-    fn removals(&self) -> mpsc::UnboundedReceiver<ProgramId> {
-        self.0.removals()
-    }
 }
 
 /// The engine's compiler, as the package manager is handed it: a type of the app's own, since

@@ -7,9 +7,10 @@ use std::sync::Arc;
 
 use super::support::{Named, TestPrompts, triangle};
 use futures::FutureExt;
+use waos_services::packages::InstalledApps;
 use waos_services::permissions::{
-    Answer, AppQuestion, AskedQuestion, InstalledApps, Permissions, Prompts, Question, Role,
-    Setting, SettingsInMemory, Switch,
+    Answer, AppQuestion, AskedQuestion, Permissions, Prompts, Question, Role, Setting,
+    SettingsInMemory, Switch,
 };
 
 /// Permissions in memory, asking the user `prompts`, the triangle installed as Triangle.

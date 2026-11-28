@@ -9,7 +9,7 @@
 //! What the user chose is kept in a [`SettingsStore`], in Permissions' own values: WaOS's files
 //! ([`SettingsFiles`]), or memory in a test ([`SettingsInMemory`]). Every app follows the global
 //! settings until the user sets its own, as Chrome's site settings do. Removing an app follows the
-//! package manager's record ([`InstalledApps`]): an app being removed takes no write, and one
+//! package manager's record ([`InstalledApps`](crate::packages::InstalledApps)): an app being removed takes no write, and one
 //! removed is forgotten.
 //!
 //! The invariant a later editor will break: a grant is read at each check, never copied into a
@@ -19,7 +19,6 @@
 mod asking;
 mod error;
 mod grants;
-mod installed_apps;
 mod prompts;
 mod service;
 mod settings;
@@ -28,7 +27,6 @@ mod settings_store;
 
 pub use asking::{AppQuestion, AskedQuestion};
 pub use error::SettingsError;
-pub use installed_apps::{InstalledApps, NothingInstalled};
 pub use prompts::{App, NoPrompts, Prompts};
 pub use service::Permissions;
 pub use settings::{AnswerWith, AppSettings, GlobalSettings, PerQuestion};

@@ -9,10 +9,10 @@ use std::sync::Arc;
 
 use super::support::{Removals, TestPrompts, heard, triangle};
 use futures::FutureExt;
+use waos_services::packages::NothingInstalled;
 use waos_services::permissions::{
     Answer, AppSettings, DomainRule, FileDialog, GlobalSettings, Mount, NetworkGrant, NoPrompts,
-    NothingInstalled, Permissions, Question, Setting, SettingsError, SettingsFiles,
-    SettingsInMemory,
+    Permissions, Question, Setting, SettingsError, SettingsFiles, SettingsInMemory,
 };
 
 fn network_off() -> NetworkGrant {
@@ -82,7 +82,7 @@ fn an_apps_settings_take_no_write_while_it_is_removed_and_are_forgotten_once_it_
     let permissions = Permissions::open(
         Arc::new(SettingsInMemory::default()),
         Arc::clone(&prompts) as Arc<dyn waos_services::permissions::Prompts>,
-        Arc::clone(&removals) as Arc<dyn waos_services::permissions::InstalledApps>,
+        Arc::clone(&removals) as Arc<dyn waos_services::packages::InstalledApps>,
     );
     let own_network = |permissions: &Permissions| {
         permissions

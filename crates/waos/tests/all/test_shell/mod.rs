@@ -52,7 +52,8 @@ use waos::{
     ShellTrayIcons, ShellVideoFrameReaders, ShellView, ViewPlacement, ViewRequest, WaOSConfig,
 };
 use waos_headless::{Display, HeadlessShell, Refreshes, SCREEN};
-use waos_services::permissions::{NothingInstalled, Permissions, Prompts, SettingsInMemory};
+use waos_services::packages::NothingInstalled;
+use waos_services::permissions::{Permissions, Prompts, SettingsInMemory};
 
 use cameras::TestCameras;
 use clipboard::TestClipboard;

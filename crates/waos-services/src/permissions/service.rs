@@ -18,11 +18,12 @@ use tokio::sync::{Notify, mpsc, watch};
 use waos_capabilities::{ChangedFuture, ProgramGrants};
 use waos_package::ProgramId;
 
+use crate::packages::InstalledApps;
 use crate::permissions::asking::Asking;
 use crate::permissions::grants::AppGrants;
 use crate::permissions::settings::{AppSettings, GlobalSettings};
 use crate::permissions::settings_store::locked;
-use crate::permissions::{AskedQuestion, InstalledApps, Prompts, SettingsError, SettingsStore};
+use crate::permissions::{AskedQuestion, Prompts, SettingsError, SettingsStore};
 
 /// What the user lets each app use. Clones are the same.
 #[derive(Clone)]

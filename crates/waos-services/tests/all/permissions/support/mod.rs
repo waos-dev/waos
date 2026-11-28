@@ -11,8 +11,9 @@ use futures::channel::oneshot;
 use tokio::sync::{mpsc, watch};
 use waos_capabilities::ChangedFuture;
 use waos_package::ProgramId;
+use waos_services::packages::InstalledApps;
 use waos_services::permissions::{
-    Answer, AnswerFuture, App, InstalledApps, Prompts, Question, Role, SettingsClosedFuture, Switch,
+    Answer, AnswerFuture, App, Prompts, Question, Role, SettingsClosedFuture, Switch,
 };
 
 pub fn triangle() -> ProgramId {

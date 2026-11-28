@@ -38,12 +38,14 @@
 mod error;
 mod files;
 mod installed;
+mod installed_apps;
 mod manager;
 mod programs;
 mod sessions;
 
 pub use error::{FolderError, InstallError, RemoveError};
 pub use installed::{DevelopmentBuild, InstalledProgram, InstalledVersion, Origin};
+pub use installed_apps::{InstalledApps, NothingInstalled};
 pub use manager::{
     AppLock, ByteStream, CodeCompiler, PackageChange, PackageContent, PackageManager, StopApp,
 };

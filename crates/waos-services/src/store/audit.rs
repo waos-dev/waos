@@ -253,7 +253,8 @@ mod tests {
 
     use std::sync::Arc;
 
-    use crate::permissions::{NoPrompts, NothingInstalled, Permissions, SettingsFiles};
+    use crate::packages::NothingInstalled;
+    use crate::permissions::{NoPrompts, Permissions, SettingsFiles};
     use waos_capabilities::Setting;
 
     use super::*;

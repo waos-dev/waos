@@ -16,11 +16,12 @@ use sha2::{Digest, Sha256};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use waos_package::{ListedProgram, Manifest, ProgramId, SigningKey};
+use waos_services::packages::NothingInstalled;
 use waos_services::packages::{
     Caller, CodeCompiler, InstallError, InstalledProgram, PackageChange, PackageContent,
     PackageManager, StopApp,
 };
-use waos_services::permissions::{NoPrompts, NothingInstalled, Permissions, SettingsFiles};
+use waos_services::permissions::{NoPrompts, Permissions, SettingsFiles};
 use waos_services::store::{Source, SourceProxy, Store};
 
 /// A compiler that compiles nothing, and finds nothing to compile.
