@@ -121,6 +121,7 @@ impl HeadlessDaemon {
         let Domains {
             packages,
             permissions,
+            storage,
             store,
             ..
         } = open_domains(
@@ -140,6 +141,7 @@ impl HeadlessDaemon {
         shell.gpus = video_decoder_thread::start();
         let inspected = Arc::new(ProgramsOnThisComputer::new(
             store.clone(),
+            storage.clone(),
             permissions.clone(),
             Arc::clone(&packages),
             Arc::clone(&runs),
@@ -165,7 +167,7 @@ impl HeadlessDaemon {
 
         let capabilities = LocalCapabilities::new();
         let environments =
-            ProgramEnvironments::new(capabilities, permissions.clone(), store.clone());
+            ProgramEnvironments::new(capabilities, permissions.clone(), storage.clone());
         let places = ProgramPlaces::new(ProgramPlace::Windows);
         let services = AppServices::new(
             Arc::clone(&runs),
@@ -646,7 +648,7 @@ mod tests {
             )
             .expect("open the store");
             let data = domains
-                .store
+                .storage
                 .folders(&id.development())
                 .expect("folders")
                 .data;

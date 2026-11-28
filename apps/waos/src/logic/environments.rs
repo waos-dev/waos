@@ -1,6 +1,6 @@
 //! What each program runs with: this computer's capabilities, made once and shared, its sound
 //! devices among them unless others are given; what the user lets it use, its permissions, read
-//! live; and its own folders, which the store keeps. A program is the one its id names,
+//! live; and its own folders, which app storage keeps. A program is the one its id names,
 //! whether the library opened it or `waos launch` started it, a development install under its
 //! development id: it has its own settings over the global ones, and its own `/data` and `/cache`.
 
@@ -9,8 +9,8 @@ use std::sync::Arc;
 use waos::{AudioDevices, AudioOutput, MachineChoice, ProgramEnvironment};
 use waos_local::LocalCapabilities;
 use waos_package::ProgramId;
+use waos_services::app_storage::AppStorage;
 use waos_services::permissions::Permissions;
-use waos_services::store::{Store, StoreError};
 
 use super::setting_changes::Offered;
 
@@ -20,18 +20,19 @@ pub(crate) struct ProgramEnvironments {
     /// The sound devices every program plays on and records from; none for no sound.
     audio: Option<Arc<dyn AudioDevices>>,
     permissions: Permissions,
-    store: Store,
+    storage: AppStorage,
 }
 
 impl ProgramEnvironments {
-    /// Environments over `capabilities`, this computer's, `permissions`, and `store`'s folders.
+    /// Environments over `capabilities`, this computer's, `permissions`, and the apps' own folders
+    /// in `storage`.
     pub(crate) fn new(
         capabilities: LocalCapabilities,
         permissions: Permissions,
-        store: Store,
+        storage: AppStorage,
     ) -> Arc<ProgramEnvironments> {
         let audio = capabilities.environment().audio;
-        ProgramEnvironments::with_audio(capabilities, audio, permissions, store)
+        ProgramEnvironments::with_audio(capabilities, audio, permissions, storage)
     }
 
     /// [`new`](Self::new), with `audio` as the sound devices in place of `capabilities`' own.
@@ -39,22 +40,22 @@ impl ProgramEnvironments {
         capabilities: LocalCapabilities,
         audio: Option<Arc<dyn AudioDevices>>,
         permissions: Permissions,
-        store: Store,
+        storage: AppStorage,
     ) -> Arc<ProgramEnvironments> {
         Arc::new(ProgramEnvironments {
             capabilities,
             audio,
             permissions,
-            store,
+            storage,
         })
     }
 
     /// What the program `id` runs with: its settings, and its own folders, made at its first
     /// run; folders that cannot be made refuse the run.
-    pub(crate) fn of(&self, id: &ProgramId) -> Result<ProgramEnvironment, StoreError> {
+    pub(crate) fn of(&self, id: &ProgramId) -> std::io::Result<ProgramEnvironment> {
         Ok(ProgramEnvironment {
             grants: Some(self.permissions.of(id)),
-            folders: Some(self.store.folders(id)?),
+            folders: Some(self.storage.folders(id)?),
             audio: self.audio.clone(),
             ..self.capabilities.environment()
         })

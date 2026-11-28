@@ -309,7 +309,9 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let store = open_store(directory.path());
         let id = "dev.waos.notes".parse().unwrap();
-        store.folders(&id).unwrap();
+        crate::app_storage::AppStorage::new(directory.path())
+            .folders(&id)
+            .unwrap();
 
         for days in 20_400..20_410 {
             store.keep("dev.waos.notes", &day(days));
@@ -351,8 +353,12 @@ mod tests {
             "dev.waos.notes".parse().unwrap(),
             "dev.waos.camera".parse().unwrap(),
         );
-        store.folders(&notes).unwrap();
-        store.folders(&camera).unwrap();
+        crate::app_storage::AppStorage::new(directory.path())
+            .folders(&notes)
+            .unwrap();
+        crate::app_storage::AppStorage::new(directory.path())
+            .folders(&camera)
+            .unwrap();
         store.keep("dev.waos.notes", &day(20_400));
         store.keep("dev.waos.camera", &day(20_400));
         permissions

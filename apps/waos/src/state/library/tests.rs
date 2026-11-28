@@ -74,7 +74,8 @@ impl TestLibrary {
             packages,
             permissions,
             sources,
-            store,
+            storage,
+            ..
         } = test_installs::domains_compiling(
             &folder.path().join("store"),
             &runs,
@@ -89,7 +90,7 @@ impl TestLibrary {
             ProgramEnvironments::new(
                 waos_local::LocalCapabilities::new(),
                 permissions.clone(),
-                store.clone(),
+                storage.clone(),
             ),
             ProgramPlaces::new(ProgramPlace::Windows),
         );

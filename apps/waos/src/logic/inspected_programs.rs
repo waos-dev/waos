@@ -20,6 +20,7 @@ use waos::inspection::InspectedPrograms;
 use waos::inspection::ProgramStorage;
 use waos::inspection::bindings::wasdk::inspect::devices::{Program, ProgramChange, StartError};
 use waos_package::ProgramId;
+use waos_services::app_storage::AppStorage;
 use waos_services::packages::{InstalledProgram, PackageManager};
 use waos_services::permissions::Permissions;
 use waos_services::store::Store;
@@ -33,6 +34,7 @@ const THIS_COMPUTER: &str = "This computer";
 /// The programs on this computer, as an inspector sees them.
 pub(crate) struct ProgramsOnThisComputer {
     store: Store,
+    storage: AppStorage,
     permissions: Permissions,
     packages: Arc<PackageManager>,
     runs: Arc<RunningApps>,
@@ -48,6 +50,7 @@ pub(crate) struct ProgramsOnThisComputer {
 impl ProgramsOnThisComputer {
     pub(crate) fn new(
         store: Store,
+        storage: AppStorage,
         permissions: Permissions,
         packages: Arc<PackageManager>,
         runs: Arc<RunningApps>,
@@ -55,6 +58,7 @@ impl ProgramsOnThisComputer {
         let installed = ids_of(&packages.installed());
         ProgramsOnThisComputer {
             store,
+            storage,
             permissions,
             packages,
             runs,
@@ -168,12 +172,12 @@ impl InspectedPrograms for ProgramsOnThisComputer {
         if let Some(program) = self.runs.running(&id) {
             return Some(program.storage());
         }
-        // A program that does not run is known by the folder the store keeps of it, installed
+        // A program that does not run is known by the folder app storage keeps of it, installed
         // or run in development before.
-        if !self.store.keeps_folders_of(&id) {
+        if !self.storage.keeps_folders_of(&id) {
             return None;
         }
-        let folders = self.store.folders(&id).ok();
+        let folders = self.storage.folders(&id).ok();
         Some(ProgramStorage::of(
             folders,
             None,
@@ -271,11 +275,13 @@ mod tests {
         let crate::logic::app_services::Domains {
             packages,
             permissions,
+            storage,
             store,
             ..
         } = test_installs::domains_never_run(&folder.path().join("store"));
         let programs = ProgramsOnThisComputer::new(
             store,
+            storage,
             permissions,
             Arc::clone(&packages),
             Arc::new(RunningApps::default()),
@@ -315,6 +321,7 @@ mod tests {
         let crate::logic::app_services::Domains {
             packages,
             permissions,
+            storage,
             store,
             ..
         } = test_installs::domains_never_run(&folder.path().join("store"));
@@ -329,11 +336,12 @@ mod tests {
         );
         test_installs::install_package(&packages, &package);
         let id: waos_package::ProgramId = "dev.example.notes".parse().unwrap();
-        let folders = store.folders(&id).unwrap();
+        let folders = storage.folders(&id).unwrap();
         std::fs::write(folders.data.join("a note.txt"), b"hi").unwrap();
 
         let programs = ProgramsOnThisComputer::new(
             store,
+            storage,
             permissions,
             packages,
             Arc::new(RunningApps::default()),

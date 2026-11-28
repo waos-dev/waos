@@ -498,7 +498,7 @@ pub(crate) mod tests {
         pub(crate) folder: PathBuf,
         pub(crate) socket: PathBuf,
         runs: Arc<RunningApps>,
-        pub(crate) store: waos_services::store::Store,
+        pub(crate) storage: waos_services::app_storage::AppStorage,
         pub(crate) permissions: waos_services::permissions::Permissions,
         /// What the server's programs' users are asked, which a test notes as the prompts do.
         pub(crate) asking: Arc<AskingNow>,
@@ -565,7 +565,7 @@ pub(crate) mod tests {
             let crate::logic::app_services::Domains {
                 packages,
                 permissions,
-                store,
+                storage,
                 ..
             } = test_installs::domains(&folder.join("store"), &runs, prompts);
             let asking = AskingNow::new(permissions.asking());
@@ -577,7 +577,7 @@ pub(crate) mod tests {
                 ProgramEnvironments::new(
                     waos_local::LocalCapabilities::new(),
                     permissions.clone(),
-                    store.clone(),
+                    storage.clone(),
                 ),
                 ProgramPlaces::new(ProgramPlace::Windows),
             );
@@ -593,7 +593,7 @@ pub(crate) mod tests {
                 folder,
                 socket,
                 runs,
-                store,
+                storage,
                 permissions,
                 asking,
                 services,
@@ -1178,7 +1178,7 @@ pub(crate) mod tests {
             .run(FOREVER, Path::new(waos_test_programs::FOREVER))
             .await;
         started(&mut first).await;
-        let data = server.store.folders(&id).unwrap().data;
+        let data = server.storage.folders(&id).unwrap().data;
         fs::write(data.join("kept.txt"), "kept").unwrap();
         let changed = fs::read(waos_test_programs::OPENER).unwrap();
         assert_eq!(

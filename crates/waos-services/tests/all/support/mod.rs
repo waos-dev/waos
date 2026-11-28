@@ -1,5 +1,5 @@
-//! What the sources' and the store's tests install and read from: signed packages written to a
-//! folder, their listings, and a local HTTP server; and the package manager over the store's
+//! What the sources' and app storage's tests install and read from: signed packages written to a
+//! folder, their listings, and a local HTTP server; and the package manager over a store
 //! directory, with instant stand-ins for its compiler and the running apps, installing as the app
 //! does.
 
@@ -15,14 +15,11 @@ use sha2::{Digest, Sha256};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use waos_package::{ListedProgram, Manifest, ProgramId, SigningKey};
-use waos_services::packages::NothingInstalled;
 use waos_services::packages::{
     Caller, CodeCompiler, InstallError, InstalledProgram, PackageChange, PackageContent,
     PackageManager, StopApp,
 };
-use waos_services::permissions::{NoPrompts, Permissions, SettingsFiles};
 use waos_services::sources::{Source, SourceProxy, Sources, SourcesInMemory};
-use waos_services::store::Store;
 
 /// A compiler that compiles nothing, and finds nothing to compile.
 struct NoCompiler;
@@ -46,7 +43,7 @@ impl StopApp for NothingRuns {
     }
 }
 
-/// The package manager over `store`'s directory, `directory`.
+/// The package manager over `directory`, a store directory.
 pub fn packages(directory: &Path) -> PackageManager {
     PackageManager::open(directory, Arc::new(NoCompiler), Arc::new(NothingRuns)).unwrap()
 }
@@ -85,20 +82,6 @@ pub async fn install_from(
         size: download.size,
     };
     packages.install(content, Caller::User).finished().await
-}
-
-/// Removes the app `id` with `packages`, and `store` forgets it, as the app's startup has the
-/// store follow the package manager's removals.
-pub async fn remove(store: &Store, packages: &PackageManager, id: &ProgramId) {
-    packages.remove(id).await.unwrap();
-    store.forget(id);
-}
-
-/// The store in `directory`, its apps' activity recorded as the settings files there say.
-pub fn open_store(directory: &Path) -> Store {
-    let settings = Arc::new(SettingsFiles::new(directory));
-    let permissions = Permissions::open(settings, Arc::new(NoPrompts), Arc::new(NothingInstalled));
-    Store::open(directory, permissions).unwrap()
 }
 
 /// The sources, kept in memory, read straight from each server, their pictures kept in `pictures`.

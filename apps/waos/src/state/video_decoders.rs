@@ -94,7 +94,7 @@ mod tests {
         let platform = TestPlatform::new().with_video_decoders(decoders);
         let system = TestSystem::new(platform);
         let id: ProgramId = VIDEO_DECODING.parse().unwrap();
-        let data = system.store.folders(&id).unwrap().data;
+        let data = system.storage.folders(&id).unwrap().data;
         std::fs::write(data.join("clip.h264"), CLIP).unwrap();
         std::fs::write(data.join("shown"), SHOWN).unwrap();
         let lines = Arc::new(Lines::default());

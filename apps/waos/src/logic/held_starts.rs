@@ -74,6 +74,7 @@ mod tests {
         let crate::logic::app_services::Domains {
             packages,
             permissions,
+            storage,
             store,
             ..
         } = test_installs::domains(
@@ -86,11 +87,16 @@ mod tests {
             Arc::clone(&packages),
             permissions.clone(),
             Arc::clone(&engine),
-            ProgramEnvironments::new(LocalCapabilities::new(), permissions.clone(), store.clone()),
+            ProgramEnvironments::new(
+                LocalCapabilities::new(),
+                permissions.clone(),
+                storage.clone(),
+            ),
             ProgramPlaces::new(ProgramPlace::Windows),
         );
         let programs = ProgramsOnThisComputer::new(
             store,
+            storage,
             permissions,
             Arc::clone(&packages),
             Arc::clone(&runs),

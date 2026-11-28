@@ -1,22 +1,21 @@
-//! The store: each app's own folders and its activity, kept in a directory the app gives it.
+//! The store: each app's activity, kept in a directory the app gives it.
 //!
-//! The invariant a later editor will break: every change to the apps' own folders and their
-//! activity happens under one lock, so two edits never interleave.
+//! The invariant a later editor will break: every change to the apps' activity happens under one
+//! lock, so two edits never interleave.
 
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
 
 use crate::permissions::Permissions;
-use waos_capabilities::ProgramFolders;
 use waos_package::ProgramId;
 
-use crate::store::{StoreError, programs};
+use crate::store::StoreError;
 
 /// The folder of installed programs, in the store's directory.
 const PROGRAMS: &str = "programs";
 
-/// Each app's own folders and activity. One store opens a
+/// Each app's activity. One store opens a
 /// directory; clones share it.
 #[derive(Clone)]
 pub struct Store {
@@ -55,14 +54,6 @@ impl Store {
         self.forget_days(id.as_str());
     }
 
-    /// The program `id`'s own folders, which it sees at `/data` and `/cache`, made at its first
-    /// run. Installed or run in development, the store keeps them in its folder until the app is
-    /// removed.
-    pub fn folders(&self, id: &ProgramId) -> Result<ProgramFolders, StoreError> {
-        let _changing = self.lock_changes();
-        programs::own_folders(&self.program_folder(id))
-    }
-
     pub(crate) fn downgrade(&self) -> WeakStore {
         WeakStore {
             directory: self.directory.clone(),
@@ -89,11 +80,6 @@ impl Store {
         self.directory.join(PROGRAMS)
     }
 
-    /// Whether the store keeps the app `id`'s own folders: it is installed, or ran.
-    pub fn keeps_folders_of(&self, id: &ProgramId) -> bool {
-        self.has_folder_of(id.as_str())
-    }
-
     /// What the user lets each app use, which says whether its activity is recorded.
     pub(crate) fn permissions(&self) -> &Permissions {
         &self.permissions
@@ -108,9 +94,5 @@ impl Store {
     /// development.
     pub(crate) fn has_folder_of(&self, program: &str) -> bool {
         self.programs_folder().join(program).is_dir()
-    }
-
-    fn program_folder(&self, id: &ProgramId) -> PathBuf {
-        self.programs_folder().join(id.as_str())
     }
 }

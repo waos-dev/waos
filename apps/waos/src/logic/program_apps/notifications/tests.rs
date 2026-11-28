@@ -60,7 +60,7 @@ fn notifications_through(
         .expect("notifications loads")
         .named(NOTIFICATIONS);
     store
-        .store
+        .storage
         .folders(&notifications_id())
         .expect("its folders, as at its first run");
     let granted = store

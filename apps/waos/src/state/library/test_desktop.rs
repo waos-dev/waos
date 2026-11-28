@@ -171,6 +171,7 @@ impl LibraryDesktop {
             packages,
             permissions,
             sources,
+            storage,
             store,
         } = crate::logic::test_installs::domains(
             &folder.path().join("store"),
@@ -197,7 +198,7 @@ impl LibraryDesktop {
                 waos_local::LocalCapabilities::new(),
                 Some(Arc::new(StatedOutputs)),
                 permissions.clone(),
-                store.clone(),
+                storage.clone(),
             ),
             ProgramPlaces::new(ProgramPlace::Windows),
         );

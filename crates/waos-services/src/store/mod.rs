@@ -1,4 +1,4 @@
-//! Each app's own folders, and what each app did, kept in a directory the app gives the [`Store`]. What is installed is the package
+//! What each app did, kept in a directory the app gives the [`Store`]. What is installed is the package
 //! manager's (`waos_services::packages`), and what the user lets each app use is Permissions'
 //! (`waos_services::permissions`), both in the same directory. An app bundling one program builds none of
 //! it.
@@ -29,7 +29,6 @@
 
 mod audit;
 mod error;
-mod programs;
 mod store;
 
 pub use error::StoreError;

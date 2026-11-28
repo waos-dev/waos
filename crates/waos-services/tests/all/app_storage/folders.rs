@@ -3,8 +3,9 @@
 
 use std::fs;
 
-use crate::support::{block_on, open_store, packages, remove, write_package};
+use crate::support::{block_on, packages, write_package};
 use waos_package::{ProgramId, SigningKey};
+use waos_services::app_storage::AppStorage;
 
 const TRIANGLE: &str = "dev.example.triangle";
 
@@ -16,8 +17,8 @@ fn triangle() -> ProgramId {
 fn a_programs_own_folders_are_made_at_its_first_run_and_kept_until_it_is_removed() {
     let scratch = tempfile::tempdir().unwrap();
     let directory = scratch.path().join("store");
-    let store = open_store(&directory);
-    let folders = store.folders(&triangle()).unwrap();
+    let storage = AppStorage::new(&directory);
+    let folders = storage.folders(&triangle()).unwrap();
     assert_eq!(
         folders.data,
         directory.join("programs").join(TRIANGLE).join("data")
@@ -28,7 +29,7 @@ fn a_programs_own_folders_are_made_at_its_first_run_and_kept_until_it_is_removed
     );
     fs::write(folders.data.join("notes.txt"), "kept").unwrap();
 
-    let reopened = open_store(&directory);
+    let reopened = AppStorage::new(&directory);
     let packages = packages(&directory);
     assert!(packages.installed().is_empty(), "run, not installed");
     assert_eq!(fs::read(folders.data.join("notes.txt")).unwrap(), b"kept");
@@ -42,6 +43,6 @@ fn a_programs_own_folders_are_made_at_its_first_run_and_kept_until_it_is_removed
         "the installed program is the one its development runs were"
     );
 
-    block_on(remove(&reopened, &packages, &triangle()));
+    block_on(packages.remove(&triangle())).unwrap();
     assert!(!folders.data.exists() && !folders.cache.exists());
 }

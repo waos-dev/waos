@@ -255,7 +255,8 @@ impl TestPhone {
             packages,
             permissions,
             sources,
-            store,
+            storage,
+            ..
         } = crate::logic::test_installs::domains(
             &folder.path().join("store"),
             &runs,
@@ -288,7 +289,7 @@ impl TestPhone {
             ProgramEnvironments::new(
                 waos_local::LocalCapabilities::new(),
                 permissions.clone(),
-                store.clone(),
+                storage.clone(),
             ),
             places,
         );

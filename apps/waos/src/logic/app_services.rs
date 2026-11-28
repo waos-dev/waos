@@ -17,6 +17,7 @@ use std::sync::Arc;
 
 use anyhow::{Context as _, Result};
 use waos::{Compiler, WaOS};
+use waos_services::app_storage::AppStorage;
 use waos_services::packages::{CodeCompiler, InstalledApps, PackageManager, StopApp};
 use waos_services::permissions::{Permissions, Prompts, SettingsFiles};
 use waos_services::sources::{SourceProxy, Sources, SourcesFile};
@@ -79,18 +80,20 @@ impl AppServices {
 }
 
 /// What WaOS keeps of its apps, each with the domain that owns it: what is installed, what the
-/// user lets each app use, the sources, and the store with each app's own folders and activity.
+/// user lets each app use, the sources, each app's own folders, and the store with each app's
+/// activity.
 pub(crate) struct Domains {
     pub(crate) packages: Arc<PackageManager>,
     pub(crate) permissions: Permissions,
     pub(crate) sources: Sources,
+    pub(crate) storage: AppStorage,
     pub(crate) store: Store,
 }
 
 /// The domains over `folder`, the store's directory, opened in the order each needs the other:
 /// the package manager, compiling with `compiler` and stopping apps among `running`; Permissions,
 /// asking the user through `prompts` and following the package manager's record; the sources,
-/// read through `proxy`; and the store, recording as Permissions say, and forgetting each app's
+/// read through `proxy`; app storage; and the store, recording as Permissions say, and forgetting each app's
 /// activity as the package manager removes it, on a thread of its own.
 pub(crate) fn open_domains(
     folder: &Path,
@@ -130,6 +133,7 @@ pub(crate) fn open_domains(
         packages,
         permissions,
         sources,
+        storage: AppStorage::new(folder),
         store,
     })
 }
