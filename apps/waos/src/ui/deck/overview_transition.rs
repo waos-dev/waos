@@ -67,6 +67,13 @@ use crate::logic::tab_list::TabId;
 /// How far a page let go must be headed to fly, by where its release would carry it
 /// (`projection`), for the overview to open.
 const OPEN_THRESHOLD: f64 = 0.35;
+/// Whether a page let go opens the overview: `flown` is how much of a whole flight it has
+/// flown, and `flight_velocity` how fast it flies as the finger lifts, in flights a second,
+/// upward as positive.
+fn opens_overview(flown: f64, flight_velocity: f64) -> bool {
+    projected(flown, flight_velocity) >= OPEN_THRESHOLD
+}
+
 /// How far the current tab's page has flown before the overview's cards and its toolbar take
 /// touches. Before that a touch on the overview catches the flight instead.
 const OVERVIEW_TOUCHABLE: f64 = 0.9;
@@ -276,7 +283,7 @@ impl DeckViewState {
         }
         let whole_flight = self.layout(app).full_flight_travel();
         let flight_velocity = -finger_velocity / whole_flight;
-        let open = projected(held.travel / whole_flight, flight_velocity) >= OPEN_THRESHOLD;
+        let open = opens_overview(held.travel / whole_flight, flight_velocity);
         self.change_tabs(app, StripFollows::Unseen, move |tabs, cx| {
             tabs.set_overview_open(open, cx);
         });
@@ -528,5 +535,26 @@ impl DeckViewState {
                 (*tab, layout.place_tab(index, card, &deck).clip.top_left())
             })
             .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_page_let_go_at_rest_opens_the_overview_once_it_has_flown_far_enough() {
+        assert!(opens_overview(0.5, 0.0));
+        assert!(!opens_overview(0.2, 0.0));
+    }
+
+    #[test]
+    fn a_flick_up_opens_the_overview_however_little_the_page_has_flown() {
+        assert!(opens_overview(0.02, 2.0));
+    }
+
+    #[test]
+    fn a_page_let_go_moving_down_closes_the_overview_it_was_dragged_into() {
+        assert!(!opens_overview(0.8, -2.0));
     }
 }

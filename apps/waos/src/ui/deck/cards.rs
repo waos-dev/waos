@@ -37,6 +37,12 @@ use crate::logic::tab_list::TabId;
 /// How far left, as a fraction of its width, a card let go must be headed, by where its release
 /// would carry it, to close its tab.
 const THROW_DISTANCE: f64 = 0.45;
+/// Whether a card `card_width` wide, `throw` points to the side and let go at `finger_velocity`,
+/// is headed far enough to the left to close its tab.
+fn thrown_far_enough(throw: f64, finger_velocity: f64, card_width: f64) -> bool {
+    projected(throw, finger_velocity) <= -card_width * THROW_DISTANCE
+}
+
 /// The speed the close button sends a card off at.
 const CLOSE_BUTTON_VELOCITY: f64 = -1400.0;
 /// How far past the view's edge a card flies before it is gone.
@@ -178,8 +184,8 @@ impl DeckViewState {
             return false;
         };
         let card_width = self.layout(app).card_size().width();
-        let headed_to = projected(card.throw.value(app), finger_velocity);
-        headed_to <= -card_width * THROW_DISTANCE && self.may_close(app, tab)
+        thrown_far_enough(card.throw.value(app), finger_velocity, card_width)
+            && self.may_close(app, tab)
     }
 
     /// Whether `tab` may close: any but the home alone.
@@ -364,5 +370,29 @@ impl DeckViewState {
         change: impl FnOnce(&mut CardMotions) -> R,
     ) -> Option<R> {
         app.get_mut(self).cards.get_mut(&tab).map(change)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A card's width in these tests.
+    const WIDTH: f64 = 200.0;
+
+    #[test]
+    fn a_card_let_go_at_rest_is_thrown_once_it_is_far_enough_to_the_left() {
+        assert!(thrown_far_enough(-100.0, 0.0, WIDTH));
+        assert!(!thrown_far_enough(-30.0, 0.0, WIDTH));
+    }
+
+    #[test]
+    fn a_flick_to_the_left_throws_a_card_however_little_it_was_dragged() {
+        assert!(thrown_far_enough(-5.0, -1000.0, WIDTH));
+    }
+
+    #[test]
+    fn a_card_let_go_moving_back_stays() {
+        assert!(!thrown_far_enough(-150.0, 1000.0, WIDTH));
     }
 }
