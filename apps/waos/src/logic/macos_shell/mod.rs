@@ -22,7 +22,7 @@
 //! when WaOS asks, as WaOS comes to the front.
 //!
 //! A window process the user opens alone, from the Dock or the Finder, finds WaOS, or starts it,
-//! and says hello; WaOS opens its app as the user's open (`system_shell::UserOpen`), and so it
+//! and says hello; WaOS asks app management to open its app (`logic::app_management`), and so it
 //! does for one macOS launched for a click on one of the app's notifications, which the hello
 //! carries and the app's instance then hears. Every hello is checked: the process that sent it must be the
 //! app's bundle as WaOS signed it, by the code hash WaOS kept, which the record's HMAC must vouch
@@ -52,20 +52,14 @@ mod window_processes;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
-use futures::channel::mpsc::UnboundedSender;
-use tokio::sync::watch;
 use waos::bindings::wasdk::platform::views::ViewError;
 use waos::{AppInstance, ViewPlacement, ViewRequest};
 use waos_services::packages::PackageManager;
 use waos_window_messages::bootstrap_name;
 
-use crate::logic::app_instances::RunningInstances;
+use crate::logic::app_management::AppManagement;
 use crate::os::check_layer_contexts;
-use crate::system_shell::UserOpen;
 
-pub(crate) use crate::logic::notification_permissions::{
-    NotificationPermissionReading, NotificationPermissions,
-};
 pub(crate) use app_bundles::{AppBundles, AppsFolders};
 pub(crate) use canvas_pictures::{CanvasPictures, ToShow};
 pub(crate) use canvases::{CanvasCall, CanvasKey, CanvasPlace, CanvasesOnRequest};
@@ -83,16 +77,15 @@ pub(crate) use {
 const THREADS: usize = 2;
 
 /// The apps' window processes, their bundles in `folders`, following what `packages` installs,
-/// each lasting while its app's instance in `running` runs, what each reports going by `routes`,
-/// listening for them from now on, the apps the user opens going to `user_opens`; why there can be
-/// none, as when WaOS's window library or loader is not there or the system cannot show what a
-/// window draws.
+/// each lasting while its app's instance runs, as `app_management` tells, what each reports going
+/// by `routes`, listening for them from now on, the apps the user opens through them opened by
+/// `app_management`; why there can be none, as when WaOS's window library or loader is not there
+/// or the system cannot show what a window draws.
 pub(crate) fn start(
     folders: AppsFolders,
     packages: Arc<PackageManager>,
-    running: watch::Receiver<RunningInstances>,
+    app_management: Arc<dyn AppManagement>,
     routes: Routes,
-    user_opens: UnboundedSender<UserOpen>,
 ) -> Result<Arc<WindowProcesses>> {
     check_layer_contexts().map_err(|lacking| {
         anyhow::anyhow!("a program's window cannot show what it draws: {lacking}")
@@ -110,7 +103,7 @@ pub(crate) fn start(
         runtime.handle().clone(),
     )?);
     bundles.follow_installed();
-    WindowProcesses::start(runtime, bundles, running, routes, &name, user_opens)
+    WindowProcesses::start(runtime, bundles, app_management, routes, &name)
 }
 
 /// The engine's placement on macOS where there can be no window processes: every window an app

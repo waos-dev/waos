@@ -5,8 +5,10 @@
 //! found to be its app's and, where it was opened by the user, the instance it serves is known, or
 //! `Refused` with why; and each connection's messages carried out on a thread of its own until the
 //! window process is gone. A hello the user's open sent, from the Dock or a notification's click,
-//! goes up as that open, with the files or the click it carried, and waits for the instance the
-//! open answers; the hellos after it wait behind it: one is taken at a time.
+//! asks app management to open the app, and waits for the instance it answers, which is handed
+//! the files or the click the hello carried; the hellos after it wait behind it: one is taken at a
+//! time. The Dock or the click brought the window process forward already, as macOS does for an
+//! app the user opens.
 //!
 //! The invariants: a hello's sender is known by the audit token the kernel wrote on its message,
 //! never by what the hello says, and nothing is welcomed, nor opened for the user, before its code
@@ -18,8 +20,6 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::{self, JoinHandle};
 
-use futures::channel::mpsc::UnboundedSender;
-use futures::channel::oneshot;
 use waos::bindings::wasdk::platform::notifications::Activation;
 use waos::{AppInstance, OpenRequest};
 use waos_package::ProgramId;
@@ -30,7 +30,10 @@ use waos_window_messages::{
 
 use super::window_process::{SendToWindow, WindowProcess};
 use super::window_processes::{Bundles, ProcessTable};
-use crate::system_shell::UserOpen;
+use crate::logic::app_instances::{OpenConfiguration, OpenPlace, OpenedFor};
+use crate::logic::app_management::AppManagement;
+use crate::logic::opening::hand_over;
+use crate::logic::program_places::ProgramPlace;
 
 /// The thread that takes the window processes' hellos, until it is stopped.
 pub(super) struct Listener {
@@ -43,13 +46,13 @@ pub(super) struct Listener {
 
 impl Listener {
     /// Checks `name` in, and takes every hello that arrives on it on a thread of its own, until
-    /// stopped: each checked by `bundles`, a hello the user's open sent going to `user_opens`,
-    /// and each window process welcomed served into `table`.
+    /// stopped: each checked by `bundles`, the app a hello the user's open sent opened by
+    /// `app_management`, and each window process welcomed served into `table`.
     pub(super) fn listen(
         name: &str,
         table: Arc<ProcessTable>,
         bundles: Arc<dyn Bundles>,
-        user_opens: UnboundedSender<UserOpen>,
+        app_management: Arc<dyn AppManagement>,
     ) -> io::Result<Listener> {
         let port = ReceiveRight::check_in(name)?;
         let wake = port.make_send()?;
@@ -57,7 +60,7 @@ impl Listener {
         let hellos = Hellos {
             table,
             bundles,
-            user_opens,
+            app_management,
         };
         let stopped = Arc::clone(&stopping);
         let thread = thread::Builder::new()
@@ -94,7 +97,7 @@ impl Listener {
 struct Hellos {
     table: Arc<ProcessTable>,
     bundles: Arc<dyn Bundles>,
-    user_opens: UnboundedSender<UserOpen>,
+    app_management: Arc<dyn AppManagement>,
 }
 
 impl Hellos {
@@ -174,30 +177,37 @@ impl Hellos {
             LaunchReason::UserOpened => None,
             LaunchReason::NotificationActivated(click) => Some(click),
         };
-        self.opened_by_the_user(app, files, notification_click)
+        self.open_for_the_user(app, files, notification_click)
             .map(Some)
     }
 
-    /// The instance the user's open of `app` answers, once it does, the open handing it `files`
-    /// or `notification_click`; the hellos after this one wait.
-    fn opened_by_the_user(
+    /// The instance app management answers for the user's open of `app`, in a window, as the
+    /// library opens one, the one running left as it is, once it does, handed `files` or
+    /// `notification_click`; the hellos after this one wait. An open that hands something over
+    /// runs a tool too, as files handed to it do.
+    fn open_for_the_user(
         &self,
         app: &ProgramId,
         files: OpenRequest,
         notification_click: Option<Activation>,
     ) -> Result<AppInstance, String> {
-        let (opened, answered) = oneshot::channel();
-        let open = UserOpen {
-            app: app.clone(),
-            files,
-            notification_click,
-            opened,
+        let hands_over =
+            !(files.files.is_empty() && files.links.is_empty()) || notification_click.is_some();
+        let opened_for = if hands_over {
+            OpenedFor::HandOver
+        } else {
+            OpenedFor::User
         };
-        if self.user_opens.unbounded_send(open).is_err() {
-            return Err("WaOS opens no apps now".to_owned());
-        }
-        futures::executor::block_on(answered)
-            .unwrap_or_else(|_| Err("WaOS did not open it".to_owned()))
+        let configuration = OpenConfiguration {
+            place: OpenPlace::Named(ProgramPlace::Windows),
+            ..OpenConfiguration::new(opened_for)
+        };
+        let opening = Arc::clone(&self.app_management).open(app.clone(), configuration);
+        let instance = futures::executor::block_on(opening)
+            .map(|opened| opened.instance().clone())
+            .map_err(|error| format!("{error:#}"))?;
+        hand_over(&instance, files, notification_click);
+        Ok(instance)
     }
 
     /// Welcomes the window process of the app `id`, `app`, with a port of the connection's, serves

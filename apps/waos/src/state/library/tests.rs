@@ -23,7 +23,7 @@ use waos_services::packages::AppInMemory;
 use super::test_server::Server;
 use super::*;
 use crate::logic::app_instances::AppInstances;
-use crate::logic::opened_package::tests::write_package;
+use crate::logic::opened_package::tests::{write_package, write_package_of};
 use crate::logic::package_copies::PackageCopies;
 use crate::logic::program_shortcuts::{
     KeptShortcut, ProgramShortcut, ShortcutOpens, SystemShortcuts,
@@ -115,6 +115,16 @@ impl TestLibrary {
         let packages = self.folder.path().join("packages");
         std::fs::create_dir_all(&packages).unwrap();
         write_package(&packages, id, "Triangle", version, component, &self.key)
+    }
+
+    /// `component` packaged as the tool `id`, at `version`.
+    fn tool_package(&self, id: &str, version: &str, component: &[u8]) -> PathBuf {
+        let packages = self.folder.path().join("packages");
+        std::fs::create_dir_all(&packages).unwrap();
+        let manifest = Manifest::new(id.parse().unwrap(), "Grep", version.parse().unwrap())
+            .unwrap()
+            .with_kind(ProgramKind::Tool);
+        write_package_of(&packages, &manifest, component, &self.key)
     }
 
     fn update(&self, f: impl FnOnce(&mut Library, &mut Context<Library>)) {

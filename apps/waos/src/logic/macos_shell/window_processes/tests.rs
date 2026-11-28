@@ -12,6 +12,8 @@ use waos_window_messages::{
 };
 
 use super::*;
+use crate::logic::app_instances::Opened;
+use crate::logic::app_management::{self, AppManagementCall};
 use crate::logic::macos_shell::CanvasCall;
 use crate::logic::macos_shell::window_process::tests::{Served, window_process, window_process_of};
 use crate::logic::test_engine;
@@ -42,13 +44,14 @@ struct AskedLaunch {
 }
 
 /// Window processes over stand-in bundles, listening under a name of the test's own, the
-/// instances running as a test tells them, the apps the user opens through them, and where what
-/// their prompts' dialogs report goes, as the main thread takes it and as a test reports it.
+/// instances running as a test tells them, what they ask of app management, which a test answers,
+/// and where what their prompts' dialogs report goes, as the main thread takes it and as a test
+/// reports it.
 pub(crate) struct Listening {
     pub(crate) window_processes: Arc<WindowProcesses>,
     pub(crate) name: String,
     pub(crate) running: watch::Sender<RunningInstances>,
-    pub(crate) user_opens: UnboundedReceiver<UserOpen>,
+    pub(crate) app_management_calls: UnboundedReceiver<AppManagementCall>,
     pub(crate) dialog_reports: UnboundedReceiver<DialogReport>,
     pub(crate) report: DialogReports,
 }
@@ -82,17 +85,16 @@ impl Launches {
             notification_permissions,
             window_presences,
         };
-        let (opens, user_opens) = mpsc::unbounded();
         let bundles = Arc::clone(&self.0) as Arc<dyn Bundles>;
-        let (running, read_running) = watch::channel(RunningInstances::new());
+        let (app_management, calls) = app_management::mailbox();
         let window_processes =
-            WindowProcesses::start(runtime, bundles, read_running, routes, &name, opens)
+            WindowProcesses::start(runtime, bundles, app_management, routes, &name)
                 .expect("the window processes listen");
         Listening {
             window_processes,
             name,
-            running,
-            user_opens,
+            running: calls.running,
+            app_management_calls: calls.calls,
             dialog_reports,
             report,
         }
@@ -323,13 +325,13 @@ async fn the_window_processes_listen_as_long_as_the_shell_that_holds_them() {
 }
 
 #[tokio::test]
-async fn a_hello_the_user_opened_waits_until_the_users_opens_are_read_and_is_served_as_the_run_opened()
+async fn a_hello_the_user_opened_waits_until_app_management_opens_the_app_and_is_served_as_the_run_opened()
  {
     let launches = Launches::default();
     let Listening {
         window_processes,
         name,
-        mut user_opens,
+        mut app_management_calls,
         ..
     } = launches.listening();
     let program = survey_through(&window_processes);
@@ -348,12 +350,15 @@ async fn a_hello_the_user_opened_waits_until_the_users_opens_are_read_and_is_ser
         )
         .unwrap();
 
-    let open = tokio::time::timeout(WITHIN, user_opens.next())
+    let call = tokio::time::timeout(WITHIN, app_management_calls.next())
         .await
-        .expect("the user's open is heard")
-        .expect("one open");
-    assert_eq!(open.app, survey_id(), "the app the user opened");
-    let _ = open.opened.send(Ok(program.clone()));
+        .expect("app management is asked to open the app")
+        .expect("one call");
+    let AppManagementCall::Open { app, answer, .. } = call else {
+        panic!("an open");
+    };
+    assert_eq!(app, survey_id(), "the app the user opened");
+    let _ = answer.send(Ok(Opened::RunningAlready(program.clone())));
     let welcomed = tokio::task::spawn_blocking(move || window_process.receive(PROTOCOL));
     let welcomed = tokio::time::timeout(WITHIN, welcomed)
         .await

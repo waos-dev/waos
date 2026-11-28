@@ -11,7 +11,7 @@
 //! runs with (`environments`): this computer's capabilities and the grants of the store's settings;
 //! the library's side of the store: a package opened with WaOS, what a source's listing offers
 //! against what is installed, what runs, at most one instance of each app, and every way of
-//! opening one (`app_instances`), and WaOS's one startup, which puts the domains together over where
+//! opening one (`app_instances`), which a shell reaches as app management (`app_management`), and WaOS's one startup, which puts the domains together over where
 //! each keeps what it owns (`stores`) for the desktop app, the headless entry and the tests
 //! (`startup`), each installed program's shortcut on Android's home screen and WaOS's
 //! icon's menu, made to match what is installed (`program_shortcuts`), and a settings
@@ -42,6 +42,7 @@
 
 pub(crate) mod activity;
 pub(crate) mod app_instances;
+pub(crate) mod app_management;
 pub(crate) mod app_store;
 pub(crate) mod asking_now;
 pub(crate) mod camera_values;

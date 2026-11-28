@@ -3,8 +3,8 @@
 //! desktop, and on a phone each program in a tab of the deck, which refuses every request, Waft's
 //! clipboard as the programs' one, Waft's menus as theirs, a program's menu bar, context menus,
 //! file dialogs and notifications its app's on macOS, WaOS's own menu bar, Waft's opener,
-//! notifications elsewhere, players, reading of media and cameras as theirs, what each system
-//! does differently from its shell (`system_shell`), the dev server listening for `waos`, the library over the
+//! notifications elsewhere, players, reading of media and cameras as theirs, each system's shell,
+//! built by its own module (`shells`), the dev server listening for `waos`, the library over the
 //! store in the desktop's launcher or in a window of a phone's size, the questions
 //! programs put to their user, the picker of their sound's output among them, shown on macOS in
 //! dialogs of the programs' apps (`prompt_dialogs`), the programs recording, and the quit that
@@ -63,6 +63,7 @@ pub(crate) mod questions;
 #[cfg(desktop)]
 pub(crate) mod quitting;
 pub(crate) mod recordings;
+pub(crate) mod shells;
 #[cfg(test)]
 pub(crate) mod test_system;
 #[cfg(test)]
@@ -94,12 +95,13 @@ use waos::{
 };
 use waos_local::LocalCapabilities;
 use waos_package::ProgramId;
-use waos_program_window::WaftCompositor;
+use waos_program_window::{PromptWindows, WaftCompositor};
 use waos_services::packages::PackageManager;
 use waos_services::permissions::Prompts;
 use waos_services::sources::SourceProxy;
 
 use crate::logic::app_instances::AppInstances;
+use crate::logic::app_management::AppManagement;
 use crate::logic::asking_now::AskingNow;
 use crate::logic::command_line::LibraryPlace;
 #[cfg(desktop)]
@@ -110,13 +112,16 @@ use crate::logic::folders::AppFolders;
 use crate::logic::frame_readers::ReadersOnRequest;
 use crate::logic::machine_facts::platform_state;
 use crate::logic::noted_file_dialogs::NotedFileDialogs;
-use crate::logic::opening;
+use crate::logic::notification_permissions::{
+    NotificationPermissionReading, NotificationPermissions,
+};
 use crate::logic::package_copies::PackageCopies;
 use crate::logic::phone_files::{PhoneFilesAccess, ThisComputerHome};
-use crate::logic::placement::{ProgramWindowRequest, WindowsOnRequest};
+use crate::logic::placement::WindowsOnRequest;
 use crate::logic::preferences::PreferencesFile;
 use crate::logic::program_faces::ProgramFaces;
 use crate::logic::program_places::{PlacedWhereOpened, ProgramPlace, TabRequest, TabsOnRequest};
+use crate::logic::program_shortcuts::SystemShortcuts;
 use crate::logic::prompts::{
     MachinePickerOnRequest, OutputPickerOnRequest, PromptRequests, PromptsOnRequest,
 };
@@ -124,9 +129,6 @@ use crate::logic::recording_indicator::RecordingIndicatorOnRequest;
 use crate::logic::startup::{self, BeforeTheEngine, EngineCompiler, Outside, Setup};
 use crate::logic::stores::Stores;
 use crate::logic::vsync_waiter::WaftVsync;
-use crate::system_shell::{
-    APPS_OPEN_AS_CHOSEN, AfterTheEngine, SharedParts, SystemShell, ThisSystemShell,
-};
 use crate::ui::deck::Deck;
 use crate::ui::every_window::{LibraryWindow, every_window, program_windows};
 #[cfg(desktop)]
@@ -143,9 +145,10 @@ use launcher::Launcher;
 #[cfg(desktop)]
 use library::offer_developer_access;
 use library::{
-    FirstWindowWanted, Library, LibraryDomains, ProgramOpened, ProgramsOpen, open_library,
-    open_settings_when_asked, request_to_open_with_waos, show_phone_files,
-    take_files_opened_with_waos, take_notification_clicks,
+    FirstWindowWanted, Library, LibraryDomains, ProgramOpened, ProgramsOpen,
+    follow_notification_permissions, keep_system_shortcuts, open_library, open_settings_when_asked,
+    request_to_open_with_waos, show_phone_files, take_files_opened_with_waos,
+    take_notification_clicks,
 };
 use media_assets::MediaAssets;
 use media_players::MediaPlayers;
@@ -156,6 +159,7 @@ use phone_files::{PhoneFiles, follow_phone_files, phone_files_on_request};
 use phone_window::in_phone_window;
 use questions::Questions;
 use recordings::Recordings;
+use shells::{AppPrompts, SharedParts, this_system};
 use video_decoders::VideoDecoders;
 #[cfg(desktop)]
 use waos_tray::WaosTray;
@@ -269,9 +273,11 @@ pub(crate) fn start(
         ..
     } = started;
     let MadeWithTheShell {
-        requests,
-        faces,
-        mut system_shell,
+        view_windows,
+        prompt_windows,
+        prompts,
+        shortcuts,
+        notification_permissions,
         tab_requests,
         #[cfg(desktop)]
         asking,
@@ -301,7 +307,6 @@ pub(crate) fn start(
     if let Some(clipboard) = clipboard {
         clipboard.serve(app, Arc::clone(&engine));
     }
-    let view_windows = ViewWindows::listen(app, requests);
     let posted_as_programs =
         notifications.map(|notifications| notifications.serve(app, Arc::clone(&packages)));
     // What a tab closed on a phone stops its app's instance among.
@@ -318,18 +323,16 @@ pub(crate) fn start(
     };
     #[cfg(desktop)]
     listen_for_the_command(app, served, asking, developer_access.clone())?;
-    let prompt_windows = questions::prompt_windows(app, view_windows.clone(), faces);
     let recordings = Recordings::listen(app, recording_changes, Arc::clone(&packages));
     let domains = LibraryDomains {
         sources,
         packages: Arc::clone(&packages),
-        instances: Arc::clone(&instances),
+        app_management: Arc::clone(&instances) as Arc<dyn AppManagement>,
         permissions,
         environments,
         places,
         engine,
     };
-    let opens_runtime = work.handle().clone();
     let library = open_library(
         app,
         domains,
@@ -341,11 +344,8 @@ pub(crate) fn start(
     #[cfg(desktop)]
     offer_developer_access(app, &library, developer_access);
     bring_opened_programs_forward(app, &library, &view_windows);
-    // The apps the user opens through the system open as the library opens them, on its runtime.
-    opens_runtime.spawn(opening::open_each(
-        Arc::clone(&instances),
-        system_shell.opened_by_the_user(),
-    ));
+    let (permissions_said, permission_readings) = notification_permissions;
+    follow_notification_permissions(app, &library, permissions_said, permission_readings);
     match opened {
         Some(OpenedAtStart::WithProgram { id, request }) => {
             library.update(app, |library, cx| library.open_with(&id, request, cx));
@@ -382,13 +382,9 @@ pub(crate) fn start(
     take_files_opened_with_waos(app, &library, later_launches);
     take_notification_clicks(app, &library, posted_as_programs);
     // Once the library opens apps in the deck's tabs, where a shortcut's tap may open one.
-    let after = AfterTheEngine {
-        library: &library,
-        instances: &instances,
-        packages: &packages,
-        prompt_windows: Rc::clone(&prompt_windows),
-    };
-    let prompts = system_shell.follow(app, after);
+    if let Some(shortcuts) = shortcuts {
+        keep_system_shortcuts(app, &library, shortcuts);
+    }
     Questions::listen(app, prompted.questions, prompts.placement, packages);
     let program_windows = program_windows(&view_windows, &prompt_windows);
     let prompt_windows_for_dialogs = Rc::clone(&prompt_windows);
@@ -505,14 +501,20 @@ impl WaftParts {
     }
 }
 
-/// What the desktop app made with the engine's shell and keeps: where the programs' windows are
-/// asked for and how they are shown, their apps, the tabs asked for, what their users are asked
-/// now and the questions, and the phone's files, where WaOS reaches them only as the user allows.
+/// What the desktop app made with the engine's shell and keeps: the apps' windows in WaOS's own
+/// process and their prompts there, where the system's shell shows the prompts, the system's
+/// shortcuts of the installed apps, what the system says of each app's notifications, the tabs
+/// asked for, what their users are asked now and the questions, and the phone's files, where WaOS
+/// reaches them only as the user allows.
 struct MadeWithTheShell {
-    requests: UnboundedReceiver<ProgramWindowRequest>,
-    faces: ProgramFaces,
-    /// WaOS on this system, which follows the parts made after the engine.
-    system_shell: ThisSystemShell,
+    view_windows: Entity<ViewWindows>,
+    prompt_windows: Rc<PromptWindows>,
+    prompts: AppPrompts,
+    shortcuts: Option<Rc<dyn SystemShortcuts>>,
+    notification_permissions: (
+        NotificationPermissions,
+        UnboundedReceiver<NotificationPermissionReading>,
+    ),
     tab_requests: UnboundedReceiver<TabRequest>,
     /// What the programs' users are asked now, which the dev server tells; a phone has none.
     #[cfg_attr(mobile, expect(dead_code, reason = "the dev server's alone"))]
@@ -523,7 +525,8 @@ struct MadeWithTheShell {
 }
 
 /// The engine's shell in the WaOS app, made from the domains `before` the engine: the parts every
-/// system takes from Waft (`shared_parts`), which this system's shell fills in where it differs.
+/// system takes from Waft (`shared_shell`), which this system's shell fills in where it differs,
+/// with the apps' windows in WaOS's own process and their prompts there.
 fn outside(
     app: &mut App,
     folders: &AppFolders,
@@ -537,6 +540,8 @@ fn outside(
     let facts = platform_state(app.platform().as_ref());
     let faces = program_faces(before.packages, folders);
     let (own_windows, requests) = WindowsOnRequest::new(faces.clone());
+    let view_windows = ViewWindows::listen(app, requests);
+    let prompt_windows = questions::prompt_windows(app, view_windows.clone(), faces);
     let (tabs, tab_requests) = TabsOnRequest::new();
     let views = Arc::new(PlacedWhereOpened {
         places: before.places.clone(),
@@ -557,13 +562,20 @@ fn outside(
     let mut shell = shared_shell(app, waft, views, indicator, pickers, &asking)?;
     shell.system_permissions = phone_files_on_request
         .map(|phone_files| Arc::new(phone_files) as Arc<dyn ShellSystemPermissions>);
-    shell.simulated_cameras = ThisSystemShell::simulated_cameras(shell.image_codecs.clone());
+    shell.simulated_cameras = this_system::simulated_cameras(shell.image_codecs.clone());
+    let (notification_permissions, permission_readings) = NotificationPermissions::new();
     let shared = SharedParts {
         shell,
+        places: before.places.clone(),
         tabs,
         asking: Arc::clone(&asking),
+        folders,
+        packages: Arc::clone(before.packages),
+        app_management: Arc::clone(before.app_management),
+        prompt_windows: Rc::clone(&prompt_windows),
+        notification_permissions: notification_permissions.clone(),
     };
-    let system_shell = ThisSystemShell::new(app, folders, &before, shared);
+    let built = this_system::shell(app, shared);
     let phone_storage = phone_files_followed
         .as_ref()
         .map(|followed| followed.storage.root().to_owned());
@@ -574,17 +586,23 @@ fn outside(
         .as_ref()
         .map(|phone_files| phone_files.read(app).home());
     let made = MadeWithTheShell {
-        requests,
-        faces,
+        view_windows,
+        prompt_windows,
+        prompts: built.prompts,
+        shortcuts: built.shortcuts,
+        notification_permissions: (notification_permissions, permission_readings),
         tab_requests,
         asking,
         prompted,
         phone_files,
         phone_storage,
-        system_shell,
     };
-    let shell = made.system_shell.shell();
-    Ok(Outside::new(shell, facts, local_capabilities(home), made))
+    Ok(Outside::new(
+        built.shell,
+        facts,
+        local_capabilities(home),
+        made,
+    ))
 }
 
 /// The pickers the apps' users pick a sound's output and a machine with, on sheets put as the
@@ -675,7 +693,7 @@ fn listen_for_the_command(
 /// a desktop's or on Android a task each, but in the deck's tabs in a phone's place on a desktop,
 /// where nothing else shows a program.
 fn usual_place(place: LibraryPlace) -> ProgramPlace {
-    if place == LibraryPlace::Phone && !APPS_OPEN_AS_CHOSEN {
+    if place == LibraryPlace::Phone && !this_system::APPS_OPEN_AS_CHOSEN {
         ProgramPlace::Tab
     } else {
         ProgramPlace::Windows
@@ -685,7 +703,7 @@ fn usual_place(place: LibraryPlace) -> ProgramPlace {
 /// Where the programs the library opens open in WaOS shown in `place`: in windows on a desktop, in
 /// the deck's tabs in a phone's place there, and on Android where the user chose.
 fn programs_open(place: LibraryPlace) -> ProgramsOpen {
-    if APPS_OPEN_AS_CHOSEN {
+    if this_system::APPS_OPEN_AS_CHOSEN {
         return ProgramsOpen::AsChosen;
     }
     match place {
@@ -698,7 +716,7 @@ fn programs_open(place: LibraryPlace) -> ProgramsOpen {
 /// choice of its own: on Android, where programs open, and in a desktop's launcher, whether WaOS
 /// is kept in the Dock or the taskbar; none in a phone's window on a desktop.
 fn own_preferences(place: LibraryPlace, folders: &AppFolders) -> Option<PreferencesFile> {
-    let offers_a_choice = APPS_OPEN_AS_CHOSEN || place != LibraryPlace::Phone;
+    let offers_a_choice = this_system::APPS_OPEN_AS_CHOSEN || place != LibraryPlace::Phone;
     offers_a_choice.then(|| PreferencesFile::at(folders.preferences.clone()))
 }
 
@@ -823,7 +841,7 @@ fn phone_deck(
 /// The faces of the programs in `packages`, with the identities of the installed ones where a window
 /// is an app of its own, their icons for the system among `folders`.
 fn program_faces(packages: &Arc<PackageManager>, folders: &AppFolders) -> ProgramFaces {
-    ProgramFaces::new(Arc::clone(packages), ThisSystemShell::identities(folders))
+    ProgramFaces::new(Arc::clone(packages), this_system::app_identities(folders))
 }
 
 /// Whether WaOS was started with `WAOS_NATIVE_UNWIND_INFO=1` in its environment, asking for

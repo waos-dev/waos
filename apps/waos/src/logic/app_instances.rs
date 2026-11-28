@@ -67,6 +67,7 @@ use waos_services::permissions::Permissions;
 pub(crate) use driven::DrivenProgram;
 pub(crate) use opens::OpenStage;
 
+use super::app_management::{AppManagementCall, AppManagementCalls, Opening};
 use super::environments::ProgramEnvironments;
 use super::held_starts::HeldStarts;
 use super::inspected_programs::ProgramsOnThisComputer;
@@ -249,22 +250,28 @@ impl AppInstances {
     /// The instances of the apps `domains`' package manager loads, on `engine`, each with what
     /// `environments` gives it, its views going where `places` says, and an inspector with the
     /// apps it sees, what `domains`' permissions let each and its own folders among them; the
-    /// package manager's stops read from `stops`, the instances running told to `running`, and
-    /// every task of theirs run on `runtime`.
+    /// package manager's stops read from `stops`, the shells' calls from `calls`, which the
+    /// instances running and the opens under way are told to, and every task of theirs run on
+    /// `runtime`.
     pub(crate) fn new(
         domains: &Domains,
         engine: Arc<WaOS>,
         environments: Arc<ProgramEnvironments>,
         places: ProgramPlaces,
         stops: StopRequests,
-        running: watch::Sender<RunningInstances>,
+        calls: AppManagementCalls,
         runtime: tokio::runtime::Handle,
     ) -> Arc<AppInstances> {
+        let AppManagementCalls {
+            calls,
+            running,
+            opening,
+        } = calls;
         let list = Arc::new(InstanceList::new(running));
         answer_stops(&runtime, Arc::clone(&list), stops);
-        Arc::new(AppInstances {
+        let instances = Arc::new(AppInstances {
             list,
-            opens: Arc::default(),
+            opens: Arc::new(Opens::new(opening)),
             packages: Arc::clone(&domains.packages),
             permissions: domains.permissions.clone(),
             storage: domains.storage.clone(),
@@ -273,7 +280,9 @@ impl AppInstances {
             places,
             outputs: Arc::default(),
             runtime,
-        })
+        });
+        answer_calls(Arc::clone(&instances), calls);
+        instances
     }
 
     /// Opens the installed app `id` as `configuration` asks; answers its instance once it has
@@ -386,7 +395,7 @@ impl AppInstances {
     }
 
     /// The opens under way now, each with its stage, and each change of them from now on.
-    pub(crate) fn opening(&self) -> watch::Receiver<BTreeMap<ProgramId, OpenStage>> {
+    pub(crate) fn opening(&self) -> watch::Receiver<Opening> {
         self.opens.stages()
     }
 
@@ -529,6 +538,55 @@ fn answer_stops(runtime: &tokio::runtime::Handle, list: Arc<InstanceList>, stops
             });
         }
     });
+}
+
+/// Answers each call the shells put in the mailbox to app management, read from `calls` on
+/// `instances`' runtime, each on a task of its own, so an app slow to open holds back no other.
+fn answer_calls(instances: Arc<AppInstances>, mut calls: UnboundedReceiver<AppManagementCall>) {
+    let runtime = instances.runtime.clone();
+    runtime.clone().spawn(async move {
+        while let Some(call) = calls.next().await {
+            let instances = Arc::clone(&instances);
+            runtime.spawn(async move {
+                match call {
+                    AppManagementCall::Open {
+                        app,
+                        configuration,
+                        answer,
+                    } => {
+                        // A shell that stopped waiting has nobody to tell.
+                        let _ = answer.send(instances.open(&app, configuration).await);
+                    }
+                    AppManagementCall::Stop { app, answer } => {
+                        let _ = answer.send(instances.stop(&app).await);
+                    }
+                }
+            });
+        }
+    });
+}
+
+/// The app instances are app management, as the shells made after them reach it.
+impl super::app_management::AppManagement for AppInstances {
+    fn open(
+        self: Arc<Self>,
+        app: ProgramId,
+        configuration: OpenConfiguration,
+    ) -> BoxFuture<'static, Result<Opened, OpenError>> {
+        async move { AppInstances::open(&self, &app, configuration).await }.boxed()
+    }
+
+    fn stop(self: Arc<Self>, app: ProgramId) -> BoxFuture<'static, bool> {
+        async move { AppInstances::stop(&self, &app).await }.boxed()
+    }
+
+    fn running(&self) -> watch::Receiver<RunningInstances> {
+        AppInstances::running(self)
+    }
+
+    fn opening(&self) -> watch::Receiver<Opening> {
+        AppInstances::opening(self)
+    }
 }
 
 #[cfg(test)]

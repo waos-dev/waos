@@ -27,7 +27,7 @@ use crate::logic::offers::Offer;
 use crate::logic::permissions::Permission;
 use crate::logic::setting_changes::{SettingChange, SettingsOf, ShownSettings};
 use crate::state::library::{AppDetail, Library};
-use crate::system_shell::SIMULATED_CAMERA;
+use crate::state::shells::this_system::SIMULATED_CAMERA;
 use crate::ui::library::app_store::source_name;
 use crate::ui::library::words;
 use waos::FileDialog;

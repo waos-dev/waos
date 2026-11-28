@@ -12,7 +12,7 @@
 
 use std::rc::Rc;
 
-use waft::{App, Context};
+use waft::{App, Context, Entity};
 use waos_package::{ProgramId, ProgramKind};
 
 use super::{Library, follow};
@@ -20,13 +20,28 @@ use crate::logic::program_shortcuts::{
     KeptShortcut, ProgramShortcut, ShortcutOpens, SystemShortcuts, changes_for, shortcut_icon,
 };
 
+/// The installed apps' shortcuts kept in `system` through `library`, and each tap on one opening
+/// its app as the library opens it, through app management, or bringing it forward where it runs.
+pub(crate) fn keep_system_shortcuts(
+    app: &mut App,
+    library: &Entity<Library>,
+    system: Rc<dyn SystemShortcuts>,
+) {
+    let (taps_to, cx) = (library.downgrade(), app.to_async());
+    system.hear_taps(Box::new(move |id| {
+        let library = taps_to.clone();
+        cx.post(move |app| {
+            if let Some(library) = library.upgrade() {
+                library.update(app, |library, cx| library.show_program(&id, None, cx));
+            }
+        });
+    }));
+    library.update(app, |library, cx| library.keep_shortcuts(system, cx));
+}
+
 impl Library {
     /// From now on the installed programs' shortcuts are kept in `system`, and what it keeps is
     /// made to match what the package manager has installed: now, and at each change it announces.
-    #[cfg_attr(
-        not(target_os = "android"),
-        allow(dead_code, reason = "tested on every system, used on Android")
-    )]
     pub(crate) fn keep_shortcuts(
         &mut self,
         system: Rc<dyn SystemShortcuts>,

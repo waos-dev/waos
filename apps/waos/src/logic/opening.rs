@@ -1,11 +1,10 @@
 //! Handing a program what its user does to it from outside it: files opened with it, as `waos open
 //! <file> --program <id>` asks until programs register what opens them, and a click on one of its
 //! notifications. Each goes to the app the id names (`program_named`), its instance running,
-//! whether `waos launch` started it or the library opened it, or else the installed app, opened as
-//! the library opens it; the program hears it once it listens
-//! (`AppInstance::open_requested`, `AppInstance::notification_activated`). And opening each
-//! app the user opened through the system (`open_each`), as the library opens one the user opens
-//! there, handing it the files or the click it was opened for (`hand_over`).
+//! whether `waos launch` started it or the library opened it, or else the installed app, opened by
+//! app management (`app_management`); the program hears it once it listens
+//! (`AppInstance::open_requested`, `AppInstance::notification_activated`), as a shell hands an
+//! app it opened what it was opened for (`hand_over`).
 //!
 //! The invariant: a request or a click reaches a program, or the caller hears why not; nothing is
 //! started for an id that names no installed program.
@@ -20,14 +19,13 @@ use waos_dev_protocol::{OpenAnswer, Refusal, RefusalKind, ServerConnection};
 use waos_package::ProgramId;
 use waos_services::packages::PackageManager;
 
-use super::app_instances::{AppInstances, OpenConfiguration, OpenPlace, OpenedFor};
-use super::program_places::ProgramPlace;
-use crate::system_shell::UserOpen;
+use super::app_instances::{OpenConfiguration, OpenedFor};
+use super::app_management::AppManagement;
 
 /// Hands `request` to the app `id`: its instance running, or else the installed app, opened
 /// first; fails for an id neither installed nor running.
 pub(crate) async fn open_with(
-    instances: &Arc<AppInstances>,
+    instances: &Arc<dyn AppManagement>,
     packages: &PackageManager,
     id: &ProgramId,
     request: OpenRequest,
@@ -44,7 +42,7 @@ pub(crate) async fn open_with(
 /// running under it, or else the installed one, opened first; fails, saying so, for an id neither
 /// installed nor running, as a removed program leaves its notifications as they are.
 pub(crate) async fn notification_activated(
-    instances: &Arc<AppInstances>,
+    instances: &Arc<dyn AppManagement>,
     packages: &PackageManager,
     id: &ProgramId,
     activation: Activation,
@@ -62,55 +60,29 @@ pub(crate) async fn notification_activated(
 /// The instance of the app `id` names: the installed app's, opened unless it runs already, or else
 /// the one running under it, as `waos` runs one; none for an id neither installed nor running.
 pub(crate) async fn program_named(
-    instances: &Arc<AppInstances>,
+    instances: &Arc<dyn AppManagement>,
     packages: &PackageManager,
     id: &ProgramId,
 ) -> Result<Option<AppInstance>> {
     if packages.installed_program(id).is_none() {
-        return Ok(instances.instance(id));
+        return Ok(instances.running().borrow().get(id).cloned());
     }
     let configuration = OpenConfiguration::new(OpenedFor::HandOver);
-    let opened = instances.open(id, configuration).await?;
+    let opened = Arc::clone(instances)
+        .open(id.clone(), configuration)
+        .await?;
     Ok(Some(opened.instance().clone()))
-}
-
-/// Opens each app the user opened through the system among `instances`, as the library opens one
-/// the user opens there, in a window, the one running left as it is, and hands it the files or
-/// the click it was opened for; answers each open with the instance, or why there is none. An open
-/// that hands something over runs a tool too, as files handed to it do. Ends with `opens`.
-pub(crate) async fn open_each(
-    instances: Arc<AppInstances>,
-    mut opens: futures::stream::BoxStream<'static, UserOpen>,
-) {
-    use futures::StreamExt;
-    while let Some(open) = opens.next().await {
-        let opened_for = if open.hands_over() {
-            OpenedFor::HandOver
-        } else {
-            OpenedFor::User
-        };
-        let configuration = OpenConfiguration {
-            place: OpenPlace::Named(ProgramPlace::Windows),
-            ..OpenConfiguration::new(opened_for)
-        };
-        let UserOpen {
-            app,
-            files,
-            notification_click,
-            opened,
-        } = open;
-        let answer = (instances.open(&app, configuration).await)
-            .map(|opened| opened.instance().clone())
-            .map_err(|error| format!("{error:#}"));
-        if let Ok(instance) = &answer {
-            hand_over(instance, files, notification_click);
-        }
-        let _ = opened.send(answer);
-    }
 }
 
 /// Hands `instance` what the user opened its app for: the files and links the system opened it
 /// with, and the click on one of its notifications, each heard once the app listens.
+#[cfg_attr(
+    not(target_os = "macos"),
+    allow(
+        dead_code,
+        reason = "only macOS's shell opens an app with what the system handed it"
+    )
+)]
 pub(crate) fn hand_over(
     instance: &AppInstance,
     files: OpenRequest,
@@ -129,7 +101,7 @@ pub(crate) fn hand_over(
 #[cfg(desktop)]
 pub(crate) async fn answer(
     mut connection: ServerConnection,
-    instances: &Arc<AppInstances>,
+    instances: &Arc<dyn AppManagement>,
     packages: &PackageManager,
     id: &ProgramId,
     request: OpenRequest,

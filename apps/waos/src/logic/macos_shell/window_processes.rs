@@ -28,8 +28,9 @@
 //! everything it owed is answered and its instance, if one attached, ends with it, as nothing could
 //! show it any more; and a window process ends when its instance ends. A window process the user
 //! opened, from the Dock or the Finder, or that macOS launched for a click on one of its app's
-//! notifications, says so in its hello: it goes up as the user's open ([`UserOpen`]), and is served
-//! with the instance that opening answers attached.
+//! notifications, says so in its hello: WaOS asks app management to open the app
+//! (`logic::app_management`), and serves the window process with the instance that answers
+//! attached.
 //!
 //! [`WindowProcesses`] is what macOS's parts of the engine's shell hold, and the one owner of the
 //! runtime the launches and endings are carried out on and of the listener. What its threads and
@@ -53,7 +54,6 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use anyhow::{Context, Result};
 use futures::FutureExt;
-use futures::channel::mpsc::UnboundedSender;
 use futures::channel::oneshot;
 use futures::future::BoxFuture;
 use tokio::sync::watch;
@@ -72,9 +72,9 @@ use super::window_process::{
     DialogReport, DialogReports, SendToWindow, WindowPresences, WindowProcess,
 };
 use crate::logic::app_instances::RunningInstances;
+use crate::logic::app_management::AppManagement;
 use crate::logic::notification_permissions::NotificationPermissions;
 use crate::os::yield_activation_to;
-use crate::system_shell::UserOpen;
 
 /// What reaching an app's window process answers: the window process, or why it never came.
 pub(crate) type ReachedApp = Result<Arc<WindowProcess>, String>;
@@ -148,17 +148,17 @@ pub(crate) struct WindowProcesses {
 
 impl WindowProcesses {
     /// The window processes of the apps in `bundles`, launched and ended on `runtime`, each
-    /// lasting while its app's instance in `running` runs, what each reports going by `routes`,
-    /// and listening for their hellos under the bootstrap name `name` from now on; the apps the
-    /// user opens go to `user_opens`.
+    /// lasting while its app's instance runs, as `app_management` tells, what each reports going
+    /// by `routes`, and listening for their hellos under the bootstrap name `name` from now on;
+    /// the apps the user opens through them opened by `app_management`.
     pub(crate) fn start(
         runtime: tokio::runtime::Runtime,
         bundles: Arc<dyn Bundles>,
-        running: watch::Receiver<RunningInstances>,
+        app_management: Arc<dyn AppManagement>,
         routes: Routes,
         name: &str,
-        user_opens: UnboundedSender<UserOpen>,
     ) -> Result<Arc<WindowProcesses>> {
+        let running = app_management.running();
         let table = Arc::new(ProcessTable {
             bundles: Arc::clone(&bundles),
             runtime: runtime.handle().clone(),
@@ -167,7 +167,7 @@ impl WindowProcesses {
             apps: Mutex::default(),
         });
         table.follow_running(running);
-        let listener = Listener::listen(name, Arc::clone(&table), bundles, user_opens)
+        let listener = Listener::listen(name, Arc::clone(&table), bundles, app_management)
             .context("listening for the apps' window processes")?;
         Ok(Arc::new(WindowProcesses {
             table,

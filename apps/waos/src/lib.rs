@@ -42,7 +42,6 @@ mod ios_entry;
 mod logic;
 mod os;
 mod state;
-mod system_shell;
 mod ui;
 
 use tracing_subscriber::EnvFilter;

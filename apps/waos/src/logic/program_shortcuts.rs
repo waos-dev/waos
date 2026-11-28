@@ -195,10 +195,6 @@ pub(crate) trait SystemShortcuts {
 
     /// From now on `tapped` hears the program each tap on a shortcut opening inside WaOS names,
     /// the tap that started WaOS among them.
-    #[cfg_attr(
-        not(target_os = "android"),
-        allow(dead_code, reason = "tested on every system, used on Android")
-    )]
     fn hear_taps(&self, tapped: Box<dyn Fn(ProgramId)>);
 }
 

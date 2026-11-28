@@ -132,16 +132,14 @@ impl Library {
             );
         }
         self.add_recent(id, cx);
-        let (instances, opening) = (Arc::clone(&self.instances), id.clone());
+        let configuration = OpenConfiguration {
+            place: OpenPlace::Named(ProgramPlace::Windows),
+            ..OpenConfiguration::new(OpenedFor::User)
+        };
+        let opening = Arc::clone(&self.app_management).open(id.clone(), configuration);
         let name = id.as_str().to_owned();
         self.work_then(
-            async move {
-                let configuration = OpenConfiguration {
-                    place: OpenPlace::Named(ProgramPlace::Windows),
-                    ..OpenConfiguration::new(OpenedFor::User)
-                };
-                instances.open(&opening, configuration).await
-            },
+            opening,
             move |library, started, cx| match started {
                 Ok(opened) => windows.update(cx, |windows, cx| {
                     windows.prepared_started(opened.instance().clone(), cx);

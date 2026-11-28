@@ -1,65 +1,39 @@
-//! WaOS on iOS ([`IosShell`]): iOS allows WaOS one screen, so each app opens in a tab of WaOS's
-//! deck, its file dialogs over a screen, its notifications posted under WaOS's name; nothing lists
-//! the installed apps outside WaOS.
+//! WaOS's shell on iOS: iOS allows WaOS one screen, so each app opens in a tab of WaOS's deck, its
+//! file dialogs over a screen, its notifications posted under WaOS's name; nothing lists the
+//! installed apps outside WaOS, so the user opens one only in WaOS's library.
 //!
 //! The invariant an editor could break: the engine's shell here is the parts every system takes
 //! from Waft, unchanged; what iOS does differently is said here, and nowhere else.
 
 use std::sync::Arc;
 
-use futures::StreamExt;
-use futures::stream::{self, BoxStream};
 use waft::App;
-use waos::{Shell, ShellCameras, ShellImageCodecs};
+use waos::{ShellCameras, ShellImageCodecs};
 
 use crate::logic::folders::AppFolders;
 use crate::logic::program_identities::Identities;
-use crate::logic::startup::BeforeTheEngine;
-use crate::system_shell::{AfterTheEngine, AppPrompts, SharedParts, SystemShell, UserOpen};
+use crate::state::shells::{BuiltShell, SharedParts};
 
-/// WaOS on iOS: the parts every system takes from Waft.
-pub(crate) struct IosShell {
-    shell: Shell,
+/// Whether WaOS's simulated camera is there: not built on iOS.
+pub(crate) const SIMULATED_CAMERA: bool = false;
+
+/// Whether each app may have a place of its own beside WaOS's, so where apps open is the user's
+/// choice: no, iOS allows WaOS one screen.
+pub(crate) const APPS_OPEN_AS_CHOSEN: bool = false;
+
+/// WaOS's shell on iOS: `shared`'s, with the apps' prompts in WaOS's own windows.
+pub(crate) fn shell(_app: &mut App, shared: SharedParts<'_>) -> BuiltShell {
+    BuiltShell::in_own_windows(shared.shell, shared.prompt_windows)
 }
 
-impl SystemShell for IosShell {
-    const SIMULATED_CAMERA: bool = false;
-    const APPS_OPEN_AS_CHOSEN: bool = false;
+/// None: an app's windows are tabs of WaOS's.
+pub(crate) fn app_identities(_folders: &AppFolders) -> Option<Identities> {
+    None
+}
 
-    fn new(
-        _app: &mut App,
-        _folders: &AppFolders,
-        _before: &BeforeTheEngine<'_>,
-        shared: SharedParts,
-    ) -> IosShell {
-        IosShell {
-            shell: shared.shell,
-        }
-    }
-
-    /// None: an app's windows are tabs of WaOS's.
-    fn identities(_folders: &AppFolders) -> Option<Identities> {
-        None
-    }
-
-    /// None: the simulated camera is not built on iOS.
-    fn simulated_cameras(
-        _codecs: Option<Arc<dyn ShellImageCodecs>>,
-    ) -> Option<Arc<dyn ShellCameras>> {
-        None
-    }
-
-    fn shell(&self) -> Shell {
-        self.shell.clone()
-    }
-
-    /// None: iOS lists no app of WaOS's, so the user opens one only in WaOS.
-    fn opened_by_the_user(&mut self) -> BoxStream<'static, UserOpen> {
-        stream::empty().boxed()
-    }
-
-    /// The apps' prompts in WaOS's own windows.
-    fn follow(self, _app: &mut App, after: AfterTheEngine<'_>) -> AppPrompts {
-        AppPrompts::in_own_windows(after.prompt_windows)
-    }
+/// None: the simulated camera is not built on iOS.
+pub(crate) fn simulated_cameras(
+    _codecs: Option<Arc<dyn ShellImageCodecs>>,
+) -> Option<Arc<dyn ShellCameras>> {
+    None
 }
