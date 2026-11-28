@@ -1,0 +1,534 @@
+package wasdk:platform@2.3.0;
+
+/// Sound: Web Audio's graph, named one for one, which the platform renders and plays.
+///
+/// **The graph.** A program makes an `audio-context`, makes nodes with its base's `create-*`
+/// methods as the spec's factories are, connects them, and schedules what they do on the
+/// context's clock, `current-time`, in seconds: a source starts and stops at a time, and an
+/// `audio-param` moves along its automation. The platform renders the graph on a thread of its
+/// own and plays it on the context's output, so none of the program's code runs in time with the
+/// sound: what the program scheduled plays out while the program waits, or is frozen. Every node
+/// of the spec is here but `AudioWorklet`, which runs a program's code on that thread, and the
+/// nodes over the web's media elements and streams, replaced by the platform's own inputs below.
+///
+/// **Contexts and nodes.** WIT has no inheritance, so each kind of context and each kind of node
+/// is a resource of its own, which hands out what it is as any context or any node: an
+/// `audio-context`, which plays its graph, and an `offline-audio-context`, which renders its graph
+/// into a buffer, each its `base-audio-context` (`base`), the graph, its clock and its factories;
+/// and each kind of node its `audio-node` (`node`), its connections and its channels. Each handle
+/// is the same context or the same node: a context lives while any handle on it does, and a node
+/// while any handle, a connection or its sound does. An offline context renders its whole length
+/// at once: the spec's `suspend` and `resume` of one, which stop its rendering partway for the
+/// program to change the graph, are not here.
+/// An overload of the spec is a function of its own, named by what it adds: `connect` is the
+/// spec's `connect(destination)`, `connect-output-input` its `connect(destination, output,
+/// input)`. An attribute is a getter and, where it is writable, a `set-` method.
+///
+/// **Inputs of the platform's own,** where the web has none: `stream-input-node`, samples the
+/// program pushes ahead, and `microphone-node`, the microphone, in place of the web's
+/// `getUserMedia`, which asks the user at its first use through `permissions.microphone`. While
+/// a program records, the platform shows that it does.
+///
+/// **Outputs.** A context plays on the system's default output unless the program gives it
+/// another: one the user picked for this program in the platform's picker
+/// (`select-audio-output`), as the web's `selectAudioOutput`, so a program never sees the list of
+/// the user's devices.
+///
+/// **Freezing.** A program is not frozen while it is audible or recording: while an
+/// `audio-context` of its own runs with sound playing now, a source whose start its clock has reached and which has
+/// not ended, or a stream input open, or while a microphone is open. A source scheduled ahead
+/// keeps nothing from freezing until it starts. Sound costs no permission; the microphone is a
+/// question.
+///
+/// **Mistakes.** What the spec answers with an exception for the program's own mistake, such as
+/// an argument out of range, nodes of two contexts connected, a source started twice or nodes
+/// disconnected that were not connected, traps the program with the spec's name for it, as the
+/// web's exceptions left uncaught end a script. What may fail whatever the program does, the
+/// devices, the user's answer or the data, answers an `audio-error`.
+interface audio {
+  /// Why the platform did not do what was asked.
+  variant audio-error {
+    /// The user refused: the microphone was not allowed, or the picker was dismissed; or the
+    /// output named is not one the user picked for this program. The web's `NotAllowedError`.
+    not-allowed,
+    /// No such device, or none at all. The web's `NotFoundError`.
+    not-found,
+    /// What this platform cannot do: a picker or a recording it cannot show, an option out of its
+    /// range, or a sound that decodes to more than it holds in a buffer. The web's
+    /// `NotSupportedError`.
+    not-supported(string),
+    /// The data is not audio the platform decodes. The web's `EncodingError`.
+    encoding(string),
+    /// The context is closed, or its device failed. The web's `InvalidStateError`.
+    invalid-state(string),
+  }
+
+  /// Web Audio's `AudioContextState`.
+  enum audio-context-state {
+    suspended,
+    running,
+    closed,
+  }
+
+  /// Web Audio's `AudioContextLatencyCategory`: what a context's output trades latency for.
+  enum audio-context-latency-category {
+    balanced,
+    interactive,
+    playback,
+  }
+
+  /// Web Audio's `ChannelCountMode`.
+  enum channel-count-mode {
+    max,
+    clamped-max,
+    explicit,
+  }
+
+  /// Web Audio's `ChannelInterpretation`.
+  enum channel-interpretation {
+    speakers,
+    discrete,
+  }
+
+  /// Web Audio's `AutomationRate`.
+  enum automation-rate {
+    a-rate,
+    k-rate,
+  }
+
+  /// Web Audio's `OscillatorType`.
+  enum oscillator-type {
+    sine,
+    square,
+    sawtooth,
+    triangle,
+    custom,
+  }
+
+  /// Web Audio's `BiquadFilterType`.
+  enum biquad-filter-type {
+    lowpass,
+    highpass,
+    bandpass,
+    lowshelf,
+    highshelf,
+    peaking,
+    notch,
+    allpass,
+  }
+
+  /// Web Audio's `OverSampleType`: `x2` and `x4` are the spec's `"2x"` and `"4x"`.
+  enum over-sample-type {
+    none,
+    x2,
+    x4,
+  }
+
+  /// Web Audio's `PanningModelType`.
+  enum panning-model-type {
+    equalpower,
+    hrtf,
+  }
+
+  /// Web Audio's `DistanceModelType`.
+  enum distance-model-type {
+    linear,
+    inverse,
+    exponential,
+  }
+
+  /// The output the user picked: the web's `MediaDeviceInfo` of an `audiooutput`.
+  record media-device-info {
+    /// What `set-sink-id` takes, and `audio-context-options.sink-id`, for this program's run.
+    device-id: string,
+    /// Shared by the outputs of one physical device; empty where the platform does not say.
+    group-id: string,
+    /// The output's name, as the user saw it in the picker.
+    label: string,
+  }
+
+  /// The magnitude and phase a filter answers for each frequency asked: what the spec's
+  /// `getFrequencyResponse` writes into its two arrays.
+  record frequency-response {
+    magnitude: list<f32>,
+    phase: list<f32>,
+  }
+
+  /// Web Audio's `AudioParam`: a value of a node the graph reads at each sample, or each block,
+  /// moved by its automation on the context's clock.
+  resource audio-param {
+    value: func() -> f32;
+    set-value: func(value: f32);
+    automation-rate: func() -> automation-rate;
+    set-automation-rate: func(rate: automation-rate);
+    default-value: func() -> f32;
+    min-value: func() -> f32;
+    max-value: func() -> f32;
+    set-value-at-time: func(value: f32, start-time: f64);
+    linear-ramp-to-value-at-time: func(value: f32, end-time: f64);
+    exponential-ramp-to-value-at-time: func(value: f32, end-time: f64);
+    set-target-at-time: func(target: f32, start-time: f64, time-constant: f32);
+    set-value-curve-at-time: func(values: list<f32>, start-time: f64, duration: f64);
+    cancel-scheduled-values: func(cancel-time: f64);
+    cancel-and-hold-at-time: func(cancel-time: f64);
+  }
+
+  /// Web Audio's `AudioNode`: what every node is, which each kind of node hands out.
+  resource audio-node {
+    /// Connects output 0 to `destination`'s input 0.
+    connect: func(destination: borrow<audio-node>);
+    connect-output-input: func(destination: borrow<audio-node>, output: u32, input: u32);
+    /// Connects output 0 to `destination`, which then follows the sum of its own value and
+    /// what comes in.
+    connect-param: func(destination: borrow<audio-param>);
+    connect-param-output: func(destination: borrow<audio-param>, output: u32);
+    /// Every connection going out.
+    disconnect: func();
+    disconnect-output: func(output: u32);
+    disconnect-node: func(destination: borrow<audio-node>);
+    disconnect-node-output: func(destination: borrow<audio-node>, output: u32);
+    disconnect-node-output-input: func(destination: borrow<audio-node>, output: u32, input: u32);
+    disconnect-param: func(destination: borrow<audio-param>);
+    disconnect-param-output: func(destination: borrow<audio-param>, output: u32);
+    number-of-inputs: func() -> u32;
+    number-of-outputs: func() -> u32;
+    channel-count: func() -> u32;
+    set-channel-count: func(count: u32);
+    channel-count-mode: func() -> channel-count-mode;
+    set-channel-count-mode: func(mode: channel-count-mode);
+    channel-interpretation: func() -> channel-interpretation;
+    set-channel-interpretation: func(interpretation: channel-interpretation);
+  }
+
+  /// Web Audio's `AudioBuffer`: sound in memory, a list of samples per channel. A copy is what
+  /// a node takes: changing a buffer after it was given changes nothing the node plays.
+  resource audio-buffer {
+    sample-rate: func() -> f32;
+    length: func() -> u32;
+    duration: func() -> f64;
+    number-of-channels: func() -> u32;
+    /// A copy of `channel`'s samples.
+    get-channel-data: func(channel: u32) -> list<f32>;
+    /// A copy of `length` samples of `channel`, from `start`.
+    copy-from-channel: func(channel: u32, start: u32, length: u32) -> list<f32>;
+    /// Writes `samples` into `channel` from `start`, as many as fit.
+    copy-to-channel: func(samples: list<f32>, channel: u32, start: u32);
+  }
+
+  /// Web Audio's `PeriodicWave`: one period of a waveform, for an oscillator.
+  resource periodic-wave;
+
+  /// Web Audio's `AudioListener`: where the context hears from, for its panners.
+  resource audio-listener {
+    position-x: func() -> audio-param;
+    position-y: func() -> audio-param;
+    position-z: func() -> audio-param;
+    forward-x: func() -> audio-param;
+    forward-y: func() -> audio-param;
+    forward-z: func() -> audio-param;
+    up-x: func() -> audio-param;
+    up-y: func() -> audio-param;
+    up-z: func() -> audio-param;
+  }
+
+  /// Web Audio's `AudioDestinationNode`: the context's output.
+  resource audio-destination-node {
+    node: func() -> audio-node;
+    max-channel-count: func() -> u32;
+  }
+
+  /// Web Audio's `GainNode`.
+  resource gain-node {
+    node: func() -> audio-node;
+    gain: func() -> audio-param;
+  }
+
+  /// Web Audio's `OscillatorNode`.
+  resource oscillator-node {
+    node: func() -> audio-node;
+    %type: func() -> oscillator-type;
+    set-type: func(%type: oscillator-type);
+    frequency: func() -> audio-param;
+    detune: func() -> audio-param;
+    set-periodic-wave: func(wave: borrow<periodic-wave>);
+    start: func(when: f64);
+    stop: func(when: f64);
+    /// Resolves once the oscillator has stopped: the spec's `ended` event.
+    ended: async func();
+  }
+
+  /// Web Audio's `AudioBufferSourceNode`: plays a buffer once, from start to stop, or in a loop.
+  resource audio-buffer-source-node {
+    node: func() -> audio-node;
+    /// A copy of the buffer it plays.
+    buffer: func() -> option<audio-buffer>;
+    set-buffer: func(buffer: borrow<audio-buffer>);
+    playback-rate: func() -> audio-param;
+    detune: func() -> audio-param;
+    loop: func() -> bool;
+    set-loop: func(value: bool);
+    loop-start: func() -> f64;
+    set-loop-start: func(value: f64);
+    loop-end: func() -> f64;
+    set-loop-end: func(value: f64);
+    /// Starts at `when`, from `offset` seconds into the buffer, for `duration` seconds of it, or
+    /// to its end.
+    start: func(when: f64, offset: f64, duration: option<f64>);
+    stop: func(when: f64);
+    /// Resolves once the source has stopped: the spec's `ended` event.
+    ended: async func();
+  }
+
+  /// Web Audio's `ConstantSourceNode`.
+  resource constant-source-node {
+    node: func() -> audio-node;
+    offset: func() -> audio-param;
+    start: func(when: f64);
+    stop: func(when: f64);
+    /// Resolves once the source has stopped: the spec's `ended` event.
+    ended: async func();
+  }
+
+  /// Web Audio's `DelayNode`.
+  resource delay-node {
+    node: func() -> audio-node;
+    delay-time: func() -> audio-param;
+  }
+
+  /// Web Audio's `BiquadFilterNode`.
+  resource biquad-filter-node {
+    node: func() -> audio-node;
+    %type: func() -> biquad-filter-type;
+    set-type: func(%type: biquad-filter-type);
+    frequency: func() -> audio-param;
+    detune: func() -> audio-param;
+    q: func() -> audio-param;
+    gain: func() -> audio-param;
+    get-frequency-response: func(frequency-hz: list<f32>) -> frequency-response;
+  }
+
+  /// Web Audio's `IIRFilterNode`.
+  resource iir-filter-node {
+    node: func() -> audio-node;
+    get-frequency-response: func(frequency-hz: list<f32>) -> frequency-response;
+  }
+
+  /// Web Audio's `DynamicsCompressorNode`.
+  resource dynamics-compressor-node {
+    node: func() -> audio-node;
+    threshold: func() -> audio-param;
+    knee: func() -> audio-param;
+    ratio: func() -> audio-param;
+    attack: func() -> audio-param;
+    release: func() -> audio-param;
+    /// How far the compressor turns the signal down now, in decibels.
+    reduction: func() -> f32;
+  }
+
+  /// Web Audio's `ConvolverNode`.
+  resource convolver-node {
+    node: func() -> audio-node;
+    /// A copy of the impulse response it convolves with.
+    buffer: func() -> option<audio-buffer>;
+    set-buffer: func(buffer: borrow<audio-buffer>);
+    normalize: func() -> bool;
+    set-normalize: func(value: bool);
+  }
+
+  /// Web Audio's `WaveShaperNode`.
+  resource wave-shaper-node {
+    node: func() -> audio-node;
+    curve: func() -> option<list<f32>>;
+    set-curve: func(curve: list<f32>);
+    oversample: func() -> over-sample-type;
+    set-oversample: func(oversample: over-sample-type);
+  }
+
+  /// Web Audio's `StereoPannerNode`.
+  resource stereo-panner-node {
+    node: func() -> audio-node;
+    pan: func() -> audio-param;
+  }
+
+  /// Web Audio's `PannerNode`: places a sound in space around the context's listener.
+  resource panner-node {
+    node: func() -> audio-node;
+    panning-model: func() -> panning-model-type;
+    set-panning-model: func(model: panning-model-type);
+    distance-model: func() -> distance-model-type;
+    set-distance-model: func(model: distance-model-type);
+    position-x: func() -> audio-param;
+    position-y: func() -> audio-param;
+    position-z: func() -> audio-param;
+    orientation-x: func() -> audio-param;
+    orientation-y: func() -> audio-param;
+    orientation-z: func() -> audio-param;
+    ref-distance: func() -> f64;
+    set-ref-distance: func(value: f64);
+    max-distance: func() -> f64;
+    set-max-distance: func(value: f64);
+    rolloff-factor: func() -> f64;
+    set-rolloff-factor: func(value: f64);
+    cone-inner-angle: func() -> f64;
+    set-cone-inner-angle: func(value: f64);
+    cone-outer-angle: func() -> f64;
+    set-cone-outer-angle: func(value: f64);
+    cone-outer-gain: func() -> f64;
+    set-cone-outer-gain: func(value: f64);
+  }
+
+  /// Web Audio's `AnalyserNode`: what passes through it, as it is now, in time and in frequency.
+  resource analyser-node {
+    node: func() -> audio-node;
+    fft-size: func() -> u32;
+    set-fft-size: func(size: u32);
+    frequency-bin-count: func() -> u32;
+    min-decibels: func() -> f64;
+    set-min-decibels: func(value: f64);
+    max-decibels: func() -> f64;
+    set-max-decibels: func(value: f64);
+    smoothing-time-constant: func() -> f64;
+    set-smoothing-time-constant: func(value: f64);
+    /// `frequency-bin-count` values, in decibels.
+    get-float-frequency-data: func() -> list<f32>;
+    get-byte-frequency-data: func() -> list<u8>;
+    /// `fft-size` samples.
+    get-float-time-domain-data: func() -> list<f32>;
+    get-byte-time-domain-data: func() -> list<u8>;
+  }
+
+  /// Web Audio's `ChannelSplitterNode`.
+  resource channel-splitter-node {
+    node: func() -> audio-node;
+  }
+
+  /// Web Audio's `ChannelMergerNode`.
+  resource channel-merger-node {
+    node: func() -> audio-node;
+  }
+
+  /// The platform's own: a source of the samples the program pushes ahead of the graph, at the
+  /// context's sample rate. The graph plays them as they come, and silence while none are
+  /// waiting; dropped, it plays what was written, then ends.
+  resource stream-input-node {
+    node: func() -> audio-node;
+    /// How many channels each frame has.
+    channels: func() -> u32;
+    /// How far ahead of what the graph plays a write may go, in seconds.
+    latency: func() -> f64;
+    /// Appends `samples`, frames of `channels` interleaved samples each, waiting only while what
+    /// is written is a latency ahead of what the graph has played. Fails once the context is
+    /// closed.
+    write: async func(samples: list<f32>) -> result<_, audio-error>;
+  }
+
+  /// The platform's own: the microphone, as a source of the graph. While one is open the program
+  /// records, and the platform shows it; dropped, the microphone is let go.
+  resource microphone-node {
+    node: func() -> audio-node;
+  }
+
+  /// How a context is made: Web Audio's `AudioContextOptions`. New, it is the system's default
+  /// output at its own rate, for interactive sound; each method sets one option.
+  resource audio-context-options {
+    constructor();
+    latency-hint: func(category: audio-context-latency-category);
+    /// A latency asked for in seconds, in place of a category.
+    latency-hint-seconds: func(seconds: f64);
+    sample-rate: func(sample-rate: f32);
+    /// An output the user picked (`media-device-info.device-id`), or the empty string for the
+    /// system's default.
+    sink-id: func(sink-id: string);
+  }
+
+  /// Web Audio's `BaseAudioContext`: what every kind of context is, which each hands out
+  /// (`base`): one graph, its clock, its state, the nodes it makes and the data it decodes.
+  resource base-audio-context {
+    destination: func() -> audio-destination-node;
+    sample-rate: func() -> f32;
+    /// The context's clock, in seconds, which every time the graph is given is on.
+    current-time: func() -> f64;
+    listener: func() -> audio-listener;
+    state: func() -> audio-context-state;
+    /// Each change of the state from now on: the spec's `statechange` event. Each call is a
+    /// stream of its own.
+    state-changes: func() -> stream<audio-context-state>;
+
+    create-analyser: func() -> analyser-node;
+    create-biquad-filter: func() -> biquad-filter-node;
+    create-buffer: func(number-of-channels: u32, length: u32, sample-rate: f32) -> audio-buffer;
+    create-buffer-source: func() -> audio-buffer-source-node;
+    create-channel-merger: func(number-of-inputs: u32) -> channel-merger-node;
+    create-channel-splitter: func(number-of-outputs: u32) -> channel-splitter-node;
+    create-constant-source: func() -> constant-source-node;
+    create-convolver: func() -> convolver-node;
+    create-delay: func(max-delay-time: f64) -> delay-node;
+    create-dynamics-compressor: func() -> dynamics-compressor-node;
+    create-gain: func() -> gain-node;
+    create-iir-filter: func(feedforward: list<f64>, feedback: list<f64>) -> iir-filter-node;
+    create-oscillator: func() -> oscillator-node;
+    create-panner: func() -> panner-node;
+    create-periodic-wave: func(real: list<f32>, imag: list<f32>, disable-normalization: bool) -> periodic-wave;
+    create-stereo-panner: func() -> stereo-panner-node;
+    create-wave-shaper: func() -> wave-shaper-node;
+    /// Decodes `data`, a file of any common format, into a buffer at the context's sample rate;
+    /// `not-supported` for one that decodes to more than the platform holds in a buffer.
+    decode-audio-data: async func(data: list<u8>) -> result<audio-buffer, audio-error>;
+  }
+
+  /// Web Audio's `AudioContext`: a graph played on an output as it renders. Let go, with every
+  /// handle on its base, it is closed, and its sound stops.
+  resource audio-context {
+    /// What it is as any context: its graph, its clock and its factories.
+    base: func() -> base-audio-context;
+    base-latency: func() -> f64;
+    output-latency: func() -> f64;
+    /// The output it plays on: an id the user picked, or the empty string for the default.
+    sink-id: func() -> string;
+    /// Moves it to another output: one the user picked for this program, or the empty string for
+    /// the default.
+    set-sink-id: async func(sink-id: string) -> result<_, audio-error>;
+    /// Stops its clock and its output.
+    suspend: async func() -> result<_, audio-error>;
+    /// Starts its clock and its output again.
+    resume: async func() -> result<_, audio-error>;
+    /// Ends it for good, letting its output go.
+    close: async func();
+
+    /// A source of `channels` channels the program writes ahead: the platform's own.
+    create-stream-input: func(channels: u32) -> stream-input-node;
+    /// The microphone, as a source: the platform's own, in place of the web's `getUserMedia`.
+    /// Asks the user at its first use (`permissions.microphone`), and answers `not-allowed`
+    /// unless the user allows it.
+    open-microphone: async func() -> result<microphone-node, audio-error>;
+  }
+
+  /// Web Audio's `OfflineAudioContext`: a graph rendered on no output, as fast as it goes, into a
+  /// buffer of the length the context was made with, once. Nothing of it is audible, and its
+  /// rendering goes on while the program is frozen.
+  resource offline-audio-context {
+    /// A context rendering `length` frames of `number-of-channels` channels at `sample-rate`:
+    /// the web's `new OfflineAudioContext(numberOfChannels, length, sampleRate)`.
+    constructor(number-of-channels: u32, length: u32, sample-rate: f32);
+    /// What it is as any context: its graph, its clock and its factories.
+    base: func() -> base-audio-context;
+    /// How many frames it renders.
+    length: func() -> u32;
+    /// Renders the graph from the start of its clock to `length` frames, and resolves to what it
+    /// rendered: the spec's `startRendering`. A context renders once.
+    start-rendering: async func() -> audio-buffer;
+  }
+
+  /// The platform's sound.
+  resource audio {
+    /// A new context, as `options` say: the web's `new AudioContext(options)`.
+    new-context: func(options: audio-context-options) -> result<audio-context, audio-error>;
+    /// Shows the user the platform's picker of outputs, and answers the one picked, which this
+    /// program may then play on for the rest of its run; `not-allowed` when the user dismissed
+    /// it. The web's `selectAudioOutput`.
+    select-audio-output: async func() -> result<media-device-info, audio-error>;
+  }
+
+  /// The platform's sound, where it has one.
+  get-audio: func() -> option<audio>;
+}

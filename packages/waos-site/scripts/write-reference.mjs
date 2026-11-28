@@ -63,7 +63,7 @@ function verifyDocsRsLinks(generated, exported) {
   }
 }
 
-/** The folder of `wit/deps` that holds the package, `wasdk-platform-2.2.0` for `wasdk:platform`. */
+/** The folder of `wit/deps` that holds the package, `wasdk-platform-2.3.0` for `wasdk:platform`. */
 function packageDir(name) {
   const prefix = `${packageSlug(name)}-`;
   const dirs = readdirSync(witDeps).filter((dir) => dir.startsWith(prefix) && /^\d/.test(dir.slice(prefix.length)));
@@ -147,7 +147,7 @@ function firstSentence(docs) {
   return paragraph;
 }
 
-/** The name a world imports the interface by, `wasdk:platform/windows@2.2.0`. */
+/** The name a world imports the interface by, `wasdk:platform/windows@2.3.0`. */
 function interfaceId(pkg, iface) {
   return `${pkg.name}/${iface.name}${pkg.version ? `@${pkg.version}` : ''}`;
 }

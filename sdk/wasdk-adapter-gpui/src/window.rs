@@ -608,6 +608,7 @@ impl PlatformWindow for WasdkWindow {
             .and_then(|attached| attached.system_window.as_ref())
         {
             window.show();
+            window.activate();
         }
     }
 

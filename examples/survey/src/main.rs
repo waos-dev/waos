@@ -3,7 +3,8 @@
 //! of what the user sets; asks for a view, with no title bar of macOS's own; keeps each view's window between a smallest and a largest size where its user
 //! resizes it; treats a band at the top of each view as its title bar, as a program that draws its
 //! own does, a press there moving the window, a double-click doing what the system's settings
-//! say and a press of the secondary button taking the window full screen or back; follows each
+//! say, a press of the secondary button taking the window full screen or back and one of the
+//! middle button asking to bring the window to the front; follows each
 //! view's events, closing its window when the user asks; says each change of its window, maximized
 //! or full screen or no longer; logs each change of its own state; answers each request to
 //! end with `exit`, having nothing to save; and logs every change among its views until the last is
@@ -181,7 +182,8 @@ async fn log_window_changes(id: ViewId, mut changes: StreamReader<WindowChange>)
 
 /// The band at the top of a view that survey treats as its title bar: a press there moves the
 /// window, a second press soon after does what a double-click on a title bar does, and a press
-/// of the secondary button takes the window full screen, or back.
+/// of the secondary button takes the window full screen, or back, and one of the middle button
+/// asks to bring the window to the front.
 #[derive(Default)]
 struct TitleBar {
     /// When the last press on it went down, on the program's clock; none once it made a
@@ -205,6 +207,14 @@ impl TitleBar {
                 view.id()
             );
             window.set_fullscreen(fullscreen, None);
+            return;
+        }
+        if event.buttons.contains(PointerButtons::TERTIARY) {
+            println!(
+                "view {}: middle press on its title bar: asking to come to the front",
+                view.id()
+            );
+            window.activate();
             return;
         }
         let soon_after = self

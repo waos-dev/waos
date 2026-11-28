@@ -432,6 +432,10 @@ pub trait ShellWindow: Send + Sync {
     /// does nothing. The shell reports the change with
     /// `ProgramView::window_fullscreen_changed`.
     fn set_fullscreen(&self, fullscreen: bool, screen: Option<ScreenId>);
+
+    /// Asks to bring the window to the front. The shell decides by its own rule; the outcome
+    /// arrives as the window's presence.
+    fn activate(&self);
 }
 
 /// The shell's side of `windows.size-limits`: the limits a window its user resizes keeps its
@@ -1311,5 +1315,7 @@ pub(crate) mod tests {
         fn set_minimized(&self, _minimized: bool) {}
 
         fn set_fullscreen(&self, _fullscreen: bool, _screen: Option<ScreenId>) {}
+
+        fn activate(&self) {}
     }
 }

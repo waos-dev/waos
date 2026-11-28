@@ -2,7 +2,7 @@
 //! bar of macOS's own, sees it arrive with its request's id and what the request attached, keeps
 //! its window between the size limits it sets, hears a change of geometry, moves, maximizes and
 //! minimizes its window from the band it treats as its title bar, as the system's setting for a
-//! double-click says, reads its user's time zone and hears it change, answers a request to end,
+//! double-click says, and asks to bring it to the front from there, reads its user's time zone and hears it change, answers a request to end,
 //! and ends when its last view is gone. Each test reads what its own survey printed.
 
 use std::path::Path;
@@ -239,11 +239,18 @@ fn press(view: &ProgramView, at: (f64, f64), time: u64) {
 
 /// A press of the mouse's secondary button at `at`, and its release.
 fn secondary_press(view: &ProgramView, at: (f64, f64), time: u64) {
+    press_with(view, PointerButtons::SECONDARY, at, time);
+}
+
+/// A press of the mouse's middle button at `at`, and its release.
+fn middle_press(view: &ProgramView, at: (f64, f64), time: u64) {
+    press_with(view, PointerButtons::TERTIARY, at, time);
+}
+
+/// A press of `buttons` at `at` in the view, from `time` on the program's clock, let go 50 ms on.
+fn press_with(view: &ProgramView, buttons: PointerButtons, at: (f64, f64), time: u64) {
     let held = HeldModifiers::default();
-    view.pointer(
-        mouse(PointerChange::Down, PointerButtons::SECONDARY, at, time),
-        &held,
-    );
+    view.pointer(mouse(PointerChange::Down, buttons, at, time), &held);
     view.pointer(
         mouse(
             PointerChange::Up,
@@ -259,6 +266,26 @@ fn secondary_press(view: &ProgramView, at: (f64, f64), time: u64) {
 fn double_click(view: &ProgramView, time: u64) {
     press(view, ON_TITLE_BAR, time);
     press(view, ON_TITLE_BAR, time + 100 * MS);
+}
+
+#[test]
+fn asks_to_bring_its_window_to_the_front_from_its_title_bar() {
+    let Survey {
+        shell,
+        shown,
+        view,
+        output,
+        ..
+    } = survey();
+    let window = shown.window().expect("in a window");
+    output.wait_for("view 1: its window keeps between 320x240 and 1920x1200");
+
+    middle_press(&view, ON_TITLE_BAR, 0);
+    output.wait_for("view 1: middle press on its title bar: asking to come to the front");
+    shell.changes.wait_until(
+        "survey asks the shell to bring its window to the front",
+        || window.activations() == 1,
+    );
 }
 
 #[test]

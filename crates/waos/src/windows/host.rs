@@ -156,6 +156,11 @@ impl HostWindow for WindowsCtx<'_> {
         Ok(())
     }
 
+    fn activate(&mut self, window: Resource<ProgramWindow>) -> wasmtime::Result<()> {
+        self.window(&window)?.shell().activate();
+        Ok(())
+    }
+
     fn drop(&mut self, window: Resource<ProgramWindow>) -> wasmtime::Result<()> {
         self.table.delete(window)?;
         Ok(())
