@@ -5,16 +5,16 @@
 //! The invariant a later editor will break: only a turn that leaves something to turn for (a
 //! frame, a window, a timer) is followed at once; any other waits for a wake. So what a test waits
 //! for must reach the app through one of its tasks, as everything the app shows does, or wake the
-//! host itself, as a program's output and its end do here (`Lines::wake`, [`wake_at_end`]); a
+//! host itself, as a program's output and its end do here (`Lines::wake`, [`wake_once`]); a
 //! change that wakes nothing fails at [`WITHIN`].
 
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::Instant;
 
 use waft::ui::Dispatcher;
 use waft_test::TestPlatform;
-use waos::AppInstance;
 
 use crate::logic::test_engine::WITHIN;
 
@@ -45,12 +45,20 @@ pub(crate) fn turn_until(platform: &TestPlatform, what: &str, mut turn: impl FnM
     }
 }
 
-/// Wakes `host` once `program` ends, as a test's host hears of it: for a test turning its app
-/// until the program has ended.
-pub(crate) fn wake_at_end(program: &AppInstance, host: Arc<dyn Dispatcher>) {
-    let ended = program.ended();
+/// Waits for `event` on a thread of its own, then wakes `host`, as a test's host hears of it: for
+/// a test turning its app until what the engine announces with `event` (a program ending, or
+/// frozen) has happened. Answers whether it has: set before the wake, so the turn it wakes reads
+/// it set, however briefly what `event` waited for held.
+pub(crate) fn wake_once(
+    event: impl Future + Send + 'static,
+    host: Arc<dyn Dispatcher>,
+) -> Arc<AtomicBool> {
+    let happened = Arc::new(AtomicBool::new(false));
+    let announced = Arc::clone(&happened);
     thread::spawn(move || {
-        futures::executor::block_on(ended);
+        futures::executor::block_on(event);
+        announced.store(true, Ordering::Release);
         host.wake_now();
     });
+    happened
 }

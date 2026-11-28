@@ -36,7 +36,6 @@ pub(crate) fn follow_app_suspension(app: &mut App, engine: Arc<WaOS>) {
 mod tests {
     use std::sync::Arc;
 
-    use futures::FutureExt;
     use waft::AppLifecycleState;
     use waft_services::ServicesBinding;
     use waft_test::TestPlatform;
@@ -59,8 +58,7 @@ mod tests {
         system.run_tasks_until("the app counts", || !lines.all().is_empty());
 
         system_reports(&system, AppLifecycleState::Paused);
-        let frozen = || running.frozen().now_or_never().is_some();
-        system.run_tasks_until("the app is frozen", frozen);
+        system.run_tasks_until_frozen(&running);
         let counted = lines.all().len();
 
         system_reports(&system, AppLifecycleState::Resumed);
