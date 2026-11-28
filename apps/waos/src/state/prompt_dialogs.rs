@@ -35,7 +35,6 @@ use waft::ui::{
 };
 use waft::{App, Context, Entity, WeakEntity, WidgetRef, WidgetsBinding, WidgetsBindingObserver};
 use waft_services::KeyEventManager;
-use waos::RunningProgram;
 use waos_package::ProgramId;
 use waos_program_window::{PROMPT_SIZE, PromptPlacement, ShownPrompt};
 use waos_window_messages::{HostedLayers, PromptCall, PromptId, PromptReport};
@@ -143,21 +142,13 @@ impl PromptPlacement for PromptDialogs {
     fn show(
         &self,
         app: &mut App,
-        program: &RunningProgram,
+        id: &ProgramId,
         prompt: WidgetRef,
         dismissed: Rc<dyn Fn(&mut App)>,
     ) -> ShownPrompt {
-        let Ok(id) = program.name().parse::<ProgramId>() else {
-            tracing::warn!(
-                program = program.name(),
-                "a prompt of a program with no app"
-            );
-            app.spawn(async move |cx| cx.update(|app| dismissed(app)));
-            return ShownPrompt::new(|| {});
-        };
         let compositor = Arc::clone(&self.compositor);
         let shown = self.shown.update(app, |shown, cx| {
-            shown.show(id, &*compositor, prompt, dismissed, cx)
+            shown.show(id.clone(), &*compositor, prompt, dismissed, cx)
         });
         let hidden = self.hidden.clone();
         ShownPrompt::new(move || {

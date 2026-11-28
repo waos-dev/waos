@@ -105,7 +105,7 @@ impl Desktop {
         let (placement, requests) =
             WindowsOnRequest::new(ProgramFaces::new(Arc::clone(&packages), None));
         // Nobody asks the user here; the questions are listened to as the app listens to them.
-        let (_prompts, prompted) = PromptsOnRequest::new(Arc::default());
+        let (_prompts, prompted) = PromptsOnRequest::new();
         let config = WaOSConfig {
             freeze: FreezePolicy::default(),
             compiler: waos::Compiler::new(false).expect("a compiler"),

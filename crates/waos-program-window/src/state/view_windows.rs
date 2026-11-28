@@ -167,10 +167,17 @@ impl<P: ProgramLink> ViewWindows<P> {
         self.shown.iter().any(|window| window.program == *program)
     }
 
-    /// Whether `program` has a screen of its own: a window shown for it, or its first window open
-    /// before it asked for it.
-    pub fn has_a_screen(&self, program: &P) -> bool {
-        self.screen_of(program).is_some()
+    /// Whether the program running as `name`, an app's instance by its app's id, has a screen of
+    /// its own: a window shown for it, or its first window open before it asked for it.
+    pub fn has_a_screen_named(&self, name: &str) -> bool {
+        let shown = self
+            .shown
+            .iter()
+            .any(|window| window.program.name() == name);
+        shown
+            || self
+                .prepared_for(name)
+                .is_some_and(|prepared| prepared.view.is_some())
     }
 
     /// The Waft view of `program`'s screen a dialog is shown over: its front window, its focused

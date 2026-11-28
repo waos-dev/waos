@@ -9515,6 +9515,7 @@ dependencies = [
  "waft-test",
  "waft-widgets",
  "waos",
+ "waos-package",
  "waos-window-messages",
 ]
 

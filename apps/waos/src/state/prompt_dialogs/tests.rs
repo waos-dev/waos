@@ -6,7 +6,7 @@ use waft::ui::PlatformRef;
 use waft::ui::{EmbedderClient, View as _};
 use waft::{IntoWidget, Shell, SizedBox};
 use waft_test::{TestPlatform, TestWindows};
-use waos::{ProgramEnvironment, WaOS};
+use waos::{ProgramEnvironment, RunningProgram, WaOS};
 use waos_package::ProgramId;
 use waos_window_messages::ToWindow;
 
@@ -84,13 +84,13 @@ impl Prompting {
         }
     }
 
-    /// Shows a prompt for `program`, which notes in `dismissed` if it is put away unanswered.
-    fn show(&self, program: &RunningProgram, dismissed: &Rc<Cell<bool>>) -> ShownPrompt {
+    /// Shows a prompt for the app `id`, which notes in `dismissed` if it is put away unanswered.
+    fn show(&self, id: &ProgramId, dismissed: &Rc<Cell<bool>>) -> ShownPrompt {
         let dismissed = Rc::clone(dismissed);
         let mut app = self.shell.app();
         self.dialogs.show(
             &mut app,
-            program,
+            id,
             SizedBox::shrink().into_widget(),
             Rc::new(move |_app| dismissed.set(true)),
         )
@@ -117,7 +117,7 @@ fn a_prompt_of_a_program_with_no_app_launches_the_app_and_shows_there_not_in_wao
     let prompting = Prompting::new(listening);
 
     let dismissed = Rc::new(Cell::new(false));
-    let _shown = prompting.show(&program, &dismissed);
+    let _shown = prompting.show(&forever_id(), &dismissed);
     assert_eq!(
         launches.asked(),
         [(forever_id(), LaunchAttempt::First)],
@@ -160,7 +160,7 @@ fn a_prompts_view_arrives_as_every_view_and_is_built_from_the_data_naming_the_pr
     let program = forever(&engine);
     let mut prompting = Prompting::new(listening);
     let dismissed = Rc::new(Cell::new(false));
-    let _shown = prompting.show(&program, &dismissed);
+    let _shown = prompting.show(&forever_id(), &dismissed);
     let Served { process, .. } = window_process(program.clone());
     said_hello(&window_processes, &forever_id(), &process);
     let metrics = ViewMetrics {
@@ -216,7 +216,7 @@ fn a_prompt_whose_app_never_comes_is_put_away_unanswered() {
     let prompting = Prompting::new(launches.listening());
 
     let dismissed = Rc::new(Cell::new(false));
-    let _shown = prompting.show(&program, &dismissed);
+    let _shown = prompting.show(&forever_id(), &dismissed);
     runtime.block_on(launches.fail(0, "Launch Services: no app"));
     runtime.block_on(launches.fail(1, "Launch Services: no app"));
     prompting.run_tasks_until("the prompt put away", || dismissed.get());

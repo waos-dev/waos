@@ -127,8 +127,8 @@ impl HeadlessDaemon {
         let display = config.display;
         let (started, (prompted, asking)) = startup::start(
             setup,
-            |running| {
-                let (prompts, prompted) = PromptsOnRequest::new(Arc::clone(running));
+            || {
+                let (prompts, prompted) = PromptsOnRequest::new();
                 let prompts = Arc::new(prompts);
                 (
                     Arc::clone(&prompts) as Arc<dyn Prompts>,

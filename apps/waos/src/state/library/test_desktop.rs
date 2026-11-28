@@ -170,8 +170,8 @@ impl LibraryDesktop {
         let setup = Setup::on_files(folder.path());
         let (started, (prompts, prompted, requests)) = startup::start(
             setup,
-            |running| {
-                let (prompts, prompted) = PromptsOnRequest::new(Arc::clone(running));
+            || {
+                let (prompts, prompted) = PromptsOnRequest::new();
                 let prompts = Arc::new(prompts);
                 (
                     Arc::clone(&prompts) as Arc<dyn Prompts>,

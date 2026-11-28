@@ -1,6 +1,6 @@
 //! WaOS's one startup, which the desktop app, the headless entry and the tests share: the domains
 //! put together in the order each needs the others, each handed what it needs as it is made. The
-//! apps running (`running_apps`) first, which the prompts find a question's app among; the domains
+//! apps running (`running_apps`) first, which the package manager stops an app among; the domains
 //! over the store ([`open_domains`]): the package manager, compiling installs and stopping apps
 //! among the running ones, Permissions, asking through the prompts and following the package
 //! manager's record, the sources, app storage and the activity record; then the engine, over the
@@ -124,17 +124,17 @@ pub(crate) struct Started {
     pub(crate) starter: Arc<AppStarter>,
 }
 
-/// Starts WaOS as `setup` says: the running apps; the prompts `prompts` makes, finding a
-/// question's app among them, with what the caller keeps of them; the domains over the store; the
+/// Starts WaOS as `setup` says: the running apps; the prompts `prompts` makes, with what the
+/// caller keeps of them; the domains over the store; the
 /// engine over what `outside` makes of those; and the app starter. Answers the domains, and what
 /// `outside` kept.
 pub(crate) fn start<P, S>(
     setup: Setup,
-    prompts: impl FnOnce(&Arc<RunningApps>) -> (Arc<dyn Prompts>, P),
+    prompts: impl FnOnce() -> (Arc<dyn Prompts>, P),
     outside: impl FnOnce(BeforeTheEngine<'_>, P) -> Result<Outside<S>>,
 ) -> Result<(Started, S)> {
     let running = Arc::new(RunningApps::default());
-    let (prompts, prompted) = prompts(&running);
+    let (prompts, prompted) = prompts();
     let Domains {
         packages,
         permissions,
@@ -312,7 +312,7 @@ pub(crate) mod tests {
         setup: Setup,
         outside: impl FnOnce(BeforeTheEngine<'_>) -> (Shell, PlatformState),
     ) -> Started {
-        let prompts = |_: &Arc<RunningApps>| (Arc::new(NoPrompts) as Arc<dyn Prompts>, ());
+        let prompts = || (Arc::new(NoPrompts) as Arc<dyn Prompts>, ());
         let (started, ()) = start(setup, prompts, |before, ()| {
             let (shell, platform) = outside(before);
             Ok(Outside::new(shell, platform, LocalCapabilities::new(), ()))

@@ -605,9 +605,8 @@ pub(crate) mod tests {
         fn asking_prompts(test: &str) -> (TestServer, crate::logic::prompts::PromptRequests) {
             TestServer::over_with(
                 test,
-                |running| {
-                    let (prompts, requests) =
-                        crate::logic::prompts::PromptsOnRequest::new(Arc::clone(running));
+                || {
+                    let (prompts, requests) = crate::logic::prompts::PromptsOnRequest::new();
                     (Arc::new(prompts) as Arc<dyn Prompts>, requests)
                 },
                 || {
@@ -619,7 +618,7 @@ pub(crate) mod tests {
 
         /// A server of the test's own over the shell `outside` makes, with nobody to ask.
         fn over(test: &str, outside: impl FnOnce() -> (Shell, PlatformState)) -> TestServer {
-            let prompts = |_: &Arc<RunningApps>| (Arc::new(NoPrompts) as Arc<dyn Prompts>, ());
+            let prompts = || (Arc::new(NoPrompts) as Arc<dyn Prompts>, ());
             TestServer::over_with(test, prompts, outside).0
         }
 
@@ -627,7 +626,7 @@ pub(crate) mod tests {
         /// `prompts` makes, with what it keeps of them.
         fn over_with<P>(
             test: &str,
-            prompts: impl FnOnce(&Arc<RunningApps>) -> (Arc<dyn Prompts>, P),
+            prompts: impl FnOnce() -> (Arc<dyn Prompts>, P),
             outside: impl FnOnce() -> (Shell, PlatformState),
         ) -> (TestServer, P) {
             let folder =
