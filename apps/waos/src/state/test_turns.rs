@@ -9,6 +9,7 @@
 //! change that wakes nothing fails at [`WITHIN`].
 
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::Instant;
 
@@ -45,11 +46,19 @@ pub(crate) fn turn_until(platform: &TestPlatform, what: &str, mut turn: impl FnM
 }
 
 /// Waits for `event` on a thread of its own, then wakes `host`, as a test's host hears of it: for
-/// a test turning its app until what the engine announces with `event`, as a program ending, has
-/// happened.
-pub(crate) fn wake_once(event: impl Future + Send + 'static, host: Arc<dyn Dispatcher>) {
+/// a test turning its app until what the engine announces with `event` (a program ending, or
+/// frozen) has happened. Answers whether it has: set before the wake, so the turn it wakes reads
+/// it set, however briefly what `event` waited for held.
+pub(crate) fn wake_once(
+    event: impl Future + Send + 'static,
+    host: Arc<dyn Dispatcher>,
+) -> Arc<AtomicBool> {
+    let happened = Arc::new(AtomicBool::new(false));
+    let announced = Arc::clone(&happened);
     thread::spawn(move || {
         futures::executor::block_on(event);
+        announced.store(true, Ordering::Release);
         host.wake_now();
     });
+    happened
 }

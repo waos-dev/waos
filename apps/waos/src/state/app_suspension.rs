@@ -31,3 +31,33 @@ pub(crate) fn follow_app_suspension(app: &mut App, engine: Arc<WaOS>) {
         .on_pause(app, Rc::new(suspend))
         .on_restart(app, Rc::new(resume));
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use waft::AppLifecycleState;
+    use waft_services::ServicesBinding;
+    use waft_test::TestPlatform;
+
+    use crate::state::test_system::{Lines, TestSystem};
+
+    const FOREVER: &str = "dev.example.forever";
+
+    /// The system sends the app to `state`, as Waft's host reports it.
+    fn system_reports(system: &TestSystem, state: AppLifecycleState) {
+        let mut app = system.shell.app();
+        ServicesBinding::instance(&mut app).handle_lifecycle_message(&mut app, state);
+    }
+
+    #[test]
+    fn an_app_is_frozen_as_the_system_suspends_waos() {
+        let system = TestSystem::new(TestPlatform::new());
+        let lines = Arc::new(Lines::default());
+        let running = system.run_as(waos_test_programs::FOREVER, FOREVER, &lines);
+        system.run_tasks_until("the app counts", || !lines.all().is_empty());
+
+        system_reports(&system, AppLifecycleState::Paused);
+        system.run_tasks_until_frozen(&running);
+    }
+}

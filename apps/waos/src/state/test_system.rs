@@ -10,6 +10,7 @@ use crate::state::test_turns::{Turn, turn_until, wake_once};
 use std::cell::{Cell, RefCell};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex, OnceLock};
 use waft::ui::Dispatcher;
 
@@ -248,6 +249,12 @@ impl TestSystem {
             self.shell.cell().checkpoint();
             if done() { Turn::Done } else { Turn::Idle }
         });
+    }
+
+    /// Runs the app's tasks until the engine says `running` is frozen.
+    pub(crate) fn run_tasks_until_frozen(&self, running: &AppInstance) {
+        let frozen = wake_once(running.frozen(), self.platform.dispatcher());
+        self.run_tasks_until("the app is frozen", || frozen.load(Ordering::Acquire));
     }
 }
 
