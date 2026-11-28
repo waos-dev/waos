@@ -1,6 +1,6 @@
 # Who owns what
 
-Each thing WaOS keeps has one owner, a domain, which keeps every rule about it. A domain is handed what it needs from outside when it is made, and the app's startup puts the domains together. *Why:* a rule kept by its callers is forgotten by the next caller.
+Each thing WaOS keeps has one owner, a domain, which keeps every rule about it. A domain is handed what it needs from outside when it is made, and the app's one startup puts the domains together, for the desktop app, the headless entry and the tests alike ([startup.rs](/apps/waos/src/logic/startup.rs)). *Why:* a rule kept by its callers is forgotten by the next caller.
 
 - **Packages own what is installed and every change to it.** An app is always one whole version. What is checked is what is installed. An update comes from the same publisher. Installed means ready to open. An app is stopped before it changes and does not start while it changes. Every change is announced. An install in flight is a session with its progress and cancel, from the moment it is asked, and the removals under way are told beside them; a caller's newer session for an app replaces its older one, and a removal cancels them all. Handed: a compiler, and a way to stop an app. ([packages](/crates/waos-services/src/packages/mod.rs))
   - *Today:* `programs/<id>/` holds the app's versions beside the settings Permissions keeps there and the own folders app storage keeps there, and a removal moves that folder away whole, those with it. Only who asked is recorded of a caller, and no app asks yet.

@@ -11,8 +11,8 @@
 //! runs with (`environments`): this computer's capabilities and the grants of the store's settings;
 //! the library's side of the store: a package opened with WaOS, what a source's listing offers
 //! against what is installed, an installed app started however it is asked (`app_starter`), the
-//! apps running (`running_apps`) and the services that keep them put together with the package
-//! manager (`app_services`), each installed program's shortcut on Android's home screen and WaOS's
+//! apps running (`running_apps`), and WaOS's one startup, which puts the domains together for the
+//! desktop app, the headless entry and the tests (`startup`), each installed program's shortcut on Android's home screen and WaOS's
 //! icon's menu, made to match what is installed (`program_shortcuts`), and a settings
 //! page and what the user changes on it (`setting_changes`); when the desktop's launcher shows and
 //! goes (`launcher_rules`), and where it shows (`launcher_placement`); where the programs' prompts go (`prompts`), their questions
@@ -40,7 +40,6 @@
 //! application is `state`'s.
 
 pub(crate) mod activity;
-pub(crate) mod app_services;
 pub(crate) mod app_starter;
 pub(crate) mod app_store;
 pub(crate) mod asking_now;
@@ -150,6 +149,7 @@ pub(crate) mod running_apps;
 pub(crate) mod setting_changes;
 #[cfg(any(target_os = "macos", target_os = "android"))]
 pub(crate) mod simulated_cameras;
+pub(crate) mod startup;
 pub(crate) mod system_notifications;
 pub(crate) mod tab_list;
 pub(crate) mod tab_page;

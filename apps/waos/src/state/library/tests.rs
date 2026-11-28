@@ -25,14 +25,14 @@ use waos_package::{Manifest, ProgramKind, SigningKey};
 use super::test_server::Server;
 use super::*;
 use crate::logic::app_starter::StartStage;
-use crate::logic::environments::ProgramEnvironments;
 use crate::logic::opened_package::tests::{write_package, write_package_of};
 use crate::logic::package_copies::PackageCopies;
-use crate::logic::program_places::{ProgramPlace, ProgramPlaces};
 use crate::logic::program_shortcuts::{
     KeptShortcut, ProgramShortcut, ShortcutOpens, SystemShortcuts,
 };
 use crate::logic::running_apps::RunningApps;
+use crate::logic::startup::Setup;
+use crate::logic::startup::tests::start_asking_nobody;
 use crate::logic::test_engine::{self, NoWindows, WITHIN};
 use crate::logic::test_installs::{self, HeldCompiler};
 
@@ -68,42 +68,27 @@ impl TestLibrary {
         let folder = tempfile::tempdir().unwrap();
         let preferences = preferences(folder.path());
         let copies = PackageCopies::clear(folder.path().join("package-copies")).unwrap();
-        let runs = Arc::new(RunningApps::default());
         let compiler = Arc::new(HeldCompiler::default());
-        let crate::logic::app_services::Domains {
-            packages,
-            permissions,
-            sources,
-            storage,
-            ..
-        } = test_installs::domains_compiling(
-            &folder.path().join("store"),
-            &runs,
-            Arc::new(waos_services::permissions::NoPrompts),
-            Arc::clone(&compiler) as Arc<dyn waos_services::packages::CodeCompiler>,
-        );
-        let services = AppServices::new(
-            Arc::clone(&runs),
-            packages,
-            permissions.clone(),
-            Arc::new(test_engine::engine(Arc::new(NoWindows))),
-            ProgramEnvironments::new(
-                waos_local::LocalCapabilities::new(),
-                permissions.clone(),
-                storage.clone(),
-            ),
-            ProgramPlaces::new(ProgramPlace::Windows),
-        );
+        let work = work().unwrap();
+        let setup = Setup {
+            install_compiler: Arc::clone(&compiler)
+                as Arc<dyn waos_services::packages::CodeCompiler>,
+            ..Setup::for_tests(folder.path(), work.handle().clone())
+        };
+        let started = start_asking_nobody(setup, |_before| {
+            let shell = test_engine::shell(Arc::new(NoWindows));
+            (shell, test_engine::no_screens())
+        });
+        let runs = Arc::clone(&started.running);
         let cell = AppCell::new();
         let library = open_library(
             &mut cell.borrow_mut(),
-            sources,
-            services,
+            LibraryDomains::of(&started),
             copies,
             programs_open,
             preferences,
-        )
-        .unwrap();
+            work,
+        );
         let asked_to_be_seen = Rc::new(Mutex::new(0));
         let counted = Rc::clone(&asked_to_be_seen);
         let seen = cell
@@ -219,7 +204,7 @@ impl TestLibrary {
     fn installs_forever(&self) {
         let forever = std::fs::read(waos_test_programs::FOREVER_SHOWN).unwrap();
         let package = self.package(TRIANGLE, "1.0.0", &forever);
-        let packages = self.read(|library| Arc::clone(&library.services.packages));
+        let packages = self.read(|library| Arc::clone(&library.packages));
         test_installs::install_package(&packages, &package);
         self.wait_until("the install read", |library| {
             !library.installed().is_empty()
@@ -265,7 +250,7 @@ fn a_package_opened_with_waos_is_installed_once_the_user_says_yes() {
 #[test]
 fn a_development_install_made_elsewhere_shows_named_as_one() {
     let test = TestLibrary::new();
-    let packages = test.read(|library| Arc::clone(&library.services.packages));
+    let packages = test.read(|library| Arc::clone(&library.packages));
     let manifest = Manifest::new(
         TRIANGLE.parse().unwrap(),
         "Triangle",
@@ -755,7 +740,7 @@ fn an_install_is_installing_until_its_code_is_compiled_and_then_shows() {
     library.update(|library, cx| library.open_files(vec![package], cx));
     let triangle: ProgramId = TRIANGLE.parse().unwrap();
     let session_of = |library: &Library| {
-        let sessions = library.services.packages.sessions();
+        let sessions = library.packages.sessions();
         let session = sessions
             .borrow()
             .iter()
@@ -774,11 +759,10 @@ fn an_install_is_installing_until_its_code_is_compiled_and_then_shows() {
     library.wait_until("the install read", |library| {
         !library.installed().is_empty()
     });
-    let code = library.read(|library| {
-        test_installs::installed_version(&library.services.packages, TRIANGLE).code()
-    });
+    let code = library
+        .read(|library| test_installs::installed_version(&library.packages, TRIANGLE).code());
     assert!(
-        library.read(|library| library.services.engine.compiler().is_compiled(&code)),
+        library.read(|library| library.engine.compiler().is_compiled(&code)),
         "installed with its code compiled"
     );
 }
@@ -790,9 +774,8 @@ fn the_first_open_after_a_compiler_change_optimizes_the_program() {
     let library = TestLibrary::new();
     library.installs_forever();
     let triangle: ProgramId = TRIANGLE.parse().unwrap();
-    let code = library.read(|library| {
-        test_installs::installed_version(&library.services.packages, TRIANGLE).code()
-    });
+    let code = library
+        .read(|library| test_installs::installed_version(&library.packages, TRIANGLE).code());
     std::fs::remove_dir_all(&code).unwrap();
     let held = library.compiler.hold();
     library.update(|library, cx| library.open(&triangle, cx));
@@ -805,7 +788,7 @@ fn the_first_open_after_a_compiler_change_optimizes_the_program() {
         library.start_stage(&triangle).is_none()
     });
     assert_eq!(library.read(|library| library.operation(&triangle)), None);
-    assert!(library.read(|library| library.services.engine.compiler().is_compiled(&code)));
+    assert!(library.read(|library| library.engine.compiler().is_compiled(&code)));
     futures::executor::block_on(library.runs.stop_all());
     wait_for_runs(&library, &[]);
 }
@@ -815,9 +798,8 @@ fn a_removed_program_leaves_no_code() {
     let library = TestLibrary::new();
     library.installs_forever();
     let triangle: ProgramId = TRIANGLE.parse().unwrap();
-    let code = library.read(|library| {
-        test_installs::installed_version(&library.services.packages, TRIANGLE).code()
-    });
+    let code = library
+        .read(|library| test_installs::installed_version(&library.packages, TRIANGLE).code());
     library.removes(&triangle);
     assert!(library.installed().is_empty());
     assert!(!code.exists(), "its code went with it");
@@ -828,9 +810,8 @@ fn an_update_of_a_running_program_ends_the_old_run_first_and_leaves_the_new_vers
     let library = TestLibrary::new();
     library.installs_forever();
     let triangle: ProgramId = TRIANGLE.parse().unwrap();
-    let old_code = library.read(|library| {
-        test_installs::installed_version(&library.services.packages, TRIANGLE).code()
-    });
+    let old_code = library
+        .read(|library| test_installs::installed_version(&library.packages, TRIANGLE).code());
     library.update(|library, cx| library.open(&triangle, cx));
     wait_for_runs(&library, &[TRIANGLE]);
     let forever = std::fs::read(waos_test_programs::FOREVER_SHOWN).unwrap();
@@ -844,11 +825,10 @@ fn an_update_of_a_running_program_ends_the_old_run_first_and_leaves_the_new_vers
         "the old version's run ended before the update"
     );
     assert!(!old_code.exists(), "the old version's code went with it");
-    let code = library.read(|library| {
-        test_installs::installed_version(&library.services.packages, TRIANGLE).code()
-    });
+    let code = library
+        .read(|library| test_installs::installed_version(&library.packages, TRIANGLE).code());
     assert!(
-        library.read(|library| library.services.engine.compiler().is_compiled(&code)),
+        library.read(|library| library.engine.compiler().is_compiled(&code)),
         "the new version's, compiled at its install"
     );
 }
@@ -980,8 +960,8 @@ fn a_program_that_cannot_be_loaded_is_the_librarys_problem() {
         crate::logic::test_installs::EMPTY_COMPONENT,
     ));
     let triangle: ProgramId = TRIANGLE.parse().unwrap();
-    let version = library
-        .read(|library| test_installs::installed_version(&library.services.packages, TRIANGLE));
+    let version =
+        library.read(|library| test_installs::installed_version(&library.packages, TRIANGLE));
     test_installs::spoil(&version);
     library.update(|library, cx| library.open(&triangle, cx));
     library.wait_until("the open's answer", |library| library.problem().is_some());

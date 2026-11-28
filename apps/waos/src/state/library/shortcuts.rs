@@ -2,8 +2,9 @@
 //! Android: a program installed for the first time is offered a place on the home screen, as Play
 //! offers an installed app's icon, and so is any installed program from its held icon; each program
 //! opened goes first among the recent programs on WaOS's icon's menu; and what the system keeps is
-//! made to match what is installed, and where programs open, as WaOS starts, after every change of
-//! what is installed, and whenever the user chooses where programs open.
+//! made to match what is installed, and where programs open, as WaOS starts, after every change the
+//! package manager announces of what is installed, and whenever the user chooses where programs
+//! open.
 //!
 //! The invariant: a shortcut is made from what is installed as the library last read it, and its
 //! icon is decoded and shaped on the library's runtime, never on the main thread, since a package's
@@ -14,14 +15,14 @@ use std::rc::Rc;
 use waft::{App, Context};
 use waos_package::ProgramId;
 
-use super::Library;
+use super::{Library, follow};
 use crate::logic::program_shortcuts::{
     KeptShortcut, ProgramShortcut, ShortcutOpens, SystemShortcuts, changes_for, shortcut_icon,
 };
 
 impl Library {
-    /// From now on the installed programs' shortcuts are kept in `system`, and what it keeps now
-    /// is made to match what is installed.
+    /// From now on the installed programs' shortcuts are kept in `system`, and what it keeps is
+    /// made to match what the package manager has installed: now, and at each change it announces.
     pub(crate) fn keep_shortcuts(
         &mut self,
         system: Rc<dyn SystemShortcuts>,
@@ -29,6 +30,15 @@ impl Library {
     ) {
         self.shortcuts = Some(system);
         self.match_shortcuts(cx);
+        let changes = self.packages.installed_changes();
+        follow(
+            changes,
+            |library, changes, cx| {
+                library.read_installed_at(changes, cx);
+                library.match_shortcuts(cx);
+            },
+            cx,
+        );
     }
 
     /// Whether the installed program `id` can be put on the home screen now: where the launcher

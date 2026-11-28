@@ -24,7 +24,7 @@ use std::sync::mpsc;
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
-use super::app_services::AppServices;
+use super::app_starter::AppStarter;
 use super::asking_now::AskingNow;
 use super::dev_attach::{self, AttachContext};
 use super::dev_extensions;
@@ -36,15 +36,20 @@ use super::dev_pairing;
 use super::dev_refusal;
 use super::dev_settings::{self, SettingsContext};
 use super::developer_access::DeveloperAccess;
+use super::environments::ProgramEnvironments;
+use super::launch_outputs::LaunchOutputs;
 use super::opening;
+use super::running_apps::RunningApps;
 use super::{dev_input, dev_resize, dev_screenshot};
 use tokio::sync::{oneshot, watch};
 use tokio::task::JoinSet;
-use waos::OpenRequest;
 use waos::bindings::wasdk::platform::windows::Size;
+use waos::{OpenRequest, WaOS};
 use waos_dev_protocol::{
     Hello, Incoming, Listener, Locality, MAJOR, RefusedAnswer, Request, ServerConnection,
 };
+use waos_services::packages::PackageManager;
+use waos_services::permissions::Permissions;
 
 /// This build, as its hello names it: "WaOS 0.3.0".
 pub(crate) const BUILD: &str = concat!("WaOS ", env!("CARGO_PKG_VERSION"));
@@ -54,6 +59,20 @@ const CLOSING_WAIT: Duration = Duration::from_secs(2);
 
 /// How long a connection from the network may take over its TLS and WebSocket handshakes.
 const HANDSHAKE_WAIT: Duration = Duration::from_secs(10);
+
+/// The domains the dev server serves `waos` with, each handed to it by name.
+#[derive(Clone)]
+pub(crate) struct ServedDomains {
+    pub(crate) running: Arc<RunningApps>,
+    pub(crate) packages: Arc<PackageManager>,
+    pub(crate) starter: Arc<AppStarter>,
+    pub(crate) permissions: Permissions,
+    pub(crate) environments: Arc<ProgramEnvironments>,
+    /// What each app writes, which an attach reads.
+    pub(crate) outputs: Arc<LaunchOutputs>,
+    /// The engine, which counts today's activity of each app, for an inspection.
+    pub(crate) engine: Arc<WaOS>,
+}
 
 /// The server, listening until dropped. Dropping it stops every run, waits for the connections
 /// to hear so, removes the socket file, and returns once all that is done.
@@ -66,7 +85,7 @@ pub(crate) struct DevServer {
 }
 
 impl DevServer {
-    /// Listens at `socket` for `waos`'s requests on the apps `services` keeps: installing what it
+    /// Listens at `socket` for `waos`'s requests on the apps `served` keeps: installing what it
     /// sends as development installs, launching any installed app through its starter, and
     /// telling each attach what `asking` says its app's user is asked; opening files with an app,
     /// installed and opened, or running; reading and driving any program running; and reading and
@@ -74,7 +93,7 @@ impl DevServer {
     /// while `access` is on. Refused, as `Listener::bind` refuses, while another WaOS answers
     /// there.
     pub(crate) fn start(
-        services: AppServices,
+        served: ServedDomains,
         asking: Arc<AskingNow>,
         socket: &Path,
         access: DeveloperAccess,
@@ -83,7 +102,7 @@ impl DevServer {
         let (bound, binding) = mpsc::channel();
         let (connections_tx, active_connections) = watch::channel(0usize);
         let context = ServerContext {
-            services,
+            served,
             asking,
             socket: socket.to_owned(),
             access,
@@ -132,7 +151,7 @@ impl Drop for DevServer {
 /// What the server's thread serves with.
 struct ServerContext {
     /// The apps running, installed and started, and the engine they run on.
-    services: AppServices,
+    served: ServedDomains,
     /// What each program's user is asked now.
     asking: Arc<AskingNow>,
     socket: PathBuf,
@@ -209,7 +228,7 @@ async fn serve(mut listener: Listener, context: ServerContext, mut stopped: ones
             _ = &mut stopped => break,
         }
     }
-    context.services.running.stop_all().await;
+    context.served.running.stop_all().await;
     let closing = async { while connections.join_next().await.is_some() {} };
     if tokio::time::timeout(CLOSING_WAIT, closing).await.is_err() {
         tracing::warn!("some connections did not close in time");
@@ -235,14 +254,14 @@ impl Drop for ActiveConnection {
 
 /// What one connection is served with.
 struct ConnectionContext {
-    services: AppServices,
+    served: ServedDomains,
     asking: Arc<AskingNow>,
     access: DeveloperAccess,
 }
 
 fn connection_context(context: &ServerContext) -> ConnectionContext {
     ConnectionContext {
-        services: context.services.clone(),
+        served: context.served.clone(),
         asking: Arc::clone(&context.asking),
         access: context.access.clone(),
     }
@@ -251,21 +270,21 @@ fn connection_context(context: &ServerContext) -> ConnectionContext {
 impl ConnectionContext {
     fn install(&self) -> InstallContext {
         InstallContext {
-            packages: Arc::clone(&self.services.packages),
+            packages: Arc::clone(&self.served.packages),
         }
     }
 
     fn launch(&self) -> LaunchContext {
         LaunchContext {
-            starter: Arc::clone(&self.services.starter),
-            packages: Arc::clone(&self.services.packages),
+            starter: Arc::clone(&self.served.starter),
+            packages: Arc::clone(&self.served.packages),
         }
     }
 
     fn settings(&self) -> SettingsContext {
         SettingsContext {
-            permissions: self.services.permissions.clone(),
-            environments: Arc::clone(&self.services.environments),
+            permissions: self.served.permissions.clone(),
+            environments: Arc::clone(&self.served.environments),
         }
     }
 }
@@ -366,7 +385,7 @@ async fn serve_request(
     request: Request,
     context: &ConnectionContext,
 ) {
-    let runs = &context.services.running;
+    let runs = &context.served.running;
     match request {
         Request::Install(install) => {
             dev_install::install(connection, install, &context.install()).await;
@@ -381,7 +400,7 @@ async fn serve_request(
         Request::Attach { id } => {
             let attach = AttachContext {
                 runs,
-                outputs: &context.services.outputs,
+                outputs: &context.served.outputs,
                 asking: &context.asking,
             };
             dev_attach::serve(connection, &id, attach).await;
@@ -390,7 +409,7 @@ async fn serve_request(
             dev_extensions::call(connection, runs, &id, &name, params).await;
         }
         Request::ServingPrograms => {
-            dev_extensions::serving(connection, runs, &context.services.packages).await;
+            dev_extensions::serving(connection, runs, &context.served.packages).await;
         }
         Request::Open { id, files } => {
             if let Some(answer) = dev_refusal::elsewhere(connection.locality(), &id) {
@@ -401,9 +420,9 @@ async fn serve_request(
                 files,
                 links: Vec::new(),
             };
-            let services = &context.services;
-            let packages = &services.packages;
-            opening::answer(connection, &services.starter, runs, packages, &id, request).await;
+            let served = &context.served;
+            let packages = &served.packages;
+            opening::answer(connection, &served.starter, runs, packages, &id, request).await;
         }
         Request::Screenshot { id, window } => {
             dev_screenshot::answer(connection, runs, &context.asking, &id, window).await;
@@ -420,7 +439,7 @@ async fn serve_request(
         Request::Inspect { id, asked } => {
             let inspection = InspectionContext {
                 runs,
-                engine: &context.services.engine,
+                engine: &context.served.engine,
             };
             dev_inspect::answer(connection, inspection, &id, asked).await;
         }
@@ -448,7 +467,7 @@ pub(crate) mod tests {
     use std::time::{Duration, Instant};
 
     use serde::de::DeserializeOwned;
-    use waos::{RunningProgram, WaOS};
+    use waos::{PlatformState, RunningProgram, Shell};
 
     use waos_dev_protocol::{
         Answer, Asked, ClientConnection, Component, DeviceAddress, FileDialog, Fingerprint, Hello,
@@ -461,14 +480,15 @@ pub(crate) mod tests {
 
     use super::*;
     use crate::logic::developer_access::Listening;
-    use crate::logic::environments::ProgramEnvironments;
     use crate::logic::open_command::{self, Sent};
     use crate::logic::opened_package::tests::write_package;
-    use crate::logic::program_places::{ProgramPlace, ProgramPlaces};
+    use crate::logic::program_places::ProgramPlace;
     use crate::logic::quit_question::every_program_agrees;
     use crate::logic::running_apps::RunningApps;
+    use crate::logic::startup::{self, Outside, Setup};
     use crate::logic::test_engine::{self, NoWindows, REFUSAL, WITHIN};
     use crate::logic::test_installs;
+    use waos_services::permissions::{NoPrompts, Prompts};
 
     /// The development id of the program `id`: what `waos install` installs it as, and what a run
     /// of it runs as.
@@ -502,7 +522,9 @@ pub(crate) mod tests {
         pub(crate) permissions: waos_services::permissions::Permissions,
         /// What the server's programs' users are asked, which a test notes as the prompts do.
         pub(crate) asking: Arc<AskingNow>,
-        pub(crate) services: AppServices,
+        pub(crate) packages: Arc<waos_services::packages::PackageManager>,
+        pub(crate) starter: Arc<crate::logic::app_starter::AppStarter>,
+        pub(crate) places: crate::logic::program_places::ProgramPlaces,
         /// Its developer access, off until a test turns it on, listening on the loopback.
         pub(crate) access: DeveloperAccess,
         server: Option<DevServer>,
@@ -511,95 +533,104 @@ pub(crate) mod tests {
     impl TestServer {
         /// A server whose programs run with no windows.
         pub(crate) fn start(test: &str) -> TestServer {
-            TestServer::over(test, || Arc::new(test_engine::engine(Arc::new(NoWindows))))
+            TestServer::over(test, || {
+                let shell = test_engine::shell(Arc::new(NoWindows));
+                (shell, test_engine::no_screens())
+            })
         }
 
         /// A server whose programs' windows draw.
         #[cfg(any(target_vendor = "apple", target_os = "linux"))]
         pub(crate) fn drawing(test: &str) -> TestServer {
-            TestServer::over(test, test_engine::drawing::engine)
+            TestServer::over(test, || test_engine::drawing::outside(true))
         }
 
         /// A server whose programs' views draw in no window, as a phone's deck shows a tab.
         #[cfg(any(target_vendor = "apple", target_os = "linux"))]
         pub(crate) fn drawing_in_no_window(test: &str) -> TestServer {
-            TestServer::over(test, test_engine::drawing::deck_engine)
+            TestServer::over(test, || test_engine::drawing::outside(false))
         }
 
-        /// A server whose engine uses `PromptsOnRequest` wired to `asking`, returning the server
-        /// and the prompt requests receiver.
+        /// A server whose apps' users are asked through `PromptsOnRequest`, and where its
+        /// questions arrive.
         fn asking_prompts(test: &str) -> (TestServer, crate::logic::prompts::PromptRequests) {
-            let runs = Arc::new(RunningApps::default());
-            let (prompts, requests) =
-                crate::logic::prompts::PromptsOnRequest::new(Arc::clone(&runs));
-            let server = TestServer::over_with(test, runs, Arc::new(prompts), || {
-                Arc::new(test_engine::engine(Arc::new(NoWindows)))
-            });
-            (server, requests)
-        }
-
-        /// A server of the test's own over the engine `engine` makes, with nobody to ask.
-        fn over(test: &str, engine: impl FnOnce() -> Arc<WaOS>) -> TestServer {
-            let runs = Arc::new(RunningApps::default());
-            Self::over_with(
+            TestServer::over_with(
                 test,
-                runs,
-                Arc::new(waos_services::permissions::NoPrompts),
-                engine,
+                |running| {
+                    let (prompts, requests) =
+                        crate::logic::prompts::PromptsOnRequest::new(Arc::clone(running));
+                    (Arc::new(prompts) as Arc<dyn Prompts>, requests)
+                },
+                || {
+                    let shell = test_engine::shell(Arc::new(NoWindows));
+                    (shell, test_engine::no_screens())
+                },
             )
         }
 
-        /// A server over the engine `engine` makes, its apps running among `runs` and their
-        /// users asked through `prompts`.
-        fn over_with(
+        /// A server of the test's own over the shell `outside` makes, with nobody to ask.
+        fn over(test: &str, outside: impl FnOnce() -> (Shell, PlatformState)) -> TestServer {
+            let prompts = |_: &Arc<RunningApps>| (Arc::new(NoPrompts) as Arc<dyn Prompts>, ());
+            TestServer::over_with(test, prompts, outside).0
+        }
+
+        /// A server over the shell `outside` makes, its apps' users asked through what
+        /// `prompts` makes, with what it keeps of them.
+        fn over_with<P>(
             test: &str,
-            runs: Arc<RunningApps>,
-            prompts: Arc<dyn waos_services::permissions::Prompts>,
-            engine: impl FnOnce() -> Arc<WaOS>,
-        ) -> TestServer {
+            prompts: impl FnOnce(&Arc<RunningApps>) -> (Arc<dyn Prompts>, P),
+            outside: impl FnOnce() -> (Shell, PlatformState),
+        ) -> (TestServer, P) {
             let folder =
                 std::env::temp_dir().join(format!("waos-app-{}-{test}", std::process::id()));
             let _ = fs::remove_dir_all(&folder);
-            let engine = engine();
             let socket = Self::test_listener(&folder, test);
-            let crate::logic::app_services::Domains {
+            let setup = Setup::for_tests(&folder, tokio::runtime::Handle::current());
+            let (started, (asking, prompted)) = startup::start(setup, prompts, |before, kept| {
+                let (shell, platform) = outside();
+                let asking = AskingNow::new(before.permissions.asking());
+                let capabilities = waos_local::LocalCapabilities::new();
+                Ok(Outside::new(shell, platform, capabilities, (asking, kept)))
+            })
+            .expect("WaOS starts");
+            let startup::Started {
+                running,
                 packages,
                 permissions,
                 storage,
-                ..
-            } = test_installs::domains(&folder.join("store"), &runs, prompts);
-            let asking = AskingNow::new(permissions.asking());
-            let services = AppServices::new(
-                Arc::clone(&runs),
-                packages,
-                permissions.clone(),
                 engine,
-                ProgramEnvironments::new(
-                    waos_local::LocalCapabilities::new(),
-                    permissions.clone(),
-                    storage.clone(),
-                ),
-                ProgramPlaces::new(ProgramPlace::Windows),
-            );
+                environments,
+                places,
+                outputs,
+                starter,
+                ..
+            } = started;
+            let served = ServedDomains {
+                running: Arc::clone(&running),
+                packages: Arc::clone(&packages),
+                starter: Arc::clone(&starter),
+                permissions: permissions.clone(),
+                environments,
+                outputs,
+                engine,
+            };
             let access = DeveloperAccess::on_loopback(folder.join("developer"));
-            let server = DevServer::start(
-                services.clone(),
-                Arc::clone(&asking),
-                &socket,
-                access.clone(),
-            )
-            .expect("the server binds");
-            TestServer {
+            let server = DevServer::start(served, Arc::clone(&asking), &socket, access.clone())
+                .expect("the server binds");
+            let server = TestServer {
                 folder,
                 socket,
-                runs,
+                runs: running,
                 storage,
                 permissions,
                 asking,
-                services,
+                packages,
+                starter,
+                places,
                 access,
                 server: Some(server),
-            }
+            };
+            (server, prompted)
         }
 
         /// Where the test's server listens, apart from every other test's and from the user's own
@@ -673,11 +704,7 @@ pub(crate) mod tests {
         /// Installs the test program at `component` as the program `id`'s development install,
         /// as [`install`](Self::install) would, with its code compiled already.
         pub(crate) fn install_compiled(&self, id: &str, component: &str) {
-            test_installs::install_development(
-                &self.services.packages,
-                development_manifest(id),
-                component,
-            );
+            test_installs::install_development(&self.packages, development_manifest(id), component);
         }
 
         /// What WaOS answers an install of `component` as the program `id`, sent in one part.
@@ -1078,7 +1105,7 @@ pub(crate) mod tests {
             .await;
         server.wait_for_runs(&[]).await;
         // What a compiler change leaves: no code of this engine's.
-        let code = test_installs::installed_version(&server.services.packages, id.as_str()).code();
+        let code = test_installs::installed_version(&server.packages, id.as_str()).code();
         fs::remove_dir_all(&code).unwrap();
         let optimized = server.launch(&id, Vec::new(), Vec::new()).await;
         assert_eq!(optimized, [LaunchAnswer::Compiling, LaunchAnswer::Launched]);
@@ -1109,10 +1136,10 @@ pub(crate) mod tests {
         let component = fs::read(waos_test_programs::FOREVER).unwrap();
         let id = development(FOREVER);
         server.install(FOREVER, &component).await;
-        server.services.places.set(&id, ProgramPlace::Tab);
+        server.places.set(&id, ProgramPlace::Tab);
         let launched = server.launch(&id, Vec::new(), Vec::new()).await;
         assert_eq!(launched, [LaunchAnswer::Launched]);
-        assert_eq!(server.services.places.place_of(&id), ProgramPlace::Tab);
+        assert_eq!(server.places.place_of(&id), ProgramPlace::Tab);
         server
             .ask::<StopAnswer>(&Request::Stop { id: id.clone() })
             .await;
@@ -1205,11 +1232,8 @@ pub(crate) mod tests {
         started(&mut running).await;
         server.install_compiled(OPENER, waos_test_programs::OPENER);
         // What a compiler change leaves: the launch compiles.
-        let code = test_installs::installed_version(
-            &server.services.packages,
-            development(OPENER).as_str(),
-        )
-        .code();
+        let code =
+            test_installs::installed_version(&server.packages, development(OPENER).as_str()).code();
         fs::remove_dir_all(&code).unwrap();
         let launching = {
             let (socket, id) = (server.socket.clone(), development(OPENER));
@@ -1273,7 +1297,7 @@ pub(crate) mod tests {
         let component = fs::read(waos_test_programs::FOREVER).unwrap();
         let key = waos_package::SigningKey::generate();
         let package = write_package(&packages, FOREVER, "Forever", "1.0.0", &component, &key);
-        crate::logic::test_installs::install_package(&server.services.packages, &package);
+        crate::logic::test_installs::install_package(&server.packages, &package);
         let mut client = server
             .run(FOREVER, Path::new(waos_test_programs::FOREVER))
             .await;
@@ -1287,7 +1311,6 @@ pub(crate) mod tests {
         let names = server.runs.programs().await;
         assert_eq!(names[0].name(), FOREVER_DEVELOPMENT);
         let development = server
-            .services
             .packages
             .installed_program(&development(FOREVER))
             .expect("its development install");
@@ -1297,10 +1320,7 @@ pub(crate) mod tests {
             Some(waos_package::Category::Productivity),
             "filed as its source says"
         );
-        let published = server
-            .services
-            .packages
-            .installed_program(&FOREVER.parse().unwrap());
+        let published = server.packages.installed_program(&FOREVER.parse().unwrap());
         assert_eq!(
             published.and_then(|installed| installed.publisher()),
             Some(key.publisher()),
@@ -1325,7 +1345,7 @@ pub(crate) mod tests {
         let frames = frames_until(&mut client, |frame| matches!(frame, RunEvent::Ended(_))).await;
         assert_eq!(frames.last(), Some(&RunEvent::Ended(RunEnd::Stopped)));
         server.wait_for_runs(&[]).await;
-        assert!(server.services.packages.installed().is_empty());
+        assert!(server.packages.installed().is_empty());
         assert!(
             !server
                 .folder
@@ -1355,13 +1375,13 @@ pub(crate) mod tests {
         let component = fs::read(waos_test_programs::FOREVER).unwrap();
         let key = waos_package::SigningKey::generate();
         let package = write_package(&packages, FOREVER, "Forever", "1.0.0", &component, &key);
-        crate::logic::test_installs::install_package(&server.services.packages, &package);
+        crate::logic::test_installs::install_package(&server.packages, &package);
         let id: ProgramId = FOREVER.parse().unwrap();
         let opened = crate::logic::app_starter::StartRequest::open(
             id.clone(),
             crate::logic::app_starter::Opening::ByTheUser,
         );
-        server.services.starter.start(opened).await.unwrap();
+        server.starter.start(opened).await.unwrap();
         let mut client = server.attach(&id).await;
         started(&mut client).await;
         let mut frames = Vec::new();
@@ -1447,7 +1467,7 @@ pub(crate) mod tests {
         let component = fs::read(waos_test_programs::FOREVER).unwrap();
         let key = waos_package::SigningKey::generate();
         let package = write_package(&packages, FOREVER, "Forever", "1.0.0", &component, &key);
-        crate::logic::test_installs::install_package(&server.services.packages, &package);
+        crate::logic::test_installs::install_package(&server.packages, &package);
         let id: ProgramId = FOREVER.parse().unwrap();
         let set = Request::Set {
             id: id.clone(),
@@ -1733,10 +1753,7 @@ pub(crate) mod tests {
         };
         assert_eq!(refusal.kind, RefusalKind::Failed);
         assert!(refusal.message.contains("nonsense"), "{refusal:?}");
-        assert!(
-            server.services.packages.installed().is_empty(),
-            "nothing installed"
-        );
+        assert!(server.packages.installed().is_empty(), "nothing installed");
         server.wait_for_runs(&[]).await;
     }
 
@@ -1766,7 +1783,7 @@ pub(crate) mod tests {
             panic!("refused");
         };
         assert!(refusal.message.contains("digest"), "{refusal:?}");
-        assert!(server.services.packages.installed().is_empty());
+        assert!(server.packages.installed().is_empty());
     }
 
     #[tokio::test]
@@ -1820,7 +1837,7 @@ pub(crate) mod tests {
         let component = fs::read(waos_test_programs::OPENER).unwrap();
         let key = waos_package::SigningKey::generate();
         let package = write_package(&packages, OPENER, "Opener", "1.0.0", &component, &key);
-        crate::logic::test_installs::install_package(&server.services.packages, &package);
+        crate::logic::test_installs::install_package(&server.packages, &package);
         let file = file_to_open(&server, "my notes");
         let id = OPENER.parse().unwrap();
         let sent = open_command::send_to(&server.socket, &id, vec![file.clone()]).await;

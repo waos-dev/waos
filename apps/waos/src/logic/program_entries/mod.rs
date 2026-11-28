@@ -48,7 +48,6 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::io::{self, ErrorKind};
 use std::path::{Path, PathBuf};
-use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex, PoisonError};
 
 use serde::{Deserialize, Serialize};
@@ -168,16 +167,6 @@ struct KeptEntry {
     waos: PathBuf,
 }
 
-/// Where the store's changes reach the entries' thread, which makes them match the store at each.
-pub(crate) struct StoreChanges(Sender<()>);
-
-impl StoreChanges {
-    /// What is installed changed: a program was installed, updated or removed.
-    pub(crate) fn changed(&self) {
-        let _ = self.0.send(());
-    }
-}
-
 impl ProgramEntries {
     /// The entries of this system's own kind, among `folders`, starting the WaOS `identities`
     /// names: Start menu shortcuts on Windows, desktop entries on Linux.
@@ -194,24 +183,25 @@ impl ProgramEntries {
         ProgramEntries::open(Box::new(system), identities, &folders.data)
     }
 
-    /// From now on, the entries match the installed programs of `packages`, on a thread of their own: now,
-    /// and again at each change told to what this answers.
-    pub(crate) fn follow(self, packages: Arc<PackageManager>) -> io::Result<StoreChanges> {
-        let (changes, arriving) = mpsc::channel();
+    /// From now on, the entries match the installed programs of `packages`, on a thread of their
+    /// own: now, and again at each change the package manager announces.
+    pub(crate) fn follow(self, packages: Arc<PackageManager>) -> io::Result<()> {
         std::thread::Builder::new()
             .name("waos-program-entries".to_owned())
-            .spawn(move || self.keep_matching(&packages, &arriving))?;
-        let changes = StoreChanges(changes);
-        changes.changed();
-        Ok(changes)
+            .spawn(move || self.keep_matching(&packages))?;
+        Ok(())
     }
 
-    /// Matches the store at each change arriving, those that came meanwhile as one, until no one
-    /// can tell of another.
-    fn keep_matching(&self, packages: &PackageManager, arriving: &Receiver<()>) {
-        while arriving.recv().is_ok() {
-            while arriving.try_recv().is_ok() {}
+    /// Matches the store now and at each change it announces, those that came meanwhile as one,
+    /// until the package manager is gone.
+    fn keep_matching(&self, packages: &PackageManager) {
+        let mut changes = packages.installed_changes();
+        loop {
+            changes.borrow_and_update();
             self.match_installed(&ProgramEntry::of_installed(packages));
+            if futures::executor::block_on(changes.changed()).is_err() {
+                return;
+            }
         }
     }
 

@@ -181,7 +181,7 @@ impl Library {
                     | SettingsPage::AppPermission(..)
                     | SettingsPage::AppDetail(..),
                 ) => {
-                    self.offered = self.services.environments.offered();
+                    self.offered = self.environments.offered();
                 }
                 LibraryPage::App(id) => self.read_screenshots_of(&id.clone(), cx),
                 LibraryPage::Home | LibraryPage::AppStore | LibraryPage::Settings(_) => {}
@@ -201,7 +201,7 @@ impl Library {
 
     /// The settings `of` shows; why not, when they cannot be read.
     pub(crate) fn settings(&self, of: &SettingsOf) -> Result<ShownSettings, String> {
-        let permissions = &self.services.permissions;
+        let permissions = &self.permissions;
         let global = permissions
             .global_settings()
             .map_err(|error| format!("{error}"))?;
@@ -221,7 +221,7 @@ impl Library {
     pub(crate) fn activity(&self, of: &SettingsOf) -> Option<waos_activity::Activity> {
         match of {
             SettingsOf::Global => None,
-            SettingsOf::Program(id) => Some(activity_of(&self.services.engine, id)),
+            SettingsOf::Program(id) => Some(activity_of(&self.engine, id)),
         }
     }
 
@@ -234,7 +234,7 @@ impl Library {
         cx: &mut Context<Library>,
     ) {
         let mut refused = None;
-        let permissions = &self.services.permissions;
+        let permissions = &self.permissions;
         let changed = match of {
             SettingsOf::Global => permissions.change_global_settings(|global| {
                 refused = change_global(global, change).err();
@@ -403,7 +403,7 @@ fn take_settings_requests(
 /// The library notifies at each change of the settings, so a page shows the change.
 fn notify_settings_changes(app: &mut App, library: &Entity<Library>) {
     let watched = library.downgrade();
-    let permissions = library.read(app).services.permissions.clone();
+    let permissions = library.read(app).permissions.clone();
     app.spawn(async move |cx| {
         loop {
             permissions.changed().await;

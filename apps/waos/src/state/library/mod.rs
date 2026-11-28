@@ -61,22 +61,23 @@ use tokio::sync::watch;
 use waft::ui::{self, NotificationActivation, PickedFile};
 use waft::{App, Context, Entity, EventEmitter, OpenRequestedCallback, WeakEntity};
 use waft_single_instance::{LaterLaunches, Launch};
-use waos::OpenRequest;
 use waos::bindings::wasdk::platform::notifications::Activation;
+use waos::{OpenRequest, WaOS};
 use waos_package::{Category, ListedProgram, ProgramId, ProgramKind};
 use waos_services::packages::{
     Caller, InstallProgress, InstallSessionInfo, InstalledProgram, PackageContent, PackageManager,
 };
+use waos_services::permissions::Permissions;
 use waos_services::sources::{Source, Sources, Url};
 
-use crate::logic::app_services::AppServices;
-use crate::logic::app_starter::{Opening, StartPlace, StartRequest, StartStage};
+use crate::logic::app_starter::{AppStarter, Opening, StartPlace, StartRequest, StartStage};
 use crate::logic::app_store::{
     AppStorePlace, CatalogApp, ListedSource, catalog, featured, updates,
 };
 use crate::logic::command_line::{Command, command};
 #[cfg(desktop)]
 use crate::logic::developer_access::DeveloperAccess;
+use crate::logic::environments::ProgramEnvironments;
 use crate::logic::notification_permissions::NotificationPermissions;
 use crate::logic::offers::{Offer, offer_of};
 use crate::logic::often_used::{most_started, starts_lately};
@@ -85,8 +86,9 @@ use crate::logic::opening;
 use crate::logic::package_copies::{PackageCopies, document_name};
 use crate::logic::preferences::{KeptPreferences, Preferences, PreferencesFile};
 use crate::logic::program_faces::program_face;
-use crate::logic::program_places::ProgramPlace;
+use crate::logic::program_places::{ProgramPlace, ProgramPlaces};
 use crate::logic::program_shortcuts::SystemShortcuts;
+use crate::logic::running_apps::RunningApps;
 use crate::logic::setting_changes::Offered;
 use crate::logic::system_notifications::program_activation;
 use crate::state::deck::tabs::Tabs;
@@ -120,8 +122,20 @@ pub(crate) enum PackageOperation {
 pub(crate) struct Library {
     /// The sources the user added, and what is read from them.
     sources: Sources,
-    /// What installs, opens and runs the apps.
-    services: AppServices,
+    /// What is installed, and every change to it.
+    packages: Arc<PackageManager>,
+    /// The apps running.
+    running_apps: Arc<RunningApps>,
+    /// What opens an installed app.
+    starter: Arc<AppStarter>,
+    /// What the user lets each app use.
+    permissions: Permissions,
+    /// What the apps run with, whose pickers' offers the settings show.
+    environments: Arc<ProgramEnvironments>,
+    /// Where each app's views go.
+    places: ProgramPlaces,
+    /// The engine, which counts today's activity of each app.
+    engine: Arc<WaOS>,
     /// The deck's tabs a program opened from the library may open in, on a phone; none on a
     /// desktop, where a program asks for its windows.
     tabs: Option<Entity<Tabs>>,
@@ -265,10 +279,6 @@ pub(crate) struct PreferencesChosen;
 
 impl EventEmitter<PreferencesChosen> for Library {}
 
-/// What is installed changed: a program was installed, updated or removed.
-pub(crate) struct InstalledChanged;
-
-impl EventEmitter<InstalledChanged> for Library {}
 impl EventEmitter<ProgramOpened> for Library {}
 
 /// How many threads the library's runtime reads, downloads and loads on.
@@ -288,64 +298,111 @@ pub(crate) fn first_sources() -> Vec<Source> {
     ]
 }
 
-/// The library over `sources`, opening apps with `services` where `programs_open` says, copying the
-/// packages handed without a path into `package_copies`, with WaOS's own preferences in
-/// `preferences`, where it keeps them, on a runtime of its own.
-pub(crate) fn open_library(
-    app: &mut App,
-    sources: Sources,
-    services: AppServices,
-    package_copies: PackageCopies,
-    programs_open: ProgramsOpen,
-    preferences: Option<PreferencesFile>,
-) -> Result<Entity<Library>> {
+/// The runtime the library reads sources, installs and loads apps on, and an inspector's starts
+/// run on: reqwest needs tokio.
+pub(crate) fn work() -> Result<Arc<Runtime>> {
     let work = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(WORK_THREADS)
         .thread_name("waos-library")
         .enable_all()
         .build()
         .context("the library's runtime")?;
-    let work = Arc::new(work);
+    Ok(Arc::new(work))
+}
+
+/// The domains the library shows and drives, each handed to it by name.
+pub(crate) struct LibraryDomains {
+    pub(crate) sources: Sources,
+    pub(crate) packages: Arc<PackageManager>,
+    pub(crate) running: Arc<RunningApps>,
+    pub(crate) starter: Arc<AppStarter>,
+    pub(crate) permissions: Permissions,
+    pub(crate) environments: Arc<ProgramEnvironments>,
+    pub(crate) places: ProgramPlaces,
+    pub(crate) engine: Arc<WaOS>,
+}
+
+#[cfg(test)]
+impl LibraryDomains {
+    /// The domains a test's WaOS, `started`, hands its library, as the app hands them.
+    pub(crate) fn of(started: &crate::logic::startup::Started) -> LibraryDomains {
+        LibraryDomains {
+            sources: started.sources.clone(),
+            packages: Arc::clone(&started.packages),
+            running: Arc::clone(&started.running),
+            starter: Arc::clone(&started.starter),
+            permissions: started.permissions.clone(),
+            environments: Arc::clone(&started.environments),
+            places: started.places.clone(),
+            engine: Arc::clone(&started.engine),
+        }
+    }
+}
+
+/// The library over `domains`, opening apps where `programs_open` says, copying the packages
+/// handed without a path into `package_copies`, with WaOS's own preferences in `preferences`,
+/// where it keeps them, on `work`, made by [`work`].
+pub(crate) fn open_library(
+    app: &mut App,
+    domains: LibraryDomains,
+    package_copies: PackageCopies,
+    programs_open: ProgramsOpen,
+    preferences: Option<PreferencesFile>,
+    work: Arc<Runtime>,
+) -> Entity<Library> {
     let preferences = preferences.map(KeptPreferences::of);
-    Ok(app.new_entity(|cx| {
+    app.new_entity(|cx| {
         Library::new(
-            sources,
-            services,
+            domains,
             package_copies,
             programs_open,
             preferences,
             work,
             cx,
         )
-    }))
+    })
 }
 
 impl Library {
-    /// The library over `sources`, opening apps with `services` where `programs_open` says, with
-    /// WaOS's own `preferences`, and reading and installing on `work`; what each source lists is
-    /// read now.
+    /// The library over `domains`, opening apps where `programs_open` says, with WaOS's own
+    /// `preferences`, and reading and installing on `work`; what each source lists is read now.
     fn new(
-        sources: Sources,
-        services: AppServices,
+        domains: LibraryDomains,
         package_copies: PackageCopies,
         programs_open: ProgramsOpen,
         preferences: Option<KeptPreferences>,
         work: Arc<Runtime>,
         cx: &mut Context<Library>,
     ) -> Library {
-        let installed_at = *services.packages.installed_changes().borrow();
-        let installed = services.packages.installed();
-        let sessions = services.packages.sessions();
-        let removing = services.packages.removing();
-        let starting = services.starter.starting();
+        let LibraryDomains {
+            sources,
+            packages,
+            running,
+            starter,
+            permissions,
+            environments,
+            places,
+            engine,
+        } = domains;
+        let installed_at = *packages.installed_changes().borrow();
+        let installed = packages.installed();
+        let sessions = packages.sessions();
+        let removing = packages.removing();
+        let starting = starter.starting();
         let mut library = Library {
-            icons: icons_of(&services.packages, &installed),
+            icons: icons_of(&packages, &installed),
             installed,
             installed_at,
             running: BTreeSet::new(),
             listings: Vec::new(),
             sources,
-            services,
+            packages,
+            running_apps: running,
+            starter,
+            permissions,
+            environments,
+            places,
+            engine,
             tabs: None,
             programs_open,
             preferences,
@@ -391,19 +448,23 @@ impl Library {
     /// installs what `waos install` sends, from now on.
     fn follow_installed(&mut self, cx: &mut Context<Library>) {
         follow(
-            self.services.packages.installed_changes(),
-            |library, changes, cx| {
-                if changes != library.installed_at {
-                    library.installed_changed(cx);
-                }
-            },
+            self.packages.installed_changes(),
+            |library, changes, cx| library.read_installed_at(changes, cx),
             cx,
         );
     }
 
+    /// Reads again what is installed where the package manager's count of changes, `changes`, is
+    /// past the one the library read at: a change the library made itself it has read already.
+    pub(super) fn read_installed_at(&mut self, changes: u64, cx: &mut Context<Library>) {
+        if changes != self.installed_at {
+            self.installed_changed(cx);
+        }
+    }
+
     /// Keeps which programs run as the runs' list changes, from now on.
     fn follow_running(&mut self, cx: &mut Context<Library>) {
-        let mut ids = self.services.running.running_ids();
+        let mut ids = self.running_apps.running_ids();
         self.running = ids.borrow_and_update().clone();
         follow(
             ids,
@@ -418,16 +479,16 @@ impl Library {
     /// Shows the installs in flight and the removals under way each time they change, from now
     /// on; they are read from the package manager as the library is shown.
     fn follow_sessions(&mut self, cx: &mut Context<Library>) {
-        let sessions = self.services.packages.sessions();
+        let sessions = self.packages.sessions();
         follow(sessions, |_library, _sessions, cx| cx.notify(), cx);
-        let removing = self.services.packages.removing();
+        let removing = self.packages.removing();
         follow(removing, |_library, _removing, cx| cx.notify(), cx);
     }
 
     /// Shows the starts under way and their stage each time they change, from now on; they are
     /// read from the starter as the library is shown.
     fn follow_starts(&mut self, cx: &mut Context<Library>) {
-        let starting = self.services.starter.starting();
+        let starting = self.starter.starting();
         follow(starting, |_library, _starting, cx| cx.notify(), cx);
     }
 
@@ -648,7 +709,7 @@ impl Library {
             .iter()
             .map(|app| {
                 let id = app.manifest.id();
-                let days = self.services.engine.days_of(id.as_str());
+                let days = self.engine.days_of(id.as_str());
                 (id.clone(), starts_lately(&days, now))
             })
             .collect();
@@ -719,7 +780,7 @@ impl Library {
     /// Stops the program `id` where it stands, without asking it: what ends a program that does
     /// not answer a quit. Nothing where it does not run.
     pub(crate) fn force_quit(&self, id: &ProgramId) {
-        let (runs, id) = (Arc::clone(&self.services.running), id.clone());
+        let (runs, id) = (Arc::clone(&self.running_apps), id.clone());
         // The run is ended whether or not the task's handle is kept.
         drop(self.work.spawn(async move { runs.stop(&id).await }));
     }
@@ -766,7 +827,7 @@ impl Library {
             activation_token = activation_token.is_some(),
             "a launch asked for the program"
         );
-        if self.services.packages.installed_program(id).is_none() {
+        if self.packages.installed_program(id).is_none() {
             cx.emit(WantsToBeSeen);
         }
         self.open_bringing_forward(id, activation_token, cx);
@@ -779,7 +840,7 @@ impl Library {
         activation_token: Option<String>,
         cx: &mut Context<Library>,
     ) {
-        if self.services.packages.installed_program(id).is_none() {
+        if self.packages.installed_program(id).is_none() {
             self.failed(
                 format!("{id} is not installed, or its files cannot be read"),
                 cx,
@@ -794,19 +855,18 @@ impl Library {
             return;
         }
         let is_an_app = self
-            .services
             .packages
             .installed_program(id)
             .is_none_or(|installed| installed.manifest.kind() == ProgramKind::App);
         if self.programs_open == ProgramsOpen::AsChosen && is_an_app && !self.is_running(id) {
-            let face = program_face(&self.services.packages, id.as_str());
+            let face = program_face(&self.packages, id.as_str());
             cx.emit(FirstWindowWanted {
                 id: id.clone(),
                 face,
             });
             return;
         }
-        let (starter, id) = (Arc::clone(&self.services.starter), id.clone());
+        let (starter, id) = (Arc::clone(&self.starter), id.clone());
         self.work_then(
             async move {
                 starter
@@ -830,7 +890,7 @@ impl Library {
             Ok(false) => return,
             Err(why) => return self.failed(format!("{id} could not be opened: {why}"), cx),
         }
-        let (starter, id) = (Arc::clone(&self.services.starter), id.clone());
+        let (starter, id) = (Arc::clone(&self.starter), id.clone());
         let opening = id.clone();
         self.work_then(
             async move {
@@ -862,12 +922,10 @@ impl Library {
         cx: &mut Context<Library>,
     ) {
         self.opened(id, None, cx);
-        let (services, id) = (self.services.clone(), id.clone());
+        let (starter, running) = (Arc::clone(&self.starter), Arc::clone(&self.running_apps));
+        let (packages, id) = (Arc::clone(&self.packages), id.clone());
         self.work_then(
-            async move {
-                let (starter, running) = (&services.starter, &services.running);
-                opening::open_with(starter, running, &services.packages, &id, request).await
-            },
+            async move { opening::open_with(&starter, &running, &packages, &id, request).await },
             Library::program_opened,
             cx,
         );
@@ -884,17 +942,12 @@ impl Library {
         cx: &mut Context<Library>,
     ) {
         self.opened(id, None, cx);
-        let (services, id) = (self.services.clone(), id.clone());
+        let (starter, running) = (Arc::clone(&self.starter), Arc::clone(&self.running_apps));
+        let (packages, id) = (Arc::clone(&self.packages), id.clone());
         self.work_then(
             async move {
-                opening::notification_activated(
-                    &services.starter,
-                    &services.running,
-                    &services.packages,
-                    &id,
-                    activation,
-                )
-                .await
+                opening::notification_activated(&starter, &running, &packages, &id, activation)
+                    .await
             },
             Library::program_opened,
             cx,
@@ -1033,7 +1086,7 @@ impl Library {
         let session = {
             // The session's work runs on the library's runtime.
             let _entered = self.work.enter();
-            self.services.packages.install(content, Caller::User)
+            self.packages.install(content, Caller::User)
         };
         let (sources, source, listed) = (self.sources.clone(), source.clone(), program.clone());
         let installing = async move {
@@ -1209,7 +1262,7 @@ impl Library {
         let session = {
             // The session's work runs on the library's runtime.
             let _entered = self.work.enter();
-            self.services.packages.install(content, Caller::User)
+            self.packages.install(content, Caller::User)
         };
         let installing = async move { Ok(session.finished().await?) };
         self.install(&id, installing, Some(copy), cx);
@@ -1220,7 +1273,7 @@ impl Library {
     fn remove(&mut self, id: &ProgramId, cx: &mut Context<Library>) {
         self.close(id, cx);
         self.work_then(
-            self.services.packages.remove(id),
+            self.packages.remove(id),
             move |library, removed, cx| {
                 match removed {
                     Ok(()) => library.succeeded(cx),
@@ -1326,9 +1379,9 @@ impl Library {
 
     /// The store changed what is installed: read it again, and what each listing offers.
     fn installed_changed(&mut self, cx: &mut Context<Library>) {
-        self.installed_at = *self.services.packages.installed_changes().borrow();
-        self.installed = self.services.packages.installed();
-        self.icons = icons_of(&self.services.packages, &self.installed);
+        self.installed_at = *self.packages.installed_changes().borrow();
+        self.installed = self.packages.installed();
+        self.icons = icons_of(&self.packages, &self.installed);
         self.often_used = self.most_started_lately();
         if self
             .category
@@ -1336,8 +1389,6 @@ impl Library {
         {
             self.category = None;
         }
-        cx.emit(InstalledChanged);
-        self.match_shortcuts(cx);
         for read in &mut self.listings {
             if let Listing::Read(offers) = &mut read.listing {
                 let listed = offers.drain(..).map(|(program, _)| program).collect();
@@ -1415,6 +1466,7 @@ impl Library {
 
     /// The library's runtime, which reads, downloads and loads, for work of WaOS's that outlives
     /// whoever asked for it.
+    #[cfg(test)]
     pub(crate) fn runtime(&self) -> tokio::runtime::Handle {
         self.work.handle().clone()
     }
@@ -1614,7 +1666,7 @@ fn hand_click_to_program(
 
 /// Hands each change `changes` tells from now on to `changed`, on the main thread, for as long as
 /// the library lives and `changes` has a sender.
-fn follow<T: Clone + Send + Sync + 'static>(
+pub(super) fn follow<T: Clone + Send + Sync + 'static>(
     mut changes: watch::Receiver<T>,
     changed: impl Fn(&mut Library, T, &mut Context<Library>) + 'static,
     cx: &mut Context<Library>,

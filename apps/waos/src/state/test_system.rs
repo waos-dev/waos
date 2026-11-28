@@ -30,21 +30,21 @@ use waos_services::app_storage::AppStorage;
 use super::cameras::Cameras;
 use super::image_codecs::ImageCodecs;
 use super::library::{
-    Library, ProgramsOpen, WantsToBeSeen, open_library, take_notification_clicks,
+    Library, LibraryDomains, ProgramsOpen, WantsToBeSeen, open_library, take_notification_clicks,
+    work,
 };
 use super::media_assets::MediaAssets;
 use super::media_players::MediaPlayers;
 use super::notifications::Notifications;
 use super::opener::Opener;
 use super::video_decoders::VideoDecoders;
-use crate::logic::app_services::AppServices;
-use crate::logic::environments::ProgramEnvironments;
 use crate::logic::frame_readers::ReadersOnRequest;
 use crate::logic::opened_package::tests::write_package;
 use crate::logic::package_copies::PackageCopies;
-use crate::logic::program_places::{ProgramPlace, ProgramPlaces};
 use crate::logic::recording_indicator::{RecordingChanged, RecordingIndicatorOnRequest};
 use crate::logic::running_apps::{IfRunning, RunningApps};
+use crate::logic::startup::tests::start_asking_nobody;
+use crate::logic::startup::{self, Setup};
 use crate::logic::test_engine::{self, NoWindows, WITHIN};
 use crate::logic::test_installs;
 
@@ -109,35 +109,22 @@ impl TestSystem {
             Arc::new(WaftCompositor::new(compositor)) as Arc<dyn ShellCompositor>
         });
         let time = ManualTime::new();
-        let engine = Arc::new(test_engine::engine_over(
-            shell,
-            EngineTime::Manual(time.clone()),
-        ));
-        let runs = Arc::new(RunningApps::default());
-        let crate::logic::app_services::Domains {
+        let work = work().unwrap();
+        let setup = Setup {
+            time: EngineTime::Manual(time.clone()),
+            ..Setup::for_tests(folder.path(), work.handle().clone())
+        };
+        let started = start_asking_nobody(setup, |_before| (shell, test_engine::no_screens()));
+        let domains = LibraryDomains::of(&started);
+        let startup::Started {
+            running: runs,
             packages,
             permissions,
-            sources,
             storage,
+            engine,
             ..
-        } = test_installs::domains(
-            &folder.path().join("store"),
-            &runs,
-            Arc::new(waos_services::permissions::NoPrompts),
-        );
-        let services = AppServices::new(
-            Arc::clone(&runs),
-            Arc::clone(&packages),
-            permissions.clone(),
-            Arc::clone(&engine),
-            ProgramEnvironments::new(
-                waos_local::LocalCapabilities::new(),
-                permissions.clone(),
-                storage.clone(),
-            ),
-            ProgramPlaces::new(ProgramPlace::Windows),
-        );
-        let (served_sources, started) = (sources, Rc::new(RefCell::new(None)));
+        } = started;
+        let started = Rc::new(RefCell::new(None));
         let served_packages = Arc::clone(&packages);
         let kept = Rc::clone(&started);
         let suspended = Arc::clone(&engine);
@@ -163,15 +150,7 @@ impl TestSystem {
             if let Some(cameras) = cameras {
                 cameras.serve(app);
             }
-            let library = open_library(
-                app,
-                served_sources,
-                services,
-                copies,
-                ProgramsOpen::InWindows,
-                None,
-            )
-            .expect("a library");
+            let library = open_library(app, domains, copies, ProgramsOpen::InWindows, None, work);
             take_notification_clicks(app, &library, posted_as_programs);
             *kept.borrow_mut() = Some(library);
         });
