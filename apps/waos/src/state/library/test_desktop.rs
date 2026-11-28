@@ -170,6 +170,7 @@ impl LibraryDesktop {
         let crate::logic::app_services::Domains {
             packages,
             permissions,
+            sources,
             store,
         } = crate::logic::test_installs::domains(
             &folder.path().join("store"),
@@ -224,7 +225,7 @@ impl LibraryDesktop {
             let recordings = Recordings::listen(app, recording_changes, Arc::clone(&packages));
             let library = open_library(
                 app,
-                store,
+                sources,
                 services,
                 copies,
                 ProgramsOpen::InWindows,

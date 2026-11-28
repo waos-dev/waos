@@ -19,7 +19,8 @@ use anyhow::{Context as _, Result};
 use waos::{Compiler, WaOS};
 use waos_services::packages::{CodeCompiler, InstalledApps, PackageManager, StopApp};
 use waos_services::permissions::{Permissions, Prompts, SettingsFiles};
-use waos_services::store::{SourceProxy, Store};
+use waos_services::sources::{SourceProxy, Sources, SourcesFile};
+use waos_services::store::Store;
 
 use super::app_starter::AppStarter;
 use super::environments::ProgramEnvironments;
@@ -78,18 +79,19 @@ impl AppServices {
 }
 
 /// What WaOS keeps of its apps, each with the domain that owns it: what is installed, what the
-/// user lets each app use, and the sources with each app's own folders and activity.
+/// user lets each app use, the sources, and the store with each app's own folders and activity.
 pub(crate) struct Domains {
     pub(crate) packages: Arc<PackageManager>,
     pub(crate) permissions: Permissions,
+    pub(crate) sources: Sources,
     pub(crate) store: Store,
 }
 
 /// The domains over `folder`, the store's directory, opened in the order each needs the other:
 /// the package manager, compiling with `compiler` and stopping apps among `running`; Permissions,
-/// asking the user through `prompts` and following the package manager's record; and the store, reading sources through `proxy`, recording as Permissions
-/// say, and forgetting each app's activity as the package manager removes it, on a thread of its
-/// own.
+/// asking the user through `prompts` and following the package manager's record; the sources,
+/// read through `proxy`; and the store, recording as Permissions say, and forgetting each app's
+/// activity as the package manager removes it, on a thread of its own.
 pub(crate) fn open_domains(
     folder: &Path,
     compiler: Arc<dyn CodeCompiler>,
@@ -105,7 +107,13 @@ pub(crate) fn open_domains(
         prompts,
         Arc::clone(&packages) as Arc<dyn InstalledApps>,
     );
-    let store = Store::open(folder, proxy, permissions.clone())
+    let sources = Sources::open(
+        Arc::new(SourcesFile::new(folder)),
+        &folder.join("pictures"),
+        proxy,
+    )
+    .context("opening the sources")?;
+    let store = Store::open(folder, permissions.clone())
         .with_context(|| format!("opening the store at {}", folder.display()))?;
     let mut removals = packages.removals();
     let forgetting = store.clone();
@@ -121,6 +129,7 @@ pub(crate) fn open_domains(
     Ok(Domains {
         packages,
         permissions,
+        sources,
         store,
     })
 }

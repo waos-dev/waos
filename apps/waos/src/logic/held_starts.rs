@@ -75,6 +75,7 @@ mod tests {
             packages,
             permissions,
             store,
+            ..
         } = test_installs::domains(
             &directory,
             &runs,

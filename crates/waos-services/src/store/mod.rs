@@ -1,5 +1,4 @@
-//! The package sources the user added and their downloads, each app's own folders, and what each
-//! app did, kept in a directory the app gives the [`Store`]. What is installed is the package
+//! Each app's own folders, and what each app did, kept in a directory the app gives the [`Store`]. What is installed is the package
 //! manager's (`waos_services::packages`), and what the user lets each app use is Permissions'
 //! (`waos_services::permissions`), both in the same directory. An app bundling one program builds none of
 //! it.
@@ -15,8 +14,8 @@
 //!   audit/
 //!     dev.example.triangle/
 //!       2026-11-15.postcard  what the app did that day, its last seven days kept
-//!   pictures/             the sources' icons and screenshots, kept as read, by their addresses
-//!   sources.toml          the sources the user added, in the order added
+//!   pictures/             the sources': their icons and screenshots, kept as read
+//!   sources.toml          the sources': the sources the user added, in the order added
 //!   settings.toml         Permissions': the global settings
 //! ```
 //!
@@ -25,22 +24,13 @@
 //! its activity ([`Store::forget`]), one file a day, kept seven days, on this device only
 //! (`audit`, the engine's `AuditLog`), recorded as the app's settings say.
 //!
-//! The invariant a later editor will break: a download's bytes end in an error unless their
-//! SHA-256 is the one its index lists, and a listing of a development id is refused before its
-//! download, so the package manager installs only what a source listed.
+//! The invariant a later editor will break: a day is kept only for an app the store has a folder
+//! of, so an app removed is never kept again by a run of it that ends after.
 
 mod audit;
 mod error;
-mod fetch;
-mod files;
 mod programs;
-mod source;
-mod sources_file;
 mod store;
 
-pub use error::{SourceError, StoreError};
-pub use fetch::{Download, SourceProxy};
-pub use source::Source;
+pub use error::StoreError;
 pub use store::Store;
-/// The addresses a source's files are at, which [`Source::picture_url`] answers.
-pub use url::Url;

@@ -254,6 +254,7 @@ impl TestPhone {
         let crate::logic::app_services::Domains {
             packages,
             permissions,
+            sources,
             store,
         } = crate::logic::test_installs::domains(
             &folder.path().join("store"),
@@ -305,7 +306,7 @@ impl TestPhone {
         }
         let platform = Rc::new(platform);
         let (_indicator, recording_changes) = RecordingIndicatorOnRequest::new();
-        let (served, deck_runs) = (store.clone(), Arc::clone(&runs));
+        let (served, deck_runs) = (sources, Arc::clone(&runs));
         let served_packages = Arc::clone(&packages);
         let started = Rc::new(std::cell::RefCell::new(None));
         let kept = Rc::clone(&started);

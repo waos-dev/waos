@@ -272,6 +272,7 @@ mod tests {
             packages,
             permissions,
             store,
+            ..
         } = test_installs::domains_never_run(&folder.path().join("store"));
         let programs = ProgramsOnThisComputer::new(
             store,
@@ -315,6 +316,7 @@ mod tests {
             packages,
             permissions,
             store,
+            ..
         } = test_installs::domains_never_run(&folder.path().join("store"));
         let key = SigningKey::generate();
         let package = write_package(

@@ -84,7 +84,7 @@ use waos_package::ProgramId;
 use waos_program_window::WaftCompositor;
 use waos_services::packages::PackageManager;
 use waos_services::permissions::Prompts;
-use waos_services::store::SourceProxy;
+use waos_services::sources::SourceProxy;
 
 use crate::logic::app_services::{AppServices, Domains, EngineCompiler, open_domains};
 use crate::logic::asking_now::AskingNow;
@@ -231,6 +231,7 @@ pub(crate) fn start(
     let Domains {
         packages,
         permissions,
+        sources,
         store,
     } = open_domains(
         &folders.store,
@@ -239,7 +240,7 @@ pub(crate) fn start(
         SourceProxy::System,
         Arc::clone(&prompts) as Arc<dyn Prompts>,
     )?;
-    if let Err(error) = store.start_sources_with(&library::first_sources()) {
+    if let Err(error) = sources.start_with(&library::first_sources()) {
         tracing::warn!("the sources WaOS comes with are not added: {error}");
     }
     let faces = program_faces(&packages, &folders);
@@ -389,7 +390,7 @@ pub(crate) fn start(
     let recordings = Recordings::listen(app, recording_changes, Arc::clone(&packages));
     let library = open_library(
         app,
-        store,
+        sources,
         services.clone(),
         package_copies,
         programs_open,

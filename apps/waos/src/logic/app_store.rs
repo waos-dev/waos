@@ -9,7 +9,7 @@
 use std::cmp::Ordering;
 
 use waos_package::{Category, ListedProgram, ProgramId};
-use waos_services::store::Source;
+use waos_services::sources::Source;
 
 use super::offers::Offer;
 

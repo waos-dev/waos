@@ -3,7 +3,7 @@
 
 use std::fs;
 
-use super::support::{block_on, open_store, packages, remove, write_package};
+use crate::support::{block_on, open_store, packages, remove, write_package};
 use waos_package::{ProgramId, SigningKey};
 
 const TRIANGLE: &str = "dev.example.triangle";
@@ -34,7 +34,7 @@ fn a_programs_own_folders_are_made_at_its_first_run_and_kept_until_it_is_removed
     assert_eq!(fs::read(folders.data.join("notes.txt")).unwrap(), b"kept");
 
     let package = write_package(scratch.path(), TRIANGLE, "1.0.0", &SigningKey::generate());
-    block_on(super::support::install(&packages, &package)).unwrap();
+    block_on(crate::support::install(&packages, &package)).unwrap();
     assert_eq!(reopened.folders(&triangle()).unwrap(), folders);
     assert_eq!(
         fs::read(folders.data.join("notes.txt")).unwrap(),

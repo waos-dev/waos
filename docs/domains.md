@@ -14,8 +14,8 @@ Each thing WaOS keeps has one owner, a domain, which keeps every rule about it. 
   - *Today:* inside `waos-store`, in the app's folder beside its versions; `/tmp` is the engine's.
 - **The activity record owns what each app did.**
   - *Today:* counted in the engine and kept by `waos-store`, and whether to record is read in both, from the app's settings, which `waos-store` follows to remove what it kept of an app turned off.
-- **Sources own the app listings and their downloads.** Handed: packages, to install into.
-  - *Today:* inside `waos-store`, handed nothing: the library feeds a download's bytes to a package manager's session.
+- **Sources own the app listings and their downloads.** Handed: where they keep the list of sources, a folder for the pictures they read, and packages, to install into. ([sources](/crates/waos-services/src/sources/mod.rs))
+  - *Today:* handed no packages: the library feeds a download's bytes to a package manager's session.
 - **Inspection and the system's entries for an app (the Start menu, app bundles, shortcuts) own nothing.** They follow the domains' changes, and no domain knows them.
   - *Today:* the engine is handed the inspector's service before the engine exists, and the loop is closed by a value set later.
 - **Removing an app takes everything that is its.** The package manager takes the app out of its record in one step, and each domain forgets its part when it hears.

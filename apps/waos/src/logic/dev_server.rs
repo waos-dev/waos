@@ -566,6 +566,7 @@ pub(crate) mod tests {
                 packages,
                 permissions,
                 store,
+                ..
             } = test_installs::domains(&folder.join("store"), &runs, prompts);
             let asking = AskingNow::new(permissions.asking());
             let services = AppServices::new(

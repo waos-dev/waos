@@ -19,7 +19,7 @@ use std::sync::Arc;
 use waft::ui::ViewId;
 use waft::{App, BuildContext, Entity, View};
 use waos_package::{Category, ProgramId};
-use waos_services::store::Source;
+use waos_services::sources::Source;
 
 use super::words;
 use crate::logic::app_store::{CatalogApp, categories, looked_for};

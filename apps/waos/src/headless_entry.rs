@@ -23,7 +23,7 @@ use waos::{Compiler, EngineTime, FreezePolicy, HttpProxy, PlatformState, WaOS, W
 use waos_headless::{Display, HeadlessShell, Refreshes};
 use waos_local::LocalCapabilities;
 use waos_services::permissions::Prompts;
-use waos_services::store::SourceProxy;
+use waos_services::sources::SourceProxy;
 
 use crate::logic::app_services::{AppServices, Domains, EngineCompiler, open_domains};
 use crate::logic::asking_now::AskingNow;
@@ -122,6 +122,7 @@ impl HeadlessDaemon {
             packages,
             permissions,
             store,
+            ..
         } = open_domains(
             &config.folders.store,
             Arc::new(EngineCompiler(compiler.clone())),

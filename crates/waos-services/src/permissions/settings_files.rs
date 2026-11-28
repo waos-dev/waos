@@ -51,17 +51,17 @@
 use std::collections::BTreeMap;
 use std::fmt;
 use std::fs;
-use std::io::{self, ErrorKind, Write};
+use std::io::{self, ErrorKind};
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
-use tempfile::NamedTempFile;
 use waos_capabilities::{
     Answer, Domain, DomainRule, FileSystemGrant, Mount, NetworkGrant, Question, Role, Setting,
     SimulatedSound,
 };
 use waos_package::ProgramId;
 
+use crate::files::write_whole;
 use crate::permissions::SettingsStore;
 use crate::permissions::settings::{AnswerWith, AppSettings, GlobalSettings, PerQuestion};
 
@@ -397,17 +397,6 @@ fn read(path: &Path) -> io::Result<SettingsFile> {
 fn write(path: &Path, file: &SettingsFile) -> io::Result<()> {
     let text = toml::to_string(file).expect("the settings are TOML");
     write_whole(path, text.as_bytes()).map_err(at(path))
-}
-
-/// Writes `contents` to `path` whole: to a new file beside it, on disk, then renamed over it, so a
-/// reader, or a crash, finds the old contents or the new, never part of either.
-fn write_whole(path: &Path, contents: &[u8]) -> io::Result<()> {
-    let folder = path.parent().expect("a settings file is in a folder");
-    let mut file = NamedTempFile::new_in(folder)?;
-    file.write_all(contents)?;
-    file.as_file().sync_all()?;
-    file.persist(path).map_err(|error| error.error)?;
-    Ok(())
 }
 
 /// For `map_err`: an IO error at `path`, said with it.

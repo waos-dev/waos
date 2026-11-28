@@ -14,12 +14,12 @@ use sha2::{Digest, Sha256};
 use url::Url;
 use waos_package::Index;
 
-use crate::store::{SourceError, StoreError};
+use crate::sources::SourceError;
 
-/// The most of an index the store reads: tens of thousands of listings.
+/// The most of an index WaOS reads: tens of thousands of listings.
 const INDEX_LIMIT: u64 = 4 * 1024 * 1024;
 
-/// The most of a picture the store reads: an icon at its largest, several times over.
+/// The most of a picture WaOS reads: an icon at its largest, several times over.
 const PICTURE_LIMIT: u64 = 8 * 1024 * 1024;
 
 /// How long a server may take to accept a connection, and then to send each next part of an
@@ -27,7 +27,7 @@ const PICTURE_LIMIT: u64 = 8 * 1024 * 1024;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
 const READ_TIMEOUT: Duration = Duration::from_secs(30);
 
-/// Which proxy the store reads sources through.
+/// Which proxy sources are read through.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SourceProxy {
     /// The system's proxy settings, as reqwest reads them: how an app reads.
@@ -38,7 +38,7 @@ pub enum SourceProxy {
 }
 
 /// The client every source is read with, through `proxy`.
-pub(crate) fn http_client(proxy: SourceProxy) -> Result<Client, StoreError> {
+pub(crate) fn http_client(proxy: SourceProxy) -> Result<Client, SourceError> {
     let client = match proxy {
         SourceProxy::System => Client::builder(),
         SourceProxy::None => Client::builder().no_proxy(),
@@ -47,7 +47,7 @@ pub(crate) fn http_client(proxy: SourceProxy) -> Result<Client, StoreError> {
         .connect_timeout(CONNECT_TIMEOUT)
         .read_timeout(READ_TIMEOUT)
         .build()
-        .map_err(StoreError::Http)
+        .map_err(SourceError::Http)
 }
 
 /// The index at `url`.

@@ -1,8 +1,7 @@
-//! What the store's tests install and read from: signed packages written to a folder, their
-//! listings, and a local HTTP server; and the package manager over the store's directory, with
-//! instant stand-ins for its compiler and the running apps, installing as the app does.
-
-#![allow(dead_code, reason = "each test crate uses its own part of the support")]
+//! What the sources' and the store's tests install and read from: signed packages written to a
+//! folder, their listings, and a local HTTP server; and the package manager over the store's
+//! directory, with instant stand-ins for its compiler and the running apps, installing as the app
+//! does.
 
 use std::collections::HashMap;
 use std::fs;
@@ -22,7 +21,8 @@ use waos_services::packages::{
     PackageManager, StopApp,
 };
 use waos_services::permissions::{NoPrompts, Permissions, SettingsFiles};
-use waos_services::store::{Source, SourceProxy, Store};
+use waos_services::sources::{Source, SourceProxy, Sources, SourcesInMemory};
+use waos_services::store::Store;
 
 /// A compiler that compiles nothing, and finds nothing to compile.
 struct NoCompiler;
@@ -71,14 +71,14 @@ pub async fn install(
     packages.install(content, Caller::User).finished().await
 }
 
-/// Installs `program` with `packages` as `source` lists it, downloaded by `store`.
+/// Installs `program` with `packages` as `source` lists it, downloaded by `sources`.
 pub async fn install_from(
-    store: &Store,
+    sources: &Sources,
     packages: &PackageManager,
     source: &Source,
     program: &ListedProgram,
 ) -> Result<InstalledProgram, InstallError> {
-    let download = store.download(source, program).await.unwrap();
+    let download = sources.download(source, program).await.unwrap();
     let content = PackageContent::Package {
         app: program.id.clone(),
         bytes: download.bytes,
@@ -98,7 +98,17 @@ pub async fn remove(store: &Store, packages: &PackageManager, id: &ProgramId) {
 pub fn open_store(directory: &Path) -> Store {
     let settings = Arc::new(SettingsFiles::new(directory));
     let permissions = Permissions::open(settings, Arc::new(NoPrompts), Arc::new(NothingInstalled));
-    Store::open(directory, SourceProxy::None, permissions).unwrap()
+    Store::open(directory, permissions).unwrap()
+}
+
+/// The sources, kept in memory, read straight from each server, their pictures kept in `pictures`.
+pub fn sources(pictures: &Path) -> Sources {
+    Sources::open(
+        Arc::new(SourcesInMemory::default()),
+        pictures,
+        SourceProxy::None,
+    )
+    .unwrap()
 }
 
 /// What `future` comes to, on a runtime of its own: for a test that is not async.

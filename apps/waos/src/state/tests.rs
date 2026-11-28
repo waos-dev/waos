@@ -100,6 +100,7 @@ impl Desktop {
             packages,
             permissions,
             store,
+            ..
         } = test_installs::domains_never_run(&folder.join("store"));
         let (placement, requests) =
             WindowsOnRequest::new(ProgramFaces::new(Arc::clone(&packages), None));

@@ -22,8 +22,8 @@ use sha2::{Digest, Sha256};
 use tempfile::TempDir;
 use waos_package::{COMPONENT, ICON, MANIFEST, Manifest, PUBLISHER_KEY, ProgramId, PublisherKey};
 
+use crate::files::write_whole;
 use crate::packages::error::{FolderError, InstallError, RemoveError};
-use crate::packages::files::write_whole;
 use crate::packages::installed::{DevelopmentBuild, InstalledProgram, InstalledVersion, Origin};
 
 /// The file of a development install's component's SHA-256, in the folder it unpacked into, in

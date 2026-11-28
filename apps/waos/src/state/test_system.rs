@@ -117,6 +117,7 @@ impl TestSystem {
         let crate::logic::app_services::Domains {
             packages,
             permissions,
+            sources,
             store,
         } = test_installs::domains(
             &folder.path().join("store"),
@@ -135,7 +136,7 @@ impl TestSystem {
             ),
             ProgramPlaces::new(ProgramPlace::Windows),
         );
-        let (served_store, started) = (store.clone(), Rc::new(RefCell::new(None)));
+        let (served_sources, started) = (sources, Rc::new(RefCell::new(None)));
         let served_packages = Arc::clone(&packages);
         let kept = Rc::clone(&started);
         let suspended = Arc::clone(&engine);
@@ -163,7 +164,7 @@ impl TestSystem {
             }
             let library = open_library(
                 app,
-                served_store,
+                served_sources,
                 services,
                 copies,
                 ProgramsOpen::InWindows,

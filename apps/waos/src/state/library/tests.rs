@@ -73,6 +73,7 @@ impl TestLibrary {
         let crate::logic::app_services::Domains {
             packages,
             permissions,
+            sources,
             store,
         } = test_installs::domains_compiling(
             &folder.path().join("store"),
@@ -95,7 +96,7 @@ impl TestLibrary {
         let cell = AppCell::new();
         let library = open_library(
             &mut cell.borrow_mut(),
-            store,
+            sources,
             services,
             copies,
             programs_open,

@@ -28,7 +28,7 @@ use waos_services::packages::{
     PackageManager,
 };
 use waos_services::permissions::{NoPrompts, Prompts};
-use waos_services::store::SourceProxy;
+use waos_services::sources::SourceProxy;
 
 use super::app_services::{self, Domains};
 use super::running_apps::RunningApps;

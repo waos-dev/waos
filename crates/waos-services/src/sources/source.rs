@@ -15,7 +15,7 @@ use std::str::FromStr;
 
 use url::{Host, Url};
 
-use crate::store::SourceError;
+use crate::sources::SourceError;
 
 /// Where GitHub serves the assets of a repository's latest release, after the repository's path.
 const LATEST_RELEASE_ASSETS: &str = "releases/latest/download/";

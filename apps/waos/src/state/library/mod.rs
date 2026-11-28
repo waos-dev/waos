@@ -67,7 +67,7 @@ use waos_package::{Category, ListedProgram, ProgramId, ProgramKind};
 use waos_services::packages::{
     Caller, InstallProgress, InstallSessionInfo, InstalledProgram, PackageContent, PackageManager,
 };
-use waos_services::store::{Source, Store, Url};
+use waos_services::sources::{Source, Sources, Url};
 
 use crate::logic::app_services::AppServices;
 use crate::logic::app_starter::{Opening, StartPlace, StartRequest, StartStage};
@@ -118,7 +118,8 @@ pub(crate) enum PackageOperation {
 }
 
 pub(crate) struct Library {
-    store: Store,
+    /// The sources the user added, and what is read from them.
+    sources: Sources,
     /// What installs, opens and runs the apps.
     services: AppServices,
     /// The deck's tabs a program opened from the library may open in, on a phone; none on a
@@ -140,7 +141,7 @@ pub(crate) struct Library {
     icons: HashMap<ProgramId, Arc<[u8]>>,
     /// The programs running now, by id, whoever started them.
     running: BTreeSet<ProgramId>,
-    sources: Vec<SourceListing>,
+    listings: Vec<SourceListing>,
     /// The installs in flight, the package manager's sessions.
     sessions: watch::Receiver<Vec<InstallSessionInfo>>,
     /// The apps being removed, as the package manager tells them.
@@ -287,12 +288,12 @@ pub(crate) fn first_sources() -> Vec<Source> {
     ]
 }
 
-/// The library over `store`, opening apps with `services` where `programs_open` says, copying the
+/// The library over `sources`, opening apps with `services` where `programs_open` says, copying the
 /// packages handed without a path into `package_copies`, with WaOS's own preferences in
 /// `preferences`, where it keeps them, on a runtime of its own.
 pub(crate) fn open_library(
     app: &mut App,
-    store: Store,
+    sources: Sources,
     services: AppServices,
     package_copies: PackageCopies,
     programs_open: ProgramsOpen,
@@ -308,7 +309,7 @@ pub(crate) fn open_library(
     let preferences = preferences.map(KeptPreferences::of);
     Ok(app.new_entity(|cx| {
         Library::new(
-            store,
+            sources,
             services,
             package_copies,
             programs_open,
@@ -320,11 +321,11 @@ pub(crate) fn open_library(
 }
 
 impl Library {
-    /// The library over `store`, opening apps with `services` where `programs_open` says, with
+    /// The library over `sources`, opening apps with `services` where `programs_open` says, with
     /// WaOS's own `preferences`, and reading and installing on `work`; what each source lists is
     /// read now.
     fn new(
-        store: Store,
+        sources: Sources,
         services: AppServices,
         package_copies: PackageCopies,
         programs_open: ProgramsOpen,
@@ -342,8 +343,8 @@ impl Library {
             installed,
             installed_at,
             running: BTreeSet::new(),
-            sources: Vec::new(),
-            store,
+            listings: Vec::new(),
+            sources,
             services,
             tabs: None,
             programs_open,
@@ -516,7 +517,7 @@ impl Library {
     /// The source whose apps alone the app store shows; none for every source's.
     pub(crate) fn app_store_source(&self) -> Option<&SourceListing> {
         let shown = self.app_store_source.as_ref()?;
-        self.sources.iter().find(|read| &read.source == shown)
+        self.listings.iter().find(|read| &read.source == shown)
     }
 
     /// The app store shows the apps of `source` alone from now on, on its first place; every
@@ -602,7 +603,7 @@ impl Library {
 
     /// The sources read so far, in the order they were added.
     fn every_listed_source(&self) -> Vec<ListedSource<'_>> {
-        self.sources
+        self.listings
             .iter()
             .filter_map(|read| match &read.listing {
                 Listing::Read(apps) => Some(ListedSource {
@@ -725,7 +726,7 @@ impl Library {
 
     /// The sources added, in the order added, with what each lists.
     pub(crate) fn sources(&self) -> &[SourceListing] {
-        &self.sources
+        &self.listings
     }
 
     /// What the user is asked now.
@@ -947,7 +948,7 @@ impl Library {
             Ok(source) => source,
             Err(error) => return self.failed(format!("{error}"), cx),
         };
-        if let Err(error) = self.store.add_source(source.clone()) {
+        if let Err(error) = self.sources.add(source.clone()) {
             return self.failed(format!("{error}"), cx);
         }
         self.succeeded(cx);
@@ -956,9 +957,9 @@ impl Library {
 
     /// Removes `source`, and what it listed with it.
     pub(crate) fn remove_source(&mut self, source: &Source, cx: &mut Context<Library>) {
-        match self.store.remove_source(source) {
+        match self.sources.remove(source) {
             Ok(()) => {
-                self.sources.retain(|listing| &listing.source != source);
+                self.listings.retain(|listing| &listing.source != source);
                 if self.app_store_source.as_ref() == Some(source) {
                     self.app_store_source = None;
                 }
@@ -970,8 +971,8 @@ impl Library {
 
     /// Reads again what every source lists: the sources the store keeps, each from its index.
     pub(crate) fn read_sources(&mut self, cx: &mut Context<Library>) {
-        let sources = self.store.sources();
-        self.sources = sources
+        let sources = self.sources.list();
+        self.listings = sources
             .iter()
             .map(|source| SourceListing {
                 source: source.clone(),
@@ -982,10 +983,10 @@ impl Library {
             })
             .collect();
         for source in sources {
-            let store = self.store.clone();
+            let sources = self.sources.clone();
             let read = source.clone();
             self.work_then(
-                async move { store.read_source(&read).await },
+                async move { sources.read_index(&read).await },
                 move |library, index, cx| {
                     let read = match index {
                         Ok(index) => SourceListing {
@@ -1034,11 +1035,11 @@ impl Library {
             let _entered = self.work.enter();
             self.services.packages.install(content, Caller::User)
         };
-        let (store, source, listed) = (self.store.clone(), source.clone(), program.clone());
+        let (sources, source, listed) = (self.sources.clone(), source.clone(), program.clone());
         let installing = async move {
             let downloading = async {
                 let sender = sender;
-                let download = match store.download(&source, &listed).await {
+                let download = match sources.download(&source, &listed).await {
                     Ok(download) => download,
                     Err(error) => {
                         let _ = sender.unbounded_send(Err(std::io::Error::other(error)));
@@ -1241,7 +1242,7 @@ impl Library {
     /// more go.
     fn source_read(&mut self, read: SourceListing, cx: &mut Context<Library>) {
         let Some(kept) = self
-            .sources
+            .listings
             .iter_mut()
             .find(|kept| kept.source == read.source)
         else {
@@ -1290,9 +1291,9 @@ impl Library {
         if self.pictures.contains_key(&url) {
             return;
         }
-        let (store, from) = (self.store.clone(), source.clone());
+        let (sources, from) = (self.sources.clone(), source.clone());
         self.work_then(
-            async move { store.picture(&from, &picture).await },
+            async move { sources.picture(&from, &picture).await },
             move |library, read, cx| match read {
                 Ok(bytes) => {
                     library.pictures.insert(url, Arc::from(bytes));
@@ -1307,7 +1308,7 @@ impl Library {
     /// Once every source is read, has the store let go of the pictures none lists any more.
     fn keep_the_pictures_listed(&self) {
         let mut listed = Vec::new();
-        for read in &self.sources {
+        for read in &self.listings {
             let apps = match &read.listing {
                 Listing::Read(apps) => apps,
                 Listing::Reading => return,
@@ -1320,7 +1321,7 @@ impl Library {
                 .chain([&logo]);
             listed.extend(pictures.filter_map(|picture| read.source.picture_url(picture).ok()));
         }
-        self.store.keep_pictures(&listed);
+        self.sources.keep_pictures(&listed);
     }
 
     /// The store changed what is installed: read it again, and what each listing offers.
@@ -1337,7 +1338,7 @@ impl Library {
         }
         cx.emit(InstalledChanged);
         self.match_shortcuts(cx);
-        for read in &mut self.sources {
+        for read in &mut self.listings {
             if let Listing::Read(offers) = &mut read.listing {
                 let listed = offers.drain(..).map(|(program, _)| program).collect();
                 *offers = offers_of(listed, &self.installed);

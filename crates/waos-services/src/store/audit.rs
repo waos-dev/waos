@@ -16,9 +16,9 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tracing::warn;
 use waos_capabilities::{AuditDay, AuditLog, DAYS_KEPT};
 
+use crate::files::write_whole;
 use crate::store::Store;
 use crate::store::StoreError;
-use crate::store::files::write_whole;
 
 /// The folder of the audit summaries, in the store's directory.
 pub(crate) const AUDIT: &str = "audit";
@@ -258,7 +258,6 @@ mod tests {
     use waos_capabilities::Setting;
 
     use super::*;
-    use crate::store::SourceProxy;
 
     /// The store in `directory`, recording as the settings files there say.
     fn open_store(directory: &Path) -> Store {
@@ -270,7 +269,7 @@ mod tests {
         let settings = Arc::new(SettingsFiles::new(directory));
         let permissions =
             Permissions::open(settings, Arc::new(NoPrompts), Arc::new(NothingInstalled));
-        let store = Store::open(directory, SourceProxy::None, permissions.clone()).unwrap();
+        let store = Store::open(directory, permissions.clone()).unwrap();
         (store, permissions)
     }
 

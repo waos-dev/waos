@@ -36,7 +36,6 @@
 //! ```
 
 mod error;
-mod files;
 mod installed;
 mod installed_apps;
 mod manager;
