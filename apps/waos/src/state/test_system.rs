@@ -22,7 +22,7 @@ use waos::{
     AppInstance, EngineTime, ManualTime, OutputStream, ProgramOutput, RecordingDevice,
     ShellCompositor, ShellNotifications, ShellRecordingIndicator, ShellVideoFrameReaders,
 };
-use waos_dev_protocol::{OutputStream as AttachedStream, RunEvent};
+use waos_dev_protocol::{OutputStream as AttachedStream, RunEnd, RunEvent};
 use waos_package::ProgramId;
 use waos_program_window::WaftCompositor;
 use waos_services::app_storage::AppStorage;
@@ -211,31 +211,8 @@ impl TestSystem {
         if self.packages.installed_program(&app).is_none() {
             self.install(component, id, id);
         }
-        let configuration = OpenConfiguration {
-            replaces_running: true,
-            place: OpenPlace::AsItWas,
-            ..OpenConfiguration::new(OpenedFor::Development)
-        };
-        let opened = (self.runtime)
-            .block_on(self.runs.open(&app, configuration))
-            .expect("the app opens");
-        let running = opened.instance().clone();
-        let attached = (self.runs.outputs().of(&app)).expect("its output").attach();
-        output.wake(self.platform.dispatcher());
-        let heard = Arc::clone(output);
-        self.runtime.spawn(async move {
-            while let Some(event) = attached.next().await {
-                if let RunEvent::Output {
-                    stream: AttachedStream::Stdout,
-                    bytes,
-                } = event
-                {
-                    heard.write(&bytes);
-                }
-            }
-        });
-        wake_at_end(&running, self.platform.dispatcher());
-        running
+        let host = self.platform.dispatcher();
+        run_heard(&self.runs, &self.runtime, &app, output, host)
     }
 
     /// What the library says went wrong last.
@@ -280,11 +257,50 @@ impl Drop for TestSystem {
     }
 }
 
+/// Opens the installed app `app` with `instances` as a developer opens it, waited for on `runtime`,
+/// what it writes to its standard output heard into `output`, as an attach hears it, and `host`
+/// woken as it writes and once it ends.
+pub(crate) fn run_heard(
+    instances: &Arc<AppInstances>,
+    runtime: &tokio::runtime::Handle,
+    app: &ProgramId,
+    output: &Arc<Lines>,
+    host: Arc<dyn Dispatcher>,
+) -> AppInstance {
+    let configuration = OpenConfiguration {
+        replaces_running: true,
+        place: OpenPlace::AsItWas,
+        ..OpenConfiguration::new(OpenedFor::Development)
+    };
+    let opened = runtime
+        .block_on(instances.open(app, configuration))
+        .expect("the app opens");
+    let running = opened.instance().clone();
+    let attached = (instances.outputs().of(app)).expect("its output").attach();
+    output.wake(Arc::clone(&host));
+    let heard = Arc::clone(output);
+    runtime.spawn(async move {
+        while let Some(event) = attached.next().await {
+            match event {
+                RunEvent::Output {
+                    stream: AttachedStream::Stdout,
+                    bytes,
+                } => heard.write(&bytes),
+                RunEvent::Ended(end) => heard.end(end),
+                _ => {}
+            }
+        }
+    });
+    wake_at_end(&running, host);
+    running
+}
+
 /// What a program wrote to its standard output, line by line: as its output, or as an attach to
-/// its instance hears it.
+/// its instance hears it, with how it ended once the attach heard, after the last line.
 #[derive(Default)]
 pub(crate) struct Lines {
     bytes: Mutex<Vec<u8>>,
+    end: Mutex<Option<RunEnd>>,
     /// The test's host, woken as the program writes, so a test turning its app looks again.
     host: OnceLock<Arc<dyn Dispatcher>>,
 }
@@ -301,6 +317,20 @@ impl Lines {
         if let Some(host) = self.host.get() {
             host.wake_now();
         }
+    }
+
+    /// The run ended as `end`, as the attach heard after every line: kept, and the test's host
+    /// woken.
+    fn end(&self, end: RunEnd) {
+        *self.end.lock().unwrap() = Some(end);
+        if let Some(host) = self.host.get() {
+            host.wake_now();
+        }
+    }
+
+    /// How the run ended, once the attach heard it, which is after every line it wrote.
+    pub(crate) fn ended(&self) -> Option<RunEnd> {
+        self.end.lock().unwrap().clone()
     }
 
     pub(crate) fn has(&self, line: &str) -> bool {

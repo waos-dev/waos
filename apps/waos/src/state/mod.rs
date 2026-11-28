@@ -62,6 +62,8 @@ pub(crate) mod test_system;
 #[cfg(test)]
 pub(crate) mod test_turns;
 #[cfg(test)]
+pub(crate) mod test_windows;
+#[cfg(test)]
 mod tests;
 pub(crate) mod video_decoders;
 #[cfg(desktop)]

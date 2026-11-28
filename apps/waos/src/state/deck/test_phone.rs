@@ -1,8 +1,8 @@
 //! A phone of the tests' own: Waft's test platform giving the app one view, a phone's screen held
 //! upright at three pixels a point with a status bar and a home indicator, with a compositor whose
-//! layers show nothing and Waft's test font; the app's library and deck over a store in a folder
-//! of the test's own; and an engine that refuses every view request, as a phone's does, whose
-//! screens never refresh. The test plays the host and the user: it draws the frames asked for,
+//! layers show nothing and Waft's test font; the app's library and deck over WaOS's one startup
+//! kept in memory, its apps installed from the test programs' builds; and an engine that refuses
+//! every view request, as a phone's does, whose screens never refresh. The test plays the host and the user: it draws the frames asked for,
 //! sixty a second on the test's own clock, runs the app's tasks, and opens, shows and closes
 //! programs as a user does.
 //!
@@ -40,7 +40,7 @@ use waos_program_window::WindowRestoration;
 
 use super::tabs::{TabContent, TabStage, Tabs};
 use crate::logic::app_instances::AppInstances;
-use crate::logic::opened_package::tests::write_package;
+use crate::logic::opened_package::tests::icon;
 use crate::logic::package_copies::PackageCopies;
 use crate::logic::placement::WindowsOnRequest;
 use crate::logic::preferences::PreferencesFile;
@@ -50,6 +50,7 @@ use crate::logic::prompts::PromptsOnRequest;
 use crate::logic::recording_indicator::RecordingIndicatorOnRequest;
 use crate::logic::startup::{self, Outside, Setup};
 use crate::logic::test_engine::{self, NoWindows};
+use crate::logic::test_installs;
 use crate::state::ViewWindows;
 use crate::state::library::test_desktop::label_of;
 use crate::state::library::{Library, LibraryDomains, ProgramsOpen, open_library, work};
@@ -57,6 +58,7 @@ use crate::state::questions::{self, Questions};
 use crate::state::recordings::Recordings;
 use crate::state::{bring_opened_programs_forward, phone_deck};
 use crate::ui::every_window::{every_window, program_windows};
+use waos_services::packages::AppInMemory;
 use waos_services::permissions::Prompts;
 
 /// How far apart the frames are drawn, on the test's clock: a screen's sixty a second.
@@ -195,8 +197,6 @@ pub(crate) struct TestPhone {
     /// The programs' windows, on a phone of tasks.
     pub(crate) view_windows: Entity<ViewWindows>,
     pub(crate) runs: Arc<AppInstances>,
-    /// What installs the library's apps.
-    packages: Arc<waos_services::packages::PackageManager>,
     /// Where the programs' questions to their user are put.
     pub(crate) prompts: Arc<PromptsOnRequest>,
     pub(crate) folder: TempDir,
@@ -206,14 +206,16 @@ pub(crate) struct TestPhone {
 }
 
 impl TestPhone {
-    /// A phone that shows its programs in the deck's tabs.
-    pub(crate) fn new() -> TestPhone {
-        TestPhone::of(PhoneKind::Tabs)
-    }
-
-    /// A phone of `kind`.
-    pub(crate) fn of(kind: PhoneKind) -> TestPhone {
+    /// A phone of `kind` with `programs` installed, each a test program's component under an id
+    /// and a name, from the test's build (`logic::test_installs`), with a package's icon.
+    pub(crate) fn of(kind: PhoneKind, programs: &[(&str, &str, &str)]) -> TestPhone {
         let folder = tempfile::tempdir().unwrap();
+        let apps = (programs.iter())
+            .map(|(component, id, name)| AppInMemory {
+                icon: Some(Arc::from(icon())),
+                ..test_installs::built_app(component, id, name)
+            })
+            .collect();
         let copies = PackageCopies::clear(folder.path().join("package-copies")).unwrap();
         let (usual, programs_open) = match kind {
             PhoneKind::Tabs => (ProgramPlace::Tab, ProgramsOpen::InTabs),
@@ -223,7 +225,7 @@ impl TestPhone {
         let work = work().unwrap();
         let setup = Setup {
             usual_place: usual,
-            ..Setup::on_files(folder.path(), work.handle().clone())
+            ..Setup::in_memory(folder.path(), apps, work.handle().clone())
         };
         let ((started, (prompts, prompted, requests)), tab_requests) = {
             let (tabs_on_request, tab_requests) = TabsOnRequest::new();
@@ -328,7 +330,6 @@ impl TestPhone {
             tabs,
             view_windows,
             runs,
-            packages,
             prompts,
             folder,
             key: SigningKey::generate(),
@@ -338,33 +339,10 @@ impl TestPhone {
         phone
     }
 
-    /// The phone with `programs` installed, each a test program's component under an id and a
-    /// name.
+    /// The phone of tabs with `programs` installed, each a test program's component under an id
+    /// and a name.
     pub(crate) fn with_installed(programs: &[(&str, &str, &str)]) -> TestPhone {
-        let mut phone = TestPhone::new();
-        for (component, id, name) in programs {
-            phone.install(component, id, name);
-        }
-        phone
-    }
-
-    /// Installs the test program at `component` as `id`, named `name`, from a package, its code
-    /// compiled already (`logic::test_installs`), and waits until the library shows it.
-    pub(crate) fn install(&mut self, component: &str, id: &str, name: &str) {
-        let packages = self.folder.path().join("packages");
-        std::fs::create_dir_all(&packages).unwrap();
-        let bytes = std::fs::read(component).unwrap();
-        let file = write_package(&packages, id, name, "1.0.0", &bytes, &self.key);
-        crate::logic::test_installs::install_package(&self.packages, &file);
-        let installed: ProgramId = id.parse().unwrap();
-        self.settle_until("the library shows the program", |phone| {
-            let app = phone.shell.app();
-            let library = phone.library.read(&app);
-            library
-                .installed()
-                .iter()
-                .any(|program| program.manifest.id() == &installed)
-        });
+        TestPhone::of(PhoneKind::Tabs, programs)
     }
 
     /// Opens the program `id` through the library, as a tap on its icon does, and waits for

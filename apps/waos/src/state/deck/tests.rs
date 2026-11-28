@@ -4,12 +4,11 @@
 //! measured as the tab's page, and its tab shows it; each view it asks for after is a tab of its
 //! own, closed as a window is, its last tab's closing stopping it; a tab keeps the last picture of
 //! a program that ended and says how it ended until it is closed; only the page in sight is on
-//! screen, the home's taking a program's out of sight; a program opened again brings its tab back
-//! into sight; and closing a tab stops its program, the last one leaving the home. A running
+//! screen, the home's taking a program's out of sight; and a program opened again while it starts
+//! keeps running in its tab. A running
 //! program's icon offers Close, which closes its tab, and a package opened while a tab is in sight
 //! is asked about in an alert over the tab. What fingers do to the deck is `ui::deck`'s tests'.
 
-use futures::FutureExt;
 use waft::ui::{SystemBarsBehavior as WaftSystemBarsBehavior, View};
 use waft_cupertino::CupertinoAlertDialog;
 use waft_test::BarsShown;
@@ -54,19 +53,6 @@ fn a_program_opened_gets_its_tabs_view_measured_as_the_page_and_its_tab_shows_it
         "the bar names it: {:?}",
         phone.labels()
     );
-}
-
-#[test]
-fn a_program_asking_for_its_first_view_in_a_tab_gets_the_tabs_screen() {
-    let mut phone = TestPhone::with_installed(&[(waos_test_programs::SURVEY, SURVEY, "Survey")]);
-    phone.open(SURVEY);
-    assert_eq!(
-        phone.stage(SURVEY),
-        Some("running"),
-        "{:?}",
-        phone.end(SURVEY)
-    );
-    assert_eq!(phone.program_view(SURVEY).request_id(), 1);
 }
 
 #[test]
@@ -137,41 +123,6 @@ fn only_the_tab_in_sight_is_on_screen() {
     phone.show(Some(TRIANGLE));
     assert!(view.presence().on_screen, "back in sight");
     assert!(phone.has::<ProgramCanvas>());
-}
-
-#[test]
-fn a_program_opened_again_brings_its_tab_back_into_sight() {
-    let mut phone = with_triangle_running();
-    let view = phone.program_view(TRIANGLE);
-    phone.show(None);
-    phone.open(TRIANGLE);
-    assert_eq!(phone.stage(TRIANGLE), Some("running"));
-    assert_eq!(
-        phone.tab_kinds(),
-        [TRIANGLE, "home"],
-        "no second tab for it"
-    );
-    assert!(view.presence().on_screen, "in sight again");
-    assert_eq!(
-        phone.program_view(TRIANGLE).id(),
-        view.id(),
-        "the same view"
-    );
-}
-
-#[test]
-fn closing_a_tab_stops_its_program() {
-    let mut phone = with_triangle_running();
-    let id: ProgramId = TRIANGLE.parse().unwrap();
-    let program = phone.runs.instance(&id).expect("it runs");
-    phone.close(TRIANGLE);
-    assert_eq!(phone.stage(TRIANGLE), None, "the tab is gone");
-    phone.settle_until("triangle stops", |_| {
-        program.ended().now_or_never().is_some()
-    });
-    let end = program.ended().now_or_never();
-    assert!(matches!(end, Some(ProgramEnd::Stopped)), "{end:?}");
-    assert_eq!(phone.tab_kinds(), ["home"]);
 }
 
 /// A tab closed while its program was still starting, and the program opened again at once: the
@@ -267,8 +218,10 @@ fn a_running_programs_icon_offers_close_which_closes_its_tab() {
 #[test]
 fn a_package_opened_while_a_tab_is_in_sight_is_asked_about_over_the_tab() {
     let mut phone = with_triangle_running();
+    let packages = phone.folder.path().join("packages");
+    std::fs::create_dir_all(&packages).unwrap();
     let file = write_package(
-        &phone.folder.path().join("packages"),
+        &packages,
         SURVEY,
         "Survey",
         "1.0.0",

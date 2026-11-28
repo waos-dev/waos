@@ -50,11 +50,8 @@ impl CodeCompiler for TestCompiler {
         fs::create_dir_all(code)?;
         for file in fs::read_dir(&compiled)? {
             let file = file?.path();
-            let linked = code.join(file.file_name().expect("a file in a folder has a name"));
-            let _ = fs::remove_file(&linked);
-            if fs::hard_link(&file, &linked).is_err() {
-                fs::copy(&file, &linked)?;
-            }
+            let name = file.file_name().expect("a file in a folder has a name");
+            link_whole(&file, &code.join(name))?;
         }
         Ok(())
     }
@@ -62,6 +59,24 @@ impl CodeCompiler for TestCompiler {
     fn is_usable(&self, code: &Path) -> bool {
         self.0.is_compiled(code)
     }
+}
+
+/// Puts `file` at `linked`, linked or else copied beside it under a name of this writer's own, then
+/// renamed into place: whoever maps the file `linked` named before keeps it whole, and another
+/// test linking the same file at once replaces it whole too.
+fn link_whole(file: &Path, linked: &Path) -> Result<()> {
+    static WRITERS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let writer = WRITERS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let name = linked
+        .file_name()
+        .expect("a file has a name")
+        .to_string_lossy();
+    let partial = linked.with_file_name(format!(".{name}.{}.{writer}", std::process::id()));
+    if fs::hard_link(file, &partial).is_err() {
+        fs::copy(file, &partial)?;
+    }
+    fs::rename(&partial, linked)?;
+    Ok(())
 }
 
 impl TestCompiler {
@@ -151,17 +166,50 @@ pub(crate) fn domains_never_run(folder: &Path) -> Domains {
 /// key of the test's own: its version the component and the code folder the build made, so it
 /// runs with nothing installed on disk.
 pub(crate) fn built_app(component: &str, id: &str, name: &str) -> AppInMemory {
+    let code = waos_test_programs::code_of(component);
+    AppInMemory {
+        version: Some(InstalledVersion::new(component.into(), code)),
+        ..AppInMemory::new(published(id, name))
+    }
+}
+
+/// The app `id`, named `name`, at 1.0.0, published with a key of the test's own.
+fn published(id: &str, name: &str) -> InstalledProgram {
     let manifest = Manifest::new(id.parse().unwrap(), name, "1.0.0".parse().unwrap()).unwrap();
-    let program = InstalledProgram {
+    InstalledProgram {
         manifest,
         origin: Origin::Package {
             publisher: SigningKey::generate().publisher(),
         },
-    };
-    let code = waos_test_programs::code_of(component);
+    }
+}
+
+/// The app `id`, named `name`, kept in memory as a disk that lost its files leaves it: its
+/// component, written in `folder`, is no component, and it has no code, so it neither loads nor
+/// compiles.
+pub(crate) fn spoiled_app(id: &str, name: &str, folder: &Path) -> AppInMemory {
+    let component = folder.join(format!("{id}.wasm"));
+    fs::write(&component, b"spoiled").unwrap();
+    let code = folder.join("code").join(id);
+    AppInMemory {
+        version: Some(InstalledVersion::new(component, code)),
+        ..AppInMemory::new(published(id, name))
+    }
+}
+
+/// [`built_app`] as an update of WaOS that changed its engine leaves it: its code folder, in
+/// `folder`, holds no code of this engine's, so its first open compiles it there.
+pub(crate) fn built_app_not_compiled(
+    component: &str,
+    id: &str,
+    name: &str,
+    folder: &Path,
+) -> AppInMemory {
+    let app = built_app(component, id, name);
+    let code = folder.join("code").join(id);
     AppInMemory {
         version: Some(InstalledVersion::new(component.into(), code)),
-        ..AppInMemory::new(program)
+        ..app
     }
 }
 
